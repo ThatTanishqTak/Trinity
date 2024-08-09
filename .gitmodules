@@ -1,0 +1,3 @@
+[submodule "Trinity/vendor/spdlog"]
+	path = Trinity/vendor/spdlog
+	url = https://github.com/gabime/spdlog
