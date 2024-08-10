@@ -17,7 +17,7 @@ namespace Trinity
 		std::string ToString() const override
 		{
 			std::stringstream ss;
-			ss << "MouseEvent: " << m_MouseX << "," << m_MouseY;
+			ss << "MouseEvent: " << m_MouseX << ", " << m_MouseY;
 
 			return ss.str();
 		}
@@ -41,7 +41,7 @@ namespace Trinity
 		std::string ToString() const override
 		{
 			std::stringstream ss;
-			ss << "MouseScrolledEvent: " << m_XOffset << "," << m_YOffset;
+			ss << "MouseScrolledEvent: " << m_XOffset << ", " << m_YOffset;
 
 			return ss.str();
 		}
