@@ -9,3 +9,6 @@
 #else
         #error Trinity only supports windows!
 #endif
+
+
+#define BIT(x) (1 << x)

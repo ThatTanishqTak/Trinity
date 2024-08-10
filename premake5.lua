@@ -27,6 +27,7 @@ project "Trinity"
 
 	includedirs
 	{
+		"%{prj.name}/src",
 		"%{prj.name}/vendor/spdlog/include"
 	}
 
@@ -41,7 +42,10 @@ project "Trinity"
 			"TR_BUILD_DLL"
 		}
 
-		postbuildcommands{("{COPYFILE} %{cfg.buildtarget.relpath} ../bin/" .. outputDir .. "/Sandbox")}
+		postbuildcommands
+		{
+			("{COPYFILE} %{cfg.buildtarget.relpath} ../bin/" .. outputDir .. "/Sandbox")
+		}
 
 	filter "configurations:Debug"
 		defines "TR_DEBUG"

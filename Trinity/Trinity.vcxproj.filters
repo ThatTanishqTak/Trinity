@@ -4,6 +4,9 @@
     <Filter Include="Trinity">
       <UniqueIdentifier>{18D17157-84B0-F0F2-8DC8-7BC9F9265754}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Trinity\Events">
+      <UniqueIdentifier>{FC51BE1E-E81F-B224-D1B3-224BBD208E89}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Trinity.h" />
@@ -15,6 +18,18 @@
     </ClInclude>
     <ClInclude Include="src\Trinity\EntryPoint.h">
       <Filter>Trinity</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Events\ApplicationEvent.h">
+      <Filter>Trinity\Events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Events\Event.h">
+      <Filter>Trinity\Events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Events\KeyEvent.h">
+      <Filter>Trinity\Events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Events\MouseEvent.h">
+      <Filter>Trinity\Events</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Log.h">
       <Filter>Trinity</Filter>
