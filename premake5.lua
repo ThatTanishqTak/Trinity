@@ -11,6 +11,11 @@ workspace "Trinity"
 
 outputDir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
+IncludeDir = {}
+IncludeDir["GLFW"] = "Trinity/vendor/GLFW/include"
+
+include "Trinity/vendor/GLFW"
+
 project "Trinity"
 	location "Trinity"
 	kind "SharedLib"
@@ -31,13 +36,22 @@ project "Trinity"
 	includedirs
 	{
 		"%{prj.name}/src",
-		"%{prj.name}/vendor/spdlog/include"
+		"%{prj.name}/vendor/spdlog/include",
+		"%{IncludeDir.GLFW}"
+	}
+
+	links
+	{
+		"GLFW",
+		"opengl32.lib",
+		"dwmapi.lib"
 	}
 
 	filter "system:windows"
 		cppdialect "C++17"
 		staticruntime "On"
 		systemversion "latest"
+		runtime "Debug"
 
 		defines 
 		{
@@ -91,6 +105,7 @@ project "Sandbox"
 		cppdialect "C++17"
 		staticruntime "On"
 		systemversion "latest"
+		runtime "Debug"
 
 		defines 
 		{

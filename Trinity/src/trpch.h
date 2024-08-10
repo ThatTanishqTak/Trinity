@@ -14,6 +14,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "Trinity/Log.h"
+
 // PLATFORM DEPENDENT
 #ifdef TR_PLATFORM_WINDOWS
     #include <Windows.h>

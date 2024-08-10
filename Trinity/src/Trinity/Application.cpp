@@ -1,13 +1,13 @@
+#include "trpch.h"
 #include "Application.h"
 
 #include "Trinity/Events/ApplicationEvent.h"
-#include "Trinity/Log.h"
 
 namespace Trinity
 {
 	Application::Application()
 	{
-
+		m_Window = std::unique_ptr<Window>(Window::Create());
 	}
 
 	Application::~Application()
@@ -17,9 +17,9 @@ namespace Trinity
 
 	void Application::Run()
 	{
-		WindowResizeEvent e(1280, 720);
-		TR_CORE_TRACE(e);
-
-		while (true);
+		while (m_Running)
+		{
+			m_Window->OnUpdate();
+		}
 	}
 }

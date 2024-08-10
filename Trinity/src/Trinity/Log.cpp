@@ -1,3 +1,4 @@
+#include "trpch.h"
 #include "Log.h"
 
 namespace Trinity
