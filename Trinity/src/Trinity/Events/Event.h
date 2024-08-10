@@ -1,9 +1,8 @@
 #pragma once
 
-#include "Trinity/Core.h"
+#include "trpch.h"
 
-#include <string>
-#include <functional>
+#include "Trinity/Core.h"
 
 namespace Trinity
 {

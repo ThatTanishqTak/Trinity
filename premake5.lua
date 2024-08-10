@@ -19,6 +19,9 @@ project "Trinity"
 	targetdir ("bin/" .. outputDir .. "/%{prj.name}")
 	objdir ("bin-int/" .. outputDir .. "/%{prj.name}")
 
+	pchheader "trpch.h"
+	pchsource "Trinity/src/trpch.cpp"
+
 	files
 	{
 		"%{prj.name}/src/**.h",

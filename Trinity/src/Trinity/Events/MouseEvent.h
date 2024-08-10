@@ -2,8 +2,6 @@
 
 #include "Event.h"
 
-#include <sstream>
-
 namespace Trinity
 {
 	class TRINITY_API MouseMovedEvent : public Event
