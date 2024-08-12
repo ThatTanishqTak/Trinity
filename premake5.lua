@@ -13,8 +13,10 @@ outputDir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 IncludeDir = {}
 IncludeDir["GLFW"] = "Trinity/vendor/GLFW/include"
+IncludeDir["Glad"] = "Trinity/vendor/Glad/include"
 
 include "Trinity/vendor/GLFW"
+include "Trinity/vendor/Glad"
 
 project "Trinity"
 	location "Trinity"
@@ -37,12 +39,14 @@ project "Trinity"
 	{
 		"%{prj.name}/src",
 		"%{prj.name}/vendor/spdlog/include",
-		"%{IncludeDir.GLFW}"
+		"%{IncludeDir.GLFW}",
+		"%{IncludeDir.Glad}"
 	}
 
 	links
 	{
 		"GLFW",
+		"Glad",
 		"opengl32.lib",
 		"dwmapi.lib"
 	}
@@ -56,7 +60,8 @@ project "Trinity"
 		defines 
 		{
 			"TR_PLATFORM_WINDOWS",
-			"TR_BUILD_DLL"
+			"TR_BUILD_DLL",
+			"GLFW_INCLUDE_NONE"
 		}
 
 		postbuildcommands

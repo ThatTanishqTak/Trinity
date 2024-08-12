@@ -3,6 +3,7 @@
 #include "trpch.h"
 
 #include "Trinity/Core.h"
+
 #include "Trinity/Events/Event.h"
 
 namespace Trinity
