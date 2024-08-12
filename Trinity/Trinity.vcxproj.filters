@@ -40,6 +40,12 @@
     <ClInclude Include="src\Trinity\Events\MouseEvent.h">
       <Filter>Trinity\Events</Filter>
     </ClInclude>
+    <ClInclude Include="src\Trinity\Layer.h">
+      <Filter>Trinity</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\LayerStack.h">
+      <Filter>Trinity</Filter>
+    </ClInclude>
     <ClInclude Include="src\Trinity\Log.h">
       <Filter>Trinity</Filter>
     </ClInclude>
@@ -53,6 +59,12 @@
       <Filter>Platform\Windows</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Application.cpp">
+      <Filter>Trinity</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Layer.cpp">
+      <Filter>Trinity</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\LayerStack.cpp">
       <Filter>Trinity</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Log.cpp">

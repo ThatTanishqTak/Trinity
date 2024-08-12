@@ -2,6 +2,7 @@
 
 // For use by Trinity applications
 #include "Trinity/Application.h"
+#include "Trinity/Layer.h"
 #include "Trinity/Log.h"
 
 // ------- ENTRY POINT ------------------

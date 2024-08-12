@@ -1,6 +1,10 @@
 #include "trpch.h"
 #include "Application.h"
 
+#include "Trinity/Log.h"
+
+#include "GLFW/glfw3.h"
+
 namespace Trinity
 {
 #define BIND_EVENT_FN(x) std::bind(&Application::x, this, std::placeholders::_1)
@@ -17,20 +21,44 @@ namespace Trinity
 
 	}
 
-	void Application::OnEvent(Event& event)
+	void Application::PushOverlay(Layer* layer)
 	{
-		EventDispatcher dispatcher(event);
-		dispatcher.Dispatch<WindowCloseEvent>(BIND_EVENT_FN(OnWindowClose));
-
-		TR_CORE_TRACE("{0}", event);
+		m_LayerStack.PushOverlay(layer);
 	}
 
 	void Application::Run()
 	{
 		while (m_Running)
 		{
+			for (Layer* layer : m_LayerStack)
+			{
+				layer->OnUpdate();
+			}
+
 			m_Window->OnUpdate();
 		}
+	}
+
+	void Application::OnEvent(Event& event)
+	{
+		EventDispatcher dispatcher(event);
+		dispatcher.Dispatch<WindowCloseEvent>(BIND_EVENT_FN(OnWindowClose));
+
+		TR_CORE_TRACE("{0}", event);
+
+		for (auto it = m_LayerStack.end(); it != m_LayerStack.begin();)
+		{
+			(*--it)->OnEvent(event);
+			if (event.Handled)
+			{
+				break;
+			}
+		}
+	}
+
+	void Application::PushLayer(Layer* layer)
+	{
+		m_LayerStack.PushLayer(layer);
 	}
 
 	bool Application::OnWindowClose(WindowCloseEvent& closeEvent)

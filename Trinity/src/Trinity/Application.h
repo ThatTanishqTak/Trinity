@@ -1,9 +1,11 @@
 #pragma once
 
 #include "Core.h"
-#include "Events/Event.h"
-#include "Trinity/Events/ApplicationEvent.h"
+
 #include "Window.h"
+#include "Trinity/LayerStack.h"
+#include "Trinity/Events/Event.h"
+#include "Trinity/Events/ApplicationEvent.h"
 
 namespace Trinity
 {
@@ -16,12 +18,16 @@ namespace Trinity
 		void Run();
 
 		void OnEvent(Event& event);
+
+		void PushLayer(Layer* layer);
+		void PushOverlay(Layer* layer);
 	
 	private:
 		bool OnWindowClose(WindowCloseEvent& closeEvent);
 
 		std::unique_ptr<Window> m_Window;
 		bool m_Running = true;
+		LayerStack m_LayerStack;
 	};
 
 	Application* CreateApplication();

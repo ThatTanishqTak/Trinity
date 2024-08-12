@@ -84,6 +84,7 @@
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <AdditionalOptions>/MDd %(AdditionalOptions)</AdditionalOptions>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <ExternalWarningLevel>Level3</ExternalWarningLevel>
     </ClCompile>
@@ -111,6 +112,7 @@
       <MinimalRebuild>false</MinimalRebuild>
       <StringPooling>true</StringPooling>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <AdditionalOptions>/MD %(AdditionalOptions)</AdditionalOptions>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <ExternalWarningLevel>Level3</ExternalWarningLevel>
     </ClCompile>
@@ -139,6 +141,7 @@
       <MinimalRebuild>false</MinimalRebuild>
       <StringPooling>true</StringPooling>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <AdditionalOptions>/MDd %(AdditionalOptions)</AdditionalOptions>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <ExternalWarningLevel>Level3</ExternalWarningLevel>
     </ClCompile>
@@ -163,6 +166,8 @@
     <ClInclude Include="src\Trinity\Events\Event.h" />
     <ClInclude Include="src\Trinity\Events\KeyEvent.h" />
     <ClInclude Include="src\Trinity\Events\MouseEvent.h" />
+    <ClInclude Include="src\Trinity\Layer.h" />
+    <ClInclude Include="src\Trinity\LayerStack.h" />
     <ClInclude Include="src\Trinity\Log.h" />
     <ClInclude Include="src\Trinity\Window.h" />
     <ClInclude Include="src\trpch.h" />
@@ -170,6 +175,8 @@
   <ItemGroup>
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />
     <ClCompile Include="src\Trinity\Application.cpp" />
+    <ClCompile Include="src\Trinity\Layer.cpp" />
+    <ClCompile Include="src\Trinity\LayerStack.cpp" />
     <ClCompile Include="src\Trinity\Log.cpp" />
     <ClCompile Include="src\trpch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
