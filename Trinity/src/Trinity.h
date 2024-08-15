@@ -5,6 +5,10 @@
 #include "Trinity/Layer.h"
 #include "Trinity/Log.h"
 
+#include "Trinity/Input.h"
+#include "Trinity/KeyCodes.h"
+#include "Trinity/MouseButtonCodes.h"
+
 #include "ImGui/ImGuiLayer.h"
 
 // ------- ENTRY POINT ------------------

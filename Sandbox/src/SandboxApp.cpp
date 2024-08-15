@@ -10,12 +10,19 @@ public:
 
 	void OnUpdate() override
 	{
-		TR_CLIENT_INFO("Example::Update");
+		if (Trinity::Input::IsKeyPressed(TR_KEY_TAB))
+		{
+			TR_CLIENT_TRACE("Tab key is pressed!");
+		}
 	}
 
 	void OnEvent(Trinity::Event& event) override
 	{
-		TR_CLIENT_TRACE("{0}", event);
+		if (event.GetEventType() == Trinity::EventType::KeyPressed)
+		{
+			Trinity::KeyPressedEvent& e = (Trinity::KeyPressedEvent&)event;
+			TR_CLIENT_TRACE("{0}", (char)e.GetKeyCode());
+		}
 	}
 };
 

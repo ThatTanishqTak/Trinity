@@ -39,6 +39,23 @@ namespace Trinity
 		layer->OnAttach();
 	}
 
+	void Application::OnEvent(Event& event)
+	{
+		EventDispatcher dispatcher(event);
+		dispatcher.Dispatch<WindowCloseEvent>(BIND_EVENT_FN(OnWindowClose));
+
+		//TR_CORE_TRACE("{0}", event);
+
+		for (auto it = m_LayerStack.end(); it != m_LayerStack.begin();)
+		{
+			(*--it)->OnEvent(event);
+			if (event.Handled)
+			{
+				break;
+			}
+		}
+	}
+
 	void Application::Run()
 	{
 		while (m_Running)
@@ -51,27 +68,7 @@ namespace Trinity
 				layer->OnUpdate();
 			}
 
-			auto [x, y] = Input::GetMousePosition();
-			TR_CORE_TRACE("{0}, {1}", x, y);
-
 			m_Window->OnUpdate();
-		}
-	}
-
-	void Application::OnEvent(Event& event)
-	{
-		EventDispatcher dispatcher(event);
-		dispatcher.Dispatch<WindowCloseEvent>(BIND_EVENT_FN(OnWindowClose));
-
-		TR_CORE_TRACE("{0}", event);
-
-		for (auto it = m_LayerStack.end(); it != m_LayerStack.begin();)
-		{
-			(*--it)->OnEvent(event);
-			if (event.Handled)
-			{
-				break;
-			}
 		}
 	}
 

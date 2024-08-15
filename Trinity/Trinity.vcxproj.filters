@@ -74,6 +74,8 @@
       <Filter>Trinity</Filter>
     </ClInclude>
     <ClInclude Include="src\trpch.h" />
+    <ClInclude Include="src\Trinity\KeyCodes.h" />
+    <ClInclude Include="src\Trinity\MouseButtonCodes.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\ImGui\ImGuiLayer.cpp">

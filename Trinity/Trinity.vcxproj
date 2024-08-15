@@ -110,7 +110,7 @@ copy /B /Y "E:\Projects\C++\Trinity\bin\Debug-windows-x86_64\Trinity\Trinity.dll
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <MinimalRebuild>false</MinimalRebuild>
       <StringPooling>true</StringPooling>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <ExternalWarningLevel>Level3</ExternalWarningLevel>
     </ClCompile>
@@ -138,7 +138,7 @@ copy /B /Y "E:\Projects\C++\Trinity\bin\Release-windows-x86_64\Trinity\Trinity.d
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <MinimalRebuild>false</MinimalRebuild>
       <StringPooling>true</StringPooling>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <ExternalWarningLevel>Level3</ExternalWarningLevel>
     </ClCompile>
@@ -169,9 +169,11 @@ copy /B /Y "E:\Projects\C++\Trinity\bin\Dist-windows-x86_64\Trinity\Trinity.dll"
     <ClInclude Include="src\Trinity\Events\KeyEvent.h" />
     <ClInclude Include="src\Trinity\Events\MouseEvent.h" />
     <ClInclude Include="src\Trinity\Input.h" />
+    <ClInclude Include="src\Trinity\KeyCodes.h" />
     <ClInclude Include="src\Trinity\Layer.h" />
     <ClInclude Include="src\Trinity\LayerStack.h" />
     <ClInclude Include="src\Trinity\Log.h" />
+    <ClInclude Include="src\Trinity\MouseButtonCodes.h" />
     <ClInclude Include="src\Trinity\Window.h" />
     <ClInclude Include="src\trpch.h" />
   </ItemGroup>
