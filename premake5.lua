@@ -24,6 +24,7 @@ project "Trinity"
 	location "Trinity"
 	kind "SharedLib"
 	language "C++"
+	staticruntime "off"
 
 	targetdir ("bin/" .. outputDir .. "/%{prj.name}")
 	objdir ("bin-int/" .. outputDir .. "/%{prj.name}")
@@ -57,7 +58,6 @@ project "Trinity"
 
 	filter "system:windows"
 		cppdialect "C++17"
-		staticruntime "On"
 		systemversion "latest"
 		runtime "Debug"
 
@@ -70,28 +70,30 @@ project "Trinity"
 
 		postbuildcommands
 		{
-			("{COPYFILE} %{cfg.buildtarget.relpath} ../bin/" .. outputDir .. "/Sandbox")
+			"{MKDIR} %[bin/" .. outputDir .. "/Sandbox]",
+			"{COPYFILE} %[%{!cfg.buildtarget.abspath}] %[bin/" .. outputDir .. "/Sandbox]"
 		}
 
 	filter "configurations:Debug"
 		defines "TR_DEBUG"
-		buildoptions "/MDd"
+		runtime "Debug"
 		symbols "On"
 
 	filter "configurations:Release"
 		defines "TR_RELEASE"
-		buildoptions "/MD"
+		runtime "Release"
 		optimize "On"
 
 	filter "configurations:Dist"
 		defines "TR_DIST"
-		buildoptions "/MDd"
+		runtime "Release"
 		optimize "On"
 
 project "Sandbox"
 	location "Sandbox"
 	kind "ConsoleApp"
 	language "C++"
+	staticruntime "off"
 
 	targetdir ("bin/" .. outputDir .. "/%{prj.name}")
 	objdir ("bin-int/" .. outputDir .. "/%{prj.name}")
@@ -115,7 +117,6 @@ project "Sandbox"
 
 	filter "system:windows"
 		cppdialect "C++17"
-		staticruntime "On"
 		systemversion "latest"
 		runtime "Debug"
 
@@ -126,15 +127,15 @@ project "Sandbox"
 
 	filter "configurations:Debug"
 		defines "TR_DEBUG"
-		buildoptions "/MDd"
+		runtime "Debug"
 		symbols "On"
 
 	filter "configurations:Release"
 		defines "TR_RELEASE"
-		buildoptions "/MD"
+		runtime "Release"
 		optimize "On"
 
 	filter "configurations:Dist"
 		defines "TR_DIST"
-		buildoptions "/MD"
+		runtime "Release"
 		optimize "On"

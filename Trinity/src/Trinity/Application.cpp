@@ -5,6 +5,8 @@
 
 #include "glad/glad.h"
 
+#include "Input.h"
+
 namespace Trinity
 {
 #define BIND_EVENT_FN(x) std::bind(&Application::x, this, std::placeholders::_1)
@@ -48,6 +50,9 @@ namespace Trinity
 			{
 				layer->OnUpdate();
 			}
+
+			auto [x, y] = Input::GetMousePosition();
+			TR_CORE_TRACE("{0}, {1}", x, y);
 
 			m_Window->OnUpdate();
 		}

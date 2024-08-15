@@ -30,6 +30,9 @@
     <ClInclude Include="src\Platform\OpenGL\imgui_impl_opengl3_loader.h">
       <Filter>Platform\OpenGL</Filter>
     </ClInclude>
+    <ClInclude Include="src\Platform\Windows\WindowsInput.h">
+      <Filter>Platform\Windows</Filter>
+    </ClInclude>
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h">
       <Filter>Platform\Windows</Filter>
     </ClInclude>
@@ -55,6 +58,9 @@
     <ClInclude Include="src\Trinity\Events\MouseEvent.h">
       <Filter>Trinity\Events</Filter>
     </ClInclude>
+    <ClInclude Include="src\Trinity\Input.h">
+      <Filter>Trinity</Filter>
+    </ClInclude>
     <ClInclude Include="src\Trinity\Layer.h">
       <Filter>Trinity</Filter>
     </ClInclude>
@@ -75,6 +81,9 @@
     </ClCompile>
     <ClCompile Include="src\Platform\OpenGL\ImGuiOpenGLRenderer.cpp">
       <Filter>Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\Windows\WindowsInput.cpp">
+      <Filter>Platform\Windows</Filter>
     </ClCompile>
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp">
       <Filter>Platform\Windows</Filter>
