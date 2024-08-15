@@ -5,6 +5,8 @@
 #include "Trinity/Layer.h"
 #include "Trinity/Log.h"
 
+#include "ImGui/ImGuiLayer.h"
+
 // ------- ENTRY POINT ------------------
 #include "Trinity/EntryPoint.h"
 // --------------------------------------

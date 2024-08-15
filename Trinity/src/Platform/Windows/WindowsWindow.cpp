@@ -14,7 +14,7 @@ namespace Trinity
 
 	static void GLFWErrorCallback(int errorCode, const char* description)
 	{
-		TR_CORE_ERROR("GLFW Error: ({0}): {1}", errorCode, description);
+		TR_CORE_ERROR("GLFW Error: {0}: {1}", errorCode, description);
 	}
 
 	Window* Window::Create(const WindowProps& props)

@@ -4,3 +4,6 @@
 [submodule "Trinity/vendor/glfw/glfw"]
 	path = Trinity/vendor/glfw/glfw
 	url = https://github.com/ThatTanishqTak/glfw.git
+[submodule "Trinity/vendor/imgui"]
+	path = Trinity/vendor/imgui
+	url = https://github.com/ThatTanishqTak/imgui

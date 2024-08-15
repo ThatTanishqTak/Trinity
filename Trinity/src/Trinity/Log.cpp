@@ -13,7 +13,7 @@ namespace Trinity
 		s_CoreLogger = spdlog::stdout_color_mt("TRINITY");
 		s_CoreLogger->set_level(spdlog::level::trace);
 
-		s_ClientLogger = spdlog::stdout_color_mt("App");
+		s_ClientLogger = spdlog::stdout_color_mt("APPLICATION");
 		s_ClientLogger->set_level(spdlog::level::trace);
 	}
 }
