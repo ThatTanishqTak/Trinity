@@ -15,6 +15,7 @@ IncludeDir = {}
 IncludeDir["GLFW"] = "Trinity/vendor/GLFW/include"
 IncludeDir["Glad"] = "Trinity/vendor/Glad/include"
 IncludeDir["ImGui"] = "Trinity/vendor/imgui"
+IncludeDir["glm"] = "Trinity/vendor/glm"
 
 include "Trinity/vendor/GLFW"
 include "Trinity/vendor/Glad"
@@ -35,7 +36,9 @@ project "Trinity"
 	files
 	{
 		"%{prj.name}/src/**.h",
-		"%{prj.name}/src/**.cpp"
+		"%{prj.name}/src/**.cpp",
+		"%{prj.name}/vendor/glm/glm/**.hpp",
+		"%{prj.name}/vendor/glm/glm/**.inl"
 	}
 
 	includedirs
@@ -44,7 +47,8 @@ project "Trinity"
 		"%{prj.name}/vendor/spdlog/include",
 		"%{IncludeDir.GLFW}",
 		"%{IncludeDir.Glad}",
-		"%{IncludeDir.ImGui}"
+		"%{IncludeDir.ImGui}",
+		"%{IncludeDir.glm}"
 	}
 
 	links
@@ -107,7 +111,8 @@ project "Sandbox"
 	includedirs
 	{
 		"$(SolutionDir)Trinity/vendor/spdlog/include",
-		"Trinity/src"
+		"Trinity/src",
+		"%{IncludeDir.glm}"
 	}
 
 	links

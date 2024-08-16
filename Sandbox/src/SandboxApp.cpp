@@ -21,7 +21,7 @@ public:
 		if (event.GetEventType() == Trinity::EventType::KeyPressed)
 		{
 			Trinity::KeyPressedEvent& e = (Trinity::KeyPressedEvent&)event;
-			TR_CLIENT_TRACE("{0}", (char)e.GetKeyCode());
+			TR_CLIENT_TRACE("{0}", e.GetKeyCode());
 		}
 	}
 };
