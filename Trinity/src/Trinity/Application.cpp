@@ -77,6 +77,7 @@ namespace Trinity
 	bool Application::OnWindowClose(WindowCloseEvent& closeEvent)
 	{
 		m_Running = false;
+
 		return true;
 	}
 }
