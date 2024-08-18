@@ -7,6 +7,8 @@
 #include "Trinity/Events/Event.h"
 #include "Trinity/Events/ApplicationEvent.h"
 
+#include "ImGui/ImGuiLayer.h"
+
 namespace Trinity
 {
 	class TRINITY_API Application
@@ -28,8 +30,11 @@ namespace Trinity
 		bool OnWindowClose(WindowCloseEvent& closeEvent);
 
 		std::unique_ptr<Window> m_Window;
+		
 		bool m_Running = true;
+		
 		LayerStack m_LayerStack;
+		ImGuiLayer* m_ImGuiLayer;
 
 	private:
 		static Application* s_Instance;

@@ -47,7 +47,7 @@ int main(int, char**)
     if (renderer == nullptr)
     {
         SDL_Log("Error creating SDL_Renderer!");
-        return -1;
+        return 0;
     }
     //SDL_RendererInfo info;
     //SDL_GetRendererInfo(renderer, &info);
@@ -59,6 +59,7 @@ int main(int, char**)
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();

@@ -112,6 +112,7 @@ project "Sandbox"
 	{
 		"$(SolutionDir)Trinity/vendor/spdlog/include",
 		"Trinity/src",
+		"Trinity/vendor",
 		"%{IncludeDir.glm}"
 	}
 

@@ -156,8 +156,6 @@ copy /B /Y "E:\Projects\C++\Trinity\bin\Dist-windows-x86_64\Trinity\Trinity.dll"
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="src\ImGui\ImGuiLayer.h" />
-    <ClInclude Include="src\Platform\OpenGL\ImGuiOpenGLRenderer.h" />
-    <ClInclude Include="src\Platform\OpenGL\imgui_impl_opengl3_loader.h" />
     <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
     <ClInclude Include="src\Trinity.h" />
@@ -594,8 +592,8 @@ copy /B /Y "E:\Projects\C++\Trinity\bin\Dist-windows-x86_64\Trinity\Trinity.dll"
     <ClInclude Include="vendor\glm\glm\vector_relational.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\ImGui\ImGuiLayer.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\ImGuiOpenGLRenderer.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />
     <ClCompile Include="src\Trinity\Application.cpp" />
