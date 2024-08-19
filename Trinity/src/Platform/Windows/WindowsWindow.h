@@ -1,12 +1,13 @@
 #pragma once
 
 #include "Trinity/Window.h"
+#include "Trinity/Renderer/GraphicsContext.h"
 
-#include "Trinity/Core.h"
-#include "Trinity/Events/ApplicationEvent.h"
-#include "Trinity/Events/Event.h"
-#include "Trinity/Events/KeyEvent.h"
-#include "Trinity/Events/MouseEvent.h"
+//#include "Trinity/Core.h"
+//#include "Trinity/Events/ApplicationEvent.h"
+//#include "Trinity/Events/Event.h"
+//#include "Trinity/Events/KeyEvent.h"
+//#include "Trinity/Events/MouseEvent.h"
 
 #include <GLFW/glfw3.h>
 
@@ -35,6 +36,7 @@ namespace Trinity
 
 	private:
 		GLFWwindow* m_Window;
+		GraphicsContext* m_Context;
 
 		struct WindowData
 		{

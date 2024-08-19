@@ -7,7 +7,7 @@
 
 namespace Trinity
 {
-	class TRINITY_API LayerStack
+	class LayerStack
 	{
 	public:
 		LayerStack();

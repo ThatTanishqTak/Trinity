@@ -9,7 +9,7 @@
 #include "Trinity/KeyCodes.h"
 #include "Trinity/MouseButtonCodes.h"
 
-#include "ImGui/ImGuiLayer.h"
+#include "Trinity/ImGui/ImGuiLayer.h"
 
 // ------- ENTRY POINT ------------------
 #include "Trinity/EntryPoint.h"

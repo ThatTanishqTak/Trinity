@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-	class TRINITY_API ImGuiLayer : public Layer
+	class ImGuiLayer : public Layer
 	{
 	public:
 		ImGuiLayer();
