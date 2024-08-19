@@ -1,11 +1,15 @@
 #pragma once
 
 #ifdef TR_PLATFORM_WINDOWS
+#if TR_DYNAMIC_BUILD
         #ifdef TR_BUILD_DLL
-               #define TRINITY_API __declspec(dllexport)
+               #define __declspec(dllexport)
         #else
-               #define TRINITY_API __declspec(dllimport)
+               #define __declspec(dllimport)
         #endif
+#else
+        #define TRINITY_API
+#endif
 #else
         #error Trinity only supports windows!
 #endif

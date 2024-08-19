@@ -4,7 +4,7 @@
 
 namespace Trinity
 {
-	class TRINITY_API MouseMovedEvent : public Event
+	class MouseMovedEvent : public Event
 	{
 	public:
 		MouseMovedEvent(float x, float y) : m_MouseX(x), m_MouseY(y) {}
@@ -28,7 +28,7 @@ namespace Trinity
 		float m_MouseY;
 	};
 
-	class TRINITY_API MouseScrolledEvent : public Event
+	class MouseScrolledEvent : public Event
 	{
 	public:
 		MouseScrolledEvent(float xOffset, float yOffset) : m_XOffset(xOffset), m_YOffset(yOffset) {}
@@ -52,7 +52,7 @@ namespace Trinity
 		float m_YOffset;
 	};
 
-	class TRINITY_API MouseButtonEvent : public Event
+	class MouseButtonEvent : public Event
 	{
 	public:
 		inline int GetMouseButton() const { return m_Button; }
@@ -65,7 +65,7 @@ namespace Trinity
 		int m_Button;
 	};
 
-	class TRINITY_API MouseButtonPressedEvent : public MouseButtonEvent
+	class MouseButtonPressedEvent : public MouseButtonEvent
 
 	{
 	public:
@@ -82,7 +82,7 @@ namespace Trinity
 		EVENT_CLASS_TYPE(MouseButtonPressed)
 	};
 
-	class TRINITY_API MouseButtonReleasedEvent : public MouseButtonEvent
+	class MouseButtonReleasedEvent : public MouseButtonEvent
 	{
 	public:
 		MouseButtonReleasedEvent(int button) : MouseButtonEvent(button)  {}

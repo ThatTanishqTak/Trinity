@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-	class TRINITY_API Log
+	class Log
 	{
 	public:
 		static void Init();

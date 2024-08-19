@@ -11,7 +11,7 @@
 
 namespace Trinity
 {
-	class TRINITY_API Application
+	class Application
 	{
 	public:
 		Application();

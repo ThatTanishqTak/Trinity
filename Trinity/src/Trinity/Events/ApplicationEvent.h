@@ -4,7 +4,7 @@
 
 namespace Trinity
 {
-	class TRINITY_API WindowResizeEvent : public Event
+	class WindowResizeEvent : public Event
 	{
 	public:
 		WindowResizeEvent(unsigned int width, unsigned int height) : m_Width(width), m_Height(height) {}
@@ -27,7 +27,7 @@ namespace Trinity
 		unsigned int m_Width, m_Height;
 	};
 
-	class TRINITY_API WindowCloseEvent : public Event
+	class /*TRINITY_API*/ WindowCloseEvent : public Event
 	{
 	public:
 		WindowCloseEvent() {}
@@ -36,7 +36,7 @@ namespace Trinity
 		EVENT_CLASS_CATEGORY(EventCategoryApplication)
 	};
 
-	class TRINITY_API AppTickEvent : public Event
+	class /*TRINITY_API*/ AppTickEvent : public Event
 	{
 	public:
 		AppTickEvent() {}
@@ -45,7 +45,7 @@ namespace Trinity
 		EVENT_CLASS_CATEGORY(EventCategoryApplication)
 	};
 
-	class TRINITY_API AppUpdateEvent : public Event
+	class /*TRINITY_API*/ AppUpdateEvent : public Event
 	{
 	public:
 		AppUpdateEvent() {}
@@ -54,7 +54,7 @@ namespace Trinity
 		EVENT_CLASS_CATEGORY(EventCategoryApplication)
 	};
 
-	class TRINITY_API AppRenderEvent : public Event
+	class /*TRINITY_API*/ AppRenderEvent : public Event
 	{
 	public:
 		AppRenderEvent() {}

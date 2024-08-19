@@ -23,9 +23,10 @@ include "Trinity/vendor/imgui"
 
 project "Trinity"
 	location "Trinity"
-	kind "SharedLib"
+	kind "StaticLib"
 	language "C++"
-	staticruntime "off"
+	cppdialect "C++17"
+	staticruntime "on"
 
 	targetdir ("bin/" .. outputDir .. "/%{prj.name}")
 	objdir ("bin-int/" .. outputDir .. "/%{prj.name}")
@@ -50,18 +51,20 @@ project "Trinity"
 		"%{IncludeDir.ImGui}",
 		"%{IncludeDir.glm}"
 	}
+	defines
+	{
+		"_CRT_SECURE_NO_WARNINGS"
+	}
 
 	links
 	{
 		"GLFW",
 		"Glad",
 		"ImGui",
-		"opengl32.lib",
-		"dwmapi.lib"
+		"opengl32.lib"
 	}
 
 	filter "system:windows"
-		cppdialect "C++17"
 		systemversion "latest"
 		runtime "Debug"
 
@@ -72,32 +75,27 @@ project "Trinity"
 			"GLFW_INCLUDE_NONE"
 		}
 
-		postbuildcommands
-		{
-			"{MKDIR} %[bin/" .. outputDir .. "/Sandbox]",
-			"{COPYFILE} %[%{!cfg.buildtarget.abspath}] %[bin/" .. outputDir .. "/Sandbox]"
-		}
-
 	filter "configurations:Debug"
 		defines "TR_DEBUG"
 		runtime "Debug"
-		symbols "On"
+		symbols "on"
 
 	filter "configurations:Release"
 		defines "TR_RELEASE"
 		runtime "Release"
-		optimize "On"
+		optimize "on"
 
 	filter "configurations:Dist"
 		defines "TR_DIST"
 		runtime "Release"
-		optimize "On"
+		optimize "on"
 
 project "Sandbox"
 	location "Sandbox"
 	kind "ConsoleApp"
 	language "C++"
-	staticruntime "off"
+	cppdialect "C++17"
+	staticruntime "on"
 
 	targetdir ("bin/" .. outputDir .. "/%{prj.name}")
 	objdir ("bin-int/" .. outputDir .. "/%{prj.name}")
@@ -122,7 +120,6 @@ project "Sandbox"
 	}
 
 	filter "system:windows"
-		cppdialect "C++17"
 		systemversion "latest"
 		runtime "Debug"
 
@@ -134,14 +131,14 @@ project "Sandbox"
 	filter "configurations:Debug"
 		defines "TR_DEBUG"
 		runtime "Debug"
-		symbols "On"
+		symbols "on"
 
 	filter "configurations:Release"
 		defines "TR_RELEASE"
 		runtime "Release"
-		optimize "On"
+		optimize "on"
 
 	filter "configurations:Dist"
 		defines "TR_DIST"
 		runtime "Release"
-		optimize "On"
+		optimize "on"

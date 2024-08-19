@@ -4,7 +4,7 @@
 
 namespace Trinity
 {
-	class TRINITY_API KeyEvent : public Event
+	class KeyEvent : public Event
 	{
 	public:
 		inline int GetKeyCode() const { return m_KeyCode; }
@@ -17,7 +17,7 @@ namespace Trinity
 		int m_KeyCode;
 	};
 
-	class TRINITY_API KeyPressedEvent : public KeyEvent
+	class KeyPressedEvent : public KeyEvent
 	{
 	public:
 		KeyPressedEvent(int keyCode, int repeatCount) : KeyEvent(keyCode), m_RepeatCount(repeatCount) {}
@@ -38,7 +38,7 @@ namespace Trinity
 		int m_RepeatCount;
 	};
 
-	class TRINITY_API KeyTypedEvent : public KeyEvent
+	class KeyTypedEvent : public KeyEvent
 	{
 	public:
 		KeyTypedEvent(int keyCode) : KeyEvent(keyCode) {}
@@ -54,7 +54,7 @@ namespace Trinity
 		EVENT_CLASS_TYPE(KeyTyped)
 	};
 
-	class TRINITY_API KeyReleasedEvent : public KeyEvent
+	class KeyReleasedEvent : public KeyEvent
 	{
 	public:
 		KeyReleasedEvent(int keyCode) : KeyEvent(keyCode) {}
