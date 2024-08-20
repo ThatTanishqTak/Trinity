@@ -14,7 +14,7 @@ namespace Trinity
 		unsigned int Width;
 		unsigned int Height;
 
-		WindowProps(const std::string& title = "Trinity Engine", unsigned int width = 1080, unsigned int height = 720) : Title(title), Width(width), Height(height)
+		WindowProps(const std::string& title = ("Trinity Engine"), unsigned int width = 1080, unsigned int height = 720) : Title(title), Width(width), Height(height)
 		{
 
 		}

@@ -162,6 +162,7 @@
     <ClInclude Include="src\Trinity\Log.h" />
     <ClInclude Include="src\Trinity\MouseButtonCodes.h" />
     <ClInclude Include="src\Trinity\Renderer\GraphicsContext.h" />
+    <ClInclude Include="src\Trinity\Renderer\Shader.h" />
     <ClInclude Include="src\Trinity\Window.h" />
     <ClInclude Include="src\trpch.h" />
     <ClInclude Include="vendor\glm\glm\common.hpp" />
@@ -591,6 +592,7 @@
     <ClCompile Include="src\Trinity\Layer.cpp" />
     <ClCompile Include="src\Trinity\LayerStack.cpp" />
     <ClCompile Include="src\Trinity\Log.cpp" />
+    <ClCompile Include="src\Trinity\Renderer\Shader.cpp" />
     <ClCompile Include="src\trpch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
