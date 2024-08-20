@@ -1360,6 +1360,9 @@
       <Filter>vendor\glm\glm</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\Shader.h" />
+    <ClInclude Include="src\Trinity\Renderer\Buffer.h" />
+    <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
+    <ClInclude Include="src\Trinity\Renderer\Renderer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp">
@@ -1393,5 +1396,8 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\Shader.cpp" />
+    <ClCompile Include="src\Trinity\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
+    <ClCompile Include="src\Trinity\Renderer\Renderer.cpp" />
   </ItemGroup>
 </Project>

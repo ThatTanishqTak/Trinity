@@ -11,6 +11,8 @@
 
 #include "Trinity/Renderer/Shader.h"
 
+#include "Trinity/Renderer/Buffer.h"
+
 namespace Trinity
 {
 	class Application
@@ -39,9 +41,9 @@ namespace Trinity
 		ImGuiLayer* m_ImGuiLayer;
 
 		unsigned int m_VertexArray;
-		unsigned int m_VertexBuffer;
-		unsigned int m_IndexBuffer;
 		std::unique_ptr<Shader> m_Shader;
+		std::unique_ptr<VertexBuffer> m_VertexBuffer;
+		std::unique_ptr<IndexBuffer> m_IndexBuffer;
 
 	private:
 		static Application* s_Instance;
