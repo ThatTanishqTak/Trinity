@@ -17,6 +17,10 @@ namespace Trinity
 
 		int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
 		TR_CORE_ASSERT(status, "Failed to initialize Glad");
+
+		TR_CORE_INFO("OpenGL Vendor: {0}", (const char*)glGetString(GL_VENDOR));
+		TR_CORE_INFO("OpenGL Renderer: {0}", (const char*)glGetString(GL_RENDERER));
+		TR_CORE_INFO("OpenGL Version: {0}", (const char*)glGetString(GL_VERSION));
 	}
 
 	void OpenGLContext::SwapBuffers()

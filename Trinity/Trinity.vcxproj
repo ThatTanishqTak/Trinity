@@ -144,7 +144,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
-    <ClInclude Include="src\Trinity\ImGui\ImGuiLayer.h" />
     <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
     <ClInclude Include="src\Trinity.h" />
@@ -155,6 +154,7 @@
     <ClInclude Include="src\Trinity\Events\Event.h" />
     <ClInclude Include="src\Trinity\Events\KeyEvent.h" />
     <ClInclude Include="src\Trinity\Events\MouseEvent.h" />
+    <ClInclude Include="src\Trinity\ImGui\ImGuiLayer.h" />
     <ClInclude Include="src\Trinity\Input.h" />
     <ClInclude Include="src\Trinity\KeyCodes.h" />
     <ClInclude Include="src\Trinity\Layer.h" />
@@ -583,11 +583,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
-    <ClCompile Include="src\Trinity\ImGui\ImGuiBuild.cpp" />
-    <ClCompile Include="src\Trinity\ImGui\ImGuiLayer.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />
     <ClCompile Include="src\Trinity\Application.cpp" />
+    <ClCompile Include="src\Trinity\ImGui\ImGuiBuild.cpp" />
+    <ClCompile Include="src\Trinity\ImGui\ImGuiLayer.cpp" />
     <ClCompile Include="src\Trinity\Layer.cpp" />
     <ClCompile Include="src\Trinity\LayerStack.cpp" />
     <ClCompile Include="src\Trinity\Log.cpp" />
