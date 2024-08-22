@@ -2,10 +2,10 @@
 
 #include "ImGui/imgui.h"
 
-class ExampleLayer : public Trinity::Layer
+class MenuLayer : public Trinity::Layer
 {
 public:
-	ExampleLayer() : Layer("Example")
+	MenuLayer() : Layer("MenuLayer")
 	{
 
 	}
@@ -17,13 +17,12 @@ public:
 
 	void OnEvent(Trinity::Event& event) override
 	{
-		//TR_CLIENT_TRACE("{0}", event);
+
 	}
 
 	virtual void OnImGuiRender() override
 	{
-		//static bool show = true;
-		//ImGui::ShowDemoWindow(&show);
+
 	}
 };
 
@@ -32,7 +31,7 @@ class Sandbox : public Trinity::Application
 public:
 	Sandbox()
 	{
-		PushLayer(new ExampleLayer);
+		PushLayer(new MenuLayer);
 	}
 
 	~Sandbox()

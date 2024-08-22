@@ -10,8 +10,8 @@
 #include "ImGui/ImGuiLayer.h"
 
 #include "Trinity/Renderer/Shader.h"
-
 #include "Trinity/Renderer/Buffer.h"
+#include "Trinity/Renderer/VertexArray.h"
 
 namespace Trinity
 {
@@ -40,10 +40,11 @@ namespace Trinity
 		LayerStack m_LayerStack;
 		ImGuiLayer* m_ImGuiLayer;
 
-		unsigned int m_VertexArray;
-		std::unique_ptr<Shader> m_Shader;
-		std::unique_ptr<VertexBuffer> m_VertexBuffer;
-		std::unique_ptr<IndexBuffer> m_IndexBuffer;
+		std::shared_ptr<Shader> m_Shader;
+		std::shared_ptr<Shader> m_ShaderSquare;
+
+		std::shared_ptr<VertexArray> m_VertexArray;
+		std::shared_ptr<VertexArray> m_SquareVA;
 
 	private:
 		static Application* s_Instance;

@@ -48,6 +48,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h">
       <Filter>src\Platform\OpenGL</Filter>
     </ClInclude>
@@ -102,7 +105,16 @@
     <ClInclude Include="src\Trinity\MouseButtonCodes.h">
       <Filter>src\Trinity</Filter>
     </ClInclude>
+    <ClInclude Include="src\Trinity\Renderer\Buffer.h">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\GraphicsContext.h">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Renderer\Renderer.h">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Renderer\Shader.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Window.h">
@@ -1359,12 +1371,13 @@
     <ClInclude Include="vendor\glm\glm\vector_relational.hpp">
       <Filter>vendor\glm\glm</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Renderer\Shader.h" />
-    <ClInclude Include="src\Trinity\Renderer\Buffer.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
-    <ClInclude Include="src\Trinity\Renderer\Renderer.h" />
+    <ClInclude Include="src\Trinity\Renderer\VertexArray.h" />
+    <ClInclude Include="src\Platform\OpenGL\OpenGLVertexArray.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp">
       <Filter>src\Platform\OpenGL</Filter>
     </ClCompile>
@@ -1392,12 +1405,19 @@
     <ClCompile Include="src\Trinity\Log.cpp">
       <Filter>src\Trinity</Filter>
     </ClCompile>
+    <ClCompile Include="src\Trinity\Renderer\Buffer.cpp">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Renderer\Renderer.cpp">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Renderer\Shader.cpp">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="src\trpch.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\Trinity\Renderer\Shader.cpp" />
-    <ClCompile Include="src\Trinity\Renderer\Buffer.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
-    <ClCompile Include="src\Trinity\Renderer\Renderer.cpp" />
+    <ClCompile Include="src\Trinity\Renderer\VertexArray.cpp" />
+    <ClCompile Include="src\Platform\OpenGL\OpenGLVertexArray.cpp" />
   </ItemGroup>
 </Project>
