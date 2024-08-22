@@ -10,14 +10,14 @@ namespace Trinity
 	{
 		switch (Renderer::GetAPI())
 		{
-			case RendererAPI::None:
+			case RendererAPI::API::None:
 			{
 				TR_CORE_ASSERT(false, "RendererAPI::None is not currently support!");
 
 				return nullptr;
 			}
 
-			case RendererAPI::OpenGL:
+			case RendererAPI::API::OpenGL:
 			{
 				return new OpenGLVertexArray();
 			}

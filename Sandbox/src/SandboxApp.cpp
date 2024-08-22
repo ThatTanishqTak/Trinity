@@ -2,10 +2,10 @@
 
 #include "ImGui/imgui.h"
 
-class MenuLayer : public Trinity::Layer
+class DemoLayer : public Trinity::Layer
 {
 public:
-	MenuLayer() : Layer("MenuLayer")
+	DemoLayer() : Layer("DemoLayer")
 	{
 
 	}
@@ -22,7 +22,8 @@ public:
 
 	virtual void OnImGuiRender() override
 	{
-
+		bool show = true;
+		ImGui::ShowDemoWindow(&show);
 	}
 };
 
@@ -31,7 +32,7 @@ class Sandbox : public Trinity::Application
 public:
 	Sandbox()
 	{
-		PushLayer(new MenuLayer);
+		PushLayer(new DemoLayer);
 	}
 
 	~Sandbox()
