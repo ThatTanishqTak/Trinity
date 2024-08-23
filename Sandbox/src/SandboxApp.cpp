@@ -23,7 +23,7 @@ public:
 	virtual void OnImGuiRender() override
 	{
 		bool show = true;
-		ImGui::ShowDemoWindow(&show);
+		//ImGui::ShowDemoWindow(&show);
 	}
 };
 
