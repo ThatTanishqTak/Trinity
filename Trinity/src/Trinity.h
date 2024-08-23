@@ -11,6 +11,16 @@
 
 #include "Trinity/ImGui/ImGuiLayer.h"
 
+// ------------RENDERER----------------------------
+#include "Trinity/Renderer/Renderer.h"
+#include "Trinity/Renderer/RenderCommand.h"
+
+#include "Trinity/Renderer/Buffer.h"
+#include "Trinity/Renderer/Shader.h"
+#include "Trinity/Renderer/VertexArray.h"
+#include "Trinity/Renderer/OrthographicCamera.h"
+// ------------------------------------------------
+
 // ------- ENTRY POINT ------------------
 #include "Trinity/EntryPoint.h"
 // --------------------------------------

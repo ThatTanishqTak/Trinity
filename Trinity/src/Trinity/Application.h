@@ -9,11 +9,6 @@
 
 #include "ImGui/ImGuiLayer.h"
 
-#include "Trinity/Renderer/Shader.h"
-#include "Trinity/Renderer/Buffer.h"
-#include "Trinity/Renderer/VertexArray.h"
-#include "Trinity/Renderer/OrthographicCamera.h"
-
 namespace Trinity
 {
 	class Application
@@ -40,14 +35,6 @@ namespace Trinity
 		
 		LayerStack m_LayerStack;
 		ImGuiLayer* m_ImGuiLayer;
-
-		std::shared_ptr<Shader> m_Shader;
-		std::shared_ptr<Shader> m_ShaderSquare;
-
-		std::shared_ptr<VertexArray> m_VertexArray;
-		std::shared_ptr<VertexArray> m_SquareVA;
-
-		OrthographicCamera m_Camera;
 
 	private:
 		static Application* s_Instance;
