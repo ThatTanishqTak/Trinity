@@ -39,7 +39,7 @@ public:
 
 		m_SquareVA.reset(Trinity::VertexArray::Create());
 
-		float verticesSquare[3 * 4] =
+		float verticesSquare[3 * 8] =
 		{
 			//----- VERTICES -----//
 			  -0.75f, -0.75f, 0.0f,
@@ -101,7 +101,7 @@ public:
 
 		m_Shader.reset(new Trinity::Shader(vertexSource, fragmentSource));
 
-		std::string vertexSourceSquare =
+		std::string flatColorVertexSource =
 			R"(
 			#version 330 core
 			
@@ -120,19 +120,21 @@ public:
 			}
 		)";
 
-		std::string fragmentSourceSquare =
+		std::string flatColorFragmentSource =
 			R"(
 			#version 330 core
 			
 			layout(location = 0) out vec4 color;
+			
+			uniform vec4 u_Color;
 						
 			void main()
 			{
-				color = vec4(0.2f, 0.3f, 0.8f, 1.0f);
+				color = u_Color;
 			}
 		)";
 
-		m_ShaderSquare.reset(new Trinity::Shader(vertexSourceSquare, fragmentSourceSquare));
+		m_FlatColorShader.reset(new Trinity::Shader(flatColorVertexSource, flatColorFragmentSource));
 	}
 
 	void OnUpdate(Trinity::Timestep timestep) override
@@ -157,6 +159,9 @@ public:
 
 		static glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 
+		glm::vec4 redColor(0.8f, 0.2f, 0.3f, 1.0f);
+		glm::vec4 blueColor(0.2f, 0.3f, 0.8f, 1.0f);
+		
 		for (int y = 0; y < 20; y++)
 		{
 			for (int x = 0; x < 20; x++)
@@ -164,7 +169,16 @@ public:
 				glm::vec3 pos(x * 0.2f, y * 0.2f, 0.0f);
 				glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * scale;
 
-				Trinity::Renderer::Submit(m_ShaderSquare, m_SquareVA, transform);
+				if (x % 2 == 0)
+				{
+					m_FlatColorShader->UploadUniformFloat4("u_Color", redColor);
+				}
+				else
+				{
+					m_FlatColorShader->UploadUniformFloat4("u_Color", blueColor);
+				}
+
+				Trinity::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
 			}
 		}
 
@@ -185,7 +199,7 @@ public:
 
 private:
 	std::shared_ptr<Trinity::Shader> m_Shader;
-	std::shared_ptr<Trinity::Shader> m_ShaderSquare;
+	std::shared_ptr<Trinity::Shader> m_FlatColorShader;
 
 	std::shared_ptr<Trinity::VertexArray> m_VertexArray;
 	std::shared_ptr<Trinity::VertexArray> m_SquareVA;
