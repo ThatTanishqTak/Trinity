@@ -13,6 +13,8 @@
 
 #include "Trinity/ImGui/ImGuiLayer.h"
 
+#include <glm/glm.hpp>
+
 // ------------RENDERER----------------------------
 #include "Trinity/Renderer/Renderer.h"
 #include "Trinity/Renderer/RenderCommand.h"

@@ -16,6 +16,9 @@
     <Filter Include="src\Trinity">
       <UniqueIdentifier>{2FD1AB60-9B86-2456-247B-1E2D902F1B5A}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\Trinity\Core">
+      <UniqueIdentifier>{E70AD27A-D303-F1CC-FC35-D651E88DD0D8}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\Trinity\Events">
       <UniqueIdentifier>{3372A27C-1F56-63D2-88B6-5D2574B94D54}</UniqueIdentifier>
     </Filter>
@@ -74,6 +77,9 @@
     </ClInclude>
     <ClInclude Include="src\Trinity\Core.h">
       <Filter>src\Trinity</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\Timestep.h">
+      <Filter>src\Trinity\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\EntryPoint.h">
       <Filter>src\Trinity</Filter>
@@ -1389,7 +1395,6 @@
     <ClInclude Include="vendor\glm\glm\vector_relational.hpp">
       <Filter>vendor\glm\glm</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Core\Timestep.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">

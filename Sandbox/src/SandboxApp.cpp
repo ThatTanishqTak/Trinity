@@ -2,12 +2,14 @@
 
 #include "ImGui/imgui.h"
 
+#include <glm/gtc/matrix_transform.hpp>
+
 class DemoLayer : public Trinity::Layer
 {
 public:
-	DemoLayer() : Layer("DemoLayer"), m_Camera(-1.6f, 1.6f, -0.9f, 0.9f), 
-		m_CameraPosition(0.0f, 0.0f, 0.0f), m_CameraMoveSpeed(10.0f), 
-		m_CameraRotation(0.0f), m_CameraRotationSpeed(5.0f)
+	DemoLayer() : Layer("DemoLayer"), 
+		m_Camera(-1.6f, 1.6f, -0.9f, 0.9f), m_CameraPosition(0.0f, 0.0f, 0.0f), m_CameraMoveSpeed(10.0f), m_CameraRotation(0.0f), m_CameraRotationSpeed(5.0f), 
+		m_SquarePosition(0.0f), m_SquareMoveSpeed(5.0f)
 	{
 		m_VertexArray.reset(Trinity::VertexArray::Create());
 
@@ -69,6 +71,7 @@ public:
 			layout(location = 1) in vec4 a_Color;
 
 			uniform mat4 u_ViewProjection;
+			uniform mat4 u_Transform;
 
 			out vec3 v_Position;
 			out vec4 v_Color;
@@ -78,7 +81,7 @@ public:
 				v_Position = a_Position;
 				v_Color = a_Color;
 				
-				gl_Position = u_ViewProjection * vec4(a_Position, 1.0f);
+				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0f);
 			}
 		)";
 
@@ -105,6 +108,7 @@ public:
 			layout(location = 0) in vec3 a_Position;
 
 			uniform mat4 u_ViewProjection;
+			uniform mat4 u_Transform;
 
 			out vec3 v_Position;
 			out vec4 v_Color;
@@ -112,7 +116,7 @@ public:
 			void main()
 			{
 				v_Position = a_Position;				
-				gl_Position = u_ViewProjection * vec4(a_Position, 1.0f);
+				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0f);
 			}
 		)";
 
@@ -151,7 +155,19 @@ public:
 
 		Trinity::Renderer::BeginScene(m_Camera);
 
-		Trinity::Renderer::Submit(m_ShaderSquare, m_SquareVA);
+		static glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+
+		for (int y = 0; y < 20; y++)
+		{
+			for (int x = 0; x < 20; x++)
+			{
+				glm::vec3 pos(x * 0.2f, y * 0.2f, 0.0f);
+				glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * scale;
+
+				Trinity::Renderer::Submit(m_ShaderSquare, m_SquareVA, transform);
+			}
+		}
+
 		Trinity::Renderer::Submit(m_Shader, m_VertexArray);
 
 		Trinity::Renderer::EndScene();
@@ -164,8 +180,7 @@ public:
 
 	virtual void OnImGuiRender() override
 	{
-		static bool show = true;
-		ImGui::ShowDemoWindow(&show);
+
 	}
 
 private:
@@ -181,6 +196,9 @@ private:
 
 	float m_CameraRotation;
 	float m_CameraRotationSpeed;
+
+	glm::vec3 m_SquarePosition;
+	float m_SquareMoveSpeed;
 };
 
 class Sandbox : public Trinity::Application
