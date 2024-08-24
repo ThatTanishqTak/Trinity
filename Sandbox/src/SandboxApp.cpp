@@ -164,7 +164,8 @@ public:
 
 	virtual void OnImGuiRender() override
 	{
-
+		static bool show = true;
+		ImGui::ShowDemoWindow(&show);
 	}
 
 private:
