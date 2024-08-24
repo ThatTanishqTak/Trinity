@@ -152,6 +152,7 @@
     <ClInclude Include="src\Trinity.h" />
     <ClInclude Include="src\Trinity\Application.h" />
     <ClInclude Include="src\Trinity\Core.h" />
+    <ClInclude Include="src\Trinity\Core\Timestep.h" />
     <ClInclude Include="src\Trinity\EntryPoint.h" />
     <ClInclude Include="src\Trinity\Events\ApplicationEvent.h" />
     <ClInclude Include="src\Trinity\Events\Event.h" />

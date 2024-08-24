@@ -5,6 +5,8 @@
 #include "Trinity/Layer.h"
 #include "Trinity/Log.h"
 
+#include "Trinity/Core/Timestep.h"
+
 #include "Trinity/Input.h"
 #include "Trinity/KeyCodes.h"
 #include "Trinity/MouseButtonCodes.h"

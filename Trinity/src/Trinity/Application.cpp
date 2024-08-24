@@ -9,13 +9,15 @@
 
 #include "glm/glm.hpp"
 
+#include <GLFW/glfw3.h>
+
 namespace Trinity
 {
 #define BIND_EVENT_FN(x) std::bind(&Application::x, this, std::placeholders::_1)
 
 	Application* Application::s_Instance = nullptr;
 
-	Application::Application()
+	Application::Application() : m_LastFrameTime(0.0f)
 	{
 		TR_CORE_ASSERT(!s_Instance, "Application already exists!")
 			s_Instance = this;
@@ -63,9 +65,14 @@ namespace Trinity
 	{
 		while (m_Running)
 		{
+			float time = (float)glfwGetTime();
+			Timestep timestep = time - m_LastFrameTime;
+			
+			m_LastFrameTime = time;
+
 			for (Layer* layer : m_LayerStack)
 			{
-				layer->OnUpdate();
+				layer->OnUpdate(timestep);
 			}
 
 			m_ImGuiLayer->Begin();

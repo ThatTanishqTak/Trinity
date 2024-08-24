@@ -7,6 +7,8 @@
 #include "Trinity/Events/Event.h"
 #include "Trinity/Events/ApplicationEvent.h"
 
+#include "Trinity/Core/Timestep.h"
+
 #include "ImGui/ImGuiLayer.h"
 
 namespace Trinity
@@ -29,12 +31,15 @@ namespace Trinity
 	private:
 		bool OnWindowClose(WindowCloseEvent& closeEvent);
 
+	private:
 		std::unique_ptr<Window> m_Window;
 		
 		bool m_Running = true;
 		
 		LayerStack m_LayerStack;
 		ImGuiLayer* m_ImGuiLayer;
+
+		float m_LastFrameTime;
 
 	private:
 		static Application* s_Instance;

@@ -5,7 +5,9 @@
 class DemoLayer : public Trinity::Layer
 {
 public:
-	DemoLayer() : Layer("DemoLayer"), m_Camera(-1.6f, 1.6f, -0.9f, 0.9f), m_CameraPosition(0.0f, 0.0f, 0.0f), m_CameraMoveSpeed(0.05f), m_CameraRotation(0.0f), m_CameraRotationSpeed(0.05f)
+	DemoLayer() : Layer("DemoLayer"), m_Camera(-1.6f, 1.6f, -0.9f, 0.9f), 
+		m_CameraPosition(0.0f, 0.0f, 0.0f), m_CameraMoveSpeed(10.0f), 
+		m_CameraRotation(0.0f), m_CameraRotationSpeed(5.0f)
 	{
 		m_VertexArray.reset(Trinity::VertexArray::Create());
 
@@ -129,15 +131,17 @@ public:
 		m_ShaderSquare.reset(new Trinity::Shader(vertexSourceSquare, fragmentSourceSquare));
 	}
 
-	void OnUpdate() override
+	void OnUpdate(Trinity::Timestep timestep) override
 	{
-		if (Trinity::Input::IsKeyPressed(TR_KEY_UP)) { m_CameraPosition.y += m_CameraMoveSpeed; }
-		else if (Trinity::Input::IsKeyPressed(TR_KEY_DOWN)) { m_CameraPosition.y -= m_CameraMoveSpeed; }
-		if (Trinity::Input::IsKeyPressed(TR_KEY_RIGHT)) { m_CameraPosition.x += m_CameraMoveSpeed; }
-		else if (Trinity::Input::IsKeyPressed(TR_KEY_LEFT)) { m_CameraPosition.x -= m_CameraMoveSpeed; }
+		float deltaTime = timestep;
 
-		if (Trinity::Input::IsKeyPressed(TR_KEY_D)) { m_CameraRotation -= m_CameraRotationSpeed; }
-		else if (Trinity::Input::IsKeyPressed(TR_KEY_A)) { m_CameraRotation += m_CameraRotationSpeed; }
+		if (Trinity::Input::IsKeyPressed(TR_KEY_UP))      { m_CameraPosition.y += m_CameraMoveSpeed * deltaTime; }
+		if (Trinity::Input::IsKeyPressed(TR_KEY_DOWN))    { m_CameraPosition.y -= m_CameraMoveSpeed * deltaTime; }
+		if (Trinity::Input::IsKeyPressed(TR_KEY_RIGHT))   { m_CameraPosition.x += m_CameraMoveSpeed * deltaTime; }
+		if (Trinity::Input::IsKeyPressed(TR_KEY_LEFT))    { m_CameraPosition.x -= m_CameraMoveSpeed * deltaTime; }
+
+		if (Trinity::Input::IsKeyPressed(TR_KEY_D)) { m_CameraRotation -= m_CameraRotationSpeed * deltaTime; }
+		if (Trinity::Input::IsKeyPressed(TR_KEY_A)) { m_CameraRotation += m_CameraRotationSpeed * deltaTime; }
 
 		Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 		Trinity::RenderCommand::Clear();
