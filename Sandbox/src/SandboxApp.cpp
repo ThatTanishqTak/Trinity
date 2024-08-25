@@ -1,8 +1,11 @@
 #include <Trinity.h>
 
+#include "Platform/OpenGL/OpenGLShader.h"
+
 #include "ImGui/imgui.h"
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 class DemoLayer : public Trinity::Layer
 {
@@ -99,7 +102,7 @@ public:
 			}
 		)";
 
-		m_Shader.reset(new Trinity::Shader(vertexSource, fragmentSource));
+		m_Shader.reset(Trinity::Shader::Create(vertexSource, fragmentSource));
 
 		std::string flatColorVertexSource =
 			R"(
@@ -134,7 +137,7 @@ public:
 			}
 		)";
 
-		m_FlatColorShader.reset(new Trinity::Shader(flatColorVertexSource, flatColorFragmentSource));
+		m_FlatColorShader.reset(Trinity::Shader::Create(flatColorVertexSource, flatColorFragmentSource));
 	}
 
 	void OnUpdate(Trinity::Timestep timestep) override
@@ -159,8 +162,8 @@ public:
 
 		static glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 
-		glm::vec4 redColor(0.8f, 0.2f, 0.3f, 1.0f);
-		glm::vec4 blueColor(0.2f, 0.3f, 0.8f, 1.0f);
+		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_FlatColorShader)->Bind();
+		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_FlatColorShader)->UploadUniformFloat4("u_Color", m_SquareColor);
 		
 		for (int y = 0; y < 20; y++)
 		{
@@ -168,15 +171,6 @@ public:
 			{
 				glm::vec3 pos(x * 0.2f, y * 0.2f, 0.0f);
 				glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * scale;
-
-				if (x % 2 == 0)
-				{
-					m_FlatColorShader->UploadUniformFloat4("u_Color", redColor);
-				}
-				else
-				{
-					m_FlatColorShader->UploadUniformFloat4("u_Color", blueColor);
-				}
 
 				Trinity::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
 			}
@@ -194,7 +188,9 @@ public:
 
 	virtual void OnImGuiRender() override
 	{
-
+		ImGui::Begin("Setting");
+		ImGui::ColorEdit4("Color", glm::value_ptr(m_SquareColor));
+		ImGui::End();
 	}
 
 private:
@@ -213,6 +209,8 @@ private:
 
 	glm::vec3 m_SquarePosition;
 	float m_SquareMoveSpeed;
+
+	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 };
 
 class Sandbox : public Trinity::Application
