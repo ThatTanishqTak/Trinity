@@ -19,24 +19,23 @@ public:
 		float vertices[3 * 7] =
 		{
 			//----- VERTICES -----//   //----- COLOR -----//
-			  -0.5f, -0.5f, 0.0f,      1.0f, 0.0f, 0.0f, 1.0f,
-			   0.5f, -0.5f, 0.0f,      0.0f, 1.0f, 0.0f, 1.0f,
-			   0.0f,  0.5f, 0.0f,      0.0f, 0.0f, 1.0f, 1.0f
+			  -0.5f, -0.5f, 0.0f,      
+			   0.5f, -0.5f, 0.0f,      
+			   0.0f,  0.5f, 0.0f,      
 		};
 
-		std::shared_ptr<Trinity::VertexBuffer> vertexBuffer;
+		Trinity::Ref<Trinity::VertexBuffer> vertexBuffer;
 		vertexBuffer.reset(Trinity::VertexBuffer::Create(vertices, sizeof(vertices)));
 		Trinity::BufferLayout layout =
 		{
-			{ Trinity::ShaderDataType::Float3, std::string("a_Position") },
-			{ Trinity::ShaderDataType::Float4, std::string("a_Color") }
+			{ Trinity::ShaderDataType::Float3, std::string("a_Position") }
 		};
 
 		vertexBuffer->SetLayout(layout);
 		m_VertexArray->AddVertexBuffer(vertexBuffer);
 
 		uint32_t indices[3] = { 0, 1, 2 };
-		std::shared_ptr<Trinity::IndexBuffer> indexBuffer;
+		Trinity::Ref<Trinity::IndexBuffer> indexBuffer;
 		indexBuffer.reset(Trinity::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t)));
 		m_VertexArray->SetIndexBuffer(indexBuffer);
 
@@ -51,7 +50,7 @@ public:
 			  -0.75f,  0.75f, 0.0f
 		};
 
-		std::shared_ptr<Trinity::VertexBuffer> squareVB;
+		Trinity::Ref<Trinity::VertexBuffer> squareVB;
 		squareVB.reset(Trinity::VertexBuffer::Create(verticesSquare, sizeof(verticesSquare)));
 
 		squareVB->SetLayout
@@ -62,7 +61,7 @@ public:
 		m_SquareVA->AddVertexBuffer(squareVB);
 
 		uint32_t indicesSquare[6] = { 0, 1, 2, 2, 3, 0 };
-		std::shared_ptr<Trinity::IndexBuffer> squareIB;
+		Trinity::Ref<Trinity::IndexBuffer> squareIB;
 		squareIB.reset(Trinity::IndexBuffer::Create(indicesSquare, sizeof(indicesSquare) / sizeof(uint32_t)));
 		m_SquareVA->SetIndexBuffer(squareIB);
 
@@ -71,19 +70,15 @@ public:
 			#version 330 core
 			
 			layout(location = 0) in vec3 a_Position;
-			layout(location = 1) in vec4 a_Color;
 
 			uniform mat4 u_ViewProjection;
 			uniform mat4 u_Transform;
 
 			out vec3 v_Position;
-			out vec4 v_Color;
 						
 			void main()
 			{
 				v_Position = a_Position;
-				v_Color = a_Color;
-				
 				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0f);
 			}
 		)";
@@ -94,7 +89,7 @@ public:
 			
 			layout(location = 0) out vec4 color;
 
-			in vec4 v_Color;
+			uniform vec4 v_Color;
 						
 			void main()
 			{
@@ -114,7 +109,6 @@ public:
 			uniform mat4 u_Transform;
 
 			out vec3 v_Position;
-			out vec4 v_Color;
 						
 			void main()
 			{
@@ -149,8 +143,8 @@ public:
 		if (Trinity::Input::IsKeyPressed(TR_KEY_RIGHT))   { m_CameraPosition.x += m_CameraMoveSpeed * deltaTime; }
 		if (Trinity::Input::IsKeyPressed(TR_KEY_LEFT))    { m_CameraPosition.x -= m_CameraMoveSpeed * deltaTime; }
 
-		if (Trinity::Input::IsKeyPressed(TR_KEY_D)) { m_CameraRotation -= m_CameraRotationSpeed * deltaTime; }
-		if (Trinity::Input::IsKeyPressed(TR_KEY_A)) { m_CameraRotation += m_CameraRotationSpeed * deltaTime; }
+		if (Trinity::Input::IsKeyPressed(TR_KEY_D))   { m_CameraRotation -= m_CameraRotationSpeed * deltaTime; }
+		if (Trinity::Input::IsKeyPressed(TR_KEY_A))   { m_CameraRotation += m_CameraRotationSpeed * deltaTime; }
 
 		Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 		Trinity::RenderCommand::Clear();
@@ -164,6 +158,9 @@ public:
 
 		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_FlatColorShader)->Bind();
 		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_FlatColorShader)->UploadUniformFloat4("u_Color", m_SquareColor);
+		
+		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_Shader)->Bind();
+		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_Shader)->UploadUniformFloat4("v_Color", m_TriangleColor);
 		
 		for (int y = 0; y < 20; y++)
 		{
@@ -189,16 +186,19 @@ public:
 	virtual void OnImGuiRender() override
 	{
 		ImGui::Begin("Setting");
-		ImGui::ColorEdit4("Color", glm::value_ptr(m_SquareColor));
+
+		ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
+		ImGui::ColorEdit4("Triangle Color", glm::value_ptr(m_TriangleColor));
+		
 		ImGui::End();
 	}
 
 private:
-	std::shared_ptr<Trinity::Shader> m_Shader;
-	std::shared_ptr<Trinity::Shader> m_FlatColorShader;
+	Trinity::Ref<Trinity::Shader> m_Shader;
+	Trinity::Ref<Trinity::Shader> m_FlatColorShader;
 
-	std::shared_ptr<Trinity::VertexArray> m_VertexArray;
-	std::shared_ptr<Trinity::VertexArray> m_SquareVA;
+	Trinity::Ref<Trinity::VertexArray> m_VertexArray;
+	Trinity::Ref<Trinity::VertexArray> m_SquareVA;
 
 	Trinity::OrthographicCamera m_Camera;
 	glm::vec3 m_CameraPosition;
@@ -210,7 +210,8 @@ private:
 	glm::vec3 m_SquarePosition;
 	float m_SquareMoveSpeed;
 
-	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
+	glm::vec4 m_SquareColor = { 0.8f, 0.2f, 0.3f, 1.0f };
+	glm::vec4 m_TriangleColor = { 0.2f, 0.8f, 0.3f, 1.0f };
 };
 
 class Sandbox : public Trinity::Application

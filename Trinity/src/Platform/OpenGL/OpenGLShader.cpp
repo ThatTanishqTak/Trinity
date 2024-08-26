@@ -134,6 +134,24 @@ namespace Trinity
 		glUniform1i(location, value);
 	}
 
+	void OpenGLShader::UploadUniformInt2(const std::string& name, const glm::ivec2& values)
+	{
+		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		glUniform2i(location, values.x, values.y);
+	}
+
+	void OpenGLShader::UploadUniformInt3(const std::string& name, const glm::ivec3& values)
+	{
+		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		glUniform3i(location, values.x, values.y, values.z);
+	}
+
+	void OpenGLShader::UploadUniformInt4(const std::string& name, const glm::ivec4& values)
+	{
+		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		glUniform4i(location, values.x, values.y, values.z, values.w);
+	}
+
 	void OpenGLShader::UploadUniformFloat(const std::string& name, float value)
 	{
 		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
