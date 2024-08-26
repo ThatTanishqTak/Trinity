@@ -21,6 +21,7 @@
 
 #include "Trinity/Renderer/Buffer.h"
 #include "Trinity/Renderer/Shader.h"
+#include "Trinity/Renderer/Texture.h"
 #include "Trinity/Renderer/VertexArray.h"
 #include "Trinity/Renderer/OrthographicCamera.h"
 // ------------------------------------------------

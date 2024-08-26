@@ -1,7 +1,7 @@
 #include "trpch.h"
 #include "VertexArray.h"
 
-#include "Trinity/Renderer/Renderer.h"
+#include "Renderer.h"
 #include "Platform/OpenGL/OpenGLVertexArray.h"
 
 namespace Trinity

@@ -11,14 +11,13 @@ class DemoLayer : public Trinity::Layer
 {
 public:
 	DemoLayer() : Layer("DemoLayer"), 
-		m_Camera(-1.6f, 1.6f, -0.9f, 0.9f), m_CameraPosition(0.0f, 0.0f, 0.0f), m_CameraMoveSpeed(10.0f), m_CameraRotation(0.0f), m_CameraRotationSpeed(5.0f), 
+		m_Camera(-1.6f, 1.6f, -0.9f, 0.9f), m_CameraPosition(0.0f, 0.0f, 0.0f), m_CameraMoveSpeed(10.0f), m_CameraRotation(0.0f), m_CameraRotationSpeed(10.0f), 
 		m_SquarePosition(0.0f), m_SquareMoveSpeed(5.0f)
 	{
 		m_VertexArray.reset(Trinity::VertexArray::Create());
 
 		float vertices[3 * 7] =
 		{
-			//----- VERTICES -----//   //----- COLOR -----//
 			  -0.5f, -0.5f, 0.0f,      
 			   0.5f, -0.5f, 0.0f,      
 			   0.0f,  0.5f, 0.0f,      
@@ -41,23 +40,23 @@ public:
 
 		m_SquareVA.reset(Trinity::VertexArray::Create());
 
-		float verticesSquare[3 * 8] =
+		float verticesSquare[5 * 4] =
 		{
-			//----- VERTICES -----//
-			  -0.75f, -0.75f, 0.0f,
-			   0.75f, -0.75f, 0.0f,
-			   0.75f,  0.75f, 0.0f,
-			  -0.75f,  0.75f, 0.0f
+			  -0.75f, -0.75f, 0.0f, 0.0f, 0.0f,
+			   0.75f, -0.75f, 0.0f, 1.0f, 0.0f,
+			   0.75f,  0.75f, 0.0f, 1.0f, 1.0f,
+			  -0.75f,  0.75f, 0.0f, 0.0f, 1.0f
 		};
 
 		Trinity::Ref<Trinity::VertexBuffer> squareVB;
 		squareVB.reset(Trinity::VertexBuffer::Create(verticesSquare, sizeof(verticesSquare)));
+		Trinity::BufferLayout squareLayout =
+		{
+			{ Trinity::ShaderDataType::Float3, std::string("a_Position") },
+			{ Trinity::ShaderDataType::Float2, std::string("a_TexCoord") }
+		};
 
-		squareVB->SetLayout
-		({
-			{ Trinity::ShaderDataType::Float3, std::string("a_Position") }
-			});
-
+		squareVB->SetLayout(squareLayout);
 		m_SquareVA->AddVertexBuffer(squareVB);
 
 		uint32_t indicesSquare[6] = { 0, 1, 2, 2, 3, 0 };
@@ -132,6 +131,48 @@ public:
 		)";
 
 		m_FlatColorShader.reset(Trinity::Shader::Create(flatColorVertexSource, flatColorFragmentSource));
+
+		std::string textureShaderVertexSource =
+			R"(
+			#version 330 core
+			
+			layout(location = 0) in vec3 a_Position;
+			layout(location = 1) in vec2 a_TexCoord;
+
+			uniform mat4 u_ViewProjection;
+			uniform mat4 u_Transform;
+			
+			out vec2 v_TexCoord;
+			
+			void main()
+			{
+				v_TexCoord = a_TexCoord;				
+				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0f);
+			}
+		)";
+
+		std::string textureShaderFragmentSource =
+			R"(
+			#version 330 core
+			
+			layout(location = 0) out vec4 color;
+
+			in vec2 v_TexCoord;
+
+			uniform sampler2D u_Texture;
+						
+			void main()
+			{
+				color = texture(u_Texture, v_TexCoord);
+			}
+		)";
+
+		m_TextureShader.reset(Trinity::Shader::Create(textureShaderVertexSource, textureShaderFragmentSource));
+
+		m_Texture = Trinity::Texture2D::Create("assets/textures/texture.png");
+
+		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_TextureShader)->Bind();
+		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_TextureShader)->UploadUniformInt("u_Texture", 0);
 	}
 
 	void OnUpdate(Trinity::Timestep timestep) override
@@ -159,9 +200,6 @@ public:
 		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_FlatColorShader)->Bind();
 		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_FlatColorShader)->UploadUniformFloat4("u_Color", m_SquareColor);
 		
-		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_Shader)->Bind();
-		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_Shader)->UploadUniformFloat4("v_Color", m_TriangleColor);
-		
 		for (int y = 0; y < 20; y++)
 		{
 			for (int x = 0; x < 20; x++)
@@ -169,11 +207,14 @@ public:
 				glm::vec3 pos(x * 0.2f, y * 0.2f, 0.0f);
 				glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * scale;
 
-				Trinity::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
+				//Trinity::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
 			}
 		}
 
-		Trinity::Renderer::Submit(m_Shader, m_VertexArray);
+		m_Texture->Bind();
+		Trinity::Renderer::Submit(m_TextureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+
+		//Trinity::Renderer::Submit(m_Shader, m_VertexArray);
 
 		Trinity::Renderer::EndScene();
 	}
@@ -185,20 +226,18 @@ public:
 
 	virtual void OnImGuiRender() override
 	{
-		ImGui::Begin("Setting");
 
-		ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
-		ImGui::ColorEdit4("Triangle Color", glm::value_ptr(m_TriangleColor));
-		
-		ImGui::End();
 	}
 
 private:
 	Trinity::Ref<Trinity::Shader> m_Shader;
 	Trinity::Ref<Trinity::Shader> m_FlatColorShader;
+	Trinity::Ref<Trinity::Shader> m_TextureShader;
 
 	Trinity::Ref<Trinity::VertexArray> m_VertexArray;
 	Trinity::Ref<Trinity::VertexArray> m_SquareVA;
+
+	Trinity::Ref<Trinity::Texture2D> m_Texture;
 
 	Trinity::OrthographicCamera m_Camera;
 	glm::vec3 m_CameraPosition;
@@ -211,7 +250,6 @@ private:
 	float m_SquareMoveSpeed;
 
 	glm::vec4 m_SquareColor = { 0.8f, 0.2f, 0.3f, 1.0f };
-	glm::vec4 m_TriangleColor = { 0.2f, 0.8f, 0.3f, 1.0f };
 };
 
 class Sandbox : public Trinity::Application

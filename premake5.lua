@@ -16,6 +16,7 @@ IncludeDir["GLFW"] = "Trinity/vendor/GLFW/include"
 IncludeDir["Glad"] = "Trinity/vendor/Glad/include"
 IncludeDir["ImGui"] = "Trinity/vendor/imgui"
 IncludeDir["glm"] = "Trinity/vendor/glm"
+IncludeDir["stb_image"] = "Trinity/vendor/stb_image"
 
 include "Trinity/vendor/GLFW"
 include "Trinity/vendor/Glad"
@@ -38,6 +39,8 @@ project "Trinity"
 	{
 		"%{prj.name}/src/**.h",
 		"%{prj.name}/src/**.cpp",
+		"%{prj.name}/vendor/stb_image/**.h",
+		"%{prj.name}/vendor/stb_image/**.cpp",
 		"%{prj.name}/vendor/glm/glm/**.hpp",
 		"%{prj.name}/vendor/glm/glm/**.inl"
 	}
@@ -49,6 +52,7 @@ project "Trinity"
 		"%{IncludeDir.GLFW}",
 		"%{IncludeDir.Glad}",
 		"%{IncludeDir.ImGui}",
+		"%{IncludeDir.stb_image}",
 		"%{IncludeDir.glm}"
 	}
 	defines
