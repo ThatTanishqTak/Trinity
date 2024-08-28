@@ -24,9 +24,17 @@ namespace Trinity
 		auto shaderSources = PreProcess(source);
 
 		Compile(shaderSources);
+
+		auto lastSlash = filePath.find_last_of("/\\");
+		lastSlash = lastSlash == std::string::npos ? 0 : lastSlash + 1;
+
+		auto lastDot = filePath.rfind('.');
+		auto count = lastDot == std::string::npos ? filePath.size() - lastSlash : lastDot - lastSlash;
+		
+		m_Name = filePath.substr(lastSlash, count);
 	}
 
-	Trinity::OpenGLShader::OpenGLShader(const std::string& vertexSource, const std::string& fragmentSource)
+	Trinity::OpenGLShader::OpenGLShader(const std::string& name, const std::string& vertexSource, const std::string& fragmentSource) : m_Name(name)
 	{
 		std::unordered_map<GLenum, std::string> sources;
 
@@ -44,7 +52,7 @@ namespace Trinity
 	std::string OpenGLShader::ReadFile(const std::string& filePath)
 	{
 		std::string result;
-		std::ifstream in(filePath, std::ios::in, std::ios::binary);
+		std::ifstream in(filePath, std::ios::in | std::ios::binary);
 		if (in)
 		{
 			in.seekg(0, std::ios::end);
@@ -92,7 +100,11 @@ namespace Trinity
 	void OpenGLShader::Compile(const std::unordered_map<GLenum, std::string>& shaderSources)
 	{
 		GLuint program = glCreateProgram();
-		std::vector<GLenum> glShaderIDs(shaderSources.size());
+		
+		TR_CORE_ASSERT(shaderSources.size() <= 2, "Only support 2 shaders for now");
+		std::array<GLenum, 2> glShaderIDs;
+
+		int glShaderIndex = 0;
 
 		for (auto& kv : shaderSources)
 		{
@@ -125,7 +137,7 @@ namespace Trinity
 			}
 
 			glAttachShader(program, shader);
-			glShaderIDs.push_back(shader);
+			glShaderIDs[glShaderIndex++] = shader;
 		}
 
 		glLinkProgram(program);

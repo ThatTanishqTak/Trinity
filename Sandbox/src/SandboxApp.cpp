@@ -96,7 +96,7 @@ public:
 			}
 		)";
 
-		m_Shader.reset(Trinity::Shader::Create(vertexSource, fragmentSource));
+		m_Shader = Trinity::Shader::Create("Triangle Shader", vertexSource, fragmentSource);
 
 		Trinity::Shader::Create("assets/shaders/Texture.glsl");
 
@@ -132,14 +132,15 @@ public:
 			}
 		)";
 
-		m_FlatColorShader.reset(Trinity::Shader::Create(flatColorVertexSource, flatColorFragmentSource));
+		m_FlatColorShader = Trinity::Shader::Create("Square Shader", flatColorVertexSource, flatColorFragmentSource);
 
-		m_TextureShader.reset(Trinity::Shader::Create("assets/shaders/Texture.glsl"));
+		auto textureShader = m_ShaderLibrary.Load("assets/shaders/Texture.glsl");
 
 		m_Texture = Trinity::Texture2D::Create("assets/textures/texture.png");
+		m_Blend = Trinity::Texture2D::Create("assets/textures/blend.png");
 
-		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_TextureShader)->Bind();
-		std::dynamic_pointer_cast<Trinity::OpenGLShader>(m_TextureShader)->UploadUniformInt("u_Texture", 0);
+		std::dynamic_pointer_cast<Trinity::OpenGLShader>(textureShader)->Bind();
+		std::dynamic_pointer_cast<Trinity::OpenGLShader>(textureShader)->UploadUniformInt("u_Texture", 0);
 	}
 
 	void OnUpdate(Trinity::Timestep timestep) override
@@ -178,10 +179,13 @@ public:
 			}
 		}
 
-		m_Texture->Bind();
-		Trinity::Renderer::Submit(m_TextureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+		auto textureShader = m_ShaderLibrary.Get("Texture");
 
-		//Trinity::Renderer::Submit(m_Shader, m_VertexArray);
+		m_Texture->Bind();
+		Trinity::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(0.5f)));
+
+		m_Blend->Bind();
+		Trinity::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(0.5f)));
 
 		Trinity::Renderer::EndScene();
 	}
@@ -197,14 +201,16 @@ public:
 	}
 
 private:
+	Trinity::ShaderLibrary m_ShaderLibrary;
+
 	Trinity::Ref<Trinity::Shader> m_Shader;
 	Trinity::Ref<Trinity::Shader> m_FlatColorShader;
-	Trinity::Ref<Trinity::Shader> m_TextureShader;
 
 	Trinity::Ref<Trinity::VertexArray> m_VertexArray;
 	Trinity::Ref<Trinity::VertexArray> m_SquareVA;
 
 	Trinity::Ref<Trinity::Texture2D> m_Texture;
+	Trinity::Ref<Trinity::Texture2D> m_Blend;
 
 	Trinity::OrthographicCamera m_Camera;
 	glm::vec3 m_CameraPosition;

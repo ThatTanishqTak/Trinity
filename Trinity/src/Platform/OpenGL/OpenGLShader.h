@@ -12,11 +12,13 @@ namespace Trinity
 	{
 	public:
 		OpenGLShader(const std::string& filePath);
-		OpenGLShader(const std::string& vertexSource, const std::string& fragmentSource);
+		OpenGLShader(const std::string& name, const std::string& vertexSource, const std::string& fragmentSource);
 		virtual ~OpenGLShader();
 
 		virtual void Bind() const override;
 		virtual void Unbind() const override;
+
+		virtual const std::string& GetName() const override { return m_Name; }
 
 		void UploadUniformInt(const std::string& name, int value);
 		void UploadUniformInt2(const std::string& name, const glm::ivec2& values);
@@ -38,5 +40,6 @@ namespace Trinity
 
 	private:
 		uint32_t m_RendererID;
+		std::string m_Name;
 	};
 }
