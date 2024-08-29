@@ -10,7 +10,7 @@
 class DemoLayer : public Trinity::Layer
 {
 public:
-	DemoLayer() : Layer("DemoLayer"), 
+	DemoLayer() : Layer("DemoLayer"),
 		m_CameraController(1280.0f / 720.0f)
 	{
 		m_VertexArray.reset(Trinity::VertexArray::Create());
