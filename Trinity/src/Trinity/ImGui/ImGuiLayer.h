@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Trinity/Layer.h"
+#include "Trinity/Core/Layer.h"
 
 #include "Trinity/Events/Event.h"
 #include "Trinity/Events/ApplicationEvent.h"

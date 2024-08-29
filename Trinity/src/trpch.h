@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "Trinity/Log.h"
+#include "Trinity/Core/Log.h"
 
 // PLATFORM DEPENDENT
 #ifdef TR_PLATFORM_WINDOWS

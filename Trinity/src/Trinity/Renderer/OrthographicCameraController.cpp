@@ -1,8 +1,8 @@
 #include "trpch.h"
 #include "OrthographicCameraController.h"
 
-#include "Trinity/Input.h"
-#include "Trinity/KeyCodes.h"
+#include "Trinity/Core/Input.h"
+#include "Trinity/Core/KeyCodes.h"
 
 namespace Trinity
 {

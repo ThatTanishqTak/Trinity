@@ -3,13 +3,13 @@
 #include "Core.h"
 
 #include "Window.h"
-#include "Trinity/LayerStack.h"
+#include "Trinity/Core/LayerStack.h"
 #include "Trinity/Events/Event.h"
 #include "Trinity/Events/ApplicationEvent.h"
 
 #include "Trinity/Core/Timestep.h"
 
-#include "ImGui/ImGuiLayer.h"
+#include "Trinity/ImGui/ImGuiLayer.h"
 
 namespace Trinity
 {

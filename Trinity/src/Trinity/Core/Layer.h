@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Trinity/Core.h"
+#include "Trinity/Core/Core.h"
 #include "Trinity/Events/Event.h"
 #include "Trinity/Core/Timestep.h"
 

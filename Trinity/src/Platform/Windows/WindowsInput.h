@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Trinity/Input.h"
+#include "Trinity/Core/Input.h"
 
 namespace Trinity
 {

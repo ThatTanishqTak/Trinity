@@ -1,16 +1,15 @@
 #pragma once
 
 // For use by Trinity applications
-#include "Trinity/Application.h"
-#include "Trinity/Layer.h"
-#include "Trinity/Log.h"
+#include "Trinity/Core/Application.h"
+#include "Trinity/Core/Layer.h"
+#include "Trinity/Core/Log.h"
 
 #include "Trinity/Core/Timestep.h"
 
-#include "Trinity/Input.h"
-#include "Trinity/KeyCodes.h"
-#include "Trinity/MouseButtonCodes.h"
-#include "Trinity/OrthographicCameraController.h"
+#include "Trinity/Core/Input.h"
+#include "Trinity/Core/KeyCodes.h"
+#include "Trinity/Core/MouseButtonCodes.h"
 
 #include "Trinity/ImGui/ImGuiLayer.h"
 
@@ -25,8 +24,9 @@
 #include "Trinity/Renderer/Texture.h"
 #include "Trinity/Renderer/VertexArray.h"
 #include "Trinity/Renderer/OrthographicCamera.h"
+#include "Trinity/Renderer/OrthographicCameraController.h"
 // ------------------------------------------------
 
 // ------- ENTRY POINT ------------------
-#include "Trinity/EntryPoint.h"
+#include "Trinity/Core/EntryPoint.h"
 // --------------------------------------

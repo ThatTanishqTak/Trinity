@@ -1,7 +1,7 @@
 #include "trpch.h"
 #include "Application.h"
 
-#include "Trinity/Log.h"
+#include "Trinity/Core/Log.h"
 
 #include "Trinity/Renderer/Renderer.h"
 

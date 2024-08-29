@@ -81,17 +81,38 @@
     <ClInclude Include="src\Trinity.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Application.h">
-      <Filter>src\Trinity</Filter>
+    <ClInclude Include="src\Trinity\Core\Application.h">
+      <Filter>src\Trinity\Core</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Core.h">
-      <Filter>src\Trinity</Filter>
+    <ClInclude Include="src\Trinity\Core\Core.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\EntryPoint.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\Input.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\KeyCodes.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\Layer.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\LayerStack.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\Log.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\MouseButtonCodes.h">
+      <Filter>src\Trinity\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Core\Timestep.h">
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\EntryPoint.h">
-      <Filter>src\Trinity</Filter>
+    <ClInclude Include="src\Trinity\Core\Window.h">
+      <Filter>src\Trinity\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Events\ApplicationEvent.h">
       <Filter>src\Trinity\Events</Filter>
@@ -108,24 +129,6 @@
     <ClInclude Include="src\Trinity\ImGui\ImGuiLayer.h">
       <Filter>src\Trinity\ImGui</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Input.h">
-      <Filter>src\Trinity</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Trinity\KeyCodes.h">
-      <Filter>src\Trinity</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Trinity\Layer.h">
-      <Filter>src\Trinity</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Trinity\LayerStack.h">
-      <Filter>src\Trinity</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Trinity\Log.h">
-      <Filter>src\Trinity</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Trinity\MouseButtonCodes.h">
-      <Filter>src\Trinity</Filter>
-    </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\Buffer.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
@@ -133,6 +136,9 @@
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\OrthographicCamera.h">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Renderer\OrthographicCameraController.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\RenderCommand.h">
@@ -152,9 +158,6 @@
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\VertexArray.h">
       <Filter>src\Trinity\Renderer</Filter>
-    </ClInclude>
-    <ClInclude Include="src\Trinity\Window.h">
-      <Filter>src\Trinity</Filter>
     </ClInclude>
     <ClInclude Include="src\trpch.h">
       <Filter>src</Filter>
@@ -1410,7 +1413,6 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\OrthographicCameraController.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1437,8 +1439,17 @@
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp">
       <Filter>src\Platform\Windows</Filter>
     </ClCompile>
-    <ClCompile Include="src\Trinity\Application.cpp">
-      <Filter>src\Trinity</Filter>
+    <ClCompile Include="src\Trinity\Core\Application.cpp">
+      <Filter>src\Trinity\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Core\Layer.cpp">
+      <Filter>src\Trinity\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Core\LayerStack.cpp">
+      <Filter>src\Trinity\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Core\Log.cpp">
+      <Filter>src\Trinity\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\ImGui\ImGuiBuild.cpp">
       <Filter>src\Trinity\ImGui</Filter>
@@ -1446,19 +1457,13 @@
     <ClCompile Include="src\Trinity\ImGui\ImGuiLayer.cpp">
       <Filter>src\Trinity\ImGui</Filter>
     </ClCompile>
-    <ClCompile Include="src\Trinity\Layer.cpp">
-      <Filter>src\Trinity</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Trinity\LayerStack.cpp">
-      <Filter>src\Trinity</Filter>
-    </ClCompile>
-    <ClCompile Include="src\Trinity\Log.cpp">
-      <Filter>src\Trinity</Filter>
-    </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\Buffer.cpp">
       <Filter>src\Trinity\Renderer</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\OrthographicCamera.cpp">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Renderer\OrthographicCameraController.cpp">
       <Filter>src\Trinity\Renderer</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\RenderCommand.cpp">
@@ -1485,6 +1490,5 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\Trinity\OrthographicCameraController.cpp" />
   </ItemGroup>
 </Project>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Trinity/Window.h"
+#include "Trinity/Core/Window.h"
 #include "Trinity/Renderer/GraphicsContext.h"
 
 //#include "Trinity/Core.h"

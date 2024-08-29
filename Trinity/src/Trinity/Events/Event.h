@@ -2,7 +2,7 @@
 
 #include "trpch.h"
 
-#include "Trinity/Core.h"
+#include "Trinity/Core/Core.h"
 
 namespace Trinity
 {

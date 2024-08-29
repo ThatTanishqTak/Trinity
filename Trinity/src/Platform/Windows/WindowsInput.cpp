@@ -1,7 +1,7 @@
 #include "trpch.h"
 #include "WindowsInput.h"
 
-#include "Trinity/Application.h"
+#include "Trinity/Core/Application.h"
 
 #include <GLFW/glfw3.h>
 
