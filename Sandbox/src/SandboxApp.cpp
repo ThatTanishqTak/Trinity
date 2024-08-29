@@ -165,7 +165,7 @@ public:
 				glm::vec3 pos(x * 0.2f, y * 0.2f, 0.0f);
 				glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * scale;
 
-				//Trinity::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
+				Trinity::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
 			}
 		}
 

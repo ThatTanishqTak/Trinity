@@ -52,6 +52,7 @@ namespace Trinity
 	{
 		EventDispatcher dispatcher(event);
 		dispatcher.Dispatch<WindowCloseEvent>(BIND_EVENT_FN(OnWindowClose));
+		dispatcher.Dispatch<WindowResizeEvent>(BIND_EVENT_FN(OnWindowResize));
 
 		for (auto it = m_LayerStack.end(); it != m_LayerStack.begin();)
 		{
@@ -69,12 +70,15 @@ namespace Trinity
 		{
 			float time = (float)glfwGetTime();
 			Timestep timestep = time - m_LastFrameTime;
-			
+
 			m_LastFrameTime = time;
 
-			for (Layer* layer : m_LayerStack)
+			if (!m_Minimized)
 			{
-				layer->OnUpdate(timestep);
+				for (Layer* layer : m_LayerStack)
+				{
+					layer->OnUpdate(timestep);
+				}
 			}
 
 			m_ImGuiLayer->Begin();
@@ -95,5 +99,20 @@ namespace Trinity
 		m_Running = false;
 
 		return true;
+	}
+
+	bool Application::OnWindowResize(WindowResizeEvent& resizeEvent)
+	{
+		if (resizeEvent.GetWidth() == 0 || resizeEvent.GetHeight() == 0)
+		{
+			m_Minimized = true;
+			return false;
+		}
+
+		m_Minimized = false;
+
+		Renderer::OnWindowResize(resizeEvent.GetWidth(), resizeEvent.GetHeight());
+
+		return false;
 	}
 }
