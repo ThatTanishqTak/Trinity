@@ -167,6 +167,7 @@
     <ClInclude Include="src\Trinity\LayerStack.h" />
     <ClInclude Include="src\Trinity\Log.h" />
     <ClInclude Include="src\Trinity\MouseButtonCodes.h" />
+    <ClInclude Include="src\Trinity\OrthographicCameraController.h" />
     <ClInclude Include="src\Trinity\Renderer\Buffer.h" />
     <ClInclude Include="src\Trinity\Renderer\GraphicsContext.h" />
     <ClInclude Include="src\Trinity\Renderer\OrthographicCamera.h" />
@@ -611,6 +612,7 @@
     <ClCompile Include="src\Trinity\Layer.cpp" />
     <ClCompile Include="src\Trinity\LayerStack.cpp" />
     <ClCompile Include="src\Trinity\Log.cpp" />
+    <ClCompile Include="src\Trinity\OrthographicCameraController.cpp" />
     <ClCompile Include="src\Trinity\Renderer\Buffer.cpp" />
     <ClCompile Include="src\Trinity\Renderer\OrthographicCamera.cpp" />
     <ClCompile Include="src\Trinity\Renderer\RenderCommand.cpp" />

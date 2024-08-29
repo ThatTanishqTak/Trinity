@@ -10,6 +10,7 @@
 #include "Trinity/Input.h"
 #include "Trinity/KeyCodes.h"
 #include "Trinity/MouseButtonCodes.h"
+#include "Trinity/OrthographicCameraController.h"
 
 #include "Trinity/ImGui/ImGuiLayer.h"
 
