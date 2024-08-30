@@ -1,6 +1,6 @@
 #pragma once
 
-// For use by Trinity applications
+// For use by Trinity applications-----------------
 #include "Trinity/Core/Application.h"
 #include "Trinity/Core/Layer.h"
 #include "Trinity/Core/Log.h"
@@ -14,9 +14,11 @@
 #include "Trinity/ImGui/ImGuiLayer.h"
 
 #include <glm/glm.hpp>
+//-------------------------------------------------
 
 // ------------RENDERER----------------------------
 #include "Trinity/Renderer/Renderer.h"
+#include "Trinity/Renderer/Renderer2D.h"
 #include "Trinity/Renderer/RenderCommand.h"
 
 #include "Trinity/Renderer/Buffer.h"
@@ -27,6 +29,6 @@
 #include "Trinity/Renderer/OrthographicCameraController.h"
 // ------------------------------------------------
 
-// ------- ENTRY POINT ------------------
+// ------- ENTRY POINT ----------------------------
 //#include "Trinity/Core/EntryPoint.h"
-// --------------------------------------
+// ------------------------------------------------

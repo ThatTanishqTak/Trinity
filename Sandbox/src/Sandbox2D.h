@@ -10,11 +10,10 @@ public:
 
 	virtual void OnAttach() override;
 	virtual void OnDetach() override;
+	virtual void OnImGuiRender() override;
 
 	void OnUpdate(Trinity::Timestep timestep) override;
 	void OnEvent(Trinity::Event& e) override;
-
-	virtual void OnImGuiRender() override;
 
 private:
 	Trinity::OrthographicCameraController m_CameraController;
@@ -22,5 +21,5 @@ private:
 	Trinity::Ref<Trinity::VertexArray> m_SquareVA;
 	Trinity::Ref<Trinity::Shader> m_FlatColorShader;
 
-	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
+	glm::vec4 m_SquareColor = { 0.8f, 0.3f, 0.8f, 1.0f };
 };
