@@ -1,4 +1,5 @@
 #include <Trinity.h>
+#include <Trinity/Core/EntryPoint.h>
 
 #include "Platform/OpenGL/OpenGLShader.h"
 
@@ -7,13 +8,15 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "Sandbox2D.h"
+
 class DemoLayer : public Trinity::Layer
 {
 public:
 	DemoLayer() : Layer("DemoLayer"),
 		m_CameraController(1280.0f / 720.0f)
 	{
-		m_VertexArray.reset(Trinity::VertexArray::Create());
+		m_VertexArray = Trinity::VertexArray::Create();
 
 		float vertices[3 * 7] =
 		{
@@ -37,7 +40,7 @@ public:
 		indexBuffer.reset(Trinity::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t)));
 		m_VertexArray->SetIndexBuffer(indexBuffer);
 
-		m_SquareVA.reset(Trinity::VertexArray::Create());
+		m_SquareVA = Trinity::VertexArray::Create();
 
 		float verticesSquare[5 * 4] =
 		{
@@ -215,7 +218,8 @@ class Sandbox : public Trinity::Application
 public:
 	Sandbox()
 	{
-		PushLayer(new DemoLayer);
+		//PushLayer(new DemoLayer());
+		PushLayer(new Sandbox2D());
 	}
 
 	~Sandbox()

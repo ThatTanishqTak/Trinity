@@ -28,5 +28,5 @@
 // ------------------------------------------------
 
 // ------- ENTRY POINT ------------------
-#include "Trinity/Core/EntryPoint.h"
+//#include "Trinity/Core/EntryPoint.h"
 // --------------------------------------
