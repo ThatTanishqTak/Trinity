@@ -19,7 +19,11 @@ private:
 	Trinity::OrthographicCameraController m_CameraController;
 
 	Trinity::Ref<Trinity::VertexArray> m_SquareVA;
+	
 	Trinity::Ref<Trinity::Shader> m_FlatColorShader;
+	
+	Trinity::Ref<Trinity::Texture2D> m_Texture;
+	Trinity::Ref<Trinity::Texture2D> m_Blend;
 
 	glm::vec4 m_SquareColor = { 0.8f, 0.3f, 0.8f, 1.0f };
 };
