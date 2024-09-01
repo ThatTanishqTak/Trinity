@@ -23,8 +23,9 @@ void Sandbox2D::OnDetach()
 
 void Sandbox2D::OnImGuiRender()
 {
-	ImGui::Begin("Color Setting");
-	ImGui::ColorEdit4("SquareColor", glm::value_ptr(m_SquareColor));
+	ImGui::Begin("Tint");
+	ImGui::ColorEdit4("Text Tint", glm::value_ptr(m_TextTint));
+	ImGui::ColorEdit4("Background Tint", glm::value_ptr(m_BackgroundTint));
 	ImGui::End();
 }
 
@@ -37,11 +38,8 @@ void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 
 	Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
 
-	//Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, 0.0f }, { 0.8f, 0.8f }, m_SquareColor);
-	//Trinity::Renderer2D::DrawQuad({ 2.0f, 2.0f, 0.0f }, { 0.8f, 0.8f }, m_SquareColor);
-
-	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }, m_Texture);
-	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }, m_Blend);
+	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, m_Blend, m_BackgroundTint);
+	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, m_Texture, m_TextTint);
 
 	Trinity::Renderer2D::EndScene();
 }

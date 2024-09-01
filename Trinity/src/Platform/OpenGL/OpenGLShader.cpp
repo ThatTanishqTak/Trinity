@@ -188,6 +188,31 @@ namespace Trinity
 		UploadUniformInt(name, value);
 	}
 
+	void OpenGLShader::SetInt2(const std::string& name, const glm::ivec2& values)
+	{
+		UploadUniformInt2(name, values);
+	}
+
+	void OpenGLShader::SetInt3(const std::string& name, const glm::ivec3& values)
+	{
+		UploadUniformInt3(name, values);
+	}
+
+	void OpenGLShader::SetInt4(const std::string& name, const glm::ivec4& values)
+	{
+		UploadUniformInt4(name, values);
+	}
+
+	void OpenGLShader::SetFloat(const std::string& name, float value)
+	{
+		UploadUniformFloat(name, value);
+	}
+
+	void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& values)
+	{
+		UploadUniformFloat2(name, values);
+	}
+
 	void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& values)
 	{
 		UploadUniformFloat3(name, values);
@@ -196,6 +221,11 @@ namespace Trinity
 	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& values)
 	{
 		UploadUniformFloat4(name, values);
+	}
+
+	void OpenGLShader::SetMat3(const std::string& name, const glm::mat3& values)
+	{
+		UploadUniformMat3(name, values);
 	}
 
 	void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& values)

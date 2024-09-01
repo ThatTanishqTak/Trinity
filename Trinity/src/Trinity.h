@@ -1,18 +1,17 @@
 #pragma once
 
-// For use by Trinity applications-----------------
+// -----------BASE LIBRARIES-----------------------
 #include "Trinity/Core/Application.h"
 #include "Trinity/Core/Layer.h"
 #include "Trinity/Core/Log.h"
-
 #include "Trinity/Core/Timestep.h"
-
 #include "Trinity/Core/Input.h"
 #include "Trinity/Core/KeyCodes.h"
 #include "Trinity/Core/MouseButtonCodes.h"
+//-------------------------------------------------
 
+//-------------EXTERNAL LIBRARIES------------------
 #include "Trinity/ImGui/ImGuiLayer.h"
-
 #include <glm/glm.hpp>
 //-------------------------------------------------
 
