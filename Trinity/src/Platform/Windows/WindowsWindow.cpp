@@ -1,5 +1,4 @@
 #include "trpch.h"
-
 #include "WindowsWindow.h"
 
 #include "Trinity/Events/ApplicationEvent.h"
