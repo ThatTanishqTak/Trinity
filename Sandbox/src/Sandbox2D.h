@@ -27,12 +27,4 @@ private:
 
 	glm::vec4 m_BackgroundTint = { 1.0f, 1.0f, 1.0f, 1.0f };
 	glm::vec4 m_TextTint = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-	struct ProfileResult
-	{
-		const char* Name;
-		float Time;
-	};
-
-	std::vector<ProfileResult> m_ProfileResults;
 };

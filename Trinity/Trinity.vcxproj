@@ -163,6 +163,7 @@
     <ClInclude Include="src\Trinity\Core\MouseButtonCodes.h" />
     <ClInclude Include="src\Trinity\Core\Timestep.h" />
     <ClInclude Include="src\Trinity\Core\Window.h" />
+    <ClInclude Include="src\Trinity\Debug\Instrumentor.h" />
     <ClInclude Include="src\Trinity\Events\ApplicationEvent.h" />
     <ClInclude Include="src\Trinity\Events\Event.h" />
     <ClInclude Include="src\Trinity\Events\KeyEvent.h" />

@@ -16,6 +16,7 @@
 #include <unordered_set>
 
 #include "Trinity/Core/Log.h"
+#include "Trinity/Debug/Instrumentor.h"
 
 // PLATFORM DEPENDENT
 #ifdef TR_PLATFORM_WINDOWS
