@@ -2,7 +2,6 @@
 #include <Trinity/Core/EntryPoint.h>
 
 #include "Platform/OpenGL/OpenGLShader.h"
-
 #include "ImGui/imgui.h"
 
 #include <glm/gtc/matrix_transform.hpp>

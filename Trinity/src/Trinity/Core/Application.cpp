@@ -19,8 +19,8 @@ namespace Trinity
 
 	Application::Application() : m_LastFrameTime(0.0f)
 	{
-		TR_CORE_ASSERT(!s_Instance, "Application already exists!")
-			s_Instance = this;
+		TR_CORE_ASSERT(!s_Instance, "Application already exists!");		
+		s_Instance = this;
 
 		m_Window = std::unique_ptr<Window>(Window::Create());
 		m_Window->SetEventCallback(BIND_EVENT_FN(OnEvent));
@@ -79,16 +79,16 @@ namespace Trinity
 				{
 					layer->OnUpdate(timestep);
 				}
+
+				m_ImGuiLayer->Begin();
+
+				for (Layer* layer : m_LayerStack)
+				{
+					layer->OnImGuiRender();
+				}
+
+				m_ImGuiLayer->End();
 			}
-
-			m_ImGuiLayer->Begin();
-
-			for (Layer* layer : m_LayerStack)
-			{
-				layer->OnImGuiRender();
-			}
-
-			m_ImGuiLayer->End();
 
 			m_Window->OnUpdate();
 		}

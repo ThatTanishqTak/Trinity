@@ -33,26 +33,15 @@ void Sandbox2D::OnImGuiRender()
 
 void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 {
-	TR_PROFILE_FUNCTION();
+	m_CameraController.OnUpdate(timestep);
 
-	{
-		TR_PROFILE_SCOPE("Sandbox2D::CameraController");
-		m_CameraController.OnUpdate(timestep);
-	}
-
-	{
-		TR_PROFILE_SCOPE("Sandbox2D::Render Start");
-		Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
-		Trinity::RenderCommand::Clear();
-	}
+	Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
+	Trinity::RenderCommand::Clear();
 
 	Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
 
-	{
-		TR_PROFILE_SCOPE("Sandbox2D::DrawCalls");
-		Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 16.0f, 9.0f }, m_Blend, m_BackgroundTint);
-		Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, m_Texture, m_TextTint);
-	}
+	Trinity::Renderer2D::DrawRotatedQuad({ 0.0f, 0.0f }, { 16.0f, 9.0f }, glm::radians(45.0f), m_Blend, m_BackgroundTint);
+	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, m_Texture, m_TextTint);
 
 	Trinity::Renderer2D::EndScene();
 }
