@@ -28,13 +28,17 @@
         #define TR_CORE_ASSERT(x, ...)
 #endif
 
+//--------------------DEFINED FUNCTIONS-------------------------------------
 #define BIT(x) (1 << x)
 #define TR_BIND_EVENT_FN(fn) std::bind(&fn, this, std::placeholders::_1)
+//--------------------------------------------------------------------------
+
 
 namespace Trinity
 {
     template<typename T>
     using Scope = std::unique_ptr<T>;
+
     template<typename T, typename ... Args>
     constexpr Scope<T> CreateScope(Args&& ... args)
     {
@@ -43,6 +47,7 @@ namespace Trinity
 
     template<typename T>
     using Ref = std::shared_ptr<T>;
+    
     template<typename T, typename ... Args>
     constexpr Ref<T> CreateRef(Args&& ... args)
     {

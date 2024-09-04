@@ -25,8 +25,7 @@ void Sandbox2D::OnImGuiRender()
 {
 	ImGui::Begin("Tint");
 	
-	ImGui::ColorEdit4("Text Tint", glm::value_ptr(m_TextTint));
-	ImGui::ColorEdit4("Background Tint", glm::value_ptr(m_BackgroundTint));
+	ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
 	
 	ImGui::End();
 }
@@ -40,8 +39,7 @@ void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 
 	Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
 
-	Trinity::Renderer2D::DrawRotatedQuad({ 0.0f, 0.0f }, { 16.0f, 9.0f }, glm::radians(45.0f), m_Blend, m_BackgroundTint);
-	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, m_Texture, m_TextTint);
+	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, m_SquareColor);
 
 	Trinity::Renderer2D::EndScene();
 }

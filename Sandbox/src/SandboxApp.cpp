@@ -25,7 +25,7 @@ public:
 		};
 
 		Trinity::Ref<Trinity::VertexBuffer> vertexBuffer;
-		vertexBuffer.reset(Trinity::VertexBuffer::Create(vertices, sizeof(vertices)));
+		vertexBuffer = Trinity::VertexBuffer::Create(vertices, sizeof(vertices));
 		Trinity::BufferLayout layout =
 		{
 			{ Trinity::ShaderDataType::Float3, std::string("a_Position") }
@@ -36,7 +36,7 @@ public:
 
 		uint32_t indices[3] = { 0, 1, 2 };
 		Trinity::Ref<Trinity::IndexBuffer> indexBuffer;
-		indexBuffer.reset(Trinity::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t)));
+		indexBuffer = Trinity::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
 		m_VertexArray->SetIndexBuffer(indexBuffer);
 
 		m_SquareVA = Trinity::VertexArray::Create();
@@ -49,21 +49,21 @@ public:
 			  -0.75f,  0.75f, 0.0f, 0.0f, 1.0f
 		};
 
-		Trinity::Ref<Trinity::VertexBuffer> squareVB;
-		squareVB.reset(Trinity::VertexBuffer::Create(verticesSquare, sizeof(verticesSquare)));
+		Trinity::Ref<Trinity::VertexBuffer> quadVB;
+		quadVB = Trinity::VertexBuffer::Create(verticesSquare, sizeof(verticesSquare));
 		Trinity::BufferLayout squareLayout =
 		{
 			{ Trinity::ShaderDataType::Float3, std::string("a_Position") },
 			{ Trinity::ShaderDataType::Float2, std::string("a_TexCoord") }
 		};
 
-		squareVB->SetLayout(squareLayout);
-		m_SquareVA->AddVertexBuffer(squareVB);
+		quadVB->SetLayout(squareLayout);
+		m_SquareVA->AddVertexBuffer(quadVB);
 
 		uint32_t indicesSquare[6] = { 0, 1, 2, 2, 3, 0 };
-		Trinity::Ref<Trinity::IndexBuffer> squareIB;
-		squareIB.reset(Trinity::IndexBuffer::Create(indicesSquare, sizeof(indicesSquare) / sizeof(uint32_t)));
-		m_SquareVA->SetIndexBuffer(squareIB);
+		Trinity::Ref<Trinity::IndexBuffer> quadIB;
+		quadIB = Trinity::IndexBuffer::Create(indicesSquare, sizeof(indicesSquare) / sizeof(uint32_t));
+		m_SquareVA->SetIndexBuffer(quadIB);
 
 		std::string vertexSource =
 			R"(

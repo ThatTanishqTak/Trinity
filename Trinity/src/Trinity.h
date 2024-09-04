@@ -27,7 +27,3 @@
 #include "Trinity/Renderer/OrthographicCamera.h"
 #include "Trinity/Renderer/OrthographicCameraController.h"
 // ------------------------------------------------
-
-// ------- ENTRY POINT ----------------------------
-//#include "Trinity/Core/EntryPoint.h"
-// ------------------------------------------------

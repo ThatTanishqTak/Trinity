@@ -25,6 +25,5 @@ private:
 	Trinity::Ref<Trinity::Texture2D> m_Texture;
 	Trinity::Ref<Trinity::Texture2D> m_Blend;
 
-	glm::vec4 m_BackgroundTint = { 1.0f, 1.0f, 1.0f, 1.0f };
-	glm::vec4 m_TextTint = { 1.0f, 1.0f, 1.0f, 1.0f };
+	glm::vec4 m_SquareColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
