@@ -16,6 +16,7 @@ namespace Trinity
 		virtual void Unbind() const = 0;
 
 		virtual void SetInt(const std::string& name, int value) = 0;
+		virtual void SetIntArray(const std::string& name, int* values, uint32_t count) = 0;
 		virtual void SetInt2(const std::string& name, const glm::ivec2& values) = 0;
 		virtual void SetInt3(const std::string& name, const glm::ivec3& values) = 0;
 		virtual void SetInt4(const std::string& name, const glm::ivec4& values) = 0;

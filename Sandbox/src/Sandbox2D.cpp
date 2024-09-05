@@ -35,9 +35,12 @@ void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 	m_CameraController.OnUpdate(timestep);
 
 	Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
+	Trinity::RenderCommand::Clear();
+
 	Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
 
 	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, m_SquareColor);
+	//Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 16.0f, 9.0f }, m_Blend);
 
 	Trinity::Renderer2D::EndScene();
 }

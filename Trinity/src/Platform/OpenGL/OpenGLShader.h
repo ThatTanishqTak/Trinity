@@ -19,6 +19,7 @@ namespace Trinity
 		virtual void Unbind() const override;
 
 		virtual void SetInt(const std::string& name, int value) override;
+		virtual void SetIntArray(const std::string& name, int* values, uint32_t count) override;
 		virtual void SetInt2(const std::string& name, const glm::ivec2& values) override;
 		virtual void SetInt3(const std::string& name, const glm::ivec3& values) override;
 		virtual void SetInt4(const std::string& name, const glm::ivec4& values) override;
@@ -34,6 +35,7 @@ namespace Trinity
 		virtual const std::string& GetName() const override { return m_Name; }
 
 		void UploadUniformInt(const std::string& name, int value);
+		void UploadUniformIntArray(const std::string& name, int* values, uint32_t count);
 		void UploadUniformInt2(const std::string& name, const glm::ivec2& values);
 		void UploadUniformInt3(const std::string& name, const glm::ivec3& values);
 		void UploadUniformInt4(const std::string& name, const glm::ivec4& values);
