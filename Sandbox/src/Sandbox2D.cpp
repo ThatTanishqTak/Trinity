@@ -23,10 +23,23 @@ void Sandbox2D::OnDetach()
 
 void Sandbox2D::OnImGuiRender()
 {
-	ImGui::Begin("Tint");
-	
-	ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
-	
+	{
+		ImGui::Begin("Tint");
+
+		ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
+
+		ImGui::End();
+	}
+
+	ImGui::Begin("Renderer2D Stats:");
+
+	auto stats = Trinity::Renderer2D::GetStats();
+
+	ImGui::Text("DrawCalls: %d", stats.DrawCalls);
+	ImGui::Text("Index Count: %d", stats.GetTotalIndexCount());
+	ImGui::Text("Vertex Count: %d", stats.GetTotalVertexCount());
+	ImGui::Text("Quad Count: %d", stats.QuadCount);
+
 	ImGui::End();
 }
 
@@ -34,12 +47,15 @@ void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 {
 	m_CameraController.OnUpdate(timestep);
 
+
+	Trinity::Renderer2D::ResetStats();
 	Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 	Trinity::RenderCommand::Clear();
 
 	Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
 
-	//Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 16.0f, 9.0f }, m_Blend);
+	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 16.0f, 9.0f }, m_Blend);
+	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, m_Texture, 1.0f, m_SquareColor);
 	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, m_SquareColor);
 
 	Trinity::Renderer2D::EndScene();
