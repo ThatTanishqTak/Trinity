@@ -178,6 +178,7 @@
     <ClInclude Include="src\Trinity\Renderer\Renderer2D.h" />
     <ClInclude Include="src\Trinity\Renderer\RendererAPI.h" />
     <ClInclude Include="src\Trinity\Renderer\Shader.h" />
+    <ClInclude Include="src\Trinity\Renderer\SubTexture2D.h" />
     <ClInclude Include="src\Trinity\Renderer\Texture.h" />
     <ClInclude Include="src\Trinity\Renderer\VertexArray.h" />
     <ClInclude Include="src\trpch.h" />
@@ -622,6 +623,7 @@
     <ClCompile Include="src\Trinity\Renderer\Renderer2D.cpp" />
     <ClCompile Include="src\Trinity\Renderer\RendererAPI.cpp" />
     <ClCompile Include="src\Trinity\Renderer\Shader.cpp" />
+    <ClCompile Include="src\Trinity\Renderer\SubTexture2D.cpp" />
     <ClCompile Include="src\Trinity\Renderer\Texture.cpp" />
     <ClCompile Include="src\Trinity\Renderer\VertexArray.cpp" />
     <ClCompile Include="src\trpch.cpp">

@@ -25,6 +25,8 @@ private:
 	Trinity::Ref<Trinity::Texture2D> m_Texture;
 	Trinity::Ref<Trinity::Texture2D> m_Blend;
 
+	Trinity::Ref<Trinity::SubTexture2D> m_SubTexture;
+
 	glm::vec4 m_SquareColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 	float m_Rotation = 0;
