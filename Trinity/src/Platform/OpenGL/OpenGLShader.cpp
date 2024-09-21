@@ -188,11 +188,6 @@ namespace Trinity
 		UploadUniformInt(name, value);
 	}
 
-	void OpenGLShader::SetIntArray(const std::string& name, int* values, uint32_t count)
-	{
-		UploadUniformIntArray(name, values, count);
-	}
-
 	void OpenGLShader::SetInt2(const std::string& name, const glm::ivec2& values)
 	{
 		UploadUniformInt2(name, values);
@@ -206,6 +201,11 @@ namespace Trinity
 	void OpenGLShader::SetInt4(const std::string& name, const glm::ivec4& values)
 	{
 		UploadUniformInt4(name, values);
+	}
+
+	void OpenGLShader::SetIntArray(const std::string& name, int* values, uint32_t count)
+	{
+		UploadUniformIntArray(name, values, count);
 	}
 
 	void OpenGLShader::SetFloat(const std::string& name, float value)

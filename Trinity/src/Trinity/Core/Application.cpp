@@ -106,6 +106,7 @@ namespace Trinity
 		if (resizeEvent.GetWidth() == 0 || resizeEvent.GetHeight() == 0)
 		{
 			m_Minimized = true;
+
 			return false;
 		}
 

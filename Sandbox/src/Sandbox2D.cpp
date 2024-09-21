@@ -15,7 +15,7 @@ void Sandbox2D::OnAttach()
 	m_Texture = Trinity::Texture2D::Create("assets/textures/texture.png");
 	m_Blend = Trinity::Texture2D::Create("assets/textures/blend.png");
 
-	m_SubTexture = Trinity::SubTexture2D::CreateFromCoords(m_Texture, {1.0f, 1.0f}, {0.1f, 0.1f});
+	m_SubTexture = Trinity::SubTexture2D::CreateFromCoords(m_Texture, { 1.0f, 1.0f }, { 0.1f, 0.1f });
 }
 
 void Sandbox2D::OnDetach()
@@ -56,18 +56,19 @@ void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 	Trinity::RenderCommand::Clear();
 
 	Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
+	{
+		Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 16.0f, 9.0f }, glm::radians(0.0f), m_Blend);
+		Trinity::Renderer2D::DrawQuad({ 1.0f, 1.0f }, { 1.0f, 1.0f }, glm::radians(0.0f), m_SquareColor);
+		Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, glm::radians(0.0f), m_Texture);
 
-	//Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 16.0f, 9.0f }, 0.0f, m_Blend);
-	//Trinity::Renderer2D::DrawQuad({ 1.0f, 1.0f }, { 1.0f, 1.0f }, 0.0f, m_SquareColor);
-	//Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, 0.0f, m_Texture);
+		Trinity::Renderer2D::DrawTilledQuad({ 2.0f, 2.0f }, { 1.0f, 1.0f }, glm::radians(45.0f), m_Texture, 10.0f);
 
-	//Trinity::Renderer2D::DrawTilledQuad({ 2.0f, 2.0f }, { 1.0f, 1.0f }, glm::radians(45.0f), m_Texture, 10.0f);
+		m_Rotation += m_Speed * timestep;
 
-	//m_Rotation += m_Speed * timestep;
+		Trinity::Renderer2D::DrawTilledQuad({ -2.0f, -2.0f }, { 1.0f, 1.0f }, glm::radians(m_Rotation), m_Blend, 20.0f);
 
-	//Trinity::Renderer2D::DrawTilledQuad({ -2.0f, -2.0f }, { 1.0f, 1.0f }, glm::radians(m_Rotation), m_Blend, 20.0f);
-
-	Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, 0.0f, m_SubTexture);
+		Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, 0.0f, m_SubTexture);
+	}
 
 	Trinity::Renderer2D::EndScene();
 }

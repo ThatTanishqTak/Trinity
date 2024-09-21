@@ -49,7 +49,6 @@ namespace Trinity
 	void Renderer2D::Init()
 	{
 		s_Data.QuadVertexArray = VertexArray::Create();
-
 		s_Data.QuadVertexBuffer = VertexBuffer::Create(s_Data.MaxVertices * sizeof(QuadVertex));
 
 		s_Data.QuadVertexBuffer->SetLayout({
@@ -58,15 +57,14 @@ namespace Trinity
 			{ ShaderDataType::Float2, std::string("a_TexCoord") },
 			{ ShaderDataType::Float, std::string("a_TexIndex") },
 			{ ShaderDataType::Float, std::string("a_TillingFactor") }
-			});
+		});
 
 		s_Data.QuadVertexArray->AddVertexBuffer(s_Data.QuadVertexBuffer);
-
 		s_Data.QuadVertexBufferBase = new QuadVertex[s_Data.MaxVertices];
 
 		uint32_t* quadIndices = new uint32_t[s_Data.MaxIndices];
-
 		uint32_t offset = 0;
+
 		for (uint32_t i = 0; i < s_Data.MaxIndices; i += 6)
 		{
 			quadIndices[i + 0] = offset + 0;

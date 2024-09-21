@@ -13,8 +13,8 @@ namespace Trinity
 	{
 		switch (Renderer::GetAPI())
 		{
-			case RendererAPI::API::None: { TR_CORE_ASSERT(false, "RendererAPI::None is not currently support!"); return nullptr; }
-			case RendererAPI::API::OpenGL: { return  CreateRef<OpenGLVertexBuffer>(size); }
+			case RendererAPI::API::None:     { TR_CORE_ASSERT(false, "RendererAPI::None is not currently support!"); return nullptr; }
+			case RendererAPI::API::OpenGL:   { return  CreateRef<OpenGLVertexBuffer>(size); }
 		}
 
 		TR_CORE_ASSERT(false, "Unknown RendererAPI!");
@@ -25,8 +25,8 @@ namespace Trinity
 	{
 		switch (Renderer::GetAPI())
 		{
-		    case RendererAPI::API::None: { TR_CORE_ASSERT(false, "RendererAPI::None is not currently support!"); return nullptr; }
-			case RendererAPI::API::OpenGL: { return  CreateRef<OpenGLVertexBuffer>(vertices, size); }
+		    case RendererAPI::API::None:     { TR_CORE_ASSERT(false, "RendererAPI::None is not currently support!"); return nullptr; }
+			case RendererAPI::API::OpenGL:   { return  CreateRef<OpenGLVertexBuffer>(vertices, size); }
 		}
 
 		TR_CORE_ASSERT(false, "Unknown RendererAPI!");
@@ -37,8 +37,8 @@ namespace Trinity
 	{
 		switch (Renderer::GetAPI())
 		{
-			case RendererAPI::API::None: { TR_CORE_ASSERT(false, "RendererAPI::None is not currently support!"); return nullptr; }
-			case RendererAPI::API::OpenGL: { return CreateRef<OpenGLIndexBuffer>(indices, size); }
+			case RendererAPI::API::None:     { TR_CORE_ASSERT(false, "RendererAPI::None is not currently support!"); return nullptr; }
+			case RendererAPI::API::OpenGL:   { return CreateRef<OpenGLIndexBuffer>(indices, size); }
 		}
 
 		TR_CORE_ASSERT(false, "Unknown RendererAPI!");
