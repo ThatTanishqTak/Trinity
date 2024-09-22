@@ -55,8 +55,8 @@ namespace Trinity
 			{ ShaderDataType::Float3, std::string("a_Position") },
 			{ ShaderDataType::Float4, std::string("a_Color") },
 			{ ShaderDataType::Float2, std::string("a_TexCoord") },
-			{ ShaderDataType::Float, std::string("a_TexIndex") },
-			{ ShaderDataType::Float, std::string("a_TillingFactor") }
+			{ ShaderDataType::Float,  std::string("a_TexIndex") },
+			{ ShaderDataType::Float,  std::string("a_TillingFactor") }
 		});
 
 		s_Data.QuadVertexArray->AddVertexBuffer(s_Data.QuadVertexBuffer);
