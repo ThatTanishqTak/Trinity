@@ -94,7 +94,60 @@ project "Trinity"
 		runtime "Release"
 		optimize "on"
 
-project "Sandbox"
+project "Tri-Editor"
+	location "Tri-Editor"
+	kind "ConsoleApp"
+	language "C++"
+	cppdialect "C++17"
+	staticruntime "on"
+
+	targetdir ("bin/" .. outputDir .. "/%{prj.name}")
+	objdir ("bin-int/" .. outputDir .. "/%{prj.name}")
+
+	files
+	{
+		"%{prj.name}/src/**.h",
+		"%{prj.name}/src/**.cpp"
+	}
+
+	includedirs
+	{
+		"$(SolutionDir)Trinity/vendor/spdlog/include",
+		"Trinity/src",
+		"Trinity/vendor",
+		"%{IncludeDir.glm}"
+	}
+
+	links
+	{
+		"Trinity"
+	}
+
+	filter "system:windows"
+		systemversion "latest"
+		runtime "Debug"
+
+		defines 
+		{
+			"TR_PLATFORM_WINDOWS"
+		}
+
+	filter "configurations:Debug"
+		defines "TR_DEBUG"
+		runtime "Debug"
+		symbols "on"
+
+	filter "configurations:Release"
+		defines "TR_RELEASE"
+		runtime "Release"
+		optimize "on"
+
+	filter "configurations:Dist"
+		defines "TR_DIST"
+		runtime "Release"
+		optimize "on"
+
+		project "Sandbox"
 	location "Sandbox"
 	kind "ConsoleApp"
 	language "C++"

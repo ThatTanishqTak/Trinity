@@ -63,6 +63,9 @@
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h">
       <Filter>src\Platform\OpenGL</Filter>
     </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLFramebuffer.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
     <ClInclude Include="src\Platform\OpenGL\OpenGLRendererAPI.h">
       <Filter>src\Platform\OpenGL</Filter>
     </ClInclude>
@@ -138,6 +141,9 @@
     <ClInclude Include="src\Trinity\Renderer\Buffer.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
+    <ClInclude Include="src\Trinity\Renderer\Framebuffer.h">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\GraphicsContext.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
@@ -160,6 +166,9 @@
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\Shader.h">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Renderer\SubTexture2D.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\Texture.h">
@@ -1422,15 +1431,15 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Renderer\SubTexture2D.h" />
-    <ClInclude Include="src\Trinity\Renderer\Framebuffer.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLFramebuffer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
       <Filter>src\Platform\OpenGL</Filter>
     </ClCompile>
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLFramebuffer.cpp">
       <Filter>src\Platform\OpenGL</Filter>
     </ClCompile>
     <ClCompile Include="src\Platform\OpenGL\OpenGLRendererAPI.cpp">
@@ -1472,6 +1481,9 @@
     <ClCompile Include="src\Trinity\Renderer\Buffer.cpp">
       <Filter>src\Trinity\Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="src\Trinity\Renderer\Framebuffer.cpp">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\OrthographicCamera.cpp">
       <Filter>src\Trinity\Renderer</Filter>
     </ClCompile>
@@ -1493,6 +1505,9 @@
     <ClCompile Include="src\Trinity\Renderer\Shader.cpp">
       <Filter>src\Trinity\Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="src\Trinity\Renderer\SubTexture2D.cpp">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\Texture.cpp">
       <Filter>src\Trinity\Renderer</Filter>
     </ClCompile>
@@ -1505,8 +1520,5 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\Trinity\Renderer\SubTexture2D.cpp" />
-    <ClCompile Include="src\Trinity\Renderer\Framebuffer.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\OpenGLFramebuffer.cpp" />
   </ItemGroup>
 </Project>
