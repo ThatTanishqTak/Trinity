@@ -16,6 +16,12 @@ void Sandbox2D::OnAttach()
 	m_Blend = Trinity::Texture2D::Create("assets/textures/blend.png");
 
 	m_SubTexture = Trinity::SubTexture2D::CreateFromCoords(m_Texture, { 1.0f, 1.0f }, { 0.01f, 0.01f });
+
+    Trinity::FramebufferSpecifications specs;
+    specs.Width = 1280;
+    specs.Height = 720;
+
+    m_Framebuffer = Trinity::Framebuffer::Create(specs);
 }
 
 void Sandbox2D::OnDetach()
@@ -31,8 +37,6 @@ void Sandbox2D::OnImGuiRender()
     static bool opt_padding = false;
     static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
-    // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
-    // because it would be confusing to have two docking targets within each others.
     ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
     if (opt_fullscreen)
     {
@@ -50,16 +54,9 @@ void Sandbox2D::OnImGuiRender()
         dockspace_flags &= ~ImGuiDockNodeFlags_PassthruCentralNode;
     }
 
-    // When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background
-    // and handle the pass-thru hole, so we ask Begin() to not render a background.
     if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
         window_flags |= ImGuiWindowFlags_NoBackground;
 
-    // Important: note that we proceed even if Begin() returns false (aka window is collapsed).
-    // This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
-    // all active windows docked into it will lose their parent and become undocked.
-    // We cannot preserve the docking relationship between an active window and an inactive docking, otherwise
-    // any change of dockspace/settings would lead to windows being stuck in limbo and never being visible.
     if (!opt_padding)
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::Begin("DockSpace Demo", &dockspaceOpen, window_flags);
@@ -69,7 +66,6 @@ void Sandbox2D::OnImGuiRender()
     if (opt_fullscreen)
         ImGui::PopStyleVar(2);
 
-    // Submit the DockSpace
     ImGuiIO& io = ImGui::GetIO();
     if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
     {
@@ -90,23 +86,18 @@ void Sandbox2D::OnImGuiRender()
 
     ImGui::Begin("Settings");
     {
-        ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
-        ImGui::InputFloat("Rotation Speed", &m_Speed);
-
-        uint32_t textureID = m_Blend->GetRendererID();
-        ImGui::Image((void*)textureID, ImVec2(256.0f, 256.0f));
-
-        ImGui::End();
-    }
-
-    ImGui::Begin("Renderer2D Stats:");
-    {
         auto stats = Trinity::Renderer2D::GetStats();
 
         ImGui::Text("DrawCalls: %d", stats.DrawCalls);
         ImGui::Text("Index Count: %d", stats.GetTotalIndexCount());
         ImGui::Text("Vertex Count: %d", stats.GetTotalVertexCount());
         ImGui::Text("Quad Count: %d", stats.QuadCount);
+
+        ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
+        ImGui::InputFloat("Rotation Speed", &m_Speed);
+
+        uint32_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
+        ImGui::Image((void*)textureID, ImVec2{ 1280, 720.0f }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
 
         ImGui::End();
     }
@@ -120,6 +111,7 @@ void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 
 	Trinity::Renderer2D::ResetStats();
 
+    m_Framebuffer->Bind();
 	Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 	Trinity::RenderCommand::Clear();
 
@@ -139,6 +131,7 @@ void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 	}
 
 	Trinity::Renderer2D::EndScene();
+    m_Framebuffer->Unbind();
 }
 
 void Sandbox2D::OnEvent(Trinity::Event& e)
