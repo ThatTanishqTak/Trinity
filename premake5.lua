@@ -1,6 +1,6 @@
 workspace "Trinity"
 	architecture "x64"
-	startproject "Trinity Forge"
+	startproject "Forge"
 	
 	configurations
 	{
@@ -147,8 +147,8 @@ project "Sandbox"
 		runtime "Release"
 		optimize "on"
 
-project "Trinity Forge"
-	location "Trinity Forge"
+project "Forge"
+	location "Forge"
 	kind "ConsoleApp"
 	language "C++"
 	cppdialect "C++17"
