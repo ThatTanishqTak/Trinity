@@ -33,6 +33,8 @@ namespace Trinity
 
 		glm::vec4 m_SquareColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 
+		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
+
 		float m_Rotation = 0;
 		float m_Speed = 50;
 	};

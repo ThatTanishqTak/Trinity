@@ -5,6 +5,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <iostream>
+
 namespace Trinity
 {
     EditorLayer::EditorLayer() : Layer("TrinityForge Layer"), m_CameraController(1280.0f / 720.0f)
@@ -98,10 +100,25 @@ namespace Trinity
             ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
             ImGui::InputFloat("Rotation Speed", &m_Speed);
 
+            ImGui::End();
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
+
+            ImGui::Begin("Viewport");
+            ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
+            if (m_ViewportSize != *((glm::vec2*)&viewportPanelSize))
+            {
+                m_Framebuffer->Resize((uint32_t)viewportPanelSize.x, (uint32_t)viewportPanelSize.y);
+                m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
+
+                m_CameraController.OnResize(viewportPanelSize.x, viewportPanelSize.y);
+            }
+
             uint32_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
-            ImGui::Image((void*)textureID, ImVec2{ 1280, 720.0f }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
+            ImGui::Image((void*)textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
 
             ImGui::End();
+            ImGui::PopStyleVar();
         }
 
         ImGui::End();
