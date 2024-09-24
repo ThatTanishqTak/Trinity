@@ -5,15 +5,15 @@
 
 namespace Trinity
 {
-	class TriEditor : public Application
+	class TrinityForge : public Application
 	{
 	public:
-		TriEditor() : Application("Trinity Editor")
+		TrinityForge() : Application("Trinity Forge")
 		{
 			PushLayer(new EditorLayer());
 		}
 
-		~TriEditor()
+		~TrinityForge()
 		{
 
 		}
@@ -21,6 +21,6 @@ namespace Trinity
 
 	Application* CreateApplication()
 	{
-		return new TriEditor();
+		return new TrinityForge();
 	}
 }

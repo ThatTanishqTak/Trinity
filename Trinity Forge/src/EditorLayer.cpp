@@ -7,7 +7,7 @@
 
 namespace Trinity
 {
-    EditorLayer::EditorLayer() : Layer("TriEditor Layer"), m_CameraController(1280.0f / 720.0f)
+    EditorLayer::EditorLayer() : Layer("TrinityForge Layer"), m_CameraController(1280.0f / 720.0f)
     {
 
     }
