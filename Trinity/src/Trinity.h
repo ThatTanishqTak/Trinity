@@ -7,7 +7,7 @@
 #include "Trinity/Core/Timestep.h"
 #include "Trinity/Core/Input.h"
 #include "Trinity/Core/KeyCodes.h"
-#include "Trinity/Core/MouseButtonCodes.h"
+#include "Trinity/Core/MouseCodes.h"
 //-----------------------------------------------------------
 
 //-------------EXTERNAL LIBRARIES----------------------------

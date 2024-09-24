@@ -78,9 +78,6 @@
     <ClInclude Include="src\Platform\OpenGL\OpenGLVertexArray.h">
       <Filter>src\Platform\OpenGL</Filter>
     </ClInclude>
-    <ClInclude Include="src\Platform\Windows\WindowsInput.h">
-      <Filter>src\Platform\Windows</Filter>
-    </ClInclude>
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h">
       <Filter>src\Platform\Windows</Filter>
     </ClInclude>
@@ -111,7 +108,7 @@
     <ClInclude Include="src\Trinity\Core\Log.h">
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Core\MouseButtonCodes.h">
+    <ClInclude Include="src\Trinity\Core\MouseCodes.h">
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Core\Timestep.h">
