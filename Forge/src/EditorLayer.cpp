@@ -90,21 +90,21 @@ namespace Trinity
 
         ImGui::Begin("Settings");
         {
-            auto stats = Renderer2D::GetStats();
-
-            ImGui::Text("DrawCalls: %d", stats.DrawCalls);
-            ImGui::Text("Index Count: %d", stats.GetTotalIndexCount());
-            ImGui::Text("Vertex Count: %d", stats.GetTotalVertexCount());
-            ImGui::Text("Quad Count: %d", stats.QuadCount);
-
             ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
             ImGui::InputFloat("Rotation Speed", &m_Speed);
 
             ImGui::End();
+        }
 
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
 
-            ImGui::Begin("Viewport");
+        ImGui::Begin("Viewport");
+        {
+            m_ViewportFocused = ImGui::IsWindowFocused();
+            m_ViewportHovered = ImGui::IsWindowHovered();
+
+            Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportFocused || !m_ViewportHovered);
+
             ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
             if (m_ViewportSize != *((glm::vec2*)&viewportPanelSize))
             {
@@ -121,12 +121,27 @@ namespace Trinity
             ImGui::PopStyleVar();
         }
 
+        ImGui::Begin("Render Stats");
+        {
+            auto stats = Renderer2D::GetStats();
+
+            ImGui::Text("DrawCalls: %d", stats.DrawCalls);
+            ImGui::Text("Index Count: %d", stats.GetTotalIndexCount());
+            ImGui::Text("Vertex Count: %d", stats.GetTotalVertexCount());
+            ImGui::Text("Quad Count: %d", stats.QuadCount);
+
+            ImGui::End();
+        }
+
         ImGui::End();
     }
 
     void EditorLayer::OnUpdate(Timestep timestep)
     {
-        m_CameraController.OnUpdate(timestep);
+        if (m_ViewportFocused)
+        {
+            m_CameraController.OnUpdate(timestep);
+        }
 
         Renderer2D::ResetStats();
 

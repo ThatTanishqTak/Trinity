@@ -37,5 +37,8 @@ namespace Trinity
 
 		float m_Rotation = 0;
 		float m_Speed = 50;
+
+		bool m_ViewportFocused = false;
+		bool m_ViewportHovered = false;
 	};
 }
