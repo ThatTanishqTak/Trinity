@@ -14,15 +14,15 @@ namespace Trinity
 
 	void OrthographicCameraController::OnUpdate(Timestep deltaTime)
 	{
-		if (Input::IsKeyPressed(TR_KEY_W))   { m_CameraPosition.y += m_CameraTranslationSpeed * deltaTime; }
-		if (Input::IsKeyPressed(TR_KEY_S))   { m_CameraPosition.y -= m_CameraTranslationSpeed * deltaTime; }
-		if (Input::IsKeyPressed(TR_KEY_D))   { m_CameraPosition.x += m_CameraTranslationSpeed * deltaTime; }
-		if (Input::IsKeyPressed(TR_KEY_A))   { m_CameraPosition.x -= m_CameraTranslationSpeed * deltaTime; }
+		if (Input::IsKeyPressed(Key::W))   { m_CameraPosition.y += m_CameraTranslationSpeed * deltaTime; }
+		if (Input::IsKeyPressed(Key::S))   { m_CameraPosition.y -= m_CameraTranslationSpeed * deltaTime; }
+		if (Input::IsKeyPressed(Key::D))   { m_CameraPosition.x += m_CameraTranslationSpeed * deltaTime; }
+		if (Input::IsKeyPressed(Key::A))   { m_CameraPosition.x -= m_CameraTranslationSpeed * deltaTime; }
 
 		if (m_Rotation)
 		{
-			if (Input::IsKeyPressed(TR_KEY_E))   { m_CameraRotation -= m_CameraRotationSpeed * deltaTime; }
-			if (Input::IsKeyPressed(TR_KEY_Q))   { m_CameraRotation += m_CameraRotationSpeed * deltaTime; }
+			if (Input::IsKeyPressed(Key::E))   { m_CameraRotation -= m_CameraRotationSpeed * deltaTime; }
+			if (Input::IsKeyPressed(Key::Q))   { m_CameraRotation += m_CameraRotationSpeed * deltaTime; }
 
 			m_Camera.SetRotation(m_CameraRotation);
 		}

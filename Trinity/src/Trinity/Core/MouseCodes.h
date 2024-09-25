@@ -1,14 +1,26 @@
 #pragma once
 
-#define TR_MOUSE_BUTTON_1         0
-#define TR_MOUSE_BUTTON_2         1
-#define TR_MOUSE_BUTTON_3         2
-#define TR_MOUSE_BUTTON_4         3
-#define TR_MOUSE_BUTTON_5         4
-#define TR_MOUSE_BUTTON_6         5
-#define TR_MOUSE_BUTTON_7         6
-#define TR_MOUSE_BUTTON_8         7
-#define TR_MOUSE_BUTTON_LAST      TR_MOUSE_BUTTON_8
-#define TR_MOUSE_BUTTON_LEFT      TR_MOUSE_BUTTON_1
-#define TR_MOUSE_BUTTON_RIGHT     TR_MOUSE_BUTTON_2
-#define TR_MOUSE_BUTTON_MIDDLE    TR_MOUSE_BUTTON_3
+namespace Trinity
+{
+	using MouseCode = uint16_t;
+
+	namespace Mouse
+	{
+		enum : MouseCode
+		{
+			Button1       = 0,
+			Button2       = 1,
+			Button3       = 2,
+			Button4       = 3,
+			Button5       = 4,
+			Button6       = 5,
+			Button7       = 6,
+			Button8       = 7,
+
+			MouseLast     = Button8,
+			MouseLeft     = Button1,
+			MouseLRight   = Button2,
+			MouseMiddle   = Button3,
+		};
+	}
+}
