@@ -31,6 +31,9 @@
     <Filter Include="src\Trinity\Renderer">
       <UniqueIdentifier>{B5D90226-A168-8CEF-4A87-A0EA36F59C95}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\Trinity\Scene">
+      <UniqueIdentifier>{8C252ED6-F83B-2C6C-41B3-B78DAD08FDF3}</UniqueIdentifier>
+    </Filter>
     <Filter Include="vendor">
       <UniqueIdentifier>{B3738122-9F15-ACF8-88D0-BF4C74113349}</UniqueIdentifier>
     </Filter>
@@ -173,6 +176,9 @@
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\VertexArray.h">
       <Filter>src\Trinity\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Scene\Scene.h">
+      <Filter>src\Trinity\Scene</Filter>
     </ClInclude>
     <ClInclude Include="src\trpch.h">
       <Filter>src</Filter>
@@ -1510,6 +1516,9 @@
     </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\VertexArray.cpp">
       <Filter>src\Trinity\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Scene\Scene.cpp">
+      <Filter>src\Trinity\Scene</Filter>
     </ClCompile>
     <ClCompile Include="src\trpch.cpp">
       <Filter>src</Filter>

@@ -17,10 +17,13 @@ IncludeDir["Glad"] = "Trinity/vendor/Glad/include"
 IncludeDir["ImGui"] = "Trinity/vendor/imgui"
 IncludeDir["glm"] = "Trinity/vendor/glm"
 IncludeDir["stb_image"] = "Trinity/vendor/stb_image"
+IncludeDir["entt"] = "Trinity/vendor/entt/include"
 
-include "Trinity/vendor/GLFW"
-include "Trinity/vendor/Glad"
-include "Trinity/vendor/imgui"
+group "Dependencies"
+	include "Trinity/vendor/GLFW"
+	include "Trinity/vendor/Glad"
+	include "Trinity/vendor/imgui"
+group ""
 
 project "Trinity"
 	location "Trinity"
@@ -42,7 +45,7 @@ project "Trinity"
 		"%{prj.name}/vendor/stb_image/**.h",
 		"%{prj.name}/vendor/stb_image/**.cpp",
 		"%{prj.name}/vendor/glm/glm/**.hpp",
-		"%{prj.name}/vendor/glm/glm/**.inl"
+		"%{prj.name}/vendor/glm/glm/**.inl",
 	}
 
 	includedirs
@@ -52,8 +55,9 @@ project "Trinity"
 		"%{IncludeDir.GLFW}",
 		"%{IncludeDir.Glad}",
 		"%{IncludeDir.ImGui}",
+		"%{IncludeDir.glm}",
 		"%{IncludeDir.stb_image}",
-		"%{IncludeDir.glm}"
+		"%{IncludeDir.entt}"
 	}
 	defines
 	{
@@ -115,7 +119,8 @@ project "Sandbox"
 		"$(SolutionDir)Trinity/vendor/spdlog/include",
 		"Trinity/src",
 		"Trinity/vendor",
-		"%{IncludeDir.glm}"
+		"%{IncludeDir.glm}",
+		"%{IncludeDir.entt}"
 	}
 
 	links
@@ -168,7 +173,8 @@ project "Forge"
 		"$(SolutionDir)Trinity/vendor/spdlog/include",
 		"Trinity/src",
 		"Trinity/vendor",
-		"%{IncludeDir.glm}"
+		"%{IncludeDir.glm}",
+		"%{IncludeDir.entt}"
 	}
 
 	links
