@@ -19,6 +19,7 @@ namespace Trinity
 		}
 	};
 
+
 	Application* CreateApplication()
 	{
 		return new Forge();

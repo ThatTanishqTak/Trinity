@@ -142,26 +142,23 @@ namespace Trinity
         {
             m_CameraController.OnUpdate(timestep);
         }
+     
+        m_Rotation += m_Speed * timestep;
 
         Renderer2D::ResetStats();
 
         m_Framebuffer->Bind();
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
-        RenderCommand::Clear();
 
         Renderer2D::BeginScene(m_CameraController.GetCamera());
         {
             Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 16.0f, 9.0f }, glm::radians(0.0f), m_Blend);
             Renderer2D::DrawQuad({ 1.0f, 1.0f }, { 1.0f, 1.0f }, glm::radians(0.0f), m_SquareColor);
             Renderer2D::DrawQuad({ 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, glm::radians(0.0f), m_Texture);
+            Renderer2D::DrawQuad({ 2.5f, 2.5f }, { 1.0f, 1.0f }, 0.0f, m_SubTexture);
 
             Renderer2D::DrawTilledQuad({ 2.0f, 2.0f }, { 1.0f, 1.0f }, glm::radians(45.0f), m_Texture, 10.0f);
-
-            m_Rotation += m_Speed * timestep;
-
             Renderer2D::DrawTilledQuad({ -2.0f, -2.0f }, { 1.0f, 1.0f }, glm::radians(m_Rotation), m_Blend, 20.0f);
-
-            Renderer2D::DrawQuad({ 0.0f, 0.0f }, { 1.0f, 1.0f }, 0.0f, m_SubTexture);
         }
 
         Renderer2D::EndScene();
