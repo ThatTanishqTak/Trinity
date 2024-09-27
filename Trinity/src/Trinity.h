@@ -33,4 +33,5 @@
 // ------------ENTITY-CONPONENT-SYSTEM-----------------------
 #include "Trinity/Scene/Scene.h"
 #include "Trinity/Scene/Components.h"
+#include "Trinity/Scene/Entity.h"
 // ----------------------------------------------------------

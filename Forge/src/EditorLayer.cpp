@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-    EditorLayer::EditorLayer() : Layer("TrinityForge Layer"), m_CameraController(1280.0f / 720.0f)
+    EditorLayer::EditorLayer() : Layer("Forge Layer"), m_CameraController(1280.0f / 720.0f)
     {
 
     }
@@ -24,8 +24,7 @@ namespace Trinity
         m_ActiveScene = CreateRef<Scene>();
 
         m_Square = m_ActiveScene->CreateEntity();
-        m_ActiveScene->Reg().emplace<TransformComponent>(m_Square);
-        m_ActiveScene->Reg().emplace<SpriteRendererComponent>(m_Square, glm::vec4{ 0.0f, 1.0f, 0.0f, 1.0f });
+        m_Square.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
     }
 
     void EditorLayer::OnDetach()
@@ -127,7 +126,9 @@ namespace Trinity
 
         ImGui::Begin("Color");
         {
-            auto& color = m_ActiveScene->Reg().get<SpriteRendererComponent>(m_Square).Color;
+            ImGui::Text("%s", m_Square.GetComponent<TagComponent>().Tag.c_str());
+
+            auto& color = m_Square.GetComponent<SpriteRendererComponent>().Color;
             ImGui::ColorEdit4("Square Color", glm::value_ptr(color));
 
             ImGui::End();
