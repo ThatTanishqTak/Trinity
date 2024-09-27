@@ -182,6 +182,7 @@
     <ClInclude Include="src\Trinity\Renderer\SubTexture2D.h" />
     <ClInclude Include="src\Trinity\Renderer\Texture.h" />
     <ClInclude Include="src\Trinity\Renderer\VertexArray.h" />
+    <ClInclude Include="src\Trinity\Scene\Components.h" />
     <ClInclude Include="src\Trinity\Scene\Scene.h" />
     <ClInclude Include="src\trpch.h" />
     <ClInclude Include="vendor\glm\glm\common.hpp" />

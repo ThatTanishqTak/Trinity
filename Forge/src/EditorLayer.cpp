@@ -16,16 +16,16 @@ namespace Trinity
 
     void EditorLayer::OnAttach()
     {
-        m_Texture = Texture2D::Create("assets/textures/texture.png");
-        m_Blend = Texture2D::Create("assets/textures/blend.png");
-
-        m_SubTexture = SubTexture2D::CreateFromCoords(m_Texture, { 1.0f, 1.0f }, { 0.01f, 0.01f });
-
         FramebufferSpecifications specs;
         specs.Width = 1280;
         specs.Height = 720;
 
         m_Framebuffer = Framebuffer::Create(specs);
+        m_ActiveScene = CreateRef<Scene>();
+
+        m_Square = m_ActiveScene->CreateEntity();
+        m_ActiveScene->Reg().emplace<TransformComponent>(m_Square);
+        m_ActiveScene->Reg().emplace<SpriteRendererComponent>(m_Square, glm::vec4{ 0.0f, 1.0f, 0.0f, 1.0f });
     }
 
     void EditorLayer::OnDetach()
@@ -88,14 +88,6 @@ namespace Trinity
             ImGui::EndMenuBar();
         }
 
-        ImGui::Begin("Settings");
-        {
-            ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
-            ImGui::InputFloat("Rotation Speed", &m_Speed);
-
-            ImGui::End();
-        }
-
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
 
         ImGui::Begin("Viewport");
@@ -133,35 +125,37 @@ namespace Trinity
             ImGui::End();
         }
 
+        ImGui::Begin("Color");
+        {
+            auto& color = m_ActiveScene->Reg().get<SpriteRendererComponent>(m_Square).Color;
+            ImGui::ColorEdit4("Square Color", glm::value_ptr(color));
+
+            ImGui::End();
+        }
+
         ImGui::End();
     }
 
-    void EditorLayer::OnUpdate(Timestep timestep)
+    void EditorLayer::OnUpdate(Timestep deltaTime)
     {
+        // Update
         if (m_ViewportFocused)
         {
-            m_CameraController.OnUpdate(timestep);
+            m_CameraController.OnUpdate(deltaTime);
         }
      
-        m_Rotation += m_Speed * timestep;
-
+        // Render
         Renderer2D::ResetStats();
-
         m_Framebuffer->Bind();
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 
         Renderer2D::BeginScene(m_CameraController.GetCamera());
-        {
-            Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 16.0f, 9.0f }, glm::radians(0.0f), m_Blend);
-            Renderer2D::DrawQuad({ 1.0f, 1.0f }, { 1.0f, 1.0f }, glm::radians(0.0f), m_SquareColor);
-            Renderer2D::DrawQuad({ 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, glm::radians(0.0f), m_Texture);
-            Renderer2D::DrawQuad({ 2.5f, 2.5f }, { 1.0f, 1.0f }, 0.0f, m_SubTexture);
-
-            Renderer2D::DrawTilledQuad({ 2.0f, 2.0f }, { 1.0f, 1.0f }, glm::radians(45.0f), m_Texture, 10.0f);
-            Renderer2D::DrawTilledQuad({ -2.0f, -2.0f }, { 1.0f, 1.0f }, glm::radians(m_Rotation), m_Blend, 20.0f);
-        }
+        
+        // Update Scene
+        m_ActiveScene->OnUpdate(deltaTime);
 
         Renderer2D::EndScene();
+        
         m_Framebuffer->Unbind();
     }
 

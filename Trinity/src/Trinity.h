@@ -29,3 +29,8 @@
 #include "Trinity/Renderer/OrthographicCamera.h"
 #include "Trinity/Renderer/OrthographicCameraController.h"
 // ----------------------------------------------------------
+
+// ------------ENTITY-CONPONENT-SYSTEM-----------------------
+#include "Trinity/Scene/Scene.h"
+#include "Trinity/Scene/Components.h"
+// ----------------------------------------------------------
