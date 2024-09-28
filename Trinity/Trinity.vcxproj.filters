@@ -1437,6 +1437,7 @@
     <ClInclude Include="src\Trinity\Scene\Components.h" />
     <ClInclude Include="src\Trinity\Scene\Entity.h" />
     <ClInclude Include="src\Trinity\Renderer\Camera.h" />
+    <ClInclude Include="src\Trinity\Scene\SceneCamera.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1530,5 +1531,6 @@
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Scene\Entity.cpp" />
+    <ClCompile Include="src\Trinity\Scene\SceneCamera.cpp" />
   </ItemGroup>
 </Project>

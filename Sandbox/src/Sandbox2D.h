@@ -12,7 +12,7 @@ public:
 	virtual void OnDetach() override;
 	virtual void OnImGuiRender() override;
 
-	void OnUpdate(Trinity::Timestep timestep) override;
+	void OnUpdate(Trinity::Timestep deltaTime) override;
 	void OnEvent(Trinity::Event& e) override;
 
 private:
@@ -21,11 +21,9 @@ private:
 	Trinity::Ref<Trinity::VertexArray> m_SquareVA;
 	
 	Trinity::Ref<Trinity::Shader> m_FlatColorShader;
-	
-	Trinity::Ref<Trinity::Texture2D> m_Texture;
-	Trinity::Ref<Trinity::Texture2D> m_Blend;
 
-	Trinity::Ref<Trinity::SubTexture2D> m_SubTexture;
+	Trinity::Ref<Trinity::Texture2D> m_Tex;
+	Trinity::Ref<Trinity::SubTexture2D> m_Sub;
 
 	glm::vec4 m_SquareColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 

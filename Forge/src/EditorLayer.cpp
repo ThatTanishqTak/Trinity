@@ -27,12 +27,44 @@ namespace Trinity
         m_Square.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 
         m_CameraEntity = m_ActiveScene->CreateEntity("Main Camera");
-        m_CameraEntity.AddComponent<CameraComponent>(glm::ortho(-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f));
+        m_CameraEntity.AddComponent<CameraComponent>();
+
+        m_SecondCamera = m_ActiveScene->CreateEntity("Second Camera");
+        m_SecondCamera.AddComponent<CameraComponent>();
+        m_SecondCamera.GetComponent<CameraComponent>().Primary = false;
     }
 
     void EditorLayer::OnDetach()
     {
 
+    }
+
+    void EditorLayer::OnUpdate(Timestep deltaTime)
+    {
+        if (FramebufferSpecifications spec = m_Framebuffer->GetSpecification();
+            m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f && (spec.Width != m_ViewportSize.x || spec.Height != m_ViewportSize.y))
+        {
+            m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+            m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
+
+            m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+        }
+
+        // Update
+        if (m_ViewportFocused)
+        {
+            m_CameraController.OnUpdate(deltaTime);
+        }
+     
+        // Render
+        Renderer2D::ResetStats();
+        m_Framebuffer->Bind();
+        RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
+
+        // Update Scene
+        m_ActiveScene->OnUpdate(deltaTime);
+        
+        m_Framebuffer->Unbind();
     }
 
     void EditorLayer::OnImGuiRender()
@@ -100,13 +132,7 @@ namespace Trinity
             Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportFocused || !m_ViewportHovered);
 
             ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
-            if (m_ViewportSize != *((glm::vec2*)&viewportPanelSize) && viewportPanelSize.x > 0.0f && viewportPanelSize.y > 0.0f)
-            {
-                m_Framebuffer->Resize((uint32_t)viewportPanelSize.x, (uint32_t)viewportPanelSize.y);
-                m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
-
-                m_CameraController.OnResize(viewportPanelSize.x, viewportPanelSize.y);
-            }
+            m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
             uint32_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
             ImGui::Image((void*)textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
@@ -137,26 +163,28 @@ namespace Trinity
             ImGui::End();
         }
 
-        ImGui::End();
-    }
-
-    void EditorLayer::OnUpdate(Timestep deltaTime)
-    {
-        // Update
-        if (m_ViewportFocused)
+        ImGui::Begin("Camera Setting");
         {
-            m_CameraController.OnUpdate(deltaTime);
+            if (ImGui::Checkbox("Camera A", &m_PrimaryCamera))
+            {
+                m_CameraEntity.GetComponent<CameraComponent>().Primary = m_PrimaryCamera;
+                m_SecondCamera.GetComponent<CameraComponent>().Primary = !m_PrimaryCamera;
+            }
+
+            {
+                auto& camera = m_SecondCamera.GetComponent<CameraComponent>().Camera;
+                float orthoSize = camera.GetOrthographicSize();
+
+                if (ImGui::DragFloat("Ortho Size", &orthoSize))
+                {
+                    camera.SetOrthographicSize(orthoSize);
+                }
+            }
+
+            ImGui::End();
         }
-     
-        // Render
-        Renderer2D::ResetStats();
-        m_Framebuffer->Bind();
-        RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
-        
-        // Update Scene
-        m_ActiveScene->OnUpdate(deltaTime);
-        
-        m_Framebuffer->Unbind();
+
+        ImGui::End();
     }
 
     void EditorLayer::OnEvent(Event& e)

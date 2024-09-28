@@ -54,9 +54,11 @@ namespace Trinity
 				return GL_BOOL;
 			}
 
-			TR_CORE_ASSERT(false, "ShaderDataType not found!");
-
-			return 0;
+			default:
+			{
+				TR_CORE_ASSERT(false, "ShaderDataType not found!");
+				return 0;
+			}
 		}
 	}
 
@@ -93,7 +95,7 @@ namespace Trinity
 		{
 			glEnableVertexAttribArray(index);
 			glVertexAttribPointer(index, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type),
-				element.Normalized ? GL_TRUE : GL_FALSE, layout.GetStride(), (const void*)element.Offset);
+				element.Normalized ? GL_TRUE : GL_FALSE, layout.GetStride(), (const void*)(uint32_t)element.Offset);
 
 			index++;
 		}
