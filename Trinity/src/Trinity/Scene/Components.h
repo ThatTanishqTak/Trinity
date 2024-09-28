@@ -2,6 +2,8 @@
 
 #include <glm/glm.hpp>
 
+#include "Trinity/Renderer/Camera.h"
+
 namespace Trinity
 {
 	struct TagComponent
@@ -32,5 +34,15 @@ namespace Trinity
 		SpriteRendererComponent() = default;
 		SpriteRendererComponent(const SpriteRendererComponent&) = default;
 		SpriteRendererComponent(const glm::vec4& color) : Color(color) {}
+	};
+
+	struct CameraComponent
+	{
+		Trinity::Camera Camera;
+		bool Primary = true;
+
+		CameraComponent() = default;
+		CameraComponent(const CameraComponent&) = default;
+		CameraComponent(const glm::mat4& projection) : Camera(projection) {}
 	};
 }

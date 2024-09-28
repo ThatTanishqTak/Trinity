@@ -39,19 +39,45 @@ namespace Trinity
 		entity.AddComponent<TransformComponent>();
 		
 		auto& tag = entity.AddComponent<TagComponent>();
-		tag.Tag = name.empty() ? "Entity" : name;
+		tag.Tag = name.empty() ? std::string("Entity_" + std::to_string(count)) : name;
 
+		count++;
 		return entity;
 	}
 
 	void Scene::OnUpdate(Timestep deltaTime)
 	{
-		auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-		for (auto entity : group)
+		Camera* mainCamera = nullptr;
+		glm::mat4* cameraTransform = nullptr;
 		{
-			auto& [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+			auto group = m_Registry.view<TransformComponent, CameraComponent>();
+			for (auto entity : group)
+			{
+				auto& [transform, camera] = group.get<TransformComponent, CameraComponent>(entity);
 
-			Renderer2D::DrawQuad(transform, 0.0f, sprite.Color);
+				if(camera.Primary)
+				{
+					mainCamera = &camera.Camera;
+					cameraTransform = &transform.Transform;
+					
+					break;
+				}
+			}
+		}
+
+		if (mainCamera)
+		{
+			Renderer2D::BeginScene(mainCamera->GetProjection(), *cameraTransform);
+
+			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+			for (auto entity : group)
+			{
+				auto& [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+
+				Renderer2D::DrawQuad(transform, 0.0f, sprite.Color);
+			}
+
+			Renderer2D::EndScene();
 		}
 	}
 }

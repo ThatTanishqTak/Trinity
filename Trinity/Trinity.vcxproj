@@ -152,6 +152,7 @@
     <ClInclude Include="src\Platform\OpenGL\OpenGLVertexArray.h" />
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
     <ClInclude Include="src\Trinity.h" />
+    <ClInclude Include="src\Trinity\Renderer\Camera.h" />
     <ClInclude Include="src\Trinity\Core\Application.h" />
     <ClInclude Include="src\Trinity\Core\Core.h" />
     <ClInclude Include="src\Trinity\Core\EntryPoint.h" />

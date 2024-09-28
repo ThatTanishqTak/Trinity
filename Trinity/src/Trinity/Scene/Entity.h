@@ -43,7 +43,7 @@ namespace Trinity
 			return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
 		}
 
-		//operator bool() const { return m_EntityHandle != 0; }
+		operator bool() const { return m_EntityHandle != entt::null; }
 
 	private:
 		entt::entity m_EntityHandle{ entt::null };

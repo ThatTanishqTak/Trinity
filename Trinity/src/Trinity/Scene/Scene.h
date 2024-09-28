@@ -22,5 +22,7 @@ namespace Trinity
 		entt::registry m_Registry;
 	
 		friend class Entity;
+
+		uint32_t count = 0;
 	};
 }

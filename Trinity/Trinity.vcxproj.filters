@@ -1436,6 +1436,7 @@
     </ClInclude>
     <ClInclude Include="src\Trinity\Scene\Components.h" />
     <ClInclude Include="src\Trinity\Scene\Entity.h" />
+    <ClInclude Include="src\Trinity\Renderer\Camera.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">

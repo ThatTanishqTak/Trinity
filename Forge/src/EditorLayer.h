@@ -22,12 +22,11 @@ namespace Trinity
 
 		Ref<VertexArray> m_SquareVA;
 		Ref<Shader> m_FlatColorShader;
-
 		Ref<Framebuffer> m_Framebuffer;
-
 		Ref<Scene> m_ActiveScene;
 
 		Entity m_Square;
+		Entity m_CameraEntity;
 
 		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 

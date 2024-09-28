@@ -19,12 +19,15 @@ namespace Trinity
         FramebufferSpecifications specs;
         specs.Width = 1280;
         specs.Height = 720;
-
         m_Framebuffer = Framebuffer::Create(specs);
+
         m_ActiveScene = CreateRef<Scene>();
 
         m_Square = m_ActiveScene->CreateEntity();
         m_Square.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
+
+        m_CameraEntity = m_ActiveScene->CreateEntity("Main Camera");
+        m_CameraEntity.AddComponent<CameraComponent>(glm::ortho(-1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f));
     }
 
     void EditorLayer::OnDetach()
@@ -149,13 +152,9 @@ namespace Trinity
         Renderer2D::ResetStats();
         m_Framebuffer->Bind();
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
-
-        Renderer2D::BeginScene(m_CameraController.GetCamera());
         
         // Update Scene
         m_ActiveScene->OnUpdate(deltaTime);
-
-        Renderer2D::EndScene();
         
         m_Framebuffer->Unbind();
     }
