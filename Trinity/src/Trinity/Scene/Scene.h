@@ -23,6 +23,7 @@ namespace Trinity
 		entt::registry m_Registry;
 	
 		friend class Entity;
+		friend class SceneHierarchyPanel;
 
 		uint32_t count = 0;
 		uint32_t m_ViewportWidth = 0;

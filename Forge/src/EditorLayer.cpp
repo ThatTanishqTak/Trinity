@@ -23,13 +23,13 @@ namespace Trinity
 
         m_ActiveScene = CreateRef<Scene>();
 
-        m_Square = m_ActiveScene->CreateEntity();
+        m_Square = m_ActiveScene->CreateEntity("Square");
         m_Square.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 
         m_CameraEntity = m_ActiveScene->CreateEntity("Main Camera");
         m_CameraEntity.AddComponent<CameraComponent>();
 
-        m_SecondCamera = m_ActiveScene->CreateEntity("Second Camera");
+        m_SecondCamera = m_ActiveScene->CreateEntity("Clip-Space Camera");
         m_SecondCamera.AddComponent<CameraComponent>();
         m_SecondCamera.GetComponent<CameraComponent>().Primary = false;
 
@@ -48,16 +48,19 @@ namespace Trinity
 
             void OnUpdate(Timestep timestep)
             {
+                float clipSpaceCameraSpeed = 5.0f;
                 auto& transform = GetComponent<TransformComponent>().Transform;
 
-                if (Input::IsKeyPressed(Key::W)) { transform[3][1] += 5.0f * timestep; }
-                if (Input::IsKeyPressed(Key::A)) { transform[3][0] -= 5.0f * timestep; }
-                if (Input::IsKeyPressed(Key::S)) { transform[3][1] -= 5.0f * timestep; }
-                if (Input::IsKeyPressed(Key::D)) { transform[3][0] += 5.0f * timestep; }
+                if (Input::IsKeyPressed(Key::W)) { transform[3][1] += clipSpaceCameraSpeed * timestep; }
+                if (Input::IsKeyPressed(Key::A)) { transform[3][0] -= clipSpaceCameraSpeed * timestep; }
+                if (Input::IsKeyPressed(Key::S)) { transform[3][1] -= clipSpaceCameraSpeed * timestep; }
+                if (Input::IsKeyPressed(Key::D)) { transform[3][0] += clipSpaceCameraSpeed * timestep; }
             }
         };
 
         m_SecondCamera.AddComponent<NativeScriptComponent>().Bind<CameraController>();
+
+        m_Panel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnDetach()
@@ -166,6 +169,8 @@ namespace Trinity
             ImGui::End();
             ImGui::PopStyleVar();
         }
+
+        m_Panel.OnImGuiRender();
 
         ImGui::Begin("Render Stats");
         {

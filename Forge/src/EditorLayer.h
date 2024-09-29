@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity.h"
+#include "Panels/SceneHierarchyPanel.h"
 
 namespace Trinity
 {
@@ -32,8 +33,10 @@ namespace Trinity
 		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 
 		bool m_PrimaryCamera = true;
-
 		bool m_ViewportFocused = false;
 		bool m_ViewportHovered = false;
+
+		//Panels
+		SceneHierarchyPanel m_Panel;
 	};
 }
