@@ -1,6 +1,6 @@
 #pragma once
 
-// -----------BASE LIBRARIES---------------------------------
+// ------------BASE LIBRARIES--------------------------------
 #include "Trinity/Core/Application.h"
 #include "Trinity/Core/Layer.h"
 #include "Trinity/Core/Log.h"
@@ -8,12 +8,12 @@
 #include "Trinity/Core/Input.h"
 #include "Trinity/Core/KeyCodes.h"
 #include "Trinity/Core/MouseCodes.h"
-//-----------------------------------------------------------
+// ----------------------------------------------------------
 
-//-------------EXTERNAL LIBRARIES----------------------------
+// ------------EXTERNAL LIBRARIES----------------------------
 #include "Trinity/ImGui/ImGuiLayer.h"
 #include <glm/glm.hpp>
-//-----------------------------------------------------------
+// ----------------------------------------------------------
 
 // ------------RENDERER--------------------------------------
 #include "Trinity/Renderer/Renderer.h"
@@ -30,7 +30,7 @@
 #include "Trinity/Renderer/OrthographicCameraController.h"
 // ----------------------------------------------------------
 
-// ------------ENTITY-CONPONENT-SYSTEM-----------------------
+// ------------ENTITY CONPONENT SYSTEM-----------------------
 #include "Trinity/Scene/Scene.h"
 #include "Trinity/Scene/Components.h"
 #include "Trinity/Scene/Entity.h"

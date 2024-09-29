@@ -12,20 +12,7 @@ namespace Trinity
 {
 	Scene::Scene()
 	{
-		struct TransformComponent
-		{
-			glm::mat4 Transform;
 
-			TransformComponent() = default;
-			TransformComponent(const TransformComponent&) = default;
-			TransformComponent(const glm::mat4& transform) : Transform(transform) {}
-
-			operator glm::mat4& () { return Transform; }
-			operator const glm::mat4& () const { return Transform; }
-		};
-
-		entt::entity entity = m_Registry.create();
-		auto& transform = m_Registry.emplace<TransformComponent>(entity, glm::mat4(1.0f));
 	}
 
 	Scene::~Scene()
@@ -53,12 +40,12 @@ namespace Trinity
 			{
 					if (!nativeScriptComponent.Instance)
 					{
-						nativeScriptComponent.InstantiateFunction();
+						nativeScriptComponent.Instance = nativeScriptComponent.InstantiateScript();
 						nativeScriptComponent.Instance->m_Entity = Entity{ entity, this };
-						nativeScriptComponent.OnCreateFunction(nativeScriptComponent.Instance);
+						nativeScriptComponent.Instance->OnCreate();
 					}
 
-					nativeScriptComponent.OnUpdateFunction(nativeScriptComponent.Instance, timestep);
+					nativeScriptComponent.Instance->OnUpdate(timestep);
 			});
 		}
 
@@ -68,7 +55,7 @@ namespace Trinity
 			auto view = m_Registry.view<TransformComponent, CameraComponent>();
 			for (auto entity : view)
 			{
-				auto& [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
+				auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
 
 				if(camera.Primary)
 				{
@@ -87,7 +74,7 @@ namespace Trinity
 			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
 			for (auto entity : group)
 			{
-				auto& [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
 				Renderer2D::DrawQuad(transform, 0.0f, sprite.Color);
 			}
