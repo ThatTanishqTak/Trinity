@@ -42,5 +42,10 @@ namespace Trinity
 		{
 			m_SelectionContext = entity;
 		}
+
+		if (opened)
+		{
+			ImGui::TreePop();
+		}
 	}
 }
