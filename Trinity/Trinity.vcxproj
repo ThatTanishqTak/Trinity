@@ -187,6 +187,7 @@
     <ClInclude Include="src\Trinity\Scene\Entity.h" />
     <ClInclude Include="src\Trinity\Scene\Scene.h" />
     <ClInclude Include="src\Trinity\Scene\SceneCamera.h" />
+    <ClInclude Include="src\Trinity\Scene\ScriptableEntity.h" />
     <ClInclude Include="src\trpch.h" />
     <ClInclude Include="vendor\glm\glm\common.hpp" />
     <ClInclude Include="vendor\glm\glm\detail\_features.hpp" />

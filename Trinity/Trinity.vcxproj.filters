@@ -1438,6 +1438,7 @@
     <ClInclude Include="src\Trinity\Scene\Entity.h" />
     <ClInclude Include="src\Trinity\Renderer\Camera.h" />
     <ClInclude Include="src\Trinity\Scene\SceneCamera.h" />
+    <ClInclude Include="src\Trinity\Scene\ScriptableEntity.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">

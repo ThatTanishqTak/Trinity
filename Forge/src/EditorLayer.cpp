@@ -32,6 +32,32 @@ namespace Trinity
         m_SecondCamera = m_ActiveScene->CreateEntity("Second Camera");
         m_SecondCamera.AddComponent<CameraComponent>();
         m_SecondCamera.GetComponent<CameraComponent>().Primary = false;
+
+        class CameraController : public ScriptableEntity
+        {
+        public:
+            void OnCreate()
+            {
+                
+            }
+
+            void OnDestroy()
+            {
+
+            }
+
+            void OnUpdate(Timestep timestep)
+            {
+                auto& transform = GetComponent<TransformComponent>().Transform;
+
+                if (Input::IsKeyPressed(Key::W)) { transform[3][1] += 5.0f * timestep; }
+                if (Input::IsKeyPressed(Key::A)) { transform[3][0] -= 5.0f * timestep; }
+                if (Input::IsKeyPressed(Key::S)) { transform[3][1] -= 5.0f * timestep; }
+                if (Input::IsKeyPressed(Key::D)) { transform[3][0] += 5.0f * timestep; }
+            }
+        };
+
+        m_SecondCamera.AddComponent<NativeScriptComponent>().Bind<CameraController>();
     }
 
     void EditorLayer::OnDetach()
@@ -39,7 +65,7 @@ namespace Trinity
 
     }
 
-    void EditorLayer::OnUpdate(Timestep deltaTime)
+    void EditorLayer::OnUpdate(Timestep timestep)
     {
         if (FramebufferSpecifications spec = m_Framebuffer->GetSpecification();
             m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f && (spec.Width != m_ViewportSize.x || spec.Height != m_ViewportSize.y))
@@ -53,7 +79,7 @@ namespace Trinity
         // Update
         if (m_ViewportFocused)
         {
-            m_CameraController.OnUpdate(deltaTime);
+            m_CameraController.OnUpdate(timestep);
         }
      
         // Render
@@ -62,7 +88,7 @@ namespace Trinity
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 
         // Update Scene
-        m_ActiveScene->OnUpdate(deltaTime);
+        m_ActiveScene->OnUpdate(timestep);
         
         m_Framebuffer->Unbind();
     }
@@ -165,7 +191,7 @@ namespace Trinity
 
         ImGui::Begin("Camera Setting");
         {
-            if (ImGui::Checkbox("Camera A", &m_PrimaryCamera))
+            if (ImGui::Checkbox("Main Camera", &m_PrimaryCamera))
             {
                 m_CameraEntity.GetComponent<CameraComponent>().Primary = m_PrimaryCamera;
                 m_SecondCamera.GetComponent<CameraComponent>().Primary = !m_PrimaryCamera;
@@ -175,7 +201,7 @@ namespace Trinity
                 auto& camera = m_SecondCamera.GetComponent<CameraComponent>().Camera;
                 float orthoSize = camera.GetOrthographicSize();
 
-                if (ImGui::DragFloat("Ortho Size", &orthoSize))
+                if (ImGui::DragFloat("OrthographicCamera Size", &orthoSize))
                 {
                     camera.SetOrthographicSize(orthoSize);
                 }

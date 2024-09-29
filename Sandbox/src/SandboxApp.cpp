@@ -146,9 +146,7 @@ public:
 
 	void OnUpdate(Trinity::Timestep timestep) override
 	{
-		float deltaTime = timestep;
-
-		m_CameraController.OnUpdate(deltaTime);
+		m_CameraController.OnUpdate(timestep);
 
 		Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 		Trinity::RenderCommand::Clear();

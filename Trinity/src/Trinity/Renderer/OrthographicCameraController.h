@@ -13,7 +13,7 @@ namespace Trinity
 	public:
 		OrthographicCameraController(float aspectRatio, bool rotation = false);
 
-		void OnUpdate(Timestep deltaTime);
+		void OnUpdate(Timestep timestep);
 		void OnEvent(Event& e);
 		void OnResize(float width, float height);
 

@@ -16,7 +16,7 @@ namespace Trinity
 
 		Entity CreateEntity(const std::string& name = std::string());
 
-		void OnUpdate(Timestep deltaTime);
+		void OnUpdate(Timestep timestep);
 		void OnViewportResize(uint32_t width, uint32_t height);
 
 	private:

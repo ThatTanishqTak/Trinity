@@ -12,7 +12,7 @@ public:
 	virtual void OnDetach() override;
 	virtual void OnImGuiRender() override;
 
-	void OnUpdate(Trinity::Timestep deltaTime) override;
+	void OnUpdate(Trinity::Timestep timestep) override;
 	void OnEvent(Trinity::Event& e) override;
 
 private:

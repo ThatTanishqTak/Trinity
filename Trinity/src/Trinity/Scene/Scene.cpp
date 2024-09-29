@@ -45,8 +45,23 @@ namespace Trinity
 		return entity;
 	}
 
-	void Scene::OnUpdate(Timestep deltaTime)
+	void Scene::OnUpdate(Timestep timestep)
 	{
+		// Update scripts
+		{
+			m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nativeScriptComponent)
+			{
+					if (!nativeScriptComponent.Instance)
+					{
+						nativeScriptComponent.InstantiateFunction();
+						nativeScriptComponent.Instance->m_Entity = Entity{ entity, this };
+						nativeScriptComponent.OnCreateFunction(nativeScriptComponent.Instance);
+					}
+
+					nativeScriptComponent.OnUpdateFunction(nativeScriptComponent.Instance, timestep);
+			});
+		}
+
 		Camera* mainCamera = nullptr;
 		glm::mat4* cameraTransform = nullptr;
 		{

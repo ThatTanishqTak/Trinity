@@ -47,10 +47,10 @@ void Sandbox2D::OnImGuiRender()
     }
 }
 
-void Sandbox2D::OnUpdate(Trinity::Timestep deltaTime)
+void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 {
-	m_CameraController.OnUpdate(deltaTime);
-	m_Rotation += m_Speed * deltaTime;
+	m_CameraController.OnUpdate(timestep);
+	m_Rotation += m_Speed * timestep;
 
 	Trinity::Renderer2D::ResetStats();
 	Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });

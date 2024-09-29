@@ -34,4 +34,5 @@
 #include "Trinity/Scene/Scene.h"
 #include "Trinity/Scene/Components.h"
 #include "Trinity/Scene/Entity.h"
+#include "Trinity/Scene/ScriptableEntity.h"
 // ----------------------------------------------------------
