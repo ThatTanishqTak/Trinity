@@ -23,5 +23,7 @@ namespace Trinity
 	private:
 		Ref<Scene> m_Context;
 		Entity m_SelectionContext;
+
+		bool m_PrimaryCamera = true;
 	};
 }

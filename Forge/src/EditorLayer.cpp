@@ -194,27 +194,6 @@ namespace Trinity
             ImGui::End();
         }
 
-        ImGui::Begin("Camera Setting");
-        {
-            if (ImGui::Checkbox("Main Camera", &m_PrimaryCamera))
-            {
-                m_CameraEntity.GetComponent<CameraComponent>().Primary = m_PrimaryCamera;
-                m_SecondCamera.GetComponent<CameraComponent>().Primary = !m_PrimaryCamera;
-            }
-
-            {
-                auto& camera = m_SecondCamera.GetComponent<CameraComponent>().Camera;
-                float orthoSize = camera.GetOrthographicSize();
-
-                if (ImGui::DragFloat("OrthographicCamera Size", &orthoSize))
-                {
-                    camera.SetOrthographicSize(orthoSize);
-                }
-            }
-
-            ImGui::End();
-        }
-
         ImGui::End();
     }
 
