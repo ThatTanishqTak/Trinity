@@ -172,7 +172,7 @@ namespace Trinity
 
         m_Panel.OnImGuiRender();
 
-        ImGui::Begin("Render Stats");
+        ImGui::Begin("Renderer2D Stats");
         {
             auto stats = Renderer2D::GetStats();
 
@@ -180,16 +180,6 @@ namespace Trinity
             ImGui::Text("Index Count: %d", stats.GetTotalIndexCount());
             ImGui::Text("Vertex Count: %d", stats.GetTotalVertexCount());
             ImGui::Text("Quad Count: %d", stats.QuadCount);
-
-            ImGui::End();
-        }
-
-        ImGui::Begin("Color");
-        {
-            ImGui::Text("%s", m_Square.GetComponent<TagComponent>().Tag.c_str());
-
-            auto& color = m_Square.GetComponent<SpriteRendererComponent>().Color;
-            ImGui::ColorEdit4("Square Color", glm::value_ptr(color));
 
             ImGui::End();
         }
