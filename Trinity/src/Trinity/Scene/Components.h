@@ -25,8 +25,8 @@ namespace Trinity
 		TransformComponent(const TransformComponent&) = default;
 		TransformComponent(const glm::mat4& transform) : Transform(transform) {}
 
-		operator glm::mat4& () { return Transform; }
-		operator const glm::mat4& () const { return Transform; }
+		operator glm::mat4&() { return Transform; }
+		operator const glm::mat4&() const { return Transform; }
 	};
 	
 	struct SpriteRendererComponent
@@ -41,6 +41,7 @@ namespace Trinity
 	struct CameraComponent
 	{
 		SceneCamera Camera;
+		
 		bool Primary = true;
 		bool FixedAspectRatio = false;
 
@@ -51,8 +52,8 @@ namespace Trinity
 	struct NativeScriptComponent
 	{
 		ScriptableEntity* Instance = nullptr;
-
 		ScriptableEntity* (*InstantiateScript)();
+
 		void (*DestroyScript)(NativeScriptComponent*);
 
 		template<typename T>

@@ -141,6 +141,9 @@
     <ClInclude Include="src\Trinity\Renderer\Buffer.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
+    <ClInclude Include="src\Trinity\Renderer\Camera.h">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\Framebuffer.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
@@ -177,7 +180,19 @@
     <ClInclude Include="src\Trinity\Renderer\VertexArray.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
+    <ClInclude Include="src\Trinity\Scene\Components.h">
+      <Filter>src\Trinity\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Scene\Entity.h">
+      <Filter>src\Trinity\Scene</Filter>
+    </ClInclude>
     <ClInclude Include="src\Trinity\Scene\Scene.h">
+      <Filter>src\Trinity\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Scene\SceneCamera.h">
+      <Filter>src\Trinity\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Scene\ScriptableEntity.h">
       <Filter>src\Trinity\Scene</Filter>
     </ClInclude>
     <ClInclude Include="src\trpch.h">
@@ -1434,11 +1449,6 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Scene\Components.h" />
-    <ClInclude Include="src\Trinity\Scene\Entity.h" />
-    <ClInclude Include="src\Trinity\Renderer\Camera.h" />
-    <ClInclude Include="src\Trinity\Scene\SceneCamera.h" />
-    <ClInclude Include="src\Trinity\Scene\ScriptableEntity.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1522,7 +1532,13 @@
     <ClCompile Include="src\Trinity\Renderer\VertexArray.cpp">
       <Filter>src\Trinity\Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="src\Trinity\Scene\Entity.cpp">
+      <Filter>src\Trinity\Scene</Filter>
+    </ClCompile>
     <ClCompile Include="src\Trinity\Scene\Scene.cpp">
+      <Filter>src\Trinity\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Scene\SceneCamera.cpp">
       <Filter>src\Trinity\Scene</Filter>
     </ClCompile>
     <ClCompile Include="src\trpch.cpp">
@@ -1531,7 +1547,5 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\Trinity\Scene\Entity.cpp" />
-    <ClCompile Include="src\Trinity\Scene\SceneCamera.cpp" />
   </ItemGroup>
 </Project>
