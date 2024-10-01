@@ -49,12 +49,12 @@ namespace Trinity
             void OnUpdate(Timestep timestep)
             {
                 float clipSpaceCameraSpeed = 5.0f;
-                auto& transform = GetComponent<TransformComponent>().Transform;
+                auto& translation = GetComponent<TransformComponent>().Translation;
 
-                if (Input::IsKeyPressed(Key::W)) { transform[3][1] += clipSpaceCameraSpeed * timestep; }
-                if (Input::IsKeyPressed(Key::A)) { transform[3][0] -= clipSpaceCameraSpeed * timestep; }
-                if (Input::IsKeyPressed(Key::S)) { transform[3][1] -= clipSpaceCameraSpeed * timestep; }
-                if (Input::IsKeyPressed(Key::D)) { transform[3][0] += clipSpaceCameraSpeed * timestep; }
+                if (Input::IsKeyPressed(Key::W)) { translation.y += clipSpaceCameraSpeed * timestep; }
+                if (Input::IsKeyPressed(Key::A)) { translation.x -= clipSpaceCameraSpeed * timestep; }
+                if (Input::IsKeyPressed(Key::S)) { translation.y -= clipSpaceCameraSpeed * timestep; }
+                if (Input::IsKeyPressed(Key::D)) { translation.x += clipSpaceCameraSpeed * timestep; }
             }
         };
 
