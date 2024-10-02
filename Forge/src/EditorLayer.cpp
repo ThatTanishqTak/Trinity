@@ -134,11 +134,17 @@ namespace Trinity
             ImGui::PopStyleVar(2);
 
         ImGuiIO& io = ImGui::GetIO();
+        ImGuiStyle& style = ImGui::GetStyle();
+        float minWinSizeX = style.WindowMinSize.x;
+        style.WindowMinSize.x = 370.0f;
+        
         if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
         {
             ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
             ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
         }
+
+        style.WindowMinSize.y = minWinSizeX;
 
         if (ImGui::BeginMenuBar())
         {
@@ -177,9 +183,9 @@ namespace Trinity
             auto stats = Renderer2D::GetStats();
 
             ImGui::Text("DrawCalls: %d", stats.DrawCalls);
-            ImGui::Text("Index Count: %d", stats.GetTotalIndexCount());
-            ImGui::Text("Vertex Count: %d", stats.GetTotalVertexCount());
             ImGui::Text("Quad Count: %d", stats.QuadCount);
+            ImGui::Text("Vertex Count: %d", stats.GetTotalVertexCount());
+            ImGui::Text("Index Count: %d", stats.GetTotalIndexCount());
 
             ImGui::End();
         }
