@@ -12,7 +12,7 @@
 
 namespace Trinity
 {
-	ImGuiLayer::ImGuiLayer() : Layer("ImGUI-Layer")
+	ImGuiLayer::ImGuiLayer() : Layer("ImGUI Layer")
 	{
 
 	}

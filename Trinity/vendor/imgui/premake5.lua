@@ -24,10 +24,18 @@ project "ImGui"
 
 	filter "system:windows"
 		systemversion "latest"
+		cppdialect "C++17"
+		staticruntime "On"
 
-    filter "configurations:Debug"
+    filter "system:Linux"
+		pic "On"
+		systemversion "latest"
+		cppdialect "C++17"
+		staticruntime "On"
+
+	filter "configurations:Debug"
 		runtime "Debug"
-		symbols "on"
+		optimize "on"
 
 	filter "configurations:Release"
 		runtime "Release"

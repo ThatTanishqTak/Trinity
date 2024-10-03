@@ -5,7 +5,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <iostream>
+#include "Trinity/Scene/SceneSerializer.h"
 
 namespace Trinity
 {
@@ -23,6 +23,7 @@ namespace Trinity
 
         m_ActiveScene = CreateRef<Scene>();
 
+#if 0
         m_Square = m_ActiveScene->CreateEntity("Square");
         m_Square.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 
@@ -60,6 +61,7 @@ namespace Trinity
 
         m_SecondCamera.AddComponent<NativeScriptComponent>().Bind<CameraController>();
 
+#endif
         m_Panel.SetContext(m_ActiveScene);
     }
 
@@ -150,6 +152,18 @@ namespace Trinity
         {
             if (ImGui::BeginMenu("File"))
             {
+                if (ImGui::MenuItem("Serialize")) 
+                {
+                    SceneSerializer serializer(m_ActiveScene);
+                    serializer.SerializeText("assets/scenes/Test.trinity");
+                }
+
+                if (ImGui::MenuItem("Deserialize"))
+                { 
+                    SceneSerializer serializer(m_ActiveScene);
+                    serializer.DeserializeText("assets/scenes/Test.trinity");
+                }
+
                 if (ImGui::MenuItem("Exit")) { Application::Get().Close(); }
                 ImGui::EndMenu();
             }

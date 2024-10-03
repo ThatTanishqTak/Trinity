@@ -10,3 +10,6 @@
 [submodule "Trinity/vendor/glm"]
 	path = Trinity/vendor/glm
 	url = https://github.com/ThatTanishqTak/glm
+[submodule "Trinity/vendor/yaml-cpp"]
+	path = Trinity/vendor/yaml-cpp
+	url = https://github.com/ThatTanishqTak/yaml-cpp.git
