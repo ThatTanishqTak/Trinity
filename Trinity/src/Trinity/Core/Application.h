@@ -16,7 +16,7 @@ namespace Trinity
 	class Application
 	{
 	public:
-		Application(const std::string& name = "Trinity Engine");
+		Application(const std::string& name = "Sandbox");
 		virtual ~Application();
 
 		void Run();

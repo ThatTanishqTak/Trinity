@@ -193,6 +193,7 @@
     <ClInclude Include="src\Trinity\Scene\SceneCamera.h" />
     <ClInclude Include="src\Trinity\Scene\SceneSerializer.h" />
     <ClInclude Include="src\Trinity\Scene\ScriptableEntity.h" />
+    <ClInclude Include="src\Trinity\Utilities\PlatformUtils.h" />
     <ClInclude Include="src\trpch.h" />
     <ClInclude Include="vendor\glm\glm\common.hpp" />
     <ClInclude Include="vendor\glm\glm\detail\_features.hpp" />
@@ -621,6 +622,7 @@
     <ClCompile Include="src\Platform\OpenGL\OpenGLTexture.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLVertexArray.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp" />
+    <ClCompile Include="src\Platform\Windows\WindowsPlatformUtils.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />
     <ClCompile Include="src\Trinity\Core\Application.cpp" />
     <ClCompile Include="src\Trinity\Core\Layer.cpp" />

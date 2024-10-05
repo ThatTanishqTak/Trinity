@@ -172,7 +172,7 @@ namespace Trinity
 		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 
-		m_Scene->m_Registry.storage(); 
+		m_Scene->m_Registry.storage();
 		for (const auto [entt, ref] : m_Scene->m_Registry.storage<TagComponent>().each())
 		{
 			Entity entity = { entt, m_Scene.get() };

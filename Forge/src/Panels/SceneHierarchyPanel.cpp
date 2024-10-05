@@ -18,6 +18,7 @@ namespace Trinity
 	void SceneHierarchyPanel::SetContext(const Ref<Scene>& context)
 	{
 		m_Context = context;
+		m_SelectionContext = {};
 	}
 
 	void SceneHierarchyPanel::OnImGuiRender()
@@ -25,10 +26,10 @@ namespace Trinity
 		ImGui::Begin("Scene Hierarchy");
 		{
 			m_Context->m_Registry.view<entt::entity>().each([this](auto entityID)
-				{
-					Entity entity{ entityID, m_Context.get() };
-					DrawEntityNode(entity);
-				});
+			{
+				Entity entity{ entityID, m_Context.get() };
+				DrawEntityNode(entity);
+			});
 
 			if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 			{
@@ -244,7 +245,6 @@ namespace Trinity
 			{
 				tag = std::string(buffer);
 			}
-
 		}
 
 		ImGui::SameLine();

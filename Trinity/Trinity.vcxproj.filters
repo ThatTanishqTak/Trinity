@@ -34,6 +34,9 @@
     <Filter Include="src\Trinity\Scene">
       <UniqueIdentifier>{8C252ED6-F83B-2C6C-41B3-B78DAD08FDF3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\Trinity\Utilities">
+      <UniqueIdentifier>{5A7CBEAD-C6E8-79A8-8FDC-1106FB079C10}</UniqueIdentifier>
+    </Filter>
     <Filter Include="vendor">
       <UniqueIdentifier>{B3738122-9F15-ACF8-88D0-BF4C74113349}</UniqueIdentifier>
     </Filter>
@@ -192,8 +195,14 @@
     <ClInclude Include="src\Trinity\Scene\SceneCamera.h">
       <Filter>src\Trinity\Scene</Filter>
     </ClInclude>
+    <ClInclude Include="src\Trinity\Scene\SceneSerializer.h">
+      <Filter>src\Trinity\Scene</Filter>
+    </ClInclude>
     <ClInclude Include="src\Trinity\Scene\ScriptableEntity.h">
       <Filter>src\Trinity\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Utilities\PlatformUtils.h">
+      <Filter>src\Trinity\Utilities</Filter>
     </ClInclude>
     <ClInclude Include="src\trpch.h">
       <Filter>src</Filter>
@@ -1449,7 +1458,6 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Scene\SceneSerializer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1474,6 +1482,9 @@
       <Filter>src\Platform\OpenGL</Filter>
     </ClCompile>
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp">
+      <Filter>src\Platform\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\Windows\WindowsPlatformUtils.cpp">
       <Filter>src\Platform\Windows</Filter>
     </ClCompile>
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp">
@@ -1542,12 +1553,14 @@
     <ClCompile Include="src\Trinity\Scene\SceneCamera.cpp">
       <Filter>src\Trinity\Scene</Filter>
     </ClCompile>
+    <ClCompile Include="src\Trinity\Scene\SceneSerializer.cpp">
+      <Filter>src\Trinity\Scene</Filter>
+    </ClCompile>
     <ClCompile Include="src\trpch.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\Trinity\Scene\SceneSerializer.cpp" />
   </ItemGroup>
 </Project>

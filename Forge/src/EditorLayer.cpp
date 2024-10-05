@@ -6,10 +6,11 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "Trinity/Scene/SceneSerializer.h"
+#include "Trinity/Utilities/PlatformUtils.h"
 
 namespace Trinity
 {
-    EditorLayer::EditorLayer() : Layer("Forge Layer"), m_CameraController(1280.0f / 720.0f)
+    EditorLayer::EditorLayer() : Layer("Forge Layer"), m_CameraController(1600.0f / 900.0f)
     {
 
     }
@@ -17,12 +18,11 @@ namespace Trinity
     void EditorLayer::OnAttach()
     {
         FramebufferSpecifications specs;
-        specs.Width = 1280;
-        specs.Height = 720;
+        specs.Width = 1600;
+        specs.Height = 900;
         m_Framebuffer = Framebuffer::Create(specs);
 
         m_ActiveScene = CreateRef<Scene>();
-
 #if 0
         m_Square = m_ActiveScene->CreateEntity("Square");
         m_Square.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
@@ -100,6 +100,7 @@ namespace Trinity
 
     void EditorLayer::OnImGuiRender()
     {
+//------------------------------------------------------------------------------------------------------------------------------------------------
         static bool dockspaceOpen = true;
 
         static bool opt_fullscreen = true;
@@ -134,6 +135,7 @@ namespace Trinity
 
         if (opt_fullscreen)
             ImGui::PopStyleVar(2);
+//------------------------------------------------------------------------------------------------------------------------------------------------
 
         ImGuiIO& io = ImGui::GetIO();
         ImGuiStyle& style = ImGui::GetStyle();
@@ -152,17 +154,33 @@ namespace Trinity
         {
             if (ImGui::BeginMenu("File"))
             {
-                if (ImGui::MenuItem("Serialize")) 
+                if (ImGui::MenuItem("New Scene", "Ctr+N"))
                 {
-                    SceneSerializer serializer(m_ActiveScene);
-                    serializer.SerializeText("assets/scenes/Test.trinity");
+                    NewScene();
                 }
 
-                if (ImGui::MenuItem("Deserialize"))
-                { 
-                    SceneSerializer serializer(m_ActiveScene);
-                    serializer.DeserializeText("assets/scenes/Test.trinity");
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Open...", "Ctr+O"))
+                {
+                    OpenScene();
                 }
+
+                ImGui::Separator();
+
+                //if (ImGui::MenuItem("Save", "Ctr+S"))
+                //{
+                //    SaveSceneAs();
+                //}
+                //
+                //ImGui::Separator();
+
+                if (ImGui::MenuItem("Save As...", "Ctr+Shift+S"))
+                { 
+                    SaveSceneAs();
+                }
+
+                ImGui::Separator();
 
                 if (ImGui::MenuItem("Exit")) { Application::Get().Close(); }
                 ImGui::EndMenu();
@@ -210,5 +228,83 @@ namespace Trinity
     void EditorLayer::OnEvent(Event& e)
     {
         m_CameraController.OnEvent(e);
+
+        EventDispatcher dispatcher(e);
+        dispatcher.Dispatch<KeyPressedEvent>(TR_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
+    }
+
+    bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
+    {
+        if (e.GetRepeatCount() > 0)
+        {
+            return false;
+        }
+
+        bool isControlPressed = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+        bool isShiftPressed = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+
+        switch (e.GetKeyCode())
+        {
+            case Key::N:
+            {
+                if (isControlPressed)
+                {
+                    NewScene();
+                }
+
+                break;
+            }
+
+            case Key::O:
+            {
+                if (isControlPressed)
+                {
+                    OpenScene();
+                }
+            }
+
+            case Key::S:
+            {
+                if (isControlPressed && isShiftPressed)
+                {
+                    SaveSceneAs();
+                }
+
+                break;
+            }
+        }
+    }
+
+    void EditorLayer::NewScene()
+    {
+        m_ActiveScene = CreateRef<Scene>();
+        m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+
+        m_Panel.SetContext(m_ActiveScene);
+    }
+
+    void EditorLayer::OpenScene()
+    {
+        std::string filePath = FileDialogs::OpenFile("Trinity Scene (*.trinity)\0*.trinity\0");
+        if (!filePath.empty())
+        {
+            m_ActiveScene = CreateRef<Scene>();
+            m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+
+            m_Panel.SetContext(m_ActiveScene);
+
+            SceneSerializer serializer(m_ActiveScene);
+            serializer.DeserializeText(filePath);
+        }
+    }
+
+    void EditorLayer::SaveSceneAs()
+    {
+        std::string filePath = FileDialogs::SaveFile("Trinity Scene (*.trinity)\0*.trinity\0");
+        if (!filePath.empty())
+        {
+            SceneSerializer serializer(m_ActiveScene);
+            serializer.SerializeText(filePath);
+        }
     }
 }
