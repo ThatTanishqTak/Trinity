@@ -22,6 +22,7 @@ namespace Trinity
 		bool OnKeyPressed(KeyPressedEvent& e);
 
 		void NewScene();
+		void SaveScene();
 		void SaveSceneAs();
 		void OpenScene();
 
@@ -43,7 +44,9 @@ namespace Trinity
 		bool m_ViewportFocused = false;
 		bool m_ViewportHovered = false;
 
+		int m_GizmoType = -1;
+
 		//Panels
-		SceneHierarchyPanel m_Panel;
+		SceneHierarchyPanel m_SceneHierarchyPanel;
 	};
 }

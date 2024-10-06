@@ -8,7 +8,9 @@
 #include "Trinity/Core/Application.h"
 
 #include <GLFW/glfw3.h>
-#include <glad/glad.h> 
+#include <glad/glad.h>
+
+#include "ImGuizmo.h"
 
 namespace Trinity
 {
@@ -82,6 +84,7 @@ namespace Trinity
 		ImGui_ImplGlfw_NewFrame();
 	
 		ImGui::NewFrame();
+		ImGuizmo::BeginFrame();
 	}
 
 	void ImGuiLayer::End()

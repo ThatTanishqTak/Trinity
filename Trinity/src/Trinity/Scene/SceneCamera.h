@@ -30,7 +30,7 @@ namespace Trinity
 		float GetPerspectiveNearClip() const { return m_PerspectiveNear; }
 		float GetPerspectiveFarClip() const { return m_PerspectiveFar; }
 
-		void SetPerspectiveFOV(float verticalFOV) { m_PerspectiveFOV = glm::radians(verticalFOV); RecalculateProjection(); }
+		void SetPerspectiveFOV(float verticalFOV) { m_PerspectiveFOV = verticalFOV; RecalculateProjection(); }
 		void SetPerspectiveNearClip(float nearClip) { m_PerspectiveNear = nearClip; RecalculateProjection(); }
 		void SetPerspectiveFarClip(float farClip) { m_PerspectiveFar = farClip; RecalculateProjection(); }
 

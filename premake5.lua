@@ -24,6 +24,7 @@ IncludeDir["glm"] 			= "%{wks.location}/Trinity/vendor/glm"
 IncludeDir["stb_image"] 	= "%{wks.location}/Trinity/vendor/stb_image"
 IncludeDir["entt"] 			= "%{wks.location}/Trinity/vendor/entt/include"
 IncludeDir["yaml_cpp"] 		= "%{wks.location}/Trinity/vendor/yaml-cpp/include"
+IncludeDir["ImGuizmo"] 		= "%{wks.location}/Trinity/vendor/ImGuizmo"
 
 group "Dependencies"
 	include "Trinity/vendor/GLFW"

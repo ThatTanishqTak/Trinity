@@ -20,6 +20,7 @@ namespace YAML
 			node.push_back(rhs.x);
 			node.push_back(rhs.y);
 			node.push_back(rhs.z);
+			node.SetStyle(EmitterStyle::Flow);
 
 			return node;
 		}
@@ -50,6 +51,7 @@ namespace YAML
 			node.push_back(rhs.y);
 			node.push_back(rhs.z);
 			node.push_back(rhs.w);
+			node.SetStyle(EmitterStyle::Flow);
 
 			return node;
 		}
@@ -134,13 +136,13 @@ namespace Trinity
 			out << YAML::Key << "Camera" << YAML::Value;
 			out << YAML::BeginMap;
 			
-			out << YAML::Key << "ProjectionType" << YAML::Value << (int)camera.GetProjectionType();
-			out << YAML::Key << "PerspectiveFOV" << YAML::Value << (int)camera.GetPerspectiveFOV();
-			out << YAML::Key << "PerspectiveNear" << YAML::Value << (int)camera.GetPerspectiveNearClip();
-			out << YAML::Key << "PerspectiveFar" << YAML::Value << (int)camera.GetPerspectiveFarClip();
-			out << YAML::Key << "OrthographicSize" << YAML::Value << (int)camera.GetOrthographicSize();
-			out << YAML::Key << "OrthographicFar" << YAML::Value << (int)camera.GetOrthographicFarClip();
-			out << YAML::Key << "OrthographicNear" << YAML::Value << (int)camera.GetOrthographicNearClip();
+			out << YAML::Key << "ProjectionType"     << YAML::Value << (int)camera.GetProjectionType();
+			out << YAML::Key << "PerspectiveFOV"     << YAML::Value << (float)camera.GetPerspectiveFOV();
+			out << YAML::Key << "PerspectiveNear"    << YAML::Value << (float)camera.GetPerspectiveNearClip();
+			out << YAML::Key << "PerspectiveFar"     << YAML::Value << (float)camera.GetPerspectiveFarClip();
+			out << YAML::Key << "OrthographicSize"   << YAML::Value << (float)camera.GetOrthographicSize();
+			out << YAML::Key << "OrthographicFar"    << YAML::Value << (float)camera.GetOrthographicFarClip();
+			out << YAML::Key << "OrthographicNear"   << YAML::Value << (float)camera.GetOrthographicNearClip();
 			
 			out << YAML::EndMap;
 
@@ -198,11 +200,7 @@ namespace Trinity
 
 	bool SceneSerializer::DeserializeText(const std::string& filePath)
 	{
-		std::ifstream stream(filePath);
-		std::stringstream strStream;
-		strStream << stream.rdbuf();
-
-		YAML::Node data = YAML::Load(strStream.str());
+		YAML::Node data = YAML::LoadFile(filePath);
 		if (!data["Scene"])
 		{
 			return false;

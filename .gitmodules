@@ -13,3 +13,9 @@
 [submodule "Trinity/vendor/yaml-cpp"]
 	path = Trinity/vendor/yaml-cpp
 	url = https://github.com/ThatTanishqTak/yaml-cpp.git
+[submodule "trinity/vendor/ImGizmo"]
+	path = trinity/vendor/ImGizmo
+	url = https://github.com/ThatTanishqTak/ImGizmo.git
+[submodule "Trinity/vendor/ImGuizmo"]
+	path = Trinity/vendor/ImGuizmo
+	url = https://github.com/ThatTanishqTak/ImGuizmo.git

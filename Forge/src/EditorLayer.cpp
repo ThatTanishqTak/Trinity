@@ -7,6 +7,9 @@
 
 #include "Trinity/Scene/SceneSerializer.h"
 #include "Trinity/Utilities/PlatformUtils.h"
+#include "Trinity/Math/Math.h"
+
+#include "ImGuizmo/ImGuizmo.h"
 
 namespace Trinity
 {
@@ -39,7 +42,7 @@ namespace Trinity
         public:
             void OnCreate()
             {
-                
+
             }
 
             void OnDestroy()
@@ -62,7 +65,7 @@ namespace Trinity
         m_SecondCamera.AddComponent<NativeScriptComponent>().Bind<CameraController>();
 
 #endif
-        m_Panel.SetContext(m_ActiveScene);
+        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnDetach()
@@ -86,7 +89,7 @@ namespace Trinity
         {
             m_CameraController.OnUpdate(timestep);
         }
-     
+
         // Render
         Renderer2D::ResetStats();
         m_Framebuffer->Bind();
@@ -94,13 +97,13 @@ namespace Trinity
 
         // Update Scene
         m_ActiveScene->OnUpdate(timestep);
-        
+
         m_Framebuffer->Unbind();
     }
 
     void EditorLayer::OnImGuiRender()
     {
-//------------------------------------------------------------------------------------------------------------------------------------------------
+        //------------------------------------------------------------------------------------------------------------------------------------------------
         static bool dockspaceOpen = true;
 
         static bool opt_fullscreen = true;
@@ -135,13 +138,13 @@ namespace Trinity
 
         if (opt_fullscreen)
             ImGui::PopStyleVar(2);
-//------------------------------------------------------------------------------------------------------------------------------------------------
+        //------------------------------------------------------------------------------------------------------------------------------------------------
 
         ImGuiIO& io = ImGui::GetIO();
         ImGuiStyle& style = ImGui::GetStyle();
         float minWinSizeX = style.WindowMinSize.x;
         style.WindowMinSize.x = 370.0f;
-        
+
         if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
         {
             ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
@@ -168,15 +171,15 @@ namespace Trinity
 
                 ImGui::Separator();
 
-                //if (ImGui::MenuItem("Save", "Ctr+S"))
-                //{
-                //    SaveSceneAs();
-                //}
-                //
-                //ImGui::Separator();
+                if (ImGui::MenuItem("Save", "(Not Implemented)"))
+                {
+                    SaveScene();
+                }
+
+                ImGui::Separator();
 
                 if (ImGui::MenuItem("Save As...", "Ctr+Shift+S"))
-                { 
+                {
                     SaveSceneAs();
                 }
 
@@ -189,38 +192,72 @@ namespace Trinity
             ImGui::EndMenuBar();
         }
 
+        m_SceneHierarchyPanel.OnImGuiRender();
+
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
-
         ImGui::Begin("Viewport");
+
+        m_ViewportFocused = ImGui::IsWindowFocused();
+        m_ViewportHovered = ImGui::IsWindowHovered();
+
+        Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportFocused && !m_ViewportHovered);
+
+        ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
+        m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
+
+        uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
+        ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
+
+        Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+        if (selectedEntity && m_GizmoType != -1)
         {
-            m_ViewportFocused = ImGui::IsWindowFocused();
-            m_ViewportHovered = ImGui::IsWindowHovered();
+            ImGuizmo::SetOrthographic(false);
+            ImGuizmo::SetDrawlist();
 
-            Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportFocused || !m_ViewportHovered);
+            float windowWidth = (float)ImGui::GetWindowWidth();
+            float windowHeight = (float)ImGui::GetWindowHeight();
 
-            ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
-            m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
+            ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
 
-            uint32_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
-            ImGui::Image((void*)textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
+            auto cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
+            const auto& camera = cameraEntity.GetComponent<CameraComponent>().Camera;
 
-            ImGui::End();
-            ImGui::PopStyleVar();
+            const glm::mat4& cameraProjection = camera.GetProjection();
+            glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
+
+            auto& transformComponent = selectedEntity.GetComponent<TransformComponent>();
+            glm::mat4 transform = transformComponent.GetTransform();
+
+            bool snap = Input::IsKeyPressed(Key::LeftControl);
+            float snapValue = 0.5f;
+
+            if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
+            {
+                snapValue = 45.0f;
+            }
+
+            float snapValues[3] = { snapValue, snapValue , snapValue };
+
+            ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
+                (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform),
+                nullptr, snap ? snapValues : nullptr);
+
+            if (ImGuizmo::IsUsing())
+            {
+                glm::vec3 translation;
+                glm::vec3 rotation;
+                glm::vec3 scale;
+                Math::DecomposeTransform(transform, translation, rotation, scale);
+
+                glm::vec3 deltaRotation = rotation - transformComponent.Rotation;
+                transformComponent.Translation = translation;
+                transformComponent.Rotation += deltaRotation;
+                transformComponent.Scale = scale;
+            }
         }
 
-        m_Panel.OnImGuiRender();
-
-        ImGui::Begin("Renderer2D Stats");
-        {
-            auto stats = Renderer2D::GetStats();
-
-            ImGui::Text("DrawCalls: %d", stats.DrawCalls);
-            ImGui::Text("Quad Count: %d", stats.QuadCount);
-            ImGui::Text("Vertex Count: %d", stats.GetTotalVertexCount());
-            ImGui::Text("Index Count: %d", stats.GetTotalIndexCount());
-
-            ImGui::End();
-        }
+        ImGui::End();
+        ImGui::PopStyleVar();
 
         ImGui::End();
     }
@@ -261,10 +298,17 @@ namespace Trinity
                 {
                     OpenScene();
                 }
+
+                break;
             }
 
             case Key::S:
             {
+                if (isControlPressed)
+                {
+                    SaveScene();
+                }
+
                 if (isControlPressed && isShiftPressed)
                 {
                     SaveSceneAs();
@@ -272,6 +316,37 @@ namespace Trinity
 
                 break;
             }
+
+            case Key::Q:
+            {
+                m_GizmoType = -1;
+
+                break;
+            }
+
+            case Key::W:
+            {
+                m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
+
+                break;
+            }
+
+            case Key::E:
+            {
+                m_GizmoType = ImGuizmo::OPERATION::ROTATE;
+
+                break;
+            }
+
+            case Key::R:
+            {
+                m_GizmoType = ImGuizmo::OPERATION::SCALE;
+
+                break;
+            }
+
+            default:
+                break;
         }
     }
 
@@ -280,7 +355,12 @@ namespace Trinity
         m_ActiveScene = CreateRef<Scene>();
         m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
-        m_Panel.SetContext(m_ActiveScene);
+        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+    }
+
+    void EditorLayer::SaveScene()
+    {
+        //TR_CORE_INFO("Saved!!");
     }
 
     void EditorLayer::OpenScene()
@@ -291,7 +371,7 @@ namespace Trinity
             m_ActiveScene = CreateRef<Scene>();
             m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
-            m_Panel.SetContext(m_ActiveScene);
+            m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 
             SceneSerializer serializer(m_ActiveScene);
             serializer.DeserializeText(filePath);
