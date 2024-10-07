@@ -37,12 +37,12 @@ namespace Trinity
 		m_Registry.destroy(entity);
 	}
 
-	void Scene::OnUpdate(Timestep timestep)
+	void Scene::OnUpdateRuntime(Timestep timestep)
 	{
 		// Update scripts
 		{
 			m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nativeScriptComponent)
-			{
+				{
 					if (!nativeScriptComponent.Instance)
 					{
 						nativeScriptComponent.Instance = nativeScriptComponent.InstantiateScript();
@@ -51,7 +51,7 @@ namespace Trinity
 					}
 
 					nativeScriptComponent.Instance->OnUpdate(timestep);
-			});
+				});
 		}
 
 		Camera* mainCamera = nullptr;
@@ -62,11 +62,11 @@ namespace Trinity
 			{
 				auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
 
-				if(camera.Primary)
+				if (camera.Primary)
 				{
 					mainCamera = &camera.Camera;
 					cameraTransform = transform.GetTransform();
-					
+
 					break;
 				}
 			}
@@ -86,6 +86,21 @@ namespace Trinity
 
 			Renderer2D::EndScene();
 		}
+	}
+
+	void Scene::OnUpdateEditor(Timestep timestep, EditorCamera& editorCamera)
+	{
+		Renderer2D::BeginScene(editorCamera);
+
+		auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+		for (auto entity : group)
+		{
+			auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+
+			Renderer2D::DrawQuad(transform.GetTransform(), 0.0f, sprite.Color);
+		}
+
+		Renderer2D::EndScene();
 	}
 
 	void Scene::OnViewportResize(uint32_t width, uint32_t height)

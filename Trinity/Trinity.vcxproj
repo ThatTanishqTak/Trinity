@@ -176,6 +176,7 @@
     <ClInclude Include="src\Trinity\Math\Math.h" />
     <ClInclude Include="src\Trinity\Renderer\Buffer.h" />
     <ClInclude Include="src\Trinity\Renderer\Camera.h" />
+    <ClInclude Include="src\Trinity\Renderer\EditorCamera.h" />
     <ClInclude Include="src\Trinity\Renderer\Framebuffer.h" />
     <ClInclude Include="src\Trinity\Renderer\GraphicsContext.h" />
     <ClInclude Include="src\Trinity\Renderer\OrthographicCamera.h" />
@@ -634,6 +635,7 @@
     <ClCompile Include="src\Trinity\ImGui\ImGuiLayer.cpp" />
     <ClCompile Include="src\Trinity\Math\Math.cpp" />
     <ClCompile Include="src\Trinity\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\Trinity\Renderer\EditorCamera.cpp" />
     <ClCompile Include="src\Trinity\Renderer\Framebuffer.cpp" />
     <ClCompile Include="src\Trinity\Renderer\OrthographicCamera.cpp" />
     <ClCompile Include="src\Trinity\Renderer\OrthographicCameraController.cpp" />

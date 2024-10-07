@@ -40,7 +40,7 @@ namespace Trinity
 			{
 				if (ImGui::MenuItem("Create Entity"))
 				{
-					m_Context->CreateEntity("Empty Entity");
+					m_Context->CreateEntity();
 				}
 
 				ImGui::EndPopup();

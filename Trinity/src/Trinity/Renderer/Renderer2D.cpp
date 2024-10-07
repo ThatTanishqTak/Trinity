@@ -126,6 +126,19 @@ namespace Trinity
 		s_Data.TextureSlotIndex = 1;
 	}
 
+	void Renderer2D::BeginScene(const EditorCamera& editorCamera)
+	{
+		glm::mat4 viewProjectionMatrix = editorCamera.GetViewProjection();
+
+		s_Data.TextureShader->SetMat4("u_ViewProjection", viewProjectionMatrix);
+		s_Data.TextureShader->Bind();
+
+		s_Data.QuadIndexCount = 0;
+		s_Data.QuadVertexBufferPtr = s_Data.QuadVertexBufferBase;
+
+		s_Data.TextureSlotIndex = 1;
+	}
+
 	void Renderer2D::BeginScene(const OrthographicCamera& camera)
 	{
 		s_Data.TextureShader->Bind();

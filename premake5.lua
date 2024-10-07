@@ -35,9 +35,6 @@ group ""
 
 group "Engine"
 	include "Trinity"
-group ""
-
-group "Editor"
 	include "Forge"
 group ""
 

@@ -1,8 +1,9 @@
 #pragma once
 
-#include "entt.hpp"
-
 #include "Trinity/Core/Timestep.h"
+#include "Trinity/Renderer/EditorCamera.h"
+
+#include "entt.hpp"
 
 namespace Trinity
 {
@@ -17,7 +18,8 @@ namespace Trinity
 		Entity CreateEntity(const std::string& name = std::string());
 		void DestroyEntity(Entity entity);
 
-		void OnUpdate(Timestep timestep);
+		void OnUpdateRuntime(Timestep timestep);
+		void OnUpdateEditor(Timestep timestep, EditorCamera& editorCamera);
 		void OnViewportResize(uint32_t width, uint32_t height);
 
 		Entity GetPrimaryCameraEntity();

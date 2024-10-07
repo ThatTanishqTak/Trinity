@@ -28,6 +28,9 @@
     <Filter Include="src\Trinity\ImGui">
       <UniqueIdentifier>{992D7ED5-0544-7C6B-4EBB-078DBA104DF3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\Trinity\Math">
+      <UniqueIdentifier>{684BD77A-5444-F6CC-7D76-DB5169CED5D8}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\Trinity\Renderer">
       <UniqueIdentifier>{B5D90226-A168-8CEF-4A87-A0EA36F59C95}</UniqueIdentifier>
     </Filter>
@@ -143,6 +146,9 @@
     </ClInclude>
     <ClInclude Include="src\Trinity\ImGui\ImGuiLayer.h">
       <Filter>src\Trinity\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Math\Math.h">
+      <Filter>src\Trinity\Math</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\Buffer.h">
       <Filter>src\Trinity\Renderer</Filter>
@@ -1464,7 +1470,7 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\Trinity\Math\Math.h" />
+    <ClInclude Include="src\Trinity\Renderer\EditorCamera.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
@@ -1514,6 +1520,9 @@
     </ClCompile>
     <ClCompile Include="src\Trinity\ImGui\ImGuiLayer.cpp">
       <Filter>src\Trinity\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Math\Math.cpp">
+      <Filter>src\Trinity\Math</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\Buffer.cpp">
       <Filter>src\Trinity\Renderer</Filter>
@@ -1572,6 +1581,6 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\Trinity\Math\Math.cpp" />
+    <ClCompile Include="src\Trinity\Renderer\EditorCamera.cpp" />
   </ItemGroup>
 </Project>

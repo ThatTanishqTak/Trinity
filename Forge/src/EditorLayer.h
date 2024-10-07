@@ -2,6 +2,7 @@
 
 #include "Trinity.h"
 #include "Panels/SceneHierarchyPanel.h"
+#include "Trinity/Renderer/EditorCamera.h"
 
 namespace Trinity
 {
@@ -37,6 +38,8 @@ namespace Trinity
 		Entity m_Square;
 		Entity m_CameraEntity;
 		Entity m_SecondCamera;
+
+		EditorCamera m_EditorCamera;
 
 		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 

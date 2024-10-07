@@ -19,7 +19,7 @@ namespace Trinity
 
 			MouseLast     = Button8,
 			MouseLeft     = Button1,
-			MouseLRight   = Button2,
+			MouseRight    = Button2,
 			MouseMiddle   = Button3,
 		};
 	}

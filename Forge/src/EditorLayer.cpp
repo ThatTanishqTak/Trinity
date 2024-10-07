@@ -26,6 +26,9 @@ namespace Trinity
         m_Framebuffer = Framebuffer::Create(specs);
 
         m_ActiveScene = CreateRef<Scene>();
+
+        m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
+
 #if 0
         m_Square = m_ActiveScene->CreateEntity("Square");
         m_Square.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
@@ -80,6 +83,7 @@ namespace Trinity
         {
             m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
             m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
+            m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
 
             m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
         }
@@ -88,6 +92,7 @@ namespace Trinity
         if (m_ViewportFocused)
         {
             m_CameraController.OnUpdate(timestep);
+            m_EditorCamera.OnUpdate(timestep);
         }
 
         // Render
@@ -96,7 +101,7 @@ namespace Trinity
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 
         // Update Scene
-        m_ActiveScene->OnUpdate(timestep);
+        m_ActiveScene->OnUpdateEditor(timestep, m_EditorCamera);
 
         m_Framebuffer->Unbind();
     }
@@ -196,68 +201,74 @@ namespace Trinity
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
         ImGui::Begin("Viewport");
-
-        m_ViewportFocused = ImGui::IsWindowFocused();
-        m_ViewportHovered = ImGui::IsWindowHovered();
-
-        Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportFocused && !m_ViewportHovered);
-
-        ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
-        m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
-
-        uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
-        ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
-
-        Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
-        if (selectedEntity && m_GizmoType != -1)
         {
-            ImGuizmo::SetOrthographic(false);
-            ImGuizmo::SetDrawlist();
+            m_ViewportFocused = ImGui::IsWindowFocused();
+            m_ViewportHovered = ImGui::IsWindowHovered();
 
-            float windowWidth = (float)ImGui::GetWindowWidth();
-            float windowHeight = (float)ImGui::GetWindowHeight();
+            Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportFocused && !m_ViewportHovered);
 
-            ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
+            ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
+            m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-            auto cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
-            const auto& camera = cameraEntity.GetComponent<CameraComponent>().Camera;
+            uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
+            ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
 
-            const glm::mat4& cameraProjection = camera.GetProjection();
-            glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
-
-            auto& transformComponent = selectedEntity.GetComponent<TransformComponent>();
-            glm::mat4 transform = transformComponent.GetTransform();
-
-            bool snap = Input::IsKeyPressed(Key::LeftControl);
-            float snapValue = 0.5f;
-
-            if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
+            Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+            if (selectedEntity && m_GizmoType != -1)
             {
-                snapValue = 45.0f;
+                ImGuizmo::SetOrthographic(false);
+                ImGuizmo::SetDrawlist();
+
+                float windowWidth = (float)ImGui::GetWindowWidth();
+                float windowHeight = (float)ImGui::GetWindowHeight();
+
+                ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
+
+                // RUNTIME CAMERA
+                //auto cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
+                //const auto& camera = cameraEntity.GetComponent<CameraComponent>().Camera;
+
+                //const glm::mat4& cameraProjection = camera.GetProjection();
+                //glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
+
+                // EDITOR CAMERA
+                const glm::mat4& cameraProjection = m_EditorCamera.GetProjection();
+                glm::mat4 cameraView = m_EditorCamera.GetViewMatrix();
+
+                auto& transformComponent = selectedEntity.GetComponent<TransformComponent>();
+                glm::mat4 transform = transformComponent.GetTransform();
+
+                bool snap = Input::IsKeyPressed(Key::LeftControl);
+                float snapValue = 0.5f;
+
+                if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
+                {
+                    snapValue = 45.0f;
+                }
+
+                float snapValues[3] = { snapValue, snapValue , snapValue };
+
+                ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
+                    (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform),
+                    nullptr, snap ? snapValues : nullptr);
+
+                if (ImGuizmo::IsUsing())
+                {
+                    glm::vec3 translation;
+                    glm::vec3 rotation;
+                    glm::vec3 scale;
+                    Math::DecomposeTransform(transform, translation, rotation, scale);
+
+                    glm::vec3 deltaRotation = rotation - transformComponent.Rotation;
+                    transformComponent.Translation = translation;
+                    transformComponent.Rotation += deltaRotation;
+                    transformComponent.Scale = scale;
+                }
             }
 
-            float snapValues[3] = { snapValue, snapValue , snapValue };
-
-            ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
-                (ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform),
-                nullptr, snap ? snapValues : nullptr);
-
-            if (ImGuizmo::IsUsing())
-            {
-                glm::vec3 translation;
-                glm::vec3 rotation;
-                glm::vec3 scale;
-                Math::DecomposeTransform(transform, translation, rotation, scale);
-
-                glm::vec3 deltaRotation = rotation - transformComponent.Rotation;
-                transformComponent.Translation = translation;
-                transformComponent.Rotation += deltaRotation;
-                transformComponent.Scale = scale;
-            }
+            ImGui::End();
+            ImGui::PopStyleVar();
         }
-
-        ImGui::End();
-        ImGui::PopStyleVar();
 
         ImGui::End();
     }
@@ -265,6 +276,7 @@ namespace Trinity
     void EditorLayer::OnEvent(Event& e)
     {
         m_CameraController.OnEvent(e);
+        m_EditorCamera.OnEvent(e);
 
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<KeyPressedEvent>(TR_BIND_EVENT_FN(EditorLayer::OnKeyPressed));

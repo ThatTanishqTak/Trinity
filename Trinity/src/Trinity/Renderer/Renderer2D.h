@@ -4,6 +4,7 @@
 #include "Trinity/Renderer/Texture.h"
 #include "Trinity/Renderer/SubTexture2D.h"
 #include "Trinity/Renderer/Camera.h"
+#include "Trinity/Renderer/EditorCamera.h"
 
 namespace Trinity
 {
@@ -14,6 +15,7 @@ namespace Trinity
 		static void Shutdown();
 
 		static void BeginScene(const Camera& camera, const glm::mat4& transform);
+		static void BeginScene(const EditorCamera& editorCamera);
 		static void BeginScene(const OrthographicCamera& camera);
 		static void EndScene();
 		static void Flush();
