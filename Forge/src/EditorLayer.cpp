@@ -21,7 +21,7 @@ namespace Trinity
     void EditorLayer::OnAttach()
     {
         FramebufferSpecifications specs;
-        specs.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+        specs.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
         specs.Width = 1600;
         specs.Height = 900;
         m_Framebuffer = Framebuffer::Create(specs);
@@ -104,6 +104,21 @@ namespace Trinity
 
         // Update Scene
         m_ActiveScene->OnUpdateEditor(timestep, m_EditorCamera);
+
+        auto [mX, mY] = ImGui::GetMousePos();
+        mX -= m_ViewportBounds[0].x;
+        mY -= m_ViewportBounds[1].y;
+        glm::vec2 viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
+        mY = viewportSize.y - mY;
+
+        int mouseX = int(mX);
+        int mouseY = int(mY);
+
+        if (mouseX >= 0 && mouseY >= 0 && mouseX < (int)viewportSize.x && mouseY < (int)viewportSize.y)
+        {
+            int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+            TR_CORE_WARN("Pixel Data = {0}", pixelData);
+        }
 
         m_Framebuffer->Unbind();
     }
@@ -204,6 +219,8 @@ namespace Trinity
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
         ImGui::Begin("Viewport");
         {
+            auto viewportOffset = ImGui::GetMousePos();
+
             m_ViewportFocused = ImGui::IsWindowFocused();
             m_ViewportHovered = ImGui::IsWindowHovered();
 
@@ -214,6 +231,15 @@ namespace Trinity
 
             uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
             ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
+
+            auto windowSize = ImGui::GetWindowSize();
+            ImVec2 minBound = ImGui::GetWindowPos();
+            minBound.x += viewportOffset.x;
+            minBound.y += viewportOffset.y;
+
+            ImVec2 maxBound = { minBound.x + windowSize.x, minBound.y + windowSize.y };
+            m_ViewportBounds[0] = { minBound.x, minBound.y };
+            m_ViewportBounds[1] = { maxBound.x, maxBound.y };
 
             Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
             if (selectedEntity && m_GizmoType != -1)
