@@ -19,14 +19,18 @@ namespace Trinity
 
 		virtual void Resize(uint32_t width, uint32_t height) override;
 
-		virtual uint32_t GetColorAttachmentRendererID() const override { return m_ColorAttachment; }
+		virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const override { return m_ColorAttachments[index]; }
 		virtual const FramebufferSpecifications& GetSpecification() const override { return m_Specifications; }
 
 	private:
 		uint32_t m_RendererID = 0;
-		uint32_t m_ColorAttachment = 0;
-		uint32_t m_DepthAttachment = 0;
 
 		FramebufferSpecifications m_Specifications;
+
+		std::vector<FramebufferTextureSpecifications> m_ColorAttachmentSpecification;
+		FramebufferTextureSpecifications m_DepthAttachmentSpecification = FramebufferTextureFormat::None;
+
+		std::vector<uint32_t> m_ColorAttachments;
+		uint32_t m_DepthAttachment = 0;
 	};
 }

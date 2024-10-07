@@ -21,6 +21,7 @@ namespace Trinity
     void EditorLayer::OnAttach()
     {
         FramebufferSpecifications specs;
+        specs.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
         specs.Width = 1600;
         specs.Height = 900;
         m_Framebuffer = Framebuffer::Create(specs);
@@ -92,8 +93,9 @@ namespace Trinity
         if (m_ViewportFocused)
         {
             m_CameraController.OnUpdate(timestep);
-            m_EditorCamera.OnUpdate(timestep);
         }
+
+        m_EditorCamera.OnUpdate(timestep);
 
         // Render
         Renderer2D::ResetStats();

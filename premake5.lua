@@ -35,6 +35,9 @@ group ""
 
 group "Engine"
 	include "Trinity"
+group ""
+
+group "Tool"
 	include "Forge"
 group ""
 
