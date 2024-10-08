@@ -102,12 +102,14 @@ namespace Trinity
         m_Framebuffer->Bind();
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 
+        m_Framebuffer->ClearAttachment(1, -1);
+
         // Update Scene
         m_ActiveScene->OnUpdateEditor(timestep, m_EditorCamera);
 
-        auto [mX, mY] = ImGui::GetMousePos();
+        auto[mX, mY] = ImGui::GetMousePos();
         mX -= m_ViewportBounds[0].x;
-        mY -= m_ViewportBounds[1].y;
+        mY -= m_ViewportBounds[0].y;
         glm::vec2 viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
         mY = viewportSize.y - mY;
 
@@ -219,7 +221,7 @@ namespace Trinity
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
         ImGui::Begin("Viewport");
         {
-            auto viewportOffset = ImGui::GetMousePos();
+            auto viewportOffset = ImGui::GetCursorPos();
 
             m_ViewportFocused = ImGui::IsWindowFocused();
             m_ViewportHovered = ImGui::IsWindowHovered();

@@ -5,7 +5,7 @@
 
 namespace Trinity
 {
-	//static const uint32_t s_MaxFramebufferSize = 8192;
+	static const uint32_t s_MaxFramebufferSize = 8192;
 	
 	namespace Utils
 	{
@@ -75,6 +75,18 @@ namespace Trinity
 
 			return false;
 		}
+
+		static GLenum TrinityTextureFormatToGL(FramebufferTextureFormat format)
+		{
+			switch (format)
+			{
+			case FramebufferTextureFormat::RGBA8:         return GL_RGBA8;
+			case FramebufferTextureFormat::RED_INTEGER:   return GL_RED_INTEGER;
+			}
+
+			TR_CORE_ASSERT(false, "");
+			return 0;
+		}
 	}
 
 	OpenGLFramebuffer::OpenGLFramebuffer(const FramebufferSpecifications& specs) : m_Specifications(specs)
@@ -97,7 +109,7 @@ namespace Trinity
 	OpenGLFramebuffer::~OpenGLFramebuffer()
 	{
 		glDeleteFramebuffers(1, &m_RendererID);
-		glDeleteTextures(m_ColorAttachments.size(), m_ColorAttachments.data());
+		glDeleteTextures((GLsizei)m_ColorAttachments.size(), m_ColorAttachments.data());
 		glDeleteTextures(1, &m_DepthAttachment);
 	}
 
@@ -106,7 +118,7 @@ namespace Trinity
 		if (m_RendererID)
 		{
 			glDeleteFramebuffers(1, &m_RendererID);
-			glDeleteTextures(m_ColorAttachments.size(), m_ColorAttachments.data());
+			glDeleteTextures((GLsizei)m_ColorAttachments.size(), m_ColorAttachments.data());
 			glDeleteTextures(1, &m_DepthAttachment);
 
 			m_ColorAttachments.clear();
@@ -122,7 +134,7 @@ namespace Trinity
 		if (m_ColorAttachmentSpecification.size())
 		{
 			m_ColorAttachments.resize(m_ColorAttachmentSpecification.size());
-			Utils::CreateTextures(multiSample, m_ColorAttachments.data(), m_ColorAttachments.size());
+			Utils::CreateTextures(multiSample, m_ColorAttachments.data(), (GLsizei)m_ColorAttachments.size());
 
 			for (size_t i = 0; i < m_ColorAttachments.size(); i++)
 			{
@@ -131,11 +143,11 @@ namespace Trinity
 				switch (m_ColorAttachmentSpecification[i].TextureFormat)
 				{
 				case FramebufferTextureFormat::RGBA8:
-					Utils::AttachColorTexture(m_ColorAttachments[i], m_Specifications.Samples, GL_RGBA8, GL_RGBA, m_Specifications.Width, m_Specifications.Height, i);
+					Utils::AttachColorTexture(m_ColorAttachments[i], m_Specifications.Samples, GL_RGBA8, GL_RGBA, m_Specifications.Width, m_Specifications.Height, (int)i);
 					break;
 
 				case FramebufferTextureFormat::RED_INTEGER:
-					Utils::AttachColorTexture(m_ColorAttachments[i], m_Specifications.Samples, GL_R32I, GL_RED_INTEGER, m_Specifications.Width, m_Specifications.Height, i);
+					Utils::AttachColorTexture(m_ColorAttachments[i], m_Specifications.Samples, GL_R32I, GL_RED_INTEGER, m_Specifications.Width, m_Specifications.Height, (int)i);
 					break;
 				}
 			}
@@ -158,7 +170,7 @@ namespace Trinity
 		{
 			TR_CORE_ASSERT(m_ColorAttachments.size() <= 4, "");
 			GLenum buffer[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
-			glDrawBuffers(m_ColorAttachments.size(), buffer);
+			glDrawBuffers((GLsizei)m_ColorAttachments.size(), buffer);
 		}
 		else if (m_ColorAttachments.empty())
 		{
@@ -187,6 +199,16 @@ namespace Trinity
 		m_Specifications.Height = height;
 
 		Invalidate();
+	}
+
+	void OpenGLFramebuffer::ClearAttachment(uint32_t attachmentIndex, int value)
+	{
+		TR_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size(), "");
+
+		auto& spec = m_ColorAttachmentSpecification[attachmentIndex];
+		spec.TextureFormat;
+	
+		glClearTexImage(m_ColorAttachments[attachmentIndex], 0, Utils::TrinityTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
 	}
 
 	int OpenGLFramebuffer::ReadPixel(uint32_t attachmentIndex, int x, int y)

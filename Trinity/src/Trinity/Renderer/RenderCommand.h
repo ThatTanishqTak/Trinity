@@ -19,8 +19,8 @@ namespace Trinity
 
 		inline static void SetClearColor(const glm::vec4& color)
 		{
-			Clear();
 			s_RendererAPI->SetClearColor(color);
+			Clear();
 		}
 
 		inline static void Clear()
