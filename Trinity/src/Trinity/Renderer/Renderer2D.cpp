@@ -17,6 +17,9 @@ namespace Trinity
 
 		float TexIndex;
 		float TillingFactor;
+
+		// Editor-Only
+		int EntityID;
 	};
 
 	struct Renderer2DData
@@ -52,11 +55,12 @@ namespace Trinity
 		s_Data.QuadVertexBuffer = VertexBuffer::Create(s_Data.MaxVertices * sizeof(QuadVertex));
 
 		s_Data.QuadVertexBuffer->SetLayout({
-			{ ShaderDataType::Float3, std::string("a_Position") },
-			{ ShaderDataType::Float4, std::string("a_Color") },
-			{ ShaderDataType::Float2, std::string("a_TexCoord") },
-			{ ShaderDataType::Float,  std::string("a_TexIndex") },
-			{ ShaderDataType::Float,  std::string("a_TillingFactor") }
+			{ ShaderDataType::Float3, std::string("a_Position")      },
+			{ ShaderDataType::Float4, std::string("a_Color")         },
+			{ ShaderDataType::Float2, std::string("a_TexCoord")      },
+			{ ShaderDataType::Float,  std::string("a_TexIndex")      },
+			{ ShaderDataType::Float,  std::string("a_TillingFactor") },
+			{ ShaderDataType::Int,    std::string("a_EntityID")      }
 		});
 
 		s_Data.QuadVertexArray->AddVertexBuffer(s_Data.QuadVertexBuffer);
@@ -332,7 +336,7 @@ namespace Trinity
 		s_Data.Stats.QuadCount++;
 	}
 
-	void Renderer2D::DrawQuad(const glm::mat4& transform, float rotation, const glm::vec4& color)
+	void Renderer2D::DrawQuad(const glm::mat4& transform, float rotation, const glm::vec4& color, int entityID)
 	{
 		if (s_Data.QuadIndexCount >= s_Data.MaxIndices)
 		{
@@ -347,6 +351,7 @@ namespace Trinity
 		s_Data.QuadVertexBufferPtr->TexCoord = { 0.0f, 0.0f };
 		s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
 		s_Data.QuadVertexBufferPtr->TillingFactor = tillingFactor;
+		s_Data.QuadVertexBufferPtr->EntityID = entityID;
 		s_Data.QuadVertexBufferPtr++;
 
 		s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[1];
@@ -354,6 +359,7 @@ namespace Trinity
 		s_Data.QuadVertexBufferPtr->TexCoord = { 1.0f, 0.0f };
 		s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
 		s_Data.QuadVertexBufferPtr->TillingFactor = tillingFactor;
+		s_Data.QuadVertexBufferPtr->EntityID = entityID;
 		s_Data.QuadVertexBufferPtr++;
 
 		s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[2];
@@ -361,6 +367,7 @@ namespace Trinity
 		s_Data.QuadVertexBufferPtr->TexCoord = { 1.0f, 1.0f };
 		s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
 		s_Data.QuadVertexBufferPtr->TillingFactor = tillingFactor;
+		s_Data.QuadVertexBufferPtr->EntityID = entityID;
 		s_Data.QuadVertexBufferPtr++;
 
 		s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[3];
@@ -368,13 +375,14 @@ namespace Trinity
 		s_Data.QuadVertexBufferPtr->TexCoord = { 0.0f, 1.0f };
 		s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
 		s_Data.QuadVertexBufferPtr->TillingFactor = tillingFactor;
+		s_Data.QuadVertexBufferPtr->EntityID = entityID;
 		s_Data.QuadVertexBufferPtr++;
 
 		s_Data.QuadIndexCount += 6;
 		s_Data.Stats.QuadCount++;
 	}
 
-	void Renderer2D::DrawQuad(const glm::mat4& transform, float rotation, const Ref<Texture2D>& texture, const glm::vec4& tint)
+	void Renderer2D::DrawQuad(const glm::mat4& transform, float rotation, const Ref<Texture2D>& texture, const glm::vec4& tint, int entityID)
 	{
 		if (s_Data.QuadIndexCount >= s_Data.MaxIndices)
 		{
@@ -406,6 +414,7 @@ namespace Trinity
 		s_Data.QuadVertexBufferPtr->TexCoord = { 0.0f, 0.0f };
 		s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
 		s_Data.QuadVertexBufferPtr->TillingFactor = tillingFactor;
+		s_Data.QuadVertexBufferPtr->EntityID = entityID;
 		s_Data.QuadVertexBufferPtr++;
 
 		s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[1];
@@ -413,6 +422,7 @@ namespace Trinity
 		s_Data.QuadVertexBufferPtr->TexCoord = { 1.0f, 0.0f };
 		s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
 		s_Data.QuadVertexBufferPtr->TillingFactor = tillingFactor;
+		s_Data.QuadVertexBufferPtr->EntityID = entityID;
 		s_Data.QuadVertexBufferPtr++;
 
 		s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[2];
@@ -420,6 +430,7 @@ namespace Trinity
 		s_Data.QuadVertexBufferPtr->TexCoord = { 1.0f, 1.0f };
 		s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
 		s_Data.QuadVertexBufferPtr->TillingFactor = tillingFactor;
+		s_Data.QuadVertexBufferPtr->EntityID = entityID;
 		s_Data.QuadVertexBufferPtr++;
 
 		s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[3];
@@ -427,6 +438,7 @@ namespace Trinity
 		s_Data.QuadVertexBufferPtr->TexCoord = { 0.0f, 1.0f };
 		s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
 		s_Data.QuadVertexBufferPtr->TillingFactor = tillingFactor;
+		s_Data.QuadVertexBufferPtr->EntityID = entityID;
 		s_Data.QuadVertexBufferPtr++;
 
 		s_Data.QuadIndexCount += 6;
@@ -573,6 +585,11 @@ namespace Trinity
 
 		s_Data.QuadIndexCount += 6;
 		s_Data.Stats.QuadCount++;
+	}
+
+	void Renderer2D::DrawSprite(const glm::mat4& transform, float rotation, SpriteRendererComponent& spriteRendererComponent, int entityID)
+	{
+		DrawQuad(transform, rotation, spriteRendererComponent.Color, entityID);
 	}
 
 	void Renderer2D::ResetStats()
