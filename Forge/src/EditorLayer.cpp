@@ -119,7 +119,7 @@ namespace Trinity
         if (mouseX >= 0 && mouseY >= 0 && mouseX < (int)viewportSize.x && mouseY < (int)viewportSize.y)
         {
             int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
-            TR_CORE_WARN("Pixel Data = {0}", pixelData);
+            m_HoveredEntity = pixelData == -1 ? Entity() : Entity((entt::entity)pixelData, m_ActiveScene.get());
         }
 
         m_Framebuffer->Unbind();
@@ -221,7 +221,12 @@ namespace Trinity
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
         ImGui::Begin("Viewport");
         {
-            auto viewportOffset = ImGui::GetCursorPos();
+            auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
+            auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
+            auto viewportOffset = ImGui::GetWindowPos();
+
+            m_ViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
+            m_ViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
 
             m_ViewportFocused = ImGui::IsWindowFocused();
             m_ViewportHovered = ImGui::IsWindowHovered();
@@ -234,25 +239,12 @@ namespace Trinity
             uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
             ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
 
-            auto windowSize = ImGui::GetWindowSize();
-            ImVec2 minBound = ImGui::GetWindowPos();
-            minBound.x += viewportOffset.x;
-            minBound.y += viewportOffset.y;
-
-            ImVec2 maxBound = { minBound.x + windowSize.x, minBound.y + windowSize.y };
-            m_ViewportBounds[0] = { minBound.x, minBound.y };
-            m_ViewportBounds[1] = { maxBound.x, maxBound.y };
-
             Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
             if (selectedEntity && m_GizmoType != -1)
             {
                 ImGuizmo::SetOrthographic(false);
                 ImGuizmo::SetDrawlist();
-
-                float windowWidth = (float)ImGui::GetWindowWidth();
-                float windowHeight = (float)ImGui::GetWindowHeight();
-
-                ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
+                ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y, m_ViewportBounds[1].x - m_ViewportBounds[0].x, m_ViewportBounds[1].y - m_ViewportBounds[0].y);
 
                 // RUNTIME CAMERA
                 //auto cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
@@ -300,6 +292,32 @@ namespace Trinity
             ImGui::PopStyleVar();
         }
 
+        ImGui::Begin("Stats");
+        {
+            std::string hoveredName = "None";
+            if (m_HoveredEntity)
+            {
+                hoveredName = m_HoveredEntity.GetComponent<TagComponent>().Tag;
+            }
+            ImGui::Text("Hovered Entity: %s", hoveredName.c_str());
+
+            std::string selectedName = "None";
+            if (m_SceneHierarchyPanel.GetSelectedEntity())
+            {
+                selectedName = m_SceneHierarchyPanel.GetSelectedEntity().GetComponent<TagComponent>().Tag;
+            }
+            ImGui::Text("Selected Entity: %s", selectedName.c_str());
+            
+            auto stats = Renderer2D::GetStats();
+            ImGui::Text("Renderer2D Stats:");
+            ImGui::Text("Draw Calls: %d", stats.DrawCalls);
+            ImGui::Text("Quads: %d", stats.QuadCount);
+            ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
+            ImGui::Text("Indicies: %d", stats.GetTotalIndexCount());
+
+            ImGui::End();
+        }
+
         ImGui::End();
     }
 
@@ -310,6 +328,7 @@ namespace Trinity
 
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<KeyPressedEvent>(TR_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
+        dispatcher.Dispatch<MouseButtonPressedEvent>(TR_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
     }
 
     bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
@@ -390,6 +409,21 @@ namespace Trinity
             default:
                 break;
         }
+
+        return false;
+    }
+
+    bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent& e)
+    {
+        if (e.GetMouseButton() == Mouse::MouseLeft)
+        {
+            if (m_ViewportHovered && m_ViewportFocused && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
+            {
+                m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
+            }
+        }
+
+        return false;
     }
 
     void EditorLayer::NewScene()

@@ -21,6 +21,7 @@ namespace Trinity
 
 	private:
 		bool OnKeyPressed(KeyPressedEvent& e);
+		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
 
 		void NewScene();
 		void SaveScene();
@@ -38,6 +39,8 @@ namespace Trinity
 		Entity m_Square;
 		Entity m_CameraEntity;
 		Entity m_SecondCamera;
+
+		Entity m_HoveredEntity;
 
 		EditorCamera m_EditorCamera;
 
