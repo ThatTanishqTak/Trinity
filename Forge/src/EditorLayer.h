@@ -28,6 +28,8 @@ namespace Trinity
 		void SaveSceneAs();
 		void OpenScene();
 
+		bool CanSelectEntity() const;
+
 	private:
 		OrthographicCameraController m_CameraController;
 

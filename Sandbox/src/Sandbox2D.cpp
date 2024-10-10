@@ -57,7 +57,7 @@ void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 
 	Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
     {
-        Trinity::Renderer2D::DrawQuad(glm::vec2{ 1.0f }, glm::vec2{ 1.0f }, glm::radians(0.0f), m_Sub);
+        /*Trinity::Renderer2D::DrawQuad(glm::vec2{ 1.0f }, glm::vec2{ 1.0f }, glm::radians(0.0f), m_Sub);*/
 
         Trinity::Renderer2D::EndScene();
 	}

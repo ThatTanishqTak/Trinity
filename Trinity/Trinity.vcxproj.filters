@@ -87,6 +87,9 @@
     <ClInclude Include="src\Platform\OpenGL\OpenGLTexture.h">
       <Filter>src\Platform\OpenGL</Filter>
     </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLUniformBuffer.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
     <ClInclude Include="src\Platform\OpenGL\OpenGLVertexArray.h">
       <Filter>src\Platform\OpenGL</Filter>
     </ClInclude>
@@ -121,6 +124,9 @@
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Core\MouseCodes.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\Timer.h">
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Core\Timestep.h">
@@ -190,6 +196,9 @@
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\Texture.h">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Renderer\UniformBuffer.h">
       <Filter>src\Trinity\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Renderer\VertexArray.h">
@@ -1493,6 +1502,9 @@
     <ClCompile Include="src\Platform\OpenGL\OpenGLTexture.cpp">
       <Filter>src\Platform\OpenGL</Filter>
     </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLUniformBuffer.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
     <ClCompile Include="src\Platform\OpenGL\OpenGLVertexArray.cpp">
       <Filter>src\Platform\OpenGL</Filter>
     </ClCompile>
@@ -1560,6 +1572,9 @@
       <Filter>src\Trinity\Renderer</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\Texture.cpp">
+      <Filter>src\Trinity\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Renderer\UniformBuffer.cpp">
       <Filter>src\Trinity\Renderer</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Renderer\VertexArray.cpp">

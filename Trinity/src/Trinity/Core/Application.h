@@ -13,10 +13,22 @@
 
 namespace Trinity
 {
+	struct ApplicationCommandLineArgs
+	{
+		int Count = 0;
+		char** Args = nullptr;
+
+		const char* operator[](int index) const
+		{
+			TR_CORE_ASSERT(index < Count, "");
+			return Args[index];
+		}
+	};
+
 	class Application
 	{
 	public:
-		Application(const std::string& name = "Sandbox");
+		Application(const std::string& name = "Sandbox", ApplicationCommandLineArgs args = ApplicationCommandLineArgs());
 		virtual ~Application();
 
 		void Run();
@@ -33,6 +45,8 @@ namespace Trinity
 		ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
 
 		inline static Application& Get() { return *s_Instance; }
+
+		ApplicationCommandLineArgs GetCommandLineArgs() const { return m_CommandLineArgs; }
 	private:
 		bool OnWindowClose(WindowCloseEvent& closeEvent);
 		bool OnWindowResize(WindowResizeEvent& resizeEvent);
@@ -49,8 +63,10 @@ namespace Trinity
 		float m_LastFrameTime;
 
 	private:
+		ApplicationCommandLineArgs m_CommandLineArgs;
 		static Application* s_Instance;
 	};
 
 	Application* CreateApplication();
+	Application* CreateApplication(ApplicationCommandLineArgs args);
 }

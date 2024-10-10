@@ -28,6 +28,14 @@ namespace Trinity
 
         m_ActiveScene = CreateRef<Scene>();
 
+        auto commandLineArgs = Application::Get().GetCommandLineArgs();
+        if (commandLineArgs.Count > 1)
+        {
+            auto sceneFilePath = commandLineArgs[1];
+            SceneSerializer serializer(m_ActiveScene);
+            serializer.DeserializeText(sceneFilePath);
+        }
+
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 
 #if 0
@@ -417,7 +425,7 @@ namespace Trinity
     {
         if (e.GetMouseButton() == Mouse::MouseLeft)
         {
-            if (m_ViewportHovered && m_ViewportFocused && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
+            if (CanSelectEntity())
             {
                 m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
             }
@@ -452,6 +460,11 @@ namespace Trinity
             SceneSerializer serializer(m_ActiveScene);
             serializer.DeserializeText(filePath);
         }
+    }
+
+    bool EditorLayer::CanSelectEntity() const
+    {
+        return m_ViewportFocused && m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
     }
 
     void EditorLayer::SaveSceneAs()

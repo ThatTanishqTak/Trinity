@@ -81,7 +81,7 @@ namespace Trinity
 			{
 				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
-				Renderer2D::DrawSprite(transform.GetTransform(), 0.0f, sprite, (int)entity);
+				Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
 			}
 
 			Renderer2D::EndScene();
@@ -97,7 +97,7 @@ namespace Trinity
 		{
 			auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
-			Renderer2D::DrawSprite(transform.GetTransform(), 0.0f, sprite, (int)entity);
+			Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
 		}
 
 		Renderer2D::EndScene();
@@ -150,7 +150,10 @@ namespace Trinity
 	template<>
 	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& cameraComponent)
 	{
-		cameraComponent.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
+		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
+		{
+			cameraComponent.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
+		}
 	}
 
 	template<>

@@ -2,6 +2,9 @@
 .vs/
 bin/
 bin-int/
+Trinity/vendor/VulkanSDK
+Forge/assets/cache
+scripts/__pycache__
 
 # Files
 *.user

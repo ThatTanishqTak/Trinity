@@ -19,3 +19,6 @@
 [submodule "Trinity/vendor/ImGuizmo"]
 	path = Trinity/vendor/ImGuizmo
 	url = https://github.com/ThatTanishqTak/ImGuizmo.git
+[submodule "Trinity/vendor/shaderc"]
+	path = Trinity/vendor/shaderc
+	url = https://github.com/google/shaderc.git
