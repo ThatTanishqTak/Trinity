@@ -28,6 +28,7 @@ namespace Trinity
 		void SaveScene();
 		void SaveSceneAs();
 		void OpenScene();
+		void OpenScene(const std::filesystem::path& path);
 
 		bool CanSelectEntity() const;
 

@@ -13,6 +13,8 @@
 
 namespace Trinity
 {
+    extern const std::filesystem::path g_AssetPath;
+
     EditorLayer::EditorLayer() : Layer("Forge Layer"), m_CameraController(1600.0f / 900.0f)
     {
 
@@ -135,7 +137,7 @@ namespace Trinity
 
     void EditorLayer::OnImGuiRender()
     {
-        //------------------------------------------------------------------------------------------------------------------------------------------------
+#pragma region DockSpace
         static bool dockspaceOpen = true;
 
         static bool opt_fullscreen = true;
@@ -170,7 +172,7 @@ namespace Trinity
 
         if (opt_fullscreen)
             ImGui::PopStyleVar(2);
-        //------------------------------------------------------------------------------------------------------------------------------------------------
+#pragma endregion
 
         ImGuiIO& io = ImGui::GetIO();
         ImGuiStyle& style = ImGui::GetStyle();
@@ -247,6 +249,17 @@ namespace Trinity
 
             uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
             ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
+
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    const wchar_t* path = (const wchar_t*)payload->Data;
+                    OpenScene(std::filesystem::path(g_AssetPath) / path);
+                }
+
+                ImGui::EndDragDropTarget();
+            }
 
             Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
             if (selectedEntity && m_GizmoType != -1)
@@ -453,14 +466,19 @@ namespace Trinity
         std::string filePath = FileDialogs::OpenFile("Trinity Scene (*.trinity)\0*.trinity\0");
         if (!filePath.empty())
         {
-            m_ActiveScene = CreateRef<Scene>();
-            m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-
-            m_SceneHierarchyPanel.SetContext(m_ActiveScene);
-
-            SceneSerializer serializer(m_ActiveScene);
-            serializer.DeserializeText(filePath);
+            OpenScene(filePath);
         }
+    }
+
+    void EditorLayer::OpenScene(const std::filesystem::path& path)
+    {
+        m_ActiveScene = CreateRef<Scene>();
+        m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+
+        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+
+        SceneSerializer serializer(m_ActiveScene);
+        serializer.DeserializeText(path.string());
     }
 
     bool EditorLayer::CanSelectEntity() const
