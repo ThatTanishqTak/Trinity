@@ -105,7 +105,7 @@ namespace Trinity
 					ShaderDataTypeToOpenGLBaseType(element.Type),
 					element.Normalized ? GL_TRUE : GL_FALSE,
 					layout.GetStride(),
-					(const void*)element.Offset);
+					(const void*)static_cast<const uint32_t>(element.Offset));
 				m_VertexBufferIndex++;
 				break;
 			}
@@ -120,7 +120,7 @@ namespace Trinity
 					element.GetComponentCount(),
 					ShaderDataTypeToOpenGLBaseType(element.Type),
 					layout.GetStride(),
-					(const void*)element.Offset);
+					(const void*)static_cast<const uint32_t>(element.Offset));
 				m_VertexBufferIndex++;
 				break;
 			}
@@ -146,17 +146,6 @@ namespace Trinity
 				TR_CORE_ASSERT(false, "Unknown ShaderDataType!");
 			}
 		}
-
-		/*uint32_t index = 0;
-		const auto& layout = vertexBuffer->GetLayout();
-		for (const auto& element : layout)
-		{
-			glEnableVertexAttribArray(index);
-			glVertexAttribPointer(index, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type),
-				element.Normalized ? GL_TRUE : GL_FALSE, layout.GetStride(), (const void*)(uint32_t)element.Offset);
-
-			index++;
-		}*/
 
 		m_VertexBuffers.push_back(vertexBuffer);
 	}
