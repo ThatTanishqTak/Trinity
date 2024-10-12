@@ -395,6 +395,7 @@ namespace Trinity
 				{
 					const wchar_t* path = (const wchar_t*)payload->Data;
 					std::filesystem::path texturePath = std::filesystem::path(g_AssetPath) / path;
+					
 					component.Texture = Texture2D::Create(texturePath.string());
 				}
 

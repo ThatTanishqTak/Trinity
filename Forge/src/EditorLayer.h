@@ -30,7 +30,12 @@ namespace Trinity
 		void OpenScene();
 		void OpenScene(const std::filesystem::path& path);
 
+		void OnScenePlay();
+		void OnSceneStop();
+
 		bool CanSelectEntity() const;
+
+		void UI_ToolBar();
 
 	private:
 		OrthographicCameraController m_CameraController;
@@ -50,6 +55,16 @@ namespace Trinity
 
 		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 		glm::vec2 m_ViewportBounds[2];
+
+		enum class SceneState
+		{
+			Edit = 0, Play = 1
+		};
+
+		SceneState m_SceneState = SceneState::Edit;
+
+		Ref<Texture2D> m_IconPlay;
+		Ref<Texture2D> m_IconStop;
 
 		bool m_PrimaryCamera = true;
 		bool m_ViewportFocused = false;

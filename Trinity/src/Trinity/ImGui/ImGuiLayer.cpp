@@ -112,6 +112,7 @@ namespace Trinity
 	void ImGuiLayer::SetDarkThemeColors()
 	{
 		auto& colors = ImGui::GetStyle().Colors;
+
 		colors[ImGuiCol_WindowBg] = ImVec4{ 0.1f, 0.105f, 0.11f, 1.0f };
 		
 		colors[ImGuiCol_Header] = ImVec4{ 0.2f, 0.205f, 0.21f, 1.0f };
@@ -139,7 +140,6 @@ namespace Trinity
 
 	void ImGuiLayer::OnImGuiRender()
 	{
-		//static bool show = false;
-		//ImGui::ShowDemoWindow(&show);
+		//ImGui::ShowDemoWindow();
 	}
 }

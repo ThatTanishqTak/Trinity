@@ -133,6 +133,8 @@ namespace Trinity
 
 			return {};
 		}
+
+		return {};
 	}
 
 	template<typename T>

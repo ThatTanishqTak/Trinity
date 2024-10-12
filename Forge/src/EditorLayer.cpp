@@ -22,6 +22,9 @@ namespace Trinity
 
     void EditorLayer::OnAttach()
     {
+        m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
+        m_IconStop = Texture2D::Create("Resources/Icons/StopButton.png");
+
         FramebufferSpecifications specs;
         specs.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
         specs.Width = 1600;
@@ -99,20 +102,36 @@ namespace Trinity
             m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
         }
 
-        // Update
-        if (m_ViewportFocused)
-        {
-            m_CameraController.OnUpdate(timestep);
-        }
-
-        m_EditorCamera.OnUpdate(timestep);
-
         // Render
         Renderer2D::ResetStats();
         m_Framebuffer->Bind();
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
 
         m_Framebuffer->ClearAttachment(1, -1);
+
+        switch (m_SceneState)
+        {
+        case SceneState::Edit:
+        {
+            // Update
+            if (m_ViewportFocused)
+            {
+                m_CameraController.OnUpdate(timestep);
+            }
+
+            m_EditorCamera.OnUpdate(timestep);
+
+            m_ActiveScene->OnUpdateEditor(timestep, m_EditorCamera);
+            break;
+        }
+
+
+        case SceneState::Play:
+        {
+            m_ActiveScene->OnUpdateRuntime(timestep);
+            break;
+        }
+        }
 
         // Update Scene
         m_ActiveScene->OnUpdateEditor(timestep, m_EditorCamera);
@@ -185,7 +204,7 @@ namespace Trinity
             ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
         }
 
-        style.WindowMinSize.y = minWinSizeX;
+        style.WindowMinSize.x = minWinSizeX;
 
         if (ImGui::BeginMenuBar())
         {
@@ -340,7 +359,48 @@ namespace Trinity
             ImGui::End();
         }
 
+        UI_ToolBar();
+
         ImGui::End();
+    }
+
+    void EditorLayer::UI_ToolBar()
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 2.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+
+        auto& colors = ImGui::GetStyle().Colors;
+
+        const auto& buttonHoveredColor = colors[ImGuiCol_ButtonHovered];
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(buttonHoveredColor.x, buttonHoveredColor.y, buttonHoveredColor.z, 0.5f));
+
+        const auto& buttonActiveColor = colors[ImGuiCol_ButtonActive];
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(buttonActiveColor.x, buttonActiveColor.y, buttonActiveColor.z, 0.5f));
+
+        ImGui::Begin("##ToolBar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        {
+            float size = ImGui::GetWindowHeight() - 4.0f;
+
+            Ref<Texture2D> icon = m_SceneState == SceneState::Edit ? m_IconPlay : m_IconStop;
+            ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
+            if (ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), 0))
+            {
+                if (m_SceneState == SceneState::Edit)
+                {
+                    OnScenePlay();
+                }
+                else if (m_SceneState == SceneState::Play)
+                {
+                    OnSceneStop();
+                }
+            }
+
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor(3);
+
+            ImGui::End();
+        }
     }
 
     void EditorLayer::OnEvent(Event& e)
@@ -479,6 +539,16 @@ namespace Trinity
 
         SceneSerializer serializer(m_ActiveScene);
         serializer.DeserializeText(path.string());
+    }
+
+    void EditorLayer::OnScenePlay()
+    {
+        m_SceneState = SceneState::Play;
+    }
+
+    void EditorLayer::OnSceneStop()
+    {
+        m_SceneState = SceneState::Edit;
     }
 
     bool EditorLayer::CanSelectEntity() const

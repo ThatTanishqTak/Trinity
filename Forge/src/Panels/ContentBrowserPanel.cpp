@@ -17,6 +17,8 @@ namespace Trinity
 
 	void ContentBrowserPanel::OnImGuiRender()
 	{
+		//ImGui::ShowDemoWindow();
+
 		ImGui::Begin("Content Browser");
 		{
 			if (m_CurrentDirectory != std::filesystem::path(g_AssetPath))
@@ -77,7 +79,6 @@ namespace Trinity
 
 			ImGui::Columns(1);
 			ImGui::SliderFloat("Thumbnail Size", &thumbnailSize, 16, 512);
-			ImGui::SliderFloat("Padding", &padding, 0, 32);
 
 			ImGui::End();
 		}

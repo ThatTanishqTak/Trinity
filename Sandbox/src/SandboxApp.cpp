@@ -1,18 +1,13 @@
 #include <Trinity.h>
 #include <Trinity/Core/EntryPoint.h>
 
-#include "Platform/OpenGL/OpenGLShader.h"
-#include "ImGui/imgui.h"
-
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
 #include "Sandbox2D.h"
+#include "EditorLayer.h"
 
 class Sandbox : public Trinity::Application
 {
 public:
-	Sandbox() : Trinity::Application("Forge")
+	Sandbox(const Trinity::ApplicationSpecification& specification) : Trinity::Application(specification)
 	{
 		//PushLayer(new DemoLayer());
 		PushLayer(new Sandbox2D());
@@ -26,5 +21,10 @@ public:
 
 Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args)
 {
-	return new Sandbox();
+	ApplicationSpecification spec;
+	spec.Name = "Sandbox";
+	spec.WorkingDirectory = "../Hazelnut";
+	spec.CommandLineArgs = args;
+
+	return new Sandbox(spec);
 }

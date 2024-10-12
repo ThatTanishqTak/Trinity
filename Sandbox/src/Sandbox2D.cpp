@@ -1,66 +1,78 @@
 #include "Sandbox2D.h"
-
-#include "imgui/imgui.h"
+#include <imgui/imgui.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-Sandbox2D::Sandbox2D() : Layer("Sandbox2D Layer"), m_CameraController(1280.0f / 720.0f)
+Sandbox2D::Sandbox2D() : Layer("Sandbox2D"), m_CameraController(1280.0f / 720.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 {
 
 }
 
 void Sandbox2D::OnAttach()
 {
-    m_Tex = Trinity::Texture2D::Create("assets/textures/texture.png");
-    m_Sub = Trinity::SubTexture2D::CreateFromCoords(m_Tex, { 1, 1 }, { 1, 1 });
+	TR_PROFILE_FUNCTION();
 }
 
 void Sandbox2D::OnDetach()
 {
+	TR_PROFILE_FUNCTION();
+}
 
+void Sandbox2D::OnUpdate(Trinity::Timestep ts)
+{
+	TR_PROFILE_FUNCTION();
+
+	// Update
+	m_CameraController.OnUpdate(ts);
+
+	// Render
+	Trinity::Renderer2D::ResetStats();
+	{
+		TR_PROFILE_SCOPE("Renderer Prep");
+		Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
+		Trinity::RenderCommand::Clear();
+	}
+
+	{
+		static float rotation = 0.0f;
+		rotation += ts * 50.0f;
+
+		TR_PROFILE_SCOPE("Renderer Draw");
+		Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
+		Trinity::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, -45.0f, { 0.8f, 0.2f, 0.3f, 1.0f });
+		Trinity::Renderer2D::DrawQuad({ -1.0f, 0.0f }, { 0.8f, 0.8f }, { 0.8f, 0.2f, 0.3f, 1.0f });
+		Trinity::Renderer2D::DrawQuad({ 0.5f, -0.5f }, { 0.5f, 0.75f }, m_SquareColor);
+		Trinity::Renderer2D::EndScene();
+
+		Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
+		for (float y = -5.0f; y < 5.0f; y += 0.5f)
+		{
+			for (float x = -5.0f; x < 5.0f; x += 0.5f)
+			{
+				glm::vec4 color = { (x + 5.0f) / 10.0f, 0.4f, (y + 5.0f) / 10.0f, 0.7f };
+				Trinity::Renderer2D::DrawQuad({ x, y }, { 0.45f, 0.45f }, color);
+			}
+		}
+		Trinity::Renderer2D::EndScene();
+	}
 }
 
 void Sandbox2D::OnImGuiRender()
 {
-    if (ImGui::BeginMenuBar())
-    {
-        if (ImGui::BeginMenu("File"))
-        {
-            if (ImGui::MenuItem("Exit")) { Trinity::Application::Get().Close(); }
-            ImGui::EndMenu();
-        }
+	TR_PROFILE_FUNCTION();
 
-        ImGui::EndMenuBar();
-    }
+	ImGui::Begin("Settings");
 
-    ImGui::Begin("Settings");
-    {
-        auto stats = Trinity::Renderer2D::GetStats();
+	auto stats = Trinity::Renderer2D::GetStats();
+	ImGui::Text("Renderer2D Stats:");
+	ImGui::Text("Draw Calls: %d", stats.DrawCalls);
+	ImGui::Text("Quads: %d", stats.QuadCount);
+	ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
+	ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
 
-        ImGui::Text("DrawCalls: %d", stats.DrawCalls);
-        ImGui::Text("Index Count: %d", stats.GetTotalIndexCount());
-        ImGui::Text("Vertex Count: %d", stats.GetTotalVertexCount());
-        ImGui::Text("Quad Count: %d", stats.QuadCount);
-
-        ImGui::End();
-    }
-}
-
-void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
-{
-	m_CameraController.OnUpdate(timestep);
-	m_Rotation += m_Speed * timestep;
-
-	Trinity::Renderer2D::ResetStats();
-	Trinity::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
-
-	Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
-    {
-        /*Trinity::Renderer2D::DrawQuad(glm::vec2{ 1.0f }, glm::vec2{ 1.0f }, glm::radians(0.0f), m_Sub);*/
-
-        Trinity::Renderer2D::EndScene();
-	}
+	ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
+	ImGui::End();
 }
 
 void Sandbox2D::OnEvent(Trinity::Event& e)
