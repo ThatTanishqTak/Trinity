@@ -5,6 +5,8 @@
 
 #include "entt.hpp"
 
+class b2World;
+
 namespace Trinity
 {
 	class Entity;
@@ -18,6 +20,9 @@ namespace Trinity
 		Entity CreateEntity(const std::string& name = std::string());
 		void DestroyEntity(Entity entity);
 
+		void OnRuntimeStart();
+		void OnRuntimeStop();
+
 		void OnUpdateRuntime(Timestep timestep);
 		void OnUpdateEditor(Timestep timestep, EditorCamera& editorCamera);
 		void OnViewportResize(uint32_t width, uint32_t height);
@@ -30,6 +35,8 @@ namespace Trinity
 
 	private:
 		entt::registry m_Registry;
+	
+		b2World* m_PhysicsWorld = nullptr;
 	
 		friend class Entity;
 		friend class SceneSerializer;

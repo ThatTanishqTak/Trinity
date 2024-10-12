@@ -6,6 +6,7 @@
 
 #include "Trinity/Renderer/Renderer2D.h"
 
+
 #include <glm/glm.hpp>
 
 namespace Trinity
@@ -35,6 +36,16 @@ namespace Trinity
 	void Scene::DestroyEntity(Entity entity)
 	{
 		m_Registry.destroy(entity);
+	}
+
+	void Scene::OnRuntimeStart()
+	{
+		//m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
+	}
+
+	void Scene::OnRuntimeStop()
+	{
+
 	}
 
 	void Scene::OnUpdateRuntime(Timestep timestep)

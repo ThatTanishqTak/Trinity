@@ -1,6 +1,7 @@
 #include "EditorLayer.h"
 
 #include "imgui/imgui.h"
+#include "ImGuizmo/ImGuizmo.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -8,8 +9,6 @@
 #include "Trinity/Scene/SceneSerializer.h"
 #include "Trinity/Utilities/PlatformUtils.h"
 #include "Trinity/Math/Math.h"
-
-#include "ImGuizmo/ImGuizmo.h"
 
 namespace Trinity
 {
@@ -238,14 +237,18 @@ namespace Trinity
 
                 ImGui::Separator();
 
-                if (ImGui::MenuItem("Exit")) { Application::Get().Close(); }
+                if (ImGui::MenuItem("Exit"))
+                { 
+                    Application::Get().Close();
+                }
+
                 ImGui::EndMenu();
             }
 
             ImGui::EndMenuBar();
         }
 
-        m_SceneHierarchyPanel.OnImGuiRender();
+		m_SceneHierarchyPanel.OnImGuiRender();
         m_ContentBrowserPanel.OnImGuiRender();
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0.0f, 0.0f });
@@ -544,11 +547,13 @@ namespace Trinity
     void EditorLayer::OnScenePlay()
     {
         m_SceneState = SceneState::Play;
+        m_ActiveScene->OnRuntimeStart();
     }
 
     void EditorLayer::OnSceneStop()
     {
         m_SceneState = SceneState::Edit;
+        m_ActiveScene->OnRuntimeStop();
     }
 
     bool EditorLayer::CanSelectEntity() const

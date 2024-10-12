@@ -25,6 +25,7 @@ namespace Trinity
 
 		void BlockEvents(bool block) { m_BlockEvents = block; }
 		void SetDarkThemeColors();
+		void SetLightThemeColors();
 
 	private:
 		bool m_BlockEvents = true;

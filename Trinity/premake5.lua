@@ -4,8 +4,8 @@ project "Trinity"
 	cppdialect "C++17"
 	staticruntime "off"
 
-	targetdir ("bin/" .. outputDir .. "/%{prj.name}")
-	objdir ("bin-int/" .. outputDir .. "/%{prj.name}")
+	targetdir ("%{wks.location}/bin/" .. outputDir .. "/%{prj.name}")
+	objdir ("%{wks.location}/bin-int/" .. outputDir .. "/%{prj.name}")
 
 	pchheader "trpch.h"
 	pchsource "src/trpch.cpp"
@@ -34,6 +34,7 @@ project "Trinity"
 	{
 		"src",
 		"vendor/spdlog/include",
+		"%{IncludeDir.box2D}",
 		"%{IncludeDir.GLFW}",
 		"%{IncludeDir.Glad}",
 		"%{IncludeDir.ImGui}",
@@ -47,6 +48,7 @@ project "Trinity"
 
 	links
 	{
+		"box2D",
 		"GLFW",
 		"Glad",
 		"ImGui",

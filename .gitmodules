@@ -22,3 +22,6 @@
 [submodule "Trinity/vendor/shaderc"]
 	path = Trinity/vendor/shaderc
 	url = https://github.com/google/shaderc.git
+[submodule "Trinity/vendor/box2D"]
+	path = Trinity/vendor/box2D
+	url = https://github.com/ThatTanishqTak/box2d.git

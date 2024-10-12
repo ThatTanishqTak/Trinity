@@ -1,3 +1,4 @@
+include ""
 include "Dependencies.lua"
 
 workspace "Trinity"
@@ -19,6 +20,8 @@ workspace "Trinity"
 outputDir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 group "Dependencies"
+	include "vendor/premake"
+	include "Trinity/vendor/box2D"
 	include "Trinity/vendor/GLFW"
 	include "Trinity/vendor/Glad"
 	include "Trinity/vendor/imgui"

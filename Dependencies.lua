@@ -5,6 +5,7 @@ VULKAN_SDK = os.getenv("VULKAN_SDK")
 IncludeDir = {}
 IncludeDir["stb_image"] = "%{wks.location}/Trinity/vendor/stb_image"
 IncludeDir["yaml_cpp"] = "%{wks.location}/Trinity/vendor/yaml-cpp/include"
+IncludeDir["box2D"] = "%{wks.location}/Trinity/vendor/box2D/include"
 IncludeDir["GLFW"] = "%{wks.location}/Trinity/vendor/GLFW/include"
 IncludeDir["Glad"] = "%{wks.location}/Trinity/vendor/Glad/include"
 IncludeDir["ImGui"] = "%{wks.location}/Trinity/vendor/ImGui"
@@ -18,6 +19,7 @@ IncludeDir["VulkanSDK"] = "%{VULKAN_SDK}/Include"
 LibraryDir = {}
 LibraryDir["VulkanSDK"] = "%{VULKAN_SDK}/Lib"
 LibraryDir["VulkanSDK_Debug"] = "%{wks.location}/Trinity/vendor/VulkanSDK/Lib"
+LibraryDir["VulkanSDK_DebugDLL"] = "%{wks.location}/Trinity/vendor/VulkanSDK/Bin"
 
 Library = {}
 Library["Vulkan"] = "%{LibraryDir.VulkanSDK}/vulkan-1.lib"

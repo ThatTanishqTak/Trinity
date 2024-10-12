@@ -138,6 +138,35 @@ namespace Trinity
 		colors[ImGuiCol_TitleBgCollapsed] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
 	}
 
+	void ImGuiLayer::SetLightThemeColors()
+	{
+		auto& colors = ImGui::GetStyle().Colors;
+
+		colors[ImGuiCol_WindowBg] = ImVec4{ 0.5f, 0.505f, 0.51f, 1.0f };
+
+		colors[ImGuiCol_Header] = ImVec4{ 0.6f, 0.605f, 0.61f, 1.0f };
+		colors[ImGuiCol_HeaderHovered] = ImVec4{ 0.7f, 0.705f, 0.71f, 1.0f };
+		colors[ImGuiCol_HeaderActive] = ImVec4{ 0.55f, 0.5505f, 0.551f, 1.0f };
+
+		colors[ImGuiCol_Button] = ImVec4{ 0.6f, 0.605f, 0.61f, 1.0f };
+		colors[ImGuiCol_ButtonHovered] = ImVec4{ 0.7f, 0.705f, 0.71f, 1.0f };
+		colors[ImGuiCol_ButtonActive] = ImVec4{ 0.55f, 0.5505f, 0.551f, 1.0f };
+
+		colors[ImGuiCol_FrameBg] = ImVec4{ 0.6f, 0.605f, 0.61f, 1.0f };
+		colors[ImGuiCol_FrameBgHovered] = ImVec4{ 0.7f, 0.705f, 0.71f, 1.0f };
+		colors[ImGuiCol_FrameBgActive] = ImVec4{ 0.55f, 0.5505f, 0.551f, 1.0f };
+
+		colors[ImGuiCol_Tab] = ImVec4{ 0.55f, 0.5505f, 0.551f, 1.0f };
+		colors[ImGuiCol_TabHovered] = ImVec4{ 0.78f, 0.7805f, 0.781f, 1.0f };
+		colors[ImGuiCol_TabActive] = ImVec4{ 0.68f, 0.6805f, 0.681f, 1.0f };
+		colors[ImGuiCol_TabUnfocused] = ImVec4{ 0.55f, 0.5505f, 0.551f, 1.0f };
+		colors[ImGuiCol_TabUnfocusedActive] = ImVec4{ 0.6f, 0.605f, 0.61f, 1.0f };
+
+		colors[ImGuiCol_TitleBg] = ImVec4{ 0.55f, 0.5505f, 0.551f, 1.0f };
+		colors[ImGuiCol_TitleBgActive] = ImVec4{ 0.55f, 0.5505f, 0.551f, 1.0f };
+		colors[ImGuiCol_TitleBgCollapsed] = ImVec4{ 0.55f, 0.5505f, 0.551f, 1.0f };
+	}
+
 	void ImGuiLayer::OnImGuiRender()
 	{
 		//ImGui::ShowDemoWindow();
