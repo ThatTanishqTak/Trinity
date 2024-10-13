@@ -165,6 +165,7 @@
     <ClInclude Include="src\Trinity\Core\MouseCodes.h" />
     <ClInclude Include="src\Trinity\Core\Timer.h" />
     <ClInclude Include="src\Trinity\Core\Timestep.h" />
+    <ClInclude Include="src\Trinity\Core\UUID.h" />
     <ClInclude Include="src\Trinity\Core\Window.h" />
     <ClInclude Include="src\Trinity\Debug\Instrumentor.h" />
     <ClInclude Include="src\Trinity\Events\ApplicationEvent.h" />
@@ -632,6 +633,7 @@
     <ClCompile Include="src\Trinity\Core\Layer.cpp" />
     <ClCompile Include="src\Trinity\Core\LayerStack.cpp" />
     <ClCompile Include="src\Trinity\Core\Log.cpp" />
+    <ClCompile Include="src\Trinity\Core\UUID.cpp" />
     <ClCompile Include="src\Trinity\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\Trinity\ImGui\ImGuiLayer.cpp" />
     <ClCompile Include="src\Trinity\Math\Math.cpp" />

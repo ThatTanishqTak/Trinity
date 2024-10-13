@@ -132,6 +132,9 @@
     <ClInclude Include="src\Trinity\Core\Timestep.h">
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\Trinity\Core\UUID.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\Trinity\Core\Window.h">
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
@@ -1527,6 +1530,9 @@
       <Filter>src\Trinity\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Core\Log.cpp">
+      <Filter>src\Trinity\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Core\UUID.cpp">
       <Filter>src\Trinity\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\ImGui\ImGuiBuild.cpp">

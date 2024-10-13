@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/Core/Timestep.h"
+#include "Trinity/Core/UUID.h"
 #include "Trinity/Renderer/EditorCamera.h"
 
 #include "entt.hpp"
@@ -20,6 +21,7 @@ namespace Trinity
 		~Scene();
 
 		Entity CreateEntity(const std::string& name = std::string());
+		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
 		void DestroyEntity(Entity entity);
 
 		void OnRuntimeStart();

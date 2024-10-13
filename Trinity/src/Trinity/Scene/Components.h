@@ -1,18 +1,26 @@
 #pragma once
 
+#include "SceneCamera.h"
+
+#include "Trinity/Core/UUID.h"
+#include "Trinity/Renderer/Texture.h"
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
-#include "SceneCamera.h"
-
-#include "Trinity/Scene/ScriptableEntity.h"
-#include "Trinity/Renderer/Texture.h"
-
 namespace Trinity
 {
+	struct IDComponent
+	{
+		UUID ID;
+
+		IDComponent() = default;
+		IDComponent(const IDComponent&) = default;
+	};
+
 	struct TagComponent
 	{
 		std::string Tag;
@@ -64,6 +72,8 @@ namespace Trinity
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
 	};
+
+	class ScriptableEntity;
 
 	struct NativeScriptComponent
 	{
