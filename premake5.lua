@@ -1,8 +1,8 @@
-include ""
+include "./vendor/premake/premake_customization/solution_items.lua"
 include "Dependencies.lua"
 
 workspace "Trinity"
-	architecture "x64"
+	architecture "x86_64"
 	startproject "Forge"
 	
 	configurations
@@ -21,21 +21,14 @@ outputDir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 group "Dependencies"
 	include "vendor/premake"
-	include "Trinity/vendor/box2D"
+	include "Trinity/vendor/Box2D"
 	include "Trinity/vendor/GLFW"
 	include "Trinity/vendor/Glad"
 	include "Trinity/vendor/imgui"
 	include "Trinity/vendor/yaml-cpp"
 group ""
 
-group "Engine"
-	include "Trinity"
-group ""
 
-group "Tool"
-	include "Forge"
-group ""
-
-group "Misc"
-	include "Sandbox"
-group ""
+include "Trinity"
+include "Forge"
+include "Sandbox"

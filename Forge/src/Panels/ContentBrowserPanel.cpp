@@ -17,8 +17,6 @@ namespace Trinity
 
 	void ContentBrowserPanel::OnImGuiRender()
 	{
-		//ImGui::ShowDemoWindow();
-
 		ImGui::Begin("Content Browser");
 		{
 			if (m_CurrentDirectory != std::filesystem::path(g_AssetPath))
@@ -30,7 +28,7 @@ namespace Trinity
 			}
 
 			static float padding = 16.0f;
-			static float thumbnailSize = 128.0f;
+			static float thumbnailSize = 70.0f;
 			
 			float cellSize = thumbnailSize + padding;
 			float panelWidth = ImGui::GetContentRegionAvail().x;

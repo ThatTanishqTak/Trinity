@@ -521,7 +521,14 @@ namespace Trinity
 
     void EditorLayer::SaveScene()
     {
-        //TR_CORE_INFO("Saved!!");
+        if (!m_EditorScenePath.empty())
+        {
+            //SerializeScene(m_ActiveScene, m_EditorScenePath);
+        }
+        else
+        {
+            SaveSceneAs();
+        }
     }
 
     void EditorLayer::OpenScene()

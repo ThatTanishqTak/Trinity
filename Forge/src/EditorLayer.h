@@ -45,6 +45,8 @@ namespace Trinity
 		Ref<Framebuffer> m_Framebuffer;
 		Ref<Scene> m_ActiveScene;
 
+		std::filesystem::path m_EditorScenePath;
+
 		Entity m_Square;
 		Entity m_CameraEntity;
 		Entity m_SecondCamera;

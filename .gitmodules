@@ -25,3 +25,6 @@
 [submodule "Trinity/vendor/box2D"]
 	path = Trinity/vendor/box2D
 	url = https://github.com/ThatTanishqTak/box2d.git
+[submodule "Trinity/vendor/Box2D"]
+	path = Trinity/vendor/Box2D
+	url = https://github.com/ThatTanishqTak/box2d.git

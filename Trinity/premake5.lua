@@ -34,7 +34,7 @@ project "Trinity"
 	{
 		"src",
 		"vendor/spdlog/include",
-		"%{IncludeDir.box2D}",
+		"%{IncludeDir.Box2D}",
 		"%{IncludeDir.GLFW}",
 		"%{IncludeDir.Glad}",
 		"%{IncludeDir.ImGui}",
@@ -48,7 +48,7 @@ project "Trinity"
 
 	links
 	{
-		"box2D",
+		"Box2D",
 		"GLFW",
 		"Glad",
 		"ImGui",
