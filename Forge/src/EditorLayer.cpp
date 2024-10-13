@@ -110,30 +110,27 @@ namespace Trinity
 
         switch (m_SceneState)
         {
-        case SceneState::Edit:
-        {
-            // Update
-            if (m_ViewportFocused)
+            case SceneState::Edit:
             {
-                m_CameraController.OnUpdate(timestep);
+                // Update
+                if (m_ViewportFocused)
+                {
+                    m_CameraController.OnUpdate(timestep);
+                }
+
+                m_EditorCamera.OnUpdate(timestep);
+
+                m_ActiveScene->OnUpdateEditor(timestep, m_EditorCamera);
+                break;
             }
 
-            m_EditorCamera.OnUpdate(timestep);
 
-            m_ActiveScene->OnUpdateEditor(timestep, m_EditorCamera);
-            break;
+            case SceneState::Play:
+            {
+                m_ActiveScene->OnUpdateRuntime(timestep);
+                break;
+            }
         }
-
-
-        case SceneState::Play:
-        {
-            m_ActiveScene->OnUpdateRuntime(timestep);
-            break;
-        }
-        }
-
-        // Update Scene
-        m_ActiveScene->OnUpdateEditor(timestep, m_EditorCamera);
 
         auto[mX, mY] = ImGui::GetMousePos();
         mX -= m_ViewportBounds[0].x;
