@@ -1,12 +1,10 @@
 #include "trpch.h"
 #include "Scene.h"
-
 #include "Components.h"
 #include "ScriptableEntity.h"
 #include "Entity.h"
 
 #include "Trinity/Renderer/Renderer2D.h"
-
 
 #include <glm/glm.hpp>
 
@@ -39,6 +37,60 @@ namespace Trinity
 	Scene::~Scene()
 	{
 
+	}
+
+	template<typename T>
+	static void CopyComponent(entt::registry& dest, entt::registry& source, const std::unordered_map<UUID, entt::entity>& enttMap)
+	{
+		auto view = source.view<T>();
+		for (auto e : view)
+		{
+			UUID uuid = source.get<IDComponent>(e).ID;
+			entt::entity destinationEnttID = enttMap.at(uuid);
+
+			auto& component = source.get<T>(e);
+			dest.emplace_or_replace<T>(destinationEnttID, component);
+		}
+	}
+
+	template<typename T>
+	static void CopyComponentIfExists(Entity dest, Entity source)
+	{
+		if (source.HasComponent<T>())
+		{
+			dest.AddOrReplaceComponent<T>(source.GetComponent<T>());
+		}
+	}
+
+	Ref<Scene> Scene::Copy(Ref<Scene> sourceScene)
+	{
+		Ref<Scene> destinationScene = CreateRef<Scene>();
+
+		destinationScene->m_ViewportWidth = sourceScene->m_ViewportWidth;
+		destinationScene->m_ViewportHeight = sourceScene->m_ViewportHeight;
+
+		auto& sourceRegistry = sourceScene->m_Registry;
+		auto& destinationRegistry = destinationScene->m_Registry;
+		std::unordered_map<UUID, entt::entity> enttMap;
+		
+		auto IDView = sourceRegistry.view<IDComponent>();
+		for (auto e : IDView)
+		{
+			UUID uuid = sourceRegistry.get<IDComponent>(e).ID;
+			const auto& name = sourceRegistry.get<TagComponent>(e).Tag;
+			
+			Entity newEntity = destinationScene->CreateEntityWithUUID(uuid, name);
+			enttMap[uuid] = (entt::entity)newEntity;
+		}
+
+		CopyComponent<TransformComponent>(destinationRegistry, sourceRegistry, enttMap);
+		CopyComponent<SpriteRendererComponent>(destinationRegistry, sourceRegistry, enttMap);
+		CopyComponent<CameraComponent>(destinationRegistry, sourceRegistry, enttMap);
+		CopyComponent<NativeScriptComponent>(destinationRegistry, sourceRegistry, enttMap);
+		CopyComponent<Rigidbody2DComponent>(destinationRegistry, sourceRegistry, enttMap);
+		CopyComponent<BoxCollider2DComponent>(destinationRegistry, sourceRegistry, enttMap);
+
+		return destinationScene;
 	}
 
 	Entity Scene::CreateEntity(const std::string& name)
@@ -224,6 +276,19 @@ namespace Trinity
 				cameraComponent.Camera.SetViewportSize(width, height);
 			}
 		}
+	}
+
+	void Scene::DuplicateEntity(Entity entity)
+	{
+		std::string name = entity.GetName();
+		Entity newEntity = CreateEntity(name);
+
+		CopyComponentIfExists<TransformComponent>(newEntity, entity);
+		CopyComponentIfExists<SpriteRendererComponent>(newEntity, entity);
+		CopyComponentIfExists<CameraComponent>(newEntity, entity);
+		CopyComponentIfExists<NativeScriptComponent>(newEntity, entity);
+		CopyComponentIfExists<Rigidbody2DComponent>(newEntity, entity);
+		CopyComponentIfExists<BoxCollider2DComponent>(newEntity, entity);
 	}
 
 	Entity Scene::GetPrimaryCameraEntity()

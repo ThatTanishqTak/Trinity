@@ -29,25 +29,28 @@ namespace Trinity
 	{
 		ImGui::Begin("Scene Hierarchy");
 		{
-			m_Context->m_Registry.view<entt::entity>().each([this](auto entityID)
+			if (m_Context)
 			{
-				Entity entity{ entityID, m_Context.get() };
-				DrawEntityNode(entity);
-			});
-
-			if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
-			{
-				m_SelectionContext = {};
-			}
-
-			if (ImGui::BeginPopupContextWindow(0, 1 | ImGuiPopupFlags_NoOpenOverItems))
-			{
-				if (ImGui::MenuItem("Create Entity"))
+				m_Context->m_Registry.view<entt::entity>().each([this](auto entityID)
 				{
-					m_Context->CreateEntity();
+					Entity entity{ entityID, m_Context.get() };
+					DrawEntityNode(entity);
+				});
+
+				if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
+				{
+					m_SelectionContext = {};
 				}
 
-				ImGui::EndPopup();
+				if (ImGui::BeginPopupContextWindow(0, 1 | ImGuiPopupFlags_NoOpenOverItems))
+				{
+					if (ImGui::MenuItem("Create Entity"))
+					{
+						m_Context->CreateEntity();
+					}
+
+					ImGui::EndPopup();
+				}
 			}
 
 			ImGui::End();

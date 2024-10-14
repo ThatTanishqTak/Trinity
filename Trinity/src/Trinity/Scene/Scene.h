@@ -20,6 +20,8 @@ namespace Trinity
 		Scene();
 		~Scene();
 
+		static Ref<Scene> Copy(Ref<Scene> sourceScene);
+
 		Entity CreateEntity(const std::string& name = std::string());
 		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
 		void DestroyEntity(Entity entity);
@@ -30,6 +32,8 @@ namespace Trinity
 		void OnUpdateRuntime(Timestep timestep);
 		void OnUpdateEditor(Timestep timestep, EditorCamera& editorCamera);
 		void OnViewportResize(uint32_t width, uint32_t height);
+
+		void DuplicateEntity(Entity entity);
 
 		Entity GetPrimaryCameraEntity();
 

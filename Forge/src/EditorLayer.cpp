@@ -81,7 +81,6 @@ namespace Trinity
         m_SecondCamera.AddComponent<NativeScriptComponent>().Bind<CameraController>();
 
 #endif
-        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnDetach()
@@ -220,7 +219,7 @@ namespace Trinity
 
                 ImGui::Separator();
 
-                if (ImGui::MenuItem("Save", "(Not Implemented)"))
+                if (ImGui::MenuItem("Save", "Ctr+S"))
                 {
                     SaveScene();
                 }
@@ -488,6 +487,14 @@ namespace Trinity
                 break;
             }
 
+            case Key::D:
+            {
+                if (isControlPressed)
+                {
+                    OnDuplicateEntity();
+                }
+            }
+
             default:
                 break;
         }
@@ -514,18 +521,8 @@ namespace Trinity
         m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
-    }
 
-    void EditorLayer::SaveScene()
-    {
-        if (!m_EditorScenePath.empty())
-        {
-            //SerializeScene(m_ActiveScene, m_EditorScenePath);
-        }
-        else
-        {
-            SaveSceneAs();
-        }
+        m_EditorScenePath = std::filesystem::path();
     }
 
     void EditorLayer::OpenScene()
@@ -539,30 +536,73 @@ namespace Trinity
 
     void EditorLayer::OpenScene(const std::filesystem::path& path)
     {
-        m_ActiveScene = CreateRef<Scene>();
-        m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+        if (m_SceneState != SceneState::Edit)
+        {
+            OnSceneStop();
+        }
 
-        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        Ref<Scene> newScene = CreateRef<Scene>();
+        SceneSerializer serializer(newScene);
+        if (serializer.DeserializeText(path.string()))
+        {
+            m_EditorScene = newScene;
+            m_EditorScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+            m_SceneHierarchyPanel.SetContext(m_EditorScene);
+            
+            m_ActiveScene = m_EditorScene;
+            m_EditorScenePath = path;
+        }
+    }
 
-        SceneSerializer serializer(m_ActiveScene);
-        serializer.DeserializeText(path.string());
+    void EditorLayer::SerializeScene(Ref<Scene> scene, const std::filesystem::path& path)
+    {
+        SceneSerializer serializer(scene);
+        serializer.SerializeText(path.string());
     }
 
     void EditorLayer::OnScenePlay()
     {
         m_SceneState = SceneState::Play;
+
+        m_ActiveScene = Scene::Copy(m_EditorScene);
         m_ActiveScene->OnRuntimeStart();
+
+        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
     {
         m_SceneState = SceneState::Edit;
         m_ActiveScene->OnRuntimeStop();
+        m_ActiveScene = m_EditorScene;
+
+        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
     }
 
-    bool EditorLayer::CanSelectEntity() const
+    void EditorLayer::OnDuplicateEntity()
     {
-        return m_ViewportFocused && m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
+        if (m_SceneState != SceneState::Edit)
+        {
+            return;
+        }
+
+        Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+        if (selectedEntity)
+        {
+            m_EditorScene->DuplicateEntity(selectedEntity);
+        }
+    }
+
+    void EditorLayer::SaveScene()
+    {
+        if (!m_EditorScenePath.empty())
+        {
+            SerializeScene(m_ActiveScene, m_EditorScenePath);
+        }
+        else
+        {
+            SaveSceneAs();
+        }
     }
 
     void EditorLayer::SaveSceneAs()
@@ -570,8 +610,13 @@ namespace Trinity
         std::string filePath = FileDialogs::SaveFile("Trinity Scene (*.trinity)\0*.trinity\0");
         if (!filePath.empty())
         {
-            SceneSerializer serializer(m_ActiveScene);
-            serializer.SerializeText(filePath);
+            SerializeScene(m_ActiveScene, filePath);
+            m_EditorScenePath = filePath;
         }
+    }
+
+    bool EditorLayer::CanSelectEntity() const
+    {
+        return m_ViewportFocused && m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
     }
 }

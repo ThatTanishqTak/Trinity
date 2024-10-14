@@ -30,8 +30,12 @@ namespace Trinity
 		void OpenScene();
 		void OpenScene(const std::filesystem::path& path);
 
+		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& path);
+
 		void OnScenePlay();
 		void OnSceneStop();
+
+		void OnDuplicateEntity();
 
 		bool CanSelectEntity() const;
 
@@ -43,7 +47,10 @@ namespace Trinity
 		Ref<VertexArray> m_SquareVA;
 		Ref<Shader> m_FlatColorShader;
 		Ref<Framebuffer> m_Framebuffer;
+
 		Ref<Scene> m_ActiveScene;
+		Ref<Scene> m_EditorScene;
+		Ref<Scene> m_RuntimeScene;
 
 		std::filesystem::path m_EditorScenePath;
 
