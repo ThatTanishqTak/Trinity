@@ -21,5 +21,7 @@ namespace Trinity
 		Ref<Texture2D> m_PNGIcon;
 		Ref<Texture2D> m_BackIcon;
 		Ref<Texture2D> m_TextIcon;
+		Ref<Texture2D> m_SceneIcon;
+		Ref<Texture2D> m_FontIcon;
 	};
 }

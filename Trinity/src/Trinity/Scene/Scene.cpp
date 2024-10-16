@@ -19,9 +19,9 @@ namespace Trinity
 	{
 		switch (bodyType)
 		{
-			case Rigidbody2DComponent::BodyType::Static: { return b2_staticBody; }
-			case Rigidbody2DComponent::BodyType::Dynamic: { return b2_dynamicBody; }
-			case Rigidbody2DComponent::BodyType::Kinematic: { return b2_kinematicBody; }
+			case Rigidbody2DComponent::BodyType::Static:      { return b2_staticBody; }
+			case Rigidbody2DComponent::BodyType::Dynamic:     { return b2_dynamicBody; }
+			case Rigidbody2DComponent::BodyType::Kinematic:   { return b2_kinematicBody; }
 		}
 
 		TR_CORE_ASSERT(false, "Unknow type");
@@ -85,6 +85,7 @@ namespace Trinity
 
 		CopyComponent<TransformComponent>(destinationRegistry, sourceRegistry, enttMap);
 		CopyComponent<SpriteRendererComponent>(destinationRegistry, sourceRegistry, enttMap);
+		CopyComponent<CircleRendererComponent>(destinationRegistry, sourceRegistry, enttMap);
 		CopyComponent<CameraComponent>(destinationRegistry, sourceRegistry, enttMap);
 		CopyComponent<NativeScriptComponent>(destinationRegistry, sourceRegistry, enttMap);
 		CopyComponent<Rigidbody2DComponent>(destinationRegistry, sourceRegistry, enttMap);
@@ -104,10 +105,10 @@ namespace Trinity
 		entity.AddComponent<IDComponent>(uuid);
 		entity.AddComponent<TransformComponent>();
 
-		while (std::binary_search(entityList.begin(), entityList.end(), count))
+		do
 		{
 			count++;
-		}
+		} while (std::binary_search(entityList.begin(), entityList.end(), count));
 
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? std::string("Entity_" + std::to_string(count)) : name;
@@ -121,7 +122,13 @@ namespace Trinity
 
 	void Scene::DestroyEntity(Entity entity)
 	{
-		count--;
+		do
+		{
+			count--;
+		} while (!std::binary_search(entityList.begin(), entityList.end(), count));
+
+		TR_CORE_INFO(count);
+
 		m_Registry.destroy(entity);
 	}
 
@@ -235,12 +242,26 @@ namespace Trinity
 		{
 			Renderer2D::BeginScene(mainCamera->GetProjection(), cameraTransform);
 
-			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-			for (auto entity : group)
+			// Quad
 			{
-				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+				auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+				for (auto entity : group)
+				{
+					auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
-				Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
+					Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
+				}
+			}
+
+			// Circle
+			{
+				auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+				for (auto entity : view)
+				{
+					auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
+
+					Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, (int)entity);
+				}
 			}
 
 			Renderer2D::EndScene();
@@ -250,13 +271,27 @@ namespace Trinity
 	void Scene::OnUpdateEditor(Timestep timestep, EditorCamera& editorCamera)
 	{
 		Renderer2D::BeginScene(editorCamera);
-
-		auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-		for (auto entity : group)
+		
+		// Quad
 		{
-			auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+			for (auto entity : group)
+			{
+				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
-			Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
+				Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
+			}
+		}
+
+		// Circle
+		{
+			auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+			for (auto entity : view)
+			{
+				auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
+
+				Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, (int)entity);
+			}
 		}
 
 		Renderer2D::EndScene();
@@ -285,6 +320,7 @@ namespace Trinity
 
 		CopyComponentIfExists<TransformComponent>(newEntity, entity);
 		CopyComponentIfExists<SpriteRendererComponent>(newEntity, entity);
+		CopyComponentIfExists<CircleRendererComponent>(newEntity, entity);
 		CopyComponentIfExists<CameraComponent>(newEntity, entity);
 		CopyComponentIfExists<NativeScriptComponent>(newEntity, entity);
 		CopyComponentIfExists<Rigidbody2DComponent>(newEntity, entity);
@@ -338,6 +374,12 @@ namespace Trinity
 
 	template<>
 	void Scene::OnComponentAdded<SpriteRendererComponent>(Entity entity, SpriteRendererComponent& spriteRendererComponent)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<CircleRendererComponent>(Entity entity, CircleRendererComponent& circleRendererComponent)
 	{
 
 	}

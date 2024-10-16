@@ -5,6 +5,8 @@
 #include "Trinity/Scene/Scene.h"
 #include "Trinity/Scene/Entity.h"
 
+#include "Trinity/Renderer/Texture.h"
+
 namespace Trinity
 {
 	class SceneHierarchyPanel

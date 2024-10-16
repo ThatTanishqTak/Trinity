@@ -16,6 +16,8 @@ namespace Trinity
 		m_PNGIcon = Texture2D::Create("Resources/Icons/ContentBrowser/PNGIcon.png");
 		m_BackIcon = Texture2D::Create("Resources/Icons/ContentBrowser/PNGIcon.png");
 		m_TextIcon = Texture2D::Create("Resources/Icons/ContentBrowser/TextIcon.png");
+		m_SceneIcon = Texture2D::Create("Resources/Icons/ContentBrowser/SceneIcon.png");
+		m_FontIcon = Texture2D::Create("Resources/Icons/ContentBrowser/FontIcon.png");
 	}
 
 	void ContentBrowserPanel::OnImGuiRender()
@@ -60,14 +62,24 @@ namespace Trinity
 						icon = m_PNGIcon;
 					}
 
-					else if (relativePath.extension() == ".trinity")
-					{
-						icon = m_FileIcon;
-					}
-
 					else if (relativePath.extension() == ".txt")
 					{
 						icon = m_TextIcon;
+					}
+
+					else if (relativePath.extension() == ".trinity")
+					{
+						icon = m_SceneIcon;
+					}
+
+					else if (relativePath.extension() == ".ttf")
+					{
+						icon = m_FontIcon;
+					}
+
+					else
+					{
+						icon = m_FileIcon;
 					}
 				}
 
