@@ -13,6 +13,9 @@ namespace Trinity
 	{
 		m_DirectoryIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DirectoryIcon.png");
 		m_FileIcon = Texture2D::Create("Resources/Icons/ContentBrowser/FileIcon.png");
+		m_PNGIcon = Texture2D::Create("Resources/Icons/ContentBrowser/PNGIcon.png");
+		m_BackIcon = Texture2D::Create("Resources/Icons/ContentBrowser/PNGIcon.png");
+		m_TextIcon = Texture2D::Create("Resources/Icons/ContentBrowser/TextIcon.png");
 	}
 
 	void ContentBrowserPanel::OnImGuiRender()
@@ -49,6 +52,25 @@ namespace Trinity
 				ImGui::PushID(filenameString.c_str());
 				
 				Ref<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : m_FileIcon;
+
+				if (icon->GetRendererID() == m_FileIcon->GetRendererID())
+				{
+					if (relativePath.extension() == ".png")
+					{
+						icon = m_PNGIcon;
+					}
+
+					else if (relativePath.extension() == ".trinity")
+					{
+						icon = m_FileIcon;
+					}
+
+					else if (relativePath.extension() == ".txt")
+					{
+						icon = m_TextIcon;
+					}
+				}
+
 				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f });
 				ImGui::ImageButton((ImTextureID)icon->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 

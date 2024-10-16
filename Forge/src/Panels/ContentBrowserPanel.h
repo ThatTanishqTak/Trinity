@@ -18,5 +18,8 @@ namespace Trinity
 
 		Ref<Texture2D> m_DirectoryIcon;
 		Ref<Texture2D> m_FileIcon;
+		Ref<Texture2D> m_PNGIcon;
+		Ref<Texture2D> m_BackIcon;
+		Ref<Texture2D> m_TextIcon;
 	};
 }
