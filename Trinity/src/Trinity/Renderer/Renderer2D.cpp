@@ -487,6 +487,7 @@ namespace Trinity
 		{
 			DrawQuad(transform, src.Texture, src.TilingFactor, src.Color, entityID);
 		}
+
 		else
 		{
 			DrawQuad(transform, src.Color, entityID);

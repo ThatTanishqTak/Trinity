@@ -12,6 +12,7 @@
 #include <box2d/b2_body.h>
 #include <box2d/b2_fixture.h>
 #include <box2d/b2_polygon_shape.h>
+#include <box2d/b2_circle_shape.h>
 
 namespace Trinity
 {
@@ -90,6 +91,7 @@ namespace Trinity
 		CopyComponent<NativeScriptComponent>(destinationRegistry, sourceRegistry, enttMap);
 		CopyComponent<Rigidbody2DComponent>(destinationRegistry, sourceRegistry, enttMap);
 		CopyComponent<BoxCollider2DComponent>(destinationRegistry, sourceRegistry, enttMap);
+		CopyComponent<CircleCollider2DComponent>(destinationRegistry, sourceRegistry, enttMap);
 
 		return destinationScene;
 	}
@@ -168,6 +170,24 @@ namespace Trinity
 				fixtureDef.restitution = bc2d.Restitution;
 				fixtureDef.restitutionThreshold = bc2d.RestitutionThreshold;
 			
+				body->CreateFixture(&fixtureDef);
+			}
+
+			if (entity.HasComponent<CircleCollider2DComponent>())
+			{
+				auto& cc2d = entity.GetComponent<CircleCollider2DComponent>();
+
+				b2CircleShape circleShape;
+				circleShape.m_p.Set(cc2d.Offset.x, cc2d.Offset.y);
+				circleShape.m_radius = cc2d.Radius;
+
+				b2FixtureDef fixtureDef;
+				fixtureDef.shape = &circleShape;
+				fixtureDef.density = cc2d.Density;
+				fixtureDef.friction = cc2d.Friction;
+				fixtureDef.restitution = cc2d.Restitution;
+				fixtureDef.restitutionThreshold = cc2d.RestitutionThreshold;
+
 				body->CreateFixture(&fixtureDef);
 			}
 		}
@@ -294,17 +314,6 @@ namespace Trinity
 			}
 		}
 
-		// DEMO
-		//// Line
-		//{
-		//	Renderer2D::DrawLine(glm::vec3(0.0f), glm::vec3(5.0f), glm::vec4{ 1.0f, 0.0f, 1.0f, 1.0f });
-		//}
-
-		//// Rect
-		//{
-		//	Renderer2D::DrawRect(glm::vec3(2.0f), glm::vec3(5.0f), glm::vec4{ 1.0f, 0.0f, 1.0f, 1.0f });
-		//}
-
 		Renderer2D::EndScene();
 	}
 
@@ -336,6 +345,7 @@ namespace Trinity
 		CopyComponentIfExists<NativeScriptComponent>(newEntity, entity);
 		CopyComponentIfExists<Rigidbody2DComponent>(newEntity, entity);
 		CopyComponentIfExists<BoxCollider2DComponent>(newEntity, entity);
+		CopyComponentIfExists<CircleCollider2DComponent>(newEntity, entity);
 	}
 
 	Entity Scene::GetPrimaryCameraEntity()
@@ -415,6 +425,12 @@ namespace Trinity
 
 	template<>
 	void Scene::OnComponentAdded<BoxCollider2DComponent>(Entity entity, BoxCollider2DComponent& boxCollider2DComponent)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<CircleCollider2DComponent>(Entity entity, CircleCollider2DComponent& circleCollider2DComponent)
 	{
 
 	}
