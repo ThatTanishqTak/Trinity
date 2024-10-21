@@ -4,6 +4,7 @@
 #include "Trinity/Core/Timestep.h"
 #include "Trinity/Events/Event.h"
 #include "Trinity/Events/MouseEvent.h"
+#include "Trinity/Events/KeyEvent.h"
 
 #include <glm/glm.hpp>
 

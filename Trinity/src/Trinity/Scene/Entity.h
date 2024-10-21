@@ -19,8 +19,8 @@ namespace Trinity
 		T& AddComponent(Args&&... args)
 		{
 			TR_CORE_ASSERT(!HasComponent<T>(), "Entity already has component");
-			T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
 
+			T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
 			m_Scene->OnComponentAdded<T>(*this, component);
 
 			return component;
@@ -57,9 +57,9 @@ namespace Trinity
 			return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
 		}
 
-		operator bool() const { return m_EntityHandle != entt::null; }
-		operator entt::entity() const { return m_EntityHandle; }
-		operator uint32_t() const { return (uint32_t)m_EntityHandle; }
+		operator bool() const           { return m_EntityHandle != entt::null; }
+		operator entt::entity() const   { return m_EntityHandle;               }
+		operator uint32_t() const       { return (uint32_t)m_EntityHandle;     }
 
 		UUID GetUUID() { return GetComponent<IDComponent>().ID; }
 		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }

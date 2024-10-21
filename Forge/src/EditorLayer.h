@@ -23,6 +23,7 @@ namespace Trinity
 	private:
 		bool OnKeyPressed(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
+		void OnOverlayRenderer();
 
 		void NewScene();
 		void SaveScene();
@@ -36,6 +37,7 @@ namespace Trinity
 		void OnSceneStop();
 
 		void OnDuplicateEntity();
+		void OnDeleteEntity();
 
 		bool CanSelectEntity() const;
 
@@ -59,6 +61,7 @@ namespace Trinity
 		Entity m_SecondCamera;
 
 		Entity m_HoveredEntity;
+		Entity m_SelectedEntity;
 
 		EditorCamera m_EditorCamera;
 
@@ -78,6 +81,8 @@ namespace Trinity
 		bool m_PrimaryCamera = true;
 		bool m_ViewportFocused = false;
 		bool m_ViewportHovered = false;
+
+		bool m_ShowColliders = false;
 
 		int m_GizmoType = -1;
 

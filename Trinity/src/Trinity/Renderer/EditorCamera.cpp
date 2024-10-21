@@ -102,6 +102,7 @@ namespace Trinity
 
 		return false;
 	}
+
 	void EditorCamera::MousePan(const glm::vec2& delta)
 	{
 		auto [xSpeed, ySpeed] = PanSpeed();

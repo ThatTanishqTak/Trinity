@@ -41,46 +41,6 @@ namespace Trinity
         }
 
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
-
-#if 0
-        m_Square = m_ActiveScene->CreateEntity("Square");
-        m_Square.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 1.0f, 1.0f, 1.0f });
-
-        m_CameraEntity = m_ActiveScene->CreateEntity("Main Camera");
-        m_CameraEntity.AddComponent<CameraComponent>();
-
-        m_SecondCamera = m_ActiveScene->CreateEntity("Clip-Space Camera");
-        m_SecondCamera.AddComponent<CameraComponent>();
-        m_SecondCamera.GetComponent<CameraComponent>().Primary = false;
-
-        class CameraController : public ScriptableEntity
-        {
-        public:
-            void OnCreate()
-            {
-
-            }
-
-            void OnDestroy()
-            {
-
-            }
-
-            void OnUpdate(Timestep timestep)
-            {
-                float clipSpaceCameraSpeed = 5.0f;
-                auto& translation = GetComponent<TransformComponent>().Translation;
-
-                if (Input::IsKeyPressed(Key::W)) { translation.y += clipSpaceCameraSpeed * timestep; }
-                if (Input::IsKeyPressed(Key::A)) { translation.x -= clipSpaceCameraSpeed * timestep; }
-                if (Input::IsKeyPressed(Key::S)) { translation.y -= clipSpaceCameraSpeed * timestep; }
-                if (Input::IsKeyPressed(Key::D)) { translation.x += clipSpaceCameraSpeed * timestep; }
-            }
-        };
-
-        m_SecondCamera.AddComponent<NativeScriptComponent>().Bind<CameraController>();
-
-#endif
     }
 
     void EditorLayer::OnDetach()
@@ -145,6 +105,8 @@ namespace Trinity
             int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
             m_HoveredEntity = pixelData == -1 ? Entity() : Entity((entt::entity)pixelData, m_ActiveScene.get());
         }
+
+        OnOverlayRenderer();
 
         m_Framebuffer->Unbind();
     }
@@ -280,7 +242,7 @@ namespace Trinity
             }
 
             Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
-            if (selectedEntity && m_GizmoType != -1)
+            if (selectedEntity && m_GizmoType != -1 && /*This is temporary*/ m_SceneState != SceneState::Play /*Till I fix the camera situation*/)
             {
                 ImGuizmo::SetOrthographic(false);
                 ImGuizmo::SetDrawlist();
@@ -345,6 +307,7 @@ namespace Trinity
             if (m_SceneHierarchyPanel.GetSelectedEntity())
             {
                 selectedName = m_SceneHierarchyPanel.GetSelectedEntity().GetComponent<TagComponent>().Tag;
+                m_SelectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
             }
             ImGui::Text("Selected Entity: %s", selectedName.c_str());
             
@@ -354,6 +317,13 @@ namespace Trinity
             ImGui::Text("Quads: %d", stats.QuadCount);
             ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
             ImGui::Text("Indicies: %d", stats.GetTotalIndexCount());
+
+            ImGui::End();
+        }
+
+        ImGui::Begin("Settings");
+        {
+            ImGui::Checkbox("Show Colliders", &m_ShowColliders);
 
             ImGui::End();
         }
@@ -495,6 +465,16 @@ namespace Trinity
                 }
             }
 
+            /*bool entityDeleted = false;
+            case Key::Delete:
+            {
+                entityDeleted = true;
+                if (entityDeleted)
+                {
+                    OnDeleteEntity();
+                }
+            }*/
+
             default:
                 break;
         }
@@ -513,6 +493,66 @@ namespace Trinity
         }
 
         return false;
+    }
+
+    void EditorLayer::OnOverlayRenderer()
+    {
+        if (m_SceneState == SceneState::Play)
+        {
+            Entity activeCamera = m_ActiveScene->GetPrimaryCameraEntity();
+            Renderer2D::BeginScene(activeCamera.GetComponent<CameraComponent>().Camera, activeCamera.GetComponent<TransformComponent>().GetTransform());
+        }
+        else
+        {
+            Renderer2D::BeginScene(m_EditorCamera);
+        }
+
+        if (m_ShowColliders)
+        {
+            // Box
+            {
+                auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();
+                for (auto entity : view)
+                {
+                    if (entity == m_SelectedEntity)
+                    {
+                        auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
+
+                        glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, 0.001f);
+                        float rotation = tc.Rotation.z;
+                        glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
+
+                        glm::mat4 transform =
+                            glm::translate(glm::mat4(1.0f), translation)
+                            * glm::rotate(glm::mat4(1.0f), rotation, glm::vec3(0.0f, 0.0f, 1.0f))
+                            * glm::scale(glm::mat4(1.0f), scale);
+
+                        Renderer2D::DrawRect(transform, glm::vec4{ 0.1f, 1.0f, 0.1f, 1.0f });
+                    }
+                }
+            }
+
+            // Circle
+            {
+                auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, CircleCollider2DComponent>();
+                for (auto entity : view)
+                {
+                    if (entity == m_SelectedEntity)
+                    {
+                        auto [tc, cc2d] = view.get<TransformComponent, CircleCollider2DComponent>(entity);
+
+                        glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, 0.001f);
+                        glm::vec3 scale = tc.Scale * glm::vec3(cc2d.Radius * 2.0f);
+
+                        glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation) * glm::scale(glm::mat4(1.0f), scale);
+
+                        Renderer2D::DrawCircle(transform, glm::vec4{ 0.1f, 1.0f, 0.1f, 1.0f }, 0.025f);
+                    }
+                }
+            }
+        }
+
+        Renderer2D::EndScene();
     }
 
     void EditorLayer::NewScene()
@@ -593,12 +633,27 @@ namespace Trinity
         }
     }
 
+    void EditorLayer::OnDeleteEntity()
+    {
+        if (m_SceneState != SceneState::Edit)
+        {
+            return;
+        }
+
+        Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+        if (selectedEntity)
+        {
+            m_EditorScene->DestroyEntity(selectedEntity);
+        }
+    }
+
     void EditorLayer::SaveScene()
     {
         if (!m_EditorScenePath.empty())
         {
             SerializeScene(m_ActiveScene, m_EditorScenePath);
         }
+
         else
         {
             SaveSceneAs();

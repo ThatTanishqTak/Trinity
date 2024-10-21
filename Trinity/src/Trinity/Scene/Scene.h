@@ -37,6 +37,12 @@ namespace Trinity
 
 		Entity GetPrimaryCameraEntity();
 
+		template<typename... T>
+		auto GetAllEntitiesWith()
+		{
+			return m_Registry.view<T...>();
+		}
+
 	private:
 		template<typename T>
 		void OnComponentAdded(Entity entity, T& component);
