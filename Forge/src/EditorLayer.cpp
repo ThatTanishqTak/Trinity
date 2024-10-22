@@ -242,7 +242,7 @@ namespace Trinity
             }
 
             Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
-            if (selectedEntity && m_GizmoType != -1 && /*This is temporary*/ m_SceneState != SceneState::Play /*Till I fix the camera situation*/)
+            if (selectedEntity && m_GizmoType != -1 && /*This is temporary->*/ m_SceneState != SceneState::Play /*<-Till I fix the camera situation*/)
             {
                 ImGuizmo::SetOrthographic(false);
                 ImGuizmo::SetDrawlist();
@@ -306,8 +306,8 @@ namespace Trinity
             std::string selectedName = "None";
             if (m_SceneHierarchyPanel.GetSelectedEntity())
             {
-                selectedName = m_SceneHierarchyPanel.GetSelectedEntity().GetComponent<TagComponent>().Tag;
                 m_SelectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+                selectedName = m_SelectedEntity.GetComponent<TagComponent>().Tag;
             }
             ImGui::Text("Selected Entity: %s", selectedName.c_str());
             

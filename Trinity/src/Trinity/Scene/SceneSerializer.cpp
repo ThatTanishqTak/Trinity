@@ -175,9 +175,9 @@ namespace Trinity
 			out << YAML::BeginMap;
 
 			auto& transformComponent = entity.GetComponent<TransformComponent>();
-			out << YAML::Key << "Position" << YAML::Value << transformComponent.Translation;
-			out << YAML::Key << "Rotation" << YAML::Value << transformComponent.Rotation;
-			out << YAML::Key << "Scale" << YAML::Value << transformComponent.Scale;
+			out << YAML::Key << "Position"   << YAML::Value << transformComponent.Translation;
+			out << YAML::Key << "Rotation"   << YAML::Value << transformComponent.Rotation;
+			out << YAML::Key << "Scale"      << YAML::Value << transformComponent.Scale;
 
 			out << YAML::EndMap;
 		}
@@ -228,9 +228,9 @@ namespace Trinity
 
 			auto& circleRendererComponent = entity.GetComponent<CircleRendererComponent>();
 
-			out << YAML::Key << "Color" << YAML::Value << circleRendererComponent.Color;
-			out << YAML::Key << "Thickness" << YAML::Value << circleRendererComponent.Thickness;
-			out << YAML::Key << "Fade" << YAML::Value << circleRendererComponent.Fade;
+			out << YAML::Key << "Color"       << YAML::Value << circleRendererComponent.Color;
+			out << YAML::Key << "Thickness"   << YAML::Value << circleRendererComponent.Thickness;
+			out << YAML::Key << "Fade"        << YAML::Value << circleRendererComponent.Fade;
 
 			out << YAML::EndMap;
 		}
@@ -242,8 +242,8 @@ namespace Trinity
 
 			auto& rigidbody2DComponent = entity.GetComponent<Rigidbody2DComponent>();
 
-			out << YAML::Key << "Body Type" << YAML::Value << RigidbodyTypeToString(rigidbody2DComponent.Type);
-			out << YAML::Key << "Fixed Rotation" << YAML::Value << rigidbody2DComponent.FixedRotation;
+			out << YAML::Key << "Body Type"        << YAML::Value << RigidbodyTypeToString(rigidbody2DComponent.Type);
+			out << YAML::Key << "Fixed Rotation"   << YAML::Value << rigidbody2DComponent.FixedRotation;
 
 			out << YAML::EndMap;
 		}
@@ -255,12 +255,12 @@ namespace Trinity
 
 			auto& boxCollider2DComponent = entity.GetComponent<BoxCollider2DComponent>();
 
-			out << YAML::Key << "Offset" << YAML::Value << boxCollider2DComponent.Offset;
-			out << YAML::Key << "Size" << YAML::Value << boxCollider2DComponent.Size;
-			out << YAML::Key << "Density" << YAML::Value << boxCollider2DComponent.Density;
-			out << YAML::Key << "Friction" << YAML::Value << boxCollider2DComponent.Friction;
-			out << YAML::Key << "Restitution" << YAML::Value << boxCollider2DComponent.Restitution;
-			out << YAML::Key << "RestitutionThreshold" << YAML::Value << boxCollider2DComponent.RestitutionThreshold;
+			out << YAML::Key << "Offset"                 << YAML::Value << boxCollider2DComponent.Offset;
+			out << YAML::Key << "Size"                   << YAML::Value << boxCollider2DComponent.Size;
+			out << YAML::Key << "Density"                << YAML::Value << boxCollider2DComponent.Density;
+			out << YAML::Key << "Friction"               << YAML::Value << boxCollider2DComponent.Friction;
+			out << YAML::Key << "Restitution"            << YAML::Value << boxCollider2DComponent.Restitution;
+			out << YAML::Key << "RestitutionThreshold"   << YAML::Value << boxCollider2DComponent.RestitutionThreshold;
 
 			out << YAML::EndMap;
 		}
@@ -272,12 +272,12 @@ namespace Trinity
 
 			auto& circleCollider2DComponent = entity.GetComponent<CircleCollider2DComponent>();
 
-			out << YAML::Key << "Offset" << YAML::Value << circleCollider2DComponent.Offset;
-			out << YAML::Key << "Radius" << YAML::Value << circleCollider2DComponent.Radius;
-			out << YAML::Key << "Density" << YAML::Value << circleCollider2DComponent.Density;
-			out << YAML::Key << "Friction" << YAML::Value << circleCollider2DComponent.Friction;
-			out << YAML::Key << "Restitution" << YAML::Value << circleCollider2DComponent.Restitution;
-			out << YAML::Key << "RestitutionThreshold" << YAML::Value << circleCollider2DComponent.RestitutionThreshold;
+			out << YAML::Key << "Offset"                 << YAML::Value << circleCollider2DComponent.Offset;
+			out << YAML::Key << "Radius"                 << YAML::Value << circleCollider2DComponent.Radius;
+			out << YAML::Key << "Density"                << YAML::Value << circleCollider2DComponent.Density;
+			out << YAML::Key << "Friction"               << YAML::Value << circleCollider2DComponent.Friction;
+			out << YAML::Key << "Restitution"            << YAML::Value << circleCollider2DComponent.Restitution;
+			out << YAML::Key << "RestitutionThreshold"   << YAML::Value << circleCollider2DComponent.RestitutionThreshold;
 
 			out << YAML::EndMap;
 		}

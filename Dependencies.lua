@@ -12,14 +12,14 @@ IncludeDir["ImGui"] = "%{wks.location}/Trinity/vendor/ImGui"
 IncludeDir["ImGuizmo"] = "%{wks.location}/Trinity/vendor/ImGuizmo"
 IncludeDir["glm"] = "%{wks.location}/Trinity/vendor/glm"
 IncludeDir["entt"] = "%{wks.location}/Trinity/vendor/entt/include"
-IncludeDir["shaderc"] = "%{wks.location}/Trinity/vendor/shaderc/include"
-IncludeDir["SPIRV_Cross"] = "%{wks.location}/Trinity/vendor/SPIRV-Cross"
+IncludeDir["shaderc"] = "%{wks.location}/Trinity/vendor/VulkanSDK/1.3.296.0/Include/shaderc"
+IncludeDir["SPIRV_Cross"] = "%{wks.location}/Trinity/vendor/VulkanSDK/1.3.296.0/Include/spirv_cross"
 IncludeDir["VulkanSDK"] = "%{VULKAN_SDK}/Include"
 
 LibraryDir = {}
 LibraryDir["VulkanSDK"] = "%{VULKAN_SDK}/Lib"
-LibraryDir["VulkanSDK_Debug"] = "%{wks.location}/Trinity/vendor/VulkanSDK/Lib"
-LibraryDir["VulkanSDK_DebugDLL"] = "%{wks.location}/Trinity/vendor/VulkanSDK/Bin"
+LibraryDir["VulkanSDK_Debug"] = "%{wks.location}/Trinity/vendor/VulkanSDK/1.3.296.0/Lib"
+LibraryDir["VulkanSDK_DebugDLL"] = "%{wks.location}/Trinity/vendor/VulkanSDK/1.3.296.0/Bin"
 
 Library = {}
 Library["Vulkan"] = "%{LibraryDir.VulkanSDK}/vulkan-1.lib"
