@@ -1,2 +1,2 @@
 # Trinity
-Trinity Engine
+2D game engine
