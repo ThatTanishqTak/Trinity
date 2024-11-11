@@ -80,9 +80,9 @@
     <None Include="..\..\Forge\premake5.lua" />
     <None Include="..\..\Sandbox\premake5.lua" />
     <None Include="..\..\Trinity\premake5.lua" />
-    <None Include="..\..\Trinity\vendor\Box2D\premake5.lua" />
     <None Include="..\..\Trinity\vendor\GLFW\premake5.lua" />
     <None Include="..\..\Trinity\vendor\Glad\premake5.lua" />
+    <None Include="..\..\Trinity\vendor\box2D\premake5.lua" />
     <None Include="..\..\Trinity\vendor\imgui\premake5.lua" />
     <None Include="..\..\Trinity\vendor\yaml-cpp\premake5.lua" />
     <None Include="..\..\premake5.lua" />

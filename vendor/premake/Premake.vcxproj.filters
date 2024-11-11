@@ -16,14 +16,14 @@
     <Filter Include="..\Trinity\vendor">
       <UniqueIdentifier>{60338289-CC49-801F-15C1-0B41811651A7}</UniqueIdentifier>
     </Filter>
-    <Filter Include="..\Trinity\vendor\Box2D">
-      <UniqueIdentifier>{6EE57E4D-DA1C-C7E4-E326-2B084FDDEDDD}</UniqueIdentifier>
-    </Filter>
     <Filter Include="..\Trinity\vendor\GLFW">
       <UniqueIdentifier>{9F0A44A5-8B04-6DF7-7471-0308600AD363}</UniqueIdentifier>
     </Filter>
     <Filter Include="..\Trinity\vendor\Glad">
       <UniqueIdentifier>{479644A5-3390-6DF7-1CFD-03080896D363}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="..\Trinity\vendor\box2D">
+      <UniqueIdentifier>{8EF5C14F-FA2C-0AE7-0337-6E0A6FED30E0}</UniqueIdentifier>
     </Filter>
     <Filter Include="..\Trinity\vendor\imgui">
       <UniqueIdentifier>{CA483F50-3680-87E7-3F8A-EB0AAB40AEE0}</UniqueIdentifier>
@@ -42,14 +42,14 @@
     <None Include="..\..\Trinity\premake5.lua">
       <Filter>..\Trinity</Filter>
     </None>
-    <None Include="..\..\Trinity\vendor\Box2D\premake5.lua">
-      <Filter>..\Trinity\vendor\Box2D</Filter>
-    </None>
     <None Include="..\..\Trinity\vendor\GLFW\premake5.lua">
       <Filter>..\Trinity\vendor\GLFW</Filter>
     </None>
     <None Include="..\..\Trinity\vendor\Glad\premake5.lua">
       <Filter>..\Trinity\vendor\Glad</Filter>
+    </None>
+    <None Include="..\..\Trinity\vendor\box2D\premake5.lua">
+      <Filter>..\Trinity\vendor\box2D</Filter>
     </None>
     <None Include="..\..\Trinity\vendor\imgui\premake5.lua">
       <Filter>..\Trinity\vendor\imgui</Filter>

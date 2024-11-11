@@ -35,12 +35,16 @@ project "Forge"
 
 	filter "system:windows"
 		systemversion "latest"
-		runtime "Debug"
 
 	filter "configurations:Debug"
 		defines "TR_DEBUG"
 		runtime "Debug"
 		symbols "on"
+
+		postbuildcommands
+		{
+			"{COPYDIR} \"%{LibraryDir.VulkanSDK_DebugDLL}\" \"%{cfg.targetdir}\""
+		}
 
 	filter "configurations:Release"
 		defines "TR_RELEASE"
