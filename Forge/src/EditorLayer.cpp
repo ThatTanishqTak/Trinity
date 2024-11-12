@@ -16,7 +16,7 @@ namespace Trinity
 
     EditorLayer::EditorLayer() : Layer("Forge Layer"), m_CameraController(1600.0f / 900.0f)
     {
-
+        
     }
 
     void EditorLayer::OnAttach()
@@ -509,7 +509,7 @@ namespace Trinity
 
         if (m_ShowColliders)
         {
-            // Box
+            // Box collider
             {
                 auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();
                 for (auto entity : view)
@@ -532,7 +532,7 @@ namespace Trinity
                 }
             }
 
-            // Circle
+            // Circle collider
             {
                 auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, CircleCollider2DComponent>();
                 for (auto entity : view)

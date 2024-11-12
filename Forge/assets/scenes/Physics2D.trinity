@@ -126,3 +126,13 @@ Entities:
       Scale: [12.8490734, 1, 1]
     SpriteRendererComponent:
       Color: [1, 1, 1, 1]
+    Rigidbody2DComponent:
+      Body Type: Static
+      Fixed Rotation: false
+    BoxCollider2DComponent:
+      Offset: [0, 0]
+      Size: [0.5, 0.5]
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      RestitutionThreshold: 0.5

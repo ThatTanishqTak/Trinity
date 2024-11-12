@@ -27,10 +27,15 @@ namespace Trinity
 		void DestroyEntity(Entity entity);
 
 		void OnRuntimeStart();
+		void OnSimulationStart();
+		
 		void OnRuntimeStop();
+		void OnSimulationStop();
 
 		void OnUpdateRuntime(Timestep timestep);
+		void OnUpdateSimulation(Timestep timestep, EditorCamera& editorCamera);
 		void OnUpdateEditor(Timestep timestep, EditorCamera& editorCamera);
+
 		void OnViewportResize(uint32_t width, uint32_t height);
 
 		void DuplicateEntity(Entity entity);
@@ -42,6 +47,11 @@ namespace Trinity
 		{
 			return m_Registry.view<T...>();
 		}
+
+		void OnPhysics2DStart();
+		void OnPhysics2DStop();
+
+		void RenderScene(EditorCamera& camera);
 
 	private:
 		template<typename T>
