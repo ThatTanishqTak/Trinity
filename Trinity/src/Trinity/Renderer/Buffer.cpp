@@ -5,8 +5,6 @@
 
 #include "Platform/OpenGL/OpenGLBuffer.h"
 
-#include <memory>
-
 namespace Trinity
 {
 	Ref<VertexBuffer> VertexBuffer::Create(uint32_t size)

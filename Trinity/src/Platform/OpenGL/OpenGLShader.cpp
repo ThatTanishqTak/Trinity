@@ -2,7 +2,6 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 
 #include <fstream>
-#include <filesystem>
 #include <glad/glad.h>
 
 #include <glm/gtc/type_ptr.hpp>
@@ -13,8 +12,7 @@
 
 #include "Trinity/Core/Timer.h"
 
-namespace Trinity 
-{
+namespace Trinity {
 
 	namespace Utils {
 
@@ -36,7 +34,7 @@ namespace Trinity
 			case GL_VERTEX_SHADER:   return shaderc_glsl_vertex_shader;
 			case GL_FRAGMENT_SHADER: return shaderc_glsl_fragment_shader;
 			}
-			TR_CORE_ASSERT(false, "");
+			TR_CORE_ASSERT(false);
 			return (shaderc_shader_kind)0;
 		}
 
@@ -47,7 +45,7 @@ namespace Trinity
 			case GL_VERTEX_SHADER:   return "GL_VERTEX_SHADER";
 			case GL_FRAGMENT_SHADER: return "GL_FRAGMENT_SHADER";
 			}
-			TR_CORE_ASSERT(false, "");
+			TR_CORE_ASSERT(false);
 			return nullptr;
 		}
 
@@ -71,7 +69,7 @@ namespace Trinity
 			case GL_VERTEX_SHADER:    return ".cached_opengl.vert";
 			case GL_FRAGMENT_SHADER:  return ".cached_opengl.frag";
 			}
-			TR_CORE_ASSERT(false, "");
+			TR_CORE_ASSERT(false);
 			return "";
 		}
 
@@ -82,7 +80,7 @@ namespace Trinity
 			case GL_VERTEX_SHADER:    return ".cached_vulkan.vert";
 			case GL_FRAGMENT_SHADER:  return ".cached_vulkan.frag";
 			}
-			TR_CORE_ASSERT(false, "");
+			TR_CORE_ASSERT(false);
 			return "";
 		}
 
@@ -229,7 +227,7 @@ namespace Trinity
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					TR_CORE_ERROR(module.GetErrorMessage());
-					TR_CORE_ASSERT(false, "");
+					TR_CORE_ASSERT(false);
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
@@ -290,7 +288,7 @@ namespace Trinity
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					TR_CORE_ERROR(module.GetErrorMessage());
-					TR_CORE_ASSERT(false, "");
+					TR_CORE_ASSERT(false);
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
@@ -315,7 +313,7 @@ namespace Trinity
 		for (auto&& [stage, spirv] : m_OpenGLSPIRV)
 		{
 			GLuint shaderID = shaderIDs.emplace_back(glCreateShader(stage));
-			glShaderBinary(1, &shaderID, GL_SHADER_BINARY_FORMAT_SPIR_V, spirv.data(), (GLsizei)spirv.size() * sizeof(uint32_t));
+			glShaderBinary(1, &shaderID, GL_SHADER_BINARY_FORMAT_SPIR_V, spirv.data(), spirv.size() * sizeof(uint32_t));
 			glSpecializeShader(shaderID, "main", 0, nullptr, nullptr);
 			glAttachShader(program, shaderID);
 		}
@@ -361,9 +359,9 @@ namespace Trinity
 		for (const auto& resource : resources.uniform_buffers)
 		{
 			const auto& bufferType = compiler.get_type(resource.base_type_id);
-			uint32_t bufferSize = (uint32_t)compiler.get_declared_struct_size(bufferType);
+			uint32_t bufferSize = compiler.get_declared_struct_size(bufferType);
 			uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-			int memberCount = (int)bufferType.member_types.size();
+			int memberCount = bufferType.member_types.size();
 
 			TR_CORE_TRACE("  {0}", resource.name);
 			TR_CORE_TRACE("    Size = {0}", bufferSize);

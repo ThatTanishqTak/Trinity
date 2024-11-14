@@ -1,6 +1,8 @@
 #include "trpch.h"
 #include "WindowsWindow.h"
 
+#include "Trinity/Core/Input.h"
+
 #include "Trinity/Events/ApplicationEvent.h"
 #include "Trinity/Events/KeyEvent.h"
 #include "Trinity/Events/MouseEvent.h"
@@ -14,11 +16,6 @@ namespace Trinity
 	static void GLFWErrorCallback(int errorCode, const char* description)
 	{
 		TR_CORE_ERROR("GLFW Error: {0}: {1}", errorCode, description);
-	}
-
-	Window* Window::Create(const WindowProps& props)
-	{
-		return new WindowsWindow(props);
 	}
 
 	WindowsWindow::WindowsWindow(const WindowProps& props)
@@ -98,7 +95,7 @@ namespace Trinity
 
 				case GLFW_REPEAT:
 				{
-					KeyPressedEvent event(key, 1);
+					KeyPressedEvent event(key, true);
 					data.EventCallback(event);
 
 					break;
@@ -172,6 +169,7 @@ namespace Trinity
 		{
 			glfwSwapInterval(1);
 		}
+
 		else
 		{
 			glfwSwapInterval(0);

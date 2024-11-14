@@ -8,7 +8,6 @@ typedef unsigned int GLenum;
 
 namespace Trinity 
 {
-
 	class OpenGLShader : public Shader
 	{
 	public:

@@ -37,9 +37,9 @@ namespace Trinity
 		uint32_t Offset;
 		bool Normalized;
 
-		BufferElement() {}
+		BufferElement() = default;
 
-		BufferElement(ShaderDataType type, std::string& name, bool normalized = false) : Type(type), Name(name), Size(ShaderDataTypeSize(type)), Offset(0), Normalized(false)
+		BufferElement(ShaderDataType type, std::string& name, bool normalized = false) : Type(type), Name(name), Size(ShaderDataTypeSize(type)), Offset(0), Normalized(normalized)
 		{
 
 		}

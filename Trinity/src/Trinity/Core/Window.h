@@ -3,7 +3,6 @@
 #include "trpch.h"
 
 #include "Trinity/Core/Core.h"
-
 #include "Trinity/Events/Event.h"
 
 namespace Trinity
@@ -38,6 +37,6 @@ namespace Trinity
 
 		virtual void* GetNativeWindow() const = 0;
 
-		static Window* Create(const WindowProps& props = WindowProps());
+		static Scope<Window> Create(const WindowProps& props = WindowProps());
 	};
 }

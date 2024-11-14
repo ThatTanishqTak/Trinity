@@ -12,12 +12,6 @@ project "Forge"
 		"src/**.h",
 		"src/**.cpp"
 	}
-
-    defines
-    {
-        "TR_PLATFORM_WINDOWS"
-    }
-
 	includedirs
 	{
 		"%{wks.location}/Trinity/vendor/spdlog/include",

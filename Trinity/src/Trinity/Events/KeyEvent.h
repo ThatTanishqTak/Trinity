@@ -1,33 +1,34 @@
 #pragma once
 
-#include "Event.h"
+#include "Trinity/Events/Event.h"
+#include "Trinity/Core/KeyCodes.h"
 
 namespace Trinity
 {
 	class KeyEvent : public Event
 	{
 	public:
-		inline int GetKeyCode() const { return m_KeyCode; }
+		KeyCode GetKeyCode() const { return m_KeyCode; }
 
 		EVENT_CLASS_CATEGORY(EventCategoryKeyboard | EventCategoryInput)
 
 	protected:
-		KeyEvent(int keyCode) : m_KeyCode(keyCode) {}
+		KeyEvent(KeyCode keyCode) : m_KeyCode(keyCode) {}
 
-		int m_KeyCode;
+		KeyCode m_KeyCode;
 	};
 
 	class KeyPressedEvent : public KeyEvent
 	{
 	public:
-		KeyPressedEvent(int keyCode, int repeatCount) : KeyEvent(keyCode), m_RepeatCount(repeatCount) {}
+		KeyPressedEvent(const KeyCode keyCode, bool isRepeat = false) : KeyEvent(keyCode), m_IsRepeat(isRepeat) {}
 
-		inline int GetRepeatCount() const { return m_RepeatCount; }
+		bool IsRepet() const { return m_IsRepeat; }
 
 		std::string ToString() const override
 		{
 			std::stringstream ss;
-			ss << "KeyPressedEvent: " << m_KeyCode << " (" << m_RepeatCount << " repeats)";
+			ss << "KeyPressedEvent: " << m_KeyCode << " (repeat = " << m_IsRepeat << ")";
 
 			return ss.str();
 		}
@@ -35,13 +36,13 @@ namespace Trinity
 		EVENT_CLASS_TYPE(KeyPressed)
 	
 	private:
-		int m_RepeatCount;
+		bool m_IsRepeat;
 	};
 
 	class KeyTypedEvent : public KeyEvent
 	{
 	public:
-		KeyTypedEvent(int keyCode) : KeyEvent(keyCode) {}
+		KeyTypedEvent(const KeyCode keyCode) : KeyEvent(keyCode) {}
 
 		std::string ToString() const override
 		{
@@ -57,7 +58,7 @@ namespace Trinity
 	class KeyReleasedEvent : public KeyEvent
 	{
 	public:
-		KeyReleasedEvent(int keyCode) : KeyEvent(keyCode) {}
+		KeyReleasedEvent(const KeyCode keyCode) : KeyEvent(keyCode) {}
 
 		std::string ToString() const override
 		{

@@ -93,19 +93,12 @@ namespace Trinity
 		{
 			UUID uuid = sourceRegistry.get<IDComponent>(e).ID;
 			const auto& name = sourceRegistry.get<TagComponent>(e).Tag;
-			
+
 			Entity newEntity = destinationScene->CreateEntityWithUUID(uuid, name);
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 
-		CopyComponent<TransformComponent>(destinationRegistry, sourceRegistry, enttMap);
-		CopyComponent<SpriteRendererComponent>(destinationRegistry, sourceRegistry, enttMap);
-		CopyComponent<CircleRendererComponent>(destinationRegistry, sourceRegistry, enttMap);
-		CopyComponent<CameraComponent>(destinationRegistry, sourceRegistry, enttMap);
-		CopyComponent<NativeScriptComponent>(destinationRegistry, sourceRegistry, enttMap);
-		CopyComponent<Rigidbody2DComponent>(destinationRegistry, sourceRegistry, enttMap);
-		CopyComponent<BoxCollider2DComponent>(destinationRegistry, sourceRegistry, enttMap);
-		CopyComponent<CircleCollider2DComponent>(destinationRegistry, sourceRegistry, enttMap);
+		CopyComponent(AllComponents{}, destinationRegistry, sourceRegistry, enttMap);
 
 		return destinationScene;
 	}
@@ -313,15 +306,6 @@ namespace Trinity
 	{
 		std::string name = entity.GetName();
 		Entity newEntity = CreateEntity(name);
-
-		CopyComponentIfExists<TransformComponent>(newEntity, entity);
-		CopyComponentIfExists<SpriteRendererComponent>(newEntity, entity);
-		CopyComponentIfExists<CircleRendererComponent>(newEntity, entity);
-		CopyComponentIfExists<CameraComponent>(newEntity, entity);
-		CopyComponentIfExists<NativeScriptComponent>(newEntity, entity);
-		CopyComponentIfExists<Rigidbody2DComponent>(newEntity, entity);
-		CopyComponentIfExists<BoxCollider2DComponent>(newEntity, entity);
-		CopyComponentIfExists<CircleCollider2DComponent>(newEntity, entity);
 
 		CopyComponentIfExists(AllComponents{}, newEntity, entity);
 	}

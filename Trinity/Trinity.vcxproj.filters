@@ -102,6 +102,9 @@
     <ClInclude Include="src\Trinity\Core\Application.h">
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\Trinity\Core\Assert.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\Trinity\Core\Core.h">
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
@@ -124,6 +127,9 @@
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Core\MouseCodes.h">
+      <Filter>src\Trinity\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Core\PlatformDetection.h">
       <Filter>src\Trinity\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Core\Timer.h">
@@ -1533,6 +1539,9 @@
       <Filter>src\Trinity\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\Core\UUID.cpp">
+      <Filter>src\Trinity\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Core\Window.cpp">
       <Filter>src\Trinity\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\Trinity\ImGui\ImGuiBuild.cpp">

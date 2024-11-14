@@ -423,7 +423,7 @@ namespace Trinity
 
     bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
     {
-        if (e.GetRepeatCount() > 0)
+        if (e.IsRepet())
         {
             return false;
         }

@@ -13,6 +13,11 @@ project "Sandbox"
 		"src/**.cpp"
 	}
 
+	postbuildcommands
+	{
+		"{COPYDIR} \"%{LibraryDir.VulkanSDK_DebugDLL}\" \"%{cfg.targetdir}\""
+	}
+
 	includedirs
 	{
 		"%{wks.location}/Trinity/vendor/spdlog/include",
@@ -29,23 +34,11 @@ project "Sandbox"
 
 	filter "system:windows"
 		systemversion "latest"
-		runtime "Debug"
-
-		defines 
-		{
-			"TR_PLATFORM_WINDOWS",
-            "GLFW_INCLUDE_NONE"
-		}
 
 	filter "configurations:Debug"
 		defines "TR_DEBUG"
 		runtime "Debug"
 		symbols "on"
-
-		postbuildcommands
-		{
-			"{COPYDIR} \"%{LibraryDir.VulkanSDK_DebugDLL}\" \"%{cfg.targetdir}\""
-		}
 
 	filter "configurations:Release"
 		defines "TR_RELEASE"

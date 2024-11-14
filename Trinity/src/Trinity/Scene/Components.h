@@ -151,6 +151,8 @@ namespace Trinity
 	};
 
 	using AllComponents =
-		ComponentGroup<TransformComponent, SpriteRendererComponent, CameraComponent,
-		NativeScriptComponent, Rigidbody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent>;
+		ComponentGroup<TransformComponent,          CameraComponent, 
+		               SpriteRendererComponent,     CircleRendererComponent,
+		               Rigidbody2DComponent,        BoxCollider2DComponent, 
+		               CircleCollider2DComponent,   NativeScriptComponent>;
 }

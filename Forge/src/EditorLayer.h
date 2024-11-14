@@ -3,6 +3,7 @@
 #include "Trinity.h"
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
+
 #include "Trinity/Renderer/EditorCamera.h"
 
 namespace Trinity

@@ -12,6 +12,11 @@ workspace "Trinity"
 		"Dist"
 	}
 
+	solution_items
+	{
+		".editorconfig"
+	}
+
 	flags
 	{
 		"MultiProcessorCompile"
