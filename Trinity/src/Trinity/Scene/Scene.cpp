@@ -40,27 +40,41 @@ namespace Trinity
 		delete m_PhysicsWorld;
 	}
 
-	template<typename T>
-	static void CopyComponent(entt::registry& dest, entt::registry& source, const std::unordered_map<UUID, entt::entity>& enttMap)
+	template<typename... T>
+	static void CopyComponent(entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
 	{
-		auto view = source.view<T>();
-		for (auto e : view)
-		{
-			UUID uuid = source.get<IDComponent>(e).ID;
-			entt::entity destinationEnttID = enttMap.at(uuid);
+		([&]()
+			{
+				auto view = src.view<T>();
+				for (auto srcEntity : view)
+				{
+					entt::entity dstEntity = enttMap.at(src.get<IDComponent>(srcEntity).ID);
 
-			auto& component = source.get<T>(e);
-			dest.emplace_or_replace<T>(destinationEnttID, component);
-		}
+					auto& srcComponent = src.get<T>(srcEntity);
+					dst.emplace_or_replace<T>(dstEntity, srcComponent);
+				}
+			}(), ...);
+	}
+	template<typename... T>
+	static void CopyComponent(ComponentGroup<T...>, entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
+	{
+		CopyComponent<T...>(dst, src, enttMap);
 	}
 
-	template<typename T>
-	static void CopyComponentIfExists(Entity dest, Entity source)
+	template<typename... T>
+	static void CopyComponentIfExists(Entity dst, Entity src)
 	{
-		if (source.HasComponent<T>())
-		{
-			dest.AddOrReplaceComponent<T>(source.GetComponent<T>());
-		}
+		([&]()
+			{
+				if (src.HasComponent<T>())
+					dst.AddOrReplaceComponent<T>(src.GetComponent<T>());
+			}(), ...);
+	}
+
+	template<typename... T>
+	static void CopyComponentIfExists(ComponentGroup<T...>, Entity dst, Entity src)
+	{
+		CopyComponentIfExists<T...>(dst, src);
 	}
 
 	Ref<Scene> Scene::Copy(Ref<Scene> sourceScene)
@@ -308,6 +322,8 @@ namespace Trinity
 		CopyComponentIfExists<Rigidbody2DComponent>(newEntity, entity);
 		CopyComponentIfExists<BoxCollider2DComponent>(newEntity, entity);
 		CopyComponentIfExists<CircleCollider2DComponent>(newEntity, entity);
+
+		CopyComponentIfExists(AllComponents{}, newEntity, entity);
 	}
 
 	Entity Scene::GetPrimaryCameraEntity()

@@ -72,13 +72,14 @@ namespace Trinity
 
 		enum class SceneState
 		{
-			Edit = 0, Play = 1, Simulate = 2
+			Edit = 0, Play = 1, Simulate = 2, Pause = 3
 		};
 
 		SceneState m_SceneState = SceneState::Edit;
 
 		Ref<Texture2D> m_IconPlay;
 		Ref<Texture2D> m_IconSimulate;
+		Ref<Texture2D> m_IconPause;
 		Ref<Texture2D> m_IconStop;
 
 		bool m_PrimaryCamera = true;

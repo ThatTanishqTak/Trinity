@@ -32,6 +32,8 @@ namespace Trinity
 		void OnRuntimeStop();
 		void OnSimulationStop();
 
+		//(TODO) Add OnScenePause()
+
 		void OnUpdateRuntime(Timestep timestep);
 		void OnUpdateSimulation(Timestep timestep, EditorCamera& editorCamera);
 		void OnUpdateEditor(Timestep timestep, EditorCamera& editorCamera);
