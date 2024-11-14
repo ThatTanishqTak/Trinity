@@ -37,7 +37,7 @@ namespace Trinity
 
 	Scene::~Scene()
 	{
-
+		delete m_PhysicsWorld;
 	}
 
 	template<typename T>
@@ -173,6 +173,7 @@ namespace Trinity
 
 		// Physics
 		{
+			// From trial and error, these vaules work the best
 			const int32_t velocityIteration = 6;
 			const int32_t positionIteration = 2;
 
@@ -184,7 +185,7 @@ namespace Trinity
 				Entity entity = { e, this };
 				auto& transform = entity.GetComponent<TransformComponent>();
 				auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
-			
+
 				b2Body* body = (b2Body*)rb2d.RuntimeBody;
 				
 				const auto& position = body->GetPosition();
@@ -245,38 +246,37 @@ namespace Trinity
 
 	void Scene::OnUpdateSimulation(Timestep timestep, EditorCamera& editorCamera)
 	{
+		// Physics
+		{
+			// From trial and error, these vaules work the best
+			const int32_t velocityIteration = 6;
+			const int32_t positionIteration = 2;
 
+			m_PhysicsWorld->Step(timestep, velocityIteration, positionIteration);
+
+			auto view = m_Registry.view<Rigidbody2DComponent>();
+			for (auto e : view)
+			{
+				Entity entity = { e, this };
+				auto& transform = entity.GetComponent<TransformComponent>();
+				auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+
+				b2Body* body = (b2Body*)rb2d.RuntimeBody;
+
+				const auto& position = body->GetPosition();
+				transform.Translation.x = position.x;
+				transform.Translation.y = position.y;
+				transform.Rotation.z = body->GetAngle();
+			}
+		}
+
+		// Renderer
+		RenderScene(editorCamera);
 	}
 
 	void Scene::OnUpdateEditor(Timestep timestep, EditorCamera& editorCamera)
 	{
-		Renderer2D::BeginScene(editorCamera);
-
 		RenderScene(editorCamera);
-
-		//// Quad
-		//{
-		//	auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-		//	for (auto entity : group)
-		//	{
-		//		auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
-
-		//		Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
-		//	}
-		//}
-
-		//// Circle
-		//{
-		//	auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
-		//	for (auto entity : view)
-		//	{
-		//		auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
-
-		//		Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, (int)entity);
-		//	}
-		//}
-
-		Renderer2D::EndScene();
 	}
 
 	void Scene::OnViewportResize(uint32_t width, uint32_t height)

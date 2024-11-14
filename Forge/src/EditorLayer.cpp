@@ -22,6 +22,7 @@ namespace Trinity
     void EditorLayer::OnAttach()
     {
         m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
+        m_IconSimulate = Texture2D::Create("Resources/Icons/SimulateButton.png");
         m_IconStop = Texture2D::Create("Resources/Icons/StopButton.png");
 
         FramebufferSpecifications specs;
@@ -30,7 +31,8 @@ namespace Trinity
         specs.Height = 900;
         m_Framebuffer = Framebuffer::Create(specs);
 
-        m_ActiveScene = CreateRef<Scene>();
+        m_EditorScene = CreateRef<Scene>();
+        m_ActiveScene = m_EditorScene;
 
         auto commandLineArgs = Application::Get().GetCommandLineArgs();
         if (commandLineArgs.Count > 1)
@@ -83,6 +85,13 @@ namespace Trinity
                 break;
             }
 
+            case SceneState::Simulate:
+            {
+                m_EditorCamera.OnUpdate(timestep);
+
+                m_ActiveScene->OnUpdateSimulation(timestep, m_EditorCamera);
+                break;
+            }
 
             case SceneState::Play:
             {
@@ -349,19 +358,46 @@ namespace Trinity
 
         ImGui::Begin("##ToolBar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         {
-            float size = ImGui::GetWindowHeight() - 4.0f;
+            bool toolbarEnabled = (bool)m_ActiveScene;
 
-            Ref<Texture2D> icon = m_SceneState == SceneState::Edit ? m_IconPlay : m_IconStop;
-            ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
-            if (ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), 0))
+            ImVec4 tintColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            if (!toolbarEnabled)
             {
-                if (m_SceneState == SceneState::Edit)
+                tintColor.w = 0.5f;
+            }
+
+            float size = ImGui::GetWindowHeight() - 4.0f;
+            {
+                Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate) ? m_IconPlay : m_IconStop;
+                ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
+                if (toolbarEnabled && ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), 0, 
+                    ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor))
                 {
-                    OnScenePlay();
+                    if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate)
+                    {
+                        OnScenePlay();
+                    }
+                    else if (m_SceneState == SceneState::Play)
+                    {
+                        OnSceneStop();
+                    }
                 }
-                else if (m_SceneState == SceneState::Play)
+            }
+
+            ImGui::SameLine();
+            {
+                Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play) ? m_IconSimulate : m_IconStop;
+                if (toolbarEnabled && ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), 0, 
+                    ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor))
                 {
-                    OnSceneStop();
+                    if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play)
+                    {
+                        OnSceneSimulate();
+                    }
+                    else if (m_SceneState == SceneState::Simulate)
+                    {
+                        OnSceneStop();
+                    }
                 }
             }
 
@@ -465,16 +501,6 @@ namespace Trinity
                 }
             }
 
-            /*bool entityDeleted = false;
-            case Key::Delete:
-            {
-                entityDeleted = true;
-                if (entityDeleted)
-                {
-                    OnDeleteEntity();
-                }
-            }*/
-
             default:
                 break;
         }
@@ -500,6 +526,11 @@ namespace Trinity
         if (m_SceneState == SceneState::Play)
         {
             Entity activeCamera = m_ActiveScene->GetPrimaryCameraEntity();
+            if (!activeCamera)
+            {
+                return;
+            }
+
             Renderer2D::BeginScene(activeCamera.GetComponent<CameraComponent>().Camera, activeCamera.GetComponent<TransformComponent>().GetTransform());
         }
         else
@@ -602,6 +633,11 @@ namespace Trinity
 
     void EditorLayer::OnScenePlay()
     {
+        if (m_SceneState == SceneState::Simulate)
+        {
+            OnSceneStop();
+        }
+
         m_SceneState = SceneState::Play;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
@@ -612,9 +648,33 @@ namespace Trinity
 
     void EditorLayer::OnSceneStop()
     {
+        if (m_SceneState == SceneState::Play)
+        {
+            m_ActiveScene->OnRuntimeStop();
+        }
+
+        else if (m_SceneState == SceneState::Simulate)
+        {
+            m_ActiveScene->OnSimulationStop();
+        }
+
         m_SceneState = SceneState::Edit;
-        m_ActiveScene->OnRuntimeStop();
+
         m_ActiveScene = m_EditorScene;
+        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+    }
+
+    void EditorLayer::OnSceneSimulate()
+    {
+        if (m_SceneState == SceneState::Play)
+        {
+            OnSceneStop();
+        }
+
+        m_SceneState = SceneState::Simulate;
+
+        m_ActiveScene = Scene::Copy(m_EditorScene);
+        m_ActiveScene->OnSimulationStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
     }

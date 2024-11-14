@@ -36,6 +36,8 @@ namespace Trinity
 		void OnScenePlay();
 		void OnSceneStop();
 
+		void OnSceneSimulate();
+
 		void OnDuplicateEntity();
 		void OnDeleteEntity();
 
@@ -70,12 +72,13 @@ namespace Trinity
 
 		enum class SceneState
 		{
-			Edit = 0, Play = 1
+			Edit = 0, Play = 1, Simulate = 2
 		};
 
 		SceneState m_SceneState = SceneState::Edit;
 
 		Ref<Texture2D> m_IconPlay;
+		Ref<Texture2D> m_IconSimulate;
 		Ref<Texture2D> m_IconStop;
 
 		bool m_PrimaryCamera = true;
