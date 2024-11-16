@@ -37,7 +37,16 @@ project "Forge"
 
 		postbuildcommands
 		{
-			"{COPYDIR} \"%{LibraryDir.VulkanSDK_DebugDLL}\" \"%{cfg.targetdir}\""
+			"{COPYFILE} \"%{LibraryDir.VulkanSDK_DebugDLL}/shaderc_sharedd.dll\" \"%{cfg.targetdir}\"",
+			"{COPYDIR} ../Forge %{cfg.targetdir}",
+			removefiles
+			{
+				"{DELETEDIR} \"%{cfg.targetdir}/src\"",
+				"{DELETEFILE} \"%{cfg.targetdir}/premake5.lua\"",
+				"{DELETEFILE} \"%{cfg.targetdir}/Forge.vcxproj.user\"",
+				"{DELETEFILE} \"%{cfg.targetdir}/Forge.vcxproj.filters\"",
+				"{DELETEFILE} \"%{cfg.targetdir}/Forge.vcxproj\""
+			}
 		}
 
 	filter "configurations:Release"
