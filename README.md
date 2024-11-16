@@ -1,5 +1,4 @@
-
-# Trinity
+# Trinity [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 Trinity is a 2D focused game engine written in C/C++ it's in very early stages of development I don't know how far I'll take this project. Right now most of the development has been based from TheCherno's Game Engine Series
 
@@ -7,13 +6,23 @@ Trinity is a 2D focused game engine written in C/C++ it's in very early stages o
 
 
 ## Getting Started
-Use Visual Studio 2022
-
+Use Visual Studio 2022  
 As of right now Trinity only supports Windows
 
-Step 1: ``` git clone --recursive https://github.com/ThatTanishqTak/Trinity.git ```
+---
 
-Step 2: Run ```Setup.bat``` in the scripts folder. It will setup VulkanSDK and will ask you to run the  ```Setup.bat``` file again
+Step 1: Download the repository  
 
-Step 3: After running the ```Setup.bat``` file for the second time, open the ```Trinity.sln``` and build the solution
+``` git clone --recursive https://github.com/ThatTanishqTak/Trinity.git ```
+
+Step 2: Setup the enviornment
+
+Run ``` Setup.bat ``` in the scripts folder. It will setup VulkanSDK and will ask you to 
+run the  ``` Setup.bat ``` file again
+
+Step 3: Build the solution
+
+After running the ```Setup.bat``` file for the second time, open the ```Trinity.sln``` and build the solution
+
+---
     
