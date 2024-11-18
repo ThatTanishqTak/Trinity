@@ -20,7 +20,7 @@ Step 2: Setup the enviornment
 Run ``` Setup.bat ``` in the scripts folder. It will setup ```python```, ```premake5``` and ```VulkanSDK``` and will ask you to 
 run the  ``` Setup.bat ``` file again
 
-Alternatively, if ```VulkanSDK``` could not be setup from ```setup.bat``` file, you can manually download and install it from ```https://vulkan.lunarg.com/sdk/home```
+Alternatively, if ```VulkanSDK``` could not be setup from ```setup.bat``` file, you can manually download and install it from ```vulkan.lunarg.com/sdk/home``` and run the ``` Setup.bat ``` file again
 
 Step 3: Build the solution
 

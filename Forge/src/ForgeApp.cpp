@@ -8,7 +8,7 @@ namespace Trinity
 	class Forge : public Application
 	{
 	public:
-		Forge(ApplicationCommandLineArgs args) : Application("Trinity-Forge", args)
+		Forge(ApplicationCommandLineArgs args) : Application("Forge", args)
 		{
 			PushLayer(new EditorLayer());
 		}

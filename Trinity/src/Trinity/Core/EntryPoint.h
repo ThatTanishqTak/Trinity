@@ -3,6 +3,8 @@
 #include "Trinity/Core/Core.h"
 #include "Trinity/Core/Application.h"
 
+#include <Windows.h>
+
 #ifdef TR_PLATFORM_WINDOWS
 
 extern Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args);
