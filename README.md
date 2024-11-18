@@ -20,11 +20,11 @@ Step 2: Setup the enviornment
 Run ``` Setup.bat ``` in the scripts folder. It will setup ```python```, ```premake5``` and ```VulkanSDK``` and will ask you to 
 run the  ``` Setup.bat ``` file again
 
-Alternatively if ```VulkanSDK``` could not be setup, you can manually download and install the ```VulkanSDK``` from ```https://vulkan.lunarg.com/sdk/home```
+Alternatively, if ```VulkanSDK``` could not be setup from ```setup.bat``` file, you can manually download and install it from ```https://vulkan.lunarg.com/sdk/home```
 
 Step 3: Build the solution
 
-After running the setup is complete, open the ```Trinity.sln``` and build the solution
+After the setup is complete, open the ```Trinity.sln``` and build the solution
 
 ---
     
