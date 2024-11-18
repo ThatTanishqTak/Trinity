@@ -93,7 +93,12 @@
     </Link>
     <PostBuildEvent>
       <Command>copy /B /Y "$(SolutionDir)\Trinity\vendor\VulkanSDK\1.3.296.0\Bin\shaderc_sharedd.dll" "..\bin\Debug-windows-x86_64\Forge"
-xcopy /Q /E /Y /I ..\Forge ..\bin\Debug-windows-x86_64\Forge</Command>
+copy /B /Y "..\Forge\imgui.ini" "..\bin\Debug-windows-x86_64\Forge"
+IF NOT EXIST "..\bin\Debug-windows-x86_64\Forge\Resources" (mkdir "..\bin\Debug-windows-x86_64\Forge\Resources")
+IF NOT EXIST "..\bin\Debug-windows-x86_64\Forge\assets" (mkdir "..\bin\Debug-windows-x86_64\Forge\assets")
+IF NOT EXIST "..\bin\Debug-windows-x86_64\Forge\Temp" (mkdir "..\bin\Debug-windows-x86_64\Forge\Temp")
+xcopy /Q /E /Y /I ..\Forge\Resources ..\bin\Debug-windows-x86_64\Forge\Resources
+xcopy /Q /E /Y /I ..\Forge\assets ..\bin\Debug-windows-x86_64\Forge\assets</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -116,6 +121,15 @@ xcopy /Q /E /Y /I ..\Forge ..\bin\Debug-windows-x86_64\Forge</Command>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /B /Y "$(SolutionDir)\Trinity\vendor\VulkanSDK\1.3.296.0\Bin\shaderc_sharedd.dll" "..\bin\Release-windows-x86_64\Forge"
+copy /B /Y "..\Forge\imgui.ini" "..\bin\Release-windows-x86_64\Forge"
+IF NOT EXIST "..\bin\Release-windows-x86_64\Forge\Resources" (mkdir "..\bin\Release-windows-x86_64\Forge\Resources")
+IF NOT EXIST "..\bin\Release-windows-x86_64\Forge\assets" (mkdir "..\bin\Release-windows-x86_64\Forge\assets")
+IF NOT EXIST "..\bin\Release-windows-x86_64\Forge\Temp" (mkdir "..\bin\Release-windows-x86_64\Forge\Temp")
+xcopy /Q /E /Y /I ..\Forge\Resources ..\bin\Release-windows-x86_64\Forge\Resources
+xcopy /Q /E /Y /I ..\Forge\assets ..\bin\Release-windows-x86_64\Forge\assets</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">
     <ClCompile>
@@ -137,6 +151,15 @@ xcopy /Q /E /Y /I ..\Forge ..\bin\Debug-windows-x86_64\Forge</Command>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /B /Y "$(SolutionDir)\Trinity\vendor\VulkanSDK\1.3.296.0\Bin\shaderc_sharedd.dll" "..\bin\Dist-windows-x86_64\Forge"
+copy /B /Y "..\Forge\imgui.ini" "..\bin\Dist-windows-x86_64\Forge"
+IF NOT EXIST "..\bin\Dist-windows-x86_64\Forge\Resources" (mkdir "..\bin\Dist-windows-x86_64\Forge\Resources")
+IF NOT EXIST "..\bin\Dist-windows-x86_64\Forge\assets" (mkdir "..\bin\Dist-windows-x86_64\Forge\assets")
+IF NOT EXIST "..\bin\Dist-windows-x86_64\Forge\Temp" (mkdir "..\bin\Dist-windows-x86_64\Forge\Temp")
+xcopy /Q /E /Y /I ..\Forge\Resources ..\bin\Dist-windows-x86_64\Forge\Resources
+xcopy /Q /E /Y /I ..\Forge\assets ..\bin\Dist-windows-x86_64\Forge\assets</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="src\EditorLayer.h" />

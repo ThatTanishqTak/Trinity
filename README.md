@@ -11,7 +11,7 @@ As of right now Trinity only supports Windows
 
 ---
 
-Step 1: Download the repository  
+Step 1: Clone the repository
 
 ``` git clone --recursive https://github.com/ThatTanishqTak/Trinity.git ```
 

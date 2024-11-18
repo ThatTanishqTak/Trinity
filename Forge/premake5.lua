@@ -38,15 +38,14 @@ project "Forge"
 		postbuildcommands
 		{
 			"{COPYFILE} \"%{LibraryDir.VulkanSDK_DebugDLL}/shaderc_sharedd.dll\" \"%{cfg.targetdir}\"",
-			"{COPYDIR} ../Forge %{cfg.targetdir}",
-			removefiles
-			{
-				"{DELETEDIR} \"%{cfg.targetdir}/src\"",
-				"{DELETEFILE} \"%{cfg.targetdir}/premake5.lua\"",
-				"{DELETEFILE} \"%{cfg.targetdir}/Forge.vcxproj.user\"",
-				"{DELETEFILE} \"%{cfg.targetdir}/Forge.vcxproj.filters\"",
-				"{DELETEFILE} \"%{cfg.targetdir}/Forge.vcxproj\""
-			}
+			"{COPYFILE} \"../Forge/imgui.ini\" \"%{cfg.targetdir}\"",
+			
+			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
+			"{MKDIR} \"%{cfg.targetdir}/assets\"",
+			"{MKDIR} \"%{cfg.targetdir}/Temp\"",
+
+			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
+			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
 		}
 
 	filter "configurations:Release"
@@ -54,7 +53,33 @@ project "Forge"
 		runtime "Release"
 		optimize "on"
 
+		postbuildcommands
+		{
+			"{COPYFILE} \"%{LibraryDir.VulkanSDK_DebugDLL}/shaderc_sharedd.dll\" \"%{cfg.targetdir}\"",
+			"{COPYFILE} \"../Forge/imgui.ini\" \"%{cfg.targetdir}\"",
+			
+			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
+			"{MKDIR} \"%{cfg.targetdir}/assets\"",
+			"{MKDIR} \"%{cfg.targetdir}/Temp\"",
+
+			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
+			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
+		}
+
 	filter "configurations:Dist"
 		defines "TR_DIST"
 		runtime "Release"
 		optimize "on"
+
+		postbuildcommands
+		{
+			"{COPYFILE} \"%{LibraryDir.VulkanSDK_DebugDLL}/shaderc_sharedd.dll\" \"%{cfg.targetdir}\"",
+			"{COPYFILE} \"../Forge/imgui.ini\" \"%{cfg.targetdir}\"",
+			
+			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
+			"{MKDIR} \"%{cfg.targetdir}/assets\"",
+			"{MKDIR} \"%{cfg.targetdir}/Temp\"",
+
+			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
+			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
+		}
