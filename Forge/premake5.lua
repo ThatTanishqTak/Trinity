@@ -42,7 +42,6 @@ project "Forge"
 			
 			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
 			"{MKDIR} \"%{cfg.targetdir}/assets\"",
-			"{MKDIR} \"%{cfg.targetdir}/Temp\"",
 
 			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
 			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
@@ -60,7 +59,6 @@ project "Forge"
 			
 			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
 			"{MKDIR} \"%{cfg.targetdir}/assets\"",
-			"{MKDIR} \"%{cfg.targetdir}/Temp\"",
 
 			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
 			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
@@ -78,7 +76,6 @@ project "Forge"
 			
 			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
 			"{MKDIR} \"%{cfg.targetdir}/assets\"",
-			"{MKDIR} \"%{cfg.targetdir}/Temp\"",
 
 			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
 			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
