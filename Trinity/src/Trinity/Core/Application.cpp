@@ -7,10 +7,6 @@
 
 #include "Trinity/Utilities/PlatformUtils.h"
 
-#include "glm/glm.hpp"
-
-#include <GLFW/glfw3.h>
-
 
 namespace Trinity
 {
@@ -77,7 +73,7 @@ namespace Trinity
 	{
 		while (m_Running)
 		{
-			float time = (float)glfwGetTime();
+			float time = Time::GetTime();
 			Timestep timestep = time - m_LastFrameTime;
 
 			m_LastFrameTime = time;

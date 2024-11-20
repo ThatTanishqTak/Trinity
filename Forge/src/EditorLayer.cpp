@@ -31,8 +31,7 @@ namespace Trinity
 		specs.Height = 900;
 		m_Framebuffer = Framebuffer::Create(specs);
 
-		m_EditorScene = CreateRef<Scene>();
-		m_ActiveScene = m_EditorScene;
+		NewScene();
 
 		auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs;
 		if (commandLineArgs.Count > 1)
@@ -414,7 +413,10 @@ namespace Trinity
 	void EditorLayer::OnEvent(Event& e)
 	{
 		m_CameraController.OnEvent(e);
-		m_EditorCamera.OnEvent(e);
+		if (m_SceneState == SceneState::Edit)
+		{
+			m_EditorCamera.OnEvent(e);
+		}
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(TR_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
@@ -597,11 +599,15 @@ namespace Trinity
 
 	void EditorLayer::NewScene()
 	{
-		m_ActiveScene = CreateRef<Scene>();
-		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+		if (m_SceneState != SceneState::Edit)
+		{
+			return;
+		}
 
-		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+		m_EditorScene = CreateRef<Scene>();
+		m_SceneHierarchyPanel.SetContext(m_EditorScene);
 
+		m_ActiveScene = m_EditorScene;
 		m_EditorScenePath = std::filesystem::path();
 	}
 

@@ -7,7 +7,7 @@
 
 namespace Trinity
 {
-    extern const std::filesystem::path g_AssetPath = "assets";
+	extern const std::filesystem::path g_AssetPath = "assets";
 
 	ContentBrowserPanel::ContentBrowserPanel() : m_CurrentDirectory(g_AssetPath)
 	{
