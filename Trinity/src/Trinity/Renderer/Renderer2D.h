@@ -45,6 +45,9 @@ namespace Trinity
 
 		static float GetLineWidth();
 		static void SetLineWidth(float width);
+
+		static float GetThickness();
+		static void SetThickness(float thickness);
 		
 		struct Statistics
 		{

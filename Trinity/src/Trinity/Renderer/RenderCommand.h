@@ -43,6 +43,11 @@ namespace Trinity
 			s_RendererAPI->SetLineWidth(width);
 		}
 
+		inline static void SetThickness(float thickness)
+		{
+			s_RendererAPI->SetThickness(thickness);
+		}
+
 	private:
 		static RendererAPI* s_RendererAPI;
 	};

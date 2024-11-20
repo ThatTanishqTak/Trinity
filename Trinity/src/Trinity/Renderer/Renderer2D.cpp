@@ -75,6 +75,8 @@ namespace Trinity
 		CircleVertex* CircleVertexBufferBase = nullptr;
 		CircleVertex* CircleVertexBufferPtr = nullptr;
 
+		float Thickness = 2.0f;
+
 		//----------------------------------------------------------------------//
 
 		Ref<VertexArray> LineVertexArray;
@@ -273,6 +275,7 @@ namespace Trinity
 			s_Data.CircleVertexBuffer->SetData(s_Data.CircleVertexBufferBase, dataSize);
 
 			s_Data.CircleShader->Bind();
+			RenderCommand::SetThickness(s_Data.Thickness);
 			RenderCommand::DrawIndexed(s_Data.CircleVertexArray, s_Data.CircleIndexCount);
 			s_Data.Stats.DrawCalls++;
 		}
@@ -502,6 +505,16 @@ namespace Trinity
 	void Renderer2D::SetLineWidth(float width)
 	{
 		s_Data.LineWidth = width;
+	}
+
+	float Renderer2D::GetThickness()
+	{
+		return s_Data.Thickness;
+	}
+
+	void Renderer2D::SetThickness(float thickness)
+	{
+		s_Data.Thickness = thickness;
 	}
 
 	void Renderer2D::ResetStats()

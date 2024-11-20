@@ -47,4 +47,9 @@ namespace Trinity
 	{
 		glLineWidth(width);
 	}
+
+	void OpenGLRendererAPI::SetThickness(float thickness)
+	{
+		glLineWidth(thickness);
+	}
 }
