@@ -1,7 +1,5 @@
 #pragma once
 
-#include <xhash>
-
 namespace Trinity
 {
 	class UUID
@@ -20,12 +18,14 @@ namespace Trinity
 
 namespace std
 {
+	template <typename T> struct hash;
+
 	template<>
 	struct hash<Trinity::UUID>
 	{
 		std::size_t operator()(const Trinity::UUID& uuid) const
 		{
-			return hash<uint64_t>()((uint64_t)uuid);
+			return (uint64_t)uuid;
 		}
 	};
 }

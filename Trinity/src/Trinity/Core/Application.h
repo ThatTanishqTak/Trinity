@@ -11,6 +11,8 @@
 
 #include "Trinity/ImGui/ImGuiLayer.h"
 
+int main(int argc, char** argv);
+
 namespace Trinity
 {
 	struct ApplicationCommandLineArgs
@@ -25,10 +27,17 @@ namespace Trinity
 		}
 	};
 
+	struct ApplicationSpecification
+	{
+		std::string Name = "Trinity Application";
+		std::string WorkingDirectory;
+		ApplicationCommandLineArgs CommandLineArgs;
+	};
+
 	class Application
 	{
 	public:
-		Application(const std::string& name = "Sandbox", ApplicationCommandLineArgs args = ApplicationCommandLineArgs());
+		Application(const ApplicationSpecification& specification);
 		virtual ~Application();
 
 		void Run();
@@ -46,13 +55,14 @@ namespace Trinity
 
 		inline static Application& Get() { return *s_Instance; }
 
-		ApplicationCommandLineArgs GetCommandLineArgs() const { return m_CommandLineArgs; }
+		const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 	private:
 		bool OnWindowClose(WindowCloseEvent& closeEvent);
 		bool OnWindowResize(WindowResizeEvent& resizeEvent);
 
 	private:
-		std::unique_ptr<Window> m_Window;
+		ApplicationSpecification m_Specification;
+		Scope<Window> m_Window;
 		
 		bool m_Running = true;
 		bool m_Minimized = false;
@@ -60,13 +70,12 @@ namespace Trinity
 		LayerStack m_LayerStack;
 		ImGuiLayer* m_ImGuiLayer;
 
-		float m_LastFrameTime;
+		float m_LastFrameTime = 0.0f;
 
 	private:
-		ApplicationCommandLineArgs m_CommandLineArgs;
 		static Application* s_Instance;
+		friend int ::main(int argc, char** argv);
 	};
 
-	Application* CreateApplication();
 	Application* CreateApplication(ApplicationCommandLineArgs args);
 }

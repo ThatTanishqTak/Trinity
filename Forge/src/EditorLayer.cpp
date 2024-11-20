@@ -34,7 +34,7 @@ namespace Trinity
 		m_EditorScene = CreateRef<Scene>();
 		m_ActiveScene = m_EditorScene;
 
-		auto commandLineArgs = Application::Get().GetCommandLineArgs();
+		auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs;
 		if (commandLineArgs.Count > 1)
 		{
 			auto sceneFilePath = commandLineArgs[1];
@@ -43,6 +43,7 @@ namespace Trinity
 		}
 
 		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
+		Renderer2D::SetLineWidth(4.0f);
 	}
 
 	void EditorLayer::OnDetach()
@@ -157,7 +158,6 @@ namespace Trinity
 
 		if (opt_fullscreen)
 			ImGui::PopStyleVar(2);
-#pragma endregion
 
 		ImGuiIO& io = ImGui::GetIO();
 		ImGuiStyle& style = ImGui::GetStyle();
@@ -171,6 +171,7 @@ namespace Trinity
 		}
 
 		style.WindowMinSize.x = minWinSizeX;
+#pragma endregion
 
 		if (ImGui::BeginMenuBar())
 		{
@@ -578,10 +579,16 @@ namespace Trinity
 
 						glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation) * glm::scale(glm::mat4(1.0f), scale);
 
-						Renderer2D::DrawCircle(transform, glm::vec4{ 0.1f, 1.0f, 0.1f, 1.0f }, 0.025f);
+						Renderer2D::DrawCircle(transform, glm::vec4{ 0.1f, 1.0f, 0.1f, 1.0f }, 0.01f);
 					}
 				}
 			}
+		}
+
+		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity())
+		{
+			const TransformComponent& transform = selectedEntity.GetComponent<TransformComponent>();
+			Renderer2D::DrawRect(transform.GetTransform(), glm::vec4(1.0f, 0.5f, 0.0f, 1.0f));
 		}
 
 		Renderer2D::EndScene();

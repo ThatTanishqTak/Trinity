@@ -1,29 +1,33 @@
 #include "trpch.h"
-#include "Application.h"
+#include "Trinity/Core/Application.h"
 
 #include "Trinity/Core/Log.h"
-
+#include "Trinity/Core/Input.h"
 #include "Trinity/Renderer/Renderer.h"
 
-#include "Input.h"
+#include "Trinity/Utilities/PlatformUtils.h"
 
 #include "glm/glm.hpp"
 
 #include <GLFW/glfw3.h>
 
+
 namespace Trinity
 {
-#define BIND_EVENT_FN(x) std::bind(&Application::x, this, std::placeholders::_1)
-
 	Application* Application::s_Instance = nullptr;
 
-	Application::Application(const std::string& name, ApplicationCommandLineArgs args) : m_CommandLineArgs(args)
+	Application::Application(const ApplicationSpecification& specification) : m_Specification(specification)
 	{
 		TR_CORE_ASSERT(!s_Instance, "Application already exists!");		
 		s_Instance = this;
 
-		m_Window = std::unique_ptr<Window>(Window::Create(WindowProps(name)));
-		m_Window->SetEventCallback(BIND_EVENT_FN(OnEvent));
+		if (!m_Specification.WorkingDirectory.empty())
+		{
+			std::filesystem::current_path(m_Specification.WorkingDirectory);
+		}
+
+		m_Window = Window::Create(WindowProps(m_Specification.Name));
+		m_Window->SetEventCallback(TR_BIND_EVENT_FN(Application::OnEvent));
 
 		Renderer::Init();
 
@@ -56,8 +60,8 @@ namespace Trinity
 	void Application::OnEvent(Event& e)
 	{
 		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<WindowCloseEvent>(BIND_EVENT_FN(OnWindowClose));
-		dispatcher.Dispatch<WindowResizeEvent>(BIND_EVENT_FN(OnWindowResize));
+		dispatcher.Dispatch<WindowCloseEvent>(TR_BIND_EVENT_FN(Application::OnWindowClose));
+		dispatcher.Dispatch<WindowResizeEvent>(TR_BIND_EVENT_FN(Application::OnWindowResize));
 
 		for (auto it = m_LayerStack.end(); it != m_LayerStack.begin();)
 		{
