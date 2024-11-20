@@ -80,7 +80,6 @@ namespace Trinity
 
 		Ref<Texture2D> m_IconPlay;
 		Ref<Texture2D> m_IconSimulate;
-		Ref<Texture2D> m_IconPause;
 		Ref<Texture2D> m_IconStop;
 
 		bool m_PrimaryCamera = true;

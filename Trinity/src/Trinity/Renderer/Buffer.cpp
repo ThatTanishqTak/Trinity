@@ -1,7 +1,7 @@
 #include "trpch.h"
-#include "Buffer.h"
+#include "Trinity/Renderer/Buffer.h"
 
-#include "Renderer.h"
+#include "Trinity/Renderer/Renderer.h"
 
 #include "Platform/OpenGL/OpenGLBuffer.h"
 

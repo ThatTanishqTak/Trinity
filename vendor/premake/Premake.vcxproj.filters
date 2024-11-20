@@ -7,9 +7,6 @@
     <Filter Include="..\Forge">
       <UniqueIdentifier>{A36E5237-8F3B-AD42-B854-9BEAA480E2D0}</UniqueIdentifier>
     </Filter>
-    <Filter Include="..\Sandbox">
-      <UniqueIdentifier>{3F7B6B1D-2B33-AD6A-943A-86C68011485B}</UniqueIdentifier>
-    </Filter>
     <Filter Include="..\Trinity">
       <UniqueIdentifier>{638AB891-4F42-FADE-B849-D33AA42095CF}</UniqueIdentifier>
     </Filter>
@@ -35,9 +32,6 @@
   <ItemGroup>
     <None Include="..\..\Forge\premake5.lua">
       <Filter>..\Forge</Filter>
-    </None>
-    <None Include="..\..\Sandbox\premake5.lua">
-      <Filter>..\Sandbox</Filter>
     </None>
     <None Include="..\..\Trinity\premake5.lua">
       <Filter>..\Trinity</Filter>

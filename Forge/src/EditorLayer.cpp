@@ -23,7 +23,6 @@ namespace Trinity
 	{
 		m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
 		m_IconSimulate = Texture2D::Create("Resources/Icons/SimulateButton.png");
-		m_IconPause = Texture2D::Create("Resources/Icons/PauseButton.png");
 		m_IconStop = Texture2D::Create("Resources/Icons/StopButton.png");
 
 		FramebufferSpecifications specs;
@@ -401,7 +400,7 @@ namespace Trinity
 				}
 			}
 
-			// (TODO) Add scene pause case
+			//TODO: Add scene pause case
 
 			ImGui::PopStyleVar(2);
 			ImGui::PopStyleColor(3);
