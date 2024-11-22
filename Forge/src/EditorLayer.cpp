@@ -554,7 +554,11 @@ namespace Trinity
 					{
 						auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
 
-						glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, 0.001f);
+						float zIndex = 0.001f;
+						glm::vec3 cameraForwardDirection = m_EditorCamera.GetForwardDirection();
+						glm::vec3 projectionCollider = cameraForwardDirection * glm::vec3(zIndex);
+
+						glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, -projectionCollider.z);
 						float rotation = tc.Rotation.z;
 						glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
@@ -571,18 +575,23 @@ namespace Trinity
 			// Circle collider
 			{
 				auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, CircleCollider2DComponent>();
+
+				float zIndex = 0.001f;
+				glm::vec3 cameraForwardDirection = m_EditorCamera.GetForwardDirection();
+				glm::vec3 projectionCollider = cameraForwardDirection * glm::vec3(zIndex);
+
 				for (auto entity : view)
 				{
 					if (entity == m_SelectedEntity)
 					{
 						auto [tc, cc2d] = view.get<TransformComponent, CircleCollider2DComponent>(entity);
 
-						glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, 0.001f);
+						glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, -projectionCollider.z);
 						glm::vec3 scale = tc.Scale * glm::vec3(cc2d.Radius * 2.0f);
 
 						glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation) * glm::scale(glm::mat4(1.0f), scale);
 
-						Renderer2D::DrawCircle(transform, glm::vec4{ 0.1f, 1.0f, 0.1f, 1.0f }, 0.01f);
+						Renderer2D::DrawCircle(transform, glm::vec4{ 0.0f, 1.0f, 0.0f, 1.0f }, 0.15f);
 					}
 				}
 			}
