@@ -1,4 +1,4 @@
-#include "EditorLayer.h"
+﻿#include "EditorLayer.h"
 
 #include "imgui/imgui.h"
 #include "ImGuizmo/ImGuizmo.h"
@@ -123,6 +123,7 @@ namespace Trinity
 
 	void EditorLayer::OnImGuiRender()
 	{
+
 #pragma region DockSpace
 		static bool dockspaceOpen = true;
 
@@ -251,18 +252,13 @@ namespace Trinity
 				ImGui::EndDragDropTarget();
 			}
 
-			Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
-			if (selectedEntity && m_GizmoType != -1 && /*This is temporary->*/ m_SceneState != SceneState::Play /*<-Till I fix the camera situation*/)
+			Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); 
+			if (selectedEntity && m_GizmoType != -1 && m_SceneState != SceneState::Play)
+				                              /* This is temporary👆. Till I fix the camera situation */
 			{
 				ImGuizmo::SetOrthographic(false);
 				ImGuizmo::SetDrawlist();
 				ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y, m_ViewportBounds[1].x - m_ViewportBounds[0].x, m_ViewportBounds[1].y - m_ViewportBounds[0].y);
-
-				// RUNTIME CAMERA
-				//auto cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
-				//const auto& camera = cameraEntity.GetComponent<CameraComponent>().Camera;
-				//const glm::mat4& cameraProjection = camera.GetProjection();
-				//glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
 
 				// EDITOR CAMERA
 				const glm::mat4& cameraProjection = m_EditorCamera.GetProjection();

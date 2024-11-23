@@ -109,9 +109,6 @@ namespace Trinity
 				ImGui::PopID();
 			}
 
-			ImGui::Columns(1);
-			ImGui::SliderFloat("Thumbnail Size", &thumbnailSize, 16, 512);
-
 			ImGui::End();
 		}
 	}
