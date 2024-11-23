@@ -1,0 +1,20 @@
+# Binaries and intermediate files
+**/bin/
+bin-int/
+Intermediates/
+
+# Trinity files
+*.log
+
+# Visual Studio files and folder
+.vs/
+**.sln
+**.vcxproj
+**.vcxproj.filters
+**.vcxproj.user
+**.csproj
+
+# Directories
+Trinity/vendor/VulkanSDK
+Forge/assets/cache
+scripts/__pycache__
