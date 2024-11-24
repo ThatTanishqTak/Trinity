@@ -23,7 +23,7 @@ Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args
 	ApplicationSpecification spec;
 
 	spec.Name = "Sandbox";
-	spec.WorkingDirectory = "../Trinity";
+	spec.WorkingDirectory = "../Sandbox";
 	spec.CommandLineArgs = args;
 
 	return new Sandbox(spec);

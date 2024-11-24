@@ -119,9 +119,10 @@ ExampleLayer::ExampleLayer()
 
 	m_FlatColorShader = Trinity::Shader::Create("FlatColor", flatColorShaderVertexSrc, flatColorShaderFragmentSrc);
 
-	auto textureShader = m_ShaderLibrary.Load("assets/shaders/Renderer2D_Quad.glsl");
+	auto textureShader = m_ShaderLibrary.Load("assets/shaders/Texture.glsl");
 
 	m_Texture = Trinity::Texture2D::Create("assets/textures/Checkerboard.png");
+	m_ChernoLogoTexture = Trinity::Texture2D::Create("assets/textures/ChernoLogo.png");
 
 	textureShader->Bind();
 	textureShader->SetInt("u_Texture", 0);
@@ -165,6 +166,11 @@ void ExampleLayer::OnUpdate(Trinity::Timestep ts)
 
 	m_Texture->Bind();
 	Trinity::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+	m_ChernoLogoTexture->Bind();
+	Trinity::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+
+	// Triangle
+	// Trinity::Renderer::Submit(m_Shader, m_VertexArray);
 
 	Trinity::Renderer::EndScene();
 }

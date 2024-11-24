@@ -38,13 +38,10 @@ project "Sandbox"
 		postbuildcommands
 		{
 			"{COPYFILE} \"%{LibraryDir.VulkanSDK_DebugDLL}/shaderc_sharedd.dll\" \"%{cfg.targetdir}\"",
-			"{COPYFILE} \"../Forge/imgui.ini\" \"%{cfg.targetdir}\"",
+			"{COPYFILE} \"../Sandbox/imgui.ini\" \"%{cfg.targetdir}\"",
 			
-			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
 			"{MKDIR} \"%{cfg.targetdir}/assets\"",
-
-			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
-			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
+			"{COPYDIR} ../Sandbox/assets/ %{cfg.targetdir}/assets"
 		}
 
 	filter "configurations:Release"
@@ -55,13 +52,10 @@ project "Sandbox"
 		postbuildcommands
 		{
 			"{COPYFILE} \"%{LibraryDir.VulkanSDK_DebugDLL}/shaderc_sharedd.dll\" \"%{cfg.targetdir}\"",
-			"{COPYFILE} \"../Forge/imgui.ini\" \"%{cfg.targetdir}\"",
+			"{COPYFILE} \"../Sandbox/imgui.ini\" \"%{cfg.targetdir}\"",
 			
-			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
 			"{MKDIR} \"%{cfg.targetdir}/assets\"",
-
-			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
-			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
+			"{COPYDIR} ../Sandbox/assets/ %{cfg.targetdir}/assets"
 		}
 
 	filter "configurations:Dist"
@@ -74,11 +68,8 @@ project "Sandbox"
 		postbuildcommands
 		{
 			"{COPYFILE} \"%{LibraryDir.VulkanSDK_DebugDLL}/shaderc_sharedd.dll\" \"%{cfg.targetdir}\"",
-			"{COPYFILE} \"../Forge/imgui.ini\" \"%{cfg.targetdir}\"",
+			"{COPYFILE} \"../Sandbox/imgui.ini\" \"%{cfg.targetdir}\"",
 			
-			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
 			"{MKDIR} \"%{cfg.targetdir}/assets\"",
-
-			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
-			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
+			"{COPYDIR} ../Sandbox/assets/ %{cfg.targetdir}/assets"
 		}

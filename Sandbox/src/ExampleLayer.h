@@ -13,9 +13,7 @@ public:
 
 	void OnUpdate(Trinity::Timestep ts) override;
 	virtual void OnImGuiRender() override;
-
 	void OnEvent(Trinity::Event& e) override;
-
 private:
 	Trinity::ShaderLibrary m_ShaderLibrary;
 	Trinity::Ref<Trinity::Shader> m_Shader;
@@ -24,7 +22,7 @@ private:
 	Trinity::Ref<Trinity::Shader> m_FlatColorShader;
 	Trinity::Ref<Trinity::VertexArray> m_SquareVA;
 
-	Trinity::Ref<Trinity::Texture2D> m_Texture;
+	Trinity::Ref<Trinity::Texture2D> m_Texture, m_ChernoLogoTexture;
 
 	Trinity::OrthographicCameraController m_CameraController;
 	glm::vec3 m_SquareColor = { 0.2f, 0.3f, 0.8f };
