@@ -1,6 +1,6 @@
 # Binaries and intermediate files
 **/bin/
-bin-int/
+**/bin-int/
 Intermediates/
 
 # Trinity files
