@@ -10,23 +10,18 @@ public:
 
 	virtual void OnAttach() override;
 	virtual void OnDetach() override;
+
+	void OnUpdate(Trinity::Timestep ts) override;
 	virtual void OnImGuiRender() override;
-
-	void OnUpdate(Trinity::Timestep timestep) override;
 	void OnEvent(Trinity::Event& e) override;
-
 private:
 	Trinity::OrthographicCameraController m_CameraController;
 
+	// Temp
 	Trinity::Ref<Trinity::VertexArray> m_SquareVA;
-	
 	Trinity::Ref<Trinity::Shader> m_FlatColorShader;
 
-	Trinity::Ref<Trinity::Texture2D> m_Tex;
-	Trinity::Ref<Trinity::SubTexture2D> m_Sub;
+	Trinity::Ref<Trinity::Texture2D> m_CheckerboardTexture;
 
-	glm::vec4 m_SquareColor = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-	float m_Rotation = 0;
-	float m_Speed = 50;
+	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 };

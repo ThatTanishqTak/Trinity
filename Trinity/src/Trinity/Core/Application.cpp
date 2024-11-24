@@ -7,14 +7,13 @@
 
 #include "Trinity/Utilities/PlatformUtils.h"
 
-
 namespace Trinity
 {
 	Application* Application::s_Instance = nullptr;
 
 	Application::Application(const ApplicationSpecification& specification) : m_Specification(specification)
 	{
-		TR_CORE_ASSERT(!s_Instance, "Application already exists!");		
+		TR_CORE_ASSERT(!s_Instance, "Application already exists!");
 		s_Instance = this;
 
 		if (!m_Specification.WorkingDirectory.empty())

@@ -12,6 +12,11 @@ namespace Trinity
 		{
 			PushLayer(new EditorLayer());
 		}
+
+		~Forge()
+		{
+
+		}
 	};
 
 
@@ -20,6 +25,7 @@ namespace Trinity
 	{
 		ApplicationSpecification spec;
 		spec.Name = "Forge";
+		spec.WorkingDirectory = "../Forge";
 		spec.CommandLineArgs = args;
 
 		return new Forge(spec);
