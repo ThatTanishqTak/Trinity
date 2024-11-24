@@ -1,33 +1,26 @@
-# Trinity [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+# Trinity[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Trinity is a 2D focused game engine written in C/C++ it's in very early stages of development I don't know how far I'll take this project. Right now most of the development has been based from TheCherno's Game Engine Series
+Trinity is a 2D-focused game engine written in C/C++. It's in very early stages of development, and I'm unsure about how far I'll take this project. Currently, most of the development has been based on TheCherno's Game Engine Series.
 
 ## Structure
-The engine is build following the Core-App architecture where `Trinity` is the backbone which powers everything as a static library. 
 
-`Forge` is the level editor
+The engine follows the Core-App architecture, where `Trinity` serves as the backbone powering everything as a static library. `Forge` is the level editor.
 
 ---
 
 ## Getting Started
-Use Visual Studio 2022  
-As of right now Trinity only supports Windows
+This project requires Visual Studio 2022. As of now, Trinity only supports Windows.
 
----
-
-**Step 1: Clone the repository**
-
+### Step 1: Clone the repository
 `git clone --recursive https://github.com/ThatTanishqTak/Trinity.git`
 
-**Step 2: Setup the enviornment**
 
-Run `Setup.bat` in the scripts folder. It will setup `python`, `premake5` and `VulkanSDK` and will ask you to 
-run the  `Setup.bat` file again
+### Step 2: Set up the environment
 
-Alternatively, if `VulkanSDK` could not be setup from `setup.bat` file, you can manually download and install it from `vulkan.lunarg.com/sdk/home` and run the `Setup.bat` file again
+Run `Setup.bat` in the scripts folder. It will set up `python`, `premake5`, and `VulkanSDK`. You may need to run the `Setup.bat` file again after installation.
 
-**Step 3: Build the solution**
+Alternatively, if `VulkanSDK` cannot be set up through `setup.bat`, you can manually download and install it from `vulkan.lunarg.com/sdk/home` and then run the `Setup.bat` file again.
 
-After the setup is complete, open the `Trinity.sln` , build the solution and go into the `bin/(Configuration)/Forge/` and run the `.exe`
+### Step 3: Build the solution
 
----
+After the setup is complete, open the `Trinity.sln` file, build the solution, and navigate to the `bin/(Configuration)/Forge/` directory. Run the `.exe` file there.
