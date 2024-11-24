@@ -19,8 +19,6 @@ namespace Trinity
 		}
 	};
 
-
-
 	Application* CreateApplication(ApplicationCommandLineArgs args)
 	{
 		ApplicationSpecification spec;
