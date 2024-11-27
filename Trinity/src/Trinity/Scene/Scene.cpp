@@ -114,30 +114,14 @@ namespace Trinity
 		entity.AddComponent<IDComponent>(uuid);
 		entity.AddComponent<TransformComponent>();
 
-		do
-		{
-			count++;
-		} while (std::binary_search(entityList.begin(), entityList.end(), count));
-
 		auto& tag = entity.AddComponent<TagComponent>();
-		tag.Tag = name.empty() ? std::string("Entity_" + std::to_string(count)) : name;
-
-		entityList.push_back(count);
-
-		TR_CORE_INFO(count);
+		tag.Tag = name.empty() ? std::string("Empty Entity") : name;
 
 		return entity;
 	}
 
 	void Scene::DestroyEntity(Entity entity)
 	{
-		do
-		{
-			count--;
-		} while (!std::binary_search(entityList.begin(), entityList.end(), count));
-
-		TR_CORE_INFO(count);
-
 		m_Registry.destroy(entity);
 	}
 

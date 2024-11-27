@@ -37,6 +37,9 @@
     <Filter Include="src\Trinity\Scene">
       <UniqueIdentifier>{8C252ED6-F83B-2C6C-41B3-B78DAD08FDF3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\Trinity\Scripting">
+      <UniqueIdentifier>{F1CCB1C2-5D39-6DBD-262D-051B92588F25}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\Trinity\Utilities">
       <UniqueIdentifier>{5A7CBEAD-C6E8-79A8-8FDC-1106FB079C10}</UniqueIdentifier>
     </Filter>
@@ -230,6 +233,9 @@
     </ClInclude>
     <ClInclude Include="src\Trinity\Scene\ScriptableEntity.h">
       <Filter>src\Trinity\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Trinity\Scripting\ScriptEngine.h">
+      <Filter>src\Trinity\Scripting</Filter>
     </ClInclude>
     <ClInclude Include="src\Trinity\Utilities\PlatformUtils.h">
       <Filter>src\Trinity\Utilities</Filter>
@@ -1606,6 +1612,9 @@
     </ClCompile>
     <ClCompile Include="src\Trinity\Scene\SceneSerializer.cpp">
       <Filter>src\Trinity\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Trinity\Scripting\ScriptEngine.cpp">
+      <Filter>src\Trinity\Scripting</Filter>
     </ClCompile>
     <ClCompile Include="src\trpch.cpp">
       <Filter>src</Filter>

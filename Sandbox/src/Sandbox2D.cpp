@@ -21,12 +21,12 @@ void Sandbox2D::OnDetach()
 	TR_PROFILE_FUNCTION();
 }
 
-void Sandbox2D::OnUpdate(Trinity::Timestep ts)
+void Sandbox2D::OnUpdate(Trinity::Timestep timestep)
 {
 	TR_PROFILE_FUNCTION();
 
 	// Update
-	m_CameraController.OnUpdate(ts);
+	m_CameraController.OnUpdate(timestep);
 
 	// Render
 	Trinity::Renderer2D::ResetStats();
@@ -38,14 +38,11 @@ void Sandbox2D::OnUpdate(Trinity::Timestep ts)
 
 	{
 		static float rotation = 0.0f;
-		rotation += ts * 50.0f;
+		rotation += timestep * 50.0f;
 
 		TR_PROFILE_SCOPE("Renderer Draw");
 		Trinity::Renderer2D::BeginScene(m_CameraController.GetCamera());
 		{
-			Trinity::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, -45.0f, { 0.8f, 0.2f, 0.3f, 1.0f });
-			Trinity::Renderer2D::DrawQuad({ -1.0f, 0.0f }, { 0.8f, 0.8f }, { 0.8f, 0.2f, 0.3f, 1.0f });
-			Trinity::Renderer2D::DrawQuad({ 0.5f, -0.5f }, { 0.5f, 0.75f }, m_SquareColor);
 			Trinity::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, m_CheckerboardTexture, 10.0f);
 			Trinity::Renderer2D::DrawRotatedQuad({ -2.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, rotation, m_CheckerboardTexture, 20.0f);
 		}
@@ -78,6 +75,7 @@ void Sandbox2D::OnImGuiRender()
 	ImGui::Text("Quads: %d", stats.QuadCount);
 	ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
 	ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
+	ImGui::Text("Camera: %d, %d, %d", m_CameraController.GetCamera().GetPosition().x, m_CameraController.GetCamera().GetPosition().y, m_CameraController.GetCamera().GetPosition().z);
 
 	ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
 	ImGui::End();

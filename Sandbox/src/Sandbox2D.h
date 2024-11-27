@@ -11,7 +11,7 @@ public:
 	virtual void OnAttach() override;
 	virtual void OnDetach() override;
 
-	void OnUpdate(Trinity::Timestep ts) override;
+	void OnUpdate(Trinity::Timestep timestep) override;
 	virtual void OnImGuiRender() override;
 	void OnEvent(Trinity::Event& e) override;
 private:

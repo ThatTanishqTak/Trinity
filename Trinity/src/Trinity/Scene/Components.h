@@ -123,6 +123,8 @@ namespace Trinity
 		float Restitution = 0.0f;
 		float RestitutionThreshold = 0.5f;
 
+		bool ShowCollider = false;
+
 		void* RuntimeFixture = nullptr;
 
 		BoxCollider2DComponent() = default;
@@ -138,6 +140,8 @@ namespace Trinity
 		float Friction = 0.5f;
 		float Restitution = 0.0f;
 		float RestitutionThreshold = 0.5f;
+
+		bool ShowCollider = false;
 
 		void* RuntimeFixture = nullptr;
 

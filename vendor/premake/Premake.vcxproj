@@ -79,6 +79,7 @@
   <ItemGroup>
     <None Include="..\..\Forge\premake5.lua" />
     <None Include="..\..\Sandbox\premake5.lua" />
+    <None Include="..\..\Trinity-ScriptCore\premake5.lua" />
     <None Include="..\..\Trinity\premake5.lua" />
     <None Include="..\..\Trinity\vendor\GLFW\premake5.lua" />
     <None Include="..\..\Trinity\vendor\Glad\premake5.lua" />

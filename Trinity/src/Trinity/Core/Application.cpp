@@ -7,6 +7,8 @@
 
 #include "Trinity/Utilities/PlatformUtils.h"
 
+#include "Trinity/Scripting/ScriptEngine.h"
+
 namespace Trinity
 {
 	Application* Application::s_Instance = nullptr;
@@ -25,6 +27,7 @@ namespace Trinity
 		m_Window->SetEventCallback(TR_BIND_EVENT_FN(Application::OnEvent));
 
 		Renderer::Init();
+		ScriptEngine::Init();
 
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);

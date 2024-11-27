@@ -40,6 +40,7 @@ project "Trinity"
 		"%{IncludeDir.glm}",
 		"%{IncludeDir.stb_image}",
 		"%{IncludeDir.entt}",
+		"%{IncludeDir.mono}",
 		"%{IncludeDir.yaml_cpp}",
 		"%{IncludeDir.ImGuizmo}",
 		"%{IncludeDir.VulkanSDK}"
@@ -52,7 +53,9 @@ project "Trinity"
 		"Glad",
 		"ImGui",
 		"yaml-cpp",
-		"opengl32.lib"
+		"opengl32.lib",
+
+		"%{Library.mono}", 
 	}
 
 	filter "files:vendor/ImGuizmo/**.cpp"
@@ -66,6 +69,14 @@ project "Trinity"
             "_CRT_SECURE_NO_WARNINGS",
 		    "GLFW_INCLUDE_NONE",
             "YAML_CPP_STATIC_DEFINE"
+		}
+
+		links
+		{
+			"%{Library.WinSock}",
+			"%{Library.Winmm}",
+			"%{Library.Version}",
+			"%{Library.Bcrypt}"
 		}
 
 	filter "configurations:Debug"

@@ -49,7 +49,7 @@ ExampleLayer::ExampleLayer()
 	m_SquareVA->SetIndexBuffer(squareIB);
 
 	std::string vertexSrc = R"(
-			#version 450 core
+			#version 330 core
 			
 			layout(location = 0) in vec3 a_Position;
 			layout(location = 1) in vec4 a_Color;
@@ -69,7 +69,7 @@ ExampleLayer::ExampleLayer()
 		)";
 
 	std::string fragmentSrc = R"(
-			#version 450 core
+			#version 330 core
 			
 			layout(location = 0) out vec4 color;
 
@@ -86,7 +86,7 @@ ExampleLayer::ExampleLayer()
 	m_Shader = Trinity::Shader::Create("VertexPosColor", vertexSrc, fragmentSrc);
 
 	std::string flatColorShaderVertexSrc = R"(
-			#version 450 core
+			#version 330 core
 			
 			layout(location = 0) in vec3 a_Position;
 
@@ -103,7 +103,7 @@ ExampleLayer::ExampleLayer()
 		)";
 
 	std::string flatColorShaderFragmentSrc = R"(
-			#version 450 core
+			#version 330 core
 			
 			layout(location = 0) out vec4 color;
 

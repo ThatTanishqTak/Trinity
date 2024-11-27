@@ -34,6 +34,15 @@ group "Dependencies"
 group ""
 
 
-include "Trinity"
-include "Forge"
-include "Sandbox"
+group "Core"
+	include "Trinity"
+	include "Trinity-ScriptCore"
+group ""
+
+group "Tools"
+	include "Forge"
+group ""
+
+group "Misc"
+	include "Sandbox"
+group ""

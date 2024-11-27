@@ -68,7 +68,6 @@ namespace Trinity
 		friend class SceneSerializer;
 		friend class SceneHierarchyPanel;
 
-		uint32_t count = 0;
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;
 		

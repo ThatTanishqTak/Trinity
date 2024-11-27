@@ -31,6 +31,9 @@
     <Filter Include="..\Trinity\vendor\yaml-cpp">
       <UniqueIdentifier>{12666839-FE75-140A-672F-7928535E03A3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="..\Trinity-ScriptCore">
+      <UniqueIdentifier>{EE4093CF-5AAD-4ECA-23A1-E6278FCC7032}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\Forge\premake5.lua">
@@ -38,6 +41,9 @@
     </None>
     <None Include="..\..\Sandbox\premake5.lua">
       <Filter>..\Sandbox</Filter>
+    </None>
+    <None Include="..\..\Trinity-ScriptCore\premake5.lua">
+      <Filter>..\Trinity-ScriptCore</Filter>
     </None>
     <None Include="..\..\Trinity\premake5.lua">
       <Filter>..\Trinity</Filter>

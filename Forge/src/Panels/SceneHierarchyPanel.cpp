@@ -430,6 +430,7 @@ namespace Trinity
 			ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
 			ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
 			ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f);
+			ImGui::Checkbox("Show Collider", &component.ShowCollider);
 		});
 
 		DrawComponent<CircleCollider2DComponent>("CircleCollider2D", entity, [](auto& component)
@@ -440,6 +441,7 @@ namespace Trinity
 			ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
 			ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
 			ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f);
+			ImGui::Checkbox("Show Collider", &component.ShowCollider);
 		});
 		
 		if (entity.HasComponent<NativeScriptComponent>())
