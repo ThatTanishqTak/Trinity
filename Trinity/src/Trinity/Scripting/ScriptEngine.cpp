@@ -3,6 +3,7 @@
 
 #include "mono/jit/jit.h"
 #include "mono/metadata/assembly.h"
+#include "mono/metadata/object.h"
 
 namespace Trinity
 {
@@ -106,16 +107,49 @@ namespace Trinity
 		MonoDomain* rootDomain = mono_jit_init("TrinityJITRuntime");
 		TR_CORE_ASSERT(rootDomain);
 
-		s_Data->RootDomain = rootDomain;
+		s_Data->RootDomain = rootDomain; // Used for very little stuff, but it *IS* used
 		s_Data->AppDomain = mono_domain_create_appdomain("TrinityScriptRuntime", nullptr);
 		mono_domain_set(s_Data->AppDomain, true);
 
 		s_Data->CoreAssembly = LoadCSharpAssembly("Resources/Scripts/Trinity-ScriptCore.dll");
 		PrintAssemblyTypes(s_Data->CoreAssembly);
+
+		// Create an object (call constructor)
+		MonoImage* assemblyImage = mono_assembly_get_image(s_Data->CoreAssembly);
+		MonoClass* monoClasss = mono_class_from_name(assemblyImage, "Trinity", "Main");
+		
+		MonoObject* Instance = mono_object_new(s_Data->AppDomain, monoClasss);
+		mono_runtime_object_init(Instance);
+
+		// Call function
+		MonoMethod* printMessageFunc = mono_class_get_method_from_name(monoClasss, "PrintMessage", 0);
+		mono_runtime_invoke(printMessageFunc, Instance, nullptr, nullptr);
+
+		// Call function (with parameter)
+		{
+			MonoMethod* printIntFunc = mono_class_get_method_from_name(monoClasss, "PrintInt", 1);
+
+			int val = 7; //Suiiii!!!!!!!!!
+			void* params = &val;
+
+			mono_runtime_invoke(printIntFunc, Instance, &params, nullptr);
+		}
+
+		{
+			MonoString* monoString = mono_string_new(s_Data->AppDomain, "From C++ with Hello World");
+			MonoMethod* printCustomMessageFunc = mono_class_get_method_from_name(monoClasss, "PrintCustomMessage", 1);
+
+			void* params = monoString;
+			mono_runtime_invoke(printCustomMessageFunc, Instance, &params, nullptr);
+		}
 	}
 
 	void ScriptEngine::ShutdownMono()
 	{
+		mono_domain_unload(s_Data->AppDomain);
+		s_Data->AppDomain = nullptr;
 
+		mono_jit_cleanup(s_Data->RootDomain);
+		s_Data->RootDomain = nullptr;
 	}
 }

@@ -35,7 +35,8 @@ namespace Trinity
 
 	Application::~Application()
 	{
-
+		ScriptEngine::Shutdown();
+		Renderer::Shutdown();
 	}
 
 	void Application::PushLayer(Layer* layer)

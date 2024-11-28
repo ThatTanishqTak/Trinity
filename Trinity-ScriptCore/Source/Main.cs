@@ -11,12 +11,17 @@ namespace Trinity
 
         public void PrintMessage()
         {
-            Console.WriteLine("Hello World from C#");
+            Console.WriteLine("Hello World from C# function");
+        }
+
+        public void PrintInt(int num)
+        {
+            Console.WriteLine($"C# says(int parameter): {num}");
         }
 
         public void PrintCustomMessage(string message)
         {
-            Console.WriteLine($"C# says: {message}");
+            Console.WriteLine($"C# says(string parameter): {message}");
         }
     }
 }

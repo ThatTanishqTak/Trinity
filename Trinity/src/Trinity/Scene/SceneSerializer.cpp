@@ -425,7 +425,7 @@ namespace Trinity
 					bc2d.Friction = boxCollider2DComponent["Friction"].as<float>();
 					bc2d.Restitution = boxCollider2DComponent["Restitution"].as<float>();
 					bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<float>();
-					bc2d.ShowCollider = boxCollider2DComponent["ShowCollider"].as<bool>();
+					//bc2d.ShowCollider = boxCollider2DComponent["ShowCollider"].as<bool>();
 				}
 
 				auto circleCollider2DComponent = entity["CircleCollider2DComponent"];
@@ -438,7 +438,7 @@ namespace Trinity
 					cc2d.Friction = circleCollider2DComponent["Friction"].as<float>();
 					cc2d.Restitution = circleCollider2DComponent["Restitution"].as<float>();
 					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<float>();
-					cc2d.ShowCollider = circleCollider2DComponent["ShowCollider"].as<bool>();
+					//cc2d.ShowCollider = circleCollider2DComponent["ShowCollider"].as<bool>();
 				}
 			}
 		}
