@@ -24,3 +24,7 @@ Alternatively, if `VulkanSDK` cannot be set up through `setup.bat`, you can manu
 ### Step 3: Build the solution
 
 After the setup is complete, open the `Trinity.sln` file, build the solution, and navigate to the `bin/(Configuration)/Forge/` directory. Run the `.exe` file there.
+
+## C# Scripting
+
+### WORK IN PROGRESS
