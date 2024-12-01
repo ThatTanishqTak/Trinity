@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "Trinity/Core/Core.h"
 #include "Trinity/Core/Log.h"
 #include "Trinity/Debug/Instrumentor.h"
 

@@ -254,7 +254,9 @@ namespace Trinity
 
 			Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); 
 			if (selectedEntity && m_GizmoType != -1 && m_SceneState != SceneState::Play)
-				                              /* This is temporary👆. Till I fix the camera situation */
+				                              /* This is temporary👆. 
+											  Till I fix the camera situation
+											  (I'm never fixing this)😂 */
 			{
 				ImGuizmo::SetOrthographic(false);
 				ImGuizmo::SetDrawlist();

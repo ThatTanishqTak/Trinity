@@ -199,6 +199,7 @@
     <ClInclude Include="src\Trinity\Scene\SceneSerializer.h" />
     <ClInclude Include="src\Trinity\Scene\ScriptableEntity.h" />
     <ClInclude Include="src\Trinity\Scripting\ScriptEngine.h" />
+    <ClInclude Include="src\Trinity\Scripting\ScriptGlue.h" />
     <ClInclude Include="src\Trinity\Utilities\PlatformUtils.h" />
     <ClInclude Include="src\trpch.h" />
     <ClInclude Include="vendor\ImGuizmo\ImGuizmo.h" />
@@ -660,6 +661,7 @@
     <ClCompile Include="src\Trinity\Scene\SceneCamera.cpp" />
     <ClCompile Include="src\Trinity\Scene\SceneSerializer.cpp" />
     <ClCompile Include="src\Trinity\Scripting\ScriptEngine.cpp" />
+    <ClCompile Include="src\Trinity\Scripting\ScriptGlue.cpp" />
     <ClCompile Include="src\trpch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
