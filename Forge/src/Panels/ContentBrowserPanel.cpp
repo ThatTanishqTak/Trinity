@@ -109,16 +109,16 @@ namespace Trinity
 				ImGui::PopID();
 			}
 
-			// IMP: WORK ON THIS LATER
+			// TODO: WORK ON THIS SOMETIME
 			if (ImGui::IsWindowFocused() && ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 			{
 				ImVec2 mousePos = ImGui::GetMousePos();
 				TR_CORE_INFO("{}, {}", mousePos.x, mousePos.y);
-						if (ImGui::IsItemHovered())
+				if (ImGui::IsItemHovered())
 				{
 					TR_CORE_INFO("Item Property Menu");
 				}
-						else
+				else
 				{
 					TR_CORE_INFO("Add Item Menu");
 				}

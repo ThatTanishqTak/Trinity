@@ -83,7 +83,6 @@ namespace Trinity
 				TR_CORE_TRACE("{}.{}", nameSpace, name);
 			}
 		}
-
 	}
 
 	struct ScriptEngineData
@@ -138,8 +137,6 @@ namespace Trinity
 		MonoMethod* printCustomMessageFunc = s_Data->EntityClass.GetMethod("PrintCustomMessage", 1);
 		void* stringParam = monoString;
 		s_Data->EntityClass.InvokeMethod(instance, printCustomMessageFunc, &stringParam);
-
-		TR_CORE_ASSERT(false);
 	}
 
 	void ScriptEngine::Shutdown()
@@ -162,8 +159,6 @@ namespace Trinity
 
 	void ScriptEngine::ShutdownMono()
 	{
-		// NOTE(Yan): mono is a little confusing to shutdown, so maybe come back to this
-
 		// mono_domain_unload(s_Data->AppDomain);
 		s_Data->AppDomain = nullptr;
 

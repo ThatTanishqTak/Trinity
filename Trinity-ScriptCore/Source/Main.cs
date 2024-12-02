@@ -36,7 +36,7 @@ namespace Trinity
         public Entity()
         {
             Console.WriteLine("Main constructor!");
-            Log("AAstroPhysiC", 8058);
+            Log("LogTest", 80085);
 
             Vector3 pos = new Vector3(5, 2.5f, 1);
             Vector3 result = Log(pos);
@@ -46,7 +46,7 @@ namespace Trinity
 
         public void PrintMessage()
         {
-            Console.WriteLine("Hello World from C#!");
+            Console.WriteLine("From C# with Hello World");
         }
 
         public void PrintInt(int value)
