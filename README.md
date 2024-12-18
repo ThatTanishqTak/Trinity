@@ -1,4 +1,4 @@
-# Trinity  [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+# Trinity  [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
 
 Trinity is a 2D-focused game engine written in C/C++. It's in very early stages of development, and I'm unsure about how far I'll take this project. Currently, most of the development has been based on TheCherno's Game Engine Series.
 
