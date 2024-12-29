@@ -1,32 +1,33 @@
 #include "trpch.h"
 #include "Scene.h"
-#include "Components.h"
-#include "ScriptableEntity.h"
 #include "Entity.h"
 
+#include "Components.h"
+#include "ScriptableEntity.h"
+#include "Trinity/Scripting/ScriptEngine.h"
 #include "Trinity/Renderer/Renderer2D.h"
 
 #include <glm/glm.hpp>
 
-#include <box2d/b2_world.h>
-#include <box2d/b2_body.h>
-#include <box2d/b2_fixture.h>
-#include <box2d/b2_polygon_shape.h>
-#include <box2d/b2_circle_shape.h>
+// Box2D
+#include "box2d/b2_world.h"
+#include "box2d/b2_body.h"
+#include "box2d/b2_fixture.h"
+#include "box2d/b2_polygon_shape.h"
+#include "box2d/b2_circle_shape.h"
 
-namespace Trinity
+namespace Trinity 
 {
-	static b2BodyType TrinityRigidbody2DTypeToBox2D(Rigidbody2DComponent::BodyType bodyType)
+	static b2BodyType Rigidbody2DTypeToBox2DBody(Rigidbody2DComponent::BodyType bodyType)
 	{
 		switch (bodyType)
 		{
-			case Rigidbody2DComponent::BodyType::Static:      { return b2_staticBody; }
-			case Rigidbody2DComponent::BodyType::Dynamic:     { return b2_dynamicBody; }
-			case Rigidbody2DComponent::BodyType::Kinematic:   { return b2_kinematicBody; }
+			case Rigidbody2DComponent::BodyType::Static:    return b2_staticBody;
+			case Rigidbody2DComponent::BodyType::Dynamic:   return b2_dynamicBody;
+			case Rigidbody2DComponent::BodyType::Kinematic: return b2_kinematicBody;
 		}
 
-		TR_CORE_ASSERT(false, "Unknow type");
-
+		TR_CORE_ASSERT(false, "Unknown body type");
 		return b2_staticBody;
 	}
 
@@ -40,67 +41,71 @@ namespace Trinity
 		delete m_PhysicsWorld;
 	}
 
-	template<typename... T>
+	template<typename... Component>
 	static void CopyComponent(entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
 	{
 		([&]()
+		{
+			auto view = src.view<Component>();
+			for (auto srcEntity : view)
 			{
-				auto view = src.view<T>();
-				for (auto srcEntity : view)
-				{
-					entt::entity dstEntity = enttMap.at(src.get<IDComponent>(srcEntity).ID);
+				entt::entity dstEntity = enttMap.at(src.get<IDComponent>(srcEntity).ID);
 
-					auto& srcComponent = src.get<T>(srcEntity);
-					dst.emplace_or_replace<T>(dstEntity, srcComponent);
-				}
-			}(), ...);
+				auto& srcComponent = src.get<Component>(srcEntity);
+				dst.emplace_or_replace<Component>(dstEntity, srcComponent);
+			}
+		}(), ...);
 	}
-	template<typename... T>
-	static void CopyComponent(ComponentGroup<T...>, entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
+
+	template<typename... Component>
+	static void CopyComponent(ComponentGroup<Component...>, entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
 	{
-		CopyComponent<T...>(dst, src, enttMap);
+		CopyComponent<Component...>(dst, src, enttMap);
 	}
 
-	template<typename... T>
+	template<typename... Component>
 	static void CopyComponentIfExists(Entity dst, Entity src)
 	{
 		([&]()
-			{
-				if (src.HasComponent<T>())
-					dst.AddOrReplaceComponent<T>(src.GetComponent<T>());
-			}(), ...);
-	}
-
-	template<typename... T>
-	static void CopyComponentIfExists(ComponentGroup<T...>, Entity dst, Entity src)
-	{
-		CopyComponentIfExists<T...>(dst, src);
-	}
-
-	Ref<Scene> Scene::Copy(Ref<Scene> sourceScene)
-	{
-		Ref<Scene> destinationScene = CreateRef<Scene>();
-
-		destinationScene->m_ViewportWidth = sourceScene->m_ViewportWidth;
-		destinationScene->m_ViewportHeight = sourceScene->m_ViewportHeight;
-
-		auto& sourceRegistry = sourceScene->m_Registry;
-		auto& destinationRegistry = destinationScene->m_Registry;
-		std::unordered_map<UUID, entt::entity> enttMap;
-		
-		auto IDView = sourceRegistry.view<IDComponent>();
-		for (auto e : IDView)
 		{
-			UUID uuid = sourceRegistry.get<IDComponent>(e).ID;
-			const auto& name = sourceRegistry.get<TagComponent>(e).Tag;
+			if (src.HasComponent<Component>())
+			{
+				dst.AddOrReplaceComponent<Component>(src.GetComponent<Component>());
+			}
+		}(), ...);
+	}
 
-			Entity newEntity = destinationScene->CreateEntityWithUUID(uuid, name);
+	template<typename... Component>
+	static void CopyComponentIfExists(ComponentGroup<Component...>, Entity dst, Entity src)
+	{
+		CopyComponentIfExists<Component...>(dst, src);
+	}
+
+	Ref<Scene> Scene::Copy(Ref<Scene> other)
+	{
+		Ref<Scene> newScene = CreateRef<Scene>();
+
+		newScene->m_ViewportWidth = other->m_ViewportWidth;
+		newScene->m_ViewportHeight = other->m_ViewportHeight;
+
+		auto& srcSceneRegistry = other->m_Registry;
+		auto& dstSceneRegistry = newScene->m_Registry;
+		std::unordered_map<UUID, entt::entity> enttMap;
+
+		// Create entities in new scene
+		auto idView = srcSceneRegistry.view<IDComponent>();
+		for (auto e : idView)
+		{
+			UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
+			const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
+			Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 
-		CopyComponent(AllComponents{}, destinationRegistry, sourceRegistry, enttMap);
+		// Copy components (except IDComponent and TagComponent)
+		CopyComponent(AllComponents{}, dstSceneRegistry, srcSceneRegistry, enttMap);
 
-		return destinationScene;
+		return newScene;
 	}
 
 	Entity Scene::CreateEntity(const std::string& name)
@@ -113,9 +118,10 @@ namespace Trinity
 		Entity entity = { m_Registry.create(), this };
 		entity.AddComponent<IDComponent>(uuid);
 		entity.AddComponent<TransformComponent>();
-
 		auto& tag = entity.AddComponent<TagComponent>();
-		tag.Tag = name.empty() ? std::string("Empty Entity") : name;
+		tag.Tag = name.empty() ? "Empty Entity" : name;
+
+		m_EntityMap[uuid] = entity;
 
 		return entity;
 	}
@@ -123,21 +129,37 @@ namespace Trinity
 	void Scene::DestroyEntity(Entity entity)
 	{
 		m_Registry.destroy(entity);
+		m_EntityMap.erase(entity.GetUUID());
 	}
 
 	void Scene::OnRuntimeStart()
 	{
 		OnPhysics2DStart();
-	}
 
-	void Scene::OnSimulationStart()
-	{
-		OnPhysics2DStart();
+		// Scripting
+		{
+			ScriptEngine::OnRuntimeStart(this);
+			// Instantiate all script entities
+
+			auto view = m_Registry.view<ScriptComponent>();
+			for (auto e : view)
+			{
+				Entity entity = { e, this };
+				ScriptEngine::OnCreateEntity(entity);
+			}
+		}
 	}
 
 	void Scene::OnRuntimeStop()
 	{
 		OnPhysics2DStop();
+
+		ScriptEngine::OnRuntimeStop();
+	}
+
+	void Scene::OnSimulationStart()
+	{
+		OnPhysics2DStart();
 	}
 
 	void Scene::OnSimulationStop()
@@ -149,27 +171,35 @@ namespace Trinity
 	{
 		// Update scripts
 		{
-			m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nativeScriptComponent)
+			// C# Entity OnUpdate
+			auto view = m_Registry.view<ScriptComponent>();
+			for (auto e : view)
 			{
-				if (!nativeScriptComponent.Instance)
+				Entity entity = { e, this };
+				ScriptEngine::OnUpdateEntity(entity, timestep);
+			}
+
+			m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
+			{
+				// TODO: Move to Scene::OnScenePlay
+				if (!nsc.Instance)
 				{
-					nativeScriptComponent.Instance = nativeScriptComponent.InstantiateScript();
-					nativeScriptComponent.Instance->m_Entity = Entity{ entity, this };
-					nativeScriptComponent.Instance->OnCreate();
+					nsc.Instance = nsc.InstantiateScript();
+					nsc.Instance->m_Entity = Entity{ entity, this };
+					nsc.Instance->OnCreate();
 				}
 
-				nativeScriptComponent.Instance->OnUpdate(timestep);
+				nsc.Instance->OnUpdate(timestep);
 			});
 		}
 
 		// Physics
 		{
-			// From trial and error, these vaules work the best
-			const int32_t velocityIteration = 6;
-			const int32_t positionIteration = 2;
+			const int32_t velocityIterations = 6;
+			const int32_t positionIterations = 2;
+			m_PhysicsWorld->Step(timestep, velocityIterations, positionIterations);
 
-			m_PhysicsWorld->Step(timestep, velocityIteration, positionIteration);
-
+			// Retrieve transform from Box2D
 			auto view = m_Registry.view<Rigidbody2DComponent>();
 			for (auto e : view)
 			{
@@ -178,7 +208,7 @@ namespace Trinity
 				auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
 				b2Body* body = (b2Body*)rb2d.RuntimeBody;
-				
+
 				const auto& position = body->GetPosition();
 				transform.Translation.x = position.x;
 				transform.Translation.y = position.y;
@@ -199,7 +229,7 @@ namespace Trinity
 				{
 					mainCamera = &camera.Camera;
 					cameraTransform = transform.GetTransform();
-
+					
 					break;
 				}
 			}
@@ -207,9 +237,9 @@ namespace Trinity
 
 		if (mainCamera)
 		{
-			Renderer2D::BeginScene(mainCamera->GetProjection(), cameraTransform);
+			Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
-			// Quad
+			// Draw sprites
 			{
 				auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
 				for (auto entity : group)
@@ -220,7 +250,7 @@ namespace Trinity
 				}
 			}
 
-			// Circle
+			// Draw circles
 			{
 				auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
 				for (auto entity : view)
@@ -235,16 +265,15 @@ namespace Trinity
 		}
 	}
 
-	void Scene::OnUpdateSimulation(Timestep timestep, EditorCamera& editorCamera)
+	void Scene::OnUpdateSimulation(Timestep ts, EditorCamera& camera)
 	{
 		// Physics
 		{
-			// From trial and error, these vaules work the best
-			const int32_t velocityIteration = 6;
-			const int32_t positionIteration = 2;
+			const int32_t velocityIterations = 6;
+			const int32_t positionIterations = 2;
+			m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
-			m_PhysicsWorld->Step(timestep, velocityIteration, positionIteration);
-
+			// Retrieve transform from Box2D
 			auto view = m_Registry.view<Rigidbody2DComponent>();
 			for (auto e : view)
 			{
@@ -253,7 +282,6 @@ namespace Trinity
 				auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
 				b2Body* body = (b2Body*)rb2d.RuntimeBody;
-
 				const auto& position = body->GetPosition();
 				transform.Translation.x = position.x;
 				transform.Translation.y = position.y;
@@ -261,13 +289,14 @@ namespace Trinity
 			}
 		}
 
-		// Renderer
-		RenderScene(editorCamera);
+		// Render
+		RenderScene(camera);
 	}
 
-	void Scene::OnUpdateEditor(Timestep timestep, EditorCamera& editorCamera)
+	void Scene::OnUpdateEditor(Timestep ts, EditorCamera& camera)
 	{
-		RenderScene(editorCamera);
+		// Render
+		RenderScene(camera);
 	}
 
 	void Scene::OnViewportResize(uint32_t width, uint32_t height)
@@ -275,6 +304,7 @@ namespace Trinity
 		m_ViewportWidth = width;
 		m_ViewportHeight = height;
 
+		// Resize our non-FixedAspectRatio cameras
 		auto view = m_Registry.view<CameraComponent>();
 		for (auto entity : view)
 		{
@@ -286,18 +316,9 @@ namespace Trinity
 		}
 	}
 
-	void Scene::DuplicateEntity(Entity entity)
-	{
-		std::string name = entity.GetName();
-		Entity newEntity = CreateEntity(name);
-
-		CopyComponentIfExists(AllComponents{}, newEntity, entity);
-	}
-
 	Entity Scene::GetPrimaryCameraEntity()
 	{
 		auto view = m_Registry.view<CameraComponent>();
-
 		for (auto entity : view)
 		{
 			const auto& camera = view.get<CameraComponent>(entity);
@@ -305,8 +326,23 @@ namespace Trinity
 			{
 				return Entity{ entity, this };
 			}
+		}
 
-			return {};
+		return {};
+	}
+
+	void Scene::DuplicateEntity(Entity entity)
+	{
+		Entity newEntity = CreateEntity(entity.GetName());
+		CopyComponentIfExists(AllComponents{}, newEntity, entity);
+	}
+
+	Entity Scene::GetEntityByUUID(UUID uuid)
+	{
+		// TODO: Maybe should be assert
+		if (m_EntityMap.find(uuid) != m_EntityMap.end())
+		{
+			return { m_EntityMap.at(uuid), this };
 		}
 
 		return {};
@@ -320,18 +356,16 @@ namespace Trinity
 		for (auto e : view)
 		{
 			Entity entity = { e, this };
-
 			auto& transform = entity.GetComponent<TransformComponent>();
 			auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
 			b2BodyDef bodyDef;
-			bodyDef.type = TrinityRigidbody2DTypeToBox2D(rb2d.Type);
+			bodyDef.type = Rigidbody2DTypeToBox2DBody(rb2d.Type);
 			bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
 			bodyDef.angle = transform.Rotation.z;
 
 			b2Body* body = m_PhysicsWorld->CreateBody(&bodyDef);
 			body->SetFixedRotation(rb2d.FixedRotation);
-
 			rb2d.RuntimeBody = body;
 
 			if (entity.HasComponent<BoxCollider2DComponent>())
@@ -347,7 +381,7 @@ namespace Trinity
 				fixtureDef.friction = bc2d.Friction;
 				fixtureDef.restitution = bc2d.Restitution;
 				fixtureDef.restitutionThreshold = bc2d.RestitutionThreshold;
-
+				
 				body->CreateFixture(&fixtureDef);
 			}
 
@@ -365,7 +399,7 @@ namespace Trinity
 				fixtureDef.friction = cc2d.Friction;
 				fixtureDef.restitution = cc2d.Restitution;
 				fixtureDef.restitutionThreshold = cc2d.RestitutionThreshold;
-
+				
 				body->CreateFixture(&fixtureDef);
 			}
 		}
@@ -374,14 +408,15 @@ namespace Trinity
 	void Scene::OnPhysics2DStop()
 	{
 		delete m_PhysicsWorld;
+
 		m_PhysicsWorld = nullptr;
 	}
 
-	void Scene::RenderScene(EditorCamera& editorCamera)
+	void Scene::RenderScene(EditorCamera& camera)
 	{
-		Renderer2D::BeginScene(editorCamera);
+		Renderer2D::BeginScene(camera);
 
-		// Quad
+		// Draw sprites
 		{
 			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
 			for (auto entity : group)
@@ -392,7 +427,7 @@ namespace Trinity
 			}
 		}
 
-		// Circle
+		// Draw circles
 		{
 			auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
 			for (auto entity : view)
@@ -413,64 +448,70 @@ namespace Trinity
 	}
 
 	template<>
-	void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& idComponent)
+	void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
 	{
 
 	}
 
 	template<>
-	void Scene::OnComponentAdded<TransformComponent>(Entity entity, TransformComponent& transformComponent)
+	void Scene::OnComponentAdded<TransformComponent>(Entity entity, TransformComponent& component)
 	{
 
 	}
 
 	template<>
-	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& cameraComponent)
+	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
 	{
 		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
 		{
-			cameraComponent.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
+			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
 		}
 	}
 
 	template<>
-	void Scene::OnComponentAdded<SpriteRendererComponent>(Entity entity, SpriteRendererComponent& spriteRendererComponent)
+	void Scene::OnComponentAdded<ScriptComponent>(Entity entity, ScriptComponent& component)
 	{
 
 	}
 
 	template<>
-	void Scene::OnComponentAdded<CircleRendererComponent>(Entity entity, CircleRendererComponent& circleRendererComponent)
+	void Scene::OnComponentAdded<SpriteRendererComponent>(Entity entity, SpriteRendererComponent& component)
 	{
 
 	}
 
 	template<>
-	void Scene::OnComponentAdded<TagComponent>(Entity entity, TagComponent& tagComponent)
+	void Scene::OnComponentAdded<CircleRendererComponent>(Entity entity, CircleRendererComponent& component)
 	{
 
 	}
 
 	template<>
-	void Scene::OnComponentAdded<NativeScriptComponent>(Entity entity, NativeScriptComponent& nativeScriptComponent)
+	void Scene::OnComponentAdded<TagComponent>(Entity entity, TagComponent& component)
 	{
 
 	}
 
 	template<>
-	void Scene::OnComponentAdded<Rigidbody2DComponent>(Entity entity, Rigidbody2DComponent& rigidbody2DComponent)
+	void Scene::OnComponentAdded<NativeScriptComponent>(Entity entity, NativeScriptComponent& component)
 	{
 
 	}
 
 	template<>
-	void Scene::OnComponentAdded<BoxCollider2DComponent>(Entity entity, BoxCollider2DComponent& boxCollider2DComponent)
+	void Scene::OnComponentAdded<Rigidbody2DComponent>(Entity entity, Rigidbody2DComponent& component)
 	{
 
 	}
 
 	template<>
-	void Scene::OnComponentAdded<CircleCollider2DComponent>(Entity entity, CircleCollider2DComponent& circleCollider2DComponent)
+	void Scene::OnComponentAdded<BoxCollider2DComponent>(Entity entity, BoxCollider2DComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<CircleCollider2DComponent>(Entity entity, CircleCollider2DComponent& component)
 	{
 
 	}

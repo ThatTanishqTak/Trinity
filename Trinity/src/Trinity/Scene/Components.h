@@ -82,6 +82,14 @@ namespace Trinity
 		CameraComponent(const CameraComponent&) = default;
 	};
 
+	struct ScriptComponent
+	{
+		std::string ClassName;
+
+		ScriptComponent() = default;
+		ScriptComponent(const ScriptComponent&) = default;
+	};
+
 	class ScriptableEntity;
 
 	struct NativeScriptComponent
@@ -155,9 +163,8 @@ namespace Trinity
 
 	};
 
-	using AllComponents =
-		ComponentGroup<TransformComponent,          CameraComponent, 
-		               SpriteRendererComponent,     CircleRendererComponent,
-		               Rigidbody2DComponent,        BoxCollider2DComponent, 
-		               CircleCollider2DComponent,   NativeScriptComponent>;
+	using AllComponents = ComponentGroup<TransformComponent, SpriteRendererComponent,
+		CircleRendererComponent, CameraComponent, ScriptComponent,
+		NativeScriptComponent, Rigidbody2DComponent, BoxCollider2DComponent,
+		CircleCollider2DComponent>;
 }

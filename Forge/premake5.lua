@@ -7,11 +7,17 @@ project "Forge"
 	targetdir ("%{wks.location}/bin/" .. outputDir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputDir .. "/%{prj.name}")
 
+	defines
+	{
+		"_CRT_SECURE_NO_WARNINGS"
+	}
+
 	files
 	{
 		"src/**.h",
 		"src/**.cpp"
 	}
+	
 	includedirs
 	{
 		"%{wks.location}/Trinity/vendor/spdlog/include",

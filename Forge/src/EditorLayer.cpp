@@ -613,6 +613,7 @@ namespace Trinity
 
 		m_EditorScene = CreateRef<Scene>();
 		m_SceneHierarchyPanel.SetContext(m_EditorScene);
+		m_ContentBrowserPanel.SetContext(m_EditorScene);
 
 		m_ActiveScene = m_EditorScene;
 		m_EditorScenePath = std::filesystem::path();

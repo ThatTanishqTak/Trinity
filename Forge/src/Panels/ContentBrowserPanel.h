@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/Renderer/Texture.h"
+#include "Trinity/Scene/Scene.h"
 
 #include <filesystem>
 
@@ -10,11 +11,15 @@ namespace Trinity
 	{
 	public:
 		ContentBrowserPanel();
+		ContentBrowserPanel(const Ref<Scene>& context);
 
+		void SetContext(const Ref<Scene>& context);
 		void OnImGuiRender();
 
 	private:
 		std::filesystem::path m_CurrentDirectory;
+		
+		Ref<Scene> m_Context;
 
 		Ref<Texture2D> m_DirectoryIcon;
 		Ref<Texture2D> m_FileIcon;

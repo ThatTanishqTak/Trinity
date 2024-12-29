@@ -42,6 +42,7 @@ namespace Trinity
 
 		void DuplicateEntity(Entity entity);
 
+		Entity GetEntityByUUID(UUID uuid);
 		Entity GetPrimaryCameraEntity();
 
 		template<typename... T>
@@ -63,6 +64,7 @@ namespace Trinity
 		entt::registry m_Registry;
 	
 		b2World* m_PhysicsWorld = nullptr;
+		std::unordered_map<UUID, entt::entity> m_EntityMap;
 	
 		friend class Entity;
 		friend class SceneSerializer;

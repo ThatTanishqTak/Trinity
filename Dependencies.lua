@@ -37,7 +37,7 @@ Library["ShaderC_Release"] = "%{LibraryDir.VulkanSDK}/shaderc_shared.lib"
 Library["SPIRV_Cross_Release"] = "%{LibraryDir.VulkanSDK}/spirv-cross-core.lib"
 Library["SPIRV_Cross_GLSL_Release"] = "%{LibraryDir.VulkanSDK}/spirv-cross-glsl.lib"
 
--- Windows
+-- Windows only
 Library["WinSock"] = "Ws2_32.lib"
 Library["Winmm"] = "Winmm.lib"
 Library["Version"] = "Version.lib"

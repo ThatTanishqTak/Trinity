@@ -11,7 +11,6 @@
 
 namespace Trinity
 {
-
 	// Premitives--------------------------------------------------------------
 
 	struct QuadVertex

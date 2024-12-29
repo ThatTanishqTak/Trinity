@@ -29,7 +29,7 @@ namespace Trinity
 
 	struct ApplicationSpecification
 	{
-		std::string Name = "Trinity Application";
+		std::string Name = "TrinityApp";
 		std::string WorkingDirectory;
 		ApplicationCommandLineArgs CommandLineArgs;
 	};
