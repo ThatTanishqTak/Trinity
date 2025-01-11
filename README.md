@@ -9,7 +9,9 @@ The engine follows the Core-App architecture, where `Trinity` serves as the back
 ---
 
 ## Screenshots
-![](C:\Users\tanis\Pictures\Screenshots\Screenshot 2025-01-11 084017.png?raw=true "Forge")
+![](C:\Users\tanis\Pictures\Screenshots\Screenshot.png?raw=true "Forge")
+
+---
 
 ## Getting Started
 This project requires Visual Studio 2022. As of now, Trinity only supports Windows.
