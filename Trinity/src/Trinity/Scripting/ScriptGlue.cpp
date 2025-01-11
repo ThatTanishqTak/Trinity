@@ -32,13 +32,13 @@ namespace Trinity
 
 	static void NativeLog_Vector(glm::vec3* parameter, glm::vec3* outResult)
 	{
-		//TR_CORE_WARN("Value: {0}", *parameter);
+		//TR_CORE_WARN("Value: {0}", *parameter); <---
 		*outResult = glm::normalize(*parameter);
 	}                                                                     // These comments are here for a reason
-																		  // I don't have a fmt library so there won't work
+																		  // I don't have a fmt library so they won't work
 	static float NativeLog_VectorDot(glm::vec3* parameter)                
 	{                                                                     
-		//TR_CORE_WARN("Value: {0}", *parameter);
+		//TR_CORE_WARN("Value: {0}", *parameter); <---
 		return glm::dot(*parameter, *parameter);
 	}
 
