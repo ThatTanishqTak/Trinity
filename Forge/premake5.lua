@@ -48,9 +48,11 @@ project "Forge"
 			
 			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
 			"{MKDIR} \"%{cfg.targetdir}/assets\"",
+			"{MKDIR} \"%{cfg.targetdir}/mono\"",
 
 			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
-			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
+			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets",
+			"{COPYDIR} ../Forge/mono %{cfg.targetdir}/mono"
 		}
 
 	filter "configurations:Release"
@@ -65,9 +67,11 @@ project "Forge"
 			
 			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
 			"{MKDIR} \"%{cfg.targetdir}/assets\"",
+			"{MKDIR} \"%{cfg.targetdir}/mono\"",
 
 			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
-			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
+			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets",
+			"{COPYDIR} ../Forge/mono %{cfg.targetdir}/mono"
 		}
 
 	filter "configurations:Dist"
@@ -84,7 +88,9 @@ project "Forge"
 			
 			"{MKDIR} \"%{cfg.targetdir}/Resources\"",
 			"{MKDIR} \"%{cfg.targetdir}/assets\"",
+			"{MKDIR} \"%{cfg.targetdir}/mono\"",
 
 			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
-			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets"
+			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets",
+			"{COPYDIR} ../Forge/mono %{cfg.targetdir}/mono"
 		}

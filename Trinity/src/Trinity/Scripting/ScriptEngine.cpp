@@ -205,10 +205,10 @@ namespace Trinity
 
 	void ScriptEngine::OnCreateEntity(Entity entity)
 	{
-		const auto& sc = entity.GetComponent<ScriptComponent>();
-		if (ScriptEngine::EntityClassExists(sc.ClassName))
+		const auto& scriptComponent = entity.GetComponent<ScriptComponent>();
+		if (ScriptEngine::EntityClassExists(scriptComponent.ClassName))
 		{
-			Ref<ScriptInstance> instance = CreateRef<ScriptInstance>(s_Data->EntityClasses[sc.ClassName], entity);
+			Ref<ScriptInstance> instance = CreateRef<ScriptInstance>(s_Data->EntityClasses[scriptComponent.ClassName], entity);
 			s_Data->EntityInstances[entity.GetUUID()] = instance;
 			instance->InvokeOnCreate();
 		}
