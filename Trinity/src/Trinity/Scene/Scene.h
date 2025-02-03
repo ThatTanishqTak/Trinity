@@ -42,8 +42,11 @@ namespace Trinity
 
 		void DuplicateEntity(Entity entity);
 
+		Entity FindEntityByName(std::string_view name);
 		Entity GetEntityByUUID(UUID uuid);
 		Entity GetPrimaryCameraEntity();
+
+		bool IsRunning() const { return m_IsRunning; }
 
 		template<typename... T>
 		auto GetAllEntitiesWith()
@@ -65,6 +68,8 @@ namespace Trinity
 	
 		b2World* m_PhysicsWorld = nullptr;
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
+
+		bool m_IsRunning = false;
 	
 		friend class Entity;
 		friend class SceneSerializer;

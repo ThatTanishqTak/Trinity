@@ -55,7 +55,7 @@ project "Trinity"
 		"yaml-cpp",
 		"opengl32.lib",
 
-		"%{Library.mono}", 
+		"%{Library.mono}"
 	}
 
 	filter "files:vendor/ImGuizmo/**.cpp"

@@ -2,7 +2,6 @@
 
 namespace Trinity
 {
-
 	class ScriptGlue
 	{
 	public:

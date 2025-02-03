@@ -40,5 +40,5 @@ project "Sandbox"
 		optimize "Full"
 		symbols "Off"
 group "Trinity"
-	include (TrinityRootDir .. "/Trinity-ScriptCore")
+	include ("../../../../Trinity-ScriptCore/")
 group ""
