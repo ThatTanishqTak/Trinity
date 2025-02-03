@@ -52,7 +52,8 @@ project "Forge"
 
 			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
 			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets",
-			"{COPYDIR} ../Forge/mono %{cfg.targetdir}/mono"
+			"{COPYDIR} ../Forge/mono %{cfg.targetdir}/mono",
+			"{COPYDIR} ../Forge/SandboxProject/Assets/Scripts/Binaries %{cfg.targetdir}/SandboxProject/Assets/Scripts/Binaries"
 		}
 
 	filter "configurations:Release"
@@ -71,7 +72,8 @@ project "Forge"
 
 			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
 			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets",
-			"{COPYDIR} ../Forge/mono %{cfg.targetdir}/mono"
+			"{COPYDIR} ../Forge/mono %{cfg.targetdir}/mono",
+			"{COPYDIR} ../Forge/SandboxProject/Assets/Scripts/Binaries %{cfg.targetdir}/SandboxProject/Assets/Scripts/Binaries"
 		}
 
 	filter "configurations:Dist"
@@ -92,5 +94,6 @@ project "Forge"
 
 			"{COPYDIR} ../Forge/Resources/ %{cfg.targetdir}/Resources",
 			"{COPYDIR} ../Forge/assets/ %{cfg.targetdir}/assets",
-			"{COPYDIR} ../Forge/mono %{cfg.targetdir}/mono"
+			"{COPYDIR} ../Forge/mono %{cfg.targetdir}/mono",
+			"{COPYDIR} ../Forge/SandboxProject/Assets/Scripts/Binaries %{cfg.targetdir}/SandboxProject/Assets/Scripts/Binaries"
 		}

@@ -3,8 +3,8 @@ project "Trinity-ScriptCore"
 	language "C#"
 	dotnetframework "4.7.2"
 
-	targetdir ("%{wks.location}/Forge/Resources/Scripts")
-	objdir ("%{wks.location}/Forge/Resources/Scripts/Intermediates")
+	targetdir ("../Forge/Resources/Scripts")
+	objdir ("../Forge/Resources/Scripts/Intermediates")
 
 	files
 	{

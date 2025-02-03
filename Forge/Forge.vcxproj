@@ -99,7 +99,8 @@ IF NOT EXIST "..\bin\Debug-windows-x86_64\Forge\assets" (mkdir "..\bin\Debug-win
 IF NOT EXIST "..\bin\Debug-windows-x86_64\Forge\mono" (mkdir "..\bin\Debug-windows-x86_64\Forge\mono")
 xcopy /Q /E /Y /I ..\Forge\Resources ..\bin\Debug-windows-x86_64\Forge\Resources
 xcopy /Q /E /Y /I ..\Forge\assets ..\bin\Debug-windows-x86_64\Forge\assets
-xcopy /Q /E /Y /I ..\Forge\mono ..\bin\Debug-windows-x86_64\Forge\mono</Command>
+xcopy /Q /E /Y /I ..\Forge\mono ..\bin\Debug-windows-x86_64\Forge\mono
+xcopy /Q /E /Y /I ..\Forge\SandboxProject\Assets\Scripts\Binaries ..\bin\Debug-windows-x86_64\Forge\SandboxProject\Assets\Scripts\Binaries</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -130,7 +131,8 @@ IF NOT EXIST "..\bin\Release-windows-x86_64\Forge\assets" (mkdir "..\bin\Release
 IF NOT EXIST "..\bin\Release-windows-x86_64\Forge\mono" (mkdir "..\bin\Release-windows-x86_64\Forge\mono")
 xcopy /Q /E /Y /I ..\Forge\Resources ..\bin\Release-windows-x86_64\Forge\Resources
 xcopy /Q /E /Y /I ..\Forge\assets ..\bin\Release-windows-x86_64\Forge\assets
-xcopy /Q /E /Y /I ..\Forge\mono ..\bin\Release-windows-x86_64\Forge\mono</Command>
+xcopy /Q /E /Y /I ..\Forge\mono ..\bin\Release-windows-x86_64\Forge\mono
+xcopy /Q /E /Y /I ..\Forge\SandboxProject\Assets\Scripts\Binaries ..\bin\Release-windows-x86_64\Forge\SandboxProject\Assets\Scripts\Binaries</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">
@@ -162,7 +164,8 @@ IF NOT EXIST "..\bin\Dist-windows-x86_64\Forge\assets" (mkdir "..\bin\Dist-windo
 IF NOT EXIST "..\bin\Dist-windows-x86_64\Forge\mono" (mkdir "..\bin\Dist-windows-x86_64\Forge\mono")
 xcopy /Q /E /Y /I ..\Forge\Resources ..\bin\Dist-windows-x86_64\Forge\Resources
 xcopy /Q /E /Y /I ..\Forge\assets ..\bin\Dist-windows-x86_64\Forge\assets
-xcopy /Q /E /Y /I ..\Forge\mono ..\bin\Dist-windows-x86_64\Forge\mono</Command>
+xcopy /Q /E /Y /I ..\Forge\mono ..\bin\Dist-windows-x86_64\Forge\mono
+xcopy /Q /E /Y /I ..\Forge\SandboxProject\Assets\Scripts\Binaries ..\bin\Dist-windows-x86_64\Forge\SandboxProject\Assets\Scripts\Binaries</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
