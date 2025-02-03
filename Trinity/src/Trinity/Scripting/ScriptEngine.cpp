@@ -11,7 +11,7 @@ namespace Trinity {
 
 	namespace Utils {
 
-		// TODO: move to FileSystem class
+		// TODO: Move to FileSystem class
 		static char* ReadBytes(const std::filesystem::path& filepath, uint32_t* outSize)
 		{
 			std::ifstream stream(filepath, std::ios::binary | std::ios::ate);
@@ -121,38 +121,6 @@ namespace Trinity {
 
 		// Retrieve and instantiate class
 		s_Data->EntityClass = ScriptClass("Trinity", "Entity", true);
-#if 0
-
-		MonoObject* instance = s_Data->EntityClass.Instantiate();
-
-		// Call method
-		MonoMethod* printMessageFunc = s_Data->EntityClass.GetMethod("PrintMessage", 0);
-		s_Data->EntityClass.InvokeMethod(instance, printMessageFunc);
-
-		// Call method with param
-		MonoMethod* printIntFunc = s_Data->EntityClass.GetMethod("PrintInt", 1);
-
-		int value = 5;
-		void* param = &value;
-
-		s_Data->EntityClass.InvokeMethod(instance, printIntFunc, &param);
-
-		MonoMethod* printIntsFunc = s_Data->EntityClass.GetMethod("PrintInts", 2);
-		int value2 = 508;
-		void* params[2] =
-		{
-			&value,
-			&value2
-		};
-		s_Data->EntityClass.InvokeMethod(instance, printIntsFunc, params);
-
-		MonoString* monoString = mono_string_new(s_Data->AppDomain, "Hello World from C++!");
-		MonoMethod* printCustomMessageFunc = s_Data->EntityClass.GetMethod("PrintCustomMessage", 1);
-		void* stringParam = monoString;
-		s_Data->EntityClass.InvokeMethod(instance, printCustomMessageFunc, &stringParam);
-
-		TR_CORE_ASSERT(false);
-#endif
 	}
 
 	void ScriptEngine::Shutdown()
@@ -174,12 +142,9 @@ namespace Trinity {
 
 	void ScriptEngine::ShutdownMono()
 	{
-		// NOTE(Yan): mono is a little confusing to shutdown, so maybe come back to this
+		// NOTE: Maybe come back to this
 
-		// mono_domain_unload(s_Data->AppDomain);
 		s_Data->AppDomain = nullptr;
-
-		// mono_jit_cleanup(s_Data->RootDomain);
 		s_Data->RootDomain = nullptr;
 	}
 
@@ -192,7 +157,6 @@ namespace Trinity {
 		// Move this maybe
 		s_Data->CoreAssembly = Utils::LoadMonoAssembly(filepath);
 		s_Data->CoreAssemblyImage = mono_assembly_get_image(s_Data->CoreAssembly);
-		// Utils::PrintAssemblyTypes(s_Data->CoreAssembly);
 	}
 
 
@@ -201,9 +165,9 @@ namespace Trinity {
 		// Move this maybe
 		s_Data->AppAssembly = Utils::LoadMonoAssembly(filepath);
 		auto assemb = s_Data->AppAssembly;
+		
 		s_Data->AppAssemblyImage = mono_assembly_get_image(s_Data->AppAssembly);
 		auto assembi = s_Data->AppAssemblyImage;
-		// Utils::PrintAssemblyTypes(s_Data->AppAssembly);
 	}
 
 	void ScriptEngine::OnRuntimeStart(Scene* scene)
@@ -223,6 +187,7 @@ namespace Trinity {
 		{
 			Ref<ScriptInstance> instance = CreateRef<ScriptInstance>(s_Data->EntityClasses[sc.ClassName], entity);
 			s_Data->EntityInstances[entity.GetUUID()] = instance;
+			
 			instance->InvokeOnCreate();
 		}
 	}
@@ -259,6 +224,7 @@ namespace Trinity {
 
 		const MonoTableInfo* typeDefinitionsTable = mono_image_get_table_info(s_Data->AppAssemblyImage, MONO_TABLE_TYPEDEF);
 		int32_t numTypes = mono_table_info_get_rows(typeDefinitionsTable);
+		
 		MonoClass* entityClass = mono_class_from_name(s_Data->CoreAssemblyImage, "Trinity", "Entity");
 
 		for (int32_t i = 0; i < numTypes; i++)
@@ -268,20 +234,29 @@ namespace Trinity {
 
 			const char* nameSpace = mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAMESPACE]);
 			const char* name = mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAME]);
+			
 			std::string fullName;
 			if (strlen(nameSpace) != 0)
+			{
 				fullName = fmt::format("{}.{}", nameSpace, name);
+			}
 			else
+			{
 				fullName = name;
+			}
 
 			MonoClass* monoClass = mono_class_from_name(s_Data->AppAssemblyImage, nameSpace, name);
 
 			if (monoClass == entityClass)
+			{
 				continue;
+			}
 
 			bool isEntity = mono_class_is_subclass_of(monoClass, entityClass, false);
 			if (isEntity)
+			{
 				s_Data->EntityClasses[fullName] = CreateRef<ScriptClass>(nameSpace, name);
+			}
 		}
 	}
 
@@ -294,11 +269,11 @@ namespace Trinity {
 	{
 		MonoObject* instance = mono_object_new(s_Data->AppDomain, monoClass);
 		mono_runtime_object_init(instance);
+		
 		return instance;
 	}
 
-	ScriptClass::ScriptClass(const std::string& classNamespace, const std::string& className, bool isCore)
-		: m_ClassNamespace(classNamespace), m_ClassName(className)
+	ScriptClass::ScriptClass(const std::string& classNamespace, const std::string& className, bool isCore) : m_ClassNamespace(classNamespace), m_ClassName(className)
 	{
 		m_MonoClass = mono_class_from_name(isCore ? s_Data->CoreAssemblyImage : s_Data->AppAssemblyImage, classNamespace.c_str(), className.c_str());
 	}
@@ -318,8 +293,7 @@ namespace Trinity {
 		return mono_runtime_invoke(method, instance, params, nullptr);
 	}
 
-	ScriptInstance::ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity)
-		: m_ScriptClass(scriptClass)
+	ScriptInstance::ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity) : m_ScriptClass(scriptClass)
 	{
 		m_Instance = scriptClass->Instantiate();
 
@@ -338,7 +312,9 @@ namespace Trinity {
 	void ScriptInstance::InvokeOnCreate()
 	{
 		if (m_OnCreateMethod)
+		{
 			m_ScriptClass->InvokeMethod(m_Instance, m_OnCreateMethod);
+		}
 	}
 
 	void ScriptInstance::InvokeOnUpdate(float timestep)
@@ -349,5 +325,4 @@ namespace Trinity {
 			m_ScriptClass->InvokeMethod(m_Instance, m_OnUpdateMethod, &param);
 		}
 	}
-
 }
