@@ -217,10 +217,15 @@ namespace Trinity
 	void ScriptEngine::OnUpdateEntity(Entity entity, Timestep timestep)
 	{
 		UUID entityUUID = entity.GetUUID();
-		TR_CORE_ASSERT(s_Data->EntityInstances.find(entityUUID) != s_Data->EntityInstances.end());
-
-		Ref<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
-		instance->InvokeOnUpdate((float)timestep);
+		if (s_Data->EntityInstances.find(entityUUID) != s_Data->EntityInstances.end())
+		{
+			Ref<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
+			instance->InvokeOnUpdate((float)timestep);
+		}
+		else
+		{
+			//TR_CORE_ERROR("Could not find ScriptInstance for entity {}", entityUUID);
+		}
 	}
 
 	Scene* ScriptEngine::GetSceneContext()
