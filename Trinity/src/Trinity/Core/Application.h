@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include "Trinity/Utilities/Utilities.h"
+
 namespace Trinity
 {
 	struct ApplicationCommandLineArgs
@@ -27,12 +29,17 @@ namespace Trinity
 
 		virtual void Run()
 		{
+			TR_CORE_INFO("Entering main loop");
+
 			while (true)
 			{
+
 				// Poll events
 				
 				// Rendering
 			}
+
+			TR_CORE_INFO("Exiting main loop");
 		}
 
 	protected:

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/Core/Application.h"
+#include "Trinity/Utilities/Utilities.h"
 
 namespace Trinity
 {
@@ -10,6 +11,8 @@ namespace Trinity
 
 int main(int args, char** argv)
 {
+	Trinity::Utilities::Log::Init();
+
 	auto app = Trinity::CreateApplication({ args, argv });
 
 	app->Run();

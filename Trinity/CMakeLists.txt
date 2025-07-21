@@ -1,17 +1,45 @@
+##--- Engine ---##
+
 project(Trinity LANGUAGES CXX)
 
 # Defines
 add_definitions(-DGLFW_INCLUDE_VULKAN)
 
 # Third-Party libraries
-
-# Vulkan
-find_package(Vulkan REQUIRED)
+# spdlog
+add_library(spdlog INTERFACE)
+target_include_directories(spdlog INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/spdlog/include>
+)
 
 # GLFW
-set(GLFW_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/vendor/glfw")
-set(GLFW_INCLUDE_DIR "${GLFW_ROOT}/include")
-set(GLFW_LIBRARY_DIR "${GLFW_ROOT}/lib")
+add_library(glfw INTERFACE)
+target_include_directories(glfw INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/glfw/include>
+)
+target_link_libraries(glfw INTERFACE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/glfw/lib/glfw3.lib
+)
+
+# glm
+add_library(glm INTERFACE)
+target_include_directories(glm INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/glm>    
+)
+
+# Vulkan
+add_library(Vulkan INTERFACE)
+if(DEFINED ENV{VULKAN_SDK})
+    set(Vulkan_SDK $ENV{VULKAN_SDK})
+    message(STATUS "Using Vulkan SDK from ${Vulkan_SDK}")
+
+    target_include_directories(Vulkan INTERFACE
+        ${Vulkan_SDK}/Include)
+    target_link_libraries(Vulkan INTERFACE
+        ${Vulkan_SDK}/Lib/vulkan-1.lib)
+else()
+    message(FATAL_ERROR "VULKAN_SDK environment variable not set")
+endif()
 
 # Engine source files
 file(GLOB_RECURSE ENGINE_SOURCE
@@ -19,30 +47,25 @@ file(GLOB_RECURSE ENGINE_SOURCE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
 )
 
-# Build static library
-add_library(${PROJECT_NAME} STATIC
+# Build .lib
+add_library(${PROJECT_NAME} STATIC 
     ${ENGINE_SOURCE}
 )
-
-# Include directories
+# Include directory
 target_include_directories(${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
-    PRIVATE ${GLFW_INCLUDE_DIR}
 )
 
-# Precompiled header
+# Set pre compiled header
 target_precompile_headers(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Trinity/trpch.h
 )
 
-# Link libraries
-if (WIN32)
-    set(GLFW_LIB "${GLFW_LIBRARY_DIR}/glfw3.lib")
-else()
-    set(GLFW_LIB "${GLFW_LIBRARY_DIR}/libglfw3.a")
-endif()
 
+# Link libraries
 target_link_libraries(${PROJECT_NAME} PUBLIC
-    Vulkan::Vulkan
-    ${GLFW_LIB}
+    spdlog
+    glfw
+    glm
+    Vulkan
 )
