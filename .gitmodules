@@ -1,0 +1,6 @@
+[submodule "Trinity/vendor/glm"]
+	path = Trinity/vendor/glm
+	url = https://github.com/ThatTanishqTak/glm.git
+[submodule "Trinity/vendor/spdlog"]
+	path = Trinity/vendor/spdlog
+	url = https://github.com/ThatTanishqTak/spdlog.git
