@@ -15,15 +15,15 @@ namespace Trinity
 
 	Application* CreateApplication(ApplicationCommandLineArgs args)
 	{
-		TR_INFO("Creating Application");
+		TR_INFO("Creating Application Specifications");
 
 		ApplicationSpecification specs;
-		specs.Name = "Forge";
+		specs.Title = "Forge";
 		specs.Width = 1920;
 		specs.Height = 1080;
 		specs.CommandLineArgs = args;
 
-		TR_INFO("Application Created");
+		TR_INFO("Application Specifications Created");
 
 		return new ForgeApp(specs);
 	}

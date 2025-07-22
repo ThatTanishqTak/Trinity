@@ -3,6 +3,7 @@
 #include <string>
 
 #include "Trinity/Utilities/Utilities.h"
+#include "Trinity/Window/Window.h"
 
 namespace Trinity
 {
@@ -14,7 +15,7 @@ namespace Trinity
 
 	struct ApplicationSpecification
 	{
-		std::string Name = "Trinity-Application";
+		std::string Title = "Trinity-Application";
 		unsigned int Width = 1920;
 		unsigned int Height = 1080;
 		ApplicationCommandLineArgs CommandLineArgs;
@@ -31,10 +32,10 @@ namespace Trinity
 		{
 			TR_CORE_INFO("Entering main loop");
 
-			while (true)
+			while (!m_Window->ShouldWindowClose())
 			{
-
 				// Poll events
+				m_Window->PollEvents();
 				
 				// Rendering
 			}
@@ -44,5 +45,7 @@ namespace Trinity
 
 	protected:
 		ApplicationSpecification m_Specification;
+
+		std::unique_ptr<Window> m_Window;
 	};
 }
