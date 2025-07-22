@@ -12,7 +12,7 @@ namespace Trinity
 
 	bool Window::Initialize()
 	{
-		TR_CORE_TRACE("Initializing window");
+		TR_CORE_INFO("-------INITIALIZING WINDOW-------");
 
 		if (!glfwInit())
 		{
@@ -33,14 +33,14 @@ namespace Trinity
 			return false;
 		}
 
-		TR_CORE_TRACE("Window initialized");
+		TR_CORE_INFO("-------WINDOW INITIALIZED-------");
 
 		return true;
 	}
 
 	void Window::Shutdown()
 	{
-		TR_CORE_TRACE("Shuting down window");
+		TR_CORE_INFO("-------SHUTTING DOWN WINDOW-------");
 
 		if (m_Window)
 		{
@@ -50,7 +50,7 @@ namespace Trinity
 			glfwTerminate();
 		}
 
-		TR_CORE_TRACE("Window shutdown");
+		TR_CORE_INFO("-------WINDOW SHUTDOWN COMPLETE-------");
 	}
 
 	bool Window::ShouldWindowClose() const

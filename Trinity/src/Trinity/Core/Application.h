@@ -4,6 +4,7 @@
 
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Window/Window.h"
+#include "Trinity/Vulkan/VulkanContext.h"
 
 namespace Trinity
 {
@@ -47,5 +48,6 @@ namespace Trinity
 		ApplicationSpecification m_Specification;
 
 		std::unique_ptr<Window> m_Window;
+		std::unique_ptr<VulkanContext> m_VulkanContext;
 	};
 }

@@ -11,17 +11,28 @@ namespace Trinity
 		{
 			TR_CORE_ERROR("Failed to initialize window");
 		}
+
+		m_VulkanContext = std::make_unique<VulkanContext>();
+		if (!m_VulkanContext->Initialize())
+		{
+			TR_CORE_ERROR("Failed to initialize vulkan");
+		}
 	}
 
 	Application::~Application()
 	{
-		TR_CORE_INFO("Application Shuting Down");
+		TR_CORE_INFO("-------SHUTTING DOWN APPLICATION-------");
+
+		if (m_VulkanContext)
+		{
+			m_VulkanContext->Shutdown();
+		}
 
 		if (m_Window)
 		{
 			m_Window->Shutdown();
 		}
 
-		TR_CORE_INFO("Application Shutdown Complete");
+		TR_CORE_INFO("-------APPLICATION SHUTDOWN COMPLETE-------");
 	}
 }
