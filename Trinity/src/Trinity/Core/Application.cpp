@@ -6,6 +6,8 @@ namespace Trinity
 {
 	Application::Application(const ApplicationSpecification& specification) : m_Specification(specification)
 	{
+		TR_CORE_INFO("-------INITIALIZING APPLICATION-------");
+
 		m_Window = std::make_unique<Window>(WindowSpecification{ m_Specification.Title, m_Specification.Width, m_Specification.Height });
 		if (!m_Window->Initialize())
 		{
@@ -17,6 +19,8 @@ namespace Trinity
 		{
 			TR_CORE_ERROR("Failed to initialize vulkan");
 		}
+
+		TR_CORE_INFO("-------APPLICATION INITIALIZED-------");
 	}
 
 	Application::~Application()
