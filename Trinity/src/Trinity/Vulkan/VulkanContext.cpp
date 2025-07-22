@@ -15,6 +15,7 @@ namespace Trinity
 
 		CreateInstance();
 		SetupDebugMessenger();
+		PickPhysicalDevice();
 
 		TR_CORE_INFO("-------VULKAN INITIALIZED-------");
 
@@ -139,12 +140,12 @@ namespace Trinity
 
 	void VulkanContext::SetupDebugMessenger()
 	{
-		TR_CORE_TRACE("Creating debug messenger");
-
 		if (!s_EnableValidationLayers)
 		{
 			return;
 		}
+
+		TR_CORE_TRACE("Creating debug messenger");
 
 		VkDebugUtilsMessengerCreateInfoEXT createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -161,6 +162,39 @@ namespace Trinity
 
 		TR_CORE_TRACE("Debug messenger created");
 	}
+
+	void VulkanContext::PickPhysicalDevice()
+	{
+		TR_CORE_TRACE("Selecting suitable graphics card");
+
+		uint32_t deviceCount = 0;
+		vkEnumeratePhysicalDevices(m_Instance, &deviceCount, nullptr);
+
+		if (deviceCount == 0)
+		{
+			TR_CORE_CRITICAL("No graphics card supports vulkan");
+		}
+
+		std::vector<VkPhysicalDevice> devices(deviceCount);
+		vkEnumeratePhysicalDevices(m_Instance, &deviceCount, devices.data());
+
+		for (const auto& it_device : devices)
+		{
+			if (IsDeviceSuitable(it_device))
+			{
+				m_PhysicalDevice = it_device;
+
+				break;
+			}
+		}
+
+		if (m_PhysicalDevice == VK_NULL_HANDLE)
+		{
+			TR_CORE_CRITICAL("No suitable graphics card found");
+		}
+	}
+
+	//----------------------------------------------------------------------------------------------------------------------------------------------------//
 
 	bool VulkanContext::CheckValidationLayerSupport()
 	{
@@ -191,6 +225,19 @@ namespace Trinity
 		}
 
 		return true;
+	}
+
+	bool VulkanContext::IsDeviceSuitable(VkPhysicalDevice physicalDevice)
+	{
+		VkPhysicalDeviceProperties deviceProperties;
+		VkPhysicalDeviceFeatures deviceFeatures;
+
+		vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+		vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
+
+		TR_CORE_TRACE("Graphics card selected {}", deviceProperties.deviceName);
+
+		return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && deviceFeatures.geometryShader;
 	}
 
 	VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType,
