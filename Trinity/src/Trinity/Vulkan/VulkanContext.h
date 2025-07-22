@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <optional>
 
 #if _DEBUG
 static constexpr bool s_EnableValidationLayers = true;

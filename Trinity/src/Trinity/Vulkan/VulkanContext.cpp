@@ -16,6 +16,7 @@ namespace Trinity
 		CreateInstance();
 		SetupDebugMessenger();
 		PickPhysicalDevice();
+		CreateLogicalDevice();
 
 		TR_CORE_INFO("-------VULKAN INITIALIZED-------");
 
@@ -219,6 +220,8 @@ namespace Trinity
 
 	void VulkanContext::CreateLogicalDevice()
 	{
+		TR_CORE_TRACE("Creating logical device");
+
 		QueueFamilyIndices indices = FindQueueFamilies(m_PhysicalDevice);
 
 		VkDeviceQueueCreateInfo queueCreateInfo{};
@@ -256,6 +259,8 @@ namespace Trinity
 		{
 			TR_CORE_CRITICAL("Failed to create logical device");
 		}
+
+		TR_CORE_TRACE("Logical device created");
 	}
 
 	//----------------------------------------------------------------------------------------------------------------------------------------------------//
