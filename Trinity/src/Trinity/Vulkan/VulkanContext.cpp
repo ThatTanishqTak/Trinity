@@ -26,6 +26,9 @@ namespace Trinity
 	{
 		TR_CORE_INFO("-------SHUTTING DOWN VULKAN-------");
 
+		vkDestroyDevice(m_Device, nullptr);
+		TR_CORE_TRACE("Logical device destroyed");
+
 		if (s_EnableValidationLayers)
 		{
 			auto function = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_Instance, "vkDestroyDebugUtilsMessengerEXT");
@@ -178,19 +181,80 @@ namespace Trinity
 		std::vector<VkPhysicalDevice> devices(deviceCount);
 		vkEnumeratePhysicalDevices(m_Instance, &deviceCount, devices.data());
 
-		for (const auto& it_device : devices)
+		TR_CORE_TRACE("Available graphics cards:");
+		for (const auto& device : devices)
 		{
-			if (IsDeviceSuitable(it_device))
-			{
-				m_PhysicalDevice = it_device;
+			VkPhysicalDeviceProperties props;
+			vkGetPhysicalDeviceProperties(device, &props);
 
-				break;
+			TR_CORE_TRACE(" - {}", props.deviceName);
+		}
+
+		int bestScore = 0;
+		for (const auto& device : devices)
+		{
+			int score = IsDeviceSuitable(device);
+			if (score > bestScore)
+			{
+				bestScore = score;
+				m_PhysicalDevice = device;
 			}
 		}
 
-		if (m_PhysicalDevice == VK_NULL_HANDLE)
+		if (m_PhysicalDevice != VK_NULL_HANDLE)
+		{
+			VkPhysicalDeviceProperties props;
+			vkGetPhysicalDeviceProperties(m_PhysicalDevice, &props);
+
+			m_QueueFamilyIndices = FindQueueFamilies(m_PhysicalDevice);
+			
+			TR_CORE_TRACE("Picked graphics card: {}", props.deviceName);
+		}
+
+		else
 		{
 			TR_CORE_CRITICAL("No suitable graphics card found");
+		}
+	}
+
+	void VulkanContext::CreateLogicalDevice()
+	{
+		QueueFamilyIndices indices = FindQueueFamilies(m_PhysicalDevice);
+
+		VkDeviceQueueCreateInfo queueCreateInfo{};
+		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queueCreateInfo.queueFamilyIndex = indices.GraphicsFamily.value();
+		queueCreateInfo.queueCount = 1;
+
+		float queuePriority = 1.0f;
+		queueCreateInfo.pQueuePriorities = &queuePriority;
+
+		VkPhysicalDeviceFeatures deviceFeatures{};
+
+		VkDeviceCreateInfo createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+
+		createInfo.pQueueCreateInfos = &queueCreateInfo;
+		createInfo.queueCreateInfoCount = 1;
+
+		createInfo.pEnabledFeatures = &deviceFeatures;
+
+		createInfo.enabledExtensionCount = 0;
+
+		if (s_EnableValidationLayers)
+		{
+			createInfo.enabledLayerCount = static_cast<uint32_t>(m_ValidationLayers.size());
+			createInfo.ppEnabledLayerNames = m_ValidationLayers.data();
+		}
+
+		else
+		{
+			createInfo.enabledLayerCount = 0;
+		}
+
+		if (vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_Device) != VK_SUCCESS)
+		{
+			TR_CORE_CRITICAL("Failed to create logical device");
 		}
 	}
 
@@ -227,7 +291,7 @@ namespace Trinity
 		return true;
 	}
 
-	bool VulkanContext::IsDeviceSuitable(VkPhysicalDevice physicalDevice)
+	int VulkanContext::IsDeviceSuitable(VkPhysicalDevice physicalDevice)
 	{
 		VkPhysicalDeviceProperties deviceProperties;
 		VkPhysicalDeviceFeatures deviceFeatures;
@@ -235,9 +299,54 @@ namespace Trinity
 		vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
 		vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
 
-		TR_CORE_TRACE("Graphics card selected {}", deviceProperties.deviceName);
+		QueueFamilyIndices indices = FindQueueFamilies(physicalDevice);
 
-		return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && deviceFeatures.geometryShader;
+		TR_CORE_TRACE("Graphics card candidate {}", deviceProperties.deviceName);
+
+		if (!indices.IsComplete() || !deviceFeatures.geometryShader)
+		{
+			return 0;
+		}
+
+		int score = 0;
+
+		if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+		{
+			score += 1000;
+		}
+
+		score += deviceProperties.limits.maxImageDimension2D;
+
+		return score;
+	}
+
+	QueueFamilyIndices VulkanContext::FindQueueFamilies(VkPhysicalDevice device)
+	{
+		QueueFamilyIndices indices;
+
+		uint32_t queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+		int i = 0;
+		for (const auto& queueFamily : queueFamilies)
+		{
+			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+			{
+				indices.GraphicsFamily = i;
+			}
+
+			if (indices.IsComplete())
+			{
+				break;
+			}
+
+			i++;
+		}
+
+		return indices;
 	}
 
 	VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType,
