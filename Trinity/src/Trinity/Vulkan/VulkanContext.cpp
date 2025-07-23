@@ -35,7 +35,7 @@ namespace Trinity
 		{
 			vkDestroyImageView(m_Device, it_ImageView, nullptr);
 		}
-		TR_CORE_TRACE("Swap chain image views destroyed");
+		TR_CORE_TRACE("Image views destroyed");
 
 		vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
 		TR_CORE_TRACE("Swap chain destroyed");
@@ -49,7 +49,6 @@ namespace Trinity
 			if (function)
 			{
 				function(m_Instance, m_DebugMessenger, nullptr);
-
 				TR_CORE_TRACE("Debug messenger destroyed");
 			}
 		}
@@ -136,14 +135,14 @@ namespace Trinity
 			createInfo.pNext = nullptr;
 		}
 
+		createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+
 		if (vkCreateInstance(&createInfo, nullptr, &m_Instance) != VK_SUCCESS)
 		{
 			TR_CORE_CRITICAL("Failed to create vulkan instance");
 
 			return;
 		}
-
-		createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 
 		uint32_t extensionCount = 0;
 		vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
@@ -377,11 +376,11 @@ namespace Trinity
 
 	void VulkanContext::CreateImageViews()
 	{
-		TR_CORE_TRACE("Creating swap chain image views");
+		TR_CORE_TRACE("Creating image views");
 
 		m_SwapChainImageViews.resize(m_SwapChainImages.size());
 
-		for (int i = 0; i < m_SwapChainImages.size(); i++)
+		for (size_t i = 0; i < m_SwapChainImages.size(); i++)
 		{
 			VkImageViewCreateInfo createInfo{};
 			createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -404,7 +403,7 @@ namespace Trinity
 			}
 		}
 
-		TR_CORE_TRACE("Swap chain image views created ({})", m_SwapChainImages.size());
+		TR_CORE_TRACE("Image views created ({})", m_SwapChainImages.size());
 	}
 
 	//----------------------------------------------------------------------------------------------------------------------------------------------------//

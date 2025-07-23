@@ -31,7 +31,7 @@ namespace Trinity
 
 		virtual void Run()
 		{
-			TR_CORE_INFO("Entering main loop");
+			TR_CORE_TRACE("Entering main loop");
 
 			while (!m_Window->ShouldWindowClose())
 			{
@@ -41,7 +41,7 @@ namespace Trinity
 				// Rendering
 			}
 
-			TR_CORE_INFO("Exiting main loop");
+			TR_CORE_TRACE("Exiting main loop");
 		}
 
 	protected:

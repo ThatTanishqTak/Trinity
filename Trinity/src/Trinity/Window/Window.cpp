@@ -52,8 +52,10 @@ namespace Trinity
 		{
 			glfwDestroyWindow(m_Window);
 			m_Window = nullptr;
+			TR_CORE_TRACE("Window handle destroyed");
 
 			glfwTerminate();
+			TR_CORE_TRACE("GLFW terminated");
 		}
 
 		TR_CORE_INFO("-------WINDOW SHUTDOWN COMPLETE-------");
