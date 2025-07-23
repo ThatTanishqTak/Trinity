@@ -14,7 +14,7 @@ namespace Trinity
 			TR_CORE_ERROR("Failed to initialize window");
 		}
 
-		m_VulkanContext = std::make_unique<VulkanContext>();
+		m_VulkanContext = std::make_unique<VulkanContext>(m_Window->GetNativeWindow());
 		if (!m_VulkanContext->Initialize())
 		{
 			TR_CORE_ERROR("Failed to initialize vulkan");

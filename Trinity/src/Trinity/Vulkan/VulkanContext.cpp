@@ -5,16 +5,20 @@
 
 #include <cstring>
 
-#include <GLFW/glfw3.h>
-
 namespace Trinity
 {
+	VulkanContext::VulkanContext(GLFWwindow* window) : m_Window(window)
+	{
+
+	}
+
 	bool VulkanContext::Initialize()
 	{
 		TR_CORE_INFO("-------INITIALIZING VULKAN-------");
 
 		CreateInstance();
 		SetupDebugMessenger();
+		CreateSurface();
 		PickPhysicalDevice();
 		CreateLogicalDevice();
 
@@ -40,6 +44,9 @@ namespace Trinity
 			}
 		}
 
+		vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
+		TR_CORE_TRACE("window surface destroyed");
+
 		vkDestroyInstance(m_Instance, nullptr);
 		TR_CORE_TRACE("Vulkan instance destroyed");
 
@@ -55,8 +62,8 @@ namespace Trinity
 		appInfo.pApplicationName = "Forge";
 		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
 		appInfo.pEngineName = "Trinity";
-		appInfo.engineVersion = VK_MAKE_VERSION(1, 4, 0);
-		appInfo.apiVersion = VK_API_VERSION_1_4;
+		appInfo.engineVersion = VK_MAKE_VERSION(1, 3, 0);
+		appInfo.apiVersion = VK_API_VERSION_1_3;
 
 		VkInstanceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -165,6 +172,18 @@ namespace Trinity
 		}
 
 		TR_CORE_TRACE("Debug messenger created");
+	}
+
+	void VulkanContext::CreateSurface()
+	{
+		TR_CORE_TRACE("Creating window surface");
+
+		if (glfwCreateWindowSurface(m_Instance, m_Window, nullptr, &m_Surface) != VK_SUCCESS)
+		{
+			TR_CORE_ERROR("Failed to create window surface");
+		}
+
+		TR_CORE_TRACE("Window surface created");
 	}
 
 	void VulkanContext::PickPhysicalDevice()
@@ -325,15 +344,15 @@ namespace Trinity
 		return score;
 	}
 
-	QueueFamilyIndices VulkanContext::FindQueueFamilies(VkPhysicalDevice device)
+	QueueFamilyIndices VulkanContext::FindQueueFamilies(VkPhysicalDevice physicalDevice)
 	{
 		QueueFamilyIndices indices;
 
 		uint32_t queueFamilyCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+		vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
 
 		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+		vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
 
 		int i = 0;
 		for (const auto& queueFamily : queueFamilies)

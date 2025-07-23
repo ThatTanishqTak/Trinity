@@ -1,10 +1,13 @@
 #pragma once
 
 #include "vulkan/vulkan.h"
+#include <GLFW/glfw3.h>
 
 #include <vector>
 #include <cstdint>
 #include <optional>
+
+#include "Trinity/Window/Window.h"
 
 #if _DEBUG
 static constexpr bool s_EnableValidationLayers = true;
@@ -25,6 +28,7 @@ namespace Trinity
 	{
 	public:
 		VulkanContext() = default;
+		VulkanContext(GLFWwindow* window);
 		~VulkanContext() = default;
 
 		bool Initialize();
@@ -33,6 +37,7 @@ namespace Trinity
 	private:
 		void CreateInstance();
 		void SetupDebugMessenger();
+		void CreateSurface();
 		void PickPhysicalDevice();
 		void CreateLogicalDevice();
 
@@ -51,7 +56,10 @@ namespace Trinity
 		VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
 		QueueFamilyIndices m_QueueFamilyIndices{};
 		VkDevice m_Device = VK_NULL_HANDLE;
+		VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
 
 		std::vector<const char*> m_ValidationLayers{ "VK_LAYER_KHRONOS_validation" };
+
+		GLFWwindow* m_Window;
 	};
 }
