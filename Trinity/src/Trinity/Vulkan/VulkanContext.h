@@ -41,12 +41,24 @@ namespace Trinity
 		void CreateSurface();
 		void PickPhysicalDevice();
 		void CreateLogicalDevice();
+		void CreateSwapChain();
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 		// Helper functions
 		bool CheckValidationLayerSupport();
 		int IsDeviceSuitable(VkPhysicalDevice physicalDevice);
-		QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device);
+		QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice physicalDevice);
+		bool CheckDeviceExtensionSupport(VkPhysicalDevice physicalDevice);
+		struct SwapChainSupportDetails
+		{
+			VkSurfaceCapabilitiesKHR Capabilities;
+			std::vector<VkSurfaceFormatKHR> Formats;
+			std::vector<VkPresentModeKHR> PresentModes;
+		};
+		SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice physicalDevice);
+		VkSurfaceFormatKHR ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
+		VkPresentModeKHR ChooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
+		VkExtent2D ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
 
 		static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType,
 			const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
@@ -61,7 +73,13 @@ namespace Trinity
 		VkQueue m_PresentQueue = VK_NULL_HANDLE;
 		VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
 
+		VkSwapchainKHR m_SwapChain = VK_NULL_HANDLE;
+		std::vector<VkImage> m_SwapChainImages;
+		VkFormat m_SwapChainImageFormat = VK_FORMAT_UNDEFINED;
+		VkExtent2D m_SwapChainExtent{};
+
 		std::vector<const char*> m_ValidationLayers{ "VK_LAYER_KHRONOS_validation" };
+		std::vector<const char*> m_DeviceExtensions{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
 		GLFWwindow* m_Window;
 	};

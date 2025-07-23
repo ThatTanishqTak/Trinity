@@ -14,12 +14,16 @@ namespace Trinity
 	{
 		TR_CORE_INFO("-------INITIALIZING WINDOW-------");
 
+		TR_CORE_TRACE("Initializing GLFW");
+
 		if (!glfwInit())
 		{
 			TR_CORE_ERROR("Failed to initialize GLFW");
 
 			return false;
 		}
+
+		TR_CORE_TRACE("GLFW initialized");
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
@@ -32,6 +36,8 @@ namespace Trinity
 
 			return false;
 		}
+
+		TR_CORE_TRACE("Window dimensions: {}X{}, Title: {}", m_Specification.Width, m_Specification.Height, m_Specification.Title);
 
 		TR_CORE_INFO("-------WINDOW INITIALIZED-------");
 
