@@ -20,6 +20,7 @@ namespace Trinity
 		PickPhysicalDevice();
 		CreateLogicalDevice();
 		CreateSwapChain();
+		CreateImageViews();
 
 		TR_CORE_INFO("-------VULKAN INITIALIZED-------");
 
@@ -29,6 +30,12 @@ namespace Trinity
 	void VulkanContext::Shutdown()
 	{
 		TR_CORE_INFO("-------SHUTTING DOWN VULKAN-------");
+
+		for (auto it_ImageView : m_SwapChainImageViews)
+		{
+			vkDestroyImageView(m_Device, it_ImageView, nullptr);
+		}
+		TR_CORE_TRACE("Swap chain image views destroyed");
 
 		vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
 		TR_CORE_TRACE("Swap chain destroyed");
@@ -55,6 +62,8 @@ namespace Trinity
 
 		TR_CORE_INFO("-------VULKAN SHUTDOWN COMPLETE-------");
 	}
+
+	//----------------------------------------------------------------------------------------------------------------------------------------------------//
 
 	void VulkanContext::CreateInstance()
 	{
@@ -364,6 +373,38 @@ namespace Trinity
 		m_SwapChainExtent = extent;
 
 		TR_CORE_TRACE("Swap chain created");
+	}
+
+	void VulkanContext::CreateImageViews()
+	{
+		TR_CORE_TRACE("Creating swap chain image views");
+
+		m_SwapChainImageViews.resize(m_SwapChainImages.size());
+
+		for (int i = 0; i < m_SwapChainImages.size(); i++)
+		{
+			VkImageViewCreateInfo createInfo{};
+			createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			createInfo.image = m_SwapChainImages[i];
+			createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			createInfo.format = m_SwapChainImageFormat;
+			createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			createInfo.subresourceRange.baseMipLevel = 0;
+			createInfo.subresourceRange.levelCount = 1;
+			createInfo.subresourceRange.baseArrayLayer = 0;
+			createInfo.subresourceRange.layerCount = 1;
+
+			if (vkCreateImageView(m_Device, &createInfo, nullptr, &m_SwapChainImageViews[i]) != VK_SUCCESS)
+			{
+				TR_CORE_ERROR("Failed to create image views");
+			}
+		}
+
+		TR_CORE_TRACE("Swap chain image views created ({})", m_SwapChainImages.size());
 	}
 
 	//----------------------------------------------------------------------------------------------------------------------------------------------------//

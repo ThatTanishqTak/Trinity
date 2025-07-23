@@ -59,6 +59,8 @@ namespace Trinity
 		TR_CORE_INFO("-------WINDOW SHUTDOWN COMPLETE-------");
 	}
 
+	//----------------------------------------------------------------------------------------------------------------------------------------------------//
+
 	bool Window::ShouldWindowClose() const
 	{
 		return m_Window && glfwWindowShouldClose(m_Window);

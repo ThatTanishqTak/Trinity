@@ -42,6 +42,7 @@ namespace Trinity
 		void PickPhysicalDevice();
 		void CreateLogicalDevice();
 		void CreateSwapChain();
+		void CreateImageViews();
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 		// Helper functions
@@ -74,9 +75,11 @@ namespace Trinity
 		VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
 
 		VkSwapchainKHR m_SwapChain = VK_NULL_HANDLE;
-		std::vector<VkImage> m_SwapChainImages;
+		std::vector<VkImage> m_SwapChainImages{};
 		VkFormat m_SwapChainImageFormat = VK_FORMAT_UNDEFINED;
 		VkExtent2D m_SwapChainExtent{};
+
+		std::vector<VkImageView> m_SwapChainImageViews{};
 
 		std::vector<const char*> m_ValidationLayers{ "VK_LAYER_KHRONOS_validation" };
 		std::vector<const char*> m_DeviceExtensions{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
