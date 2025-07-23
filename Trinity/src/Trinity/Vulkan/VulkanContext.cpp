@@ -40,6 +40,7 @@ namespace Trinity
 			if (function)
 			{
 				function(m_Instance, m_DebugMessenger, nullptr);
+
 				TR_CORE_TRACE("Debug messenger destroyed");
 			}
 		}
@@ -143,7 +144,7 @@ namespace Trinity
 
 		for (const auto& it_extension : extensions)
 		{
-			TR_CORE_TRACE("\t{}", it_extension.extensionName);
+			TR_CORE_TRACE(" - {}", it_extension.extensionName);
 		}
 
 		TR_CORE_TRACE("Vulkan Instance Created");
@@ -241,23 +242,34 @@ namespace Trinity
 	{
 		TR_CORE_TRACE("Creating logical device");
 
-		QueueFamilyIndices indices = FindQueueFamilies(m_PhysicalDevice);
-
-		VkDeviceQueueCreateInfo queueCreateInfo{};
-		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-		queueCreateInfo.queueFamilyIndex = indices.GraphicsFamily.value();
-		queueCreateInfo.queueCount = 1;
+		QueueFamilyIndices indices = m_QueueFamilyIndices;
 
 		float queuePriority = 1.0f;
-		queueCreateInfo.pQueuePriorities = &queuePriority;
+		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+		std::vector<uint32_t> uniqueQueueFamilies;
+		uniqueQueueFamilies.push_back(indices.GraphicsFamily.value());
+		if (indices.PresentFamily != indices.GraphicsFamily)
+		{
+			uniqueQueueFamilies.push_back(indices.PresentFamily.value());
+		}
+
+		for (uint32_t queueFamily : uniqueQueueFamilies)
+		{
+			VkDeviceQueueCreateInfo queueCreateInfo{};
+			queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+			queueCreateInfo.queueFamilyIndex = queueFamily;
+			queueCreateInfo.queueCount = 1;
+			queueCreateInfo.pQueuePriorities = &queuePriority;
+			queueCreateInfos.push_back(queueCreateInfo);
+		}
 
 		VkPhysicalDeviceFeatures deviceFeatures{};
 
 		VkDeviceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 
-		createInfo.pQueueCreateInfos = &queueCreateInfo;
-		createInfo.queueCreateInfoCount = 1;
+		createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+		createInfo.pQueueCreateInfos = queueCreateInfos.data();
 
 		createInfo.pEnabledFeatures = &deviceFeatures;
 
@@ -278,6 +290,9 @@ namespace Trinity
 		{
 			TR_CORE_CRITICAL("Failed to create logical device");
 		}
+
+		vkGetDeviceQueue(m_Device, indices.GraphicsFamily.value(), 0, &m_GraphicsQueue);
+		vkGetDeviceQueue(m_Device, indices.PresentFamily.value(), 0, &m_PresentQueue);
 
 		TR_CORE_TRACE("Logical device created");
 	}
@@ -325,8 +340,6 @@ namespace Trinity
 
 		QueueFamilyIndices indices = FindQueueFamilies(physicalDevice);
 
-		TR_CORE_TRACE("Graphics card candidate {}", deviceProperties.deviceName);
-
 		if (!indices.IsComplete() || !deviceFeatures.geometryShader)
 		{
 			return 0;
@@ -360,6 +373,13 @@ namespace Trinity
 			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
 			{
 				indices.GraphicsFamily = i;
+			}
+
+			VkBool32 presentSupport = VK_FALSE;
+			vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, m_Surface, &presentSupport);
+			if (presentSupport)
+			{
+				indices.PresentFamily = i;
 			}
 
 			if (indices.IsComplete())
