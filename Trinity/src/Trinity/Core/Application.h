@@ -5,6 +5,7 @@
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Window/Window.h"
 #include "Trinity/Vulkan/VulkanContext.h"
+#include "Trinity/Renderer/Renderer.h"
 
 namespace Trinity
 {
@@ -39,6 +40,7 @@ namespace Trinity
 				m_Window->PollEvents();
 				
 				// Rendering
+				m_Renderer->DrawFrame();
 			}
 
 			TR_CORE_TRACE("Exiting main loop");
@@ -49,5 +51,6 @@ namespace Trinity
 
 		std::unique_ptr<Window> m_Window;
 		std::unique_ptr<VulkanContext> m_VulkanContext;
+		std::unique_ptr<Renderer> m_Renderer;
 	};
 }

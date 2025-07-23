@@ -31,5 +31,33 @@ namespace Trinity
 			s_ClientLogger->set_level(spdlog::level::trace);
 			s_ClientLogger->flush_on(spdlog::level::trace);
 		}
+
+		static std::vector<std::byte> ReadFile(const std::filesystem::path& filepath)
+        {
+            const auto fileSize = std::filesystem::file_size(filepath);
+
+            std::ifstream file(filepath, std::ios::binary);
+            if (!file)
+            {
+				TR_CORE_ERROR("Failed to open file: {}", filepath.string());
+
+				return std::vector<std::byte>();
+            }
+
+            std::vector<std::byte> buffer;
+            buffer.resize(fileSize);
+            if (fileSize > 0)
+            {
+                file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(fileSize));
+                if (!file)
+                {
+                    TR_CORE_ERROR("Failed to read file: {}", filepath.string());
+
+					return std::vector<std::byte>();
+                }
+            }
+
+            return buffer;
+        }
 	}
 }
