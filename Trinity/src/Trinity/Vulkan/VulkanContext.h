@@ -35,6 +35,8 @@ namespace Trinity
 		bool Initialize();
 		void Shutdown();
 
+		VkDevice GetDevice() const { return m_Device; }
+
 	private:
 		void CreateInstance();
 		void SetupDebugMessenger();

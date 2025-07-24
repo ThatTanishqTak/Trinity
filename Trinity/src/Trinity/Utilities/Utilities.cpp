@@ -32,14 +32,21 @@ namespace Trinity
 			s_ClientLogger->flush_on(spdlog::level::trace);
 		}
 
-		static std::vector<std::byte> ReadFile(const std::filesystem::path& filepath)
+		std::vector<std::byte> FileManagement::ReadFile(const std::string& filePath)
         {
-            const auto fileSize = std::filesystem::file_size(filepath);
+			if (!std::filesystem::exists(filePath))
+			{
+				TR_CORE_ERROR("File does not exist: {}", filePath);
 
-            std::ifstream file(filepath, std::ios::binary);
+				return std::vector<std::byte>();
+			}
+
+            const auto fileSize = std::filesystem::file_size(filePath);
+
+            std::ifstream file(filePath, std::ios::binary);
             if (!file)
             {
-				TR_CORE_ERROR("Failed to open file: {}", filepath.string());
+				TR_CORE_ERROR("Failed to open file: {}", filePath);
 
 				return std::vector<std::byte>();
             }
@@ -51,7 +58,7 @@ namespace Trinity
                 file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(fileSize));
                 if (!file)
                 {
-                    TR_CORE_ERROR("Failed to read file: {}", filepath.string());
+                    TR_CORE_ERROR("Failed to read file: {}", filePath);
 
 					return std::vector<std::byte>();
                 }

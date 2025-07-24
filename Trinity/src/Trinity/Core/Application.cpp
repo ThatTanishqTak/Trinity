@@ -20,7 +20,7 @@ namespace Trinity
 			TR_CORE_ERROR("Failed to initialize vulkan");
 		}
 
-		m_Renderer = std::make_unique<Renderer>();
+		m_Renderer = std::make_unique<Renderer>(m_VulkanContext.get());
 		if (!m_Renderer->Initialize())
 		{
 			TR_CORE_ERROR("Failed to initialize renderer");

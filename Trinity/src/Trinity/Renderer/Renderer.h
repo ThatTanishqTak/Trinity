@@ -1,19 +1,32 @@
 #pragma once
 
+#include <vector>
+#include <cstddef>
+#include <vulkan/vulkan.h>
+
 namespace Trinity
 {
-	class Renderer
-	{
-	public:
-		Renderer() = default;
-		~Renderer() = default;
+    class VulkanContext;
 
-		bool Initialize();
-		void Shutdown();
+    class Renderer
+    {
+    public:
+        Renderer() = default;
+        Renderer(VulkanContext* context);
+        ~Renderer() = default;
 
-		void DrawFrame();
+        bool Initialize();
+        void Shutdown();
 
-	private:
-		void CreateGraphicsPipeline();
-	};
+        void DrawFrame();
+
+    private:
+        void CreateGraphicsPipeline();
+
+        //----------------------------------------------------------------------------------------------------------------------------------------------------//
+
+        VkShaderModule CreateShaderModule(const std::vector<std::byte>& code);
+
+        VulkanContext* m_Context = nullptr;
+    };
 }
