@@ -26,10 +26,22 @@ namespace Trinity
 			static std::shared_ptr<spdlog::logger> s_ClientLogger;
 		};
 
+		//----------------------------------------------------------------------------------------------------------------------------------------------------//
+
 		class FileManagement
 		{
 		public:
 			static std::vector<std::byte> ReadFile(const std::string& filePath);
+		};
+
+		//----------------------------------------------------------------------------------------------------------------------------------------------------//
+
+		class Time
+		{
+		public:
+			static void Init();
+
+			static float GetDeltaTime();
 		};
 	}
 }

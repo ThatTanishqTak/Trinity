@@ -32,6 +32,8 @@ namespace Trinity
 			s_ClientLogger->flush_on(spdlog::level::trace);
 		}
 
+		//----------------------------------------------------------------------------------------------------------------------------------------------------//
+
 		std::vector<std::byte> FileManagement::ReadFile(const std::string& filePath)
         {
 			if (!std::filesystem::exists(filePath))
@@ -66,5 +68,12 @@ namespace Trinity
 
             return buffer;
         }
+
+		//----------------------------------------------------------------------------------------------------------------------------------------------------//
+
+		void Time::Init()
+		{
+
+		}
 	}
 }

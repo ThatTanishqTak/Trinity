@@ -11,6 +11,7 @@ namespace Trinity
 
 int main(int args, char** argv)
 {
+	Trinity::Utilities::Time::Init();
 	Trinity::Utilities::Log::Init();
 
 	auto app = Trinity::CreateApplication({ args, argv });
