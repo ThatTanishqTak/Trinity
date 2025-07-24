@@ -17,6 +17,7 @@ namespace Trinity
 
         CreateRenderPass();
         CreateGraphicsPipeline();
+        CreateFramebuffers();
 
         TR_CORE_INFO("-------RENDERER INITIALIZED-------");
 
@@ -26,6 +27,15 @@ namespace Trinity
     void Renderer::Shutdown()
     {
         TR_CORE_INFO("-------SHUTTING DOWN RENDERER-------");
+
+        if (!m_Framebuffers.empty())
+        {
+            for (auto it_Framebuffer : m_Framebuffers)
+            {
+                vkDestroyFramebuffer(m_Context->GetDevice(), it_Framebuffer, nullptr);
+            }
+            TR_CORE_TRACE("Framebuffers destroyed");
+        }
 
         if (m_GraphicsPipeline)
         {
@@ -227,6 +237,34 @@ namespace Trinity
         vkDestroyShaderModule(m_Context->GetDevice(), vertShader, nullptr);
 
         TR_CORE_TRACE("Graphics pipeline created");
+    }
+
+    void Renderer::CreateFramebuffers()
+    {
+        TR_CORE_TRACE("Creating framebuffers");
+
+        m_Framebuffers.resize(m_Context->GetSwapChainImages().size());
+
+        for (size_t i = 0; i < m_Context->GetSwapChainImages().size(); i++)
+        {
+            VkImageView attachments[] = { m_Context->GetSwapChainImages()[i] };
+
+            VkFramebufferCreateInfo framebufferInfo{};
+            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferInfo.renderPass = m_RenderPass;
+            framebufferInfo.attachmentCount = 1;
+            framebufferInfo.pAttachments = attachments;
+            framebufferInfo.width = m_Context->GetSwapChainExtent().width;
+            framebufferInfo.height = m_Context->GetSwapChainExtent().height;
+            framebufferInfo.layers = 1;
+
+            if (vkCreateFramebuffer(m_Context->GetDevice(), &framebufferInfo, nullptr, &m_Framebuffers[i]) != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Failed to create framebuffer");
+            }
+        }
+
+        TR_CORE_TRACE("Framebuffers created");
     }
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//

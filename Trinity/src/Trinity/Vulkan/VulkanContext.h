@@ -38,6 +38,7 @@ namespace Trinity
 		VkDevice GetDevice() const { return m_Device; }
 		VkExtent2D GetSwapChainExtent() const { return m_SwapChainExtent; }
 		VkFormat GetSwapChainImageFormat() const { return m_SwapChainImageFormat; }
+		std::vector<VkImageView> GetSwapChainImages() const { return m_SwapChainImageViews; }
 
 	private:
 		void CreateInstance();

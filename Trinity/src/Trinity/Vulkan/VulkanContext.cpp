@@ -45,10 +45,10 @@ namespace Trinity
 
 		if (s_EnableValidationLayers)
 		{
-			auto function = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_Instance, "vkDestroyDebugUtilsMessengerEXT");
-			if (function)
+			auto a_Function = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_Instance, "vkDestroyDebugUtilsMessengerEXT");
+			if (a_Function)
 			{
-				function(m_Instance, m_DebugMessenger, nullptr);
+				a_Function(m_Instance, m_DebugMessenger, nullptr);
 				TR_CORE_TRACE("Debug messenger destroyed");
 			}
 		}
@@ -85,7 +85,7 @@ namespace Trinity
 
 		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
-		std::vector<const char*> requiredExtensions;
+		std::vector<const char*> requiredExtensions{};
 		for (uint32_t i = 0; i < glfwExtensionCount; i++)
 		{
 			requiredExtensions.emplace_back(glfwExtensions[i]);
@@ -150,7 +150,7 @@ namespace Trinity
 		std::vector<VkExtensionProperties> extensions(extensionCount);
 		vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
 
-		TR_CORE_TRACE("Available extensions:");
+		TR_CORE_TRACE("Available extensions: {}", extensionCount);
 
 		for (const auto& it_extension : extensions)
 		{
@@ -212,7 +212,7 @@ namespace Trinity
 		std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
 		vkEnumeratePhysicalDevices(m_Instance, &deviceCount, physicalDevices.data());
 
-		TR_CORE_TRACE("Available graphics cards:");
+		TR_CORE_TRACE("Available graphics cards: {}", deviceCount);
 		for (const auto& it_physicalDevices : physicalDevices)
 		{
 			VkPhysicalDeviceProperties props;
@@ -255,8 +255,8 @@ namespace Trinity
 		QueueFamilyIndices indices = m_QueueFamilyIndices;
 
 		float queuePriority = 1.0f;
-		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-		std::vector<uint32_t> uniqueQueueFamilies;
+		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos{};
+		std::vector<uint32_t> uniqueQueueFamilies{};
 		uniqueQueueFamilies.push_back(indices.GraphicsFamily.value());
 		if (indices.PresentFamily != indices.GraphicsFamily)
 		{
@@ -403,7 +403,7 @@ namespace Trinity
 			}
 		}
 
-		TR_CORE_TRACE("Image views created ({})", m_SwapChainImages.size());
+		TR_CORE_TRACE("Image views created: {}", m_SwapChainImages.size());
 	}
 
 	//----------------------------------------------------------------------------------------------------------------------------------------------------//
