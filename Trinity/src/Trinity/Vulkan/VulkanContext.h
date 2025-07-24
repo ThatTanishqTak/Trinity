@@ -36,6 +36,8 @@ namespace Trinity
 		void Shutdown();
 
 		VkDevice GetDevice() const { return m_Device; }
+		VkExtent2D GetSwapChainExtent() const { return m_SwapChainExtent; }
+		VkFormat GetSwapChainImageFormat() const { return m_SwapChainImageFormat; }
 
 	private:
 		void CreateInstance();

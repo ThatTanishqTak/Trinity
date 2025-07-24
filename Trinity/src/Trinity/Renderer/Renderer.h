@@ -21,6 +21,7 @@ namespace Trinity
         void DrawFrame();
 
     private:
+        void CreateRenderPass();
         void CreateGraphicsPipeline();
 
         //----------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -28,5 +29,9 @@ namespace Trinity
         VkShaderModule CreateShaderModule(const std::vector<std::byte>& code);
 
         VulkanContext* m_Context = nullptr;
+
+        VkRenderPass m_RenderPass = VK_NULL_HANDLE;
+        VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
+        VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
     };
 }
