@@ -7,7 +7,7 @@ namespace Trinity
 	class ForgeApp : public Application
 	{
 	public:
-		ForgeApp(const ApplicationSpecification& specs) : Application(specs)
+		ForgeApp(const ApplicationSpecification& l_Specifications) : Application(l_Specifications)
 		{
 
 		}
@@ -17,14 +17,14 @@ namespace Trinity
 	{
 		TR_INFO("Creating Application Specifications");
 
-		ApplicationSpecification specs;
-		specs.Title = "Forge";
-		specs.Width = 1920;
-		specs.Height = 1080;
-		specs.CommandLineArgs = args;
+		ApplicationSpecification l_Specifications;
+		l_Specifications.Title = "Forge";
+		l_Specifications.Width = 1920;
+		l_Specifications.Height = 1080;
+		l_Specifications.CommandLineArgs = args;
 
 		TR_INFO("Application Specifications Created");
 
-		return new ForgeApp(specs);
+		return new ForgeApp(l_Specifications);
 	}
 }

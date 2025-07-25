@@ -68,37 +68,37 @@ namespace Trinity
 	{
 		TR_CORE_TRACE("Creating Vulkan Instance");
 
-		VkApplicationInfo appInfo{};
-		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-		appInfo.pApplicationName = "Forge";
-		appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-		appInfo.pEngineName = "Trinity";
-		appInfo.engineVersion = VK_MAKE_VERSION(1, 3, 0);
-		appInfo.apiVersion = VK_API_VERSION_1_3;
+		VkApplicationInfo l_AppInfo{};
+		l_AppInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+		l_AppInfo.pApplicationName = "Forge";
+		l_AppInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+		l_AppInfo.pEngineName = "Trinity";
+		l_AppInfo.engineVersion = VK_MAKE_VERSION(1, 3, 0);
+		l_AppInfo.apiVersion = VK_API_VERSION_1_3;
 
-		VkInstanceCreateInfo createInfo{};
-		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-		createInfo.pApplicationInfo = &appInfo;
+		VkInstanceCreateInfo l_CreateInfo{};
+		l_CreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+		l_CreateInfo.pApplicationInfo = &l_AppInfo;
 
-		uint32_t glfwExtensionCount = 0;
-		const char** glfwExtensions;
+		uint32_t l_GLFWExtensionCount = 0;
+		const char** l_GLFWExtensions;
 
-		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+		l_GLFWExtensions = glfwGetRequiredInstanceExtensions(&l_GLFWExtensionCount);
 
-		std::vector<const char*> requiredExtensions{};
-		for (uint32_t i = 0; i < glfwExtensionCount; i++)
+		std::vector<const char*> l_RequiredExtensions{};
+		for (uint32_t i = 0; i < l_GLFWExtensionCount; i++)
 		{
-			requiredExtensions.emplace_back(glfwExtensions[i]);
+			l_RequiredExtensions.emplace_back(l_GLFWExtensions[i]);
 		}
 
-		requiredExtensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+		l_RequiredExtensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 		if (s_EnableValidationLayers)
 		{
-			requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+			l_RequiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 		}
 
-		createInfo.enabledExtensionCount = (uint32_t)requiredExtensions.size();
-		createInfo.ppEnabledExtensionNames = requiredExtensions.data();
+		l_CreateInfo.enabledExtensionCount = (uint32_t)l_RequiredExtensions.size();
+		l_CreateInfo.ppEnabledExtensionNames = l_RequiredExtensions.data();
 
 		if (s_EnableValidationLayers)
 		{
@@ -109,50 +109,51 @@ namespace Trinity
 				return;
 			}
 
-			createInfo.enabledLayerCount = (uint32_t)m_ValidationLayers.size();
-			createInfo.ppEnabledLayerNames = m_ValidationLayers.data();
+			l_CreateInfo.enabledLayerCount = (uint32_t)m_ValidationLayers.size();
+			l_CreateInfo.ppEnabledLayerNames = m_ValidationLayers.data();
 		}
 
 		else
 		{
-			createInfo.enabledLayerCount = 0;
+			l_CreateInfo.enabledLayerCount = 0;
 		}
 
-		VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
+		VkDebugUtilsMessengerCreateInfoEXT l_DebugCreateInfo{};
 		if (s_EnableValidationLayers)
 		{
-			debugCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-			debugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+			l_DebugCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+			l_DebugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
 				VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-			debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-			debugCreateInfo.pfnUserCallback = DebugCallback;
-			debugCreateInfo.pUserData = nullptr;
-			createInfo.pNext = &debugCreateInfo;
+			l_DebugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+			l_DebugCreateInfo.pfnUserCallback = DebugCallback;
+			l_DebugCreateInfo.pUserData = nullptr;
+
+			l_CreateInfo.pNext = &l_DebugCreateInfo;
 		}
 
 		else
 		{
-			createInfo.pNext = nullptr;
+			l_CreateInfo.pNext = nullptr;
 		}
 
-		createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+		l_CreateInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 
-		if (vkCreateInstance(&createInfo, nullptr, &m_Instance) != VK_SUCCESS)
+		if (vkCreateInstance(&l_CreateInfo, nullptr, &m_Instance) != VK_SUCCESS)
 		{
 			TR_CORE_CRITICAL("Failed to create vulkan instance");
 
 			return;
 		}
 
-		uint32_t extensionCount = 0;
-		vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+		uint32_t l_ExtensionCount = 0;
+		vkEnumerateInstanceExtensionProperties(nullptr, &l_ExtensionCount, nullptr);
 
-		std::vector<VkExtensionProperties> extensions(extensionCount);
-		vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
+		std::vector<VkExtensionProperties> l_Extensions(l_ExtensionCount);
+		vkEnumerateInstanceExtensionProperties(nullptr, &l_ExtensionCount, l_Extensions.data());
 
-		TR_CORE_TRACE("Available extensions: {}", extensionCount);
+		TR_CORE_TRACE("Available extensions: {}", l_ExtensionCount);
 
-		for (const auto& it_extension : extensions)
+		for (const auto& it_extension : l_Extensions)
 		{
 			TR_CORE_TRACE(" - {}", it_extension.extensionName);
 		}
@@ -169,17 +170,17 @@ namespace Trinity
 
 		TR_CORE_TRACE("Creating debug messenger");
 
-		VkDebugUtilsMessengerCreateInfoEXT createInfo{};
-		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-		createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-		createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-		createInfo.pfnUserCallback = DebugCallback;
-		createInfo.pUserData = nullptr;
+		VkDebugUtilsMessengerCreateInfoEXT l_CreateInfo{};
+		l_CreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		l_CreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+		l_CreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+		l_CreateInfo.pfnUserCallback = DebugCallback;
+		l_CreateInfo.pUserData = nullptr;
 
-		auto function = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_Instance, "vkCreateDebugUtilsMessengerEXT");
-		if (function != nullptr)
+		auto a_Function = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_Instance, "vkCreateDebugUtilsMessengerEXT");
+		if (a_Function != nullptr)
 		{
-			function(m_Instance, &createInfo, nullptr, &m_DebugMessenger);
+			a_Function(m_Instance, &l_CreateInfo, nullptr, &m_DebugMessenger);
 		}
 
 		TR_CORE_TRACE("Debug messenger created");
@@ -201,45 +202,45 @@ namespace Trinity
 	{
 		TR_CORE_TRACE("Selecting suitable graphics card");
 
-		uint32_t deviceCount = 0;
-		vkEnumeratePhysicalDevices(m_Instance, &deviceCount, nullptr);
+		uint32_t l_DeviceCount = 0;
+		vkEnumeratePhysicalDevices(m_Instance, &l_DeviceCount, nullptr);
 
-		if (deviceCount == 0)
+		if (l_DeviceCount == 0)
 		{
 			TR_CORE_CRITICAL("No graphics card supports vulkan");
 		}
 
-		std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
-		vkEnumeratePhysicalDevices(m_Instance, &deviceCount, physicalDevices.data());
+		std::vector<VkPhysicalDevice> l_PhysicalDevices(l_DeviceCount);
+		vkEnumeratePhysicalDevices(m_Instance, &l_DeviceCount, l_PhysicalDevices.data());
 
-		TR_CORE_TRACE("Available graphics cards: {}", deviceCount);
-		for (const auto& it_physicalDevices : physicalDevices)
+		TR_CORE_TRACE("Available graphics cards: {}", l_DeviceCount);
+		for (const auto& it_physicalDevices : l_PhysicalDevices)
 		{
-			VkPhysicalDeviceProperties props;
-			vkGetPhysicalDeviceProperties(it_physicalDevices, &props);
+			VkPhysicalDeviceProperties l_Properties;
+			vkGetPhysicalDeviceProperties(it_physicalDevices, &l_Properties);
 
-			TR_CORE_TRACE(" - {}", props.deviceName);
+			TR_CORE_TRACE(" - {}", l_Properties.deviceName);
 		}
 
-		int bestScore = 0;
-		for (const auto& it_physicalDevices : physicalDevices)
+		int l_BestScore = 0;
+		for (const auto& it_physicalDevices : l_PhysicalDevices)
 		{
-			int score = IsDeviceSuitable(it_physicalDevices);
-			if (score > bestScore)
+			int l_Score = IsDeviceSuitable(it_physicalDevices);
+			if (l_Score > l_BestScore)
 			{
-				bestScore = score;
+				l_BestScore = l_Score;
 				m_PhysicalDevice = it_physicalDevices;
 			}
 		}
 
 		if (m_PhysicalDevice != VK_NULL_HANDLE)
 		{
-			VkPhysicalDeviceProperties props;
-			vkGetPhysicalDeviceProperties(m_PhysicalDevice, &props);
+			VkPhysicalDeviceProperties l_Properties;
+			vkGetPhysicalDeviceProperties(m_PhysicalDevice, &l_Properties);
 
 			m_QueueFamilyIndices = FindQueueFamilies(m_PhysicalDevice);
 			
-			TR_CORE_TRACE("Picked graphics card: {}", props.deviceName);
+			TR_CORE_TRACE("Picked graphics card: {}", l_Properties.deviceName);
 		}
 
 		else
@@ -252,58 +253,58 @@ namespace Trinity
 	{
 		TR_CORE_TRACE("Creating logical device");
 
-		QueueFamilyIndices indices = m_QueueFamilyIndices;
+		QueueFamilyIndices l_Indices = m_QueueFamilyIndices;
 
-		float queuePriority = 1.0f;
-		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos{};
-		std::vector<uint32_t> uniqueQueueFamilies{};
-		uniqueQueueFamilies.push_back(indices.GraphicsFamily.value());
-		if (indices.PresentFamily != indices.GraphicsFamily)
+		float l_QueuePriority = 1.0f;
+		std::vector<VkDeviceQueueCreateInfo> l_QueueCreateInfos{};
+		std::vector<uint32_t> l_UniqueQueueFamilies{};
+		l_UniqueQueueFamilies.push_back(l_Indices.GraphicsFamily.value());
+		if (l_Indices.PresentFamily != l_Indices.GraphicsFamily)
 		{
-			uniqueQueueFamilies.push_back(indices.PresentFamily.value());
+			l_UniqueQueueFamilies.push_back(l_Indices.PresentFamily.value());
 		}
 
-		for (uint32_t queueFamily : uniqueQueueFamilies)
+		for (uint32_t it_QueueFamily : l_UniqueQueueFamilies)
 		{
-			VkDeviceQueueCreateInfo queueCreateInfo{};
-			queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-			queueCreateInfo.queueFamilyIndex = queueFamily;
-			queueCreateInfo.queueCount = 1;
-			queueCreateInfo.pQueuePriorities = &queuePriority;
-			queueCreateInfos.push_back(queueCreateInfo);
+			VkDeviceQueueCreateInfo l_QueueCreateInfo{};
+			l_QueueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+			l_QueueCreateInfo.queueFamilyIndex = it_QueueFamily;
+			l_QueueCreateInfo.queueCount = 1;
+			l_QueueCreateInfo.pQueuePriorities = &l_QueuePriority;
+			l_QueueCreateInfos.push_back(l_QueueCreateInfo);
 		}
 
-		VkPhysicalDeviceFeatures deviceFeatures{};
+		VkPhysicalDeviceFeatures l_DeviceFeatures{};
 
-		VkDeviceCreateInfo createInfo{};
-		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		VkDeviceCreateInfo l_CreateInfo{};
+		l_CreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 
-		createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
-		createInfo.pQueueCreateInfos = queueCreateInfos.data();
+		l_CreateInfo.queueCreateInfoCount = static_cast<uint32_t>(l_QueueCreateInfos.size());
+		l_CreateInfo.pQueueCreateInfos = l_QueueCreateInfos.data();
 
-		createInfo.pEnabledFeatures = &deviceFeatures;
+		l_CreateInfo.pEnabledFeatures = &l_DeviceFeatures;
 
-		createInfo.enabledExtensionCount = static_cast<uint32_t>(m_DeviceExtensions.size());
-		createInfo.ppEnabledExtensionNames = m_DeviceExtensions.data();
+		l_CreateInfo.enabledExtensionCount = static_cast<uint32_t>(m_DeviceExtensions.size());
+		l_CreateInfo.ppEnabledExtensionNames = m_DeviceExtensions.data();
 
 		if (s_EnableValidationLayers)
 		{
-			createInfo.enabledLayerCount = static_cast<uint32_t>(m_ValidationLayers.size());
-			createInfo.ppEnabledLayerNames = m_ValidationLayers.data();
+			l_CreateInfo.enabledLayerCount = static_cast<uint32_t>(m_ValidationLayers.size());
+			l_CreateInfo.ppEnabledLayerNames = m_ValidationLayers.data();
 		}
 
 		else
 		{
-			createInfo.enabledLayerCount = 0;
+			l_CreateInfo.enabledLayerCount = 0;
 		}
 
-		if (vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_Device) != VK_SUCCESS)
+		if (vkCreateDevice(m_PhysicalDevice, &l_CreateInfo, nullptr, &m_Device) != VK_SUCCESS)
 		{
 			TR_CORE_CRITICAL("Failed to create logical device");
 		}
 
-		vkGetDeviceQueue(m_Device, indices.GraphicsFamily.value(), 0, &m_GraphicsQueue);
-		vkGetDeviceQueue(m_Device, indices.PresentFamily.value(), 0, &m_PresentQueue);
+		vkGetDeviceQueue(m_Device, l_Indices.GraphicsFamily.value(), 0, &m_GraphicsQueue);
+		vkGetDeviceQueue(m_Device, l_Indices.PresentFamily.value(), 0, &m_PresentQueue);
 
 		TR_CORE_TRACE("Logical device created");
 	}
@@ -312,64 +313,64 @@ namespace Trinity
 	{
 		TR_CORE_TRACE("Creating swap chain");
 
-		SwapChainSupportDetails swapChainSupport = QuerySwapChainSupport(m_PhysicalDevice);
+		SwapChainSupportDetails l_SwapChainSupport = QuerySwapChainSupport(m_PhysicalDevice);
 
-		VkSurfaceFormatKHR surfaceFormat = ChooseSwapSurfaceFormat(swapChainSupport.Formats);
-		VkPresentModeKHR presentMode = ChooseSwapPresentMode(swapChainSupport.PresentModes);
-		VkExtent2D extent = ChooseSwapExtent(swapChainSupport.Capabilities);
+		VkSurfaceFormatKHR l_SurfaceFormat = ChooseSwapSurfaceFormat(l_SwapChainSupport.Formats);
+		VkPresentModeKHR l_PresentMode = ChooseSwapPresentMode(l_SwapChainSupport.PresentModes);
+		VkExtent2D l_Extent = ChooseSwapExtent(l_SwapChainSupport.Capabilities);
 
-		uint32_t imageCount = swapChainSupport.Capabilities.minImageCount + 1;
-		if (swapChainSupport.Capabilities.maxImageCount > 0 && imageCount > swapChainSupport.Capabilities.maxImageCount)
+		uint32_t l_ImageCount = l_SwapChainSupport.Capabilities.minImageCount + 1;
+		if (l_SwapChainSupport.Capabilities.maxImageCount > 0 && l_ImageCount > l_SwapChainSupport.Capabilities.maxImageCount)
 		{
-			imageCount = swapChainSupport.Capabilities.maxImageCount;
+			l_ImageCount = l_SwapChainSupport.Capabilities.maxImageCount;
 		}
 
-		VkSwapchainCreateInfoKHR createInfo{};
-		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-		createInfo.surface = m_Surface;
+		VkSwapchainCreateInfoKHR l_CreateInfo{};
+		l_CreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		l_CreateInfo.surface = m_Surface;
 
-		createInfo.minImageCount = imageCount;
-		createInfo.imageFormat = surfaceFormat.format;
-		createInfo.imageColorSpace = surfaceFormat.colorSpace;
-		createInfo.imageExtent = extent;
-		createInfo.imageArrayLayers = 1;
-		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		l_CreateInfo.minImageCount = l_ImageCount;
+		l_CreateInfo.imageFormat = l_SurfaceFormat.format;
+		l_CreateInfo.imageColorSpace = l_SurfaceFormat.colorSpace;
+		l_CreateInfo.imageExtent = l_Extent;
+		l_CreateInfo.imageArrayLayers = 1;
+		l_CreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-		QueueFamilyIndices indices = m_QueueFamilyIndices;
-		uint32_t queueFamilyIndices[] = { indices.GraphicsFamily.value(), indices.PresentFamily.value() };
+		QueueFamilyIndices l_Indices = m_QueueFamilyIndices;
+		uint32_t l_QueueFamilyIndices[] = { l_Indices.GraphicsFamily.value(), l_Indices.PresentFamily.value() };
 
-		if (indices.GraphicsFamily != indices.PresentFamily)
+		if (l_Indices.GraphicsFamily != l_Indices.PresentFamily)
 		{
-			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-			createInfo.queueFamilyIndexCount = 2;
-			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+			l_CreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+			l_CreateInfo.queueFamilyIndexCount = 2;
+			l_CreateInfo.pQueueFamilyIndices = l_QueueFamilyIndices;
 		}
 
 		else
 		{
-			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			createInfo.queueFamilyIndexCount = 0;
-			createInfo.pQueueFamilyIndices = nullptr;
+			l_CreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			l_CreateInfo.queueFamilyIndexCount = 0;
+			l_CreateInfo.pQueueFamilyIndices = nullptr;
 		}
 
-		createInfo.preTransform = swapChainSupport.Capabilities.currentTransform;
-		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-		createInfo.presentMode = presentMode;
-		createInfo.clipped = VK_TRUE;
-		createInfo.oldSwapchain = VK_NULL_HANDLE;
+		l_CreateInfo.preTransform = l_SwapChainSupport.Capabilities.currentTransform;
+		l_CreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+		l_CreateInfo.presentMode = l_PresentMode;
+		l_CreateInfo.clipped = VK_TRUE;
+		l_CreateInfo.oldSwapchain = VK_NULL_HANDLE;
 
-		if (vkCreateSwapchainKHR(m_Device, &createInfo, nullptr, &m_SwapChain) != VK_SUCCESS)
+		if (vkCreateSwapchainKHR(m_Device, &l_CreateInfo, nullptr, &m_SwapChain) != VK_SUCCESS)
 		{
 			TR_CORE_CRITICAL("Failed to create swap chain");
 			return;
 		}
 
-		vkGetSwapchainImagesKHR(m_Device, m_SwapChain, &imageCount, nullptr);
-		m_SwapChainImages.resize(imageCount);
-		vkGetSwapchainImagesKHR(m_Device, m_SwapChain, &imageCount, m_SwapChainImages.data());
+		vkGetSwapchainImagesKHR(m_Device, m_SwapChain, &l_ImageCount, nullptr);
+		m_SwapChainImages.resize(l_ImageCount);
+		vkGetSwapchainImagesKHR(m_Device, m_SwapChain, &l_ImageCount, m_SwapChainImages.data());
 
-		m_SwapChainImageFormat = surfaceFormat.format;
-		m_SwapChainExtent = extent;
+		m_SwapChainImageFormat = l_SurfaceFormat.format;
+		m_SwapChainExtent = l_Extent;
 
 		TR_CORE_TRACE("Swap chain created");
 	}
@@ -382,22 +383,22 @@ namespace Trinity
 
 		for (size_t i = 0; i < m_SwapChainImages.size(); i++)
 		{
-			VkImageViewCreateInfo createInfo{};
-			createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			createInfo.image = m_SwapChainImages[i];
-			createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			createInfo.format = m_SwapChainImageFormat;
-			createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			createInfo.subresourceRange.baseMipLevel = 0;
-			createInfo.subresourceRange.levelCount = 1;
-			createInfo.subresourceRange.baseArrayLayer = 0;
-			createInfo.subresourceRange.layerCount = 1;
+			VkImageViewCreateInfo l_CreateInfo{};
+			l_CreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			l_CreateInfo.image = m_SwapChainImages[i];
+			l_CreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			l_CreateInfo.format = m_SwapChainImageFormat;
+			l_CreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+			l_CreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+			l_CreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+			l_CreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+			l_CreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			l_CreateInfo.subresourceRange.baseMipLevel = 0;
+			l_CreateInfo.subresourceRange.levelCount = 1;
+			l_CreateInfo.subresourceRange.baseArrayLayer = 0;
+			l_CreateInfo.subresourceRange.layerCount = 1;
 
-			if (vkCreateImageView(m_Device, &createInfo, nullptr, &m_SwapChainImageViews[i]) != VK_SUCCESS)
+			if (vkCreateImageView(m_Device, &l_CreateInfo, nullptr, &m_SwapChainImageViews[i]) != VK_SUCCESS)
 			{
 				TR_CORE_ERROR("Failed to create image views");
 			}
@@ -410,27 +411,27 @@ namespace Trinity
 
 	bool VulkanContext::CheckValidationLayerSupport()
 	{
-		uint32_t layerCount = 0;
-		vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+		uint32_t l_LayerCount = 0;
+		vkEnumerateInstanceLayerProperties(&l_LayerCount, nullptr);
 
-		std::vector<VkLayerProperties> availableLayers(layerCount);
-		vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+		std::vector<VkLayerProperties> l_AvailableLayers(l_LayerCount);
+		vkEnumerateInstanceLayerProperties(&l_LayerCount, l_AvailableLayers.data());
 
-		for (const char* layerName : m_ValidationLayers)
+		for (const char* it_LayerName : m_ValidationLayers)
 		{
-			bool layerFound = false;
+			bool l_LayerFound = false;
 
-			for (const auto& layerProperties : availableLayers)
+			for (const auto& layerProperties : l_AvailableLayers)
 			{
-				if (strcmp(layerName, layerProperties.layerName) == 0)
+				if (strcmp(it_LayerName, layerProperties.layerName) == 0)
 				{
-					layerFound = true;
+					l_LayerFound = true;
 
 					break;
 				}
 			}
 
-			if (!layerFound)
+			if (!l_LayerFound)
 			{
 				return false;
 			}
@@ -441,90 +442,90 @@ namespace Trinity
 
 	int VulkanContext::IsDeviceSuitable(VkPhysicalDevice physicalDevice)
 	{
-		VkPhysicalDeviceProperties deviceProperties;
-		VkPhysicalDeviceFeatures deviceFeatures;
+		VkPhysicalDeviceProperties l_DeviceProperties;
+		VkPhysicalDeviceFeatures l_DeviceFeatures;
 
-		vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
-		vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
+		vkGetPhysicalDeviceProperties(physicalDevice, &l_DeviceProperties);
+		vkGetPhysicalDeviceFeatures(physicalDevice, &l_DeviceFeatures);
 
-		QueueFamilyIndices indices = FindQueueFamilies(physicalDevice);
+		QueueFamilyIndices l_Indices = FindQueueFamilies(physicalDevice);
 
-		bool extensionsSupported = CheckDeviceExtensionSupport(physicalDevice);
+		bool l_ExtensionsSupported = CheckDeviceExtensionSupport(physicalDevice);
 
-		bool swapChainAdequate = false;
-		if (extensionsSupported)
+		bool l_SwapChainAdequate = false;
+		if (l_ExtensionsSupported)
 		{
-			SwapChainSupportDetails swapChainSupport = QuerySwapChainSupport(physicalDevice);
-			swapChainAdequate = !swapChainSupport.Formats.empty() && !swapChainSupport.PresentModes.empty();
+			SwapChainSupportDetails l_SwapChainSupport = QuerySwapChainSupport(physicalDevice);
+			l_SwapChainAdequate = !l_SwapChainSupport.Formats.empty() && !l_SwapChainSupport.PresentModes.empty();
 		}
 
-		if (!indices.IsComplete() || !deviceFeatures.geometryShader || !extensionsSupported || !swapChainAdequate)
+		if (!l_Indices.IsComplete() || !l_DeviceFeatures.geometryShader || !l_ExtensionsSupported || !l_SwapChainAdequate)
 		{
 			return 0;
 		}
 
-		int score = 0;
+		int l_Score = 0;
 
-		if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+		if (l_DeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
 		{
-			score += 1000;
+			l_Score += 1000;
 		}
 
-		score += deviceProperties.limits.maxImageDimension2D;
+		l_Score += l_DeviceProperties.limits.maxImageDimension2D;
 
-		return score;
+		return l_Score;
 	}
 
 	bool VulkanContext::CheckDeviceExtensionSupport(VkPhysicalDevice device)
 	{
-		uint32_t extensionCount;
-		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+		uint32_t l_ExtensionCount;
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &l_ExtensionCount, nullptr);
 
-		std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+		std::vector<VkExtensionProperties> l_AvailableExtensions(l_ExtensionCount);
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &l_ExtensionCount, l_AvailableExtensions.data());
 
-		std::set<std::string> requiredExtensions(m_DeviceExtensions.begin(), m_DeviceExtensions.end());
+		std::set<std::string> l_RequiredExtensions(m_DeviceExtensions.begin(), m_DeviceExtensions.end());
 
-		for (const auto& extension : availableExtensions)
+		for (const auto& it_Extension : l_AvailableExtensions)
 		{
-			requiredExtensions.erase(extension.extensionName);
+			l_RequiredExtensions.erase(it_Extension.extensionName);
 		}
 
-		return requiredExtensions.empty();
+		return l_RequiredExtensions.empty();
 	}
 
 	VulkanContext::SwapChainSupportDetails VulkanContext::QuerySwapChainSupport(VkPhysicalDevice device)
 	{
-		SwapChainSupportDetails details;
+		SwapChainSupportDetails l_Details;
 
-		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, m_Surface, &details.Capabilities);
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, m_Surface, &l_Details.Capabilities);
 
-		uint32_t formatCount;
-		vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_Surface, &formatCount, nullptr);
-		if (formatCount != 0)
+		uint32_t l_FormatCount;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_Surface, &l_FormatCount, nullptr);
+		if (l_FormatCount != 0)
 		{
-			details.Formats.resize(formatCount);
-			vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_Surface, &formatCount, details.Formats.data());
+			l_Details.Formats.resize(l_FormatCount);
+			vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_Surface, &l_FormatCount, l_Details.Formats.data());
 		}
 
-		uint32_t presentModeCount;
-		vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_Surface, &presentModeCount, nullptr);
-		if (presentModeCount != 0)
+		uint32_t l_PresentModeCount;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_Surface, &l_PresentModeCount, nullptr);
+		if (l_PresentModeCount != 0)
 		{
-			details.PresentModes.resize(presentModeCount);
-			vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_Surface, &presentModeCount, details.PresentModes.data());
+			l_Details.PresentModes.resize(l_PresentModeCount);
+			vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_Surface, &l_PresentModeCount, l_Details.PresentModes.data());
 		}
 
-		return details;
+		return l_Details;
 	}
 
 	VkSurfaceFormatKHR VulkanContext::ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats)
 	{
-		for (const auto& availableFormat : availableFormats)
+		for (const auto& it_AvailableFormat : availableFormats)
 		{
-			if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+			if (it_AvailableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && it_AvailableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
 			{
-				return availableFormat;
+				return it_AvailableFormat;
 			}
 		}
 
@@ -533,11 +534,11 @@ namespace Trinity
 
 	VkPresentModeKHR VulkanContext::ChooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes)
 	{
-		for (const auto& availablePresentMode : availablePresentModes)
+		for (const auto& it_AvailablePresentMode : availablePresentModes)
 		{
-			if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+			if (it_AvailablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
 			{
-				return availablePresentMode;
+				return it_AvailablePresentMode;
 			}
 		}
 
@@ -550,48 +551,51 @@ namespace Trinity
 		{
 			return capabilities.currentExtent;
 		}
+
 		else
 		{
-			int width, height;
-			glfwGetFramebufferSize(m_Window, &width, &height);
+			int l_Width{};
+			int l_Height{};
 
-			VkExtent2D actualExtent{};
-			actualExtent.width = static_cast<uint32_t>(width);
-			actualExtent.height = static_cast<uint32_t>(height);
+			glfwGetFramebufferSize(m_Window, &l_Width, &l_Height);
 
-			actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-			actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+			VkExtent2D l_ActualExtent{};
+			l_ActualExtent.width = static_cast<uint32_t>(l_Width);
+			l_ActualExtent.height = static_cast<uint32_t>(l_Height);
 
-			return actualExtent;
+			l_ActualExtent.width = std::clamp(l_ActualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+			l_ActualExtent.height = std::clamp(l_ActualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+
+			return l_ActualExtent;
 		}
 	}
 
 	QueueFamilyIndices VulkanContext::FindQueueFamilies(VkPhysicalDevice physicalDevice)
 	{
-		QueueFamilyIndices indices;
+		QueueFamilyIndices l_Indices;
 
-		uint32_t queueFamilyCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
+		uint32_t l_QueueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &l_QueueFamilyCount, nullptr);
 
-		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
+		std::vector<VkQueueFamilyProperties> l_QueueFamilies(l_QueueFamilyCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &l_QueueFamilyCount, l_QueueFamilies.data());
 
 		int i = 0;
-		for (const auto& queueFamily : queueFamilies)
+		for (const auto& it_QueueFamily : l_QueueFamilies)
 		{
-			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+			if (it_QueueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
 			{
-				indices.GraphicsFamily = i;
+				l_Indices.GraphicsFamily = i;
 			}
 
-			VkBool32 presentSupport = VK_FALSE;
-			vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, m_Surface, &presentSupport);
-			if (presentSupport)
+			VkBool32 l_PresentSupport = VK_FALSE;
+			vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, m_Surface, &l_PresentSupport);
+			if (l_PresentSupport)
 			{
-				indices.PresentFamily = i;
+				l_Indices.PresentFamily = i;
 			}
 
-			if (indices.IsComplete())
+			if (l_Indices.IsComplete())
 			{
 				break;
 			}
@@ -599,7 +603,7 @@ namespace Trinity
 			i++;
 		}
 
-		return indices;
+		return l_Indices;
 	}
 
 	VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType,

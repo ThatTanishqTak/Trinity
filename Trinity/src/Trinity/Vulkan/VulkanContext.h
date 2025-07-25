@@ -39,6 +39,14 @@ namespace Trinity
 		VkExtent2D GetSwapChainExtent() const { return m_SwapChainExtent; }
 		VkFormat GetSwapChainImageFormat() const { return m_SwapChainImageFormat; }
 		std::vector<VkImageView> GetSwapChainImages() const { return m_SwapChainImageViews; }
+		VkPhysicalDevice GetPhysicalDivice() const { return m_PhysicalDevice; }
+		VkSwapchainKHR GetSwapChain() const { return m_SwapChain; }
+		VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
+		VkQueue GetPresentQueue() const { return m_PresentQueue; }
+		
+		//----------------------------------------------------------------------------------------------------------------------------------------------------//
+		// Public Helper functions
+		QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice physicalDevice);
 
 	private:
 		void CreateInstance();
@@ -53,7 +61,6 @@ namespace Trinity
 		// Helper functions
 		bool CheckValidationLayerSupport();
 		int IsDeviceSuitable(VkPhysicalDevice physicalDevice);
-		QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice physicalDevice);
 		bool CheckDeviceExtensionSupport(VkPhysicalDevice physicalDevice);
 		struct SwapChainSupportDetails
 		{

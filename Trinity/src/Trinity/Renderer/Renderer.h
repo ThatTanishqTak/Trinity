@@ -24,6 +24,10 @@ namespace Trinity
         void CreateRenderPass();
         void CreateGraphicsPipeline();
         void CreateFramebuffers();
+        void CreateCommandPool();
+        void CreateCommandBuffer();
+        void CreateSyncObjects();
+        void RecordCommandBuffer(uint32_t imageIndex);
 
         //----------------------------------------------------------------------------------------------------------------------------------------------------//
 
@@ -36,5 +40,10 @@ namespace Trinity
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
         VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
         std::vector<VkFramebuffer> m_Framebuffers{};
+        VkCommandPool m_CommandPool = VK_NULL_HANDLE;
+        VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
+        VkSemaphore m_ImageAvailableSemaphore = VK_NULL_HANDLE;
+        VkSemaphore m_RenderFinshedSemaphore = VK_NULL_HANDLE;
+        VkFence m_InFlightFence = VK_NULL_HANDLE;
     };
 }
