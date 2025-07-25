@@ -42,8 +42,10 @@ namespace Trinity
         std::vector<VkFramebuffer> m_Framebuffers{};
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
-        VkSemaphore m_ImageAvailableSemaphore = VK_NULL_HANDLE;
-        VkSemaphore m_RenderFinshedSemaphore = VK_NULL_HANDLE;
-        VkFence m_InFlightFence = VK_NULL_HANDLE;
+        std::vector<VkSemaphore> m_ImageAvailableSemaphore{};
+        std::vector<VkSemaphore> m_RenderFinshedSemaphore{};
+        std::vector<VkFence> m_InFlightFence{};
+        std::vector<VkFence> m_ImagesInFlight{};
+        size_t m_CurrentFrame = 0;
     };
 }

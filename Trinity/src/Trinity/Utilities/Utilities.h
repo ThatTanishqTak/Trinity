@@ -40,8 +40,15 @@ namespace Trinity
 		{
 		public:
 			static void Init();
+			static void Update();
 
-			static float GetDeltaTime();
+			static float GetFPS() { return s_FPS; }
+			static float GetDeltaTime() { return s_DeltaTime; }
+
+		private:
+			static double s_LastFrameTime;
+			static float s_FPS;
+			static float s_DeltaTime;
 		};
 	}
 }

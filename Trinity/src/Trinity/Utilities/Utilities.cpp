@@ -2,6 +2,8 @@
 
 #include "Trinity/Utilities/Utilities.h"
 
+#include <GLFW/glfw3.h>
+
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
@@ -73,9 +75,23 @@ namespace Trinity
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 
+		float Time::s_FPS = 0.0f;
+		float Time::s_DeltaTime = 0.0f;
+		double Time::s_LastFrameTime = 0.0;
+
 		void Time::Init()
 		{
+			s_LastFrameTime = glfwGetTime();
+		}
 
+		void Time::Update()
+		{
+			double l_CurrentTime = glfwGetTime();
+
+			s_DeltaTime = static_cast<float>(l_CurrentTime - s_LastFrameTime);
+			s_FPS = 1.0f / s_DeltaTime;
+
+			s_LastFrameTime = l_CurrentTime;
 		}
 	}
 }

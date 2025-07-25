@@ -34,11 +34,25 @@ namespace Trinity
         vkDeviceWaitIdle(m_Context->GetDevice());
         TR_CORE_TRACE("Renderer is ready to be shutdown");
 
-        if (m_ImageAvailableSemaphore && m_RenderFinshedSemaphore && m_InFlightFence)
+        if (!m_ImageAvailableSemaphore.empty())
         {
-            vkDestroySemaphore(m_Context->GetDevice(), m_ImageAvailableSemaphore, nullptr);
-            vkDestroySemaphore(m_Context->GetDevice(), m_RenderFinshedSemaphore, nullptr);
-            vkDestroyFence(m_Context->GetDevice(), m_InFlightFence, nullptr);
+            for (size_t i = 0; i < m_ImageAvailableSemaphore.size(); ++i)
+            {
+                if (m_ImageAvailableSemaphore[i])
+                {
+                    vkDestroySemaphore(m_Context->GetDevice(), m_ImageAvailableSemaphore[i], nullptr);
+                }
+
+                if (m_RenderFinshedSemaphore[i])
+                {
+                    vkDestroySemaphore(m_Context->GetDevice(), m_RenderFinshedSemaphore[i], nullptr);
+                }
+
+                if (m_InFlightFence[i])
+                {
+                    vkDestroyFence(m_Context->GetDevice(), m_InFlightFence[i], nullptr);
+                }
+            }
             TR_CORE_TRACE("Semaphores destroyed");
         }
 
@@ -83,11 +97,22 @@ namespace Trinity
 
     void Renderer::DrawFrame()
     {
-        vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence, VK_TRUE, UINT64_MAX);
-        vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence);
+        TR_CORE_TRACE("Current Frame: {}, Frame Rate: {}, DeltaTime: {}", m_CurrentFrame, Utilities::Time::GetFPS(), Utilities::Time::GetDeltaTime());
+
+        vkDeviceWaitIdle(m_Context->GetDevice());
+
+        vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
+        vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
 
         uint32_t l_ImageIndex;
-        vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT32_MAX, m_ImageAvailableSemaphore, m_InFlightFence, &l_ImageIndex);
+        vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT32_MAX, m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
+
+        if (m_ImagesInFlight[l_ImageIndex] != VK_NULL_HANDLE)
+        {
+            vkWaitForFences(m_Context->GetDevice(), 1, &m_ImagesInFlight[l_ImageIndex], VK_TRUE, UINT64_MAX);
+        }
+
+        m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[m_CurrentFrame];
 
         vkResetCommandBuffer(m_CommandBuffer, 0);
         RecordCommandBuffer(l_ImageIndex);
@@ -95,7 +120,7 @@ namespace Trinity
         VkSubmitInfo l_SubmitInfo{};
         l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-        VkSemaphore l_WaitSemaphore[] = { m_ImageAvailableSemaphore };
+        VkSemaphore l_WaitSemaphore[] = { m_ImageAvailableSemaphore[m_CurrentFrame]};
         VkPipelineStageFlags l_WaitFlags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
         l_SubmitInfo.waitSemaphoreCount = 1;
@@ -104,11 +129,11 @@ namespace Trinity
         l_SubmitInfo.commandBufferCount = 1;
         l_SubmitInfo.pCommandBuffers = &m_CommandBuffer;
 
-        VkSemaphore l_SignalSemaphores[] = { m_RenderFinshedSemaphore };
+        VkSemaphore l_SignalSemaphores[] = { m_RenderFinshedSemaphore[m_CurrentFrame] };
         l_SubmitInfo.signalSemaphoreCount = 1;
         l_SubmitInfo.pSignalSemaphores = l_SignalSemaphores;
 
-        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, m_InFlightFence) != VK_SUCCESS)
+        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, m_InFlightFence[m_CurrentFrame]) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to submit draw command buffer");
 
@@ -128,6 +153,8 @@ namespace Trinity
         l_PresentInfo.pResults = nullptr; // Optional
 
         vkQueuePresentKHR(m_Context->GetPresentQueue(), &l_PresentInfo);
+
+        m_CurrentFrame = (m_CurrentFrame + 1) % m_ImageAvailableSemaphore.size();
     }
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -287,11 +314,16 @@ namespace Trinity
             return;
         }
 
+        std::array<VkDynamicState, 2> l_DynamicStates{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo l_DynamicStateInfo{};
+        l_DynamicStateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        l_DynamicStateInfo.dynamicStateCount = static_cast<uint32_t>(l_DynamicStates.size());
+        l_DynamicStateInfo.pDynamicStates = l_DynamicStates.data();
+
         VkGraphicsPipelineCreateInfo l_PipelineInfo{};
         l_PipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         l_PipelineInfo.stageCount = 2;
         l_PipelineInfo.pStages = l_ShaderStages;
-        l_PipelineInfo.flags = VK_DYNAMIC_STATE_VIEWPORT | VK_DYNAMIC_STATE_SCISSOR;
         l_PipelineInfo.pVertexInputState = &l_VertexInputInfo;
         l_PipelineInfo.pInputAssemblyState = &l_InputAssembly;
         l_PipelineInfo.pViewportState = &l_ViewportState;
@@ -299,7 +331,7 @@ namespace Trinity
         l_PipelineInfo.pMultisampleState = &l_Multisampling;
         l_PipelineInfo.pDepthStencilState = nullptr;
         l_PipelineInfo.pColorBlendState = &l_ColorBlending;
-        l_PipelineInfo.pDynamicState = nullptr;
+        l_PipelineInfo.pDynamicState = &l_DynamicStateInfo;
         l_PipelineInfo.layout = m_PipelineLayout;
         l_PipelineInfo.renderPass = m_RenderPass;
         l_PipelineInfo.subpass = 0;
@@ -399,15 +431,24 @@ namespace Trinity
 
         VkFenceCreateInfo l_FenceInfo{};
         l_FenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        l_FenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;;
+        l_FenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        if (vkCreateSemaphore(m_Context->GetDevice(), &l_SemaphoreInfo, nullptr, &m_ImageAvailableSemaphore) != VK_SUCCESS ||
-            vkCreateSemaphore(m_Context->GetDevice(), &l_SemaphoreInfo, nullptr, &m_RenderFinshedSemaphore) != VK_SUCCESS ||
-            vkCreateFence(m_Context->GetDevice(), &l_FenceInfo, nullptr, &m_InFlightFence) != VK_SUCCESS)
+        size_t l_FrameCount = m_Context->GetSwapChainImages().size();
+        m_ImageAvailableSemaphore.resize(l_FrameCount);
+        m_RenderFinshedSemaphore.resize(l_FrameCount);
+        m_InFlightFence.resize(l_FrameCount);
+        m_ImagesInFlight.resize(l_FrameCount, VK_NULL_HANDLE);
+
+        for (size_t i = 0; i < l_FrameCount; ++i)
         {
-            TR_CORE_ERROR("Failed to create semaphores");
+            if (vkCreateSemaphore(m_Context->GetDevice(), &l_SemaphoreInfo, nullptr, &m_ImageAvailableSemaphore[i]) != VK_SUCCESS ||
+                vkCreateSemaphore(m_Context->GetDevice(), &l_SemaphoreInfo, nullptr, &m_RenderFinshedSemaphore[i]) != VK_SUCCESS ||
+                vkCreateFence(m_Context->GetDevice(), &l_FenceInfo, nullptr, &m_InFlightFence[i]) != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Failed to create synchronization objects");
 
-            return;
+                return;
+            }
         }
 
         TR_CORE_TRACE("semaphores created");

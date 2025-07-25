@@ -36,6 +36,8 @@ namespace Trinity
 
 			while (!m_Window->ShouldWindowClose())
 			{
+				Utilities::Time::Update();
+
 				// Poll events
 				m_Window->PollEvents();
 				
