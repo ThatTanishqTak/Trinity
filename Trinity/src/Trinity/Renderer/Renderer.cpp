@@ -105,14 +105,14 @@ namespace Trinity
         vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
 
         uint32_t l_ImageIndex = 0;
-        vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT32_MAX, m_ImageAvailableSemaphore[l_ImageIndex], VK_NULL_HANDLE, &l_ImageIndex);
+        vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT32_MAX, m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
 
         if (m_ImagesInFlight[l_ImageIndex] != VK_NULL_HANDLE)
         {
             vkWaitForFences(m_Context->GetDevice(), 1, &m_ImagesInFlight[l_ImageIndex], VK_TRUE, UINT64_MAX);
         }
 
-        m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[l_ImageIndex];
+        m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[m_CurrentFrame];
 
         vkResetCommandBuffer(m_CommandBuffer[l_ImageIndex], 0);
         RecordCommandBuffer(l_ImageIndex);
@@ -120,7 +120,7 @@ namespace Trinity
         VkSubmitInfo l_SubmitInfo{};
         l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-        VkSemaphore l_WaitSemaphore[] = { m_ImageAvailableSemaphore[l_ImageIndex]};
+        VkSemaphore l_WaitSemaphore[] = { m_ImageAvailableSemaphore[m_CurrentFrame]};
         VkPipelineStageFlags l_WaitFlags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
         l_SubmitInfo.waitSemaphoreCount = 1;
@@ -129,11 +129,11 @@ namespace Trinity
         l_SubmitInfo.commandBufferCount = 1;
         l_SubmitInfo.pCommandBuffers = &m_CommandBuffer[l_ImageIndex];
 
-        VkSemaphore l_SignalSemaphores[] = { m_RenderFinshedSemaphore[l_ImageIndex] };
+        VkSemaphore l_SignalSemaphores[] = { m_RenderFinshedSemaphore[m_CurrentFrame] };
         l_SubmitInfo.signalSemaphoreCount = 1;
         l_SubmitInfo.pSignalSemaphores = l_SignalSemaphores;
 
-        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, m_InFlightFence[l_ImageIndex]) != VK_SUCCESS)
+        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, m_InFlightFence[m_CurrentFrame]) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to submit draw command buffer");
 
@@ -154,7 +154,7 @@ namespace Trinity
 
         vkQueuePresentKHR(m_Context->GetPresentQueue(), &l_PresentInfo);
 
-        l_ImageIndex = (l_ImageIndex + 1) % m_ImageAvailableSemaphore.size();
+        m_CurrentFrame = (m_CurrentFrame + 1) % m_ImageAvailableSemaphore.size();
     }
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -439,7 +439,7 @@ namespace Trinity
         m_ImageAvailableSemaphore.resize(l_FrameCount);
         m_RenderFinshedSemaphore.resize(l_FrameCount);
         m_InFlightFence.resize(l_FrameCount);
-        m_ImagesInFlight.resize(l_FrameCount, VK_NULL_HANDLE);
+        m_ImagesInFlight.resize(m_Context->GetSwapChainImages().size(), VK_NULL_HANDLE);
 
         for (size_t i = 0; i < l_FrameCount; ++i)
         {
