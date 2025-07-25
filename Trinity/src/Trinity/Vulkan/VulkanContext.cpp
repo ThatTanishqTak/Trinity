@@ -611,7 +611,7 @@ namespace Trinity
 	{
 		if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
 		{
-			TR_CORE_ERROR("Validation Layer: {}", pCallbackData->pMessage);
+			TR_CORE_ERROR("Validation Layer: {}\n", pCallbackData->pMessage);
 		}
 
 		return VK_FALSE;

@@ -34,27 +34,29 @@ namespace Trinity
         vkDeviceWaitIdle(m_Context->GetDevice());
         TR_CORE_TRACE("Renderer is ready to be shutdown");
 
-        if (!m_ImageAvailableSemaphore.empty())
+        for (auto& a_Fence : m_InFlightFence)
         {
-            for (size_t i = 0; i < m_ImageAvailableSemaphore.size(); ++i)
+            if (a_Fence)
             {
-                if (m_ImageAvailableSemaphore[i])
-                {
-                    vkDestroySemaphore(m_Context->GetDevice(), m_ImageAvailableSemaphore[i], nullptr);
-                }
-
-                if (m_RenderFinshedSemaphore[i])
-                {
-                    vkDestroySemaphore(m_Context->GetDevice(), m_RenderFinshedSemaphore[i], nullptr);
-                }
-
-                if (m_InFlightFence[i])
-                {
-                    vkDestroyFence(m_Context->GetDevice(), m_InFlightFence[i], nullptr);
-                }
+                vkDestroyFence(m_Context->GetDevice(), a_Fence, nullptr);
             }
-            TR_CORE_TRACE("Semaphores destroyed");
         }
+        TR_CORE_TRACE("In-Flight fences destroyed");
+
+        for (size_t i = 0; i < m_ImageAvailableSemaphore.size(); ++i)
+        {
+            if (m_ImageAvailableSemaphore[i])
+            {
+                vkDestroySemaphore(m_Context->GetDevice(), m_ImageAvailableSemaphore[i], nullptr);
+            }
+
+            if (m_RenderFinshedSemaphore[i])
+            {
+                vkDestroySemaphore(m_Context->GetDevice(), m_RenderFinshedSemaphore[i], nullptr);
+            }
+        }
+        TR_CORE_TRACE("Semaphores destroyed");
+
 
         if (m_CommandPool)
         {
@@ -97,21 +99,31 @@ namespace Trinity
 
     void Renderer::DrawFrame()
     {
-        TR_CORE_TRACE("Current Frame: {}, Frame Rate: {}, DeltaTime: {}", m_CurrentFrame, Utilities::Time::GetFPS(), Utilities::Time::GetDeltaTime());
-
-        vkDeviceWaitIdle(m_Context->GetDevice());
-
         vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
         vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
 
         uint32_t l_ImageIndex = 0;
-        vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT32_MAX, m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
+        VkResult l_Result = vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT64_MAX,
+            m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
+
+        if (l_Result == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            TR_CORE_WARN("Swapchain is out of date");
+
+            return;
+        }
+
+        else if (l_Result != VK_SUCCESS && l_Result != VK_SUBOPTIMAL_KHR)
+        {
+            TR_CORE_ERROR("Failed to acquire swapchain image");
+
+            return;
+        }
 
         if (m_ImagesInFlight[l_ImageIndex] != VK_NULL_HANDLE)
         {
             vkWaitForFences(m_Context->GetDevice(), 1, &m_ImagesInFlight[l_ImageIndex], VK_TRUE, UINT64_MAX);
         }
-
         m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[m_CurrentFrame];
 
         vkResetCommandBuffer(m_CommandBuffer[l_ImageIndex], 0);
@@ -120,12 +132,12 @@ namespace Trinity
         VkSubmitInfo l_SubmitInfo{};
         l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-        VkSemaphore l_WaitSemaphore[] = { m_ImageAvailableSemaphore[m_CurrentFrame]};
-        VkPipelineStageFlags l_WaitFlags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-
+        VkSemaphore l_WaitSemaphores[] = { m_ImageAvailableSemaphore[m_CurrentFrame] };
+        VkPipelineStageFlags l_WaitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         l_SubmitInfo.waitSemaphoreCount = 1;
-        l_SubmitInfo.pWaitSemaphores = l_WaitSemaphore;
-        l_SubmitInfo.pWaitDstStageMask = l_WaitFlags;
+        l_SubmitInfo.pWaitSemaphores = l_WaitSemaphores;
+        l_SubmitInfo.pWaitDstStageMask = l_WaitStages;
+
         l_SubmitInfo.commandBufferCount = 1;
         l_SubmitInfo.pCommandBuffers = &m_CommandBuffer[l_ImageIndex];
 
@@ -142,7 +154,6 @@ namespace Trinity
 
         VkPresentInfoKHR l_PresentInfo{};
         l_PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-
         l_PresentInfo.waitSemaphoreCount = 1;
         l_PresentInfo.pWaitSemaphores = l_SignalSemaphores;
 
@@ -150,12 +161,25 @@ namespace Trinity
         l_PresentInfo.swapchainCount = 1;
         l_PresentInfo.pSwapchains = l_SwapChains;
         l_PresentInfo.pImageIndices = &l_ImageIndex;
-        l_PresentInfo.pResults = nullptr; // Optional
 
-        vkQueuePresentKHR(m_Context->GetPresentQueue(), &l_PresentInfo);
+        l_Result = vkQueuePresentKHR(m_Context->GetPresentQueue(), &l_PresentInfo);
+        if (l_Result == VK_ERROR_OUT_OF_DATE_KHR || l_Result == VK_SUBOPTIMAL_KHR)
+        {
+            TR_CORE_WARN("Swapchain is out of date or suboptimal during present");
 
-        m_CurrentFrame = (m_CurrentFrame + 1) % m_ImageAvailableSemaphore.size();
+            return;
+        }
+
+        else if (l_Result != VK_SUCCESS)
+        {
+            TR_CORE_ERROR("Failed to present swapchain image");
+
+            return;
+        }
+
+        m_CurrentFrame = (m_CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
+
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
 
@@ -426,7 +450,12 @@ namespace Trinity
 
     void Renderer::CreateSyncObjects()
     {
-        TR_CORE_TRACE("Creating semaphores created");
+        TR_CORE_TRACE("Creating synchronization objects");
+
+        m_ImageAvailableSemaphore.resize(MAX_FRAMES_IN_FLIGHT);
+        m_RenderFinshedSemaphore.resize(MAX_FRAMES_IN_FLIGHT);
+        m_InFlightFence.resize(MAX_FRAMES_IN_FLIGHT);
+        m_ImagesInFlight.resize(m_Context->GetSwapChainImages().size(), VK_NULL_HANDLE);
 
         VkSemaphoreCreateInfo l_SemaphoreInfo{};
         l_SemaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -435,35 +464,27 @@ namespace Trinity
         l_FenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         l_FenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        size_t l_FrameCount = m_Context->GetSwapChainImages().size();
-        m_ImageAvailableSemaphore.resize(l_FrameCount);
-        m_RenderFinshedSemaphore.resize(l_FrameCount);
-        m_InFlightFence.resize(l_FrameCount);
-        m_ImagesInFlight.resize(m_Context->GetSwapChainImages().size(), VK_NULL_HANDLE);
-
-        for (size_t i = 0; i < l_FrameCount; ++i)
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
             if (vkCreateSemaphore(m_Context->GetDevice(), &l_SemaphoreInfo, nullptr, &m_ImageAvailableSemaphore[i]) != VK_SUCCESS ||
                 vkCreateSemaphore(m_Context->GetDevice(), &l_SemaphoreInfo, nullptr, &m_RenderFinshedSemaphore[i]) != VK_SUCCESS ||
                 vkCreateFence(m_Context->GetDevice(), &l_FenceInfo, nullptr, &m_InFlightFence[i]) != VK_SUCCESS)
             {
-                TR_CORE_ERROR("Failed to create synchronization objects");
-
-                return;
+                TR_CORE_ERROR("Failed to create sync objects for frame {}", i);
             }
         }
 
-        TR_CORE_TRACE("semaphores created");
+        TR_CORE_TRACE("Synchronization objects created");
     }
 
-    void Renderer::RecordCommandBuffer(uint32_t imageIndex)
+    void Renderer::RecordCommandBuffer(uint32_t l_ImageIndex)
     {
         VkCommandBufferBeginInfo l_BeginInfo{};
         l_BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         l_BeginInfo.flags = 0;
         l_BeginInfo.pInheritanceInfo = nullptr;
 
-        if (vkBeginCommandBuffer(m_CommandBuffer[imageIndex], &l_BeginInfo) != VK_SUCCESS)
+        if (vkBeginCommandBuffer(m_CommandBuffer[l_ImageIndex], &l_BeginInfo) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to begin recording command buffer");
 
@@ -473,7 +494,7 @@ namespace Trinity
         VkRenderPassBeginInfo l_RenderPassInfo{};
         l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         l_RenderPassInfo.renderPass = m_RenderPass;
-        l_RenderPassInfo.framebuffer = m_Framebuffers[imageIndex];
+        l_RenderPassInfo.framebuffer = m_Framebuffers[l_ImageIndex];
         l_RenderPassInfo.renderArea.offset = { 0, 0 };
         l_RenderPassInfo.renderArea.extent = m_Context->GetSwapChainExtent();
 
@@ -481,8 +502,8 @@ namespace Trinity
         l_RenderPassInfo.clearValueCount = 1;
         l_RenderPassInfo.pClearValues = &l_ClearColor;
 
-        vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
+        vkCmdBeginRenderPass(m_CommandBuffer[l_ImageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(m_CommandBuffer[l_ImageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
 
         VkViewport l_Viewport{};
         l_Viewport.x = 0.0f;
@@ -491,18 +512,18 @@ namespace Trinity
         l_Viewport.height = static_cast<float>(m_Context->GetSwapChainExtent().height);
         l_Viewport.minDepth = 0.0f;
         l_Viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(m_CommandBuffer[imageIndex], 0, 1, &l_Viewport);
+        vkCmdSetViewport(m_CommandBuffer[l_ImageIndex], 0, 1, &l_Viewport);
 
         VkRect2D l_Scissor{};
         l_Scissor.offset = { 0, 0 };
         l_Scissor.extent = m_Context->GetSwapChainExtent();
-        vkCmdSetScissor(m_CommandBuffer[imageIndex], 0, 1, &l_Scissor);
+        vkCmdSetScissor(m_CommandBuffer[l_ImageIndex], 0, 1, &l_Scissor);
 
-        vkCmdDraw(m_CommandBuffer[imageIndex], 3, 1, 0, 0);
+        vkCmdDraw(m_CommandBuffer[l_ImageIndex], 3, 1, 0, 0);
 
-        vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
+        vkCmdEndRenderPass(m_CommandBuffer[l_ImageIndex]);
 
-        if (vkEndCommandBuffer(m_CommandBuffer[imageIndex]) != VK_SUCCESS)
+        if (vkEndCommandBuffer(m_CommandBuffer[l_ImageIndex]) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to record command buffer");
         }

@@ -47,5 +47,7 @@ namespace Trinity
         std::vector<VkFence> m_InFlightFence{};
         std::vector<VkFence> m_ImagesInFlight{};
         size_t m_CurrentFrame = 0;
+
+        int MAX_FRAMES_IN_FLIGHT = 2;
     };
 }
