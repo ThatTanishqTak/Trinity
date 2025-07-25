@@ -99,41 +99,41 @@ namespace Trinity
     {
         TR_CORE_TRACE("Current Frame: {}, Frame Rate: {}, DeltaTime: {}", m_CurrentFrame, Utilities::Time::GetFPS(), Utilities::Time::GetDeltaTime());
 
-        vkDeviceWaitIdle(m_Context->GetDevice());
+        //vkDeviceWaitIdle(m_Context->GetDevice());
 
         vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
         vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
 
-        uint32_t l_ImageIndex;
-        vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT32_MAX, m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
+        uint32_t l_ImageIndex = 0;
+        vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT32_MAX, m_ImageAvailableSemaphore[l_ImageIndex], VK_NULL_HANDLE, &l_ImageIndex);
 
         if (m_ImagesInFlight[l_ImageIndex] != VK_NULL_HANDLE)
         {
             vkWaitForFences(m_Context->GetDevice(), 1, &m_ImagesInFlight[l_ImageIndex], VK_TRUE, UINT64_MAX);
         }
 
-        m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[m_CurrentFrame];
+        m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[l_ImageIndex];
 
-        vkResetCommandBuffer(m_CommandBuffer, 0);
+        vkResetCommandBuffer(m_CommandBuffer[l_ImageIndex], 0);
         RecordCommandBuffer(l_ImageIndex);
 
         VkSubmitInfo l_SubmitInfo{};
         l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-        VkSemaphore l_WaitSemaphore[] = { m_ImageAvailableSemaphore[m_CurrentFrame]};
+        VkSemaphore l_WaitSemaphore[] = { m_ImageAvailableSemaphore[l_ImageIndex]};
         VkPipelineStageFlags l_WaitFlags[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
         l_SubmitInfo.waitSemaphoreCount = 1;
         l_SubmitInfo.pWaitSemaphores = l_WaitSemaphore;
         l_SubmitInfo.pWaitDstStageMask = l_WaitFlags;
         l_SubmitInfo.commandBufferCount = 1;
-        l_SubmitInfo.pCommandBuffers = &m_CommandBuffer;
+        l_SubmitInfo.pCommandBuffers = &m_CommandBuffer[l_ImageIndex];
 
-        VkSemaphore l_SignalSemaphores[] = { m_RenderFinshedSemaphore[m_CurrentFrame] };
+        VkSemaphore l_SignalSemaphores[] = { m_RenderFinshedSemaphore[l_ImageIndex] };
         l_SubmitInfo.signalSemaphoreCount = 1;
         l_SubmitInfo.pSignalSemaphores = l_SignalSemaphores;
 
-        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, m_InFlightFence[m_CurrentFrame]) != VK_SUCCESS)
+        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, m_InFlightFence[l_ImageIndex]) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to submit draw command buffer");
 
@@ -154,7 +154,7 @@ namespace Trinity
 
         vkQueuePresentKHR(m_Context->GetPresentQueue(), &l_PresentInfo);
 
-        m_CurrentFrame = (m_CurrentFrame + 1) % m_ImageAvailableSemaphore.size();
+        l_ImageIndex = (l_ImageIndex + 1) % m_ImageAvailableSemaphore.size();
     }
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -406,13 +406,15 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating command buffer");
 
+        m_CommandBuffer.resize(m_Context->GetSwapChainImages().size());
+
         VkCommandBufferAllocateInfo l_AllocateInfo{};
         l_AllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         l_AllocateInfo.commandPool = m_CommandPool;
         l_AllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        l_AllocateInfo.commandBufferCount = 1;
+        l_AllocateInfo.commandBufferCount = static_cast<uint32_t>(m_Context->GetSwapChainImages().size());
 
-        if (vkAllocateCommandBuffers(m_Context->GetDevice(), &l_AllocateInfo, &m_CommandBuffer) != VK_SUCCESS)
+        if (vkAllocateCommandBuffers(m_Context->GetDevice(), &l_AllocateInfo, m_CommandBuffer.data()) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to create command buffers");
 
@@ -461,7 +463,7 @@ namespace Trinity
         l_BeginInfo.flags = 0;
         l_BeginInfo.pInheritanceInfo = nullptr;
 
-        if (vkBeginCommandBuffer(m_CommandBuffer, &l_BeginInfo) != VK_SUCCESS)
+        if (vkBeginCommandBuffer(m_CommandBuffer[imageIndex], &l_BeginInfo) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to begin recording command buffer");
 
@@ -479,8 +481,8 @@ namespace Trinity
         l_RenderPassInfo.clearValueCount = 1;
         l_RenderPassInfo.pClearValues = &l_ClearColor;
 
-        vkCmdBeginRenderPass(m_CommandBuffer, &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
+        vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
 
         VkViewport l_Viewport{};
         l_Viewport.x = 0.0f;
@@ -489,18 +491,18 @@ namespace Trinity
         l_Viewport.height = static_cast<float>(m_Context->GetSwapChainExtent().height);
         l_Viewport.minDepth = 0.0f;
         l_Viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(m_CommandBuffer, 0, 1, &l_Viewport);
+        vkCmdSetViewport(m_CommandBuffer[imageIndex], 0, 1, &l_Viewport);
 
         VkRect2D l_Scissor{};
         l_Scissor.offset = { 0, 0 };
         l_Scissor.extent = m_Context->GetSwapChainExtent();
-        vkCmdSetScissor(m_CommandBuffer, 0, 1, &l_Scissor);
+        vkCmdSetScissor(m_CommandBuffer[imageIndex], 0, 1, &l_Scissor);
 
-        vkCmdDraw(m_CommandBuffer, 3, 1, 0, 0);
+        vkCmdDraw(m_CommandBuffer[imageIndex], 3, 1, 0, 0);
 
-        vkCmdEndRenderPass(m_CommandBuffer);
+        vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
 
-        if (vkEndCommandBuffer(m_CommandBuffer) != VK_SUCCESS)
+        if (vkEndCommandBuffer(m_CommandBuffer[imageIndex]) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to record command buffer");
         }

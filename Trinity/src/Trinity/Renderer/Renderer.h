@@ -41,7 +41,7 @@ namespace Trinity
         VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
         std::vector<VkFramebuffer> m_Framebuffers{};
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
-        VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
+        std::vector<VkCommandBuffer> m_CommandBuffer{};
         std::vector<VkSemaphore> m_ImageAvailableSemaphore{};
         std::vector<VkSemaphore> m_RenderFinshedSemaphore{};
         std::vector<VkFence> m_InFlightFence{};
