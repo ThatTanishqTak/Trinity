@@ -141,7 +141,7 @@ namespace Trinity
         l_SubmitInfo.commandBufferCount = 1;
         l_SubmitInfo.pCommandBuffers = &m_CommandBuffer[l_ImageIndex];
 
-        VkSemaphore l_SignalSemaphores[] = { m_RenderFinshedSemaphore[m_CurrentFrame] };
+        VkSemaphore l_SignalSemaphores[] = { m_RenderFinshedSemaphore[l_ImageIndex] };
         l_SubmitInfo.signalSemaphoreCount = 1;
         l_SubmitInfo.pSignalSemaphores = l_SignalSemaphores;
 
@@ -452,8 +452,9 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating synchronization objects");
 
-        m_ImageAvailableSemaphore.resize(MAX_FRAMES_IN_FLIGHT);
-        m_RenderFinshedSemaphore.resize(MAX_FRAMES_IN_FLIGHT);
+        size_t l_SwapChainImageCount = m_Context->GetSwapChainImages().size();
+        m_ImageAvailableSemaphore.resize(l_SwapChainImageCount);
+        m_RenderFinshedSemaphore.resize(l_SwapChainImageCount);
         m_InFlightFence.resize(MAX_FRAMES_IN_FLIGHT);
         m_ImagesInFlight.resize(m_Context->GetSwapChainImages().size(), VK_NULL_HANDLE);
 
@@ -464,13 +465,20 @@ namespace Trinity
         l_FenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         l_FenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        for (size_t i = 0; i < l_SwapChainImageCount; ++i)
         {
             if (vkCreateSemaphore(m_Context->GetDevice(), &l_SemaphoreInfo, nullptr, &m_ImageAvailableSemaphore[i]) != VK_SUCCESS ||
-                vkCreateSemaphore(m_Context->GetDevice(), &l_SemaphoreInfo, nullptr, &m_RenderFinshedSemaphore[i]) != VK_SUCCESS ||
-                vkCreateFence(m_Context->GetDevice(), &l_FenceInfo, nullptr, &m_InFlightFence[i]) != VK_SUCCESS)
+                vkCreateSemaphore(m_Context->GetDevice(), &l_SemaphoreInfo, nullptr, &m_RenderFinshedSemaphore[i]) != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Failed to create sync objects for frame {}", i);
+            }
+        }
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            if (vkCreateFence(m_Context->GetDevice(), &l_FenceInfo, nullptr, &m_InFlightFence[i]) != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Failed to create fence for frame {}", i);
             }
         }
 
