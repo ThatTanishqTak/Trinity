@@ -99,7 +99,7 @@ namespace Trinity
     {
         TR_CORE_TRACE("Current Frame: {}, Frame Rate: {}, DeltaTime: {}", m_CurrentFrame, Utilities::Time::GetFPS(), Utilities::Time::GetDeltaTime());
 
-        //vkDeviceWaitIdle(m_Context->GetDevice());
+        vkDeviceWaitIdle(m_Context->GetDevice());
 
         vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
         vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
