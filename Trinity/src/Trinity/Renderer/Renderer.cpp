@@ -99,12 +99,14 @@ namespace Trinity
 
     void Renderer::DrawFrame()
     {
-        vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
-        vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
+        //TR_CORE_TRACE("Current frame: {}, FPS: {}, DeltaTime: {}", m_CurrentFrame, Utilities::Time::GetFPS(), Utilities::Time::GetDeltaTime());
 
         uint32_t l_ImageIndex = 0;
         VkResult l_Result = vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT64_MAX,
             m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
+
+        vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[l_ImageIndex], VK_TRUE, UINT64_MAX);
+        vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[l_ImageIndex]);
 
         if (l_Result == VK_ERROR_OUT_OF_DATE_KHR)
         {
@@ -120,11 +122,7 @@ namespace Trinity
             return;
         }
 
-        if (m_ImagesInFlight[l_ImageIndex] != VK_NULL_HANDLE)
-        {
-            vkWaitForFences(m_Context->GetDevice(), 1, &m_ImagesInFlight[l_ImageIndex], VK_TRUE, UINT64_MAX);
-        }
-        m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[m_CurrentFrame];
+        m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[l_ImageIndex];
 
         vkResetCommandBuffer(m_CommandBuffer[l_ImageIndex], 0);
         RecordCommandBuffer(l_ImageIndex);
@@ -145,7 +143,7 @@ namespace Trinity
         l_SubmitInfo.signalSemaphoreCount = 1;
         l_SubmitInfo.pSignalSemaphores = l_SignalSemaphores;
 
-        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, m_InFlightFence[m_CurrentFrame]) != VK_SUCCESS)
+        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, m_InFlightFence[l_ImageIndex]) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to submit draw command buffer");
 
@@ -177,7 +175,7 @@ namespace Trinity
             return;
         }
 
-        m_CurrentFrame = (m_CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+        m_CurrentFrame = (m_CurrentFrame + 1) % m_ImageAvailableSemaphore.size();
     }
 
 
@@ -455,7 +453,7 @@ namespace Trinity
         size_t l_SwapChainImageCount = m_Context->GetSwapChainImages().size();
         m_ImageAvailableSemaphore.resize(l_SwapChainImageCount);
         m_RenderFinshedSemaphore.resize(l_SwapChainImageCount);
-        m_InFlightFence.resize(MAX_FRAMES_IN_FLIGHT);
+        m_InFlightFence.resize(l_SwapChainImageCount);
         m_ImagesInFlight.resize(m_Context->GetSwapChainImages().size(), VK_NULL_HANDLE);
 
         VkSemaphoreCreateInfo l_SemaphoreInfo{};
@@ -474,7 +472,7 @@ namespace Trinity
             }
         }
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        for (size_t i = 0; i < l_SwapChainImageCount; ++i)
         {
             if (vkCreateFence(m_Context->GetDevice(), &l_FenceInfo, nullptr, &m_InFlightFence[i]) != VK_SUCCESS)
             {
