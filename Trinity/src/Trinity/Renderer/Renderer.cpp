@@ -99,85 +99,81 @@ namespace Trinity
 
     void Renderer::DrawFrame()
     {
-        //TR_CORE_TRACE("Current frame: {}, FPS: {}, DeltaTime: {}", m_CurrentFrame, Utilities::Time::GetFPS(), Utilities::Time::GetDeltaTime());
+        TR_CORE_TRACE("FPS: {}, DeltaTime: {}", Utilities::Time::GetFPS(), Utilities::Time::GetDeltaTime());
 
-        uint32_t l_ImageIndex = 0;
-        VkResult l_Result = vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT64_MAX,
-            m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
+        vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
 
-        vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[l_ImageIndex], VK_TRUE, UINT64_MAX);
-        vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[l_ImageIndex]);
-
-        if (l_Result == VK_ERROR_OUT_OF_DATE_KHR)
+        uint32_t imageIndex;
+        VkResult result = vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT64_MAX, m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &imageIndex);
+        if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            TR_CORE_WARN("Swapchain is out of date");
+            // handle swapchain recreation…
 
             return;
         }
 
-        else if (l_Result != VK_SUCCESS && l_Result != VK_SUBOPTIMAL_KHR)
+        else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
         {
-            TR_CORE_ERROR("Failed to acquire swapchain image");
+            TR_CORE_ERROR("Failed to acquire swap chain image!");
+        }
+
+        if (m_ImagesInFlight[imageIndex] != VK_NULL_HANDLE)
+        {
+            vkWaitForFences(m_Context->GetDevice(), 1, &m_ImagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+        }
+
+        m_ImagesInFlight[imageIndex] = m_InFlightFence[m_CurrentFrame];
+
+        vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
+
+        vkResetCommandBuffer(m_CommandBuffer[imageIndex], 0);
+        RecordCommandBuffer(imageIndex);
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+        VkSemaphore waitSems[] = { m_ImageAvailableSemaphore[m_CurrentFrame] };
+        VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = waitSems;
+        submitInfo.pWaitDstStageMask = waitStages;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer[imageIndex];
+
+        VkSemaphore signalSems[] = { m_RenderFinshedSemaphore[imageIndex] };
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = signalSems;
+
+        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &submitInfo, m_InFlightFence[m_CurrentFrame]) != VK_SUCCESS)
+        {
+            TR_CORE_ERROR("Failed to submit draw command buffer!");
+        }
+
+        VkSwapchainKHR l_Spawchain = m_Context->GetSwapChain();
+
+        VkPresentInfoKHR presentInfo{};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = signalSems;
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = &l_Spawchain;
+        presentInfo.pImageIndices = &imageIndex;
+
+        VkResult presResult = vkQueuePresentKHR(m_Context->GetPresentQueue(), &presentInfo);
+        if (presResult == VK_ERROR_OUT_OF_DATE_KHR || presResult == VK_SUBOPTIMAL_KHR)
+        {
+            // handle swapchain recreation…
 
             return;
         }
 
-        m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[l_ImageIndex];
-
-        vkResetCommandBuffer(m_CommandBuffer[l_ImageIndex], 0);
-        RecordCommandBuffer(l_ImageIndex);
-
-        VkSubmitInfo l_SubmitInfo{};
-        l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
-        VkSemaphore l_WaitSemaphores[] = { m_ImageAvailableSemaphore[m_CurrentFrame] };
-        VkPipelineStageFlags l_WaitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-        l_SubmitInfo.waitSemaphoreCount = 1;
-        l_SubmitInfo.pWaitSemaphores = l_WaitSemaphores;
-        l_SubmitInfo.pWaitDstStageMask = l_WaitStages;
-
-        l_SubmitInfo.commandBufferCount = 1;
-        l_SubmitInfo.pCommandBuffers = &m_CommandBuffer[l_ImageIndex];
-
-        VkSemaphore l_SignalSemaphores[] = { m_RenderFinshedSemaphore[l_ImageIndex] };
-        l_SubmitInfo.signalSemaphoreCount = 1;
-        l_SubmitInfo.pSignalSemaphores = l_SignalSemaphores;
-
-        if (vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, m_InFlightFence[l_ImageIndex]) != VK_SUCCESS)
+        else if (presResult != VK_SUCCESS)
         {
-            TR_CORE_ERROR("Failed to submit draw command buffer");
-
-            return;
+            TR_CORE_ERROR("Failed to present swap chain image!");
         }
 
-        VkPresentInfoKHR l_PresentInfo{};
-        l_PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        l_PresentInfo.waitSemaphoreCount = 1;
-        l_PresentInfo.pWaitSemaphores = l_SignalSemaphores;
-
-        VkSwapchainKHR l_SwapChains[] = { m_Context->GetSwapChain() };
-        l_PresentInfo.swapchainCount = 1;
-        l_PresentInfo.pSwapchains = l_SwapChains;
-        l_PresentInfo.pImageIndices = &l_ImageIndex;
-
-        l_Result = vkQueuePresentKHR(m_Context->GetPresentQueue(), &l_PresentInfo);
-        if (l_Result == VK_ERROR_OUT_OF_DATE_KHR || l_Result == VK_SUBOPTIMAL_KHR)
-        {
-            TR_CORE_WARN("Swapchain is out of date or suboptimal during present");
-
-            return;
-        }
-
-        else if (l_Result != VK_SUCCESS)
-        {
-            TR_CORE_ERROR("Failed to present swapchain image");
-
-            return;
-        }
-
-        m_CurrentFrame = (m_CurrentFrame + 1) % m_ImageAvailableSemaphore.size();
+        m_CurrentFrame = (m_CurrentFrame + 1) % m_InFlightFence.size();
     }
-
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
 
