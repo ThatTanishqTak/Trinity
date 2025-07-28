@@ -48,6 +48,8 @@ namespace Trinity
 		// Public Helper functions
 		QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice physicalDevice);
 
+		void RecreateSwapChain();
+
 	private:
 		void CreateInstance();
 		void SetupDebugMessenger();
@@ -56,6 +58,7 @@ namespace Trinity
 		void CreateLogicalDevice();
 		void CreateSwapChain();
 		void CreateImageViews();
+		void CleanupSwapChain();
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 		// Helper functions

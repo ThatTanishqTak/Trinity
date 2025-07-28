@@ -407,6 +407,47 @@ namespace Trinity
 		TR_CORE_TRACE("Image views created: {}", m_SwapChainImages.size());
 	}
 
+	void VulkanContext::CleanupSwapChain()
+	{
+		for (auto imageView : m_SwapChainImageViews)
+		{
+			vkDestroyImageView(m_Device, imageView, nullptr);
+		}
+		m_SwapChainImageViews.clear();
+
+		if (m_SwapChain)
+		{
+			vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
+			m_SwapChain = VK_NULL_HANDLE;
+		}
+	}
+
+	void VulkanContext::RecreateSwapChain()
+	{
+		TR_CORE_TRACE("VULKAN_CONTEXT: Recreating swapchain");
+
+		int l_Width = 0;
+		int l_Height = 0;
+
+		glfwGetFramebufferSize(m_Window, &l_Width, &l_Height);
+		while (l_Width == 0 || l_Height == 0)
+		{
+			glfwGetFramebufferSize(m_Window, &l_Width, &l_Height);
+			glfwWaitEvents();
+		}
+
+		TR_CORE_TRACE("New window dimensions: {}X{}", l_Width, l_Height);
+
+		vkDeviceWaitIdle(m_Device);
+
+		CleanupSwapChain();
+
+		CreateSwapChain();
+		CreateImageViews();
+
+		TR_CORE_TRACE("VULKAN_CONTEXT: Swapchain recreated");
+	}
+
 	//----------------------------------------------------------------------------------------------------------------------------------------------------//
 
 	bool VulkanContext::CheckValidationLayerSupport()

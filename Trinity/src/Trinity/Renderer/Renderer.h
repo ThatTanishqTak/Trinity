@@ -28,6 +28,8 @@ namespace Trinity
         void CreateCommandBuffer();
         void CreateSyncObjects();
         void RecordCommandBuffer(uint32_t imageIndex);
+        void CleanupSwapChain();
+        void RecreateSwapChain();
 
         //----------------------------------------------------------------------------------------------------------------------------------------------------//
 

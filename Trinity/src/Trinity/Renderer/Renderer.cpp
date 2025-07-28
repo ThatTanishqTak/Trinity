@@ -99,8 +99,6 @@ namespace Trinity
 
     void Renderer::DrawFrame()
     {
-        TR_CORE_TRACE("FPS: {}, DeltaTime: {}", Utilities::Time::GetFPS(), Utilities::Time::GetDeltaTime());
-
         vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
 
         uint32_t l_ImageIndex;
@@ -109,7 +107,7 @@ namespace Trinity
 
         if (l_Result == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            // handle swapchain recreation…
+            RecreateSwapChain();
 
             return;
         }
@@ -164,7 +162,7 @@ namespace Trinity
         VkResult l_PresentResult = vkQueuePresentKHR(m_Context->GetPresentQueue(), &l_PresentInfo);
         if (l_PresentResult == VK_ERROR_OUT_OF_DATE_KHR || l_PresentResult == VK_SUBOPTIMAL_KHR)
         {
-            // handle swapchain recreation…
+            RecreateSwapChain();
 
             return;
         }
@@ -469,6 +467,7 @@ namespace Trinity
                 TR_CORE_ERROR("Failed to create sync objects for frame {}", i);
             }
         }
+        TR_CORE_TRACE("Semaphores created");
 
         for (size_t i = 0; i < l_SwapChainImageCount; ++i)
         {
@@ -477,18 +476,19 @@ namespace Trinity
                 TR_CORE_ERROR("Failed to create fence for frame {}", i);
             }
         }
+        TR_CORE_TRACE("Fences created");
 
         TR_CORE_TRACE("Synchronization objects created");
     }
 
-    void Renderer::RecordCommandBuffer(uint32_t l_ImageIndex)
+    void Renderer::RecordCommandBuffer(uint32_t imageIndex)
     {
         VkCommandBufferBeginInfo l_BeginInfo{};
         l_BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         l_BeginInfo.flags = 0;
         l_BeginInfo.pInheritanceInfo = nullptr;
 
-        if (vkBeginCommandBuffer(m_CommandBuffer[l_ImageIndex], &l_BeginInfo) != VK_SUCCESS)
+        if (vkBeginCommandBuffer(m_CommandBuffer[imageIndex], &l_BeginInfo) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to begin recording command buffer");
 
@@ -498,7 +498,7 @@ namespace Trinity
         VkRenderPassBeginInfo l_RenderPassInfo{};
         l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         l_RenderPassInfo.renderPass = m_RenderPass;
-        l_RenderPassInfo.framebuffer = m_Framebuffers[l_ImageIndex];
+        l_RenderPassInfo.framebuffer = m_Framebuffers[imageIndex];
         l_RenderPassInfo.renderArea.offset = { 0, 0 };
         l_RenderPassInfo.renderArea.extent = m_Context->GetSwapChainExtent();
 
@@ -506,8 +506,8 @@ namespace Trinity
         l_RenderPassInfo.clearValueCount = 1;
         l_RenderPassInfo.pClearValues = &l_ClearColor;
 
-        vkCmdBeginRenderPass(m_CommandBuffer[l_ImageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(m_CommandBuffer[l_ImageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
+        vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
 
         VkViewport l_Viewport{};
         l_Viewport.x = 0.0f;
@@ -516,21 +516,101 @@ namespace Trinity
         l_Viewport.height = static_cast<float>(m_Context->GetSwapChainExtent().height);
         l_Viewport.minDepth = 0.0f;
         l_Viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(m_CommandBuffer[l_ImageIndex], 0, 1, &l_Viewport);
+        vkCmdSetViewport(m_CommandBuffer[imageIndex], 0, 1, &l_Viewport);
 
         VkRect2D l_Scissor{};
         l_Scissor.offset = { 0, 0 };
         l_Scissor.extent = m_Context->GetSwapChainExtent();
-        vkCmdSetScissor(m_CommandBuffer[l_ImageIndex], 0, 1, &l_Scissor);
+        vkCmdSetScissor(m_CommandBuffer[imageIndex], 0, 1, &l_Scissor);
 
-        vkCmdDraw(m_CommandBuffer[l_ImageIndex], 3, 1, 0, 0);
+        vkCmdDraw(m_CommandBuffer[imageIndex], 3, 1, 0, 0);
 
-        vkCmdEndRenderPass(m_CommandBuffer[l_ImageIndex]);
+        vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
 
-        if (vkEndCommandBuffer(m_CommandBuffer[l_ImageIndex]) != VK_SUCCESS)
+        if (vkEndCommandBuffer(m_CommandBuffer[imageIndex]) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to record command buffer");
         }
+    }
+
+    void Renderer::CleanupSwapChain()
+    {
+        TR_CORE_TRACE("Cleaning up swapchain");
+
+        for (auto it_Framebuffer : m_Framebuffers)
+        {
+            if (it_Framebuffer)
+            {
+                vkDestroyFramebuffer(m_Context->GetDevice(), it_Framebuffer, nullptr);
+            }
+        }
+        m_Framebuffers.clear();
+
+        if (!m_CommandBuffer.empty())
+        {
+            vkFreeCommandBuffers(m_Context->GetDevice(), m_CommandPool, static_cast<uint32_t>(m_CommandBuffer.size()), m_CommandBuffer.data());
+            m_CommandBuffer.clear();
+        }
+
+        for (auto it_Fence : m_InFlightFence)
+        {
+            if (it_Fence)
+            {
+                vkDestroyFence(m_Context->GetDevice(), it_Fence, nullptr);
+            }
+        }
+        m_InFlightFence.clear();
+
+        for (size_t i = 0; i < m_ImageAvailableSemaphore.size(); ++i)
+        {
+            if (m_ImageAvailableSemaphore[i])
+            {
+                vkDestroySemaphore(m_Context->GetDevice(), m_ImageAvailableSemaphore[i], nullptr);
+            }
+            if (m_RenderFinshedSemaphore[i])
+            {
+                vkDestroySemaphore(m_Context->GetDevice(), m_RenderFinshedSemaphore[i], nullptr);
+            }
+        }
+        m_ImageAvailableSemaphore.clear();
+        m_RenderFinshedSemaphore.clear();
+        m_ImagesInFlight.clear();
+
+        if (m_GraphicsPipeline)
+        {
+            vkDestroyPipeline(m_Context->GetDevice(), m_GraphicsPipeline, nullptr);
+            m_GraphicsPipeline = VK_NULL_HANDLE;
+        }
+
+        if (m_PipelineLayout)
+        {
+            vkDestroyPipelineLayout(m_Context->GetDevice(), m_PipelineLayout, nullptr);
+            m_PipelineLayout = VK_NULL_HANDLE;
+        }
+
+        if (m_RenderPass)
+        {
+            vkDestroyRenderPass(m_Context->GetDevice(), m_RenderPass, nullptr);
+            m_RenderPass = VK_NULL_HANDLE;
+        }
+    }
+
+    void Renderer::RecreateSwapChain()
+    {
+        TR_CORE_TRACE("Recreating swapchain");
+
+        vkDeviceWaitIdle(m_Context->GetDevice());
+
+        CleanupSwapChain();
+        m_Context->RecreateSwapChain();
+
+        CreateRenderPass();
+        CreateGraphicsPipeline();
+        CreateFramebuffers();
+        CreateCommandBuffer();
+        CreateSyncObjects();
+
+        TR_CORE_TRACE("Swapchain recreated");
     }
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
