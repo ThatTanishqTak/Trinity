@@ -647,6 +647,24 @@ namespace Trinity
 		return l_Indices;
 	}
 
+	uint32_t VulkanContext::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
+	{
+		VkPhysicalDeviceMemoryProperties l_MemoryProperties;
+		vkGetPhysicalDeviceMemoryProperties(m_PhysicalDevice, &l_MemoryProperties);
+
+		for (uint32_t i = 0; i < l_MemoryProperties.memoryTypeCount; i++)
+		{
+			if ((typeFilter & (1 << i)) && (l_MemoryProperties.memoryTypes[i].propertyFlags & properties) == properties)
+			{
+				return i;
+			}
+		}
+
+		TR_CORE_ERROR("Failed to find suitable memory type");
+
+		return -1;
+	}
+
 	VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType,
 		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData)
 	{

@@ -19,6 +19,7 @@ namespace Trinity
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateCommandPool();
+        CreateVertexBuffer();
         CreateCommandBuffer();
         CreateSyncObjects();
 
@@ -93,6 +94,8 @@ namespace Trinity
             m_RenderPass = VK_NULL_HANDLE;
             TR_CORE_TRACE("Render pass destroyed");
         }
+
+        m_VertexBuffer.Destroy();
 
         TR_CORE_INFO("-------RENDERER SHUTDOWN COMPLETE-------");
     }
@@ -257,12 +260,15 @@ namespace Trinity
 
         VkPipelineShaderStageCreateInfo l_ShaderStages[] = { l_VertShaderStageInfo, l_FragShaderStageInfo };
 
+        auto l_BindingDescription = Vertex::GetBindingDescription();
+        auto l_AttributeDescriptions = Vertex::GetAttributeDescriptions();
+
         VkPipelineVertexInputStateCreateInfo l_VertexInputInfo{};
         l_VertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        l_VertexInputInfo.vertexBindingDescriptionCount = 0;
-        l_VertexInputInfo.pVertexBindingDescriptions = nullptr;
-        l_VertexInputInfo.vertexAttributeDescriptionCount = 0;
-        l_VertexInputInfo.pVertexAttributeDescriptions = nullptr;
+        l_VertexInputInfo.vertexBindingDescriptionCount = 1;
+        l_VertexInputInfo.pVertexBindingDescriptions = &l_BindingDescription;
+        l_VertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(l_AttributeDescriptions.size());
+        l_VertexInputInfo.pVertexAttributeDescriptions = l_AttributeDescriptions.data();
 
         VkPipelineInputAssemblyStateCreateInfo l_InputAssembly{};
         l_InputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -420,6 +426,25 @@ namespace Trinity
         TR_CORE_TRACE("Command pool created");
     }
 
+    void Renderer::CreateVertexBuffer()
+    {
+        TR_CORE_TRACE("Creating vertex buffer");
+
+        std::vector<Vertex> vertices = {
+            { {0.0f, -0.5f}, {1.0f, 0.0f, 0.0f} },
+            { {0.5f, 0.5f},  {0.0f, 1.0f, 0.0f} },
+            { {-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f} }
+        };
+
+        m_VertexBuffer = VertexBuffer(m_Context);
+        if (!m_VertexBuffer.Create(vertices))
+        {
+            TR_CORE_ERROR("Failed to create vertex buffer");
+        }
+
+        TR_CORE_TRACE("Vertex buffer created");
+    }
+
     void Renderer::CreateCommandBuffer()
     {
         TR_CORE_TRACE("Creating command buffer");
@@ -523,7 +548,10 @@ namespace Trinity
         l_Scissor.extent = m_Context->GetSwapChainExtent();
         vkCmdSetScissor(m_CommandBuffer[imageIndex], 0, 1, &l_Scissor);
 
-        vkCmdDraw(m_CommandBuffer[imageIndex], 3, 1, 0, 0);
+        VkBuffer vertexBuffers[] = { m_VertexBuffer.GetBuffer() };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
+        vkCmdDraw(m_CommandBuffer[imageIndex], m_VertexBuffer.GetVertexCount(), 1, 0, 0);
 
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
 

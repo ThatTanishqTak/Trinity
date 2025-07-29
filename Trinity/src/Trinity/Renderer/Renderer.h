@@ -1,8 +1,9 @@
 #pragma once
 
 #include <vector>
-#include <cstddef>
 #include <vulkan/vulkan.h>
+
+#include "Trinity/Renderer/VertexBuffer.h"
 
 namespace Trinity
 {
@@ -25,6 +26,7 @@ namespace Trinity
         void CreateGraphicsPipeline();
         void CreateFramebuffers();
         void CreateCommandPool();
+        void CreateVertexBuffer();
         void CreateCommandBuffer();
         void CreateSyncObjects();
         void RecordCommandBuffer(uint32_t imageIndex);
@@ -48,6 +50,9 @@ namespace Trinity
         std::vector<VkSemaphore> m_RenderFinshedSemaphore{};
         std::vector<VkFence> m_InFlightFence{};
         std::vector<VkFence> m_ImagesInFlight{};
+
+        VertexBuffer m_VertexBuffer{};
+
         size_t m_CurrentFrame = 0;
     };
 }

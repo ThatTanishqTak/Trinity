@@ -47,6 +47,7 @@ namespace Trinity
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 		// Public Helper functions
 		QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice physicalDevice);
+		uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
 		void RecreateSwapChain();
 
