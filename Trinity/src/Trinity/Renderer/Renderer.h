@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 
 #include "Trinity/Renderer/VertexBuffer.h"
+#include "Trinity/Renderer/IndexBuffer.h"
 
 namespace Trinity
 {
@@ -27,6 +28,7 @@ namespace Trinity
         void CreateFramebuffers();
         void CreateCommandPool();
         void CreateVertexBuffer();
+        void CreateIndexBuffer();
         void CreateCommandBuffer();
         void CreateSyncObjects();
         void RecordCommandBuffer(uint32_t imageIndex);
@@ -52,6 +54,7 @@ namespace Trinity
         std::vector<VkFence> m_ImagesInFlight{};
 
         VertexBuffer m_VertexBuffer{};
+        IndexBuffer m_IndexBuffer{};
 
         size_t m_CurrentFrame = 0;
     };

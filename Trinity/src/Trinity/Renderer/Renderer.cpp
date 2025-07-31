@@ -20,6 +20,7 @@ namespace Trinity
         CreateFramebuffers();
         CreateCommandPool();
         CreateVertexBuffer();
+        CreateIndexBuffer();
         CreateCommandBuffer();
         CreateSyncObjects();
 
@@ -96,6 +97,7 @@ namespace Trinity
         }
 
         m_VertexBuffer.Destroy();
+        m_IndexBuffer.Destroy();
 
         TR_CORE_INFO("-------RENDERER SHUTDOWN COMPLETE-------");
     }
@@ -445,6 +447,21 @@ namespace Trinity
         TR_CORE_TRACE("Vertex buffer created");
     }
 
+    void Renderer::CreateIndexBuffer()
+    {
+        TR_CORE_TRACE("Creating index buffer");
+
+        std::vector<uint32_t> indices = { 0, 1, 2 };
+
+        m_IndexBuffer = IndexBuffer(m_Context);
+        if (!m_IndexBuffer.Create(indices))
+        {
+            TR_CORE_ERROR("Failed to create index buffer");
+        }
+
+        TR_CORE_TRACE("Index buffer created");
+    }
+
     void Renderer::CreateCommandBuffer()
     {
         TR_CORE_TRACE("Creating command buffer");
@@ -551,7 +568,9 @@ namespace Trinity
         VkBuffer vertexBuffers[] = { m_VertexBuffer.GetBuffer() };
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
-        vkCmdDraw(m_CommandBuffer[imageIndex], m_VertexBuffer.GetVertexCount(), 1, 0, 0);
+        vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], m_IndexBuffer.GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+        vkCmdDrawIndexed(m_CommandBuffer[imageIndex], m_IndexBuffer.GetIndexCount(), 1, 0, 0, 0);
 
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
 
