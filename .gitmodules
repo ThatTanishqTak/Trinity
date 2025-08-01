@@ -7,3 +7,6 @@
 [submodule "Trinity/vendor/stb"]
 	path = Trinity/vendor/stb
 	url = https://github.com/ThatTanishqTak/stb.git
+[submodule "Trinity/vendor/entt"]
+	path = Trinity/vendor/entt
+	url = https://github.com/ThatTanishqTak/entt.git
