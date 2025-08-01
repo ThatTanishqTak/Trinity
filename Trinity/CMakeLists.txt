@@ -67,7 +67,6 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Trinity/trpch.h
 )
 
-
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PUBLIC
     spdlog

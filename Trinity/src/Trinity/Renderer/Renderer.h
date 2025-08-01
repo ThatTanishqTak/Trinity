@@ -8,6 +8,8 @@
 #include "Trinity/Renderer/UniformBuffer.h"
 #include "Trinity/Renderer/Texture.h"
 
+#include "Trinity/Camera/Camera.h"
+
 namespace Trinity
 {
     class VulkanContext;
@@ -23,6 +25,8 @@ namespace Trinity
         void Shutdown();
 
         void DrawFrame();
+
+        Camera& GetCamera() { return m_Camera; }
 
     private:
         void CreateRenderPass();
@@ -73,6 +77,8 @@ namespace Trinity
         IndexBuffer m_IndexBuffer{};
         std::vector<UniformBuffer> m_UniformBuffers{};
         Texture m_Texture;
+
+        Camera m_Camera;
 
         size_t m_CurrentFrame = 0;
     };

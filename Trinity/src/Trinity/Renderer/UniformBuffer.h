@@ -3,6 +3,8 @@
 #include <vulkan/vulkan.h>
 #include <glm/glm.hpp>
 
+#include "Trinity/Camera/Camera.h"
+
 namespace Trinity
 {
     class VulkanContext;
@@ -12,6 +14,12 @@ namespace Trinity
         glm::mat4 Model;
         glm::mat4 View;
         glm::mat4 Proj;
+
+        void Update(const Camera& camera)
+        {
+            View = camera.GetViewMatrix();
+            Proj = camera.GetProjectionMatrix();
+        }
     };
 
     class UniformBuffer

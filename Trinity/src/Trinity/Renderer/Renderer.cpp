@@ -184,6 +184,16 @@ namespace Trinity
 
         m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[m_CurrentFrame];
 
+        m_Camera.SetProjection(45.0f, static_cast<float>(m_Context->GetSwapChainExtent().width) / static_cast<float>(m_Context->GetSwapChainExtent().height), 0.1f, 100.0f);
+
+        UniformBufferObject l_Ubo{};
+        l_Ubo.Model = glm::mat4(1.0f);
+        l_Ubo.Update(m_Camera);
+
+        void* l_Data = m_UniformBuffers[l_ImageIndex].Map();
+        std::memcpy(l_Data, &l_Ubo, sizeof(l_Ubo));
+        m_UniformBuffers[l_ImageIndex].Unmap();
+
         vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
 
         vkResetCommandBuffer(m_CommandBuffer[l_ImageIndex], 0);
