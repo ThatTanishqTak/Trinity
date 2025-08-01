@@ -581,7 +581,7 @@ namespace Trinity
         TR_CORE_TRACE("Loading texture");
 
         m_Texture = Texture(m_Context);
-        if (!m_Texture.LoadFromFile("Assets/Textures/Checker.png"))
+        if (!m_Texture.LoadFromFile("Assets/Textures/Checkers.png", 0, 0))
         {
             TR_CORE_ERROR("Failed to load texture image");
         }

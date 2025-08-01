@@ -1,8 +1,5 @@
 #include "Trinity/trpch.h"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
 #include "Texture.h"
 #include "Trinity/Vulkan/VulkanContext.h"
 #include "Trinity/Renderer/StagingBuffer.h"
@@ -17,34 +14,31 @@ namespace Trinity
 
     bool Texture::LoadFromFile(const std::string& path, int width, int height)
     {
-        stbi_uc* l_Pixels = Utilities::FileManagement::LoadTexture(path, width, height);
-        if (!l_Pixels)
+        std::vector<std::byte> l_Pixels = Utilities::FileManagement::LoadTexture(path, width, height);
+        if (l_Pixels.empty())
         {
             TR_CORE_ERROR("Failed to load texture: {}", path);
-            
+
             return false;
         }
 
-        VkDeviceSize l_ImageSize = static_cast<VkDeviceSize>(l_Width) * static_cast<VkDeviceSize>(l_Height) * 4;
+        VkDeviceSize l_ImageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
 
         StagingBuffer l_Staging(m_Context);
         if (!l_Staging.Create(l_ImageSize))
         {
-            stbi_image_free(l_Pixels);
-
             return false;
         }
 
         void* l_Data = l_Staging.Map();
-        memcpy(l_Data, l_Pixels, static_cast<size_t>(l_ImageSize));
+        memcpy(l_Data, l_Pixels.data(), static_cast<size_t>(l_ImageSize));
         l_Staging.Unmap();
-        stbi_image_free(l_Pixels);
 
         VkImageCreateInfo l_ImageInfo{};
         l_ImageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         l_ImageInfo.imageType = VK_IMAGE_TYPE_2D;
-        l_ImageInfo.extent.width = static_cast<uint32_t>(l_Width);
-        l_ImageInfo.extent.height = static_cast<uint32_t>(l_Height);
+        l_ImageInfo.extent.width = static_cast<uint32_t>(width);
+        l_ImageInfo.extent.height = static_cast<uint32_t>(height);
         l_ImageInfo.extent.depth = 1;
         l_ImageInfo.mipLevels = 1;
         l_ImageInfo.arrayLayers = 1;
@@ -134,7 +128,7 @@ namespace Trinity
         l_Region.imageSubresource.baseArrayLayer = 0;
         l_Region.imageSubresource.layerCount = 1;
         l_Region.imageOffset = { 0, 0, 0 };
-        l_Region.imageExtent = { static_cast<uint32_t>(l_Width), static_cast<uint32_t>(l_Height), 1 };
+        l_Region.imageExtent = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
 
         vkCmdCopyBufferToImage(l_CommandBuffer, l_Staging.GetBuffer(), m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &l_Region);
 

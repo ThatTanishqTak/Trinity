@@ -78,6 +78,8 @@ namespace Trinity
 
 		std::vector<std::byte> FileManagement::LoadTexture(const std::string& filePath, int& width, int& height)
 		{
+			stbi_set_flip_vertically_on_load(1);
+
 			int l_Channels = 0;
 			stbi_uc* l_Pixels = stbi_load(filePath.c_str(), &width, &height, &l_Channels, STBI_rgb_alpha);
 			if (!l_Pixels)
