@@ -18,6 +18,7 @@ namespace Trinity
         CreateRenderPass();
         CreateDescriptorSetLayout();
         CreateGraphicsPipeline();
+        CreateDepthResources();
         CreateFramebuffers();
         CreateCommandPool();
         CreateTextureImage();
@@ -78,6 +79,32 @@ namespace Trinity
                 vkDestroyFramebuffer(m_Context->GetDevice(), it_Framebuffer, nullptr);
             }
             TR_CORE_TRACE("Framebuffers destroyed");
+        }
+
+        if (!m_DepthImageViews.empty())
+        {
+            for (size_t i = 0; i < m_DepthImageViews.size(); ++i)
+            {
+                if (m_DepthImageViews[i])
+                {
+                    vkDestroyImageView(m_Context->GetDevice(), m_DepthImageViews[i], nullptr);
+                }
+
+                if (m_DepthImages[i])
+                {
+                    vkDestroyImage(m_Context->GetDevice(), m_DepthImages[i], nullptr);
+                }
+
+                if (m_DepthImageMemory[i])
+                {
+                    vkFreeMemory(m_Context->GetDevice(), m_DepthImageMemory[i], nullptr);
+                }
+            }
+
+            m_DepthImageViews.clear();
+            m_DepthImages.clear();
+            m_DepthImageMemory.clear();
+            TR_CORE_TRACE("Depth resources destroyed");
         }
 
         if (m_GraphicsPipeline)
@@ -228,25 +255,42 @@ namespace Trinity
         l_ColorAttachmentRef.attachment = 0;
         l_ColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+        VkAttachmentDescription l_DepthAttachment{};
+        l_DepthAttachment.format = FindDepthFormat();
+        l_DepthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        l_DepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        l_DepthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        l_DepthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        l_DepthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        l_DepthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        l_DepthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference l_DepthAttachmentRef{};
+        l_DepthAttachmentRef.attachment = 1;
+        l_DepthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
         VkSubpassDescription l_Subpass{};
         l_Subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         l_Subpass.colorAttachmentCount = 1;
         l_Subpass.pColorAttachments = &l_ColorAttachmentRef;
+        l_Subpass.pDepthStencilAttachment = &l_DepthAttachmentRef;
+
+        std::array<VkAttachmentDescription, 2> l_Attachments{ l_ColorAttachment, l_DepthAttachment };
 
         VkRenderPassCreateInfo l_RenderPassInfo{};
         l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        l_RenderPassInfo.attachmentCount = 1;
-        l_RenderPassInfo.pAttachments = &l_ColorAttachment;
+        l_RenderPassInfo.attachmentCount = static_cast<uint32_t>(l_Attachments.size());
+        l_RenderPassInfo.pAttachments = l_Attachments.data();
         l_RenderPassInfo.subpassCount = 1;
         l_RenderPassInfo.pSubpasses = &l_Subpass;
 
         VkSubpassDependency l_Dependency{};
         l_Dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
         l_Dependency.dstSubpass = 0;
-        l_Dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        l_Dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         l_Dependency.srcAccessMask = 0;
-        l_Dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        l_Dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        l_Dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        l_Dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
         l_RenderPassInfo.dependencyCount = 1;
         l_RenderPassInfo.pDependencies = &l_Dependency;
@@ -459,6 +503,14 @@ namespace Trinity
         l_Multisampling.sampleShadingEnable = VK_FALSE;
         l_Multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
+        VkPipelineDepthStencilStateCreateInfo l_DepthStencil{};
+        l_DepthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        l_DepthStencil.depthTestEnable = VK_TRUE;
+        l_DepthStencil.depthWriteEnable = VK_TRUE;
+        l_DepthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+        l_DepthStencil.depthBoundsTestEnable = VK_FALSE;
+        l_DepthStencil.stencilTestEnable = VK_FALSE;
+
         VkPipelineColorBlendAttachmentState l_ColorBlendAttachment{};
         l_ColorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         l_ColorBlendAttachment.blendEnable = VK_FALSE;
@@ -503,7 +555,7 @@ namespace Trinity
         l_PipelineInfo.pViewportState = &l_ViewportState;
         l_PipelineInfo.pRasterizationState = &l_Rasterizer;
         l_PipelineInfo.pMultisampleState = &l_Multisampling;
-        l_PipelineInfo.pDepthStencilState = nullptr;
+        l_PipelineInfo.pDepthStencilState = &l_DepthStencil;
         l_PipelineInfo.pColorBlendState = &l_ColorBlending;
         l_PipelineInfo.pDynamicState = &l_DynamicStateInfo;
         l_PipelineInfo.layout = m_PipelineLayout;
@@ -525,6 +577,143 @@ namespace Trinity
         TR_CORE_TRACE("Graphics pipeline created");
     }
 
+    void Renderer::CreateDepthResources()
+    {
+        TR_CORE_TRACE("Creating depth resources");
+
+        VkFormat l_DepthFormat = FindDepthFormat();
+
+        m_DepthImages.resize(m_Context->GetSwapChainImages().size());
+        m_DepthImageMemory.resize(m_Context->GetSwapChainImages().size());
+        m_DepthImageViews.resize(m_Context->GetSwapChainImages().size());
+
+        for (size_t i = 0; i < m_DepthImages.size(); ++i)
+        {
+            VkImageCreateInfo l_ImageInfo{};
+            l_ImageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            l_ImageInfo.imageType = VK_IMAGE_TYPE_2D;
+            l_ImageInfo.extent.width = m_Context->GetSwapChainExtent().width;
+            l_ImageInfo.extent.height = m_Context->GetSwapChainExtent().height;
+            l_ImageInfo.extent.depth = 1;
+            l_ImageInfo.mipLevels = 1;
+            l_ImageInfo.arrayLayers = 1;
+            l_ImageInfo.format = l_DepthFormat;
+            l_ImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            l_ImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            l_ImageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            l_ImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            l_ImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            if (vkCreateImage(m_Context->GetDevice(), &l_ImageInfo, nullptr, &m_DepthImages[i]) != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Failed to create depth image");
+
+                return;
+            }
+
+            VkMemoryRequirements l_MemReq{};
+            vkGetImageMemoryRequirements(m_Context->GetDevice(), m_DepthImages[i], &l_MemReq);
+
+            VkMemoryAllocateInfo l_AllocInfo{};
+            l_AllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            l_AllocInfo.allocationSize = l_MemReq.size;
+            l_AllocInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+            if (vkAllocateMemory(m_Context->GetDevice(), &l_AllocInfo, nullptr, &m_DepthImageMemory[i]) != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Failed to allocate depth image memory");
+
+                return;
+            }
+
+            vkBindImageMemory(m_Context->GetDevice(), m_DepthImages[i], m_DepthImageMemory[i], 0);
+
+            VkImageViewCreateInfo l_ViewInfo{};
+            l_ViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            l_ViewInfo.image = m_DepthImages[i];
+            l_ViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            l_ViewInfo.format = l_DepthFormat;
+            l_ViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            if (HasStencilComponent(l_DepthFormat))
+            {
+                l_ViewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+            l_ViewInfo.subresourceRange.baseMipLevel = 0;
+            l_ViewInfo.subresourceRange.levelCount = 1;
+            l_ViewInfo.subresourceRange.baseArrayLayer = 0;
+            l_ViewInfo.subresourceRange.layerCount = 1;
+
+            if (vkCreateImageView(m_Context->GetDevice(), &l_ViewInfo, nullptr, &m_DepthImageViews[i]) != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Failed to create depth image view");
+                return;
+            }
+        }
+
+        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDivice());
+
+        VkCommandPoolCreateInfo l_PoolInfo{};
+        l_PoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        l_PoolInfo.queueFamilyIndex = l_Indices.GraphicsFamily.value();
+        l_PoolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
+        VkCommandPool l_CommandPool = VK_NULL_HANDLE;
+        vkCreateCommandPool(m_Context->GetDevice(), &l_PoolInfo, nullptr, &l_CommandPool);
+
+        VkCommandBufferAllocateInfo l_AllocInfoCB{};
+        l_AllocInfoCB.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        l_AllocInfoCB.commandPool = l_CommandPool;
+        l_AllocInfoCB.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        l_AllocInfoCB.commandBufferCount = 1;
+
+        VkCommandBuffer l_CommandBuffer = VK_NULL_HANDLE;
+        vkAllocateCommandBuffers(m_Context->GetDevice(), &l_AllocInfoCB, &l_CommandBuffer);
+
+        VkCommandBufferBeginInfo l_BeginInfo{};
+        l_BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        l_BeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(l_CommandBuffer, &l_BeginInfo);
+
+        for (size_t i = 0; i < m_DepthImages.size(); ++i)
+        {
+            VkImageMemoryBarrier l_Barrier{};
+            l_Barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            l_Barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            l_Barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            l_Barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            l_Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            l_Barrier.image = m_DepthImages[i];
+            l_Barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            if (HasStencilComponent(l_DepthFormat))
+            {
+                l_Barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+            l_Barrier.subresourceRange.baseMipLevel = 0;
+            l_Barrier.subresourceRange.levelCount = 1;
+            l_Barrier.subresourceRange.baseArrayLayer = 0;
+            l_Barrier.subresourceRange.layerCount = 1;
+            l_Barrier.srcAccessMask = 0;
+            l_Barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+            vkCmdPipelineBarrier(l_CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, nullptr, 0, nullptr, 1, &l_Barrier);
+        }
+
+        vkEndCommandBuffer(l_CommandBuffer);
+
+        VkSubmitInfo l_SubmitInfo{};
+        l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        l_SubmitInfo.commandBufferCount = 1;
+        l_SubmitInfo.pCommandBuffers = &l_CommandBuffer;
+
+        vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(m_Context->GetGraphicsQueue());
+
+        vkFreeCommandBuffers(m_Context->GetDevice(), l_CommandPool, 1, &l_CommandBuffer);
+        vkDestroyCommandPool(m_Context->GetDevice(), l_CommandPool, nullptr);
+
+        TR_CORE_TRACE("Depth resources created");
+    }
+
     void Renderer::CreateFramebuffers()
     {
         TR_CORE_TRACE("Creating framebuffers");
@@ -533,12 +722,12 @@ namespace Trinity
 
         for (size_t i = 0; i < m_Context->GetSwapChainImages().size(); i++)
         {
-            VkImageView l_Attachments[] = { m_Context->GetSwapChainImages()[i] };
+            VkImageView l_Attachments[] = { m_Context->GetSwapChainImages()[i], m_DepthImageViews[i]};
 
             VkFramebufferCreateInfo l_FramebufferInfo{};
             l_FramebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             l_FramebufferInfo.renderPass = m_RenderPass;
-            l_FramebufferInfo.attachmentCount = 1;
+            l_FramebufferInfo.attachmentCount = 2;
             l_FramebufferInfo.pAttachments = l_Attachments;
             l_FramebufferInfo.width = m_Context->GetSwapChainExtent().width;
             l_FramebufferInfo.height = m_Context->GetSwapChainExtent().height;
@@ -726,9 +915,11 @@ namespace Trinity
         l_RenderPassInfo.renderArea.offset = { 0, 0 };
         l_RenderPassInfo.renderArea.extent = m_Context->GetSwapChainExtent();
 
-        VkClearValue l_ClearColor = { {0.05f, 0.05f, 0.05f} };
-        l_RenderPassInfo.clearValueCount = 1;
-        l_RenderPassInfo.pClearValues = &l_ClearColor;
+        std::array<VkClearValue, 2> l_ClearValues{};
+        l_ClearValues[0].color = { {0.05f, 0.05f, 0.05f, 1.0f} };
+        l_ClearValues[1].depthStencil = { 1.0f, 0 };
+        l_RenderPassInfo.clearValueCount = static_cast<uint32_t>(l_ClearValues.size());
+        l_RenderPassInfo.pClearValues = l_ClearValues.data();
 
         vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
@@ -788,6 +979,25 @@ namespace Trinity
             }
         }
         m_Framebuffers.clear();
+
+        for (size_t i = 0; i < m_DepthImageViews.size(); ++i)
+        {
+            if (m_DepthImageViews[i])
+            {
+                vkDestroyImageView(m_Context->GetDevice(), m_DepthImageViews[i], nullptr);
+            }
+            if (m_DepthImages[i])
+            {
+                vkDestroyImage(m_Context->GetDevice(), m_DepthImages[i], nullptr);
+            }
+            if (m_DepthImageMemory[i])
+            {
+                vkFreeMemory(m_Context->GetDevice(), m_DepthImageMemory[i], nullptr);
+            }
+        }
+        m_DepthImageViews.clear();
+        m_DepthImages.clear();
+        m_DepthImageMemory.clear();
 
         if (!m_CommandBuffer.empty())
         {
@@ -849,6 +1059,7 @@ namespace Trinity
 
         CreateRenderPass();
         CreateGraphicsPipeline();
+        CreateDepthResources();
         CreateFramebuffers();
         CreateUniformBuffers();
         CreateDescriptorPool();
@@ -877,5 +1088,32 @@ namespace Trinity
         }
 
         return l_ShaderModule;
+    }
+
+    VkFormat Renderer::FindDepthFormat()
+    {
+        std::vector<VkFormat> l_Candidates = 
+        {
+            VK_FORMAT_D32_SFLOAT,
+            VK_FORMAT_D32_SFLOAT_S8_UINT,
+            VK_FORMAT_D24_UNORM_S8_UINT
+        };
+
+        for (VkFormat it_Format : l_Candidates)
+        {
+            VkFormatProperties l_Props;
+            vkGetPhysicalDeviceFormatProperties(m_Context->GetPhysicalDivice(), it_Format, &l_Props);
+            if (l_Props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+            {
+                return it_Format;
+            }
+        }
+
+        return VK_FORMAT_D32_SFLOAT;
+    }
+
+    bool Renderer::HasStencilComponent(VkFormat format)
+    {
+        return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
     }
 }

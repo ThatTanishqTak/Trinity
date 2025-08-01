@@ -30,6 +30,7 @@ namespace Trinity
         void CreateDescriptorPool();
         void CreateDescriptorSets();
         void CreateGraphicsPipeline();
+        void CreateDepthResources();
         void CreateFramebuffers();
         void CreateCommandPool();
         void CreateTextureImage();
@@ -45,6 +46,8 @@ namespace Trinity
         //----------------------------------------------------------------------------------------------------------------------------------------------------//
 
         VkShaderModule CreateShaderModule(const std::vector<std::byte>& code);
+        VkFormat FindDepthFormat();
+        bool HasStencilComponent(VkFormat format);
 
     private:
         VulkanContext* m_Context = nullptr;
@@ -56,6 +59,9 @@ namespace Trinity
         VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
         std::vector<VkDescriptorSet> m_DescriptorSets{};
         std::vector<VkFramebuffer> m_Framebuffers{};
+        std::vector<VkImage> m_DepthImages{};
+        std::vector<VkDeviceMemory> m_DepthImageMemory{};
+        std::vector<VkImageView> m_DepthImageViews{};
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         std::vector<VkCommandBuffer> m_CommandBuffer{};
         std::vector<VkSemaphore> m_ImageAvailableSemaphore{};
