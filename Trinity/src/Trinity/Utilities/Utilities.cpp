@@ -4,6 +4,9 @@
 
 #include <GLFW/glfw3.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
@@ -72,6 +75,26 @@ namespace Trinity
 
             return l_Buffer;
         }
+
+		std::vector<std::byte> FileManagement::LoadTexture(const std::string& filePath, int& width, int& height)
+		{
+			int l_Channels = 0;
+			stbi_uc* l_Pixels = stbi_load(filePath.c_str(), &width, &height, &l_Channels, STBI_rgb_alpha);
+			if (!l_Pixels)
+			{
+				TR_CORE_ERROR("Failed to load texture: {}", filePath);
+				return std::vector<std::byte>();
+			}
+
+			size_t l_ImageSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+			std::vector<std::byte> l_Buffer(l_ImageSize);
+			memcpy(l_Buffer.data(), l_Pixels, l_ImageSize);
+			stbi_image_free(l_Pixels);
+
+			TR_CORE_TRACE("Texture loaded: {}", filePath);
+
+			return l_Buffer;
+		}
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 

@@ -32,6 +32,7 @@ namespace Trinity
 		{
 		public:
 			static std::vector<std::byte> ReadFile(const std::string& filePath);
+			static std::vector<std::byte> LoadTexture(const std::string& filePath, int& width, int& height);
 		};
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//

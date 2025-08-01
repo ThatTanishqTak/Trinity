@@ -125,6 +125,8 @@ namespace Trinity
         }
         m_UniformBuffers.clear();
 
+        m_Texture.Destroy();
+
         TR_CORE_INFO("-------RENDERER SHUTDOWN COMPLETE-------");
     }
 
@@ -261,6 +263,8 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating descriptor set layout");
 
+        TR_CORE_TRACE("Creating descriptor set layout");
+
         VkDescriptorSetLayoutBinding l_LayoutBinding{};
         l_LayoutBinding.binding = 0;
         l_LayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -268,10 +272,19 @@ namespace Trinity
         l_LayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         l_LayoutBinding.pImmutableSamplers = nullptr;
 
+        VkDescriptorSetLayoutBinding l_SamplerBinding{};
+        l_SamplerBinding.binding = 1;
+        l_SamplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        l_SamplerBinding.descriptorCount = 1;
+        l_SamplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        l_SamplerBinding.pImmutableSamplers = nullptr;
+
+        std::array<VkDescriptorSetLayoutBinding, 2> l_Bindings{ l_LayoutBinding, l_SamplerBinding };
+
         VkDescriptorSetLayoutCreateInfo l_CreateInfo{};
         l_CreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        l_CreateInfo.bindingCount = 1;
-        l_CreateInfo.pBindings = &l_LayoutBinding;
+        l_CreateInfo.bindingCount = static_cast<uint32_t>(l_Bindings.size());
+        l_CreateInfo.pBindings = l_Bindings.data();
 
         if (vkCreateDescriptorSetLayout(m_Context->GetDevice(), &l_CreateInfo, nullptr, &m_DescriptorSetLayout) != VK_SUCCESS)
         {
@@ -287,15 +300,18 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating descriptor pool");
 
-        VkDescriptorPoolSize l_PoolSize{};
-        l_PoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        l_PoolSize.descriptorCount = static_cast<uint32_t>(m_Context->GetSwapChainImages().size());
+        auto l_SwapChainImages = m_Context->GetSwapChainImages();
+        std::array<VkDescriptorPoolSize, 2> l_PoolSizes{};
+        l_PoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        l_PoolSizes[0].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size());
+        l_PoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        l_PoolSizes[1].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size());
 
         VkDescriptorPoolCreateInfo l_PoolInfo{};
         l_PoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        l_PoolInfo.poolSizeCount = 1;
-        l_PoolInfo.pPoolSizes = &l_PoolSize;
-        l_PoolInfo.maxSets = static_cast<uint32_t>(m_Context->GetSwapChainImages().size());
+        l_PoolInfo.poolSizeCount = static_cast<uint32_t>(l_PoolSizes.size());
+        l_PoolInfo.pPoolSizes = l_PoolSizes.data();
+        l_PoolInfo.maxSets = static_cast<uint32_t>(l_SwapChainImages.size());
 
         if (vkCreateDescriptorPool(m_Context->GetDevice(), &l_PoolInfo, nullptr, &m_DescriptorPool) != VK_SUCCESS)
         {
@@ -335,16 +351,29 @@ namespace Trinity
             l_BufferInfo.offset = 0;
             l_BufferInfo.range = sizeof(UniformBufferObject);
 
-            VkWriteDescriptorSet l_DescriptorWrite{};
-            l_DescriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            l_DescriptorWrite.dstSet = m_DescriptorSets[i];
-            l_DescriptorWrite.dstBinding = 0;
-            l_DescriptorWrite.dstArrayElement = 0;
-            l_DescriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            l_DescriptorWrite.descriptorCount = 1;
-            l_DescriptorWrite.pBufferInfo = &l_BufferInfo;
+            VkDescriptorImageInfo l_ImageInfo{};
+            l_ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            l_ImageInfo.imageView = m_Texture.GetImageView();
+            l_ImageInfo.sampler = m_Texture.GetSampler();
 
-            vkUpdateDescriptorSets(m_Context->GetDevice(), 1, &l_DescriptorWrite, 0, nullptr);
+            std::array<VkWriteDescriptorSet, 2> l_DescriptorWrites{};
+            l_DescriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            l_DescriptorWrites[0].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[0].dstBinding = 0;
+            l_DescriptorWrites[0].dstArrayElement = 0;
+            l_DescriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            l_DescriptorWrites[0].descriptorCount = 1;
+            l_DescriptorWrites[0].pBufferInfo = &l_BufferInfo;
+
+            l_DescriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            l_DescriptorWrites[1].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[1].dstBinding = 1;
+            l_DescriptorWrites[1].dstArrayElement = 0;
+            l_DescriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            l_DescriptorWrites[1].descriptorCount = 1;
+            l_DescriptorWrites[1].pImageInfo = &l_ImageInfo;
+
+            vkUpdateDescriptorSets(m_Context->GetDevice(), static_cast<uint32_t>(l_DescriptorWrites.size()), l_DescriptorWrites.data(), 0, nullptr);
         }
 
         TR_CORE_TRACE("Descriptor sets created");
@@ -549,17 +578,26 @@ namespace Trinity
 
     void Renderer::CreateTextureImage()
     {
+        TR_CORE_TRACE("Loading texture");
 
+        m_Texture = Texture(m_Context);
+        if (!m_Texture.LoadFromFile("Assets/Textures/Checker.png"))
+        {
+            TR_CORE_ERROR("Failed to load texture image");
+        }
+
+        TR_CORE_TRACE("Texture loaded");
     }
 
     void Renderer::CreateVertexBuffer()
     {
         TR_CORE_TRACE("Creating vertex buffer");
 
-        std::vector<Vertex> vertices = {
-            { {0.0f, -0.5f}, {1.0f, 0.0f, 0.0f} },
-            { {0.5f, 0.5f},  {0.0f, 1.0f, 0.0f} },
-            { {-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f} }
+        std::vector<Vertex> vertices = 
+        {
+            { {0.0f, -0.5f},  {1.0f, 0.0f, 0.0f}, {0.5f, 1.0f} },
+            { {0.5f,  0.5f},  {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
+            { {-0.5f, 0.5f},  {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} }
         };
 
         m_VertexBuffer = VertexBuffer(m_Context);

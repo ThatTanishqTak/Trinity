@@ -22,9 +22,9 @@ namespace Trinity
         return l_Binding;
     }
 
-    std::array<VkVertexInputAttributeDescription, 2> Vertex::GetAttributeDescriptions()
+    std::array<VkVertexInputAttributeDescription, 3> Vertex::GetAttributeDescriptions()
     {
-        std::array<VkVertexInputAttributeDescription, 2> l_Attributes{};
+        std::array<VkVertexInputAttributeDescription, 3> l_Attributes{};
 
         l_Attributes[0].binding = 0;
         l_Attributes[0].location = 0;
@@ -36,8 +36,14 @@ namespace Trinity
         l_Attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
         l_Attributes[1].offset = offsetof(Vertex, Color);
 
+        l_Attributes[2].binding = 0;
+        l_Attributes[2].location = 2;
+        l_Attributes[2].format = VK_FORMAT_R32G32_SFLOAT;
+        l_Attributes[2].offset = offsetof(Vertex, TexCoord);
+
         return l_Attributes;
     }
+
 
     bool VertexBuffer::Create(const std::vector<Vertex>& vertices)
     {
@@ -47,7 +53,7 @@ namespace Trinity
         // Create staging buffer
         StagingBuffer l_Staging(m_Context);
 
-        TR_CORE_TRACE("Creating l_Staging buffer");
+        TR_CORE_TRACE("Creating staging buffer");
 
         if (!l_Staging.Create(l_BufferSize))
         {
