@@ -26,6 +26,8 @@ namespace Trinity
     private:
         void CreateRenderPass();
         void CreateDescriptorSetLayout();
+        void CreateDescriptorPool();
+        void CreateDescriptorSets();
         void CreateGraphicsPipeline();
         void CreateFramebuffers();
         void CreateCommandPool();
@@ -49,6 +51,8 @@ namespace Trinity
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
         VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
+        VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
+        std::vector<VkDescriptorSet> m_DescriptorSets{};
         std::vector<VkFramebuffer> m_Framebuffers{};
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         std::vector<VkCommandBuffer> m_CommandBuffer{};

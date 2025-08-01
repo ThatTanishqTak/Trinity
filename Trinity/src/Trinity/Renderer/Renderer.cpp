@@ -23,6 +23,8 @@ namespace Trinity
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
+        CreateDescriptorPool();
+        CreateDescriptorSets();
         CreateCommandBuffer();
         CreateSyncObjects();
 
@@ -89,6 +91,14 @@ namespace Trinity
             vkDestroyPipelineLayout(m_Context->GetDevice(), m_PipelineLayout, nullptr);
             m_PipelineLayout = VK_NULL_HANDLE;
             TR_CORE_TRACE("Pipeline layout destroyed");
+        }
+
+        if (m_DescriptorPool)
+        {
+            vkDestroyDescriptorPool(m_Context->GetDevice(), m_DescriptorPool, nullptr);
+            m_DescriptorPool = VK_NULL_HANDLE;
+            m_DescriptorSets.clear();
+            TR_CORE_TRACE("Descriptor pool destroyed");
         }
 
         if (m_DescriptorSetLayout)
@@ -270,6 +280,73 @@ namespace Trinity
         }
 
         TR_CORE_TRACE("Descriptor set layout created");
+    }
+
+    void Renderer::CreateDescriptorPool()
+    {
+        TR_CORE_TRACE("Creating descriptor pool");
+
+        VkDescriptorPoolSize l_PoolSize{};
+        l_PoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        l_PoolSize.descriptorCount = static_cast<uint32_t>(m_Context->GetSwapChainImages().size());
+
+        VkDescriptorPoolCreateInfo l_PoolInfo{};
+        l_PoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        l_PoolInfo.poolSizeCount = 1;
+        l_PoolInfo.pPoolSizes = &l_PoolSize;
+        l_PoolInfo.maxSets = static_cast<uint32_t>(m_Context->GetSwapChainImages().size());
+
+        if (vkCreateDescriptorPool(m_Context->GetDevice(), &l_PoolInfo, nullptr, &m_DescriptorPool) != VK_SUCCESS)
+        {
+            TR_CORE_ERROR("Failed to create descriptor pool");
+
+            return;
+        }
+
+        TR_CORE_TRACE("Descriptor pool created");
+    }
+
+    void Renderer::CreateDescriptorSets()
+    {
+        TR_CORE_TRACE("Creating descriptor sets");
+
+        auto l_SwapChainImages = m_Context->GetSwapChainImages();
+        std::vector<VkDescriptorSetLayout> l_Layouts(l_SwapChainImages.size(), m_DescriptorSetLayout);
+
+        VkDescriptorSetAllocateInfo l_AllocInfo{};
+        l_AllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        l_AllocInfo.descriptorPool = m_DescriptorPool;
+        l_AllocInfo.descriptorSetCount = static_cast<uint32_t>(l_SwapChainImages.size());
+        l_AllocInfo.pSetLayouts = l_Layouts.data();
+
+        m_DescriptorSets.resize(l_SwapChainImages.size());
+        if (vkAllocateDescriptorSets(m_Context->GetDevice(), &l_AllocInfo, m_DescriptorSets.data()) != VK_SUCCESS)
+        {
+            TR_CORE_ERROR("Failed to allocate descriptor sets");
+
+            return;
+        }
+
+        for (size_t i = 0; i < l_SwapChainImages.size(); ++i)
+        {
+            VkDescriptorBufferInfo l_BufferInfo{};
+            l_BufferInfo.buffer = m_UniformBuffers[i].GetBuffer();
+            l_BufferInfo.offset = 0;
+            l_BufferInfo.range = sizeof(UniformBufferObject);
+
+            VkWriteDescriptorSet l_DescriptorWrite{};
+            l_DescriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            l_DescriptorWrite.dstSet = m_DescriptorSets[i];
+            l_DescriptorWrite.dstBinding = 0;
+            l_DescriptorWrite.dstArrayElement = 0;
+            l_DescriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            l_DescriptorWrite.descriptorCount = 1;
+            l_DescriptorWrite.pBufferInfo = &l_BufferInfo;
+
+            vkUpdateDescriptorSets(m_Context->GetDevice(), 1, &l_DescriptorWrite, 0, nullptr);
+        }
+
+        TR_CORE_TRACE("Descriptor sets created");
     }
 
     void Renderer::CreateGraphicsPipeline()
@@ -630,6 +707,7 @@ namespace Trinity
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
         vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], m_IndexBuffer.GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+        vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[imageIndex], 0, nullptr);
 
         vkCmdDrawIndexed(m_CommandBuffer[imageIndex], m_IndexBuffer.GetIndexCount(), 1, 0, 0, 0);
 
@@ -644,6 +722,13 @@ namespace Trinity
     void Renderer::CleanupSwapChain()
     {
         TR_CORE_TRACE("Cleaning up swapchain");
+
+        if (m_DescriptorPool)
+        {
+            vkDestroyDescriptorPool(m_Context->GetDevice(), m_DescriptorPool, nullptr);
+            m_DescriptorPool = VK_NULL_HANDLE;
+        }
+        m_DescriptorSets.clear();
 
         for (auto& it_Buffer : m_UniformBuffers)
         {
@@ -722,6 +807,8 @@ namespace Trinity
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateUniformBuffers();
+        CreateDescriptorPool();
+        CreateDescriptorSets();
         CreateCommandBuffer();
         CreateSyncObjects();
 
