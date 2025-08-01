@@ -19,9 +19,9 @@ target_include_directories(stb INTERFACE
 )
 
 # entt
-add_library(entt INTERFACE)
-target_include_directories(entt INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/vendor/entt/src>    
+add_library(EnTT INTERFACE)
+target_include_directories(EnTT INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/entt/src>    
 )
 
 # GLFW
@@ -77,7 +77,7 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PUBLIC
     spdlog
     stb
-    entt
+    EnTT
     glfw
     glm
     Vulkan
