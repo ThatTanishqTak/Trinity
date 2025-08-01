@@ -28,7 +28,7 @@ namespace Trinity
 
         l_Attributes[0].binding = 0;
         l_Attributes[0].location = 0;
-        l_Attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
+        l_Attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
         l_Attributes[0].offset = offsetof(Vertex, Position);
 
         l_Attributes[1].binding = 0;
