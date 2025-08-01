@@ -12,6 +12,12 @@ target_include_directories(spdlog INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/spdlog/include>
 )
 
+# stb image
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/stb>    
+)
+
 # GLFW
 add_library(glfw INTERFACE)
 target_include_directories(glfw INTERFACE
@@ -65,6 +71,7 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PUBLIC
     spdlog
+    stb
     glfw
     glm
     Vulkan

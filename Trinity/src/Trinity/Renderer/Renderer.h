@@ -31,6 +31,7 @@ namespace Trinity
         void CreateGraphicsPipeline();
         void CreateFramebuffers();
         void CreateCommandPool();
+        void CreateTextureImage();
         void CreateVertexBuffer();
         void CreateIndexBuffer();
         void CreateUniformBuffers();

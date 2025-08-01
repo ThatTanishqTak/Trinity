@@ -4,3 +4,6 @@
 [submodule "Trinity/vendor/spdlog"]
 	path = Trinity/vendor/spdlog
 	url = https://github.com/ThatTanishqTak/spdlog.git
+[submodule "Trinity/vendor/stb"]
+	path = Trinity/vendor/stb
+	url = https://github.com/ThatTanishqTak/stb.git

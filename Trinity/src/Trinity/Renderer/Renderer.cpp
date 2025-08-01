@@ -20,6 +20,7 @@ namespace Trinity
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateCommandPool();
+        CreateTextureImage();
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
@@ -544,6 +545,11 @@ namespace Trinity
         }
 
         TR_CORE_TRACE("Command pool created");
+    }
+
+    void Renderer::CreateTextureImage()
+    {
+
     }
 
     void Renderer::CreateVertexBuffer()
