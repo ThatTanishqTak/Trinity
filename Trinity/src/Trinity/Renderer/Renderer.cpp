@@ -16,11 +16,13 @@ namespace Trinity
         TR_CORE_INFO("-------INITIALIZING RENDERER-------");
 
         CreateRenderPass();
+        CreateDescriptorSetLayout();
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateCommandPool();
         CreateVertexBuffer();
         CreateIndexBuffer();
+        CreateUniformBuffers();
         CreateCommandBuffer();
         CreateSyncObjects();
 
@@ -89,6 +91,13 @@ namespace Trinity
             TR_CORE_TRACE("Pipeline layout destroyed");
         }
 
+        if (m_DescriptorSetLayout)
+        {
+            vkDestroyDescriptorSetLayout(m_Context->GetDevice(), m_DescriptorSetLayout, nullptr);
+            m_DescriptorSetLayout = VK_NULL_HANDLE;
+            TR_CORE_TRACE("Descriptor set layout destroyed");
+        }
+
         if (m_RenderPass)
         {
             vkDestroyRenderPass(m_Context->GetDevice(), m_RenderPass, nullptr);
@@ -98,6 +107,12 @@ namespace Trinity
 
         m_VertexBuffer.Destroy();
         m_IndexBuffer.Destroy();
+
+        for (auto& it_Buffer : m_UniformBuffers)
+        {
+            it_Buffer.Destroy();
+        }
+        m_UniformBuffers.clear();
 
         TR_CORE_INFO("-------RENDERER SHUTDOWN COMPLETE-------");
     }
@@ -231,6 +246,32 @@ namespace Trinity
         TR_CORE_TRACE("Render pass created");
     }
 
+    void Renderer::CreateDescriptorSetLayout()
+    {
+        TR_CORE_TRACE("Creating descriptor set layout");
+
+        VkDescriptorSetLayoutBinding l_LayoutBinding{};
+        l_LayoutBinding.binding = 0;
+        l_LayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        l_LayoutBinding.descriptorCount = 1;
+        l_LayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        l_LayoutBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutCreateInfo l_CreateInfo{};
+        l_CreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        l_CreateInfo.bindingCount = 1;
+        l_CreateInfo.pBindings = &l_LayoutBinding;
+
+        if (vkCreateDescriptorSetLayout(m_Context->GetDevice(), &l_CreateInfo, nullptr, &m_DescriptorSetLayout) != VK_SUCCESS)
+        {
+            TR_CORE_ERROR("Failed to create descriptor set layout");
+
+            return;
+        }
+
+        TR_CORE_TRACE("Descriptor set layout created");
+    }
+
     void Renderer::CreateGraphicsPipeline()
     {
         TR_CORE_TRACE("Creating graphics pipeline");
@@ -328,8 +369,8 @@ namespace Trinity
 
         VkPipelineLayoutCreateInfo l_PipelineLayoutInfo{};
         l_PipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        l_PipelineLayoutInfo.setLayoutCount = 0;
-        l_PipelineLayoutInfo.pSetLayouts = nullptr;
+        l_PipelineLayoutInfo.setLayoutCount = 1;
+        l_PipelineLayoutInfo.pSetLayouts = &m_DescriptorSetLayout;
         l_PipelineLayoutInfo.pushConstantRangeCount = 0;
         l_PipelineLayoutInfo.pPushConstantRanges = nullptr;
 
@@ -462,6 +503,26 @@ namespace Trinity
         TR_CORE_TRACE("Index buffer created");
     }
 
+    void Renderer::CreateUniformBuffers()
+    {
+        TR_CORE_TRACE("Creating uniform buffers");
+
+        VkDeviceSize l_BufferSize = sizeof(UniformBufferObject);
+        auto l_SwapChainImages = m_Context->GetSwapChainImages();
+
+        m_UniformBuffers.resize(l_SwapChainImages.size());
+        for (size_t i = 0; i < l_SwapChainImages.size(); ++i)
+        {
+            m_UniformBuffers[i] = UniformBuffer(m_Context);
+            if (!m_UniformBuffers[i].Create(l_BufferSize))
+            {
+                TR_CORE_ERROR("Failed to create uniform buffer");
+            }
+        }
+
+        TR_CORE_TRACE("Uniform buffers created: {}", m_UniformBuffers.size());
+    }
+
     void Renderer::CreateCommandBuffer()
     {
         TR_CORE_TRACE("Creating command buffer");
@@ -584,6 +645,12 @@ namespace Trinity
     {
         TR_CORE_TRACE("Cleaning up swapchain");
 
+        for (auto& it_Buffer : m_UniformBuffers)
+        {
+            it_Buffer.Destroy();
+        }
+        m_UniformBuffers.clear();
+
         for (auto it_Framebuffer : m_Framebuffers)
         {
             if (it_Framebuffer)
@@ -654,6 +721,7 @@ namespace Trinity
         CreateRenderPass();
         CreateGraphicsPipeline();
         CreateFramebuffers();
+        CreateUniformBuffers();
         CreateCommandBuffer();
         CreateSyncObjects();
 

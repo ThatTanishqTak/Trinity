@@ -1,10 +1,11 @@
 #pragma once
 
-#include <vector>
 #include <vulkan/vulkan.h>
+#include <vector>
 
 #include "Trinity/Renderer/VertexBuffer.h"
 #include "Trinity/Renderer/IndexBuffer.h"
+#include "Trinity/Renderer/UniformBuffer.h"
 
 namespace Trinity
 {
@@ -24,11 +25,13 @@ namespace Trinity
 
     private:
         void CreateRenderPass();
+        void CreateDescriptorSetLayout();
         void CreateGraphicsPipeline();
         void CreateFramebuffers();
         void CreateCommandPool();
         void CreateVertexBuffer();
         void CreateIndexBuffer();
+        void CreateUniformBuffers();
         void CreateCommandBuffer();
         void CreateSyncObjects();
         void RecordCommandBuffer(uint32_t imageIndex);
@@ -45,6 +48,7 @@ namespace Trinity
         VkRenderPass m_RenderPass = VK_NULL_HANDLE;
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
         VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
+        VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
         std::vector<VkFramebuffer> m_Framebuffers{};
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         std::vector<VkCommandBuffer> m_CommandBuffer{};
@@ -55,6 +59,7 @@ namespace Trinity
 
         VertexBuffer m_VertexBuffer{};
         IndexBuffer m_IndexBuffer{};
+        std::vector<UniformBuffer> m_UniformBuffers{};
 
         size_t m_CurrentFrame = 0;
     };
