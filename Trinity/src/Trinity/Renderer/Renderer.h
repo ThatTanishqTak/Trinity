@@ -13,6 +13,7 @@
 namespace Trinity
 {
     class VulkanContext;
+    class Scene;
 
     class Renderer
     {
@@ -27,6 +28,12 @@ namespace Trinity
         void DrawFrame();
 
         Camera& GetCamera() { return m_Camera; }
+
+        void SetScene(Scene* scene) { m_Scene = scene; }
+
+        VertexBuffer& GetVertexBuffer() { return m_VertexBuffer; }
+        IndexBuffer& GetIndexBuffer() { return m_IndexBuffer; }
+        Texture& GetTexture() { return m_Texture; }
 
     private:
         void CreateRenderPass();
@@ -79,6 +86,7 @@ namespace Trinity
         Texture m_Texture;
 
         Camera m_Camera;
+        Scene* m_Scene = nullptr;
 
         size_t m_CurrentFrame = 0;
     };

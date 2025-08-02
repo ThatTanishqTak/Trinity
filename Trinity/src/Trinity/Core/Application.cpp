@@ -26,6 +26,15 @@ namespace Trinity
 			TR_CORE_ERROR("Failed to initialize renderer");
 		}
 
+		m_Scene = std::make_unique<Scene>();
+		m_Renderer->SetScene(m_Scene.get());
+
+		Entity l_Entity = m_Scene->CreateEntity();
+		auto& l_Mesh = l_Entity.AddComponent<MeshRenderer>();
+		l_Mesh.MeshVertexBuffer = &m_Renderer->GetVertexBuffer();
+		l_Mesh.MeshIndexBuffer = &m_Renderer->GetIndexBuffer();
+		l_Mesh.MeshTexture = &m_Renderer->GetTexture();
+
 		TR_CORE_INFO("-------APPLICATION INITIALIZED-------");
 	}
 

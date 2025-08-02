@@ -37,7 +37,7 @@ file(GLOB_RECURSE FORGE_SHADER_SOURCES
 if(DEFINED ENV{VULKAN_SDK})
     set(GLSLANG_VALIDATOR $ENV{VULKAN_SDK}/Bin/glslangValidator)
 else()
-    message(FATAL_ERROR "VULKAN_SDK environment variable not set")
+    message(FATAL_CRITICAL "VULKAN_SDK environment variable not set")
 endif()
 
 set(FORGE_SHADER_OUTPUT_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Assets/Shaders)

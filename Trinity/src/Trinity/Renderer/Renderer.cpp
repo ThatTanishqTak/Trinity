@@ -3,6 +3,8 @@
 #include "Trinity/Renderer/Renderer.h"
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Vulkan/VulkanContext.h"
+#include "Trinity/ECS/Scene.h"
+#include "Trinity/ECS/Components.h"
 
 namespace Trinity
 {
@@ -185,14 +187,6 @@ namespace Trinity
         m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[m_CurrentFrame];
 
         m_Camera.SetProjection(45.0f, static_cast<float>(m_Context->GetSwapChainExtent().width) / static_cast<float>(m_Context->GetSwapChainExtent().height), 0.1f, 100.0f);
-
-        UniformBufferObject l_Ubo{};
-        l_Ubo.Model = glm::mat4(1.0f);
-        l_Ubo.Update(m_Camera);
-
-        void* l_Data = m_UniformBuffers[l_ImageIndex].Map();
-        std::memcpy(l_Data, &l_Ubo, sizeof(l_Ubo));
-        m_UniformBuffers[l_ImageIndex].Unmap();
 
         vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
 
@@ -948,13 +942,30 @@ namespace Trinity
         l_Scissor.extent = m_Context->GetSwapChainExtent();
         vkCmdSetScissor(m_CommandBuffer[imageIndex], 0, 1, &l_Scissor);
 
-        VkBuffer vertexBuffers[] = { m_VertexBuffer.GetBuffer() };
-        VkDeviceSize offsets[] = { 0 };
-        vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], m_IndexBuffer.GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
-        vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[imageIndex], 0, nullptr);
+        if (m_Scene)
+        {
+            auto view = m_Scene->GetRegistry().view<Transform, MeshRenderer>();
+            for (auto entity : view)
+            {
+                auto& transform = view.get<Transform>(entity);
+                auto& mesh = view.get<MeshRenderer>(entity);
 
-        vkCmdDrawIndexed(m_CommandBuffer[imageIndex], m_IndexBuffer.GetIndexCount(), 1, 0, 0, 0);
+                UniformBufferObject l_Ubo{};
+                l_Ubo.Model = transform.GetTransform();
+                l_Ubo.Update(m_Camera);
+
+                void* l_Data = m_UniformBuffers[imageIndex].Map();
+                std::memcpy(l_Data, &l_Ubo, sizeof(l_Ubo));
+                m_UniformBuffers[imageIndex].Unmap();
+
+                VkBuffer vertexBuffers[] = { mesh.MeshVertexBuffer->GetBuffer() };
+                VkDeviceSize offsets[] = { 0 };
+                vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
+                vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], mesh.MeshIndexBuffer->GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[imageIndex], 0, nullptr);
+                vkCmdDrawIndexed(m_CommandBuffer[imageIndex], mesh.MeshIndexBuffer->GetIndexCount(), 1, 0, 0, 0);
+            }
+        }
 
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
 
