@@ -1,6 +1,7 @@
 #include "Trinity/trpch.h"
 
 #include "Trinity/Renderer/Renderer.h"
+#include "Trinity/Renderer/Shader.h"
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Vulkan/VulkanContext.h"
 #include "Trinity/ECS/Scene.h"
@@ -438,22 +439,24 @@ namespace Trinity
             return;
         }
 
-        auto a_VertextSource = Utilities::FileManagement::ReadFile("Assets/Shaders/Simple.vert.spv");
-        auto a_FragmentSource = Utilities::FileManagement::ReadFile("Assets/Shaders/Simple.frag.spv");
+        Shader l_VertShader(m_Context);
+        Shader l_FragShader(m_Context);
 
-        VkShaderModule l_VertShader = CreateShaderModule(a_VertextSource);
-        VkShaderModule l_FragShader = CreateShaderModule(a_FragmentSource);
+        if (!l_VertShader.Load("Assets/Shaders/Simple.vert.spv") || !l_FragShader.Load("Assets/Shaders/Simple.frag.spv"))
+        {
+            return;
+        }
 
         VkPipelineShaderStageCreateInfo l_VertShaderStageInfo{};
         l_VertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         l_VertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        l_VertShaderStageInfo.module = l_VertShader;
+        l_VertShaderStageInfo.module = l_VertShader.GetModule();
         l_VertShaderStageInfo.pName = "main";
 
         VkPipelineShaderStageCreateInfo l_FragShaderStageInfo{};
         l_FragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         l_FragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        l_FragShaderStageInfo.module = l_FragShader;
+        l_FragShaderStageInfo.module = l_FragShader.GetModule();
         l_FragShaderStageInfo.pName = "main";
 
         VkPipelineShaderStageCreateInfo l_ShaderStages[] = { l_VertShaderStageInfo, l_FragShaderStageInfo };
@@ -575,8 +578,8 @@ namespace Trinity
             return;
         }
 
-        vkDestroyShaderModule(m_Context->GetDevice(), l_FragShader, nullptr);
-        vkDestroyShaderModule(m_Context->GetDevice(), l_VertShader, nullptr);
+        l_FragShader.Destroy();
+        l_VertShader.Destroy();
 
         TR_CORE_TRACE("Graphics pipeline created");
     }
@@ -1092,24 +1095,6 @@ namespace Trinity
     }
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
-
-    VkShaderModule Renderer::CreateShaderModule(const std::vector<std::byte>& code)
-    {
-        VkShaderModuleCreateInfo l_CreateInfo{};
-        l_CreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        l_CreateInfo.codeSize = code.size();
-        l_CreateInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
-
-        VkShaderModule l_ShaderModule = VK_NULL_HANDLE;
-        if (vkCreateShaderModule(m_Context->GetDevice(), &l_CreateInfo, nullptr, &l_ShaderModule) != VK_SUCCESS)
-        {
-            TR_CORE_ERROR("Failed to create shader module");
-
-            return VkShaderModule();
-        }
-
-        return l_ShaderModule;
-    }
 
     VkFormat Renderer::FindDepthFormat()
     {

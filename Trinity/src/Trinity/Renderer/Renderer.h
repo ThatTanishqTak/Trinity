@@ -56,7 +56,6 @@ namespace Trinity
 
         //----------------------------------------------------------------------------------------------------------------------------------------------------//
 
-        VkShaderModule CreateShaderModule(const std::vector<std::byte>& code);
         VkFormat FindDepthFormat();
         bool HasStencilComponent(VkFormat format);
 
