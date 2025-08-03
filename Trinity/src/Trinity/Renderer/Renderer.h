@@ -82,6 +82,8 @@ namespace Trinity
         VertexBuffer m_VertexBuffer{};
         IndexBuffer m_IndexBuffer{};
         std::vector<UniformBuffer> m_UniformBuffers{};
+        std::vector<UniformBuffer> m_LightUniformBuffers{};
+        std::vector<UniformBuffer> m_MaterialUniformBuffers{};
         Texture m_Texture;
 
         Camera m_Camera;

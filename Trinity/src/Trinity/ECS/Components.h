@@ -23,4 +23,16 @@ namespace Trinity
         IndexBuffer* MeshIndexBuffer = nullptr;
         Texture* MeshTexture = nullptr;
     };
+
+    struct Light
+    {
+        glm::vec3 Position{ 0.0f };
+        glm::vec3 Color{ 1.0f };
+    };
+
+    struct Material
+    {
+        glm::vec3 Albedo{ 1.0f };
+        float Roughness{ 1.0f };
+    };
 }

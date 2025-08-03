@@ -22,6 +22,18 @@ namespace Trinity
         }
     };
 
+    struct LightBufferObject
+    {
+        alignas(16) glm::vec3 Position{ 0.0f };
+        alignas(16) glm::vec3 Color{ 1.0f };
+    };
+
+    struct MaterialBufferObject
+    {
+        alignas(16) glm::vec3 Albedo{ 1.0f };
+        float Roughness{ 1.0f };
+    };
+
     class UniformBuffer
     {
     public:

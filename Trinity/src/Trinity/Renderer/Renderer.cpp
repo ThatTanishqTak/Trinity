@@ -155,6 +155,30 @@ namespace Trinity
         }
         m_UniformBuffers.clear();
 
+        for (auto& it_Buffer : m_LightUniformBuffers)
+        {
+            it_Buffer.Destroy();
+        }
+        m_LightUniformBuffers.clear();
+
+        for (auto& it_Buffer : m_MaterialUniformBuffers)
+        {
+            it_Buffer.Destroy();
+        }
+        m_MaterialUniformBuffers.clear();
+
+        for (auto& it_Buffer : m_LightUniformBuffers)
+        {
+            it_Buffer.Destroy();
+        }
+        m_LightUniformBuffers.clear();
+
+        for (auto& it_Buffer : m_MaterialUniformBuffers)
+        {
+            it_Buffer.Destroy();
+        }
+        m_MaterialUniformBuffers.clear();
+
         m_Texture.Destroy();
 
         TR_CORE_INFO("-------RENDERER SHUTDOWN COMPLETE-------");
@@ -328,7 +352,21 @@ namespace Trinity
         l_SamplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         l_SamplerBinding.pImmutableSamplers = nullptr;
 
-        std::array<VkDescriptorSetLayoutBinding, 2> l_Bindings{ l_LayoutBinding, l_SamplerBinding };
+        VkDescriptorSetLayoutBinding l_LightBinding{};
+        l_LightBinding.binding = 2;
+        l_LightBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        l_LightBinding.descriptorCount = 1;
+        l_LightBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        l_LightBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding l_MaterialBinding{};
+        l_MaterialBinding.binding = 3;
+        l_MaterialBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        l_MaterialBinding.descriptorCount = 1;
+        l_MaterialBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        l_MaterialBinding.pImmutableSamplers = nullptr;
+
+        std::array<VkDescriptorSetLayoutBinding, 4> l_Bindings{ l_LayoutBinding, l_SamplerBinding, l_LightBinding, l_MaterialBinding };
 
         VkDescriptorSetLayoutCreateInfo l_CreateInfo{};
         l_CreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -352,7 +390,7 @@ namespace Trinity
         auto l_SwapChainImages = m_Context->GetSwapChainImages();
         std::array<VkDescriptorPoolSize, 2> l_PoolSizes{};
         l_PoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        l_PoolSizes[0].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size());
+        l_PoolSizes[0].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size()) * 3;
         l_PoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         l_PoolSizes[1].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size());
 
@@ -400,12 +438,22 @@ namespace Trinity
             l_BufferInfo.offset = 0;
             l_BufferInfo.range = sizeof(UniformBufferObject);
 
+            VkDescriptorBufferInfo l_LightBufferInfo{};
+            l_LightBufferInfo.buffer = m_LightUniformBuffers[i].GetBuffer();
+            l_LightBufferInfo.offset = 0;
+            l_LightBufferInfo.range = sizeof(LightBufferObject);
+
+            VkDescriptorBufferInfo l_MaterialBufferInfo{};
+            l_MaterialBufferInfo.buffer = m_MaterialUniformBuffers[i].GetBuffer();
+            l_MaterialBufferInfo.offset = 0;
+            l_MaterialBufferInfo.range = sizeof(MaterialBufferObject);
+
             VkDescriptorImageInfo l_ImageInfo{};
             l_ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             l_ImageInfo.imageView = m_Texture.GetImageView();
             l_ImageInfo.sampler = m_Texture.GetSampler();
 
-            std::array<VkWriteDescriptorSet, 2> l_DescriptorWrites{};
+            std::array<VkWriteDescriptorSet, 4> l_DescriptorWrites{};
             l_DescriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             l_DescriptorWrites[0].dstSet = m_DescriptorSets[i];
             l_DescriptorWrites[0].dstBinding = 0;
@@ -421,6 +469,22 @@ namespace Trinity
             l_DescriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             l_DescriptorWrites[1].descriptorCount = 1;
             l_DescriptorWrites[1].pImageInfo = &l_ImageInfo;
+
+            l_DescriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            l_DescriptorWrites[2].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[2].dstBinding = 2;
+            l_DescriptorWrites[2].dstArrayElement = 0;
+            l_DescriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            l_DescriptorWrites[2].descriptorCount = 1;
+            l_DescriptorWrites[2].pBufferInfo = &l_LightBufferInfo;
+
+            l_DescriptorWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            l_DescriptorWrites[3].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[3].dstBinding = 3;
+            l_DescriptorWrites[3].dstArrayElement = 0;
+            l_DescriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            l_DescriptorWrites[3].descriptorCount = 1;
+            l_DescriptorWrites[3].pBufferInfo = &l_MaterialBufferInfo;
 
             vkUpdateDescriptorSets(m_Context->GetDevice(), static_cast<uint32_t>(l_DescriptorWrites.size()), l_DescriptorWrites.data(), 0, nullptr);
         }
@@ -825,15 +889,34 @@ namespace Trinity
         TR_CORE_TRACE("Creating uniform buffers");
 
         VkDeviceSize l_BufferSize = sizeof(UniformBufferObject);
+        VkDeviceSize l_LightBufferSize = sizeof(LightBufferObject);
+        VkDeviceSize l_MaterialBufferSize = sizeof(MaterialBufferObject);
+
         auto l_SwapChainImages = m_Context->GetSwapChainImages();
 
         m_UniformBuffers.resize(l_SwapChainImages.size());
+        m_LightUniformBuffers.resize(l_SwapChainImages.size());
+        m_MaterialUniformBuffers.resize(l_SwapChainImages.size());
+
         for (size_t i = 0; i < l_SwapChainImages.size(); ++i)
         {
             m_UniformBuffers[i] = UniformBuffer(m_Context);
+            m_LightUniformBuffers[i] = UniformBuffer(m_Context);
+            m_MaterialUniformBuffers[i] = UniformBuffer(m_Context);
+
             if (!m_UniformBuffers[i].Create(l_BufferSize))
             {
                 TR_CORE_ERROR("Failed to create uniform buffer");
+            }
+
+            if (!m_LightUniformBuffers[i].Create(l_LightBufferSize))
+            {
+                TR_CORE_ERROR("Failed to create light uniform buffer");
+            }
+
+            if (!m_MaterialUniformBuffers[i].Create(l_MaterialBufferSize))
+            {
+                TR_CORE_ERROR("Failed to create material uniform buffer");
             }
         }
 
@@ -947,11 +1030,26 @@ namespace Trinity
 
         if (m_Scene)
         {
-            auto view = m_Scene->GetRegistry().view<Transform, MeshRenderer>();
+            LightBufferObject l_Light{};
+            auto lightView = m_Scene->GetRegistry().view<Light>();
+            for (auto entity : lightView)
+            {
+                auto& light = lightView.get<Light>(entity);
+                l_Light.Position = light.Position;
+                l_Light.Color = light.Color;
+                
+                break;
+            }
+            void* l_LightData = m_LightUniformBuffers[imageIndex].Map();
+            std::memcpy(l_LightData, &l_Light, sizeof(l_Light));
+            m_LightUniformBuffers[imageIndex].Unmap();
+
+            auto view = m_Scene->GetRegistry().view<Transform, MeshRenderer, Material>();
             for (auto entity : view)
             {
                 auto& transform = view.get<Transform>(entity);
                 auto& mesh = view.get<MeshRenderer>(entity);
+                auto& material = view.get<Material>(entity);
 
                 UniformBufferObject l_Ubo{};
                 l_Ubo.Model = transform.GetTransform();
@@ -960,6 +1058,14 @@ namespace Trinity
                 void* l_Data = m_UniformBuffers[imageIndex].Map();
                 std::memcpy(l_Data, &l_Ubo, sizeof(l_Ubo));
                 m_UniformBuffers[imageIndex].Unmap();
+
+                MaterialBufferObject l_Material{};
+                l_Material.Albedo = material.Albedo;
+                l_Material.Roughness = material.Roughness;
+
+                void* l_MaterialData = m_MaterialUniformBuffers[imageIndex].Map();
+                std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));
+                m_MaterialUniformBuffers[imageIndex].Unmap();
 
                 VkBuffer vertexBuffers[] = { mesh.MeshVertexBuffer->GetBuffer() };
                 VkDeviceSize offsets[] = { 0 };
