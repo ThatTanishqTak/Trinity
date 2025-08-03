@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <string_view>
+#include <system_error>
 
 namespace Trinity
 {
@@ -19,7 +20,21 @@ namespace Trinity
         Stage l_Stage;
         l_Stage.stage = stage;
         l_Stage.sourcePath = path;
-        l_Stage.timestamp = std::filesystem::last_write_time(path);
+        if (!std::filesystem::exists(path))
+        {
+            TR_CORE_ERROR("Shader file not found: {}", path.string());
+
+            return false;
+        }
+
+        std::error_code l_Ec;
+        l_Stage.timestamp = std::filesystem::last_write_time(path, l_Ec);
+        if (l_Ec)
+        {
+            TR_CORE_ERROR("Failed to get last write time for {}: {}", path.string(), l_Ec.message());
+
+            return false;
+        }
 
         if (!CompileStage(l_Stage))
         {
@@ -41,7 +56,22 @@ namespace Trinity
         Destroy();
         for (auto& it_Stage : m_Stages)
         {
-            it_Stage.timestamp = std::filesystem::last_write_time(it_Stage.sourcePath);
+            if (!std::filesystem::exists(it_Stage.sourcePath))
+            {
+                TR_CORE_ERROR("Shader file not found: {}", it_Stage.sourcePath.string());
+
+                return false;
+            }
+
+            std::error_code l_Ec;
+            it_Stage.timestamp = std::filesystem::last_write_time(it_Stage.sourcePath, l_Ec);
+            if (l_Ec)
+            {
+                TR_CORE_ERROR("Failed to get last write time for {}: {}", it_Stage.sourcePath.string(), l_Ec.message());
+
+                return false;
+            }
+
             if (!CompileStage(it_Stage) || !LoadStage(it_Stage))
             {
                 return false;
@@ -133,7 +163,22 @@ namespace Trinity
         bool l_Reload = false;
         for (auto& it_Stage : m_Stages)
         {
-            auto a_Time = std::filesystem::last_write_time(it_Stage.sourcePath);
+            if (!std::filesystem::exists(it_Stage.sourcePath))
+            {
+                TR_CORE_ERROR("Shader file not found: {}", it_Stage.sourcePath.string());
+
+                continue;
+            }
+
+            std::error_code l_Ec;
+            auto a_Time = std::filesystem::last_write_time(it_Stage.sourcePath, l_Ec);
+            if (l_Ec)
+            {
+                TR_CORE_ERROR("Failed to get last write time for {}: {}", it_Stage.sourcePath.string(), l_Ec.message());
+
+                continue;
+            }
+
             if (a_Time != it_Stage.timestamp)
             {
                 l_Reload = true;
