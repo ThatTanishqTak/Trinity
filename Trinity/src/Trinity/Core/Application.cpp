@@ -16,6 +16,8 @@ namespace Trinity
 			TR_CORE_ERROR("Failed to initialize window");
 		}
 
+		m_Window->SetEventCallback(TR_BIND_EVENT_FN(Application::OnEvent));
+
 		Input::Initialize(m_Window->GetNativeWindow());
 
 		m_VulkanContext = std::make_unique<VulkanContext>(m_Window->GetNativeWindow());
@@ -65,5 +67,10 @@ namespace Trinity
 		}
 
 		TR_CORE_INFO("-------APPLICATION SHUTDOWN COMPLETE-------");
+	}
+
+	void Application::OnEvent(Event& e)
+	{
+		TR_CORE_TRACE("{}", e.ToString());
 	}
 }
