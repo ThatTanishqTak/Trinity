@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <string>
 #include <filesystem>
 
 #include <vulkan/vulkan.h>
@@ -17,7 +16,7 @@ namespace Trinity
         explicit Shader(VulkanContext* context);
         ~Shader() = default;
 
-        bool Load(const std::string& path);
+        bool Load(const std::filesystem::path& path);
         bool Reload();
         void Destroy();
 

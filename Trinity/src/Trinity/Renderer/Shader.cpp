@@ -10,9 +10,9 @@ namespace Trinity
     {
     }
 
-    bool Shader::Load(const std::string& path)
+    bool Shader::Load(const std::filesystem::path& path)
     {
-        m_Path = std::filesystem::path(path);
+        m_Path = path;
         if (!std::filesystem::exists(m_Path))
         {
             TR_CORE_ERROR("Shader file not found: {}", m_Path.string());
@@ -20,7 +20,7 @@ namespace Trinity
             return false;
         }
 
-        auto l_Code = Utilities::FileManagement::ReadFile(m_Path.string());
+        auto l_Code = Utilities::FileManagement::ReadFile(m_Path);
         if (l_Code.empty())
         {
             TR_CORE_ERROR("Failed to read shader file: {}", m_Path.string());
@@ -57,7 +57,7 @@ namespace Trinity
 
         Destroy();
 
-        return Load(m_Path.string());
+        return Load(m_Path);
     }
 
     void Shader::Destroy()

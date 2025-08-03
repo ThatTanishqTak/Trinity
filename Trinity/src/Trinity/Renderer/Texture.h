@@ -1,6 +1,6 @@
 #pragma once
 
-#include <string>
+#include <filesystem>
 #include <vulkan/vulkan.h>
 
 namespace Trinity
@@ -14,7 +14,7 @@ namespace Trinity
         Texture(VulkanContext* context);
         ~Texture() = default;
 
-        bool LoadFromFile(const std::string& path, int width, int height);
+        bool LoadFromFile(const std::filesystem::path& path, int width, int height);
         void Destroy();
 
         VkImageView GetImageView() const { return m_ImageView; }

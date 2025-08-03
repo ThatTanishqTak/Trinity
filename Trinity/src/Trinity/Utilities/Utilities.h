@@ -31,8 +31,8 @@ namespace Trinity
 		class FileManagement
 		{
 		public:
-			static std::vector<std::byte> ReadFile(const std::string& filePath);
-			static std::vector<std::byte> LoadTexture(const std::string& filePath, int& width, int& height);
+			static std::vector<std::byte> ReadFile(const std::filesystem::path& filePath);
+			static std::vector<std::byte> LoadTexture(const std::filesystem::path& filePath, int& width, int& height);
 		};
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//

@@ -39,23 +39,23 @@ namespace Trinity
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 
-		std::vector<std::byte> FileManagement::ReadFile(const std::string& filePath)
+        std::vector<std::byte> FileManagement::ReadFile(const std::filesystem::path& filePath)
         {
-			if (!std::filesystem::exists(filePath))
-			{
-				TR_CORE_ERROR("File does not exist: {}", filePath);
+            if (!std::filesystem::exists(filePath))
+            {
+                TR_CORE_ERROR("File does not exist: {}", filePath.string());
 
-				return std::vector<std::byte>();
-			}
+                return std::vector<std::byte>();
+            }
 
             const auto l_FileSize = std::filesystem::file_size(filePath);
 
             std::ifstream l_File(filePath, std::ios::binary);
             if (!l_File)
             {
-				TR_CORE_ERROR("Failed to open l_File: {}", filePath);
+                TR_CORE_ERROR("Failed to open file: {}", filePath.string());
 
-				return std::vector<std::byte>();
+                return std::vector<std::byte>();
             }
 
             std::vector<std::byte> l_Buffer;
@@ -65,38 +65,44 @@ namespace Trinity
                 l_File.read(reinterpret_cast<char*>(l_Buffer.data()), static_cast<std::streamsize>(l_FileSize));
                 if (!l_File)
                 {
-                    TR_CORE_ERROR("Failed to read l_File: {}", filePath);
+                    TR_CORE_ERROR("Failed to read file: {}", filePath.string());
 
-					return std::vector<std::byte>();
+                    return std::vector<std::byte>();
                 }
             }
 
-			TR_CORE_TRACE("File loaded: {}", filePath);
+            TR_CORE_TRACE("File loaded: {}", filePath.string());
 
             return l_Buffer;
         }
 
-		std::vector<std::byte> FileManagement::LoadTexture(const std::string& filePath, int& width, int& height)
-		{
-			stbi_set_flip_vertically_on_load(1);
+        std::vector<std::byte> FileManagement::LoadTexture(const std::filesystem::path& filePath, int& width, int& height)
+        {
+            if (!std::filesystem::exists(filePath))
+            {
+                TR_CORE_ERROR("Texture file does not exist: {}", filePath.string());
+                return std::vector<std::byte>();
+            }
 
-			int l_Channels = 0;
-			stbi_uc* l_Pixels = stbi_load(filePath.c_str(), &width, &height, &l_Channels, STBI_rgb_alpha);
-			if (!l_Pixels)
-			{
-				TR_CORE_ERROR("Failed to load texture: {}", filePath);
-				return std::vector<std::byte>();
-			}
+            stbi_set_flip_vertically_on_load(1);
 
-			size_t l_ImageSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
-			std::vector<std::byte> l_Buffer(l_ImageSize);
-			memcpy(l_Buffer.data(), l_Pixels, l_ImageSize);
-			stbi_image_free(l_Pixels);
+            int l_Channels = 0;
+            stbi_uc* l_Pixels = stbi_load(filePath.string().c_str(), &width, &height, &l_Channels, STBI_rgb_alpha);
+            if (!l_Pixels)
+            {
+                TR_CORE_ERROR("Failed to load texture: {}", filePath.string());
+                return std::vector<std::byte>();
+            }
 
-			TR_CORE_TRACE("Texture loaded: {}", filePath);
+            size_t l_ImageSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+            std::vector<std::byte> l_Buffer(l_ImageSize);
+            memcpy(l_Buffer.data(), l_Pixels, l_ImageSize);
+            stbi_image_free(l_Pixels);
 
-			return l_Buffer;
-		}
+            TR_CORE_TRACE("Texture loaded: {}", filePath.string());
+
+            return l_Buffer;
+        }
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 

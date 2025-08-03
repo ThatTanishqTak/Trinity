@@ -12,12 +12,12 @@ namespace Trinity
 
     }
 
-    bool Texture::LoadFromFile(const std::string& path, int width, int height)
+    bool Texture::LoadFromFile(const std::filesystem::path& path, int width, int height)
     {
         std::vector<std::byte> l_Pixels = Utilities::FileManagement::LoadTexture(path, width, height);
         if (l_Pixels.empty())
         {
-            TR_CORE_ERROR("Failed to load texture: {}", path);
+            TR_CORE_ERROR("Failed to load texture: {}", path.string());
 
             return false;
         }
