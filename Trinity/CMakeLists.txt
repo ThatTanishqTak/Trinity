@@ -39,6 +39,15 @@ target_include_directories(glm INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/glm>    
 )
 
+# assimp
+add_library(assimp INTERFACE)
+target_include_directories(assimp INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/assimp/include>    
+)
+target_link_libraries(assimp INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/assimp/lib/x64/assimp-vc143-mt.lib
+)
+
 # Vulkan
 add_library(Vulkan INTERFACE)
 if(DEFINED ENV{VULKAN_SDK})
@@ -80,5 +89,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     EnTT
     glfw
     glm
+    assimp
     Vulkan
 )

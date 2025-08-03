@@ -4,20 +4,12 @@
 #include <memory>
 #include <unordered_map>
 
-#include "Trinity/Renderer/VertexBuffer.h"
-#include "Trinity/Renderer/IndexBuffer.h"
+#include "Trinity/Renderer/Mesh.h"
 #include "Trinity/Renderer/Texture.h"
 
 namespace Trinity
 {
     class VulkanContext;
-
-    struct Mesh
-    {
-        Mesh(VulkanContext* context) : VertexBuffer(context), IndexBuffer(context) {}
-        VertexBuffer VertexBuffer;
-        IndexBuffer IndexBuffer;
-    };
 
     class ResourceManager
     {

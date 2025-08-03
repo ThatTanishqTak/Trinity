@@ -40,7 +40,7 @@ namespace Trinity
         void CreateDescriptorSetLayout();
         void CreateDescriptorPool();
         void CreateDescriptorSets();
-        void CreateGraphicsPipeline();
+        void CreateGraphicsPipeline(VkPrimitiveTopology topology);
         void CreateDepthResources();
         void CreateFramebuffers();
         void CreateCommandPool();
@@ -90,5 +90,6 @@ namespace Trinity
         Scene* m_Scene = nullptr;
 
         size_t m_CurrentFrame = 0;
+        VkPrimitiveTopology m_PrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     };
 }

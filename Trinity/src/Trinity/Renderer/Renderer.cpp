@@ -21,7 +21,7 @@ namespace Trinity
 
         CreateRenderPass();
         CreateDescriptorSetLayout();
-        CreateGraphicsPipeline();
+        CreateGraphicsPipeline(m_PrimitiveTopology);
         CreateDepthResources();
         CreateFramebuffers();
         CreateCommandPool();
@@ -493,7 +493,7 @@ namespace Trinity
         TR_CORE_TRACE("Descriptor sets created");
     }
 
-    void Renderer::CreateGraphicsPipeline()
+    void Renderer::CreateGraphicsPipeline(VkPrimitiveTopology topology)
     {
         TR_CORE_TRACE("Creating graphics pipeline");
 
@@ -538,7 +538,7 @@ namespace Trinity
 
         VkPipelineInputAssemblyStateCreateInfo l_InputAssembly{};
         l_InputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        l_InputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        l_InputAssembly.topology = topology;
         l_InputAssembly.primitiveRestartEnable = VK_FALSE;
 
         VkViewport l_Viewport{};
@@ -1068,12 +1068,22 @@ namespace Trinity
                 std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));
                 m_MaterialUniformBuffers[imageIndex].Unmap();
 
-                VkBuffer vertexBuffers[] = { mesh.Mesh->VertexBuffer.GetBuffer() };
+                VkBuffer vertexBuffers[] = { mesh.Mesh->GetVertexBuffer().GetBuffer() };
                 VkDeviceSize offsets[] = { 0 };
                 vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
-                vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], mesh.Mesh->IndexBuffer.GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[imageIndex], 0, nullptr);
-                vkCmdDrawIndexed(m_CommandBuffer[imageIndex], mesh.Mesh->IndexBuffer.GetIndexCount(), 1, 0, 0, 0);
+
+                uint32_t indexCount = mesh.Mesh->GetIndexBuffer().GetIndexCount();
+                if (indexCount > 0)
+                {
+                    vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], mesh.Mesh->GetIndexBuffer().GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[imageIndex], 0, nullptr);
+                    vkCmdDrawIndexed(m_CommandBuffer[imageIndex], indexCount, 1, 0, 0, 0);
+                }
+                else
+                {
+                    vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[imageIndex], 0, nullptr);
+                    vkCmdDraw(m_CommandBuffer[imageIndex], mesh.Mesh->GetVertexBuffer().GetVertexCount(), 1, 0, 0);
+                }
             }
         }
 
@@ -1189,7 +1199,7 @@ namespace Trinity
         m_Context->RecreateSwapChain();
 
         CreateRenderPass();
-        CreateGraphicsPipeline();
+        CreateGraphicsPipeline(m_PrimitiveTopology);
         CreateDepthResources();
         CreateFramebuffers();
         CreateUniformBuffers();
