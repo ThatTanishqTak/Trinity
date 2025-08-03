@@ -54,16 +54,22 @@ namespace Trinity
 		if (m_Renderer)
 		{
 			m_Renderer->Shutdown();
+			m_Renderer.reset();
 		}
+
+		m_Scene.reset();
+		m_ResourceManager.reset();
 
 		if (m_VulkanContext)
 		{
 			m_VulkanContext->Shutdown();
+			m_VulkanContext.reset();
 		}
 
 		if (m_Window)
 		{
 			m_Window->Shutdown();
+			m_Window.reset();
 		}
 
 		TR_CORE_INFO("-------APPLICATION SHUTDOWN COMPLETE-------");
@@ -71,6 +77,8 @@ namespace Trinity
 
 	void Application::OnEvent(Event& e)
 	{
+#if _DEBUG
 		TR_CORE_TRACE("{}", e.ToString());
+#endif
 	}
 }

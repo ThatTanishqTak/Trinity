@@ -12,6 +12,11 @@ namespace Trinity
 
     }
 
+    Texture::~Texture()
+    {
+        Destroy();
+    }
+
     bool Texture::LoadFromFile(const std::filesystem::path& path, int width, int height)
     {
         std::vector<std::byte> l_Pixels = Utilities::FileManagement::LoadTexture(path, width, height);

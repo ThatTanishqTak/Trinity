@@ -12,7 +12,7 @@ namespace Trinity
     public:
         Texture() = default;
         Texture(VulkanContext* context);
-        ~Texture() = default;
+        ~Texture();
 
         bool LoadFromFile(const std::filesystem::path& path, int width, int height);
         void Destroy();
