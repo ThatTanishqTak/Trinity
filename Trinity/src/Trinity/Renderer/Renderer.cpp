@@ -6,6 +6,7 @@
 #include "Trinity/Vulkan/VulkanContext.h"
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/ECS/Components.h"
+#include "Trinity/Core/ResourceManager.h"
 
 namespace Trinity
 {
@@ -1067,12 +1068,12 @@ namespace Trinity
                 std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));
                 m_MaterialUniformBuffers[imageIndex].Unmap();
 
-                VkBuffer vertexBuffers[] = { mesh.MeshVertexBuffer->GetBuffer() };
+                VkBuffer vertexBuffers[] = { mesh.Mesh->VertexBuffer.GetBuffer() };
                 VkDeviceSize offsets[] = { 0 };
                 vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
-                vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], mesh.MeshIndexBuffer->GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], mesh.Mesh->IndexBuffer.GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
                 vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[imageIndex], 0, nullptr);
-                vkCmdDrawIndexed(m_CommandBuffer[imageIndex], mesh.MeshIndexBuffer->GetIndexCount(), 1, 0, 0, 0);
+                vkCmdDrawIndexed(m_CommandBuffer[imageIndex], mesh.Mesh->IndexBuffer.GetIndexCount(), 1, 0, 0, 0);
             }
         }
 

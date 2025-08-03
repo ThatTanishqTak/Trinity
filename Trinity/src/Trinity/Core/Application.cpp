@@ -26,14 +26,15 @@ namespace Trinity
 			TR_CORE_ERROR("Failed to initialize renderer");
 		}
 
+		m_ResourceManager = std::make_unique<ResourceManager>(m_VulkanContext.get());
+
 		m_Scene = std::make_unique<Scene>();
 		m_Renderer->SetScene(m_Scene.get());
 
 		Entity l_Entity = m_Scene->CreateEntity();
 		auto& l_Mesh = l_Entity.AddComponent<MeshRenderer>();
-		l_Mesh.MeshVertexBuffer = &m_Renderer->GetVertexBuffer();
-		l_Mesh.MeshIndexBuffer = &m_Renderer->GetIndexBuffer();
-		l_Mesh.MeshTexture = &m_Renderer->GetTexture();
+		l_Mesh.Mesh = m_ResourceManager->Load<Mesh>("Assets/Textures/Checkers.png");
+		l_Mesh.MeshTexture = m_ResourceManager->Load<Texture>("Assets/Textures/Checkers.png");
 
 		TR_CORE_INFO("-------APPLICATION INITIALIZED-------");
 	}

@@ -1,10 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
-
-#include "Trinity/Renderer/VertexBuffer.h"
-#include "Trinity/Renderer/IndexBuffer.h"
-#include "Trinity/Renderer/Texture.h"
+#include <memory>
 
 namespace Trinity
 {
@@ -17,11 +14,13 @@ namespace Trinity
         glm::mat4 GetTransform() const;
     };
 
+    class Mesh;
+    class Texture;
+
     struct MeshRenderer
     {
-        VertexBuffer* MeshVertexBuffer = nullptr;
-        IndexBuffer* MeshIndexBuffer = nullptr;
-        Texture* MeshTexture = nullptr;
+        std::shared_ptr<Mesh> Mesh = nullptr;
+        std::shared_ptr<Texture> MeshTexture = nullptr;
     };
 
     struct Light

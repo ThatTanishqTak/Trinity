@@ -6,6 +6,7 @@
 #include "Trinity/Window/Window.h"
 #include "Trinity/Vulkan/VulkanContext.h"
 #include "Trinity/Renderer/Renderer.h"
+#include "Trinity/Core/ResourceManager.h"
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/ECS/Entity.h"
 #include "Trinity/ECS/Components.h"
@@ -57,6 +58,7 @@ namespace Trinity
 		std::unique_ptr<Window> m_Window;
 		std::unique_ptr<VulkanContext> m_VulkanContext;
 		std::unique_ptr<Renderer> m_Renderer;
+		std::unique_ptr<ResourceManager> m_ResourceManager;
 		std::unique_ptr<Scene> m_Scene;
 	};
 }
