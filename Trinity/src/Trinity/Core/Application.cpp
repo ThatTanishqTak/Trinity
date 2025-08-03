@@ -2,6 +2,8 @@
 
 #include "Trinity/trpch.h"
 
+#include "Trinity/Core/Input.h"
+
 namespace Trinity
 {
 	Application::Application(const ApplicationSpecification& specification) : m_Specification(specification)
@@ -13,6 +15,8 @@ namespace Trinity
 		{
 			TR_CORE_ERROR("Failed to initialize window");
 		}
+
+		Input::Initialize(m_Window->GetNativeWindow());
 
 		m_VulkanContext = std::make_unique<VulkanContext>(m_Window->GetNativeWindow());
 		if (!m_VulkanContext->Initialize())
@@ -30,6 +34,8 @@ namespace Trinity
 
 		m_Scene = std::make_unique<Scene>();
 		m_Renderer->SetScene(m_Scene.get());
+
+		m_CameraController = std::make_unique<CameraController>(&m_Renderer->GetCamera());
 
 		Entity l_Entity = m_Scene->CreateEntity();
 		auto& l_Mesh = l_Entity.AddComponent<MeshRenderer>();

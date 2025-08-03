@@ -10,6 +10,7 @@
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/ECS/Entity.h"
 #include "Trinity/ECS/Components.h"
+#include "Trinity/Camera/CameraController.h"
 
 namespace Trinity
 {
@@ -44,7 +45,11 @@ namespace Trinity
 
 				// Poll events
 				m_Window->PollEvents();
-				
+				if (m_CameraController)
+				{
+					m_CameraController->Update();
+				}
+
 				// Rendering
 				m_Renderer->DrawFrame();
 			}
@@ -60,5 +65,6 @@ namespace Trinity
 		std::unique_ptr<Renderer> m_Renderer;
 		std::unique_ptr<ResourceManager> m_ResourceManager;
 		std::unique_ptr<Scene> m_Scene;
+		std::unique_ptr<CameraController> m_CameraController;
 	};
 }
