@@ -1007,7 +1007,21 @@ namespace Trinity
         l_RenderPassInfo.pClearValues = l_ClearValues.data();
 
         vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
+        if (m_GraphicsPipeline != VK_NULL_HANDLE)
+        {
+            vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
+        }
+        else
+        {
+            TR_CORE_ERROR("Graphics pipeline not created");
+            vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
+            if (vkEndCommandBuffer(m_CommandBuffer[imageIndex]) != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Failed to end recording command buffer");
+            }
+
+            return;
+        }
 
         VkViewport l_Viewport{};
         l_Viewport.x = 0.0f;
@@ -1026,10 +1040,10 @@ namespace Trinity
         if (m_Scene)
         {
             LightBufferObject l_Light{};
-            auto lightView = m_Scene->GetRegistry().view<Light>();
-            for (auto entity : lightView)
+            auto a_LightView = m_Scene->GetRegistry().view<Light>();
+            for (auto it_Entity : a_LightView)
             {
-                auto& light = lightView.get<Light>(entity);
+                auto& light = a_LightView.get<Light>(it_Entity);
                 l_Light.Position = light.Position;
                 l_Light.Color = light.Color;
                 
@@ -1039,12 +1053,12 @@ namespace Trinity
             std::memcpy(l_LightData, &l_Light, sizeof(l_Light));
             m_LightUniformBuffers[imageIndex].Unmap();
 
-            auto view = m_Scene->GetRegistry().view<Transform, MeshRenderer, Material>();
-            for (auto entity : view)
+            auto a_View = m_Scene->GetRegistry().view<Transform, MeshRenderer, Material>();
+            for (auto it_Entity : a_View)
             {
-                auto& transform = view.get<Transform>(entity);
-                auto& mesh = view.get<MeshRenderer>(entity);
-                auto& material = view.get<Material>(entity);
+                auto& transform = a_View.get<Transform>(it_Entity);
+                auto& mesh = a_View.get<MeshRenderer>(it_Entity);
+                auto& material = a_View.get<Material>(it_Entity);
 
                 UniformBufferObject l_Ubo{};
                 l_Ubo.Model = transform.GetTransform();
