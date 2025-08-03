@@ -10,7 +10,7 @@
 
 namespace Trinity
 {
-    Renderer::Renderer(VulkanContext* context) : m_Context(context)
+    Renderer::Renderer(VulkanContext* context) : m_Context(context), m_Shader(context)
     {
 
     }
@@ -187,6 +187,17 @@ namespace Trinity
 
     void Renderer::DrawFrame()
     {
+        if (m_Shader.Update())
+        {
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            if (m_GraphicsPipeline)
+            {
+                vkDestroyPipeline(m_Context->GetDevice(), m_GraphicsPipeline, nullptr);
+                m_GraphicsPipeline = VK_NULL_HANDLE;
+            }
+            CreateGraphicsPipeline(m_PrimitiveTopology);
+        }
+
         vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
 
         uint32_t l_ImageIndex;
@@ -504,27 +515,13 @@ namespace Trinity
             return;
         }
 
-        Shader l_VertShader(m_Context);
-        Shader l_FragShader(m_Context);
-
-        if (!l_VertShader.Load("Assets/Shaders/Simple.vert.spv") || !l_FragShader.Load("Assets/Shaders/Simple.frag.spv"))
+        if (m_Shader.GetModule(VK_SHADER_STAGE_VERTEX_BIT) == VK_NULL_HANDLE)
         {
-            return;
+            if (!m_Shader.Load("Assets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT) || !m_Shader.Load("Assets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT))
+            {
+                return;
+            }
         }
-
-        VkPipelineShaderStageCreateInfo l_VertShaderStageInfo{};
-        l_VertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        l_VertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        l_VertShaderStageInfo.module = l_VertShader.GetModule();
-        l_VertShaderStageInfo.pName = "main";
-
-        VkPipelineShaderStageCreateInfo l_FragShaderStageInfo{};
-        l_FragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        l_FragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        l_FragShaderStageInfo.module = l_FragShader.GetModule();
-        l_FragShaderStageInfo.pName = "main";
-
-        VkPipelineShaderStageCreateInfo l_ShaderStages[] = { l_VertShaderStageInfo, l_FragShaderStageInfo };
 
         auto l_BindingDescription = Vertex::GetBindingDescription();
         auto l_AttributeDescriptions = Vertex::GetAttributeDescriptions();
@@ -620,8 +617,6 @@ namespace Trinity
 
         VkGraphicsPipelineCreateInfo l_PipelineInfo{};
         l_PipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        l_PipelineInfo.stageCount = 2;
-        l_PipelineInfo.pStages = l_ShaderStages;
         l_PipelineInfo.pVertexInputState = &l_VertexInputInfo;
         l_PipelineInfo.pInputAssemblyState = &l_InputAssembly;
         l_PipelineInfo.pViewportState = &l_ViewportState;
@@ -636,15 +631,14 @@ namespace Trinity
         l_PipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
         l_PipelineInfo.basePipelineIndex = -1;
 
-        if (vkCreateGraphicsPipelines(m_Context->GetDevice(), VK_NULL_HANDLE, 1, &l_PipelineInfo, nullptr, &m_GraphicsPipeline) != VK_SUCCESS)
+        m_GraphicsPipeline = m_Shader.GetPipeline(l_PipelineInfo);
+
+        if (m_GraphicsPipeline == VK_NULL_HANDLE)
         {
             TR_CORE_ERROR("Failed to create graphics pipeline");
 
             return;
         }
-
-        l_FragShader.Destroy();
-        l_VertShader.Destroy();
 
         TR_CORE_TRACE("Graphics pipeline created");
     }

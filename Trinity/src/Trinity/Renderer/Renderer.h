@@ -7,6 +7,7 @@
 #include "Trinity/Renderer/IndexBuffer.h"
 #include "Trinity/Renderer/UniformBuffer.h"
 #include "Trinity/Renderer/Texture.h"
+#include "Trinity/Renderer/Shader.h"
 
 #include "Trinity/Camera/Camera.h"
 
@@ -91,5 +92,7 @@ namespace Trinity
 
         size_t m_CurrentFrame = 0;
         VkPrimitiveTopology m_PrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        Shader m_Shader;
     };
 }
