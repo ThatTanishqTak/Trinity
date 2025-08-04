@@ -102,6 +102,7 @@ namespace Trinity
                 float l_Fov = m_Camera->GetFov() - 30.0f * l_DeltaTime;
                 m_Camera->SetPerspective(l_Fov, m_Camera->GetAspectRatio(), m_Camera->GetNear(), m_Camera->GetFar());
             }
+
             else
             {
                 float l_Size = m_Camera->GetOrthoSize() - 5.0f * l_DeltaTime;
@@ -116,6 +117,7 @@ namespace Trinity
                 float l_Fov = m_Camera->GetFov() + 30.0f * l_DeltaTime;
                 m_Camera->SetPerspective(l_Fov, m_Camera->GetAspectRatio(), m_Camera->GetNear(), m_Camera->GetFar());
             }
+
             else
             {
                 float l_Size = m_Camera->GetOrthoSize() + 5.0f * l_DeltaTime;

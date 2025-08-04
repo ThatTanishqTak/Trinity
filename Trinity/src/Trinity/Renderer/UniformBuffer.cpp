@@ -23,6 +23,7 @@ namespace Trinity
         if (vkCreateBuffer(m_Context->GetDevice(), &l_BufferInfo, nullptr, &m_Buffer) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to create uniform buffer");
+
             return false;
         }
 
@@ -32,12 +33,12 @@ namespace Trinity
         VkMemoryAllocateInfo l_AllocateInfo{};
         l_AllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         l_AllocateInfo.allocationSize = l_MemoryRequirements.size;
-        l_AllocateInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemoryRequirements.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        l_AllocateInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
         if (vkAllocateMemory(m_Context->GetDevice(), &l_AllocateInfo, nullptr, &m_BufferMemory) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to allocate uniform buffer memory");
+
             return false;
         }
 

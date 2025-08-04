@@ -20,9 +20,9 @@ namespace Trinity
     bool Mesh::Create(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
     {
         m_BoundingRadius = 0.0f;
-        for (const auto& l_Vertex : vertices)
+        for (const auto& it_Vertex : vertices)
         {
-            m_BoundingRadius = std::max(m_BoundingRadius, glm::length(l_Vertex.Position));
+            m_BoundingRadius = std::max(m_BoundingRadius, glm::length(it_Vertex.Position));
         }
 
         if (!m_VertexBuffer.Create(vertices))

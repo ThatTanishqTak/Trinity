@@ -28,6 +28,7 @@ namespace Trinity
     {
         alignas(16) glm::vec3 Position{ 0.0f };
         float _Pad0{ 0.0f };
+
         alignas(16) glm::vec3 Color{ 1.0f };
         float _Pad1{ 0.0f };
     };
@@ -35,6 +36,7 @@ namespace Trinity
     struct LightBufferObject
     {
         LightData Lights[MaxLights]{};
+
         alignas(16) int LightCount{ 0 };
         alignas(16) glm::vec3 Position{ 0.0f };
         alignas(16) glm::vec3 Color{ 1.0f };

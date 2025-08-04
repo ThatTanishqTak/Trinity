@@ -6,32 +6,33 @@ namespace Trinity
 {
     void RenderGraph::AddPass(const std::string& name, const PassFunc& func, bool offscreen)
     {
-        Pass pass{ name, func, offscreen };
+        Pass l_Pass{ name, func, offscreen };
         if (offscreen)
         {
-            m_OffscreenPasses.push_back(pass);
+            m_OffscreenPasses.push_back(l_Pass);
         }
+
         else
         {
-            m_OnscreenPasses.push_back(pass);
+            m_OnscreenPasses.push_back(l_Pass);
         }
     }
 
     void RenderGraph::Execute()
     {
-        for (auto& pass : m_OffscreenPasses)
+        for (auto& it_Pass : m_OffscreenPasses)
         {
-            if (pass.Func)
+            if (it_Pass.Func)
             {
-                pass.Func();
+                it_Pass.Func();
             }
         }
 
-        for (auto& pass : m_OnscreenPasses)
+        for (auto& it_Pass : m_OnscreenPasses)
         {
-            if (pass.Func)
+            if (it_Pass.Func)
             {
-                pass.Func();
+                it_Pass.Func();
             }
         }
     }

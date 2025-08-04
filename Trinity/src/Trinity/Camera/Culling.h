@@ -13,7 +13,7 @@ namespace Trinity
             glm::vec4 Planes[6];
         };
 
-        Frustum CreateFrustum(const glm::mat4& a_VP);
-        bool IsVisible(const Frustum& a_Frustum, const glm::vec3& a_Position, float a_Radius);
+        Frustum CreateFrustum(const glm::mat4& viewpoint);
+        bool IsVisible(const Frustum& frustum, const glm::vec3& position, float radius);
     }
 }

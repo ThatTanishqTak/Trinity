@@ -34,8 +34,7 @@ namespace Trinity
         VkMemoryAllocateInfo l_allocateInfo{};
         l_allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         l_allocateInfo.allocationSize = l_MemoryRequirements.size;
-        l_allocateInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemoryRequirements.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        l_allocateInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
         if (vkAllocateMemory(m_Context->GetDevice(), &l_allocateInfo, nullptr, &m_BufferMemory) != VK_SUCCESS)
         {

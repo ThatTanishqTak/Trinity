@@ -62,15 +62,15 @@ namespace Trinity
             return false;
         }
 
-        VkMemoryRequirements l_MemReq{};
-        vkGetImageMemoryRequirements(m_Context->GetDevice(), m_Image, &l_MemReq);
+        VkMemoryRequirements l_MemoryRequirements{};
+        vkGetImageMemoryRequirements(m_Context->GetDevice(), m_Image, &l_MemoryRequirements);
 
-        VkMemoryAllocateInfo l_AllocInfo{};
-        l_AllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        l_AllocInfo.allocationSize = l_MemReq.size;
-        l_AllocInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VkMemoryAllocateInfo l_AllocateInfo{};
+        l_AllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        l_AllocateInfo.allocationSize = l_MemoryRequirements.size;
+        l_AllocateInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-        if (vkAllocateMemory(m_Context->GetDevice(), &l_AllocInfo, nullptr, &m_ImageMemory) != VK_SUCCESS)
+        if (vkAllocateMemory(m_Context->GetDevice(), &l_AllocateInfo, nullptr, &m_ImageMemory) != VK_SUCCESS)
         {
             
             TR_CORE_ERROR("Failed to allocate texture memory");
@@ -93,36 +93,36 @@ namespace Trinity
         VkCommandPool l_CommandPool = VK_NULL_HANDLE;
         vkCreateCommandPool(m_Context->GetDevice(), &l_PoolInfo, nullptr, &l_CommandPool);
 
-        VkCommandBufferAllocateInfo l_Alloc{};
-        l_Alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        l_Alloc.commandPool = l_CommandPool;
-        l_Alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        l_Alloc.commandBufferCount = 1;
+        VkCommandBufferAllocateInfo l_CommandBufferAllocateInfo{};
+        l_CommandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        l_CommandBufferAllocateInfo.commandPool = l_CommandPool;
+        l_CommandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        l_CommandBufferAllocateInfo.commandBufferCount = 1;
 
         VkCommandBuffer l_CommandBuffer = VK_NULL_HANDLE;
-        vkAllocateCommandBuffers(m_Context->GetDevice(), &l_Alloc, &l_CommandBuffer);
+        vkAllocateCommandBuffers(m_Context->GetDevice(), &l_CommandBufferAllocateInfo, &l_CommandBuffer);
 
         VkCommandBufferBeginInfo l_BeginInfo{};
         l_BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         l_BeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(l_CommandBuffer, &l_BeginInfo);
 
-        VkImageMemoryBarrier l_Barrier{};
-        l_Barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        l_Barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        l_Barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        l_Barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        l_Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        l_Barrier.image = m_Image;
-        l_Barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        l_Barrier.subresourceRange.baseMipLevel = 0;
-        l_Barrier.subresourceRange.levelCount = 1;
-        l_Barrier.subresourceRange.baseArrayLayer = 0;
-        l_Barrier.subresourceRange.layerCount = 1;
-        l_Barrier.srcAccessMask = 0;
-        l_Barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        VkImageMemoryBarrier l_MemoryBarrier{};
+        l_MemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        l_MemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        l_MemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        l_MemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        l_MemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        l_MemoryBarrier.image = m_Image;
+        l_MemoryBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        l_MemoryBarrier.subresourceRange.baseMipLevel = 0;
+        l_MemoryBarrier.subresourceRange.levelCount = 1;
+        l_MemoryBarrier.subresourceRange.baseArrayLayer = 0;
+        l_MemoryBarrier.subresourceRange.layerCount = 1;
+        l_MemoryBarrier.srcAccessMask = 0;
+        l_MemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-        vkCmdPipelineBarrier(l_CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &l_Barrier);
+        vkCmdPipelineBarrier(l_CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &l_MemoryBarrier);
 
         VkBufferImageCopy l_Region{};
         l_Region.bufferOffset = 0;
@@ -137,12 +137,12 @@ namespace Trinity
 
         vkCmdCopyBufferToImage(l_CommandBuffer, l_Staging.GetBuffer(), m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &l_Region);
 
-        l_Barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        l_Barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        l_Barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        l_Barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        l_MemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        l_MemoryBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        l_MemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        l_MemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-        vkCmdPipelineBarrier(l_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &l_Barrier);
+        vkCmdPipelineBarrier(l_CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &l_MemoryBarrier);
 
         vkEndCommandBuffer(l_CommandBuffer);
 

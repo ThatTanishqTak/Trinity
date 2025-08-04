@@ -21,8 +21,9 @@ namespace Trinity
     class KeyPressedEvent : public KeyEvent
     {
     public:
-        KeyPressedEvent(int keycode, int repeatCount)
-            : KeyEvent(keycode), m_RepeatCount(repeatCount) {
+        KeyPressedEvent(int keycode, int repeatCount) : KeyEvent(keycode), m_RepeatCount(repeatCount)
+        {
+
         }
 
         int GetRepeatCount() const { return m_RepeatCount; }
@@ -31,6 +32,7 @@ namespace Trinity
         {
             std::stringstream ss;
             ss << "KeyPressedEvent: " << m_KeyCode << " (" << m_RepeatCount << " repeats)";
+
             return ss.str();
         }
 
@@ -43,14 +45,16 @@ namespace Trinity
     class KeyReleasedEvent : public KeyEvent
     {
     public:
-        KeyReleasedEvent(int keycode)
-            : KeyEvent(keycode) {
+        KeyReleasedEvent(int keycode) : KeyEvent(keycode)
+        {
+
         }
 
         std::string ToString() const override
         {
             std::stringstream ss;
             ss << "KeyReleasedEvent: " << m_KeyCode;
+            
             return ss.str();
         }
 

@@ -48,11 +48,11 @@ namespace Trinity
         vkDeviceWaitIdle(m_Context->GetDevice());
         TR_CORE_TRACE("Renderer is ready to be shutdown");
 
-        for (auto& a_Fence : m_InFlightFence)
+        for (auto& it_Fence : m_InFlightFence)
         {
-            if (a_Fence)
+            if (it_Fence)
             {
-                vkDestroyFence(m_Context->GetDevice(), a_Fence, nullptr);
+                vkDestroyFence(m_Context->GetDevice(), it_Fence, nullptr);
             }
         }
         TR_CORE_TRACE("In-Flight fences destroyed");
@@ -187,11 +187,11 @@ namespace Trinity
         m_VertexBuffer.Destroy();
         m_IndexBuffer.Destroy();
 
-        for (auto& frame : m_Frames)
+        for (auto& it_Frame : m_Frames)
         {
-            frame.GlobalUniform.Destroy();
-            frame.LightUniform.Destroy();
-            frame.MaterialUniform.Destroy();
+            it_Frame.GlobalUniform.Destroy();
+            it_Frame.LightUniform.Destroy();
+            it_Frame.MaterialUniform.Destroy();
         }
         m_Frames.clear();
 
@@ -216,8 +216,7 @@ namespace Trinity
         vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
 
         uint32_t l_ImageIndex;
-        VkResult l_Result = vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT64_MAX, 
-            m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
+        VkResult l_Result = vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT64_MAX, m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
 
         if (l_Result == VK_ERROR_OUT_OF_DATE_KHR)
         {
@@ -394,8 +393,6 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating descriptor set layout");
 
-        TR_CORE_TRACE("Creating descriptor set layout");
-
         VkDescriptorSetLayoutBinding l_LayoutBinding{};
         l_LayoutBinding.binding = 0;
         l_LayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -452,18 +449,18 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating descriptor pool");
 
-        auto l_SwapChainImages = m_Context->GetSwapChainImages();
+        auto a_SwapChainImages = m_Context->GetSwapChainImages();
         std::array<VkDescriptorPoolSize, 2> l_PoolSizes{};
         l_PoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        l_PoolSizes[0].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size()) * 3;
+        l_PoolSizes[0].descriptorCount = static_cast<uint32_t>(a_SwapChainImages.size()) * 3;
         l_PoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        l_PoolSizes[1].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size()) * 2;
+        l_PoolSizes[1].descriptorCount = static_cast<uint32_t>(a_SwapChainImages.size()) * 2;
 
         VkDescriptorPoolCreateInfo l_PoolInfo{};
         l_PoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         l_PoolInfo.poolSizeCount = static_cast<uint32_t>(l_PoolSizes.size());
         l_PoolInfo.pPoolSizes = l_PoolSizes.data();
-        l_PoolInfo.maxSets = static_cast<uint32_t>(l_SwapChainImages.size());
+        l_PoolInfo.maxSets = static_cast<uint32_t>(a_SwapChainImages.size());
 
         if (vkCreateDescriptorPool(m_Context->GetDevice(), &l_PoolInfo, nullptr, &m_DescriptorPool) != VK_SUCCESS)
         {
@@ -479,16 +476,16 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating descriptor sets");
 
-        auto l_SwapChainImages = m_Context->GetSwapChainImages();
-        std::vector<VkDescriptorSetLayout> l_Layouts(l_SwapChainImages.size(), m_DescriptorSetLayout);
+        auto a_SwapChainImages = m_Context->GetSwapChainImages();
+        std::vector<VkDescriptorSetLayout> l_Layouts(a_SwapChainImages.size(), m_DescriptorSetLayout);
 
         VkDescriptorSetAllocateInfo l_AllocInfo{};
         l_AllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         l_AllocInfo.descriptorPool = m_DescriptorPool;
-        l_AllocInfo.descriptorSetCount = static_cast<uint32_t>(l_SwapChainImages.size());
+        l_AllocInfo.descriptorSetCount = static_cast<uint32_t>(a_SwapChainImages.size());
         l_AllocInfo.pSetLayouts = l_Layouts.data();
 
-        std::vector<VkDescriptorSet> l_Sets(l_SwapChainImages.size());
+        std::vector<VkDescriptorSet> l_Sets(a_SwapChainImages.size());
         if (vkAllocateDescriptorSets(m_Context->GetDevice(), &l_AllocInfo, l_Sets.data()) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to allocate descriptor sets");
@@ -496,7 +493,7 @@ namespace Trinity
             return;
         }
 
-        for (size_t i = 0; i < l_SwapChainImages.size(); ++i)
+        for (size_t i = 0; i < a_SwapChainImages.size(); ++i)
         {
             m_Frames[i].DescriptorSet = l_Sets[i];
 
@@ -591,15 +588,15 @@ namespace Trinity
             }
         }
 
-        auto l_BindingDescription = Vertex::GetBindingDescription();
-        auto l_AttributeDescriptions = Vertex::GetAttributeDescriptions();
+        auto a_BindingDescription = Vertex::GetBindingDescription();
+        auto a_AttributeDescriptions = Vertex::GetAttributeDescriptions();
 
-        VkPipelineVertexInputStateCreateInfo l_VertexInputInfo{};
-        l_VertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        l_VertexInputInfo.vertexBindingDescriptionCount = 1;
-        l_VertexInputInfo.pVertexBindingDescriptions = &l_BindingDescription;
-        l_VertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(l_AttributeDescriptions.size());
-        l_VertexInputInfo.pVertexAttributeDescriptions = l_AttributeDescriptions.data();
+        VkPipelineVertexInputStateCreateInfo it_VertexInputInfo{};
+        it_VertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        it_VertexInputInfo.vertexBindingDescriptionCount = 1;
+        it_VertexInputInfo.pVertexBindingDescriptions = &a_BindingDescription;
+        it_VertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(a_AttributeDescriptions.size());
+        it_VertexInputInfo.pVertexAttributeDescriptions = a_AttributeDescriptions.data();
 
         VkPipelineInputAssemblyStateCreateInfo l_InputAssembly{};
         l_InputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -685,7 +682,7 @@ namespace Trinity
 
         VkGraphicsPipelineCreateInfo l_PipelineInfo{};
         l_PipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        l_PipelineInfo.pVertexInputState = &l_VertexInputInfo;
+        l_PipelineInfo.pVertexInputState = &it_VertexInputInfo;
         l_PipelineInfo.pInputAssemblyState = &l_InputAssembly;
         l_PipelineInfo.pViewportState = &l_ViewportState;
         l_PipelineInfo.pRasterizationState = &l_Rasterizer;
@@ -745,15 +742,15 @@ namespace Trinity
                 return;
             }
 
-            VkMemoryRequirements l_MemReq{};
-            vkGetImageMemoryRequirements(m_Context->GetDevice(), m_DepthImages[i], &l_MemReq);
+            VkMemoryRequirements l_MemoryRequirments{};
+            vkGetImageMemoryRequirements(m_Context->GetDevice(), m_DepthImages[i], &l_MemoryRequirments);
 
-            VkMemoryAllocateInfo l_AllocInfo{};
-            l_AllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            l_AllocInfo.allocationSize = l_MemReq.size;
-            l_AllocInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            VkMemoryAllocateInfo l_AllocateInfo{};
+            l_AllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            l_AllocateInfo.allocationSize = l_MemoryRequirments.size;
+            l_AllocateInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemoryRequirments.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-            if (vkAllocateMemory(m_Context->GetDevice(), &l_AllocInfo, nullptr, &m_DepthImageMemory[i]) != VK_SUCCESS)
+            if (vkAllocateMemory(m_Context->GetDevice(), &l_AllocateInfo, nullptr, &m_DepthImageMemory[i]) != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Failed to allocate depth image memory");
 
@@ -772,6 +769,7 @@ namespace Trinity
             {
                 l_ViewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
             }
+
             l_ViewInfo.subresourceRange.baseMipLevel = 0;
             l_ViewInfo.subresourceRange.levelCount = 1;
             l_ViewInfo.subresourceRange.baseArrayLayer = 0;
@@ -780,6 +778,7 @@ namespace Trinity
             if (vkCreateImageView(m_Context->GetDevice(), &l_ViewInfo, nullptr, &m_DepthImageViews[i]) != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Failed to create depth image view");
+                
                 return;
             }
         }
@@ -822,6 +821,7 @@ namespace Trinity
             {
                 l_Barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
             }
+
             l_Barrier.subresourceRange.baseMipLevel = 0;
             l_Barrier.subresourceRange.levelCount = 1;
             l_Barrier.subresourceRange.baseArrayLayer = 0;
@@ -916,7 +916,7 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating vertex buffer");
 
-        std::vector<Vertex> vertices =
+        std::vector<Vertex> l_Vertices =
         {
             { {0.0f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.5f, 1.0f} },
             { {0.5f,  0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
@@ -924,7 +924,7 @@ namespace Trinity
         };
 
         m_VertexBuffer = VertexBuffer(m_Context);
-        if (!m_VertexBuffer.Create(vertices))
+        if (!m_VertexBuffer.Create(l_Vertices))
         {
             TR_CORE_ERROR("Failed to create vertex buffer");
         }
@@ -936,10 +936,10 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating index buffer");
 
-        std::vector<uint32_t> indices = { 0, 1, 2 };
+        std::vector<uint32_t> l_Indices = { 0, 1, 2 };
 
         m_IndexBuffer = IndexBuffer(m_Context);
-        if (!m_IndexBuffer.Create(indices))
+        if (!m_IndexBuffer.Create(l_Indices))
         {
             TR_CORE_ERROR("Failed to create index buffer");
         }
@@ -988,152 +988,151 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating shadow resources");
 
-        VkFormat depthFormat = FindDepthFormat();
+        VkFormat l_DepthFormat = FindDepthFormat();
 
-        VkImageCreateInfo imageInfo{};
-        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        imageInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageInfo.extent.width = m_ShadowMapSize;
-        imageInfo.extent.height = m_ShadowMapSize;
-        imageInfo.extent.depth = 1;
-        imageInfo.mipLevels = 1;
-        imageInfo.arrayLayers = 1;
-        imageInfo.format = depthFormat;
-        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VkImageCreateInfo l_ImageInfo{};
+        l_ImageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        l_ImageInfo.imageType = VK_IMAGE_TYPE_2D;
+        l_ImageInfo.extent.width = m_ShadowMapSize;
+        l_ImageInfo.extent.height = m_ShadowMapSize;
+        l_ImageInfo.extent.depth = 1;
+        l_ImageInfo.mipLevels = 1;
+        l_ImageInfo.arrayLayers = 1;
+        l_ImageInfo.format = l_DepthFormat;
+        l_ImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        l_ImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        l_ImageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        l_ImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        l_ImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        vkCreateImage(m_Context->GetDevice(), &imageInfo, nullptr, &m_ShadowImage);
+        vkCreateImage(m_Context->GetDevice(), &l_ImageInfo, nullptr, &m_ShadowImage);
 
-        VkMemoryRequirements memReq{};
-        vkGetImageMemoryRequirements(m_Context->GetDevice(), m_ShadowImage, &memReq);
+        VkMemoryRequirements l_MemoryRequirment{};
+        vkGetImageMemoryRequirements(m_Context->GetDevice(), m_ShadowImage, &l_MemoryRequirment);
 
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memReq.size;
-        allocInfo.memoryTypeIndex = m_Context->FindMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        vkAllocateMemory(m_Context->GetDevice(), &allocInfo, nullptr, &m_ShadowImageMemory);
+        VkMemoryAllocateInfo l_AllocateInfo{};
+        l_AllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        l_AllocateInfo.allocationSize = l_MemoryRequirment.size;
+        l_AllocateInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemoryRequirment.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vkAllocateMemory(m_Context->GetDevice(), &l_AllocateInfo, nullptr, &m_ShadowImageMemory);
         vkBindImageMemory(m_Context->GetDevice(), m_ShadowImage, m_ShadowImageMemory, 0);
 
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = m_ShadowImage;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = depthFormat;
-        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        viewInfo.subresourceRange.baseMipLevel = 0;
-        viewInfo.subresourceRange.levelCount = 1;
-        viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
-        vkCreateImageView(m_Context->GetDevice(), &viewInfo, nullptr, &m_ShadowImageView);
+        VkImageViewCreateInfo l_ViewInfo{};
+        l_ViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        l_ViewInfo.image = m_ShadowImage;
+        l_ViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        l_ViewInfo.format = l_DepthFormat;
+        l_ViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        l_ViewInfo.subresourceRange.baseMipLevel = 0;
+        l_ViewInfo.subresourceRange.levelCount = 1;
+        l_ViewInfo.subresourceRange.baseArrayLayer = 0;
+        l_ViewInfo.subresourceRange.layerCount = 1;
+        vkCreateImageView(m_Context->GetDevice(), &l_ViewInfo, nullptr, &m_ShadowImageView);
 
         // Transition layout
-        QueueFamilyIndices indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDivice());
+        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDivice());
 
-        VkCommandPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.queueFamilyIndex = indices.GraphicsFamily.value();
-        poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+        VkCommandPoolCreateInfo l_PoolInfo{};
+        l_PoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        l_PoolInfo.queueFamilyIndex = l_Indices.GraphicsFamily.value();
+        l_PoolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
-        VkCommandPool commandPool = VK_NULL_HANDLE;
-        vkCreateCommandPool(m_Context->GetDevice(), &poolInfo, nullptr, &commandPool);
+        VkCommandPool l_CommandPool = VK_NULL_HANDLE;
+        vkCreateCommandPool(m_Context->GetDevice(), &l_PoolInfo, nullptr, &l_CommandPool);
 
-        VkCommandBufferAllocateInfo allocInfoCB{};
-        allocInfoCB.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfoCB.commandPool = commandPool;
-        allocInfoCB.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfoCB.commandBufferCount = 1;
+        VkCommandBufferAllocateInfo l_CommandBufferAllocateInfo{};
+        l_CommandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        l_CommandBufferAllocateInfo.commandPool = l_CommandPool;
+        l_CommandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        l_CommandBufferAllocateInfo.commandBufferCount = 1;
 
-        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-        vkAllocateCommandBuffers(m_Context->GetDevice(), &allocInfoCB, &commandBuffer);
+        VkCommandBuffer l_CommandBuffer = VK_NULL_HANDLE;
+        vkAllocateCommandBuffers(m_Context->GetDevice(), &l_CommandBufferAllocateInfo, &l_CommandBuffer);
 
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(commandBuffer, &beginInfo);
+        VkCommandBufferBeginInfo l_BeginInfo{};
+        l_BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        l_BeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(l_CommandBuffer, &l_BeginInfo);
 
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_ShadowImage;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        VkImageMemoryBarrier l_MemoryBarrier{};
+        l_MemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        l_MemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        l_MemoryBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        l_MemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        l_MemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        l_MemoryBarrier.image = m_ShadowImage;
+        l_MemoryBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        l_MemoryBarrier.subresourceRange.baseMipLevel = 0;
+        l_MemoryBarrier.subresourceRange.levelCount = 1;
+        l_MemoryBarrier.subresourceRange.baseArrayLayer = 0;
+        l_MemoryBarrier.subresourceRange.layerCount = 1;
+        l_MemoryBarrier.srcAccessMask = 0;
+        l_MemoryBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &barrier);
+        vkCmdPipelineBarrier(l_CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, nullptr, 0, nullptr, 1, &l_MemoryBarrier);
 
-        vkEndCommandBuffer(commandBuffer);
+        vkEndCommandBuffer(l_CommandBuffer);
 
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffer;
+        VkSubmitInfo l_SubmitInfo{};
+        l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        l_SubmitInfo.commandBufferCount = 1;
+        l_SubmitInfo.pCommandBuffers = &l_CommandBuffer;
 
-        vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, VK_NULL_HANDLE);
         vkQueueWaitIdle(m_Context->GetGraphicsQueue());
 
-        vkFreeCommandBuffers(m_Context->GetDevice(), commandPool, 1, &commandBuffer);
-        vkDestroyCommandPool(m_Context->GetDevice(), commandPool, nullptr);
+        vkFreeCommandBuffers(m_Context->GetDevice(), l_CommandPool, 1, &l_CommandBuffer);
+        vkDestroyCommandPool(m_Context->GetDevice(), l_CommandPool, nullptr);
 
-        VkSamplerCreateInfo samplerInfo{};
-        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        samplerInfo.magFilter = VK_FILTER_LINEAR;
-        samplerInfo.minFilter = VK_FILTER_LINEAR;
-        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        samplerInfo.compareEnable = VK_TRUE;
-        samplerInfo.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-        samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-        vkCreateSampler(m_Context->GetDevice(), &samplerInfo, nullptr, &m_ShadowSampler);
+        VkSamplerCreateInfo l_SamplerInfo{};
+        l_SamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        l_SamplerInfo.magFilter = VK_FILTER_LINEAR;
+        l_SamplerInfo.minFilter = VK_FILTER_LINEAR;
+        l_SamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        l_SamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        l_SamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        l_SamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        l_SamplerInfo.compareEnable = VK_TRUE;
+        l_SamplerInfo.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+        l_SamplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+        vkCreateSampler(m_Context->GetDevice(), &l_SamplerInfo, nullptr, &m_ShadowSampler);
 
-        VkAttachmentDescription depthAttachment{};
-        depthAttachment.format = depthFormat;
-        depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        VkAttachmentDescription l_DepthAttachment{};
+        l_DepthAttachment.format = l_DepthFormat;
+        l_DepthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        l_DepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        l_DepthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        l_DepthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        l_DepthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        l_DepthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        l_DepthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
-        VkAttachmentReference depthRef{};
-        depthRef.attachment = 0;
-        depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        VkAttachmentReference l_DepthRefference{};
+        l_DepthRefference.attachment = 0;
+        l_DepthRefference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-        VkSubpassDescription subpass{};
-        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount = 0;
-        subpass.pDepthStencilAttachment = &depthRef;
+        VkSubpassDescription l_Subpass{};
+        l_Subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        l_Subpass.colorAttachmentCount = 0;
+        l_Subpass.pDepthStencilAttachment = &l_DepthRefference;
 
-        VkRenderPassCreateInfo rpInfo{};
-        rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        rpInfo.attachmentCount = 1;
-        rpInfo.pAttachments = &depthAttachment;
-        rpInfo.subpassCount = 1;
-        rpInfo.pSubpasses = &subpass;
-        vkCreateRenderPass(m_Context->GetDevice(), &rpInfo, nullptr, &m_ShadowRenderPass);
+        VkRenderPassCreateInfo l_RenderPassInfo{};
+        l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        l_RenderPassInfo.attachmentCount = 1;
+        l_RenderPassInfo.pAttachments = &l_DepthAttachment;
+        l_RenderPassInfo.subpassCount = 1;
+        l_RenderPassInfo.pSubpasses = &l_Subpass;
+        vkCreateRenderPass(m_Context->GetDevice(), &l_RenderPassInfo, nullptr, &m_ShadowRenderPass);
 
-        VkFramebufferCreateInfo fbInfo{};
-        fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        fbInfo.renderPass = m_ShadowRenderPass;
-        fbInfo.attachmentCount = 1;
-        fbInfo.pAttachments = &m_ShadowImageView;
-        fbInfo.width = m_ShadowMapSize;
-        fbInfo.height = m_ShadowMapSize;
-        fbInfo.layers = 1;
-        vkCreateFramebuffer(m_Context->GetDevice(), &fbInfo, nullptr, &m_ShadowFramebuffer);
+        VkFramebufferCreateInfo l_FrameBufferInfo{};
+        l_FrameBufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        l_FrameBufferInfo.renderPass = m_ShadowRenderPass;
+        l_FrameBufferInfo.attachmentCount = 1;
+        l_FrameBufferInfo.pAttachments = &m_ShadowImageView;
+        l_FrameBufferInfo.width = m_ShadowMapSize;
+        l_FrameBufferInfo.height = m_ShadowMapSize;
+        l_FrameBufferInfo.layers = 1;
+        vkCreateFramebuffer(m_Context->GetDevice(), &l_FrameBufferInfo, nullptr, &m_ShadowFramebuffer);
 
         TR_CORE_TRACE("Shadow resources created");
     }
@@ -1201,19 +1200,19 @@ namespace Trinity
 
     void Renderer::RenderShadowPass(uint32_t imageIndex)
     {
-        VkRenderPassBeginInfo rpInfo{};
-        rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        rpInfo.renderPass = m_ShadowRenderPass;
-        rpInfo.framebuffer = m_ShadowFramebuffer;
-        rpInfo.renderArea.offset = { 0, 0 };
-        rpInfo.renderArea.extent = { m_ShadowMapSize, m_ShadowMapSize };
+        VkRenderPassBeginInfo l_RenderPassInfo{};
+        l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        l_RenderPassInfo.renderPass = m_ShadowRenderPass;
+        l_RenderPassInfo.framebuffer = m_ShadowFramebuffer;
+        l_RenderPassInfo.renderArea.offset = { 0, 0 };
+        l_RenderPassInfo.renderArea.extent = { m_ShadowMapSize, m_ShadowMapSize };
 
-        VkClearValue clear{};
-        clear.depthStencil = { 1.0f, 0 };
-        rpInfo.clearValueCount = 1;
-        rpInfo.pClearValues = &clear;
+        VkClearValue l_Clear{};
+        l_Clear.depthStencil = { 1.0f, 0 };
+        l_RenderPassInfo.clearValueCount = 1;
+        l_RenderPassInfo.pClearValues = &l_Clear;
 
-        vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
     }
 
@@ -1227,7 +1226,7 @@ namespace Trinity
         l_RenderPassInfo.renderArea.extent = m_Context->GetSwapChainExtent();
 
         std::array<VkClearValue, 2> l_ClearValues{};
-        l_ClearValues[0].color = { {0.05f, 0.05f, 0.05f, 1.0f} };
+        l_ClearValues[0].color = { {0.01f, 0.01f, 0.01f, 1.0f} };
         l_ClearValues[1].depthStencil = { 1.0f, 0 };
         l_RenderPassInfo.clearValueCount = static_cast<uint32_t>(l_ClearValues.size());
         l_RenderPassInfo.pClearValues = l_ClearValues.data();
@@ -1268,9 +1267,9 @@ namespace Trinity
             auto a_LightView = m_Scene->GetRegistry().view<Light>();
             for (auto it_Entity : a_LightView)
             {
-                auto& light = a_LightView.get<Light>(it_Entity);
-                l_Light.Position = light.Position;
-                l_Light.Color = light.Color;
+                auto& a_Light = a_LightView.get<Light>(it_Entity);
+                l_Light.Position = a_Light.Position;
+                l_Light.Color = a_Light.Color;
                 
                 break;
             }
@@ -1282,19 +1281,19 @@ namespace Trinity
             auto a_View = m_Scene->GetRegistry().view<Transform, MeshRenderer, Material>();
             for (auto it_Entity : a_View)
             {
-                auto& transform = a_View.get<Transform>(it_Entity);
-                auto& mesh = a_View.get<MeshRenderer>(it_Entity);
-                auto& material = a_View.get<Material>(it_Entity);
+                auto& a_Transform = a_View.get<Transform>(it_Entity);
+                auto& a_Mesh = a_View.get<MeshRenderer>(it_Entity);
+                auto& a_Material = a_View.get<Material>(it_Entity);
 
-                float l_Scale = std::max({ transform.Scale.x, transform.Scale.y, transform.Scale.z });
-                float l_Radius = mesh.Mesh->GetBoundingRadius() * l_Scale;
-                if (!Culling::IsVisible(l_Frustum, transform.Translation, l_Radius))
+                float l_Scale = std::max({ a_Transform.Scale.x, a_Transform.Scale.y, a_Transform.Scale.z });
+                float l_Radius = a_Mesh.Mesh->GetBoundingRadius() * l_Scale;
+                if (!Culling::IsVisible(l_Frustum, a_Transform.Translation, l_Radius))
                 {
                     continue;
                 }
 
                 UniformBufferObject l_Ubo{};
-                l_Ubo.Model = transform.GetTransform();
+                l_Ubo.Model = a_Transform.GetTransform();
                 l_Ubo.Update(m_Camera);
 
                 void* l_Data = m_Frames[imageIndex].GlobalUniform.Map();
@@ -1302,21 +1301,21 @@ namespace Trinity
                 m_Frames[imageIndex].GlobalUniform.Unmap();
 
                 MaterialBufferObject l_Material{};
-                l_Material.Albedo = material.Albedo;
-                l_Material.Roughness = material.Roughness;
+                l_Material.Albedo = a_Material.Albedo;
+                l_Material.Roughness = a_Material.Roughness;
 
                 void* l_MaterialData = m_Frames[imageIndex].MaterialUniform.Map();
                 std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));
                 m_Frames[imageIndex].MaterialUniform.Unmap();
 
-                VkBuffer vertexBuffers[] = { mesh.Mesh->GetVertexBuffer().GetBuffer() };
+                VkBuffer vertexBuffers[] = { a_Mesh.Mesh->GetVertexBuffer().GetBuffer() };
                 VkDeviceSize offsets[] = { 0 };
                 vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
 
-                uint32_t indexCount = mesh.Mesh->GetIndexBuffer().GetIndexCount();
+                uint32_t indexCount = a_Mesh.Mesh->GetIndexBuffer().GetIndexCount();
                 if (indexCount > 0)
                 {
-                    vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], mesh.Mesh->GetIndexBuffer().GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], a_Mesh.Mesh->GetIndexBuffer().GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
                     vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
                     vkCmdDrawIndexed(m_CommandBuffer[imageIndex], indexCount, 1, 0, 0, 0);
                 }
@@ -1324,7 +1323,7 @@ namespace Trinity
                 else
                 {
                     vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
-                    vkCmdDraw(m_CommandBuffer[imageIndex], mesh.Mesh->GetVertexBuffer().GetVertexCount(), 1, 0, 0);
+                    vkCmdDraw(m_CommandBuffer[imageIndex], a_Mesh.Mesh->GetVertexBuffer().GetVertexCount(), 1, 0, 0);
                 }
             }
         }
@@ -1334,7 +1333,9 @@ namespace Trinity
 
     void Renderer::RenderPostPass(uint32_t imageIndex)
     {
+#if _DEBUG
         TR_CORE_TRACE("Render post-processing pass for frame {}", imageIndex);
+#endif
     }
 
     void Renderer::CleanupSwapChain()
@@ -1347,11 +1348,11 @@ namespace Trinity
             m_DescriptorPool = VK_NULL_HANDLE;
         }
 
-        for (auto& frame : m_Frames)
+        for (auto& it_Frame : m_Frames)
         {
-            frame.GlobalUniform.Destroy();
-            frame.LightUniform.Destroy();
-            frame.MaterialUniform.Destroy();
+            it_Frame.GlobalUniform.Destroy();
+            it_Frame.LightUniform.Destroy();
+            it_Frame.MaterialUniform.Destroy();
         }
         m_Frames.clear();
 

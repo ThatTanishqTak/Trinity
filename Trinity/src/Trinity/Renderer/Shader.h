@@ -23,31 +23,29 @@ namespace Trinity
         void Destroy();
 
         VkShaderModule GetModule(VkShaderStageFlagBits stage) const;
-
-        VkPipeline GetPipeline(const VkGraphicsPipelineCreateInfo& pipelineInfo,
-            const void* specData = nullptr, size_t specSize = 0);
+        VkPipeline GetPipeline(const VkGraphicsPipelineCreateInfo& pipelineInfo, const void* specData = nullptr, size_t specSize = 0);
 
         bool Update();
 
     private:
         struct ShaderModuleDeleter
         {
-            VulkanContext* context = nullptr;
+            VulkanContext* Context = nullptr;
             void operator()(VkShaderModule module) const;
         };
 
         struct PipelineDeleter
         {
-            VulkanContext* context = nullptr;
+            VulkanContext* Context = nullptr;
             void operator()(VkPipeline pipeline) const;
         };
 
         struct Stage
         {
-            VkShaderStageFlagBits stage = VK_SHADER_STAGE_VERTEX_BIT;
-            std::filesystem::path sourcePath;
-            std::filesystem::path spirvPath;
-            std::filesystem::file_time_type timestamp{};
+            VkShaderStageFlagBits StageBit = VK_SHADER_STAGE_VERTEX_BIT;
+            std::filesystem::path SourcePath;
+            std::filesystem::path SpirvPath;
+            std::filesystem::file_time_type Timestamp{};
             std::unique_ptr<std::remove_pointer<VkShaderModule>::type, ShaderModuleDeleter> module{ nullptr, { nullptr } };
         };
 

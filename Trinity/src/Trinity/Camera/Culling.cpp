@@ -10,13 +10,13 @@ namespace Trinity
 {
     namespace Culling
     {
-        Frustum CreateFrustum(const glm::mat4& a_VP)
+        Frustum CreateFrustum(const glm::mat4& viewpoint)
         {
             Frustum l_Frustum{};
-            glm::vec4 l_RowX = glm::row(a_VP, 0);
-            glm::vec4 l_RowY = glm::row(a_VP, 1);
-            glm::vec4 l_RowZ = glm::row(a_VP, 2);
-            glm::vec4 l_RowW = glm::row(a_VP, 3);
+            glm::vec4 l_RowX = glm::row(viewpoint, 0);
+            glm::vec4 l_RowY = glm::row(viewpoint, 1);
+            glm::vec4 l_RowZ = glm::row(viewpoint, 2);
+            glm::vec4 l_RowW = glm::row(viewpoint, 3);
 
             l_Frustum.Planes[0] = l_RowW + l_RowX; // Left
             l_Frustum.Planes[1] = l_RowW - l_RowX; // Right
@@ -25,25 +25,26 @@ namespace Trinity
             l_Frustum.Planes[4] = l_RowW + l_RowZ; // Near
             l_Frustum.Planes[5] = l_RowW - l_RowZ; // Far
 
-            for (auto& l_Plane : l_Frustum.Planes)
+            for (auto& it_Plane : l_Frustum.Planes)
             {
-                float l_Length = glm::length(glm::vec3(l_Plane));
-                l_Plane /= l_Length;
+                float l_Length = glm::length(glm::vec3(it_Plane));
+                it_Plane /= l_Length;
             }
 
             return l_Frustum;
         }
 
-        bool IsVisible(const Frustum& a_Frustum, const glm::vec3& a_Position, float a_Radius)
+        bool IsVisible(const Frustum& frustum, const glm::vec3& position, float radius)
         {
-            for (const auto& l_Plane : a_Frustum.Planes)
+            for (const auto& it_Plane : frustum.Planes)
             {
-                float l_Distance = glm::dot(glm::vec3(l_Plane), a_Position) + l_Plane.w;
-                if (l_Distance < -a_Radius)
+                float l_Distance = glm::dot(glm::vec3(it_Plane), position) + it_Plane.w;
+                if (l_Distance < -radius)
                 {
                     return false;
                 }
             }
+
             return true;
         }
     }

@@ -18,8 +18,8 @@ namespace Trinity
     bool Shader::Load(const std::filesystem::path& path, VkShaderStageFlagBits stage)
     {
         Stage l_Stage;
-        l_Stage.stage = stage;
-        l_Stage.sourcePath = path;
+        l_Stage.StageBit = stage;
+        l_Stage.SourcePath = path;
         if (!std::filesystem::exists(path))
         {
             TR_CORE_ERROR("Shader file not found: {}", path.string());
@@ -27,11 +27,11 @@ namespace Trinity
             return false;
         }
 
-        std::error_code l_Ec;
-        l_Stage.timestamp = std::filesystem::last_write_time(path, l_Ec);
-        if (l_Ec)
+        std::error_code l_ErrorCode;
+        l_Stage.Timestamp = std::filesystem::last_write_time(path, l_ErrorCode);
+        if (l_ErrorCode)
         {
-            TR_CORE_ERROR("Failed to get last write time for {}: {}", path.string(), l_Ec.message());
+            TR_CORE_ERROR("Failed to get last write time for {}: {}", path.string(), l_ErrorCode.message());
 
             return false;
         }
@@ -56,18 +56,18 @@ namespace Trinity
         Destroy();
         for (auto& it_Stage : m_Stages)
         {
-            if (!std::filesystem::exists(it_Stage.sourcePath))
+            if (!std::filesystem::exists(it_Stage.SourcePath))
             {
-                TR_CORE_ERROR("Shader file not found: {}", it_Stage.sourcePath.string());
+                TR_CORE_ERROR("Shader file not found: {}", it_Stage.SourcePath.string());
 
                 return false;
             }
 
-            std::error_code l_Ec;
-            it_Stage.timestamp = std::filesystem::last_write_time(it_Stage.sourcePath, l_Ec);
-            if (l_Ec)
+            std::error_code l_ErrorCode;
+            it_Stage.Timestamp = std::filesystem::last_write_time(it_Stage.SourcePath, l_ErrorCode);
+            if (l_ErrorCode)
             {
-                TR_CORE_ERROR("Failed to get last write time for {}: {}", it_Stage.sourcePath.string(), l_Ec.message());
+                TR_CORE_ERROR("Failed to get last write time for {}: {}", it_Stage.SourcePath.string(), l_ErrorCode.message());
 
                 return false;
             }
@@ -93,11 +93,11 @@ namespace Trinity
 
     VkShaderModule Shader::GetModule(VkShaderStageFlagBits stage) const
     {
-        for (const auto& l_Stage : m_Stages)
+        for (const auto& it_Stage : m_Stages)
         {
-            if (l_Stage.stage == stage)
+            if (it_Stage.StageBit == stage)
             {
-                return l_Stage.module.get();
+                return it_Stage.module.get();
             }
         }
         
@@ -115,6 +115,7 @@ namespace Trinity
 
         VkGraphicsPipelineCreateInfo l_Info = pipelineInfo;
         std::vector<VkPipelineShaderStageCreateInfo> l_StagesInfo;
+
         l_StagesInfo.reserve(m_Stages.size());
 
         VkSpecializationInfo l_SpecInfo{};
@@ -132,7 +133,7 @@ namespace Trinity
         {
             VkPipelineShaderStageCreateInfo l_StageInfo{};
             l_StageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-            l_StageInfo.stage = it_Stage.stage;
+            l_StageInfo.stage = it_Stage.StageBit;
             l_StageInfo.module = it_Stage.module.get();
             l_StageInfo.pName = "main";
             if (specData && specSize > 0)
@@ -163,28 +164,29 @@ namespace Trinity
         bool l_Reload = false;
         for (auto& it_Stage : m_Stages)
         {
-            if (!std::filesystem::exists(it_Stage.sourcePath))
+            if (!std::filesystem::exists(it_Stage.SourcePath))
             {
-                TR_CORE_ERROR("Shader file not found: {}", it_Stage.sourcePath.string());
+                TR_CORE_ERROR("Shader file not found: {}", it_Stage.SourcePath.string());
 
                 continue;
             }
 
             std::error_code l_Ec;
-            auto a_Time = std::filesystem::last_write_time(it_Stage.sourcePath, l_Ec);
+            auto a_Time = std::filesystem::last_write_time(it_Stage.SourcePath, l_Ec);
             if (l_Ec)
             {
-                TR_CORE_ERROR("Failed to get last write time for {}: {}", it_Stage.sourcePath.string(), l_Ec.message());
+                TR_CORE_ERROR("Failed to get last write time for {}: {}", it_Stage.SourcePath.string(), l_Ec.message());
 
                 continue;
             }
 
-            if (a_Time != it_Stage.timestamp)
+            if (a_Time != it_Stage.Timestamp)
             {
                 l_Reload = true;
-                it_Stage.timestamp = a_Time;
+                it_Stage.Timestamp = a_Time;
             }
         }
+
         if (l_Reload)
         {
             Reload();
@@ -206,10 +208,10 @@ namespace Trinity
 
     bool Shader::CompileStage(Stage& stage)
     {
-        std::filesystem::path l_Source = stage.sourcePath;
+        std::filesystem::path l_Source = stage.SourcePath;
         if (l_Source.extension() == ".spv")
         {
-            stage.spirvPath = l_Source;
+            stage.SpirvPath = l_Source;
             
             return true;
         }
@@ -226,24 +228,24 @@ namespace Trinity
             return false;
         }
 
-        stage.spirvPath = l_Output;
+        stage.SpirvPath = l_Output;
         
         return true;
     }
 
     bool Shader::LoadStage(Stage& stage)
     {
-        if (!std::filesystem::exists(stage.spirvPath))
+        if (!std::filesystem::exists(stage.SpirvPath))
         {
-            TR_CORE_ERROR("Shader file not found: {}", stage.spirvPath.string());
+            TR_CORE_ERROR("Shader file not found: {}", stage.SpirvPath.string());
             
             return false;
         }
 
-        auto a_Code = Utilities::FileManagement::ReadFile(stage.spirvPath);
+        auto a_Code = Utilities::FileManagement::ReadFile(stage.SpirvPath);
         if (a_Code.empty())
         {
-            TR_CORE_ERROR("Failed to read shader file: {}", stage.spirvPath.string());
+            TR_CORE_ERROR("Failed to read shader file: {}", stage.SpirvPath.string());
             
             return false;
         }
@@ -256,7 +258,7 @@ namespace Trinity
         VkShaderModule l_Module = VK_NULL_HANDLE;
         if (vkCreateShaderModule(m_Context->GetDevice(), &l_CreateInfo, nullptr, &l_Module) != VK_SUCCESS)
         {
-            TR_CORE_ERROR("Failed to create shader module: {}", stage.spirvPath.string());
+            TR_CORE_ERROR("Failed to create shader module: {}", stage.SpirvPath.string());
         
             return false;
         }
@@ -268,17 +270,17 @@ namespace Trinity
 
     void Shader::ShaderModuleDeleter::operator()(VkShaderModule module) const
     {
-        if (module && context)
+        if (module && Context)
         {
-            vkDestroyShaderModule(context->GetDevice(), module, nullptr);
+            vkDestroyShaderModule(Context->GetDevice(), module, nullptr);
         }
     }
 
     void Shader::PipelineDeleter::operator()(VkPipeline pipeline) const
     {
-        if (pipeline && context)
+        if (pipeline && Context)
         {
-            vkDestroyPipeline(context->GetDevice(), pipeline, nullptr);
+            vkDestroyPipeline(Context->GetDevice(), pipeline, nullptr);
         }
     }
 }

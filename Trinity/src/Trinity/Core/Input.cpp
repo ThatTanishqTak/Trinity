@@ -23,13 +23,13 @@ namespace Trinity
 
 	glm::vec2 Input::GetMousePosition()
 	{
-		double x = 0.0;
-		double y = 0.0;
+		double l_X = 0.0;
+		double l_Y = 0.0;
 		if (s_Window)
 		{
-			glfwGetCursorPos(s_Window, &x, &y);
+			glfwGetCursorPos(s_Window, &l_X, &l_Y);
 		}
 
-		return { static_cast<float>(x), static_cast<float>(y) };
+		return { static_cast<float>(l_X), static_cast<float>(l_Y) };
 	}
 }

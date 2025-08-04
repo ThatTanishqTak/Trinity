@@ -8,9 +8,9 @@ namespace Trinity
 {
     Entity Scene::CreateEntity()
     {
-        entt::entity entity = m_Registry.create();
+        entt::entity l_Entity = m_Registry.create();
 
-        Entity e(entity, &m_Registry);
+        Entity e(l_Entity, &m_Registry);
         e.AddComponent<Transform>();
 
         return e;
@@ -19,20 +19,22 @@ namespace Trinity
     Entity Scene::CreateLight(const glm::vec3& position, const glm::vec3& color)
     {
         Entity e = CreateEntity();
-        auto& light = e.AddComponent<Light>();
-        light.Position = position;
-        light.Color = color;
+        auto& a_Light = e.AddComponent<Light>();
+        a_Light.Position = position;
+        a_Light.Color = color;
+
         return e;
     }
 
     std::vector<Light*> Scene::GetLights()
     {
-        std::vector<Light*> lights;
-        auto view = m_Registry.view<Light>();
-        for (auto entity : view)
+        std::vector<Light*> l_Lights;
+        auto a_View = m_Registry.view<Light>();
+        for (auto it_Entity : a_View)
         {
-            lights.push_back(&view.get<Light>(entity));
+            l_Lights.push_back(&a_View.get<Light>(it_Entity));
         }
-        return lights;
+
+        return l_Lights;
     }
 }
