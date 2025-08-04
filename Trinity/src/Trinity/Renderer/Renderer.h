@@ -49,9 +49,11 @@ namespace Trinity
         void CreateVertexBuffer();
         void CreateIndexBuffer();
         void CreateUniformBuffers();
+        void CreateShadowResources();
         void CreateCommandBuffer();
         void CreateSyncObjects();
         void RecordCommandBuffer(uint32_t imageIndex);
+        void RenderShadowPass(uint32_t imageIndex);
         void CleanupSwapChain();
         void RecreateSwapChain();
 
@@ -86,6 +88,14 @@ namespace Trinity
         std::vector<UniformBuffer> m_LightUniformBuffers{};
         std::vector<UniformBuffer> m_MaterialUniformBuffers{};
         Texture m_Texture;
+
+        VkRenderPass m_ShadowRenderPass = VK_NULL_HANDLE;
+        VkFramebuffer m_ShadowFramebuffer = VK_NULL_HANDLE;
+        VkImage m_ShadowImage = VK_NULL_HANDLE;
+        VkDeviceMemory m_ShadowImageMemory = VK_NULL_HANDLE;
+        VkImageView m_ShadowImageView = VK_NULL_HANDLE;
+        VkSampler m_ShadowSampler = VK_NULL_HANDLE;
+        uint32_t m_ShadowMapSize = 1024;
 
         Camera m_Camera;
         Scene* m_Scene = nullptr;

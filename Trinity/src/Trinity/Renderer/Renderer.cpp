@@ -29,6 +29,7 @@ namespace Trinity
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
+        CreateShadowResources();
         CreateDescriptorPool();
         CreateDescriptorSets();
         CreateCommandBuffer();
@@ -109,6 +110,42 @@ namespace Trinity
             m_DepthImages.clear();
             m_DepthImageMemory.clear();
             TR_CORE_TRACE("Depth resources destroyed");
+        }
+
+        if (m_ShadowSampler)
+        {
+            vkDestroySampler(m_Context->GetDevice(), m_ShadowSampler, nullptr);
+            m_ShadowSampler = VK_NULL_HANDLE;
+        }
+
+        if (m_ShadowImageView)
+        {
+            vkDestroyImageView(m_Context->GetDevice(), m_ShadowImageView, nullptr);
+            m_ShadowImageView = VK_NULL_HANDLE;
+        }
+
+        if (m_ShadowImage)
+        {
+            vkDestroyImage(m_Context->GetDevice(), m_ShadowImage, nullptr);
+            m_ShadowImage = VK_NULL_HANDLE;
+        }
+
+        if (m_ShadowImageMemory)
+        {
+            vkFreeMemory(m_Context->GetDevice(), m_ShadowImageMemory, nullptr);
+            m_ShadowImageMemory = VK_NULL_HANDLE;
+        }
+
+        if (m_ShadowFramebuffer)
+        {
+            vkDestroyFramebuffer(m_Context->GetDevice(), m_ShadowFramebuffer, nullptr);
+            m_ShadowFramebuffer = VK_NULL_HANDLE;
+        }
+
+        if (m_ShadowRenderPass)
+        {
+            vkDestroyRenderPass(m_Context->GetDevice(), m_ShadowRenderPass, nullptr);
+            m_ShadowRenderPass = VK_NULL_HANDLE;
         }
 
         if (m_GraphicsPipeline)
@@ -378,7 +415,14 @@ namespace Trinity
         l_MaterialBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         l_MaterialBinding.pImmutableSamplers = nullptr;
 
-        std::array<VkDescriptorSetLayoutBinding, 4> l_Bindings{ l_LayoutBinding, l_SamplerBinding, l_LightBinding, l_MaterialBinding };
+        VkDescriptorSetLayoutBinding l_ShadowBinding{};
+        l_ShadowBinding.binding = 4;
+        l_ShadowBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        l_ShadowBinding.descriptorCount = 1;
+        l_ShadowBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        l_ShadowBinding.pImmutableSamplers = nullptr;
+
+        std::array<VkDescriptorSetLayoutBinding, 5> l_Bindings{ l_LayoutBinding, l_SamplerBinding, l_LightBinding, l_MaterialBinding, l_ShadowBinding };
 
         VkDescriptorSetLayoutCreateInfo l_CreateInfo{};
         l_CreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -404,7 +448,7 @@ namespace Trinity
         l_PoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         l_PoolSizes[0].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size()) * 3;
         l_PoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        l_PoolSizes[1].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size());
+        l_PoolSizes[1].descriptorCount = static_cast<uint32_t>(l_SwapChainImages.size()) * 2;
 
         VkDescriptorPoolCreateInfo l_PoolInfo{};
         l_PoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -465,7 +509,12 @@ namespace Trinity
             l_ImageInfo.imageView = m_Texture.GetImageView();
             l_ImageInfo.sampler = m_Texture.GetSampler();
 
-            std::array<VkWriteDescriptorSet, 4> l_DescriptorWrites{};
+            VkDescriptorImageInfo l_ShadowInfo{};
+            l_ShadowInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            l_ShadowInfo.imageView = m_ShadowImageView;
+            l_ShadowInfo.sampler = m_ShadowSampler;
+
+            std::array<VkWriteDescriptorSet, 5> l_DescriptorWrites{};
             l_DescriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             l_DescriptorWrites[0].dstSet = m_DescriptorSets[i];
             l_DescriptorWrites[0].dstBinding = 0;
@@ -497,6 +546,14 @@ namespace Trinity
             l_DescriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             l_DescriptorWrites[3].descriptorCount = 1;
             l_DescriptorWrites[3].pBufferInfo = &l_MaterialBufferInfo;
+
+            l_DescriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            l_DescriptorWrites[4].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[4].dstBinding = 4;
+            l_DescriptorWrites[4].dstArrayElement = 0;
+            l_DescriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            l_DescriptorWrites[4].descriptorCount = 1;
+            l_DescriptorWrites[4].pImageInfo = &l_ShadowInfo;
 
             vkUpdateDescriptorSets(m_Context->GetDevice(), static_cast<uint32_t>(l_DescriptorWrites.size()), l_DescriptorWrites.data(), 0, nullptr);
         }
@@ -918,6 +975,160 @@ namespace Trinity
         TR_CORE_TRACE("Uniform buffers created: {}", m_UniformBuffers.size());
     }
 
+    void Renderer::CreateShadowResources()
+    {
+        TR_CORE_TRACE("Creating shadow resources");
+
+        VkFormat depthFormat = FindDepthFormat();
+
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width = m_ShadowMapSize;
+        imageInfo.extent.height = m_ShadowMapSize;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.format = depthFormat;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        vkCreateImage(m_Context->GetDevice(), &imageInfo, nullptr, &m_ShadowImage);
+
+        VkMemoryRequirements memReq{};
+        vkGetImageMemoryRequirements(m_Context->GetDevice(), m_ShadowImage, &memReq);
+
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memReq.size;
+        allocInfo.memoryTypeIndex = m_Context->FindMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vkAllocateMemory(m_Context->GetDevice(), &allocInfo, nullptr, &m_ShadowImageMemory);
+        vkBindImageMemory(m_Context->GetDevice(), m_ShadowImage, m_ShadowImageMemory, 0);
+
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = m_ShadowImage;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = depthFormat;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
+        vkCreateImageView(m_Context->GetDevice(), &viewInfo, nullptr, &m_ShadowImageView);
+
+        // Transition layout
+        QueueFamilyIndices indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDivice());
+
+        VkCommandPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.queueFamilyIndex = indices.GraphicsFamily.value();
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
+        VkCommandPool commandPool = VK_NULL_HANDLE;
+        vkCreateCommandPool(m_Context->GetDevice(), &poolInfo, nullptr, &commandPool);
+
+        VkCommandBufferAllocateInfo allocInfoCB{};
+        allocInfoCB.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfoCB.commandPool = commandPool;
+        allocInfoCB.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfoCB.commandBufferCount = 1;
+
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        vkAllocateCommandBuffers(m_Context->GetDevice(), &allocInfoCB, &commandBuffer);
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_ShadowImage;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        vkEndCommandBuffer(commandBuffer);
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+
+        vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(m_Context->GetGraphicsQueue());
+
+        vkFreeCommandBuffers(m_Context->GetDevice(), commandPool, 1, &commandBuffer);
+        vkDestroyCommandPool(m_Context->GetDevice(), commandPool, nullptr);
+
+        VkSamplerCreateInfo samplerInfo{};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = VK_FILTER_LINEAR;
+        samplerInfo.minFilter = VK_FILTER_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.compareEnable = VK_TRUE;
+        samplerInfo.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+        samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+        vkCreateSampler(m_Context->GetDevice(), &samplerInfo, nullptr, &m_ShadowSampler);
+
+        VkAttachmentDescription depthAttachment{};
+        depthAttachment.format = depthFormat;
+        depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference depthRef{};
+        depthRef.attachment = 0;
+        depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 0;
+        subpass.pDepthStencilAttachment = &depthRef;
+
+        VkRenderPassCreateInfo rpInfo{};
+        rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        rpInfo.attachmentCount = 1;
+        rpInfo.pAttachments = &depthAttachment;
+        rpInfo.subpassCount = 1;
+        rpInfo.pSubpasses = &subpass;
+        vkCreateRenderPass(m_Context->GetDevice(), &rpInfo, nullptr, &m_ShadowRenderPass);
+
+        VkFramebufferCreateInfo fbInfo{};
+        fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbInfo.renderPass = m_ShadowRenderPass;
+        fbInfo.attachmentCount = 1;
+        fbInfo.pAttachments = &m_ShadowImageView;
+        fbInfo.width = m_ShadowMapSize;
+        fbInfo.height = m_ShadowMapSize;
+        fbInfo.layers = 1;
+        vkCreateFramebuffer(m_Context->GetDevice(), &fbInfo, nullptr, &m_ShadowFramebuffer);
+
+        TR_CORE_TRACE("Shadow resources created");
+    }
+
     void Renderer::CreateCommandBuffer()
     {
         TR_CORE_TRACE("Creating command buffer");
@@ -979,6 +1190,24 @@ namespace Trinity
         TR_CORE_TRACE("Synchronization objects created");
     }
 
+    void Renderer::RenderShadowPass(uint32_t imageIndex)
+    {
+        VkRenderPassBeginInfo rpInfo{};
+        rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rpInfo.renderPass = m_ShadowRenderPass;
+        rpInfo.framebuffer = m_ShadowFramebuffer;
+        rpInfo.renderArea.offset = { 0, 0 };
+        rpInfo.renderArea.extent = { m_ShadowMapSize, m_ShadowMapSize };
+
+        VkClearValue clear{};
+        clear.depthStencil = { 1.0f, 0 };
+        rpInfo.clearValueCount = 1;
+        rpInfo.pClearValues = &clear;
+
+        vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
+    }
+
     void Renderer::RecordCommandBuffer(uint32_t imageIndex)
     {
         VkCommandBufferBeginInfo l_BeginInfo{};
@@ -992,6 +1221,8 @@ namespace Trinity
 
             return;
         }
+
+        RenderShadowPass(imageIndex);
 
         VkRenderPassBeginInfo l_RenderPassInfo{};
         l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
