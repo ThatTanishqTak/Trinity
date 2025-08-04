@@ -167,7 +167,6 @@ namespace Trinity
         {
             vkDestroyDescriptorPool(m_Context->GetDevice(), m_DescriptorPool, nullptr);
             m_DescriptorPool = VK_NULL_HANDLE;
-            m_DescriptorSets.clear();
             TR_CORE_TRACE("Descriptor pool destroyed");
         }
 
@@ -188,35 +187,13 @@ namespace Trinity
         m_VertexBuffer.Destroy();
         m_IndexBuffer.Destroy();
 
-        for (auto& it_Buffer : m_UniformBuffers)
+        for (auto& frame : m_Frames)
         {
-            it_Buffer.Destroy();
+            frame.GlobalUniform.Destroy();
+            frame.LightUniform.Destroy();
+            frame.MaterialUniform.Destroy();
         }
-        m_UniformBuffers.clear();
-
-        for (auto& it_Buffer : m_LightUniformBuffers)
-        {
-            it_Buffer.Destroy();
-        }
-        m_LightUniformBuffers.clear();
-
-        for (auto& it_Buffer : m_MaterialUniformBuffers)
-        {
-            it_Buffer.Destroy();
-        }
-        m_MaterialUniformBuffers.clear();
-
-        for (auto& it_Buffer : m_LightUniformBuffers)
-        {
-            it_Buffer.Destroy();
-        }
-        m_LightUniformBuffers.clear();
-
-        for (auto& it_Buffer : m_MaterialUniformBuffers)
-        {
-            it_Buffer.Destroy();
-        }
-        m_MaterialUniformBuffers.clear();
+        m_Frames.clear();
 
         m_Texture.Destroy();
 
@@ -275,7 +252,29 @@ namespace Trinity
         vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
 
         vkResetCommandBuffer(m_CommandBuffer[l_ImageIndex], 0);
-        RecordCommandBuffer(l_ImageIndex);
+        VkCommandBufferBeginInfo l_BeginInfo{};
+        l_BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        l_BeginInfo.flags = 0;
+        l_BeginInfo.pInheritanceInfo = nullptr;
+        if (vkBeginCommandBuffer(m_CommandBuffer[l_ImageIndex], &l_BeginInfo) != VK_SUCCESS)
+        {
+            TR_CORE_ERROR("Failed to begin recording command buffer");
+
+            return;
+        }
+
+        m_RenderGraph.Clear();
+        m_RenderGraph.AddPass("Shadow", [this, l_ImageIndex]() { RenderShadowPass(l_ImageIndex); }, true);
+        m_RenderGraph.AddPass("Geometry", [this, l_ImageIndex]() { RenderMainPass(l_ImageIndex); });
+        m_RenderGraph.AddPass("Post", [this, l_ImageIndex]() { RenderPostPass(l_ImageIndex); }, true);
+        m_RenderGraph.Execute();
+
+        if (vkEndCommandBuffer(m_CommandBuffer[l_ImageIndex]) != VK_SUCCESS)
+        {
+            TR_CORE_ERROR("Failed to record command buffer");
+
+            return;
+        }
 
         VkSubmitInfo l_SubmitInfo{};
         l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -489,8 +488,8 @@ namespace Trinity
         l_AllocInfo.descriptorSetCount = static_cast<uint32_t>(l_SwapChainImages.size());
         l_AllocInfo.pSetLayouts = l_Layouts.data();
 
-        m_DescriptorSets.resize(l_SwapChainImages.size());
-        if (vkAllocateDescriptorSets(m_Context->GetDevice(), &l_AllocInfo, m_DescriptorSets.data()) != VK_SUCCESS)
+        std::vector<VkDescriptorSet> l_Sets(l_SwapChainImages.size());
+        if (vkAllocateDescriptorSets(m_Context->GetDevice(), &l_AllocInfo, l_Sets.data()) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to allocate descriptor sets");
 
@@ -499,18 +498,20 @@ namespace Trinity
 
         for (size_t i = 0; i < l_SwapChainImages.size(); ++i)
         {
+            m_Frames[i].DescriptorSet = l_Sets[i];
+
             VkDescriptorBufferInfo l_BufferInfo{};
-            l_BufferInfo.buffer = m_UniformBuffers[i].GetBuffer();
+            l_BufferInfo.buffer = m_Frames[i].GlobalUniform.GetBuffer();
             l_BufferInfo.offset = 0;
             l_BufferInfo.range = sizeof(UniformBufferObject);
 
             VkDescriptorBufferInfo l_LightBufferInfo{};
-            l_LightBufferInfo.buffer = m_LightUniformBuffers[i].GetBuffer();
+            l_LightBufferInfo.buffer = m_Frames[i].LightUniform.GetBuffer();
             l_LightBufferInfo.offset = 0;
             l_LightBufferInfo.range = sizeof(LightBufferObject);
 
             VkDescriptorBufferInfo l_MaterialBufferInfo{};
-            l_MaterialBufferInfo.buffer = m_MaterialUniformBuffers[i].GetBuffer();
+            l_MaterialBufferInfo.buffer = m_Frames[i].MaterialUniform.GetBuffer();
             l_MaterialBufferInfo.offset = 0;
             l_MaterialBufferInfo.range = sizeof(MaterialBufferObject);
 
@@ -526,7 +527,7 @@ namespace Trinity
 
             std::array<VkWriteDescriptorSet, 5> l_DescriptorWrites{};
             l_DescriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            l_DescriptorWrites[0].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[0].dstSet = m_Frames[i].DescriptorSet;
             l_DescriptorWrites[0].dstBinding = 0;
             l_DescriptorWrites[0].dstArrayElement = 0;
             l_DescriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -534,7 +535,7 @@ namespace Trinity
             l_DescriptorWrites[0].pBufferInfo = &l_BufferInfo;
 
             l_DescriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            l_DescriptorWrites[1].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[1].dstSet = m_Frames[i].DescriptorSet;
             l_DescriptorWrites[1].dstBinding = 1;
             l_DescriptorWrites[1].dstArrayElement = 0;
             l_DescriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -542,7 +543,7 @@ namespace Trinity
             l_DescriptorWrites[1].pImageInfo = &l_ImageInfo;
 
             l_DescriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            l_DescriptorWrites[2].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[2].dstSet = m_Frames[i].DescriptorSet;
             l_DescriptorWrites[2].dstBinding = 2;
             l_DescriptorWrites[2].dstArrayElement = 0;
             l_DescriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -550,7 +551,7 @@ namespace Trinity
             l_DescriptorWrites[2].pBufferInfo = &l_LightBufferInfo;
 
             l_DescriptorWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            l_DescriptorWrites[3].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[3].dstSet = m_Frames[i].DescriptorSet;
             l_DescriptorWrites[3].dstBinding = 3;
             l_DescriptorWrites[3].dstArrayElement = 0;
             l_DescriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -558,7 +559,7 @@ namespace Trinity
             l_DescriptorWrites[3].pBufferInfo = &l_MaterialBufferInfo;
 
             l_DescriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            l_DescriptorWrites[4].dstSet = m_DescriptorSets[i];
+            l_DescriptorWrites[4].dstSet = m_Frames[i].DescriptorSet;
             l_DescriptorWrites[4].dstBinding = 4;
             l_DescriptorWrites[4].dstArrayElement = 0;
             l_DescriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -956,33 +957,31 @@ namespace Trinity
 
         auto l_SwapChainImages = m_Context->GetSwapChainImages();
 
-        m_UniformBuffers.resize(l_SwapChainImages.size());
-        m_LightUniformBuffers.resize(l_SwapChainImages.size());
-        m_MaterialUniformBuffers.resize(l_SwapChainImages.size());
+        m_Frames.resize(l_SwapChainImages.size());
 
         for (size_t i = 0; i < l_SwapChainImages.size(); ++i)
         {
-            m_UniformBuffers[i] = UniformBuffer(m_Context);
-            m_LightUniformBuffers[i] = UniformBuffer(m_Context);
-            m_MaterialUniformBuffers[i] = UniformBuffer(m_Context);
+            m_Frames[i].GlobalUniform = UniformBuffer(m_Context);
+            m_Frames[i].LightUniform = UniformBuffer(m_Context);
+            m_Frames[i].MaterialUniform = UniformBuffer(m_Context);
 
-            if (!m_UniformBuffers[i].Create(l_BufferSize))
+            if (!m_Frames[i].GlobalUniform.Create(l_BufferSize))
             {
                 TR_CORE_ERROR("Failed to create uniform buffer");
             }
 
-            if (!m_LightUniformBuffers[i].Create(l_LightBufferSize))
+            if (!m_Frames[i].LightUniform.Create(l_LightBufferSize))
             {
                 TR_CORE_ERROR("Failed to create light uniform buffer");
             }
 
-            if (!m_MaterialUniformBuffers[i].Create(l_MaterialBufferSize))
+            if (!m_Frames[i].MaterialUniform.Create(l_MaterialBufferSize))
             {
                 TR_CORE_ERROR("Failed to create material uniform buffer");
             }
         }
 
-        TR_CORE_TRACE("Uniform buffers created: {}", m_UniformBuffers.size());
+        TR_CORE_TRACE("Uniform buffers created: {}", m_Frames.size());
     }
 
     void Renderer::CreateShadowResources()
@@ -1218,22 +1217,8 @@ namespace Trinity
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
     }
 
-    void Renderer::RecordCommandBuffer(uint32_t imageIndex)
+    void Renderer::RenderMainPass(uint32_t imageIndex)
     {
-        VkCommandBufferBeginInfo l_BeginInfo{};
-        l_BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        l_BeginInfo.flags = 0;
-        l_BeginInfo.pInheritanceInfo = nullptr;
-
-        if (vkBeginCommandBuffer(m_CommandBuffer[imageIndex], &l_BeginInfo) != VK_SUCCESS)
-        {
-            TR_CORE_ERROR("Failed to begin recording command buffer");
-
-            return;
-        }
-
-        RenderShadowPass(imageIndex);
-
         VkRenderPassBeginInfo l_RenderPassInfo{};
         l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         l_RenderPassInfo.renderPass = m_RenderPass;
@@ -1252,14 +1237,11 @@ namespace Trinity
         {
             vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
         }
+
         else
         {
             TR_CORE_ERROR("Graphics pipeline not created");
             vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
-            if (vkEndCommandBuffer(m_CommandBuffer[imageIndex]) != VK_SUCCESS)
-            {
-                TR_CORE_ERROR("Failed to end recording command buffer");
-            }
 
             return;
         }
@@ -1292,9 +1274,10 @@ namespace Trinity
                 
                 break;
             }
-            void* l_LightData = m_LightUniformBuffers[imageIndex].Map();
+
+            void* l_LightData = m_Frames[imageIndex].LightUniform.Map();
             std::memcpy(l_LightData, &l_Light, sizeof(l_Light));
-            m_LightUniformBuffers[imageIndex].Unmap();
+            m_Frames[imageIndex].LightUniform.Unmap();
 
             auto a_View = m_Scene->GetRegistry().view<Transform, MeshRenderer, Material>();
             for (auto it_Entity : a_View)
@@ -1314,17 +1297,17 @@ namespace Trinity
                 l_Ubo.Model = transform.GetTransform();
                 l_Ubo.Update(m_Camera);
 
-                void* l_Data = m_UniformBuffers[imageIndex].Map();
+                void* l_Data = m_Frames[imageIndex].GlobalUniform.Map();
                 std::memcpy(l_Data, &l_Ubo, sizeof(l_Ubo));
-                m_UniformBuffers[imageIndex].Unmap();
+                m_Frames[imageIndex].GlobalUniform.Unmap();
 
                 MaterialBufferObject l_Material{};
                 l_Material.Albedo = material.Albedo;
                 l_Material.Roughness = material.Roughness;
 
-                void* l_MaterialData = m_MaterialUniformBuffers[imageIndex].Map();
+                void* l_MaterialData = m_Frames[imageIndex].MaterialUniform.Map();
                 std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));
-                m_MaterialUniformBuffers[imageIndex].Unmap();
+                m_Frames[imageIndex].MaterialUniform.Unmap();
 
                 VkBuffer vertexBuffers[] = { mesh.Mesh->GetVertexBuffer().GetBuffer() };
                 VkDeviceSize offsets[] = { 0 };
@@ -1334,23 +1317,24 @@ namespace Trinity
                 if (indexCount > 0)
                 {
                     vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], mesh.Mesh->GetIndexBuffer().GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[imageIndex], 0, nullptr);
+                    vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
                     vkCmdDrawIndexed(m_CommandBuffer[imageIndex], indexCount, 1, 0, 0, 0);
                 }
+
                 else
                 {
-                    vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[imageIndex], 0, nullptr);
+                    vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
                     vkCmdDraw(m_CommandBuffer[imageIndex], mesh.Mesh->GetVertexBuffer().GetVertexCount(), 1, 0, 0);
                 }
             }
         }
 
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
+    }
 
-        if (vkEndCommandBuffer(m_CommandBuffer[imageIndex]) != VK_SUCCESS)
-        {
-            TR_CORE_ERROR("Failed to record command buffer");
-        }
+    void Renderer::RenderPostPass(uint32_t imageIndex)
+    {
+        TR_CORE_TRACE("Render post-processing pass for frame {}", imageIndex);
     }
 
     void Renderer::CleanupSwapChain()
@@ -1362,13 +1346,14 @@ namespace Trinity
             vkDestroyDescriptorPool(m_Context->GetDevice(), m_DescriptorPool, nullptr);
             m_DescriptorPool = VK_NULL_HANDLE;
         }
-        m_DescriptorSets.clear();
 
-        for (auto& it_Buffer : m_UniformBuffers)
+        for (auto& frame : m_Frames)
         {
-            it_Buffer.Destroy();
+            frame.GlobalUniform.Destroy();
+            frame.LightUniform.Destroy();
+            frame.MaterialUniform.Destroy();
         }
-        m_UniformBuffers.clear();
+        m_Frames.clear();
 
         for (auto it_Framebuffer : m_Framebuffers)
         {
@@ -1419,6 +1404,7 @@ namespace Trinity
             {
                 vkDestroySemaphore(m_Context->GetDevice(), m_ImageAvailableSemaphore[i], nullptr);
             }
+
             if (m_RenderFinshedSemaphore[i])
             {
                 vkDestroySemaphore(m_Context->GetDevice(), m_RenderFinshedSemaphore[i], nullptr);

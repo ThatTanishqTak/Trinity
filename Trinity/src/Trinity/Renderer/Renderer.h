@@ -8,6 +8,7 @@
 #include "Trinity/Renderer/UniformBuffer.h"
 #include "Trinity/Renderer/Texture.h"
 #include "Trinity/Renderer/Shader.h"
+#include "Trinity/Renderer/RenderGraph.h"
 
 #include "Trinity/Camera/Camera.h"
 
@@ -52,7 +53,8 @@ namespace Trinity
         void CreateShadowResources();
         void CreateCommandBuffer();
         void CreateSyncObjects();
-        void RecordCommandBuffer(uint32_t imageIndex);
+        void RenderMainPass(uint32_t imageIndex);
+        void RenderPostPass(uint32_t imageIndex);
         void RenderShadowPass(uint32_t imageIndex);
         void CleanupSwapChain();
         void RecreateSwapChain();
@@ -70,7 +72,6 @@ namespace Trinity
         VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
         VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
-        std::vector<VkDescriptorSet> m_DescriptorSets{};
         std::vector<VkFramebuffer> m_Framebuffers{};
         std::vector<VkImage> m_DepthImages{};
         std::vector<VkDeviceMemory> m_DepthImageMemory{};
@@ -84,9 +85,14 @@ namespace Trinity
 
         VertexBuffer m_VertexBuffer{};
         IndexBuffer m_IndexBuffer{};
-        std::vector<UniformBuffer> m_UniformBuffers{};
-        std::vector<UniformBuffer> m_LightUniformBuffers{};
-        std::vector<UniformBuffer> m_MaterialUniformBuffers{};
+        struct FrameData
+        {
+            UniformBuffer GlobalUniform;
+            UniformBuffer LightUniform;
+            UniformBuffer MaterialUniform;
+            VkDescriptorSet DescriptorSet = VK_NULL_HANDLE;
+        };
+        std::vector<FrameData> m_Frames{};
         Texture m_Texture;
 
         VkRenderPass m_ShadowRenderPass = VK_NULL_HANDLE;
@@ -104,5 +110,6 @@ namespace Trinity
         VkPrimitiveTopology m_PrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
         Shader m_Shader;
+        RenderGraph m_RenderGraph;
     };
 }
