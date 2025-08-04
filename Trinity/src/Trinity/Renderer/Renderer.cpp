@@ -904,9 +904,9 @@ namespace Trinity
         TR_CORE_TRACE("Loading texture");
 
         m_Texture = Texture(m_Context);
-        if (!m_Texture.LoadFromFile("Assets/Textures/Checkers.png", 0, 0))
+        if (auto a_Error = m_Texture.LoadFromFile("Assets/Textures/Checkers.png", 0, 0))
         {
-            TR_CORE_ERROR("Failed to load texture image");
+            TR_CORE_ERROR("{}", *a_Error);
         }
 
         TR_CORE_TRACE("Texture loaded");
@@ -924,9 +924,9 @@ namespace Trinity
         };
 
         m_VertexBuffer = VertexBuffer(m_Context);
-        if (!m_VertexBuffer.Create(l_Vertices))
+        if (auto a_Error = m_VertexBuffer.Create(l_Vertices))
         {
-            TR_CORE_ERROR("Failed to create vertex buffer");
+            TR_CORE_ERROR("{}", *a_Error);
         }
 
         TR_CORE_TRACE("Vertex buffer created");
@@ -939,9 +939,9 @@ namespace Trinity
         std::vector<uint32_t> l_Indices = { 0, 1, 2 };
 
         m_IndexBuffer = IndexBuffer(m_Context);
-        if (!m_IndexBuffer.Create(l_Indices))
+        if (auto a_Error = m_IndexBuffer.Create(l_Indices))
         {
-            TR_CORE_ERROR("Failed to create index buffer");
+            TR_CORE_ERROR("{}", *a_Error);
         }
 
         TR_CORE_TRACE("Index buffer created");
@@ -965,19 +965,19 @@ namespace Trinity
             m_Frames[i].LightUniform = UniformBuffer(m_Context);
             m_Frames[i].MaterialUniform = UniformBuffer(m_Context);
 
-            if (!m_Frames[i].GlobalUniform.Create(l_BufferSize))
+            if (auto a_Error = m_Frames[i].GlobalUniform.Create(l_BufferSize))
             {
-                TR_CORE_ERROR("Failed to create uniform buffer");
+                TR_CORE_ERROR("{}", *a_Error);
             }
 
-            if (!m_Frames[i].LightUniform.Create(l_LightBufferSize))
+            if (auto a_Error = m_Frames[i].LightUniform.Create(l_LightBufferSize))
             {
-                TR_CORE_ERROR("Failed to create light uniform buffer");
+                TR_CORE_ERROR("{}", *a_Error);
             }
 
-            if (!m_Frames[i].MaterialUniform.Create(l_MaterialBufferSize))
+            if (auto a_Error = m_Frames[i].MaterialUniform.Create(l_MaterialBufferSize))
             {
-                TR_CORE_ERROR("Failed to create material uniform buffer");
+                TR_CORE_ERROR("{}", *a_Error);
             }
         }
 

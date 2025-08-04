@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <vulkan/vulkan.h>
 
 namespace Trinity
@@ -11,9 +13,14 @@ namespace Trinity
     public:
         StagingBuffer() = default;
         StagingBuffer(VulkanContext* context);
-        ~StagingBuffer() = default;
+        ~StagingBuffer();
 
-        bool Create(VkDeviceSize size);
+        StagingBuffer(const StagingBuffer&) = delete;
+        StagingBuffer& operator=(const StagingBuffer&) = delete;
+        StagingBuffer(StagingBuffer&& other) noexcept;
+        StagingBuffer& operator=(StagingBuffer&& other) noexcept;
+
+        std::optional<std::string> Create(VkDeviceSize size);
         void Destroy();
 
         void* Map();

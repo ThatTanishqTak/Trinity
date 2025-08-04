@@ -13,6 +13,37 @@ namespace Trinity
 
     }
 
+    Material::~Material()
+    {
+        Destroy();
+    }
+
+    Material::Material(Material&& other) noexcept : m_Context(other.m_Context), m_DescriptorSet(other.m_DescriptorSet), m_DescriptorPool(other.m_DescriptorPool),
+        m_Textures(std::move(other.m_Textures)), m_Samplers(std::move(other.m_Samplers)), m_Constants(std::move(other.m_Constants))
+    {
+        other.m_DescriptorSet = VK_NULL_HANDLE;
+        other.m_DescriptorPool = VK_NULL_HANDLE;
+    }
+
+    Material& Material::operator=(Material&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Destroy();
+        
+            m_Context = other.m_Context;
+            m_DescriptorSet = other.m_DescriptorSet;
+            m_DescriptorPool = other.m_DescriptorPool;
+            m_Textures = std::move(other.m_Textures);
+            m_Samplers = std::move(other.m_Samplers);
+            m_Constants = std::move(other.m_Constants);
+            other.m_DescriptorSet = VK_NULL_HANDLE;
+            other.m_DescriptorPool = VK_NULL_HANDLE;
+        }
+        
+        return *this;
+    }
+
     void Material::SetTexture(uint32_t binding, const Texture* texture)
     {
         m_Textures[binding] = texture;
@@ -29,7 +60,7 @@ namespace Trinity
         m_Constants.assign(l_Data, l_Data + size);
     }
 
-    bool Material::Build(VkDescriptorSetLayout layout, VkDescriptorPool pool)
+    std::optional<std::string> Material::Build(VkDescriptorSetLayout layout, VkDescriptorPool pool)
     {
         VkDescriptorSetAllocateInfo l_AllocInfo{};
         l_AllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -41,8 +72,10 @@ namespace Trinity
         {
             TR_CORE_ERROR("Failed to allocate material descriptor set");
 
-            return false;
+            return std::string("Failed to allocate material descriptor set");
         }
+
+        m_DescriptorPool = pool;
 
         std::vector<VkWriteDescriptorSet> l_Writes;
         std::vector<VkDescriptorImageInfo> l_ImageInfos;
@@ -75,6 +108,16 @@ namespace Trinity
             vkUpdateDescriptorSets(m_Context->GetDevice(), static_cast<uint32_t>(l_Writes.size()), l_Writes.data(), 0, nullptr);
         }
 
-        return true;
+        return std::nullopt;
+    }
+
+    void Material::Destroy()
+    {
+        if (m_DescriptorSet != VK_NULL_HANDLE && m_DescriptorPool != VK_NULL_HANDLE)
+        {
+            vkFreeDescriptorSets(m_Context->GetDevice(), m_DescriptorPool, 1, &m_DescriptorSet);
+            m_DescriptorSet = VK_NULL_HANDLE;
+            m_DescriptorPool = VK_NULL_HANDLE;
+        }
     }
 }

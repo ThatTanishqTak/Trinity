@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <filesystem>
 #include <vulkan/vulkan.h>
 
@@ -14,7 +15,12 @@ namespace Trinity
         Texture(VulkanContext* context);
         ~Texture();
 
-        bool LoadFromFile(const std::filesystem::path& path, int width, int height);
+        Texture(const Texture&) = delete;
+        Texture& operator=(const Texture&) = delete;
+        Texture(Texture&& other) noexcept;
+        Texture& operator=(Texture&& other) noexcept;
+
+        std::optional<std::string> LoadFromFile(const std::filesystem::path& path, int width, int height);
         void Destroy();
 
         VkImageView GetImageView() const { return m_ImageView; }

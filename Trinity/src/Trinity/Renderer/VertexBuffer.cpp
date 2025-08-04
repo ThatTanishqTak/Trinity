@@ -12,6 +12,37 @@ namespace Trinity
 
     }
 
+    VertexBuffer::~VertexBuffer()
+    {
+        Destroy();
+    }
+
+    VertexBuffer::VertexBuffer(VertexBuffer&& other) noexcept : m_Context(other.m_Context), m_Buffer(other.m_Buffer), m_BufferMemory(other.m_BufferMemory), 
+        m_VertexCount(other.m_VertexCount)
+    {
+        other.m_Buffer = VK_NULL_HANDLE;
+        other.m_BufferMemory = VK_NULL_HANDLE;
+        other.m_VertexCount = 0;
+    }
+
+    VertexBuffer& VertexBuffer::operator=(VertexBuffer&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Destroy();
+        
+            m_Context = other.m_Context;
+            m_Buffer = other.m_Buffer;
+            m_BufferMemory = other.m_BufferMemory;
+            m_VertexCount = other.m_VertexCount;
+            other.m_Buffer = VK_NULL_HANDLE;
+            other.m_BufferMemory = VK_NULL_HANDLE;
+            other.m_VertexCount = 0;
+        }
+
+        return *this;
+    }
+
     VkVertexInputBindingDescription Vertex::GetBindingDescription()
     {
         VkVertexInputBindingDescription l_Binding{};
@@ -45,7 +76,7 @@ namespace Trinity
     }
 
 
-    bool VertexBuffer::Create(const std::vector<Vertex>& vertices)
+    std::optional<std::string> VertexBuffer::Create(const std::vector<Vertex>& vertices)
     {
         m_VertexCount = static_cast<uint32_t>(vertices.size());
         VkDeviceSize l_BufferSize = sizeof(Vertex) * vertices.size();
@@ -55,9 +86,9 @@ namespace Trinity
 
         TR_CORE_TRACE("Creating staging buffer");
 
-        if (!l_Staging.Create(l_BufferSize))
+        if (auto a_Error = l_Staging.Create(l_BufferSize))
         {
-            return false;
+            return a_Error;
         }
 
         TR_CORE_TRACE("Staging buffer created");
@@ -78,7 +109,7 @@ namespace Trinity
 
             l_Staging.Destroy();
             
-            return false;
+            return std::string("Failed to create vertex buffer");
         }
 
         VkMemoryRequirements l_MemoryRequirements;
@@ -92,10 +123,9 @@ namespace Trinity
         if (vkAllocateMemory(m_Context->GetDevice(), &l_AllocateInfo, nullptr, &m_BufferMemory) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to allocate vertex buffer memory");
-
             l_Staging.Destroy();
-            
-            return false;
+
+            return std::string("Failed to allocate vertex buffer memory");
         }
 
         vkBindBufferMemory(m_Context->GetDevice(), m_Buffer, m_BufferMemory, 0);
@@ -144,7 +174,7 @@ namespace Trinity
 
         l_Staging.Destroy();
 
-        return true;
+        return std::nullopt;
     }
 
     void VertexBuffer::Destroy()

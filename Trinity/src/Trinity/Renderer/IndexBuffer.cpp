@@ -12,7 +12,38 @@ namespace Trinity
 
     }
 
-    bool IndexBuffer::Create(const std::vector<uint32_t>& indices)
+    IndexBuffer::~IndexBuffer()
+    {
+        Destroy();
+    }
+
+    IndexBuffer::IndexBuffer(IndexBuffer&& other) noexcept : m_Context(other.m_Context), m_Buffer(other.m_Buffer), 
+        m_BufferMemory(other.m_BufferMemory), m_IndexCount(other.m_IndexCount)
+    {
+        other.m_Buffer = VK_NULL_HANDLE;
+        other.m_BufferMemory = VK_NULL_HANDLE;
+        other.m_IndexCount = 0;
+    }
+
+    IndexBuffer& IndexBuffer::operator=(IndexBuffer&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Destroy();
+        
+            m_Context = other.m_Context;
+            m_Buffer = other.m_Buffer;
+            m_BufferMemory = other.m_BufferMemory;
+            m_IndexCount = other.m_IndexCount;
+            other.m_Buffer = VK_NULL_HANDLE;
+            other.m_BufferMemory = VK_NULL_HANDLE;
+            other.m_IndexCount = 0;
+        }
+
+        return *this;
+    }
+
+    std::optional<std::string> IndexBuffer::Create(const std::vector<uint32_t>& indices)
     {
         m_IndexCount = static_cast<uint32_t>(indices.size());
         VkDeviceSize l_BufferSize = sizeof(uint32_t) * indices.size();
@@ -21,9 +52,9 @@ namespace Trinity
 
         TR_CORE_TRACE("Creating staging buffer for indices");
 
-        if (!l_Staging.Create(l_BufferSize))
+        if (auto l_Error = l_Staging.Create(l_BufferSize))
         {
-            return false;
+            return l_Error;
         }
 
         TR_CORE_TRACE("Index staging buffer created");
@@ -41,10 +72,8 @@ namespace Trinity
         if (vkCreateBuffer(m_Context->GetDevice(), &l_BufferInfo, nullptr, &m_Buffer) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to create index buffer");
-
             l_Staging.Destroy();
-
-            return false;
+            return std::string("Failed to create index buffer");
         }
 
         VkMemoryRequirements l_MemoryRequirements;
@@ -58,10 +87,8 @@ namespace Trinity
         if (vkAllocateMemory(m_Context->GetDevice(), &l_AllocateInfo, nullptr, &m_BufferMemory) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to allocate index buffer memory");
-
             l_Staging.Destroy();
-
-            return false;
+            return std::string("Failed to allocate index buffer memory");
         }
 
         vkBindBufferMemory(m_Context->GetDevice(), m_Buffer, m_BufferMemory, 0);
@@ -109,7 +136,7 @@ namespace Trinity
 
         l_Staging.Destroy();
 
-        return true;
+        return std::nullopt;
     }
 
     void IndexBuffer::Destroy()

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <vector>
+#include <optional>
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
@@ -24,9 +25,14 @@ namespace Trinity
     public:
         VertexBuffer() = default;
         VertexBuffer(VulkanContext* context);
-        ~VertexBuffer() = default;
+        ~VertexBuffer();
 
-        bool Create(const std::vector<Vertex>& vertices);
+        VertexBuffer(const VertexBuffer&) = delete;
+        VertexBuffer& operator=(const VertexBuffer&) = delete;
+        VertexBuffer(VertexBuffer&& other) noexcept;
+        VertexBuffer& operator=(VertexBuffer&& other) noexcept;
+
+        std::optional<std::string> Create(const std::vector<Vertex>& vertices);
         void Destroy();
 
         VkBuffer GetBuffer() const { return m_Buffer; }

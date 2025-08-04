@@ -1,6 +1,8 @@
 #pragma once
 
+#include <optional>
 #include <vector>
+
 #include <vulkan/vulkan.h>
 
 namespace Trinity
@@ -12,9 +14,14 @@ namespace Trinity
     public:
         IndexBuffer() = default;
         IndexBuffer(VulkanContext* context);
-        ~IndexBuffer() = default;
+        ~IndexBuffer();
 
-        bool Create(const std::vector<uint32_t>& indices);
+        IndexBuffer(const IndexBuffer&) = delete;
+        IndexBuffer& operator=(const IndexBuffer&) = delete;
+        IndexBuffer(IndexBuffer&& other) noexcept;
+        IndexBuffer& operator=(IndexBuffer&& other) noexcept;
+
+        std::optional<std::string> Create(const std::vector<uint32_t>& indices);
         void Destroy();
 
         VkBuffer GetBuffer() const { return m_Buffer; }

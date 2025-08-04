@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <vulkan/vulkan.h>
 #include <glm/glm.hpp>
 
@@ -53,9 +55,14 @@ namespace Trinity
     public:
         UniformBuffer() = default;
         UniformBuffer(VulkanContext* context);
-        ~UniformBuffer() = default;
+        ~UniformBuffer();
 
-        bool Create(VkDeviceSize size);
+        UniformBuffer(const UniformBuffer&) = delete;
+        UniformBuffer& operator=(const UniformBuffer&) = delete;
+        UniformBuffer(UniformBuffer&& other) noexcept;
+        UniformBuffer& operator=(UniformBuffer&& other) noexcept;
+
+        std::optional<std::string> Create(VkDeviceSize size);
         void Destroy();
 
         void* Map();

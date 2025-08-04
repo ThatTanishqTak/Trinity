@@ -16,7 +16,7 @@ namespace Trinity
         explicit Mesh(VulkanContext* context);
         ~Mesh();
 
-        bool Create(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+        std::optional<std::string> Create(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
         void Destroy();
 
         VertexBuffer& GetVertexBuffer() { return m_VertexBuffer; }

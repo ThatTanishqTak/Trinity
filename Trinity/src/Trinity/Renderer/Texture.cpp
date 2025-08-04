@@ -12,27 +12,56 @@ namespace Trinity
 
     }
 
+    Texture::Texture(Texture&& other) noexcept : m_Context(other.m_Context), m_Image(other.m_Image), m_ImageMemory(other.m_ImageMemory),
+        m_ImageView(other.m_ImageView), m_Sampler(other.m_Sampler)
+    {
+        other.m_Image = VK_NULL_HANDLE;
+        other.m_ImageMemory = VK_NULL_HANDLE;
+        other.m_ImageView = VK_NULL_HANDLE;
+        other.m_Sampler = VK_NULL_HANDLE;
+    }
+
+    Texture& Texture::operator=(Texture&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Destroy();
+        
+            m_Context = other.m_Context;
+            m_Image = other.m_Image;
+            m_ImageMemory = other.m_ImageMemory;
+            m_ImageView = other.m_ImageView;
+            m_Sampler = other.m_Sampler;
+            other.m_Image = VK_NULL_HANDLE;
+            other.m_ImageMemory = VK_NULL_HANDLE;
+            other.m_ImageView = VK_NULL_HANDLE;
+            other.m_Sampler = VK_NULL_HANDLE;
+        }
+
+        return *this;
+    }
+
     Texture::~Texture()
     {
         Destroy();
     }
 
-    bool Texture::LoadFromFile(const std::filesystem::path& path, int width, int height)
+    std::optional<std::string> Texture::LoadFromFile(const std::filesystem::path& path, int width, int height)
     {
         std::vector<std::byte> l_Pixels = Utilities::FileManagement::LoadTexture(path, width, height);
         if (l_Pixels.empty())
         {
             TR_CORE_ERROR("Failed to load texture: {}", path.string());
 
-            return false;
+            return std::string("Failed to load texture: ") + path.string();
         }
 
         VkDeviceSize l_ImageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
 
         StagingBuffer l_Staging(m_Context);
-        if (!l_Staging.Create(l_ImageSize))
+        if (auto a_Error = l_Staging.Create(l_ImageSize))
         {
-            return false;
+            return a_Error;
         }
 
         void* l_Data = l_Staging.Map();
@@ -59,7 +88,7 @@ namespace Trinity
             TR_CORE_ERROR("Failed to create texture image");
             l_Staging.Destroy();
 
-            return false;
+            return std::string("Failed to create texture image");
         }
 
         VkMemoryRequirements l_MemoryRequirements{};
@@ -78,7 +107,7 @@ namespace Trinity
             m_Image = VK_NULL_HANDLE;
             l_Staging.Destroy();
 
-            return false;
+            return std::string("Failed to allocate texture memory");
         }
 
         vkBindImageMemory(m_Context->GetDevice(), m_Image, m_ImageMemory, 0);
@@ -174,7 +203,7 @@ namespace Trinity
         {
             TR_CORE_ERROR("Failed to create texture image view");
 
-            return false;
+            return std::string("Failed to create texture image view");
         }
 
         VkSamplerCreateInfo l_SamplerInfo{};
@@ -196,10 +225,10 @@ namespace Trinity
         {
             TR_CORE_ERROR("Failed to create texture sampler");
 
-            return false;
+            return std::string("Failed to create texture sampler");
         }
 
-        return true;
+        return std::nullopt;
     }
 
     void Texture::Destroy()

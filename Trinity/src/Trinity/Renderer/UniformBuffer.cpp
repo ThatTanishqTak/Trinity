@@ -8,9 +8,44 @@ namespace Trinity
 {
     UniformBuffer::UniformBuffer(VulkanContext* context) : m_Context(context)
     {
+
     }
 
-    bool UniformBuffer::Create(VkDeviceSize size)
+    UniformBuffer::~UniformBuffer()
+    {
+        Destroy();
+    }
+
+    UniformBuffer::UniformBuffer(UniformBuffer&& other) noexcept : m_Context(other.m_Context), m_Buffer(other.m_Buffer), m_BufferMemory(other.m_BufferMemory), 
+        m_Size(other.m_Size), m_Mapped(other.m_Mapped)
+    {
+        other.m_Buffer = VK_NULL_HANDLE;
+        other.m_BufferMemory = VK_NULL_HANDLE;
+        other.m_Size = 0;
+        other.m_Mapped = nullptr;
+    }
+
+    UniformBuffer& UniformBuffer::operator=(UniformBuffer&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Destroy();
+        
+            m_Context = other.m_Context;
+            m_Buffer = other.m_Buffer;
+            m_BufferMemory = other.m_BufferMemory;
+            m_Size = other.m_Size;
+            m_Mapped = other.m_Mapped;
+            other.m_Buffer = VK_NULL_HANDLE;
+            other.m_BufferMemory = VK_NULL_HANDLE;
+            other.m_Size = 0;
+            other.m_Mapped = nullptr;
+        }
+
+        return *this;
+    }
+
+    std::optional<std::string> UniformBuffer::Create(VkDeviceSize size)
     {
         m_Size = size;
 
@@ -24,7 +59,7 @@ namespace Trinity
         {
             TR_CORE_ERROR("Failed to create uniform buffer");
 
-            return false;
+            return std::string("Failed to create uniform buffer");
         }
 
         VkMemoryRequirements l_MemoryRequirements;
@@ -39,12 +74,12 @@ namespace Trinity
         {
             TR_CORE_ERROR("Failed to allocate uniform buffer memory");
 
-            return false;
+            return std::string("Failed to allocate uniform buffer memory");
         }
 
         vkBindBufferMemory(m_Context->GetDevice(), m_Buffer, m_BufferMemory, 0);
 
-        return true;
+        return std::nullopt;
     }
 
     void UniformBuffer::Destroy()

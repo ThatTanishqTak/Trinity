@@ -25,7 +25,12 @@ namespace Trinity
         }
 
         auto a_Texture = std::make_shared<Texture>(m_Context);
-        a_Texture->LoadFromFile(path, 0, 0);
+        if (auto a_Error = a_Texture->LoadFromFile(path, 0, 0))
+        {
+            TR_CORE_ERROR("{}", *a_Error);
+            
+            return nullptr;
+        }
         m_TextureCache[path] = a_Texture;
 
         return a_Texture;
@@ -59,20 +64,20 @@ namespace Trinity
 
             for (unsigned i = 0; i < l_MeshData->mNumVertices; ++i)
             {
-                Vertex l_Vertex{};
-                l_Vertex.Position = { l_MeshData->mVertices[i].x, l_MeshData->mVertices[i].y, l_MeshData->mVertices[i].z };
-                l_Vertex.Color = { 1.0f, 1.0f, 1.0f };
+                Vertex it_Vertex{};
+                it_Vertex.Position = { l_MeshData->mVertices[i].x, l_MeshData->mVertices[i].y, l_MeshData->mVertices[i].z };
+                it_Vertex.Color = { 1.0f, 1.0f, 1.0f };
                 if (l_MeshData->mTextureCoords[0])
                 {
-                    l_Vertex.TexCoord = { l_MeshData->mTextureCoords[0][i].x, l_MeshData->mTextureCoords[0][i].y };
+                    it_Vertex.TexCoord = { l_MeshData->mTextureCoords[0][i].x, l_MeshData->mTextureCoords[0][i].y };
                 }
                 
                 else
                 {
-                    l_Vertex.TexCoord = { 0.0f, 0.0f };
+                    it_Vertex.TexCoord = { 0.0f, 0.0f };
                 }
 
-                l_Vertices.push_back(l_Vertex);
+                l_Vertices.push_back(it_Vertex);
             }
 
             for (unsigned i = 0; i < l_MeshData->mNumFaces; ++i)
@@ -86,8 +91,10 @@ namespace Trinity
         }
 
         auto a_Mesh = std::make_shared<Mesh>(m_Context);
-        if (!a_Mesh->Create(l_Vertices, l_Indices))
+        if (auto a_Error = a_Mesh->Create(l_Vertices, l_Indices))
         {
+            TR_CORE_ERROR("{}", *a_Error);
+            
             return nullptr;
         }
         m_MeshCache[path] = a_Mesh;
