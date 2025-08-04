@@ -7,6 +7,7 @@
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/ECS/Components.h"
 #include "Trinity/Core/ResourceManager.h"
+#include "Trinity/Camera/Culling.h"
 
 namespace Trinity
 {
@@ -260,7 +261,16 @@ namespace Trinity
 
         m_ImagesInFlight[l_ImageIndex] = m_InFlightFence[m_CurrentFrame];
 
-        m_Camera.SetProjection(45.0f, static_cast<float>(m_Context->GetSwapChainExtent().width) / static_cast<float>(m_Context->GetSwapChainExtent().height), 0.1f, 100.0f);
+        float l_AspectRatio = static_cast<float>(m_Context->GetSwapChainExtent().width) / static_cast<float>(m_Context->GetSwapChainExtent().height);
+        if (m_Camera.GetProjectionType() == Camera::ProjectionType::Perspective)
+        {
+            m_Camera.SetPerspective(m_Camera.GetFov(), l_AspectRatio, m_Camera.GetNear(), m_Camera.GetFar());
+        }
+
+        else
+        {
+            m_Camera.SetOrthographic(m_Camera.GetOrthoSize(), l_AspectRatio, m_Camera.GetNear(), m_Camera.GetFar());
+        }
 
         vkResetFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame]);
 
@@ -1270,6 +1280,8 @@ namespace Trinity
 
         if (m_Scene)
         {
+            Culling::Frustum l_Frustum = Culling::CreateFrustum(m_Camera.GetProjectionMatrix() * m_Camera.GetViewMatrix());
+
             LightBufferObject l_Light{};
             auto a_LightView = m_Scene->GetRegistry().view<Light>();
             for (auto it_Entity : a_LightView)
@@ -1290,6 +1302,13 @@ namespace Trinity
                 auto& transform = a_View.get<Transform>(it_Entity);
                 auto& mesh = a_View.get<MeshRenderer>(it_Entity);
                 auto& material = a_View.get<Material>(it_Entity);
+
+                float l_Scale = std::max({ transform.Scale.x, transform.Scale.y, transform.Scale.z });
+                float l_Radius = mesh.Mesh->GetBoundingRadius() * l_Scale;
+                if (!Culling::IsVisible(l_Frustum, transform.Translation, l_Radius))
+                {
+                    continue;
+                }
 
                 UniformBufferObject l_Ubo{};
                 l_Ubo.Model = transform.GetTransform();

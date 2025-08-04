@@ -21,10 +21,12 @@ namespace Trinity
 
         VertexBuffer& GetVertexBuffer() { return m_VertexBuffer; }
         IndexBuffer& GetIndexBuffer() { return m_IndexBuffer; }
+        float GetBoundingRadius() const { return m_BoundingRadius; }
 
     private:
         VulkanContext* m_Context = nullptr;
         VertexBuffer m_VertexBuffer{};
         IndexBuffer m_IndexBuffer{};
+        float m_BoundingRadius = 0.0f;
     };
 }
