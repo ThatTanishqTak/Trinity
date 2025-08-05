@@ -48,6 +48,9 @@ namespace Trinity
         vkDeviceWaitIdle(m_Context->GetDevice());
         TR_CORE_TRACE("Renderer is ready to be shutdown");
 
+        m_Shader.Destroy();
+        m_GraphicsPipeline = VK_NULL_HANDLE;
+
         for (auto& it_Fence : m_InFlightFence)
         {
             if (it_Fence)
@@ -149,13 +152,6 @@ namespace Trinity
             m_ShadowRenderPass = VK_NULL_HANDLE;
         }
 
-        if (m_GraphicsPipeline)
-        {
-            vkDestroyPipeline(m_Context->GetDevice(), m_GraphicsPipeline, nullptr);
-            m_GraphicsPipeline = VK_NULL_HANDLE;
-            TR_CORE_TRACE("Graphics pipeline destroyed");
-        }
-
         if (m_PipelineLayout)
         {
             vkDestroyPipelineLayout(m_Context->GetDevice(), m_PipelineLayout, nullptr);
@@ -205,11 +201,7 @@ namespace Trinity
         if (m_Shader.Update())
         {
             vkDeviceWaitIdle(m_Context->GetDevice());
-            if (m_GraphicsPipeline)
-            {
-                vkDestroyPipeline(m_Context->GetDevice(), m_GraphicsPipeline, nullptr);
-                m_GraphicsPipeline = VK_NULL_HANDLE;
-            }
+            m_GraphicsPipeline = VK_NULL_HANDLE;
             CreateGraphicsPipeline(m_PrimitiveTopology);
         }
 
@@ -1415,11 +1407,8 @@ namespace Trinity
         m_RenderFinshedSemaphore.clear();
         m_ImagesInFlight.clear();
 
-        if (m_GraphicsPipeline)
-        {
-            vkDestroyPipeline(m_Context->GetDevice(), m_GraphicsPipeline, nullptr);
-            m_GraphicsPipeline = VK_NULL_HANDLE;
-        }
+        m_Shader.Destroy();
+        m_GraphicsPipeline = VK_NULL_HANDLE;
 
         if (m_PipelineLayout)
         {
