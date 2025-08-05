@@ -9,7 +9,7 @@ add_definitions(-DGLFW_INCLUDE_VULKAN)
 # filewatch
 add_library(filewatch INTERFACE)
 target_include_directories(filewatch INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/filewatch/filewatch>    
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/filewatch>    
 )
 
 # spdlog
@@ -122,6 +122,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     assimp
     Vulkan
     shaderc
+    filewatch
 )
 
 # Enable runtime shader compilation when requested

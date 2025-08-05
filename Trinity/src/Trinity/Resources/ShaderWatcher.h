@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "filewatch/FileWatch.hpp"
+#include "FileWatch.hpp"
 
 namespace Trinity
 {
@@ -20,7 +20,6 @@ namespace Trinity
 			static void Shutdown();
 			static void Watch(Shader* shader, const std::filesystem::path& path);
 
-		private:
 			struct DirectoryWatch
 			{
 				std::unique_ptr<filewatch::FileWatch<std::string>> Watcher;

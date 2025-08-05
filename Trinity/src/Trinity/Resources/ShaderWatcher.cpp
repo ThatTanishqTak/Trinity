@@ -3,6 +3,8 @@
 #include "Trinity/Resources/ShaderWatcher.h"
 #include "Trinity/Renderer/Shader.h"
 
+#include "Trinity/Utilities/Utilities.h"
+
 #include <algorithm>
 
 namespace Trinity
