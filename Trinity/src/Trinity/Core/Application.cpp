@@ -3,6 +3,7 @@
 #include "Trinity/trpch.h"
 
 #include "Trinity/Core/Input.h"
+#include "Trinity/Resources/ShaderWatcher.h"
 
 namespace Trinity
 {
@@ -43,6 +44,8 @@ namespace Trinity
 		auto& l_Mesh = l_Entity.AddComponent<MeshRenderer>();
 		l_Mesh.Mesh = m_ResourceManager->Load<Mesh>("Assets/Textures/Checkers.png");
 		l_Mesh.MeshTexture = m_ResourceManager->Load<Texture>("Assets/Textures/Checkers.png");
+
+		Resources::ShaderWatcher::Start();
 
 		TR_CORE_INFO("-------APPLICATION INITIALIZED-------");
 	}

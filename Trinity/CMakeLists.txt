@@ -6,6 +6,12 @@ project(Trinity LANGUAGES CXX)
 add_definitions(-DGLFW_INCLUDE_VULKAN)
 
 # Third-Party libraries
+# filewatch
+add_library(filewatch INTERFACE)
+target_include_directories(filewatch INTERFACE
+    $<VUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/filewatch>    
+)
+
 # spdlog
 add_library(spdlog INTERFACE)
 target_include_directories(spdlog INTERFACE
@@ -33,16 +39,16 @@ target_link_libraries(glfw INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/glfw/lib/glfw3.lib
 )
 
-# nlohmann
-add_library(nlohmann INTERFACE)
-target_include_directories(nlohmann INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/nlohmann/include>    
-)
-
 # glm
 add_library(glm INTERFACE)
 target_include_directories(glm INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/glm>    
+)
+
+# nlohmann
+add_library(nlohmann INTERFACE)
+target_include_directories(nlohmann INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/nlohmann/include>    
 )
 
 # assimp

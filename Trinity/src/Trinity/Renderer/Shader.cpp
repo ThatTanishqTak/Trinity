@@ -5,6 +5,7 @@
 #include "Trinity/Vulkan/VulkanContext.h"
 #include "Trinity/Renderer/ShaderCompiler.h"
 #include "Trinity/Renderer/ShaderCache.h"
+#include "Trinity/Resources/ShaderWatcher.h"
 
 #include <functional>
 #include <string_view>
@@ -49,6 +50,8 @@ namespace Trinity
         }
 
         m_Stages.push_back(std::move(l_Stage));
+
+        Resources::ShaderWatcher::Watch(this, path.parent_path());
 
         TR_CORE_TRACE("Shader loaded: {}", path.string());
 
