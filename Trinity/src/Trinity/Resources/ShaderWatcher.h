@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "FileWatch.hpp"
+#include "filewatch/FileWatch.hpp"
 
 namespace Trinity
 {
