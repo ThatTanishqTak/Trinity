@@ -4,22 +4,22 @@
 
 namespace Trinity
 {
-    void Camera::SetPerspective(float fov, float aspectRatio, float near, float far)
+    void Camera::SetPerspective(float fov, float aspectRatio, float nearClip, float farClip)
     {
         m_ProjectionType = ProjectionType::Perspective;
         m_Fov = fov;
         m_AspectRatio = aspectRatio;
-        m_Near = near;
-        m_Far = far;
+        m_Near = nearClip;
+        m_Far = farClip;
     }
 
-    void Camera::SetOrthographic(float size, float aspectRatio, float near, float far)
+    void Camera::SetOrthographic(float size, float aspectRatio, float nearClip, float farClip)
     {
         m_ProjectionType = ProjectionType::Orthographic;
         m_Size = size;
         m_AspectRatio = aspectRatio;
-        m_Near = near;
-        m_Far = far;
+        m_Near = nearClip;
+        m_Far = farClip;
     }
 
     glm::mat4 Camera::GetViewMatrix() const

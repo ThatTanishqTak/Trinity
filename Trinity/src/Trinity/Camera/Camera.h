@@ -3,9 +3,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#undef near
-#undef far
-
 namespace Trinity
 {
     class Camera
@@ -23,8 +20,8 @@ namespace Trinity
         void SetPosition(const glm::vec3& position) { m_Position = position; }
         void SetRotation(const glm::vec3& rotation) { m_Rotation = rotation; }
 
-        void SetPerspective(float fov, float aspectRatio, float near, float far);
-        void SetOrthographic(float size, float aspectRatio, float near, float far);
+        void SetPerspective(float fov, float aspectRatio, float nearClip, float farClip);
+        void SetOrthographic(float size, float aspectRatio, float nearClip, float farClip);
 
         ProjectionType GetProjectionType() const { return m_ProjectionType; }
         float GetFov() const { return m_Fov; }
@@ -45,7 +42,7 @@ namespace Trinity
         float m_AspectRatio = 1.0f;
         float m_Near = 0.1f;
         float m_Far = 100.0f;
-        
+
         ProjectionType m_ProjectionType = ProjectionType::Perspective;
     };
 }

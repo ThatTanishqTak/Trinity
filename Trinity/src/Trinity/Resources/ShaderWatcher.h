@@ -5,6 +5,10 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef _WIN32
+#include <objbase.h>
+#endif
+
 #include "FileWatch.hpp"
 
 namespace Trinity
