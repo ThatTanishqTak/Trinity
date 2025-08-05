@@ -61,7 +61,9 @@ else()
 endif()
 
 # shaderc
-find_library(SHADERC_LIB shaderc
+set(SHADERC_POSSIBLE_LIB_NAMES shaderc_combined shaderc_shared shaderc)
+find_library(SHADERC_LIB NAMES ${SHADERC_POSSIBLE_LIB_NAMES}
+    HINTS ${Vulkan_SDK}/Lib
     PATHS ${CMAKE_CURRENT_SOURCE_DIR}/vendor/shaderc/lib
           /usr/lib
           /usr/local/lib
@@ -73,6 +75,7 @@ endif()
 add_library(shaderc INTERFACE)
 target_include_directories(shaderc INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/shaderc/include>
+    $<BUILD_INTERFACE:${Vulkan_SDK}/Include>
 )
 target_link_libraries(shaderc INTERFACE ${SHADERC_LIB})
 

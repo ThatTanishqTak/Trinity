@@ -45,6 +45,7 @@ namespace Trinity
             VkShaderStageFlagBits StageBit = VK_SHADER_STAGE_VERTEX_BIT;
             std::filesystem::path SourcePath;
             std::filesystem::path SpirvPath;
+            std::vector<uint32_t> SpirvCode;
             std::filesystem::file_time_type Timestamp{};
             std::unique_ptr<std::remove_pointer<VkShaderModule>::type, ShaderModuleDeleter> module{ nullptr, { nullptr } };
         };

@@ -3,6 +3,7 @@
 #include "Trinity/Renderer/Shader.h"
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Vulkan/VulkanContext.h"
+#include "Trinity/Renderer/ShaderCompiler.h"
 
 #include <functional>
 #include <string_view>
@@ -214,66 +215,82 @@ namespace Trinity
         std::filesystem::path l_Source = stage.SourcePath;
         if (l_Source.extension() == ".spv")
         {
-            stage.SpirvPath = l_Source;
-            
+            auto l_Data = Utilities::FileManagement::ReadFile(l_Source);
+            if (l_Data.empty())
+            {
+                TR_CORE_ERROR("Failed to read shader file: {}", l_Source.string());
+                return false;
+            }
+            stage.SpirvCode.resize(l_Data.size() / sizeof(uint32_t));
+            std::memcpy(stage.SpirvCode.data(), l_Data.data(), l_Data.size());
+
             return true;
         }
 
-        std::filesystem::path l_Output = l_Source;
-        l_Output += ".spv";
-
 #ifdef TR_RUNTIME_SHADER_COMPILE
-        std::string l_Command = fmt::format("glslc \"{}\" -o \"{}\"", l_Source.string(), l_Output.string());
-        int l_Result = std::system(l_Command.c_str());
-        if (l_Result != 0)
+        auto l_Spirv = ShaderCompiler::CompileToSpv(l_Source.string());
+        if (l_Spirv.empty())
         {
             TR_CORE_ERROR("Failed to compile shader: {}", l_Source.string());
-
             return false;
         }
+        stage.SpirvCode = std::move(l_Spirv);
+#else
+        std::filesystem::path l_Output = l_Source;
+        l_Output += ".spv";
+        stage.SpirvPath = l_Output;
 #endif
 
-        stage.SpirvPath = l_Output;
-        
         return true;
     }
 
     bool Shader::LoadStage(Stage& stage)
     {
-        if (!std::filesystem::exists(stage.SpirvPath))
+        std::vector<uint32_t> l_Code;
+        if (!stage.SpirvCode.empty())
         {
+            l_Code = stage.SpirvCode;
+        }
+        else
+        {
+            if (!std::filesystem::exists(stage.SpirvPath))
+            {
 #ifdef TR_RUNTIME_SHADER_COMPILE
-            TR_CORE_ERROR("Shader file not found: {}", stage.SpirvPath.string());
+                TR_CORE_ERROR("Shader file not found: {}", stage.SpirvPath.string());
 #else
-            TR_CORE_WARN("Precompiled shader not found: {}. Enable TR_RUNTIME_SHADER_COMPILE or run the shader build step.", stage.SpirvPath.string());
+                TR_CORE_WARN("Precompiled shader not found: {}. Enable TR_RUNTIME_SHADER_COMPILE or run the shader build step.", stage.SpirvPath.string());
 #endif
 
-            return false;
-        }
+                return false;
+            }
 
-        auto a_Code = Utilities::FileManagement::ReadFile(stage.SpirvPath);
-        if (a_Code.empty())
-        {
-            TR_CORE_ERROR("Failed to read shader file: {}", stage.SpirvPath.string());
-            
-            return false;
+            auto a_Code = Utilities::FileManagement::ReadFile(stage.SpirvPath);
+            if (a_Code.empty())
+            {
+                TR_CORE_ERROR("Failed to read shader file: {}", stage.SpirvPath.string());
+
+                return false;
+            }
+
+            l_Code.resize(a_Code.size() / sizeof(uint32_t));
+            std::memcpy(l_Code.data(), a_Code.data(), a_Code.size());
         }
 
         VkShaderModuleCreateInfo l_CreateInfo{};
         l_CreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        l_CreateInfo.codeSize = a_Code.size();
-        l_CreateInfo.pCode = reinterpret_cast<const uint32_t*>(a_Code.data());
+        l_CreateInfo.codeSize = l_Code.size() * sizeof(uint32_t);
+        l_CreateInfo.pCode = l_Code.data();
 
         VkShaderModule l_Module = VK_NULL_HANDLE;
         if (vkCreateShaderModule(m_Context->GetDevice(), &l_CreateInfo, nullptr, &l_Module) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to create shader module: {}", stage.SpirvPath.string());
-        
+
             return false;
         }
 
         stage.module = { l_Module, { m_Context } };
-        
+
         return true;
     }
 
