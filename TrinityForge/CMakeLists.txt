@@ -62,14 +62,5 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_SOURCE_DIR}/Trinity/vendor/assimp/bin/${ARCH}/assimp-vc143-mt.dll
         $<TARGET_FILE_DIR:${PROJECT_NAME}>
-        ${CMAKE_CURRENT_SOURCE_DIR}/Assets/Shaders
-        ${FORGE_SHADER_OUTPUT_DIR}
     COMMENT "Copying assimp-vc143-mt.dll to output directory"
 )
-
-#add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-#    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#    
-#    
-#    COMMENT "Copying shaders to output directory"
-#)

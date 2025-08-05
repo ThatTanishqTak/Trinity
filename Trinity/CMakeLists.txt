@@ -33,6 +33,12 @@ target_link_libraries(glfw INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/glfw/lib/glfw3.lib
 )
 
+# nlohmann
+add_library(nlohmann INTERFACE)
+target_include_directories(nlohmann INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/nlohmann/include>    
+)
+
 # glm
 add_library(glm INTERFACE)
 target_include_directories(glm INTERFACE
@@ -105,6 +111,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     stb
     EnTT
     glfw
+    nlohmann
     glm
     assimp
     Vulkan

@@ -4,6 +4,7 @@
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Vulkan/VulkanContext.h"
 #include "Trinity/Renderer/ShaderCompiler.h"
+#include "Trinity/Renderer/ShaderCache.h"
 
 #include <functional>
 #include <string_view>
@@ -228,13 +229,30 @@ namespace Trinity
         }
 
 #ifdef TR_RUNTIME_SHADER_COMPILE
-        auto l_Spirv = ShaderCompiler::CompileToSpv(l_Source.string());
-        if (l_Spirv.empty())
+        auto a_SourceData = Utilities::FileManagement::ReadFile(l_Source);
+        size_t l_Hash = std::hash<std::string_view>{}(std::string_view{
+            reinterpret_cast<const char*>(a_SourceData.data()), a_SourceData.size() });
+
+        ShaderCache& l_Cache = ShaderCache::Get();
+        if (const CachedStage* l_Cached = l_Cache.GetStage(l_Source.string()))
+        {
+            if (l_Cached->Hash == l_Hash && l_Cached->Timestamp == stage.Timestamp)
+            {
+                stage.SpirvCode = l_Cached->Spirv;
+
+                return true;
+            }
+        }
+
+        auto a_Spirv = ShaderCompiler::CompileToSpv(l_Source.string());
+        if (a_Spirv.empty())
         {
             TR_CORE_ERROR("Failed to compile shader: {}", l_Source.string());
+
             return false;
         }
-        stage.SpirvCode = std::move(l_Spirv);
+        stage.SpirvCode = a_Spirv;
+        l_Cache.StoreStage(l_Source.string(), l_Hash, stage.Timestamp, stage.SpirvCode);
 #else
         std::filesystem::path l_Output = l_Source;
         l_Output += ".spv";
@@ -251,6 +269,7 @@ namespace Trinity
         {
             l_Code = stage.SpirvCode;
         }
+
         else
         {
             if (!std::filesystem::exists(stage.SpirvPath))
