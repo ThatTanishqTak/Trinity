@@ -223,7 +223,7 @@ namespace Trinity
         l_Output += ".spv";
 
 #ifdef TR_RUNTIME_SHADER_COMPILE
-        std::string l_Command = "glslc " + l_Source.string() + " -o " + l_Output.string();
+        std::string l_Command = fmt::format("glslc \"{}\" -o \"{}\"", l_Source.string(), l_Output.string());
         int l_Result = std::system(l_Command.c_str());
         if (l_Result != 0)
         {
