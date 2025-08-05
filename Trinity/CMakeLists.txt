@@ -60,6 +60,22 @@ else()
     message(FATAL_ERROR "VULKAN_SDK environment variable not set")
 endif()
 
+# shaderc
+find_library(SHADERC_LIB shaderc
+    PATHS ${CMAKE_CURRENT_SOURCE_DIR}/vendor/shaderc/lib
+          /usr/lib
+          /usr/local/lib
+)
+if(NOT SHADERC_LIB)
+    message(FATAL_ERROR "shaderc library not found")
+endif()
+
+add_library(shaderc INTERFACE)
+target_include_directories(shaderc INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/shaderc/include>
+)
+target_link_libraries(shaderc INTERFACE ${SHADERC_LIB})
+
 # Engine source files
 file(GLOB_RECURSE ENGINE_SOURCE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
@@ -89,6 +105,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     glm
     assimp
     Vulkan
+    shaderc
 )
 
 # Enable runtime shader compilation when requested

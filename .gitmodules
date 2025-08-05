@@ -10,3 +10,6 @@
 [submodule "Trinity/vendor/entt"]
 	path = Trinity/vendor/entt
 	url = https://github.com/ThatTanishqTak/entt.git
+[submodule "Trinity/vendor/shaderc"]
+	path = Trinity/vendor/shaderc
+	url = https://github.com/ThatTanishqTak/shaderc.git
