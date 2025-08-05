@@ -90,3 +90,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     assimp
     Vulkan
 )
+
+# Enable runtime shader compilation when requested
+if(TR_RUNTIME_SHADER_COMPILE)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC TR_RUNTIME_SHADER_COMPILE)
+endif()

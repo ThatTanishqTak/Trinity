@@ -582,7 +582,7 @@ namespace Trinity
 
         if (m_Shader.GetModule(VK_SHADER_STAGE_VERTEX_BIT) == VK_NULL_HANDLE || m_Shader.GetModule(VK_SHADER_STAGE_FRAGMENT_BIT) == VK_NULL_HANDLE)
         {
-            if (!m_Shader.Load("Assets/Shaders/Simple.vert.spv", VK_SHADER_STAGE_VERTEX_BIT) || !m_Shader.Load("Assets/Shaders/Simple.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT))
+            if (!m_Shader.Load("Assets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT) || !m_Shader.Load("Assets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT))
             {
                 return;
             }

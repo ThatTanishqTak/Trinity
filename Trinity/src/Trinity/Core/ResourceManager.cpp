@@ -49,7 +49,7 @@ namespace Trinity
         const aiScene* l_Scene = l_Importer.ReadFile(path, aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs);
         if (!l_Scene || !l_Scene->mRootNode || l_Scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE)
         {
-            TR_CORE_ERROR("Failed to load a_Mesh: {}", path);
+            TR_CORE_ERROR("Failed to load mesh: {}", path);
             
             return nullptr;
         }

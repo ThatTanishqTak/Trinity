@@ -48,12 +48,15 @@ namespace Trinity
 
         m_Stages.push_back(std::move(l_Stage));
 
+        TR_CORE_TRACE("Shader loaded: {}", path.string());
+
         return true;
     }
 
     bool Shader::Reload()
     {
         Destroy();
+
         for (auto& it_Stage : m_Stages)
         {
             if (!std::filesystem::exists(it_Stage.SourcePath))
@@ -219,14 +222,16 @@ namespace Trinity
         std::filesystem::path l_Output = l_Source;
         l_Output += ".spv";
 
+#ifdef TR_RUNTIME_SHADER_COMPILE
         std::string l_Command = "glslc " + l_Source.string() + " -o " + l_Output.string();
         int l_Result = std::system(l_Command.c_str());
         if (l_Result != 0)
         {
             TR_CORE_ERROR("Failed to compile shader: {}", l_Source.string());
-        
+
             return false;
         }
+#endif
 
         stage.SpirvPath = l_Output;
         
@@ -237,8 +242,12 @@ namespace Trinity
     {
         if (!std::filesystem::exists(stage.SpirvPath))
         {
+#ifdef TR_RUNTIME_SHADER_COMPILE
             TR_CORE_ERROR("Shader file not found: {}", stage.SpirvPath.string());
-            
+#else
+            TR_CORE_WARN("Precompiled shader not found: {}. Enable TR_RUNTIME_SHADER_COMPILE or run the shader build step.", stage.SpirvPath.string());
+#endif
+
             return false;
         }
 
