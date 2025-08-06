@@ -52,7 +52,7 @@ namespace Trinity
 					it.second.Watcher = CreateWatcher(it.first);
 				}
 			}
-			TR_CORE_INFO("Shader watcher started");
+			TR_CORE_TRACE("Shader watcher started");
 		}
 
 		void ShaderWatcher::Shutdown()

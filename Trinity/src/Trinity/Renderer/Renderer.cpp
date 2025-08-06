@@ -1271,12 +1271,8 @@ namespace Trinity
             m_Frames[imageIndex].LightUniform.Unmap();
 
             auto a_View = m_Scene->GetRegistry().view<Transform, MeshRenderer, Material>();
-            for (auto it_Entity : a_View)
+            for (auto [it_Entity, a_Transform, a_Mesh, a_Material] : a_View.each())
             {
-                auto& a_Transform = a_View.get<Transform>(it_Entity);
-                auto& a_Mesh = a_View.get<MeshRenderer>(it_Entity);
-                auto& a_Material = a_View.get<Material>(it_Entity);
-
                 float l_Scale = std::max({ a_Transform.Scale.x, a_Transform.Scale.y, a_Transform.Scale.z });
                 float l_Radius = a_Mesh.Mesh->GetBoundingRadius() * l_Scale;
                 if (!Culling::IsVisible(l_Frustum, a_Transform.Translation, l_Radius))
@@ -1304,12 +1300,12 @@ namespace Trinity
                 VkDeviceSize offsets[] = { 0 };
                 vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
 
-                uint32_t indexCount = a_Mesh.Mesh->GetIndexBuffer().GetIndexCount();
-                if (indexCount > 0)
+                uint32_t l_IndexCount = a_Mesh.Mesh->GetIndexBuffer().GetIndexCount();
+                if (l_IndexCount > 0)
                 {
                     vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], a_Mesh.Mesh->GetIndexBuffer().GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
                     vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
-                    vkCmdDrawIndexed(m_CommandBuffer[imageIndex], indexCount, 1, 0, 0, 0);
+                    vkCmdDrawIndexed(m_CommandBuffer[imageIndex], l_IndexCount, 1, 0, 0, 0);
                 }
 
                 else
@@ -1363,10 +1359,12 @@ namespace Trinity
             {
                 vkDestroyImageView(m_Context->GetDevice(), m_DepthImageViews[i], nullptr);
             }
+
             if (m_DepthImages[i])
             {
                 vkDestroyImage(m_Context->GetDevice(), m_DepthImages[i], nullptr);
             }
+
             if (m_DepthImageMemory[i])
             {
                 vkFreeMemory(m_Context->GetDevice(), m_DepthImageMemory[i], nullptr);
