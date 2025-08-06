@@ -10,6 +10,7 @@ namespace Trinity
     {
         m_VertexSpv = ShaderCompiler::CompileToSpv("Resources/Shaders/ToneMapping.vert");
         m_FragmentSpv = ShaderCompiler::CompileToSpv("Resources/Shaders/ToneMapping.frag");
+
         return !m_VertexSpv.empty() && !m_FragmentSpv.empty();
     }
 
