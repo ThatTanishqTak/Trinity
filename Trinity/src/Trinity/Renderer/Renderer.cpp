@@ -688,7 +688,8 @@ namespace Trinity
         l_PipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
         l_PipelineInfo.basePipelineIndex = -1;
 
-        m_GraphicsPipeline = m_Shader.GetPipeline(l_PipelineInfo);
+        uint32_t l_MaxLights = MaxLights;
+        m_GraphicsPipeline = m_Shader.GetPipeline(l_PipelineInfo, &l_MaxLights, sizeof(l_MaxLights));
 
         if (m_GraphicsPipeline == VK_NULL_HANDLE)
         {
@@ -1259,11 +1260,16 @@ namespace Trinity
             auto a_LightView = m_Scene->GetRegistry().view<Light>();
             for (auto it_Entity : a_LightView)
             {
+                if (l_Light.LightCount >= static_cast<int>(MaxLights))
+                {
+                    break;
+                }
                 auto& a_Light = a_LightView.get<Light>(it_Entity);
-                l_Light.Position = a_Light.Position;
-                l_Light.Color = a_Light.Color;
-                
-                break;
+                l_Light.Lights[l_Light.LightCount].Position = a_Light.Position;
+                l_Light.Lights[l_Light.LightCount].Color = a_Light.Color;
+                l_Light.Lights[l_Light.LightCount].Intensity = a_Light.Intensity;
+                l_Light.Lights[l_Light.LightCount].Type = static_cast<int>(a_Light.LightType);
+                ++l_Light.LightCount;
             }
 
             void* l_LightData = m_Frames[imageIndex].LightUniform.Map();
@@ -1291,6 +1297,8 @@ namespace Trinity
                 MaterialBufferObject l_Material{};
                 l_Material.Albedo = a_Material.Albedo;
                 l_Material.Roughness = a_Material.Roughness;
+                l_Material.Metallic = a_Material.Metallic;
+                l_Material.Specular = a_Material.Specular;
 
                 void* l_MaterialData = m_Frames[imageIndex].MaterialUniform.Map();
                 std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));

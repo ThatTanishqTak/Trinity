@@ -6,6 +6,7 @@
 #include "Trinity/Renderer/ShaderCompiler.h"
 #include "Trinity/Renderer/ShaderCache.h"
 #include "Trinity/Resources/ShaderWatcher.h"
+#include "Trinity/Renderer/UniformBuffer.h"
 
 #include <functional>
 #include <string_view>
@@ -114,7 +115,16 @@ namespace Trinity
 
     VkPipeline Shader::GetPipeline(const VkGraphicsPipelineCreateInfo& pipelineInfo, const void* specData, size_t specSize)
     {
-        size_t l_Hash = CalculateSpecHash(specData, specSize);
+        const void* l_Data = specData;
+        size_t l_Size = specSize;
+        if (!l_Data || l_Size == 0)
+        {
+            static const uint32_t l_Default = MaxLights;
+            l_Data = &l_Default;
+            l_Size = sizeof(uint32_t);
+        }
+
+        size_t l_Hash = CalculateSpecHash(l_Data, l_Size);
         auto a_Lt = m_Pipelines.find(l_Hash);
         if (a_Lt != m_Pipelines.end())
         {
@@ -128,13 +138,13 @@ namespace Trinity
 
         VkSpecializationInfo l_SpecInfo{};
         std::vector<VkSpecializationMapEntry> l_MapEntries;
-        if (specData && specSize > 0)
+        if (l_Data && l_Size > 0)
         {
-            l_MapEntries.push_back({ 0, 0, static_cast<uint32_t>(specSize) });
+            l_MapEntries.push_back({ 0, 0, static_cast<uint32_t>(l_Size) });
             l_SpecInfo.mapEntryCount = static_cast<uint32_t>(l_MapEntries.size());
             l_SpecInfo.pMapEntries = l_MapEntries.data();
-            l_SpecInfo.dataSize = specSize;
-            l_SpecInfo.pData = specData;
+            l_SpecInfo.dataSize = l_Size;
+            l_SpecInfo.pData = l_Data;
         }
 
         for (const auto& it_Stage : m_Stages)
@@ -144,7 +154,7 @@ namespace Trinity
             l_StageInfo.stage = it_Stage.StageBit;
             l_StageInfo.module = it_Stage.module.get();
             l_StageInfo.pName = "main";
-            if (specData && specSize > 0)
+            if (l_Data && l_Size > 0)
             {
                 l_StageInfo.pSpecializationInfo = &l_SpecInfo;
             }

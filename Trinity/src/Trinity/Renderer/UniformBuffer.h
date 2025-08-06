@@ -29,25 +29,24 @@ namespace Trinity
     struct LightData
     {
         alignas(16) glm::vec3 Position{ 0.0f };
-        float _Pad0{ 0.0f };
+        int Type{ 0 };
 
         alignas(16) glm::vec3 Color{ 1.0f };
-        float _Pad1{ 0.0f };
+        float Intensity{ 1.0f };
     };
 
     struct LightBufferObject
     {
         LightData Lights[MaxLights]{};
-
         alignas(16) int LightCount{ 0 };
-        alignas(16) glm::vec3 Position{ 0.0f };
-        alignas(16) glm::vec3 Color{ 1.0f };
     };
 
     struct MaterialBufferObject
     {
         alignas(16) glm::vec3 Albedo{ 1.0f };
         float Roughness{ 1.0f };
+        float Metallic{ 0.0f };
+        float Specular{ 0.5f };
     };
 
     class UniformBuffer
