@@ -51,6 +51,12 @@ target_include_directories(nlohmann INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/nlohmann/include>    
 )
 
+# imgui
+add_library(imgui INTERFACE)
+target_include_directories(imgui INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui>   
+)
+
 # assimp
 add_library(assimp STATIC IMPORTED)
 set_target_properties(assimp PROPERTIES
@@ -119,6 +125,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     glfw
     nlohmann
     glm
+    imgui
     assimp
     Vulkan
     shaderc
