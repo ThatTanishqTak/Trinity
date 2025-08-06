@@ -9,6 +9,8 @@
 #include "Trinity/Renderer/Texture.h"
 #include "Trinity/Renderer/Shader.h"
 #include "Trinity/Renderer/RenderGraph.h"
+#include "Trinity/Renderer/PostProcess/BloomPass.h"
+#include "Trinity/Renderer/PostProcess/ToneMappingPass.h"
 
 #include "Trinity/Camera/Camera.h"
 
@@ -54,7 +56,6 @@ namespace Trinity
         void CreateCommandBuffer();
         void CreateSyncObjects();
         void RenderMainPass(uint32_t imageIndex);
-        void RenderPostPass(uint32_t imageIndex);
         void RenderShadowPass(uint32_t imageIndex);
         void CleanupSwapChain();
         void RecreateSwapChain();
@@ -111,5 +112,7 @@ namespace Trinity
 
         Shader m_Shader;
         RenderGraph m_RenderGraph;
+        BloomPass m_BloomPass;
+        ToneMappingPass m_ToneMappingPass;
     };
 }

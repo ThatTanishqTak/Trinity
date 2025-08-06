@@ -36,6 +36,9 @@ namespace Trinity
         CreateCommandBuffer();
         CreateSyncObjects();
 
+        m_BloomPass.Initialize();
+        m_ToneMappingPass.Initialize();
+
         TR_CORE_INFO("-------RENDERER INITIALIZED-------");
 
         return true;
@@ -257,7 +260,8 @@ namespace Trinity
         m_RenderGraph.Clear();
         m_RenderGraph.AddPass("Shadow", [this, l_ImageIndex]() { RenderShadowPass(l_ImageIndex); }, true);
         m_RenderGraph.AddPass("Geometry", [this, l_ImageIndex]() { RenderMainPass(l_ImageIndex); });
-        m_RenderGraph.AddPass("Post", [this, l_ImageIndex]() { RenderPostPass(l_ImageIndex); }, true);
+        m_RenderGraph.AddPass("Bloom", [this]() { m_BloomPass.Execute(); }, true);
+        m_RenderGraph.AddPass("ToneMapping", [this]() { m_ToneMappingPass.Execute(); }, true);
         m_RenderGraph.Execute();
 
         if (vkEndCommandBuffer(m_CommandBuffer[l_ImageIndex]) != VK_SUCCESS)
@@ -1325,13 +1329,6 @@ namespace Trinity
         }
 
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
-    }
-
-    void Renderer::RenderPostPass(uint32_t imageIndex)
-    {
-#if _DEBUG
-        TR_CORE_TRACE("Render post-processing pass for frame {}", imageIndex);
-#endif
     }
 
     void Renderer::CleanupSwapChain()
