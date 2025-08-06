@@ -26,7 +26,9 @@ namespace Trinity
         shaderc::SpvCompilationResult l_Result = l_Compiler.CompileGlslToSpv(l_Source, shaderc_glsl_infer_from_source, sourcePath.c_str(), l_Options);
         if (l_Result.GetCompilationStatus() != shaderc_compilation_status_success)
         {
-            TR_CORE_ERROR("Failed to compile", l_Result.GetErrorMessage());
+            TR_CORE_ERROR("Failed to compile: {}", l_Result.GetErrorMessage());
+
+            std::cout << l_Result.GetErrorMessage();
 
             return {};
         }
