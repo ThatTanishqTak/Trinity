@@ -1,13 +1,13 @@
 #include "Trinity/trpch.h"
 
+#include "Trinity/Camera/Culling.h"
+#include "Trinity/Core/ResourceManager.h"
+#include "Trinity/ECS/Components.h"
+#include "Trinity/ECS/Scene.h"
 #include "Trinity/Renderer/Renderer.h"
 #include "Trinity/Renderer/Shader.h"
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Vulkan/VulkanContext.h"
-#include "Trinity/ECS/Scene.h"
-#include "Trinity/ECS/Components.h"
-#include "Trinity/Core/ResourceManager.h"
-#include "Trinity/Camera/Culling.h"
 
 namespace Trinity
 {
@@ -76,7 +76,6 @@ namespace Trinity
             }
         }
         TR_CORE_TRACE("Semaphores destroyed");
-
 
         if (m_CommandPool)
         {
@@ -199,7 +198,7 @@ namespace Trinity
         TR_CORE_INFO("-------RENDERER SHUTDOWN COMPLETE-------");
     }
 
-    void Renderer::DrawFrame()
+    void Renderer::DrawFrame(const std::function<void(VkCommandBuffer)>& recordCallback)
     {
         if (m_Shader.Update())
         {
@@ -263,6 +262,11 @@ namespace Trinity
         m_RenderGraph.AddPass("Bloom", [this]() { m_BloomPass.Execute(); }, true);
         m_RenderGraph.AddPass("ToneMapping", [this]() { m_ToneMappingPass.Execute(); }, true);
         m_RenderGraph.Execute();
+
+        if (recordCallback)
+        {
+            recordCallback(m_CommandBuffer[l_ImageIndex]);
+        }
 
         if (vkEndCommandBuffer(m_CommandBuffer[l_ImageIndex]) != VK_SUCCESS)
         {
@@ -775,7 +779,7 @@ namespace Trinity
             if (vkCreateImageView(m_Context->GetDevice(), &l_ViewInfo, nullptr, &m_DepthImageViews[i]) != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Failed to create depth image view");
-                
+
                 return;
             }
         }
@@ -853,7 +857,7 @@ namespace Trinity
 
         for (size_t i = 0; i < m_Context->GetSwapChainImages().size(); i++)
         {
-            VkImageView l_Attachments[] = { m_Context->GetSwapChainImages()[i], m_DepthImageViews[i]};
+            VkImageView l_Attachments[] = { m_Context->GetSwapChainImages()[i], m_DepthImageViews[i] };
 
             VkFramebufferCreateInfo l_FramebufferInfo{};
             l_FramebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -913,11 +917,11 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating vertex buffer");
 
-        std::vector<Vertex> l_Vertices =
+        std::vector<Vertex> l_Vertices = 
         {
-            { {0.0f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.5f, 1.0f} },
-            { {0.5f,  0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
-            { {-0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} }
+            { { 0.0f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.5f, 1.0f} },
+            { { 0.5f,  0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
+            { {-0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} } 
         };
 
         m_VertexBuffer = VertexBuffer(m_Context);
@@ -1453,10 +1457,10 @@ namespace Trinity
     VkFormat Renderer::FindDepthFormat()
     {
         std::vector<VkFormat> l_Candidates = 
-        {
+        { 
             VK_FORMAT_D32_SFLOAT,
             VK_FORMAT_D32_SFLOAT_S8_UINT,
-            VK_FORMAT_D24_UNORM_S8_UINT
+            VK_FORMAT_D24_UNORM_S8_UINT 
         };
 
         for (VkFormat it_Format : l_Candidates)

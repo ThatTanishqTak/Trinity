@@ -2,16 +2,17 @@
 
 #include <string>
 
-#include "Trinity/Utilities/Utilities.h"
-#include "Trinity/Window/Window.h"
-#include "Trinity/Vulkan/VulkanContext.h"
-#include "Trinity/Renderer/Renderer.h"
-#include "Trinity/Core/ResourceManager.h"
-#include "Trinity/ECS/Scene.h"
-#include "Trinity/ECS/Entity.h"
-#include "Trinity/ECS/Components.h"
 #include "Trinity/Camera/CameraController.h"
+#include "Trinity/Core/ResourceManager.h"
+#include "Trinity/ECS/Components.h"
+#include "Trinity/ECS/Entity.h"
+#include "Trinity/ECS/Scene.h"
 #include "Trinity/Events/Event.h"
+#include "Trinity/Renderer/Renderer.h"
+#include "Trinity/UI/ImGuiLayer.h"
+#include "Trinity/Utilities/Utilities.h"
+#include "Trinity/Vulkan/VulkanContext.h"
+#include "Trinity/Window/Window.h"
 
 namespace Trinity
 {
@@ -52,7 +53,11 @@ namespace Trinity
                 }
 
                 // Rendering
-                m_Renderer->DrawFrame();
+                m_ImGuiLayer->BeginFrame();
+                m_Renderer->DrawFrame([this](VkCommandBuffer l_CommandBuffer)
+                    {
+                        m_ImGuiLayer->EndFrame(l_CommandBuffer);
+                    });
             }
 
             TR_CORE_TRACE("Exiting main loop");
@@ -69,5 +74,6 @@ namespace Trinity
         std::unique_ptr<ResourceManager> m_ResourceManager;
         std::unique_ptr<Scene> m_Scene;
         std::unique_ptr<CameraController> m_CameraController;
+        std::unique_ptr<ImGuiLayer> m_ImGuiLayer;
     };
 }

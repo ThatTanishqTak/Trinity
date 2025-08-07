@@ -1,16 +1,17 @@
 #pragma once
 
-#include <vulkan/vulkan.h>
+#include <functional>
 #include <vector>
+#include <vulkan/vulkan.h>
 
-#include "Trinity/Renderer/VertexBuffer.h"
 #include "Trinity/Renderer/IndexBuffer.h"
-#include "Trinity/Renderer/UniformBuffer.h"
-#include "Trinity/Renderer/Texture.h"
-#include "Trinity/Renderer/Shader.h"
-#include "Trinity/Renderer/RenderGraph.h"
 #include "Trinity/Renderer/PostProcess/BloomPass.h"
 #include "Trinity/Renderer/PostProcess/ToneMappingPass.h"
+#include "Trinity/Renderer/RenderGraph.h"
+#include "Trinity/Renderer/Shader.h"
+#include "Trinity/Renderer/Texture.h"
+#include "Trinity/Renderer/UniformBuffer.h"
+#include "Trinity/Renderer/VertexBuffer.h"
 
 #include "Trinity/Camera/Camera.h"
 
@@ -29,7 +30,7 @@ namespace Trinity
         bool Initialize();
         void Shutdown();
 
-        void DrawFrame();
+        void DrawFrame(const std::function<void(VkCommandBuffer)>& recordCallback = nullptr);
 
         Camera& GetCamera() { return m_Camera; }
 
@@ -38,6 +39,7 @@ namespace Trinity
         VertexBuffer& GetVertexBuffer() { return m_VertexBuffer; }
         IndexBuffer& GetIndexBuffer() { return m_IndexBuffer; }
         Texture& GetTexture() { return m_Texture; }
+        VkRenderPass GetRenderPass() const { return m_RenderPass; }
 
     private:
         void CreateRenderPass();

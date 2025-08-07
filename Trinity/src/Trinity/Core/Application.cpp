@@ -7,81 +7,104 @@
 
 namespace Trinity
 {
-	Application::Application(const ApplicationSpecification& specification) : m_Specification(specification)
-	{
-		TR_CORE_INFO("-------INITIALIZING APPLICATION-------");
+    Application::Application(const ApplicationSpecification& specification) : m_Specification(specification)
+    {
+        TR_CORE_INFO("-------INITIALIZING APPLICATION-------");
 
-		m_Window = std::make_unique<Window>(WindowSpecification{ m_Specification.Title, m_Specification.Width, m_Specification.Height });
-		if (!m_Window->Initialize())
-		{
-			TR_CORE_ERROR("Failed to initialize window");
-		}
+        m_Window = std::make_unique<Window>(WindowSpecification{ m_Specification.Title, m_Specification.Width, m_Specification.Height });
+        if (!m_Window->Initialize())
+        {
+            TR_CORE_ERROR("Failed to initialize window");
+        }
 
-		m_Window->SetEventCallback(TR_BIND_EVENT_FN(Application::OnEvent));
+        m_Window->SetEventCallback(TR_BIND_EVENT_FN(Application::OnEvent));
 
-		Input::Initialize(m_Window->GetNativeWindow());
+        Input::Initialize(m_Window->GetNativeWindow());
 
-		m_VulkanContext = std::make_unique<VulkanContext>(m_Window->GetNativeWindow());
-		if (!m_VulkanContext->Initialize())
-		{
-			TR_CORE_ERROR("Failed to initialize vulkan");
-		}
+        m_VulkanContext = std::make_unique<VulkanContext>(m_Window->GetNativeWindow());
+        if (!m_VulkanContext->Initialize())
+        {
+            TR_CORE_ERROR("Failed to initialize vulkan");
+        }
 
-		m_Renderer = std::make_unique<Renderer>(m_VulkanContext.get());
-		if (!m_Renderer->Initialize())
-		{
-			TR_CORE_ERROR("Failed to initialize renderer");
-		}
+        m_Renderer = std::make_unique<Renderer>(m_VulkanContext.get());
+        if (!m_Renderer->Initialize())
+        {
+            TR_CORE_ERROR("Failed to initialize renderer");
+        }
 
-		m_ResourceManager = std::make_unique<ResourceManager>(m_VulkanContext.get());
+        m_ImGuiLayer = std::make_unique<ImGuiLayer>
+            (
+                m_Window->GetNativeWindow(), m_VulkanContext->GetInstance(), 
+                m_VulkanContext->GetPhysicalDivice(), m_VulkanContext->GetDevice(),
+                m_VulkanContext->FindQueueFamilies(m_VulkanContext->GetPhysicalDivice()).GraphicsFamily.value(),
+                m_VulkanContext->GetGraphicsQueue(), m_Renderer->GetRenderPass(),static_cast<uint32_t>(m_VulkanContext->GetSwapChainImages().size())
+            );
+        
+        if (!m_ImGuiLayer->Initialize())
+        {
+            TR_CORE_ERROR("Failed to initialize ImGui layer");
+        }
 
-		m_Scene = std::make_unique<Scene>();
-		m_Renderer->SetScene(m_Scene.get());
+        m_ResourceManager = std::make_unique<ResourceManager>(m_VulkanContext.get());
 
-		m_CameraController = std::make_unique<CameraController>(&m_Renderer->GetCamera());
+        m_Scene = std::make_unique<Scene>();
+        m_Renderer->SetScene(m_Scene.get());
 
-		Entity l_Entity = m_Scene->CreateEntity();
-		auto& l_Mesh = l_Entity.AddComponent<MeshRenderer>();
-		l_Mesh.Mesh = m_ResourceManager->Load<Mesh>("Assets/Textures/Checkers.png");
-		l_Mesh.MeshTexture = m_ResourceManager->Load<Texture>("Assets/Textures/Checkers.png");
+        m_CameraController = std::make_unique<CameraController>(&m_Renderer->GetCamera());
 
-		Resources::ShaderWatcher::Start();
+        Entity l_Entity = m_Scene->CreateEntity();
+        auto& l_Mesh = l_Entity.AddComponent<MeshRenderer>();
+        l_Mesh.Mesh = m_ResourceManager->Load<Mesh>("Assets/Textures/Checkers.png");
+        l_Mesh.MeshTexture = m_ResourceManager->Load<Texture>("Assets/Textures/Checkers.png");
 
-		TR_CORE_INFO("-------APPLICATION INITIALIZED-------");
-	}
+        Resources::ShaderWatcher::Start();
 
-	Application::~Application()
-	{
-		TR_CORE_INFO("-------SHUTTING DOWN APPLICATION-------");
+        TR_CORE_INFO("-------APPLICATION INITIALIZED-------");
+    }
 
-		if (m_Renderer)
-		{
-			m_Renderer->Shutdown();
-			m_Renderer.reset();
-		}
+    Application::~Application()
+    {
+        TR_CORE_INFO("-------SHUTTING DOWN APPLICATION-------");
 
-		m_Scene.reset();
-		m_ResourceManager.reset();
+        if (m_Renderer)
+        {
+            m_Renderer->Shutdown();
+            m_Renderer.reset();
+        }
 
-		if (m_VulkanContext)
-		{
-			m_VulkanContext->Shutdown();
-			m_VulkanContext.reset();
-		}
+        if (m_ImGuiLayer)
+        {
+            m_ImGuiLayer->Shutdown();
+            m_ImGuiLayer.reset();
+        }
 
-		if (m_Window)
-		{
-			m_Window->Shutdown();
-			m_Window.reset();
-		}
+        m_Scene.reset();
+        m_ResourceManager.reset();
 
-		TR_CORE_INFO("-------APPLICATION SHUTDOWN COMPLETE-------");
-	}
+        if (m_VulkanContext)
+        {
+            m_VulkanContext->Shutdown();
+            m_VulkanContext.reset();
+        }
 
-	void Application::OnEvent(Event& e)
-	{
+        if (m_Window)
+        {
+            m_Window->Shutdown();
+            m_Window.reset();
+        }
+
+        TR_CORE_INFO("-------APPLICATION SHUTDOWN COMPLETE-------");
+    }
+
+    void Application::OnEvent(Event& e)
+    {
 #if _DEBUG
-		TR_CORE_TRACE("{}", e.ToString());
+        TR_CORE_TRACE("{}", e.ToString());
 #endif
-	}
+        if (m_ImGuiLayer)
+        {
+            m_ImGuiLayer->OnEvent(e);
+        }
+    }
 }

@@ -1,6 +1,8 @@
 #include "Trinity/trpch.h"
 #include "Trinity/UI/ImGuiLayer.h"
 
+#include "Trinity/Utilities/Utilities.h"
+
 #include <imgui.h>
 
 #include <backends/imgui_impl_glfw.h>
@@ -12,6 +14,7 @@ namespace Trinity
         VkRenderPass renderPass, uint32_t imageCount) : m_Window(window), m_Instance(instance), m_PhysicalDevice(physicalDevice), m_Device(device), m_QueueFamily(queueFamily),
         m_Queue(queue), m_RenderPass(renderPass), m_ImageCount(imageCount)
     {
+
     }
 
     bool ImGuiLayer::Initialize()
@@ -25,7 +28,8 @@ namespace Trinity
 
         ImGui_ImplGlfw_InitForVulkan(m_Window, true);
 
-        VkDescriptorPoolSize l_PoolSizes[] = {
+        VkDescriptorPoolSize l_PoolSizes[] = 
+        {
             { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
             { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
             { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
@@ -47,6 +51,8 @@ namespace Trinity
         l_PoolInfo.poolSizeCount = (uint32_t)(sizeof(l_PoolSizes) / sizeof(VkDescriptorPoolSize));
         if (vkCreateDescriptorPool(m_Device, &l_PoolInfo, nullptr, &m_DescriptorPool) != VK_SUCCESS)
         {
+            TR_CORE_ERROR("Failed to initialize ImGui");
+
             return false;
         }
 
