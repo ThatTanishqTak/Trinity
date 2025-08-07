@@ -39,7 +39,7 @@ namespace Trinity
         VkExtent2D GetSwapChainExtent() const { return m_SwapChainExtent; }
         VkFormat GetSwapChainImageFormat() const { return m_SwapChainImageFormat; }
         std::vector<VkImageView> GetSwapChainImages() const { return m_SwapChainImageViews; }
-        VkPhysicalDevice GetPhysicalDivice() const { return m_PhysicalDevice; }
+        VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
         VkInstance GetInstance() const { return m_Instance; }
         VkSwapchainKHR GetSwapChain() const { return m_SwapChain; }
         VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }

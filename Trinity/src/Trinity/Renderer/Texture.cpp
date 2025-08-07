@@ -112,7 +112,7 @@ namespace Trinity
 
         vkBindImageMemory(m_Context->GetDevice(), m_Image, m_ImageMemory, 0);
 
-        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDivice());
+        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDevice());
 
         VkCommandPoolCreateInfo l_PoolInfo{};
         l_PoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;

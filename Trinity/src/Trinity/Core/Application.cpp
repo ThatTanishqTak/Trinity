@@ -36,8 +36,8 @@ namespace Trinity
         m_ImGuiLayer = std::make_unique<ImGuiLayer>
             (
                 m_Window->GetNativeWindow(), m_VulkanContext->GetInstance(), 
-                m_VulkanContext->GetPhysicalDivice(), m_VulkanContext->GetDevice(),
-                m_VulkanContext->FindQueueFamilies(m_VulkanContext->GetPhysicalDivice()).GraphicsFamily.value(),
+                m_VulkanContext->GetPhysicalDevice(), m_VulkanContext->GetDevice(),
+                m_VulkanContext->FindQueueFamilies(m_VulkanContext->GetPhysicalDevice()).GraphicsFamily.value(),
                 m_VulkanContext->GetGraphicsQueue(), m_Renderer->GetRenderPass(),static_cast<uint32_t>(m_VulkanContext->GetSwapChainImages().size())
             );
         

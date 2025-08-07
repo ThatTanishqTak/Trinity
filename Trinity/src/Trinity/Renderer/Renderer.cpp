@@ -784,7 +784,7 @@ namespace Trinity
             }
         }
 
-        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDivice());
+        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDevice());
 
         VkCommandPoolCreateInfo l_PoolInfo{};
         l_PoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -883,7 +883,7 @@ namespace Trinity
     {
         TR_CORE_TRACE("Creating command pool");
 
-        QueueFamilyIndices l_QueueFamilyIndices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDivice());
+        QueueFamilyIndices l_QueueFamilyIndices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDevice());
 
         VkCommandPoolCreateInfo l_PoolInfo{};
         l_PoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1031,7 +1031,7 @@ namespace Trinity
         vkCreateImageView(m_Context->GetDevice(), &l_ViewInfo, nullptr, &m_ShadowImageView);
 
         // Transition layout
-        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDivice());
+        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDevice());
 
         VkCommandPoolCreateInfo l_PoolInfo{};
         l_PoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1466,7 +1466,7 @@ namespace Trinity
         for (VkFormat it_Format : l_Candidates)
         {
             VkFormatProperties l_Props;
-            vkGetPhysicalDeviceFormatProperties(m_Context->GetPhysicalDivice(), it_Format, &l_Props);
+            vkGetPhysicalDeviceFormatProperties(m_Context->GetPhysicalDevice(), it_Format, &l_Props);
             if (l_Props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
             {
                 return it_Format;

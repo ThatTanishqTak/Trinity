@@ -131,7 +131,7 @@ namespace Trinity
         vkBindBufferMemory(m_Context->GetDevice(), m_Buffer, m_BufferMemory, 0);
 
         // Copy from staging buffer to vertex buffer
-        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDivice());
+        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDevice());
 
         VkCommandPoolCreateInfo l_PoolInfo{};
         l_PoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
