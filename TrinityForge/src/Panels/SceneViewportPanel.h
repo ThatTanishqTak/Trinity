@@ -4,10 +4,15 @@
 #include <imgui.h>
 #include <vector>
 
+namespace Trinity
+{
+    class Renderer;
+}
+
 class SceneViewportPanel : public Trinity::Panel
 {
 public:
-    SceneViewportPanel();
+    SceneViewportPanel(Trinity::Renderer* renderer);
     void OnUIRender() override;
 
 private:
@@ -20,5 +25,6 @@ private:
         ImVec2 m_Size;
     };
 
+    Trinity::Renderer* m_Renderer = nullptr;
     std::vector<Primitive> m_Primitives;
 };

@@ -2,7 +2,9 @@
 
 #include "SceneViewportPanel.h"
 
-SceneViewportPanel::SceneViewportPanel()
+#include "Trinity/Renderer/Renderer.h"
+
+SceneViewportPanel::SceneViewportPanel(Trinity::Renderer* renderer) : m_Renderer(renderer)
 {
 
 }
