@@ -17,3 +17,6 @@
 	path = Trinity/vendor/imgui
 	url = https://github.com/ThatTanishqTak/imgui.git
 	branch = docking
+[submodule "Trinity/vendor/ImGuizmo"]
+	path = Trinity/vendor/ImGuizmo
+	url = https://github.com/ThatTanishqTak/ImGuizmo.git

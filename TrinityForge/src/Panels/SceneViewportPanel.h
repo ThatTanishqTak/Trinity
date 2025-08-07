@@ -1,17 +1,24 @@
 #pragma once
 
 #include "Trinity/UI/Panel.h"
-#include "Trinity/Renderer/Renderer.h"
-
 #include <imgui.h>
+#include <vector>
 
 class SceneViewportPanel : public Trinity::Panel
 {
 public:
-    explicit SceneViewportPanel(Trinity::Renderer* renderer);
+    SceneViewportPanel();
     void OnUIRender() override;
 
 private:
-    Trinity::Renderer* m_Renderer = nullptr;
-    ImTextureID m_Image;
+    enum class PrimitiveType { Rectangle, Circle };
+
+    struct Primitive
+    {
+        PrimitiveType m_Type;
+        ImVec2 m_Position;
+        ImVec2 m_Size;
+    };
+
+    std::vector<Primitive> m_Primitives;
 };
