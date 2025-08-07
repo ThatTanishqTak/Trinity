@@ -12,8 +12,7 @@ void EditorLayer::OnUIRender()
     ImGui::SetNextWindowSize(l_Viewport->WorkSize);
     ImGui::SetNextWindowViewport(l_Viewport->ID);
 
-    l_WindowFlags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+    l_WindowFlags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -22,6 +21,19 @@ void EditorLayer::OnUIRender()
     ImGui::Begin("DockSpace", nullptr, l_WindowFlags);
 
     ImGui::PopStyleVar(2);
+
+    if (ImGui::BeginMenuBar())
+    {
+        if (ImGui::BeginMenu("File"))
+        {
+            if (ImGui::MenuItem("Exit"))
+            {
+
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenuBar();
+    }
 
     ImGuiID l_DockspaceID = ImGui::GetID("MainDockSpace");
     ImGui::DockSpace(l_DockspaceID, ImVec2(0.0f, 0.0f));

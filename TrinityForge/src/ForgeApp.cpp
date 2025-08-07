@@ -2,6 +2,10 @@
 
 #include "EditorLayer.h"
 #include "Panels/StatsPanel.h"
+#include "Panels/ToolbarPanel.h"
+#include "Panels/PropertiesPanel.h"
+#include "Panels/SceneHierarchyPanel.h"
+#include "Panels/ContentBrowserPanel.h"
 
 namespace Trinity
 {
@@ -11,7 +15,12 @@ namespace Trinity
         ForgeApp(const ApplicationSpecification& l_Specifications) : Application(l_Specifications)
         {
             auto l_EditorLayer = std::make_unique<EditorLayer>();
+            l_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>());
+            l_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>());
+            l_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>());
+            l_EditorLayer->RegisterPanel(std::make_unique<PropertiesPanel>());
             l_EditorLayer->RegisterPanel(std::make_unique<StatsPanel>());
+
             m_ImGuiLayer->RegisterPanel(std::move(l_EditorLayer));
         }
     };
