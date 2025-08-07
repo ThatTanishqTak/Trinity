@@ -258,15 +258,10 @@ namespace Trinity
 
         m_RenderGraph.Clear();
         m_RenderGraph.AddPass("Shadow", [this, l_ImageIndex]() { RenderShadowPass(l_ImageIndex); }, true);
-        m_RenderGraph.AddPass("Geometry", [this, l_ImageIndex]() { RenderMainPass(l_ImageIndex); });
+        m_RenderGraph.AddPass("Geometry", [this, l_ImageIndex, &recordCallback]() { RenderMainPass(l_ImageIndex, recordCallback); });
         m_RenderGraph.AddPass("Bloom", [this]() { m_BloomPass.Execute(); }, true);
         m_RenderGraph.AddPass("ToneMapping", [this]() { m_ToneMappingPass.Execute(); }, true);
         m_RenderGraph.Execute();
-
-        if (recordCallback)
-        {
-            recordCallback(m_CommandBuffer[l_ImageIndex]);
-        }
 
         if (vkEndCommandBuffer(m_CommandBuffer[l_ImageIndex]) != VK_SUCCESS)
         {
@@ -1217,7 +1212,7 @@ namespace Trinity
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
     }
 
-    void Renderer::RenderMainPass(uint32_t imageIndex)
+    void Renderer::RenderMainPass(uint32_t imageIndex, const std::function<void(VkCommandBuffer)>& recordCallback)
     {
         VkRenderPassBeginInfo l_RenderPassInfo{};
         l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -1288,7 +1283,7 @@ namespace Trinity
             for (auto [it_Entity, a_Transform, a_Mesh, a_Material] : a_View.each())
             {
                 float l_Scale = std::max({ a_Transform.Scale.x, a_Transform.Scale.y, a_Transform.Scale.z });
-                float l_Radius = a_Mesh.Mesh->GetBoundingRadius() * l_Scale;
+                float l_Radius = a_Mesh.MeshHandle->GetBoundingRadius() * l_Scale;
                 if (!Culling::IsVisible(l_Frustum, a_Transform.Translation, l_Radius))
                 {
                     continue;
@@ -1312,14 +1307,14 @@ namespace Trinity
                 std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));
                 m_Frames[imageIndex].MaterialUniform.Unmap();
 
-                VkBuffer vertexBuffers[] = { a_Mesh.Mesh->GetVertexBuffer().GetBuffer() };
+                VkBuffer vertexBuffers[] = { a_Mesh.MeshHandle->GetVertexBuffer().GetBuffer() };
                 VkDeviceSize offsets[] = { 0 };
                 vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
 
-                uint32_t l_IndexCount = a_Mesh.Mesh->GetIndexBuffer().GetIndexCount();
+                uint32_t l_IndexCount = a_Mesh.MeshHandle->GetIndexBuffer().GetIndexCount();
                 if (l_IndexCount > 0)
                 {
-                    vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], a_Mesh.Mesh->GetIndexBuffer().GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], a_Mesh.MeshHandle->GetIndexBuffer().GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
                     vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
                     vkCmdDrawIndexed(m_CommandBuffer[imageIndex], l_IndexCount, 1, 0, 0, 0);
                 }
@@ -1327,10 +1322,16 @@ namespace Trinity
                 else
                 {
                     vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
-                    vkCmdDraw(m_CommandBuffer[imageIndex], a_Mesh.Mesh->GetVertexBuffer().GetVertexCount(), 1, 0, 0);
+                    vkCmdDraw(m_CommandBuffer[imageIndex], a_Mesh.MeshHandle->GetVertexBuffer().GetVertexCount(), 1, 0, 0);
                 }
             }
         }
+
+        if (recordCallback)
+        {
+            recordCallback(m_CommandBuffer[imageIndex]);
+        }
+
 
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
     }

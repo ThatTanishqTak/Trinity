@@ -65,6 +65,9 @@ void main()
     vec3 ambient = vec3(0.03) * baseColor;
     vec3 color = ambient + Lo;
 
+    color = color / (color + vec3(1.0));
+    color = pow(color, vec3(1.0 / 2.2));
+
     float shadow = texture(shadowMap, vec3(fragTexCoord, 1.0));
     outColor = vec4(color * shadow, material.Specular);
 }

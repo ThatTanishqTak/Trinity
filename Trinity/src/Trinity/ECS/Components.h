@@ -19,7 +19,7 @@ namespace Trinity
 
     struct MeshRenderer
     {
-        std::shared_ptr<Mesh> Mesh = nullptr;
+        std::shared_ptr<Mesh> MeshHandle = nullptr;
         std::shared_ptr<Texture> MeshTexture = nullptr;
     };
 

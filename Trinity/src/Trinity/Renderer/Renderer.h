@@ -57,7 +57,7 @@ namespace Trinity
         void CreateShadowResources();
         void CreateCommandBuffer();
         void CreateSyncObjects();
-        void RenderMainPass(uint32_t imageIndex);
+        void RenderMainPass(uint32_t imageIndex, const std::function<void(VkCommandBuffer)>& recordCallback = nullptr);
         void RenderShadowPass(uint32_t imageIndex);
         void CleanupSwapChain();
         void RecreateSwapChain();

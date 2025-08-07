@@ -55,7 +55,7 @@ namespace Trinity
 
         Entity l_Entity = m_Scene->CreateEntity();
         auto& a_Mesh = l_Entity.AddComponent<MeshRenderer>();
-        a_Mesh.Mesh = m_ResourceManager->Load<Mesh>("Assets/Textures/Checkers.png");
+        a_Mesh.MeshHandle = m_ResourceManager->Load<Mesh>("Assets/Textures/Checkers.png");
         a_Mesh.MeshTexture = m_ResourceManager->Load<Texture>("Assets/Textures/Checkers.png");
 
         Resources::ShaderWatcher::Start();
