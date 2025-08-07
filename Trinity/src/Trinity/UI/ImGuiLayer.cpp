@@ -100,9 +100,9 @@ namespace Trinity
 
     void ImGuiLayer::EndFrame(VkCommandBuffer commandBuffer)
     {
-        for (auto& a_Panel : m_Panels)
+        for (auto& it_Panel : m_Panels)
         {
-            a_Panel->OnUIRender();
+            it_Panel->OnUIRender();
         }
 
         ImGui::Render();

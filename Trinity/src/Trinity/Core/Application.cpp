@@ -54,9 +54,9 @@ namespace Trinity
         m_CameraController = std::make_unique<CameraController>(&m_Renderer->GetCamera());
 
         Entity l_Entity = m_Scene->CreateEntity();
-        auto& l_Mesh = l_Entity.AddComponent<MeshRenderer>();
-        l_Mesh.Mesh = m_ResourceManager->Load<Mesh>("Assets/Textures/Checkers.png");
-        l_Mesh.MeshTexture = m_ResourceManager->Load<Texture>("Assets/Textures/Checkers.png");
+        auto& a_Mesh = l_Entity.AddComponent<MeshRenderer>();
+        a_Mesh.Mesh = m_ResourceManager->Load<Mesh>("Assets/Textures/Checkers.png");
+        a_Mesh.MeshTexture = m_ResourceManager->Load<Texture>("Assets/Textures/Checkers.png");
 
         Resources::ShaderWatcher::Start();
 

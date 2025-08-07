@@ -45,11 +45,11 @@ namespace Trinity
 
 			s_Running = true;
 
-			for (auto& it : s_Watchers)
+			for (auto& a_It : s_Watchers)
 			{
-				if (!it.second.Watcher)
+				if (!a_It.second.Watcher)
 				{
-					it.second.Watcher = CreateWatcher(it.first);
+					a_It.second.Watcher = CreateWatcher(a_It.first);
 				}
 			}
 			TR_CORE_TRACE("Shader watcher started");
@@ -70,16 +70,16 @@ namespace Trinity
 			}
 
 			std::string l_Directory = path.string();
-			auto& l_Watch = s_Watchers[l_Directory];
+			auto& a_Watch = s_Watchers[l_Directory];
 
-			if (std::find(l_Watch.Shaders.begin(), l_Watch.Shaders.end(), shader) == l_Watch.Shaders.end())
+			if (std::find(a_Watch.Shaders.begin(), a_Watch.Shaders.end(), shader) == a_Watch.Shaders.end())
 			{
-				l_Watch.Shaders.push_back(shader);
+				a_Watch.Shaders.push_back(shader);
 			}
 
-			if (s_Running && !l_Watch.Watcher)
+			if (s_Running && !a_Watch.Watcher)
 			{
-				l_Watch.Watcher = CreateWatcher(l_Directory);
+				a_Watch.Watcher = CreateWatcher(l_Directory);
 			}
 		}
 	}

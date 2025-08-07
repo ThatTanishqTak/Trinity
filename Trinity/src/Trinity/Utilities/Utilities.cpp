@@ -48,7 +48,7 @@ namespace Trinity
                 return std::vector<std::byte>();
             }
 
-            const auto l_FileSize = std::filesystem::file_size(filePath);
+            const auto a_FileSize = std::filesystem::file_size(filePath);
 
             std::ifstream l_File(filePath, std::ios::binary);
             if (!l_File)
@@ -59,10 +59,10 @@ namespace Trinity
             }
 
             std::vector<std::byte> l_Buffer;
-            l_Buffer.resize(l_FileSize);
-            if (l_FileSize > 0)
+            l_Buffer.resize(a_FileSize);
+            if (a_FileSize > 0)
             {
-                l_File.read(reinterpret_cast<char*>(l_Buffer.data()), static_cast<std::streamsize>(l_FileSize));
+                l_File.read(reinterpret_cast<char*>(l_Buffer.data()), static_cast<std::streamsize>(a_FileSize));
                 if (!l_File)
                 {
                     TR_CORE_ERROR("Failed to read file: {}", filePath.string());

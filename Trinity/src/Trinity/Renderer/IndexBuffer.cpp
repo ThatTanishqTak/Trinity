@@ -52,9 +52,9 @@ namespace Trinity
 
         TR_CORE_TRACE("Creating staging buffer for indices");
 
-        if (auto l_Error = l_Staging.Create(l_BufferSize))
+        if (auto a_Error = l_Staging.Create(l_BufferSize))
         {
-            return l_Error;
+            return a_Error;
         }
 
         TR_CORE_TRACE("Index staging buffer created");

@@ -956,11 +956,11 @@ namespace Trinity
         VkDeviceSize l_LightBufferSize = sizeof(LightBufferObject);
         VkDeviceSize l_MaterialBufferSize = sizeof(MaterialBufferObject);
 
-        auto l_SwapChainImages = m_Context->GetSwapChainImages();
+        auto a_SwapChainImages = m_Context->GetSwapChainImages();
 
-        m_Frames.resize(l_SwapChainImages.size());
+        m_Frames.resize(a_SwapChainImages.size());
 
-        for (size_t i = 0; i < l_SwapChainImages.size(); ++i)
+        for (size_t i = 0; i < a_SwapChainImages.size(); ++i)
         {
             m_Frames[i].GlobalUniform = UniformBuffer(m_Context);
             m_Frames[i].LightUniform = UniformBuffer(m_Context);

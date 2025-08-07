@@ -38,9 +38,9 @@ void EditorLayer::OnUIRender()
     ImGuiID l_DockspaceID = ImGui::GetID("MainDockSpace");
     ImGui::DockSpace(l_DockspaceID, ImVec2(0.0f, 0.0f));
 
-    for (auto& l_Panel : m_Panels)
+    for (auto& it_Panel : m_Panels)
     {
-        l_Panel->OnUIRender();
+        it_Panel->OnUIRender();
     }
 
     ImGui::End();

@@ -15,15 +15,15 @@ namespace Trinity
     public:
         ForgeApp(const ApplicationSpecification& l_Specifications) : Application(l_Specifications)
         {
-            auto l_EditorLayer = std::make_unique<EditorLayer>();
-            l_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>());
-            l_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get()));
-            l_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>());
-            l_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>());
-            l_EditorLayer->RegisterPanel(std::make_unique<PropertiesPanel>());
-            l_EditorLayer->RegisterPanel(std::make_unique<StatsPanel>());
+            auto a_EditorLayer = std::make_unique<EditorLayer>();
+            a_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>());
+            a_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get()));
+            a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>());
+            a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>());
+            a_EditorLayer->RegisterPanel(std::make_unique<PropertiesPanel>());
+            a_EditorLayer->RegisterPanel(std::make_unique<StatsPanel>());
 
-            m_ImGuiLayer->RegisterPanel(std::move(l_EditorLayer));
+            m_ImGuiLayer->RegisterPanel(std::move(a_EditorLayer));
         }
     };
 

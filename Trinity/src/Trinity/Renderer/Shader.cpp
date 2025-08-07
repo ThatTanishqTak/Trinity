@@ -229,14 +229,14 @@ namespace Trinity
         std::filesystem::path l_Source = stage.SourcePath;
         if (l_Source.extension() == ".spv")
         {
-            auto l_Data = Utilities::FileManagement::ReadFile(l_Source);
-            if (l_Data.empty())
+            auto a_Data = Utilities::FileManagement::ReadFile(l_Source);
+            if (a_Data.empty())
             {
                 TR_CORE_ERROR("Failed to read shader file: {}", l_Source.string());
                 return false;
             }
-            stage.SpirvCode.resize(l_Data.size() / sizeof(uint32_t));
-            std::memcpy(stage.SpirvCode.data(), l_Data.data(), l_Data.size());
+            stage.SpirvCode.resize(a_Data.size() / sizeof(uint32_t));
+            std::memcpy(stage.SpirvCode.data(), a_Data.data(), a_Data.size());
 
             return true;
         }
