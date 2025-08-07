@@ -2,8 +2,11 @@
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
+#include <memory>
+#include <vector>
 
 #include "Trinity/Events/Event.h"
+#include "Trinity/UI/Panel.h"
 
 namespace Trinity
 {
@@ -20,6 +23,8 @@ namespace Trinity
         void BeginFrame();
         void EndFrame(VkCommandBuffer commandBuffer);
 
+        void RegisterPanel(std::unique_ptr<Panel> panel);
+
         void OnEvent(Event& e);
 
     private:
@@ -32,5 +37,7 @@ namespace Trinity
         VkRenderPass m_RenderPass;
         uint32_t m_ImageCount;
         VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
+
+        std::vector<std::unique_ptr<Panel>> m_Panels;
     };
 }

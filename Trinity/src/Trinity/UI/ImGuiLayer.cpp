@@ -81,7 +81,7 @@ namespace Trinity
 
     void ImGuiLayer::Shutdown()
     {
-        TR_CORE_TRACE("Shutting down ImGui");
+        TR_CORE_TRACE("Shuttng down ImGui");
 
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplGlfw_Shutdown();
@@ -100,8 +100,18 @@ namespace Trinity
 
     void ImGuiLayer::EndFrame(VkCommandBuffer commandBuffer)
     {
+        for (auto& a_Panel : m_Panels)
+        {
+            a_Panel->OnUIRender();
+        }
+
         ImGui::Render();
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+    }
+
+    void ImGuiLayer::RegisterPanel(std::unique_ptr<Panel> panel)
+    {
+        m_Panels.emplace_back(std::move(panel));
     }
 
     void ImGuiLayer::OnEvent(Event& e)
