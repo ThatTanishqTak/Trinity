@@ -6,6 +6,7 @@
 #include "Panels/PropertiesPanel.h"
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
+#include "Panels/SceneViewportPanel.h"
 
 namespace Trinity
 {
@@ -16,6 +17,7 @@ namespace Trinity
         {
             auto l_EditorLayer = std::make_unique<EditorLayer>();
             l_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>());
+            l_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get()));
             l_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>());
             l_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>());
             l_EditorLayer->RegisterPanel(std::make_unique<PropertiesPanel>());
