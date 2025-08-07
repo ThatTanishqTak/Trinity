@@ -11,6 +11,14 @@ namespace Trinity
     class VulkanContext;
     class Texture;
 
+    enum class TextureSlot : uint32_t
+    {
+        Albedo = 1,
+        Normal = 5,
+        Roughness = 6,
+        Metallic = 7
+    };
+
     class Material
     {
     public:
@@ -25,6 +33,8 @@ namespace Trinity
 
         void SetTexture(uint32_t binding, const Texture* texture);
         void SetSampler(uint32_t binding, VkSampler sampler);
+        void SetTexture(TextureSlot slot, const Texture* texture) { SetTexture(static_cast<uint32_t>(slot), texture); }
+        void SetSampler(TextureSlot slot, VkSampler sampler) { SetSampler(static_cast<uint32_t>(slot), sampler); }
         void SetConstants(const void* data, size_t size);
 
         std::optional<std::string> Build(VkDescriptorSetLayout layout, VkDescriptorPool pool);

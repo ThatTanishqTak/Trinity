@@ -5,7 +5,7 @@
 
 namespace Trinity
 {
-    struct Transform
+    struct TransformComponent
     {
         glm::vec3 Translation{ 0.0f };
         glm::vec3 Rotation{ 0.0f };
@@ -17,13 +17,13 @@ namespace Trinity
     class Mesh;
     class Texture;
 
-    struct MeshRenderer
+    struct MeshComponent
     {
         std::shared_ptr<Mesh> MeshHandle = nullptr;
         std::shared_ptr<Texture> MeshTexture = nullptr;
     };
 
-    struct Light
+    struct LightComponent
     {
         enum class Type
         {
@@ -38,11 +38,15 @@ namespace Trinity
         Type LightType{ Type::Point };
     };
 
-    struct Material
+    struct MaterialComponent
     {
         glm::vec3 Albedo{ 1.0f };
         float Roughness{ 1.0f };
         float Metallic{ 0.0f };
         float Specular{ 0.5f };
+
+        std::shared_ptr<Texture> NormalMap = nullptr;
+        std::shared_ptr<Texture> RoughnessMap = nullptr;
+        std::shared_ptr<Texture> MetallicMap = nullptr;
     };
 }

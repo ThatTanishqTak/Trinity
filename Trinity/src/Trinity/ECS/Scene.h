@@ -19,7 +19,7 @@ namespace Trinity
         Entity CreateEntity();
         Entity CreateLight(const glm::vec3& position, const glm::vec3& color);
 
-        std::vector<Light*> GetLights();
+        std::vector<LightComponent*> GetLights();
 
         entt::registry& GetRegistry() { return m_Registry; }
 

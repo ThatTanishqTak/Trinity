@@ -82,20 +82,22 @@ namespace Trinity
 
         for (auto& it_Pair : m_Textures)
         {
+            uint32_t l_Binding = it_Pair.first;
+
             VkDescriptorImageInfo l_Image{};
             l_Image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             l_Image.imageView = it_Pair.second->GetImageView();
             l_Image.sampler = VK_NULL_HANDLE;
-            if (m_Samplers.count(it_Pair.first))
+            if (m_Samplers.count(l_Binding))
             {
-                l_Image.sampler = m_Samplers[it_Pair.first];
+                l_Image.sampler = m_Samplers[l_Binding];
             }
             l_ImageInfos.push_back(l_Image);
 
             VkWriteDescriptorSet l_Write{};
             l_Write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             l_Write.dstSet = m_DescriptorSet;
-            l_Write.dstBinding = it_Pair.first;
+            l_Write.dstBinding = l_Binding;
             l_Write.dstArrayElement = 0;
             l_Write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             l_Write.descriptorCount = 1;

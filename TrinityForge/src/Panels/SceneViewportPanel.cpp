@@ -49,9 +49,10 @@ void SceneViewportPanel::OnUIRender()
             break;
         }
         case PrimitiveType::Circle:
-            l_DrawList->AddCircle(a_Primitive.m_Position, a_Primitive.m_Size.x,
-                IM_COL32(255, 255, 255, 255));
+        {
+            l_DrawList->AddCircle(a_Primitive.m_Position, a_Primitive.m_Size.x, IM_COL32(255, 255, 255, 255));
             break;
+        }
         }
     }
 

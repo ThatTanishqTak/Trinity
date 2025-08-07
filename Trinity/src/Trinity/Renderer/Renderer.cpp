@@ -6,6 +6,7 @@
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/Renderer/Renderer.h"
 #include "Trinity/Renderer/Shader.h"
+#include "Trinity/Renderer/Material.h"
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Vulkan/VulkanContext.h"
 
@@ -401,11 +402,32 @@ namespace Trinity
         l_LayoutBinding.pImmutableSamplers = nullptr;
 
         VkDescriptorSetLayoutBinding l_SamplerBinding{};
-        l_SamplerBinding.binding = 1;
+        l_SamplerBinding.binding = static_cast<uint32_t>(TextureSlot::Albedo);
         l_SamplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         l_SamplerBinding.descriptorCount = 1;
         l_SamplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         l_SamplerBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding l_NormalBinding{};
+        l_NormalBinding.binding = static_cast<uint32_t>(TextureSlot::Normal);
+        l_NormalBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        l_NormalBinding.descriptorCount = 1;
+        l_NormalBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        l_NormalBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding l_RoughnessBinding{};
+        l_RoughnessBinding.binding = static_cast<uint32_t>(TextureSlot::Roughness);
+        l_RoughnessBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        l_RoughnessBinding.descriptorCount = 1;
+        l_RoughnessBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        l_RoughnessBinding.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutBinding l_MetallicBinding{};
+        l_MetallicBinding.binding = static_cast<uint32_t>(TextureSlot::Metallic);
+        l_MetallicBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        l_MetallicBinding.descriptorCount = 1;
+        l_MetallicBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        l_MetallicBinding.pImmutableSamplers = nullptr;
 
         VkDescriptorSetLayoutBinding l_LightBinding{};
         l_LightBinding.binding = 2;
@@ -428,7 +450,8 @@ namespace Trinity
         l_ShadowBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         l_ShadowBinding.pImmutableSamplers = nullptr;
 
-        std::array<VkDescriptorSetLayoutBinding, 5> l_Bindings{ l_LayoutBinding, l_SamplerBinding, l_LightBinding, l_MaterialBinding, l_ShadowBinding };
+        std::array<VkDescriptorSetLayoutBinding, 8> l_Bindings{ l_LayoutBinding, l_SamplerBinding, l_LightBinding, l_MaterialBinding, l_ShadowBinding, 
+                                                                l_NormalBinding, l_RoughnessBinding, l_MetallicBinding };
 
         VkDescriptorSetLayoutCreateInfo l_CreateInfo{};
         l_CreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -454,7 +477,7 @@ namespace Trinity
         l_PoolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         l_PoolSizes[0].descriptorCount = static_cast<uint32_t>(a_SwapChainImages.size()) * 3;
         l_PoolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        l_PoolSizes[1].descriptorCount = static_cast<uint32_t>(a_SwapChainImages.size()) * 2;
+        l_PoolSizes[1].descriptorCount = static_cast<uint32_t>(a_SwapChainImages.size()) * 5;
 
         VkDescriptorPoolCreateInfo l_PoolInfo{};
         l_PoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -522,7 +545,11 @@ namespace Trinity
             l_ShadowInfo.imageView = m_ShadowImageView;
             l_ShadowInfo.sampler = m_ShadowSampler;
 
-            std::array<VkWriteDescriptorSet, 5> l_DescriptorWrites{};
+            VkDescriptorImageInfo l_NormalInfo = l_ImageInfo;
+            VkDescriptorImageInfo l_RoughnessInfo = l_ImageInfo;
+            VkDescriptorImageInfo l_MetallicInfo = l_ImageInfo;
+
+            std::array<VkWriteDescriptorSet, 8> l_DescriptorWrites{};
             l_DescriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             l_DescriptorWrites[0].dstSet = m_Frames[i].DescriptorSet;
             l_DescriptorWrites[0].dstBinding = 0;
@@ -533,7 +560,7 @@ namespace Trinity
 
             l_DescriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             l_DescriptorWrites[1].dstSet = m_Frames[i].DescriptorSet;
-            l_DescriptorWrites[1].dstBinding = 1;
+            l_DescriptorWrites[1].dstBinding = static_cast<uint32_t>(TextureSlot::Albedo);
             l_DescriptorWrites[1].dstArrayElement = 0;
             l_DescriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             l_DescriptorWrites[1].descriptorCount = 1;
@@ -562,6 +589,30 @@ namespace Trinity
             l_DescriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             l_DescriptorWrites[4].descriptorCount = 1;
             l_DescriptorWrites[4].pImageInfo = &l_ShadowInfo;
+
+            l_DescriptorWrites[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            l_DescriptorWrites[5].dstSet = m_Frames[i].DescriptorSet;
+            l_DescriptorWrites[5].dstBinding = static_cast<uint32_t>(TextureSlot::Normal);
+            l_DescriptorWrites[5].dstArrayElement = 0;
+            l_DescriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            l_DescriptorWrites[5].descriptorCount = 1;
+            l_DescriptorWrites[5].pImageInfo = &l_NormalInfo;
+
+            l_DescriptorWrites[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            l_DescriptorWrites[6].dstSet = m_Frames[i].DescriptorSet;
+            l_DescriptorWrites[6].dstBinding = static_cast<uint32_t>(TextureSlot::Roughness);
+            l_DescriptorWrites[6].dstArrayElement = 0;
+            l_DescriptorWrites[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            l_DescriptorWrites[6].descriptorCount = 1;
+            l_DescriptorWrites[6].pImageInfo = &l_RoughnessInfo;
+
+            l_DescriptorWrites[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            l_DescriptorWrites[7].dstSet = m_Frames[i].DescriptorSet;
+            l_DescriptorWrites[7].dstBinding = static_cast<uint32_t>(TextureSlot::Metallic);
+            l_DescriptorWrites[7].dstArrayElement = 0;
+            l_DescriptorWrites[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            l_DescriptorWrites[7].descriptorCount = 1;
+            l_DescriptorWrites[7].pImageInfo = &l_MetallicInfo;
 
             vkUpdateDescriptorSets(m_Context->GetDevice(), static_cast<uint32_t>(l_DescriptorWrites.size()), l_DescriptorWrites.data(), 0, nullptr);
         }
@@ -1265,14 +1316,14 @@ namespace Trinity
             Culling::Frustum l_Frustum = Culling::CreateFrustum(m_Camera.GetProjectionMatrix() * m_Camera.GetViewMatrix());
 
             LightBufferObject l_Light{};
-            auto a_LightView = m_Scene->GetRegistry().view<Light>();
+            auto a_LightView = m_Scene->GetRegistry().view<LightComponent>();
             for (auto it_Entity : a_LightView)
             {
                 if (l_Light.LightCount >= static_cast<int>(MaxLights))
                 {
                     break;
                 }
-                auto& a_Light = a_LightView.get<Light>(it_Entity);
+                auto& a_Light = a_LightView.get<LightComponent>(it_Entity);
                 l_Light.Lights[l_Light.LightCount].Position = a_Light.Position;
                 l_Light.Lights[l_Light.LightCount].Color = a_Light.Color;
                 l_Light.Lights[l_Light.LightCount].Intensity = a_Light.Intensity;
@@ -1284,7 +1335,7 @@ namespace Trinity
             std::memcpy(l_LightData, &l_Light, sizeof(l_Light));
             m_Frames[imageIndex].LightUniform.Unmap();
 
-            auto a_View = m_Scene->GetRegistry().view<Transform, MeshRenderer, Material>();
+            auto a_View = m_Scene->GetRegistry().view<TransformComponent, MeshComponent, MaterialComponent>();
             for (auto [it_Entity, a_Transform, a_Mesh, a_Material] : a_View.each())
             {
                 float l_Scale = std::max({ a_Transform.Scale.x, a_Transform.Scale.y, a_Transform.Scale.z });

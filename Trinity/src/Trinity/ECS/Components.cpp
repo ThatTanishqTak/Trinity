@@ -6,7 +6,7 @@
 
 namespace Trinity
 {
-    glm::mat4 Transform::GetTransform() const
+    glm::mat4 TransformComponent::GetTransform() const
     {
         glm::mat4 l_Rotation = glm::mat4(1.0f);
         l_Rotation = glm::rotate(l_Rotation, glm::radians(Rotation.x), { 1.0f, 0.0f, 0.0f });
