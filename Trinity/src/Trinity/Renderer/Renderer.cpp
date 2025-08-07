@@ -316,6 +316,11 @@ namespace Trinity
         m_CurrentFrame = (m_CurrentFrame + 1) % m_InFlightFence.size();
     }
 
+    void Renderer::OnWindowResize()
+    {
+        RecreateSwapChain();
+    }
+
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
 
     void Renderer::CreateRenderPass()

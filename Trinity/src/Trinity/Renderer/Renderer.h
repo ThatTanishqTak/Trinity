@@ -34,6 +34,8 @@ namespace Trinity
 
         Camera& GetCamera() { return m_Camera; }
 
+        void OnWindowResize();
+
         void SetScene(Scene* scene) { m_Scene = scene; }
 
         VertexBuffer& GetVertexBuffer() { return m_VertexBuffer; }

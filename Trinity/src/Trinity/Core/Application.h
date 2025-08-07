@@ -8,6 +8,7 @@
 #include "Trinity/ECS/Entity.h"
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/Events/Event.h"
+#include "Trinity/Events/ApplicationEvent.h"
 #include "Trinity/Renderer/Renderer.h"
 #include "Trinity/UI/ImGuiLayer.h"
 #include "Trinity/Utilities/Utilities.h"
@@ -64,6 +65,9 @@ namespace Trinity
         }
 
         virtual void OnEvent(Event& e);
+
+    protected:
+        bool OnWindowResize(WindowResizeEvent& e);
 
     protected:
         ApplicationSpecification m_Specification;

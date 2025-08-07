@@ -102,9 +102,27 @@ namespace Trinity
 #if _DEBUG
         TR_CORE_TRACE("{}", e.ToString());
 #endif
+        EventDispatcher l_Dispatcher(e);
+        l_Dispatcher.Dispatch<WindowResizeEvent>(TR_BIND_EVENT_FN(Application::OnWindowResize));
+
         if (m_ImGuiLayer)
         {
             m_ImGuiLayer->OnEvent(e);
         }
+    }
+
+    bool Application::OnWindowResize(WindowResizeEvent& e)
+    {
+        if (e.GetWidth() == 0 || e.GetHeight() == 0)
+        {
+            return false;
+        }
+
+        if (m_Renderer)
+        {
+            m_Renderer->OnWindowResize();
+        }
+
+        return false;
     }
 }
