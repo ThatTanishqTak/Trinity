@@ -63,6 +63,7 @@ namespace Trinity
         l_InitInfo.QueueFamily = m_QueueFamily;
         l_InitInfo.Queue = m_Queue;
         l_InitInfo.DescriptorPool = m_DescriptorPool;
+        l_InitInfo.RenderPass = m_RenderPass;
         l_InitInfo.MinImageCount = m_ImageCount;
         l_InitInfo.ImageCount = m_ImageCount;
         l_InitInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
@@ -73,15 +74,21 @@ namespace Trinity
             return false;
         }
 
+        TR_CORE_TRACE("ImGui layer initialized");
+
         return true;
     }
 
     void ImGuiLayer::Shutdown()
     {
+        TR_CORE_TRACE("Shutting down ImGui");
+
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
         ImGui::DestroyContext();
+        
+        TR_CORE_TRACE("ImGui shutdown complete");
     }
 
     void ImGuiLayer::BeginFrame()
