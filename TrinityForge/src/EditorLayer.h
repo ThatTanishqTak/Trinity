@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <vector>
+#include <entt/entt.hpp>
 
 class EditorLayer : public Trinity::Panel
 {
@@ -13,6 +14,9 @@ public:
     void OnUIRender() override;
     void RegisterPanel(std::unique_ptr<Trinity::Panel> p_Panel);
 
+    entt::entity* GetSelectionContext() { return &m_SelectedEntity; }
+
 private:
     std::vector<std::unique_ptr<Trinity::Panel>> m_Panels;
+    entt::entity m_SelectedEntity{ entt::null };
 };

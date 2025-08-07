@@ -4,16 +4,14 @@
 #include "Trinity/ECS/Scene.h"
 #include <entt/entt.hpp>
 
-class SceneHierarchyPanel : public Trinity::Panel
+class InspectorPanel : public Trinity::Panel
 {
 public:
-    SceneHierarchyPanel(Trinity::Scene* p_Context, entt::entity* p_SelectionContext);
+    InspectorPanel(Trinity::Scene* p_Context, entt::entity* p_SelectionContext);
 
     void OnUIRender() override;
 
 private:
-    void DrawEntityNode(entt::entity p_Entity);
-
     Trinity::Scene* m_Context = nullptr;
     entt::entity* m_SelectionContext = nullptr;
 };

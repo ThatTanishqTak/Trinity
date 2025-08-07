@@ -3,10 +3,12 @@
 #include "EditorLayer.h"
 #include "Panels/StatsPanel.h"
 #include "Panels/ToolbarPanel.h"
-#include "Panels/PropertiesPanel.h"
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneViewportPanel.h"
+#include "Panels/InspectorPanel.h"
+
+#include <entt/entt.hpp>
 
 namespace Trinity
 {
@@ -16,12 +18,15 @@ namespace Trinity
         ForgeApp(const ApplicationSpecification& l_Specifications) : Application(l_Specifications)
         {
             auto a_EditorLayer = std::make_unique<EditorLayer>();
+            entt::entity* l_SelectionContext = a_EditorLayer->GetSelectionContext();
             a_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>());
             a_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get()));
-            a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>());
+            a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>(m_Scene.get(), l_SelectionContext));
             a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>());
-            a_EditorLayer->RegisterPanel(std::make_unique<PropertiesPanel>());
+            a_EditorLayer->RegisterPanel(std::make_unique<InspectorPanel>(m_Scene.get(), l_SelectionContext));
             a_EditorLayer->RegisterPanel(std::make_unique<StatsPanel>());
+
+            m_ImGuiLayer->RegisterPanel(std::move(a_EditorLayer));
 
             m_ImGuiLayer->RegisterPanel(std::move(a_EditorLayer));
         }

@@ -56,6 +56,12 @@ namespace Trinity
             return std::string("Failed to load texture: ") + path.string();
         }
 
+        return CreateFromPixels(l_Pixels, width, height);
+    }
+
+    std::optional<std::string> Texture::CreateFromPixels(const std::vector<std::byte>& pixels, int width, int height)
+    {
+
         VkDeviceSize l_ImageSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
 
         StagingBuffer l_Staging(m_Context);
@@ -65,7 +71,7 @@ namespace Trinity
         }
 
         void* l_Data = l_Staging.Map();
-        memcpy(l_Data, l_Pixels.data(), static_cast<size_t>(l_ImageSize));
+        memcpy(l_Data, pixels.data(), static_cast<size_t>(l_ImageSize));
         l_Staging.Unmap();
 
         VkImageCreateInfo l_ImageInfo{};

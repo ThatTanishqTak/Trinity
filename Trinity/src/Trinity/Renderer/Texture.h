@@ -2,6 +2,8 @@
 
 #include <optional>
 #include <filesystem>
+#include <vector>
+
 #include <vulkan/vulkan.h>
 
 namespace Trinity
@@ -21,6 +23,7 @@ namespace Trinity
         Texture& operator=(Texture&& other) noexcept;
 
         std::optional<std::string> LoadFromFile(const std::filesystem::path& path, int width, int height);
+        std::optional<std::string> CreateFromPixels(const std::vector<std::byte>& pixels, int width, int height);
         void Destroy();
 
         VkImageView GetImageView() const { return m_ImageView; }
