@@ -7,8 +7,8 @@ SceneViewportPanel::SceneViewportPanel(Trinity::Renderer* renderer) : m_Renderer
 {
     if (m_Renderer)
     {
-        auto& l_Texture = m_Renderer->GetTexture();
-        m_Image = (ImTextureID)ImGui_ImplVulkan_AddTexture(l_Texture.GetSampler(), l_Texture.GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        auto& a_Texture = m_Renderer->GetTexture();
+        m_Image = (ImTextureID)ImGui_ImplVulkan_AddTexture(a_Texture.GetSampler(), a_Texture.GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 }
 
