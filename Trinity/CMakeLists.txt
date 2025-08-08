@@ -129,6 +129,9 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Trinity/trpch.h
 )
 
+# yaml-cpp
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vendor/yaml-cpp)
+
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PUBLIC
     spdlog
@@ -142,6 +145,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     Vulkan
     shaderc
     filewatch
+    yaml-cpp
 )
 
 # Enable runtime shader compilation when requested
