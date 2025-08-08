@@ -6,6 +6,7 @@
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/InspectorPanel.h"
+#include "Panels/SceneViewportPanel.h"
 
 #include <entt/entt.hpp>
 
@@ -23,6 +24,7 @@ namespace Trinity
             a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>());
             a_EditorLayer->RegisterPanel(std::make_unique<InspectorPanel>(m_Scene.get(), l_SelectionContext));
             a_EditorLayer->RegisterPanel(std::make_unique<StatsPanel>());
+            a_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get()));
 
             m_ImGuiLayer->RegisterPanel(std::move(a_EditorLayer));
         }
