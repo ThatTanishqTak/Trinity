@@ -11,6 +11,8 @@
 #include <functional>
 #include <string_view>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 namespace Trinity
 {
@@ -61,9 +63,20 @@ namespace Trinity
 
     bool Shader::Reload()
     {
+        std::vector<Stage> l_Stages;
+        l_Stages.reserve(m_Stages.size());
+
+        for (const auto& it_Stage : m_Stages)
+        {
+            Stage l_Copy;
+            l_Copy.StageBit = it_Stage.StageBit;
+            l_Copy.SourcePath = it_Stage.SourcePath;
+            l_Stages.push_back(std::move(l_Copy));
+        }
+
         Destroy();
 
-        for (auto& it_Stage : m_Stages)
+        for (auto& it_Stage : l_Stages)
         {
             if (!std::filesystem::exists(it_Stage.SourcePath))
             {
@@ -85,9 +98,11 @@ namespace Trinity
             {
                 return false;
             }
+
+            m_Stages.push_back(std::move(it_Stage));
         }
         m_Pipelines.clear();
-        
+
         return true;
     }
 
@@ -97,6 +112,7 @@ namespace Trinity
         {
             it_Stage.module.reset();
         }
+        m_Stages.clear();
         m_Pipelines.clear();
     }
 
