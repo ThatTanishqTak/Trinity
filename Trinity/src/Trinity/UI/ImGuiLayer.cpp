@@ -102,11 +102,26 @@ namespace Trinity
     {
         for (auto& it_Panel : m_Panels)
         {
-            it_Panel->OnUIRender();
+            if (it_Panel)
+            {
+                it_Panel->OnUIRender();
+            }
         }
 
         ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+
+        ImDrawData* l_DrawData = ImGui::GetDrawData();
+        if (!l_DrawData || commandBuffer == VK_NULL_HANDLE)
+        {
+            TR_CORE_WARN("ImGui draw skipped due to invalid draw data or command buffer");
+
+            return;
+        }
+
+        if (l_DrawData && l_DrawData->TotalVtxCount > 0)
+        {
+            ImGui_ImplVulkan_RenderDrawData(l_DrawData, commandBuffer);
+        }
     }
 
     void ImGuiLayer::RegisterPanel(std::unique_ptr<Panel> panel)
