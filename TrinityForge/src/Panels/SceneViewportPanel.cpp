@@ -1,6 +1,9 @@
 #include "Trinity/trpch.h"
 #include "SceneViewportPanel.h"
+
 #include "Trinity/ECS/Components.h"
+#include "Trinity/ECS/Entity.h"
+#include "Trinity/Utilities/Utilities.h"
 
 #include <ImGuizmo.h>
 #include <imgui.h>
@@ -25,6 +28,21 @@ void SceneViewportPanel::OnUIRender()
         if (l_TextureID)
         {
             ImGui::Image(l_TextureID, l_ViewportPanelSize);
+
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    const char* l_Path = static_cast<const char*>(l_Payload->Data);
+                    if (m_Context)
+                    {
+                        Trinity::Entity l_Entity = m_Context->CreateEntity();
+                        l_Entity.AddComponent<Trinity::MeshComponent>();
+                        TR_CORE_INFO("Instantiated entity from asset: {}", l_Path);
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
         }
 
         if (m_Context && m_SelectionContext && *m_SelectionContext != entt::null)
