@@ -1,10 +1,18 @@
 #include "Trinity/trpch.h"
-
 #include "SceneViewportPanel.h"
 
 #include "Trinity/Renderer/Renderer.h"
+#include "Trinity/ECS/Scene.h"
+#include "Trinity/ECS/Components.h"
 
-SceneViewportPanel::SceneViewportPanel(Trinity::Renderer* renderer) : m_Renderer(renderer)
+#include <ImGuizmo.h>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/quaternion.hpp>
+
+SceneViewportPanel::SceneViewportPanel(Trinity::Renderer* renderer, Trinity::Scene* context, entt::entity* selectionContext) : m_Renderer(renderer), m_Context(context), 
+    m_SelectionContext(selectionContext)
 {
 
 }
@@ -13,46 +21,51 @@ void SceneViewportPanel::OnUIRender()
 {
     ImGui::Begin("Viewport");
 
-    ImDrawList* l_DrawList = ImGui::GetWindowDrawList();
-
-    if (ImGui::BeginPopupContextWindow())
+    ImVec2 l_Size = ImGui::GetContentRegionAvail();
+    if (m_ViewportSize.x != l_Size.x || m_ViewportSize.y != l_Size.y)
     {
-        if (ImGui::BeginMenu("Add"))
+        m_ViewportSize = l_Size;
+        if (m_Renderer)
         {
-            if (ImGui::MenuItem("Rectangle"))
-            {
-                ImVec2 l_MousePos = ImGui::GetMousePos();
-                m_Primitives.push_back({ PrimitiveType::Rectangle, l_MousePos, ImVec2(50.0f, 50.0f) });
-            }
-        
-            if (ImGui::MenuItem("Circle"))
-            {
-                ImVec2 l_MousePos = ImGui::GetMousePos();
-                m_Primitives.push_back({ PrimitiveType::Circle, l_MousePos, ImVec2(50.0f, 0.0f) });
-            }
-            ImGui::EndMenu();
+            m_Renderer->OnWindowResize();
         }
-        ImGui::EndPopup();
     }
 
-    for (auto& a_Primitive : m_Primitives)
+    if (m_Renderer)
     {
-        switch (a_Primitive.m_Type)
+        ImTextureID l_Image = m_Renderer->GetViewportImage();
+        if (l_Image)
         {
-        case PrimitiveType::Rectangle:
-        {
-            ImVec2 l_HalfSize = { a_Primitive.m_Size.x * 0.5f, a_Primitive.m_Size.y * 0.5f };
-            ImVec2 l_Min = { a_Primitive.m_Position.x - l_HalfSize.x, a_Primitive.m_Position.y - l_HalfSize.y };
-            ImVec2 l_Max = { a_Primitive.m_Position.x + l_HalfSize.x, a_Primitive.m_Position.y + l_HalfSize.y };
-            l_DrawList->AddRect(l_Min, l_Max, IM_COL32(255, 255, 255, 255));
+            ImGui::Image(l_Image, m_ViewportSize, ImVec2(0, 1), ImVec2(1, 0));
+        }
+    }
 
-            break;
-        }
-        case PrimitiveType::Circle:
+    if (m_Context && m_SelectionContext && *m_SelectionContext != entt::null)
+    {
+        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::BeginFrame();
+        ImGuizmo::SetDrawlist();
+        ImVec2 l_WindowPos = ImGui::GetWindowPos();
+        ImGuizmo::SetRect(l_WindowPos.x, l_WindowPos.y, m_ViewportSize.x, m_ViewportSize.y);
+
+        auto& a_Camera = m_Renderer->GetCamera();
+        glm::mat4 l_View = a_Camera.GetViewMatrix();
+        glm::mat4 l_Projection = a_Camera.GetProjectionMatrix();
+        l_Projection[1][1] *= -1.0f;
+
+        auto& l_Registry = m_Context->GetRegistry();
+        auto& a_Transform = l_Registry.get<Trinity::TransformComponent>(*m_SelectionContext);
+        glm::mat4 l_Transform = glm::translate(glm::mat4(1.0f), a_Transform.Translation) 
+                                * glm::toMat4(glm::quat(glm::radians(a_Transform.Rotation)))
+                                * glm::scale(glm::mat4(1.0f), a_Transform.Scale);
+
+        if (ImGuizmo::Manipulate(glm::value_ptr(l_View), glm::value_ptr(l_Projection), ImGuizmo::TRANSLATE, ImGuizmo::LOCAL, glm::value_ptr(l_Transform)))
         {
-            l_DrawList->AddCircle(a_Primitive.m_Position, a_Primitive.m_Size.x, IM_COL32(255, 255, 255, 255));
-            break;
-        }
+            glm::vec3 l_Translation, l_Rotation, l_Scale;
+            ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(l_Transform), glm::value_ptr(l_Translation), glm::value_ptr(l_Rotation), glm::value_ptr(l_Scale));
+            a_Transform.Translation = l_Translation;
+            a_Transform.Rotation = l_Rotation;
+            a_Transform.Scale = l_Scale;
         }
     }
 

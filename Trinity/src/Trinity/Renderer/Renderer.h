@@ -3,6 +3,7 @@
 #include <functional>
 #include <vector>
 #include <vulkan/vulkan.h>
+#include <imgui.h>
 
 #include "Trinity/Renderer/IndexBuffer.h"
 #include "Trinity/Renderer/PostProcess/BloomPass.h"
@@ -36,6 +37,8 @@ namespace Trinity
 
         void OnWindowResize();
 
+        ImTextureID GetViewportImage();
+
         void SetScene(Scene* scene) { m_Scene = scene; }
 
         VertexBuffer& GetVertexBuffer() { return m_VertexBuffer; }
@@ -59,6 +62,8 @@ namespace Trinity
         void CreateShadowResources();
         void CreateCommandBuffer();
         void CreateSyncObjects();
+        void CreateImGuiImageDescriptors();
+        void CleanupImGuiImageDescriptors();
         void RenderMainPass(uint32_t imageIndex, const std::function<void(VkCommandBuffer)>& recordCallback = nullptr);
         void RenderShadowPass(uint32_t imageIndex);
         void CleanupSwapChain();
@@ -118,5 +123,9 @@ namespace Trinity
         RenderGraph m_RenderGraph;
         BloomPass m_BloomPass;
         ToneMappingPass m_ToneMappingPass;
+
+        std::vector<VkDescriptorSet> m_ImGuiImageDescriptors{};
+        VkSampler m_ImGuiImageSampler = VK_NULL_HANDLE;
+        uint32_t m_LastImageIndex = 0;
     };
 }

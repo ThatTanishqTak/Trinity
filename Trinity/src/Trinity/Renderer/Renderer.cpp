@@ -10,6 +10,8 @@
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Vulkan/VulkanContext.h"
 
+#include <backends/imgui_impl_vulkan.h>
+
 namespace Trinity
 {
     Renderer::Renderer(VulkanContext* context) : m_Context(context), m_Shader(context)
@@ -51,6 +53,8 @@ namespace Trinity
 
         vkDeviceWaitIdle(m_Context->GetDevice());
         TR_CORE_TRACE("Renderer is ready to be shutdown");
+
+        CleanupImGuiImageDescriptors();
 
         m_Shader.Destroy();
         m_GraphicsPipeline = VK_NULL_HANDLE;
@@ -314,12 +318,28 @@ namespace Trinity
             TR_CORE_ERROR("Failed to present swap chain image!");
         }
 
+        m_LastImageIndex = l_ImageIndex;
         m_CurrentFrame = (m_CurrentFrame + 1) % m_InFlightFence.size();
     }
 
     void Renderer::OnWindowResize()
     {
         RecreateSwapChain();
+    }
+
+    ImTextureID Renderer::GetViewportImage()
+    {
+        if (m_ImGuiImageDescriptors.empty())
+        {
+            CreateImGuiImageDescriptors();
+        }
+        
+        if (m_ImGuiImageDescriptors.empty())
+        {
+            return 0;
+        }
+        
+        return (ImTextureID)m_ImGuiImageDescriptors[m_LastImageIndex];
     }
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -1396,6 +1416,8 @@ namespace Trinity
     {
         TR_CORE_TRACE("Cleaning up swapchain");
 
+        CleanupImGuiImageDescriptors();
+
         if (m_DescriptorPool)
         {
             vkDestroyDescriptorPool(m_Context->GetDevice(), m_DescriptorPool, nullptr);
@@ -1536,5 +1558,51 @@ namespace Trinity
     bool Renderer::HasStencilComponent(VkFormat format)
     {
         return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
+    }
+
+    void Renderer::CreateImGuiImageDescriptors()
+    {
+        CleanupImGuiImageDescriptors();
+        if (!m_Context)
+        {
+            return;
+        }
+        
+        if (m_ImGuiImageSampler == VK_NULL_HANDLE)
+        {
+            VkSamplerCreateInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            info.magFilter = VK_FILTER_LINEAR;
+            info.minFilter = VK_FILTER_LINEAR;
+            info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+            info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            info.minLod = 0.0f;
+            info.maxLod = 0.0f;
+            info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
+            vkCreateSampler(m_Context->GetDevice(), &info, nullptr, &m_ImGuiImageSampler);
+        }
+        auto views = m_Context->GetSwapChainImages();
+        m_ImGuiImageDescriptors.resize(views.size());
+        for (size_t i = 0; i < views.size(); ++i)
+        {
+            m_ImGuiImageDescriptors[i] = ImGui_ImplVulkan_AddTexture(m_ImGuiImageSampler, views[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+    }
+
+    void Renderer::CleanupImGuiImageDescriptors()
+    {
+        for (auto desc : m_ImGuiImageDescriptors)
+        {
+            ImGui_ImplVulkan_RemoveTexture(desc);
+        }
+        m_ImGuiImageDescriptors.clear();
+
+        if (m_ImGuiImageSampler)
+        {
+            vkDestroySampler(m_Context->GetDevice(), m_ImGuiImageSampler, nullptr);
+            m_ImGuiImageSampler = VK_NULL_HANDLE;
+        }
     }
 }

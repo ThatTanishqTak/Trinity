@@ -8,6 +8,16 @@ file(GLOB_RECURSE EDITOR_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
 )
 
+# ImGuizmo
+add_library(ImGuizmo STATIC
+    ${CMAKE_SOURCE_DIR}/Trinity/vendor/ImGuizmo/ImGuizmo.cpp
+)
+target_include_directories(ImGuizmo PUBLIC
+    ${CMAKE_SOURCE_DIR}/Trinity/vendor/ImGuizmo
+    ${CMAKE_SOURCE_DIR}/Trinity/vendor/imgui
+)
+target_link_libraries(ImGuizmo PUBLIC imgui)
+
 # Build .exe
 add_executable(${PROJECT_NAME} ${EDITOR_SOURCES})
 
@@ -25,6 +35,7 @@ target_include_directories(${PROJECT_NAME}
 # Link the engine to the editor
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     Trinity
+    ImGuizmo
 )
 
 # Shader compilation -----------------------------------------------------

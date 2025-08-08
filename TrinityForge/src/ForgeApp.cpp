@@ -20,13 +20,11 @@ namespace Trinity
             auto a_EditorLayer = std::make_unique<EditorLayer>();
             entt::entity* l_SelectionContext = a_EditorLayer->GetSelectionContext();
             a_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>());
-            a_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get()));
+            a_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get(), m_Scene.get(), l_SelectionContext));
             a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>(m_Scene.get(), l_SelectionContext));
             a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>());
             a_EditorLayer->RegisterPanel(std::make_unique<InspectorPanel>(m_Scene.get(), l_SelectionContext));
             a_EditorLayer->RegisterPanel(std::make_unique<StatsPanel>());
-
-            m_ImGuiLayer->RegisterPanel(std::move(a_EditorLayer));
 
             m_ImGuiLayer->RegisterPanel(std::move(a_EditorLayer));
         }
