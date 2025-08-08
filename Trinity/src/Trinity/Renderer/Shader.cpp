@@ -115,6 +115,21 @@ namespace Trinity
 
     VkPipeline Shader::GetPipeline(const VkGraphicsPipelineCreateInfo& pipelineInfo, const void* specData, size_t specSize)
     {
+        if (!m_Context)
+        {
+            TR_CORE_ERROR("Attempted to create graphics pipeline with null context");
+
+            return VK_NULL_HANDLE;
+        }
+
+        VkDevice l_Device = m_Context->GetDevice();
+        if (l_Device == VK_NULL_HANDLE)
+        {
+            TR_CORE_ERROR("Attempted to create graphics pipeline with null device");
+
+            return VK_NULL_HANDLE;
+        }
+
         const void* l_Data = specData;
         size_t l_Size = specSize;
         if (!l_Data || l_Size == 0)
@@ -149,6 +164,13 @@ namespace Trinity
 
         for (const auto& it_Stage : m_Stages)
         {
+            if (it_Stage.module.get() == VK_NULL_HANDLE)
+            {
+                TR_CORE_ERROR("Shader stage module is null for stage {}", static_cast<uint32_t>(it_Stage.StageBit));
+
+                continue;
+            }
+
             VkPipelineShaderStageCreateInfo l_StageInfo{};
             l_StageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
             l_StageInfo.stage = it_Stage.StageBit;
@@ -161,19 +183,26 @@ namespace Trinity
             l_StagesInfo.push_back(l_StageInfo);
         }
 
+        if (l_StagesInfo.empty())
+        {
+            TR_CORE_ERROR("Attempted to create graphics pipeline with no shader stages");
+
+            return VK_NULL_HANDLE;
+        }
+
         l_Info.stageCount = static_cast<uint32_t>(l_StagesInfo.size());
         l_Info.pStages = l_StagesInfo.data();
 
         VkPipeline l_Pipeline = VK_NULL_HANDLE;
-        if (vkCreateGraphicsPipelines(m_Context->GetDevice(), VK_NULL_HANDLE, 1, &l_Info, nullptr, &l_Pipeline) != VK_SUCCESS)
+        if (vkCreateGraphicsPipelines(l_Device, VK_NULL_HANDLE, 1, &l_Info, nullptr, &l_Pipeline) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to create graphics pipeline");
-        
+
             return VK_NULL_HANDLE;
         }
 
         m_Pipelines[l_Hash] = { l_Pipeline, { m_Context } };
-        
+
         return l_Pipeline;
     }
 
