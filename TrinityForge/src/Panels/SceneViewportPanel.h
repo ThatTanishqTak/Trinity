@@ -10,7 +10,7 @@
 class SceneViewportPanel : public Trinity::Panel
 {
 public:
-    SceneViewportPanel(Trinity::Renderer* renderer, Trinity::Scene* context, entt::entity* selectionContext);
+    SceneViewportPanel(Trinity::Renderer* renderer, Trinity::Scene* context = nullptr, entt::entity* selectionContext = nullptr);
 
     void OnUIRender() override;
 
