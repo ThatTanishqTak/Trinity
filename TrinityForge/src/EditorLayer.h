@@ -12,7 +12,7 @@ public:
     EditorLayer() = default;
 
     void OnUIRender() override;
-    void RegisterPanel(std::unique_ptr<Trinity::Panel> p_Panel);
+    void RegisterPanel(std::unique_ptr<Trinity::Panel> panel);
 
     entt::entity* GetSelectionContext() { return &m_SelectedEntity; }
 

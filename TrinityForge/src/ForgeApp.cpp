@@ -5,7 +5,6 @@
 #include "Panels/ToolbarPanel.h"
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
-#include "Panels/SceneViewportPanel.h"
 #include "Panels/InspectorPanel.h"
 
 #include <entt/entt.hpp>
@@ -20,7 +19,6 @@ namespace Trinity
             auto a_EditorLayer = std::make_unique<EditorLayer>();
             entt::entity* l_SelectionContext = a_EditorLayer->GetSelectionContext();
             a_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>());
-            a_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get(), m_Scene.get(), l_SelectionContext));
             a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>(m_Scene.get(), l_SelectionContext));
             a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>());
             a_EditorLayer->RegisterPanel(std::make_unique<InspectorPanel>(m_Scene.get(), l_SelectionContext));
