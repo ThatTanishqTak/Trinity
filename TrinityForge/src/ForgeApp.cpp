@@ -21,7 +21,7 @@ namespace Trinity
             entt::entity* l_SelectionContext = a_EditorLayer->GetSelectionContext();
             a_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>());
             a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>(m_Scene.get(), l_SelectionContext));
-            a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>());
+            a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>("../../../Sandbox"));
             a_EditorLayer->RegisterPanel(std::make_unique<InspectorPanel>(m_Scene.get(), l_SelectionContext));
             a_EditorLayer->RegisterPanel(std::make_unique<StatsPanel>());
             a_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get()));
