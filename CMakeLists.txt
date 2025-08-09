@@ -30,3 +30,4 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/${OUTPUT_DIR}/${PROJE
 # Add engine and editor subdirectory
 add_subdirectory(Trinity)
 add_subdirectory(TrinityForge)
+add_subdirectory(Launcher)
