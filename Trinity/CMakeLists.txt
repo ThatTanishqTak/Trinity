@@ -76,10 +76,15 @@ set_target_properties(assimp PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/vendor/assimp/include
 )
 
-add_library(imguifiledialog INTERFACE)
-target_include_directories(imguifiledialog INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/ImGuiFileDialog>
+add_library(imguifiledialog STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/ImGuiFileDialog/ImGuiFileDialog.cpp
 )
+target_include_directories(imguifiledialog PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/ImGuiFileDialog>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui/backends>
+)
+target_link_libraries(imguifiledialog PUBLIC imgui)
 
 # Vulkan
 add_library(Vulkan INTERFACE)

@@ -3,7 +3,6 @@
 
 #include <imgui.h>
 
-#define IMGUIFILEDIALOG_IMPLEMENTATION
 #include <ImGuiFileDialog.h>
 #include <filesystem>
 #include <string>
