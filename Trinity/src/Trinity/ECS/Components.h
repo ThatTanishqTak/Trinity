@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include <memory>
+#include <string>
 
 namespace Trinity
 {
@@ -19,6 +20,8 @@ namespace Trinity
 
     struct MeshComponent
     {
+        std::string MeshPath;
+        std::string TexturePath;
         std::shared_ptr<Mesh> MeshHandle = nullptr;
         std::shared_ptr<Texture> MeshTexture = nullptr;
     };
@@ -45,6 +48,9 @@ namespace Trinity
         float Metallic{ 0.0f };
         float Specular{ 0.5f };
 
+        std::string NormalMapPath;
+        std::string RoughnessMapPath;
+        std::string MetallicMapPath;
         std::shared_ptr<Texture> NormalMap = nullptr;
         std::shared_ptr<Texture> RoughnessMap = nullptr;
         std::shared_ptr<Texture> MetallicMap = nullptr;

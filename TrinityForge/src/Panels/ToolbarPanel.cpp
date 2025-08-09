@@ -3,11 +3,17 @@
 #include "ToolbarPanel.h"
 
 #include "Trinity/BuildSystem/BuildSystem.h"
+#include "Trinity/ECS/SceneSerializer.h"
 
 #include <imgui.h>
 #include <thread>
 #include <fstream>
 #include <filesystem>
+
+ToolbarPanel::ToolbarPanel(Trinity::Scene* p_Scene, Trinity::ResourceManager* p_ResourceManager) : m_Scene(p_Scene), m_ResourceManager(p_ResourceManager)
+{
+
+}
 
 namespace {
     std::string Trim(const std::string& str)
@@ -63,16 +69,30 @@ void ToolbarPanel::StartBuild(const std::string& a_ConfigPath)
 
 void ToolbarPanel::OnUIRender()
 {
-    ImGuiWindowFlags l_WindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDocking;
-
-    ImGui::Begin("Toolbar", nullptr, l_WindowFlags);
+    ImGui::Begin("Toolbar", nullptr);
 
     if (ImGui::Button("Build"))
     {
         m_FileDialogCurrentPath = std::filesystem::current_path();
         m_SelectedConfigPath.clear();
         ImGui::OpenPopup("Select Build Config");
+    }
+
+    ImGui::SameLine();
+
+    if (ImGui::Button(m_IsPlaying ? "Stop" : "Play"))
+    {
+        Trinity::SceneSerializer l_Serializer(m_Scene, m_ResourceManager);
+        if (!m_IsPlaying)
+        {
+            l_Serializer.Serialize("scene_play.yaml");
+        }
+
+        else
+        {
+            l_Serializer.Deserialize("scene_play.yaml");
+        }
+        m_IsPlaying = !m_IsPlaying;
     }
 
     ImGui::End();
