@@ -43,9 +43,9 @@ namespace Trinity
             }
         }
 
-        if (l_Root["Platforms"])
+        if (l_Root["TargetPlatforms"])
         {
-            for (auto l_Node : l_Root["Platforms"])
+            for (auto l_Node : l_Root["TargetPlatforms"])
             {
                 l_Config.TargetPlatforms.emplace_back(l_Node.as<std::string>());
             }

@@ -7,7 +7,6 @@
 
 #include <imgui.h>
 #include <thread>
-#include <fstream>
 #include <filesystem>
 
 ToolbarPanel::ToolbarPanel(Trinity::Scene* p_Scene, Trinity::ResourceManager* p_ResourceManager) : m_Scene(p_Scene), m_ResourceManager(p_ResourceManager)
@@ -15,54 +14,28 @@ ToolbarPanel::ToolbarPanel(Trinity::Scene* p_Scene, Trinity::ResourceManager* p_
 
 }
 
-namespace {
-    std::string Trim(const std::string& str)
-    {
-        const char* l_Whitespace = " \t\n\r\"";
-        const auto l_Begin = str.find_first_not_of(l_Whitespace);
-        if (l_Begin == std::string::npos)
-        {
-            return {};
-        }
-        const auto l_End = str.find_last_not_of(l_Whitespace);
-
-        return str.substr(l_Begin, l_End - l_Begin + 1);
-    }
-}
-
 void ToolbarPanel::StartBuild(const std::string& a_ConfigPath)
 {
     m_IsBuilding = true;
-    m_BuildStatus = "Building...";
+    m_BuildStatus = "Parsing config...";
 
     std::thread([this, a_ConfigPath]()
         {
-            Trinity::BuildConfig l_Config{};
-            std::ifstream l_File(a_ConfigPath);
-            if (l_File)
+            try
             {
-                std::string l_Line;
-                while (std::getline(l_File, l_Line))
-                {
-                    if (l_Line.find("OutputDir") != std::string::npos)
-                    {
-                        auto l_Colon = l_Line.find(':');
-                        if (l_Colon != std::string::npos)
-                        {
-                            std::string l_Value = Trim(l_Line.substr(l_Colon + 1));
-                            if (!l_Value.empty())
-                            {
-                                l_Config.OutputDir = l_Value;
-                            }
-                        }
-                    }
-                }
+                auto l_Config = Trinity::BuildSystem::ParseBuildConfig(a_ConfigPath);
+                m_BuildStatus = "Building...";
+
+                Trinity::BuildSystem l_Builder;
+                l_Builder.Build(l_Config);
+
+                m_BuildStatus = "Build complete";
+            }
+            catch (const std::exception& e)
+            {
+                m_BuildStatus = std::string("Build failed: ") + e.what();
             }
 
-            Trinity::BuildSystem l_Builder;
-            l_Builder.Build(l_Config);
-
-            m_BuildStatus = "Build complete";
             m_IsBuilding = false;
         }).detach();
 }
