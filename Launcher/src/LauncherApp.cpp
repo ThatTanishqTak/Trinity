@@ -9,7 +9,8 @@ namespace Trinity
     public:
         LauncherApp(const ApplicationSpecification& l_Specifications) : Application(l_Specifications)
         {
-
+            auto a_LauncherLayer = std::make_unique<LauncherLayer>();
+            m_ImGuiLayer->RegisterPanel(std::move(a_LauncherLayer));
         }
     };
 
