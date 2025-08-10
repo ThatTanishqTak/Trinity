@@ -6,6 +6,8 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include "Trinity/Renderer/BufferBase.h"
+
 namespace Trinity
 {
     class VulkanContext;
@@ -20,7 +22,7 @@ namespace Trinity
         static std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions();
     };
 
-    class VertexBuffer
+    class VertexBuffer : public BufferBase
     {
     public:
         VertexBuffer() = default;
@@ -36,12 +38,9 @@ namespace Trinity
         void Destroy();
 
         VkBuffer GetBuffer() const { return m_Buffer; }
-        uint32_t GetVertexCount() const { return m_VertexCount; }
+        uint32_t GetVertexCount() const { return static_cast<uint32_t>(m_Count); }
 
     private:
         VulkanContext* m_Context = nullptr;
-        VkBuffer m_Buffer = VK_NULL_HANDLE;
-        VkDeviceMemory m_BufferMemory = VK_NULL_HANDLE;
-        uint32_t m_VertexCount = 0;
     };
 }

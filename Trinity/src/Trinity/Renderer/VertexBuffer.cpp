@@ -18,12 +18,8 @@ namespace Trinity
         Destroy();
     }
 
-    VertexBuffer::VertexBuffer(VertexBuffer&& other) noexcept : m_Context(other.m_Context), m_Buffer(other.m_Buffer), m_BufferMemory(other.m_BufferMemory), 
-        m_VertexCount(other.m_VertexCount)
+    VertexBuffer::VertexBuffer(VertexBuffer&& other) noexcept : BufferBase(std::move(other)), m_Context(other.m_Context)
     {
-        other.m_Buffer = VK_NULL_HANDLE;
-        other.m_BufferMemory = VK_NULL_HANDLE;
-        other.m_VertexCount = 0;
     }
 
     VertexBuffer& VertexBuffer::operator=(VertexBuffer&& other) noexcept
@@ -31,14 +27,9 @@ namespace Trinity
         if (this != &other)
         {
             Destroy();
-        
+
             m_Context = other.m_Context;
-            m_Buffer = other.m_Buffer;
-            m_BufferMemory = other.m_BufferMemory;
-            m_VertexCount = other.m_VertexCount;
-            other.m_Buffer = VK_NULL_HANDLE;
-            other.m_BufferMemory = VK_NULL_HANDLE;
-            other.m_VertexCount = 0;
+            BufferBase::operator=(std::move(other));
         }
 
         return *this;
@@ -50,7 +41,7 @@ namespace Trinity
         l_Binding.binding = 0;
         l_Binding.stride = sizeof(Vertex);
         l_Binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        
+
         return l_Binding;
     }
 
@@ -79,7 +70,7 @@ namespace Trinity
 
     std::optional<std::string> VertexBuffer::Create(const std::vector<Vertex>& vertices)
     {
-        m_VertexCount = static_cast<uint32_t>(vertices.size());
+        m_Count = static_cast<VkDeviceSize>(vertices.size());
         VkDeviceSize l_BufferSize = sizeof(Vertex) * vertices.size();
 
         return CreateDeviceBuffer(m_Context, l_BufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, m_Buffer, m_BufferMemory, vertices.data());

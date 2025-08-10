@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include "Trinity/Camera/Camera.h"
+#include "Trinity/Renderer/BufferBase.h"
 
 namespace Trinity
 {
@@ -49,7 +50,7 @@ namespace Trinity
         float Specular{ 0.5f };
     };
 
-    class UniformBuffer
+    class UniformBuffer : public BufferBase
     {
     public:
         UniformBuffer() = default;
@@ -71,9 +72,6 @@ namespace Trinity
 
     private:
         VulkanContext* m_Context = nullptr;
-        VkBuffer m_Buffer = VK_NULL_HANDLE;
-        VkDeviceMemory m_BufferMemory = VK_NULL_HANDLE;
-        VkDeviceSize m_Size = 0;
         void* m_Mapped = nullptr;
     };
 }

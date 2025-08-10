@@ -17,12 +17,8 @@ namespace Trinity
         Destroy();
     }
 
-    UniformBuffer::UniformBuffer(UniformBuffer&& other) noexcept : m_Context(other.m_Context), m_Buffer(other.m_Buffer), m_BufferMemory(other.m_BufferMemory), 
-        m_Size(other.m_Size), m_Mapped(other.m_Mapped)
+    UniformBuffer::UniformBuffer(UniformBuffer&& other) noexcept : BufferBase(std::move(other)), m_Context(other.m_Context), m_Mapped(other.m_Mapped)
     {
-        other.m_Buffer = VK_NULL_HANDLE;
-        other.m_BufferMemory = VK_NULL_HANDLE;
-        other.m_Size = 0;
         other.m_Mapped = nullptr;
     }
 
@@ -31,15 +27,10 @@ namespace Trinity
         if (this != &other)
         {
             Destroy();
-        
+
             m_Context = other.m_Context;
-            m_Buffer = other.m_Buffer;
-            m_BufferMemory = other.m_BufferMemory;
-            m_Size = other.m_Size;
+            BufferBase::operator=(std::move(other));
             m_Mapped = other.m_Mapped;
-            other.m_Buffer = VK_NULL_HANDLE;
-            other.m_BufferMemory = VK_NULL_HANDLE;
-            other.m_Size = 0;
             other.m_Mapped = nullptr;
         }
 
@@ -48,7 +39,7 @@ namespace Trinity
 
     std::optional<std::string> UniformBuffer::Create(VkDeviceSize size)
     {
-        m_Size = size;
+        m_Count = size;
 
         VkBufferCreateInfo l_BufferInfo{};
         l_BufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -88,7 +79,7 @@ namespace Trinity
         DestroyBuffer(m_Context, m_Buffer, m_BufferMemory);
 
         m_Mapped = nullptr;
-        m_Size = 0;
+        m_Count = 0;
 
         TR_CORE_TRACE("Uniform buffer destroyed");
     }
@@ -97,7 +88,7 @@ namespace Trinity
     {
         if (!m_Mapped)
         {
-            vkMapMemory(m_Context->GetDevice(), m_BufferMemory, 0, m_Size, 0, &m_Mapped);
+            vkMapMemory(m_Context->GetDevice(), m_BufferMemory, 0, m_Count, 0, &m_Mapped);
         }
 
         return m_Mapped;

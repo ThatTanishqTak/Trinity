@@ -4,11 +4,13 @@
 
 #include <vulkan/vulkan.h>
 
+#include "Trinity/Renderer/BufferBase.h"
+
 namespace Trinity
 {
     class VulkanContext;
 
-    class StagingBuffer
+    class StagingBuffer : public BufferBase
     {
     public:
         StagingBuffer() = default;
@@ -27,13 +29,10 @@ namespace Trinity
         void Unmap();
 
         VkBuffer GetBuffer() const { return m_Buffer; }
-        VkDeviceSize GetSize() const { return m_Size; }
+        VkDeviceSize GetSize() const { return m_Count; }
 
     private:
         VulkanContext* m_Context = nullptr;
-        VkBuffer m_Buffer = VK_NULL_HANDLE;
-        VkDeviceMemory m_BufferMemory = VK_NULL_HANDLE;
-        VkDeviceSize m_Size = 0;
         void* m_Mapped = nullptr;
     };
 }

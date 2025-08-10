@@ -5,11 +5,13 @@
 
 #include <vulkan/vulkan.h>
 
+#include "Trinity/Renderer/BufferBase.h"
+
 namespace Trinity
 {
     class VulkanContext;
 
-    class IndexBuffer
+    class IndexBuffer : public BufferBase
     {
     public:
         IndexBuffer() = default;
@@ -25,12 +27,9 @@ namespace Trinity
         void Destroy();
 
         VkBuffer GetBuffer() const { return m_Buffer; }
-        uint32_t GetIndexCount() const { return m_IndexCount; }
+        uint32_t GetIndexCount() const { return static_cast<uint32_t>(m_Count); }
 
     private:
         VulkanContext* m_Context = nullptr;
-        VkBuffer m_Buffer = VK_NULL_HANDLE;
-        VkDeviceMemory m_BufferMemory = VK_NULL_HANDLE;
-        uint32_t m_IndexCount = 0;
     };
 }

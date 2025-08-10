@@ -17,12 +17,8 @@ namespace Trinity
         Destroy();
     }
 
-    IndexBuffer::IndexBuffer(IndexBuffer&& other) noexcept : m_Context(other.m_Context), m_Buffer(other.m_Buffer),
-        m_BufferMemory(other.m_BufferMemory), m_IndexCount(other.m_IndexCount)
+    IndexBuffer::IndexBuffer(IndexBuffer&& other) noexcept : BufferBase(std::move(other)), m_Context(other.m_Context)
     {
-        other.m_Buffer = VK_NULL_HANDLE;
-        other.m_BufferMemory = VK_NULL_HANDLE;
-        other.m_IndexCount = 0;
     }
 
     IndexBuffer& IndexBuffer::operator=(IndexBuffer&& other) noexcept
@@ -32,12 +28,7 @@ namespace Trinity
             Destroy();
 
             m_Context = other.m_Context;
-            m_Buffer = other.m_Buffer;
-            m_BufferMemory = other.m_BufferMemory;
-            m_IndexCount = other.m_IndexCount;
-            other.m_Buffer = VK_NULL_HANDLE;
-            other.m_BufferMemory = VK_NULL_HANDLE;
-            other.m_IndexCount = 0;
+            BufferBase::operator=(std::move(other));
         }
 
         return *this;
@@ -45,7 +36,7 @@ namespace Trinity
 
     std::optional<std::string> IndexBuffer::Create(const std::vector<uint32_t>& indices)
     {
-        m_IndexCount = static_cast<uint32_t>(indices.size());
+        m_Count = static_cast<VkDeviceSize>(indices.size());
         VkDeviceSize l_BufferSize = sizeof(uint32_t) * indices.size();
 
         return CreateDeviceBuffer(m_Context, l_BufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, m_Buffer, m_BufferMemory, indices.data());
