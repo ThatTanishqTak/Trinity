@@ -79,8 +79,7 @@ namespace Trinity
             std::string l_Extension = it_Entry.path().extension().string();
             if (l_Extension == ".dll" || l_Extension == ".so" || l_Extension == ".dylib" || l_Extension == ".exe" || l_Extension.empty())
             {
-                std::filesystem::copy_file(it_Entry.path(), a_OutputDir / it_Entry.path().filename(),
-                    std::filesystem::copy_options::overwrite_existing);
+                std::filesystem::copy_file(it_Entry.path(), a_OutputDir / it_Entry.path().filename(), std::filesystem::copy_options::overwrite_existing);
             }
         }
     }
