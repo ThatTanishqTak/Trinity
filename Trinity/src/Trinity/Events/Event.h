@@ -3,6 +3,7 @@
 #include <functional>
 #include <ostream>
 #include <string>
+#include <sstream>
 
 namespace Trinity
 {
@@ -61,6 +62,15 @@ namespace Trinity
     private:
         Event& m_Event;
     };
+
+    template<typename... Args>
+    inline std::string FormatEvent(const char* prefix, Args&&... args)
+    {
+        std::ostringstream ss;
+        ss << prefix;
+        (ss << ... << std::forward<Args>(args));
+        return ss.str();
+    }
 }
 
 #define TR_EVENT_CLASS_TYPE(type) static EventType GetStaticType() { return EventType::type; } \

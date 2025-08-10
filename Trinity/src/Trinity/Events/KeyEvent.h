@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Trinity/Events/Event.h"
-#include <sstream>
 
 namespace Trinity
 {
@@ -30,10 +29,7 @@ namespace Trinity
 
         std::string ToString() const override
         {
-            std::stringstream ss;
-            ss << "KeyPressedEvent: " << m_KeyCode << " (" << m_RepeatCount << " repeats)";
-
-            return ss.str();
+            return FormatEvent("KeyPressedEvent: ", m_KeyCode, " (", m_RepeatCount, " repeats)");
         }
 
         TR_EVENT_CLASS_TYPE(KeyPressed)
@@ -52,10 +48,7 @@ namespace Trinity
 
         std::string ToString() const override
         {
-            std::stringstream ss;
-            ss << "KeyReleasedEvent: " << m_KeyCode;
-            
-            return ss.str();
+            return FormatEvent("KeyReleasedEvent: ", m_KeyCode);
         }
 
         TR_EVENT_CLASS_TYPE(KeyReleased)

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Trinity/Events/Event.h"
-#include <sstream>
 
 namespace Trinity
 {
@@ -18,10 +17,7 @@ namespace Trinity
 
         std::string ToString() const override
         {
-            std::stringstream ss;
-            ss << "MouseMovedEvent: " << m_MouseX << ", " << m_MouseY;
-
-            return ss.str();
+            return FormatEvent("MouseMovedEvent: ", m_MouseX, ", ", m_MouseY);
         }
 
         TR_EVENT_CLASS_TYPE(MouseMoved)
@@ -43,10 +39,7 @@ namespace Trinity
 
         std::string ToString() const override
         {
-            std::stringstream ss;
-            ss << "MouseScrolledEvent: " << m_XOffset << ", " << m_YOffset;
-
-            return ss.str();
+            return FormatEvent("MouseScrolledEvent: ", m_XOffset, ", ", m_YOffset);
         }
 
         TR_EVENT_CLASS_TYPE(MouseScrolled)
@@ -79,10 +72,7 @@ namespace Trinity
 
         std::string ToString() const override
         {
-            std::stringstream ss;
-            ss << "MouseButtonPressedEvent: " << m_Button;
-
-            return ss.str();
+            return FormatEvent("MouseButtonPressedEvent: ", m_Button);
         }
 
         TR_EVENT_CLASS_TYPE(MouseButtonPressed)
@@ -98,10 +88,7 @@ namespace Trinity
 
         std::string ToString() const override
         {
-            std::stringstream ss;
-            ss << "MouseButtonReleasedEvent: " << m_Button;
-
-            return ss.str();
+            return FormatEvent("MouseButtonReleasedEvent: ", m_Button);
         }
 
         TR_EVENT_CLASS_TYPE(MouseButtonReleased)

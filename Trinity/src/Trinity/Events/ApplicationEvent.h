@@ -2,8 +2,6 @@
 
 #include "Trinity/Events/Event.h"
 
-#include <sstream>
-
 namespace Trinity
 {
     class WindowResizeEvent : public Event
@@ -19,10 +17,7 @@ namespace Trinity
 
         std::string ToString() const override
         {
-            std::stringstream ss;
-            ss << "WindowResizeEvent: " << m_Width << ", " << m_Height;
-
-            return ss.str();
+            return FormatEvent("WindowResizeEvent: ", m_Width, ", ", m_Height);
         }
 
         TR_EVENT_CLASS_TYPE(WindowResize)
