@@ -101,4 +101,19 @@ namespace Trinity
 
         return std::nullopt;
     }
+
+    void DestroyBuffer(VulkanContext* context, VkBuffer& buffer, VkDeviceMemory& bufferMemory)
+    {
+        if (bufferMemory)
+        {
+            vkFreeMemory(context->GetDevice(), bufferMemory, nullptr);
+            bufferMemory = VK_NULL_HANDLE;
+        }
+
+        if (buffer)
+        {
+            vkDestroyBuffer(context->GetDevice(), buffer, nullptr);
+            buffer = VK_NULL_HANDLE;
+        }
+    }
 }

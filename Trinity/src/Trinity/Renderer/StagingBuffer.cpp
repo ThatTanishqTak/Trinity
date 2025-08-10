@@ -1,6 +1,7 @@
 #include "Trinity/trpch.h"
 
 #include "Trinity/Renderer/StagingBuffer.h"
+#include "Trinity/Renderer/BufferUtility.h"
 #include "Trinity/Vulkan/VulkanContext.h"
 #include "Trinity/Utilities/Utilities.h"
 
@@ -84,17 +85,7 @@ namespace Trinity
 
     void StagingBuffer::Destroy()
     {
-        if (m_BufferMemory)
-        {
-            vkFreeMemory(m_Context->GetDevice(), m_BufferMemory, nullptr);
-            m_BufferMemory = VK_NULL_HANDLE;
-        }
-
-        if (m_Buffer)
-        {
-            vkDestroyBuffer(m_Context->GetDevice(), m_Buffer, nullptr);
-            m_Buffer = VK_NULL_HANDLE;
-        }
+        DestroyBuffer(m_Context, m_Buffer, m_BufferMemory);
 
         m_Mapped = nullptr;
         m_Size = 0;

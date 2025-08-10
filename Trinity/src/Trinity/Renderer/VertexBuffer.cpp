@@ -87,17 +87,7 @@ namespace Trinity
 
     void VertexBuffer::Destroy()
     {
-        if (m_BufferMemory)
-        {
-            vkFreeMemory(m_Context->GetDevice(), m_BufferMemory, nullptr);
-            m_BufferMemory = VK_NULL_HANDLE;
-        }
-
-        if (m_Buffer)
-        {
-            vkDestroyBuffer(m_Context->GetDevice(), m_Buffer, nullptr);
-            m_Buffer = VK_NULL_HANDLE;
-        }
+        DestroyBuffer(m_Context, m_Buffer, m_BufferMemory);
 
         TR_CORE_TRACE("Vertex buffer destroyed");
     }
