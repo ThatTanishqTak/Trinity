@@ -16,6 +16,11 @@ ContentBrowserPanel::ContentBrowserPanel(const std::filesystem::path& baseDirect
 
 void ContentBrowserPanel::DrawDirectory(const std::filesystem::path& path)
 {
+    if (!std::filesystem::exists(path))
+    {
+        return;
+    }
+
     for (auto& l_Entry : std::filesystem::directory_iterator(path))
     {
         const auto& l_Path = l_Entry.path();

@@ -9,6 +9,7 @@
 #include "Panels/SceneViewportPanel.h"
 
 #include <entt/entt.hpp>
+#include <filesystem>
 
 namespace Trinity
 {
@@ -21,7 +22,10 @@ namespace Trinity
             entt::entity* l_SelectionContext = a_EditorLayer->GetSelectionContext();
             a_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>(m_Scene.get(), m_ResourceManager.get()));
             a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>(m_Scene.get(), l_SelectionContext));
-            a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>("../../../Sandbox"));
+
+            std::filesystem::path l_ProjectAssets = std::filesystem::current_path() / "Assets";
+            a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>(l_ProjectAssets));
+
             a_EditorLayer->RegisterPanel(std::make_unique<InspectorPanel>(m_Scene.get(), l_SelectionContext, m_ResourceManager.get()));
             a_EditorLayer->RegisterPanel(std::make_unique<StatsPanel>());
             a_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get()));
