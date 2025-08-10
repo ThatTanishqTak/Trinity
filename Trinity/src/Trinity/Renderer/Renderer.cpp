@@ -29,7 +29,6 @@ namespace Trinity
         CreateGraphicsPipeline(m_PrimitiveTopology);
         CreateDepthResources();
         CreateFramebuffers();
-        CreateCommandPool();
         CreateTextureImage();
         CreateVertexBuffer();
         CreateIndexBuffer();
@@ -343,6 +342,23 @@ namespace Trinity
         }
         
         return (ImTextureID)m_ImGuiImageDescriptors[m_LastImageIndex];
+    }
+
+    Texture* Renderer::RequestTexture(const std::string& path)
+    {
+        if (!m_ResourceManager)
+        {
+            return &m_Texture;
+        }
+
+        auto l_Future = m_ResourceManager->Load<Texture>(path);
+        auto l_Texture = l_Future.get();
+        if (!l_Texture)
+        {
+            return &m_Texture;
+        }
+
+        return l_Texture.get();
     }
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//

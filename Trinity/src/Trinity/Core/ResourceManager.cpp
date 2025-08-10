@@ -53,8 +53,10 @@ namespace Trinity
                 std::vector<std::byte> l_Pixels = Utilities::FileManagement::LoadTexture(path, l_Width, l_Height);
                 if (l_Pixels.empty())
                 {
-                    l_Promise->set_value(nullptr);
-                    return;
+                    TR_CORE_WARN("Texture not found: {}. Using 1x1 white placeholder", path);
+                    l_Width = 1;
+                    l_Height = 1;
+                    l_Pixels = { std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF} };
                 }
 
                 {

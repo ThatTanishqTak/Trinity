@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <vector>
+#include <string>
 #include <vulkan/vulkan.h>
 #include <imgui.h>
 
@@ -19,6 +20,7 @@ namespace Trinity
 {
     class VulkanContext;
     class Scene;
+    class ResourceManager;
 
     class Renderer
     {
@@ -39,6 +41,8 @@ namespace Trinity
         ImTextureID GetViewportImage();
 
         void SetScene(Scene* scene) { m_Scene = scene; }
+        void SetResourceManager(ResourceManager* resourceManager) { m_ResourceManager = resourceManager; }
+        Texture* RequestTexture(const std::string& path);
 
         VertexBuffer& GetVertexBuffer() { return m_VertexBuffer; }
         IndexBuffer& GetIndexBuffer() { return m_IndexBuffer; }
@@ -114,6 +118,7 @@ namespace Trinity
 
         Camera m_Camera;
         Scene* m_Scene = nullptr;
+        ResourceManager* m_ResourceManager = nullptr;
 
         size_t m_CurrentFrame = 0;
         VkPrimitiveTopology m_PrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;

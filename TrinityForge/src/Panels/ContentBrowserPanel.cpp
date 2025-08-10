@@ -31,6 +31,7 @@ void ContentBrowserPanel::DrawDirectory(const std::filesystem::path& path)
                 m_CurrentDirectory /= l_Path.filename();
             }
         }
+
         else
         {
             bool l_IsTexture = s_TextureExtensions.find(l_Path.extension().string()) != s_TextureExtensions.end();
