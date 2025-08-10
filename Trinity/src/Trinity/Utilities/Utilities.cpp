@@ -26,16 +26,19 @@ namespace Trinity
 			l_LogSinks[0]->set_pattern("%^[%T] %n: %v%$");
 			l_LogSinks[1]->set_pattern("[%T] [%l] %n: %v");
 
-			s_CoreLogger = std::make_shared<spdlog::logger>("TRINITY", begin(l_LogSinks), end(l_LogSinks));
-			spdlog::register_logger(s_CoreLogger);
-			s_CoreLogger->set_level(spdlog::level::trace);
-			s_CoreLogger->flush_on(spdlog::level::trace);
+            auto a_CreateLogger = [&](const char* name) -> std::shared_ptr<spdlog::logger>
+                {
+                    auto a_Logger = std::make_shared<spdlog::logger>(name, begin(l_LogSinks), end(l_LogSinks));
+                    spdlog::register_logger(a_Logger);
+                    a_Logger->set_level(spdlog::level::trace);
+                    a_Logger->flush_on(spdlog::level::trace);
 
-			s_ClientLogger = std::make_shared<spdlog::logger>("FORGE", begin(l_LogSinks), end(l_LogSinks));
-			spdlog::register_logger(s_ClientLogger);
-			s_ClientLogger->set_level(spdlog::level::trace);
-			s_ClientLogger->flush_on(spdlog::level::trace);
-		}
+                    return a_Logger;
+                };
+
+            s_CoreLogger = a_CreateLogger("TRINITY");
+            s_ClientLogger = a_CreateLogger("FORGE");
+        }
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 
@@ -44,6 +47,7 @@ namespace Trinity
             if (!std::filesystem::exists(filePath))
             {
                 TR_CORE_ERROR("File does not exist: {}", filePath.string());
+
                 return false;
             }
 
@@ -99,6 +103,7 @@ namespace Trinity
             if (!l_Pixels)
             {
                 TR_CORE_ERROR("Failed to load texture: {}", filePath.string());
+
                 return std::vector<std::byte>();
             }
 
