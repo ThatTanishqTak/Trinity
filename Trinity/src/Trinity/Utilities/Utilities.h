@@ -31,6 +31,7 @@ namespace Trinity
 		class FileManagement
 		{
 		public:
+			static bool EnsureFileExists(const std::filesystem::path& filePath);
 			static std::vector<std::byte> ReadFile(const std::filesystem::path& filePath);
 			static std::vector<std::byte> LoadTexture(const std::filesystem::path& filePath, int& width, int& height);
 		};

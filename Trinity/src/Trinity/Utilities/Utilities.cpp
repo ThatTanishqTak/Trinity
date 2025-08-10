@@ -39,12 +39,21 @@ namespace Trinity
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//
 
-        std::vector<std::byte> FileManagement::ReadFile(const std::filesystem::path& filePath)
+        bool FileManagement::EnsureFileExists(const std::filesystem::path& filePath)
         {
             if (!std::filesystem::exists(filePath))
             {
                 TR_CORE_ERROR("File does not exist: {}", filePath.string());
+                return false;
+            }
 
+            return true;
+        }
+
+        std::vector<std::byte> FileManagement::ReadFile(const std::filesystem::path& filePath)
+        {
+            if (!EnsureFileExists(filePath))
+            {
                 return std::vector<std::byte>();
             }
 
@@ -78,9 +87,8 @@ namespace Trinity
 
         std::vector<std::byte> FileManagement::LoadTexture(const std::filesystem::path& filePath, int& width, int& height)
         {
-            if (!std::filesystem::exists(filePath))
+            if (!EnsureFileExists(filePath))
             {
-                TR_CORE_ERROR("Texture file does not exist: {}", filePath.string());
                 return std::vector<std::byte>();
             }
 
