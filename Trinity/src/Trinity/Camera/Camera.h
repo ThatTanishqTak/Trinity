@@ -34,6 +34,8 @@ namespace Trinity
         glm::mat4 GetProjectionMatrix() const;
 
     private:
+        void SetCommonProjection(float aspect, float near, float far);
+
         glm::vec3 m_Position{ 0.0f, 0.0f, 3.0f };
         glm::vec3 m_Rotation{ 0.0f };
 
