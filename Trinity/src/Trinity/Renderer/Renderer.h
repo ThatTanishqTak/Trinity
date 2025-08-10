@@ -33,6 +33,8 @@ namespace Trinity
         ~Renderer() = default;
 
         bool Initialize();
+        void InitializeCore();
+        bool InitializeAssets();
         void Shutdown();
 
         void DrawFrame(const std::function<void(VkCommandBuffer)>& recordCallback = nullptr);

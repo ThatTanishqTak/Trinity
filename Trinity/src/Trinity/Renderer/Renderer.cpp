@@ -24,25 +24,61 @@ namespace Trinity
     {
         TR_CORE_INFO("-------INITIALIZING RENDERER-------");
 
-        CreateRenderPass();
-        CreateDescriptorSetLayout();
-        CreateGraphicsPipeline(m_PrimitiveTopology);
-        CreateDepthResources();
-        CreateFramebuffers();
-        CreateTextureImage();
-        CreateUniformBuffers();
-        CreateShadowResources();
-        CreateDescriptorPool();
-        CreateDescriptorSets();
-        CreateCommandBuffer();
-        CreateSyncObjects();
-
-        m_BloomPass.Initialize();
-        m_ToneMappingPass.Initialize();
+        InitializeCore();
+        bool l_AssetsLoaded = InitializeAssets();
 
         TR_CORE_INFO("-------RENDERER INITIALIZED-------");
 
-        return true;
+        return l_AssetsLoaded;
+    }
+
+    void Renderer::InitializeCore()
+    {
+        CreateRenderPass();
+        CreateDescriptorSetLayout();
+        CreateDepthResources();
+        CreateFramebuffers();
+        CreateUniformBuffers();
+        CreateShadowResources();
+        CreateDescriptorPool();
+        CreateCommandPool();
+        CreateCommandBuffer();
+        CreateSyncObjects();
+    }
+
+    bool Renderer::InitializeAssets()
+    {
+        bool l_Success = true;
+
+        CreateGraphicsPipeline(m_PrimitiveTopology);
+        if (m_GraphicsPipeline == VK_NULL_HANDLE)
+        {
+            TR_CORE_WARN("Graphics pipeline assets missing");
+            l_Success = false;
+        }
+
+        CreateTextureImage();
+        if (m_Texture.GetImageView() == VK_NULL_HANDLE || m_Texture.GetSampler() == VK_NULL_HANDLE)
+        {
+            TR_CORE_WARN("Texture asset missing");
+            l_Success = false;
+        }
+
+        CreateDescriptorSets();
+
+        if (!m_BloomPass.Initialize())
+        {
+            TR_CORE_WARN("Bloom pass assets missing");
+            l_Success = false;
+        }
+
+        if (!m_ToneMappingPass.Initialize())
+        {
+            TR_CORE_WARN("Tone mapping pass assets missing");
+            l_Success = false;
+        }
+
+        return l_Success;
     }
 
     void Renderer::Shutdown()
