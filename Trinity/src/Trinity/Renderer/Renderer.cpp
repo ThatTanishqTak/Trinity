@@ -54,7 +54,6 @@ namespace Trinity
         if (m_GraphicsPipeline == VK_NULL_HANDLE)
         {
             TR_CORE_WARN("Graphics pipeline assets missing");
-            l_Success = false;
         }
 
         CreateTextureImage();
@@ -238,9 +237,9 @@ namespace Trinity
 
     void Renderer::DrawFrame(const std::function<void(VkCommandBuffer)>& recordCallback)
     {
-        if (auto shader = ShaderLibrary::Get().Get("Simple"))
+        if (auto a_Shader = ShaderLibrary::Get().Get("Simple"))
         {
-            if (shader->Update())
+            if (a_Shader->Update())
             {
                 vkDeviceWaitIdle(m_Context->GetDevice());
                 m_GraphicsPipeline = VK_NULL_HANDLE;
@@ -727,11 +726,20 @@ namespace Trinity
         }
 
         auto& lib = ShaderLibrary::Get();
-        auto shader = lib.Load("Simple", m_Context, "Assets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
-        shader = lib.Load("Simple", m_Context, "Assets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
-        if (!shader)
+        auto a_Shader = lib.Load("Simple", m_Context, "Assets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
+        a_Shader = lib.Load("Simple", m_Context, "Assets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+
+        bool l_MissingStage = !a_Shader || a_Shader->GetModule(VK_SHADER_STAGE_VERTEX_BIT) == VK_NULL_HANDLE || a_Shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT) == VK_NULL_HANDLE;
+        if (l_MissingStage)
         {
-            TR_CORE_ERROR("Failed to load shaders for graphics pipeline");
+            TR_CORE_WARN("Graphics shader stage missing. Using fallback a_Shader");
+            a_Shader = lib.Load("Fallback", m_Context, "", VK_SHADER_STAGE_VERTEX_BIT);
+        }
+
+        if (!a_Shader)
+        {
+            TR_CORE_WARN("No shader available for graphics pipeline");
+
             return;
         }
 
@@ -844,16 +852,17 @@ namespace Trinity
         l_PipelineInfo.basePipelineIndex = -1;
 
         uint32_t l_MaxLights = MaxLights;
-        m_GraphicsPipeline = shader->GetPipeline(l_PipelineInfo, &l_MaxLights, sizeof(l_MaxLights));
+        m_GraphicsPipeline = a_Shader->GetPipeline(l_PipelineInfo, &l_MaxLights, sizeof(l_MaxLights));
 
         if (m_GraphicsPipeline == VK_NULL_HANDLE)
         {
-            TR_CORE_ERROR("Failed to create graphics pipeline");
-
-            return;
+            TR_CORE_WARN("Failed to create graphics pipeline");
         }
 
-        TR_CORE_TRACE("Graphics pipeline created");
+        else
+        {
+            TR_CORE_TRACE("Graphics pipeline created");
+        }
     }
 
     void Renderer::CreateDepthResources()
@@ -1380,18 +1389,15 @@ namespace Trinity
         l_RenderPassInfo.pClearValues = l_ClearValues.data();
 
         vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        if (m_GraphicsPipeline != VK_NULL_HANDLE)
+        if (m_GraphicsPipeline == VK_NULL_HANDLE)
         {
-            vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
-        }
-
-        else
-        {
-            TR_CORE_ERROR("Graphics pipeline not created");
+            TR_CORE_WARN("Graphics pipeline not created");
             vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
 
             return;
         }
+
+        vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
 
         VkViewport l_Viewport{};
         l_Viewport.x = 0.0f;
