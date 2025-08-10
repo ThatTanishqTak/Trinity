@@ -4,10 +4,10 @@
 
 namespace Trinity
 {
-    class LauncherApp : public Application
+    class TrinityCentre : public Application
     {
     public:
-        LauncherApp(const ApplicationSpecification& l_Specifications) : Application(l_Specifications)
+        TrinityCentre(const ApplicationSpecification& specifications) : Application(specifications)
         {
             auto a_LauncherLayer = std::make_unique<LauncherLayer>();
             m_ImGuiLayer->RegisterPanel(std::move(a_LauncherLayer));
@@ -19,13 +19,13 @@ namespace Trinity
         TR_INFO("Creating Application Specifications");
 
         ApplicationSpecification l_Specification;
-        l_Specification.Title = "ForgeCenter";
+        l_Specification.Title = "TrinityCenter";
         l_Specification.Width = 1280;
         l_Specification.Height = 720;
         l_Specification.CommandLineArgs = args;
 
         TR_INFO("Application Specifications Created");
 
-        return new LauncherApp(l_Specification);
+        return new TrinityCentre(l_Specification);
     }
 }

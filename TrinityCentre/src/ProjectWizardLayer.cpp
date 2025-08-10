@@ -10,12 +10,7 @@
 #include <cstring>
 #include <system_error>
 
-ProjectWizardLayer::ProjectWizardLayer()
-    : m_Templates{ "Empty", "2D", "3D" },
-    m_SelectedTemplate(0),
-    m_IsOpen(false),
-    m_ShowMessage(false),
-    m_IsError(false)
+ProjectWizardLayer::ProjectWizardLayer() : m_Templates{ "Empty", "2D", "3D" }, m_SelectedTemplate(0), m_IsOpen(false), m_ShowMessage(false), m_IsError(false)
 {
     m_ProjectName[0] = '\0';
     std::string l_CurrentDir = std::filesystem::current_path().string();
@@ -27,6 +22,7 @@ void ProjectWizardLayer::Open()
     m_IsOpen = true;
     m_ShowMessage = false;
     m_IsError = false;
+
     m_StatusMessage.clear();
     m_ProjectName[0] = '\0';
 }

@@ -1,6 +1,6 @@
 ##--- Launcher ---##
 
-project(Launcher LANGUAGES CXX)
+project(TrinityCentre LANGUAGES CXX)
 
 file(GLOB_RECURSE LAUNCHER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
