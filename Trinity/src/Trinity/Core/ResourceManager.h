@@ -25,6 +25,8 @@ namespace Trinity
 
         void ProcessJobs();
 
+        std::shared_ptr<Mesh> CreatePlaceholderMesh();
+
     private:
         VulkanContext* m_Context = nullptr;
         std::unordered_map<std::string, std::shared_ptr<Texture>> m_TextureCache;

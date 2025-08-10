@@ -3,6 +3,8 @@
 #include <functional>
 #include <vector>
 #include <string>
+#include <memory>
+
 #include <vulkan/vulkan.h>
 #include <imgui.h>
 
@@ -21,6 +23,7 @@ namespace Trinity
     class VulkanContext;
     class Scene;
     class ResourceManager;
+    class Mesh;
 
     class Renderer
     {
@@ -43,6 +46,7 @@ namespace Trinity
         void SetScene(Scene* scene) { m_Scene = scene; }
         void SetResourceManager(ResourceManager* resourceManager) { m_ResourceManager = resourceManager; }
         Texture* RequestTexture(const std::string& path);
+        std::shared_ptr<Mesh> RequestMesh(const std::string& path);
 
         VertexBuffer& GetVertexBuffer() { return m_VertexBuffer; }
         IndexBuffer& GetIndexBuffer() { return m_IndexBuffer; }
@@ -107,6 +111,7 @@ namespace Trinity
         };
         std::vector<FrameData> m_Frames{};
         Texture m_Texture;
+        std::shared_ptr<Mesh> m_DefaultMesh;
 
         VkRenderPass m_ShadowRenderPass = VK_NULL_HANDLE;
         VkFramebuffer m_ShadowFramebuffer = VK_NULL_HANDLE;

@@ -30,8 +30,6 @@ namespace Trinity
         CreateDepthResources();
         CreateFramebuffers();
         CreateTextureImage();
-        CreateVertexBuffer();
-        CreateIndexBuffer();
         CreateUniformBuffers();
         CreateShadowResources();
         CreateDescriptorPool();
@@ -359,6 +357,28 @@ namespace Trinity
         }
 
         return l_Texture.get();
+    }
+
+    std::shared_ptr<Mesh> Renderer::RequestMesh(const std::string& path)
+    {
+        if (!m_ResourceManager)
+        {
+            return m_DefaultMesh;
+        }
+
+        auto l_Future = m_ResourceManager->Load<Mesh>(path);
+        auto l_Mesh = l_Future.get();
+        if (!l_Mesh)
+        {
+            TR_CORE_WARN("Mesh not found: {}. Using placeholder mesh", path);
+            if (!m_DefaultMesh)
+            {
+                m_DefaultMesh = m_ResourceManager->CreatePlaceholderMesh();
+            }
+            return m_DefaultMesh;
+        }
+
+        return l_Mesh;
     }
 
     //----------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -1378,6 +1398,21 @@ namespace Trinity
             auto a_View = m_Scene->GetRegistry().view<TransformComponent, MeshComponent, MaterialComponent>();
             for (auto [it_Entity, a_Transform, a_Mesh, a_Material] : a_View.each())
             {
+                if (!a_Mesh.MeshHandle)
+                {
+                    TR_CORE_WARN("Missing mesh for entity {}", static_cast<uint32_t>(it_Entity));
+
+                    continue;
+                }
+
+                auto& l_VertexBuffer = a_Mesh.MeshHandle->GetVertexBuffer();
+                if (l_VertexBuffer.GetVertexCount() == 0)
+                {
+                    TR_CORE_WARN("Empty mesh for entity {}", static_cast<uint32_t>(it_Entity));
+
+                    continue;
+                }
+
                 float l_Scale = std::max({ a_Transform.Scale.x, a_Transform.Scale.y, a_Transform.Scale.z });
                 float l_Radius = a_Mesh.MeshHandle->GetBoundingRadius() * l_Scale;
                 if (!Culling::IsVisible(l_Frustum, a_Transform.Translation, l_Radius))
@@ -1403,7 +1438,7 @@ namespace Trinity
                 std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));
                 m_Frames[imageIndex].MaterialUniform.Unmap();
 
-                VkBuffer vertexBuffers[] = { a_Mesh.MeshHandle->GetVertexBuffer().GetBuffer() };
+                VkBuffer vertexBuffers[] = { l_VertexBuffer.GetBuffer() };
                 VkDeviceSize offsets[] = { 0 };
                 vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
 

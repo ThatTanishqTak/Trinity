@@ -30,6 +30,29 @@ namespace Trinity
         }
     }
 
+    std::shared_ptr<Mesh> ResourceManager::CreatePlaceholderMesh()
+    {
+        std::vector<Vertex> l_Vertices =
+        {
+            { { -0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f } },
+            { {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f } },
+            { {  0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f } },
+            { { -0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } }
+        };
+
+        std::vector<uint32_t> l_Indices = { 0, 1, 2, 2, 3, 0 };
+
+        auto a_Mesh = std::make_shared<Mesh>(m_Context);
+        if (auto a_Error = a_Mesh->Create(l_Vertices, l_Indices))
+        {
+            TR_CORE_ERROR("{}", *a_Error);
+
+            return nullptr;
+        }
+
+        return a_Mesh;
+    }
+
     template<>
     std::future<std::shared_ptr<Texture>> ResourceManager::Load<Texture>(const std::string& path)
     {
@@ -42,6 +65,7 @@ namespace Trinity
             if (it != m_TextureCache.end())
             {
                 l_Promise->set_value(it->second);
+
                 return l_Future;
             }
         }
@@ -68,12 +92,14 @@ namespace Trinity
                             {
                                 TR_CORE_ERROR("{}", *a_Error);
                                 l_Promise->set_value(nullptr);
+
                                 return;
                             }
                             {
                                 std::lock_guard<std::mutex> l_CacheLock(m_CacheMutex);
                                 m_TextureCache[path] = a_Texture;
                             }
+
                             l_Promise->set_value(a_Texture);
                         });
                 }
@@ -94,6 +120,7 @@ namespace Trinity
             if (it != m_MeshCache.end())
             {
                 l_Promise->set_value(it->second);
+
                 return l_Future;
             }
         }
@@ -106,6 +133,7 @@ namespace Trinity
                 {
                     TR_CORE_ERROR("Failed to load mesh: {}", path);
                     l_Promise->set_value(nullptr);
+
                     return;
                 }
 
@@ -154,6 +182,7 @@ namespace Trinity
                             {
                                 TR_CORE_ERROR("{}", *a_Error);
                                 l_Promise->set_value(nullptr);
+
                                 return;
                             }
                             {
