@@ -64,7 +64,7 @@ namespace Trinity
         void CreateDepthResources();
         void CreateFramebuffers();
         void CreateCommandPool();
-        void CreateTextureImage();
+        bool CreateTextureImage();
         void CreateVertexBuffer();
         void CreateIndexBuffer();
         void CreateUniformBuffers();

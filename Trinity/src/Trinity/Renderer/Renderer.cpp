@@ -49,21 +49,23 @@ namespace Trinity
     bool Renderer::InitializeAssets()
     {
         bool l_Success = true;
+        bool l_TextureFound = CreateTextureImage();
 
-        CreateGraphicsPipeline(m_PrimitiveTopology);
-        if (m_GraphicsPipeline == VK_NULL_HANDLE)
-        {
-            TR_CORE_WARN("Graphics pipeline assets missing");
-        }
-
-        CreateTextureImage();
         if (m_Texture.GetImageView() == VK_NULL_HANDLE || m_Texture.GetSampler() == VK_NULL_HANDLE)
         {
             TR_CORE_WARN("Texture asset missing");
             l_Success = false;
         }
 
-        CreateDescriptorSets();
+        else if (!l_TextureFound)
+        {
+            TR_CORE_WARN("Texture not found: Assets/Textures/Checkers.png. Using 1x1 white placeholder");
+        }
+
+        if (m_Texture.GetImageView() != VK_NULL_HANDLE && m_Texture.GetSampler() != VK_NULL_HANDLE)
+        {
+            CreateDescriptorSets();
+        }
 
         if (!m_BloomPass.Initialize())
         {
@@ -1056,17 +1058,31 @@ namespace Trinity
         TR_CORE_TRACE("Command pool created");
     }
 
-    void Renderer::CreateTextureImage()
+    bool Renderer::CreateTextureImage()
     {
         TR_CORE_TRACE("Loading texture");
 
         m_Texture = Texture(m_Context);
         if (auto a_Error = m_Texture.LoadFromFile("Assets/Textures/Checkers.png", 0, 0))
         {
-            TR_CORE_ERROR("{}", *a_Error);
+            std::vector<std::byte> l_Pixels =
+            {
+                std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}
+            };
+
+            if (auto a_PlaceholderError = m_Texture.CreateFromPixels(l_Pixels, 1, 1))
+            {
+                TR_CORE_ERROR("{}", *a_PlaceholderError);
+
+                return false;
+            }
+
+            return false;
         }
 
         TR_CORE_TRACE("Texture loaded");
+
+        return true;
     }
 
     void Renderer::CreateVertexBuffer()
@@ -1620,7 +1636,10 @@ namespace Trinity
         CreateFramebuffers();
         CreateUniformBuffers();
         CreateDescriptorPool();
-        CreateDescriptorSets();
+        if (m_Texture.GetImageView() != VK_NULL_HANDLE && m_Texture.GetSampler() != VK_NULL_HANDLE)
+        {
+            CreateDescriptorSets();
+        }
         CreateCommandBuffer();
         CreateSyncObjects();
 
