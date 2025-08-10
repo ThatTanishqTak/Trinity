@@ -11,6 +11,7 @@
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Vulkan/VulkanContext.h"
 
+#include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 
 namespace Trinity
@@ -1408,6 +1409,16 @@ namespace Trinity
         if (m_GraphicsPipeline == VK_NULL_HANDLE)
         {
             TR_CORE_WARN("Graphics pipeline not created");
+            if (recordCallback)
+            {
+                recordCallback(m_CommandBuffer[imageIndex]);
+            }
+
+            else
+            {
+                ImGui::EndFrame();
+            }
+
             vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
 
             return;
