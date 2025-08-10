@@ -20,14 +20,20 @@ namespace Trinity
     public:
         explicit ResourceManager(VulkanContext* context);
 
-        template<typename T>
-        std::future<std::shared_ptr<T>> Load(const std::string& path);
+        template<typename T, typename DecodeFunc>
+        std::future<std::shared_ptr<T>> Load(const std::string& path, DecodeFunc decode);
 
         void ProcessJobs();
 
         std::shared_ptr<Mesh> CreatePlaceholderMesh();
 
+        static std::function<std::shared_ptr<Texture>(VulkanContext*)> DecodeTexture(const std::string& path);
+        static std::function<std::shared_ptr<Mesh>(VulkanContext*)> DecodeMesh(const std::string& path);
+
     private:
+        template<typename T>
+        std::unordered_map<std::string, std::shared_ptr<T>>& GetCache();
+
         VulkanContext* m_Context = nullptr;
         std::unordered_map<std::string, std::shared_ptr<Texture>> m_TextureCache;
         std::unordered_map<std::string, std::shared_ptr<Mesh>> m_MeshCache;
@@ -36,9 +42,65 @@ namespace Trinity
         std::mutex m_CacheMutex;
     };
 
-    template<>
-    std::future<std::shared_ptr<Texture>> ResourceManager::Load<Texture>(const std::string& path);
+    template<typename T>
+    std::unordered_map<std::string, std::shared_ptr<T>>& ResourceManager::GetCache()
+    {
+        static_assert(sizeof(T) == 0, "Resource cache not implemented for this type");
+    }
 
     template<>
-    std::future<std::shared_ptr<Mesh>> ResourceManager::Load<Mesh>(const std::string& path);
+    inline std::unordered_map<std::string, std::shared_ptr<Texture>>& ResourceManager::GetCache<Texture>()
+    {
+        return m_TextureCache;
+    }
+
+    template<>
+    inline std::unordered_map<std::string, std::shared_ptr<Mesh>>& ResourceManager::GetCache<Mesh>()
+    {
+        return m_MeshCache;
+    }
+
+    template<typename T, typename DecodeFunc>
+    std::future<std::shared_ptr<T>> ResourceManager::Load(const std::string& path, DecodeFunc decode)
+    {
+        auto l_Promise = std::make_shared<std::promise<std::shared_ptr<T>>>();
+        auto l_Future = l_Promise->get_future();
+
+        {
+            std::lock_guard<std::mutex> l_Lock(m_CacheMutex);
+            auto& l_Cache = GetCache<T>();
+            auto it = l_Cache.find(path);
+            if (it != l_Cache.end())
+            {
+                l_Promise->set_value(it->second);
+                return l_Future;
+            }
+        }
+
+        std::thread([this, path, decode, l_Promise]() mutable
+            {
+                auto l_Job = decode(path);
+                if (!l_Job)
+                {
+                    l_Promise->set_value(nullptr);
+                    return;
+                }
+
+                {
+                    std::lock_guard<std::mutex> l_QueueLock(m_QueueMutex);
+                    m_JobQueue.push([this, path, l_Job = std::move(l_Job), l_Promise]() mutable
+                        {
+                            auto a_Resource = l_Job(m_Context);
+                            if (a_Resource)
+                            {
+                                std::lock_guard<std::mutex> l_CacheLock(m_CacheMutex);
+                                this->template GetCache<T>()[path] = a_Resource;
+                            }
+                            l_Promise->set_value(a_Resource);
+                        });
+                }
+            }).detach();
+
+        return l_Future;
+    }
 }

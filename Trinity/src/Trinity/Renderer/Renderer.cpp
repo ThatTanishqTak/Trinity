@@ -387,7 +387,7 @@ namespace Trinity
             return &m_Texture;
         }
 
-        auto l_Future = m_ResourceManager->Load<Texture>(path);
+        auto l_Future = m_ResourceManager->Load<Texture>(path, ResourceManager::DecodeTexture);
         auto l_Texture = l_Future.get();
         if (!l_Texture)
         {
@@ -404,7 +404,7 @@ namespace Trinity
             return m_DefaultMesh;
         }
 
-        auto l_Future = m_ResourceManager->Load<Mesh>(path);
+        auto l_Future = m_ResourceManager->Load<Mesh>(path, ResourceManager::DecodeMesh);
         auto l_Mesh = l_Future.get();
         if (!l_Mesh)
         {

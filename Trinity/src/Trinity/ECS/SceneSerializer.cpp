@@ -127,14 +127,21 @@ namespace Trinity
                 a_Mesh.MeshPath = a_MeshNode["MeshPath"].as<std::string>();
                 a_Mesh.TexturePath = a_MeshNode["TexturePath"].as<std::string>();
 
-                if (m_ResourceManager && !a_Mesh.MeshPath.empty())
+                if (auto a_MeshNode = it_Entity["MeshComponent"])
                 {
-                    a_Mesh.MeshHandle = m_ResourceManager->Load<Mesh>(a_Mesh.MeshPath).get();
-                }
+                    auto& a_Mesh = e.AddComponent<MeshComponent>();
+                    a_Mesh.MeshPath = a_MeshNode["MeshPath"].as<std::string>();
+                    a_Mesh.TexturePath = a_MeshNode["TexturePath"].as<std::string>();
 
-                if (m_ResourceManager && !a_Mesh.TexturePath.empty())
-                {
-                    a_Mesh.MeshTexture = m_ResourceManager->Load<Texture>(a_Mesh.TexturePath).get();
+                    if (m_ResourceManager && !a_Mesh.MeshPath.empty())
+                    {
+                        a_Mesh.MeshHandle = m_ResourceManager->Load<Mesh>(a_Mesh.MeshPath, ResourceManager::DecodeMesh).get();
+                    }
+
+                    if (m_ResourceManager && !a_Mesh.TexturePath.empty())
+                    {
+                        a_Mesh.MeshTexture = m_ResourceManager->Load<Texture>(a_Mesh.TexturePath, ResourceManager::DecodeTexture).get();
+                    }
                 }
             }
 
@@ -158,22 +165,21 @@ namespace Trinity
                 a_Material.NormalMapPath = a_MaterialNode["NormalMapPath"].as<std::string>();
                 a_Material.RoughnessMapPath = a_MaterialNode["RoughnessMapPath"].as<std::string>();
                 a_Material.MetallicMapPath = a_MaterialNode["MetallicMapPath"].as<std::string>();
-
                 if (m_ResourceManager)
                 {
                     if (!a_Material.NormalMapPath.empty())
                     {
-                        a_Material.NormalMap = m_ResourceManager->Load<Texture>(a_Material.NormalMapPath).get();
+                        a_Material.NormalMap = m_ResourceManager->Load<Texture>(a_Material.NormalMapPath, ResourceManager::DecodeTexture).get();
                     }
 
                     if (!a_Material.RoughnessMapPath.empty())
                     {
-                        a_Material.RoughnessMap = m_ResourceManager->Load<Texture>(a_Material.RoughnessMapPath).get();
+                        a_Material.RoughnessMap = m_ResourceManager->Load<Texture>(a_Material.RoughnessMapPath, ResourceManager::DecodeTexture).get();
                     }
 
                     if (!a_Material.MetallicMapPath.empty())
                     {
-                        a_Material.MetallicMap = m_ResourceManager->Load<Texture>(a_Material.MetallicMapPath).get();
+                        a_Material.MetallicMap = m_ResourceManager->Load<Texture>(a_Material.MetallicMapPath, ResourceManager::DecodeTexture).get();
                     }
                 }
             }
