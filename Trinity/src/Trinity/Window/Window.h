@@ -32,6 +32,9 @@ namespace Trinity
         GLFWwindow* GetNativeWindow() const { return m_Window; }
 
     private:
+        template<typename TEventConstructor>
+        static void DispatchEvent(GLFWwindow* window, TEventConstructor&& constructor);
+
         WindowSpecification m_Specification;
         GLFWwindow* m_Window = nullptr;
         std::function<void(Event&)> m_EventCallback;

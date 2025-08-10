@@ -8,25 +8,36 @@
 
 namespace Trinity
 {
-	Window::Window(const WindowSpecification& specification) : m_Specification(specification)
-	{
+    template<typename TEventConstructor>
+    void Window::DispatchEvent(GLFWwindow* window, TEventConstructor&& constructor)
+    {
+        Window* l_Window = static_cast<Window*>(glfwGetWindowUserPointer(window));
+        auto a_Event = constructor();
+        if (l_Window->m_EventCallback)
+        {
+            l_Window->m_EventCallback(a_Event);
+        }
+    }
 
-	}
+    Window::Window(const WindowSpecification& specification) : m_Specification(specification)
+    {
 
-	bool Window::Initialize()
-	{
-		TR_CORE_INFO("-------INITIALIZING WINDOW-------");
+    }
 
-		TR_CORE_TRACE("Initializing GLFW");
+    bool Window::Initialize()
+    {
+        TR_CORE_INFO("-------INITIALIZING WINDOW-------");
 
-		if (!glfwInit())
-		{
-			TR_CORE_ERROR("Failed to initialize GLFW");
+        TR_CORE_TRACE("Initializing GLFW");
 
-			return false;
-		}
+        if (!glfwInit())
+        {
+            TR_CORE_ERROR("Failed to initialize GLFW");
 
-		TR_CORE_TRACE("GLFW initialized");
+            return false;
+        }
+
+        TR_CORE_TRACE("GLFW initialized");
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
@@ -49,27 +60,19 @@ namespace Trinity
                 Window* l_Window = static_cast<Window*>(glfwGetWindowUserPointer(window));
                 l_Window->m_Specification.Width = width;
                 l_Window->m_Specification.Height = height;
-                WindowResizeEvent event(width, height);
-                if (l_Window->m_EventCallback)
-                    l_Window->m_EventCallback(event);
+                Window::DispatchEvent(window, [=]() { return WindowResizeEvent(width, height); });
             });
 
         glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* window)
             {
-                Window* l_Window = static_cast<Window*>(glfwGetWindowUserPointer(window));
-                WindowCloseEvent event;
-                if (l_Window->m_EventCallback)
-                    l_Window->m_EventCallback(event);
+                Window::DispatchEvent(window, []() { return WindowCloseEvent(); });
             });
 
         glfwSetWindowIconifyCallback(m_Window, [](GLFWwindow* window, int iconified)
             {
                 if (iconified)
                 {
-                    Window* l_Window = static_cast<Window*>(glfwGetWindowUserPointer(window));
-                    WindowMinimizeEvent event;
-                    if (l_Window->m_EventCallback)
-                        l_Window->m_EventCallback(event);
+                    Window::DispatchEvent(window, []() { return WindowMinimizeEvent(); });
                 }
             });
 
@@ -77,84 +80,54 @@ namespace Trinity
             {
                 if (maximized)
                 {
-                    Window* l_Window = static_cast<Window*>(glfwGetWindowUserPointer(window));
-                    WindowMaximizeEvent event;
-                    if (l_Window->m_EventCallback)
-                        l_Window->m_EventCallback(event);
+                    Window::DispatchEvent(window, []() { return WindowMaximizeEvent(); });
                 }
             });
 
         glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int, int action, int)
             {
-                Window* l_Window = static_cast<Window*>(glfwGetWindowUserPointer(window));
                 switch (action)
                 {
                 case GLFW_PRESS:
-                {
-                    KeyPressedEvent event(key, 0);
-                    if (l_Window->m_EventCallback)
-                        l_Window->m_EventCallback(event);
+                    Window::DispatchEvent(window, [=]() { return KeyPressedEvent(key, 0); });
                     break;
-                }
                 case GLFW_RELEASE:
-                {
-                    KeyReleasedEvent event(key);
-                    if (l_Window->m_EventCallback)
-                        l_Window->m_EventCallback(event);
+                    Window::DispatchEvent(window, [=]() { return KeyReleasedEvent(key); });
                     break;
-                }
                 case GLFW_REPEAT:
-                {
-                    KeyPressedEvent event(key, 1);
-                    if (l_Window->m_EventCallback)
-                        l_Window->m_EventCallback(event);
+                    Window::DispatchEvent(window, [=]() { return KeyPressedEvent(key, 1); });
                     break;
-                }
                 }
             });
 
         glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* window, int button, int action, int)
             {
-                Window* l_Window = static_cast<Window*>(glfwGetWindowUserPointer(window));
                 switch (action)
                 {
                 case GLFW_PRESS:
-                {
-                    MouseButtonPressedEvent event(button);
-                    if (l_Window->m_EventCallback)
-                        l_Window->m_EventCallback(event);
+                    Window::DispatchEvent(window, [=]() { return MouseButtonPressedEvent(button); });
                     break;
-                }
                 case GLFW_RELEASE:
-                {
-                    MouseButtonReleasedEvent event(button);
-                    if (l_Window->m_EventCallback)
-                        l_Window->m_EventCallback(event);
+                    Window::DispatchEvent(window, [=]() { return MouseButtonReleasedEvent(button); });
                     break;
-                }
                 }
             });
 
         glfwSetCursorPosCallback(m_Window, [](GLFWwindow* window, double xpos, double ypos)
             {
-                Window* l_Window = static_cast<Window*>(glfwGetWindowUserPointer(window));
-                MouseMovedEvent event(static_cast<float>(xpos), static_cast<float>(ypos));
-                if (l_Window->m_EventCallback)
-                    l_Window->m_EventCallback(event);
+                Window::DispatchEvent(window, [=]() { return MouseMovedEvent(static_cast<float>(xpos), static_cast<float>(ypos)); });
             });
 
         glfwSetScrollCallback(m_Window, [](GLFWwindow* window, double xoffset, double yoffset)
             {
-                Window* l_Window = static_cast<Window*>(glfwGetWindowUserPointer(window));
-                MouseScrolledEvent event(static_cast<float>(xoffset), static_cast<float>(yoffset));
-                if (l_Window->m_EventCallback)
-                    l_Window->m_EventCallback(event);
+                Window::DispatchEvent(window, [=]() { return MouseScrolledEvent(static_cast<float>(xoffset), static_cast<float>(yoffset)); });
             });
 
         TR_CORE_INFO("-------WINDOW INITIALIZED-------");
 
         return true;
     }
+
 
 	void Window::Shutdown()
 	{
