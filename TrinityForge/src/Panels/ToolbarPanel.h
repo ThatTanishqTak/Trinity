@@ -16,6 +16,7 @@ public:
 
 private:
     void StartBuild(const std::string& a_ConfigPath);
+    void StartPackage(const std::filesystem::path& a_OutputDir);
 
     Trinity::Scene* m_Scene = nullptr;
     Trinity::ResourceManager* m_ResourceManager = nullptr;
@@ -26,4 +27,8 @@ private:
     std::string m_BuildStatus;
     std::filesystem::path m_FileDialogCurrentPath;
     std::string m_SelectedConfigPath;
+
+    std::atomic_bool m_IsPackaging = false;
+    bool m_ShowPackagePopup = false;
+    std::string m_PackageStatus;
 };

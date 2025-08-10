@@ -54,6 +54,37 @@ namespace Trinity
         return l_Config;
     }
 
+    void BuildSystem::BuildPackage(const std::filesystem::path& a_OutputDir)
+    {
+        std::filesystem::create_directories(a_OutputDir);
+
+        std::filesystem::path l_SourceAssets = std::filesystem::current_path() / "Assets";
+        if (std::filesystem::exists(l_SourceAssets))
+        {
+            std::filesystem::path l_DestAssets = a_OutputDir / "Assets";
+            std::filesystem::create_directories(l_DestAssets);
+            std::filesystem::copy(l_SourceAssets, l_DestAssets,
+                std::filesystem::copy_options::recursive |
+                std::filesystem::copy_options::overwrite_existing);
+        }
+
+        std::filesystem::path l_WorkingDir = std::filesystem::current_path();
+        for (const auto& it_Entry : std::filesystem::directory_iterator(l_WorkingDir))
+        {
+            if (!it_Entry.is_regular_file())
+            {
+                continue;
+            }
+
+            std::string l_Extension = it_Entry.path().extension().string();
+            if (l_Extension == ".dll" || l_Extension == ".so" || l_Extension == ".dylib" || l_Extension == ".exe" || l_Extension.empty())
+            {
+                std::filesystem::copy_file(it_Entry.path(), a_OutputDir / it_Entry.path().filename(),
+                    std::filesystem::copy_options::overwrite_existing);
+            }
+        }
+    }
+
     std::vector<std::filesystem::path> BuildSystem::GetReferencedAssets(const std::filesystem::path& a_ScenePath)
     {
         std::vector<std::filesystem::path> l_Assets;

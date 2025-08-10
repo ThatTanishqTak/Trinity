@@ -40,6 +40,27 @@ void ToolbarPanel::StartBuild(const std::string& a_ConfigPath)
         }).detach();
 }
 
+void ToolbarPanel::StartPackage(const std::filesystem::path& a_OutputDir)
+{
+    m_IsPackaging = true;
+    m_PackageStatus = "Packaging...";
+
+    std::thread([this, a_OutputDir]()
+        {
+            try
+            {
+                Trinity::BuildSystem::BuildPackage(a_OutputDir);
+                m_PackageStatus = "Package complete";
+            }
+            catch (const std::exception& e)
+            {
+                m_PackageStatus = std::string("Package failed: ") + e.what();
+            }
+
+            m_IsPackaging = false;
+        }).detach();
+}
+
 void ToolbarPanel::OnUIRender()
 {
     ImGui::Begin("Toolbar", nullptr);
@@ -49,6 +70,14 @@ void ToolbarPanel::OnUIRender()
         m_FileDialogCurrentPath = std::filesystem::current_path();
         m_SelectedConfigPath.clear();
         ImGui::OpenPopup("Select Build Config");
+    }
+
+    ImGui::SameLine();
+
+    if (ImGui::Button("Package"))
+    {
+        m_FileDialogCurrentPath = std::filesystem::current_path();
+        ImGui::OpenPopup("Select Package Directory");
     }
 
     ImGui::SameLine();
@@ -135,6 +164,69 @@ void ToolbarPanel::OnUIRender()
             {
                 ImGui::CloseCurrentPopup();
                 m_ShowBuildPopup = false;
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopupModal("Select Package Directory", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted(m_FileDialogCurrentPath.string().c_str());
+        ImGui::Separator();
+
+        if (m_FileDialogCurrentPath.has_parent_path())
+        {
+            if (ImGui::Selectable(".."))
+            {
+                m_FileDialogCurrentPath = m_FileDialogCurrentPath.parent_path();
+            }
+        }
+
+        for (const auto& l_Entry : std::filesystem::directory_iterator(m_FileDialogCurrentPath))
+        {
+            const auto& l_Path = l_Entry.path();
+            if (l_Entry.is_directory())
+            {
+                std::string l_Label = l_Path.filename().string() + "/";
+                if (ImGui::Selectable(l_Label.c_str()))
+                {
+                    m_FileDialogCurrentPath = l_Path;
+                }
+            }
+        }
+
+        ImGui::Separator();
+        if (ImGui::Button("Select"))
+        {
+            StartPackage(m_FileDialogCurrentPath);
+            m_ShowPackagePopup = true;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    if (m_ShowPackagePopup)
+    {
+        ImGui::OpenPopup("Package Progress");
+    }
+
+    if (ImGui::BeginPopupModal("Package Progress", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("%s", m_PackageStatus.c_str());
+
+        if (!m_IsPackaging)
+        {
+            if (ImGui::Button("Close"))
+            {
+                ImGui::CloseCurrentPopup();
+                m_ShowPackagePopup = false;
             }
         }
 

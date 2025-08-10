@@ -20,6 +20,7 @@ namespace Trinity
     public:
         static BuildConfig ParseBuildConfig(const std::filesystem::path& a_ConfigPath);
         void Build(const BuildConfig& a_Config);
+        static void BuildPackage(const std::filesystem::path& a_OutputDir);
 
     private:
         static std::vector<std::filesystem::path> GetReferencedAssets(const std::filesystem::path& a_ScenePath);
