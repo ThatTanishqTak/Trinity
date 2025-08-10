@@ -8,7 +8,41 @@
 #include <string>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <system_error>
+
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <unistd.h>
+#endif
+
+namespace
+{
+    void LaunchEditor(const std::filesystem::path& p_ProjectPath)
+    {
+#ifdef _WIN32
+        STARTUPINFOA l_SI{};
+        PROCESS_INFORMATION l_PI{};
+        l_SI.cb = sizeof(STARTUPINFOA);
+
+        std::string l_Command = "TrinityForge.exe";
+        if (CreateProcessA(nullptr, l_Command.data(), nullptr, nullptr, FALSE, 0, nullptr, p_ProjectPath.string().c_str(), &l_SI, &l_PI))
+        {
+            CloseHandle(l_PI.hProcess);
+            CloseHandle(l_PI.hThread);
+        }
+#else
+        pid_t l_PID = fork();
+        if (l_PID == 0)
+        {
+            chdir(p_ProjectPath.string().c_str());
+            execl("TrinityForge", "TrinityForge", static_cast<char*>(nullptr));
+            std::_Exit(EXIT_FAILURE);
+        }
+#endif
+    }
+}
 
 ProjectWizardLayer::ProjectWizardLayer() : m_Templates{ "Empty", "2D", "3D" }, m_SelectedTemplate(0), m_IsOpen(false), m_ShowMessage(false), m_IsError(false)
 {
@@ -95,6 +129,8 @@ void ProjectWizardLayer::OnUIRender()
             {
                 m_StatusMessage = "Project created successfully.";
                 m_IsError = false;
+
+                LaunchEditor(l_ProjectPath);
             }
             else
             {
