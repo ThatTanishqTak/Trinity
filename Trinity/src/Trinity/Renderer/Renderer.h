@@ -9,7 +9,6 @@
 #include "Trinity/Renderer/PostProcess/BloomPass.h"
 #include "Trinity/Renderer/PostProcess/ToneMappingPass.h"
 #include "Trinity/Renderer/RenderGraph.h"
-#include "Trinity/Renderer/Shader.h"
 #include "Trinity/Renderer/Texture.h"
 #include "Trinity/Renderer/UniformBuffer.h"
 #include "Trinity/Renderer/VertexBuffer.h"
@@ -119,7 +118,6 @@ namespace Trinity
         size_t m_CurrentFrame = 0;
         VkPrimitiveTopology m_PrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-        Shader m_Shader;
         RenderGraph m_RenderGraph;
         BloomPass m_BloomPass;
         ToneMappingPass m_ToneMappingPass;

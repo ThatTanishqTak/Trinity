@@ -6,6 +6,7 @@
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/Renderer/Renderer.h"
 #include "Trinity/Renderer/Shader.h"
+#include "Trinity/Renderer/ShaderLibrary.h"
 #include "Trinity/Renderer/Material.h"
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Vulkan/VulkanContext.h"
@@ -14,7 +15,7 @@
 
 namespace Trinity
 {
-    Renderer::Renderer(VulkanContext* context) : m_Context(context), m_Shader(context)
+    Renderer::Renderer(VulkanContext* context) : m_Context(context)
     {
 
     }
@@ -56,7 +57,6 @@ namespace Trinity
 
         CleanupImGuiImageDescriptors();
 
-        m_Shader.Destroy();
         m_GraphicsPipeline = VK_NULL_HANDLE;
 
         for (auto& it_Fence : m_InFlightFence)
@@ -205,11 +205,14 @@ namespace Trinity
 
     void Renderer::DrawFrame(const std::function<void(VkCommandBuffer)>& recordCallback)
     {
-        if (m_Shader.Update())
+        if (auto shader = ShaderLibrary::Get().Get("Simple"))
         {
-            vkDeviceWaitIdle(m_Context->GetDevice());
-            m_GraphicsPipeline = VK_NULL_HANDLE;
-            CreateGraphicsPipeline(m_PrimitiveTopology);
+            if (shader->Update())
+            {
+                vkDeviceWaitIdle(m_Context->GetDevice());
+                m_GraphicsPipeline = VK_NULL_HANDLE;
+                CreateGraphicsPipeline(m_PrimitiveTopology);
+            }
         }
 
         vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
@@ -651,12 +654,13 @@ namespace Trinity
             return;
         }
 
-        if (m_Shader.GetModule(VK_SHADER_STAGE_VERTEX_BIT) == VK_NULL_HANDLE || m_Shader.GetModule(VK_SHADER_STAGE_FRAGMENT_BIT) == VK_NULL_HANDLE)
+        auto& lib = ShaderLibrary::Get();
+        auto shader = lib.Load("Simple", m_Context, "Assets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
+        shader = lib.Load("Simple", m_Context, "Assets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+        if (!shader)
         {
-            if (!m_Shader.Load("Assets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT) || !m_Shader.Load("Assets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT))
-            {
-                return;
-            }
+            TR_CORE_ERROR("Failed to load shaders for graphics pipeline");
+            return;
         }
 
         auto a_BindingDescription = Vertex::GetBindingDescription();
@@ -768,7 +772,7 @@ namespace Trinity
         l_PipelineInfo.basePipelineIndex = -1;
 
         uint32_t l_MaxLights = MaxLights;
-        m_GraphicsPipeline = m_Shader.GetPipeline(l_PipelineInfo, &l_MaxLights, sizeof(l_MaxLights));
+        m_GraphicsPipeline = shader->GetPipeline(l_PipelineInfo, &l_MaxLights, sizeof(l_MaxLights));
 
         if (m_GraphicsPipeline == VK_NULL_HANDLE)
         {
@@ -1493,7 +1497,6 @@ namespace Trinity
         m_RenderFinshedSemaphore.clear();
         m_ImagesInFlight.clear();
 
-        m_Shader.Destroy();
         m_GraphicsPipeline = VK_NULL_HANDLE;
 
         if (m_PipelineLayout)
