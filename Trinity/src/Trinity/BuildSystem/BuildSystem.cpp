@@ -68,6 +68,29 @@ namespace Trinity
                 std::filesystem::copy_options::overwrite_existing);
         }
 
+        std::filesystem::path l_DefaultAssets = std::filesystem::current_path() / "TrinityCentre/Resources/DefaultAssets";
+        if (std::filesystem::exists(l_DefaultAssets))
+        {
+            std::filesystem::path l_DefaultDest = a_OutputDir / "Resources/DefaultAssets";
+            std::filesystem::create_directories(l_DefaultDest);
+            for (const auto& it_Entry : std::filesystem::recursive_directory_iterator(l_DefaultAssets))
+            {
+                if (!it_Entry.is_regular_file())
+                {
+                    continue;
+                }
+
+                std::filesystem::path l_Rel = std::filesystem::relative(it_Entry.path(), l_DefaultAssets);
+                std::filesystem::path l_Target = l_DefaultDest / l_Rel;
+                std::filesystem::create_directories(l_Target.parent_path());
+                std::filesystem::copy_file(it_Entry.path(), l_Target, std::filesystem::copy_options::overwrite_existing);
+
+                std::filesystem::path l_FlatTarget = a_OutputDir / "Assets/Resources" / it_Entry.path().filename();
+                std::filesystem::create_directories(l_FlatTarget.parent_path());
+                std::filesystem::copy_file(it_Entry.path(), l_FlatTarget, std::filesystem::copy_options::overwrite_existing);
+            }
+        }
+
         std::filesystem::path l_WorkingDir = std::filesystem::current_path();
         for (const auto& it_Entry : std::filesystem::directory_iterator(l_WorkingDir))
         {

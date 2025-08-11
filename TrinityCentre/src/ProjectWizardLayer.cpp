@@ -149,8 +149,6 @@ void ProjectWizardLayer::OnUIRender()
 
                     LaunchEditor(l_ProjectPath);
                 }
-
-                LaunchEditor(l_ProjectPath);
             }
 
             else

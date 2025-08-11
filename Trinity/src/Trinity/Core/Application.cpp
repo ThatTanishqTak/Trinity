@@ -55,7 +55,7 @@ namespace Trinity
 
         Entity l_Entity = m_Scene->CreateEntity();
         auto& a_Mesh = l_Entity.AddComponent<MeshComponent>();
-        a_Mesh.MeshPath = "Resources/DefaultAssets/Textures/Checkers.png";
+        a_Mesh.MeshPath = "Resources/DefaultAssets/Meshes/Quad.obj";
         a_Mesh.TexturePath = "Resources/DefaultAssets/Textures/Checkers.png";
         m_MeshComponent = &a_Mesh;
         m_MeshFuture = m_ResourceManager->Load<Mesh>(a_Mesh.MeshPath, ResourceManager::DecodeMesh);
