@@ -1063,7 +1063,7 @@ namespace Trinity
         TR_CORE_TRACE("Loading texture");
 
         m_Texture = Texture(m_Context);
-        if (auto a_Error = m_Texture.LoadFromFile("Assets/Textures/Checkers.png", 0, 0))
+        if (auto a_Error = m_Texture.LoadFromFile("Resources/DefaultAssets/Textures/Checkers.png", 0, 0))
         {
             std::vector<std::byte> l_Pixels =
             {

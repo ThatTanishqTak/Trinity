@@ -68,7 +68,7 @@ namespace Trinity
                 std::filesystem::copy_options::overwrite_existing);
         }
 
-        std::filesystem::path l_DefaultAssets = std::filesystem::current_path() / "TrinityCentre/Resources/DefaultAssets";
+        std::filesystem::path l_DefaultAssets = std::filesystem::current_path() / "TrinityForge/Resources/DefaultAssets";
         if (std::filesystem::exists(l_DefaultAssets))
         {
             std::filesystem::path l_DefaultDest = a_OutputDir / "Resources/DefaultAssets";
