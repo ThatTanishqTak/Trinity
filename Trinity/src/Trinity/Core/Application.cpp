@@ -46,10 +46,11 @@ namespace Trinity
             TR_CORE_ERROR("Failed to initialize ImGui layer");
         }
 
-        m_ResourceManager = std::make_unique<ResourceManager>(m_VulkanContext.get());
+        m_AssetManager = std::make_unique<AssetManager>(m_VulkanContext.get());
 
         m_Scene = std::make_unique<Scene>();
         m_Renderer->SetScene(m_Scene.get());
+        m_Renderer->SetAssetManager(m_AssetManager.get());
 
         m_CameraController = std::make_unique<CameraController>(&m_Renderer->GetCamera());
 
@@ -57,9 +58,7 @@ namespace Trinity
         auto& a_Mesh = l_Entity.AddComponent<MeshComponent>();
         a_Mesh.MeshPath = "Resources/DefaultAssets/Meshes/Quad.obj";
         a_Mesh.TexturePath = "Resources/DefaultAssets/Textures/Checkers.png";
-        m_MeshComponent = &a_Mesh;
-        m_MeshFuture = m_ResourceManager->Load<Mesh>(a_Mesh.MeshPath, ResourceManager::DecodeMesh);
-        m_TextureFuture = m_ResourceManager->Load<Texture>(a_Mesh.TexturePath, ResourceManager::DecodeTexture);
+        m_AssetManager->RegisterSceneAssets(m_Scene.get());
 
         Resources::ShaderWatcher::Start();
 
@@ -83,7 +82,7 @@ namespace Trinity
         }
 
         m_Scene.reset();
-        m_ResourceManager.reset();
+        m_AssetManager.reset();
 
         if (m_VulkanContext)
         {

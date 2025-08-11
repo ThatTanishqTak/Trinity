@@ -27,6 +27,9 @@ namespace Trinity
 
         std::shared_ptr<Mesh> CreatePlaceholderMesh();
 
+        template<typename T>
+        void Unload(const std::string& path);
+
         static std::function<std::shared_ptr<Texture>(VulkanContext*)> DecodeTexture(const std::string& path);
         static std::function<std::shared_ptr<Mesh>(VulkanContext*)> DecodeMesh(const std::string& path);
 
@@ -102,5 +105,12 @@ namespace Trinity
             }).detach();
 
         return l_Future;
+    }
+
+    template<typename T>
+    void ResourceManager::Unload(const std::string& path)
+    {
+        std::lock_guard<std::mutex> l_Lock(m_CacheMutex);
+        GetCache<T>().erase(path);
     }
 }

@@ -5,7 +5,7 @@
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/ECS/Entity.h"
 #include "Trinity/ECS/Components.h"
-#include "Trinity/Core/ResourceManager.h"
+#include "Trinity/Core/AssetManager.h"
 
 #include <entt/entt.hpp>
 #include <yaml-cpp/yaml.h>
@@ -13,7 +13,7 @@
 
 namespace Trinity
 {
-    SceneSerializer::SceneSerializer(Scene* scene, ResourceManager* resourceManager) : m_Scene(scene), m_ResourceManager(resourceManager)
+    SceneSerializer::SceneSerializer(Scene* scene, AssetManager* assetManager) : m_Scene(scene), m_AssetManager(assetManager)
     {
 
     }
@@ -126,23 +126,6 @@ namespace Trinity
                 auto& a_Mesh = e.AddComponent<MeshComponent>();
                 a_Mesh.MeshPath = a_MeshNode["MeshPath"].as<std::string>();
                 a_Mesh.TexturePath = a_MeshNode["TexturePath"].as<std::string>();
-
-                if (auto a_MeshNode = it_Entity["MeshComponent"])
-                {
-                    auto& a_Mesh = e.AddComponent<MeshComponent>();
-                    a_Mesh.MeshPath = a_MeshNode["MeshPath"].as<std::string>();
-                    a_Mesh.TexturePath = a_MeshNode["TexturePath"].as<std::string>();
-
-                    if (m_ResourceManager && !a_Mesh.MeshPath.empty())
-                    {
-                        a_Mesh.MeshHandle = m_ResourceManager->Load<Mesh>(a_Mesh.MeshPath, ResourceManager::DecodeMesh).get();
-                    }
-
-                    if (m_ResourceManager && !a_Mesh.TexturePath.empty())
-                    {
-                        a_Mesh.MeshTexture = m_ResourceManager->Load<Texture>(a_Mesh.TexturePath, ResourceManager::DecodeTexture).get();
-                    }
-                }
             }
 
             if (auto a_LightNode = it_Entity["LightComponent"])
@@ -165,22 +148,9 @@ namespace Trinity
                 a_Material.NormalMapPath = a_MaterialNode["NormalMapPath"].as<std::string>();
                 a_Material.RoughnessMapPath = a_MaterialNode["RoughnessMapPath"].as<std::string>();
                 a_Material.MetallicMapPath = a_MaterialNode["MetallicMapPath"].as<std::string>();
-                if (m_ResourceManager)
+                if (m_AssetManager)
                 {
-                    if (!a_Material.NormalMapPath.empty())
-                    {
-                        a_Material.NormalMap = m_ResourceManager->Load<Texture>(a_Material.NormalMapPath, ResourceManager::DecodeTexture).get();
-                    }
-
-                    if (!a_Material.RoughnessMapPath.empty())
-                    {
-                        a_Material.RoughnessMap = m_ResourceManager->Load<Texture>(a_Material.RoughnessMapPath, ResourceManager::DecodeTexture).get();
-                    }
-
-                    if (!a_Material.MetallicMapPath.empty())
-                    {
-                        a_Material.MetallicMap = m_ResourceManager->Load<Texture>(a_Material.MetallicMapPath, ResourceManager::DecodeTexture).get();
-                    }
+                    m_AssetManager->RegisterSceneAssets(m_Scene);
                 }
             }
         }

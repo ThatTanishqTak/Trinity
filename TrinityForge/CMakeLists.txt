@@ -69,9 +69,10 @@ endforeach()
 add_custom_target(ForgeShaders ALL DEPENDS ${FORGE_SHADER_BINARIES})
 add_dependencies(${PROJECT_NAME} ForgeShaders)
 
+# Copy engine icons resources to the output directory
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/Trinity/vendor/assimp/bin/${ARCH}/assimp-vc143-mt.dll
-        $<TARGET_FILE_DIR:${PROJECT_NAME}>
-    COMMENT "Copying assimp-vc143-mt.dll to output directory"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/Resources
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/Resources
+    COMMENT "Copying engine resources to output directory"
 )

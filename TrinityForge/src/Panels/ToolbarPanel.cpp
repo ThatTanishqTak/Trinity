@@ -9,7 +9,7 @@
 #include <thread>
 #include <filesystem>
 
-ToolbarPanel::ToolbarPanel(Trinity::Scene* p_Scene, Trinity::ResourceManager* p_ResourceManager) : m_Scene(p_Scene), m_ResourceManager(p_ResourceManager)
+ToolbarPanel::ToolbarPanel(Trinity::Scene* scene, Trinity::AssetManager* assetManager) : m_Scene(scene), m_AssetManager(assetManager)
 {
 
 }
@@ -84,7 +84,7 @@ void ToolbarPanel::OnUIRender()
 
     if (ImGui::Button(m_IsPlaying ? "Stop" : "Play"))
     {
-        Trinity::SceneSerializer l_Serializer(m_Scene, m_ResourceManager);
+        Trinity::SceneSerializer l_Serializer(m_Scene, m_AssetManager);
         if (!m_IsPlaying)
         {
             l_Serializer.Serialize("scene_play.yaml");

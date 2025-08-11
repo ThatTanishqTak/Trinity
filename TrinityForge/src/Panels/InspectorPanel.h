@@ -2,7 +2,7 @@
 
 #include "Trinity/UI/Panel.h"
 #include "Trinity/ECS/Scene.h"
-#include "Trinity/Core/ResourceManager.h"
+#include "Trinity/Core/AssetManager.h"
 #include <entt/entt.hpp>
 #include <filesystem>
 #include <string>
@@ -10,7 +10,7 @@
 class InspectorPanel : public Trinity::Panel
 {
 public:
-    InspectorPanel(Trinity::Scene* p_Context, entt::entity* p_SelectionContext, Trinity::ResourceManager* p_ResourceManager);
+    InspectorPanel(Trinity::Scene* p_Context, entt::entity* p_SelectionContext, Trinity::AssetManager* p_AssetManager);
 
     void OnUIRender() override;
 
@@ -27,7 +27,7 @@ private:
 
     Trinity::Scene* m_Context = nullptr;
     entt::entity* m_SelectionContext = nullptr;
-    Trinity::ResourceManager* m_ResourceManager = nullptr;
+    Trinity::AssetManager* m_AssetManager = nullptr;
     std::filesystem::path m_FileDialogCurrentPath;
     std::string m_SelectedFile;
     FileDialogTarget m_DialogTarget = FileDialogTarget::None;

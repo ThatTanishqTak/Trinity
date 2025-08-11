@@ -5,18 +5,18 @@
 namespace Trinity
 {
     class Scene;
-    class ResourceManager;
+    class AssetManager;
 
     class SceneSerializer
     {
     public:
-        SceneSerializer(Scene* scene, ResourceManager* resourceManager = nullptr);
+        SceneSerializer(Scene* scene, AssetManager* assetManager = nullptr);
 
         void Serialize(const std::filesystem::path& path);
         bool Deserialize(const std::filesystem::path& path);
 
     private:
         Scene* m_Scene = nullptr;
-        ResourceManager* m_ResourceManager = nullptr;
+        AssetManager* m_AssetManager = nullptr;
     };
 }

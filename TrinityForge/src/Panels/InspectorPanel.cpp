@@ -63,9 +63,10 @@ namespace {
     }
 }
 
-InspectorPanel::InspectorPanel(Trinity::Scene* context, entt::entity* selectionContext, Trinity::ResourceManager* resourceManager)
-    : m_Context(context), m_SelectionContext(selectionContext), m_ResourceManager(resourceManager)
+InspectorPanel::InspectorPanel(Trinity::Scene* context, entt::entity* selectionContext, Trinity::AssetManager* assetManager) : m_Context(context), m_SelectionContext(selectionContext), 
+    m_AssetManager(assetManager)
 {
+
 }
 
 void InspectorPanel::OnUIRender()
@@ -179,11 +180,9 @@ void InspectorPanel::OnUIRender()
         {
             auto& a_Mesh = l_Registry.get<Trinity::MeshComponent>(*m_SelectionContext);
             a_Mesh.MeshPath = m_SelectedFile;
-            if (m_ResourceManager)
+            if (m_AssetManager)
             {
-                a_Mesh.MeshHandle = m_ResourceManager
-                    ->Load<Trinity::Mesh>(a_Mesh.MeshPath, Trinity::ResourceManager::DecodeMesh)
-                    .get();
+                a_Mesh.MeshHandle = m_AssetManager->RequestAsset<Trinity::Mesh>(a_Mesh.MeshPath);
             }
             break;
         }
@@ -191,11 +190,9 @@ void InspectorPanel::OnUIRender()
         {
             auto& a_Mesh = l_Registry.get<Trinity::MeshComponent>(*m_SelectionContext);
             a_Mesh.TexturePath = m_SelectedFile;
-            if (m_ResourceManager)
+            if (m_AssetManager)
             {
-                a_Mesh.MeshTexture = m_ResourceManager
-                    ->Load<Trinity::Texture>(a_Mesh.TexturePath, Trinity::ResourceManager::DecodeTexture)
-                    .get();
+                a_Mesh.MeshTexture = m_AssetManager->RequestAsset<Trinity::Texture>(a_Mesh.TexturePath);
             }
             break;
         }
@@ -203,11 +200,9 @@ void InspectorPanel::OnUIRender()
         {
             auto& a_Material = l_Registry.get<Trinity::MaterialComponent>(*m_SelectionContext);
             a_Material.NormalMapPath = m_SelectedFile;
-            if (m_ResourceManager)
+            if (m_AssetManager)
             {
-                a_Material.NormalMap = m_ResourceManager
-                    ->Load<Trinity::Texture>(a_Material.NormalMapPath, Trinity::ResourceManager::DecodeTexture)
-                    .get();
+                a_Material.NormalMap = m_AssetManager->RequestAsset<Trinity::Texture>(a_Material.NormalMapPath);
             }
             break;
         }
@@ -215,11 +210,9 @@ void InspectorPanel::OnUIRender()
         {
             auto& a_Material = l_Registry.get<Trinity::MaterialComponent>(*m_SelectionContext);
             a_Material.RoughnessMapPath = m_SelectedFile;
-            if (m_ResourceManager)
+            if (m_AssetManager)
             {
-                a_Material.RoughnessMap = m_ResourceManager
-                    ->Load<Trinity::Texture>(a_Material.RoughnessMapPath, Trinity::ResourceManager::DecodeTexture)
-                    .get();
+                a_Material.RoughnessMap = m_AssetManager->RequestAsset<Trinity::Texture>(a_Material.RoughnessMapPath);
             }
             break;
         }
@@ -227,11 +220,9 @@ void InspectorPanel::OnUIRender()
         {
             auto& a_Material = l_Registry.get<Trinity::MaterialComponent>(*m_SelectionContext);
             a_Material.MetallicMapPath = m_SelectedFile;
-            if (m_ResourceManager)
+            if (m_AssetManager)
             {
-                a_Material.MetallicMap = m_ResourceManager
-                    ->Load<Trinity::Texture>(a_Material.MetallicMapPath, Trinity::ResourceManager::DecodeTexture)
-                    .get();
+                a_Material.MetallicMap = m_AssetManager->RequestAsset<Trinity::Texture>(a_Material.MetallicMapPath);
             }
             break;
         }

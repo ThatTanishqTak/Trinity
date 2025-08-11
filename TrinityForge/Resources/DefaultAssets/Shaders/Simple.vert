@@ -20,6 +20,6 @@ void main()
     vec4 worldPos = ubo.Model * vec4(inPosition, 1.0);
     fragPos = worldPos.xyz;
     gl_Position = ubo.Proj * ubo.View * worldPos;
-    fragColor = pow(inColor, vec3(2.2));
+    fragColor = inColor;
     fragTexCoord = inTexCoord;
 }

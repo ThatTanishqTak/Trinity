@@ -1,7 +1,7 @@
 #include "Trinity/trpch.h"
 
 #include "Trinity/Camera/Culling.h"
-#include "Trinity/Core/ResourceManager.h"
+#include "Trinity/Core/AssetManager.h"
 #include "Trinity/ECS/Components.h"
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/Renderer/Renderer.h"
@@ -382,13 +382,12 @@ namespace Trinity
 
     Texture* Renderer::RequestTexture(const std::string& path)
     {
-        if (!m_ResourceManager)
+        if (!m_AssetManager)
         {
             return &m_Texture;
         }
 
-        auto l_Future = m_ResourceManager->Load<Texture>(path, ResourceManager::DecodeTexture);
-        auto l_Texture = l_Future.get();
+        auto l_Texture = m_AssetManager->RequestAsset<Texture>(path);
         if (!l_Texture)
         {
             return &m_Texture;
@@ -399,19 +398,18 @@ namespace Trinity
 
     std::shared_ptr<Mesh> Renderer::RequestMesh(const std::string& path)
     {
-        if (!m_ResourceManager)
+        if (!m_AssetManager)
         {
             return m_DefaultMesh;
         }
 
-        auto l_Future = m_ResourceManager->Load<Mesh>(path, ResourceManager::DecodeMesh);
-        auto l_Mesh = l_Future.get();
+        auto l_Mesh = m_AssetManager->RequestAsset<Mesh>(path);
         if (!l_Mesh)
         {
             TR_CORE_WARN("Mesh not found: {}. Using placeholder mesh", path);
             if (!m_DefaultMesh)
             {
-                m_DefaultMesh = m_ResourceManager->CreatePlaceholderMesh();
+                m_DefaultMesh = m_AssetManager->CreatePlaceholderMesh();
             }
             return m_DefaultMesh;
         }

@@ -2,7 +2,7 @@
 
 #include "Trinity/UI/Panel.h"
 #include "Trinity/ECS/Scene.h"
-#include "Trinity/Core/ResourceManager.h"
+#include "Trinity/Core/AssetManager.h"
 
 #include <atomic>
 #include <string>
@@ -11,7 +11,7 @@
 class ToolbarPanel : public Trinity::Panel
 {
 public:
-    ToolbarPanel(Trinity::Scene* p_Scene, Trinity::ResourceManager* p_ResourceManager);
+    ToolbarPanel(Trinity::Scene* p_Scene, Trinity::AssetManager* assetManager);
     void OnUIRender() override;
 
 private:
@@ -19,7 +19,7 @@ private:
     void StartPackage(const std::filesystem::path& a_OutputDir);
 
     Trinity::Scene* m_Scene = nullptr;
-    Trinity::ResourceManager* m_ResourceManager = nullptr;
+    Trinity::AssetManager* m_AssetManager = nullptr;
     bool m_IsPlaying = false;
 
     std::atomic_bool m_IsBuilding = false;

@@ -4,7 +4,7 @@
 #include <imgui.h>
 #include "Trinity/ECS/SceneSerializer.h"
 
-EditorLayer::EditorLayer(Trinity::Scene* p_Scene, Trinity::ResourceManager* resourceManager) : m_Scene(p_Scene), m_ResourceManager(resourceManager)
+EditorLayer::EditorLayer(Trinity::Scene* p_Scene, Trinity::AssetManager* assetManager) : m_Scene(p_Scene), m_AssetManager(assetManager)
 {
 
 }
@@ -34,13 +34,13 @@ void EditorLayer::OnUIRender()
         {
             if (ImGui::MenuItem("Save Scene"))
             {
-                Trinity::SceneSerializer l_Serializer(m_Scene, m_ResourceManager);
+                Trinity::SceneSerializer l_Serializer(m_Scene, m_AssetManager);
                 l_Serializer.Serialize("scene.yaml");
             }
 
             if (ImGui::MenuItem("Load Scene"))
             {
-                Trinity::SceneSerializer l_Serializer(m_Scene, m_ResourceManager);
+                Trinity::SceneSerializer l_Serializer(m_Scene, m_AssetManager);
                 l_Serializer.Deserialize("scene.yaml");
             }
 

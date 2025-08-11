@@ -18,15 +18,15 @@ namespace Trinity
     public:
         ForgeApp(const ApplicationSpecification& l_Specifications) : Application(l_Specifications)
         {
-            auto a_EditorLayer = std::make_unique<EditorLayer>(m_Scene.get(), m_ResourceManager.get());
+            auto a_EditorLayer = std::make_unique<EditorLayer>(m_Scene.get(), m_AssetManager.get());
             entt::entity* l_SelectionContext = a_EditorLayer->GetSelectionContext();
-            a_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>(m_Scene.get(), m_ResourceManager.get()));
+            a_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>(m_Scene.get(), m_AssetManager.get()));
             a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>(m_Scene.get(), l_SelectionContext));
 
             std::filesystem::path l_ProjectAssets = std::filesystem::current_path() / "Resources";
             a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>(l_ProjectAssets));
 
-            a_EditorLayer->RegisterPanel(std::make_unique<InspectorPanel>(m_Scene.get(), l_SelectionContext, m_ResourceManager.get()));
+            a_EditorLayer->RegisterPanel(std::make_unique<InspectorPanel>(m_Scene.get(), l_SelectionContext, m_AssetManager.get()));
             a_EditorLayer->RegisterPanel(std::make_unique<StatsPanel>());
             a_EditorLayer->RegisterPanel(std::make_unique<SceneViewportPanel>(m_Renderer.get()));
 

@@ -22,7 +22,7 @@ namespace Trinity
 {
     class VulkanContext;
     class Scene;
-    class ResourceManager;
+    class AssetManager;
     class Mesh;
 
     class Renderer
@@ -46,7 +46,7 @@ namespace Trinity
         ImTextureID GetViewportImage();
 
         void SetScene(Scene* scene) { m_Scene = scene; }
-        void SetResourceManager(ResourceManager* resourceManager) { m_ResourceManager = resourceManager; }
+        void SetAssetManager(AssetManager* assetManager) { m_AssetManager = assetManager; }
         Texture* RequestTexture(const std::string& path);
         std::shared_ptr<Mesh> RequestMesh(const std::string& path);
 
@@ -125,7 +125,7 @@ namespace Trinity
 
         Camera m_Camera;
         Scene* m_Scene = nullptr;
-        ResourceManager* m_ResourceManager = nullptr;
+        AssetManager* m_AssetManager = nullptr;
 
         size_t m_CurrentFrame = 0;
         VkPrimitiveTopology m_PrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
