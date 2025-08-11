@@ -128,10 +128,27 @@ void ProjectWizardLayer::OnUIRender()
             if (std::filesystem::create_directories(l_ProjectPath, l_EC))
             {
                 std::filesystem::path l_AssetTemplate = std::filesystem::path("Templates") / "DefaultAssets";
-                std::filesystem::copy(l_AssetTemplate, l_ProjectPath / "Resources", std::filesystem::copy_options::recursive | std::filesystem::copy_options::skip_existing);
+                std::filesystem::path l_TargetPath = l_ProjectPath / "Resources";
 
-                m_StatusMessage = "Project created successfully.";
-                m_IsError = false;
+                std::error_code l_CopyEC;
+                if (std::filesystem::exists(l_AssetTemplate))
+                {
+                    std::filesystem::copy(l_AssetTemplate, l_TargetPath, std::filesystem::copy_options::recursive | std::filesystem::copy_options::skip_existing, l_CopyEC);
+                }
+
+                if (l_CopyEC)
+                {
+                    m_StatusMessage = std::string("Error: ") + l_CopyEC.message();
+                    m_IsError = true;
+                }
+
+                else
+                {
+                    m_StatusMessage = "Project created successfully.";
+                    m_IsError = false;
+
+                    LaunchEditor(l_ProjectPath);
+                }
 
                 LaunchEditor(l_ProjectPath);
             }

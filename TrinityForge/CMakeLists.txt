@@ -51,7 +51,7 @@ else()
     message(FATAL_CRITICAL "VULKAN_SDK environment variable not set")
 endif()
 
-set(FORGE_SHADER_OUTPUT_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Resources/Shaders)
+set(FORGE_SHADER_OUTPUT_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Resources/DefaultAssets/Shaders)
 file(MAKE_DIRECTORY ${FORGE_SHADER_OUTPUT_DIR})
 
 foreach(SHADER ${FORGE_SHADER_SOURCES})

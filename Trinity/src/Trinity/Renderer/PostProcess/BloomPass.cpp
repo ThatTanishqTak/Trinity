@@ -8,8 +8,8 @@ namespace Trinity
 {
     bool BloomPass::Initialize()
     {
-        m_VertexSpv = ShaderCompiler::CompileToSpv("Resources/Shaders/Bloom.vert");
-        m_FragmentSpv = ShaderCompiler::CompileToSpv("Resources/Shaders/Bloom.frag");
+        m_VertexSpv = ShaderCompiler::CompileToSpv("Resources/DefaultAssets/Shaders/Bloom.vert");
+        m_FragmentSpv = ShaderCompiler::CompileToSpv("Resources/DefaultAssets/Shaders/Bloom.frag");
 
         return !m_VertexSpv.empty() && !m_FragmentSpv.empty();
     }
