@@ -19,6 +19,8 @@ namespace Trinity
         std::shared_ptr<Shader> Load(const std::string& identifier, VulkanContext* context, const std::filesystem::path& path, VkShaderStageFlagBits stage);
         std::shared_ptr<Shader> Get(const std::string& identifier);
 
+        void Shutdown();
+
     private:
         std::shared_ptr<Shader> CreateFallback(VulkanContext* context);
 

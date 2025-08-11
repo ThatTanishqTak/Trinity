@@ -59,6 +59,24 @@ namespace Trinity
         return nullptr;
     }
 
+    void ShaderLibrary::Shutdown()
+    {
+        for (auto& it_Shader : m_Shaders)
+        {
+            if (it_Shader.second)
+            {
+                it_Shader.second->Destroy();
+            }
+        }
+        m_Shaders.clear();
+
+        if (m_Fallback)
+        {
+            m_Fallback->Destroy();
+            m_Fallback.reset();
+        }
+    }
+
     std::shared_ptr<Shader> ShaderLibrary::CreateFallback(VulkanContext* context)
     {
         static const uint32_t s_FallbackVert[] = 

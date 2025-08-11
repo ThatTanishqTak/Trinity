@@ -21,6 +21,11 @@ namespace Trinity
 
     }
 
+    Shader::~Shader()
+    {
+        Destroy();
+    }
+
     bool Shader::Load(const std::filesystem::path& path, VkShaderStageFlagBits stage)
     {
         Stage l_Stage;

@@ -91,6 +91,8 @@ namespace Trinity
         vkDeviceWaitIdle(m_Context->GetDevice());
         TR_CORE_TRACE("Renderer is ready to be shutdown");
 
+        ShaderLibrary::Get().Shutdown();
+
         CleanupImGuiImageDescriptors();
 
         m_GraphicsPipeline = VK_NULL_HANDLE;

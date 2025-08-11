@@ -16,7 +16,7 @@ namespace Trinity
     public:
         Shader() = default;
         explicit Shader(VulkanContext* context);
-        ~Shader() = default;
+        ~Shader();
 
         bool Load(const std::filesystem::path& path, VkShaderStageFlagBits stage);
         bool Reload();
