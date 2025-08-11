@@ -10,6 +10,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <system_error>
+#include <array>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -41,6 +42,67 @@ namespace
             std::_Exit(EXIT_FAILURE);
         }
 #endif
+    }
+
+    std::filesystem::path FindDefaultAssetsRoot()
+    {
+        auto l_Path = std::filesystem::current_path();
+        for (int l_Level = 0; l_Level < 5; ++l_Level)
+        {
+            auto l_Candidate = l_Path / "TrinityForge" / "Resources" / "DefaultAssets";
+            if (std::filesystem::exists(l_Candidate))
+            {
+                return l_Candidate;
+            }
+            if (!l_Path.has_parent_path())
+            {
+                break;
+            }
+            l_Path = l_Path.parent_path();
+        }
+        return {};
+    }
+
+    std::error_code CreateDefaultAssets(const std::filesystem::path& p_ProjectPath)
+    {
+        std::error_code l_EC;
+        std::filesystem::path l_SourceRoot = FindDefaultAssetsRoot();
+        std::filesystem::path l_TargetRoot = p_ProjectPath / "Resources" / "DefaultAssets";
+
+        if (l_SourceRoot.empty())
+        {
+            return std::make_error_code(std::errc::no_such_file_or_directory);
+        }
+
+        std::filesystem::create_directories(l_TargetRoot, l_EC);
+        if (l_EC)
+        {
+            return l_EC;
+        }
+
+        const std::array<std::string, 4> l_Folders{ "Icons", "Meshes", "Shaders", "Textures" };
+        for (const auto& l_Folder : l_Folders)
+        {
+            std::filesystem::path l_Source = l_SourceRoot / l_Folder;
+            std::filesystem::path l_Target = l_TargetRoot / l_Folder;
+
+            std::filesystem::create_directories(l_Target, l_EC);
+            if (l_EC)
+            {
+                return l_EC;
+            }
+
+            if (std::filesystem::exists(l_Source))
+            {
+                std::filesystem::copy(l_Source, l_Target, std::filesystem::copy_options::recursive | std::filesystem::copy_options::skip_existing, l_EC);
+                if (l_EC)
+                {
+                    return l_EC;
+                }
+            }
+        }
+
+        return l_EC;
     }
 }
 
@@ -127,18 +189,11 @@ void ProjectWizardLayer::OnUIRender()
             std::error_code l_EC;
             if (std::filesystem::create_directories(l_ProjectPath, l_EC))
             {
-                std::filesystem::path l_AssetTemplate = std::filesystem::path("Templates") / "DefaultAssets";
-                std::filesystem::path l_TargetPath = l_ProjectPath / "Resources";
+                std::error_code l_AssetsEC = CreateDefaultAssets(l_ProjectPath);
 
-                std::error_code l_CopyEC;
-                if (std::filesystem::exists(l_AssetTemplate))
+                if (l_AssetsEC)
                 {
-                    std::filesystem::copy(l_AssetTemplate, l_TargetPath, std::filesystem::copy_options::recursive | std::filesystem::copy_options::skip_existing, l_CopyEC);
-                }
-
-                if (l_CopyEC)
-                {
-                    m_StatusMessage = std::string("Error: ") + l_CopyEC.message();
+                    m_StatusMessage = std::string("Error: ") + l_AssetsEC.message();
                     m_IsError = true;
                 }
 

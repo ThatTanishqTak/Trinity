@@ -217,7 +217,7 @@ namespace Trinity
             return VK_NULL_HANDLE;
         }
 
-        m_Pipelines[l_Hash] = { l_Pipeline, { m_Context } };
+        m_Pipelines[l_Hash] = { l_Pipeline, { m_Context ? m_Context->GetDevice() : VK_NULL_HANDLE } };
 
         return l_Pipeline;
     }
@@ -366,24 +366,24 @@ namespace Trinity
             return false;
         }
 
-        stage.module = { l_Module, { m_Context } };
+        stage.module = { l_Module, { m_Context ? m_Context->GetDevice() : VK_NULL_HANDLE } };
 
         return true;
     }
 
     void Shader::ShaderModuleDeleter::operator()(VkShaderModule module) const
     {
-        if (module && Context)
+        if (module && Device)
         {
-            vkDestroyShaderModule(Context->GetDevice(), module, nullptr);
+            vkDestroyShaderModule(Device, module, nullptr);
         }
     }
 
     void Shader::PipelineDeleter::operator()(VkPipeline pipeline) const
     {
-        if (pipeline && Context)
+        if (pipeline && Device)
         {
-            vkDestroyPipeline(Context->GetDevice(), pipeline, nullptr);
+            vkDestroyPipeline(Device, pipeline, nullptr);
         }
     }
 }

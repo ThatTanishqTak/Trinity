@@ -30,13 +30,13 @@ namespace Trinity
     private:
         struct ShaderModuleDeleter
         {
-            VulkanContext* Context = nullptr;
+            VkDevice Device = VK_NULL_HANDLE;
             void operator()(VkShaderModule module) const;
         };
 
         struct PipelineDeleter
         {
-            VulkanContext* Context = nullptr;
+            VkDevice Device = VK_NULL_HANDLE;
             void operator()(VkPipeline pipeline) const;
         };
 
@@ -47,7 +47,7 @@ namespace Trinity
             std::filesystem::path SpirvPath;
             std::vector<uint32_t> SpirvCode;
             std::filesystem::file_time_type Timestamp{};
-            std::unique_ptr<std::remove_pointer<VkShaderModule>::type, ShaderModuleDeleter> module{ nullptr, { nullptr } };
+            std::unique_ptr<std::remove_pointer<VkShaderModule>::type, ShaderModuleDeleter> module{ nullptr, { VK_NULL_HANDLE } };
         };
 
         size_t CalculateSpecHash(const void* data, size_t size) const;
