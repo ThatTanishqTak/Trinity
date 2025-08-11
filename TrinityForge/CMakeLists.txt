@@ -41,8 +41,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # Shader compilation -----------------------------------------------------
 # Gather all GLSL sources in the Assets/Shaders directory
 file(GLOB_RECURSE FORGE_SHADER_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/Assets/Shaders/*.vert
-    ${CMAKE_CURRENT_SOURCE_DIR}/Assets/Shaders/*.frag
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Shaders/*.vert
+    ${CMAKE_CURRENT_SOURCE_DIR}/Resources/Shaders/*.frag
 )
 
 if(DEFINED ENV{VULKAN_SDK})
@@ -51,7 +51,7 @@ else()
     message(FATAL_CRITICAL "VULKAN_SDK environment variable not set")
 endif()
 
-set(FORGE_SHADER_OUTPUT_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Assets/Shaders)
+set(FORGE_SHADER_OUTPUT_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Resources/Shaders)
 file(MAKE_DIRECTORY ${FORGE_SHADER_OUTPUT_DIR})
 
 foreach(SHADER ${FORGE_SHADER_SOURCES})

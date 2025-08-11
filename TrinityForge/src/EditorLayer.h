@@ -11,7 +11,7 @@
 class EditorLayer : public Trinity::Panel
 {
 public:
-    EditorLayer(Trinity::Scene* p_Scene, Trinity::ResourceManager* p_ResourceManager);
+    EditorLayer(Trinity::Scene* p_Scene, Trinity::ResourceManager* resourceManager);
 
     void OnUIRender() override;
     void RegisterPanel(std::unique_ptr<Trinity::Panel> panel);

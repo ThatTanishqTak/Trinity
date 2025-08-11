@@ -181,7 +181,9 @@ void InspectorPanel::OnUIRender()
             a_Mesh.MeshPath = m_SelectedFile;
             if (m_ResourceManager)
             {
-                a_Mesh.MeshHandle = m_ResourceManager->Load<Trinity::Mesh>(a_Mesh.MeshPath).get();
+                a_Mesh.MeshHandle = m_ResourceManager
+                    ->Load<Trinity::Mesh>(a_Mesh.MeshPath, Trinity::ResourceManager::DecodeMesh)
+                    .get();
             }
             break;
         }
@@ -191,7 +193,9 @@ void InspectorPanel::OnUIRender()
             a_Mesh.TexturePath = m_SelectedFile;
             if (m_ResourceManager)
             {
-                a_Mesh.MeshTexture = m_ResourceManager->Load<Trinity::Texture>(a_Mesh.TexturePath).get();
+                a_Mesh.MeshTexture = m_ResourceManager
+                    ->Load<Trinity::Texture>(a_Mesh.TexturePath, Trinity::ResourceManager::DecodeTexture)
+                    .get();
             }
             break;
         }
@@ -201,7 +205,9 @@ void InspectorPanel::OnUIRender()
             a_Material.NormalMapPath = m_SelectedFile;
             if (m_ResourceManager)
             {
-                a_Material.NormalMap = m_ResourceManager->Load<Trinity::Texture>(a_Material.NormalMapPath).get();
+                a_Material.NormalMap = m_ResourceManager
+                    ->Load<Trinity::Texture>(a_Material.NormalMapPath, Trinity::ResourceManager::DecodeTexture)
+                    .get();
             }
             break;
         }
@@ -211,7 +217,9 @@ void InspectorPanel::OnUIRender()
             a_Material.RoughnessMapPath = m_SelectedFile;
             if (m_ResourceManager)
             {
-                a_Material.RoughnessMap = m_ResourceManager->Load<Trinity::Texture>(a_Material.RoughnessMapPath).get();
+                a_Material.RoughnessMap = m_ResourceManager
+                    ->Load<Trinity::Texture>(a_Material.RoughnessMapPath, Trinity::ResourceManager::DecodeTexture)
+                    .get();
             }
             break;
         }
@@ -221,7 +229,9 @@ void InspectorPanel::OnUIRender()
             a_Material.MetallicMapPath = m_SelectedFile;
             if (m_ResourceManager)
             {
-                a_Material.MetallicMap = m_ResourceManager->Load<Trinity::Texture>(a_Material.MetallicMapPath).get();
+                a_Material.MetallicMap = m_ResourceManager
+                    ->Load<Trinity::Texture>(a_Material.MetallicMapPath, Trinity::ResourceManager::DecodeTexture)
+                    .get();
             }
             break;
         }

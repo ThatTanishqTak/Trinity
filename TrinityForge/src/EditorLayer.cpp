@@ -4,9 +4,9 @@
 #include <imgui.h>
 #include "Trinity/ECS/SceneSerializer.h"
 
-EditorLayer::EditorLayer(Trinity::Scene* p_Scene, Trinity::ResourceManager* p_ResourceManager)
-    : m_Scene(p_Scene), m_ResourceManager(p_ResourceManager)
+EditorLayer::EditorLayer(Trinity::Scene* p_Scene, Trinity::ResourceManager* resourceManager) : m_Scene(p_Scene), m_ResourceManager(resourceManager)
 {
+
 }
 
 void EditorLayer::OnUIRender()

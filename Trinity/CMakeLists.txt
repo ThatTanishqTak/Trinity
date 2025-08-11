@@ -163,3 +163,11 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 if(TR_RUNTIME_SHADER_COMPILE)
     target_compile_definitions(${PROJECT_NAME} PUBLIC TR_RUNTIME_SHADER_COMPILE)
 endif()
+
+# Copy engine shader resources to the output directory
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/Trinity/Resources/Shaders
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/Resources/Shaders
+    COMMENT "Copying engine shaders to output directory"
+)

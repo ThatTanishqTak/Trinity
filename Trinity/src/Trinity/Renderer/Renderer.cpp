@@ -728,15 +728,15 @@ namespace Trinity
             return;
         }
 
-        auto& lib = ShaderLibrary::Get();
-        auto a_Shader = lib.Load("Simple", m_Context, "Assets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
-        a_Shader = lib.Load("Simple", m_Context, "Assets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+        auto& a_Lib = ShaderLibrary::Get();
+        auto a_Shader = a_Lib.Load("Simple", m_Context, "Assets/Resources/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
+        a_Lib.Load("Simple", m_Context, "Assets/Resources/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 
         bool l_MissingStage = !a_Shader || a_Shader->GetModule(VK_SHADER_STAGE_VERTEX_BIT) == VK_NULL_HANDLE || a_Shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT) == VK_NULL_HANDLE;
         if (l_MissingStage)
         {
             TR_CORE_WARN("Graphics shader stage missing. Using fallback a_Shader");
-            a_Shader = lib.Load("Fallback", m_Context, "", VK_SHADER_STAGE_VERTEX_BIT);
+            a_Shader = a_Lib.Load("Fallback", m_Context, "", VK_SHADER_STAGE_VERTEX_BIT);
         }
 
         if (!a_Shader)
