@@ -44,7 +44,7 @@ namespace Trinity
         l_Specifications.Height = 1080;
         l_Specifications.CommandLineArgs = args;
 
-        std::filesystem::path l_ImGuiLayout = std::filesystem::current_path() / "Resources" / "DefaultAssets";
+        std::filesystem::path l_ImGuiLayout = std::filesystem::current_path() / "TrinityForge" / "Resources" / "Layout";
         l_Specifications.ImGuiLayoutPath = (l_ImGuiLayout / "imgui.ini").string();
 
         TR_INFO("Application Specifications Created");

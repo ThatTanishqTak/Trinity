@@ -51,6 +51,7 @@ namespace Trinity
             m_Registry[path] = Type::Texture;
         }
         auto l_Future = m_ResourceManager->Load<Texture>(path, ResourceManager::DecodeTexture);
+
         return WaitForLoad(path, l_Future);
     }
 
@@ -62,6 +63,7 @@ namespace Trinity
             m_Registry[path] = Type::Mesh;
         }
         auto l_Future = m_ResourceManager->Load<Mesh>(path, ResourceManager::DecodeMesh);
+
         return WaitForLoad(path, l_Future);
     }
 
@@ -73,6 +75,7 @@ namespace Trinity
             m_ResourceManager->ProcessJobs();
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+
         return future.get();
     }
 }

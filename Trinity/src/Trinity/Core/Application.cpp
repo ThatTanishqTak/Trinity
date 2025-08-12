@@ -61,8 +61,8 @@ namespace Trinity
 
         Entity l_Entity = m_Scene->CreateEntity();
         auto& a_Mesh = l_Entity.AddComponent<MeshComponent>();
-        a_Mesh.MeshPath = "Resources/DefaultAssets/Meshes/Quad.obj";
-        a_Mesh.TexturePath = "Resources/DefaultAssets/Textures/Checkers.png";
+        a_Mesh.MeshPath = "TrinityForge/Resources/DefaultAssets/Meshes/Quad.obj";
+        a_Mesh.TexturePath = "TrinityForge/Resources/DefaultAssets/Textures/Checkers.png";
         m_AssetManager->RegisterSceneAssets(m_Scene.get());
 
         Resources::ShaderWatcher::Start();

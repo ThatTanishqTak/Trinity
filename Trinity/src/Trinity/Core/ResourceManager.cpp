@@ -73,6 +73,7 @@ namespace Trinity
                 if (auto a_Error = a_Texture->CreateFromPixels(l_Pixels, l_Width, l_Height))
                 {
                     TR_CORE_ERROR("{}", *a_Error);
+
                     return nullptr;
                 }
                 return a_Texture;
@@ -86,6 +87,7 @@ namespace Trinity
         if (!l_Scene || !l_Scene->mRootNode || l_Scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE)
         {
             TR_CORE_ERROR("Failed to load mesh: {}", path);
+
             return {};
         }
 
@@ -130,8 +132,10 @@ namespace Trinity
                 if (auto a_Error = a_Mesh->Create(l_Vertices, l_Indices))
                 {
                     TR_CORE_ERROR("{}", *a_Error);
+
                     return nullptr;
                 }
+
                 return a_Mesh;
             };
     }

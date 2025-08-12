@@ -730,8 +730,8 @@ namespace Trinity
         }
 
         auto& a_Lib = ShaderLibrary::Get();
-        auto a_Shader = a_Lib.Load("Simple", m_Context, "Resources/DefaultAssets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
-        a_Lib.Load("Simple", m_Context, "Resources/DefaultAssets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+        auto a_Shader = a_Lib.Load("Simple", m_Context, "TrinityForge/Resources/DefaultAssets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
+        a_Lib.Load("Simple", m_Context, "TrinityForge/Resources/DefaultAssets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 
         bool l_MissingStage = !a_Shader || a_Shader->GetModule(VK_SHADER_STAGE_VERTEX_BIT) == VK_NULL_HANDLE || a_Shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT) == VK_NULL_HANDLE;
         if (l_MissingStage)
@@ -1065,7 +1065,7 @@ namespace Trinity
         TR_CORE_TRACE("Loading texture");
 
         m_Texture = Texture(m_Context);
-        if (auto a_Error = m_Texture.LoadFromFile("Resources/DefaultAssets/Textures/Checkers.png", 0, 0))
+        if (auto a_Error = m_Texture.LoadFromFile("TrinityForge/Resources/DefaultAssets/Textures/Checkers.png", 0, 0))
         {
             std::vector<std::byte> l_Pixels =
             {

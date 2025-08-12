@@ -20,12 +20,15 @@ namespace
 {
     void LaunchEditor(const std::filesystem::path& p_ProjectPath)
     {
+        std::filesystem::path l_Editor = std::filesystem::current_path() / "TrinityForge";
 #ifdef _WIN32
+        l_Editor.replace_extension(".exe");
+
         STARTUPINFOA l_SI{};
         PROCESS_INFORMATION l_PI{};
         l_SI.cb = sizeof(STARTUPINFOA);
 
-        std::string l_Command = "TrinityForge.exe";
+        std::string l_Command = l_Editor.string();
         if (CreateProcessA(nullptr, l_Command.data(), nullptr, nullptr, FALSE, 0, nullptr, p_ProjectPath.string().c_str(), &l_SI, &l_PI))
         {
             CloseHandle(l_PI.hProcess);
@@ -36,7 +39,7 @@ namespace
         if (l_PID == 0)
         {
             chdir(p_ProjectPath.string().c_str());
-            execl("TrinityForge", "TrinityForge", static_cast<char*>(nullptr));
+            execl(l_Editor.c_str(), l_Editor.c_str(), static_cast<char*>(nullptr));
             std::_Exit(EXIT_FAILURE);
         }
 #endif

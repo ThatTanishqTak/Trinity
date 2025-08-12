@@ -76,6 +76,7 @@ namespace Trinity
             if (it != l_Cache.end())
             {
                 l_Promise->set_value(it->second);
+
                 return l_Future;
             }
         }
