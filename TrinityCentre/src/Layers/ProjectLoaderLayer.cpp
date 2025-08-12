@@ -2,7 +2,6 @@
 #include "ProjectLoaderLayer.h"
 
 #include <imgui.h>
-#include <ImGuiFileDialog.h>
 #include <filesystem>
 #include <string>
 #include <cstdio>
@@ -12,12 +11,55 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#include <ShlObj.h>
 #else
 #include <unistd.h>
 #endif
 
 namespace
 {
+    std::filesystem::path OpenDirectoryDialog()
+    {
+#ifdef _WIN32
+        BROWSEINFOA l_BI{};
+        l_BI.lpszTitle = "Select Directory";
+        LPITEMIDLIST l_PIDL = SHBrowseForFolderA(&l_BI);
+        if (l_PIDL)
+        {
+            char l_Path[MAX_PATH];
+            if (SHGetPathFromIDListA(l_PIDL, l_Path))
+            {
+                IMalloc* l_Malloc = nullptr;
+                if (SUCCEEDED(SHGetMalloc(&l_Malloc)))
+                {
+                    l_Malloc->Free(l_PIDL);
+                    l_Malloc->Release();
+                }
+                return std::filesystem::path(l_Path);
+            }
+        }
+        return {};
+#else
+        FILE* l_Pipe = popen("zenity --file-selection --directory 2>/dev/null", "r");
+        if (!l_Pipe)
+        {
+            return {};
+        }
+        char l_Buffer[1024];
+        std::string l_Result;
+        while (fgets(l_Buffer, sizeof(l_Buffer), l_Pipe))
+        {
+            l_Result += l_Buffer;
+        }
+        pclose(l_Pipe);
+        if (!l_Result.empty() && l_Result.back() == '\n')
+        {
+            l_Result.pop_back();
+        }
+        return l_Result.empty() ? std::filesystem::path{} : std::filesystem::path(l_Result);
+#endif
+    }
+
     void LaunchEditor(const std::filesystem::path& p_ProjectPath)
     {
         std::filesystem::path l_Editor = std::filesystem::current_path() / "TrinityForge";
@@ -83,7 +125,11 @@ void ProjectLoaderLayer::OnUIRender()
     ImGui::SameLine();
     if (ImGui::Button("Browse"))
     {
-        ImGuiFileDialog::Instance()->OpenDialog("ChooseDir", "Choose Directory", nullptr);
+        std::filesystem::path l_Path = OpenDirectoryDialog();
+        if (!l_Path.empty())
+        {
+            std::snprintf(m_ProjectDirectory, sizeof(m_ProjectDirectory), "%s", l_Path.string().c_str());
+        }
     }
 
     bool l_DirValid = m_ProjectDirectory[0] != '\0';
@@ -119,14 +165,4 @@ void ProjectLoaderLayer::OnUIRender()
     }
 
     ImGui::End();
-
-    if (ImGuiFileDialog::Instance()->Display("ChooseDir"))
-    {
-        if (ImGuiFileDialog::Instance()->IsOk())
-        {
-            std::string l_Path = ImGuiFileDialog::Instance()->GetCurrentPath();
-            std::snprintf(m_ProjectDirectory, sizeof(m_ProjectDirectory), "%s", l_Path.c_str());
-        }
-        ImGuiFileDialog::Instance()->Close();
-    }
 }
