@@ -24,6 +24,7 @@ namespace Trinity
         void EndFrame(VkCommandBuffer commandBuffer);
 
         void RegisterPanel(std::unique_ptr<Panel> panel);
+        void LoadLayout(const std::string& filePath);
 
         void OnEvent(Event& e);
 

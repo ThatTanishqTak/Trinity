@@ -40,16 +40,16 @@ void ToolbarPanel::StartBuild(const std::string& a_ConfigPath)
         }).detach();
 }
 
-void ToolbarPanel::StartPackage(const std::filesystem::path& a_OutputDir)
+void ToolbarPanel::StartPackage(const std::filesystem::path& outputDir)
 {
     m_IsPackaging = true;
     m_PackageStatus = "Packaging...";
 
-    std::thread([this, a_OutputDir]()
+    std::thread([this, outputDir]()
         {
             try
             {
-                Trinity::BuildSystem::BuildPackage(a_OutputDir);
+                Trinity::BuildSystem::BuildPackage(outputDir);
                 m_PackageStatus = "Package complete";
             }
             catch (const std::exception& e)

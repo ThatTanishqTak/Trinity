@@ -16,7 +16,7 @@ public:
 
 private:
     void StartBuild(const std::string& a_ConfigPath);
-    void StartPackage(const std::filesystem::path& a_OutputDir);
+    void StartPackage(const std::filesystem::path& outputDir);
 
     Trinity::Scene* m_Scene = nullptr;
     Trinity::AssetManager* m_AssetManager = nullptr;

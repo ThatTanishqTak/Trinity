@@ -20,10 +20,10 @@ namespace Trinity
     public:
         static BuildConfig ParseBuildConfig(const std::filesystem::path& a_ConfigPath);
         void Build(const BuildConfig& a_Config);
-        static void BuildPackage(const std::filesystem::path& a_OutputDir);
+        static void BuildPackage(const std::filesystem::path& outputDir);
 
     private:
         static std::vector<std::filesystem::path> GetReferencedAssets(const std::filesystem::path& a_ScenePath);
-        void CompileAllShaders(const std::filesystem::path& a_OutputDir);
+        void CompileAllShaders(const std::filesystem::path& outputDir);
     };
 }

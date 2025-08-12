@@ -4,7 +4,7 @@
 #include <imgui.h>
 #include "Trinity/ECS/SceneSerializer.h"
 
-EditorLayer::EditorLayer(Trinity::Scene* p_Scene, Trinity::AssetManager* assetManager) : m_Scene(p_Scene), m_AssetManager(assetManager)
+EditorLayer::EditorLayer(Trinity::Scene* scene, Trinity::AssetManager* assetManager) : m_Scene(scene), m_AssetManager(assetManager)
 {
 
 }
@@ -64,7 +64,7 @@ void EditorLayer::OnUIRender()
     ImGui::End();
 }
 
-void EditorLayer::RegisterPanel(std::unique_ptr<Trinity::Panel> p_Panel)
+void EditorLayer::RegisterPanel(std::unique_ptr<Trinity::Panel> panel)
 {
-    m_Panels.emplace_back(std::move(p_Panel));
+    m_Panels.emplace_back(std::move(panel));
 }

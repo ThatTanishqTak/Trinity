@@ -129,6 +129,18 @@ namespace Trinity
         m_Panels.emplace_back(std::move(panel));
     }
 
+    void ImGuiLayer::LoadLayout(const std::string& filePath)
+    {
+        ImGuiIO l_IO = ImGui::GetIO();
+        l_IO.IniFilename = nullptr;
+
+        if (std::filesystem::exists(filePath))
+        {
+            ImGui::LoadIniSettingsFromDisk(filePath.c_str());
+            TR_CORE_TRACE("ImGui layout loaded: {}", filePath);
+        }
+    }
+
     void ImGuiLayer::OnEvent(Event& e)
     {
         ImGuiIO& l_IO = ImGui::GetIO();

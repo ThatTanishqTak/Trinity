@@ -17,6 +17,12 @@ void LauncherLayer::OnUIRender()
         {
             m_ProjectWizard.Open();
         }
+
+        else if (ImGui::Button("Load Project"))
+        {
+            m_ProjectWizard.Open();
+        }
+
         ImGui::End();
     }
 }

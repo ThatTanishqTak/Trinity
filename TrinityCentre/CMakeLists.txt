@@ -19,3 +19,11 @@ target_include_directories(${PROJECT_NAME}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Trinity)
+
+# Copy engine icons resources to the output directory
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/Templates
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/Templates
+    COMMENT "Copying engine resources to output directory"
+)

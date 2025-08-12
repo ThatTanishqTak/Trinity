@@ -54,14 +54,14 @@ namespace Trinity
         return l_Config;
     }
 
-    void BuildSystem::BuildPackage(const std::filesystem::path& a_OutputDir)
+    void BuildSystem::BuildPackage(const std::filesystem::path& outputDir)
     {
-        std::filesystem::create_directories(a_OutputDir);
+        std::filesystem::create_directories(outputDir);
 
         std::filesystem::path l_SourceAssets = std::filesystem::current_path() / "Assets";
         if (std::filesystem::exists(l_SourceAssets))
         {
-            std::filesystem::path l_DestAssets = a_OutputDir / "Assets";
+            std::filesystem::path l_DestAssets = outputDir / "Assets";
             std::filesystem::create_directories(l_DestAssets);
             std::filesystem::copy(l_SourceAssets, l_DestAssets,
                 std::filesystem::copy_options::recursive |
@@ -71,7 +71,7 @@ namespace Trinity
         std::filesystem::path l_DefaultAssets = std::filesystem::current_path() / "TrinityForge/Resources/DefaultAssets";
         if (std::filesystem::exists(l_DefaultAssets))
         {
-            std::filesystem::path l_DefaultDest = a_OutputDir / "Resources/DefaultAssets";
+            std::filesystem::path l_DefaultDest = outputDir / "Resources/DefaultAssets";
             std::filesystem::create_directories(l_DefaultDest);
             for (const auto& it_Entry : std::filesystem::recursive_directory_iterator(l_DefaultAssets))
             {
@@ -85,7 +85,7 @@ namespace Trinity
                 std::filesystem::create_directories(l_Target.parent_path());
                 std::filesystem::copy_file(it_Entry.path(), l_Target, std::filesystem::copy_options::overwrite_existing);
 
-                std::filesystem::path l_FlatTarget = a_OutputDir / "Assets/Resources" / it_Entry.path().filename();
+                std::filesystem::path l_FlatTarget = outputDir / "Assets/Resources" / it_Entry.path().filename();
                 std::filesystem::create_directories(l_FlatTarget.parent_path());
                 std::filesystem::copy_file(it_Entry.path(), l_FlatTarget, std::filesystem::copy_options::overwrite_existing);
             }
@@ -102,7 +102,7 @@ namespace Trinity
             std::string l_Extension = it_Entry.path().extension().string();
             if (l_Extension == ".dll" || l_Extension == ".so" || l_Extension == ".dylib" || l_Extension == ".exe" || l_Extension.empty())
             {
-                std::filesystem::copy_file(it_Entry.path(), a_OutputDir / it_Entry.path().filename(), std::filesystem::copy_options::overwrite_existing);
+                std::filesystem::copy_file(it_Entry.path(), outputDir / it_Entry.path().filename(), std::filesystem::copy_options::overwrite_existing);
             }
         }
     }
@@ -115,6 +115,7 @@ namespace Trinity
         if (!l_Stream.is_open())
         {
             TR_CORE_WARN("Failed to open scene {}", a_ScenePath.string());
+
             return l_Assets;
         }
 
@@ -197,7 +198,7 @@ namespace Trinity
         }
     }
 
-    void BuildSystem::CompileAllShaders(const std::filesystem::path& a_OutputDir)
+    void BuildSystem::CompileAllShaders(const std::filesystem::path& outputDir)
     {
         std::filesystem::path l_ShaderDir = "Assets/Shaders";
         if (!std::filesystem::exists(l_ShaderDir))
@@ -207,7 +208,7 @@ namespace Trinity
             return;
         }
 
-        std::filesystem::create_directories(a_OutputDir);
+        std::filesystem::create_directories(outputDir);
 
         for (const auto& it_Entry : std::filesystem::recursive_directory_iterator(l_ShaderDir))
         {
@@ -230,7 +231,7 @@ namespace Trinity
                 continue;
             }
 
-            std::filesystem::path l_OutputPath = a_OutputDir / it_Entry.path().filename();
+            std::filesystem::path l_OutputPath = outputDir / it_Entry.path().filename();
             l_OutputPath.replace_extension("spv");
 
             std::ofstream l_File(l_OutputPath, std::ios::binary | std::ios::out);
