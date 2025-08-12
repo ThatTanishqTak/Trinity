@@ -131,13 +131,15 @@ namespace Trinity
 
     void ImGuiLayer::LoadLayout(const std::string& filePath)
     {
-        ImGuiIO l_IO = ImGui::GetIO();
-        l_IO.IniFilename = nullptr;
+        m_LayoutFilePath = filePath;
 
-        if (std::filesystem::exists(filePath))
+        ImGuiIO& l_IO = ImGui::GetIO();
+        l_IO.IniFilename = m_LayoutFilePath.c_str();
+
+        if (std::filesystem::exists(m_LayoutFilePath))
         {
-            ImGui::LoadIniSettingsFromDisk(filePath.c_str());
-            TR_CORE_TRACE("ImGui layout loaded: {}", filePath);
+            ImGui::LoadIniSettingsFromDisk(m_LayoutFilePath.c_str());
+            TR_CORE_TRACE("ImGui layout loaded: {}", m_LayoutFilePath);
         }
     }
 

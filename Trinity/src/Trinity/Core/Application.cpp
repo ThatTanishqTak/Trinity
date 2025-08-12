@@ -46,6 +46,11 @@ namespace Trinity
             TR_CORE_ERROR("Failed to initialize ImGui layer");
         }
 
+        if (!m_Specification.ImGuiLayoutPath.empty())
+        {
+            m_ImGuiLayer->LoadLayout(m_Specification.ImGuiLayoutPath);
+        }
+
         m_AssetManager = std::make_unique<AssetManager>(m_VulkanContext.get());
 
         m_Scene = std::make_unique<Scene>();

@@ -2,6 +2,8 @@
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
+
+#include <string>
 #include <memory>
 #include <vector>
 
@@ -40,5 +42,6 @@ namespace Trinity
         VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 
         std::vector<std::unique_ptr<Panel>> m_Panels;
+        std::string m_LayoutFilePath{};
     };
 }

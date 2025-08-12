@@ -31,6 +31,7 @@ namespace Trinity
         unsigned int Width = 1920;
         unsigned int Height = 1080;
         ApplicationCommandLineArgs CommandLineArgs;
+        std::string ImGuiLayoutPath = "";
     };
 
     class Application

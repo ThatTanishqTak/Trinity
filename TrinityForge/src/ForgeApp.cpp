@@ -24,7 +24,6 @@ namespace Trinity
             a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>(m_Scene.get(), l_SelectionContext));
 
             std::filesystem::path l_ProjectAssets = std::filesystem::current_path() / "Resources";
-            m_ImGuiLayer->LoadLayout(l_ProjectAssets.string() + "imgui.ini");
 
             a_EditorLayer->RegisterPanel(std::make_unique<ContentBrowserPanel>(l_ProjectAssets));
             a_EditorLayer->RegisterPanel(std::make_unique<InspectorPanel>(m_Scene.get(), l_SelectionContext, m_AssetManager.get()));
@@ -44,6 +43,9 @@ namespace Trinity
         l_Specifications.Width = 1920;
         l_Specifications.Height = 1080;
         l_Specifications.CommandLineArgs = args;
+
+        std::filesystem::path l_ImGuiLayout = std::filesystem::current_path() / "Resources" / "DefaultAssets";
+        l_Specifications.ImGuiLayoutPath = (l_ImGuiLayout / "imgui.ini").string();
 
         TR_INFO("Application Specifications Created");
 
