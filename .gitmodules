@@ -23,6 +23,3 @@
 [submodule "Trinity/vendor/yaml-cpp"]
 	path = Trinity/vendor/yaml-cpp
 	url = https://github.com/ThatTanishqTak/yaml-cpp.git
-[submodule "Trinity/vendor/ImGuiFileDialog"]
-	path = Trinity/vendor/ImGuiFileDialog
-	url = https://github.com/aiekick/ImGuiFileDialog.git
