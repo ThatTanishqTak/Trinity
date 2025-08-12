@@ -1,5 +1,5 @@
 #include "Trinity/trpch.h"
-#include "ProjectWizardLayer.h"
+#include "ProjectCreatorLayer.h"
 
 #include <imgui.h>
 
@@ -106,14 +106,14 @@ namespace
     }
 }
 
-ProjectWizardLayer::ProjectWizardLayer() : m_Templates{ "Empty", "2D", "3D" }, m_SelectedTemplate(0), m_IsOpen(false), m_ShowMessage(false), m_IsError(false)
+ProjectCreatorLayer::ProjectCreatorLayer() : m_Templates{ "Empty", "2D", "3D" }, m_SelectedTemplate(0), m_IsOpen(false), m_ShowMessage(false), m_IsError(false)
 {
     m_ProjectName[0] = '\0';
     std::string l_CurrentDir = std::filesystem::current_path().string();
     std::snprintf(m_ProjectDirectory, sizeof(m_ProjectDirectory), "%s", l_CurrentDir.c_str());
 }
 
-void ProjectWizardLayer::Open()
+void ProjectCreatorLayer::Open()
 {
     m_IsOpen = true;
     m_ShowMessage = false;
@@ -123,24 +123,24 @@ void ProjectWizardLayer::Open()
     m_ProjectName[0] = '\0';
 }
 
-void ProjectWizardLayer::Close()
+void ProjectCreatorLayer::Close()
 {
     m_IsOpen = false;
 }
 
-bool ProjectWizardLayer::IsOpen() const
+bool ProjectCreatorLayer::IsOpen() const
 {
     return m_IsOpen;
 }
 
-void ProjectWizardLayer::OnUIRender()
+void ProjectCreatorLayer::OnUIRender()
 {
     if (!m_IsOpen)
     {
         return;
     }
 
-    ImGui::Begin("Project Wizard", &m_IsOpen);
+    ImGui::Begin("Project Creator", &m_IsOpen);
 
     ImGui::InputText("Project Name", m_ProjectName, sizeof(m_ProjectName));
 

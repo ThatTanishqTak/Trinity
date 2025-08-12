@@ -1,7 +1,8 @@
 #pragma once
 
 #include "Trinity/UI/Panel.h"
-#include "ProjectWizardLayer.h"
+#include "Layers/ProjectCreatorLayer.h"
+#include "Layers/ProjectLoaderLayer.h"
 
 class LauncherLayer : public Trinity::Panel
 {
@@ -10,5 +11,6 @@ public:
     void OnUIRender() override;
 
 private:
-    ProjectWizardLayer m_ProjectWizard;
+    ProjectCreatorLayer m_ProjectCreator;
+    ProjectLoaderLayer m_ProjectLoader;
 };

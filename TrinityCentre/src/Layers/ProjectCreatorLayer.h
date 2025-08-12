@@ -3,23 +3,12 @@
 #include <string>
 #include <vector>
 
-namespace Trinity
-{
-    class Layer
-    {
-    public:
-        virtual ~Layer() = default;
-        virtual void OnAttach() {}
-        virtual void OnDetach() {}
-        virtual void OnUpdate(float) {}
-        virtual void OnUIRender() {}
-    };
-}
+#include "Trinity/UI/Layer.h"
 
-class ProjectWizardLayer : public Trinity::Layer
+class ProjectCreatorLayer : public Trinity::Layer
 {
 public:
-    ProjectWizardLayer();
+    ProjectCreatorLayer();
 
     void OnUIRender() override;
     void Open();
