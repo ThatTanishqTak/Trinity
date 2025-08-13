@@ -2,6 +2,7 @@
 #include "AssetManager.h"
 
 #include "Trinity/ECS/Scene.h"
+#include "Trinity/Renderer/Primitives.h"
 
 #include <entt/entt.hpp>
 
@@ -94,7 +95,7 @@ namespace Trinity
             return a_Cache->second;
         }
 
-        auto a_Mesh = Primitives::CreatePrimitive(type);
+        auto a_Mesh = CreatePrimitive(m_ResourceManager->GetContext(), type);
         if (!a_Mesh)
         {
             return nullptr;

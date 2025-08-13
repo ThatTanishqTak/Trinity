@@ -17,11 +17,6 @@ namespace Trinity
     class VulkanContext;
     enum class PrimitiveType;
 
-    namespace Primitives
-    {
-        std::shared_ptr<Mesh> CreatePrimitive(PrimitiveType type);
-    }
-
     class AssetManager
     {
     public:

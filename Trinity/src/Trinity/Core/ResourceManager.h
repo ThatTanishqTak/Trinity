@@ -30,6 +30,8 @@ namespace Trinity
         template<typename T>
         void Unload(const std::string& path);
 
+        VulkanContext* GetContext() const;
+
         static std::function<std::shared_ptr<Texture>(VulkanContext*)> DecodeTexture(const std::string& path);
         static std::function<std::shared_ptr<Mesh>(VulkanContext*)> DecodeMesh(const std::string& path);
 

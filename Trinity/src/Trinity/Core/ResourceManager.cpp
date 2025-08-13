@@ -54,6 +54,11 @@ namespace Trinity
         return a_Mesh;
     }
 
+    VulkanContext* ResourceManager::GetContext() const
+    {
+        return m_Context;
+    }
+
     std::function<std::shared_ptr<Texture>(VulkanContext*)> ResourceManager::DecodeTexture(const std::string& path)
     {
         int l_Width = 0;
