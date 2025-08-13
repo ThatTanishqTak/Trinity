@@ -21,8 +21,6 @@ namespace Trinity
 
         Input::Initialize(m_Window->GetNativeWindow());
 
-        //if (m_Specification.InitializeRenderer)
-        //{
         m_VulkanContext = std::make_unique<VulkanContext>(m_Window->GetNativeWindow());
         if (!m_VulkanContext->Initialize())
         {
@@ -61,14 +59,7 @@ namespace Trinity
 
         m_CameraController = std::make_unique<CameraController>(&m_Renderer->GetCamera());
 
-        //Entity l_Entity = m_Scene->CreateEntity();
-        //auto& a_Mesh = l_Entity.AddComponent<MeshComponent>();
-        //a_Mesh.MeshPath = "Resources/TrinityForge/DefaultAssets/Meshes/Quad.obj";
-        //a_Mesh.TexturePath = "Resources/TrinityForge/DefaultAssets/Textures/Checkers.png";
-        //m_AssetManager->RegisterSceneAssets(m_Scene.get());
-
         Resources::ShaderWatcher::Start();
-        //}
 
         TR_CORE_INFO("-------APPLICATION INITIALIZED-------");
     }
