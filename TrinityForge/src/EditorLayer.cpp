@@ -3,6 +3,7 @@
 
 #include <imgui.h>
 #include "Trinity/ECS/SceneSerializer.h"
+#include "Trinity/ECS/Components.h"
 
 EditorLayer::EditorLayer(Trinity::Scene* scene, Trinity::AssetManager* assetManager) : m_Scene(scene), m_AssetManager(assetManager)
 {
@@ -55,6 +56,59 @@ void EditorLayer::OnUIRender()
 
     ImGuiID l_DockspaceID = ImGui::GetID("MainDockSpace");
     ImGui::DockSpace(l_DockspaceID, ImVec2(0.0f, 0.0f));
+
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+    {
+        ImGui::OpenPopup("Create Primitive");
+    }
+
+    if (ImGui::BeginPopup("Create Primitive"))
+    {
+        if (ImGui::MenuItem("Cube"))
+        {
+            if (m_Scene && m_AssetManager)
+            {
+                Trinity::Entity l_Entity = m_Scene->CreateEntity();
+                auto& a_Mesh = l_Entity.AddComponent<Trinity::MeshComponent>();
+                a_Mesh.MeshHandle = m_AssetManager->CreatePrimitiveMesh(Trinity::PrimitiveType::Cube);
+                l_Entity.AddComponent<Trinity::MaterialComponent>();
+            }
+        }
+
+        if (ImGui::MenuItem("Sphere"))
+        {
+            if (m_Scene && m_AssetManager)
+            {
+                Trinity::Entity l_Entity = m_Scene->CreateEntity();
+                auto& a_Mesh = l_Entity.AddComponent<Trinity::MeshComponent>();
+                a_Mesh.MeshHandle = m_AssetManager->CreatePrimitiveMesh(Trinity::PrimitiveType::Sphere);
+                l_Entity.AddComponent<Trinity::MaterialComponent>();
+            }
+        }
+
+        if (ImGui::MenuItem("Square"))
+        {
+            if (m_Scene && m_AssetManager)
+            {
+                Trinity::Entity l_Entity = m_Scene->CreateEntity();
+                auto& a_Mesh = l_Entity.AddComponent<Trinity::MeshComponent>();
+                a_Mesh.MeshHandle = m_AssetManager->CreatePrimitiveMesh(Trinity::PrimitiveType::Square);
+                l_Entity.AddComponent<Trinity::MaterialComponent>();
+            }
+        }
+
+        if (ImGui::MenuItem("Circle"))
+        {
+            if (m_Scene && m_AssetManager)
+            {
+                Trinity::Entity l_Entity = m_Scene->CreateEntity();
+                auto& a_Mesh = l_Entity.AddComponent<Trinity::MeshComponent>();
+                a_Mesh.MeshHandle = m_AssetManager->CreatePrimitiveMesh(Trinity::PrimitiveType::Circle);
+                l_Entity.AddComponent<Trinity::MaterialComponent>();
+            }
+        }
+        ImGui::EndPopup();
+    }
 
     for (auto& it_Panel : m_Panels)
     {

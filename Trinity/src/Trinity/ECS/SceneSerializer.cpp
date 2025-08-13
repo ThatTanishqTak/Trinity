@@ -54,6 +54,7 @@ namespace Trinity
                 l_Out << YAML::BeginMap;
                 l_Out << YAML::Key << "MeshPath" << YAML::Value << a_Mesh.MeshPath;
                 l_Out << YAML::Key << "TexturePath" << YAML::Value << a_Mesh.TexturePath;
+                l_Out << YAML::Key << "IsPrimitive" << YAML::Value << a_Mesh.IsPrimitive;
                 l_Out << YAML::EndMap;
             }
 
@@ -126,6 +127,11 @@ namespace Trinity
                 auto& a_Mesh = e.AddComponent<MeshComponent>();
                 a_Mesh.MeshPath = a_MeshNode["MeshPath"].as<std::string>();
                 a_Mesh.TexturePath = a_MeshNode["TexturePath"].as<std::string>();
+
+                if (a_MeshNode["IsPrimitive"])
+                {
+                    a_Mesh.IsPrimitive = a_MeshNode["IsPrimitive"].as<bool>();
+                }
             }
 
             if (auto a_LightNode = it_Entity["LightComponent"])

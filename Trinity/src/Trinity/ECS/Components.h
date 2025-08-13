@@ -24,6 +24,7 @@ namespace Trinity
         std::string TexturePath;
         std::shared_ptr<Mesh> MeshHandle = nullptr;
         std::shared_ptr<Texture> MeshTexture = nullptr;
+        bool IsPrimitive = false;
     };
 
     struct LightComponent

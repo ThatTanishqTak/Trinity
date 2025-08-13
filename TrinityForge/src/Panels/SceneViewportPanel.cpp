@@ -50,29 +50,39 @@ void SceneViewportPanel::OnUIRender()
             auto& l_Registry = m_Context->GetRegistry();
             if (l_Registry.any_of<Trinity::TransformComponent>(*m_SelectionContext))
             {
-                ImGuizmo::SetOrthographic(false);
-                ImGuizmo::BeginFrame();
-                ImGuizmo::SetDrawlist();
-                ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, m_ViewportSize.x, m_ViewportSize.y);
-
-                glm::mat4 l_View = m_Renderer->GetCamera().GetViewMatrix();
-                glm::mat4 l_Projection = m_Renderer->GetCamera().GetProjectionMatrix();
-
-                auto& a_Transform = l_Registry.get<Trinity::TransformComponent>(*m_SelectionContext);
-                glm::mat4 l_Transform = a_Transform.GetTransform();
-
-                ImGuizmo::Manipulate(glm::value_ptr(l_View), glm::value_ptr(l_Projection), ImGuizmo::TRANSLATE, ImGuizmo::LOCAL, glm::value_ptr(l_Transform));
-
-                if (ImGuizmo::IsUsing())
+                bool l_EnableManipulation = true;
+                if (l_Registry.any_of<Trinity::MeshComponent>(*m_SelectionContext))
                 {
-                    glm::vec3 l_Translation, l_Rotation, l_Scale;
-                    ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(l_Transform), glm::value_ptr(l_Translation), glm::value_ptr(l_Rotation), glm::value_ptr(l_Scale));
-                    a_Transform.Translation = l_Translation;
-                    a_Transform.Rotation = l_Rotation;
-                    a_Transform.Scale = l_Scale;
+                    auto& a_Mesh = l_Registry.get<Trinity::MeshComponent>(*m_SelectionContext);
+                    l_EnableManipulation = !a_Mesh.MeshPath.empty() || a_Mesh.MeshHandle;
+                }
+
+                if (l_EnableManipulation)
+                {
+                    ImGuizmo::SetOrthographic(false);
+                    ImGuizmo::BeginFrame();
+                    ImGuizmo::SetDrawlist();
+                    ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, m_ViewportSize.x, m_ViewportSize.y);
+
+                    glm::mat4 l_View = m_Renderer->GetCamera().GetViewMatrix();
+                    glm::mat4 l_Projection = m_Renderer->GetCamera().GetProjectionMatrix();
+
+                    auto& a_Transform = l_Registry.get<Trinity::TransformComponent>(*m_SelectionContext);
+                    glm::mat4 l_Transform = a_Transform.GetTransform();
+
+                    ImGuizmo::Manipulate(glm::value_ptr(l_View), glm::value_ptr(l_Projection), ImGuizmo::TRANSLATE, ImGuizmo::LOCAL, glm::value_ptr(l_Transform));
+
+                    if (ImGuizmo::IsUsing())
+                    {
+                        glm::vec3 l_Translation, l_Rotation, l_Scale;
+                        ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(l_Transform), glm::value_ptr(l_Translation), glm::value_ptr(l_Rotation), glm::value_ptr(l_Scale));
+
+                        a_Transform.Translation = l_Translation;
+                        a_Transform.Rotation = l_Rotation;
+                        a_Transform.Scale = l_Scale;
+                    }
                 }
             }
-        }
     }
 
     ImGui::End();

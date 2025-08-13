@@ -15,6 +15,12 @@ namespace Trinity
 {
     class Scene;
     class VulkanContext;
+    enum class PrimitiveType;
+
+    namespace Primitives
+    {
+        std::shared_ptr<Mesh> CreatePrimitive(PrimitiveType type);
+    }
 
     class AssetManager
     {
@@ -34,6 +40,7 @@ namespace Trinity
 
         void ProcessJobs() { m_ResourceManager->ProcessJobs(); }
         std::shared_ptr<Mesh> CreatePlaceholderMesh() { return m_ResourceManager->CreatePlaceholderMesh(); }
+        std::shared_ptr<Mesh> CreatePrimitiveMesh(PrimitiveType type);
 
     private:
         template<typename T>
@@ -41,6 +48,7 @@ namespace Trinity
 
         std::unique_ptr<ResourceManager> m_ResourceManager;
         std::unordered_map<std::string, Type> m_Registry;
+        std::unordered_map<PrimitiveType, std::shared_ptr<Mesh>> m_PrimitiveMeshCache;
     };
 
     template<>

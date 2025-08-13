@@ -85,4 +85,23 @@ namespace Trinity
             }
         }
     }
+
+    std::shared_ptr<Mesh> AssetManager::CreatePrimitiveMesh(PrimitiveType type)
+    {
+        auto a_Cache = m_PrimitiveMeshCache.find(type);
+        if (a_Cache != m_PrimitiveMeshCache.end())
+        {
+            return a_Cache->second;
+        }
+
+        auto a_Mesh = Primitives::CreatePrimitive(type);
+        if (!a_Mesh)
+        {
+            return nullptr;
+        }
+
+        m_PrimitiveMeshCache[type] = a_Mesh;
+
+        return a_Mesh;
+    }
 }

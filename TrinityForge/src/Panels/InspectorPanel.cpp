@@ -7,7 +7,7 @@
 #include "Trinity/Utilities/Utilities.h"
 
 InspectorPanel::InspectorPanel(Trinity::Scene* context, entt::entity* selectionContext, Trinity::AssetManager* assetManager) : m_Context(context), m_SelectionContext(selectionContext),
-m_AssetManager(assetManager)
+    m_AssetManager(assetManager)
 {
 
 }
@@ -37,34 +37,35 @@ void InspectorPanel::OnUIRender()
             auto& a_Mesh = l_Registry.get<Trinity::MeshComponent>(*m_SelectionContext);
             if (ImGui::TreeNode("Mesh"))
             {
-                ImGui::TextUnformatted(a_Mesh.MeshPath.c_str());
+                if (!a_Mesh.MeshPath.empty())
+                {
+                    ImGui::TextUnformatted(a_Mesh.MeshPath.c_str());
+                }
+
+                else if (a_Mesh.MeshHandle)
+                {
+                    ImGui::TextUnformatted("[Mesh Handle]");
+                }
+
+                else
+                {
+                    ImGui::TextUnformatted("[No Mesh]");
+                }
+
+                ImGui::Checkbox("Primitive", &a_Mesh.IsPrimitive);
                 if (ImGui::Button("Select Mesh"))
                 {
                     std::string l_Path = Trinity::Utilities::FileManagement::OpenFile();
                     if (!l_Path.empty())
                     {
                         a_Mesh.MeshPath = l_Path;
+                        a_Mesh.IsPrimitive = false;
                         if (m_AssetManager)
                         {
                             a_Mesh.MeshHandle = m_AssetManager->RequestAsset<Trinity::Mesh>(a_Mesh.MeshPath);
                         }
                     }
                 }
-                ImGui::TextUnformatted(a_Mesh.TexturePath.c_str());
-                if (ImGui::Button("Select Texture"))
-                {
-                    std::string l_Path = Trinity::Utilities::FileManagement::OpenFile();
-                    if (!l_Path.empty())
-                    {
-                        a_Mesh.TexturePath = l_Path;
-                        if (m_AssetManager)
-                        {
-                            a_Mesh.MeshTexture = m_AssetManager->RequestAsset<Trinity::Texture>(a_Mesh.TexturePath);
-                        }
-                    }
-                }
-                ImGui::TreePop();
-            }
         }
 
         if (l_Registry.any_of<Trinity::LightComponent>(*m_SelectionContext))
