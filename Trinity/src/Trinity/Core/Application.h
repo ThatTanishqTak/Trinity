@@ -31,6 +31,8 @@ namespace Trinity
         unsigned int Width = 1920;
         unsigned int Height = 1080;
         ApplicationCommandLineArgs CommandLineArgs;
+        bool InitializeRenderer = true;
+
         std::string ImGuiLayoutPath = "";
     };
 
@@ -49,7 +51,10 @@ namespace Trinity
             {
                 Utilities::Time::Update();
 
-                m_AssetManager->ProcessJobs();
+                if (m_AssetManager)
+                {
+                    m_AssetManager->ProcessJobs();
+                }
 
                 // Poll events
                 m_Window->PollEvents();
@@ -59,11 +64,14 @@ namespace Trinity
                 }
 
                 // Rendering
-                m_ImGuiLayer->BeginFrame();
-                m_Renderer->DrawFrame([this](VkCommandBuffer l_CommandBuffer)
+                if (m_Renderer && m_ImGuiLayer)
+                {
+                    m_ImGuiLayer->BeginFrame();
+                    m_Renderer->DrawFrame([this](VkCommandBuffer l_CommandBuffer)
                     {
                         m_ImGuiLayer->EndFrame(l_CommandBuffer);
                     });
+                }
             }
 
             TR_CORE_TRACE("Exiting main loop");

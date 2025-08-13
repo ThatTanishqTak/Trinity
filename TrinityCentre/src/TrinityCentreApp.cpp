@@ -10,7 +10,10 @@ namespace Trinity
         TrinityCentre(const ApplicationSpecification& specifications) : Application(specifications)
         {
             auto a_LauncherLayer = std::make_unique<LauncherLayer>();
-            m_ImGuiLayer->RegisterPanel(std::move(a_LauncherLayer));
+            if (m_ImGuiLayer)
+            {
+                m_ImGuiLayer->RegisterPanel(std::move(a_LauncherLayer));
+            }
         }
     };
 
@@ -23,6 +26,7 @@ namespace Trinity
         l_Specifications.Width = 1280;
         l_Specifications.Height = 720;
         l_Specifications.CommandLineArgs = args;
+        l_Specifications.InitializeRenderer = false;
 
         std::filesystem::path l_ProjectAssets = std::filesystem::current_path() / "TrinityCentre" / "Resources" / "Layout";
         l_Specifications.ImGuiLayoutPath = (l_ProjectAssets / "imgui.ini").string();

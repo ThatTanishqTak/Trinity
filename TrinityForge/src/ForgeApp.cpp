@@ -43,6 +43,7 @@ namespace Trinity
         l_Specifications.Width = 1920;
         l_Specifications.Height = 1080;
         l_Specifications.CommandLineArgs = args;
+        l_Specifications.InitializeRenderer = true;
 
         std::filesystem::path l_ImGuiLayout = std::filesystem::current_path() / "TrinityForge" / "Resources" / "Layout";
         l_Specifications.ImGuiLayoutPath = (l_ImGuiLayout / "imgui.ini").string();

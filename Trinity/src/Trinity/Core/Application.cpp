@@ -21,6 +21,8 @@ namespace Trinity
 
         Input::Initialize(m_Window->GetNativeWindow());
 
+        //if (m_Specification.InitializeRenderer)
+        //{
         m_VulkanContext = std::make_unique<VulkanContext>(m_Window->GetNativeWindow());
         if (!m_VulkanContext->Initialize())
         {
@@ -35,12 +37,12 @@ namespace Trinity
 
         m_ImGuiLayer = std::make_unique<ImGuiLayer>
             (
-                m_Window->GetNativeWindow(), m_VulkanContext->GetInstance(), 
+                m_Window->GetNativeWindow(), m_VulkanContext->GetInstance(),
                 m_VulkanContext->GetPhysicalDevice(), m_VulkanContext->GetDevice(),
                 m_VulkanContext->FindQueueFamilies(m_VulkanContext->GetPhysicalDevice()).GraphicsFamily.value(),
-                m_VulkanContext->GetGraphicsQueue(), m_Renderer->GetRenderPass(),static_cast<uint32_t>(m_VulkanContext->GetSwapChainImages().size())
+                m_VulkanContext->GetGraphicsQueue(), m_Renderer->GetRenderPass(), static_cast<uint32_t>(m_VulkanContext->GetSwapChainImages().size())
             );
-        
+
         if (!m_ImGuiLayer->Initialize())
         {
             TR_CORE_ERROR("Failed to initialize ImGui layer");
@@ -59,13 +61,14 @@ namespace Trinity
 
         m_CameraController = std::make_unique<CameraController>(&m_Renderer->GetCamera());
 
-        Entity l_Entity = m_Scene->CreateEntity();
-        auto& a_Mesh = l_Entity.AddComponent<MeshComponent>();
-        a_Mesh.MeshPath = "Resources/TrinityForge/DefaultAssets/Meshes/Quad.obj";
-        a_Mesh.TexturePath = "Resources/TrinityForge/DefaultAssets/Textures/Checkers.png";
-        m_AssetManager->RegisterSceneAssets(m_Scene.get());
+        //Entity l_Entity = m_Scene->CreateEntity();
+        //auto& a_Mesh = l_Entity.AddComponent<MeshComponent>();
+        //a_Mesh.MeshPath = "Resources/TrinityForge/DefaultAssets/Meshes/Quad.obj";
+        //a_Mesh.TexturePath = "Resources/TrinityForge/DefaultAssets/Textures/Checkers.png";
+        //m_AssetManager->RegisterSceneAssets(m_Scene.get());
 
         Resources::ShaderWatcher::Start();
+        //}
 
         TR_CORE_INFO("-------APPLICATION INITIALIZED-------");
     }
