@@ -37,9 +37,11 @@ namespace
                     l_Malloc->Free(l_PIDL);
                     l_Malloc->Release();
                 }
+
                 return std::filesystem::path(l_Path);
             }
         }
+
         return {};
 #else
         FILE* l_Pipe = popen("zenity --file-selection --directory 2>/dev/null", "r");

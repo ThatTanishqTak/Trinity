@@ -67,7 +67,7 @@ namespace Trinity
     std::future<std::shared_ptr<T>> ResourceManager::Load(const std::string& path, DecodeFunc decode)
     {
         auto l_Promise = std::make_shared<std::promise<std::shared_ptr<T>>>();
-        auto l_Future = l_Promise->get_future();
+        auto a_Future = l_Promise->get_future();
 
         {
             std::lock_guard<std::mutex> l_Lock(m_CacheMutex);
@@ -77,7 +77,7 @@ namespace Trinity
             {
                 l_Promise->set_value(it->second);
 
-                return l_Future;
+                return a_Future;
             }
         }
 
@@ -105,7 +105,7 @@ namespace Trinity
                 }
             }).detach();
 
-        return l_Future;
+        return a_Future;
     }
 
     template<typename T>

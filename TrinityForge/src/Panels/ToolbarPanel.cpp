@@ -4,6 +4,7 @@
 
 #include "Trinity/BuildSystem/BuildSystem.h"
 #include "Trinity/ECS/SceneSerializer.h"
+#include "Trinity/Utilities/Utilities.h"
 
 #include <imgui.h>
 #include <thread>
@@ -14,16 +15,16 @@ ToolbarPanel::ToolbarPanel(Trinity::Scene* scene, Trinity::AssetManager* assetMa
 
 }
 
-void ToolbarPanel::StartBuild(const std::string& a_ConfigPath)
+void ToolbarPanel::StartBuild(const std::string& configPath)
 {
     m_IsBuilding = true;
     m_BuildStatus = "Parsing config...";
 
-    std::thread([this, a_ConfigPath]()
+    std::thread([this, configPath]()
         {
             try
             {
-                auto l_Config = Trinity::BuildSystem::ParseBuildConfig(a_ConfigPath);
+                auto l_Config = Trinity::BuildSystem::ParseBuildConfig(configPath);
                 m_BuildStatus = "Building...";
 
                 Trinity::BuildSystem l_Builder;
@@ -67,17 +68,24 @@ void ToolbarPanel::OnUIRender()
 
     if (ImGui::Button("Build"))
     {
-        m_FileDialogCurrentPath = std::filesystem::current_path();
-        m_SelectedConfigPath.clear();
-        ImGui::OpenPopup("Select Build Config");
+        std::string l_Config = Trinity::Utilities::FileManagement::OpenFile("YAML Files (*.yaml)\0*.yaml\0");
+        if (!l_Config.empty())
+        {
+            StartBuild(l_Config);
+            m_ShowBuildPopup = true;
+        }
     }
 
     ImGui::SameLine();
 
     if (ImGui::Button("Package"))
     {
-        m_FileDialogCurrentPath = std::filesystem::current_path();
-        ImGui::OpenPopup("Select Package Directory");
+        std::string l_OutputDir = Trinity::Utilities::FileManagement::OpenDirectory();
+        if (!l_OutputDir.empty())
+        {
+            StartPackage(l_OutputDir);
+            m_ShowPackagePopup = true;
+        }
     }
 
     ImGui::SameLine();
@@ -94,60 +102,11 @@ void ToolbarPanel::OnUIRender()
         {
             l_Serializer.Deserialize("scene_play.yaml");
         }
+
         m_IsPlaying = !m_IsPlaying;
     }
 
     ImGui::End();
-
-    if (ImGui::BeginPopupModal("Select Build Config", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-    {
-        ImGui::TextUnformatted(m_FileDialogCurrentPath.string().c_str());
-        ImGui::Separator();
-
-        if (m_FileDialogCurrentPath.has_parent_path())
-        {
-            if (ImGui::Selectable(".."))
-            {
-                m_FileDialogCurrentPath = m_FileDialogCurrentPath.parent_path();
-            }
-        }
-
-        for (const auto& l_Entry : std::filesystem::directory_iterator(m_FileDialogCurrentPath))
-        {
-            const auto& l_Path = l_Entry.path();
-            if (l_Entry.is_directory())
-            {
-                std::string l_Label = l_Path.filename().string() + "/";
-                if (ImGui::Selectable(l_Label.c_str()))
-                {
-                    m_FileDialogCurrentPath = l_Path;
-                }
-            }
-            else if (l_Path.extension() == ".yaml")
-            {
-                bool l_Selected = (m_SelectedConfigPath == l_Path.string());
-                if (ImGui::Selectable(l_Path.filename().string().c_str(), l_Selected))
-                {
-                    m_SelectedConfigPath = l_Path.string();
-                }
-            }
-        }
-
-        ImGui::Separator();
-        if (ImGui::Button("Select") && !m_SelectedConfigPath.empty())
-        {
-            StartBuild(m_SelectedConfigPath);
-            m_ShowBuildPopup = true;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
-        {
-            ImGui::CloseCurrentPopup();
-        }
-
-        ImGui::EndPopup();
-    }
 
     if (m_ShowBuildPopup)
     {
@@ -165,48 +124,6 @@ void ToolbarPanel::OnUIRender()
                 ImGui::CloseCurrentPopup();
                 m_ShowBuildPopup = false;
             }
-        }
-
-        ImGui::EndPopup();
-    }
-
-    if (ImGui::BeginPopupModal("Select Package Directory", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-    {
-        ImGui::TextUnformatted(m_FileDialogCurrentPath.string().c_str());
-        ImGui::Separator();
-
-        if (m_FileDialogCurrentPath.has_parent_path())
-        {
-            if (ImGui::Selectable(".."))
-            {
-                m_FileDialogCurrentPath = m_FileDialogCurrentPath.parent_path();
-            }
-        }
-
-        for (const auto& l_Entry : std::filesystem::directory_iterator(m_FileDialogCurrentPath))
-        {
-            const auto& l_Path = l_Entry.path();
-            if (l_Entry.is_directory())
-            {
-                std::string l_Label = l_Path.filename().string() + "/";
-                if (ImGui::Selectable(l_Label.c_str()))
-                {
-                    m_FileDialogCurrentPath = l_Path;
-                }
-            }
-        }
-
-        ImGui::Separator();
-        if (ImGui::Button("Select"))
-        {
-            StartPackage(m_FileDialogCurrentPath);
-            m_ShowPackagePopup = true;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
-        {
-            ImGui::CloseCurrentPopup();
         }
 
         ImGui::EndPopup();

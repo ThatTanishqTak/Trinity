@@ -34,6 +34,8 @@ namespace Trinity
 			static bool EnsureFileExists(const std::filesystem::path& filePath);
 			static std::vector<std::byte> ReadFile(const std::filesystem::path& filePath);
 			static std::vector<std::byte> LoadTexture(const std::filesystem::path& filePath, int& width, int& height);
+			static std::string OpenFile(const char* p_Filter = nullptr);
+			static std::string OpenDirectory();
 		};
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//

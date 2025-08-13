@@ -50,9 +50,9 @@ namespace Trinity
         {
             m_Registry[path] = Type::Texture;
         }
-        auto l_Future = m_ResourceManager->Load<Texture>(path, ResourceManager::DecodeTexture);
+        auto a_Future = m_ResourceManager->Load<Texture>(path, ResourceManager::DecodeTexture);
 
-        return WaitForLoad(path, l_Future);
+        return WaitForLoad(path, a_Future);
     }
 
     template<>
@@ -62,9 +62,9 @@ namespace Trinity
         {
             m_Registry[path] = Type::Mesh;
         }
-        auto l_Future = m_ResourceManager->Load<Mesh>(path, ResourceManager::DecodeMesh);
+        auto a_Future = m_ResourceManager->Load<Mesh>(path, ResourceManager::DecodeMesh);
 
-        return WaitForLoad(path, l_Future);
+        return WaitForLoad(path, a_Future);
     }
 
     template<typename T>

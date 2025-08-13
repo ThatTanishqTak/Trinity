@@ -1,5 +1,4 @@
 #include "Trinity/trpch.h"
-
 #include "Trinity/Utilities/Utilities.h"
 
 #include <GLFW/glfw3.h>
@@ -9,6 +8,13 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
+
+#include <cstdio>
+#include <filesystem>
+
+#ifdef _WIN32
+#include <shobjidl.h>
+#endif
 
 namespace Trinity
 {
@@ -115,6 +121,148 @@ namespace Trinity
             TR_CORE_TRACE("Texture loaded: {}", filePath.string());
 
             return l_Buffer;
+        }
+
+        std::string FileManagement::OpenFile(const char* /*filter*/)
+        {
+#ifdef _WIN32
+            std::string l_Result;
+            IFileOpenDialog* l_FileDialog;
+            HRESULT l_Hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            if (SUCCEEDED(l_Hr))
+            {
+                l_Hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&l_FileDialog));
+                if (SUCCEEDED(l_Hr))
+                {
+                    DWORD l_Flags;
+                    if (SUCCEEDED(l_FileDialog->GetOptions(&l_Flags)))
+                    {
+                        l_FileDialog->SetOptions(l_Flags | FOS_FORCEFILESYSTEM);
+                    }
+
+                    if (SUCCEEDED(l_FileDialog->Show(nullptr)))
+                    {
+                        IShellItem* l_Item;
+                        if (SUCCEEDED(l_FileDialog->GetResult(&l_Item)))
+                        {
+                            PWSTR l_FilePath;
+                            if (SUCCEEDED(l_Item->GetDisplayName(SIGDN_FILESYSPATH, &l_FilePath)))
+                            {
+                                l_Result = std::filesystem::path(l_FilePath).string();
+                                CoTaskMemFree(l_FilePath);
+                            }
+                            l_Item->Release();
+                        }
+                    }
+                    l_FileDialog->Release();
+                }
+                CoUninitialize();
+            }
+            return l_Result;
+#elif defined(__APPLE__)
+            std::string l_Result;
+            FILE* l_Pipe = popen("osascript -e 'POSIX path of (choose file)'", "r");
+            if (!l_Pipe)
+            {
+                return l_Result;
+            }
+            
+            char l_Buffer[1024];
+            while (fgets(l_Buffer, sizeof(l_Buffer), l_Pipe))
+            {
+                l_Result += l_Buffer;
+            }
+            
+            pclose(l_Pipe);
+            if (!l_Result.empty() && l_Result.back() == '\n')
+            {
+                l_Result.pop_back();
+            }
+            
+            return l_Result;
+#else
+            std::string l_Result;
+            FILE* l_Pipe = popen("zenity --file-selection", "r");
+            if (!l_Pipe)
+            {
+                return l_Result;
+            }
+            
+            char l_Buffer[1024];
+            while (fgets(l_Buffer, sizeof(l_Buffer), l_Pipe))
+            {
+                l_Result += l_Buffer;
+            }
+            
+            pclose(l_Pipe);
+            if (!l_Result.empty() && l_Result.back() == '\n')
+            {
+                l_Result.pop_back();
+            }
+            
+            return l_Result;
+#endif
+        }
+
+        std::string FileManagement::OpenDirectory()
+        {
+#ifdef _WIN32
+            std::string l_Result;
+            IFileDialog* l_FileDialog;
+            HRESULT l_Hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            if (SUCCEEDED(l_Hr))
+            {
+                l_Hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&l_FileDialog));
+                if (SUCCEEDED(l_Hr))
+                {
+                    DWORD l_Flags;
+                    if (SUCCEEDED(l_FileDialog->GetOptions(&l_Flags)))
+                        l_FileDialog->SetOptions(l_Flags | FOS_FORCEFILESYSTEM | FOS_PICKFOLDERS);
+
+                    if (SUCCEEDED(l_FileDialog->Show(nullptr)))
+                    {
+                        IShellItem* l_Item;
+                        if (SUCCEEDED(l_FileDialog->GetResult(&l_Item)))
+                        {
+                            PWSTR l_FilePath;
+                            if (SUCCEEDED(l_Item->GetDisplayName(SIGDN_FILESYSPATH, &l_FilePath)))
+                            {
+                                l_Result = std::filesystem::path(l_FilePath).string();
+                                CoTaskMemFree(l_FilePath);
+                            }
+                            l_Item->Release();
+                        }
+                    }
+                    l_FileDialog->Release();
+                }
+                CoUninitialize();
+            }
+            return l_Result;
+#elif defined(__APPLE__)
+            std::string l_Result;
+            FILE* l_Pipe = popen("osascript -e 'POSIX path of (choose folder)'", "r");
+            if (!l_Pipe)
+                return l_Result;
+            char l_Buffer[1024];
+            while (fgets(l_Buffer, sizeof(l_Buffer), l_Pipe))
+                l_Result += l_Buffer;
+            pclose(l_Pipe);
+            if (!l_Result.empty() && l_Result.back() == '\n')
+                l_Result.pop_back();
+            return l_Result;
+#else
+            std::string l_Result;
+            FILE* l_Pipe = popen("zenity --file-selection --directory", "r");
+            if (!l_Pipe)
+                return l_Result;
+            char l_Buffer[1024];
+            while (fgets(l_Buffer, sizeof(l_Buffer), l_Pipe))
+                l_Result += l_Buffer;
+            pclose(l_Pipe);
+            if (!l_Result.empty() && l_Result.back() == '\n')
+                l_Result.pop_back();
+            return l_Result;
+#endif
         }
 
 		//----------------------------------------------------------------------------------------------------------------------------------------------------//

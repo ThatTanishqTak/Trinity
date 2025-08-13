@@ -256,7 +256,8 @@ namespace Trinity
         vkWaitForFences(m_Context->GetDevice(), 1, &m_InFlightFence[m_CurrentFrame], VK_TRUE, UINT64_MAX);
 
         uint32_t l_ImageIndex;
-        VkResult l_Result = vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT64_MAX, m_ImageAvailableSemaphore[m_CurrentFrame], VK_NULL_HANDLE, &l_ImageIndex);
+        VkResult l_Result = vkAcquireNextImageKHR(m_Context->GetDevice(), m_Context->GetSwapChain(), UINT64_MAX, m_ImageAvailableSemaphore[m_CurrentFrame], 
+            VK_NULL_HANDLE, &l_ImageIndex);
 
         if (l_Result == VK_ERROR_OUT_OF_DATE_KHR)
         {
@@ -730,8 +731,8 @@ namespace Trinity
         }
 
         auto& a_Lib = ShaderLibrary::Get();
-        auto a_Shader = a_Lib.Load("Simple", m_Context, "TrinityForge/Resources/DefaultAssets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
-        a_Lib.Load("Simple", m_Context, "TrinityForge/Resources/DefaultAssets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+        auto a_Shader = a_Lib.Load("Simple", m_Context, "Resources/TrinityForge/DefaultAssets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
+        a_Lib.Load("Simple", m_Context, "Resources/TrinityForge/DefaultAssets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 
         bool l_MissingStage = !a_Shader || a_Shader->GetModule(VK_SHADER_STAGE_VERTEX_BIT) == VK_NULL_HANDLE || a_Shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT) == VK_NULL_HANDLE;
         if (l_MissingStage)
@@ -1065,7 +1066,7 @@ namespace Trinity
         TR_CORE_TRACE("Loading texture");
 
         m_Texture = Texture(m_Context);
-        if (auto a_Error = m_Texture.LoadFromFile("TrinityForge/Resources/DefaultAssets/Textures/Checkers.png", 0, 0))
+        if (auto a_Error = m_Texture.LoadFromFile("Resources/TrinityForge/DefaultAssets/Textures/Checkers.png", 0, 0))
         {
             std::vector<std::byte> l_Pixels =
             {
@@ -1532,7 +1533,6 @@ namespace Trinity
         {
             recordCallback(m_CommandBuffer[imageIndex]);
         }
-
 
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
     }

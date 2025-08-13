@@ -3,8 +3,8 @@
 #include "Trinity/UI/Panel.h"
 #include "Trinity/ECS/Scene.h"
 #include "Trinity/Core/AssetManager.h"
+
 #include <entt/entt.hpp>
-#include <filesystem>
 #include <string>
 
 class InspectorPanel : public Trinity::Panel
@@ -15,20 +15,7 @@ public:
     void OnUIRender() override;
 
 private:
-    enum class FileDialogTarget
-    {
-        None,
-        Mesh,
-        Texture,
-        NormalMap,
-        RoughnessMap,
-        MetallicMap
-    };
-
     Trinity::Scene* m_Context = nullptr;
     entt::entity* m_SelectionContext = nullptr;
     Trinity::AssetManager* m_AssetManager = nullptr;
-    std::filesystem::path m_FileDialogCurrentPath;
-    std::string m_SelectedFile;
-    FileDialogTarget m_DialogTarget = FileDialogTarget::None;
 };

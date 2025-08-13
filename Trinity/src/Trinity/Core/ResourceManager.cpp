@@ -23,6 +23,7 @@ namespace Trinity
             std::lock_guard<std::mutex> l_Lock(m_QueueMutex);
             std::swap(l_LocalQueue, m_JobQueue);
         }
+
         while (!l_LocalQueue.empty())
         {
             l_LocalQueue.front()();
@@ -108,6 +109,7 @@ namespace Trinity
                 {
                     it_Vertex.TexCoord = { l_MeshData->mTextureCoords[0][i].x, l_MeshData->mTextureCoords[0][i].y };
                 }
+
                 else
                 {
                     it_Vertex.TexCoord = { 0.0f, 0.0f };

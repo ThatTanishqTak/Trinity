@@ -8,8 +8,8 @@ namespace Trinity
 {
     bool ToneMappingPass::Initialize()
     {
-        m_VertexSpv = ShaderCompiler::CompileToSpv("TrinityForge/Resources/DefaultAssets/Shaders/ToneMapping.vert");
-        m_FragmentSpv = ShaderCompiler::CompileToSpv("TrinityForge/Resources/DefaultAssets/Shaders/ToneMapping.frag");
+        m_VertexSpv = ShaderCompiler::CompileToSpv("Resources/TrinityForge/DefaultAssets/Shaders/ToneMapping.vert");
+        m_FragmentSpv = ShaderCompiler::CompileToSpv("Resources/TrinityForge/DefaultAssets/Shaders/ToneMapping.frag");
 
         return !m_VertexSpv.empty() && !m_FragmentSpv.empty();
     }

@@ -63,9 +63,7 @@ namespace Trinity
         {
             std::filesystem::path l_DestAssets = outputDir / "Assets";
             std::filesystem::create_directories(l_DestAssets);
-            std::filesystem::copy(l_SourceAssets, l_DestAssets,
-                std::filesystem::copy_options::recursive |
-                std::filesystem::copy_options::overwrite_existing);
+            std::filesystem::copy(l_SourceAssets, l_DestAssets, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
         }
 
         std::filesystem::path l_DefaultAssets = std::filesystem::current_path() / "TrinityForge/Resources/DefaultAssets";
@@ -172,6 +170,7 @@ namespace Trinity
             if (!std::filesystem::exists(it_Asset))
             {
                 TR_CORE_WARN("Asset {} not found", it_Asset.string());
+
                 continue;
             }
 
@@ -190,6 +189,7 @@ namespace Trinity
                 if (!std::filesystem::exists(it_Plugin))
                 {
                     TR_CORE_WARN("Plugin {} does not exist", it_Plugin.string());
+
                     continue;
                 }
 

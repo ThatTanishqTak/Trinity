@@ -25,8 +25,6 @@ private:
     std::atomic_bool m_IsBuilding = false;
     bool m_ShowBuildPopup = false;
     std::string m_BuildStatus;
-    std::filesystem::path m_FileDialogCurrentPath;
-    std::string m_SelectedConfigPath;
 
     std::atomic_bool m_IsPackaging = false;
     bool m_ShowPackagePopup = false;
