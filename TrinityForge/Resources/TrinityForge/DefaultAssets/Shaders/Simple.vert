@@ -20,6 +20,7 @@ void main()
     vec4 worldPos = ubo.Model * vec4(inPosition, 1.0);
     fragPos = worldPos.xyz;
     gl_Position = ubo.Proj * ubo.View * worldPos;
-    fragColor = inColor;
+    // Convert vertex color from sRGB to linear if it's in sRGB space (assuming it is, per common practice and blog guidance)
+    fragColor = pow(inColor, vec3(2.2));
     fragTexCoord = inTexCoord;
 }

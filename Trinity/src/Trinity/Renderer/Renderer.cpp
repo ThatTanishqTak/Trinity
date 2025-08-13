@@ -789,7 +789,7 @@ namespace Trinity
         l_Rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         l_Rasterizer.lineWidth = 1.0f;
         l_Rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-        l_Rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        l_Rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         l_Rasterizer.depthBiasEnable = VK_FALSE;
 
         VkPipelineMultisampleStateCreateInfo l_Multisampling{};
