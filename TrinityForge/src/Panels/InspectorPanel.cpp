@@ -66,6 +66,8 @@ void InspectorPanel::OnUIRender()
                         }
                     }
                 }
+                ImGui::TreePop();
+            }
         }
 
         if (l_Registry.any_of<Trinity::LightComponent>(*m_SelectionContext))

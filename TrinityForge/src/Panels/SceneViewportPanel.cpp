@@ -83,6 +83,7 @@ void SceneViewportPanel::OnUIRender()
                     }
                 }
             }
+        }
     }
 
     ImGui::End();

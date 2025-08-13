@@ -4,6 +4,8 @@
 #include <imgui.h>
 #include "Trinity/ECS/SceneSerializer.h"
 #include "Trinity/ECS/Components.h"
+#include "Trinity/ECS/Entity.h"
+#include "Trinity/Renderer/Primitives.h"
 
 EditorLayer::EditorLayer(Trinity::Scene* scene, Trinity::AssetManager* assetManager) : m_Scene(scene), m_AssetManager(assetManager)
 {
