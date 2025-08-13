@@ -62,6 +62,8 @@ namespace Trinity
         void CreateDescriptorSets();
         void CreateGraphicsPipeline(VkPrimitiveTopology topology);
         void CreateDepthResources();
+        void CreateOffscreenRenderPass();
+        void CreateViewportResources();
         void CreateFramebuffers();
         void CreateCommandPool();
         bool CreateTextureImage();
@@ -87,11 +89,16 @@ namespace Trinity
         VulkanContext* m_Context = nullptr;
 
         VkRenderPass m_RenderPass = VK_NULL_HANDLE;
+        VkRenderPass m_OffscreenRenderPass = VK_NULL_HANDLE;
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
         VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
         VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
         std::vector<VkFramebuffer> m_Framebuffers{};
+        std::vector<VkImage> m_ViewportImages{};
+        std::vector<VkDeviceMemory> m_ViewportImageMemory{};
+        std::vector<VkImageView> m_ViewportImageViews{};
+        std::vector<VkFramebuffer> m_ViewportFramebuffers{};
         std::vector<VkImage> m_DepthImages{};
         std::vector<VkDeviceMemory> m_DepthImageMemory{};
         std::vector<VkImageView> m_DepthImageViews{};
@@ -134,8 +141,8 @@ namespace Trinity
         BloomPass m_BloomPass;
         ToneMappingPass m_ToneMappingPass;
 
-        std::vector<VkDescriptorSet> m_ImGuiImageDescriptors{};
-        VkSampler m_ImGuiImageSampler = VK_NULL_HANDLE;
+        std::vector<VkDescriptorSet> m_ViewportImageDescriptors{};
+        VkSampler m_ViewportSampler = VK_NULL_HANDLE;
         uint32_t m_LastImageIndex = 0;
     };
 }

@@ -27,7 +27,7 @@ void SceneViewportPanel::OnUIRender()
         ImTextureID l_TextureID = m_Renderer->GetViewportImage();
         if (l_TextureID)
         {
-            ImGui::Image(l_TextureID, l_ViewportPanelSize);
+            ImGui::Image(l_TextureID, l_ViewportPanelSize, ImVec2{ 0.0f, 1.0f }, ImVec2{ 1.0f, 0.0f });
 
             if (ImGui::BeginDragDropTarget())
             {

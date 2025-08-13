@@ -41,6 +41,8 @@ namespace Trinity
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
+        //glEnable(VK_FORMAT_R8G8B8A8_UNORM);
 
         m_Window = glfwCreateWindow(m_Specification.Width, m_Specification.Height, m_Specification.Title.c_str(), nullptr, nullptr);
         if (!m_Window)

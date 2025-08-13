@@ -36,9 +36,11 @@ namespace Trinity
     void Renderer::InitializeCore()
     {
         CreateRenderPass();
+        CreateOffscreenRenderPass();
         CreateDescriptorSetLayout();
         CreateGraphicsPipeline(m_PrimitiveTopology);
         CreateDepthResources();
+        CreateViewportResources();
         CreateFramebuffers();
         CreateUniformBuffers();
         CreateShadowResources();
@@ -94,6 +96,36 @@ namespace Trinity
         ShaderLibrary::Get().Shutdown();
 
         CleanupImGuiImageDescriptors();
+
+        for (auto it_FB : m_ViewportFramebuffers)
+        {
+            if (it_FB)
+            {
+                vkDestroyFramebuffer(m_Context->GetDevice(), it_FB, nullptr);
+            }
+        }
+        m_ViewportFramebuffers.clear();
+
+        for (size_t i = 0; i < m_ViewportImageViews.size(); ++i)
+        {
+            if (m_ViewportImageViews[i])
+            {
+                vkDestroyImageView(m_Context->GetDevice(), m_ViewportImageViews[i], nullptr);
+            }
+
+            if (m_ViewportImages[i])
+            {
+                vkDestroyImage(m_Context->GetDevice(), m_ViewportImages[i], nullptr);
+            }
+
+            if (m_ViewportImageMemory[i])
+            {
+                vkFreeMemory(m_Context->GetDevice(), m_ViewportImageMemory[i], nullptr);
+            }
+        }
+        m_ViewportImageViews.clear();
+        m_ViewportImages.clear();
+        m_ViewportImageMemory.clear();
 
         m_GraphicsPipeline = VK_NULL_HANDLE;
 
@@ -223,6 +255,12 @@ namespace Trinity
             vkDestroyRenderPass(m_Context->GetDevice(), m_RenderPass, nullptr);
             m_RenderPass = VK_NULL_HANDLE;
             TR_CORE_TRACE("Render pass destroyed");
+        }
+
+        if (m_OffscreenRenderPass)
+        {
+            vkDestroyRenderPass(m_Context->GetDevice(), m_OffscreenRenderPass, nullptr);
+            m_OffscreenRenderPass = VK_NULL_HANDLE;
         }
 
         m_VertexBuffer.Destroy();
@@ -371,18 +409,19 @@ namespace Trinity
 
     ImTextureID Renderer::GetViewportImage()
     {
-        if (m_ImGuiImageDescriptors.empty())
+        if (m_ViewportImageDescriptors.empty())
         {
             CreateImGuiImageDescriptors();
         }
-        
-        if (m_ImGuiImageDescriptors.empty())
+
+        if (m_ViewportImageDescriptors.empty())
         {
             return 0;
         }
-        
-        return (ImTextureID)m_ImGuiImageDescriptors[m_LastImageIndex];
+
+        return (ImTextureID)m_ViewportImageDescriptors[m_LastImageIndex];
     }
+
 
     Texture* Renderer::RequestTexture(const std::string& path)
     {
@@ -487,6 +526,70 @@ namespace Trinity
         }
 
         TR_CORE_TRACE("Render pass created");
+    }
+
+    void Renderer::CreateOffscreenRenderPass()
+    {
+        TR_CORE_TRACE("Creating offscreen render pass");
+
+        VkAttachmentDescription l_ColorAttachment{};
+        l_ColorAttachment.format = m_Context->GetSwapChainImageFormat();
+        l_ColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        l_ColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        l_ColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        l_ColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        l_ColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        l_ColorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        l_ColorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference l_ColorAttachmentRef{};
+        l_ColorAttachmentRef.attachment = 0;
+        l_ColorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentDescription l_DepthAttachment{};
+        l_DepthAttachment.format = FindDepthFormat();
+        l_DepthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        l_DepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        l_DepthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        l_DepthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        l_DepthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        l_DepthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        l_DepthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference l_DepthAttachmentRef{};
+        l_DepthAttachmentRef.attachment = 1;
+        l_DepthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription l_Subpass{};
+        l_Subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        l_Subpass.colorAttachmentCount = 1;
+        l_Subpass.pColorAttachments = &l_ColorAttachmentRef;
+        l_Subpass.pDepthStencilAttachment = &l_DepthAttachmentRef;
+
+        std::array<VkAttachmentDescription, 2> l_Attachments{ l_ColorAttachment, l_DepthAttachment };
+
+        VkRenderPassCreateInfo l_RenderPassInfo{};
+        l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        l_RenderPassInfo.attachmentCount = static_cast<uint32_t>(l_Attachments.size());
+        l_RenderPassInfo.pAttachments = l_Attachments.data();
+        l_RenderPassInfo.subpassCount = 1;
+        l_RenderPassInfo.pSubpasses = &l_Subpass;
+
+        VkSubpassDependency l_Dependency{};
+        l_Dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+        l_Dependency.dstSubpass = 0;
+        l_Dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        l_Dependency.srcAccessMask = 0;
+        l_Dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        l_Dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+        l_RenderPassInfo.dependencyCount = 1;
+        l_RenderPassInfo.pDependencies = &l_Dependency;
+
+        if (vkCreateRenderPass(m_Context->GetDevice(), &l_RenderPassInfo, nullptr, &m_OffscreenRenderPass) != VK_SUCCESS)
+        {
+            TR_CORE_ERROR("Failed to create offscreen render pass");
+        }
     }
 
     void Renderer::CreateDescriptorSetLayout()
@@ -851,7 +954,7 @@ namespace Trinity
         l_PipelineInfo.pColorBlendState = &l_ColorBlending;
         l_PipelineInfo.pDynamicState = &l_DynamicStateInfo;
         l_PipelineInfo.layout = m_PipelineLayout;
-        l_PipelineInfo.renderPass = m_RenderPass;
+        l_PipelineInfo.renderPass = m_OffscreenRenderPass;
         l_PipelineInfo.subpass = 0;
         l_PipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
         l_PipelineInfo.basePipelineIndex = -1;
@@ -1008,6 +1111,134 @@ namespace Trinity
         vkDestroyCommandPool(m_Context->GetDevice(), l_CommandPool, nullptr);
 
         TR_CORE_TRACE("Depth resources created");
+    }
+
+    void Renderer::CreateViewportResources()
+    {
+        TR_CORE_TRACE("Creating viewport resources");
+
+        VkDevice l_Device = m_Context->GetDevice();
+        size_t l_Count = m_Context->GetSwapChainImages().size();
+        VkExtent2D l_Extent = m_Context->GetSwapChainExtent();
+        VkFormat l_Format = m_Context->GetSwapChainImageFormat();
+
+        m_ViewportImages.resize(l_Count);
+        m_ViewportImageMemory.resize(l_Count);
+        m_ViewportImageViews.resize(l_Count);
+        m_ViewportFramebuffers.resize(l_Count);
+
+        for (size_t i = 0; i < l_Count; ++i)
+        {
+            VkImageCreateInfo l_ImageInfo{};
+            l_ImageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            l_ImageInfo.imageType = VK_IMAGE_TYPE_2D;
+            l_ImageInfo.extent.width = l_Extent.width;
+            l_ImageInfo.extent.height = l_Extent.height;
+            l_ImageInfo.extent.depth = 1;
+            l_ImageInfo.mipLevels = 1;
+            l_ImageInfo.arrayLayers = 1;
+            l_ImageInfo.format = l_Format;
+            l_ImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            l_ImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            l_ImageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            l_ImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            l_ImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            vkCreateImage(l_Device, &l_ImageInfo, nullptr, &m_ViewportImages[i]);
+
+            VkMemoryRequirements l_MemoryRequirements{};
+            vkGetImageMemoryRequirements(l_Device, m_ViewportImages[i], &l_MemoryRequirements);
+
+            VkMemoryAllocateInfo l_AllocInfo{};
+            l_AllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            l_AllocInfo.allocationSize = l_MemoryRequirements.size;
+            l_AllocInfo.memoryTypeIndex = m_Context->FindMemoryType(l_MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            vkAllocateMemory(l_Device, &l_AllocInfo, nullptr, &m_ViewportImageMemory[i]);
+            vkBindImageMemory(l_Device, m_ViewportImages[i], m_ViewportImageMemory[i], 0);
+
+            VkImageViewCreateInfo l_ViewInfo{};
+            l_ViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            l_ViewInfo.image = m_ViewportImages[i];
+            l_ViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            l_ViewInfo.format = l_Format;
+            l_ViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            l_ViewInfo.subresourceRange.baseMipLevel = 0;
+            l_ViewInfo.subresourceRange.levelCount = 1;
+            l_ViewInfo.subresourceRange.baseArrayLayer = 0;
+            l_ViewInfo.subresourceRange.layerCount = 1;
+            vkCreateImageView(l_Device, &l_ViewInfo, nullptr, &m_ViewportImageViews[i]);
+
+            VkImageView l_Attachments[] = { m_ViewportImageViews[i], m_DepthImageViews[i] };
+
+            VkFramebufferCreateInfo l_FramebufferInfo{};
+            l_FramebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            l_FramebufferInfo.renderPass = m_OffscreenRenderPass;
+            l_FramebufferInfo.attachmentCount = 2;
+            l_FramebufferInfo.pAttachments = l_Attachments;
+            l_FramebufferInfo.width = l_Extent.width;
+            l_FramebufferInfo.height = l_Extent.height;
+            l_FramebufferInfo.layers = 1;
+            vkCreateFramebuffer(l_Device, &l_FramebufferInfo, nullptr, &m_ViewportFramebuffers[i]);
+        }
+
+        QueueFamilyIndices l_Indices = m_Context->FindQueueFamilies(m_Context->GetPhysicalDevice());
+
+        VkCommandPoolCreateInfo l_PoolInfo{};
+        l_PoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        l_PoolInfo.queueFamilyIndex = l_Indices.GraphicsFamily.value();
+        l_PoolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
+        VkCommandPool l_CommandPool = VK_NULL_HANDLE;
+        vkCreateCommandPool(l_Device, &l_PoolInfo, nullptr, &l_CommandPool);
+
+        VkCommandBufferAllocateInfo l_AllocInfoCB{};
+        l_AllocInfoCB.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        l_AllocInfoCB.commandPool = l_CommandPool;
+        l_AllocInfoCB.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        l_AllocInfoCB.commandBufferCount = 1;
+
+        VkCommandBuffer l_CommandBuffer = VK_NULL_HANDLE;
+        vkAllocateCommandBuffers(l_Device, &l_AllocInfoCB, &l_CommandBuffer);
+
+        VkCommandBufferBeginInfo l_BeginInfo{};
+        l_BeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        l_BeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(l_CommandBuffer, &l_BeginInfo);
+
+        for (size_t i = 0; i < l_Count; ++i)
+        {
+            VkImageMemoryBarrier l_Barrier{};
+            l_Barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            l_Barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            l_Barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            l_Barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            l_Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            l_Barrier.image = m_ViewportImages[i];
+            l_Barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            l_Barrier.subresourceRange.baseMipLevel = 0;
+            l_Barrier.subresourceRange.levelCount = 1;
+            l_Barrier.subresourceRange.baseArrayLayer = 0;
+            l_Barrier.subresourceRange.layerCount = 1;
+            l_Barrier.srcAccessMask = 0;
+            l_Barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            vkCmdPipelineBarrier(l_CommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &l_Barrier);
+        }
+
+        vkEndCommandBuffer(l_CommandBuffer);
+
+        VkSubmitInfo l_SubmitInfo{};
+        l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        l_SubmitInfo.commandBufferCount = 1;
+        l_SubmitInfo.pCommandBuffers = &l_CommandBuffer;
+
+        vkQueueSubmit(m_Context->GetGraphicsQueue(), 1, &l_SubmitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(m_Context->GetGraphicsQueue());
+
+        vkFreeCommandBuffers(l_Device, l_CommandPool, 1, &l_CommandBuffer);
+        vkDestroyCommandPool(l_Device, l_CommandPool, nullptr);
+
+        TR_CORE_TRACE("Viewport resources created");
     }
 
     void Renderer::CreateFramebuffers()
@@ -1394,144 +1625,181 @@ namespace Trinity
 
     void Renderer::RenderMainPass(uint32_t imageIndex, const std::function<void(VkCommandBuffer)>& recordCallback)
     {
-        VkRenderPassBeginInfo l_RenderPassInfo{};
-        l_RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        l_RenderPassInfo.renderPass = m_RenderPass;
-        l_RenderPassInfo.framebuffer = m_Framebuffers[imageIndex];
-        l_RenderPassInfo.renderArea.offset = { 0, 0 };
-        l_RenderPassInfo.renderArea.extent = m_Context->GetSwapChainExtent();
+        VkImageMemoryBarrier l_BeginBarrier{};
+        l_BeginBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        l_BeginBarrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        l_BeginBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        l_BeginBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        l_BeginBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        l_BeginBarrier.image = m_ViewportImages[imageIndex];
+        l_BeginBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        l_BeginBarrier.subresourceRange.baseMipLevel = 0;
+        l_BeginBarrier.subresourceRange.levelCount = 1;
+        l_BeginBarrier.subresourceRange.baseArrayLayer = 0;
+        l_BeginBarrier.subresourceRange.layerCount = 1;
+        l_BeginBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        l_BeginBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        vkCmdPipelineBarrier(m_CommandBuffer[imageIndex], VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &l_BeginBarrier);
+
+        VkRenderPassBeginInfo l_OffscreenPass{};
+        l_OffscreenPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        l_OffscreenPass.renderPass = m_OffscreenRenderPass;
+        l_OffscreenPass.framebuffer = m_ViewportFramebuffers[imageIndex];
+        l_OffscreenPass.renderArea.offset = { 0, 0 };
+        l_OffscreenPass.renderArea.extent = m_Context->GetSwapChainExtent();
 
         std::array<VkClearValue, 2> l_ClearValues{};
         l_ClearValues[0].color = { {0.01f, 0.01f, 0.01f, 1.0f} };
         l_ClearValues[1].depthStencil = { 1.0f, 0 };
-        l_RenderPassInfo.clearValueCount = static_cast<uint32_t>(l_ClearValues.size());
-        l_RenderPassInfo.pClearValues = l_ClearValues.data();
+        l_OffscreenPass.clearValueCount = static_cast<uint32_t>(l_ClearValues.size());
+        l_OffscreenPass.pClearValues = l_ClearValues.data();
 
-        vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        if (m_GraphicsPipeline == VK_NULL_HANDLE)
+        vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_OffscreenPass, VK_SUBPASS_CONTENTS_INLINE);
+
+        if (m_GraphicsPipeline != VK_NULL_HANDLE)
         {
-            TR_CORE_WARN("Graphics pipeline not created");
-            if (recordCallback)
+            vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
+
+            VkViewport l_Viewport{};
+            l_Viewport.x = 0.0f;
+            l_Viewport.y = 0.0f;
+            l_Viewport.width = static_cast<float>(m_Context->GetSwapChainExtent().width);
+            l_Viewport.height = static_cast<float>(m_Context->GetSwapChainExtent().height);
+            l_Viewport.minDepth = 0.0f;
+            l_Viewport.maxDepth = 1.0f;
+            vkCmdSetViewport(m_CommandBuffer[imageIndex], 0, 1, &l_Viewport);
+
+            VkRect2D l_Scissor{};
+            l_Scissor.offset = { 0, 0 };
+            l_Scissor.extent = m_Context->GetSwapChainExtent();
+            vkCmdSetScissor(m_CommandBuffer[imageIndex], 0, 1, &l_Scissor);
+
+            if (m_Scene)
             {
-                recordCallback(m_CommandBuffer[imageIndex]);
-            }
+                Culling::Frustum l_Frustum = Culling::CreateFrustum(m_Camera.GetProjectionMatrix() * m_Camera.GetViewMatrix());
 
-            else
-            {
-                ImGui::EndFrame();
-            }
-
-            vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
-
-            return;
-        }
-
-        vkCmdBindPipeline(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
-
-        VkViewport l_Viewport{};
-        l_Viewport.x = 0.0f;
-        l_Viewport.y = 0.0f;
-        l_Viewport.width = static_cast<float>(m_Context->GetSwapChainExtent().width);
-        l_Viewport.height = static_cast<float>(m_Context->GetSwapChainExtent().height);
-        l_Viewport.minDepth = 0.0f;
-        l_Viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(m_CommandBuffer[imageIndex], 0, 1, &l_Viewport);
-
-        VkRect2D l_Scissor{};
-        l_Scissor.offset = { 0, 0 };
-        l_Scissor.extent = m_Context->GetSwapChainExtent();
-        vkCmdSetScissor(m_CommandBuffer[imageIndex], 0, 1, &l_Scissor);
-
-        if (m_Scene)
-        {
-            Culling::Frustum l_Frustum = Culling::CreateFrustum(m_Camera.GetProjectionMatrix() * m_Camera.GetViewMatrix());
-
-            LightBufferObject l_Light{};
-            auto a_LightView = m_Scene->GetRegistry().view<LightComponent>();
-            for (auto it_Entity : a_LightView)
-            {
-                if (l_Light.LightCount >= static_cast<int>(MaxLights))
+                LightBufferObject l_Light{};
+                auto a_LightView = m_Scene->GetRegistry().view<LightComponent>();
+                for (auto it_Entity : a_LightView)
                 {
-                    break;
-                }
-                auto& a_Light = a_LightView.get<LightComponent>(it_Entity);
-                l_Light.Lights[l_Light.LightCount].Position = a_Light.Position;
-                l_Light.Lights[l_Light.LightCount].Color = a_Light.Color;
-                l_Light.Lights[l_Light.LightCount].Intensity = a_Light.Intensity;
-                l_Light.Lights[l_Light.LightCount].Type = static_cast<int>(a_Light.LightType);
-                ++l_Light.LightCount;
-            }
-
-            void* l_LightData = m_Frames[imageIndex].LightUniform.Map();
-            std::memcpy(l_LightData, &l_Light, sizeof(l_Light));
-            m_Frames[imageIndex].LightUniform.Unmap();
-
-            auto a_View = m_Scene->GetRegistry().view<TransformComponent, MeshComponent, MaterialComponent>();
-            for (auto [it_Entity, a_Transform, a_Mesh, a_Material] : a_View.each())
-            {
-                if (!a_Mesh.MeshHandle)
-                {
-                    TR_CORE_WARN("Missing mesh for entity {}", static_cast<uint32_t>(it_Entity));
-
-                    continue;
+                    if (l_Light.LightCount >= static_cast<int>(MaxLights))
+                    {
+                        break;
+                    }
+                    auto& a_Light = a_LightView.get<LightComponent>(it_Entity);
+                    l_Light.Lights[l_Light.LightCount].Position = a_Light.Position;
+                    l_Light.Lights[l_Light.LightCount].Color = a_Light.Color;
+                    l_Light.Lights[l_Light.LightCount].Intensity = a_Light.Intensity;
+                    l_Light.Lights[l_Light.LightCount].Type = static_cast<int>(a_Light.LightType);
+                    ++l_Light.LightCount;
                 }
 
-                auto& l_VertexBuffer = a_Mesh.MeshHandle->GetVertexBuffer();
-                if (l_VertexBuffer.GetVertexCount() == 0)
+                void* l_LightData = m_Frames[imageIndex].LightUniform.Map();
+                std::memcpy(l_LightData, &l_Light, sizeof(l_Light));
+                m_Frames[imageIndex].LightUniform.Unmap();
+
+                auto a_View = m_Scene->GetRegistry().view<TransformComponent, MeshComponent, MaterialComponent>();
+                for (auto [it_Entity, a_Transform, a_Mesh, a_Material] : a_View.each())
                 {
-                    TR_CORE_WARN("Empty mesh for entity {}", static_cast<uint32_t>(it_Entity));
+                    if (!a_Mesh.MeshHandle)
+                    {
+                        TR_CORE_WARN("Missing mesh for entity {}", static_cast<uint32_t>(it_Entity));
 
-                    continue;
-                }
+                        continue;
+                    }
 
-                float l_Scale = std::max({ a_Transform.Scale.x, a_Transform.Scale.y, a_Transform.Scale.z });
-                float l_Radius = a_Mesh.MeshHandle->GetBoundingRadius() * l_Scale;
-                if (!Culling::IsVisible(l_Frustum, a_Transform.Translation, l_Radius))
-                {
-                    continue;
-                }
+                    auto& l_VertexBuffer = a_Mesh.MeshHandle->GetVertexBuffer();
+                    if (l_VertexBuffer.GetVertexCount() == 0)
+                    {
+                        TR_CORE_WARN("Empty mesh for entity {}", static_cast<uint32_t>(it_Entity));
 
-                UniformBufferObject l_Ubo{};
-                l_Ubo.Model = a_Transform.GetTransform();
-                l_Ubo.Update(m_Camera);
+                        continue;
+                    }
 
-                void* l_Data = m_Frames[imageIndex].GlobalUniform.Map();
-                std::memcpy(l_Data, &l_Ubo, sizeof(l_Ubo));
-                m_Frames[imageIndex].GlobalUniform.Unmap();
+                    float l_Scale = std::max({ a_Transform.Scale.x, a_Transform.Scale.y, a_Transform.Scale.z });
+                    float l_Radius = a_Mesh.MeshHandle->GetBoundingRadius() * l_Scale;
+                    if (!Culling::IsVisible(l_Frustum, a_Transform.Translation, l_Radius))
+                    {
+                        continue;
+                    }
 
-                MaterialBufferObject l_Material{};
-                l_Material.Albedo = a_Material.Albedo;
-                l_Material.Roughness = a_Material.Roughness;
-                l_Material.Metallic = a_Material.Metallic;
-                l_Material.Specular = a_Material.Specular;
+                    UniformBufferObject l_Ubo{};
+                    l_Ubo.Model = a_Transform.GetTransform();
+                    l_Ubo.Update(m_Camera);
 
-                void* l_MaterialData = m_Frames[imageIndex].MaterialUniform.Map();
-                std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));
-                m_Frames[imageIndex].MaterialUniform.Unmap();
+                    void* l_Data = m_Frames[imageIndex].GlobalUniform.Map();
+                    std::memcpy(l_Data, &l_Ubo, sizeof(l_Ubo));
+                    m_Frames[imageIndex].GlobalUniform.Unmap();
 
-                VkBuffer vertexBuffers[] = { l_VertexBuffer.GetBuffer() };
-                VkDeviceSize offsets[] = { 0 };
-                vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
+                    MaterialBufferObject l_Material{};
+                    l_Material.Albedo = a_Material.Albedo;
+                    l_Material.Roughness = a_Material.Roughness;
+                    l_Material.Metallic = a_Material.Metallic;
+                    l_Material.Specular = a_Material.Specular;
 
-                uint32_t l_IndexCount = a_Mesh.MeshHandle->GetIndexBuffer().GetIndexCount();
-                if (l_IndexCount > 0)
-                {
-                    vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], a_Mesh.MeshHandle->GetIndexBuffer().GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
-                    vkCmdDrawIndexed(m_CommandBuffer[imageIndex], l_IndexCount, 1, 0, 0, 0);
-                }
+                    void* l_MaterialData = m_Frames[imageIndex].MaterialUniform.Map();
+                    std::memcpy(l_MaterialData, &l_Material, sizeof(l_Material));
+                    m_Frames[imageIndex].MaterialUniform.Unmap();
 
-                else
-                {
-                    vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
-                    vkCmdDraw(m_CommandBuffer[imageIndex], a_Mesh.MeshHandle->GetVertexBuffer().GetVertexCount(), 1, 0, 0);
+                    VkBuffer vertexBuffers[] = { l_VertexBuffer.GetBuffer() };
+                    VkDeviceSize offsets[] = { 0 };
+                    vkCmdBindVertexBuffers(m_CommandBuffer[imageIndex], 0, 1, vertexBuffers, offsets);
+
+                    uint32_t l_IndexCount = a_Mesh.MeshHandle->GetIndexBuffer().GetIndexCount();
+                    if (l_IndexCount > 0)
+                    {
+                        vkCmdBindIndexBuffer(m_CommandBuffer[imageIndex], a_Mesh.MeshHandle->GetIndexBuffer().GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                        vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
+                        vkCmdDrawIndexed(m_CommandBuffer[imageIndex], l_IndexCount, 1, 0, 0, 0);
+                    }
+
+                    else
+                    {
+                        vkCmdBindDescriptorSets(m_CommandBuffer[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_Frames[imageIndex].DescriptorSet, 0, nullptr);
+                        vkCmdDraw(m_CommandBuffer[imageIndex], a_Mesh.MeshHandle->GetVertexBuffer().GetVertexCount(), 1, 0, 0);
+                    }
                 }
             }
         }
+
+        vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
+
+        VkImageMemoryBarrier l_EndBarrier{};
+        l_EndBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        l_EndBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        l_EndBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        l_EndBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        l_EndBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        l_EndBarrier.image = m_ViewportImages[imageIndex];
+        l_EndBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        l_EndBarrier.subresourceRange.baseMipLevel = 0;
+        l_EndBarrier.subresourceRange.levelCount = 1;
+        l_EndBarrier.subresourceRange.baseArrayLayer = 0;
+        l_EndBarrier.subresourceRange.layerCount = 1;
+        l_EndBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        l_EndBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(m_CommandBuffer[imageIndex], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &l_EndBarrier);
+
+        VkRenderPassBeginInfo l_SwapchainPass{};
+        l_SwapchainPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        l_SwapchainPass.renderPass = m_RenderPass;
+        l_SwapchainPass.framebuffer = m_Framebuffers[imageIndex];
+        l_SwapchainPass.renderArea.offset = { 0, 0 };
+        l_SwapchainPass.renderArea.extent = m_Context->GetSwapChainExtent();
+        l_SwapchainPass.clearValueCount = static_cast<uint32_t>(l_ClearValues.size());
+        l_SwapchainPass.pClearValues = l_ClearValues.data();
+
+        vkCmdBeginRenderPass(m_CommandBuffer[imageIndex], &l_SwapchainPass, VK_SUBPASS_CONTENTS_INLINE);
 
         if (recordCallback)
         {
             recordCallback(m_CommandBuffer[imageIndex]);
+        }
+        else
+        {
+            ImGui::EndFrame();
         }
 
         vkCmdEndRenderPass(m_CommandBuffer[imageIndex]);
@@ -1631,6 +1899,12 @@ namespace Trinity
             vkDestroyRenderPass(m_Context->GetDevice(), m_RenderPass, nullptr);
             m_RenderPass = VK_NULL_HANDLE;
         }
+
+        if (m_OffscreenRenderPass)
+        {
+            vkDestroyRenderPass(m_Context->GetDevice(), m_OffscreenRenderPass, nullptr);
+            m_OffscreenRenderPass = VK_NULL_HANDLE;
+        }
     }
 
     void Renderer::RecreateSwapChain()
@@ -1643,8 +1917,10 @@ namespace Trinity
         m_Context->RecreateSwapChain();
 
         CreateRenderPass();
+        CreateOffscreenRenderPass();
         CreateGraphicsPipeline(m_PrimitiveTopology);
         CreateDepthResources();
+        CreateViewportResources();
         CreateFramebuffers();
         CreateUniformBuffers();
         CreateDescriptorPool();
@@ -1694,8 +1970,8 @@ namespace Trinity
         {
             return;
         }
-        
-        if (m_ImGuiImageSampler == VK_NULL_HANDLE)
+
+        if (m_ViewportSampler == VK_NULL_HANDLE)
         {
             VkSamplerCreateInfo info{};
             info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -1708,28 +1984,27 @@ namespace Trinity
             info.minLod = 0.0f;
             info.maxLod = 0.0f;
             info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
-            vkCreateSampler(m_Context->GetDevice(), &info, nullptr, &m_ImGuiImageSampler);
+            vkCreateSampler(m_Context->GetDevice(), &info, nullptr, &m_ViewportSampler);
         }
-        auto views = m_Context->GetSwapChainImages();
-        m_ImGuiImageDescriptors.resize(views.size());
-        for (size_t i = 0; i < views.size(); ++i)
+        m_ViewportImageDescriptors.resize(m_ViewportImageViews.size());
+        for (size_t i = 0; i < m_ViewportImageViews.size(); ++i)
         {
-            m_ImGuiImageDescriptors[i] = ImGui_ImplVulkan_AddTexture(m_ImGuiImageSampler, views[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            m_ViewportImageDescriptors[i] = ImGui_ImplVulkan_AddTexture(m_ViewportSampler, m_ViewportImageViews[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
     }
 
     void Renderer::CleanupImGuiImageDescriptors()
     {
-        for (auto desc : m_ImGuiImageDescriptors)
+        for (auto desc : m_ViewportImageDescriptors)
         {
             ImGui_ImplVulkan_RemoveTexture(desc);
         }
-        m_ImGuiImageDescriptors.clear();
+        m_ViewportImageDescriptors.clear();
 
-        if (m_ImGuiImageSampler)
+        if (m_ViewportSampler)
         {
-            vkDestroySampler(m_Context->GetDevice(), m_ImGuiImageSampler, nullptr);
-            m_ImGuiImageSampler = VK_NULL_HANDLE;
+            vkDestroySampler(m_Context->GetDevice(), m_ViewportSampler, nullptr);
+            m_ViewportSampler = VK_NULL_HANDLE;
         }
     }
 }
