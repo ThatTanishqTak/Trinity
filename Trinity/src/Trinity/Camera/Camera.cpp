@@ -28,9 +28,9 @@ namespace Trinity
     glm::mat4 Camera::GetViewMatrix() const
     {
         glm::mat4 l_View = glm::mat4(1.0f);
-        l_View = glm::rotate(l_View, glm::radians(m_Rotation.x), { 1.0f, 0.0f, 0.0f });
-        l_View = glm::rotate(l_View, glm::radians(m_Rotation.y), { 0.0f, 1.0f, 0.0f });
-        l_View = glm::rotate(l_View, glm::radians(m_Rotation.z), { 0.0f, 0.0f, 1.0f });
+        l_View = glm::rotate(l_View, glm::radians(-m_Rotation.x), { 1.0f, 0.0f, 0.0f });
+        l_View = glm::rotate(l_View, glm::radians(-m_Rotation.y), { 0.0f, 1.0f, 0.0f });
+        l_View = glm::rotate(l_View, glm::radians(-m_Rotation.z), { 0.0f, 0.0f, 1.0f });
         l_View = glm::translate(l_View, -m_Position);
 
         return l_View;
