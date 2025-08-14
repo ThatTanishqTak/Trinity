@@ -36,17 +36,17 @@ layout(binding = 4) uniform sampler2DShadow shadowMap;
 
 layout(location = 0) out vec4 outColor;
 
-vec3 CalculateLight(Light light, vec3 normal, vec3 viewDir, float roughness, float metallic, vec3 albedoLinear)
+vec3 CalculateLight(Light light, vec3 normal, vec3 viewDir, float roughness, float metallic, vec3 baseColor)
 {
     vec3 lightDir = light.Type == 0 ? normalize(-light.Position.xyz) : normalize(light.Position.xyz - fragPos);
     // Convert light color from sRGB to linear (assuming it's authored in sRGB)
     vec3 radiance = pow(light.Color.xyz, vec3(2.2)) * light.Intensity;
 
-    vec3 F0 = mix(vec3(0.04), albedoLinear, metallic);
+    vec3 F0 = mix(vec3(0.04), baseColor, metallic);
     vec3 F = F0;
     vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
     float NdotL = max(dot(normal, lightDir), 0.0);
-    vec3 diffuse = kD * albedoLinear / 3.14159265;
+    vec3 diffuse = kD * baseColor / 3.14159265;
 
     float spec = pow(max(dot(normal, normalize(lightDir + viewDir)), 0.0), 16.0 * (1.0 - roughness));
     vec3 specular = spec * F;
@@ -64,14 +64,13 @@ void main()
     float metallicTex = texture(metallicMap, fragTexCoord).r;
     float roughness = material.Roughness * roughnessTex;
     float metallic = material.Metallic * metallicTex;
-    // Convert material Albedo from sRGB to linear (assuming it's authored in sRGB)
-    vec3 albedoLinear = pow(material.Albedo, vec3(2.2));
-    vec3 baseColor = texColor * albedoLinear;
+    // Convert material Albedo from sRGB to linear once and combine with the already-linear texture
+    vec3 baseColor = texColor * pow(material.Albedo, vec3(2.2));
 
     vec3 Lo = vec3(0.0);
     for (int i = 0; i < lightBuffer.LightCount; ++i)
     {
-        Lo += CalculateLight(lightBuffer.Lights[i], N, V, roughness, metallic, albedoLinear);
+        Lo += CalculateLight(lightBuffer.Lights[i], N, V, roughness, metallic, baseColor);
     }
 
     vec3 ambient = vec3(0.03) * baseColor;

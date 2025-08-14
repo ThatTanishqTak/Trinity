@@ -33,20 +33,34 @@ namespace Trinity
 
         if (std::filesystem::exists(path))
         {
-            shader->Load(path, stage);
+            if (shader->Load(path, stage))
+            {
+                return shader;
+            }
 
-            return shader;
+            TR_CORE_ERROR("Failed to load shader '{}'.", path.string());
         }
 
-        TR_CORE_WARN("Shader file '{}' not found. Using fallback shader.", path.string());
+        else
+        {
+            TR_CORE_WARN("Shader file '{}' not found. Using fallback shader.", path.string());
+        }
+
         if (!m_Fallback)
         {
             m_Fallback = CreateFallback(context);
         }
-        m_Shaders[identifier] = m_Fallback;
 
-        return m_Fallback;
+        if (m_Fallback)
+        {
+            m_Shaders[identifier] = m_Fallback;
+
+            return m_Fallback;
+        }
+
+        return nullptr;
     }
+
 
     std::shared_ptr<Shader> ShaderLibrary::Get(const std::string& identifier)
     {

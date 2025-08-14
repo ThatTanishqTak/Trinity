@@ -533,7 +533,7 @@ namespace Trinity
         TR_CORE_TRACE("Creating offscreen render pass");
 
         VkAttachmentDescription l_ColorAttachment{};
-        l_ColorAttachment.format = m_Context->GetSwapChainImageFormat();
+        l_ColorAttachment.format = VK_FORMAT_R8G8B8A8_UNORM;
         l_ColorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
         l_ColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         l_ColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -834,21 +834,30 @@ namespace Trinity
         }
 
         auto& a_Lib = ShaderLibrary::Get();
-        auto a_Shader = a_Lib.Load("Simple", m_Context, "Resources/TrinityForge/DefaultAssets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
-        a_Lib.Load("Simple", m_Context, "Resources/TrinityForge/DefaultAssets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+        auto a_VertShader = a_Lib.Load("Simple", m_Context, "Resources/TrinityForge/DefaultAssets/Shaders/Simple.vert", VK_SHADER_STAGE_VERTEX_BIT);
+        auto a_FragShader = a_Lib.Load("Simple", m_Context, "Resources/TrinityForge/DefaultAssets/Shaders/Simple.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 
-        bool l_MissingStage = !a_Shader || a_Shader->GetModule(VK_SHADER_STAGE_VERTEX_BIT) == VK_NULL_HANDLE || a_Shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT) == VK_NULL_HANDLE;
-        if (l_MissingStage)
+        bool l_VertexLoaded = a_VertShader && a_VertShader->GetModule(VK_SHADER_STAGE_VERTEX_BIT) != VK_NULL_HANDLE;
+        bool l_FragmentLoaded = a_FragShader && a_FragShader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT) != VK_NULL_HANDLE;
+
+        std::shared_ptr<Shader> a_Shader;
+        if (l_VertexLoaded && l_FragmentLoaded)
+        {
+            a_Shader = a_VertShader;
+        }
+
+        else
         {
             TR_CORE_WARN("Graphics shader stage missing. Using fallback shader");
             a_Shader = a_Lib.Load("Fallback", m_Context, "", VK_SHADER_STAGE_VERTEX_BIT);
-        }
 
-        if (!a_Shader)
-        {
-            TR_CORE_WARN("No shader available for graphics pipeline");
+            bool l_FallbackMissing = !a_Shader || a_Shader->GetModule(VK_SHADER_STAGE_VERTEX_BIT) == VK_NULL_HANDLE || a_Shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT) == VK_NULL_HANDLE;
+            if (l_FallbackMissing)
+            {
+                TR_CORE_WARN("No shader available for graphics pipeline");
 
-            return;
+                return;
+            }
         }
 
         auto a_BindingDescription = Vertex::GetBindingDescription();
