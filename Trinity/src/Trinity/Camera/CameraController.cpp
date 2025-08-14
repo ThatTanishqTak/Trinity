@@ -25,6 +25,27 @@ namespace Trinity
         glm::vec3 l_Right = glm::vec3(l_RotationMatrix * glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
         glm::vec3 l_Up = glm::vec3(l_RotationMatrix * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
 
+        glm::vec2 l_MousePosition = Input::GetMousePosition();
+        if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT))
+        {
+            if (m_ResetMouse)
+            {
+                m_LastMousePosition = l_MousePosition;
+                m_ResetMouse = false;
+            }
+
+            glm::vec2 l_MouseDelta = l_MousePosition - m_LastMousePosition;
+            m_LastMousePosition = l_MousePosition;
+
+            m_Rotation.y += l_MouseDelta.x * m_MouseSensitivity;
+            m_Rotation.x += l_MouseDelta.y * m_MouseSensitivity;
+        }
+
+        else
+        {
+            m_ResetMouse = true;
+        }
+
         if (Input::IsKeyPressed(GLFW_KEY_W))
         {
             m_Position += l_Forward * l_MoveStep;

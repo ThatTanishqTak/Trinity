@@ -19,5 +19,8 @@ namespace Trinity
 		glm::vec3 m_Rotation{ 0.0f };
 		float m_MoveSpeed = 5.0f;
 		float m_RotationSpeed = 90.0f;
+		float m_MouseSensitivity = 0.1f;
+		glm::vec2 m_LastMousePosition{ 0.0f };
+		bool m_ResetMouse = true;
 	};
 }

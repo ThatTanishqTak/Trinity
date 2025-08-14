@@ -69,6 +69,16 @@ target_link_libraries(imgui PUBLIC
     Vulkan
 )
 
+# ImGuizmo
+add_library(ImGuizmo STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/ImGuizmo/ImGuizmo.cpp
+)
+target_include_directories(ImGuizmo PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/ImGuizmo>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui>
+)
+target_link_libraries(ImGuizmo PUBLIC imgui)
+
 # assimp
 add_library(assimp STATIC IMPORTED)
 set_target_properties(assimp PROPERTIES
@@ -141,6 +151,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     nlohmann
     glm
     imgui
+    ImGuizmo
     assimp
     Vulkan
     shaderc
