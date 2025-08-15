@@ -143,6 +143,18 @@ namespace Trinity
         }
     }
 
+    void ImGuiLayer::SaveLayout(const std::string& filePath)
+    {
+        m_LayoutFilePath = filePath;
+
+        ImGuiIO& l_IO = ImGui::GetIO();
+        l_IO.IniFilename = m_LayoutFilePath.c_str();
+
+        std::filesystem::create_directories(std::filesystem::path(m_LayoutFilePath).parent_path());
+        ImGui::SaveIniSettingsToDisk(m_LayoutFilePath.c_str());
+        TR_CORE_TRACE("ImGui layout saved: {}", m_LayoutFilePath);
+    }
+
     void ImGuiLayer::OnEvent(Event& e)
     {
         ImGuiIO& l_IO = ImGui::GetIO();

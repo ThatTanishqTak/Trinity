@@ -18,7 +18,7 @@ namespace Trinity
     public:
         ForgeApp(const ApplicationSpecification& specifications) : Application(specifications)
         {
-            auto a_EditorLayer = std::make_unique<EditorLayer>(m_Scene.get(), m_AssetManager.get());
+            auto a_EditorLayer = std::make_unique<EditorLayer>(m_Scene.get(), m_AssetManager.get(), m_ImGuiLayer.get());
             entt::entity* l_SelectionContext = a_EditorLayer->GetSelectionContext();
             a_EditorLayer->RegisterPanel(std::make_unique<ToolbarPanel>(m_Scene.get(), m_AssetManager.get()));
             a_EditorLayer->RegisterPanel(std::make_unique<SceneHierarchyPanel>(m_Scene.get(), l_SelectionContext));

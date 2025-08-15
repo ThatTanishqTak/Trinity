@@ -7,9 +7,10 @@
 #include "Trinity/ECS/Entity.h"
 #include "Trinity/Renderer/Primitives.h"
 
-EditorLayer::EditorLayer(Trinity::Scene* scene, Trinity::AssetManager* assetManager) : m_Scene(scene), m_AssetManager(assetManager)
+EditorLayer::EditorLayer(Trinity::Scene* scene, Trinity::AssetManager* assetManager, Trinity::ImGuiLayer* imguiLayer) : m_Scene(scene), m_AssetManager(assetManager), 
+    m_ImGuiLayer(imguiLayer)
 {
-
+    m_LayoutDirectory = std::filesystem::current_path() / "TrinityForge" / "Resources" / "Layout";
 }
 
 void EditorLayer::OnUIRender()
@@ -45,6 +46,21 @@ void EditorLayer::OnUIRender()
             {
                 Trinity::SceneSerializer l_Serializer(m_Scene, m_AssetManager);
                 l_Serializer.Deserialize("scene.yaml");
+            }
+
+            if (ImGui::BeginMenu("Layout"))
+            {
+                if (ImGui::MenuItem("Save"))
+                {
+                    m_ShowSaveLayoutPopup = true;
+                    std::memset(m_LayoutName, 0, sizeof(m_LayoutName));
+                }
+
+                if (ImGui::MenuItem("Load"))
+                {
+                    m_ShowLoadLayoutPopup = true;
+                }
+                ImGui::EndMenu();
             }
 
             if (ImGui::MenuItem("Exit"))
@@ -118,6 +134,69 @@ void EditorLayer::OnUIRender()
     }
 
     ImGui::End();
+
+    if (m_ShowSaveLayoutPopup)
+    {
+        ImGui::OpenPopup("Save Layout");
+        m_ShowSaveLayoutPopup = false;
+    }
+
+    if (ImGui::BeginPopupModal("Save Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::InputText("Name", m_LayoutName, sizeof(m_LayoutName));
+
+        if (ImGui::Button("Save") && m_LayoutName[0])
+        {
+            std::filesystem::create_directories(m_LayoutDirectory);
+            std::filesystem::path l_Path = m_LayoutDirectory / (std::string(m_LayoutName) + ".ini");
+            if (m_ImGuiLayer)
+            {
+                m_ImGuiLayer->SaveLayout(l_Path.string());
+            }
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel"))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    if (m_ShowLoadLayoutPopup)
+    {
+        ImGui::OpenPopup("Load Layout");
+        m_ShowLoadLayoutPopup = false;
+    }
+
+    if (ImGui::BeginPopupModal("Load Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        for (auto& it_Entry : std::filesystem::directory_iterator(m_LayoutDirectory))
+        {
+            if (it_Entry.path().extension() == ".ini")
+            {
+                std::string l_Name = it_Entry.path().stem().string();
+                if (ImGui::Selectable(l_Name.c_str()))
+                {
+                    if (m_ImGuiLayer)
+                    {
+                        m_ImGuiLayer->LoadLayout(it_Entry.path().string());
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+        }
+
+        if (ImGui::Button("Close"))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
 }
 
 void EditorLayer::RegisterPanel(std::unique_ptr<Trinity::Panel> panel)

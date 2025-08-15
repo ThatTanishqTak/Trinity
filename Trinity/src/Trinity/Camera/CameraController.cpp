@@ -26,7 +26,7 @@ namespace Trinity
         glm::vec3 l_Up = glm::vec3(l_RotationMatrix * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
 
         glm::vec2 l_MousePosition = Input::GetMousePosition();
-        if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT))
+        if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_MIDDLE))
         {
             if (m_ResetMouse)
             {

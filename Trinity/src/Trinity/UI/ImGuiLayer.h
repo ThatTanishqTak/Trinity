@@ -27,6 +27,7 @@ namespace Trinity
 
         void RegisterPanel(std::unique_ptr<Panel> panel);
         void LoadLayout(const std::string& filePath);
+        void SaveLayout(const std::string& filePath);
 
         void OnEvent(Event& e);
 
