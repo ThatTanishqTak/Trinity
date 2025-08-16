@@ -20,14 +20,17 @@ namespace Trinity
     class Mesh
     {
     public:
-        explicit Mesh(VulkanContext* context)
-        {
+        explicit Mesh(VulkanContext* context);
 
-        }
+        std::optional<std::string> Create(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+        void Destroy();
 
-        std::optional<std::string> Create(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
-        {
-            return {};
-        }
+    private:
+        VulkanContext* m_Context = nullptr;
+
+        VkBuffer m_VertexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory m_VertexBufferMemory = VK_NULL_HANDLE;
+        VkBuffer m_IndexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory m_IndexBufferMemory = VK_NULL_HANDLE;
     };
 }
