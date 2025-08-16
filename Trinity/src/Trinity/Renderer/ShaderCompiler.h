@@ -4,5 +4,5 @@
 
 namespace Trinity
 {
-    inline void CompileAllShaders(const std::filesystem::path&) {}
+    void CompileAllShaders(const std::filesystem::path& a_Directory);
 }
