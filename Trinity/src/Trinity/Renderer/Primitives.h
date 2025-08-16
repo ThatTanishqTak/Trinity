@@ -12,8 +12,5 @@ namespace Trinity
         Quad = 0
     };
 
-    inline std::shared_ptr<Mesh> CreatePrimitive(VulkanContext*, PrimitiveType)
-    {
-        return nullptr;
-    }
+    std::shared_ptr<Mesh> CreatePrimitive(VulkanContext*, PrimitiveType);
 }
