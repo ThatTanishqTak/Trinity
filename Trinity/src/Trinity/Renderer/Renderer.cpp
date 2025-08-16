@@ -4,6 +4,7 @@
 #include "Trinity/Vulkan/VulkanContext.h"
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Camera/Camera.h"
+#include "Trinity/Renderer/Shader.h"
 
 namespace Trinity
 {
@@ -346,22 +347,97 @@ namespace Trinity
 
         VkDevice l_Device = m_Context->GetDevice();
 
+        Shader l_Shader(m_Context);
+        if (auto l_Err = l_Shader.LoadFromFile("Resources/TrinityForge/DefaultAssets/Shaders/Simple"))
+        {
+            TR_CORE_ERROR("Failed to load shader: {}", *l_Err);
+
+            return false;
+        }
+
+        VkPipelineShaderStageCreateInfo l_ShaderStages[2]{};
+        l_ShaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        l_ShaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        l_ShaderStages[0].module = l_Shader.GetVertexModule();
+        l_ShaderStages[0].pName = "main";
+
+        l_ShaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        l_ShaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        l_ShaderStages[1].module = l_Shader.GetFragmentModule();
+        l_ShaderStages[1].pName = "main";
+
+        VkPipelineVertexInputStateCreateInfo l_VertexInput{};
+        l_VertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+        VkPipelineInputAssemblyStateCreateInfo l_InputAssembly{};
+        l_InputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        l_InputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkViewport l_Viewport{};
+        l_Viewport.x = 0.0f;
+        l_Viewport.y = 0.0f;
+        l_Viewport.width = static_cast<float>(m_Context->GetSwapChainExtent().width);
+        l_Viewport.height = static_cast<float>(m_Context->GetSwapChainExtent().height);
+        l_Viewport.minDepth = 0.0f;
+        l_Viewport.maxDepth = 1.0f;
+
+        VkRect2D l_Scissor{};
+        l_Scissor.offset = { 0, 0 };
+        l_Scissor.extent = m_Context->GetSwapChainExtent();
+
+        VkPipelineViewportStateCreateInfo l_ViewportState{};
+        l_ViewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        l_ViewportState.viewportCount = 1;
+        l_ViewportState.pViewports = &l_Viewport;
+        l_ViewportState.scissorCount = 1;
+        l_ViewportState.pScissors = &l_Scissor;
+
+        VkPipelineRasterizationStateCreateInfo l_Rasterizer{};
+        l_Rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        l_Rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        l_Rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+        l_Rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        l_Rasterizer.lineWidth = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo l_Multisampling{};
+        l_Multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        l_Multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState l_ColorBlendAttachment{};
+        l_ColorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+        VkPipelineColorBlendStateCreateInfo l_ColorBlending{};
+        l_ColorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        l_ColorBlending.attachmentCount = 1;
+        l_ColorBlending.pAttachments = &l_ColorBlendAttachment;
+
         VkPipelineLayoutCreateInfo l_LayoutInfo{};
         l_LayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         if (vkCreatePipelineLayout(l_Device, &l_LayoutInfo, nullptr, &m_PipelineLayout) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to create pipeline layout");
+
             return false;
         }
 
-        // Placeholder pipeline creation
         VkGraphicsPipelineCreateInfo l_PipelineInfo{};
         l_PipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        l_PipelineInfo.stageCount = 2;
+        l_PipelineInfo.pStages = l_ShaderStages;
+        l_PipelineInfo.pVertexInputState = &l_VertexInput;
+        l_PipelineInfo.pInputAssemblyState = &l_InputAssembly;
+        l_PipelineInfo.pViewportState = &l_ViewportState;
+        l_PipelineInfo.pRasterizationState = &l_Rasterizer;
+        l_PipelineInfo.pMultisampleState = &l_Multisampling;
+        l_PipelineInfo.pColorBlendState = &l_ColorBlending;
         l_PipelineInfo.layout = m_PipelineLayout;
         l_PipelineInfo.renderPass = m_RenderPass;
+        l_PipelineInfo.subpass = 0;
+
         if (vkCreateGraphicsPipelines(l_Device, VK_NULL_HANDLE, 1, &l_PipelineInfo, nullptr, &m_Pipeline) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to create graphics pipeline");
+
             return false;
         }
 
