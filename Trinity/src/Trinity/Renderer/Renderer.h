@@ -10,6 +10,7 @@ namespace Trinity
     class Scene;
     class AssetManager;
     class Camera;
+    class Mesh;
 
     class Renderer
     {
@@ -21,7 +22,7 @@ namespace Trinity
         bool Initialize();
         void Shutdown();
 
-        void DrawFrame(const std::function<void(VkCommandBuffer)>& recordFunc);
+        void DrawFrame(const std::vector<Mesh*>& meshes, const std::function<void(VkCommandBuffer)>& recordFunc = nullptr);
         void OnWindowResize();
 
         void SetScene(Scene* scene) { m_Scene = scene; }

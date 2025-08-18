@@ -5,6 +5,7 @@
 #include "Trinity/Utilities/Utilities.h"
 #include "Trinity/Camera/Camera.h"
 #include "Trinity/Renderer/Shader.h"
+#include "Trinity/Renderer/Mesh.h"
 
 namespace Trinity
 {
@@ -30,6 +31,7 @@ namespace Trinity
         if (vkCreateCommandPool(l_Device, &l_PoolInfo, nullptr, &m_CommandPool) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to create command pool");
+
             return false;
         }
 
@@ -44,6 +46,7 @@ namespace Trinity
         if (vkAllocateCommandBuffers(l_Device, &l_AllocInfo, m_CommandBuffers.data()) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to allocate command buffers");
+
             return false;
         }
 
@@ -76,6 +79,7 @@ namespace Trinity
         if (vkCreateRenderPass(l_Device, &l_RenderPassInfo, nullptr, &m_RenderPass) != VK_SUCCESS)
         {
             TR_CORE_ERROR("Failed to create render pass");
+
             return false;
         }
 
@@ -97,6 +101,7 @@ namespace Trinity
             if (vkCreateFramebuffer(l_Device, &l_FramebufferInfo, nullptr, &m_Framebuffers[i]) != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Failed to create framebuffer");
+
                 return false;
             }
         }
@@ -109,13 +114,14 @@ namespace Trinity
         l_FenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         l_FenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        for (auto& l_Sync : m_SyncObjects)
+        for (auto& it_Sync : m_SyncObjects)
         {
-            if (vkCreateSemaphore(l_Device, &l_SemInfo, nullptr, &l_Sync.ImageAvailable) != VK_SUCCESS ||
-                vkCreateSemaphore(l_Device, &l_SemInfo, nullptr, &l_Sync.RenderFinished) != VK_SUCCESS ||
-                vkCreateFence(l_Device, &l_FenceInfo, nullptr, &l_Sync.InFlight) != VK_SUCCESS)
+            if (vkCreateSemaphore(l_Device, &l_SemInfo, nullptr, &it_Sync.ImageAvailable) != VK_SUCCESS ||
+                vkCreateSemaphore(l_Device, &l_SemInfo, nullptr, &it_Sync.RenderFinished) != VK_SUCCESS ||
+                vkCreateFence(l_Device, &l_FenceInfo, nullptr, &it_Sync.InFlight) != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Failed to create synchronization objects");
+
                 return false;
             }
         }
@@ -145,14 +151,22 @@ namespace Trinity
         }
         m_Framebuffers.clear();
 
-        for (auto& l_Sync : m_SyncObjects)
+        for (auto& it_Sync : m_SyncObjects)
         {
-            if (l_Sync.ImageAvailable)
-                vkDestroySemaphore(l_Device, l_Sync.ImageAvailable, nullptr);
-            if (l_Sync.RenderFinished)
-                vkDestroySemaphore(l_Device, l_Sync.RenderFinished, nullptr);
-            if (l_Sync.InFlight)
-                vkDestroyFence(l_Device, l_Sync.InFlight, nullptr);
+            if (it_Sync.ImageAvailable)
+            {
+                vkDestroySemaphore(l_Device, it_Sync.ImageAvailable, nullptr);
+            }
+            
+            if (it_Sync.RenderFinished)
+            {
+                vkDestroySemaphore(l_Device, it_Sync.RenderFinished, nullptr);
+            }
+         
+            if (it_Sync.InFlight)
+            {
+                vkDestroyFence(l_Device, it_Sync.InFlight, nullptr);
+            }
         }
         m_SyncObjects.clear();
 
@@ -175,7 +189,7 @@ namespace Trinity
         }
     }
 
-    void Renderer::DrawFrame(const std::function<void(VkCommandBuffer)>& recordFunc)
+    void Renderer::DrawFrame(const std::vector<Mesh*>& meshes, const std::function<void(VkCommandBuffer)>& recordFunc)
     {
         if (m_CommandBuffers.empty())
         {
@@ -187,11 +201,11 @@ namespace Trinity
         VkQueue l_GraphicsQueue = m_Context->GetGraphicsQueue();
         VkQueue l_PresentQueue = m_Context->GetPresentQueue();
 
-        auto& l_Sync = m_SyncObjects[m_CurrentFrame];
-        vkWaitForFences(l_Device, 1, &l_Sync.InFlight, VK_TRUE, UINT64_MAX);
+        auto& it_Sync = m_SyncObjects[m_CurrentFrame];
+        vkWaitForFences(l_Device, 1, &it_Sync.InFlight, VK_TRUE, UINT64_MAX);
 
         uint32_t l_ImageIndex = 0;
-        vkAcquireNextImageKHR(l_Device, l_SwapChain, UINT64_MAX, l_Sync.ImageAvailable, VK_NULL_HANDLE, &l_ImageIndex);
+        vkAcquireNextImageKHR(l_Device, l_SwapChain, UINT64_MAX, it_Sync.ImageAvailable, VK_NULL_HANDLE, &l_ImageIndex);
 
         VkCommandBuffer l_CommandBuffer = m_CommandBuffers[l_ImageIndex];
         vkResetCommandBuffer(l_CommandBuffer, 0);
@@ -211,18 +225,33 @@ namespace Trinity
         l_RenderPassInfo.pClearValues = &l_ClearColor;
 
         vkCmdBeginRenderPass(l_CommandBuffer, &l_RenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(l_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Pipeline);
 
         if (recordFunc)
         {
             recordFunc(l_CommandBuffer);
         }
 
+        for (auto l_Mesh : meshes)
+        {
+            if (!l_Mesh)
+            {
+                continue;
+            }
+
+            VkBuffer l_VertexBuffers[] = { l_Mesh->GetVertexBuffer() };
+            VkDeviceSize l_Offsets[] = { 0 };
+            vkCmdBindVertexBuffers(l_CommandBuffer, 0, 1, l_VertexBuffers, l_Offsets);
+            vkCmdBindIndexBuffer(l_CommandBuffer, l_Mesh->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(l_CommandBuffer, l_Mesh->GetIndexCount(), 1, 0, 0, 0);
+        }
+
         vkCmdEndRenderPass(l_CommandBuffer);
         vkEndCommandBuffer(l_CommandBuffer);
 
-        VkSemaphore l_WaitSemaphores[] = { l_Sync.ImageAvailable };
+        VkSemaphore l_WaitSemaphores[] = { it_Sync.ImageAvailable };
         VkPipelineStageFlags l_WaitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-        VkSemaphore l_SignalSemaphores[] = { l_Sync.RenderFinished };
+        VkSemaphore l_SignalSemaphores[] = { it_Sync.RenderFinished };
 
         VkSubmitInfo l_SubmitInfo{};
         l_SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -234,8 +263,8 @@ namespace Trinity
         l_SubmitInfo.signalSemaphoreCount = 1;
         l_SubmitInfo.pSignalSemaphores = l_SignalSemaphores;
 
-        vkResetFences(l_Device, 1, &l_Sync.InFlight);
-        vkQueueSubmit(l_GraphicsQueue, 1, &l_SubmitInfo, l_Sync.InFlight);
+        vkResetFences(l_Device, 1, &it_Sync.InFlight);
+        vkQueueSubmit(l_GraphicsQueue, 1, &l_SubmitInfo, it_Sync.InFlight);
 
         VkPresentInfoKHR l_PresentInfo{};
         l_PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -262,9 +291,9 @@ namespace Trinity
 
         // Cleanup existing resources
         DestroyPipeline();
-        for (auto a_Framebuffer : m_Framebuffers)
+        for (auto it_Framebuffer : m_Framebuffers)
         {
-            vkDestroyFramebuffer(l_Device, a_Framebuffer, nullptr);
+            vkDestroyFramebuffer(l_Device, it_Framebuffer, nullptr);
         }
         m_Framebuffers.clear();
 
@@ -274,21 +303,21 @@ namespace Trinity
             m_CommandBuffers.clear();
         }
 
-        for (auto& a_Sync : m_SyncObjects)
+        for (auto& it_Sync : m_SyncObjects)
         {
-            if (a_Sync.ImageAvailable)
+            if (it_Sync.ImageAvailable)
             {
-                vkDestroySemaphore(l_Device, a_Sync.ImageAvailable, nullptr);
+                vkDestroySemaphore(l_Device, it_Sync.ImageAvailable, nullptr);
             }
             
-            if (a_Sync.RenderFinished)
+            if (it_Sync.RenderFinished)
             {
-                vkDestroySemaphore(l_Device, a_Sync.RenderFinished, nullptr);
+                vkDestroySemaphore(l_Device, it_Sync.RenderFinished, nullptr);
             }
          
-            if (a_Sync.InFlight)
+            if (it_Sync.InFlight)
             {
-                vkDestroyFence(l_Device, a_Sync.InFlight, nullptr);
+                vkDestroyFence(l_Device, it_Sync.InFlight, nullptr);
             }
         }
         m_SyncObjects.clear();
@@ -311,28 +340,31 @@ namespace Trinity
         for (size_t i = 0; i < l_ImageCount; ++i)
         {
             VkImageView l_Attachments[] = { l_ImageViews[i] };
-            VkFramebufferCreateInfo a_FramebufferInfo{};
-            a_FramebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-            a_FramebufferInfo.renderPass = m_RenderPass;
-            a_FramebufferInfo.attachmentCount = 1;
-            a_FramebufferInfo.pAttachments = l_Attachments;
-            a_FramebufferInfo.width = m_Context->GetSwapChainExtent().width;
-            a_FramebufferInfo.height = m_Context->GetSwapChainExtent().height;
-            a_FramebufferInfo.layers = 1;
-            vkCreateFramebuffer(l_Device, &a_FramebufferInfo, nullptr, &m_Framebuffers[i]);
+            VkFramebufferCreateInfo it_FramebufferInfo{};
+            it_FramebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            it_FramebufferInfo.renderPass = m_RenderPass;
+            it_FramebufferInfo.attachmentCount = 1;
+            it_FramebufferInfo.pAttachments = l_Attachments;
+            it_FramebufferInfo.width = m_Context->GetSwapChainExtent().width;
+            it_FramebufferInfo.height = m_Context->GetSwapChainExtent().height;
+            it_FramebufferInfo.layers = 1;
+            vkCreateFramebuffer(l_Device, &it_FramebufferInfo, nullptr, &m_Framebuffers[i]);
         }
 
         m_SyncObjects.resize(l_ImageCount);
+        
         VkSemaphoreCreateInfo l_SemInfo{};
         l_SemInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        
         VkFenceCreateInfo l_FenceInfo{};
         l_FenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         l_FenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        for (auto& a_Sync : m_SyncObjects)
+
+        for (auto& it_Sync : m_SyncObjects)
         {
-            vkCreateSemaphore(l_Device, &l_SemInfo, nullptr, &a_Sync.ImageAvailable);
-            vkCreateSemaphore(l_Device, &l_SemInfo, nullptr, &a_Sync.RenderFinished);
-            vkCreateFence(l_Device, &l_FenceInfo, nullptr, &a_Sync.InFlight);
+            vkCreateSemaphore(l_Device, &l_SemInfo, nullptr, &it_Sync.ImageAvailable);
+            vkCreateSemaphore(l_Device, &l_SemInfo, nullptr, &it_Sync.RenderFinished);
+            vkCreateFence(l_Device, &l_FenceInfo, nullptr, &it_Sync.InFlight);
         }
 
         CreatePipeline();
@@ -348,9 +380,9 @@ namespace Trinity
         VkDevice l_Device = m_Context->GetDevice();
 
         Shader l_Shader(m_Context);
-        if (auto l_Err = l_Shader.LoadFromFile("Resources/TrinityForge/DefaultAssets/Shaders/Simple"))
+        if (auto a_Error = l_Shader.LoadFromFile("Resources/TrinityForge/DefaultAssets/Shaders/Simple"))
         {
-            TR_CORE_ERROR("Failed to load shader: {}", *l_Err);
+            TR_CORE_ERROR("Failed to load shader: {}", *a_Error);
 
             return false;
         }
@@ -368,6 +400,13 @@ namespace Trinity
 
         VkPipelineVertexInputStateCreateInfo l_VertexInput{};
         l_VertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+        auto l_BindingDescription = Vertex::GetBindingDescription();
+        auto l_AttributeDescriptions = Vertex::GetAttributeDescriptions();
+        l_VertexInput.vertexBindingDescriptionCount = 1;
+        l_VertexInput.pVertexBindingDescriptions = &l_BindingDescription;
+        l_VertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(l_AttributeDescriptions.size());
+        l_VertexInput.pVertexAttributeDescriptions = l_AttributeDescriptions.data();
 
         VkPipelineInputAssemblyStateCreateInfo l_InputAssembly{};
         l_InputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;

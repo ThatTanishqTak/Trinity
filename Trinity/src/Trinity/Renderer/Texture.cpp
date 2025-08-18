@@ -60,10 +60,10 @@ namespace Trinity
 
         VkBuffer l_StagingBuffer = VK_NULL_HANDLE;
         VkDeviceMemory l_StagingBufferMemory = VK_NULL_HANDLE;
-        if (auto l_Err = createBuffer(l_ImageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
-            l_StagingBuffer, l_StagingBufferMemory))
+        if (auto a_Error = createBuffer(l_ImageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | 
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, l_StagingBuffer, l_StagingBufferMemory))
         {
-            return l_Err;
+            return a_Error;
         }
 
         void* l_Data = nullptr;

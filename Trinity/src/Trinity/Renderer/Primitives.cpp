@@ -3,6 +3,8 @@
 #include "Trinity/Renderer/Primitives.h"
 #include "Trinity/Renderer/Mesh.h"
 
+#include "Trinity/Utilities/Utilities.h"
+
 namespace Trinity
 {
     std::shared_ptr<Mesh> CreatePrimitive(VulkanContext* context, PrimitiveType type)

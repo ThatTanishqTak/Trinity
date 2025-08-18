@@ -39,6 +39,7 @@ namespace Trinity
                 if (vkCreateShaderModule(l_Device, &l_CreateInfo, nullptr, &module) != VK_SUCCESS)
                 {
                     TR_CORE_ERROR("Failed to create shader module: {}", file.string());
+
                     return "Failed to create shader module";
                 }
 
@@ -60,6 +61,7 @@ namespace Trinity
         {
             vkDestroyShaderModule(l_Device, m_VertexModule, nullptr);
             m_VertexModule = VK_NULL_HANDLE;
+
             return l_Err;
         }
 
