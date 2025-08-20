@@ -189,7 +189,7 @@ namespace Trinity
         }
     }
 
-    void Renderer::DrawFrame(const std::vector<Mesh*>& meshes, const std::function<void(VkCommandBuffer)>& recordFunc)
+    void Renderer::DrawFrame(const std::function<void(VkCommandBuffer)>& recordFunc)
     {
         if (m_CommandBuffers.empty())
         {
@@ -230,20 +230,6 @@ namespace Trinity
         if (recordFunc)
         {
             recordFunc(l_CommandBuffer);
-        }
-
-        for (auto l_Mesh : meshes)
-        {
-            if (!l_Mesh)
-            {
-                continue;
-            }
-
-            VkBuffer l_VertexBuffers[] = { l_Mesh->GetVertexBuffer() };
-            VkDeviceSize l_Offsets[] = { 0 };
-            vkCmdBindVertexBuffers(l_CommandBuffer, 0, 1, l_VertexBuffers, l_Offsets);
-            vkCmdBindIndexBuffer(l_CommandBuffer, l_Mesh->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-            vkCmdDrawIndexed(l_CommandBuffer, l_Mesh->GetIndexCount(), 1, 0, 0, 0);
         }
 
         vkCmdEndRenderPass(l_CommandBuffer);
@@ -401,8 +387,8 @@ namespace Trinity
         VkPipelineVertexInputStateCreateInfo l_VertexInput{};
         l_VertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
-        auto l_BindingDescription = Vertex::GetBindingDescription();
-        auto l_AttributeDescriptions = Vertex::GetAttributeDescriptions();
+        auto l_BindingDescription = Mesh::GetBindingDescription();
+        auto l_AttributeDescriptions = Mesh::GetAttributeDescriptions();
         l_VertexInput.vertexBindingDescriptionCount = 1;
         l_VertexInput.pVertexBindingDescriptions = &l_BindingDescription;
         l_VertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(l_AttributeDescriptions.size());

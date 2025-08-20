@@ -36,6 +36,16 @@ namespace Trinity
         return l_Attributes;
     }
 
+    VkVertexInputBindingDescription Mesh::GetBindingDescription()
+    {
+        return Vertex::GetBindingDescription();
+    }
+
+    std::array<VkVertexInputAttributeDescription, 3> Mesh::GetAttributeDescriptions()
+    {
+        return Vertex::GetAttributeDescriptions();
+    }
+
     Mesh::Mesh(VulkanContext* context) : m_Context(context)
     {
 

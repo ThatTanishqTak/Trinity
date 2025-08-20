@@ -1,8 +1,14 @@
 #pragma once
 
 #include <filesystem>
+#include <vector>
 
 namespace Trinity
 {
-    void CompileAllShaders(const std::filesystem::path& a_Directory);
+    class ShaderCompiler
+    {
+    public:
+        static std::vector<uint32_t> CompileToSpv(const std::string& path);
+        static void CompileAllShaders(const std::filesystem::path& directory);
+    };
 }

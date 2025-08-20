@@ -7,60 +7,73 @@
 
 namespace Trinity
 {
-    void CompileAllShaders(const std::filesystem::path& a_Directory)
+    std::vector<uint32_t> ShaderCompiler::CompileToSpv(const std::string& path)
     {
-        if (!std::filesystem::exists(a_Directory))
+        std::filesystem::path l_Path = path;
+        std::string l_Ext = l_Path.extension().string();
+
+        shaderc_shader_kind l_Stage;
+        if (l_Ext == ".vert")
         {
-            TR_CORE_WARN("Shader directory {} does not exist", a_Directory.string());
+            l_Stage = shaderc_glsl_vertex_shader;
+        }
+
+        else if (l_Ext == ".frag")
+        {
+            l_Stage = shaderc_glsl_fragment_shader;
+        }
+
+        else
+        {
+            TR_CORE_WARN("Unsupported shader extension: {}", l_Path.string());
+
+            return {};
+        }
+
+        auto l_SourceBuffer = Utilities::FileManagement::ReadFile(l_Path);
+        if (l_SourceBuffer.empty())
+        {
+            TR_CORE_ERROR("Failed to read shader {}", l_Path.string());
+
+            return {};
+        }
+
+        std::string l_Source(reinterpret_cast<const char*>(l_SourceBuffer.data()), l_SourceBuffer.size());
+
+        shaderc::Compiler l_Compiler;
+        shaderc::CompileOptions l_Options;
+        l_Options.SetOptimizationLevel(shaderc_optimization_level_performance);
+
+        shaderc::SpvCompilationResult l_Result = l_Compiler.CompileGlslToSpv(l_Source, l_Stage, l_Path.string().c_str(), l_Options);
+        if (l_Result.GetCompilationStatus() != shaderc_compilation_status_success)
+        {
+            TR_CORE_ERROR("Shader compilation failed {}: {}", l_Path.string(), l_Result.GetErrorMessage());
+
+            return {};
+        }
+
+        return { l_Result.cbegin(), l_Result.cend() };
+    }
+
+    void ShaderCompiler::CompileAllShaders(const std::filesystem::path& directory)
+    {
+        if (!std::filesystem::exists(directory))
+        {
+            TR_CORE_WARN("Shader directory {} does not exist", directory.string());
 
             return;
         }
 
-        for (const auto& it_Entry : std::filesystem::recursive_directory_iterator(a_Directory))
+        for (const auto& it_Entry : std::filesystem::recursive_directory_iterator(directory))
         {
             if (!it_Entry.is_regular_file())
             {
                 continue;
             }
 
-            std::string l_Ext = it_Entry.path().extension().string();
-            shaderc_shader_kind l_Stage;
-
-            if (l_Ext == ".vert")
+            auto l_Spv = CompileToSpv(it_Entry.path().string());
+            if (l_Spv.empty())
             {
-                l_Stage = shaderc_glsl_vertex_shader;
-            }
-            
-            else if (l_Ext == ".frag")
-            {
-                l_Stage = shaderc_glsl_fragment_shader;
-            }
-
-            else
-            {
-                continue;
-            }
-
-            auto l_SourceBuffer = Utilities::FileManagement::ReadFile(it_Entry.path());
-            if (l_SourceBuffer.empty())
-            {
-                TR_CORE_ERROR("Failed to read shader {}", it_Entry.path().string());
-
-                continue;
-            }
-
-            std::string l_Source(reinterpret_cast<const char*>(l_SourceBuffer.data()), l_SourceBuffer.size());
-
-            shaderc::Compiler l_Compiler;
-            shaderc::CompileOptions l_Options;
-            l_Options.SetOptimizationLevel(shaderc_optimization_level_performance);
-
-            shaderc::SpvCompilationResult l_Result = l_Compiler.CompileGlslToSpv(l_Source, l_Stage, it_Entry.path().string().c_str(), l_Options);
-
-            if (l_Result.GetCompilationStatus() != shaderc_compilation_status_success)
-            {
-                TR_CORE_ERROR("Shader compilation failed {}: {}", it_Entry.path().string(), l_Result.GetErrorMessage());
-
                 continue;
             }
 
@@ -68,7 +81,7 @@ namespace Trinity
             l_OutputPath += ".spv";
 
             std::ofstream l_File(l_OutputPath, std::ios::binary | std::ios::out);
-            l_File.write(reinterpret_cast<const char*>(l_Result.cbegin()), std::distance(l_Result.cbegin(), l_Result.cend()) * sizeof(uint32_t));
+            l_File.write(reinterpret_cast<const char*>(l_Spv.data()), l_Spv.size() * sizeof(uint32_t));
             l_File.close();
 
             TR_CORE_INFO("Compiled shader {}", l_OutputPath.string());

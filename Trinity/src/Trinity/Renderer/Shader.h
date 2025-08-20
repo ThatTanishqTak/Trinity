@@ -18,6 +18,8 @@ namespace Trinity
         std::optional<std::string> Reload();
         void Destroy();
 
+        static VkShaderModule LoadFromFile(VkDevice device, const std::filesystem::path& path);
+
         VkShaderModule GetVertexModule() const { return m_VertexModule; }
         VkShaderModule GetFragmentModule() const { return m_FragmentModule; }
 

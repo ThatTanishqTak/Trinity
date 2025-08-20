@@ -1,8 +1,10 @@
 #include "Trinity/trpch.h"
 
 #include "Trinity/Renderer/Shader.h"
+#include "Trinity/Renderer/ShaderCompiler.h"
 #include "Trinity/Vulkan/VulkanContext.h"
 #include "Trinity/Utilities/Utilities.h"
+#include "Trinity/Resources/ShaderWatcher.h"
 
 namespace Trinity
 {
@@ -19,50 +21,49 @@ namespace Trinity
         }
 
         m_Path = path;
+        Resources::ShaderWatcher::Watch(this, path.parent_path());
         VkDevice l_Device = m_Context->GetDevice();
 
         Destroy();
 
-        auto l_CreateModule = [&](const std::filesystem::path& file, VkShaderModule& module) -> std::optional<std::string>
+        auto a_CreateModule = [l_Device](const std::vector<uint32_t>& code, VkShaderModule& module) -> std::optional<std::string>
             {
-                auto l_Code = Utilities::FileManagement::ReadFile(file);
-                if (l_Code.empty())
-                {
-                    return "Failed to read shader file";
-                }
-
                 VkShaderModuleCreateInfo l_CreateInfo{};
                 l_CreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-                l_CreateInfo.codeSize = l_Code.size();
-                l_CreateInfo.pCode = reinterpret_cast<const uint32_t*>(l_Code.data());
+                l_CreateInfo.codeSize = code.size() * sizeof(uint32_t);
+                l_CreateInfo.pCode = code.data();
 
                 if (vkCreateShaderModule(l_Device, &l_CreateInfo, nullptr, &module) != VK_SUCCESS)
                 {
-                    TR_CORE_ERROR("Failed to create shader module: {}", file.string());
-
                     return "Failed to create shader module";
                 }
 
                 return {};
             };
 
-        std::filesystem::path l_VertexPath = path;
-        l_VertexPath += ".vert.spv";
-
-        std::filesystem::path l_FragmentPath = path;
-        l_FragmentPath += ".frag.spv";
-
-        if (auto l_Err = l_CreateModule(l_VertexPath, m_VertexModule))
+        auto a_VertexCode = ShaderCompiler::CompileToSpv((path.string() + ".vert"));
+        if (a_VertexCode.empty())
         {
-            return l_Err;
+            return "Vertex shader compilation failed";
         }
 
-        if (auto l_Err = l_CreateModule(l_FragmentPath, m_FragmentModule))
+        auto a_FragmentCode = ShaderCompiler::CompileToSpv((path.string() + ".frag"));
+        if (a_FragmentCode.empty())
+        {
+            return "Fragment shader compilation failed";
+        }
+
+        if (auto a_Error = a_CreateModule(a_VertexCode, m_VertexModule))
+        {
+            return a_Error;
+        }
+
+        if (auto a_Error = a_CreateModule(a_FragmentCode, m_FragmentModule))
         {
             vkDestroyShaderModule(l_Device, m_VertexModule, nullptr);
             m_VertexModule = VK_NULL_HANDLE;
 
-            return l_Err;
+            return a_Error;
         }
 
         return {};
@@ -101,5 +102,27 @@ namespace Trinity
             vkDestroyShaderModule(l_Device, m_FragmentModule, nullptr);
             m_FragmentModule = VK_NULL_HANDLE;
         }
+    }
+
+    VkShaderModule Shader::LoadFromFile(VkDevice device, const std::filesystem::path& path)
+    {
+        auto a_Code = Utilities::FileManagement::ReadFile(path);
+        if (a_Code.empty())
+        {
+            return VK_NULL_HANDLE;
+        }
+
+        VkShaderModuleCreateInfo l_CreateInfo{};
+        l_CreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        l_CreateInfo.codeSize = a_Code.size();
+        l_CreateInfo.pCode = reinterpret_cast<const uint32_t*>(a_Code.data());
+
+        VkShaderModule l_Module = VK_NULL_HANDLE;
+        if (vkCreateShaderModule(device, &l_CreateInfo, nullptr, &l_Module) != VK_SUCCESS)
+        {
+            return VK_NULL_HANDLE;
+        }
+
+        return l_Module;
     }
 }

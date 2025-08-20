@@ -31,14 +31,7 @@ namespace Trinity
 	{
 		TR_CORE_INFO("-------SHUTTING DOWN VULKAN-------");
 
-		for (auto it_ImageView : m_SwapChainImageViews)
-		{
-			vkDestroyImageView(m_Device, it_ImageView, nullptr);
-		}
-		TR_CORE_TRACE("Image views destroyed");
-
-		vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
-		TR_CORE_TRACE("Swap chain destroyed");
+		CleanupSwapChain();
 
 		vkDestroyDevice(m_Device, nullptr);
 		TR_CORE_TRACE("Logical device destroyed");
@@ -409,9 +402,9 @@ namespace Trinity
 
 	void VulkanContext::CleanupSwapChain()
 	{
-		for (auto imageView : m_SwapChainImageViews)
+		for (auto a_ImageView : m_SwapChainImageViews)
 		{
-			vkDestroyImageView(m_Device, imageView, nullptr);
+			vkDestroyImageView(m_Device, a_ImageView, nullptr);
 		}
 		m_SwapChainImageViews.clear();
 
@@ -420,6 +413,7 @@ namespace Trinity
 			vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
 			m_SwapChain = VK_NULL_HANDLE;
 		}
+		TR_CORE_TRACE("Swap chain and image views cleaned up");
 	}
 
 	void VulkanContext::RecreateSwapChain()
