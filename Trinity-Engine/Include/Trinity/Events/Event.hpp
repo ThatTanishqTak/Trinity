@@ -14,6 +14,7 @@ namespace Trinity
 	{
 		None = 0,
 		WindowClose, WindowResize, WindowFocus, WindowLostFocus, WindowMoved, WindowContentScale,
+		WindowMinimize, WindowRestore, WindowMaximize, WindowUnmaximize,
 		KeyPressed, KeyReleased, KeyTyped,
 		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled,
 		GamepadConnected, GamepadDisconnected, GamepadButtonPressed, GamepadButtonReleased, GamepadAxisMoved

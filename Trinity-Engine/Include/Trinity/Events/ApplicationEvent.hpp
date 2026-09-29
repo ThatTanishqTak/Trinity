@@ -59,6 +59,42 @@ namespace Trinity
 			TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
 	};
 
+	class WindowMinimizeEvent : public Event
+	{
+	public:
+		WindowMinimizeEvent() = default;
+
+		TR_EVENT_CLASS_TYPE(WindowMinimize)
+			TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+	};
+
+	class WindowRestoreEvent : public Event
+	{
+	public:
+		WindowRestoreEvent() = default;
+
+		TR_EVENT_CLASS_TYPE(WindowRestore)
+			TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+	};
+
+	class WindowMaximizeEvent : public Event
+	{
+	public:
+		WindowMaximizeEvent() = default;
+
+		TR_EVENT_CLASS_TYPE(WindowMaximize)
+			TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+	};
+
+	class WindowUnmaximizeEvent : public Event
+	{
+	public:
+		WindowUnmaximizeEvent() = default;
+
+		TR_EVENT_CLASS_TYPE(WindowUnmaximize)
+			TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+	};
+
 	class WindowMovedEvent : public Event
 	{
 	public:

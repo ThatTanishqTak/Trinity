@@ -674,14 +674,41 @@ namespace Trinity
 				}
 				case WM_SIZE:
 				{
-					if (wParam == SIZE_MINIMIZED)
-					{
-						l_Window->m_Minimized = true;
+					const bool l_Minimized = wParam == SIZE_MINIMIZED;
+					const bool l_Maximized = wParam == SIZE_MAXIMIZED || (l_Window->m_Maximized && wParam != SIZE_RESTORED);
 
-						return 0;
+					if (l_Minimized != l_Window->m_Minimized)
+					{
+						l_Window->m_Minimized = l_Minimized;
+
+						if (l_Minimized)
+						{
+							l_Window->Emit<WindowMinimizeEvent>();
+						}
+						else
+						{
+							l_Window->Emit<WindowRestoreEvent>();
+						}
 					}
 
-					l_Window->m_Minimized = false;
+					if (l_Maximized != l_Window->m_Maximized)
+					{
+						l_Window->m_Maximized = l_Maximized;
+
+						if (l_Maximized)
+						{
+							l_Window->Emit<WindowMaximizeEvent>();
+						}
+						else
+						{
+							l_Window->Emit<WindowUnmaximizeEvent>();
+						}
+					}
+
+					if (l_Minimized)
+					{
+						return 0;
+					}
 
 					const uint32_t l_Width = LOWORD(lParam);
 					const uint32_t l_Height = HIWORD(lParam);
@@ -743,6 +770,11 @@ namespace Trinity
 				}
 				case WM_MOVE:
 				{
+					if (IsIconic(windowHandle))
+					{
+						return 0;
+					}
+
 					l_Window->Emit<WindowMovedEvent>(static_cast<int32_t>(GET_X_LPARAM(lParam)), static_cast<int32_t>(GET_Y_LPARAM(lParam)));
 
 					return 0;
@@ -899,6 +931,7 @@ namespace Trinity
 		m_Title = specification.Title;
 		m_CloseRequested = false;
 		m_Minimized = false;
+		m_Maximized = false;
 
 		if (!Procedure::AcquireWindowClass(m_Instance))
 		{

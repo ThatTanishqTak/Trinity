@@ -42,6 +42,7 @@ namespace Trinity
 		virtual uint32_t GetWidth() const = 0;
 		virtual uint32_t GetHeight() const = 0;
 		virtual bool IsMinimized() const = 0;
+		virtual bool IsMaximized() const = 0;
 		virtual float GetContentScale() const = 0;
 		virtual std::string_view GetTitle() const = 0;
 		virtual NativeWindowHandle GetNativeHandle() const = 0;

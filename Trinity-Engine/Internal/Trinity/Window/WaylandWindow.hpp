@@ -20,6 +20,7 @@ namespace Trinity
 		uint32_t GetWidth() const override { return m_Width; }
 		uint32_t GetHeight() const override { return m_Height; }
 		bool IsMinimized() const override { return false; }
+		bool IsMaximized() const override { return false; }
 
 		std::string_view GetTitle() const override { return m_Title; }
 

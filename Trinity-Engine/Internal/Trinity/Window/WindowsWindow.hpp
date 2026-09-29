@@ -25,6 +25,7 @@ namespace Trinity
 		uint32_t GetWidth() const override { return m_Width; }
 		uint32_t GetHeight() const override { return m_Height; }
 		bool IsMinimized() const override { return m_Minimized; }
+		bool IsMaximized() const override { return m_Maximized; }
 
 		float GetContentScale() const override { return m_ContentScale; }
 
@@ -44,6 +45,7 @@ namespace Trinity
 
 		bool m_CloseRequested = false;
 		bool m_Minimized = false;
+		bool m_Maximized = false;
 		bool m_InModalLoop = false;
 
 		uint16_t m_HighSurrogate = 0;
