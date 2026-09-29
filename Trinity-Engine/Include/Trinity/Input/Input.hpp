@@ -19,13 +19,20 @@ namespace Trinity
 		Input() = delete;
 
 		static bool IsKeyDown(KeyCode key);
+		static bool IsKeyPressed(KeyCode key);
+		static bool IsKeyReleased(KeyCode key);
+
 		static bool IsMouseButtonDown(MouseCode button);
+		static bool IsMouseButtonPressed(MouseCode button);
+		static bool IsMouseButtonReleased(MouseCode button);
 
 		static std::pair<float, float> GetMousePosition();
 		static std::pair<float, float> GetScrollDelta();
 
 		static bool IsGamepadConnected(uint32_t gamepadId);
 		static bool IsGamepadButtonDown(uint32_t gamepadId, GamepadButton button);
+		static bool IsGamepadButtonPressed(uint32_t gamepadId, GamepadButton button);
+		static bool IsGamepadButtonReleased(uint32_t gamepadId, GamepadButton button);
 		static float GetGamepadAxis(uint32_t gamepadId, GamepadAxis axis);
 
 	private:

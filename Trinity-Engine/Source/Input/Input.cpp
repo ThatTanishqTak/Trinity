@@ -17,18 +17,47 @@ namespace Trinity
 		constexpr size_t s_GamepadButtonCount = static_cast<size_t>(GamepadButton::Count);
 		constexpr size_t s_GamepadAxisCount = static_cast<size_t>(GamepadAxis::Count);
 
+		template<size_t N>
+		struct ButtonState
+		{
+			std::bitset<N> Down;
+			std::bitset<N> Pressed;
+			std::bitset<N> Released;
+
+			void Set(size_t index, bool down)
+			{
+				if (index >= N || Down.test(index) == down)
+				{
+					return;
+				}
+
+				Down.set(index, down);
+				(down ? Pressed : Released).set(index);
+			}
+
+			bool IsDown(size_t index) const { return index < N && Down.test(index); }
+			bool WasPressed(size_t index) const { return index < N && Pressed.test(index); }
+			bool WasReleased(size_t index) const { return index < N && Released.test(index); }
+
+			void ClearEdges()
+			{
+				Pressed.reset();
+				Released.reset();
+			}
+		};
+
 		struct GamepadState
 		{
 			bool Connected = false;
-			std::bitset<s_GamepadButtonCount> Buttons;
+			ButtonState<s_GamepadButtonCount> Buttons;
 			std::array<float, s_GamepadAxisCount> Axes{};
 		};
 
 		struct InputState
 		{
-			std::bitset<s_KeyCount> Keys;
+			ButtonState<s_KeyCount> Keys;
 			std::array<KeyCode, s_KeyCount> KeyLabels{};
-			std::bitset<s_MouseButtonCount> MouseButtons;
+			ButtonState<s_MouseButtonCount> MouseButtons;
 
 			float MouseX = 0.0f;
 			float MouseY = 0.0f;
@@ -41,15 +70,6 @@ namespace Trinity
 
 		InputState s_State;
 
-		template<size_t N>
-		void SetBit(std::bitset<N>& bits, size_t index, bool value)
-		{
-			if (index < N)
-			{
-				bits.set(index, value);
-			}
-		}
-
 		GamepadState* FindGamepad(uint32_t gamepadId)
 		{
 			return gamepadId < MaxGamepads ? &s_State.Gamepads[gamepadId] : nullptr;
@@ -58,16 +78,32 @@ namespace Trinity
 
 	bool Input::IsKeyDown(KeyCode key)
 	{
-		const size_t l_Index = static_cast<size_t>(key);
+		return s_State.Keys.IsDown(static_cast<size_t>(key));
+	}
 
-		return l_Index < s_KeyCount && s_State.Keys.test(l_Index);
+	bool Input::IsKeyPressed(KeyCode key)
+	{
+		return s_State.Keys.WasPressed(static_cast<size_t>(key));
+	}
+
+	bool Input::IsKeyReleased(KeyCode key)
+	{
+		return s_State.Keys.WasReleased(static_cast<size_t>(key));
 	}
 
 	bool Input::IsMouseButtonDown(MouseCode button)
 	{
-		const size_t l_Index = static_cast<size_t>(button);
+		return s_State.MouseButtons.IsDown(static_cast<size_t>(button));
+	}
 
-		return l_Index < s_MouseButtonCount && s_State.MouseButtons.test(l_Index);
+	bool Input::IsMouseButtonPressed(MouseCode button)
+	{
+		return s_State.MouseButtons.WasPressed(static_cast<size_t>(button));
+	}
+
+	bool Input::IsMouseButtonReleased(MouseCode button)
+	{
+		return s_State.MouseButtons.WasReleased(static_cast<size_t>(button));
 	}
 
 	std::pair<float, float> Input::GetMousePosition()
@@ -90,9 +126,22 @@ namespace Trinity
 	bool Input::IsGamepadButtonDown(uint32_t gamepadId, GamepadButton button)
 	{
 		const GamepadState* l_Gamepad = FindGamepad(gamepadId);
-		const size_t l_Index = static_cast<size_t>(button);
 
-		return l_Gamepad && l_Index < s_GamepadButtonCount && l_Gamepad->Buttons.test(l_Index);
+		return l_Gamepad && l_Gamepad->Buttons.IsDown(static_cast<size_t>(button));
+	}
+
+	bool Input::IsGamepadButtonPressed(uint32_t gamepadId, GamepadButton button)
+	{
+		const GamepadState* l_Gamepad = FindGamepad(gamepadId);
+
+		return l_Gamepad && l_Gamepad->Buttons.WasPressed(static_cast<size_t>(button));
+	}
+
+	bool Input::IsGamepadButtonReleased(uint32_t gamepadId, GamepadButton button)
+	{
+		const GamepadState* l_Gamepad = FindGamepad(gamepadId);
+
+		return l_Gamepad && l_Gamepad->Buttons.WasReleased(static_cast<size_t>(button));
 	}
 
 	float Input::GetGamepadAxis(uint32_t gamepadId, GamepadAxis axis)
@@ -112,7 +161,7 @@ namespace Trinity
 			{
 				const auto& l_Event = static_cast<const KeyEvent&>(event);
 				const size_t l_Index = static_cast<size_t>(l_Event.GetKeyCode());
-				SetBit(s_State.Keys, l_Index, event.GetEventType() == EventType::KeyPressed);
+				s_State.Keys.Set(l_Index, event.GetEventType() == EventType::KeyPressed);
 
 				if (l_Index < s_KeyCount && event.GetEventType() == EventType::KeyPressed)
 				{
@@ -125,7 +174,7 @@ namespace Trinity
 			case EventType::MouseButtonReleased:
 			{
 				const auto& l_Event = static_cast<const MouseButtonEvent&>(event);
-				SetBit(s_State.MouseButtons, static_cast<size_t>(l_Event.GetMouseButton()), event.GetEventType() == EventType::MouseButtonPressed);
+				s_State.MouseButtons.Set(static_cast<size_t>(l_Event.GetMouseButton()), event.GetEventType() == EventType::MouseButtonPressed);
 
 				break;
 			}
@@ -151,8 +200,9 @@ namespace Trinity
 				const auto& l_Event = static_cast<const GamepadEvent&>(event);
 				if (GamepadState* l_Gamepad = FindGamepad(l_Event.GetGamepadId()))
 				{
-					*l_Gamepad = GamepadState{};
 					l_Gamepad->Connected = event.GetEventType() == EventType::GamepadConnected;
+					l_Gamepad->Buttons.Down.reset();
+					l_Gamepad->Axes = {};
 				}
 
 				break;
@@ -162,7 +212,7 @@ namespace Trinity
 				const auto& l_Event = static_cast<const GamepadButtonPressedEvent&>(event);
 				if (GamepadState* l_Gamepad = FindGamepad(l_Event.GetGamepadId()))
 				{
-					SetBit(l_Gamepad->Buttons, static_cast<size_t>(l_Event.GetButton()), true);
+					l_Gamepad->Buttons.Set(static_cast<size_t>(l_Event.GetButton()), true);
 				}
 
 				break;
@@ -172,7 +222,7 @@ namespace Trinity
 				const auto& l_Event = static_cast<const GamepadButtonReleasedEvent&>(event);
 				if (GamepadState* l_Gamepad = FindGamepad(l_Event.GetGamepadId()))
 				{
-					SetBit(l_Gamepad->Buttons, static_cast<size_t>(l_Event.GetButton()), false);
+					l_Gamepad->Buttons.Set(static_cast<size_t>(l_Event.GetButton()), false);
 				}
 
 				break;
@@ -199,6 +249,14 @@ namespace Trinity
 
 	void Input::EndFrame()
 	{
+		s_State.Keys.ClearEdges();
+		s_State.MouseButtons.ClearEdges();
+
+		for (GamepadState& l_Gamepad : s_State.Gamepads)
+		{
+			l_Gamepad.Buttons.ClearEdges();
+		}
+
 		s_State.ScrollX = 0.0f;
 		s_State.ScrollY = 0.0f;
 	}
@@ -208,7 +266,7 @@ namespace Trinity
 		std::vector<KeyCode> l_Keys;
 		for (size_t l_Index = 0; l_Index < s_KeyCount; ++l_Index)
 		{
-			if (s_State.Keys.test(l_Index))
+			if (s_State.Keys.IsDown(l_Index))
 			{
 				l_Keys.push_back(static_cast<KeyCode>(l_Index));
 			}
@@ -229,7 +287,7 @@ namespace Trinity
 		std::vector<MouseCode> l_Buttons;
 		for (size_t l_Index = 0; l_Index < s_MouseButtonCount; ++l_Index)
 		{
-			if (s_State.MouseButtons.test(l_Index))
+			if (s_State.MouseButtons.IsDown(l_Index))
 			{
 				l_Buttons.push_back(static_cast<MouseCode>(l_Index));
 			}
