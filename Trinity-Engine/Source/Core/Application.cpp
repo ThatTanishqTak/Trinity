@@ -12,9 +12,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace Trinity
 {
@@ -23,13 +25,13 @@ namespace Trinity
 		constexpr std::chrono::milliseconds s_MinimizedSleep{ 10 };
 		constexpr std::chrono::nanoseconds s_NoRendererFrameTime{ 16666667 };
 
-		GraphicsAPI ResolveGraphicsAPI(const ApplicationSpecification& specification)
+		std::optional<GraphicsAPI> GetForcedGraphicsAPI(const ApplicationCommandLineArgs& args)
 		{
-			GraphicsAPI l_API = specification.API;
+			std::optional<GraphicsAPI> l_API;
 
-			for (int l_Index = 1; l_Index < specification.Args.Count; ++l_Index)
+			for (int l_Index = 1; l_Index < args.Count; ++l_Index)
 			{
-				const std::string_view l_Argument = specification.Args[l_Index];
+				const std::string_view l_Argument = args[l_Index];
 
 				if (l_Argument == "--vulkan")
 				{
@@ -46,6 +48,21 @@ namespace Trinity
 			}
 
 			return l_API;
+		}
+
+		std::vector<GraphicsAPI> GetGraphicsAPIFallbackOrder(GraphicsAPI preferred)
+		{
+			std::vector<GraphicsAPI> l_Order{ preferred };
+
+			for (GraphicsAPI l_API : { GraphicsAPI::DirectX12, GraphicsAPI::Metal, GraphicsAPI::Vulkan })
+			{
+				if (l_API != preferred && IsGraphicsAPISupported(l_API))
+				{
+					l_Order.push_back(l_API);
+				}
+			}
+
+			return l_Order;
 		}
 	}
 
@@ -245,7 +262,12 @@ namespace Trinity
 	{
 		TR_CORE_INFO("------- INITIALIZING APPLICATION -------");
 
-		m_ApplicationSpecification.API = ResolveGraphicsAPI(m_ApplicationSpecification);
+		const std::optional<GraphicsAPI> l_ForcedAPI = GetForcedGraphicsAPI(m_ApplicationSpecification.Args);
+		if (l_ForcedAPI)
+		{
+			m_ApplicationSpecification.API = *l_ForcedAPI;
+		}
+
 		if (!IsGraphicsAPISupported(m_ApplicationSpecification.API))
 		{
 			TR_CORE_CRITICAL("{} is not supported on this platform", GraphicsAPIToString(m_ApplicationSpecification.API));
@@ -279,16 +301,42 @@ namespace Trinity
 			return false;
 		}
 
-		m_Renderer = Renderer::Create(m_ApplicationSpecification.API, m_Window->GetNativeHandle(), m_ApplicationSpecification.VSync);
-		if (m_Renderer)
+		const GraphicsAPI l_PreferredAPI = m_ApplicationSpecification.API;
+		const std::vector<GraphicsAPI> l_Candidates = l_ForcedAPI ? std::vector<GraphicsAPI>{ *l_ForcedAPI } : GetGraphicsAPIFallbackOrder(l_PreferredAPI);
+
+		for (GraphicsAPI l_API : l_Candidates)
 		{
-			m_Window->SetRendererAttached(true);
-			m_Renderer->RequestResize(m_Window->GetWidth(), m_Window->GetHeight());
+			m_Renderer = Renderer::Create(l_API, m_Window->GetNativeHandle(), m_ApplicationSpecification.VSync);
+			if (m_Renderer)
+			{
+				break;
+			}
+
+			TR_CORE_WARN("{} renderer failed to start", GraphicsAPIToString(l_API));
 		}
-		else
+
+		if (!m_Renderer)
 		{
-			TR_CORE_WARN("{} renderer unavailable, running without one", GraphicsAPIToString(m_ApplicationSpecification.API));
+			if (l_ForcedAPI)
+			{
+				TR_CORE_CRITICAL("{} was forced on the command line and failed to start", GraphicsAPIToString(*l_ForcedAPI));
+			}
+			else
+			{
+				TR_CORE_CRITICAL("No graphics API could be started");
+			}
+
+			return false;
 		}
+
+		if (m_Renderer->GetAPI() != l_PreferredAPI)
+		{
+			TR_CORE_WARN("Fell back from {} to {}", GraphicsAPIToString(l_PreferredAPI), GraphicsAPIToString(m_Renderer->GetAPI()));
+		}
+
+		m_ApplicationSpecification.API = m_Renderer->GetAPI();
+		m_Window->SetRendererAttached(true);
+		m_Renderer->RequestResize(m_Window->GetWidth(), m_Window->GetHeight());
 
 		m_Gamepad = Gamepad::Create();
 		if (m_Gamepad)
