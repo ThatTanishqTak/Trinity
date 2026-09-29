@@ -88,6 +88,7 @@ namespace Trinity
 		void ProcessEventQueue();
 
 		void ApplyPendingLayerChanges();
+		void DiscardPendingLayerChanges();
 		void ReleaseHeldInput();
 
 	private:

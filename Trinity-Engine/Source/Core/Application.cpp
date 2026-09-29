@@ -10,6 +10,7 @@
 #include "Trinity/Renderer/RenderDevice.hpp"
 #include "Trinity/Time/Time.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <string_view>
 #include <thread>
@@ -93,8 +94,11 @@ namespace Trinity
 			}
 		}
 
+		m_LayerStack.Clear();
+		DiscardPendingLayerChanges();
+
 		OnShutdown();
-		ApplyPendingLayerChanges();
+		DiscardPendingLayerChanges();
 	}
 
 	void Application::RunFrame()
@@ -373,6 +377,21 @@ namespace Trinity
 				}
 			}
 		}
+	}
+
+	void Application::DiscardPendingLayerChanges()
+	{
+		const auto l_PushCount = std::count_if(m_PendingLayerChanges.begin(), m_PendingLayerChanges.end(), [](const PendingLayerChange& change)
+		{
+			return change.Type == PendingLayerChange::Operation::PushLayer || change.Type == PendingLayerChange::Operation::PushOverlay;
+		});
+
+		if (l_PushCount > 0)
+		{
+			TR_CORE_WARN("Ignoring {} layer push(es) requested during shutdown", l_PushCount);
+		}
+
+		m_PendingLayerChanges.clear();
 	}
 
 	void Application::ReleaseHeldInput()
