@@ -1,0 +1,40 @@
+#pragma once
+
+// This ignores all warnings raised inside External headers
+#pragma warning(push, 0)
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h>
+#pragma warning(pop)
+
+#include <memory>
+
+namespace Trinity
+{
+	class Log
+	{
+	public:
+		static void Initialize();
+		static void Shutdown();
+
+		static std::shared_ptr<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
+		static std::shared_ptr<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
+	private:
+		static std::shared_ptr<spdlog::logger> s_CoreLogger;
+		static std::shared_ptr<spdlog::logger> s_ClientLogger;
+	};
+
+}
+
+// Core log macros
+#define TR_CORE_TRACE(...) SPDLOG_LOGGER_TRACE(::Trinity::Log::GetCoreLogger(), __VA_ARGS__)
+#define TR_CORE_INFO(...) SPDLOG_LOGGER_INFO(::Trinity::Log::GetCoreLogger(), __VA_ARGS__)
+#define TR_CORE_WARN(...) SPDLOG_LOGGER_WARN(::Trinity::Log::GetCoreLogger(), __VA_ARGS__)
+#define TR_CORE_ERROR(...) SPDLOG_LOGGER_ERROR(::Trinity::Log::GetCoreLogger(), __VA_ARGS__)
+#define TR_CORE_CRITICAL(...) SPDLOG_LOGGER_CRITICAL(::Trinity::Log::GetCoreLogger(), __VA_ARGS__)
+
+// Client log macros
+#define TR_TRACE(...) SPDLOG_LOGGER_TRACE(::Trinity::Log::GetClientLogger(), __VA_ARGS__)
+#define TR_INFO(...) SPDLOG_LOGGER_INFO(::Trinity::Log::GetClientLogger(), __VA_ARGS__)
+#define TR_WARN(...) SPDLOG_LOGGER_WARN(::Trinity::Log::GetClientLogger(), __VA_ARGS__)
+#define TR_ERROR(...) SPDLOG_LOGGER_ERROR(::Trinity::Log::GetClientLogger(), __VA_ARGS__)
+#define TR_CRITICAL(...) SPDLOG_LOGGER_CRITICAL(::Trinity::Log::GetClientLogger(), __VA_ARGS__)
