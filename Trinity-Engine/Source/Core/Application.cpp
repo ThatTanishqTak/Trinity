@@ -7,7 +7,7 @@
 #include "Trinity/Events/MouseEvent.hpp"
 #include "Trinity/Input/Gamepad.hpp"
 #include "Trinity/Input/Input.hpp"
-#include "Trinity/Renderer/RenderDevice.hpp"
+#include "Trinity/Renderer/Renderer.hpp"
 #include "Trinity/Time/Time.hpp"
 
 #include <algorithm>
@@ -242,8 +242,8 @@ namespace Trinity
 			return false;
 		}
 
-		m_RenderDevice = RenderDevice::Create(m_ApplicationSpecification.API, m_Window->GetNativeHandle());
-		if (m_RenderDevice)
+		m_Renderer = Renderer::Create(m_ApplicationSpecification.API, m_Window->GetNativeHandle());
+		if (m_Renderer)
 		{
 			m_Window->SetRendererAttached(true);
 		}
@@ -289,10 +289,10 @@ namespace Trinity
 		m_PendingLayerChanges.clear();
 		m_LayerStack.Clear();
 
-		if (m_RenderDevice)
+		if (m_Renderer)
 		{
-			m_RenderDevice->Shutdown();
-			m_RenderDevice.reset();
+			m_Renderer->Shutdown();
+			m_Renderer.reset();
 
 			if (m_Window)
 			{

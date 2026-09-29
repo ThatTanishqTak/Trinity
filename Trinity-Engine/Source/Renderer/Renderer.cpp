@@ -1,15 +1,15 @@
-#include "Trinity/Renderer/RenderDevice.hpp"
+#include "Trinity/Renderer/Renderer.hpp"
 
 #include "Trinity/Core/Log.hpp"
-#include "Trinity/Renderer/Vulkan/VulkanRenderDevice.hpp"
+#include "Trinity/Renderer/Vulkan/VulkanRenderer.hpp"
 
 #if defined(_WIN32)
-#include "Trinity/Renderer/D3D12/D3D12RenderDevice.hpp"
+#include "Trinity/Renderer/D3D12/D3D12Renderer.hpp"
 #endif
 
 namespace Trinity
 {
-	std::unique_ptr<RenderDevice> RenderDevice::Create(GraphicsAPI api, const NativeWindowHandle& window)
+	std::unique_ptr<Renderer> Renderer::Create(GraphicsAPI api, const NativeWindowHandle& window)
 	{
 		if (!IsGraphicsAPISupported(api))
 		{
@@ -18,20 +18,20 @@ namespace Trinity
 			return nullptr;
 		}
 
-		std::unique_ptr<RenderDevice> l_Device;
+		std::unique_ptr<Renderer> l_Device;
 
 		switch (api)
 		{
 			case GraphicsAPI::Vulkan:
 			{
-				l_Device = std::make_unique<VulkanRenderDevice>();
+				l_Device = std::make_unique<VulkanRenderer>();
 
 				break;
 			}
 			case GraphicsAPI::DirectX12:
 			{
 #if defined(_WIN32)
-				l_Device = std::make_unique<D3D12RenderDevice>();
+				l_Device = std::make_unique<D3D12Renderer>();
 #endif
 
 				break;

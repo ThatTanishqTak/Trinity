@@ -32,7 +32,7 @@ namespace Trinity
 	};
 
 	class Gamepad;
-	class RenderDevice;
+	class Renderer;
 
 	class Application
 	{
@@ -62,7 +62,7 @@ namespace Trinity
 		void PopOverlay(Layer* overlay);
 
 		Window& GetWindow() { return *m_Window; }
-		RenderDevice* GetRenderDevice() { return m_RenderDevice.get(); }
+		Renderer* GetRenderer() { return m_Renderer.get(); }
 		const ApplicationSpecification& GetApplicationSpecification() const { return m_ApplicationSpecification; }
 
 	protected:
@@ -100,7 +100,7 @@ namespace Trinity
 
 		std::unique_ptr<Window> m_Window;
 		std::unique_ptr<Gamepad> m_Gamepad;
-		std::unique_ptr<RenderDevice> m_RenderDevice;
+		std::unique_ptr<Renderer> m_Renderer;
 
 		std::vector<std::unique_ptr<Event>> m_EventQueue;
 		std::vector<std::unique_ptr<Event>> m_ProcessingEvents;

@@ -24,6 +24,7 @@ namespace Trinity
 		virtual void OnDetach() {}
 		virtual void OnUpdate(Timestep /*deltaTime*/) {}
 		virtual void OnFixedUpdate(Timestep /*fixedDeltaTime*/) {}
+		virtual void OnRender(Timestep /*deltaTime*/) {}
 		virtual void OnEvent(Event& /*event*/) {}
 
 		const std::string& GetName() const { return m_DebugName; }

@@ -1,18 +1,22 @@
 #pragma once
 
-#include "Trinity/Renderer/RenderDevice.hpp"
+#include "Trinity/Renderer/Renderer.hpp"
 
 namespace Trinity
 {
-	class VulkanRenderDevice : public RenderDevice
+	class VulkanRenderer : public Renderer
 	{
 	public:
-		VulkanRenderDevice();
-		~VulkanRenderDevice() override;
+		VulkanRenderer();
+		~VulkanRenderer() override;
 
 		void Shutdown() override;
 
 		GraphicsAPI GetAPI() const override { return GraphicsAPI::Vulkan; }
+
+		bool BeginFrame() override;
+		void EndFrame() override;
+		void WaitIdle() override;
 
 	protected:
 		bool Initialize(const NativeWindowHandle& window) override;
