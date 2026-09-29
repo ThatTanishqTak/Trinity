@@ -27,6 +27,7 @@ namespace Trinity
 		uint32_t Height = 720;
 
 		GraphicsAPI API = GraphicsAPI::Vulkan;
+		bool VSync = true;
 
 		ApplicationCommandLineArgs Args;
 	};

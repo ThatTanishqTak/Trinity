@@ -21,6 +21,7 @@ namespace Trinity
 	namespace
 	{
 		constexpr std::chrono::milliseconds s_MinimizedSleep{ 10 };
+		constexpr std::chrono::nanoseconds s_NoRendererFrameTime{ 16666667 };
 
 		GraphicsAPI ResolveGraphicsAPI(const ApplicationSpecification& specification)
 		{
@@ -83,15 +84,35 @@ namespace Trinity
 
 		Time::Reset();
 
+		std::chrono::steady_clock::time_point l_NextFrameTime = std::chrono::steady_clock::now();
+
 		while (m_Running && m_Window->PollEvents())
 		{
 			RunFrame();
 
 			if (m_Window->IsMinimized())
 			{
-				// Nothing is visible, so don't spin a core while minimized
 				std::this_thread::sleep_for(s_MinimizedSleep);
 			}
+			else if (!m_Renderer)
+			{
+				l_NextFrameTime += s_NoRendererFrameTime;
+
+				const std::chrono::steady_clock::time_point l_Now = std::chrono::steady_clock::now();
+				if (l_NextFrameTime < l_Now)
+				{
+					l_NextFrameTime = l_Now;
+				}
+				else
+				{
+					std::this_thread::sleep_until(l_NextFrameTime);
+				}
+			}
+		}
+
+		if (m_Renderer)
+		{
+			m_Renderer->WaitIdle();
 		}
 
 		m_LayerStack.Clear();
@@ -132,6 +153,16 @@ namespace Trinity
 			l_Layer->OnUpdate(Time::GetDeltaTime());
 		}
 
+		if (m_Renderer && !m_Window->IsMinimized() && m_Renderer->BeginFrame())
+		{
+			for (const std::unique_ptr<Layer>& l_Layer : m_LayerStack)
+			{
+				l_Layer->OnRender(Time::GetDeltaTime());
+			}
+
+			m_Renderer->EndFrame();
+		}
+
 		ApplyPendingLayerChanges();
 		Input::EndFrame();
 
@@ -141,6 +172,12 @@ namespace Trinity
 	void Application::OnEvent(Event& event)
 	{
 		Input::OnEvent(event);
+
+		if (m_Renderer && event.GetEventType() == EventType::WindowResize)
+		{
+			const WindowResizeEvent& l_ResizeEvent = static_cast<const WindowResizeEvent&>(event);
+			m_Renderer->RequestResize(l_ResizeEvent.GetWidth(), l_ResizeEvent.GetHeight());
+		}
 
 		for (auto l_Layer = m_LayerStack.rbegin(); l_Layer != m_LayerStack.rend(); ++l_Layer)
 		{
@@ -242,10 +279,11 @@ namespace Trinity
 			return false;
 		}
 
-		m_Renderer = Renderer::Create(m_ApplicationSpecification.API, m_Window->GetNativeHandle());
+		m_Renderer = Renderer::Create(m_ApplicationSpecification.API, m_Window->GetNativeHandle(), m_ApplicationSpecification.VSync);
 		if (m_Renderer)
 		{
 			m_Window->SetRendererAttached(true);
+			m_Renderer->RequestResize(m_Window->GetWidth(), m_Window->GetHeight());
 		}
 		else
 		{
@@ -345,6 +383,16 @@ namespace Trinity
 		{
 			std::vector<PendingLayerChange> l_Changes;
 			l_Changes.swap(m_PendingLayerChanges);
+
+			const bool l_HasPop = std::any_of(l_Changes.begin(), l_Changes.end(), [](const PendingLayerChange& change)
+			{
+				return change.Type == PendingLayerChange::Operation::PopLayer || change.Type == PendingLayerChange::Operation::PopOverlay;
+			});
+
+			if (l_HasPop && m_Renderer)
+			{
+				m_Renderer->WaitIdle();
+			}
 
 			for (PendingLayerChange& l_Change : l_Changes)
 			{

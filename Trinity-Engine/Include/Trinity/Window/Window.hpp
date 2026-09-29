@@ -16,7 +16,6 @@ namespace Trinity
 		std::string Title = "Trinity-Window";
 		uint32_t Width = 1080;
 		uint32_t Height = 720;
-		bool VSync = false;
 	};
 
 	class Window : public EventSource

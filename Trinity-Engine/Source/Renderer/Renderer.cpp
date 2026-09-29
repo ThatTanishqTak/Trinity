@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-	std::unique_ptr<Renderer> Renderer::Create(GraphicsAPI api, const NativeWindowHandle& window)
+	std::unique_ptr<Renderer> Renderer::Create(GraphicsAPI api, const NativeWindowHandle& window, bool vsync)
 	{
 		if (!IsGraphicsAPISupported(api))
 		{
@@ -51,6 +51,8 @@ namespace Trinity
 
 		TR_CORE_INFO("Initializing {} renderer", GraphicsAPIToString(api));
 
+		l_Device->m_VSync = vsync;
+
 		if (!l_Device->Initialize(window))
 		{
 			l_Device->Shutdown();
@@ -59,5 +61,43 @@ namespace Trinity
 		}
 
 		return l_Device;
+	}
+
+	void Renderer::RequestResize(uint32_t width, uint32_t height)
+	{
+		m_RequestedWidth = width;
+		m_RequestedHeight = height;
+		m_ResizeRequested = true;
+	}
+
+	void Renderer::SetVSync(bool enabled)
+	{
+		if (enabled != m_VSync)
+		{
+			m_VSync = enabled;
+			m_VSyncChanged = true;
+		}
+	}
+
+	bool Renderer::ConsumeVSyncChange()
+	{
+		const bool l_Changed = m_VSyncChanged;
+		m_VSyncChanged = false;
+
+		return l_Changed;
+	}
+
+	bool Renderer::ConsumeResizeRequest(uint32_t& width, uint32_t& height)
+	{
+		if (!m_ResizeRequested)
+		{
+			return false;
+		}
+
+		width = m_RequestedWidth;
+		height = m_RequestedHeight;
+		m_ResizeRequested = false;
+
+		return true;
 	}
 }
