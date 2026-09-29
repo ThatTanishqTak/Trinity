@@ -7,7 +7,7 @@ namespace Trinity
 	class D3D12RenderDevice : public RenderDevice
 	{
 	public:
-		D3D12RenderDevice() = default;
+		D3D12RenderDevice();
 		~D3D12RenderDevice() override;
 
 		void Shutdown() override;

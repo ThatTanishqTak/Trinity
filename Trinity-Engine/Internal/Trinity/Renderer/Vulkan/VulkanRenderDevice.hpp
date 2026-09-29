@@ -7,7 +7,7 @@ namespace Trinity
 	class VulkanRenderDevice : public RenderDevice
 	{
 	public:
-		VulkanRenderDevice() = default;
+		VulkanRenderDevice();
 		~VulkanRenderDevice() override;
 
 		void Shutdown() override;
