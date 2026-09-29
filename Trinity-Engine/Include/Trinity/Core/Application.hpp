@@ -51,6 +51,9 @@ namespace Trinity
 
 		void Run();
 
+		void Close();
+		void RequestClose();
+
 		void OnEvent(Event& event);
 
 		void PushLayer(std::unique_ptr<Layer> layer);

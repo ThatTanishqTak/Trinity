@@ -138,14 +138,6 @@ namespace Trinity
 	{
 		Input::OnEvent(event);
 
-		EventDispatcher l_Dispatcher(event);
-		l_Dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent&)
-		{
-			m_Running = false;
-
-			return true;
-		});
-
 		for (auto l_Layer = m_LayerStack.rbegin(); l_Layer != m_LayerStack.rend(); ++l_Layer)
 		{
 			if (event.Handled)
@@ -156,10 +148,36 @@ namespace Trinity
 			(*l_Layer)->OnEvent(event);
 		}
 
+		EventDispatcher l_Dispatcher(event);
+		l_Dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent& closeEvent)
+		{
+			if (closeEvent.IsCancelled())
+			{
+				TR_CORE_INFO("Close request cancelled by a layer");
+			}
+			else
+			{
+				Close();
+			}
+
+			return true;
+		});
+
 		if (event.GetEventType() == EventType::WindowLostFocus)
 		{
 			ReleaseHeldInput();
 		}
+	}
+
+	void Application::Close()
+	{
+		m_Running = false;
+	}
+
+	void Application::RequestClose()
+	{
+		WindowCloseEvent l_Event;
+		QueueEvent(l_Event);
 	}
 
 	void Application::PushLayer(std::unique_ptr<Layer> layer)

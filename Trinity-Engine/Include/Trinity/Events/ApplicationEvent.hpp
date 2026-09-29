@@ -11,8 +11,16 @@ namespace Trinity
 	public:
 		WindowCloseEvent() = default;
 
+		void Cancel() { m_Cancelled = true; }
+		bool IsCancelled() const { return m_Cancelled; }
+
+		std::string ToString() const override { return std::format("WindowCloseEvent (cancelled: {})", m_Cancelled); }
+
 		TR_EVENT_CLASS_TYPE(WindowClose)
 			TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+
+	private:
+		bool m_Cancelled = false;
 	};
 
 	class WindowResizeEvent : public Event
