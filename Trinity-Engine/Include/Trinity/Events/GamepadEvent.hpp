@@ -15,7 +15,7 @@ namespace Trinity
 		TR_EVENT_CLASS_CATEGORY(EventCategoryGamepad | EventCategoryInput)
 
 	protected:
-		explicit GamepadEvent(uint32_t gamepadId) : m_GamepadId(gamepadId) {}
+		GamepadEvent(uint32_t gamepadId) : m_GamepadId(gamepadId) {}
 
 		uint32_t m_GamepadId = 0;
 	};
@@ -23,7 +23,7 @@ namespace Trinity
 	class GamepadConnectedEvent : public GamepadEvent
 	{
 	public:
-		explicit GamepadConnectedEvent(uint32_t gamepadId) : GamepadEvent(gamepadId) {}
+		GamepadConnectedEvent(uint32_t gamepadId) : GamepadEvent(gamepadId) {}
 
 		std::string ToString() const override { return std::format("GamepadConnectedEvent: {}", m_GamepadId); }
 
@@ -33,7 +33,7 @@ namespace Trinity
 	class GamepadDisconnectedEvent : public GamepadEvent
 	{
 	public:
-		explicit GamepadDisconnectedEvent(uint32_t gamepadId) : GamepadEvent(gamepadId) {}
+		GamepadDisconnectedEvent(uint32_t gamepadId) : GamepadEvent(gamepadId) {}
 
 		std::string ToString() const override { return std::format("GamepadDisconnectedEvent: {}", m_GamepadId); }
 

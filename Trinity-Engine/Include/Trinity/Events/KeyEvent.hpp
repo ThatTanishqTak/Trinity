@@ -15,7 +15,7 @@ namespace Trinity
 		TR_EVENT_CLASS_CATEGORY(EventCategoryKeyboard | EventCategoryInput)
 
 	protected:
-		explicit KeyEvent(KeyCode keyCode) : m_KeyCode(keyCode) {}
+		KeyEvent(KeyCode keyCode) : m_KeyCode(keyCode) {}
 
 		KeyCode m_KeyCode;
 	};
@@ -38,7 +38,7 @@ namespace Trinity
 	class KeyReleasedEvent : public KeyEvent
 	{
 	public:
-		explicit KeyReleasedEvent(KeyCode keyCode) : KeyEvent(keyCode) {}
+		KeyReleasedEvent(KeyCode keyCode) : KeyEvent(keyCode) {}
 
 		std::string ToString() const override { return std::format("KeyReleasedEvent: {}", KeyCodeToString(m_KeyCode)); }
 
@@ -48,7 +48,7 @@ namespace Trinity
 	class KeyTypedEvent : public Event
 	{
 	public:
-		explicit KeyTypedEvent(uint32_t codepoint) : m_Codepoint(codepoint) {}
+		KeyTypedEvent(uint32_t codepoint) : m_Codepoint(codepoint) {}
 
 		uint32_t GetCodepoint() const { return m_Codepoint; }
 

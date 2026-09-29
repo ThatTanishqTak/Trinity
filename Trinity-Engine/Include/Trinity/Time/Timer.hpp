@@ -23,7 +23,7 @@ namespace Trinity
 	class ScopedTimer
 	{
 	public:
-		explicit ScopedTimer(std::string_view name) : m_Name(name) {}
+		ScopedTimer(std::string_view name) : m_Name(name) {}
 		~ScopedTimer();
 
 		ScopedTimer(const ScopedTimer&) = delete;

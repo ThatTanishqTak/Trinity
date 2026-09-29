@@ -4,10 +4,8 @@
 
 namespace Trinity
 {
-	VulkanRenderDevice::~VulkanRenderDevice()
-	{
-		Shutdown();
-	}
+	VulkanRenderDevice::VulkanRenderDevice() = default;
+	VulkanRenderDevice::~VulkanRenderDevice() = default;
 
 	bool VulkanRenderDevice::Initialize(const NativeWindowHandle& window)
 	{

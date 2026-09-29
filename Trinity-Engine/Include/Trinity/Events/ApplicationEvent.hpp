@@ -72,7 +72,7 @@ namespace Trinity
 	class WindowContentScaleEvent : public Event
 	{
 	public:
-		explicit WindowContentScaleEvent(float scale) : m_Scale(scale) {}
+		WindowContentScaleEvent(float scale) : m_Scale(scale) {}
 
 		float GetScale() const { return m_Scale; }
 

@@ -51,7 +51,7 @@ namespace Trinity
 		TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryMouseButton | EventCategoryInput)
 
 	protected:
-		explicit MouseButtonEvent(MouseCode button) : m_Button(button) {}
+		MouseButtonEvent(MouseCode button) : m_Button(button) {}
 
 		MouseCode m_Button;
 	};
@@ -59,7 +59,7 @@ namespace Trinity
 	class MouseButtonPressedEvent : public MouseButtonEvent
 	{
 	public:
-		explicit MouseButtonPressedEvent(MouseCode button) : MouseButtonEvent(button) {}
+		MouseButtonPressedEvent(MouseCode button) : MouseButtonEvent(button) {}
 
 		std::string ToString() const override { return std::format("MouseButtonPressedEvent: {}", MouseCodeToString(m_Button)); }
 
@@ -69,7 +69,7 @@ namespace Trinity
 	class MouseButtonReleasedEvent : public MouseButtonEvent
 	{
 	public:
-		explicit MouseButtonReleasedEvent(MouseCode button) : MouseButtonEvent(button) {}
+		MouseButtonReleasedEvent(MouseCode button) : MouseButtonEvent(button) {}
 
 		std::string ToString() const override { return std::format("MouseButtonReleasedEvent: {}", MouseCodeToString(m_Button)); }
 

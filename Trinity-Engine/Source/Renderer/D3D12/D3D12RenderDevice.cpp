@@ -4,10 +4,8 @@
 
 namespace Trinity
 {
-	D3D12RenderDevice::~D3D12RenderDevice()
-	{
-		Shutdown();
-	}
+	D3D12RenderDevice::D3D12RenderDevice() = default;
+	D3D12RenderDevice::~D3D12RenderDevice() = default;
 
 	bool D3D12RenderDevice::Initialize(const NativeWindowHandle& window)
 	{
@@ -20,5 +18,6 @@ namespace Trinity
 
 	void D3D12RenderDevice::Shutdown()
 	{
+
 	}
 }

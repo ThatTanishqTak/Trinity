@@ -12,7 +12,7 @@ namespace Trinity
 	class Layer
 	{
 	public:
-		explicit Layer(std::string_view name = "Layer");
+		Layer(std::string_view name = "Layer");
 		virtual ~Layer() = default;
 
 		Layer(const Layer&) = delete;

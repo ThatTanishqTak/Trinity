@@ -37,7 +37,7 @@ namespace Trinity
 	class Application
 	{
 	public:
-		explicit Application(const ApplicationSpecification& specification);
+		Application(const ApplicationSpecification& specification);
 		virtual ~Application();
 
 		Application(const Application&) = delete;

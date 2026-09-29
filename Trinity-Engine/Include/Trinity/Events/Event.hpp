@@ -78,7 +78,7 @@ namespace Trinity
 	class EventDispatcher
 	{
 	public:
-		explicit EventDispatcher(Event& event) : m_Event(event) {}
+		EventDispatcher(Event& event) : m_Event(event) {}
 
 		template<typename T, typename F>
 			requires std::derived_from<T, Event>&& std::invocable<F, T&>&& std::convertible_to<std::invoke_result_t<F, T&>, bool>
