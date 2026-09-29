@@ -8,6 +8,9 @@
 #include <Windows.h>
 #include <windowsx.h>
 
+#include <array>
+#include <utility>
+
 namespace Trinity
 {
 	namespace
@@ -53,7 +56,203 @@ namespace Trinity
 			return l_Result;
 		}
 
-		KeyCode TranslateKey(WPARAM wParam, LPARAM lParam)
+		constexpr std::array<KeyCode, 512> CreateScanCodeTable()
+		{
+			std::array<KeyCode, 512> l_Table{};
+
+			l_Table[0x00B] = KeyCode::D0;
+			l_Table[0x002] = KeyCode::D1;
+			l_Table[0x003] = KeyCode::D2;
+			l_Table[0x004] = KeyCode::D3;
+			l_Table[0x005] = KeyCode::D4;
+			l_Table[0x006] = KeyCode::D5;
+			l_Table[0x007] = KeyCode::D6;
+			l_Table[0x008] = KeyCode::D7;
+			l_Table[0x009] = KeyCode::D8;
+			l_Table[0x00A] = KeyCode::D9;
+
+			l_Table[0x01E] = KeyCode::A;
+			l_Table[0x030] = KeyCode::B;
+			l_Table[0x02E] = KeyCode::C;
+			l_Table[0x020] = KeyCode::D;
+			l_Table[0x012] = KeyCode::E;
+			l_Table[0x021] = KeyCode::F;
+			l_Table[0x022] = KeyCode::G;
+			l_Table[0x023] = KeyCode::H;
+			l_Table[0x017] = KeyCode::I;
+			l_Table[0x024] = KeyCode::J;
+			l_Table[0x025] = KeyCode::K;
+			l_Table[0x026] = KeyCode::L;
+			l_Table[0x032] = KeyCode::M;
+			l_Table[0x031] = KeyCode::N;
+			l_Table[0x018] = KeyCode::O;
+			l_Table[0x019] = KeyCode::P;
+			l_Table[0x010] = KeyCode::Q;
+			l_Table[0x013] = KeyCode::R;
+			l_Table[0x01F] = KeyCode::S;
+			l_Table[0x014] = KeyCode::T;
+			l_Table[0x016] = KeyCode::U;
+			l_Table[0x02F] = KeyCode::V;
+			l_Table[0x011] = KeyCode::W;
+			l_Table[0x02D] = KeyCode::X;
+			l_Table[0x015] = KeyCode::Y;
+			l_Table[0x02C] = KeyCode::Z;
+
+			l_Table[0x028] = KeyCode::Apostrophe;
+			l_Table[0x02B] = KeyCode::Backslash;
+			l_Table[0x033] = KeyCode::Comma;
+			l_Table[0x00D] = KeyCode::Equal;
+			l_Table[0x029] = KeyCode::GraveAccent;
+			l_Table[0x01A] = KeyCode::LeftBracket;
+			l_Table[0x00C] = KeyCode::Minus;
+			l_Table[0x034] = KeyCode::Period;
+			l_Table[0x01B] = KeyCode::RightBracket;
+			l_Table[0x027] = KeyCode::Semicolon;
+			l_Table[0x035] = KeyCode::Slash;
+			l_Table[0x056] = KeyCode::World2;
+
+			l_Table[0x00E] = KeyCode::Backspace;
+			l_Table[0x153] = KeyCode::Delete;
+			l_Table[0x14F] = KeyCode::End;
+			l_Table[0x01C] = KeyCode::Enter;
+			l_Table[0x001] = KeyCode::Escape;
+			l_Table[0x147] = KeyCode::Home;
+			l_Table[0x152] = KeyCode::Insert;
+			l_Table[0x15D] = KeyCode::Menu;
+			l_Table[0x151] = KeyCode::PageDown;
+			l_Table[0x149] = KeyCode::PageUp;
+			l_Table[0x045] = KeyCode::Pause;
+			l_Table[0x039] = KeyCode::TR_SPACE;
+			l_Table[0x00F] = KeyCode::Tab;
+			l_Table[0x03A] = KeyCode::CapsLock;
+			l_Table[0x145] = KeyCode::NumLock;
+			l_Table[0x046] = KeyCode::ScrollLock;
+			l_Table[0x137] = KeyCode::PrintScreen;
+
+			l_Table[0x03B] = KeyCode::F1;
+			l_Table[0x03C] = KeyCode::F2;
+			l_Table[0x03D] = KeyCode::F3;
+			l_Table[0x03E] = KeyCode::F4;
+			l_Table[0x03F] = KeyCode::F5;
+			l_Table[0x040] = KeyCode::F6;
+			l_Table[0x041] = KeyCode::F7;
+			l_Table[0x042] = KeyCode::F8;
+			l_Table[0x043] = KeyCode::F9;
+			l_Table[0x044] = KeyCode::F10;
+			l_Table[0x057] = KeyCode::F11;
+			l_Table[0x058] = KeyCode::F12;
+			l_Table[0x064] = KeyCode::F13;
+			l_Table[0x065] = KeyCode::F14;
+			l_Table[0x066] = KeyCode::F15;
+			l_Table[0x067] = KeyCode::F16;
+			l_Table[0x068] = KeyCode::F17;
+			l_Table[0x069] = KeyCode::F18;
+			l_Table[0x06A] = KeyCode::F19;
+			l_Table[0x06B] = KeyCode::F20;
+			l_Table[0x06C] = KeyCode::F21;
+			l_Table[0x06D] = KeyCode::F22;
+			l_Table[0x06E] = KeyCode::F23;
+			l_Table[0x076] = KeyCode::F24;
+
+			l_Table[0x038] = KeyCode::LeftAlt;
+			l_Table[0x01D] = KeyCode::LeftControl;
+			l_Table[0x02A] = KeyCode::LeftShift;
+			l_Table[0x15B] = KeyCode::LeftSuper;
+			l_Table[0x138] = KeyCode::RightAlt;
+			l_Table[0x11D] = KeyCode::RightControl;
+			l_Table[0x036] = KeyCode::RightShift;
+			l_Table[0x15C] = KeyCode::RightSuper;
+
+			l_Table[0x150] = KeyCode::Down;
+			l_Table[0x14B] = KeyCode::Left;
+			l_Table[0x14D] = KeyCode::Right;
+			l_Table[0x148] = KeyCode::Up;
+
+			l_Table[0x052] = KeyCode::KP0;
+			l_Table[0x04F] = KeyCode::KP1;
+			l_Table[0x050] = KeyCode::KP2;
+			l_Table[0x051] = KeyCode::KP3;
+			l_Table[0x04B] = KeyCode::KP4;
+			l_Table[0x04C] = KeyCode::KP5;
+			l_Table[0x04D] = KeyCode::KP6;
+			l_Table[0x047] = KeyCode::KP7;
+			l_Table[0x048] = KeyCode::KP8;
+			l_Table[0x049] = KeyCode::KP9;
+			l_Table[0x04E] = KeyCode::KPAdd;
+			l_Table[0x053] = KeyCode::KPDecimal;
+			l_Table[0x135] = KeyCode::KPDivide;
+			l_Table[0x11C] = KeyCode::KPEnter;
+			l_Table[0x059] = KeyCode::KPEqual;
+			l_Table[0x037] = KeyCode::KPMultiply;
+			l_Table[0x04A] = KeyCode::KPSubtract;
+
+			return l_Table;
+		}
+
+		constexpr std::array<KeyCode, 512> s_ScanCodeTable = CreateScanCodeTable();
+
+		UINT GetScanCode(WPARAM wParam, LPARAM lParam)
+		{
+			UINT l_ScanCode = HIWORD(lParam) & (KF_EXTENDED | 0xFF);
+
+			if (l_ScanCode == 0)
+			{
+				const UINT l_Mapped = MapVirtualKeyW(static_cast<UINT>(wParam), MAPVK_VK_TO_VSC_EX);
+				if ((l_Mapped & 0xFF00) == 0xE100)
+				{
+					l_ScanCode = 0x045;
+				}
+				else
+				{
+					l_ScanCode = ((l_Mapped & 0xFF00) == 0xE000 ? 0x100 : 0) | (l_Mapped & 0xFF);
+				}
+
+				switch (wParam)
+				{
+					case VK_LEFT:
+					case VK_RIGHT:
+					case VK_UP:
+					case VK_DOWN:
+					case VK_HOME:
+					case VK_END:
+					case VK_PRIOR:
+					case VK_NEXT:
+					case VK_INSERT:
+					case VK_DELETE:
+					{
+						l_ScanCode |= 0x100;
+
+						break;
+					}
+					default:
+					{
+						break;
+					}
+				}
+			}
+
+			switch (l_ScanCode)
+			{
+				case 0x054:
+				{
+					return 0x137;
+				}
+				case 0x146:
+				{
+					return 0x045;
+				}
+				case 0x136:
+				{
+					return 0x036;
+				}
+				default:
+				{
+					return l_ScanCode;
+				}
+			}
+		}
+
+		KeyCode TranslateKeyLabel(WPARAM wParam, LPARAM lParam)
 		{
 			const bool l_Extended = (HIWORD(lParam) & KF_EXTENDED) != 0;
 			const UINT l_ScanCode = LOBYTE(HIWORD(lParam));
@@ -90,6 +289,30 @@ namespace Trinity
 				case VK_RETURN:
 				{
 					return l_Extended ? KeyCode::KPEnter : KeyCode::Enter;
+				}
+				case VK_LSHIFT:
+				{
+					return KeyCode::LeftShift;
+				}
+				case VK_RSHIFT:
+				{
+					return KeyCode::RightShift;
+				}
+				case VK_LCONTROL:
+				{
+					return KeyCode::LeftControl;
+				}
+				case VK_RCONTROL:
+				{
+					return KeyCode::RightControl;
+				}
+				case VK_LMENU:
+				{
+					return KeyCode::LeftAlt;
+				}
+				case VK_RMENU:
+				{
+					return KeyCode::RightAlt;
 				}
 				case VK_LWIN:
 				{
@@ -176,6 +399,7 @@ namespace Trinity
 					return KeyCode::PrintScreen;
 				}
 				case VK_PAUSE:
+				case VK_CANCEL:
 				{
 					return KeyCode::Pause;
 				}
@@ -242,6 +466,10 @@ namespace Trinity
 				case VK_OEM_7:
 				{
 					return KeyCode::Apostrophe;
+				}
+				case VK_OEM_102:
+				{
+					return KeyCode::World2;
 				}
 				default:
 				{
@@ -322,6 +550,86 @@ namespace Trinity
 			if (--s_WindowClassRefCount == 0)
 			{
 				UnregisterClassW(s_WindowClassName, instance);
+			}
+		}
+
+		static void EmitKeyPressed(WindowsWindow* window, KeyCode key, KeyCode label, bool isRepeat)
+		{
+			window->m_KeysDown.set(static_cast<size_t>(key));
+			window->Emit<KeyPressedEvent>(key, label, isRepeat);
+		}
+
+		static void EmitKeyReleased(WindowsWindow* window, KeyCode key, KeyCode label)
+		{
+			window->m_KeysDown.reset(static_cast<size_t>(key));
+			window->Emit<KeyReleasedEvent>(key, label);
+		}
+
+		static bool IsAltGrFakeControl(WPARAM wParam, LPARAM lParam)
+		{
+			if (wParam != VK_CONTROL || (HIWORD(lParam) & KF_EXTENDED) != 0)
+			{
+				return false;
+			}
+
+			MSG l_Next{};
+			if (!PeekMessageW(&l_Next, nullptr, 0, 0, PM_NOREMOVE))
+			{
+				return false;
+			}
+
+			const bool l_IsKeyMessage = l_Next.message == WM_KEYDOWN || l_Next.message == WM_SYSKEYDOWN || l_Next.message == WM_KEYUP || l_Next.message == WM_SYSKEYUP;
+
+			return l_IsKeyMessage && l_Next.wParam == VK_MENU && (HIWORD(l_Next.lParam) & KF_EXTENDED) != 0 && l_Next.time == static_cast<DWORD>(GetMessageTime());
+		}
+
+		static void HandleKey(WindowsWindow* window, UINT message, WPARAM wParam, LPARAM lParam)
+		{
+			if (wParam == VK_PROCESSKEY || IsAltGrFakeControl(wParam, lParam))
+			{
+				return;
+			}
+
+			const KeyCode l_Key = s_ScanCodeTable[GetScanCode(wParam, lParam)];
+			if (l_Key == KeyCode::Unknown)
+			{
+				return;
+			}
+
+			const KeyCode l_Label = TranslateKeyLabel(wParam, lParam);
+
+			if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN)
+			{
+				EmitKeyPressed(window, l_Key, l_Label, (HIWORD(lParam) & KF_REPEAT) != 0);
+
+				return;
+			}
+
+			// Windows sends only a key-up for Print Screen
+			if (l_Key == KeyCode::PrintScreen)
+			{
+				EmitKeyPressed(window, l_Key, l_Label, false);
+			}
+
+			EmitKeyReleased(window, l_Key, l_Label);
+		}
+
+		static void ReleaseMissedKeyUps(WindowsWindow* window)
+		{
+			constexpr std::array<std::pair<int, KeyCode>, 4> l_Keys
+			{ {
+				{ VK_LSHIFT, KeyCode::LeftShift },
+				{ VK_RSHIFT, KeyCode::RightShift },
+				{ VK_LWIN, KeyCode::LeftSuper },
+				{ VK_RWIN, KeyCode::RightSuper }
+			} };
+
+			for (const auto& [l_VirtualKey, l_Key] : l_Keys)
+			{
+				if (window->m_KeysDown.test(static_cast<size_t>(l_Key)) && (GetKeyState(l_VirtualKey) & 0x8000) == 0)
+				{
+					EmitKeyReleased(window, l_Key, l_Key);
+				}
 			}
 		}
 
@@ -447,6 +755,7 @@ namespace Trinity
 				}
 				case WM_KILLFOCUS:
 				{
+					l_Window->m_KeysDown.reset();
 					l_Window->Emit<WindowLostFocusEvent>();
 
 					return 0;
@@ -462,28 +771,10 @@ namespace Trinity
 				}
 				case WM_KEYDOWN:
 				case WM_SYSKEYDOWN:
-				{
-					const KeyCode l_Key = TranslateKey(wParam, lParam);
-					if (l_Key != KeyCode::Unknown)
-					{
-						l_Window->Emit<KeyPressedEvent>(l_Key, (HIWORD(lParam) & KF_REPEAT) != 0);
-					}
-
-					break;
-				}
 				case WM_KEYUP:
 				case WM_SYSKEYUP:
 				{
-					const KeyCode l_Key = TranslateKey(wParam, lParam);
-					if (l_Key != KeyCode::Unknown)
-					{
-						if (l_Key == KeyCode::PrintScreen)
-						{
-							l_Window->Emit<KeyPressedEvent>(l_Key, false);
-						}
-
-						l_Window->Emit<KeyReleasedEvent>(l_Key);
-					}
+					HandleKey(l_Window, message, wParam, lParam);
 
 					break;
 				}
@@ -680,6 +971,8 @@ namespace Trinity
 			TranslateMessage(&l_Message);
 			DispatchMessageW(&l_Message);
 		}
+
+		Procedure::ReleaseMissedKeyUps(this);
 
 		return !m_CloseRequested;
 	}

@@ -35,6 +35,7 @@ namespace Trinity
 		static void EndFrame();
 
 		static std::vector<KeyCode> GetHeldKeys();
+		static KeyCode GetHeldKeyLabel(KeyCode key);
 		static std::vector<MouseCode> GetHeldMouseButtons();
 	};
 }

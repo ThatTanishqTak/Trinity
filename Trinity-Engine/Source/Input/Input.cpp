@@ -12,7 +12,7 @@ namespace Trinity
 {
 	namespace
 	{
-		constexpr size_t s_KeyCount = static_cast<size_t>(KeyCode::Menu) + 1;
+		constexpr size_t s_KeyCount = KeyCodeCount;
 		constexpr size_t s_MouseButtonCount = static_cast<size_t>(MouseCode::Button4) + 1;
 		constexpr size_t s_GamepadButtonCount = static_cast<size_t>(GamepadButton::Count);
 		constexpr size_t s_GamepadAxisCount = static_cast<size_t>(GamepadAxis::Count);
@@ -27,6 +27,7 @@ namespace Trinity
 		struct InputState
 		{
 			std::bitset<s_KeyCount> Keys;
+			std::array<KeyCode, s_KeyCount> KeyLabels{};
 			std::bitset<s_MouseButtonCount> MouseButtons;
 
 			float MouseX = 0.0f;
@@ -110,7 +111,13 @@ namespace Trinity
 			case EventType::KeyReleased:
 			{
 				const auto& l_Event = static_cast<const KeyEvent&>(event);
-				SetBit(s_State.Keys, static_cast<size_t>(l_Event.GetKeyCode()), event.GetEventType() == EventType::KeyPressed);
+				const size_t l_Index = static_cast<size_t>(l_Event.GetKeyCode());
+				SetBit(s_State.Keys, l_Index, event.GetEventType() == EventType::KeyPressed);
+
+				if (l_Index < s_KeyCount && event.GetEventType() == EventType::KeyPressed)
+				{
+					s_State.KeyLabels[l_Index] = l_Event.GetKeyLabel();
+				}
 
 				break;
 			}
@@ -208,6 +215,13 @@ namespace Trinity
 		}
 
 		return l_Keys;
+	}
+
+	KeyCode Input::GetHeldKeyLabel(KeyCode key)
+	{
+		const size_t l_Index = static_cast<size_t>(key);
+
+		return l_Index < s_KeyCount ? s_State.KeyLabels[l_Index] : KeyCode::Unknown;
 	}
 
 	std::vector<MouseCode> Input::GetHeldMouseButtons()

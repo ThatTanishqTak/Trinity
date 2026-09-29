@@ -30,6 +30,9 @@ namespace Trinity
 		RightBracket = 93,
 		GraveAccent = 96,
 
+		World1 = 161,
+		World2 = 162,
+
 		Escape = 256, Enter, Tab, Backspace, Insert, Delete, Right, Left, Down, Up, PageUp, PageDown, Home, End,
 
 		CapsLock = 280, ScrollLock, NumLock, PrintScreen, Pause,
@@ -42,6 +45,8 @@ namespace Trinity
 
 		LeftShift = 340, LeftControl, LeftAlt, LeftSuper, RightShift, RightControl, RightAlt, RightSuper, Menu
 	};
+
+	inline constexpr size_t KeyCodeCount = static_cast<size_t>(KeyCode::Menu) + 1;
 
 	constexpr std::string_view KeyCodeToString(KeyCode keyCode)
 	{
@@ -128,6 +133,14 @@ namespace Trinity
 			case KeyCode::GraveAccent:
 			{
 				return "GraveAccent";
+			}
+			case KeyCode::World1:
+			{
+				return "World1";
+			}
+			case KeyCode::World2:
+			{
+				return "World2";
 			}
 			case KeyCode::Escape:
 			{

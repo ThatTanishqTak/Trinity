@@ -398,7 +398,7 @@ namespace Trinity
 	{
 		for (KeyCode l_Key : Input::GetHeldKeys())
 		{
-			KeyReleasedEvent l_Event(l_Key);
+			KeyReleasedEvent l_Event(l_Key, Input::GetHeldKeyLabel(l_Key));
 			OnEvent(l_Event);
 		}
 

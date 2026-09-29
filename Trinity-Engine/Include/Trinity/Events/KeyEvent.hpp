@@ -11,23 +11,25 @@ namespace Trinity
 	{
 	public:
 		KeyCode GetKeyCode() const { return m_KeyCode; }
+		KeyCode GetKeyLabel() const { return m_KeyLabel; }
 
 		TR_EVENT_CLASS_CATEGORY(EventCategoryKeyboard | EventCategoryInput)
 
 	protected:
-		KeyEvent(KeyCode keyCode) : m_KeyCode(keyCode) {}
+		KeyEvent(KeyCode keyCode, KeyCode keyLabel) : m_KeyCode(keyCode), m_KeyLabel(keyLabel) {}
 
 		KeyCode m_KeyCode;
+		KeyCode m_KeyLabel;
 	};
 
 	class KeyPressedEvent : public KeyEvent
 	{
 	public:
-		KeyPressedEvent(KeyCode keyCode, bool isRepeat) : KeyEvent(keyCode), m_IsRepeat(isRepeat) {}
+		KeyPressedEvent(KeyCode keyCode, KeyCode keyLabel, bool isRepeat) : KeyEvent(keyCode, keyLabel), m_IsRepeat(isRepeat) {}
 
 		bool IsRepeat() const { return m_IsRepeat; }
 
-		std::string ToString() const override { return std::format("KeyPressedEvent: {} (repeat: {})", KeyCodeToString(m_KeyCode), m_IsRepeat); }
+		std::string ToString() const override { return std::format("KeyPressedEvent: {} (label: {}, repeat: {})", KeyCodeToString(m_KeyCode), KeyCodeToString(m_KeyLabel), m_IsRepeat); }
 
 		TR_EVENT_CLASS_TYPE(KeyPressed)
 
@@ -38,9 +40,9 @@ namespace Trinity
 	class KeyReleasedEvent : public KeyEvent
 	{
 	public:
-		KeyReleasedEvent(KeyCode keyCode) : KeyEvent(keyCode) {}
+		KeyReleasedEvent(KeyCode keyCode, KeyCode keyLabel) : KeyEvent(keyCode, keyLabel) {}
 
-		std::string ToString() const override { return std::format("KeyReleasedEvent: {}", KeyCodeToString(m_KeyCode)); }
+		std::string ToString() const override { return std::format("KeyReleasedEvent: {} (label: {})", KeyCodeToString(m_KeyCode), KeyCodeToString(m_KeyLabel)); }
 
 		TR_EVENT_CLASS_TYPE(KeyReleased)
 	};

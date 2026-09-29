@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Trinity/Input/KeyCodes.hpp"
 #include "Trinity/Window/Window.hpp"
 
+#include <bitset>
 #include <string>
 
 struct HWND__;
@@ -45,6 +47,8 @@ namespace Trinity
 		bool m_InModalLoop = false;
 
 		uint16_t m_HighSurrogate = 0;
+
+		std::bitset<KeyCodeCount> m_KeysDown;
 
 		HWND__* m_WindowHandle = nullptr;
 		HINSTANCE__* m_Instance = nullptr;
