@@ -25,6 +25,31 @@ namespace Trinity
 		constexpr std::chrono::milliseconds s_MinimizedSleep{ 10 };
 		constexpr std::chrono::nanoseconds s_NoRendererFrameTime{ 16666667 };
 
+		bool IsGPUValidationRequested(const ApplicationCommandLineArgs& args)
+		{
+#if defined(NDEBUG)
+			bool l_Enabled = false;
+#else
+			bool l_Enabled = true;
+#endif
+
+			for (int l_Index = 1; l_Index < args.Count; ++l_Index)
+			{
+				const std::string_view l_Argument = args[l_Index];
+
+				if (l_Argument == "--validation")
+				{
+					l_Enabled = true;
+				}
+				else if (l_Argument == "--no-validation")
+				{
+					l_Enabled = false;
+				}
+			}
+
+			return l_Enabled;
+		}
+
 		std::optional<GraphicsAPI> GetForcedGraphicsAPI(const ApplicationCommandLineArgs& args)
 		{
 			std::optional<GraphicsAPI> l_API;
@@ -301,12 +326,23 @@ namespace Trinity
 			return false;
 		}
 
+		const RenderDeviceSpecification l_DeviceSpecification
+		{
+			.VSync = m_ApplicationSpecification.VSync,
+			.Validation = IsGPUValidationRequested(m_ApplicationSpecification.Args)
+		};
+
+		if (l_DeviceSpecification.Validation)
+		{
+			TR_CORE_INFO("GPU validation is on (--no-validation turns it off)");
+		}
+
 		const GraphicsAPI l_PreferredAPI = m_ApplicationSpecification.API;
 		const std::vector<GraphicsAPI> l_Candidates = l_ForcedAPI ? std::vector<GraphicsAPI>{ *l_ForcedAPI } : GetGraphicsAPIFallbackOrder(l_PreferredAPI);
 
 		for (GraphicsAPI l_API : l_Candidates)
 		{
-			m_Renderer = Renderer::Create(l_API, m_Window->GetNativeHandle(), m_ApplicationSpecification.VSync);
+			m_Renderer = Renderer::Create(l_API, m_Window->GetNativeHandle(), l_DeviceSpecification);
 			if (m_Renderer)
 			{
 				break;

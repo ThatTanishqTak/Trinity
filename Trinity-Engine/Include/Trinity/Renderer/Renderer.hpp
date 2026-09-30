@@ -8,6 +8,12 @@
 
 namespace Trinity
 {
+	struct RenderDeviceSpecification
+	{
+		bool VSync = true;
+		bool Validation = false;
+	};
+
 	class Renderer
 	{
 	public:
@@ -19,7 +25,7 @@ namespace Trinity
 		Renderer(Renderer&&) = delete;
 		Renderer& operator=(Renderer&&) = delete;
 
-		static std::unique_ptr<Renderer> Create(GraphicsAPI api, const NativeWindowHandle& window, bool vsync);
+		static std::unique_ptr<Renderer> Create(GraphicsAPI api, const NativeWindowHandle& window, const RenderDeviceSpecification& specification);
 
 		virtual void Shutdown() = 0;
 
@@ -33,6 +39,7 @@ namespace Trinity
 
 		void SetVSync(bool enabled);
 		bool IsVSync() const { return m_VSync; }
+		bool IsValidationEnabled() const { return m_ValidationEnabled; }
 
 	protected:
 		virtual bool Initialize(const NativeWindowHandle& window) = 0;
@@ -47,5 +54,6 @@ namespace Trinity
 
 		bool m_VSync = true;
 		bool m_VSyncChanged = false;
+		bool m_ValidationEnabled = false;
 	};
 }

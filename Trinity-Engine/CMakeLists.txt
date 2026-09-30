@@ -16,7 +16,8 @@ endif()
 
 # Platform backends are selected here
 if(NOT WIN32)
-    list(FILTER SOURCES EXCLUDE REGEX ".*/(WindowsWindow|GameInputGamepad|D3D12Renderer)\\.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/(WindowsWindow|GameInputGamepad)\\.cpp$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*/Renderer/D3D12/.*\\.cpp$")
 endif()
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")

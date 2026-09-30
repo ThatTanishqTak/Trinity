@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-	std::unique_ptr<Renderer> Renderer::Create(GraphicsAPI api, const NativeWindowHandle& window, bool vsync)
+	std::unique_ptr<Renderer> Renderer::Create(GraphicsAPI api, const NativeWindowHandle& window, const RenderDeviceSpecification& specification)
 	{
 		if (!IsGraphicsAPISupported(api))
 		{
@@ -51,7 +51,8 @@ namespace Trinity
 
 		TR_CORE_INFO("Initializing {} renderer", GraphicsAPIToString(api));
 
-		l_Device->m_VSync = vsync;
+		l_Device->m_VSync = specification.VSync;
+		l_Device->m_ValidationEnabled = specification.Validation;
 
 		if (!l_Device->Initialize(window))
 		{
