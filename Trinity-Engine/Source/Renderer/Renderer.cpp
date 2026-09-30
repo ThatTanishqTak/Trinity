@@ -1,6 +1,7 @@
 #include "Trinity/Renderer/Renderer.hpp"
 
 #include "Trinity/Core/Log.hpp"
+#include "Trinity/Renderer/Null/NullRenderer.hpp"
 #include "Trinity/Renderer/Vulkan/VulkanRenderer.hpp"
 
 #if defined(_WIN32)
@@ -39,6 +40,12 @@ namespace Trinity
 			case GraphicsAPI::Metal:
 			{
 				TR_CORE_ERROR("Metal renderer is not implemented yet");
+
+				break;
+			}
+			case GraphicsAPI::Null:
+			{
+				l_Device = std::make_unique<NullRenderer>();
 
 				break;
 			}

@@ -23,7 +23,6 @@ namespace Trinity
 	namespace
 	{
 		constexpr std::chrono::milliseconds s_MinimizedSleep{ 10 };
-		constexpr std::chrono::nanoseconds s_NoRendererFrameTime{ 16666667 };
 
 		bool IsGPUValidationRequested(const ApplicationCommandLineArgs& args)
 		{
@@ -70,6 +69,10 @@ namespace Trinity
 				{
 					l_API = GraphicsAPI::Metal;
 				}
+				else if (l_Argument == "--null-renderer")
+				{
+					l_API = GraphicsAPI::Null;
+				}
 			}
 
 			return l_API;
@@ -85,6 +88,11 @@ namespace Trinity
 				{
 					l_Order.push_back(l_API);
 				}
+			}
+
+			if (preferred != GraphicsAPI::Null)
+			{
+				l_Order.push_back(GraphicsAPI::Null);
 			}
 
 			return l_Order;
@@ -126,8 +134,6 @@ namespace Trinity
 
 		Time::Reset();
 
-		std::chrono::steady_clock::time_point l_NextFrameTime = std::chrono::steady_clock::now();
-
 		while (m_Running && m_Window->PollEvents())
 		{
 			RunFrame();
@@ -135,20 +141,6 @@ namespace Trinity
 			if (m_Window->IsMinimized())
 			{
 				std::this_thread::sleep_for(s_MinimizedSleep);
-			}
-			else if (!m_Renderer)
-			{
-				l_NextFrameTime += s_NoRendererFrameTime;
-
-				const std::chrono::steady_clock::time_point l_Now = std::chrono::steady_clock::now();
-				if (l_NextFrameTime < l_Now)
-				{
-					l_NextFrameTime = l_Now;
-				}
-				else
-				{
-					std::this_thread::sleep_until(l_NextFrameTime);
-				}
 			}
 		}
 
@@ -370,9 +362,17 @@ namespace Trinity
 			TR_CORE_WARN("Fell back from {} to {}", GraphicsAPIToString(l_PreferredAPI), GraphicsAPIToString(m_Renderer->GetAPI()));
 		}
 
+		if (m_Renderer->GetAPI() == GraphicsAPI::Null && !l_ForcedAPI)
+		{
+			TR_CORE_WARN("No GPU renderer could start, so nothing will be drawn (--null-renderer selects the Null renderer on purpose)");
+		}
+
 		m_ApplicationSpecification.API = m_Renderer->GetAPI();
-		m_Window->SetRendererAttached(true);
 		m_Renderer->RequestResize(m_Window->GetWidth(), m_Window->GetHeight());
+		if (m_Renderer->GetAPI() != GraphicsAPI::Null)
+		{
+			m_Window->SetRendererAttached(true);
+		}
 
 		m_Gamepad = Gamepad::Create();
 		if (m_Gamepad)

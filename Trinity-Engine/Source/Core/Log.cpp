@@ -19,9 +19,6 @@
 
 namespace Trinity
 {
-	std::shared_ptr<spdlog::logger> Log::s_CoreLogger;
-	std::shared_ptr<spdlog::logger> Log::s_ClientLogger;
-
 	namespace
 	{
 		constexpr std::chrono::seconds s_FlushInterval{ 3 };
@@ -189,6 +186,37 @@ namespace Trinity
 
 			return l_Logger;
 		}
+
+		std::shared_ptr<spdlog::logger> CreateEarlyLogger(const char* name)
+		{
+			std::shared_ptr<spdlog::logger> l_Logger = std::make_shared<spdlog::logger>(name, std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
+			l_Logger->set_pattern("%^[%T] %n: %v%$");
+			l_Logger->set_level(spdlog::level::trace);
+
+			return l_Logger;
+		}
+
+		std::shared_ptr<spdlog::logger> CreateSilentLogger(const char* name)
+		{
+			std::shared_ptr<spdlog::logger> l_Logger = std::make_shared<spdlog::logger>(name);
+			l_Logger->set_level(spdlog::level::off);
+
+			return l_Logger;
+		}
+	}
+
+	std::shared_ptr<spdlog::logger>& Log::GetCoreLogger()
+	{
+		static std::shared_ptr<spdlog::logger>* s_Logger = new std::shared_ptr<spdlog::logger>(CreateEarlyLogger("TRINITY"));
+
+		return *s_Logger;
+	}
+
+	std::shared_ptr<spdlog::logger>& Log::GetClientLogger()
+	{
+		static std::shared_ptr<spdlog::logger>* s_Logger = new std::shared_ptr<spdlog::logger>(CreateEarlyLogger("APP"));
+
+		return *s_Logger;
 	}
 
 	void Log::Initialize()
@@ -206,8 +234,8 @@ namespace Trinity
 			l_LogSinks.push_back(l_FileSink.Sink);
 		}
 
-		s_CoreLogger = CreateLogger("TRINITY", l_LogSinks);
-		s_ClientLogger = CreateLogger("APP", l_LogSinks);
+		GetCoreLogger() = CreateLogger("TRINITY", l_LogSinks);
+		GetClientLogger() = CreateLogger("APP", l_LogSinks);
 
 		spdlog::flush_every(s_FlushInterval);
 
@@ -228,8 +256,8 @@ namespace Trinity
 
 	void Log::Shutdown()
 	{
-		s_ClientLogger.reset();
-		s_CoreLogger.reset();
+		GetClientLogger() = CreateSilentLogger("APP");
+		GetCoreLogger() = CreateSilentLogger("TRINITY");
 
 		spdlog::shutdown();
 	}

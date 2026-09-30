@@ -52,17 +52,38 @@ endfunction()
 # Slang shader compiler
 find_program(SLANGC_EXECUTABLE slangc HINTS "$ENV{VULKAN_SDK}/bin" "$ENV{VULKAN_SDK}/Bin")
 
+# AUTO compiles shaders only when slangc is found, so the engine still configures and builds without the Vulkan SDK
+set(TRINITY_BUILD_SHADERS AUTO CACHE STRING "Compile Slang shaders at build time: AUTO (when slangc is found), ON or OFF")
+set_property(CACHE TRINITY_BUILD_SHADERS PROPERTY STRINGS AUTO ON OFF)
+
+if(TRINITY_BUILD_SHADERS STREQUAL "AUTO")
+    if(SLANGC_EXECUTABLE)
+        set(TRINITY_SHADERS_ENABLED ON)
+    else()
+        set(TRINITY_SHADERS_ENABLED OFF)
+        message(WARNING "slangc not found, so shaders will not be compiled. Install the Vulkan SDK (1.3.296 or newer) or set SLANGC_EXECUTABLE")
+    endif()
+elseif(TRINITY_BUILD_SHADERS)
+    if(NOT SLANGC_EXECUTABLE)
+        message(FATAL_ERROR "TRINITY_BUILD_SHADERS is ON but slangc was not found. Install the Vulkan SDK (1.3.296 or newer) or set SLANGC_EXECUTABLE")
+    endif()
+
+    set(TRINITY_SHADERS_ENABLED ON)
+else()
+    set(TRINITY_SHADERS_ENABLED OFF)
+endif()
+
 # DXIL for the DirectX 12 backend
 option(TRINITY_SHADERS_DXIL "Compile shaders to DXIL as well as SPIR-V" ${WIN32})
 function(trinity_add_shaders target)
     cmake_parse_arguments(PARSE_ARGV 1 SHADER "" "SOURCE" "ENTRIES")
 
-    if(NOT SLANGC_EXECUTABLE)
-        message(FATAL_ERROR "slangc not found. Install the Vulkan SDK (1.3.296 or newer) or set SLANGC_EXECUTABLE")
-    endif()
-
     if(NOT SHADER_SOURCE OR NOT SHADER_ENTRIES)
         message(FATAL_ERROR "trinity_add_shaders(${target}) needs SOURCE and at least one ENTRIES <entry>:<stage>")
+    endif()
+
+    if(NOT TRINITY_SHADERS_ENABLED)
+        return()
     endif()
 
     get_filename_component(SOURCE_PATH "${SHADER_SOURCE}" ABSOLUTE)

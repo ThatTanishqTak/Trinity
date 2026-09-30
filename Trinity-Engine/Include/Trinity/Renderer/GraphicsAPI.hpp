@@ -9,7 +9,8 @@ namespace Trinity
 	{
 		Vulkan,
 		DirectX12,
-		Metal
+		Metal,
+		Null
 	};
 
 	constexpr std::string_view GraphicsAPIToString(GraphicsAPI api)
@@ -28,6 +29,10 @@ namespace Trinity
 			{
 				return "Metal";
 			}
+			case GraphicsAPI::Null:
+			{
+				return "Null";
+			}
 		}
 
 		return "Unknown";
@@ -35,6 +40,11 @@ namespace Trinity
 
 	constexpr bool IsGraphicsAPISupported(GraphicsAPI api)
 	{
+		if (api == GraphicsAPI::Null)
+		{
+			return true;
+		}
+
 #if defined(_WIN32)
 		return api == GraphicsAPI::Vulkan || api == GraphicsAPI::DirectX12;
 #elif defined(__APPLE__)
