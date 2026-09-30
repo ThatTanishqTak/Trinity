@@ -40,6 +40,9 @@ endif()
 # Runtime files players need, such as the GameInput redistributable
 trinity_copy_runtime_files(${TARGET_NAME})
 
+# Shaders
+trinity_add_shaders(${TARGET_NAME} SOURCE "Shaders/Triangle.slang" ENTRIES VertexMain:vertex FragmentMain:fragment)
+
 # Forge properties
 set_target_properties(${TARGET_NAME} PROPERTIES
     # Set output directory

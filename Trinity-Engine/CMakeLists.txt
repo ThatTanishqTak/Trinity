@@ -64,10 +64,11 @@ target_compile_definitions(${TARGET_NAME} PUBLIC
 # Third-party libraries
 target_link_libraries(${TARGET_NAME}
     PUBLIC spdlog
+    PRIVATE volk VulkanMemoryAllocator
 )
 
 if(WIN32)
-    target_link_libraries(${TARGET_NAME} PRIVATE GameInput)
+    target_link_libraries(${TARGET_NAME} PRIVATE GameInput D3D12MemoryAllocator d3d12 dxgi dxguid)
 endif()
 
 # Engine properties

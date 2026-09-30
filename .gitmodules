@@ -4,3 +4,15 @@
 [submodule "Vendor/GameInput"]
 	path = Vendor/GameInput
 	url = https://github.com/ThatTanishqTak/GameInput.git
+[submodule "Vendor/Vulkan-Headers"]
+	path = Vendor/Vulkan-Headers
+	url = https://github.com/ThatTanishqTak/Vulkan-Headers.git
+[submodule "Vendor/volk"]
+	path = Vendor/volk
+	url = https://github.com/ThatTanishqTak/volk.git
+[submodule "Vendor/VulkanMemoryAllocator"]
+	path = Vendor/VulkanMemoryAllocator
+	url = https://github.com/ThatTanishqTak/VulkanMemoryAllocator.git
+[submodule "Vendor/D3D12MemoryAllocator"]
+	path = Vendor/D3D12MemoryAllocator
+	url = https://github.com/ThatTanishqTak/D3D12MemoryAllocator.git

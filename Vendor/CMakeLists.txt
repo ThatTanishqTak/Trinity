@@ -60,3 +60,35 @@ if(WIN32)
     target_link_libraries(GameInput INTERFACE "${GAMEINPUT_LIBRARY}")
 endif()
 # --------------
+
+# Vulkan-Headers -------
+set(VULKAN_HEADERS_ENABLE_TESTS OFF)
+set(VULKAN_HEADERS_ENABLE_INSTALL OFF)
+set(VULKAN_HEADERS_ENABLE_MODULE OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(Vulkan-Headers SYSTEM)
+# --------------
+
+# volk -------
+add_library(volk STATIC "${CMAKE_CURRENT_SOURCE_DIR}/volk/volk.c")
+target_include_directories(volk SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/volk")
+target_link_libraries(volk PUBLIC Vulkan::Headers PRIVATE ${CMAKE_DL_LIBS})
+
+target_compile_definitions(volk PUBLIC VK_NO_PROTOTYPES $<$<BOOL:${WIN32}>:VK_USE_PLATFORM_WIN32_KHR>)
+# --------------
+
+# VulkanMemoryAllocator -------
+add_library(VulkanMemoryAllocator INTERFACE)
+target_include_directories(VulkanMemoryAllocator SYSTEM INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator/include")
+target_link_libraries(VulkanMemoryAllocator INTERFACE volk)
+target_compile_definitions(VulkanMemoryAllocator INTERFACE VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=0)
+# --------------
+
+# D3D12MemoryAllocator -------
+if(WIN32)
+    add_library(D3D12MemoryAllocator STATIC "${CMAKE_CURRENT_SOURCE_DIR}/D3D12MemoryAllocator/src/D3D12MemAlloc.cpp")
+    target_include_directories(D3D12MemoryAllocator SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/D3D12MemoryAllocator/include")
+    target_link_libraries(D3D12MemoryAllocator PUBLIC d3d12 dxgi dxguid)
+    target_compile_features(D3D12MemoryAllocator PRIVATE cxx_std_17)
+endif()
+# --------------
