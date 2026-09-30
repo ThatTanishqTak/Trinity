@@ -17,6 +17,8 @@ int main(int argc, char** argv)
 		l_ExitCode = EXIT_SUCCESS;
 	}
 
+	l_Application.reset();
+
 	Trinity::Log::Shutdown();
 
 	return l_ExitCode;
