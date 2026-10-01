@@ -1,18 +1,80 @@
 [submodule "Vendor/spdlog"]
 	path = Vendor/spdlog
 	url = https://github.com/ThatTanishqTak/spdlog.git
-[submodule "Vendor/GameInput"]
-	path = Vendor/GameInput
-	url = https://github.com/ThatTanishqTak/GameInput.git
+	shallow = true
+[submodule "Vendor/glm"]
+	path = Vendor/glm
+	url = https://github.com/ThatTanishqTak/glm.git
+	shallow = true
+[submodule "Vendor/entt"]
+	path = Vendor/entt
+	url = https://github.com/ThatTanishqTak/entt.git
+	shallow = true
+[submodule "Vendor/yaml-cpp"]
+	path = Vendor/yaml-cpp
+	url = https://github.com/ThatTanishqTak/yaml-cpp.git
+	shallow = true
+[submodule "Vendor/JoltPhysics"]
+	path = Vendor/JoltPhysics
+	url = https://github.com/ThatTanishqTak/JoltPhysics.git
+	shallow = true
+[submodule "Vendor/box2d"]
+	path = Vendor/box2d
+	url = https://github.com/ThatTanishqTak/box2d.git
+	shallow = true
+[submodule "Vendor/imgui"]
+	path = Vendor/imgui
+	url = https://github.com/ThatTanishqTak/imgui.git
+	shallow = true
+[submodule "Vendor/ImGuizmo"]
+	path = Vendor/ImGuizmo
+	url = https://github.com/ThatTanishqTak/ImGuizmo.git
+	shallow = true
+[submodule "Vendor/stb"]
+	path = Vendor/stb
+	url = https://github.com/ThatTanishqTak/stb.git
+	shallow = true
+[submodule "Vendor/miniaudio"]
+	path = Vendor/miniaudio
+	url = https://github.com/ThatTanishqTak/miniaudio.git
+	shallow = true
+[submodule "Vendor/simdjson"]
+	path = Vendor/simdjson
+	url = https://github.com/ThatTanishqTak/simdjson.git
+	shallow = true
+[submodule "Vendor/fastgltf"]
+	path = Vendor/fastgltf
+	url = https://github.com/ThatTanishqTak/fastgltf.git
+	shallow = true
+[submodule "Vendor/assimp"]
+	path = Vendor/assimp
+	url = https://github.com/ThatTanishqTak/assimp.git
+	shallow = true
+[submodule "Vendor/freetype"]
+	path = Vendor/freetype
+	url = https://github.com/ThatTanishqTak/freetype.git
+	shallow = true
+[submodule "Vendor/RmlUi"]
+	path = Vendor/RmlUi
+	url = https://github.com/ThatTanishqTak/RmlUi.git
+	shallow = true
 [submodule "Vendor/Vulkan-Headers"]
 	path = Vendor/Vulkan-Headers
 	url = https://github.com/ThatTanishqTak/Vulkan-Headers.git
+	shallow = true
 [submodule "Vendor/volk"]
 	path = Vendor/volk
 	url = https://github.com/ThatTanishqTak/volk.git
+	shallow = true
 [submodule "Vendor/VulkanMemoryAllocator"]
 	path = Vendor/VulkanMemoryAllocator
 	url = https://github.com/ThatTanishqTak/VulkanMemoryAllocator.git
+	shallow = true
+[submodule "Vendor/DirectX-Headers"]
+	path = Vendor/DirectX-Headers
+	url = https://github.com/ThatTanishqTak/DirectX-Headers.git
+	shallow = true
 [submodule "Vendor/D3D12MemoryAllocator"]
 	path = Vendor/D3D12MemoryAllocator
 	url = https://github.com/ThatTanishqTak/D3D12MemoryAllocator.git
+	shallow = true

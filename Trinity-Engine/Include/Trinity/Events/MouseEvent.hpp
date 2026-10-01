@@ -3,76 +3,98 @@
 #include "Trinity/Events/Event.hpp"
 #include "Trinity/Input/MouseCodes.hpp"
 
-#include <format>
-
 namespace Trinity
 {
-	class MouseMovedEvent : public Event
-	{
-	public:
-		MouseMovedEvent(float x, float y) : m_X(x), m_Y(y) {}
+    class MouseMovedEvent final : public Event
+    {
+    public:
+        MouseMovedEvent(float x, float y) : m_X(x), m_Y(y)
+        {
 
-		float GetX() const { return m_X; }
-		float GetY() const { return m_Y; }
+        }
 
-		std::string ToString() const override { return std::format("MouseMovedEvent: {}, {}", m_X, m_Y); }
+        [[nodiscard]] float GetX() const { return m_X; }
+        [[nodiscard]] float GetY() const { return m_Y; }
 
-		TR_EVENT_CLASS_TYPE(MouseMoved)
-			TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("MouseMoved: {}, {}", m_X, m_Y);
+        }
 
-	private:
-		float m_X = 0.0f;
-		float m_Y = 0.0f;
-	};
+        TR_EVENT_CLASS_TYPE(MouseMoved)
+        TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
 
-	class MouseScrolledEvent : public Event
-	{
-	public:
-		MouseScrolledEvent(float xOffset, float yOffset) : m_XOffset(xOffset), m_YOffset(yOffset) {}
+    private:
+        float m_X;
+        float m_Y;
+    };
 
-		float GetXOffset() const { return m_XOffset; }
-		float GetYOffset() const { return m_YOffset; }
+    class MouseScrolledEvent final : public Event
+    {
+    public:
+        MouseScrolledEvent(float xOffset, float yOffset) : m_XOffset(xOffset), m_YOffset(yOffset) {}
 
-		std::string ToString() const override { return std::format("MouseScrolledEvent: {}, {}", m_XOffset, m_YOffset); }
+        [[nodiscard]] float GetXOffset() const { return m_XOffset; }
+        [[nodiscard]] float GetYOffset() const { return m_YOffset; }
 
-		TR_EVENT_CLASS_TYPE(MouseScrolled)
-			TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("MouseScrolled: {}, {}", m_XOffset, m_YOffset);
+        }
 
-	private:
-		float m_XOffset = 0.0f;
-		float m_YOffset = 0.0f;
-	};
+        TR_EVENT_CLASS_TYPE(MouseScrolled)
+        TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
 
-	class MouseButtonEvent : public Event
-	{
-	public:
-		MouseCode GetMouseButton() const { return m_Button; }
+    private:
+        float m_XOffset;
+        float m_YOffset;
+    };
 
-		TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryMouseButton | EventCategoryInput)
+    class MouseButtonEvent : public Event
+    {
+    public:
+        [[nodiscard]] MouseCode GetMouseButton() const { return m_Button; }
 
-	protected:
-		MouseButtonEvent(MouseCode button) : m_Button(button) {}
+        TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryMouseButton | EventCategoryInput)
 
-		MouseCode m_Button;
-	};
+    protected:
+        explicit MouseButtonEvent(MouseCode button) : m_Button(button)
+        {
 
-	class MouseButtonPressedEvent : public MouseButtonEvent
-	{
-	public:
-		MouseButtonPressedEvent(MouseCode button) : MouseButtonEvent(button) {}
+        }
 
-		std::string ToString() const override { return std::format("MouseButtonPressedEvent: {}", MouseCodeToString(m_Button)); }
+        MouseCode m_Button;
+    };
 
-		TR_EVENT_CLASS_TYPE(MouseButtonPressed)
-	};
+    class MouseButtonPressedEvent final : public MouseButtonEvent
+    {
+    public:
+        explicit MouseButtonPressedEvent(MouseCode button) : MouseButtonEvent(button)
+        {
 
-	class MouseButtonReleasedEvent : public MouseButtonEvent
-	{
-	public:
-		MouseButtonReleasedEvent(MouseCode button) : MouseButtonEvent(button) {}
+        }
 
-		std::string ToString() const override { return std::format("MouseButtonReleasedEvent: {}", MouseCodeToString(m_Button)); }
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("MouseButtonPressed: {}", std::to_underlying(m_Button));
+        }
 
-		TR_EVENT_CLASS_TYPE(MouseButtonReleased)
-	};
+        TR_EVENT_CLASS_TYPE(MouseButtonPressed)
+    };
+
+    class MouseButtonReleasedEvent final : public MouseButtonEvent
+    {
+    public:
+        explicit MouseButtonReleasedEvent(MouseCode button) : MouseButtonEvent(button)
+        {
+
+        }
+
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("MouseButtonReleased: {}", std::to_underlying(m_Button));
+        }
+
+        TR_EVENT_CLASS_TYPE(MouseButtonReleased)
+    };
 }

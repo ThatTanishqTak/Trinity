@@ -1,45 +1,17 @@
 #pragma once
 
 #include <cstdint>
-#include <string_view>
 
 namespace Trinity
 {
-	enum class MouseCode : uint8_t
-	{
-		Left = 0,
-		Right = 1,
-		Middle = 2,
-		Button3 = 3,
-		Button4 = 4
-	};
+    enum class MouseCode : std::uint8_t
+    {
+        TR_BUTTON_0 = 0, TR_BUTTON_1, TR_BUTTON_2, TR_BUTTON_3, TR_BUTTON_4, TR_BUTTON_5, TR_BUTTON_6, TR_BUTTON_7,
 
-	constexpr std::string_view MouseCodeToString(MouseCode button)
-	{
-		switch (button)
-		{
-			case MouseCode::Left:
-			{
-				return "Left";
-			}
-			case MouseCode::Right:
-			{
-				return "Right";
-			}
-			case MouseCode::Middle:
-			{
-				return "Middle";
-			}
-			case MouseCode::Button3:
-			{
-				return "Button3";
-			}
-			case MouseCode::Button4:
-			{
-				return "Button4";
-			}
-		}
+        TR_LEFT = TR_BUTTON_0,
+        TR_RIGHT = TR_BUTTON_1,
+        TR_MIDDLE = TR_BUTTON_2,
 
-		return "Unknown";
-	}
+        Count = 8
+    };
 }

@@ -1,4 +1,23 @@
-/.vs
-/bin
-/bin-int
-/out
+# Build trees (one per CMake preset)
+/Build/
+/out/
+
+# Compiled binaries: bin/<config>-<system>-<arch>/Trinity/
+/bin/
+
+# Runtime output
+Logs/
+*.log
+imgui.ini
+
+# IDEs
+.vs/
+.vscode/
+.idea/
+*.user
+CMakeUserPresets.json
+CMakeSettings.json
+
+# OS
+.DS_Store
+Thumbs.db

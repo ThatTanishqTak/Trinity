@@ -5,54 +5,17 @@
 
 namespace Trinity
 {
-	enum class GraphicsAPI : uint8_t
-	{
-		Vulkan,
-		DirectX12,
-		Metal,
-		Null
-	};
+    enum class GraphicsAPI : std::uint8_t
+    {
+        None = 0,
+        D3D12,
+        Vulkan,
+        Metal
+    };
 
-	constexpr std::string_view GraphicsAPIToString(GraphicsAPI api)
-	{
-		switch (api)
-		{
-			case GraphicsAPI::Vulkan:
-			{
-				return "Vulkan";
-			}
-			case GraphicsAPI::DirectX12:
-			{
-				return "DirectX 12";
-			}
-			case GraphicsAPI::Metal:
-			{
-				return "Metal";
-			}
-			case GraphicsAPI::Null:
-			{
-				return "Null";
-			}
-		}
+    [[nodiscard]] std::string_view ToString(GraphicsAPI api);
 
-		return "Unknown";
-	}
+    [[nodiscard]] bool IsGraphicsAPIAvailable(GraphicsAPI api);
 
-	constexpr bool IsGraphicsAPISupported(GraphicsAPI api)
-	{
-		if (api == GraphicsAPI::Null)
-		{
-			return true;
-		}
-
-#if defined(_WIN32)
-		return api == GraphicsAPI::Vulkan || api == GraphicsAPI::DirectX12;
-#elif defined(__APPLE__)
-		return api == GraphicsAPI::Vulkan || api == GraphicsAPI::Metal;
-#elif defined(__linux__)
-		return api == GraphicsAPI::Vulkan;
-#else
-		return false;
-#endif
-	}
+    [[nodiscard]] GraphicsAPI GetDefaultGraphicsAPI();
 }

@@ -1,0 +1,14 @@
+* text=auto eol=lf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.sln   text eol=crlf
+
+*.png   binary
+*.jpg   binary
+*.ktx2  binary
+*.ttf   binary
+*.otf   binary
+*.wav   binary
+*.ogg   binary
+*.glb   binary
+*.fbx   binary

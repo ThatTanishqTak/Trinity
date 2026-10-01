@@ -1,116 +1,92 @@
 #pragma once
 
-#include "Trinity/Events/Event.hpp"
-#include "Trinity/Layer/LayerStack.hpp"
+#include "Trinity/Core/Base.hpp"
+#include "Trinity/Core/LayerStack.hpp"
+#include "Trinity/Core/Window.hpp"
+#include "Trinity/Events/ApplicationEvent.hpp"
 #include "Trinity/Renderer/GraphicsAPI.hpp"
-#include "Trinity/Window/Window.hpp"
 
+#include <concepts>
 #include <cstdint>
-#include <memory>
+#include <optional>
 #include <string>
-#include <vector>
+#include <string_view>
+#include <utility>
 
 namespace Trinity
 {
-	struct ApplicationCommandLineArgs
-	{
-		int Count = 0;
-		char** Args = nullptr;
+    struct ApplicationCommandLineArgs
+    {
+        int Count = 0;
+        char** Args = nullptr;
 
-		const char* operator[](int index) const { return (index >= 0 && index < Count) ? Args[index] : nullptr; }
-	};
+        [[nodiscard]] std::string_view operator[](int index) const;
 
-	struct ApplicationSpecification
-	{
-		std::string Title = "Trinity-Application";
-		uint32_t Width = 1080;
-		uint32_t Height = 720;
+        [[nodiscard]] bool HasOption(std::string_view name) const;
 
-		GraphicsAPI API = GraphicsAPI::Vulkan;
-		bool VSync = true;
+        [[nodiscard]] std::optional<std::string_view> GetOption(std::string_view name) const;
+    };
 
-		ApplicationCommandLineArgs Args;
-	};
+    struct ApplicationSpecification
+    {
+        std::string Name = "Trinity Application";
+        WindowSpecification Window;
 
-	class Gamepad;
-	class Renderer;
+        GraphicsAPI Graphics = GetDefaultGraphicsAPI();
 
-	class Application
-	{
-	public:
-		Application(const ApplicationSpecification& specification);
-		virtual ~Application();
+        std::uint64_t MaxFrames = 0;
 
-		Application(const Application&) = delete;
-		Application& operator=(const Application&) = delete;
-		Application(Application&&) = delete;
-		Application& operator=(Application&&) = delete;
+        ApplicationCommandLineArgs CommandLineArgs;
+    };
 
-		static Application& Get() { return *s_Instance; }
+    class Application
+    {
+    public:
+        explicit Application(ApplicationSpecification specification);
+        virtual ~Application();
 
-		bool IsInitialized() const { return m_Initialized; }
+        Application(const Application&) = delete;
+        Application& operator=(const Application&) = delete;
 
-		void Run();
+        template<std::derived_from<Layer> T, typename... Args>
+        T& PushLayer(Args&&... args)
+        {
+            return static_cast<T&>(m_LayerStack.PushLayer(CreateScope<T>(std::forward<Args>(args)...)));
+        }
 
-		void Close();
-		void RequestClose();
+        template<std::derived_from<Layer> T, typename... Args>
+        T& PushOverlay(Args&&... args)
+        {
+            return static_cast<T&>(m_LayerStack.PushOverlay(CreateScope<T>(std::forward<Args>(args)...)));
+        }
 
-		void OnEvent(Event& event);
+        void Close();
 
-		void PushLayer(std::unique_ptr<Layer> layer);
-		void PushOverlay(std::unique_ptr<Layer> overlay);
-		void PopLayer(Layer* layer);
-		void PopOverlay(Layer* overlay);
+        [[nodiscard]] Window& GetWindow() { return *m_Window; }
+        [[nodiscard]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
+        [[nodiscard]] std::uint64_t GetFrameCount() const { return m_FrameCount; }
 
-		Window& GetWindow() { return *m_Window; }
-		Renderer* GetRenderer() { return m_Renderer.get(); }
-		const ApplicationSpecification& GetApplicationSpecification() const { return m_ApplicationSpecification; }
+        [[nodiscard]] static Application& Get();
 
-	protected:
-		virtual void OnInitialize() {}
-		virtual void OnShutdown() {}
+    private:
+        void Run();
+        void OnEvent(Event& event);
+        bool OnWindowClose(WindowCloseEvent& event);
+        bool OnWindowResize(WindowResizeEvent& event);
 
-	private:
-		struct PendingLayerChange
-		{
-			enum class Operation : uint8_t { PushLayer, PushOverlay, PopLayer, PopOverlay };
+        ApplicationSpecification m_Specification;
+        Scope<Window> m_Window;
+        LayerStack m_LayerStack;
+        std::uint64_t m_FrameCount = 0;
+        bool m_Running = true;
+        bool m_Minimized = false;
 
-			Operation Type = Operation::PushLayer;
-			std::unique_ptr<Layer> Owned;
-			Layer* Target = nullptr;
-		};
+        static Application* s_Instance;
 
-		bool Initialize();
-		void Shutdown();
+        friend int Main(int argc, char** argv);
+    };
 
-		void RunFrame();
+    Application* CreateApplication(ApplicationCommandLineArgs args);
 
-		void QueueEvent(Event& event);
-		void ProcessEventQueue();
-
-		void ApplyPendingLayerChanges();
-		void DiscardPendingLayerChanges();
-		void ReleaseHeldInput();
-
-	private:
-		static Application* s_Instance;
-
-		ApplicationSpecification m_ApplicationSpecification;
-		WindowSpecification m_WindowSpecification;
-		LayerStack m_LayerStack;
-
-		std::unique_ptr<Window> m_Window;
-		std::unique_ptr<Gamepad> m_Gamepad;
-		std::unique_ptr<Renderer> m_Renderer;
-
-		std::vector<std::unique_ptr<Event>> m_EventQueue;
-		std::vector<std::unique_ptr<Event>> m_ProcessingEvents;
-		std::vector<PendingLayerChange> m_PendingLayerChanges;
-
-		bool m_Initialized = false;
-		bool m_Running = true;
-		bool m_InFrame = false;
-	};
-
-	Application* CreateApplication(ApplicationCommandLineArgs args);
+    int Main(int argc, char** argv);
 }

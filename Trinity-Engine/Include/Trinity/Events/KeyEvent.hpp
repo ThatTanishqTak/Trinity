@@ -3,63 +3,80 @@
 #include "Trinity/Events/Event.hpp"
 #include "Trinity/Input/KeyCodes.hpp"
 
-#include <format>
-
 namespace Trinity
 {
-	class KeyEvent : public Event
-	{
-	public:
-		KeyCode GetKeyCode() const { return m_KeyCode; }
-		KeyCode GetKeyLabel() const { return m_KeyLabel; }
+    class KeyEvent : public Event
+    {
+    public:
+        [[nodiscard]] KeyCode GetKeyCode() const { return m_KeyCode; }
 
-		TR_EVENT_CLASS_CATEGORY(EventCategoryKeyboard | EventCategoryInput)
+        TR_EVENT_CLASS_CATEGORY(EventCategoryKeyboard | EventCategoryInput)
 
-	protected:
-		KeyEvent(KeyCode keyCode, KeyCode keyLabel) : m_KeyCode(keyCode), m_KeyLabel(keyLabel) {}
+    protected:
+        explicit KeyEvent(KeyCode keyCode) : m_KeyCode(keyCode)
+        {
 
-		KeyCode m_KeyCode;
-		KeyCode m_KeyLabel;
-	};
+        }
 
-	class KeyPressedEvent : public KeyEvent
-	{
-	public:
-		KeyPressedEvent(KeyCode keyCode, KeyCode keyLabel, bool isRepeat) : KeyEvent(keyCode, keyLabel), m_IsRepeat(isRepeat) {}
+        KeyCode m_KeyCode;
+    };
 
-		bool IsRepeat() const { return m_IsRepeat; }
+    class KeyPressedEvent final : public KeyEvent
+    {
+    public:
+        KeyPressedEvent(KeyCode keyCode, bool isRepeat) : KeyEvent(keyCode), m_IsRepeat(isRepeat)
+        {
 
-		std::string ToString() const override { return std::format("KeyPressedEvent: {} (label: {}, repeat: {})", KeyCodeToString(m_KeyCode), KeyCodeToString(m_KeyLabel), m_IsRepeat); }
+        }
 
-		TR_EVENT_CLASS_TYPE(KeyPressed)
+        [[nodiscard]] bool IsRepeat() const { return m_IsRepeat; }
 
-	private:
-		bool m_IsRepeat = false;
-	};
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("KeyPressed: {}{}", std::to_underlying(m_KeyCode), m_IsRepeat ? " (repeat)" : "");
+        }
 
-	class KeyReleasedEvent : public KeyEvent
-	{
-	public:
-		KeyReleasedEvent(KeyCode keyCode, KeyCode keyLabel) : KeyEvent(keyCode, keyLabel) {}
+        TR_EVENT_CLASS_TYPE(KeyPressed)
 
-		std::string ToString() const override { return std::format("KeyReleasedEvent: {} (label: {})", KeyCodeToString(m_KeyCode), KeyCodeToString(m_KeyLabel)); }
+    private:
+        bool m_IsRepeat;
+    };
 
-		TR_EVENT_CLASS_TYPE(KeyReleased)
-	};
+    class KeyReleasedEvent final : public KeyEvent
+    {
+    public:
+        explicit KeyReleasedEvent(KeyCode keyCode) : KeyEvent(keyCode)
+        {
 
-	class KeyTypedEvent : public Event
-	{
-	public:
-		KeyTypedEvent(uint32_t codepoint) : m_Codepoint(codepoint) {}
+        }
 
-		uint32_t GetCodepoint() const { return m_Codepoint; }
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("KeyReleased: {}", std::to_underlying(m_KeyCode));
+        }
 
-		std::string ToString() const override { return std::format("KeyTypedEvent: U+{:04X}", m_Codepoint); }
+        TR_EVENT_CLASS_TYPE(KeyReleased)
+    };
 
-		TR_EVENT_CLASS_TYPE(KeyTyped)
-			TR_EVENT_CLASS_CATEGORY(EventCategoryKeyboard | EventCategoryInput)
+    class KeyTypedEvent final : public Event
+    {
+    public:
+        explicit KeyTypedEvent(char32_t codepoint) : m_Codepoint(codepoint)
+        {
 
-	private:
-		uint32_t m_Codepoint = 0;
-	};
+        }
+
+        [[nodiscard]] char32_t GetCodepoint() const { return m_Codepoint; }
+
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("KeyTyped: U+{:04X}", static_cast<std::uint32_t>(m_Codepoint));
+        }
+
+        TR_EVENT_CLASS_TYPE(KeyTyped)
+        TR_EVENT_CLASS_CATEGORY(EventCategoryKeyboard | EventCategoryInput)
+
+    private:
+        char32_t m_Codepoint;
+    };
 }

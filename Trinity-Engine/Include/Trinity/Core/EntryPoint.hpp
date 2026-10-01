@@ -1,25 +1,8 @@
-#include "Trinity/Core/Application.hpp"
-#include "Trinity/Core/Log.hpp"
+#pragma once
 
-#include <cstdlib>
-#include <memory>
+#include "Trinity/Core/Application.hpp"
 
 int main(int argc, char** argv)
 {
-	Trinity::Log::Initialize();
-
-	int l_ExitCode = EXIT_FAILURE;
-
-	std::unique_ptr<Trinity::Application> l_Application(Trinity::CreateApplication({ argc, argv }));
-	if (l_Application && l_Application->IsInitialized())
-	{
-		l_Application->Run();
-		l_ExitCode = EXIT_SUCCESS;
-	}
-
-	l_Application.reset();
-
-	Trinity::Log::Shutdown();
-
-	return l_ExitCode;
+    return Trinity::Main(argc, argv);
 }
