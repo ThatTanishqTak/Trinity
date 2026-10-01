@@ -97,6 +97,19 @@ namespace Trinity
 
 			return l_Order;
 		}
+
+		template<typename T>
+		bool TryCoalesceEvent(std::vector<std::unique_ptr<Event>>& queue, const Event& event)
+		{
+			if (event.GetEventType() != T::GetStaticType() || queue.empty() || queue.back()->GetEventType() != T::GetStaticType())
+			{
+				return false;
+			}
+
+			static_cast<T&>(*queue.back()) = static_cast<const T&>(event);
+
+			return true;
+		}
 	}
 
 	Application* Application::s_Instance = nullptr;
@@ -439,10 +452,8 @@ namespace Trinity
 
 	void Application::QueueEvent(Event& event)
 	{
-		if (event.GetEventType() == EventType::WindowResize && !m_EventQueue.empty() && m_EventQueue.back()->GetEventType() == EventType::WindowResize)
+		if (TryCoalesceEvent<WindowResizeEvent>(m_EventQueue, event) || TryCoalesceEvent<MouseMovedEvent>(m_EventQueue, event))
 		{
-			m_EventQueue.back() = event.Clone();
-
 			return;
 		}
 
