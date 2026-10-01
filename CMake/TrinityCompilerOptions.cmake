@@ -10,7 +10,7 @@ add_library(Trinity::BuildConfig ALIAS Trinity-BuildConfig)
 target_compile_definitions(Trinity-BuildConfig INTERFACE
     $<$<CONFIG:Debug>:TR_DEBUG>
     $<$<CONFIG:Release>:TR_RELEASE>
-    $<$<CONFIG:Dist>:TR_DIST>
+    $<$<CONFIG:Distribution>:TR_DISTRIBUTION>
     $<$<CONFIG:Debug,Release>:TR_ENABLE_ASSERTS>
     TR_PLATFORM_${TRINITY_PLATFORM_UPPER}
     $<$<BOOL:${TRINITY_RHI_D3D12}>:TR_RHI_D3D12>
@@ -33,7 +33,7 @@ function(trinity_configure_target target)
     )
 
     if(TRINITY_ENABLE_LTO)
-        set_target_properties(${target} PROPERTIES INTERPROCEDURAL_OPTIMIZATION_DIST ON)
+        set_target_properties(${target} PROPERTIES INTERPROCEDURAL_OPTIMIZATION_DISTRIBUTION ON)
     endif()
 
     if(MSVC)
@@ -62,7 +62,7 @@ function(trinity_configure_executable target)
     trinity_configure_target(${target})
 
     if(MSVC)
-        target_link_options(${target} PRIVATE "$<$<CONFIG:Dist>:/SUBSYSTEM:WINDOWS;/ENTRY:mainCRTStartup>")
+        target_link_options(${target} PRIVATE "$<$<CONFIG:Distribution>:/SUBSYSTEM:WINDOWS;/ENTRY:mainCRTStartup>")
     endif()
 
     set_target_properties(${target} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/${target}")

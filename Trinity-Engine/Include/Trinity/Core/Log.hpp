@@ -34,7 +34,7 @@ namespace Trinity
 #define TR_ERROR(...) ::Trinity::Log::Client().error(__VA_ARGS__)
 #define TR_CRITICAL(...) ::Trinity::Log::Client().critical(__VA_ARGS__)
 
-#if defined(TR_DIST)
+#if defined(TR_DISTRIBUTION)
     #define TR_INTERNAL_LOG_DISABLED(call) do { if (false) { call; } } while (false)
 
     #define TR_CORE_TRACE(...) TR_INTERNAL_LOG_DISABLED(::Trinity::Log::Core().trace(__VA_ARGS__))

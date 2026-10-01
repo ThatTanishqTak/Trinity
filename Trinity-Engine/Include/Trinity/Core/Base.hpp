@@ -9,8 +9,8 @@
     #error "No TR_PLATFORM_* macro is defined. Trinity must be built through its CMake project."
 #endif
 
-#if !defined(TR_DEBUG) && !defined(TR_RELEASE) && !defined(TR_DIST)
-    #error "No configuration macro is defined. Expected one of TR_DEBUG, TR_RELEASE, TR_DIST."
+#if !defined(TR_DEBUG) && !defined(TR_RELEASE) && !defined(TR_DISTRIBUTION)
+    #error "No configuration macro is defined. Expected one of TR_DEBUG, TR_RELEASE, TR_DISTRIBUTION."
 #endif
 
 #if defined(_MSC_VER)

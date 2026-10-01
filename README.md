@@ -68,7 +68,7 @@ Linux has no native window yet, so applications run headless there.
 | --- | --- |
 | `Debug` | No optimisation, asserts, full logging. |
 | `Release` | Optimised, with asserts, logging and debug symbols. The everyday configuration. |
-| `Dist` | What ships. No asserts, no trace/info logging, no console window on Windows. |
+| `Distribution` | What ships. No asserts, no trace/info logging, no console window on Windows. |
 
 Build presets are named `<configure preset>-<configuration>`, e.g. `windows-vs2026-release`.
 
