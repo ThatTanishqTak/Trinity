@@ -1,5 +1,10 @@
 #include "SandboxLayer.hpp"
 
+namespace
+{
+    constexpr std::size_t c_ScratchBufferSize = 1024 * 1024;
+}
+
 SandboxLayer::SandboxLayer() : Layer("Sandbox")
 {
 
@@ -7,7 +12,16 @@ SandboxLayer::SandboxLayer() : Layer("Sandbox")
 
 void SandboxLayer::OnAttach()
 {
-    TR_INFO("Sandbox attached. Escape closes the window.");
+    m_ScratchBuffer = Trinity::Memory::Allocate(c_ScratchBufferSize, Trinity::MemoryTag::Game);
+
+    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use.");
+    Trinity::Memory::LogUsage();
+}
+
+void SandboxLayer::OnDetach()
+{
+    Trinity::Memory::Free(m_ScratchBuffer);
+    m_ScratchBuffer = nullptr;
 }
 
 void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
@@ -39,6 +53,13 @@ bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
     if (event.GetKeyCode() == Trinity::KeyCode::TR_ESCAPE)
     {
         Trinity::Application::Get().Close();
+
+        return true;
+    }
+
+    if (event.GetKeyCode() == Trinity::KeyCode::TR_M)
+    {
+        Trinity::Memory::LogUsage();
 
         return true;
     }

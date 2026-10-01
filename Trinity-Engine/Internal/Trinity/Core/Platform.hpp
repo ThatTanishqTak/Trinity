@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 namespace Trinity
 {
     namespace Platform
@@ -8,5 +10,8 @@ namespace Trinity
         void Shutdown();
 
         [[nodiscard]] const char* GetName();
+
+        [[nodiscard]] void* Allocate(std::size_t size, std::size_t alignment);
+        void Free(void* memory);
     }
 }

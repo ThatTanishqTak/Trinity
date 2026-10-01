@@ -2,6 +2,8 @@
 
 #include "Trinity/Platform/Windows/WindowsHeaders.hpp"
 
+#include <malloc.h>
+
 namespace Trinity
 {
     namespace Platform
@@ -21,6 +23,16 @@ namespace Trinity
         const char* GetName()
         {
             return "Windows";
+        }
+
+        void* Allocate(std::size_t size, std::size_t alignment)
+        {
+            return ::_aligned_malloc(size, alignment);
+        }
+
+        void Free(void* memory)
+        {
+            ::_aligned_free(memory);
         }
     }
 }

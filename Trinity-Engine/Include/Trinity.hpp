@@ -5,6 +5,7 @@
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Layer.hpp"
 #include "Trinity/Core/Log.hpp"
+#include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Core/Window.hpp"
 

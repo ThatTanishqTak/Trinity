@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
+#include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Platform.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Input/Input.hpp"
@@ -222,16 +223,20 @@ namespace Trinity
         }
 
         Log::Initialize(l_LogFile);
+        Memory::Initialize();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
-        const Scope<Application> l_Application{ CreateApplication({ argc, argv }) };
+        Scope<Application> l_Application{ CreateApplication({ argc, argv }) };
         TR_CORE_ASSERT(l_Application != nullptr, "CreateApplication returned null.");
         if (l_Application)
         {
             l_Application->Run();
         }
 
+        l_Application.reset();
+
+        Memory::Shutdown();
         Log::Shutdown();
         Platform::Shutdown();
 
