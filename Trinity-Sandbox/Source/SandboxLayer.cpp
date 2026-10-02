@@ -1,12 +1,14 @@
 #include "SandboxLayer.hpp"
 
 #include <algorithm>
+#include <unordered_set>
 
 namespace
 {
     constexpr std::size_t c_ScratchBufferSize = 1024 * 1024;
     constexpr std::size_t c_ProbeElementCount = 256 * 1024;
     constexpr std::size_t c_FrameSampleCount = 16 * 1024;
+    constexpr std::size_t c_UUIDTestCount = 1'000'000;
 }
 
 SandboxLayer::SandboxLayer() : Layer("Sandbox")
@@ -27,6 +29,12 @@ void SandboxLayer::OnAttach()
         const std::uint64_t l_After = Trinity::Memory::GetStats(Trinity::MemoryTag::Untagged).CurrentBytes;
 
         TR_INFO("A std::vector of {} uint32 added {} to Untagged", m_Probe.size(), Trinity::Memory::FormatBytes(l_After - l_Before));
+    }
+
+    TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
+    if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("uuid-test"))
+    {
+        TestUUIDs();
     }
 
     Trinity::Memory::LogUsage();
@@ -99,4 +107,37 @@ bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
     }
 
     return false;
+}
+
+
+void SandboxLayer::TestUUIDs()
+{
+    TR_PROFILE_FUNCTION();
+
+    std::unordered_set<Trinity::UUID> l_Seen;
+    l_Seen.reserve(c_UUIDTestCount);
+
+    std::size_t l_Collisions = 0;
+    std::size_t l_Invalid = 0;
+    std::size_t l_RoundTripFailures = 0;
+    for (std::size_t it_Index = 0; it_Index < c_UUIDTestCount; ++it_Index)
+    {
+        const Trinity::UUID l_UUID = Trinity::UUID::Generate();
+        if (!l_UUID)
+        {
+            ++l_Invalid;
+        }
+
+        if (!l_Seen.insert(l_UUID).second)
+        {
+            ++l_Collisions;
+        }
+
+        if (Trinity::UUID::Parse(l_UUID.ToString()) != l_UUID)
+        {
+            ++l_RoundTripFailures;
+        }
+    }
+
+    TR_INFO("Generated {} UUIDs: {} collision(s), {} invalid, {} failed to round-trip through text", c_UUIDTestCount, l_Collisions, l_Invalid, l_RoundTripFailures);
 }
