@@ -2,6 +2,8 @@
 
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Profiler.hpp"
+#include "Trinity/Core/UUID.hpp"
+#include "Trinity/FileSystem/FileSystemUtilities.hpp"
 
 #include <algorithm>
 #include <format>
@@ -17,24 +19,8 @@ namespace Trinity
     {
         ConsoleVariable<bool> s_CheckCase("filesystem.check_case", true, "Fail directory lookups whose case differs from the names on disk, on every platform");
 
-        std::filesystem::path FromUtf8(std::string_view text)
-        {
-            return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(text.data()), text.size()));
-        }
-
-        std::string ToUtf8(const std::filesystem::path& path)
-        {
-            const std::u8string l_Text = path.u8string();
-
-            return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
-        }
-
-        bool EqualsIgnoreAsciiCase(std::string_view left, std::string_view right)
-        {
-            const auto a_Lower = [](char character) { return character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character; };
-
-            return std::ranges::equal(left, right, [&a_Lower](char a, char b) { return a_Lower(a) == a_Lower(b); });
-        }
+        using FileSystemUtilities::FromUtf8;
+        using FileSystemUtilities::ToUtf8;
     }
 
     DirectorySource::DirectorySource(std::filesystem::path root) : m_Root(std::move(root))
@@ -42,10 +28,11 @@ namespace Trinity
 
     }
 
-    Expected<std::filesystem::path, FileError> DirectorySource::Resolve(std::string_view relativePath) const
+    Expected<std::filesystem::path, FileError> DirectorySource::Resolve(std::string_view relativePath, bool allowMissing) const
     {
         std::filesystem::path l_Path = m_Root;
         const bool l_CheckCase = s_CheckCase.Get();
+        bool l_Missing = false;
 
         std::size_t l_Position = 0;
         while (l_Position < relativePath.size())
@@ -55,7 +42,7 @@ namespace Trinity
             const std::filesystem::path l_Native = FromUtf8(l_Component);
             l_Position = l_End + 1;
 
-            if (l_CheckCase)
+            if (l_CheckCase && !l_Missing)
             {
                 bool l_Exact = false;
                 bool l_OtherCase = false;
@@ -72,12 +59,17 @@ namespace Trinity
                         break;
                     }
 
-                    l_OtherCase = l_OtherCase || EqualsIgnoreAsciiCase(ToUtf8(l_Name), l_Component);
+                    l_OtherCase = l_OtherCase || FileSystemUtilities::EqualsIgnoreAsciiCase(ToUtf8(l_Name), l_Component);
                 }
 
                 if (!l_Exact)
                 {
-                    return Unexpected{ l_OtherCase ? FileError::CaseMismatch : FileError::NotFound };
+                    if (l_OtherCase || !allowMissing)
+                    {
+                        return Unexpected{ l_OtherCase ? FileError::CaseMismatch : FileError::NotFound };
+                    }
+
+                    l_Missing = true;
                 }
             }
 
@@ -85,7 +77,7 @@ namespace Trinity
         }
 
         std::error_code l_Error;
-        if (!l_CheckCase && !std::filesystem::exists(l_Path, l_Error))
+        if (!l_CheckCase && !allowMissing && !std::filesystem::exists(l_Path, l_Error))
         {
             return Unexpected{ FileError::NotFound };
         }
@@ -109,22 +101,24 @@ namespace Trinity
             return Unexpected{ std::filesystem::is_directory(*l_Path, l_Error) ? FileError::NotAFile : FileError::NotFound };
         }
 
-        const std::uintmax_t l_Size = std::filesystem::file_size(*l_Path, l_Error);
-        if (l_Error)
-        {
-            return Unexpected{ FileError::ReadFailed };
-        }
-
-        if (l_Size > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()))
-        {
-            return Unexpected{ FileError::TooLarge };
-        }
-
-        std::ifstream l_File(*l_Path, std::ios::binary);
+        std::ifstream l_File(*l_Path, std::ios::binary | std::ios::ate);
         if (!l_File)
         {
             return Unexpected{ FileError::ReadFailed };
         }
+
+        const std::streamoff l_Size = l_File.tellg();
+        if (l_Size < 0)
+        {
+            return Unexpected{ FileError::ReadFailed };
+        }
+
+        if (static_cast<std::uintmax_t>(l_Size) > std::numeric_limits<std::size_t>::max())
+        {
+            return Unexpected{ FileError::TooLarge };
+        }
+
+        l_File.seekg(0);
 
         FileBuffer l_Buffer(static_cast<std::size_t>(l_Size));
         l_File.read(reinterpret_cast<char*>(l_Buffer.data()), static_cast<std::streamsize>(l_Size));
@@ -186,6 +180,83 @@ namespace Trinity
         }
 
         return l_Entries;
+    }
+
+    Expected<void, FileError> DirectorySource::Write(std::string_view relativePath, std::span<const std::byte> data)
+    {
+        TR_PROFILE_SCOPE("DirectorySource::Write");
+
+        if (relativePath.empty())
+        {
+            return Unexpected{ FileError::NotAFile };
+        }
+
+        const Expected<std::filesystem::path, FileError> l_Path = Resolve(relativePath, true);
+        if (!l_Path)
+        {
+            return Unexpected{ l_Path.GetError() };
+        }
+
+        std::error_code l_Error;
+        if (std::filesystem::is_directory(*l_Path, l_Error))
+        {
+            return Unexpected{ FileError::NotAFile };
+        }
+
+        std::filesystem::create_directories(l_Path->parent_path(), l_Error);
+        if (l_Error)
+        {
+            return Unexpected{ FileError::WriteFailed };
+        }
+
+        // Written beside the target and renamed over it, so readers and crashes never see a partial file.
+        std::filesystem::path l_Temporary = *l_Path;
+        l_Temporary += FromUtf8(std::format(".{}.tmp", UUID::Generate()));
+        {
+            std::ofstream l_File(l_Temporary, std::ios::binary | std::ios::trunc);
+            l_File.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+            l_File.flush();
+            if (!l_File)
+            {
+                l_File.close();
+                std::filesystem::remove(l_Temporary, l_Error);
+
+                return Unexpected{ FileError::WriteFailed };
+            }
+        }
+
+        std::filesystem::rename(l_Temporary, *l_Path, l_Error);
+        if (l_Error)
+        {
+            std::error_code l_Ignored;
+            std::filesystem::remove(l_Temporary, l_Ignored);
+
+            return Unexpected{ FileError::WriteFailed };
+        }
+
+        return {};
+    }
+
+    Expected<void, FileError> DirectorySource::Remove(std::string_view relativePath)
+    {
+        const Expected<std::filesystem::path, FileError> l_Path = Resolve(relativePath);
+        if (!l_Path)
+        {
+            return Unexpected{ l_Path.GetError() };
+        }
+
+        std::error_code l_Error;
+        if (!std::filesystem::is_regular_file(*l_Path, l_Error))
+        {
+            return Unexpected{ std::filesystem::is_directory(*l_Path, l_Error) ? FileError::NotAFile : FileError::NotFound };
+        }
+
+        if (!std::filesystem::remove(*l_Path, l_Error) || l_Error)
+        {
+            return Unexpected{ FileError::WriteFailed };
+        }
+
+        return {};
     }
 
     std::string DirectorySource::Describe() const

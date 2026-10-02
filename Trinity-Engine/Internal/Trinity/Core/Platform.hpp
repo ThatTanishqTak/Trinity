@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <filesystem>
 
 namespace Trinity
 {
@@ -13,5 +14,7 @@ namespace Trinity
 
         [[nodiscard]] void* Allocate(std::size_t size, std::size_t alignment);
         void Free(void* memory);
+
+        [[nodiscard]] std::filesystem::path GetUserDataDirectory();
     }
 }

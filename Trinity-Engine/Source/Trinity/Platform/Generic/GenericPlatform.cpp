@@ -39,5 +39,29 @@ namespace Trinity
         {
             std::free(memory);
         }
+
+        std::filesystem::path GetUserDataDirectory()
+        {
+            const char* l_Home = std::getenv("HOME");
+            const bool l_HasHome = l_Home != nullptr && *l_Home != '\0';
+#if defined(TR_PLATFORM_MACOS)
+            if (l_HasHome)
+            {
+                return std::filesystem::path(l_Home) / "Library" / "Application Support";
+            }
+#else
+            if (const char* l_DataHome = std::getenv("XDG_DATA_HOME"); l_DataHome != nullptr && std::filesystem::path(l_DataHome).is_absolute())
+            {
+                return l_DataHome;
+            }
+
+            if (l_HasHome)
+            {
+                return std::filesystem::path(l_Home) / ".local" / "share";
+            }
+#endif
+
+            return {};
+        }
     }
 }

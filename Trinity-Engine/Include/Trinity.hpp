@@ -16,6 +16,7 @@
 #include "Trinity/Core/Window.hpp"
 
 #include "Trinity/FileSystem/FileSystem.hpp"
+#include "Trinity/FileSystem/MemorySource.hpp"
 
 #include "Trinity/Events/ApplicationEvent.hpp"
 #include "Trinity/Events/Event.hpp"

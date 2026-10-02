@@ -20,6 +20,7 @@ namespace Trinity
         {
             std::string Point;
             Scope<FileSource> Source;
+            MountAccess Access = MountAccess::ReadOnly;
         };
 
         struct State
@@ -95,6 +96,14 @@ namespace Trinity
             {
                 return "read failed";
             }
+            case FileError::ReadOnly:
+            {
+                return "read-only";
+            }
+            case FileError::WriteFailed:
+            {
+                return "write failed";
+            }
         }
 
         return "unknown error";
@@ -117,7 +126,7 @@ namespace Trinity
             s_State = nullptr;
         }
 
-        bool Mount(std::string_view mountPoint, Scope<FileSource> source)
+        bool Mount(std::string_view mountPoint, Scope<FileSource> source, MountAccess access)
         {
             TR_CORE_ASSERT(s_State != nullptr, "The file system is not initialized.");
 
@@ -129,15 +138,15 @@ namespace Trinity
                 return false;
             }
 
-            TR_CORE_INFO("Mounted {} at {}", source->Describe(), *l_Point);
+            TR_CORE_INFO("Mounted {} at {}{}", source->Describe(), *l_Point, access == MountAccess::ReadWrite ? " (read-write)" : "");
 
             std::unique_lock l_Lock(s_State->Mutex);
-            s_State->Mounts.push_back({ std::move(*l_Point), std::move(source) });
+            s_State->Mounts.push_back({ std::move(*l_Point), std::move(source), access });
 
             return true;
         }
 
-        bool MountDirectory(std::string_view mountPoint, const std::filesystem::path& nativeDirectory)
+        bool MountDirectory(std::string_view mountPoint, const std::filesystem::path& nativeDirectory, MountAccess access)
         {
             std::error_code l_Error;
             const std::filesystem::path l_Root = std::filesystem::absolute(nativeDirectory, l_Error);
@@ -148,7 +157,7 @@ namespace Trinity
                 return false;
             }
 
-            return Mount(mountPoint, CreateScope<DirectorySource>(l_Root.lexically_normal()));
+            return Mount(mountPoint, CreateScope<DirectorySource>(l_Root.lexically_normal()), access);
         }
 
         std::size_t Unmount(std::string_view mountPoint)
@@ -313,6 +322,74 @@ namespace Trinity
             }
 
             return l_Result;
+        }
+
+        Expected<void, FileError> WriteFile(std::string_view path, std::span<const std::byte> data)
+        {
+            TR_PROFILE_SCOPE("FileSystem::WriteFile");
+            TR_CORE_ASSERT(s_State != nullptr, "The file system is not initialized.");
+
+            const std::optional<std::string> l_Path = NormalizePath(path);
+            if (!l_Path)
+            {
+                return Unexpected{ FileError::InvalidPath };
+            }
+
+            std::shared_lock l_Lock(s_State->Mutex);
+
+            bool l_Mounted = false;
+            for (auto it_Mount = s_State->Mounts.rbegin(); it_Mount != s_State->Mounts.rend(); ++it_Mount)
+            {
+                const std::optional<std::string_view> l_Relative = RelativeTo(*l_Path, it_Mount->Point);
+                if (!l_Relative)
+                {
+                    continue;
+                }
+
+                l_Mounted = true;
+                if (it_Mount->Access == MountAccess::ReadWrite)
+                {
+                    return it_Mount->Source->Write(*l_Relative, data);
+                }
+            }
+
+            return Unexpected{ l_Mounted ? FileError::ReadOnly : FileError::NotMounted };
+        }
+
+        Expected<void, FileError> WriteText(std::string_view path, std::string_view text)
+        {
+            return WriteFile(path, std::as_bytes(std::span(text.data(), text.size())));
+        }
+
+        Expected<void, FileError> RemoveFile(std::string_view path)
+        {
+            TR_CORE_ASSERT(s_State != nullptr, "The file system is not initialized.");
+
+            const std::optional<std::string> l_Path = NormalizePath(path);
+            if (!l_Path)
+            {
+                return Unexpected{ FileError::InvalidPath };
+            }
+
+            std::shared_lock l_Lock(s_State->Mutex);
+
+            bool l_Mounted = false;
+            for (auto it_Mount = s_State->Mounts.rbegin(); it_Mount != s_State->Mounts.rend(); ++it_Mount)
+            {
+                const std::optional<std::string_view> l_Relative = RelativeTo(*l_Path, it_Mount->Point);
+                if (!l_Relative)
+                {
+                    continue;
+                }
+
+                l_Mounted = true;
+                if (it_Mount->Access == MountAccess::ReadWrite)
+                {
+                    return it_Mount->Source->Remove(*l_Relative);
+                }
+            }
+
+            return Unexpected{ l_Mounted ? FileError::ReadOnly : FileError::NotMounted };
         }
 
         std::optional<std::string> NormalizePath(std::string_view path)

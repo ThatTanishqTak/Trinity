@@ -49,6 +49,56 @@ namespace Trinity
             return std::nullopt;
         }
 
+        // Keeps an application name usable as one directory name on every platform
+        std::string ToDirectoryName(std::string_view name)
+        {
+            std::string l_Result;
+            for (const char it_Character : name)
+            {
+                const bool l_Forbidden = static_cast<unsigned char>(it_Character) < 0x20 || std::string_view("\\/:*?\"<>|").find(it_Character) != std::string_view::npos;
+                l_Result.push_back(l_Forbidden ? '_' : it_Character);
+            }
+
+            while (!l_Result.empty() && (l_Result.back() == '.' || l_Result.back() == ' '))
+            {
+                l_Result.pop_back();
+            }
+
+            return l_Result.empty() ? std::string("Application") : l_Result;
+        }
+
+        void MountSaveDirectory(const ApplicationCommandLineArgs& args, std::string_view applicationName)
+        {
+            std::filesystem::path l_Directory;
+            if (const std::optional<std::string_view> l_Override = args.GetOption("saves"); l_Override && !l_Override->empty())
+            {
+                l_Directory = std::filesystem::path(*l_Override);
+            }
+            else
+            {
+                std::filesystem::path l_Base = Platform::GetUserDataDirectory();
+                if (l_Base.empty())
+                {
+                    TR_CORE_WARN("No per-user data folder was found; saving under the working directory instead");
+                    l_Base = "UserData";
+                }
+
+                const std::string l_Name = ToDirectoryName(applicationName);
+                l_Directory = l_Base / "Trinity" / std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(l_Name.data()), l_Name.size())) / "Saved";
+            }
+
+            std::error_code l_Error;
+            std::filesystem::create_directories(l_Directory, l_Error);
+            if (l_Error)
+            {
+                TR_CORE_ERROR("Could not create the save folder '{}': {}", l_Directory.string(), l_Error.message());
+
+                return;
+            }
+
+            FileSystem::MountDirectory("/saves", l_Directory, MountAccess::ReadWrite);
+        }
+
         std::optional<std::uint64_t> ParseUnsigned(std::string_view text)
         {
             std::uint64_t l_Value = 0;
@@ -186,6 +236,8 @@ namespace Trinity
         }
 
         TR_CORE_INFO("Starting '{}' (graphics: {}{})", m_Specification.Name, ToString(m_Specification.Graphics), m_Specification.Window.Headless ? ", headless" : "");
+
+        MountSaveDirectory(l_Args, m_Specification.Name);
 
         m_Window = Window::Create(m_Specification.Window);
         m_Window->SetEventCallback(TR_BIND_EVENT_FN(OnEvent));

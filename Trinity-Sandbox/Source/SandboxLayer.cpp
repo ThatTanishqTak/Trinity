@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <charconv>
+#include <chrono>
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -20,6 +22,7 @@ namespace
     constexpr std::uint64_t c_JobTestCount = 1000;
     constexpr std::uint64_t c_ValuesPerJob = 10000;
     constexpr std::size_t c_ParallelValueCount = 10000000;
+    constexpr std::string_view c_RunCountPath = "/saves/sandbox/runs.txt";
 
     constexpr std::uint64_t Mix(std::uint64_t value)
     {
@@ -69,6 +72,7 @@ void SandboxLayer::OnAttach()
     }
 
     TestFileSystem();
+    TestSaves();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
     if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("uuid-test"))
@@ -306,4 +310,35 @@ void SandboxLayer::TestFileSystem()
 
         TR_INFO("  List(/) -> {}", l_Names);
     }
+}
+
+void SandboxLayer::TestSaves()
+{
+    TR_PROFILE_FUNCTION();
+
+    std::uint32_t l_Runs = 0;
+    if (const Trinity::Expected<std::string, Trinity::FileError> l_Previous = Trinity::FileSystem::ReadText(c_RunCountPath))
+    {
+        std::from_chars(l_Previous->data(), l_Previous->data() + l_Previous->size(), l_Runs);
+    }
+    ++l_Runs;
+
+    const Trinity::Expected<void, Trinity::FileError> l_Saved = Trinity::FileSystem::WriteText(c_RunCountPath, std::to_string(l_Runs));
+    TR_INFO("Sandbox has started {} time(s) with these saves ({}: {})", l_Runs, c_RunCountPath, l_Saved ? "saved" : Trinity::ToString(l_Saved.GetError()));
+
+    for (const std::string_view it_Path : { "/logs/overwrite.txt", "/saves/../escape.txt", "/nowhere/file.txt" })
+    {
+        const Trinity::Expected<void, Trinity::FileError> l_Result = Trinity::FileSystem::WriteText(it_Path, "x");
+        TR_INFO("  WriteText({}) -> {}", it_Path, l_Result ? "ok" : Trinity::ToString(l_Result.GetError()));
+    }
+
+    Trinity::Scope<Trinity::MemorySource> l_Builtin = Trinity::CreateScope<Trinity::MemorySource>("sandbox built-ins");
+    l_Builtin->AddText("motd.txt", "Hello from a memory-backed mount");
+    Trinity::FileSystem::Mount("/builtin", std::move(l_Builtin));
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_Message = Trinity::FileSystem::ReadText("/builtin/motd.txt");
+    TR_INFO("  ReadText(/builtin/motd.txt) -> {}", l_Message ? *l_Message : std::string(Trinity::ToString(l_Message.GetError())));
+
+    const Trinity::Expected<void, Trinity::FileError> l_Refused = Trinity::FileSystem::WriteText("/builtin/motd.txt", "changed");
+    TR_INFO("  WriteText(/builtin/motd.txt) -> {}", l_Refused ? "ok" : Trinity::ToString(l_Refused.GetError()));
 }

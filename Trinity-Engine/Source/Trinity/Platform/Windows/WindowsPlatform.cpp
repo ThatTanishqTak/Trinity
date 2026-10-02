@@ -2,6 +2,8 @@
 
 #include "Trinity/Platform/Windows/WindowsHeaders.hpp"
 
+#include <shlobj.h>
+
 #include <malloc.h>
 
 namespace Trinity
@@ -33,6 +35,20 @@ namespace Trinity
         void Free(void* memory)
         {
             ::_aligned_free(memory);
+        }
+
+        std::filesystem::path GetUserDataDirectory()
+        {
+            PWSTR l_Folder = nullptr;
+            std::filesystem::path l_Result;
+            if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &l_Folder)))
+            {
+                l_Result = l_Folder;
+            }
+
+            ::CoTaskMemFree(l_Folder);
+
+            return l_Result;
         }
     }
 }

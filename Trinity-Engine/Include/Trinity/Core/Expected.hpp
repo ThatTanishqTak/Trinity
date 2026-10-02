@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <utility>
 #include <variant>
 
@@ -41,5 +42,25 @@ namespace Trinity
 
     private:
         std::variant<T, E> m_Storage;
+    };
+
+    template<typename E>
+    class Expected<void, E>
+    {
+    public:
+        Expected() = default;
+
+        Expected(Unexpected<E> error) : m_Error(std::move(error.Error))
+        {
+
+        }
+
+        [[nodiscard]] bool HasValue() const { return !m_Error.has_value(); }
+        explicit operator bool() const { return HasValue(); }
+
+        [[nodiscard]] const E& GetError() const { return *m_Error; }
+
+    private:
+        std::optional<E> m_Error;
     };
 }

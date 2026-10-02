@@ -82,5 +82,5 @@ target_link_libraries(${TARGET_NAME}
 )
 
 if(TRINITY_PLATFORM STREQUAL "Windows")
-    target_link_libraries(${TARGET_NAME} PUBLIC user32 gdi32)
+    target_link_libraries(${TARGET_NAME} PUBLIC user32 gdi32 shell32 ole32 uuid)
 endif()
