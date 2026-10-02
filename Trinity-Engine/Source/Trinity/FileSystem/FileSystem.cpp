@@ -1,11 +1,14 @@
 #include "Trinity/FileSystem/FileSystem.hpp"
 
 #include "Trinity/Core/Assert.hpp"
+#include "Trinity/Core/JobSystem.hpp"
 #include "Trinity/Core/Log.hpp"
+#include "Trinity/Core/MainThread.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/FileSystem/DirectorySource.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <mutex>
 #include <shared_mutex>
@@ -62,6 +65,54 @@ namespace Trinity
 
             return std::nullopt;
         }
+    }
+
+    struct FileRequestState
+    {
+        std::string Path;
+        ReadCallback Callback;
+        std::atomic<bool> Cancelled{ false };
+        bool Finished = false;
+    };
+
+    FileRequest::FileRequest(std::shared_ptr<FileRequestState> state) : m_State(std::move(state))
+    {
+
+    }
+
+    FileRequest::~FileRequest()
+    {
+        Cancel();
+    }
+
+    FileRequest& FileRequest::operator=(FileRequest&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Cancel();
+            m_State = std::move(other.m_State);
+        }
+
+        return *this;
+    }
+
+    void FileRequest::Cancel()
+    {
+        if (m_State == nullptr)
+        {
+            return;
+        }
+
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "File requests must be cancelled on the main thread.");
+
+        m_State->Cancelled.store(true, std::memory_order_release);
+        m_State->Callback = nullptr;
+        m_State.reset();
+    }
+
+    bool FileRequest::IsPending() const
+    {
+        return m_State != nullptr && !m_State->Finished;
     }
 
     std::string_view ToString(FileError error)
@@ -207,6 +258,42 @@ namespace Trinity
             }
 
             return Unexpected{ l_Error };
+        }
+
+        FileRequest ReadFileAsync(std::string_view path, ReadCallback callback)
+        {
+            TR_CORE_ASSERT(MainThread::IsMainThread(), "ReadFileAsync must be called on the main thread.");
+            TR_CORE_ASSERT(static_cast<bool>(callback), "ReadFileAsync needs a callback.");
+
+            std::shared_ptr<FileRequestState> l_State = std::allocate_shared<FileRequestState>(TaggedAllocator<FileRequestState, MemoryTag::FileSystem>());
+            l_State->Path = path;
+            l_State->Callback = std::move(callback);
+
+            JobSystem::Submit([l_State]
+            {
+                if (l_State->Cancelled.load(std::memory_order_acquire))
+                {
+                    return;
+                }
+
+                TR_PROFILE_SCOPE("FileSystem::ReadFileAsync");
+                Expected<FileBuffer, FileError> l_Result = ReadFile(l_State->Path);
+
+                MainThread::Post([l_State, l_Result = std::move(l_Result)]() mutable
+                {
+                    if (l_State->Cancelled.load(std::memory_order_acquire))
+                    {
+                        return;
+                    }
+
+                    l_State->Finished = true;
+                    ReadCallback l_Callback = std::move(l_State->Callback);
+                    l_State->Callback = nullptr;
+                    l_Callback(std::move(l_Result));
+                });
+            });
+
+            return FileRequest(std::move(l_State));
         }
 
         Expected<std::string, FileError> ReadText(std::string_view path)

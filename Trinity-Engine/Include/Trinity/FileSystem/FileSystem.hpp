@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -50,6 +52,31 @@ namespace Trinity
         FileType Type = FileType::File;
     };
 
+    struct FileRequestState;
+
+    class FileRequest
+    {
+    public:
+        FileRequest() = default;
+        explicit FileRequest(std::shared_ptr<FileRequestState> state);
+        ~FileRequest();
+
+        FileRequest(FileRequest&& other) noexcept = default;
+        FileRequest& operator=(FileRequest&& other) noexcept;
+
+        FileRequest(const FileRequest&) = delete;
+        FileRequest& operator=(const FileRequest&) = delete;
+
+        void Cancel();
+
+        [[nodiscard]] bool IsPending() const;
+
+    private:
+        std::shared_ptr<FileRequestState> m_State;
+    };
+
+    using ReadCallback = std::move_only_function<void(Expected<FileBuffer, FileError> result)>;
+
     class FileSource
     {
     public:
@@ -86,6 +113,7 @@ namespace Trinity
         [[nodiscard]] Expected<std::string, FileError> ReadText(std::string_view path);
         [[nodiscard]] bool Exists(std::string_view path);
         [[nodiscard]] Expected<std::vector<DirectoryEntry>, FileError> List(std::string_view directory);
+        [[nodiscard]] FileRequest ReadFileAsync(std::string_view path, ReadCallback callback);
         [[nodiscard]] Expected<void, FileError> WriteFile(std::string_view path, std::span<const std::byte> data);
         [[nodiscard]] Expected<void, FileError> WriteText(std::string_view path, std::string_view text);
         [[nodiscard]] Expected<void, FileError> RemoveFile(std::string_view path);

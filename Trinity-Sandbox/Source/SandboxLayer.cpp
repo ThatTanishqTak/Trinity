@@ -23,6 +23,17 @@ namespace
     constexpr std::uint64_t c_ValuesPerJob = 10000;
     constexpr std::size_t c_ParallelValueCount = 10000000;
     constexpr std::string_view c_RunCountPath = "/saves/sandbox/runs.txt";
+    constexpr std::uint32_t c_AsyncFileCount = 32;
+
+    std::string GetAsyncFilePath(std::uint32_t index)
+    {
+        return std::format("/saves/sandbox/async/file_{:02}.txt", index);
+    }
+
+    std::string GetAsyncFileContents(std::uint32_t index)
+    {
+        return std::format("async file {} {}", index, std::string(index * 1024, static_cast<char>('a' + index % 26)));
+    }
 
     constexpr std::uint64_t Mix(std::uint64_t value)
     {
@@ -73,6 +84,7 @@ void SandboxLayer::OnAttach()
 
     TestFileSystem();
     TestSaves();
+    StartAsyncReads();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
     if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("uuid-test"))
@@ -89,6 +101,8 @@ void SandboxLayer::OnDetach()
     m_ScratchBuffer = nullptr;
 
     m_Probe = std::vector<std::uint32_t>();
+
+    m_AsyncReads.clear();
 }
 
 void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
@@ -102,6 +116,8 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
         const std::span<float> l_Samples = l_FrameAllocator.AllocateArray<float>(c_FrameSampleCount);
         std::ranges::fill(l_Samples, timestep.GetSeconds());
     }
+
+    CheckAsyncReads();
 
     m_SecondsSinceReport += timestep;
     ++m_FramesSinceReport;
@@ -159,7 +175,6 @@ bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
     return false;
 }
 
-
 void SandboxLayer::TestUUIDs()
 {
     TR_PROFILE_FUNCTION();
@@ -191,7 +206,6 @@ void SandboxLayer::TestUUIDs()
 
     TR_INFO("Generated {} UUIDs: {} collision(s), {} invalid, {} failed to round-trip through text", c_UUIDTestCount, l_Collisions, l_Invalid, l_RoundTripFailures);
 }
-
 
 void SandboxLayer::TestJobs()
 {
@@ -232,7 +246,6 @@ void SandboxLayer::TestJobs()
     TR_INFO("Ran {} jobs, {} pending: sum {} is {}; jobs per thread (main first): {}", c_JobTestCount, l_Counter.GetPending(), l_Total.load(), l_Total.load() == l_Expected ? "correct" : "WRONG", l_Distribution);
 }
 
-
 void SandboxLayer::TestParallelFor()
 {
     TR_PROFILE_FUNCTION();
@@ -271,7 +284,6 @@ void SandboxLayer::TestParallelFor()
 
     Trinity::Memory::LogUsage();
 }
-
 
 void SandboxLayer::TestFileSystem()
 {
@@ -341,4 +353,47 @@ void SandboxLayer::TestSaves()
 
     const Trinity::Expected<void, Trinity::FileError> l_Refused = Trinity::FileSystem::WriteText("/builtin/motd.txt", "changed");
     TR_INFO("  WriteText(/builtin/motd.txt) -> {}", l_Refused ? "ok" : Trinity::ToString(l_Refused.GetError()));
+}
+
+void SandboxLayer::StartAsyncReads()
+{
+    TR_PROFILE_FUNCTION();
+
+    for (std::uint32_t it_Index = 0; it_Index < c_AsyncFileCount; ++it_Index)
+    {
+        if (!Trinity::FileSystem::WriteText(GetAsyncFilePath(it_Index), GetAsyncFileContents(it_Index)))
+        {
+            TR_ERROR("Could not prepare {} for the asynchronous read test", GetAsyncFilePath(it_Index));
+
+            return;
+        }
+    }
+
+    m_AsyncStartFrame = Trinity::Application::Get().GetFrameCount();
+    for (std::uint32_t it_Index = 0; it_Index < c_AsyncFileCount; ++it_Index)
+    {
+        m_AsyncReads.push_back(Trinity::FileSystem::ReadFileAsync(GetAsyncFilePath(it_Index), [this, it_Index](Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> result)
+        {
+            const std::string l_Expected = GetAsyncFileContents(it_Index);
+            const bool l_Matches = result && std::string_view(reinterpret_cast<const char*>(result->data()), result->size()) == l_Expected;
+
+            m_AsyncMismatches += l_Matches ? 0 : 1;
+            m_AsyncOffMainThread += Trinity::MainThread::IsMainThread() ? 0 : 1;
+            ++m_AsyncCompleted;
+        }));
+    }
+
+    m_CancelledRead = Trinity::FileSystem::ReadFileAsync(GetAsyncFilePath(0), [this](Trinity::Expected<Trinity::FileBuffer, Trinity::FileError>) { ++m_CancelledCallbacks; });
+    m_CancelledRead.Cancel();
+}
+
+void SandboxLayer::CheckAsyncReads()
+{
+    if (m_AsyncReported || m_AsyncReads.empty() || m_AsyncCompleted < m_AsyncReads.size())
+    {
+        return;
+    }
+
+    m_AsyncReported = true;
+    TR_INFO("Loaded {} of {} files asynchronously within {} frame(s): {} mismatched, {} callback(s) off the main thread, cancelled callback ran {} time(s)", m_AsyncCompleted, m_AsyncReads.size(), Trinity::Application::Get().GetFrameCount() - m_AsyncStartFrame, m_AsyncMismatches, m_AsyncOffMainThread, m_CancelledCallbacks);
 }

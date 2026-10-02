@@ -4,6 +4,7 @@
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/JobSystem.hpp"
 #include "Trinity/Core/Log.hpp"
+#include "Trinity/Core/MainThread.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Platform.hpp"
 #include "Trinity/Core/Profiler.hpp"
@@ -281,6 +282,11 @@ namespace Trinity
                 m_Window->PollEvents();
             }
 
+            {
+                TR_PROFILE_SCOPE("MainThread::ExecutePending");
+                MainThread::ExecutePending();
+            }
+
             if (!m_Minimized)
             {
                 TR_PROFILE_SCOPE("LayerStack::OnUpdate");
@@ -351,9 +357,10 @@ namespace Trinity
         Memory::Initialize();
         Profiler::Initialize(GetProfilerSpecification({ argc, argv }, l_CaptureFile));
         ConsoleVariables::Initialize({ argc, argv });
-        JobSystem::Initialize();
+        MainThread::Initialize();
         FileSystem::Initialize();
         FileSystem::MountDirectory("/logs", l_LogFile.parent_path());
+        JobSystem::Initialize();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
@@ -366,8 +373,9 @@ namespace Trinity
 
         l_Application.reset();
 
-        FileSystem::Shutdown();
         JobSystem::Shutdown();
+        FileSystem::Shutdown();
+        MainThread::Shutdown();
         ConsoleVariables::Shutdown();
         Profiler::Shutdown();
         Memory::Shutdown();
