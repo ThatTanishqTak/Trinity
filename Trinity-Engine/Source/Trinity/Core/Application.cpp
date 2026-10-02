@@ -4,6 +4,7 @@
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Platform.hpp"
+#include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Input/Input.hpp"
 
@@ -23,6 +24,43 @@ namespace Trinity
 #else
         constexpr std::string_view c_ConfigurationName = "Distribution";
 #endif
+
+        std::optional<std::uint64_t> ParseUnsigned(std::string_view text)
+        {
+            std::uint64_t l_Value = 0;
+            const auto [a_End, a_Error] = std::from_chars(text.data(), text.data() + text.size(), l_Value);
+            if (a_Error != std::errc{} || a_End != text.data() + text.size())
+            {
+                return std::nullopt;
+            }
+
+            return l_Value;
+        }
+
+        ProfilerSpecification GetProfilerSpecification(const ApplicationCommandLineArgs& args, const std::filesystem::path& defaultCapturePath)
+        {
+            ProfilerSpecification l_Specification;
+            l_Specification.LogSummary = args.HasOption("profile");
+
+            if (const auto a_Path = args.GetOption("profile-capture"))
+            {
+                l_Specification.CapturePath = a_Path->empty() ? defaultCapturePath : std::filesystem::path(*a_Path);
+            }
+
+            if (const auto a_Frames = args.GetOption("profile-capture-frames"))
+            {
+                if (const std::optional<std::uint64_t> l_Frames = ParseUnsigned(*a_Frames))
+                {
+                    l_Specification.CaptureFrames = *l_Frames;
+                }
+                else
+                {
+                    TR_CORE_WARN("Ignoring --profile-capture-frames={}: expected a non-negative integer", *a_Frames);
+                }
+            }
+
+            return l_Specification;
+        }
     }
 
     const char* GetVersionString()
@@ -83,11 +121,9 @@ namespace Trinity
 
         if (const auto it_Frame = l_Args.GetOption("frames"))
         {
-            std::uint64_t l_Value = 0;
-            const auto [a_End, a_Error] = std::from_chars(it_Frame->data(), it_Frame->data() + it_Frame->size(), l_Value);
-            if (a_Error == std::errc{} && a_End == it_Frame->data() + it_Frame->size())
+            if (const std::optional<std::uint64_t> l_Value = ParseUnsigned(*it_Frame))
             {
-                m_Specification.MaxFrames = l_Value;
+                m_Specification.MaxFrames = *l_Value;
             }
             else
             {
@@ -155,16 +191,21 @@ namespace Trinity
 
         while (m_Running)
         {
+            TR_PROFILE_FRAME();
             m_FrameAllocator.BeginFrame();
 
             const auto l_Now = Clock::now();
             const Timestep l_Timestep = std::chrono::duration<float>(l_Now - l_LastFrameTime).count();
             l_LastFrameTime = l_Now;
 
-            m_Window->PollEvents();
+            {
+                TR_PROFILE_SCOPE("Window::PollEvents");
+                m_Window->PollEvents();
+            }
 
             if (!m_Minimized)
             {
+                TR_PROFILE_SCOPE("LayerStack::OnUpdate");
                 for (const Scope<Layer>& it_Layer : m_LayerStack)
                 {
                     it_Layer->OnUpdate(l_Timestep);
@@ -220,13 +261,17 @@ namespace Trinity
         Platform::Initialize();
 
         std::filesystem::path l_LogFile = "Logs/Trinity.log";
+        std::filesystem::path l_CaptureFile = "Logs/Trinity.trace.json";
         if (argc > 0 && argv != nullptr && argv[0] != nullptr)
         {
-            l_LogFile = std::filesystem::path("Logs") / std::filesystem::path(argv[0]).stem().concat(".log");
+            const std::filesystem::path l_Stem = std::filesystem::path(argv[0]).stem();
+            l_LogFile = std::filesystem::path("Logs") / std::filesystem::path(l_Stem).concat(".log");
+            l_CaptureFile = std::filesystem::path("Logs") / std::filesystem::path(l_Stem).concat(".trace.json");
         }
 
         Log::Initialize(l_LogFile);
         Memory::Initialize();
+        Profiler::Initialize(GetProfilerSpecification({ argc, argv }, l_CaptureFile));
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
@@ -239,6 +284,7 @@ namespace Trinity
 
         l_Application.reset();
 
+        Profiler::Shutdown();
         Memory::Shutdown();
         Log::Shutdown();
         Platform::Shutdown();

@@ -12,6 +12,7 @@ target_compile_definitions(Trinity-BuildConfig INTERFACE
     $<$<CONFIG:Release>:TR_RELEASE>
     $<$<CONFIG:Distribution>:TR_DISTRIBUTION>
     $<$<CONFIG:Debug,Release>:TR_ENABLE_ASSERTS>
+    $<$<AND:$<BOOL:${TRINITY_ENABLE_PROFILING}>,$<CONFIG:Debug,Release>>:TR_ENABLE_PROFILING>
     TR_PLATFORM_${TRINITY_PLATFORM_UPPER}
     $<$<BOOL:${TRINITY_RHI_D3D12}>:TR_RHI_D3D12>
     $<$<BOOL:${TRINITY_RHI_VULKAN}>:TR_RHI_VULKAN>

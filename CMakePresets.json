@@ -13,7 +13,8 @@
       "cacheVariables": {
         "TRINITY_WARNINGS_AS_ERRORS": "OFF",
         "TRINITY_ENABLE_LTO": "OFF",
-        "TRINITY_TRACK_GLOBAL_ALLOCATIONS": "ON"
+        "TRINITY_TRACK_GLOBAL_ALLOCATIONS": "ON",
+        "TRINITY_ENABLE_PROFILING": "ON"
       }
     },
     {

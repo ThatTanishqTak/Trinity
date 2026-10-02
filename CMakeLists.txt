@@ -16,12 +16,14 @@ project(Trinity VERSION 0.1.0 DESCRIPTION "Trinity game engine, Forge editor, Hu
 
 trinity_setup_configuration_flags()
 
-include(TrinityPlatform)
-include(TrinityCompilerOptions)
-
+# Options come before the includes
 option(TRINITY_WARNINGS_AS_ERRORS "Treat warnings in Trinity targets as errors" OFF)
 option(TRINITY_ENABLE_LTO "Link-time optimisation for Trinity targets in Distribution" OFF)
 option(TRINITY_TRACK_GLOBAL_ALLOCATIONS "Count every global new and delete under the Untagged memory tag" ON)
+option(TRINITY_ENABLE_PROFILING "Compile profiling scopes into Debug and Release builds" ON)
+
+include(TrinityPlatform)
+include(TrinityCompilerOptions)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -37,15 +37,20 @@ void SandboxLayer::OnDetach()
     Trinity::Memory::Free(m_ScratchBuffer);
     m_ScratchBuffer = nullptr;
 
-    m_Probe = {};
+    m_Probe = std::vector<std::uint32_t>();
 }
 
 void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
 {
+    TR_PROFILE_FUNCTION();
+
     Trinity::FrameAllocator& l_FrameAllocator = Trinity::Application::Get().GetFrameAllocator();
 
-    const std::span<float> l_Samples = l_FrameAllocator.AllocateArray<float>(c_FrameSampleCount);
-    std::ranges::fill(l_Samples, timestep.GetSeconds());
+    {
+        TR_PROFILE_SCOPE("SandboxLayer::FillSamples");
+        const std::span<float> l_Samples = l_FrameAllocator.AllocateArray<float>(c_FrameSampleCount);
+        std::ranges::fill(l_Samples, timestep.GetSeconds());
+    }
 
     m_SecondsSinceReport += timestep;
     ++m_FramesSinceReport;
