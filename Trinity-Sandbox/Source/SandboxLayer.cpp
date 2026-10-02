@@ -9,6 +9,9 @@ namespace
     constexpr std::size_t c_ProbeElementCount = 256 * 1024;
     constexpr std::size_t c_FrameSampleCount = 16 * 1024;
     constexpr std::size_t c_UUIDTestCount = 1'000'000;
+
+    Trinity::ConsoleVariable<float> s_ReportInterval("sandbox.report_interval", 1.0f, "Seconds between Sandbox fps reports");
+    Trinity::ConsoleVariable<bool> s_ListConsoleVariables("sandbox.list_cvars", false, "Log every console variable when the Sandbox starts", Trinity::ConsoleVariableFlags::ReadOnly);
 }
 
 SandboxLayer::SandboxLayer() : Layer("Sandbox")
@@ -20,7 +23,13 @@ void SandboxLayer::OnAttach()
 {
     m_ScratchBuffer = Trinity::Memory::Allocate(c_ScratchBufferSize, Trinity::MemoryTag::Game);
 
-    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use, O overflows the frame allocator.");
+    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use, O overflows the frame allocator, C lists console variables.");
+    TR_INFO("Reporting fps every {} s (sandbox.report_interval)", s_ReportInterval.Get());
+
+    if (s_ListConsoleVariables.Get())
+    {
+        Trinity::ConsoleVariables::LogAll();
+    }
 
     if (Trinity::Memory::IsTrackingGlobalAllocations())
     {
@@ -63,7 +72,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
     m_SecondsSinceReport += timestep;
     ++m_FramesSinceReport;
 
-    if (m_SecondsSinceReport >= 1.0f)
+    if (m_SecondsSinceReport >= s_ReportInterval.Get())
     {
         TR_TRACE("{:.1f} fps, frame memory {} of {} (peak {})", static_cast<float>(m_FramesSinceReport) / m_SecondsSinceReport, Trinity::Memory::FormatBytes(l_FrameAllocator.GetUsed()), Trinity::Memory::FormatBytes(l_FrameAllocator.GetCapacity()), Trinity::Memory::FormatBytes(l_FrameAllocator.GetPeakUsed()));
         m_SecondsSinceReport = 0.0f;
@@ -94,6 +103,13 @@ bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
     if (event.GetKeyCode() == Trinity::KeyCode::TR_M)
     {
         Trinity::Memory::LogUsage();
+
+        return true;
+    }
+
+    if (event.GetKeyCode() == Trinity::KeyCode::TR_C)
+    {
+        Trinity::ConsoleVariables::LogAll();
 
         return true;
     }

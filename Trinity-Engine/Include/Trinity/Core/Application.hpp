@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Trinity
 {
@@ -23,10 +24,9 @@ namespace Trinity
         char** Args = nullptr;
 
         [[nodiscard]] std::string_view operator[](int index) const;
-
         [[nodiscard]] bool HasOption(std::string_view name) const;
-
         [[nodiscard]] std::optional<std::string_view> GetOption(std::string_view name) const;
+        [[nodiscard]] std::vector<std::string_view> GetAllOptions(std::string_view name) const;
     };
 
     struct ApplicationSpecification

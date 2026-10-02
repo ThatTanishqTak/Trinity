@@ -1,6 +1,7 @@
 #include "Trinity/Core/Application.hpp"
 
 #include "Trinity/Core/Assert.hpp"
+#include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Platform.hpp"
@@ -24,6 +25,27 @@ namespace Trinity
 #else
         constexpr std::string_view c_ConfigurationName = "Distribution";
 #endif
+
+        std::optional<std::string_view> MatchOption(std::string_view argument, std::string_view name)
+        {
+            if (!argument.starts_with("--"))
+            {
+                return std::nullopt;
+            }
+            argument.remove_prefix(2);
+
+            if (argument == name)
+            {
+                return std::string_view{};
+            }
+
+            if (argument.starts_with(name) && argument.size() > name.size() && argument[name.size()] == '=')
+            {
+                return argument.substr(name.size() + 1);
+            }
+
+            return std::nullopt;
+        }
 
         std::optional<std::uint64_t> ParseUnsigned(std::string_view text)
         {
@@ -79,25 +101,27 @@ namespace Trinity
     {
         for (int it_Index = 1; it_Index < Count; ++it_Index)
         {
-            std::string_view l_Argument = Args[it_Index];
-            if (!l_Argument.starts_with("--"))
+            if (const std::optional<std::string_view> l_Value = MatchOption(Args[it_Index], name))
             {
-                continue;
-            }
-            l_Argument.remove_prefix(2);
-
-            if (l_Argument == name)
-            {
-                return std::string_view{};
-            }
-
-            if (l_Argument.starts_with(name) && l_Argument.size() > name.size() && l_Argument[name.size()] == '=')
-            {
-                return l_Argument.substr(name.size() + 1);
+                return l_Value;
             }
         }
 
         return std::nullopt;
+    }
+
+    std::vector<std::string_view> ApplicationCommandLineArgs::GetAllOptions(std::string_view name) const
+    {
+        std::vector<std::string_view> l_Values;
+        for (int it_Index = 1; it_Index < Count; ++it_Index)
+        {
+            if (const std::optional<std::string_view> l_Value = MatchOption(Args[it_Index], name))
+            {
+                l_Values.push_back(*l_Value);
+            }
+        }
+
+        return l_Values;
     }
 
     bool ApplicationCommandLineArgs::HasOption(std::string_view name) const
@@ -272,6 +296,7 @@ namespace Trinity
         Log::Initialize(l_LogFile);
         Memory::Initialize();
         Profiler::Initialize(GetProfilerSpecification({ argc, argv }, l_CaptureFile));
+        ConsoleVariables::Initialize({ argc, argv });
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
@@ -284,6 +309,7 @@ namespace Trinity
 
         l_Application.reset();
 
+        ConsoleVariables::Shutdown();
         Profiler::Shutdown();
         Memory::Shutdown();
         Log::Shutdown();
