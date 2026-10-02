@@ -19,6 +19,7 @@ private:
     void TestUUIDs();
     void TestJobs();
     void TestParallelFor();
+    void TestFileSystem();
 
     void* m_ScratchBuffer = nullptr;
     std::vector<std::uint32_t> m_Probe;

@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
+#include <filesystem>
 #include <format>
 #include <iterator>
 #include <string>
@@ -65,6 +67,8 @@ void SandboxLayer::OnAttach()
     {
         TestParallelFor();
     }
+
+    TestFileSystem();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
     if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("uuid-test"))
@@ -262,4 +266,44 @@ void SandboxLayer::TestParallelFor()
     TR_INFO("ParallelFor over {} values on {} threads: {} ({} serial result), serial {:.2f} ms, parallel {:.2f} ms, speedup {:.2f}x", l_Values.size(), Trinity::JobSystem::GetWorkerCount() + 1, l_Parallel.load(), l_Parallel.load() == l_Serial ? "matches the" : "DOES NOT MATCH the", l_SerialMilliseconds, l_ParallelMilliseconds, l_SerialMilliseconds / l_ParallelMilliseconds);
 
     Trinity::Memory::LogUsage();
+}
+
+
+void SandboxLayer::TestFileSystem()
+{
+    TR_PROFILE_FUNCTION();
+
+    const Trinity::ApplicationCommandLineArgs& l_Args = Trinity::Application::Get().GetSpecification().CommandLineArgs;
+    const std::string l_LogName = std::filesystem::path(l_Args[0]).stem().string() + ".log";
+    const std::string l_LogPath = "/logs/" + l_LogName;
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_Log = Trinity::FileSystem::ReadText(l_LogPath);
+    if (l_Log)
+    {
+        TR_INFO("Read {} through the file system: {} bytes, {} lines", l_LogPath, l_Log->size(), std::ranges::count(*l_Log, '\n'));
+    }
+    else
+    {
+        TR_ERROR("Could not read {}: {}", l_LogPath, Trinity::ToString(l_Log.GetError()));
+    }
+
+    std::string l_WrongCase = l_LogPath;
+    std::ranges::transform(l_WrongCase, l_WrongCase.begin(), [](char character) { return static_cast<char>(std::tolower(static_cast<unsigned char>(character))); });
+
+    for (const std::string_view it_Path : { std::string_view(l_WrongCase), std::string_view("/logs/../secret.txt"), std::string_view("/logs/C:/Windows"), std::string_view("logs/relative.txt"), std::string_view("/missing/file.txt"), std::string_view("/logs") })
+    {
+        const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Result = Trinity::FileSystem::ReadFile(it_Path);
+        TR_INFO("  ReadFile({}) -> {}", it_Path, l_Result ? "ok" : Trinity::ToString(l_Result.GetError()));
+    }
+
+    if (const Trinity::Expected<std::vector<Trinity::DirectoryEntry>, Trinity::FileError> l_Root = Trinity::FileSystem::List("/"))
+    {
+        std::string l_Names;
+        for (const Trinity::DirectoryEntry& it_Entry : *l_Root)
+        {
+            std::format_to(std::back_inserter(l_Names), "{}{}{}", l_Names.empty() ? "" : ", ", it_Entry.Name, it_Entry.Type == Trinity::FileType::Directory ? "/" : "");
+        }
+
+        TR_INFO("  List(/) -> {}", l_Names);
+    }
 }

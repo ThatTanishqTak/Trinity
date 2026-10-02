@@ -8,6 +8,7 @@
 #include "Trinity/Core/Platform.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Core/Timestep.hpp"
+#include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Input/Input.hpp"
 
 #include <charconv>
@@ -299,6 +300,8 @@ namespace Trinity
         Profiler::Initialize(GetProfilerSpecification({ argc, argv }, l_CaptureFile));
         ConsoleVariables::Initialize({ argc, argv });
         JobSystem::Initialize();
+        FileSystem::Initialize();
+        FileSystem::MountDirectory("/logs", l_LogFile.parent_path());
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
@@ -311,6 +314,7 @@ namespace Trinity
 
         l_Application.reset();
 
+        FileSystem::Shutdown();
         JobSystem::Shutdown();
         ConsoleVariables::Shutdown();
         Profiler::Shutdown();
