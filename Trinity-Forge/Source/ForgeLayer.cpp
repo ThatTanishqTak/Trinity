@@ -15,6 +15,6 @@ void ForgeLayer::OnAttach()
     }
     else
     {
-        TR_INFO("No it_Project given. Start Forge from Trinity-Hub or pass --project=<path>.");
+        TR_INFO("No project given. Start Forge from Trinity-Hub or pass --project=<path>.");
     }
 }

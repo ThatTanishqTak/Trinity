@@ -5,6 +5,7 @@
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/FrameAllocator.hpp"
+#include "Trinity/Core/JobSystem.hpp"
 #include "Trinity/Core/Layer.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"

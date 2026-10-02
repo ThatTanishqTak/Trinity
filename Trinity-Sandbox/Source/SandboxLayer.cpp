@@ -1,14 +1,21 @@
 #include "SandboxLayer.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <format>
+#include <iterator>
+#include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace
 {
     constexpr std::size_t c_ScratchBufferSize = 1024 * 1024;
     constexpr std::size_t c_ProbeElementCount = 256 * 1024;
     constexpr std::size_t c_FrameSampleCount = 16 * 1024;
-    constexpr std::size_t c_UUIDTestCount = 1'000'000;
+    constexpr std::size_t c_UUIDTestCount = 1000000;
+    constexpr std::uint64_t c_JobTestCount = 1000;
+    constexpr std::uint64_t c_ValuesPerJob = 10000;
 
     Trinity::ConsoleVariable<float> s_ReportInterval("sandbox.report_interval", 1.0f, "Seconds between Sandbox fps reports");
     Trinity::ConsoleVariable<bool> s_ListConsoleVariables("sandbox.list_cvars", false, "Log every console variable when the Sandbox starts", Trinity::ConsoleVariableFlags::ReadOnly);
@@ -39,6 +46,8 @@ void SandboxLayer::OnAttach()
 
         TR_INFO("A std::vector of {} uint32 added {} to Untagged", m_Probe.size(), Trinity::Memory::FormatBytes(l_After - l_Before));
     }
+
+    TestJobs();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
     if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("uuid-test"))
@@ -156,4 +165,44 @@ void SandboxLayer::TestUUIDs()
     }
 
     TR_INFO("Generated {} UUIDs: {} collision(s), {} invalid, {} failed to round-trip through text", c_UUIDTestCount, l_Collisions, l_Invalid, l_RoundTripFailures);
+}
+
+
+void SandboxLayer::TestJobs()
+{
+    TR_PROFILE_FUNCTION();
+
+    std::vector<std::atomic<std::uint32_t>> l_JobsPerThread(Trinity::JobSystem::GetWorkerCount() + 1);
+    std::atomic<std::uint64_t> l_Total{ 0 };
+
+    Trinity::JobCounter l_Counter;
+    for (std::uint64_t it_Job = 0; it_Job < c_JobTestCount; ++it_Job)
+    {
+        Trinity::JobSystem::Submit([it_Job, &l_JobsPerThread, &l_Total]
+        {
+            TR_PROFILE_SCOPE("SandboxLayer::TestJob");
+
+            std::uint64_t l_Sum = 0;
+            for (std::uint64_t it_Value = it_Job * c_ValuesPerJob; it_Value < (it_Job + 1) * c_ValuesPerJob; ++it_Value)
+            {
+                l_Sum += it_Value;
+            }
+
+            l_Total.fetch_add(l_Sum, std::memory_order_relaxed);
+            l_JobsPerThread[Trinity::JobSystem::GetThreadIndex()].fetch_add(1, std::memory_order_relaxed);
+        }, &l_Counter);
+    }
+
+    Trinity::JobSystem::Wait(l_Counter);
+
+    const std::uint64_t l_ValueCount = c_JobTestCount * c_ValuesPerJob;
+    const std::uint64_t l_Expected = l_ValueCount * (l_ValueCount - 1) / 2;
+
+    std::string l_Distribution;
+    for (const std::atomic<std::uint32_t>& it_Count : l_JobsPerThread)
+    {
+        std::format_to(std::back_inserter(l_Distribution), "{}{}", l_Distribution.empty() ? "" : " ", it_Count.load());
+    }
+
+    TR_INFO("Ran {} jobs, {} pending: sum {} is {}; jobs per thread (main first): {}", c_JobTestCount, l_Counter.GetPending(), l_Total.load(), l_Total.load() == l_Expected ? "correct" : "WRONG", l_Distribution);
 }

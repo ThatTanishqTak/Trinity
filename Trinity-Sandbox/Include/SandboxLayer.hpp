@@ -17,6 +17,7 @@ public:
 private:
     bool OnKeyPressed(Trinity::KeyPressedEvent& event);
     void TestUUIDs();
+    void TestJobs();
 
     void* m_ScratchBuffer = nullptr;
     std::vector<std::uint32_t> m_Probe;

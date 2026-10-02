@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
+#include "Trinity/Core/JobSystem.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Platform.hpp"
@@ -297,6 +298,7 @@ namespace Trinity
         Memory::Initialize();
         Profiler::Initialize(GetProfilerSpecification({ argc, argv }, l_CaptureFile));
         ConsoleVariables::Initialize({ argc, argv });
+        JobSystem::Initialize();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
@@ -309,6 +311,7 @@ namespace Trinity
 
         l_Application.reset();
 
+        JobSystem::Shutdown();
         ConsoleVariables::Shutdown();
         Profiler::Shutdown();
         Memory::Shutdown();
