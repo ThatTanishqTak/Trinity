@@ -103,6 +103,8 @@ void SandboxLayer::OnDetach()
     m_Probe = std::vector<std::uint32_t>();
 
     m_AsyncReads.clear();
+
+    TR_INFO("Ran {} frame job(s) on frame memory; {} saw it change underneath them", m_FrameJobsRun.load(), m_FrameJobMismatches.load());
 }
 
 void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
@@ -115,6 +117,15 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
         TR_PROFILE_SCOPE("SandboxLayer::FillSamples");
         const std::span<float> l_Samples = l_FrameAllocator.AllocateArray<float>(c_FrameSampleCount);
         std::ranges::fill(l_Samples, timestep.GetSeconds());
+
+        Trinity::Application::Get().SubmitFrameJob([this, l_Samples, l_Expected = timestep.GetSeconds()]
+        {
+            TR_PROFILE_SCOPE("SandboxLayer::CheckSamples");
+
+            const bool l_Intact = std::ranges::all_of(l_Samples, [l_Expected](float sample) { return sample == l_Expected; });
+            m_FrameJobMismatches.fetch_add(l_Intact ? 0 : 1, std::memory_order_relaxed);
+            m_FrameJobsRun.fetch_add(1, std::memory_order_relaxed);
+        });
     }
 
     CheckAsyncReads();
@@ -292,6 +303,9 @@ void SandboxLayer::TestFileSystem()
     const Trinity::ApplicationCommandLineArgs& l_Args = Trinity::Application::Get().GetSpecification().CommandLineArgs;
     const std::string l_LogName = std::filesystem::path(l_Args[0]).stem().string() + ".log";
     const std::string l_LogPath = "/logs/" + l_LogName;
+
+    Trinity::Log::Core().flush();
+    Trinity::Log::Client().flush();
 
     const Trinity::Expected<std::string, Trinity::FileError> l_Log = Trinity::FileSystem::ReadText(l_LogPath);
     if (l_Log)

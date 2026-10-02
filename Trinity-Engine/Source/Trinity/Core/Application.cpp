@@ -29,6 +29,15 @@ namespace Trinity
         constexpr std::string_view c_ConfigurationName = "Distribution";
 #endif
 
+        ConsoleVariable<std::int32_t> s_FrameCapacityVariable("memory.frame_capacity", 0, "Frame allocator capacity per buffer in KiB; 0 uses the application's default", ConsoleVariableFlags::ReadOnly);
+
+        std::size_t GetFrameAllocatorCapacity(const ApplicationSpecification& specification)
+        {
+            const std::int32_t l_Kibibytes = s_FrameCapacityVariable.Get();
+
+            return l_Kibibytes > 0 ? static_cast<std::size_t>(l_Kibibytes) * 1024 : specification.FrameAllocatorCapacity;
+        }
+
         std::optional<std::string_view> MatchOption(std::string_view argument, std::string_view name)
         {
             if (!argument.starts_with("--"))
@@ -184,7 +193,7 @@ namespace Trinity
 
     Application* Application::s_Instance = nullptr;
 
-    Application::Application(ApplicationSpecification specification) : m_Specification(std::move(specification)), m_FrameAllocator(m_Specification.FrameAllocatorCapacity)
+    Application::Application(ApplicationSpecification specification) : m_Specification(std::move(specification)), m_FrameAllocator(GetFrameAllocatorCapacity(m_Specification))
     {
         TR_CORE_ASSERT(s_Instance == nullptr, "Only one Application may exist.");
         s_Instance = this;
@@ -247,6 +256,7 @@ namespace Trinity
     Application::~Application()
     {
         m_LayerStack.Clear();
+        JobSystem::Wait(m_FrameJobs);
         m_Window.reset();
         s_Instance = nullptr;
     }
@@ -263,6 +273,11 @@ namespace Trinity
         m_Running = false;
     }
 
+    void Application::SubmitFrameJob(Job job)
+    {
+        JobSystem::Submit(std::move(job), &m_FrameJobs);
+    }
+
     void Application::Run()
     {
         using Clock = std::chrono::steady_clock;
@@ -271,6 +286,11 @@ namespace Trinity
         while (m_Running)
         {
             TR_PROFILE_FRAME();
+
+            {
+                TR_PROFILE_SCOPE("Application::WaitForFrameJobs");
+                JobSystem::Wait(m_FrameJobs);
+            }
             m_FrameAllocator.BeginFrame();
 
             const auto l_Now = Clock::now();
@@ -302,6 +322,8 @@ namespace Trinity
                 Close();
             }
         }
+
+        JobSystem::Wait(m_FrameJobs);
 
         TR_CORE_INFO("'{}' ran for {} frames.", m_Specification.Name, m_FrameCount);
         TR_CORE_INFO("Frame allocator peak {} of {} per frame, {} overflowing frame(s)", Memory::FormatBytes(m_FrameAllocator.GetPeakUsed()), Memory::FormatBytes(m_FrameAllocator.GetCapacity()), m_FrameAllocator.GetOverflowFrameCount());

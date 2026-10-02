@@ -2,6 +2,7 @@
 
 #include <Trinity.hpp>
 
+#include <atomic>
 #include <vector>
 
 class SandboxLayer final : public Trinity::Layer
@@ -35,6 +36,9 @@ private:
     std::uint32_t m_AsyncOffMainThread = 0;
     std::uint32_t m_CancelledCallbacks = 0;
     bool m_AsyncReported = false;
+
+    std::atomic<std::uint32_t> m_FrameJobsRun{ 0 };
+    std::atomic<std::uint32_t> m_FrameJobMismatches{ 0 };
 
     float m_SecondsSinceReport = 0.0f;
     std::uint32_t m_FramesSinceReport = 0;

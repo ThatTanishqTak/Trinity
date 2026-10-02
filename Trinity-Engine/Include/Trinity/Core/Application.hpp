@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/FrameAllocator.hpp"
+#include "Trinity/Core/JobSystem.hpp"
 #include "Trinity/Core/LayerStack.hpp"
 #include "Trinity/Core/Window.hpp"
 #include "Trinity/Events/ApplicationEvent.hpp"
@@ -64,6 +65,7 @@ namespace Trinity
         }
 
         void Close();
+        void SubmitFrameJob(Job job);
 
         [[nodiscard]] Window& GetWindow() { return *m_Window; }
         [[nodiscard]] FrameAllocator& GetFrameAllocator() { return m_FrameAllocator; }
@@ -80,6 +82,7 @@ namespace Trinity
 
         ApplicationSpecification m_Specification;
         FrameAllocator m_FrameAllocator;
+        JobCounter m_FrameJobs;
         Scope<Window> m_Window;
         LayerStack m_LayerStack;
         std::uint64_t m_FrameCount = 0;
