@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <new>
 #include <type_traits>
 #include <utility>
@@ -121,6 +122,17 @@ namespace Trinity
 
         void Submit(Job job, JobCounter* counter = nullptr);
         void Wait(const JobCounter& counter);
+
+        using RangeFunction = void (*)(const void* context, std::size_t begin, std::size_t end);
+        void ParallelForRanges(std::size_t count, RangeFunction function, const void* context, std::size_t batchSize = 0);
+
+        template<typename F>
+        void ParallelFor(std::size_t count, const F& body, std::size_t batchSize = 0)
+        {
+            static_assert(std::invocable<const F&, std::size_t, std::size_t>, "ParallelFor runs one body on several threads at once, so it must be callable as const: remove 'mutable' and keep shared results in atomics or per-batch locals");
+
+            ParallelForRanges(count, [](const void* context, std::size_t begin, std::size_t end) { (*static_cast<const F*>(context))(begin, end); }, std::addressof(body), batchSize);
+        }
 
         [[nodiscard]] std::uint32_t GetWorkerCount();
         [[nodiscard]] std::uint32_t GetThreadIndex();

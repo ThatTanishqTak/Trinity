@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <format>
 #include <iterator>
 #include <string>
@@ -16,6 +17,18 @@ namespace
     constexpr std::size_t c_UUIDTestCount = 1000000;
     constexpr std::uint64_t c_JobTestCount = 1000;
     constexpr std::uint64_t c_ValuesPerJob = 10000;
+    constexpr std::size_t c_ParallelValueCount = 10000000;
+
+    constexpr std::uint64_t Mix(std::uint64_t value)
+    {
+        value ^= value >> 33;
+        value *= 0xff51afd7ed558ccdull;
+        value ^= value >> 33;
+        value *= 0xc4ceb9fe1a85ec53ull;
+        value ^= value >> 33;
+
+        return value & 0xFFFF;
+    }
 
     Trinity::ConsoleVariable<float> s_ReportInterval("sandbox.report_interval", 1.0f, "Seconds between Sandbox fps reports");
     Trinity::ConsoleVariable<bool> s_ListConsoleVariables("sandbox.list_cvars", false, "Log every console variable when the Sandbox starts", Trinity::ConsoleVariableFlags::ReadOnly);
@@ -48,6 +61,10 @@ void SandboxLayer::OnAttach()
     }
 
     TestJobs();
+    if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("parallel-test"))
+    {
+        TestParallelFor();
+    }
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
     if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("uuid-test"))
@@ -205,4 +222,44 @@ void SandboxLayer::TestJobs()
     }
 
     TR_INFO("Ran {} jobs, {} pending: sum {} is {}; jobs per thread (main first): {}", c_JobTestCount, l_Counter.GetPending(), l_Total.load(), l_Total.load() == l_Expected ? "correct" : "WRONG", l_Distribution);
+}
+
+
+void SandboxLayer::TestParallelFor()
+{
+    TR_PROFILE_FUNCTION();
+
+    using Clock = std::chrono::steady_clock;
+
+    std::vector<std::uint32_t, Trinity::TaggedAllocator<std::uint32_t, Trinity::MemoryTag::Game>> l_Values(c_ParallelValueCount);
+    for (std::size_t it_Index = 0; it_Index < l_Values.size(); ++it_Index)
+    {
+        l_Values[it_Index] = static_cast<std::uint32_t>(it_Index) * 2654435761u;
+    }
+
+    const Clock::time_point l_SerialStart = Clock::now();
+    std::uint64_t l_Serial = 0;
+    for (const std::uint32_t it_Value : l_Values)
+    {
+        l_Serial += Mix(it_Value);
+    }
+    const double l_SerialMilliseconds = std::chrono::duration<double, std::milli>(Clock::now() - l_SerialStart).count();
+
+    const Clock::time_point l_ParallelStart = Clock::now();
+    std::atomic<std::uint64_t> l_Parallel{ 0 };
+    Trinity::JobSystem::ParallelFor(l_Values.size(), [&l_Values, &l_Parallel](std::size_t begin, std::size_t end)
+    {
+        std::uint64_t l_Sum = 0;
+        for (std::size_t it_Index = begin; it_Index < end; ++it_Index)
+        {
+            l_Sum += Mix(l_Values[it_Index]);
+        }
+
+        l_Parallel.fetch_add(l_Sum, std::memory_order_relaxed);
+    });
+    const double l_ParallelMilliseconds = std::chrono::duration<double, std::milli>(Clock::now() - l_ParallelStart).count();
+
+    TR_INFO("ParallelFor over {} values on {} threads: {} ({} serial result), serial {:.2f} ms, parallel {:.2f} ms, speedup {:.2f}x", l_Values.size(), Trinity::JobSystem::GetWorkerCount() + 1, l_Parallel.load(), l_Parallel.load() == l_Serial ? "matches the" : "DOES NOT MATCH the", l_SerialMilliseconds, l_ParallelMilliseconds, l_SerialMilliseconds / l_ParallelMilliseconds);
+
+    Trinity::Memory::LogUsage();
 }

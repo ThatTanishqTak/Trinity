@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <new>
 #include <string>
 #include <string_view>
@@ -92,4 +93,46 @@ namespace Trinity
 
         [[nodiscard]] std::string FormatBytes(std::uint64_t bytes);
     }
+
+    template<typename T, MemoryTag Tag>
+    class TaggedAllocator
+    {
+    public:
+        using value_type = T;
+
+        template<typename U>
+        struct rebind
+        {
+            using other = TaggedAllocator<U, Tag>;
+        };
+
+        TaggedAllocator() noexcept = default;
+
+        template<typename U>
+        TaggedAllocator(const TaggedAllocator<U, Tag>&) noexcept
+        {
+
+        }
+
+        [[nodiscard]] T* allocate(std::size_t count)
+        {
+            if (count > std::numeric_limits<std::size_t>::max() / sizeof(T))
+            {
+                throw std::bad_array_new_length();
+            }
+
+            return static_cast<T*>(Memory::Allocate(count * sizeof(T), Tag, alignof(T)));
+        }
+
+        void deallocate(T* memory, std::size_t) noexcept
+        {
+            Memory::Free(memory);
+        }
+
+        template<typename U>
+        [[nodiscard]] bool operator==(const TaggedAllocator<U, Tag>&) const noexcept
+        {
+            return true;
+        }
+    };
 }
