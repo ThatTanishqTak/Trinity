@@ -82,6 +82,8 @@ namespace Trinity
             Free(l_Memory);
         }
 
+        [[nodiscard]] bool IsTrackingGlobalAllocations();
+
         [[nodiscard]] MemoryTagStats GetStats(MemoryTag tag);
         [[nodiscard]] MemoryTagStats GetTotalStats();
 

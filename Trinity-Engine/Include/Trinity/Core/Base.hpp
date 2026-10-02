@@ -4,8 +4,7 @@
 #include <memory>
 #include <utility>
 
-#if !defined(TR_PLATFORM_WINDOWS) && !defined(TR_PLATFORM_LINUX) && !defined(TR_PLATFORM_MACOS) && \
-    !defined(TR_PLATFORM_XBOX) && !defined(TR_PLATFORM_PLAYSTATION) && !defined(TR_PLATFORM_SWITCH)
+#if !defined(TR_PLATFORM_WINDOWS) && !defined(TR_PLATFORM_LINUX) && !defined(TR_PLATFORM_MACOS) && !defined(TR_PLATFORM_XBOX) && !defined(TR_PLATFORM_PLAYSTATION) && !defined(TR_PLATFORM_SWITCH)
     #error "No TR_PLATFORM_* macro is defined. Trinity must be built through its CMake project."
 #endif
 
@@ -22,15 +21,12 @@
 #endif
 
 #define TR_BIT(x) (1u << (x))
-
-#define TR_BIND_EVENT_FN(fn) \
-    [this](auto&&... eventArgs) -> decltype(auto) { return this->fn(std::forward<decltype(eventArgs)>(eventArgs)...); }
+#define TR_BIND_EVENT_FN(fn) [this](auto&&... eventArgs) -> decltype(auto) { return this->fn(std::forward<decltype(eventArgs)>(eventArgs)...); }
 
 namespace Trinity
 {
     template<typename T>
     using Scope = std::unique_ptr<T>;
-
     template<typename T, typename... Args>
     [[nodiscard]] constexpr Scope<T> CreateScope(Args&&... args)
     {
@@ -39,7 +35,6 @@ namespace Trinity
 
     template<typename T>
     using Ref = std::shared_ptr<T>;
-
     template<typename T, typename... Args>
     [[nodiscard]] Ref<T> CreateRef(Args&&... args)
     {

@@ -9,6 +9,7 @@
 #include <atomic>
 #include <bit>
 #include <format>
+#include <limits>
 
 namespace Trinity
 {
@@ -66,6 +67,46 @@ namespace Trinity
             counters.LiveAllocations.fetch_sub(1, std::memory_order_relaxed);
         }
 
+        void* AllocateTagged(std::size_t size, MemoryTag tag, std::size_t alignment)
+        {
+            const std::size_t l_Alignment = std::max(alignment, alignof(AllocationHeader));
+            const std::size_t l_HeaderOffset = GetHeaderOffset(l_Alignment);
+            if (size > std::numeric_limits<std::size_t>::max() - l_HeaderOffset - l_Alignment)
+            {
+                return nullptr;
+            }
+
+            std::byte* l_Base = static_cast<std::byte*>(Platform::Allocate(l_HeaderOffset + size, l_Alignment));
+            if (l_Base == nullptr)
+            {
+                return nullptr;
+            }
+
+            std::byte* l_Memory = l_Base + l_HeaderOffset;
+            ::new (l_Memory - sizeof(AllocationHeader)) AllocationHeader{ size, static_cast<std::uint32_t>(l_Alignment), tag };
+
+            RecordAllocation(s_TagCounters[static_cast<std::size_t>(tag)], size);
+            RecordAllocation(s_TotalCounters, size);
+
+            return l_Memory;
+        }
+
+        void FreeTagged(void* memory)
+        {
+            if (memory == nullptr)
+            {
+                return;
+            }
+
+            std::byte* l_Memory = static_cast<std::byte*>(memory);
+            const AllocationHeader l_Header = *std::launder(reinterpret_cast<AllocationHeader*>(l_Memory - sizeof(AllocationHeader)));
+
+            RecordFree(s_TagCounters[static_cast<std::size_t>(l_Header.Tag)], l_Header.Size);
+            RecordFree(s_TotalCounters, l_Header.Size);
+
+            Platform::Free(l_Memory - GetHeaderOffset(l_Header.Alignment));
+        }
+
         MemoryTagStats ReadCounters(const TagCounters& counters)
         {
             MemoryTagStats l_Stats;
@@ -92,6 +133,8 @@ namespace Trinity
             TR_CORE_ASSERT(!s_Initialized, "Memory is already initialized.");
 
             s_Initialized = true;
+
+            TR_CORE_INFO("Global allocation tracking is {}", IsTrackingGlobalAllocations() ? "on" : "off");
         }
 
         void Shutdown()
@@ -119,40 +162,29 @@ namespace Trinity
             TR_CORE_ASSERT(std::has_single_bit(alignment), "Alignment must be a power of two.");
             TR_CORE_ASSERT(tag < MemoryTag::Count, "Invalid memory tag.");
 
-            const std::size_t l_Alignment = std::max(alignment, alignof(AllocationHeader));
-            const std::size_t l_HeaderOffset = GetHeaderOffset(l_Alignment);
-
-            std::byte* l_Base = static_cast<std::byte*>(Platform::Allocate(l_HeaderOffset + size, l_Alignment));
-            if (l_Base == nullptr)
+            void* l_Memory = AllocateTagged(size, tag, alignment);
+            if (l_Memory == nullptr)
             {
                 TR_CORE_CRITICAL("Out of memory: {} requested under tag '{}'", FormatBytes(size), ToString(tag));
 
                 throw std::bad_alloc();
             }
 
-            std::byte* l_Memory = l_Base + l_HeaderOffset;
-            ::new (l_Memory - sizeof(AllocationHeader)) AllocationHeader{ size, static_cast<std::uint32_t>(l_Alignment), tag };
-
-            RecordAllocation(s_TagCounters[static_cast<std::size_t>(tag)], size);
-            RecordAllocation(s_TotalCounters, size);
-
             return l_Memory;
         }
 
         void Free(void* memory)
         {
-            if (memory == nullptr)
-            {
-                return;
-            }
+            FreeTagged(memory);
+        }
 
-            std::byte* l_Memory = static_cast<std::byte*>(memory);
-            const AllocationHeader l_Header = *std::launder(reinterpret_cast<AllocationHeader*>(l_Memory - sizeof(AllocationHeader)));
-
-            RecordFree(s_TagCounters[static_cast<std::size_t>(l_Header.Tag)], l_Header.Size);
-            RecordFree(s_TotalCounters, l_Header.Size);
-
-            Platform::Free(l_Memory - GetHeaderOffset(l_Header.Alignment));
+        bool IsTrackingGlobalAllocations()
+        {
+#if defined(TR_TRACK_GLOBAL_ALLOCATIONS)
+            return true;
+#else
+            return false;
+#endif
         }
 
         MemoryTagStats GetStats(MemoryTag tag)
@@ -208,3 +240,65 @@ namespace Trinity
         }
     }
 }
+
+
+#if defined(TR_TRACK_GLOBAL_ALLOCATIONS)
+
+namespace
+{
+    void* AllocateUntagged(std::size_t size, std::size_t alignment)
+    {
+        while (true)
+        {
+            if (void* l_Memory = Trinity::AllocateTagged(size, Trinity::MemoryTag::Untagged, alignment))
+            {
+                return l_Memory;
+            }
+
+            const std::new_handler l_Handler = std::get_new_handler();
+            if (l_Handler == nullptr)
+            {
+                throw std::bad_alloc();
+            }
+
+            l_Handler();
+        }
+    }
+
+    void* AllocateUntaggedNoThrow(std::size_t size, std::size_t alignment) noexcept
+    {
+        try
+        {
+            return AllocateUntagged(size, alignment);
+        }
+        catch (...)
+        {
+            return nullptr;
+        }
+    }
+}
+
+void* operator new(std::size_t size) { return AllocateUntagged(size, __STDCPP_DEFAULT_NEW_ALIGNMENT__); }
+void* operator new[](std::size_t size) { return AllocateUntagged(size, __STDCPP_DEFAULT_NEW_ALIGNMENT__); }
+void* operator new(std::size_t size, std::align_val_t alignment) { return AllocateUntagged(size, static_cast<std::size_t>(alignment)); }
+void* operator new[](std::size_t size, std::align_val_t alignment) { return AllocateUntagged(size, static_cast<std::size_t>(alignment)); }
+
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept { return AllocateUntaggedNoThrow(size, __STDCPP_DEFAULT_NEW_ALIGNMENT__); }
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept { return AllocateUntaggedNoThrow(size, __STDCPP_DEFAULT_NEW_ALIGNMENT__); }
+void* operator new(std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept { return AllocateUntaggedNoThrow(size, static_cast<std::size_t>(alignment)); }
+void* operator new[](std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept { return AllocateUntaggedNoThrow(size, static_cast<std::size_t>(alignment)); }
+
+void operator delete(void* memory) noexcept { Trinity::FreeTagged(memory); }
+void operator delete[](void* memory) noexcept { Trinity::FreeTagged(memory); }
+void operator delete(void* memory, std::size_t) noexcept { Trinity::FreeTagged(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { Trinity::FreeTagged(memory); }
+void operator delete(void* memory, std::align_val_t) noexcept { Trinity::FreeTagged(memory); }
+void operator delete[](void* memory, std::align_val_t) noexcept { Trinity::FreeTagged(memory); }
+void operator delete(void* memory, std::size_t, std::align_val_t) noexcept { Trinity::FreeTagged(memory); }
+void operator delete[](void* memory, std::size_t, std::align_val_t) noexcept { Trinity::FreeTagged(memory); }
+void operator delete(void* memory, const std::nothrow_t&) noexcept { Trinity::FreeTagged(memory); }
+void operator delete[](void* memory, const std::nothrow_t&) noexcept { Trinity::FreeTagged(memory); }
+void operator delete(void* memory, std::align_val_t, const std::nothrow_t&) noexcept { Trinity::FreeTagged(memory); }
+void operator delete[](void* memory, std::align_val_t, const std::nothrow_t&) noexcept { Trinity::FreeTagged(memory); }
+
+#endif

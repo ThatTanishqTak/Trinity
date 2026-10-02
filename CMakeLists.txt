@@ -21,6 +21,7 @@ include(TrinityCompilerOptions)
 
 option(TRINITY_WARNINGS_AS_ERRORS "Treat warnings in Trinity targets as errors" OFF)
 option(TRINITY_ENABLE_LTO "Link-time optimisation for Trinity targets in Distribution" OFF)
+option(TRINITY_TRACK_GLOBAL_ALLOCATIONS "Count every global new and delete under the Untagged memory tag" ON)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

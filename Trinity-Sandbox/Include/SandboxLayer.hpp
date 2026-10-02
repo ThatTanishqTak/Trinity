@@ -2,6 +2,8 @@
 
 #include <Trinity.hpp>
 
+#include <vector>
+
 class SandboxLayer final : public Trinity::Layer
 {
 public:
@@ -16,6 +18,7 @@ private:
     bool OnKeyPressed(Trinity::KeyPressedEvent& event);
 
     void* m_ScratchBuffer = nullptr;
+    std::vector<std::uint32_t> m_Probe;
 
     float m_SecondsSinceReport = 0.0f;
     std::uint32_t m_FramesSinceReport = 0;

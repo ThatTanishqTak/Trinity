@@ -12,7 +12,8 @@
       "binaryDir": "${sourceDir}/out/${presetName}",
       "cacheVariables": {
         "TRINITY_WARNINGS_AS_ERRORS": "OFF",
-        "TRINITY_ENABLE_LTO": "OFF"
+        "TRINITY_ENABLE_LTO": "OFF",
+        "TRINITY_TRACK_GLOBAL_ALLOCATIONS": "ON"
       }
     },
     {
