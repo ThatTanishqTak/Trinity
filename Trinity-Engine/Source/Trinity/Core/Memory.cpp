@@ -36,7 +36,7 @@ namespace Trinity
 
         constexpr std::array<std::string_view, c_TagCount> c_TagNames =
         {
-            "Untagged", "Engine", "Jobs", "FileSystem", "Renderer", "Scene", "Assets", "Audio", "Physics", "Scripting", "Game"
+            "Untagged", "Engine", "Frame", "Jobs", "FileSystem", "Renderer", "Scene", "Assets", "Audio", "Physics", "Scripting", "Game"
         };
 
         constinit std::array<TagCounters, c_TagCount> s_TagCounters{};

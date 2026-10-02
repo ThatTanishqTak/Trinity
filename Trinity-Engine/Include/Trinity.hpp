@@ -3,6 +3,7 @@
 #include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Base.hpp"
+#include "Trinity/Core/FrameAllocator.hpp"
 #include "Trinity/Core/Layer.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"

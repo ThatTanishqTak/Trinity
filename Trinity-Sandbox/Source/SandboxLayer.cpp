@@ -1,9 +1,12 @@
 #include "SandboxLayer.hpp"
 
+#include <algorithm>
+
 namespace
 {
     constexpr std::size_t c_ScratchBufferSize = 1024 * 1024;
     constexpr std::size_t c_ProbeElementCount = 256 * 1024;
+    constexpr std::size_t c_FrameSampleCount = 16 * 1024;
 }
 
 SandboxLayer::SandboxLayer() : Layer("Sandbox")
@@ -15,7 +18,7 @@ void SandboxLayer::OnAttach()
 {
     m_ScratchBuffer = Trinity::Memory::Allocate(c_ScratchBufferSize, Trinity::MemoryTag::Game);
 
-    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use.");
+    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use, O overflows the frame allocator.");
 
     if (Trinity::Memory::IsTrackingGlobalAllocations())
     {
@@ -39,12 +42,17 @@ void SandboxLayer::OnDetach()
 
 void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
 {
+    Trinity::FrameAllocator& l_FrameAllocator = Trinity::Application::Get().GetFrameAllocator();
+
+    const std::span<float> l_Samples = l_FrameAllocator.AllocateArray<float>(c_FrameSampleCount);
+    std::ranges::fill(l_Samples, timestep.GetSeconds());
+
     m_SecondsSinceReport += timestep;
     ++m_FramesSinceReport;
 
     if (m_SecondsSinceReport >= 1.0f)
     {
-        TR_TRACE("{:.1f} fps", static_cast<float>(m_FramesSinceReport) / m_SecondsSinceReport);
+        TR_TRACE("{:.1f} fps, frame memory {} of {} (peak {})", static_cast<float>(m_FramesSinceReport) / m_SecondsSinceReport, Trinity::Memory::FormatBytes(l_FrameAllocator.GetUsed()), Trinity::Memory::FormatBytes(l_FrameAllocator.GetCapacity()), Trinity::Memory::FormatBytes(l_FrameAllocator.GetPeakUsed()));
         m_SecondsSinceReport = 0.0f;
         m_FramesSinceReport = 0;
     }
@@ -73,6 +81,14 @@ bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
     if (event.GetKeyCode() == Trinity::KeyCode::TR_M)
     {
         Trinity::Memory::LogUsage();
+
+        return true;
+    }
+
+    if (event.GetKeyCode() == Trinity::KeyCode::TR_O)
+    {
+        Trinity::FrameAllocator& l_FrameAllocator = Trinity::Application::Get().GetFrameAllocator();
+        [[maybe_unused]] void* l_Overflow = l_FrameAllocator.Allocate(l_FrameAllocator.GetCapacity() + 1);
 
         return true;
     }

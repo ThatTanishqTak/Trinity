@@ -69,7 +69,7 @@ namespace Trinity
 
     Application* Application::s_Instance = nullptr;
 
-    Application::Application(ApplicationSpecification specification) : m_Specification(std::move(specification))
+    Application::Application(ApplicationSpecification specification) : m_Specification(std::move(specification)), m_FrameAllocator(m_Specification.FrameAllocatorCapacity)
     {
         TR_CORE_ASSERT(s_Instance == nullptr, "Only one Application may exist.");
         s_Instance = this;
@@ -155,6 +155,8 @@ namespace Trinity
 
         while (m_Running)
         {
+            m_FrameAllocator.BeginFrame();
+
             const auto l_Now = Clock::now();
             const Timestep l_Timestep = std::chrono::duration<float>(l_Now - l_LastFrameTime).count();
             l_LastFrameTime = l_Now;
@@ -177,6 +179,7 @@ namespace Trinity
         }
 
         TR_CORE_INFO("'{}' ran for {} frames.", m_Specification.Name, m_FrameCount);
+        TR_CORE_INFO("Frame allocator peak {} of {} per frame, {} overflowing frame(s)", Memory::FormatBytes(m_FrameAllocator.GetPeakUsed()), Memory::FormatBytes(m_FrameAllocator.GetCapacity()), m_FrameAllocator.GetOverflowFrameCount());
     }
 
     void Application::OnEvent(Event& event)

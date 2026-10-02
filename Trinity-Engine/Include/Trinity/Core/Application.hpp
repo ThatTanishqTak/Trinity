@@ -1,12 +1,14 @@
 #pragma once
 
 #include "Trinity/Core/Base.hpp"
+#include "Trinity/Core/FrameAllocator.hpp"
 #include "Trinity/Core/LayerStack.hpp"
 #include "Trinity/Core/Window.hpp"
 #include "Trinity/Events/ApplicationEvent.hpp"
 #include "Trinity/Renderer/GraphicsAPI.hpp"
 
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -35,6 +37,7 @@ namespace Trinity
         GraphicsAPI Graphics = GetDefaultGraphicsAPI();
 
         std::uint64_t MaxFrames = 0;
+        std::size_t FrameAllocatorCapacity = 4 * 1024 * 1024;
 
         ApplicationCommandLineArgs CommandLineArgs;
     };
@@ -63,6 +66,7 @@ namespace Trinity
         void Close();
 
         [[nodiscard]] Window& GetWindow() { return *m_Window; }
+        [[nodiscard]] FrameAllocator& GetFrameAllocator() { return m_FrameAllocator; }
         [[nodiscard]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
         [[nodiscard]] std::uint64_t GetFrameCount() const { return m_FrameCount; }
 
@@ -75,6 +79,7 @@ namespace Trinity
         bool OnWindowResize(WindowResizeEvent& event);
 
         ApplicationSpecification m_Specification;
+        FrameAllocator m_FrameAllocator;
         Scope<Window> m_Window;
         LayerStack m_LayerStack;
         std::uint64_t m_FrameCount = 0;
