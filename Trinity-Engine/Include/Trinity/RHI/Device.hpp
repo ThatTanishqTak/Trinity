@@ -51,6 +51,11 @@ namespace Trinity
             [[nodiscard]] virtual TextureHandle CreateTexture(const TextureDescription& description) = 0;
             virtual void DestroyTexture(TextureHandle texture) = 0;
 
+            [[nodiscard]] virtual std::uint32_t GetShaderResourceIndex(BufferHandle buffer) = 0;
+            [[nodiscard]] virtual std::uint32_t GetUnorderedAccessIndex(BufferHandle buffer) = 0;
+            [[nodiscard]] virtual std::uint32_t GetShaderResourceIndex(TextureHandle texture) = 0;
+            [[nodiscard]] virtual std::uint32_t GetUnorderedAccessIndex(TextureHandle texture) = 0;
+
             [[nodiscard]] virtual PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) = 0;
             virtual void DestroyPipeline(PipelineHandle pipeline) = 0;
 

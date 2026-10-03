@@ -85,6 +85,11 @@ namespace Trinity
             [[nodiscard]] TextureHandle CreateTexture(const TextureDescription& description) override;
             void DestroyTexture(TextureHandle texture) override;
 
+            [[nodiscard]] std::uint32_t GetShaderResourceIndex(BufferHandle buffer) override;
+            [[nodiscard]] std::uint32_t GetUnorderedAccessIndex(BufferHandle buffer) override;
+            [[nodiscard]] std::uint32_t GetShaderResourceIndex(TextureHandle texture) override;
+            [[nodiscard]] std::uint32_t GetUnorderedAccessIndex(TextureHandle texture) override;
+
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
 
@@ -103,6 +108,7 @@ namespace Trinity
             {
                 std::uint64_t Size = 0;
                 std::byte* Mapped = nullptr;
+                BufferUsage Usage = BufferUsage::None;
             };
 
             struct NullTexture
@@ -110,6 +116,7 @@ namespace Trinity
                 std::uint32_t Width = 0;
                 std::uint32_t Height = 0;
                 Format TextureFormat = Format::Unknown;
+                TextureUsage Usage = TextureUsage::None;
             };
 
             struct NullPipeline

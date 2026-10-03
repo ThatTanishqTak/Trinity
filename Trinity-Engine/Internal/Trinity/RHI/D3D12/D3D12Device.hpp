@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/RHI/Bindless.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
@@ -12,7 +13,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace Trinity
 {
@@ -20,13 +20,15 @@ namespace Trinity
     {
         class D3D12Device;
 
-        constexpr std::uint32_t c_NoDescriptor = UINT32_MAX;
+        constexpr std::uint32_t c_NoDescriptor = c_NoBindlessIndex;
 
         struct D3D12Buffer
         {
             Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
             std::byte* Mapped = nullptr;
             std::uint64_t Size = 0;
+            std::uint32_t ShaderResourceIndex = c_NoDescriptor;
+            std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
         };
 
         // Swap chain buffers have no allocation, since the swap chain owns them
@@ -41,26 +43,34 @@ namespace Trinity
             std::uint32_t MipLevels = 0;
             std::uint32_t RenderTargetView = c_NoDescriptor;
             std::uint32_t DepthStencilView = c_NoDescriptor;
+            std::uint32_t ShaderResourceIndex = c_NoDescriptor;
+            std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
         };
 
-        // A CPU-only heap of render target or depth views, handed out a slot at a time
+        struct D3D12Pipeline
+        {
+            Microsoft::WRL::ComPtr<ID3D12PipelineState> State;
+            D3D_PRIMITIVE_TOPOLOGY Topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+        };
+
+        // A heap of descriptors handed out a slot at a time, CPU-only for render target and depth views and shader-visible for the bindless heaps
         class D3D12DescriptorHeap
         {
         public:
-            [[nodiscard]] bool Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity);
+            [[nodiscard]] bool Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shaderVisible);
+            void Reset();
 
             [[nodiscard]] std::uint32_t Allocate();
             void Free(std::uint32_t index);
 
             [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE GetHandle(std::uint32_t index) const;
+            [[nodiscard]] ID3D12DescriptorHeap* GetHeap() const { return m_Heap.Get(); }
 
         private:
             Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_Heap;
             D3D12_CPU_DESCRIPTOR_HANDLE m_Start{};
             std::uint32_t m_Increment = 0;
-            std::uint32_t m_Capacity = 0;
-            std::uint32_t m_Next = 0;
-            std::vector<std::uint32_t> m_FreeSlots;
+            IndexAllocator m_Indices;
         };
 
         class D3D12CommandList final : public CommandList
@@ -90,6 +100,7 @@ namespace Trinity
             D3D12Device& m_Device;
             ID3D12GraphicsCommandList7* m_CommandList = nullptr;
             bool m_Rendering = false;
+            bool m_HasPipeline = false;
         };
 
         class D3D12Device final : public Device
@@ -110,6 +121,11 @@ namespace Trinity
             [[nodiscard]] TextureHandle CreateTexture(const TextureDescription& description) override;
             void DestroyTexture(TextureHandle texture) override;
 
+            [[nodiscard]] std::uint32_t GetShaderResourceIndex(BufferHandle buffer) override;
+            [[nodiscard]] std::uint32_t GetUnorderedAccessIndex(BufferHandle buffer) override;
+            [[nodiscard]] std::uint32_t GetShaderResourceIndex(TextureHandle texture) override;
+            [[nodiscard]] std::uint32_t GetUnorderedAccessIndex(TextureHandle texture) override;
+
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
 
@@ -121,6 +137,10 @@ namespace Trinity
 
             [[nodiscard]] D3D12Buffer* GetBuffer(BufferHandle buffer) { return m_Buffers.Get(buffer); }
             [[nodiscard]] D3D12Texture* GetTexture(TextureHandle texture) { return m_Textures.Get(texture); }
+            [[nodiscard]] D3D12Pipeline* GetPipeline(PipelineHandle pipeline) { return m_Pipelines.Get(pipeline); }
+            [[nodiscard]] ID3D12RootSignature* GetRootSignature() const { return m_RootSignature.Get(); }
+            [[nodiscard]] ID3D12DescriptorHeap* GetResourceHeap() const { return m_ResourceHeap.GetHeap(); }
+            [[nodiscard]] ID3D12DescriptorHeap* GetSamplerHeap() const { return m_SamplerHeap.GetHeap(); }
             [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView(const D3D12Texture& texture) const { return m_RenderTargetViews.GetHandle(texture.RenderTargetView); }
             [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView(const D3D12Texture& texture) const { return m_DepthStencilViews.GetHandle(texture.DepthStencilView); }
 
@@ -137,8 +157,11 @@ namespace Trinity
             struct D3D12Release
             {
                 Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
+                Microsoft::WRL::ComPtr<ID3D12PipelineState> Pipeline;
                 std::uint32_t RenderTargetView = c_NoDescriptor;
                 std::uint32_t DepthStencilView = c_NoDescriptor;
+                std::uint32_t ShaderResourceIndex = c_NoDescriptor;
+                std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
             };
 
             struct FrameContext
@@ -152,11 +175,14 @@ namespace Trinity
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateAllocator(std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
+            [[nodiscard]] bool CreateBindless(std::string& error);
             void EnableDebugMessages();
             void LogRuntime() const;
             void ReportLiveObjects() const;
 
             void CreateViews(D3D12Texture& texture);
+            void CreateShaderViews(D3D12Buffer& buffer, BufferUsage usage);
+            void CreateShaderViews(D3D12Texture& texture, TextureUsage usage);
             void Release(D3D12Release& release);
             void WaitForFence(std::uint64_t value);
 
@@ -173,9 +199,13 @@ namespace Trinity
 
             HandlePool<D3D12Buffer, BufferHandle> m_Buffers;
             HandlePool<D3D12Texture, TextureHandle> m_Textures;
+            HandlePool<D3D12Pipeline, PipelineHandle> m_Pipelines;
             ReleaseQueue<D3D12Release> m_Releases;
             D3D12DescriptorHeap m_RenderTargetViews;
             D3D12DescriptorHeap m_DepthStencilViews;
+            D3D12DescriptorHeap m_ResourceHeap;
+            D3D12DescriptorHeap m_SamplerHeap;
+            Microsoft::WRL::ComPtr<ID3D12RootSignature> m_RootSignature;
 
             Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_Queue;
             Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> m_GraphicsList;

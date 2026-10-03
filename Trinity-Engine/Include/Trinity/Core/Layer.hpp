@@ -3,6 +3,7 @@
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Events/Event.hpp"
+#include "Trinity/RHI/CommandList.hpp"
 
 #include <string>
 #include <utility>
@@ -38,6 +39,11 @@ namespace Trinity
         }
 
         virtual void OnEvent([[maybe_unused]] Event& event)
+        {
+
+        }
+
+        virtual void OnRender([[maybe_unused]] RHI::CommandList& commands)
         {
 
         }

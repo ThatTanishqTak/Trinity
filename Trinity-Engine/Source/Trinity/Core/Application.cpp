@@ -375,7 +375,7 @@ namespace Trinity
                 it_Layer->OnUpdate(l_Timestep);
             }
 
-            m_Renderer->RenderFrame();
+            m_Renderer->RenderFrame(m_LayerStack);
         }
 
         ++m_FrameCount;

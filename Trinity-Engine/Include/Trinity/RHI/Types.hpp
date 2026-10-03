@@ -13,6 +13,7 @@ namespace Trinity
         constexpr std::uint32_t c_MaxPushConstantSize = 128;
         constexpr std::uint32_t c_MaxColorAttachments = 8;
         constexpr std::uint32_t c_TextureCopyRowAlignment = 256;
+        constexpr std::uint32_t c_NoBindlessIndex = UINT32_MAX;
 
         template<typename Tag>
         struct Handle

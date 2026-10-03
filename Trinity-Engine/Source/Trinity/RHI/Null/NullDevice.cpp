@@ -178,6 +178,7 @@ namespace Trinity
 
             NullBuffer l_Buffer;
             l_Buffer.Size = description.Size;
+            l_Buffer.Usage = description.Usage;
             if (description.Memory != MemoryType::GPU)
             {
                 l_Buffer.Mapped = static_cast<std::byte*>(Memory::Allocate(static_cast<std::size_t>(description.Size), MemoryTag::Renderer));
@@ -221,7 +222,7 @@ namespace Trinity
             TR_CORE_ASSERT(description.Width != 0 && description.Height != 0 && description.MipLevels != 0, "Texture '{}' has a zero size or no mips.", description.DebugName);
             TR_CORE_ASSERT(description.TextureFormat != Format::Unknown, "Texture '{}' has no format.", description.DebugName);
 
-            return m_Textures.Add({ description.Width, description.Height, description.TextureFormat });
+            return m_Textures.Add({ description.Width, description.Height, description.TextureFormat, description.Usage });
         }
 
         void NullDevice::DestroyTexture(TextureHandle texture)
@@ -233,6 +234,39 @@ namespace Trinity
 
             [[maybe_unused]] const std::optional<NullTexture> l_Texture = m_Textures.Remove(texture);
             TR_CORE_ASSERT(l_Texture.has_value(), "DestroyTexture on a texture that was already destroyed.");
+        }
+
+        // Nothing reads them, so a resource's slot in the handle pool serves as its index
+        std::uint32_t NullDevice::GetShaderResourceIndex(BufferHandle buffer)
+        {
+            const NullBuffer* l_Buffer = m_Buffers.Get(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "GetShaderResourceIndex on a destroyed or invalid buffer.");
+
+            return l_Buffer != nullptr && HasFlag(l_Buffer->Usage, BufferUsage::ShaderResource) ? buffer.Index : c_NoBindlessIndex;
+        }
+
+        std::uint32_t NullDevice::GetUnorderedAccessIndex(BufferHandle buffer)
+        {
+            const NullBuffer* l_Buffer = m_Buffers.Get(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid buffer.");
+
+            return l_Buffer != nullptr && HasFlag(l_Buffer->Usage, BufferUsage::UnorderedAccess) ? buffer.Index : c_NoBindlessIndex;
+        }
+
+        std::uint32_t NullDevice::GetShaderResourceIndex(TextureHandle texture)
+        {
+            const NullTexture* l_Texture = m_Textures.Get(texture);
+            TR_CORE_ASSERT(l_Texture != nullptr, "GetShaderResourceIndex on a destroyed or invalid texture.");
+
+            return l_Texture != nullptr && HasFlag(l_Texture->Usage, TextureUsage::ShaderResource) ? texture.Index : c_NoBindlessIndex;
+        }
+
+        std::uint32_t NullDevice::GetUnorderedAccessIndex(TextureHandle texture)
+        {
+            const NullTexture* l_Texture = m_Textures.Get(texture);
+            TR_CORE_ASSERT(l_Texture != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid texture.");
+
+            return l_Texture != nullptr && HasFlag(l_Texture->Usage, TextureUsage::UnorderedAccess) ? texture.Index : c_NoBindlessIndex;
         }
 
         PipelineHandle NullDevice::CreateGraphicsPipeline([[maybe_unused]] const GraphicsPipelineDescription& description)

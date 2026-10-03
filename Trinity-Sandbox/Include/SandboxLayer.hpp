@@ -14,6 +14,7 @@ public:
     void OnDetach() override;
     void OnUpdate(Trinity::Timestep timestep) override;
     void OnEvent(Trinity::Event& event) override;
+    void OnRender(Trinity::RHI::CommandList& commands) override;
 
 private:
     bool OnKeyPressed(Trinity::KeyPressedEvent& event);
@@ -27,6 +28,8 @@ private:
     void TestRHI();
     void TestResources();
     void TestStaleHandle();
+    void CreateTriangle();
+    void DestroyTriangle();
     void StartAsyncReads();
     void CheckAsyncReads();
 
@@ -44,6 +47,10 @@ private:
 
     std::atomic<std::uint32_t> m_FrameJobsRun{ 0 };
     std::atomic<std::uint32_t> m_FrameJobMismatches{ 0 };
+
+    Trinity::RHI::PipelineHandle m_TrianglePipeline;
+    Trinity::RHI::BufferHandle m_TriangleVertices;
+    std::uint32_t m_TriangleVertexIndex = Trinity::RHI::c_NoBindlessIndex;
 
     float m_ClearHue = 0.0f;
     float m_SecondsSinceReport = 0.0f;

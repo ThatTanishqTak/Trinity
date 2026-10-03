@@ -11,6 +11,7 @@
 
 namespace Trinity
 {
+    class LayerStack;
     class Window;
 
     // Clears the window every frame, or a window-sized offscreen target when there is no window to present to
@@ -23,13 +24,14 @@ namespace Trinity
         Renderer(const Renderer&) = delete;
         Renderer& operator=(const Renderer&) = delete;
 
-        void RenderFrame();
+        void RenderFrame(LayerStack& layers);
 
         void SetClearColor(const std::array<float, 4>& color) { m_ClearColor = color; }
 
         void SetVSync(bool enabled);
         [[nodiscard]] bool IsVSync() const;
 
+        [[nodiscard]] RHI::Format GetTargetFormat() const;
         [[nodiscard]] bool IsPresenting() const { return m_SwapChain != nullptr; }
         [[nodiscard]] std::uint64_t GetFrameCount() const { return m_FrameCount; }
 

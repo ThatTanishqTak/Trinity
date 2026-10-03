@@ -1,4 +1,15 @@
-// The first triangle. Positions and colours come from the vertex index until the vertex buffer is read through a bindless index
+// The first triangle, its vertices read from a buffer through a bindless index
+#include "Bindless.slang"
+
+struct PushData
+{
+    DescriptorHandle<ByteAddressBuffer> Vertices;
+};
+
+[[vk::push_constant]] ConstantBuffer<PushData> g_Push;
+
+// Each vertex is a float4 position followed by a float4 colour
+static const uint c_VertexStride = 32;
 
 struct VertexOutput
 {
@@ -6,16 +17,14 @@ struct VertexOutput
     float3 Color : COLOR0;
 };
 
-// Counter-clockwise with Y up
-static const float2 c_Positions[3] = { float2(0.0, 0.5), float2(-0.5, -0.5), float2(0.5, -0.5) };
-static const float3 c_Colors[3] = { float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, 0.0, 1.0) };
-
 [shader("vertex")]
-VertexOutput VertexMain(uint vertexIndex : SV_VertexID)
+VertexOutput VertexMain(uint vertexIndex: SV_VertexID)
 {
+    ByteAddressBuffer l_Vertices = g_Push.Vertices;
+
     VertexOutput l_Output;
-    l_Output.Position = float4(c_Positions[vertexIndex], 0.0, 1.0);
-    l_Output.Color = c_Colors[vertexIndex];
+    l_Output.Position = l_Vertices.Load<float4>(vertexIndex * c_VertexStride);
+    l_Output.Color = l_Vertices.Load<float4>(vertexIndex * c_VertexStride + 16).rgb;
 
     return l_Output;
 }

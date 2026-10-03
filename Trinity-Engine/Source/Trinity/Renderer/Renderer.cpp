@@ -1,6 +1,7 @@
 #include "Trinity/Renderer/Renderer.hpp"
 
 #include "Trinity/Core/ConsoleVariable.hpp"
+#include "Trinity/Core/LayerStack.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Core/Window.hpp"
@@ -59,7 +60,7 @@ namespace Trinity
         m_Device.WaitIdle();
     }
 
-    void Renderer::RenderFrame()
+    void Renderer::RenderFrame(LayerStack& layers)
     {
         TR_PROFILE_FUNCTION();
 
@@ -82,6 +83,20 @@ namespace Trinity
             RHI::RenderingDescription l_Rendering;
             l_Rendering.ColorAttachments = l_Attachments;
             l_Commands.BeginRendering(l_Rendering);
+
+            const std::uint32_t l_Width = m_SwapChain ? m_SwapChain->GetWidth() : std::max(m_TargetWidth, 1u);
+            const std::uint32_t l_Height = m_SwapChain ? m_SwapChain->GetHeight() : std::max(m_TargetHeight, 1u);
+            l_Commands.SetViewport({ 0.0f, 0.0f, static_cast<float>(l_Width), static_cast<float>(l_Height), 0.0f, 1.0f });
+            l_Commands.SetScissor({ 0, 0, l_Width, l_Height });
+
+            {
+                TR_PROFILE_SCOPE("LayerStack::OnRender");
+                for (const Scope<Layer>& it_Layer : layers)
+                {
+                    it_Layer->OnRender(l_Commands);
+                }
+            }
+
             l_Commands.EndRendering();
 
             if (m_SwapChain)
@@ -100,6 +115,11 @@ namespace Trinity
         ++m_FrameCount;
         ++m_FramesSinceReport;
         ReportFrameRate();
+    }
+
+    RHI::Format Renderer::GetTargetFormat() const
+    {
+        return m_SwapChain ? m_SwapChain->GetFormat() : RHI::Format::BGRA8Unorm;
     }
 
     void Renderer::SetVSync(bool enabled)

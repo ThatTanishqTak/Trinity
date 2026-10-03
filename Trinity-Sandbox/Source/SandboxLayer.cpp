@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <iterator>
@@ -32,6 +33,22 @@ namespace
     constexpr std::uint32_t c_BuffersPerFrame = 50;
     constexpr float c_ClearCycleSeconds = 10.0f;
     constexpr std::array<float, 4> c_TestClearColor{ 0.2f, 0.4f, 0.6f, 1.0f };
+
+    struct TriangleVertex
+    {
+        std::array<float, 4> Position;
+        std::array<float, 4> Color;
+    };
+
+    // Counter-clockwise with Y up, laid out as Triangle.slang reads it
+    constexpr std::array<TriangleVertex, 3> c_TriangleVertices
+    { {
+        { { 0.0f, 0.5f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { -0.5f, -0.5f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { 0.5f, -0.5f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
+    } };
+
+    static_assert(sizeof(TriangleVertex) == 32);
 
     std::string GetAsyncFilePath(std::uint32_t index)
     {
@@ -129,6 +146,7 @@ void SandboxLayer::OnAttach()
         TestStaleHandle();
     }
 
+    CreateTriangle();
     StartAsyncReads();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
@@ -148,6 +166,8 @@ void SandboxLayer::OnDetach()
     m_Probe = std::vector<std::uint32_t>();
 
     m_AsyncReads.clear();
+
+    DestroyTriangle();
 
     TR_INFO("Ran {} frame job(s) on frame memory; {} saw it change underneath them", m_FrameJobsRun.load(), m_FrameJobMismatches.load());
 }
@@ -198,6 +218,21 @@ void SandboxLayer::OnEvent(Trinity::Event& event)
 
     Trinity::EventDispatcher l_Dispatcher(event);
     l_Dispatcher.Dispatch<Trinity::KeyPressedEvent>(TR_BIND_EVENT_FN(OnKeyPressed));
+}
+
+void SandboxLayer::OnRender(Trinity::RHI::CommandList& commands)
+{
+    if (!m_TrianglePipeline)
+    {
+        return;
+    }
+
+    // The push constants hold a Slang DescriptorHandle, two 32-bit values of which the first is the index
+    const std::array<std::uint32_t, 2> l_PushData{ m_TriangleVertexIndex, 0 };
+
+    commands.SetPipeline(m_TrianglePipeline);
+    commands.PushConstants(std::as_bytes(std::span(l_PushData)));
+    commands.Draw(3, 1, 0, 0);
 }
 
 bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
@@ -755,6 +790,80 @@ void SandboxLayer::TestStaleHandle()
     const std::size_t l_Size = l_Device.GetMappedData(l_Buffer).size();
 
     TR_ERROR("Trinity::RHI: the stale handle did not assert, since asserts are off in this configuration, and mapped {}", Trinity::Memory::FormatBytes(l_Size));
+}
+
+// Builds the pipeline from the shader blobs and uploads the vertices into a GPU buffer that the vertex shader reads through its bindless index
+void SandboxLayer::CreateTriangle()
+{
+    TR_PROFILE_FUNCTION();
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const std::string_view l_Extension = l_Device.GetInfo().API == Trinity::GraphicsAPI::D3D12 ? "dxil" : "spv";
+
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_VertexShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/Triangle.VertexMain.{}", l_Extension));
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_PixelShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/Triangle.PixelMain.{}", l_Extension));
+    if (!l_VertexShader || !l_PixelShader)
+    {
+        TR_INFO("Triangle: no {} shaders under /engine/shaders, so nothing is drawn", l_Extension);
+
+        return;
+    }
+
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ Trinity::Application::Get().GetRenderer().GetTargetFormat() };
+
+    Trinity::RHI::GraphicsPipelineDescription l_PipelineDescription;
+    l_PipelineDescription.VertexShader = { *l_VertexShader, "VertexMain" };
+    l_PipelineDescription.PixelShader = { *l_PixelShader, "PixelMain" };
+    l_PipelineDescription.ColorFormats = l_ColorFormats;
+    l_PipelineDescription.DebugName = "Sandbox triangle";
+
+    Trinity::RHI::BufferDescription l_VertexDescription;
+    l_VertexDescription.Size = sizeof(c_TriangleVertices);
+    l_VertexDescription.Usage = Trinity::RHI::BufferUsage::ShaderResource | Trinity::RHI::BufferUsage::CopyDestination;
+    l_VertexDescription.DebugName = "Sandbox triangle vertices";
+
+    Trinity::RHI::BufferDescription l_StagingDescription;
+    l_StagingDescription.Size = sizeof(c_TriangleVertices);
+    l_StagingDescription.Memory = Trinity::RHI::MemoryType::Upload;
+    l_StagingDescription.DebugName = "Sandbox triangle staging";
+
+    m_TrianglePipeline = l_Device.CreateGraphicsPipeline(l_PipelineDescription);
+    m_TriangleVertices = l_Device.CreateBuffer(l_VertexDescription);
+    const Trinity::RHI::BufferHandle l_Staging = l_Device.CreateBuffer(l_StagingDescription);
+    m_TriangleVertexIndex = m_TriangleVertices ? l_Device.GetShaderResourceIndex(m_TriangleVertices) : Trinity::RHI::c_NoBindlessIndex;
+    if (!m_TrianglePipeline || !l_Staging || m_TriangleVertexIndex == Trinity::RHI::c_NoBindlessIndex)
+    {
+        TR_ERROR("Triangle: could not create the pipeline, the vertex buffer or its bindless index");
+
+        l_Device.DestroyBuffer(l_Staging);
+        DestroyTriangle();
+
+        return;
+    }
+
+    const std::span<std::byte> l_Mapped = l_Device.GetMappedData(l_Staging);
+    std::memcpy(l_Mapped.data(), c_TriangleVertices.data(), sizeof(c_TriangleVertices));
+
+    Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+    l_Commands.BufferBarrier(m_TriangleVertices, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::CopyDestination);
+    l_Commands.CopyBuffer(l_Staging, 0, m_TriangleVertices, 0, sizeof(c_TriangleVertices));
+    l_Commands.BufferBarrier(m_TriangleVertices, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::ShaderResource);
+    l_Device.EndFrame();
+
+    l_Device.DestroyBuffer(l_Staging);
+
+    TR_INFO("Triangle: {} pipeline built from {} and {} of {}, vertices at bindless index {}", Trinity::ToString(l_Device.GetInfo().API), Trinity::Memory::FormatBytes(l_VertexShader->size()), Trinity::Memory::FormatBytes(l_PixelShader->size()), l_Extension, m_TriangleVertexIndex);
+}
+
+void SandboxLayer::DestroyTriangle()
+{
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+
+    l_Device.DestroyPipeline(m_TrianglePipeline);
+    l_Device.DestroyBuffer(m_TriangleVertices);
+    m_TrianglePipeline = {};
+    m_TriangleVertices = {};
+    m_TriangleVertexIndex = Trinity::RHI::c_NoBindlessIndex;
 }
 
 void SandboxLayer::StartAsyncReads()

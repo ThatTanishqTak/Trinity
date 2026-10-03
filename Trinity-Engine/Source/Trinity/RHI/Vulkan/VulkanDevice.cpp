@@ -429,6 +429,100 @@ namespace Trinity
                 }
             }
 
+            VkPrimitiveTopology ToVkTopology(PrimitiveTopology topology)
+            {
+                switch (topology)
+                {
+                    case PrimitiveTopology::TriangleStrip:
+                    {
+                        return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+                    }
+                    case PrimitiveTopology::LineList:
+                    {
+                        return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+                    }
+                    case PrimitiveTopology::PointList:
+                    {
+                        return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+                    }
+                    default:
+                    {
+                        return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                    }
+                }
+            }
+
+            VkCullModeFlags ToVkCullMode(CullMode cull)
+            {
+                switch (cull)
+                {
+                    case CullMode::Front:
+                    {
+                        return VK_CULL_MODE_FRONT_BIT;
+                    }
+                    case CullMode::Back:
+                    {
+                        return VK_CULL_MODE_BACK_BIT;
+                    }
+                    default:
+                    {
+                        return VK_CULL_MODE_NONE;
+                    }
+                }
+            }
+
+            VkCompareOp ToVkCompareOp(CompareOp compare)
+            {
+                switch (compare)
+                {
+                    case CompareOp::Never:
+                    {
+                        return VK_COMPARE_OP_NEVER;
+                    }
+                    case CompareOp::Less:
+                    {
+                        return VK_COMPARE_OP_LESS;
+                    }
+                    case CompareOp::Equal:
+                    {
+                        return VK_COMPARE_OP_EQUAL;
+                    }
+                    case CompareOp::LessOrEqual:
+                    {
+                        return VK_COMPARE_OP_LESS_OR_EQUAL;
+                    }
+                    case CompareOp::Greater:
+                    {
+                        return VK_COMPARE_OP_GREATER;
+                    }
+                    case CompareOp::NotEqual:
+                    {
+                        return VK_COMPARE_OP_NOT_EQUAL;
+                    }
+                    case CompareOp::GreaterOrEqual:
+                    {
+                        return VK_COMPARE_OP_GREATER_OR_EQUAL;
+                    }
+                    default:
+                    {
+                        return VK_COMPARE_OP_ALWAYS;
+                    }
+                }
+            }
+
+            // The bindings Slang gives descriptor handles when Bindless.slang turns off mutable descriptors
+            constexpr std::uint32_t c_SamplerBinding = 0;
+            constexpr std::uint32_t c_SampledImageBinding = 2;
+            constexpr std::uint32_t c_StorageImageBinding = 3;
+            constexpr std::uint32_t c_StorageBufferBinding = 7;
+
+            struct BindlessLimit
+            {
+                std::string_view Name;
+                std::uint32_t Allowed = 0;
+                std::uint32_t Needed = 0;
+            };
+
             VkAttachmentStoreOp ToVkStoreOp(StoreOp store)
             {
                 return store == StoreOp::Store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -508,6 +602,10 @@ namespace Trinity
 
             m_CommandBuffer = commandBuffer;
             m_Rendering = false;
+            m_HasPipeline = false;
+
+            const VkDescriptorSet l_Set = m_Device.GetBindlessSet();
+            vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
         }
 
         void VulkanCommandList::End()
@@ -650,31 +748,54 @@ namespace Trinity
 
             vkCmdEndRendering(m_CommandBuffer);
             m_Rendering = false;
+            m_HasPipeline = false;
         }
 
-        void VulkanCommandList::SetPipeline([[maybe_unused]] PipelineHandle pipeline)
+        void VulkanCommandList::SetPipeline(PipelineHandle pipeline)
         {
+            TR_CORE_ASSERT(m_Rendering, "SetPipeline is recorded inside rendering.");
 
+            const VulkanPipeline* l_Pipeline = m_Device.GetPipeline(pipeline);
+            TR_CORE_ASSERT(l_Pipeline != nullptr, "SetPipeline with a destroyed or invalid pipeline.");
+            if (l_Pipeline == nullptr)
+            {
+                return;
+            }
+
+            vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, l_Pipeline->Pipeline);
+            m_HasPipeline = true;
         }
 
-        void VulkanCommandList::SetViewport([[maybe_unused]] const Viewport& viewport)
+        // A negative height turns Vulkan's downward Y around, so clip space has Y up and the same winding as on D3D12
+        void VulkanCommandList::SetViewport(const Viewport& viewport)
         {
+            TR_CORE_ASSERT(m_Rendering, "SetViewport is recorded inside rendering.");
 
+            const VkViewport l_Viewport{ viewport.X, viewport.Y + viewport.Height, viewport.Width, -viewport.Height, viewport.MinDepth, viewport.MaxDepth };
+            vkCmdSetViewport(m_CommandBuffer, 0, 1, &l_Viewport);
         }
 
-        void VulkanCommandList::SetScissor([[maybe_unused]] const Rect& scissor)
+        void VulkanCommandList::SetScissor(const Rect& scissor)
         {
+            TR_CORE_ASSERT(m_Rendering, "SetScissor is recorded inside rendering.");
 
+            const VkRect2D l_Scissor{ { scissor.X, scissor.Y }, { scissor.Width, scissor.Height } };
+            vkCmdSetScissor(m_CommandBuffer, 0, 1, &l_Scissor);
         }
 
-        void VulkanCommandList::PushConstants([[maybe_unused]] std::span<const std::byte> data)
+        void VulkanCommandList::PushConstants(std::span<const std::byte> data)
         {
+            TR_CORE_ASSERT(m_HasPipeline, "PushConstants needs a pipeline.");
+            TR_CORE_ASSERT(data.size() <= c_MaxPushConstantSize && data.size() % 4 == 0, "Push constants are whole 32-bit values, at most c_MaxPushConstantSize bytes.");
 
+            vkCmdPushConstants(m_CommandBuffer, m_Device.GetPipelineLayout(), VK_SHADER_STAGE_ALL, 0, static_cast<std::uint32_t>(data.size()), data.data());
         }
 
-        void VulkanCommandList::Draw([[maybe_unused]] std::uint32_t vertexCount, [[maybe_unused]] std::uint32_t instanceCount, [[maybe_unused]] std::uint32_t firstVertex, [[maybe_unused]] std::uint32_t firstInstance)
+        void VulkanCommandList::Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance)
         {
+            TR_CORE_ASSERT(m_HasPipeline, "Draw needs a pipeline.");
 
+            vkCmdDraw(m_CommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
         }
 
         void VulkanCommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
@@ -746,14 +867,19 @@ namespace Trinity
             {
                 vkDeviceWaitIdle(m_Device);
 
-                if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0)
+                if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0)
                 {
-                    TR_CORE_WARN("Vulkan: the device was destroyed with {} buffer(s) and {} texture(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount());
+                    TR_CORE_WARN("Vulkan: the device was destroyed with {} buffer(s), {} texture(s) and {} pipeline(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount());
                 }
 
                 m_Releases.ReleaseAll([this](const VulkanRelease& release) { Release(release); });
-                m_Buffers.ForEach([this](const VulkanBuffer& buffer) { Release({ buffer.Buffer, VK_NULL_HANDLE, VK_NULL_HANDLE, buffer.Allocation }); });
-                m_Textures.ForEach([this](const VulkanTexture& texture) { Release({ VK_NULL_HANDLE, texture.Image, texture.AttachmentView, texture.Allocation }); });
+                m_Buffers.ForEach([this](const VulkanBuffer& buffer) { Release(ToRelease(buffer)); });
+                m_Textures.ForEach([this](const VulkanTexture& texture) { Release(ToRelease(texture)); });
+                m_Pipelines.ForEach([this](const VulkanPipeline& pipeline) { vkDestroyPipeline(m_Device, pipeline.Pipeline, nullptr); });
+
+                vkDestroyPipelineLayout(m_Device, m_PipelineLayout, nullptr);
+                vkDestroyDescriptorPool(m_Device, m_BindlessPool, nullptr);
+                vkDestroyDescriptorSetLayout(m_Device, m_BindlessLayout, nullptr);
 
                 for (const FrameContext& it_Frame : m_Frames)
                 {
@@ -803,7 +929,7 @@ namespace Trinity
                 return false;
             }
 
-            return CreateInstance(specification, l_LoaderVersion, error) && CreateLogicalDevice(error) && CreateAllocator(error) && CreateFrames(error);
+            return CreateInstance(specification, l_LoaderVersion, error) && CreateLogicalDevice(error) && CreateAllocator(error) && CreateFrames(error) && CreateBindless(error);
         }
 
         bool VulkanDevice::CreateInstance(const DeviceSpecification& specification, std::uint32_t loaderVersion, std::string& error)
@@ -1095,6 +1221,108 @@ namespace Trinity
             return true;
         }
 
+        // One set holds every descriptor, and every pipeline shares its layout and the push constant range, so the set is bound once per frame
+        bool VulkanDevice::CreateBindless(std::string& error)
+        {
+            VkPhysicalDeviceVulkan12Properties l_Limits = MakeInfo<VkPhysicalDeviceVulkan12Properties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES);
+            VkPhysicalDeviceProperties2 l_Properties = MakeInfo<VkPhysicalDeviceProperties2>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2);
+            l_Properties.pNext = &l_Limits;
+            vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &l_Properties);
+
+            const std::array<BindlessLimit, 5> l_Checks
+            { {
+                { "samplers", std::min(l_Limits.maxPerStageDescriptorUpdateAfterBindSamplers, l_Limits.maxDescriptorSetUpdateAfterBindSamplers), c_BindlessSamplerCapacity },
+                { "sampled images", std::min(l_Limits.maxPerStageDescriptorUpdateAfterBindSampledImages, l_Limits.maxDescriptorSetUpdateAfterBindSampledImages), c_BindlessResourceCapacity },
+                { "storage images", std::min(l_Limits.maxPerStageDescriptorUpdateAfterBindStorageImages, l_Limits.maxDescriptorSetUpdateAfterBindStorageImages), c_BindlessResourceCapacity },
+                { "storage buffers", std::min(l_Limits.maxPerStageDescriptorUpdateAfterBindStorageBuffers, l_Limits.maxDescriptorSetUpdateAfterBindStorageBuffers), c_BindlessResourceCapacity },
+                { "descriptors per stage", l_Limits.maxPerStageUpdateAfterBindResources, c_BindlessSamplerCapacity + 3 * c_BindlessResourceCapacity }
+            } };
+
+            for (const BindlessLimit& it_Check : l_Checks)
+            {
+                if (it_Check.Allowed < it_Check.Needed)
+                {
+                    error = std::format("{} allows {} bindless {}, and the engine needs {}", m_Info.AdapterName, it_Check.Allowed, it_Check.Name, it_Check.Needed);
+
+                    return false;
+                }
+            }
+
+            const std::array<VkDescriptorSetLayoutBinding, 4> l_Bindings
+            { {
+                { c_SamplerBinding, VK_DESCRIPTOR_TYPE_SAMPLER, c_BindlessSamplerCapacity, VK_SHADER_STAGE_ALL, nullptr },
+                { c_SampledImageBinding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, c_BindlessResourceCapacity, VK_SHADER_STAGE_ALL, nullptr },
+                { c_StorageImageBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, c_BindlessResourceCapacity, VK_SHADER_STAGE_ALL, nullptr },
+                { c_StorageBufferBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, c_BindlessResourceCapacity, VK_SHADER_STAGE_ALL, nullptr }
+            } };
+
+            constexpr VkDescriptorBindingFlags c_BindingFlags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT;
+            std::array<VkDescriptorBindingFlags, 4> l_Flags{};
+            l_Flags.fill(c_BindingFlags);
+
+            VkDescriptorSetLayoutBindingFlagsCreateInfo l_BindingFlags = MakeInfo<VkDescriptorSetLayoutBindingFlagsCreateInfo>(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO);
+            l_BindingFlags.bindingCount = static_cast<std::uint32_t>(l_Flags.size());
+            l_BindingFlags.pBindingFlags = l_Flags.data();
+
+            VkDescriptorSetLayoutCreateInfo l_Layout = MakeInfo<VkDescriptorSetLayoutCreateInfo>(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO);
+            l_Layout.pNext = &l_BindingFlags;
+            l_Layout.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+            l_Layout.bindingCount = static_cast<std::uint32_t>(l_Bindings.size());
+            l_Layout.pBindings = l_Bindings.data();
+
+            VkResult l_Result = vkCreateDescriptorSetLayout(m_Device, &l_Layout, nullptr, &m_BindlessLayout);
+            if (l_Result == VK_SUCCESS)
+            {
+                const std::array<VkDescriptorPoolSize, 4> l_Sizes
+                { {
+                    { VK_DESCRIPTOR_TYPE_SAMPLER, c_BindlessSamplerCapacity },
+                    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, c_BindlessResourceCapacity },
+                    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, c_BindlessResourceCapacity },
+                    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, c_BindlessResourceCapacity }
+                } };
+
+                VkDescriptorPoolCreateInfo l_Pool = MakeInfo<VkDescriptorPoolCreateInfo>(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO);
+                l_Pool.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+                l_Pool.maxSets = 1;
+                l_Pool.poolSizeCount = static_cast<std::uint32_t>(l_Sizes.size());
+                l_Pool.pPoolSizes = l_Sizes.data();
+                l_Result = vkCreateDescriptorPool(m_Device, &l_Pool, nullptr, &m_BindlessPool);
+            }
+
+            if (l_Result == VK_SUCCESS)
+            {
+                VkDescriptorSetAllocateInfo l_Allocate = MakeInfo<VkDescriptorSetAllocateInfo>(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO);
+                l_Allocate.descriptorPool = m_BindlessPool;
+                l_Allocate.descriptorSetCount = 1;
+                l_Allocate.pSetLayouts = &m_BindlessLayout;
+                l_Result = vkAllocateDescriptorSets(m_Device, &l_Allocate, &m_BindlessSet);
+            }
+
+            if (l_Result == VK_SUCCESS)
+            {
+                const VkPushConstantRange l_PushConstants{ VK_SHADER_STAGE_ALL, 0, c_MaxPushConstantSize };
+
+                VkPipelineLayoutCreateInfo l_PipelineLayout = MakeInfo<VkPipelineLayoutCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO);
+                l_PipelineLayout.setLayoutCount = 1;
+                l_PipelineLayout.pSetLayouts = &m_BindlessLayout;
+                l_PipelineLayout.pushConstantRangeCount = 1;
+                l_PipelineLayout.pPushConstantRanges = &l_PushConstants;
+                l_Result = vkCreatePipelineLayout(m_Device, &l_PipelineLayout, nullptr, &m_PipelineLayout);
+            }
+
+            if (l_Result != VK_SUCCESS)
+            {
+                error = std::format("the bindless descriptor set could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+
+                return false;
+            }
+
+            SetDebugName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<std::uint64_t>(m_BindlessSet), "Bindless");
+            m_ResourceIndices.Reset(c_BindlessResourceCapacity);
+
+            return true;
+        }
+
         VkImageView VulkanDevice::CreateAttachmentView(VkImage image, Format format)
         {
             VkImageViewCreateInfo l_Create = MakeInfo<VkImageViewCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO);
@@ -1115,8 +1343,119 @@ namespace Trinity
             return l_View;
         }
 
+        VkImageView VulkanDevice::CreateSampledView(VkImage image, Format format, std::uint32_t mipLevels)
+        {
+            VkImageViewCreateInfo l_Create = MakeInfo<VkImageViewCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO);
+            l_Create.image = image;
+            l_Create.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            l_Create.format = ToVkFormat(format);
+            l_Create.subresourceRange = { GetAspect(format), 0, mipLevels, 0, 1 };
+
+            VkImageView l_View = VK_NULL_HANDLE;
+            const VkResult l_Result = vkCreateImageView(m_Device, &l_Create, nullptr, &l_View);
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: a sampled view of a {} image could not be created ({})", ToString(format), FormatResult(l_Result));
+
+                return VK_NULL_HANDLE;
+            }
+
+            return l_View;
+        }
+
+        std::uint32_t VulkanDevice::AddBufferDescriptor(VkBuffer buffer)
+        {
+            const std::uint32_t l_Index = m_ResourceIndices.Allocate();
+            if (l_Index == c_NoBindlessIndex)
+            {
+                TR_CORE_ERROR("Vulkan: all {} bindless resource indices are in use", c_BindlessResourceCapacity);
+
+                return c_NoBindlessIndex;
+            }
+
+            const VkDescriptorBufferInfo l_Info{ buffer, 0, VK_WHOLE_SIZE };
+
+            VkWriteDescriptorSet l_Write = MakeInfo<VkWriteDescriptorSet>(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET);
+            l_Write.dstSet = m_BindlessSet;
+            l_Write.dstBinding = c_StorageBufferBinding;
+            l_Write.dstArrayElement = l_Index;
+            l_Write.descriptorCount = 1;
+            l_Write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            l_Write.pBufferInfo = &l_Info;
+            vkUpdateDescriptorSets(m_Device, 1, &l_Write, 0, nullptr);
+
+            return l_Index;
+        }
+
+        std::uint32_t VulkanDevice::AddImageDescriptor(std::uint32_t binding, VkDescriptorType type, VkImageView view, VkImageLayout layout)
+        {
+            if (view == VK_NULL_HANDLE)
+            {
+                return c_NoBindlessIndex;
+            }
+
+            const std::uint32_t l_Index = m_ResourceIndices.Allocate();
+            if (l_Index == c_NoBindlessIndex)
+            {
+                TR_CORE_ERROR("Vulkan: all {} bindless resource indices are in use", c_BindlessResourceCapacity);
+
+                return c_NoBindlessIndex;
+            }
+
+            const VkDescriptorImageInfo l_Info{ VK_NULL_HANDLE, view, layout };
+
+            VkWriteDescriptorSet l_Write = MakeInfo<VkWriteDescriptorSet>(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET);
+            l_Write.dstSet = m_BindlessSet;
+            l_Write.dstBinding = binding;
+            l_Write.dstArrayElement = l_Index;
+            l_Write.descriptorCount = 1;
+            l_Write.descriptorType = type;
+            l_Write.pImageInfo = &l_Info;
+            vkUpdateDescriptorSets(m_Device, 1, &l_Write, 0, nullptr);
+
+            return l_Index;
+        }
+
+        VulkanDevice::VulkanRelease VulkanDevice::ToRelease(const VulkanBuffer& buffer)
+        {
+            VulkanRelease l_Release;
+            l_Release.Buffer = buffer.Buffer;
+            l_Release.Allocation = buffer.Allocation;
+            l_Release.ShaderResourceIndex = buffer.ShaderResourceIndex;
+            l_Release.UnorderedAccessIndex = buffer.UnorderedAccessIndex;
+
+            return l_Release;
+        }
+
+        VulkanDevice::VulkanRelease VulkanDevice::ToRelease(const VulkanTexture& texture)
+        {
+            VulkanRelease l_Release;
+            l_Release.Image = texture.Image;
+            l_Release.View = texture.AttachmentView;
+            l_Release.Allocation = texture.Allocation;
+            l_Release.SampledView = texture.SampledView;
+            l_Release.ShaderResourceIndex = texture.ShaderResourceIndex;
+            l_Release.UnorderedAccessIndex = texture.UnorderedAccessIndex;
+
+            return l_Release;
+        }
+
+        // An index is only handed out again once the frames that could read it have finished
         void VulkanDevice::Release(const VulkanRelease& release)
         {
+            m_ResourceIndices.Free(release.ShaderResourceIndex);
+            m_ResourceIndices.Free(release.UnorderedAccessIndex);
+
+            if (release.Pipeline != VK_NULL_HANDLE)
+            {
+                vkDestroyPipeline(m_Device, release.Pipeline, nullptr);
+            }
+
+            if (release.SampledView != VK_NULL_HANDLE)
+            {
+                vkDestroyImageView(m_Device, release.SampledView, nullptr);
+            }
+
             if (release.View != VK_NULL_HANDLE)
             {
                 vkDestroyImageView(m_Device, release.View, nullptr);
@@ -1203,6 +1542,17 @@ namespace Trinity
             l_Buffer.Size = description.Size;
             SetDebugName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(l_Buffer.Buffer), description.DebugName);
 
+            // Both views of a buffer are the same storage buffer descriptor, and Slang marks the read-only one NonWritable
+            if (HasFlag(description.Usage, BufferUsage::ShaderResource))
+            {
+                l_Buffer.ShaderResourceIndex = AddBufferDescriptor(l_Buffer.Buffer);
+            }
+
+            if (HasFlag(description.Usage, BufferUsage::UnorderedAccess))
+            {
+                l_Buffer.UnorderedAccessIndex = AddBufferDescriptor(l_Buffer.Buffer);
+            }
+
             return m_Buffers.Add(l_Buffer);
         }
 
@@ -1218,7 +1568,7 @@ namespace Trinity
 
             if (l_Buffer)
             {
-                m_Releases.Push({ l_Buffer->Buffer, VK_NULL_HANDLE, VK_NULL_HANDLE, l_Buffer->Allocation });
+                m_Releases.Push(ToRelease(*l_Buffer));
             }
         }
 
@@ -1271,9 +1621,21 @@ namespace Trinity
             l_Texture.MipLevels = description.MipLevels;
             SetDebugName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(l_Texture.Image), description.DebugName);
 
-            if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil))
+            // Storage images are written one mip at a time, so the unordered access descriptor reuses the attachment view of mip 0
+            if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil) || HasFlag(description.Usage, TextureUsage::UnorderedAccess))
             {
                 l_Texture.AttachmentView = CreateAttachmentView(l_Texture.Image, description.TextureFormat);
+            }
+
+            if (HasFlag(description.Usage, TextureUsage::ShaderResource))
+            {
+                l_Texture.SampledView = CreateSampledView(l_Texture.Image, description.TextureFormat, description.MipLevels);
+                l_Texture.ShaderResourceIndex = AddImageDescriptor(c_SampledImageBinding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, l_Texture.SampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
+
+            if (HasFlag(description.Usage, TextureUsage::UnorderedAccess))
+            {
+                l_Texture.UnorderedAccessIndex = AddImageDescriptor(c_StorageImageBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, l_Texture.AttachmentView, VK_IMAGE_LAYOUT_GENERAL);
             }
 
             return m_Textures.Add(l_Texture);
@@ -1291,7 +1653,7 @@ namespace Trinity
 
             if (l_Texture)
             {
-                m_Releases.Push({ VK_NULL_HANDLE, l_Texture->Image, l_Texture->AttachmentView, l_Texture->Allocation });
+                m_Releases.Push(ToRelease(*l_Texture));
             }
         }
 
@@ -1334,14 +1696,174 @@ namespace Trinity
             m_FrameSignals.push_back(l_Signal);
         }
 
-        PipelineHandle VulkanDevice::CreateGraphicsPipeline([[maybe_unused]] const GraphicsPipelineDescription& description)
+        std::uint32_t VulkanDevice::GetShaderResourceIndex(BufferHandle buffer)
         {
-            return {};
+            const VulkanBuffer* l_Buffer = m_Buffers.Get(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "GetShaderResourceIndex on a destroyed or invalid buffer.");
+
+            return l_Buffer != nullptr ? l_Buffer->ShaderResourceIndex : c_NoBindlessIndex;
         }
 
-        void VulkanDevice::DestroyPipeline([[maybe_unused]] PipelineHandle pipeline)
+        std::uint32_t VulkanDevice::GetUnorderedAccessIndex(BufferHandle buffer)
         {
+            const VulkanBuffer* l_Buffer = m_Buffers.Get(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid buffer.");
 
+            return l_Buffer != nullptr ? l_Buffer->UnorderedAccessIndex : c_NoBindlessIndex;
+        }
+
+        std::uint32_t VulkanDevice::GetShaderResourceIndex(TextureHandle texture)
+        {
+            const VulkanTexture* l_Texture = m_Textures.Get(texture);
+            TR_CORE_ASSERT(l_Texture != nullptr, "GetShaderResourceIndex on a destroyed or invalid texture.");
+
+            return l_Texture != nullptr ? l_Texture->ShaderResourceIndex : c_NoBindlessIndex;
+        }
+
+        std::uint32_t VulkanDevice::GetUnorderedAccessIndex(TextureHandle texture)
+        {
+            const VulkanTexture* l_Texture = m_Textures.Get(texture);
+            TR_CORE_ASSERT(l_Texture != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid texture.");
+
+            return l_Texture != nullptr ? l_Texture->UnorderedAccessIndex : c_NoBindlessIndex;
+        }
+
+        PipelineHandle VulkanDevice::CreateGraphicsPipeline(const GraphicsPipelineDescription& description)
+        {
+            TR_CORE_ASSERT(!description.VertexShader.Code.empty() && !description.PixelShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
+            TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
+
+            const std::array<const ShaderDescription*, 2> l_Shaders{ &description.VertexShader, &description.PixelShader };
+            const std::array<VkShaderStageFlagBits, 2> l_StageBits{ VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT };
+            std::array<std::string, 2> l_EntryPoints{};
+            std::array<VkShaderModule, 2> l_Modules{};
+            std::array<VkPipelineShaderStageCreateInfo, 2> l_Stages{};
+            VkResult l_Result = VK_SUCCESS;
+            for (std::size_t it_Stage = 0; it_Stage < l_Shaders.size() && l_Result == VK_SUCCESS; ++it_Stage)
+            {
+                const std::span<const std::byte> l_Code = l_Shaders[it_Stage]->Code;
+                TR_CORE_ASSERT(l_Code.size() % 4 == 0 && reinterpret_cast<std::uintptr_t>(l_Code.data()) % 4 == 0, "Pipeline '{}' has SPIR-V that is not whole, aligned 32-bit words.", description.DebugName);
+
+                VkShaderModuleCreateInfo l_Module = MakeInfo<VkShaderModuleCreateInfo>(VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO);
+                l_Module.codeSize = l_Code.size();
+                l_Module.pCode = reinterpret_cast<const std::uint32_t*>(l_Code.data());
+                l_Result = vkCreateShaderModule(m_Device, &l_Module, nullptr, &l_Modules[it_Stage]);
+
+                l_EntryPoints[it_Stage] = l_Shaders[it_Stage]->EntryPoint;
+                l_Stages[it_Stage] = MakeInfo<VkPipelineShaderStageCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO);
+                l_Stages[it_Stage].stage = l_StageBits[it_Stage];
+                l_Stages[it_Stage].module = l_Modules[it_Stage];
+                l_Stages[it_Stage].pName = l_EntryPoints[it_Stage].c_str();
+            }
+
+            const VkPipelineVertexInputStateCreateInfo l_VertexInput = MakeInfo<VkPipelineVertexInputStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO);
+
+            VkPipelineInputAssemblyStateCreateInfo l_InputAssembly = MakeInfo<VkPipelineInputAssemblyStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO);
+            l_InputAssembly.topology = ToVkTopology(description.Topology);
+
+            VkPipelineViewportStateCreateInfo l_Viewport = MakeInfo<VkPipelineViewportStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO);
+            l_Viewport.viewportCount = 1;
+            l_Viewport.scissorCount = 1;
+
+            VkPipelineRasterizationStateCreateInfo l_Rasterization = MakeInfo<VkPipelineRasterizationStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO);
+            l_Rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+            l_Rasterization.cullMode = ToVkCullMode(description.Cull);
+            l_Rasterization.frontFace = description.FrontCounterClockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
+            l_Rasterization.lineWidth = 1.0f;
+
+            VkPipelineMultisampleStateCreateInfo l_Multisample = MakeInfo<VkPipelineMultisampleStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO);
+            l_Multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+            VkPipelineDepthStencilStateCreateInfo l_DepthStencil = MakeInfo<VkPipelineDepthStencilStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO);
+            l_DepthStencil.depthTestEnable = description.DepthTest ? VK_TRUE : VK_FALSE;
+            l_DepthStencil.depthWriteEnable = description.DepthWrite ? VK_TRUE : VK_FALSE;
+            l_DepthStencil.depthCompareOp = ToVkCompareOp(description.DepthCompare);
+
+            std::array<VkPipelineColorBlendAttachmentState, c_MaxColorAttachments> l_Blends{};
+            std::array<VkFormat, c_MaxColorAttachments> l_ColorFormats{};
+            const std::uint32_t l_ColorCount = static_cast<std::uint32_t>(std::min<std::size_t>(description.ColorFormats.size(), c_MaxColorAttachments));
+            for (std::uint32_t it_Color = 0; it_Color < l_ColorCount; ++it_Color)
+            {
+                VkPipelineColorBlendAttachmentState& l_Blend = l_Blends[it_Color];
+                l_Blend.blendEnable = description.AlphaBlend ? VK_TRUE : VK_FALSE;
+                l_Blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+                l_Blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                l_Blend.colorBlendOp = VK_BLEND_OP_ADD;
+                l_Blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+                l_Blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                l_Blend.alphaBlendOp = VK_BLEND_OP_ADD;
+                l_Blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+                l_ColorFormats[it_Color] = ToVkFormat(description.ColorFormats[it_Color]);
+            }
+
+            VkPipelineColorBlendStateCreateInfo l_ColorBlend = MakeInfo<VkPipelineColorBlendStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO);
+            l_ColorBlend.attachmentCount = l_ColorCount;
+            l_ColorBlend.pAttachments = l_Blends.data();
+
+            const std::array<VkDynamicState, 2> l_DynamicStates{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+            VkPipelineDynamicStateCreateInfo l_Dynamic = MakeInfo<VkPipelineDynamicStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO);
+            l_Dynamic.dynamicStateCount = static_cast<std::uint32_t>(l_DynamicStates.size());
+            l_Dynamic.pDynamicStates = l_DynamicStates.data();
+
+            VkPipelineRenderingCreateInfo l_Rendering = MakeInfo<VkPipelineRenderingCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO);
+            l_Rendering.colorAttachmentCount = l_ColorCount;
+            l_Rendering.pColorAttachmentFormats = l_ColorFormats.data();
+            l_Rendering.depthAttachmentFormat = description.DepthFormat != Format::Unknown ? ToVkFormat(description.DepthFormat) : VK_FORMAT_UNDEFINED;
+
+            VkGraphicsPipelineCreateInfo l_Create = MakeInfo<VkGraphicsPipelineCreateInfo>(VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO);
+            l_Create.pNext = &l_Rendering;
+            l_Create.stageCount = static_cast<std::uint32_t>(l_Stages.size());
+            l_Create.pStages = l_Stages.data();
+            l_Create.pVertexInputState = &l_VertexInput;
+            l_Create.pInputAssemblyState = &l_InputAssembly;
+            l_Create.pViewportState = &l_Viewport;
+            l_Create.pRasterizationState = &l_Rasterization;
+            l_Create.pMultisampleState = &l_Multisample;
+            l_Create.pDepthStencilState = &l_DepthStencil;
+            l_Create.pColorBlendState = &l_ColorBlend;
+            l_Create.pDynamicState = &l_Dynamic;
+            l_Create.layout = m_PipelineLayout;
+
+            VulkanPipeline l_Pipeline;
+            if (l_Result == VK_SUCCESS)
+            {
+                l_Result = vkCreateGraphicsPipelines(m_Device, VK_NULL_HANDLE, 1, &l_Create, nullptr, &l_Pipeline.Pipeline);
+            }
+
+            for (VkShaderModule it_Module : l_Modules)
+            {
+                vkDestroyShaderModule(m_Device, it_Module, nullptr);
+            }
+
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
+
+                return {};
+            }
+
+            SetDebugName(VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<std::uint64_t>(l_Pipeline.Pipeline), description.DebugName);
+
+            return m_Pipelines.Add(l_Pipeline);
+        }
+
+        void VulkanDevice::DestroyPipeline(PipelineHandle pipeline)
+        {
+            if (!pipeline)
+            {
+                return;
+            }
+
+            const std::optional<VulkanPipeline> l_Pipeline = m_Pipelines.Remove(pipeline);
+            TR_CORE_ASSERT(l_Pipeline.has_value(), "DestroyPipeline on a pipeline that was already destroyed.");
+
+            if (l_Pipeline)
+            {
+                VulkanRelease l_Release;
+                l_Release.Pipeline = l_Pipeline->Pipeline;
+                m_Releases.Push(l_Release);
+            }
         }
 
         Scope<SwapChain> VulkanDevice::CreateSwapChain(const SwapChainSpecification& specification)

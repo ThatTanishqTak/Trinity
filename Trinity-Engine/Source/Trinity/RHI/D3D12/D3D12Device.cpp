@@ -320,6 +320,106 @@ namespace Trinity
             {
                 return store == StoreOp::Store ? D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE : D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_DISCARD;
             }
+
+            D3D12_PRIMITIVE_TOPOLOGY_TYPE ToTopologyType(PrimitiveTopology topology)
+            {
+                switch (topology)
+                {
+                    case PrimitiveTopology::LineList:
+                    {
+                        return D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+                    }
+                    case PrimitiveTopology::PointList:
+                    {
+                        return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+                    }
+                    default:
+                    {
+                        return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+                    }
+                }
+            }
+
+            D3D_PRIMITIVE_TOPOLOGY ToD3DTopology(PrimitiveTopology topology)
+            {
+                switch (topology)
+                {
+                    case PrimitiveTopology::TriangleStrip:
+                    {
+                        return D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+                    }
+                    case PrimitiveTopology::LineList:
+                    {
+                        return D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+                    }
+                    case PrimitiveTopology::PointList:
+                    {
+                        return D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+                    }
+                    default:
+                    {
+                        return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+                    }
+                }
+            }
+
+            D3D12_CULL_MODE ToCullMode(CullMode cull)
+            {
+                switch (cull)
+                {
+                    case CullMode::Front:
+                    {
+                        return D3D12_CULL_MODE_FRONT;
+                    }
+                    case CullMode::Back:
+                    {
+                        return D3D12_CULL_MODE_BACK;
+                    }
+                    default:
+                    {
+                        return D3D12_CULL_MODE_NONE;
+                    }
+                }
+            }
+
+            D3D12_COMPARISON_FUNC ToComparisonFunc(CompareOp compare)
+            {
+                switch (compare)
+                {
+                    case CompareOp::Never:
+                    {
+                        return D3D12_COMPARISON_FUNC_NEVER;
+                    }
+                    case CompareOp::Less:
+                    {
+                        return D3D12_COMPARISON_FUNC_LESS;
+                    }
+                    case CompareOp::Equal:
+                    {
+                        return D3D12_COMPARISON_FUNC_EQUAL;
+                    }
+                    case CompareOp::LessOrEqual:
+                    {
+                        return D3D12_COMPARISON_FUNC_LESS_EQUAL;
+                    }
+                    case CompareOp::Greater:
+                    {
+                        return D3D12_COMPARISON_FUNC_GREATER;
+                    }
+                    case CompareOp::NotEqual:
+                    {
+                        return D3D12_COMPARISON_FUNC_NOT_EQUAL;
+                    }
+                    case CompareOp::GreaterOrEqual:
+                    {
+                        return D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+                    }
+                    default:
+                    {
+                        return D3D12_COMPARISON_FUNC_ALWAYS;
+                    }
+                }
+            }
         }
 
         DXGI_FORMAT ToDXGIFormat(Format format)
@@ -382,12 +482,12 @@ namespace Trinity
             return std::format("HRESULT 0x{:08X}", static_cast<std::uint32_t>(result));
         }
 
-        bool D3D12DescriptorHeap::Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity)
+        bool D3D12DescriptorHeap::Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shaderVisible)
         {
             D3D12_DESCRIPTOR_HEAP_DESC l_Description{};
             l_Description.Type = type;
             l_Description.NumDescriptors = capacity;
-            l_Description.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+            l_Description.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
             if (FAILED(device->CreateDescriptorHeap(&l_Description, IID_PPV_ARGS(&m_Heap))))
             {
                 return false;
@@ -395,30 +495,24 @@ namespace Trinity
 
             m_Start = m_Heap->GetCPUDescriptorHandleForHeapStart();
             m_Increment = device->GetDescriptorHandleIncrementSize(type);
-            m_Capacity = capacity;
+            m_Indices.Reset(capacity);
 
             return true;
         }
 
+        void D3D12DescriptorHeap::Reset()
+        {
+            m_Heap.Reset();
+        }
+
         std::uint32_t D3D12DescriptorHeap::Allocate()
         {
-            if (!m_FreeSlots.empty())
-            {
-                const std::uint32_t l_Index = m_FreeSlots.back();
-                m_FreeSlots.pop_back();
-
-                return l_Index;
-            }
-
-            return m_Next < m_Capacity ? m_Next++ : c_NoDescriptor;
+            return m_Indices.Allocate();
         }
 
         void D3D12DescriptorHeap::Free(std::uint32_t index)
         {
-            if (index != c_NoDescriptor)
-            {
-                m_FreeSlots.push_back(index);
-            }
+            m_Indices.Free(index);
         }
 
         D3D12_CPU_DESCRIPTOR_HANDLE D3D12DescriptorHeap::GetHandle(std::uint32_t index) const
@@ -435,6 +529,11 @@ namespace Trinity
         {
             m_CommandList = commandList;
             m_Rendering = false;
+            m_HasPipeline = false;
+
+            const std::array<ID3D12DescriptorHeap*, 2> l_Heaps{ m_Device.GetResourceHeap(), m_Device.GetSamplerHeap() };
+            m_CommandList->SetDescriptorHeaps(static_cast<UINT>(l_Heaps.size()), l_Heaps.data());
+            m_CommandList->SetGraphicsRootSignature(m_Device.GetRootSignature());
         }
 
         void D3D12CommandList::End()
@@ -563,31 +662,55 @@ namespace Trinity
 
             m_CommandList->EndRenderPass();
             m_Rendering = false;
+            m_HasPipeline = false;
         }
 
-        void D3D12CommandList::SetPipeline([[maybe_unused]] PipelineHandle pipeline)
+        void D3D12CommandList::SetPipeline(PipelineHandle pipeline)
         {
+            TR_CORE_ASSERT(m_Rendering, "SetPipeline is recorded inside rendering.");
 
+            const D3D12Pipeline* l_Pipeline = m_Device.GetPipeline(pipeline);
+            TR_CORE_ASSERT(l_Pipeline != nullptr, "SetPipeline with a destroyed or invalid pipeline.");
+            if (l_Pipeline == nullptr)
+            {
+                return;
+            }
+
+            m_CommandList->SetPipelineState(l_Pipeline->State.Get());
+            m_CommandList->IASetPrimitiveTopology(l_Pipeline->Topology);
+            m_HasPipeline = true;
         }
 
-        void D3D12CommandList::SetViewport([[maybe_unused]] const Viewport& viewport)
+        void D3D12CommandList::SetViewport(const Viewport& viewport)
         {
+            TR_CORE_ASSERT(m_Rendering, "SetViewport is recorded inside rendering.");
 
+            const D3D12_VIEWPORT l_Viewport{ viewport.X, viewport.Y, viewport.Width, viewport.Height, viewport.MinDepth, viewport.MaxDepth };
+            m_CommandList->RSSetViewports(1, &l_Viewport);
         }
 
-        void D3D12CommandList::SetScissor([[maybe_unused]] const Rect& scissor)
+        void D3D12CommandList::SetScissor(const Rect& scissor)
         {
+            TR_CORE_ASSERT(m_Rendering, "SetScissor is recorded inside rendering.");
 
+            const D3D12_RECT l_Scissor{ static_cast<LONG>(scissor.X), static_cast<LONG>(scissor.Y), static_cast<LONG>(scissor.X) + static_cast<LONG>(scissor.Width), static_cast<LONG>(scissor.Y) + static_cast<LONG>(scissor.Height) };
+            m_CommandList->RSSetScissorRects(1, &l_Scissor);
         }
 
-        void D3D12CommandList::PushConstants([[maybe_unused]] std::span<const std::byte> data)
+        // The push constants are root constants at b0, the first parameter of the shared root signature
+        void D3D12CommandList::PushConstants(std::span<const std::byte> data)
         {
+            TR_CORE_ASSERT(m_HasPipeline, "PushConstants needs a pipeline.");
+            TR_CORE_ASSERT(data.size() <= c_MaxPushConstantSize && data.size() % 4 == 0, "Push constants are whole 32-bit values, at most c_MaxPushConstantSize bytes.");
 
+            m_CommandList->SetGraphicsRoot32BitConstants(0, static_cast<UINT>(data.size() / 4), data.data(), 0);
         }
 
-        void D3D12CommandList::Draw([[maybe_unused]] std::uint32_t vertexCount, [[maybe_unused]] std::uint32_t instanceCount, [[maybe_unused]] std::uint32_t firstVertex, [[maybe_unused]] std::uint32_t firstInstance)
+        void D3D12CommandList::Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance)
         {
+            TR_CORE_ASSERT(m_HasPipeline, "Draw needs a pipeline.");
 
+            m_CommandList->DrawInstanced(vertexCount, instanceCount, firstVertex, firstInstance);
         }
 
         void D3D12CommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
@@ -663,17 +786,23 @@ namespace Trinity
                 WaitForFence(m_FrameNumber);
             }
 
-            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0)
+            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0)
             {
-                TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s) and {} texture(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount());
+                TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s), {} texture(s) and {} pipeline(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount());
             }
 
             m_Releases.ReleaseAll([this](D3D12Release& release) { Release(release); });
             m_Buffers.ForEach([](D3D12Buffer& buffer) { buffer.Allocation.Reset(); });
             m_Textures.ForEach([](D3D12Texture& texture) { texture.Allocation.Reset(); });
+            m_Pipelines.ForEach([](D3D12Pipeline& pipeline) { pipeline.State.Reset(); });
             m_Allocator.Reset();
-
+            m_RootSignature.Reset();
+            m_ResourceHeap.Reset();
+            m_SamplerHeap.Reset();
+            m_RenderTargetViews.Reset();
+            m_DepthStencilViews.Reset();
             m_GraphicsList.Reset();
+
             for (FrameContext& it_Frame : m_Frames)
             {
                 it_Frame.Allocator.Reset();
@@ -790,7 +919,7 @@ namespace Trinity
             EnableDebugMessages();
             LogRuntime();
 
-            return CreateAllocator(error) && CreateFrames(error);
+            return CreateAllocator(error) && CreateFrames(error) && CreateBindless(error);
         }
 
         bool D3D12Device::CreateAllocator(std::string& error)
@@ -842,7 +971,7 @@ namespace Trinity
             }
 
             m_FenceEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-            if (m_FenceEvent == nullptr || !m_RenderTargetViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 256) || !m_DepthStencilViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 64))
+            if (m_FenceEvent == nullptr || !m_RenderTargetViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 256, false) || !m_DepthStencilViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 64, false))
             {
                 error = std::format("the fence event and view heaps could not be created on {}", m_Info.AdapterName);
 
@@ -854,6 +983,52 @@ namespace Trinity
 
             BOOL l_Tearing = FALSE;
             m_TearingSupported = SUCCEEDED(m_Factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &l_Tearing, sizeof(l_Tearing))) && l_Tearing == TRUE;
+
+            return true;
+        }
+
+        // Shaders index the two heaps directly, so every pipeline shares one root signature that holds only the push constants
+        bool D3D12Device::CreateBindless(std::string& error)
+        {
+            if (!m_ResourceHeap.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, c_BindlessResourceCapacity, true) || !m_SamplerHeap.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, c_BindlessSamplerCapacity, true))
+            {
+                error = std::format("the shader-visible descriptor heaps could not be created on {}", m_Info.AdapterName);
+
+                return false;
+            }
+
+            D3D12_ROOT_PARAMETER1 l_PushConstants{};
+            l_PushConstants.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+            l_PushConstants.Constants.ShaderRegister = 0;
+            l_PushConstants.Constants.RegisterSpace = 0;
+            l_PushConstants.Constants.Num32BitValues = c_MaxPushConstantSize / 4;
+            l_PushConstants.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+            D3D12_VERSIONED_ROOT_SIGNATURE_DESC l_Description{};
+            l_Description.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+            l_Description.Desc_1_1.NumParameters = 1;
+            l_Description.Desc_1_1.pParameters = &l_PushConstants;
+            l_Description.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED | D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED;
+
+            ComPtr<ID3DBlob> l_Blob;
+            ComPtr<ID3DBlob> l_Errors;
+            HRESULT l_Result = ::D3D12SerializeVersionedRootSignature(&l_Description, &l_Blob, &l_Errors);
+            if (SUCCEEDED(l_Result))
+            {
+                l_Result = m_Device->CreateRootSignature(0, l_Blob->GetBufferPointer(), l_Blob->GetBufferSize(), IID_PPV_ARGS(&m_RootSignature));
+            }
+
+            if (FAILED(l_Result))
+            {
+                const std::string_view l_Reason = l_Errors ? std::string_view(static_cast<const char*>(l_Errors->GetBufferPointer()), l_Errors->GetBufferSize()) : std::string_view();
+                error = std::format("the bindless root signature could not be created on {} ({}{}{})", m_Info.AdapterName, FormatResult(l_Result), l_Reason.empty() ? "" : ": ", l_Reason);
+
+                return false;
+            }
+
+            m_ResourceHeap.GetHeap()->SetName(L"Trinity bindless resources");
+            m_SamplerHeap.GetHeap()->SetName(L"Trinity bindless samplers");
+            m_RootSignature->SetName(L"Trinity bindless root signature");
 
             return true;
         }
@@ -1014,6 +1189,7 @@ namespace Trinity
 
             l_Buffer.Size = description.Size;
             SetDebugName(l_Native, description.DebugName);
+            CreateShaderViews(l_Buffer, description.Usage);
 
             return m_Buffers.Add(std::move(l_Buffer));
         }
@@ -1030,7 +1206,11 @@ namespace Trinity
 
             if (l_Buffer)
             {
-                m_Releases.Push({ std::move(l_Buffer->Allocation), c_NoDescriptor, c_NoDescriptor });
+                D3D12Release l_Release;
+                l_Release.Allocation = std::move(l_Buffer->Allocation);
+                l_Release.ShaderResourceIndex = l_Buffer->ShaderResourceIndex;
+                l_Release.UnorderedAccessIndex = l_Buffer->UnorderedAccessIndex;
+                m_Releases.Push(std::move(l_Release));
             }
         }
 
@@ -1106,6 +1286,8 @@ namespace Trinity
                 CreateViews(l_Texture);
             }
 
+            CreateShaderViews(l_Texture, description.Usage);
+
             return m_Textures.Add(std::move(l_Texture));
         }
 
@@ -1121,7 +1303,13 @@ namespace Trinity
 
             if (l_Texture)
             {
-                m_Releases.Push({ std::move(l_Texture->Allocation), l_Texture->RenderTargetView, l_Texture->DepthStencilView });
+                D3D12Release l_Release;
+                l_Release.Allocation = std::move(l_Texture->Allocation);
+                l_Release.RenderTargetView = l_Texture->RenderTargetView;
+                l_Release.DepthStencilView = l_Texture->DepthStencilView;
+                l_Release.ShaderResourceIndex = l_Texture->ShaderResourceIndex;
+                l_Release.UnorderedAccessIndex = l_Texture->UnorderedAccessIndex;
+                m_Releases.Push(std::move(l_Release));
             }
         }
 
@@ -1153,10 +1341,84 @@ namespace Trinity
             }
         }
 
+        // Buffers get raw views, which is what a ByteAddressBuffer reads and writes
+        void D3D12Device::CreateShaderViews(D3D12Buffer& buffer, BufferUsage usage)
+        {
+            ID3D12Resource* l_Resource = buffer.Allocation->GetResource();
+            const UINT l_Elements = static_cast<UINT>(buffer.Size / 4);
+
+            if (HasFlag(usage, BufferUsage::ShaderResource))
+            {
+                buffer.ShaderResourceIndex = m_ResourceHeap.Allocate();
+                TR_CORE_ASSERT(buffer.ShaderResourceIndex != c_NoDescriptor, "Out of bindless resource indices.");
+                if (buffer.ShaderResourceIndex != c_NoDescriptor)
+                {
+                    D3D12_SHADER_RESOURCE_VIEW_DESC l_View{};
+                    l_View.Format = DXGI_FORMAT_R32_TYPELESS;
+                    l_View.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+                    l_View.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                    l_View.Buffer.NumElements = l_Elements;
+                    l_View.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+                    m_Device->CreateShaderResourceView(l_Resource, &l_View, m_ResourceHeap.GetHandle(buffer.ShaderResourceIndex));
+                }
+            }
+
+            if (HasFlag(usage, BufferUsage::UnorderedAccess))
+            {
+                buffer.UnorderedAccessIndex = m_ResourceHeap.Allocate();
+                TR_CORE_ASSERT(buffer.UnorderedAccessIndex != c_NoDescriptor, "Out of bindless resource indices.");
+                if (buffer.UnorderedAccessIndex != c_NoDescriptor)
+                {
+                    D3D12_UNORDERED_ACCESS_VIEW_DESC l_View{};
+                    l_View.Format = DXGI_FORMAT_R32_TYPELESS;
+                    l_View.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+                    l_View.Buffer.NumElements = l_Elements;
+                    l_View.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+                    m_Device->CreateUnorderedAccessView(l_Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(buffer.UnorderedAccessIndex));
+                }
+            }
+        }
+
+        // The shader resource view covers every mip, and the unordered access view mip 0
+        void D3D12Device::CreateShaderViews(D3D12Texture& texture, TextureUsage usage)
+        {
+            if (HasFlag(usage, TextureUsage::ShaderResource))
+            {
+                texture.ShaderResourceIndex = m_ResourceHeap.Allocate();
+                TR_CORE_ASSERT(texture.ShaderResourceIndex != c_NoDescriptor, "Out of bindless resource indices.");
+                if (texture.ShaderResourceIndex != c_NoDescriptor)
+                {
+                    D3D12_SHADER_RESOURCE_VIEW_DESC l_View{};
+                    l_View.Format = texture.ResourceFormat == DXGI_FORMAT_R32_TYPELESS ? DXGI_FORMAT_R32_FLOAT : texture.ResourceFormat;
+                    l_View.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                    l_View.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                    l_View.Texture2D.MipLevels = texture.MipLevels;
+                    m_Device->CreateShaderResourceView(texture.Resource, &l_View, m_ResourceHeap.GetHandle(texture.ShaderResourceIndex));
+                }
+            }
+
+            if (HasFlag(usage, TextureUsage::UnorderedAccess))
+            {
+                texture.UnorderedAccessIndex = m_ResourceHeap.Allocate();
+                TR_CORE_ASSERT(texture.UnorderedAccessIndex != c_NoDescriptor, "Out of bindless resource indices.");
+                if (texture.UnorderedAccessIndex != c_NoDescriptor)
+                {
+                    D3D12_UNORDERED_ACCESS_VIEW_DESC l_View{};
+                    l_View.Format = texture.ResourceFormat;
+                    l_View.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+                    m_Device->CreateUnorderedAccessView(texture.Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(texture.UnorderedAccessIndex));
+                }
+            }
+        }
+
+        // An index is only handed out again once the frames that could read it have finished
         void D3D12Device::Release(D3D12Release& release)
         {
             m_RenderTargetViews.Free(release.RenderTargetView);
             m_DepthStencilViews.Free(release.DepthStencilView);
+            m_ResourceHeap.Free(release.ShaderResourceIndex);
+            m_ResourceHeap.Free(release.UnorderedAccessIndex);
+            release.Pipeline.Reset();
             release.Allocation.Reset();
         }
 
@@ -1192,14 +1454,113 @@ namespace Trinity
             }
         }
 
-        PipelineHandle D3D12Device::CreateGraphicsPipeline([[maybe_unused]] const GraphicsPipelineDescription& description)
+        std::uint32_t D3D12Device::GetShaderResourceIndex(BufferHandle buffer)
         {
-            return {};
+            const D3D12Buffer* l_Buffer = m_Buffers.Get(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "GetShaderResourceIndex on a destroyed or invalid buffer.");
+
+            return l_Buffer != nullptr ? l_Buffer->ShaderResourceIndex : c_NoBindlessIndex;
         }
 
-        void D3D12Device::DestroyPipeline([[maybe_unused]] PipelineHandle pipeline)
+        std::uint32_t D3D12Device::GetUnorderedAccessIndex(BufferHandle buffer)
         {
+            const D3D12Buffer* l_Buffer = m_Buffers.Get(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid buffer.");
 
+            return l_Buffer != nullptr ? l_Buffer->UnorderedAccessIndex : c_NoBindlessIndex;
+        }
+
+        std::uint32_t D3D12Device::GetShaderResourceIndex(TextureHandle texture)
+        {
+            const D3D12Texture* l_Texture = m_Textures.Get(texture);
+            TR_CORE_ASSERT(l_Texture != nullptr, "GetShaderResourceIndex on a destroyed or invalid texture.");
+
+            return l_Texture != nullptr ? l_Texture->ShaderResourceIndex : c_NoBindlessIndex;
+        }
+
+        std::uint32_t D3D12Device::GetUnorderedAccessIndex(TextureHandle texture)
+        {
+            const D3D12Texture* l_Texture = m_Textures.Get(texture);
+            TR_CORE_ASSERT(l_Texture != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid texture.");
+
+            return l_Texture != nullptr ? l_Texture->UnorderedAccessIndex : c_NoBindlessIndex;
+        }
+
+        PipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDescription& description)
+        {
+            TR_CORE_ASSERT(!description.VertexShader.Code.empty() && !description.PixelShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
+            TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
+
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC l_Description{};
+            l_Description.pRootSignature = m_RootSignature.Get();
+            l_Description.VS = { description.VertexShader.Code.data(), description.VertexShader.Code.size() };
+            l_Description.PS = { description.PixelShader.Code.data(), description.PixelShader.Code.size() };
+            l_Description.SampleMask = UINT_MAX;
+            l_Description.PrimitiveTopologyType = ToTopologyType(description.Topology);
+            l_Description.SampleDesc.Count = 1;
+
+            l_Description.NumRenderTargets = static_cast<UINT>(std::min<std::size_t>(description.ColorFormats.size(), c_MaxColorAttachments));
+            for (UINT it_Target = 0; it_Target < l_Description.NumRenderTargets; ++it_Target)
+            {
+                D3D12_RENDER_TARGET_BLEND_DESC& l_Blend = l_Description.BlendState.RenderTarget[it_Target];
+                l_Blend.BlendEnable = description.AlphaBlend ? TRUE : FALSE;
+                l_Blend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+                l_Blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+                l_Blend.BlendOp = D3D12_BLEND_OP_ADD;
+                l_Blend.SrcBlendAlpha = D3D12_BLEND_ONE;
+                l_Blend.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+                l_Blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+                l_Blend.LogicOp = D3D12_LOGIC_OP_NOOP;
+                l_Blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+                l_Description.RTVFormats[it_Target] = ToDXGIFormat(description.ColorFormats[it_Target]);
+            }
+
+            l_Description.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+            l_Description.RasterizerState.CullMode = ToCullMode(description.Cull);
+            l_Description.RasterizerState.FrontCounterClockwise = description.FrontCounterClockwise ? TRUE : FALSE;
+            l_Description.RasterizerState.DepthClipEnable = TRUE;
+
+            // Vulkan never writes depth without the depth test, so neither does this
+            l_Description.DepthStencilState.DepthEnable = description.DepthTest ? TRUE : FALSE;
+            l_Description.DepthStencilState.DepthWriteMask = description.DepthWrite ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+            l_Description.DepthStencilState.DepthFunc = ToComparisonFunc(description.DepthCompare);
+            l_Description.DSVFormat = description.DepthFormat != Format::Unknown ? ToDXGIFormat(description.DepthFormat) : DXGI_FORMAT_UNKNOWN;
+
+            D3D12Pipeline l_Pipeline;
+            l_Pipeline.Topology = ToD3DTopology(description.Topology);
+            const HRESULT l_Result = m_Device->CreateGraphicsPipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
+            if (FAILED(l_Result))
+            {
+                TR_CORE_ERROR("D3D12: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
+
+                return {};
+            }
+
+            if (!description.DebugName.empty())
+            {
+                l_Pipeline.State->SetName(ToWide(description.DebugName).c_str());
+            }
+
+            return m_Pipelines.Add(std::move(l_Pipeline));
+        }
+
+        void D3D12Device::DestroyPipeline(PipelineHandle pipeline)
+        {
+            if (!pipeline)
+            {
+                return;
+            }
+
+            std::optional<D3D12Pipeline> l_Pipeline = m_Pipelines.Remove(pipeline);
+            TR_CORE_ASSERT(l_Pipeline.has_value(), "DestroyPipeline on a pipeline that was already destroyed.");
+
+            if (l_Pipeline)
+            {
+                D3D12Release l_Release;
+                l_Release.Pipeline = std::move(l_Pipeline->State);
+                m_Releases.Push(std::move(l_Release));
+            }
         }
 
         Scope<SwapChain> D3D12Device::CreateSwapChain(const SwapChainSpecification& specification)
