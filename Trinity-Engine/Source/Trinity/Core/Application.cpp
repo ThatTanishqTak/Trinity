@@ -77,6 +77,22 @@ namespace Trinity
             return l_Result.empty() ? std::string("Application") : l_Result;
         }
 
+        // Engine data such as compiled shaders sits beside the executable, and is missing when the build found no shader compiler
+        void MountEngineDirectory()
+        {
+            const std::filesystem::path l_Directory = Platform::GetExecutableDirectory() / "Engine";
+
+            std::error_code l_Error;
+            if (!std::filesystem::is_directory(l_Directory, l_Error))
+            {
+                TR_CORE_INFO("No engine data at '{}', so /engine is not mounted", l_Directory.string());
+
+                return;
+            }
+
+            FileSystem::MountDirectory("/engine", l_Directory);
+        }
+
         void MountSaveDirectory(const ApplicationCommandLineArgs& args, std::string_view applicationName)
         {
             std::filesystem::path l_Directory;
@@ -382,6 +398,7 @@ namespace Trinity
         MainThread::Initialize();
         FileSystem::Initialize();
         FileSystem::MountDirectory("/logs", l_LogFile.parent_path());
+        MountEngineDirectory();
         JobSystem::Initialize();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);

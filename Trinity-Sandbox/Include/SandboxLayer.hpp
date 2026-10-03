@@ -23,6 +23,7 @@ private:
     void TestFileSystem();
     void TestSaves();
     void TestModules();
+    void TestShaders();
     void StartAsyncReads();
     void CheckAsyncReads();
 

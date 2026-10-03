@@ -130,3 +130,9 @@ target_link_libraries(Trinity-Engine-Link INTERFACE "$<IF:${TRINITY_ENGINE_SHARE
 if(WIN32 AND TRINITY_TRACK_GLOBAL_ALLOCATIONS)
     target_sources(Trinity-Engine-Link INTERFACE "$<${TRINITY_ENGINE_SHARED_CONFIG}:${TRINITY_ENGINE_GLOBAL_ALLOCATIONS}>")
 endif()
+
+# Compiled shaders go to bin/<configuration>/Trinity/Engine/shaders, which the engine mounts read-only as /engine
+file(GLOB TRINITY_ENGINE_SHADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/*.slang")
+trinity_add_shaders(Trinity-Shaders ${TRINITY_ENGINE_SHADERS})
+add_dependencies(Trinity-Engine Trinity-Shaders)
+add_dependencies(Trinity-Engine-Static Trinity-Shaders)

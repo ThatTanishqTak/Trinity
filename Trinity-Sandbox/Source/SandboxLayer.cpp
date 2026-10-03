@@ -1,14 +1,15 @@
 #include "SandboxLayer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <charconv>
 #include <chrono>
-#include <chrono>
 #include <filesystem>
 #include <format>
 #include <iterator>
+#include <span>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -100,6 +101,7 @@ void SandboxLayer::OnAttach()
     TestFileSystem();
     TestSaves();
     TestModules();
+    TestShaders();
     StartAsyncReads();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
@@ -448,6 +450,56 @@ void SandboxLayer::TestModules()
 
     TR_INFO("Module test: loaded and unloaded {} {} times; {} console variable(s) and {} under Game before and after", TR_SANDBOX_MODULE, c_ModuleLoadCount, l_VariablesBefore, Trinity::Memory::FormatBytes(l_GameBefore.CurrentBytes));
 #endif
+}
+
+void SandboxLayer::TestShaders()
+{
+    TR_PROFILE_FUNCTION();
+
+    if (!Trinity::FileSystem::Exists("/engine/shaders"))
+    {
+        TR_INFO("Shaders: none under /engine/shaders, because slangc was not found when the build was configured");
+
+        return;
+    }
+
+    std::vector<std::string_view> l_Extensions;
+#if defined(TR_RHI_VULKAN)
+    l_Extensions.push_back("spv");
+#endif
+#if defined(TR_RHI_D3D12)
+    l_Extensions.push_back("dxil");
+#endif
+
+    std::string l_Report;
+    for (const std::string_view it_Extension : l_Extensions)
+    {
+        for (const std::string_view it_Entry : { "VertexMain", "PixelMain" })
+        {
+            const std::string l_Path = std::format("/engine/shaders/Triangle.{}.{}", it_Entry, it_Extension);
+            const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Blob = Trinity::FileSystem::ReadFile(l_Path);
+            if (!l_Blob)
+            {
+                TR_ERROR("Shaders: cannot read {}: {}", l_Path, Trinity::ToString(l_Blob.GetError()));
+
+                return;
+            }
+
+            // SPIR-V starts with the magic number 0x07230203, and DXIL sits in a container that starts with "DXBC"
+            const std::array<std::uint8_t, 4> l_Magic = it_Extension == "spv" ? std::array<std::uint8_t, 4>{ 0x03, 0x02, 0x23, 0x07 } : std::array<std::uint8_t, 4>{ 'D', 'X', 'B', 'C' };
+            const bool l_Valid = l_Blob->size() >= l_Magic.size() && std::ranges::equal(std::span(l_Blob->data(), l_Magic.size()), l_Magic, [](std::byte byte, std::uint8_t expected) { return std::to_integer<std::uint8_t>(byte) == expected; });
+            if (!l_Valid)
+            {
+                TR_ERROR("Shaders: {} does not start with the {} header", l_Path, it_Extension == "spv" ? "SPIR-V" : "DXIL container");
+
+                return;
+            }
+
+            l_Report += std::format("{}{} ({})", l_Report.empty() ? "" : ", ", l_Path.substr(l_Path.rfind('/') + 1), Trinity::Memory::FormatBytes(l_Blob->size()));
+        }
+    }
+
+    TR_INFO("Shaders: read {} through /engine/shaders", l_Report);
 }
 
 void SandboxLayer::StartAsyncReads()
