@@ -7,6 +7,7 @@
 #include "Trinity/Core/Window.hpp"
 #include "Trinity/Events/ApplicationEvent.hpp"
 #include "Trinity/Renderer/GraphicsAPI.hpp"
+#include "Trinity/RHI/Device.hpp"
 
 #include <concepts>
 #include <cstddef>
@@ -72,6 +73,7 @@ namespace Trinity
         void SubmitFrameJob(Job job);
 
         [[nodiscard]] Window& GetWindow() { return *m_Window; }
+        [[nodiscard]] RHI::Device& GetDevice() { return *m_Device; }
         [[nodiscard]] FrameAllocator& GetFrameAllocator() { return m_FrameAllocator; }
         [[nodiscard]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
         [[nodiscard]] std::uint64_t GetFrameCount() const { return m_FrameCount; }
@@ -80,6 +82,7 @@ namespace Trinity
 
     private:
         void Run();
+        void CreateDevice();
         void OnEvent(Event& event);
         bool OnWindowClose(WindowCloseEvent& event);
         bool OnWindowResize(WindowResizeEvent& event);
@@ -88,6 +91,7 @@ namespace Trinity
         FrameAllocator m_FrameAllocator;
         JobCounter m_FrameJobs;
         Scope<Window> m_Window;
+        Scope<RHI::Device> m_Device;
         LayerStack m_LayerStack;
         std::uint64_t m_FrameCount = 0;
         bool m_Running = true;

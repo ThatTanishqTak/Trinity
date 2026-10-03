@@ -32,6 +32,14 @@ foreach(directory IN ITEMS Windows Generic)
     endif()
 endforeach()
 
+# Each RHI backend compiles only where it is enabled
+foreach(backend IN ITEMS D3D12 Vulkan Metal)
+    string(TOUPPER "${backend}" backend_option)
+    if(NOT TRINITY_RHI_${backend_option})
+        list(FILTER TRINITY_ENGINE_FILES EXCLUDE REGEX "/Trinity/RHI/${backend}/")
+    endif()
+endforeach()
+
 # Global new and delete are compiled into the engine, and on Windows also into each executable and module that uses the shared engine
 set(TRINITY_ENGINE_GLOBAL_ALLOCATIONS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Trinity/Core/GlobalAllocations.cpp")
 list(REMOVE_ITEM TRINITY_ENGINE_FILES "${TRINITY_ENGINE_GLOBAL_ALLOCATIONS}")

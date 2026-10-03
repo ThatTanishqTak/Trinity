@@ -36,28 +36,10 @@ namespace Trinity
                 return true;
             }
             case GraphicsAPI::D3D12:
-            {
-#if defined(TR_RHI_D3D12)
-                return true;
-#else
-                return false;
-#endif
-            }
             case GraphicsAPI::Vulkan:
-            {
-#if defined(TR_RHI_VULKAN)
-                return true;
-#else
-                return false;
-#endif
-            }
             case GraphicsAPI::Metal:
             {
-#if defined(TR_RHI_METAL)
-                return true;
-#else
                 return false;
-#endif
             }
         }
         return false;

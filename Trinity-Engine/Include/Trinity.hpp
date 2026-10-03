@@ -30,3 +30,4 @@
 #include "Trinity/Input/MouseCodes.hpp"
 
 #include "Trinity/Renderer/GraphicsAPI.hpp"
+#include "Trinity/RHI/Device.hpp"

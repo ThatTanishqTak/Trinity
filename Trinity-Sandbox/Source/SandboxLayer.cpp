@@ -102,6 +102,7 @@ void SandboxLayer::OnAttach()
     TestSaves();
     TestModules();
     TestShaders();
+    TestRHI();
     StartAsyncReads();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
@@ -500,6 +501,73 @@ void SandboxLayer::TestShaders()
     }
 
     TR_INFO("Shaders: read {} through /engine/shaders", l_Report);
+}
+
+// Clears a small render target and copies it into a readback buffer, the shape of the offscreen render test to come
+void SandboxLayer::TestRHI()
+{
+    TR_PROFILE_FUNCTION();
+
+    constexpr std::uint32_t c_TargetSize = 64;
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+
+    Trinity::RHI::TextureDescription l_TargetDescription;
+    l_TargetDescription.Width = c_TargetSize;
+    l_TargetDescription.Height = c_TargetSize;
+    l_TargetDescription.TextureFormat = Trinity::RHI::Format::RGBA8Unorm;
+    l_TargetDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::CopySource;
+    l_TargetDescription.DebugName = "Sandbox target";
+
+    const std::uint64_t l_RowPitch = (std::uint64_t{ c_TargetSize } * Trinity::RHI::GetFormatSize(l_TargetDescription.TextureFormat) + Trinity::RHI::c_TextureCopyRowAlignment - 1) / Trinity::RHI::c_TextureCopyRowAlignment * Trinity::RHI::c_TextureCopyRowAlignment;
+
+    Trinity::RHI::BufferDescription l_ReadbackDescription;
+    l_ReadbackDescription.Size = l_RowPitch * c_TargetSize;
+    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_ReadbackDescription.DebugName = "Sandbox readback";
+
+    const Trinity::RHI::TextureHandle l_Target = l_Device.CreateTexture(l_TargetDescription);
+    const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_ReadbackDescription);
+    if (!l_Target || !l_Readback)
+    {
+        TR_ERROR("Trinity::RHI: could not create the test target or readback buffer");
+
+        l_Device.DestroyTexture(l_Target);
+        l_Device.DestroyBuffer(l_Readback);
+
+        return;
+    }
+
+    Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+    l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::RenderTarget);
+
+    const std::array<Trinity::RHI::ColorAttachment, 1> l_Attachments{ Trinity::RHI::ColorAttachment{ l_Target, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::Store, { 0.1f, 0.2f, 0.3f, 1.0f } } };
+    Trinity::RHI::RenderingDescription l_Rendering;
+    l_Rendering.ColorAttachments = l_Attachments;
+    l_Rendering.RenderArea = { 0, 0, c_TargetSize, c_TargetSize };
+    l_Commands.BeginRendering(l_Rendering);
+    l_Commands.EndRendering();
+
+    l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::CopySource);
+    l_Commands.CopyTextureToBuffer(l_Target, l_Readback);
+    l_Device.EndFrame();
+    l_Device.WaitIdle();
+
+    const std::size_t l_Mapped = l_Device.GetMappedData(l_Readback).size();
+
+    l_Device.DestroyBuffer(l_Readback);
+    l_Device.DestroyTexture(l_Target);
+
+    if (l_Mapped != l_ReadbackDescription.Size)
+    {
+        TR_ERROR("Trinity::RHI: the readback buffer maps {} of {}", Trinity::Memory::FormatBytes(l_Mapped), Trinity::Memory::FormatBytes(l_ReadbackDescription.Size));
+
+        return;
+    }
+
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+    TR_INFO("Trinity::RHI: {} device on {} cleared a {}x{} target and copied it into a {} readback buffer", Trinity::ToString(l_Info.API), l_Info.AdapterName, c_TargetSize, c_TargetSize, Trinity::Memory::FormatBytes(l_Mapped));
 }
 
 void SandboxLayer::StartAsyncReads()

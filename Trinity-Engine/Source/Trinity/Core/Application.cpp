@@ -267,14 +267,41 @@ namespace Trinity
 
         m_Window = Window::Create(m_Specification.Window);
         m_Window->SetEventCallback(TR_BIND_EVENT_FN(OnEvent));
+
+        CreateDevice();
     }
 
     Application::~Application()
     {
         m_LayerStack.Clear();
         JobSystem::Wait(m_FrameJobs);
+        m_Device.reset();
         m_Window.reset();
         s_Instance = nullptr;
+    }
+
+    void Application::CreateDevice()
+    {
+        RHI::DeviceSpecification l_Specification;
+        l_Specification.API = m_Specification.Graphics;
+#if defined(TR_DEBUG)
+        l_Specification.EnableValidation = true;
+#endif
+
+        Expected<Scope<RHI::Device>, std::string> l_Device = RHI::CreateDevice(l_Specification);
+        if (!l_Device)
+        {
+            TR_CORE_ERROR("Could not create a {} device: {}. Falling back to None", ToString(l_Specification.API), l_Device.GetError());
+
+            m_Specification.Graphics = GraphicsAPI::None;
+            l_Specification.API = GraphicsAPI::None;
+            l_Device = RHI::CreateDevice(l_Specification);
+        }
+
+        m_Device = std::move(*l_Device);
+
+        const RHI::DeviceInfo& l_Info = m_Device->GetInfo();
+        TR_CORE_INFO("Graphics device: {} on {}", ToString(l_Info.API), l_Info.AdapterName);
     }
 
     Application& Application::Get()
