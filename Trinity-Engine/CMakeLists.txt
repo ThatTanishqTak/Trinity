@@ -113,6 +113,10 @@ function(trinity_add_engine_library target type active_config)
     else()
         target_link_libraries(${target} PRIVATE ${CMAKE_DL_LIBS})
     endif()
+
+    if(TRINITY_RHI_VULKAN)
+        target_link_libraries(${target} PRIVATE volk::volk)
+    endif()
 endfunction()
 
 trinity_add_engine_library(Trinity-Engine SHARED "${TRINITY_ENGINE_SHARED_CONFIG}")

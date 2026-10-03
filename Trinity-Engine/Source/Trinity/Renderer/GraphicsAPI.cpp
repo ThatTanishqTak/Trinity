@@ -44,6 +44,13 @@ namespace Trinity
 #endif
             }
             case GraphicsAPI::Vulkan:
+            {
+#if defined(TR_RHI_VULKAN)
+                return true;
+#else
+                return false;
+#endif
+            }
             case GraphicsAPI::Metal:
             {
                 return false;

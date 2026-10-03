@@ -6,6 +6,10 @@
 #include "Trinity/RHI/D3D12/D3D12Device.hpp"
 #endif
 
+#if defined(TR_RHI_VULKAN)
+#include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
+#endif
+
 #include <format>
 #include <utility>
 
@@ -36,6 +40,19 @@ namespace Trinity
 #endif
                 }
                 case GraphicsAPI::Vulkan:
+                {
+#if defined(TR_RHI_VULKAN)
+                    std::string l_Error;
+                    if (Scope<VulkanDevice> l_Device = VulkanDevice::Create(specification, l_Error))
+                    {
+                        return Scope<Device>(std::move(l_Device));
+                    }
+
+                    return Unexpected{ std::move(l_Error) };
+#else
+                    break;
+#endif
+                }
                 case GraphicsAPI::Metal:
                 {
                     break;

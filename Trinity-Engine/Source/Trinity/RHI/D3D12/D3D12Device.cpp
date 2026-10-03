@@ -156,66 +156,61 @@ namespace Trinity
 
                 return l_Missing;
             }
-
-            void ReportMissing(std::string_view feature, int step)
-            {
-                TR_CORE_ERROR("D3D12: {} arrives in M2 step {}", feature, step);
-            }
         }
 
         void D3D12CommandList::TextureBarrier([[maybe_unused]] TextureHandle texture, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
         {
-            ReportMissing("TextureBarrier", 10);
+
         }
 
         void D3D12CommandList::BufferBarrier([[maybe_unused]] BufferHandle buffer, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
         {
-            ReportMissing("BufferBarrier", 10);
+
         }
 
         void D3D12CommandList::BeginRendering([[maybe_unused]] const RenderingDescription& description)
         {
-            ReportMissing("BeginRendering", 10);
+
         }
 
         void D3D12CommandList::EndRendering()
         {
-            ReportMissing("EndRendering", 10);
+
         }
 
         void D3D12CommandList::SetPipeline([[maybe_unused]] PipelineHandle pipeline)
         {
-            ReportMissing("SetPipeline", 12);
+
         }
 
         void D3D12CommandList::SetViewport([[maybe_unused]] const Viewport& viewport)
         {
-            ReportMissing("SetViewport", 12);
+
         }
 
         void D3D12CommandList::SetScissor([[maybe_unused]] const Rect& scissor)
         {
-            ReportMissing("SetScissor", 12);
+
         }
 
         void D3D12CommandList::PushConstants([[maybe_unused]] std::span<const std::byte> data)
         {
-            ReportMissing("PushConstants", 12);
+
         }
 
         void D3D12CommandList::Draw([[maybe_unused]] std::uint32_t vertexCount, [[maybe_unused]] std::uint32_t instanceCount, [[maybe_unused]] std::uint32_t firstVertex, [[maybe_unused]] std::uint32_t firstInstance)
         {
-            ReportMissing("Draw", 12);
+
         }
 
         void D3D12CommandList::CopyBuffer([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset, [[maybe_unused]] std::uint64_t size)
         {
-            ReportMissing("CopyBuffer", 10);
+
         }
 
         void D3D12CommandList::CopyTextureToBuffer([[maybe_unused]] TextureHandle source, [[maybe_unused]] BufferHandle destination)
         {
-            ReportMissing("CopyTextureToBuffer", 13);
+
         }
 
         Scope<D3D12Device> D3D12Device::Create(const DeviceSpecification& specification, std::string& error)
@@ -449,8 +444,6 @@ namespace Trinity
 
         BufferHandle D3D12Device::CreateBuffer([[maybe_unused]] const BufferDescription& description)
         {
-            ReportMissing("CreateBuffer", 9);
-
             return {};
         }
 
@@ -466,9 +459,7 @@ namespace Trinity
 
         TextureHandle D3D12Device::CreateTexture([[maybe_unused]] const TextureDescription& description)
         {
-            ReportMissing("CreateTexture", 9);
-
-            return {};
+           return {};
         }
 
         void D3D12Device::DestroyTexture([[maybe_unused]] TextureHandle texture)
@@ -478,8 +469,6 @@ namespace Trinity
 
         PipelineHandle D3D12Device::CreateGraphicsPipeline([[maybe_unused]] const GraphicsPipelineDescription& description)
         {
-            ReportMissing("CreateGraphicsPipeline", 12);
-
             return {};
         }
 
@@ -490,21 +479,17 @@ namespace Trinity
 
         Scope<SwapChain> D3D12Device::CreateSwapChain([[maybe_unused]] const SwapChainSpecification& specification)
         {
-            ReportMissing("CreateSwapChain", 10);
-
             return nullptr;
         }
 
         CommandList& D3D12Device::BeginFrame()
         {
-            ReportMissing("BeginFrame", 10);
-
             return m_CommandList;
         }
 
         void D3D12Device::EndFrame()
         {
-            ReportMissing("EndFrame", 10);
+
         }
 
         void D3D12Device::WaitIdle()
