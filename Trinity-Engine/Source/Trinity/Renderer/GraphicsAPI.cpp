@@ -36,6 +36,13 @@ namespace Trinity
                 return true;
             }
             case GraphicsAPI::D3D12:
+            {
+#if defined(TR_RHI_D3D12)
+                return true;
+#else
+                return false;
+#endif
+            }
             case GraphicsAPI::Vulkan:
             case GraphicsAPI::Metal:
             {
@@ -47,13 +54,6 @@ namespace Trinity
 
     GraphicsAPI GetDefaultGraphicsAPI()
     {
-        for (const GraphicsAPI l_API : {GraphicsAPI::D3D12, GraphicsAPI::Metal, GraphicsAPI::Vulkan})
-        {
-            if (IsGraphicsAPIAvailable(l_API))
-            {
-                return l_API;
-            }
-        }
         return GraphicsAPI::None;
     }
 }

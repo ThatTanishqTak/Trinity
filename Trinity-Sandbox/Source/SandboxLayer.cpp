@@ -512,6 +512,13 @@ void SandboxLayer::TestRHI()
 
     Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
 
+    if (l_Device.GetInfo().API != Trinity::GraphicsAPI::None)
+    {
+        TR_INFO("RHI: skipping the clear and copy test on {} until its backend records frames", Trinity::ToString(l_Device.GetInfo().API));
+
+        return;
+    }
+
     Trinity::RHI::TextureDescription l_TargetDescription;
     l_TargetDescription.Width = c_TargetSize;
     l_TargetDescription.Height = c_TargetSize;

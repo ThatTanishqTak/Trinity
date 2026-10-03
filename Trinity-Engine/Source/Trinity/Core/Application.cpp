@@ -29,6 +29,7 @@ namespace Trinity
         constexpr std::string_view c_ConfigurationName = "Distribution";
 #endif
 
+        ConsoleVariable<bool> s_GPUValidationVariable("renderer.gpu_validation", false, "Adds GPU-based validation to the graphics debug layer in Debug builds. Much slower", ConsoleVariableFlags::ReadOnly);
         ConsoleVariable<std::int32_t> s_FrameCapacityVariable("memory.frame_capacity", 0, "Frame allocator capacity per buffer in KiB; 0 uses the application's default", ConsoleVariableFlags::ReadOnly);
 
         std::size_t GetFrameAllocatorCapacity(const ApplicationSpecification& specification)
@@ -286,6 +287,7 @@ namespace Trinity
         l_Specification.API = m_Specification.Graphics;
 #if defined(TR_DEBUG)
         l_Specification.EnableValidation = true;
+        l_Specification.EnableGPUValidation = s_GPUValidationVariable.Get();
 #endif
 
         Expected<Scope<RHI::Device>, std::string> l_Device = RHI::CreateDevice(l_Specification);

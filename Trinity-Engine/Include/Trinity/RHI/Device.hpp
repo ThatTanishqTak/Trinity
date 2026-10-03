@@ -23,6 +23,7 @@ namespace Trinity
             GraphicsAPI API = GraphicsAPI::None;
 
             bool EnableValidation = false;
+            bool EnableGPUValidation = false;
         };
 
         struct DeviceInfo
