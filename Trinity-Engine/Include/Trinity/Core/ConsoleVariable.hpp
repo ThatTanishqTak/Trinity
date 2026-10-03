@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -37,10 +39,10 @@ namespace Trinity
         return (static_cast<std::uint32_t>(flags) & static_cast<std::uint32_t>(flag)) != 0;
     }
 
-    [[nodiscard]] std::string_view ToString(ConsoleVariableType type);
+    [[nodiscard]] TRINITY_API std::string_view ToString(ConsoleVariableType type);
 
     // Console variables are declared as static objects and link themselves into a list during static initialisation
-    class ConsoleVariableBase
+    class TRINITY_API ConsoleVariableBase
     {
     public:
         virtual ~ConsoleVariableBase() = default;
@@ -214,14 +216,14 @@ namespace Trinity
     namespace ConsoleVariables
     {
         // Applies every --set=name=value on the command line; read-only variables may be set here and nowhere else.
-        void Initialize(const ApplicationCommandLineArgs& args);
-        void Shutdown();
+        TRINITY_API void Initialize(const ApplicationCommandLineArgs& args);
+        TRINITY_API void Shutdown();
 
-        [[nodiscard]] ConsoleVariableBase* Find(std::string_view name);
+        [[nodiscard]] TRINITY_API ConsoleVariableBase* Find(std::string_view name);
 
         // The path a console or config file takes: logs the outcome and refuses read-only variables.
-        bool Set(std::string_view name, std::string_view value);
+        TRINITY_API bool Set(std::string_view name, std::string_view value);
 
-        void LogAll();
+        TRINITY_API void LogAll();
     }
 }

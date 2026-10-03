@@ -10,7 +10,7 @@
 
 namespace Trinity
 {
-    class MemorySource final : public FileSource
+    class TRINITY_API MemorySource final : public FileSource
     {
     public:
         explicit MemorySource(std::string description);

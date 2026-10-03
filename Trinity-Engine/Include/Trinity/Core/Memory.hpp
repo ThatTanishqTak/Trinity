@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -37,15 +39,15 @@ namespace Trinity
         std::uint64_t TotalAllocations = 0;
     };
 
-    [[nodiscard]] std::string_view ToString(MemoryTag tag);
+    [[nodiscard]] TRINITY_API std::string_view ToString(MemoryTag tag);
 
     namespace Memory
     {
-        void Initialize();
-        void Shutdown();
+        TRINITY_API void Initialize();
+        TRINITY_API void Shutdown();
 
-        [[nodiscard]] void* Allocate(std::size_t size, MemoryTag tag, std::size_t alignment = alignof(std::max_align_t));
-        void Free(void* memory);
+        [[nodiscard]] TRINITY_API void* Allocate(std::size_t size, MemoryTag tag, std::size_t alignment = alignof(std::max_align_t));
+        TRINITY_API void Free(void* memory);
 
         template<typename T, typename... Args>
         [[nodiscard]] T* New(MemoryTag tag, Args&&... args)
@@ -84,14 +86,14 @@ namespace Trinity
             Free(l_Memory);
         }
 
-        [[nodiscard]] bool IsTrackingGlobalAllocations();
+        [[nodiscard]] TRINITY_API bool IsTrackingGlobalAllocations();
 
-        [[nodiscard]] MemoryTagStats GetStats(MemoryTag tag);
-        [[nodiscard]] MemoryTagStats GetTotalStats();
+        [[nodiscard]] TRINITY_API MemoryTagStats GetStats(MemoryTag tag);
+        [[nodiscard]] TRINITY_API MemoryTagStats GetTotalStats();
 
-        void LogUsage();
+        TRINITY_API void LogUsage();
 
-        [[nodiscard]] std::string FormatBytes(std::uint64_t bytes);
+        [[nodiscard]] TRINITY_API std::string FormatBytes(std::uint64_t bytes);
     }
 
     template<typename T, MemoryTag Tag>

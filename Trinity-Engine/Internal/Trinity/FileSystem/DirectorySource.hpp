@@ -6,7 +6,7 @@
 
 namespace Trinity
 {
-    class DirectorySource final : public FileSource
+    class TRINITY_API DirectorySource final : public FileSource
     {
     public:
         explicit DirectorySource(std::filesystem::path root);

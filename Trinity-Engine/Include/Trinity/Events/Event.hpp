@@ -35,7 +35,7 @@ namespace Trinity
 #define TR_EVENT_CLASS_CATEGORY(category) \
     std::uint32_t GetCategoryFlags() const override { return category; }
 
-    class Event
+    class TRINITY_API Event
     {
     public:
         virtual ~Event() = default;

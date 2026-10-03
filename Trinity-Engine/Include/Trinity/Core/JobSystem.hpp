@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
+
 #include <atomic>
 #include <concepts>
 #include <cstddef>
@@ -14,7 +16,7 @@ namespace Trinity
     struct JobCounterAccess;
 
     // Counts submitted jobs that have not finished yet. It must outlive every job submitted with it
-    class JobCounter
+    class TRINITY_API JobCounter
     {
     public:
         JobCounter() = default;
@@ -117,14 +119,14 @@ namespace Trinity
 
     namespace JobSystem
     {
-        void Initialize();
-        void Shutdown();
+        TRINITY_API void Initialize();
+        TRINITY_API void Shutdown();
 
-        void Submit(Job job, JobCounter* counter = nullptr);
-        void Wait(const JobCounter& counter);
+        TRINITY_API void Submit(Job job, JobCounter* counter = nullptr);
+        TRINITY_API void Wait(const JobCounter& counter);
 
         using RangeFunction = void (*)(const void* context, std::size_t begin, std::size_t end);
-        void ParallelForRanges(std::size_t count, RangeFunction function, const void* context, std::size_t batchSize = 0);
+        TRINITY_API void ParallelForRanges(std::size_t count, RangeFunction function, const void* context, std::size_t batchSize = 0);
 
         template<typename F>
         void ParallelFor(std::size_t count, const F& body, std::size_t batchSize = 0)
@@ -134,7 +136,7 @@ namespace Trinity
             ParallelForRanges(count, [](const void* context, std::size_t begin, std::size_t end) { (*static_cast<const F*>(context))(begin, end); }, std::addressof(body), batchSize);
         }
 
-        [[nodiscard]] std::uint32_t GetWorkerCount();
-        [[nodiscard]] std::uint32_t GetThreadIndex();
+        [[nodiscard]] TRINITY_API std::uint32_t GetWorkerCount();
+        [[nodiscard]] TRINITY_API std::uint32_t GetThreadIndex();
     }
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -15,16 +17,16 @@ namespace Trinity
 
     namespace Profiler
     {
-        void Initialize(const ProfilerSpecification& specification);
-        void Shutdown();
+        TRINITY_API void Initialize(const ProfilerSpecification& specification);
+        TRINITY_API void Shutdown();
 
-        void BeginFrame();
-        void SetThreadName(std::string name);
+        TRINITY_API void BeginFrame();
+        TRINITY_API void SetThreadName(std::string name);
 
-        [[nodiscard]] bool IsActive();
+        [[nodiscard]] TRINITY_API bool IsActive();
     }
 
-    class ProfileScope
+    class TRINITY_API ProfileScope
     {
     public:
         explicit ProfileScope(const char* name);

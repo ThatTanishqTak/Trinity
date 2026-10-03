@@ -4,5 +4,5 @@
 
 int main(int argc, char** argv)
 {
-    return Trinity::Main(argc, argv);
+    return Trinity::Main(argc, argv, &Trinity::CreateApplication);
 }

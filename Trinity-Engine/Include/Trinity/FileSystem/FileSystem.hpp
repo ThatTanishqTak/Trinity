@@ -30,7 +30,7 @@ namespace Trinity
         WriteFailed
     };
 
-    [[nodiscard]] std::string_view ToString(FileError error);
+    [[nodiscard]] TRINITY_API std::string_view ToString(FileError error);
 
     enum class FileType : std::uint8_t
     {
@@ -54,7 +54,7 @@ namespace Trinity
 
     struct FileRequestState;
 
-    class FileRequest
+    class TRINITY_API FileRequest
     {
     public:
         FileRequest() = default;
@@ -77,7 +77,7 @@ namespace Trinity
 
     using ReadCallback = std::move_only_function<void(Expected<FileBuffer, FileError> result)>;
 
-    class FileSource
+    class TRINITY_API FileSource
     {
     public:
         virtual ~FileSource() = default;
@@ -102,21 +102,21 @@ namespace Trinity
 
     namespace FileSystem
     {
-        void Initialize();
-        void Shutdown();
+        TRINITY_API void Initialize();
+        TRINITY_API void Shutdown();
 
-        bool Mount(std::string_view mountPoint, Scope<FileSource> source, MountAccess access = MountAccess::ReadOnly);
-        bool MountDirectory(std::string_view mountPoint, const std::filesystem::path& nativeDirectory, MountAccess access = MountAccess::ReadOnly);
-        std::size_t Unmount(std::string_view mountPoint);
+        TRINITY_API bool Mount(std::string_view mountPoint, Scope<FileSource> source, MountAccess access = MountAccess::ReadOnly);
+        TRINITY_API bool MountDirectory(std::string_view mountPoint, const std::filesystem::path& nativeDirectory, MountAccess access = MountAccess::ReadOnly);
+        TRINITY_API std::size_t Unmount(std::string_view mountPoint);
 
-        [[nodiscard]] Expected<FileBuffer, FileError> ReadFile(std::string_view path);
-        [[nodiscard]] Expected<std::string, FileError> ReadText(std::string_view path);
-        [[nodiscard]] bool Exists(std::string_view path);
-        [[nodiscard]] Expected<std::vector<DirectoryEntry>, FileError> List(std::string_view directory);
-        [[nodiscard]] FileRequest ReadFileAsync(std::string_view path, ReadCallback callback);
-        [[nodiscard]] Expected<void, FileError> WriteFile(std::string_view path, std::span<const std::byte> data);
-        [[nodiscard]] Expected<void, FileError> WriteText(std::string_view path, std::string_view text);
-        [[nodiscard]] Expected<void, FileError> RemoveFile(std::string_view path);
-        [[nodiscard]] std::optional<std::string> NormalizePath(std::string_view path);
+        [[nodiscard]] TRINITY_API Expected<FileBuffer, FileError> ReadFile(std::string_view path);
+        [[nodiscard]] TRINITY_API Expected<std::string, FileError> ReadText(std::string_view path);
+        [[nodiscard]] TRINITY_API bool Exists(std::string_view path);
+        [[nodiscard]] TRINITY_API Expected<std::vector<DirectoryEntry>, FileError> List(std::string_view directory);
+        [[nodiscard]] TRINITY_API FileRequest ReadFileAsync(std::string_view path, ReadCallback callback);
+        [[nodiscard]] TRINITY_API Expected<void, FileError> WriteFile(std::string_view path, std::span<const std::byte> data);
+        [[nodiscard]] TRINITY_API Expected<void, FileError> WriteText(std::string_view path, std::string_view text);
+        [[nodiscard]] TRINITY_API Expected<void, FileError> RemoveFile(std::string_view path);
+        [[nodiscard]] TRINITY_API std::optional<std::string> NormalizePath(std::string_view path);
     }
 }

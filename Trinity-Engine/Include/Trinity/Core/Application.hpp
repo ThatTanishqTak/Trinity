@@ -19,7 +19,7 @@
 
 namespace Trinity
 {
-    struct ApplicationCommandLineArgs
+    struct TRINITY_API ApplicationCommandLineArgs
     {
         int Count = 0;
         char** Args = nullptr;
@@ -43,7 +43,11 @@ namespace Trinity
         ApplicationCommandLineArgs CommandLineArgs;
     };
 
-    class Application
+    class Application;
+
+    using CreateApplicationFunction = Application * (*)(ApplicationCommandLineArgs args);
+
+    class TRINITY_API Application
     {
     public:
         explicit Application(ApplicationSpecification specification);
@@ -91,10 +95,11 @@ namespace Trinity
 
         static Application* s_Instance;
 
-        friend int Main(int argc, char** argv);
+        friend TRINITY_API int Main(int argc, char** argv, CreateApplicationFunction createApplication);
     };
 
+    // Defined by each executable, never by the engine, and handed to Main by EntryPoint.hpp
     Application* CreateApplication(ApplicationCommandLineArgs args);
 
-    int Main(int argc, char** argv);
+    TRINITY_API int Main(int argc, char** argv, CreateApplicationFunction createApplication);
 }

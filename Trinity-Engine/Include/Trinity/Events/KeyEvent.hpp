@@ -5,7 +5,7 @@
 
 namespace Trinity
 {
-    class KeyEvent : public Event
+    class TRINITY_API KeyEvent : public Event
     {
     public:
         [[nodiscard]] KeyCode GetKeyCode() const { return m_KeyCode; }
@@ -21,7 +21,7 @@ namespace Trinity
         KeyCode m_KeyCode;
     };
 
-    class KeyPressedEvent final : public KeyEvent
+    class TRINITY_API KeyPressedEvent final : public KeyEvent
     {
     public:
         KeyPressedEvent(KeyCode keyCode, bool isRepeat) : KeyEvent(keyCode), m_IsRepeat(isRepeat)
@@ -42,7 +42,7 @@ namespace Trinity
         bool m_IsRepeat;
     };
 
-    class KeyReleasedEvent final : public KeyEvent
+    class TRINITY_API KeyReleasedEvent final : public KeyEvent
     {
     public:
         explicit KeyReleasedEvent(KeyCode keyCode) : KeyEvent(keyCode)
@@ -58,7 +58,7 @@ namespace Trinity
         TR_EVENT_CLASS_TYPE(KeyReleased)
     };
 
-    class KeyTypedEvent final : public Event
+    class TRINITY_API KeyTypedEvent final : public Event
     {
     public:
         explicit KeyTypedEvent(char32_t codepoint) : m_Codepoint(codepoint)

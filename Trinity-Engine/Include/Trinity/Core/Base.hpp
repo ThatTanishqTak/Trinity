@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -41,5 +43,5 @@ namespace Trinity
         return std::make_shared<T>(std::forward<Args>(args)...);
     }
 
-    [[nodiscard]] const char* GetVersionString();
+    [[nodiscard]] TRINITY_API const char* GetVersionString();
 }

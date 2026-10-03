@@ -362,7 +362,7 @@ namespace Trinity
         return false;
     }
 
-    int Main(int argc, char** argv)
+    int Main(int argc, char** argv, CreateApplicationFunction createApplication)
     {
         Platform::Initialize();
 
@@ -386,7 +386,7 @@ namespace Trinity
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
-        Scope<Application> l_Application{ CreateApplication({ argc, argv }) };
+        Scope<Application> l_Application{ createApplication({ argc, argv }) };
         TR_CORE_ASSERT(l_Application != nullptr, "CreateApplication returned null.");
         if (l_Application)
         {

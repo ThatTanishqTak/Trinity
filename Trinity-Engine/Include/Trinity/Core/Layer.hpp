@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Events/Event.hpp"
 
@@ -8,7 +9,7 @@
 
 namespace Trinity
 {
-    class Layer
+    class TRINITY_API Layer
     {
     public:
         explicit Layer(std::string name = "Layer") : m_Name(std::move(name))

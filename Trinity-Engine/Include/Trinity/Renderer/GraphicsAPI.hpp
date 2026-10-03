@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
+
 #include <cstdint>
 #include <string_view>
 
@@ -13,9 +15,9 @@ namespace Trinity
         Metal
     };
 
-    [[nodiscard]] std::string_view ToString(GraphicsAPI api);
+    [[nodiscard]] TRINITY_API std::string_view ToString(GraphicsAPI api);
 
-    [[nodiscard]] bool IsGraphicsAPIAvailable(GraphicsAPI api);
+    [[nodiscard]] TRINITY_API bool IsGraphicsAPIAvailable(GraphicsAPI api);
 
-    [[nodiscard]] GraphicsAPI GetDefaultGraphicsAPI();
+    [[nodiscard]] TRINITY_API GraphicsAPI GetDefaultGraphicsAPI();
 }

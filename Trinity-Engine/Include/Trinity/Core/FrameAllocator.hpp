@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
+
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -16,7 +18,7 @@
 namespace Trinity
 {
     // Memory handed out during frame N stays valid until the start of frame N + 2, Nothing is destructed
-    class FrameAllocator
+    class TRINITY_API FrameAllocator
     {
     public:
         explicit FrameAllocator(std::size_t capacity);

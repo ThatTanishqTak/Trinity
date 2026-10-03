@@ -4,14 +4,14 @@
 
 namespace Trinity
 {
-    class WindowCloseEvent final : public Event
+    class TRINITY_API WindowCloseEvent final : public Event
     {
     public:
         TR_EVENT_CLASS_TYPE(WindowClose)
         TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
     };
 
-    class WindowResizeEvent final : public Event
+    class TRINITY_API WindowResizeEvent final : public Event
     {
     public:
         WindowResizeEvent(std::uint32_t width, std::uint32_t height) : m_Width(width), m_Height(height)
@@ -35,14 +35,14 @@ namespace Trinity
         std::uint32_t m_Height;
     };
 
-    class WindowFocusEvent final : public Event
+    class TRINITY_API WindowFocusEvent final : public Event
     {
     public:
         TR_EVENT_CLASS_TYPE(WindowFocus)
         TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
     };
 
-    class WindowLostFocusEvent final : public Event
+    class TRINITY_API WindowLostFocusEvent final : public Event
     {
     public:
         TR_EVENT_CLASS_TYPE(WindowLostFocus)

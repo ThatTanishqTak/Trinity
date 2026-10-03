@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
+
 #include <array>
 #include <compare>
 #include <cstddef>
@@ -13,7 +15,7 @@
 namespace Trinity
 {
     // A random 64-bit identifier. Zero is reserved as the invalid UUID
-    class UUID
+    class TRINITY_API UUID
     {
     public:
         constexpr UUID() = default;

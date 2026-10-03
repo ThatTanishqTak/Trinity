@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-    class Log
+    class TRINITY_API Log
     {
     public:
         static void Initialize(const std::filesystem::path& logFile);

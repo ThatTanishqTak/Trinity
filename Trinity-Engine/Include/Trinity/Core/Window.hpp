@@ -19,7 +19,7 @@ namespace Trinity
         bool Headless = false;
     };
 
-    class Window
+    class TRINITY_API Window
     {
     public:
         using EventCallback = std::function<void(Event&)>;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
 #include "Trinity/Input/KeyCodes.hpp"
 #include "Trinity/Input/MouseCodes.hpp"
 
@@ -13,7 +14,7 @@ namespace Trinity
         float Y = 0.0f;
     };
 
-    class Input
+    class TRINITY_API Input
     {
     public:
         [[nodiscard]] static bool IsKeyPressed(KeyCode key);
