@@ -61,6 +61,14 @@ namespace Trinity
 
     GraphicsAPI GetDefaultGraphicsAPI()
     {
+        for (const GraphicsAPI it_API : { GraphicsAPI::D3D12, GraphicsAPI::Metal, GraphicsAPI::Vulkan })
+        {
+            if (IsGraphicsAPIAvailable(it_API))
+            {
+                return it_API;
+            }
+        }
+
         return GraphicsAPI::None;
     }
 }

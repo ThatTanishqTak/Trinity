@@ -2,6 +2,7 @@
 
 #include "Trinity/RHI/Types.hpp"
 
+#include <array>
 #include <cstdint>
 #include <string_view>
 
@@ -23,8 +24,13 @@ namespace Trinity
             std::uint32_t Width = 1;
             std::uint32_t Height = 1;
             std::uint32_t MipLevels = 1;
+
             Format TextureFormat = Format::RGBA8Unorm;
             TextureUsage Usage = TextureUsage::ShaderResource;
+
+            std::array<float, 4> ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
+            float ClearDepth = 0.0f;
+
             std::string_view DebugName;
         };
     }

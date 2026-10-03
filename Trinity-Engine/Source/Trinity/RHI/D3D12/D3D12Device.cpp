@@ -1,10 +1,13 @@
 #include "Trinity/RHI/D3D12/D3D12Device.hpp"
+#include "Trinity/RHI/D3D12/D3D12SwapChain.hpp"
+#include "Trinity/RHI/D3D12/D3D12Utilities.hpp"
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Platform.hpp"
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <format>
@@ -57,11 +60,6 @@ namespace Trinity
                 ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size);
 
                 return l_Result;
-            }
-
-            std::string FormatResult(HRESULT result)
-            {
-                return std::format("HRESULT 0x{:08X}", static_cast<std::uint32_t>(result));
             }
 
             std::string FormatFeatureLevel(D3D_FEATURE_LEVEL level)
@@ -187,66 +185,6 @@ namespace Trinity
 
             constexpr D3D12MA::ALLOCATION_CALLBACKS c_HostAllocator{ &AllocateHostMemory, &FreeHostMemory, nullptr };
 
-            void ReleaseAllocation(ComPtr<D3D12MA::Allocation>& allocation)
-            {
-                allocation.Reset();
-            }
-
-            DXGI_FORMAT ToDXGIFormat(Format format)
-            {
-                switch (format)
-                {
-                    case Format::RGBA8Unorm:
-                    {
-                        return DXGI_FORMAT_R8G8B8A8_UNORM;
-                    }
-                    case Format::RGBA8Srgb:
-                    {
-                        return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-                    }
-                    case Format::BGRA8Unorm:
-                    {
-                        return DXGI_FORMAT_B8G8R8A8_UNORM;
-                    }
-                    case Format::BGRA8Srgb:
-                    {
-                        return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-                    }
-                    case Format::RGBA16Float:
-                    {
-                        return DXGI_FORMAT_R16G16B16A16_FLOAT;
-                    }
-                    case Format::R32Float:
-                    {
-                        return DXGI_FORMAT_R32_FLOAT;
-                    }
-                    case Format::R32Uint:
-                    {
-                        return DXGI_FORMAT_R32_UINT;
-                    }
-                    case Format::RG32Float:
-                    {
-                        return DXGI_FORMAT_R32G32_FLOAT;
-                    }
-                    case Format::RGB32Float:
-                    {
-                        return DXGI_FORMAT_R32G32B32_FLOAT;
-                    }
-                    case Format::RGBA32Float:
-                    {
-                        return DXGI_FORMAT_R32G32B32A32_FLOAT;
-                    }
-                    case Format::D32Float:
-                    {
-                        return DXGI_FORMAT_D32_FLOAT;
-                    }
-                    default:
-                    {
-                        return DXGI_FORMAT_UNKNOWN;
-                    }
-                }
-            }
-
             D3D12_HEAP_TYPE ToHeapType(MemoryType memory)
             {
                 switch (memory)
@@ -298,26 +236,333 @@ namespace Trinity
                     resource->SetName(ToWide(name).c_str());
                 }
             }
+
+            struct D3D12State
+            {
+                D3D12_BARRIER_SYNC Sync = D3D12_BARRIER_SYNC_NONE;
+                D3D12_BARRIER_ACCESS Access = D3D12_BARRIER_ACCESS_NO_ACCESS;
+                D3D12_BARRIER_LAYOUT Layout = D3D12_BARRIER_LAYOUT_UNDEFINED;
+            };
+
+            D3D12State ToD3D12State(ResourceState state)
+            {
+                switch (state)
+                {
+                    case ResourceState::Undefined:
+                    {
+                        return { D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_UNDEFINED };
+                    }
+                    case ResourceState::Present:
+                    {
+                        return { D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_PRESENT };
+                    }
+                    case ResourceState::RenderTarget:
+                    {
+                        return { D3D12_BARRIER_SYNC_RENDER_TARGET, D3D12_BARRIER_ACCESS_RENDER_TARGET, D3D12_BARRIER_LAYOUT_RENDER_TARGET };
+                    }
+                    case ResourceState::DepthWrite:
+                    {
+                        return { D3D12_BARRIER_SYNC_DEPTH_STENCIL, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE };
+                    }
+                    case ResourceState::DepthRead:
+                    {
+                        return { D3D12_BARRIER_SYNC_DEPTH_STENCIL | D3D12_BARRIER_SYNC_ALL_SHADING, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ | D3D12_BARRIER_ACCESS_SHADER_RESOURCE, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ };
+                    }
+                    case ResourceState::ShaderResource:
+                    {
+                        return { D3D12_BARRIER_SYNC_ALL_SHADING, D3D12_BARRIER_ACCESS_SHADER_RESOURCE, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE };
+                    }
+                    case ResourceState::UnorderedAccess:
+                    {
+                        return { D3D12_BARRIER_SYNC_ALL_SHADING, D3D12_BARRIER_ACCESS_UNORDERED_ACCESS, D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS };
+                    }
+                    case ResourceState::CopySource:
+                    {
+                        return { D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_SOURCE, D3D12_BARRIER_LAYOUT_COPY_SOURCE };
+                    }
+                    case ResourceState::CopyDestination:
+                    {
+                        return { D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_COPY_DEST };
+                    }
+                    case ResourceState::IndexBuffer:
+                    {
+                        return { D3D12_BARRIER_SYNC_INDEX_INPUT, D3D12_BARRIER_ACCESS_INDEX_BUFFER, D3D12_BARRIER_LAYOUT_UNDEFINED };
+                    }
+                    case ResourceState::IndirectArgument:
+                    {
+                        return { D3D12_BARRIER_SYNC_EXECUTE_INDIRECT, D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT, D3D12_BARRIER_LAYOUT_UNDEFINED };
+                    }
+                }
+
+                return {};
+            }
+
+            D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE ToBeginningAccess(LoadOp load)
+            {
+                switch (load)
+                {
+                    case LoadOp::Load:
+                    {
+                        return D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+                    }
+                    case LoadOp::Clear:
+                    {
+                        return D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+                    }
+                    default:
+                    {
+                        return D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+                    }
+                }
+            }
+
+            D3D12_RENDER_PASS_ENDING_ACCESS_TYPE ToEndingAccess(StoreOp store)
+            {
+                return store == StoreOp::Store ? D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE : D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_DISCARD;
+            }
         }
 
-        void D3D12CommandList::TextureBarrier([[maybe_unused]] TextureHandle texture, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
+        DXGI_FORMAT ToDXGIFormat(Format format)
+        {
+            switch (format)
+            {
+                case Format::RGBA8Unorm:
+                {
+                    return DXGI_FORMAT_R8G8B8A8_UNORM;
+                }
+                case Format::RGBA8Srgb:
+                {
+                    return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+                }
+                case Format::BGRA8Unorm:
+                {
+                    return DXGI_FORMAT_B8G8R8A8_UNORM;
+                }
+                case Format::BGRA8Srgb:
+                {
+                    return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+                }
+                case Format::RGBA16Float:
+                {
+                    return DXGI_FORMAT_R16G16B16A16_FLOAT;
+                }
+                case Format::R32Float:
+                {
+                    return DXGI_FORMAT_R32_FLOAT;
+                }
+                case Format::R32Uint:
+                {
+                    return DXGI_FORMAT_R32_UINT;
+                }
+                case Format::RG32Float:
+                {
+                    return DXGI_FORMAT_R32G32_FLOAT;
+                }
+                case Format::RGB32Float:
+                {
+                    return DXGI_FORMAT_R32G32B32_FLOAT;
+                }
+                case Format::RGBA32Float:
+                {
+                    return DXGI_FORMAT_R32G32B32A32_FLOAT;
+                }
+                case Format::D32Float:
+                {
+                    return DXGI_FORMAT_D32_FLOAT;
+                }
+                default:
+                {
+                    return DXGI_FORMAT_UNKNOWN;
+                }
+            }
+        }
+
+        std::string FormatResult(HRESULT result)
+        {
+            return std::format("HRESULT 0x{:08X}", static_cast<std::uint32_t>(result));
+        }
+
+        bool D3D12DescriptorHeap::Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity)
+        {
+            D3D12_DESCRIPTOR_HEAP_DESC l_Description{};
+            l_Description.Type = type;
+            l_Description.NumDescriptors = capacity;
+            l_Description.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+            if (FAILED(device->CreateDescriptorHeap(&l_Description, IID_PPV_ARGS(&m_Heap))))
+            {
+                return false;
+            }
+
+            m_Start = m_Heap->GetCPUDescriptorHandleForHeapStart();
+            m_Increment = device->GetDescriptorHandleIncrementSize(type);
+            m_Capacity = capacity;
+
+            return true;
+        }
+
+        std::uint32_t D3D12DescriptorHeap::Allocate()
+        {
+            if (!m_FreeSlots.empty())
+            {
+                const std::uint32_t l_Index = m_FreeSlots.back();
+                m_FreeSlots.pop_back();
+
+                return l_Index;
+            }
+
+            return m_Next < m_Capacity ? m_Next++ : c_NoDescriptor;
+        }
+
+        void D3D12DescriptorHeap::Free(std::uint32_t index)
+        {
+            if (index != c_NoDescriptor)
+            {
+                m_FreeSlots.push_back(index);
+            }
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE D3D12DescriptorHeap::GetHandle(std::uint32_t index) const
+        {
+            return { m_Start.ptr + static_cast<SIZE_T>(index) * m_Increment };
+        }
+
+        D3D12CommandList::D3D12CommandList(D3D12Device& device) : m_Device(device)
         {
 
         }
 
-        void D3D12CommandList::BufferBarrier([[maybe_unused]] BufferHandle buffer, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
+        void D3D12CommandList::Begin(ID3D12GraphicsCommandList7* commandList)
         {
-
+            m_CommandList = commandList;
+            m_Rendering = false;
         }
 
-        void D3D12CommandList::BeginRendering([[maybe_unused]] const RenderingDescription& description)
+        void D3D12CommandList::End()
         {
+            TR_CORE_ASSERT(!m_Rendering, "The frame ended inside BeginRendering.");
 
+            m_CommandList->Close();
+            m_CommandList = nullptr;
+        }
+
+        // Moving out of Undefined discards the contents, which also counts as the first write a render target or depth texture needs
+        void D3D12CommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after)
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
+            TR_CORE_ASSERT(after != ResourceState::Undefined, "A texture cannot move into the undefined state.");
+
+            const D3D12Texture* l_Texture = m_Device.GetTexture(texture);
+            TR_CORE_ASSERT(l_Texture != nullptr, "TextureBarrier on a destroyed or invalid texture.");
+            if (l_Texture == nullptr)
+            {
+                return;
+            }
+
+            const D3D12State l_Before = ToD3D12State(before);
+            const D3D12State l_After = ToD3D12State(after);
+
+            D3D12_TEXTURE_BARRIER l_Barrier{};
+            l_Barrier.SyncBefore = l_Before.Sync;
+            l_Barrier.SyncAfter = l_After.Sync;
+            l_Barrier.AccessBefore = l_Before.Access;
+            l_Barrier.AccessAfter = l_After.Access;
+            l_Barrier.LayoutBefore = l_Before.Layout;
+            l_Barrier.LayoutAfter = l_After.Layout;
+            l_Barrier.pResource = l_Texture->Resource;
+            l_Barrier.Subresources.IndexOrFirstMipLevel = 0xFFFFFFFF;
+            l_Barrier.Flags = before == ResourceState::Undefined ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
+
+            D3D12_BARRIER_GROUP l_Group{};
+            l_Group.Type = D3D12_BARRIER_TYPE_TEXTURE;
+            l_Group.NumBarriers = 1;
+            l_Group.pTextureBarriers = &l_Barrier;
+            m_CommandList->Barrier(1, &l_Group);
+        }
+
+        void D3D12CommandList::BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after)
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
+
+            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "BufferBarrier on a destroyed or invalid buffer.");
+            if (l_Buffer == nullptr)
+            {
+                return;
+            }
+
+            const D3D12State l_Before = ToD3D12State(before);
+            const D3D12State l_After = ToD3D12State(after);
+
+            D3D12_BUFFER_BARRIER l_Barrier{};
+            l_Barrier.SyncBefore = l_Before.Sync;
+            l_Barrier.SyncAfter = l_After.Sync;
+            l_Barrier.AccessBefore = l_Before.Access;
+            l_Barrier.AccessAfter = l_After.Access;
+            l_Barrier.pResource = l_Buffer->Allocation->GetResource();
+            l_Barrier.Offset = 0;
+            l_Barrier.Size = UINT64_MAX;
+
+            D3D12_BARRIER_GROUP l_Group{};
+            l_Group.Type = D3D12_BARRIER_TYPE_BUFFER;
+            l_Group.NumBarriers = 1;
+            l_Group.pBufferBarriers = &l_Barrier;
+            m_CommandList->Barrier(1, &l_Group);
+        }
+
+        // A render pass clears whole attachments, so the render area only matters to Vulkan
+        void D3D12CommandList::BeginRendering(const RenderingDescription& description)
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "BeginRendering is called once within a frame, before EndRendering.");
+            TR_CORE_ASSERT(description.ColorAttachments.size() <= c_MaxColorAttachments, "Too many color attachments.");
+
+            std::array<D3D12_RENDER_PASS_RENDER_TARGET_DESC, c_MaxColorAttachments> l_Targets{};
+            UINT l_TargetCount = 0;
+            for (const ColorAttachment& it_Attachment : description.ColorAttachments)
+            {
+                const D3D12Texture* l_Texture = m_Device.GetTexture(it_Attachment.Texture);
+                TR_CORE_ASSERT(l_Texture != nullptr && l_Texture->RenderTargetView != c_NoDescriptor, "BeginRendering with a destroyed texture, or one without RenderTarget usage.");
+                if (l_Texture == nullptr || l_Texture->RenderTargetView == c_NoDescriptor || l_TargetCount == c_MaxColorAttachments)
+                {
+                    continue;
+                }
+
+                D3D12_RENDER_PASS_RENDER_TARGET_DESC& l_Target = l_Targets[l_TargetCount++];
+                l_Target.cpuDescriptor = m_Device.GetRenderTargetView(*l_Texture);
+                l_Target.BeginningAccess.Type = ToBeginningAccess(it_Attachment.Load);
+                l_Target.BeginningAccess.Clear.ClearValue.Format = ToDXGIFormat(l_Texture->TextureFormat);
+                for (std::size_t it_Channel = 0; it_Channel < it_Attachment.ClearColor.size(); ++it_Channel)
+                {
+                    l_Target.BeginningAccess.Clear.ClearValue.Color[it_Channel] = it_Attachment.ClearColor[it_Channel];
+                }
+
+                l_Target.EndingAccess.Type = ToEndingAccess(it_Attachment.Store);
+            }
+
+            D3D12_RENDER_PASS_DEPTH_STENCIL_DESC l_Depth{};
+            const D3D12Texture* l_DepthTexture = description.Depth.Texture ? m_Device.GetTexture(description.Depth.Texture) : nullptr;
+            TR_CORE_ASSERT(!description.Depth.Texture || (l_DepthTexture != nullptr && l_DepthTexture->DepthStencilView != c_NoDescriptor), "BeginRendering with a destroyed depth texture, or one without DepthStencil usage.");
+            const bool l_HasDepth = l_DepthTexture != nullptr && l_DepthTexture->DepthStencilView != c_NoDescriptor;
+            if (l_HasDepth)
+            {
+                l_Depth.cpuDescriptor = m_Device.GetDepthStencilView(*l_DepthTexture);
+                l_Depth.DepthBeginningAccess.Type = ToBeginningAccess(description.Depth.Load);
+                l_Depth.DepthBeginningAccess.Clear.ClearValue.Format = DXGI_FORMAT_D32_FLOAT;
+                l_Depth.DepthBeginningAccess.Clear.ClearValue.DepthStencil.Depth = description.Depth.ClearDepth;
+                l_Depth.DepthEndingAccess.Type = ToEndingAccess(description.Depth.Store);
+                l_Depth.StencilBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_NO_ACCESS;
+                l_Depth.StencilEndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_NO_ACCESS;
+            }
+
+            m_CommandList->BeginRenderPass(l_TargetCount, l_Targets.data(), l_HasDepth ? &l_Depth : nullptr, D3D12_RENDER_PASS_FLAG_NONE);
+            m_Rendering = true;
         }
 
         void D3D12CommandList::EndRendering()
         {
+            TR_CORE_ASSERT(m_Rendering, "EndRendering without BeginRendering.");
 
+            m_CommandList->EndRenderPass();
+            m_Rendering = false;
         }
 
         void D3D12CommandList::SetPipeline([[maybe_unused]] PipelineHandle pipeline)
@@ -345,14 +590,54 @@ namespace Trinity
 
         }
 
-        void D3D12CommandList::CopyBuffer([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset, [[maybe_unused]] std::uint64_t size)
+        void D3D12CommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
         {
+            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
+            const D3D12Buffer* l_Source = m_Device.GetBuffer(source);
+            const D3D12Buffer* l_Destination = m_Device.GetBuffer(destination);
+            TR_CORE_ASSERT(l_Source != nullptr && l_Destination != nullptr, "CopyBuffer with a destroyed or invalid buffer.");
+            if (l_Source == nullptr || l_Destination == nullptr)
+            {
+                return;
+            }
+
+            TR_CORE_ASSERT(sourceOffset + size <= l_Source->Size && destinationOffset + size <= l_Destination->Size, "CopyBuffer reaches past the end of a buffer.");
+
+            m_CommandList->CopyBufferRegion(l_Destination->Allocation->GetResource(), destinationOffset, l_Source->Allocation->GetResource(), sourceOffset, size);
         }
 
-        void D3D12CommandList::CopyTextureToBuffer([[maybe_unused]] TextureHandle source, [[maybe_unused]] BufferHandle destination)
+        void D3D12CommandList::CopyTextureToBuffer(TextureHandle source, BufferHandle destination)
         {
+            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
+            const D3D12Texture* l_Texture = m_Device.GetTexture(source);
+            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(destination);
+            TR_CORE_ASSERT(l_Texture != nullptr && l_Buffer != nullptr, "CopyTextureToBuffer with a destroyed or invalid resource.");
+            if (l_Texture == nullptr || l_Buffer == nullptr)
+            {
+                return;
+            }
+
+            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Texture->Width);
+            TR_CORE_ASSERT(l_RowPitch * l_Texture->Height <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes, and the buffer has {}.", l_RowPitch * l_Texture->Height, l_Buffer->Size);
+
+            D3D12_TEXTURE_COPY_LOCATION l_Source{};
+            l_Source.pResource = l_Texture->Resource;
+            l_Source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            l_Source.SubresourceIndex = 0;
+
+            D3D12_TEXTURE_COPY_LOCATION l_Destination{};
+            l_Destination.pResource = l_Buffer->Allocation->GetResource();
+            l_Destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            l_Destination.PlacedFootprint.Offset = 0;
+            l_Destination.PlacedFootprint.Footprint.Format = l_Texture->ResourceFormat;
+            l_Destination.PlacedFootprint.Footprint.Width = l_Texture->Width;
+            l_Destination.PlacedFootprint.Footprint.Height = l_Texture->Height;
+            l_Destination.PlacedFootprint.Footprint.Depth = 1;
+            l_Destination.PlacedFootprint.Footprint.RowPitch = static_cast<UINT>(l_RowPitch);
+
+            m_CommandList->CopyTextureRegion(&l_Destination, 0, 0, 0, &l_Source, nullptr);
         }
 
         Scope<D3D12Device> D3D12Device::Create(const DeviceSpecification& specification, std::string& error)
@@ -366,17 +651,40 @@ namespace Trinity
             return l_Device;
         }
 
+        D3D12Device::D3D12Device() : m_CommandList(*this)
+        {
+
+        }
+
         D3D12Device::~D3D12Device()
         {
+            if (m_Fence)
+            {
+                WaitForFence(m_FrameNumber);
+            }
+
             if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0)
             {
                 TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s) and {} texture(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount());
             }
 
-            m_Releases.ReleaseAll(&ReleaseAllocation);
+            m_Releases.ReleaseAll([this](D3D12Release& release) { Release(release); });
             m_Buffers.ForEach([](D3D12Buffer& buffer) { buffer.Allocation.Reset(); });
             m_Textures.ForEach([](D3D12Texture& texture) { texture.Allocation.Reset(); });
             m_Allocator.Reset();
+
+            m_GraphicsList.Reset();
+            for (FrameContext& it_Frame : m_Frames)
+            {
+                it_Frame.Allocator.Reset();
+            }
+
+            m_Fence.Reset();
+            m_Queue.Reset();
+            if (m_FenceEvent != nullptr)
+            {
+                ::CloseHandle(m_FenceEvent);
+            }
 
             if (m_InfoQueue && m_MessageCallbackCookie != 0)
             {
@@ -482,7 +790,7 @@ namespace Trinity
             EnableDebugMessages();
             LogRuntime();
 
-            return CreateAllocator(error);
+            return CreateAllocator(error) && CreateFrames(error);
         }
 
         bool D3D12Device::CreateAllocator(std::string& error)
@@ -501,6 +809,51 @@ namespace Trinity
 
                 return false;
             }
+
+            return true;
+        }
+
+        bool D3D12Device::CreateFrames(std::string& error)
+        {
+            D3D12_COMMAND_QUEUE_DESC l_QueueDescription{};
+            l_QueueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+
+            HRESULT l_Result = m_Device->CreateCommandQueue(&l_QueueDescription, IID_PPV_ARGS(&m_Queue));
+            for (std::size_t it_Index = 0; SUCCEEDED(l_Result) && it_Index < m_Frames.size(); ++it_Index)
+            {
+                l_Result = m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_Frames[it_Index].Allocator));
+            }
+
+            if (SUCCEEDED(l_Result))
+            {
+                l_Result = m_Device->CreateCommandList1(0, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_FLAG_NONE, IID_PPV_ARGS(&m_GraphicsList));
+            }
+
+            if (SUCCEEDED(l_Result))
+            {
+                l_Result = m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_Fence));
+            }
+
+            if (FAILED(l_Result))
+            {
+                error = std::format("the command queue, command lists and fence could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+
+                return false;
+            }
+
+            m_FenceEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+            if (m_FenceEvent == nullptr || !m_RenderTargetViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 256) || !m_DepthStencilViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 64))
+            {
+                error = std::format("the fence event and view heaps could not be created on {}", m_Info.AdapterName);
+
+                return false;
+            }
+
+            m_Queue->SetName(L"Trinity direct queue");
+            m_GraphicsList->SetName(L"Trinity frame commands");
+
+            BOOL l_Tearing = FALSE;
+            m_TearingSupported = SUCCEEDED(m_Factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &l_Tearing, sizeof(l_Tearing))) && l_Tearing == TRUE;
 
             return true;
         }
@@ -677,7 +1030,7 @@ namespace Trinity
 
             if (l_Buffer)
             {
-                m_Releases.Push(std::move(l_Buffer->Allocation));
+                m_Releases.Push({ std::move(l_Buffer->Allocation), c_NoDescriptor, c_NoDescriptor });
             }
         }
 
@@ -716,8 +1069,23 @@ namespace Trinity
             l_Resource.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
             l_Resource.Flags = ToResourceFlags(description.Usage);
 
+            D3D12_CLEAR_VALUE l_ClearValue{};
+            const D3D12_CLEAR_VALUE* l_OptimizedClear = nullptr;
+            if (HasFlag(description.Usage, TextureUsage::RenderTarget))
+            {
+                l_ClearValue.Format = ToDXGIFormat(description.TextureFormat);
+                std::ranges::copy(description.ClearColor, l_ClearValue.Color);
+                l_OptimizedClear = &l_ClearValue;
+            }
+            else if (HasFlag(description.Usage, TextureUsage::DepthStencil))
+            {
+                l_ClearValue.Format = DXGI_FORMAT_D32_FLOAT;
+                l_ClearValue.DepthStencil.Depth = description.ClearDepth;
+                l_OptimizedClear = &l_ClearValue;
+            }
+
             D3D12Texture l_Texture;
-            const HRESULT l_Result = m_Allocator->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_COMMON, nullptr, 0, nullptr, &l_Texture.Allocation, IID_NULL, nullptr);
+            const HRESULT l_Result = m_Allocator->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_COMMON, l_OptimizedClear, 0, nullptr, &l_Texture.Allocation, IID_NULL, nullptr);
             if (FAILED(l_Result))
             {
                 TR_CORE_ERROR("D3D12: texture '{}' ({}x{} {}) could not be created ({})", description.DebugName, description.Width, description.Height, ToString(description.TextureFormat), FormatResult(l_Result));
@@ -725,11 +1093,18 @@ namespace Trinity
                 return {};
             }
 
+            l_Texture.Resource = l_Texture.Allocation->GetResource();
+            l_Texture.TextureFormat = description.TextureFormat;
             l_Texture.ResourceFormat = l_Resource.Format;
             l_Texture.Width = description.Width;
             l_Texture.Height = description.Height;
             l_Texture.MipLevels = description.MipLevels;
-            SetDebugName(l_Texture.Allocation->GetResource(), description.DebugName);
+            SetDebugName(l_Texture.Resource, description.DebugName);
+
+            if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil))
+            {
+                CreateViews(l_Texture);
+            }
 
             return m_Textures.Add(std::move(l_Texture));
         }
@@ -746,7 +1121,74 @@ namespace Trinity
 
             if (l_Texture)
             {
-                m_Releases.Push(std::move(l_Texture->Allocation));
+                m_Releases.Push({ std::move(l_Texture->Allocation), l_Texture->RenderTargetView, l_Texture->DepthStencilView });
+            }
+        }
+
+        void D3D12Device::CreateViews(D3D12Texture& texture)
+        {
+            if (IsDepthFormat(texture.TextureFormat))
+            {
+                texture.DepthStencilView = m_DepthStencilViews.Allocate();
+                TR_CORE_ASSERT(texture.DepthStencilView != c_NoDescriptor, "Out of depth stencil views.");
+                if (texture.DepthStencilView != c_NoDescriptor)
+                {
+                    D3D12_DEPTH_STENCIL_VIEW_DESC l_View{};
+                    l_View.Format = DXGI_FORMAT_D32_FLOAT;
+                    l_View.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+                    m_Device->CreateDepthStencilView(texture.Resource, &l_View, m_DepthStencilViews.GetHandle(texture.DepthStencilView));
+                }
+
+                return;
+            }
+
+            texture.RenderTargetView = m_RenderTargetViews.Allocate();
+            TR_CORE_ASSERT(texture.RenderTargetView != c_NoDescriptor, "Out of render target views.");
+            if (texture.RenderTargetView != c_NoDescriptor)
+            {
+                D3D12_RENDER_TARGET_VIEW_DESC l_View{};
+                l_View.Format = ToDXGIFormat(texture.TextureFormat);
+                l_View.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+                m_Device->CreateRenderTargetView(texture.Resource, &l_View, m_RenderTargetViews.GetHandle(texture.RenderTargetView));
+            }
+        }
+
+        void D3D12Device::Release(D3D12Release& release)
+        {
+            m_RenderTargetViews.Free(release.RenderTargetView);
+            m_DepthStencilViews.Free(release.DepthStencilView);
+            release.Allocation.Reset();
+        }
+
+        TextureHandle D3D12Device::AddSwapChainBuffer(ID3D12Resource* resource, Format format, DXGI_FORMAT resourceFormat, std::uint32_t width, std::uint32_t height)
+        {
+            D3D12Texture l_Texture;
+            l_Texture.Resource = resource;
+            l_Texture.TextureFormat = format;
+            l_Texture.ResourceFormat = resourceFormat;
+            l_Texture.Width = width;
+            l_Texture.Height = height;
+            l_Texture.MipLevels = 1;
+            CreateViews(l_Texture);
+
+            return m_Textures.Add(std::move(l_Texture));
+        }
+
+        // The swap chain waits for the device to be idle first, so the view is free at once
+        void D3D12Device::RemoveSwapChainBuffer(TextureHandle texture)
+        {
+            const std::optional<D3D12Texture> l_Texture = m_Textures.Remove(texture);
+            if (l_Texture)
+            {
+                m_RenderTargetViews.Free(l_Texture->RenderTargetView);
+            }
+        }
+
+        void D3D12Device::WaitForFence(std::uint64_t value)
+        {
+            if (m_Fence->GetCompletedValue() < value && SUCCEEDED(m_Fence->SetEventOnCompletion(value, m_FenceEvent)))
+            {
+                ::WaitForSingleObject(m_FenceEvent, INFINITE);
             }
         }
 
@@ -760,17 +1202,25 @@ namespace Trinity
 
         }
 
-        Scope<SwapChain> D3D12Device::CreateSwapChain([[maybe_unused]] const SwapChainSpecification& specification)
+        Scope<SwapChain> D3D12Device::CreateSwapChain(const SwapChainSpecification& specification)
         {
-            return nullptr;
+            return D3D12SwapChain::Create(*this, specification);
         }
 
+        // Waits until the frame c_FramesInFlight before this one, which used the same command allocator, has finished on the GPU
         CommandList& D3D12Device::BeginFrame()
         {
             TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
 
+            FrameContext& l_Frame = m_Frames[m_FrameNumber % c_FramesInFlight];
+            WaitForFence(l_Frame.CompletionValue);
+
             m_InFrame = true;
-            m_Releases.BeginFrame(&ReleaseAllocation);
+            m_Releases.BeginFrame([this](D3D12Release& release) { Release(release); });
+
+            l_Frame.Allocator->Reset();
+            m_GraphicsList->Reset(l_Frame.Allocator.Get(), nullptr);
+            m_CommandList.Begin(m_GraphicsList.Get());
 
             return m_CommandList;
         }
@@ -779,13 +1229,24 @@ namespace Trinity
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
+            FrameContext& l_Frame = m_Frames[m_FrameNumber % c_FramesInFlight];
+            m_CommandList.End();
+
+            ID3D12CommandList* const l_Lists[] = { m_GraphicsList.Get() };
+            m_Queue->ExecuteCommandLists(1, l_Lists);
+
+            l_Frame.CompletionValue = m_FrameNumber + 1;
+            m_Queue->Signal(m_Fence.Get(), l_Frame.CompletionValue);
+
+            ++m_FrameNumber;
             m_Releases.EndFrame();
             m_InFrame = false;
         }
 
         void D3D12Device::WaitIdle()
         {
-            m_Releases.ReleaseIdle(&ReleaseAllocation);
+            WaitForFence(m_FrameNumber);
+            m_Releases.ReleaseIdle([this](D3D12Release& release) { Release(release); });
         }
     }
 }

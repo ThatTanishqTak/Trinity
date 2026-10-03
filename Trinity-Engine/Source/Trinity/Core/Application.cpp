@@ -270,12 +270,14 @@ namespace Trinity
         m_Window->SetEventCallback(TR_BIND_EVENT_FN(OnEvent));
 
         CreateDevice();
+        m_Renderer = CreateScope<Renderer>(*m_Device, *m_Window, m_Specification.Window.Title);
     }
 
     Application::~Application()
     {
         m_LayerStack.Clear();
         JobSystem::Wait(m_FrameJobs);
+        m_Renderer.reset();
         m_Device.reset();
         m_Window.reset();
         s_Instance = nullptr;
@@ -359,6 +361,11 @@ namespace Trinity
                 {
                     it_Layer->OnUpdate(l_Timestep);
                 }
+            }
+
+            if (!m_Minimized)
+            {
+                m_Renderer->RenderFrame();
             }
 
             ++m_FrameCount;

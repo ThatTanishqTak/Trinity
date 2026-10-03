@@ -6,6 +6,8 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <iterator>
@@ -28,6 +30,8 @@ namespace
     constexpr std::uint32_t c_ResourceRounds = 2;
     constexpr std::uint32_t c_ResourceFramesPerRound = 100;
     constexpr std::uint32_t c_BuffersPerFrame = 50;
+    constexpr float c_ClearCycleSeconds = 10.0f;
+    constexpr std::array<float, 4> c_TestClearColor{ 0.2f, 0.4f, 0.6f, 1.0f };
 
     std::string GetAsyncFilePath(std::uint32_t index)
     {
@@ -37,6 +41,19 @@ namespace
     std::string GetAsyncFileContents(std::uint32_t index)
     {
         return std::format("async file {} {}", index, std::string(index * 1024, static_cast<char>('a' + index % 26)));
+    }
+
+    // A hue in [0, 1) at saturation 0.6 and value 0.5, so the window never gets too bright to look at
+    std::array<float, 4> HueToColor(float hue)
+    {
+        const auto a_Channel = [hue](float offset)
+        {
+            const float l_K = std::fmod(offset + hue * 6.0f, 6.0f);
+
+            return 0.5f - 0.5f * 0.6f * std::clamp(std::min(l_K, 4.0f - l_K), 0.0f, 1.0f);
+        };
+
+        return { a_Channel(5.0f), a_Channel(3.0f), a_Channel(1.0f), 1.0f };
     }
 
     constexpr std::uint64_t Mix(std::uint64_t value)
@@ -157,6 +174,9 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
     }
 
     CheckAsyncReads();
+
+    m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
+    Trinity::Application::Get().GetRenderer().SetClearColor(HueToColor(m_ClearHue));
 
     m_SecondsSinceReport += timestep;
     ++m_FramesSinceReport;
@@ -521,21 +541,15 @@ void SandboxLayer::TestRHI()
 
     Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
 
-    if (l_Device.GetInfo().API != Trinity::GraphicsAPI::None)
-    {
-        TR_INFO("RHI: skipping the clear and copy test on {} until its backend records frames", Trinity::ToString(l_Device.GetInfo().API));
-
-        return;
-    }
-
     Trinity::RHI::TextureDescription l_TargetDescription;
     l_TargetDescription.Width = c_TargetSize;
     l_TargetDescription.Height = c_TargetSize;
     l_TargetDescription.TextureFormat = Trinity::RHI::Format::RGBA8Unorm;
     l_TargetDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::CopySource;
+    l_TargetDescription.ClearColor = c_TestClearColor;
     l_TargetDescription.DebugName = "Sandbox target";
 
-    const std::uint64_t l_RowPitch = (std::uint64_t{ c_TargetSize } * Trinity::RHI::GetFormatSize(l_TargetDescription.TextureFormat) + Trinity::RHI::c_TextureCopyRowAlignment - 1) / Trinity::RHI::c_TextureCopyRowAlignment * Trinity::RHI::c_TextureCopyRowAlignment;
+    const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(l_TargetDescription.TextureFormat, c_TargetSize);
 
     Trinity::RHI::BufferDescription l_ReadbackDescription;
     l_ReadbackDescription.Size = l_RowPitch * c_TargetSize;
@@ -558,7 +572,7 @@ void SandboxLayer::TestRHI()
     Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
     l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::RenderTarget);
 
-    const std::array<Trinity::RHI::ColorAttachment, 1> l_Attachments{ Trinity::RHI::ColorAttachment{ l_Target, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::Store, { 0.1f, 0.2f, 0.3f, 1.0f } } };
+    const std::array<Trinity::RHI::ColorAttachment, 1> l_Attachments{ Trinity::RHI::ColorAttachment{ l_Target, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::Store, c_TestClearColor } };
     Trinity::RHI::RenderingDescription l_Rendering;
     l_Rendering.ColorAttachments = l_Attachments;
     l_Rendering.RenderArea = { 0, 0, c_TargetSize, c_TargetSize };
@@ -570,7 +584,30 @@ void SandboxLayer::TestRHI()
     l_Device.EndFrame();
     l_Device.WaitIdle();
 
-    const std::size_t l_Mapped = l_Device.GetMappedData(l_Readback).size();
+    const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+
+    // The null device copies nothing, so only a GPU's readback has pixels to check
+    const bool l_CheckPixels = l_Info.API != Trinity::GraphicsAPI::None && l_Data.size() == l_ReadbackDescription.Size;
+    std::uint32_t l_WrongPixels = 0;
+    for (std::uint32_t it_Y = 0; l_CheckPixels && it_Y < c_TargetSize; ++it_Y)
+    {
+        for (std::uint32_t it_X = 0; it_X < c_TargetSize; ++it_X)
+        {
+            const std::byte* l_Pixel = l_Data.data() + static_cast<std::size_t>(it_Y * l_RowPitch + it_X * 4);
+
+            bool l_Matches = true;
+            for (std::size_t it_Channel = 0; it_Channel < c_TestClearColor.size(); ++it_Channel)
+            {
+                const long l_Expected = std::lround(c_TestClearColor[it_Channel] * 255.0f);
+                l_Matches = l_Matches && std::abs(std::to_integer<long>(l_Pixel[it_Channel]) - l_Expected) <= 1;
+            }
+
+            l_WrongPixels += l_Matches ? 0 : 1;
+        }
+    }
+
+    const std::size_t l_Mapped = l_Data.size();
 
     l_Device.DestroyBuffer(l_Readback);
     l_Device.DestroyTexture(l_Target);
@@ -582,8 +619,14 @@ void SandboxLayer::TestRHI()
         return;
     }
 
-    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
-    TR_INFO("Trinity::RHI: {} device on {} cleared a {}x{} target and copied it into a {} readback buffer", Trinity::ToString(l_Info.API), l_Info.AdapterName, c_TargetSize, c_TargetSize, Trinity::Memory::FormatBytes(l_Mapped));
+    if (l_WrongPixels != 0)
+    {
+        TR_ERROR("Trinity::RHI: {} of {} pixels read back from {} are not the clear colour", l_WrongPixels, c_TargetSize * c_TargetSize, Trinity::ToString(l_Info.API));
+
+        return;
+    }
+
+    TR_INFO("Trinity::RHI: {} device on {} cleared a {}x{} target and copied it into a {} readback buffer{}", Trinity::ToString(l_Info.API), l_Info.AdapterName, c_TargetSize, c_TargetSize, Trinity::Memory::FormatBytes(l_Mapped), l_CheckPixels ? ", and every pixel holds the clear colour" : "");
 }
 
 // Every round creates and destroys the same buffers and textures across frames, so a second round that ends above the first means a leak

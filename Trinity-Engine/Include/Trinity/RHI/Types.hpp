@@ -51,6 +51,9 @@ namespace Trinity
         // Bytes per texel, 0 for Unknown
         [[nodiscard]] TRINITY_API std::uint32_t GetFormatSize(Format format);
 
+        // The bytes from one row to the next when CopyTextureToBuffer copies a texture of this width
+        [[nodiscard]] TRINITY_API std::uint64_t GetTextureCopyRowPitch(Format format, std::uint32_t width);
+
         [[nodiscard]] constexpr bool IsDepthFormat(Format format)
         {
             return format == Format::D32Float;

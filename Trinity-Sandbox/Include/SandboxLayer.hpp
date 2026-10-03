@@ -45,6 +45,7 @@ private:
     std::atomic<std::uint32_t> m_FrameJobsRun{ 0 };
     std::atomic<std::uint32_t> m_FrameJobMismatches{ 0 };
 
+    float m_ClearHue = 0.0f;
     float m_SecondsSinceReport = 0.0f;
     std::uint32_t m_FramesSinceReport = 0;
 };

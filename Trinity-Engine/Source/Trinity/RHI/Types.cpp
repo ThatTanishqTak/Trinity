@@ -96,5 +96,12 @@ namespace Trinity
 
             return 0;
         }
+
+        std::uint64_t GetTextureCopyRowPitch(Format format, std::uint32_t width)
+        {
+            const std::uint64_t l_RowSize = std::uint64_t{ width } * GetFormatSize(format);
+
+            return (l_RowSize + c_TextureCopyRowAlignment - 1) / c_TextureCopyRowAlignment * c_TextureCopyRowAlignment;
+        }
     }
 }

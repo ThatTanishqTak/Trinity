@@ -1,4 +1,6 @@
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
+#include "Trinity/RHI/Vulkan/VulkanSwapChain.hpp"
+#include "Trinity/RHI/Vulkan/VulkanUtilities.hpp"
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
@@ -20,16 +22,6 @@ namespace Trinity
         namespace
         {
             constexpr const char* c_ValidationLayer = "VK_LAYER_KHRONOS_validation";
-
-            // A Vulkan structure with every member zero except its type
-            template<typename T>
-            T MakeInfo(VkStructureType type)
-            {
-                T l_Info{};
-                l_Info.sType = type;
-
-                return l_Info;
-            }
 
             template<typename T>
             struct RequiredFeature
@@ -150,11 +142,6 @@ namespace Trinity
                         return "another VkResult";
                     }
                 }
-            }
-
-            std::string FormatResult(VkResult result)
-            {
-                return std::format("{} ({})", ToString(result), static_cast<int>(result));
             }
 
             std::string FormatVersion(std::uint32_t version)
@@ -287,61 +274,6 @@ namespace Trinity
 
             constexpr VkAllocationCallbacks c_HostAllocator{ nullptr, &AllocateHostMemory, &ReallocateHostMemory, &FreeHostMemory, nullptr, nullptr };
 
-            VkFormat ToVkFormat(Format format)
-            {
-                switch (format)
-                {
-                    case Format::RGBA8Unorm:
-                    {
-                        return VK_FORMAT_R8G8B8A8_UNORM;
-                    }
-                    case Format::RGBA8Srgb:
-                    {
-                        return VK_FORMAT_R8G8B8A8_SRGB;
-                    }
-                    case Format::BGRA8Unorm:
-                    {
-                        return VK_FORMAT_B8G8R8A8_UNORM;
-                    }
-                    case Format::BGRA8Srgb:
-                    {
-                        return VK_FORMAT_B8G8R8A8_SRGB;
-                    }
-                    case Format::RGBA16Float:
-                    {
-                        return VK_FORMAT_R16G16B16A16_SFLOAT;
-                    }
-                    case Format::R32Float:
-                    {
-                        return VK_FORMAT_R32_SFLOAT;
-                    }
-                    case Format::R32Uint:
-                    {
-                        return VK_FORMAT_R32_UINT;
-                    }
-                    case Format::RG32Float:
-                    {
-                        return VK_FORMAT_R32G32_SFLOAT;
-                    }
-                    case Format::RGB32Float:
-                    {
-                        return VK_FORMAT_R32G32B32_SFLOAT;
-                    }
-                    case Format::RGBA32Float:
-                    {
-                        return VK_FORMAT_R32G32B32A32_SFLOAT;
-                    }
-                    case Format::D32Float:
-                    {
-                        return VK_FORMAT_D32_SFLOAT;
-                    }
-                    default:
-                    {
-                        return VK_FORMAT_UNDEFINED;
-                    }
-                }
-            }
-
             VkBufferUsageFlags ToVkBufferUsage(BufferUsage usage, MemoryType memory)
             {
                 VkBufferUsageFlags l_Flags = 0;
@@ -408,26 +340,316 @@ namespace Trinity
 
                 return l_Flags;
             }
+
+            struct VulkanState
+            {
+                VkPipelineStageFlags2 Stage = VK_PIPELINE_STAGE_2_NONE;
+                VkAccessFlags2 Access = VK_ACCESS_2_NONE;
+                VkImageLayout Layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            };
+
+            constexpr VkPipelineStageFlags2 c_ShaderStages = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            constexpr VkPipelineStageFlags2 c_DepthStages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+
+            // Undefined waits on all earlier writes, since the layout change that discards the contents is itself a write, and covering all commands also chains it onto a swap chain's acquire semaphore
+            VulkanState ToVulkanState(ResourceState state)
+            {
+                switch (state)
+                {
+                    case ResourceState::Undefined:
+                    {
+                        return { VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
+                    }
+                    case ResourceState::Present:
+                    {
+                        return { VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
+                    }
+                    case ResourceState::RenderTarget:
+                    {
+                        return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+                    }
+                    case ResourceState::DepthWrite:
+                    {
+                        return { c_DepthStages, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+                    }
+                    case ResourceState::DepthRead:
+                    {
+                        return { c_DepthStages | c_ShaderStages, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL };
+                    }
+                    case ResourceState::ShaderResource:
+                    {
+                        return { c_ShaderStages, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                    }
+                    case ResourceState::UnorderedAccess:
+                    {
+                        return { c_ShaderStages, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL };
+                    }
+                    case ResourceState::CopySource:
+                    {
+                        return { VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL };
+                    }
+                    case ResourceState::CopyDestination:
+                    {
+                        return { VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL };
+                    }
+                    case ResourceState::IndexBuffer:
+                    {
+                        return { VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
+                    }
+                    case ResourceState::IndirectArgument:
+                    {
+                        return { VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
+                    }
+                }
+
+                return {};
+            }
+
+            VkImageAspectFlags GetAspect(Format format)
+            {
+                return IsDepthFormat(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+            }
+
+            VkAttachmentLoadOp ToVkLoadOp(LoadOp load)
+            {
+                switch (load)
+                {
+                    case LoadOp::Load:
+                    {
+                        return VK_ATTACHMENT_LOAD_OP_LOAD;
+                    }
+                    case LoadOp::Clear:
+                    {
+                        return VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    }
+                    default:
+                    {
+                        return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                    }
+                }
+            }
+
+            VkAttachmentStoreOp ToVkStoreOp(StoreOp store)
+            {
+                return store == StoreOp::Store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            }
         }
 
-        void VulkanCommandList::TextureBarrier([[maybe_unused]] TextureHandle texture, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
+        VkFormat ToVkFormat(Format format)
+        {
+            switch (format)
+            {
+                case Format::RGBA8Unorm:
+                {
+                    return VK_FORMAT_R8G8B8A8_UNORM;
+                }
+                case Format::RGBA8Srgb:
+                {
+                    return VK_FORMAT_R8G8B8A8_SRGB;
+                }
+                case Format::BGRA8Unorm:
+                {
+                    return VK_FORMAT_B8G8R8A8_UNORM;
+                }
+                case Format::BGRA8Srgb:
+                {
+                    return VK_FORMAT_B8G8R8A8_SRGB;
+                }
+                case Format::RGBA16Float:
+                {
+                    return VK_FORMAT_R16G16B16A16_SFLOAT;
+                }
+                case Format::R32Float:
+                {
+                    return VK_FORMAT_R32_SFLOAT;
+                }
+                case Format::R32Uint:
+                {
+                    return VK_FORMAT_R32_UINT;
+                }
+                case Format::RG32Float:
+                {
+                    return VK_FORMAT_R32G32_SFLOAT;
+                }
+                case Format::RGB32Float:
+                {
+                    return VK_FORMAT_R32G32B32_SFLOAT;
+                }
+                case Format::RGBA32Float:
+                {
+                    return VK_FORMAT_R32G32B32A32_SFLOAT;
+                }
+                case Format::D32Float:
+                {
+                    return VK_FORMAT_D32_SFLOAT;
+                }
+                default:
+                {
+                    return VK_FORMAT_UNDEFINED;
+                }
+            }
+        }
+
+        std::string FormatResult(VkResult result)
+        {
+            return std::format("{} ({})", ToString(result), static_cast<int>(result));
+        }
+
+        VulkanCommandList::VulkanCommandList(VulkanDevice& device) : m_Device(device)
         {
 
         }
 
-        void VulkanCommandList::BufferBarrier([[maybe_unused]] BufferHandle buffer, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
+        void VulkanCommandList::Begin(VkCommandBuffer commandBuffer)
         {
+            VkCommandBufferBeginInfo l_Begin = MakeInfo<VkCommandBufferBeginInfo>(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
+            l_Begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer(commandBuffer, &l_Begin);
 
+            m_CommandBuffer = commandBuffer;
+            m_Rendering = false;
         }
 
-        void VulkanCommandList::BeginRendering([[maybe_unused]] const RenderingDescription& description)
+        void VulkanCommandList::End()
         {
+            TR_CORE_ASSERT(!m_Rendering, "The frame ended inside BeginRendering.");
 
+            vkEndCommandBuffer(m_CommandBuffer);
+            m_CommandBuffer = VK_NULL_HANDLE;
+        }
+
+        void VulkanCommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
+            TR_CORE_ASSERT(after != ResourceState::Undefined, "A texture cannot move into the undefined state.");
+
+            const VulkanTexture* l_Texture = m_Device.GetTexture(texture);
+            TR_CORE_ASSERT(l_Texture != nullptr, "TextureBarrier on a destroyed or invalid texture.");
+            if (l_Texture == nullptr)
+            {
+                return;
+            }
+
+            const VulkanState l_Before = ToVulkanState(before);
+            const VulkanState l_After = ToVulkanState(after);
+
+            VkImageMemoryBarrier2 l_Barrier = MakeInfo<VkImageMemoryBarrier2>(VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2);
+            l_Barrier.srcStageMask = l_Before.Stage;
+            l_Barrier.srcAccessMask = l_Before.Access;
+            l_Barrier.dstStageMask = l_After.Stage;
+            l_Barrier.dstAccessMask = l_After.Access;
+            l_Barrier.oldLayout = l_Before.Layout;
+            l_Barrier.newLayout = l_After.Layout;
+            l_Barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            l_Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            l_Barrier.image = l_Texture->Image;
+            l_Barrier.subresourceRange = { GetAspect(l_Texture->TextureFormat), 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS };
+
+            VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
+            l_Dependency.imageMemoryBarrierCount = 1;
+            l_Dependency.pImageMemoryBarriers = &l_Barrier;
+            vkCmdPipelineBarrier2(m_CommandBuffer, &l_Dependency);
+        }
+
+        void VulkanCommandList::BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
+
+            const VulkanBuffer* l_Buffer = m_Device.GetBuffer(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "BufferBarrier on a destroyed or invalid buffer.");
+            if (l_Buffer == nullptr)
+            {
+                return;
+            }
+
+            const VulkanState l_Before = ToVulkanState(before);
+            const VulkanState l_After = ToVulkanState(after);
+
+            VkBufferMemoryBarrier2 l_Barrier = MakeInfo<VkBufferMemoryBarrier2>(VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2);
+            l_Barrier.srcStageMask = l_Before.Stage;
+            l_Barrier.srcAccessMask = l_Before.Access;
+            l_Barrier.dstStageMask = l_After.Stage;
+            l_Barrier.dstAccessMask = l_After.Access;
+            l_Barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            l_Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            l_Barrier.buffer = l_Buffer->Buffer;
+            l_Barrier.offset = 0;
+            l_Barrier.size = VK_WHOLE_SIZE;
+
+            VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
+            l_Dependency.bufferMemoryBarrierCount = 1;
+            l_Dependency.pBufferMemoryBarriers = &l_Barrier;
+            vkCmdPipelineBarrier2(m_CommandBuffer, &l_Dependency);
+        }
+
+        void VulkanCommandList::BeginRendering(const RenderingDescription& description)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "BeginRendering is called once within a frame, before EndRendering.");
+            TR_CORE_ASSERT(description.ColorAttachments.size() <= c_MaxColorAttachments, "Too many color attachments.");
+
+            std::array<VkRenderingAttachmentInfo, c_MaxColorAttachments> l_Colors{};
+            std::uint32_t l_ColorCount = 0;
+            Rect l_Area = description.RenderArea;
+            for (const ColorAttachment& it_Attachment : description.ColorAttachments)
+            {
+                const VulkanTexture* l_Texture = m_Device.GetTexture(it_Attachment.Texture);
+                TR_CORE_ASSERT(l_Texture != nullptr && l_Texture->AttachmentView != VK_NULL_HANDLE, "BeginRendering with a destroyed texture, or one without RenderTarget usage.");
+                if (l_Texture == nullptr || l_Texture->AttachmentView == VK_NULL_HANDLE || l_ColorCount == c_MaxColorAttachments)
+                {
+                    continue;
+                }
+
+                if (l_Area.Width == 0 || l_Area.Height == 0)
+                {
+                    l_Area = { 0, 0, l_Texture->Width, l_Texture->Height };
+                }
+
+                VkRenderingAttachmentInfo& l_Info = l_Colors[l_ColorCount++];
+                l_Info = MakeInfo<VkRenderingAttachmentInfo>(VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO);
+                l_Info.imageView = l_Texture->AttachmentView;
+                l_Info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                l_Info.loadOp = ToVkLoadOp(it_Attachment.Load);
+                l_Info.storeOp = ToVkStoreOp(it_Attachment.Store);
+                for (std::size_t it_Channel = 0; it_Channel < it_Attachment.ClearColor.size(); ++it_Channel)
+                {
+                    l_Info.clearValue.color.float32[it_Channel] = it_Attachment.ClearColor[it_Channel];
+                }
+            }
+
+            VkRenderingAttachmentInfo l_Depth = MakeInfo<VkRenderingAttachmentInfo>(VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO);
+            const VulkanTexture* l_DepthTexture = description.Depth.Texture ? m_Device.GetTexture(description.Depth.Texture) : nullptr;
+            TR_CORE_ASSERT(!description.Depth.Texture || (l_DepthTexture != nullptr && l_DepthTexture->AttachmentView != VK_NULL_HANDLE), "BeginRendering with a destroyed depth texture, or one without DepthStencil usage.");
+            if (l_DepthTexture != nullptr)
+            {
+                if (l_Area.Width == 0 || l_Area.Height == 0)
+                {
+                    l_Area = { 0, 0, l_DepthTexture->Width, l_DepthTexture->Height };
+                }
+
+                l_Depth.imageView = l_DepthTexture->AttachmentView;
+                l_Depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                l_Depth.loadOp = ToVkLoadOp(description.Depth.Load);
+                l_Depth.storeOp = ToVkStoreOp(description.Depth.Store);
+                l_Depth.clearValue.depthStencil = { description.Depth.ClearDepth, 0 };
+            }
+
+            VkRenderingInfo l_Rendering = MakeInfo<VkRenderingInfo>(VK_STRUCTURE_TYPE_RENDERING_INFO);
+            l_Rendering.renderArea = { { l_Area.X, l_Area.Y }, { l_Area.Width, l_Area.Height } };
+            l_Rendering.layerCount = 1;
+            l_Rendering.colorAttachmentCount = l_ColorCount;
+            l_Rendering.pColorAttachments = l_Colors.data();
+            l_Rendering.pDepthAttachment = l_DepthTexture != nullptr && l_DepthTexture->AttachmentView != VK_NULL_HANDLE ? &l_Depth : nullptr;
+            vkCmdBeginRendering(m_CommandBuffer, &l_Rendering);
+
+            m_Rendering = true;
         }
 
         void VulkanCommandList::EndRendering()
         {
+            TR_CORE_ASSERT(m_Rendering, "EndRendering without BeginRendering.");
 
+            vkCmdEndRendering(m_CommandBuffer);
+            m_Rendering = false;
         }
 
         void VulkanCommandList::SetPipeline([[maybe_unused]] PipelineHandle pipeline)
@@ -455,14 +677,50 @@ namespace Trinity
 
         }
 
-        void VulkanCommandList::CopyBuffer([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset, [[maybe_unused]] std::uint64_t size)
+        void VulkanCommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
         {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
+            const VulkanBuffer* l_Source = m_Device.GetBuffer(source);
+            const VulkanBuffer* l_Destination = m_Device.GetBuffer(destination);
+            TR_CORE_ASSERT(l_Source != nullptr && l_Destination != nullptr, "CopyBuffer with a destroyed or invalid buffer.");
+            if (l_Source == nullptr || l_Destination == nullptr)
+            {
+                return;
+            }
+
+            TR_CORE_ASSERT(sourceOffset + size <= l_Source->Size && destinationOffset + size <= l_Destination->Size, "CopyBuffer reaches past the end of a buffer.");
+
+            const VkBufferCopy l_Region{ sourceOffset, destinationOffset, size };
+            vkCmdCopyBuffer(m_CommandBuffer, l_Source->Buffer, l_Destination->Buffer, 1, &l_Region);
         }
 
-        void VulkanCommandList::CopyTextureToBuffer([[maybe_unused]] TextureHandle source, [[maybe_unused]] BufferHandle destination)
+        void VulkanCommandList::CopyTextureToBuffer(TextureHandle source, BufferHandle destination)
         {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
+            const VulkanTexture* l_Texture = m_Device.GetTexture(source);
+            const VulkanBuffer* l_Buffer = m_Device.GetBuffer(destination);
+            TR_CORE_ASSERT(l_Texture != nullptr && l_Buffer != nullptr, "CopyTextureToBuffer with a destroyed or invalid resource.");
+            if (l_Texture == nullptr || l_Buffer == nullptr)
+            {
+                return;
+            }
+
+            const std::uint32_t l_TexelSize = GetFormatSize(l_Texture->TextureFormat);
+            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Texture->Width);
+            TR_CORE_ASSERT(l_TexelSize != 0 && l_RowPitch % l_TexelSize == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
+            TR_CORE_ASSERT(l_RowPitch * l_Texture->Height <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes, and the buffer has {}.", l_RowPitch * l_Texture->Height, l_Buffer->Size);
+            if (l_TexelSize == 0)
+            {
+                return;
+            }
+
+            VkBufferImageCopy l_Region{};
+            l_Region.bufferRowLength = static_cast<std::uint32_t>(l_RowPitch / l_TexelSize);
+            l_Region.imageSubresource = { GetAspect(l_Texture->TextureFormat), 0, 0, 1 };
+            l_Region.imageExtent = { l_Texture->Width, l_Texture->Height, 1 };
+            vkCmdCopyImageToBuffer(m_CommandBuffer, l_Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, l_Buffer->Buffer, 1, &l_Region);
         }
 
         Scope<VulkanDevice> VulkanDevice::Create(const DeviceSpecification& specification, std::string& error)
@@ -474,6 +732,11 @@ namespace Trinity
             }
 
             return l_Device;
+        }
+
+        VulkanDevice::VulkanDevice() : m_CommandList(*this)
+        {
+
         }
 
         VulkanDevice::~VulkanDevice()
@@ -489,8 +752,15 @@ namespace Trinity
                 }
 
                 m_Releases.ReleaseAll([this](const VulkanRelease& release) { Release(release); });
-                m_Buffers.ForEach([this](const VulkanBuffer& buffer) { Release({ buffer.Buffer, VK_NULL_HANDLE, buffer.Allocation }); });
-                m_Textures.ForEach([this](const VulkanTexture& texture) { Release({ VK_NULL_HANDLE, texture.Image, texture.Allocation }); });
+                m_Buffers.ForEach([this](const VulkanBuffer& buffer) { Release({ buffer.Buffer, VK_NULL_HANDLE, VK_NULL_HANDLE, buffer.Allocation }); });
+                m_Textures.ForEach([this](const VulkanTexture& texture) { Release({ VK_NULL_HANDLE, texture.Image, texture.AttachmentView, texture.Allocation }); });
+
+                for (const FrameContext& it_Frame : m_Frames)
+                {
+                    vkDestroyCommandPool(m_Device, it_Frame.CommandPool, nullptr);
+                }
+
+                vkDestroySemaphore(m_Device, m_FrameTimeline, nullptr);
 
                 if (m_Allocator != nullptr)
                 {
@@ -533,7 +803,7 @@ namespace Trinity
                 return false;
             }
 
-            return CreateInstance(specification, l_LoaderVersion, error) && CreateLogicalDevice(error) && CreateAllocator(error);
+            return CreateInstance(specification, l_LoaderVersion, error) && CreateLogicalDevice(error) && CreateAllocator(error) && CreateFrames(error);
         }
 
         bool VulkanDevice::CreateInstance(const DeviceSpecification& specification, std::uint32_t loaderVersion, std::string& error)
@@ -783,14 +1053,81 @@ namespace Trinity
             return true;
         }
 
+        bool VulkanDevice::CreateFrames(std::string& error)
+        {
+            VkSemaphoreTypeCreateInfo l_Timeline = MakeInfo<VkSemaphoreTypeCreateInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO);
+            l_Timeline.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+
+            VkSemaphoreCreateInfo l_Semaphore = MakeInfo<VkSemaphoreCreateInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO);
+            l_Semaphore.pNext = &l_Timeline;
+
+            VkResult l_Result = vkCreateSemaphore(m_Device, &l_Semaphore, nullptr, &m_FrameTimeline);
+            for (FrameContext& it_Frame : m_Frames)
+            {
+                if (l_Result != VK_SUCCESS)
+                {
+                    break;
+                }
+
+                VkCommandPoolCreateInfo l_Pool = MakeInfo<VkCommandPoolCreateInfo>(VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO);
+                l_Pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+                l_Pool.queueFamilyIndex = m_QueueFamily;
+                l_Result = vkCreateCommandPool(m_Device, &l_Pool, nullptr, &it_Frame.CommandPool);
+                if (l_Result != VK_SUCCESS)
+                {
+                    break;
+                }
+
+                VkCommandBufferAllocateInfo l_Allocate = MakeInfo<VkCommandBufferAllocateInfo>(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO);
+                l_Allocate.commandPool = it_Frame.CommandPool;
+                l_Allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                l_Allocate.commandBufferCount = 1;
+                l_Result = vkAllocateCommandBuffers(m_Device, &l_Allocate, &it_Frame.CommandBuffer);
+            }
+
+            if (l_Result != VK_SUCCESS)
+            {
+                error = std::format("the frame command pools and timeline semaphore could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+
+                return false;
+            }
+
+            return true;
+        }
+
+        VkImageView VulkanDevice::CreateAttachmentView(VkImage image, Format format)
+        {
+            VkImageViewCreateInfo l_Create = MakeInfo<VkImageViewCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO);
+            l_Create.image = image;
+            l_Create.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            l_Create.format = ToVkFormat(format);
+            l_Create.subresourceRange = { GetAspect(format), 0, 1, 0, 1 };
+
+            VkImageView l_View = VK_NULL_HANDLE;
+            const VkResult l_Result = vkCreateImageView(m_Device, &l_Create, nullptr, &l_View);
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: an attachment view of a {} image could not be created ({})", ToString(format), FormatResult(l_Result));
+
+                return VK_NULL_HANDLE;
+            }
+
+            return l_View;
+        }
+
         void VulkanDevice::Release(const VulkanRelease& release)
         {
+            if (release.View != VK_NULL_HANDLE)
+            {
+                vkDestroyImageView(m_Device, release.View, nullptr);
+            }
+
             if (release.Buffer != VK_NULL_HANDLE)
             {
                 vmaDestroyBuffer(m_Allocator, release.Buffer, release.Allocation);
             }
 
-            if (release.Image != VK_NULL_HANDLE)
+            if (release.Image != VK_NULL_HANDLE && release.Allocation != nullptr)
             {
                 vmaDestroyImage(m_Allocator, release.Image, release.Allocation);
             }
@@ -881,7 +1218,7 @@ namespace Trinity
 
             if (l_Buffer)
             {
-                m_Releases.Push({ l_Buffer->Buffer, VK_NULL_HANDLE, l_Buffer->Allocation });
+                m_Releases.Push({ l_Buffer->Buffer, VK_NULL_HANDLE, VK_NULL_HANDLE, l_Buffer->Allocation });
             }
         }
 
@@ -928,11 +1265,16 @@ namespace Trinity
                 return {};
             }
 
-            l_Texture.ImageFormat = l_Create.format;
+            l_Texture.TextureFormat = description.TextureFormat;
             l_Texture.Width = description.Width;
             l_Texture.Height = description.Height;
             l_Texture.MipLevels = description.MipLevels;
             SetDebugName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(l_Texture.Image), description.DebugName);
+
+            if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil))
+            {
+                l_Texture.AttachmentView = CreateAttachmentView(l_Texture.Image, description.TextureFormat);
+            }
 
             return m_Textures.Add(l_Texture);
         }
@@ -949,8 +1291,47 @@ namespace Trinity
 
             if (l_Texture)
             {
-                m_Releases.Push({ VK_NULL_HANDLE, l_Texture->Image, l_Texture->Allocation });
+                m_Releases.Push({ VK_NULL_HANDLE, l_Texture->Image, l_Texture->AttachmentView, l_Texture->Allocation });
             }
+        }
+
+        TextureHandle VulkanDevice::AddSwapChainImage(VkImage image, Format format, std::uint32_t width, std::uint32_t height)
+        {
+            VulkanTexture l_Texture;
+            l_Texture.Image = image;
+            l_Texture.AttachmentView = CreateAttachmentView(image, format);
+            l_Texture.TextureFormat = format;
+            l_Texture.Width = width;
+            l_Texture.Height = height;
+            l_Texture.MipLevels = 1;
+
+            return m_Textures.Add(l_Texture);
+        }
+
+        // The swap chain waits for the device to be idle first, so the view goes at once
+        void VulkanDevice::RemoveSwapChainImage(TextureHandle texture)
+        {
+            const std::optional<VulkanTexture> l_Texture = m_Textures.Remove(texture);
+            if (l_Texture)
+            {
+                vkDestroyImageView(m_Device, l_Texture->AttachmentView, nullptr);
+            }
+        }
+
+        void VulkanDevice::WaitForSemaphore(VkSemaphore semaphore)
+        {
+            VkSemaphoreSubmitInfo l_Wait = MakeInfo<VkSemaphoreSubmitInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO);
+            l_Wait.semaphore = semaphore;
+            l_Wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            m_FrameWaits.push_back(l_Wait);
+        }
+
+        void VulkanDevice::SignalSemaphore(VkSemaphore semaphore)
+        {
+            VkSemaphoreSubmitInfo l_Signal = MakeInfo<VkSemaphoreSubmitInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO);
+            l_Signal.semaphore = semaphore;
+            l_Signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            m_FrameSignals.push_back(l_Signal);
         }
 
         PipelineHandle VulkanDevice::CreateGraphicsPipeline([[maybe_unused]] const GraphicsPipelineDescription& description)
@@ -963,17 +1344,33 @@ namespace Trinity
 
         }
 
-        Scope<SwapChain> VulkanDevice::CreateSwapChain([[maybe_unused]] const SwapChainSpecification& specification)
+        Scope<SwapChain> VulkanDevice::CreateSwapChain(const SwapChainSpecification& specification)
         {
-            return nullptr;
+            return VulkanSwapChain::Create(*this, specification);
         }
 
+        // Waits until the frame c_FramesInFlight before this one, which used the same command pool, has finished on the GPU
         CommandList& VulkanDevice::BeginFrame()
         {
             TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
 
+            FrameContext& l_Frame = m_Frames[GetFrameSlot()];
+            if (l_Frame.CompletionValue != 0)
+            {
+                VkSemaphoreWaitInfo l_Wait = MakeInfo<VkSemaphoreWaitInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO);
+                l_Wait.semaphoreCount = 1;
+                l_Wait.pSemaphores = &m_FrameTimeline;
+                l_Wait.pValues = &l_Frame.CompletionValue;
+                vkWaitSemaphores(m_Device, &l_Wait, UINT64_MAX);
+            }
+
             m_InFrame = true;
             m_Releases.BeginFrame([this](const VulkanRelease& release) { Release(release); });
+
+            vkResetCommandPool(m_Device, l_Frame.CommandPool, 0);
+            m_FrameWaits.clear();
+            m_FrameSignals.clear();
+            m_CommandList.Begin(l_Frame.CommandBuffer);
 
             return m_CommandList;
         }
@@ -982,6 +1379,31 @@ namespace Trinity
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
+            FrameContext& l_Frame = m_Frames[GetFrameSlot()];
+            m_CommandList.End();
+
+            l_Frame.CompletionValue = m_FrameNumber + 1;
+            SignalSemaphore(m_FrameTimeline);
+            m_FrameSignals.back().value = l_Frame.CompletionValue;
+
+            VkCommandBufferSubmitInfo l_Commands = MakeInfo<VkCommandBufferSubmitInfo>(VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO);
+            l_Commands.commandBuffer = l_Frame.CommandBuffer;
+
+            VkSubmitInfo2 l_Submit = MakeInfo<VkSubmitInfo2>(VK_STRUCTURE_TYPE_SUBMIT_INFO_2);
+            l_Submit.waitSemaphoreInfoCount = static_cast<std::uint32_t>(m_FrameWaits.size());
+            l_Submit.pWaitSemaphoreInfos = m_FrameWaits.data();
+            l_Submit.commandBufferInfoCount = 1;
+            l_Submit.pCommandBufferInfos = &l_Commands;
+            l_Submit.signalSemaphoreInfoCount = static_cast<std::uint32_t>(m_FrameSignals.size());
+            l_Submit.pSignalSemaphoreInfos = m_FrameSignals.data();
+
+            const VkResult l_Result = vkQueueSubmit2(m_Queue, 1, &l_Submit, VK_NULL_HANDLE);
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: frame {} could not be submitted ({})", m_FrameNumber, FormatResult(l_Result));
+            }
+
+            ++m_FrameNumber;
             m_Releases.EndFrame();
             m_InFrame = false;
         }
