@@ -49,6 +49,8 @@ namespace Trinity
         [[nodiscard]] TRINITY_API void* Allocate(std::size_t size, MemoryTag tag, std::size_t alignment = alignof(std::max_align_t));
         TRINITY_API void Free(void* memory);
 
+        [[nodiscard]] TRINITY_API void* AllocateUntagged(std::size_t size, std::size_t alignment) noexcept;
+
         template<typename T, typename... Args>
         [[nodiscard]] T* New(MemoryTag tag, Args&&... args)
         {

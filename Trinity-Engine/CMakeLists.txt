@@ -1,7 +1,5 @@
 # Trinity-Engine CMakeLists.txt
 
-set(TARGET_NAME Trinity-Engine)
-
 file(GLOB_RECURSE TRINITY_ENGINE_PUBLIC_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.hpp"
@@ -15,21 +13,6 @@ file(GLOB_RECURSE TRINITY_ENGINE_INTERNAL_HEADERS CONFIGURE_DEPENDS
 file(GLOB_RECURSE TRINITY_ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp"
 )
-
-if(TRINITY_PLATFORM STREQUAL "Windows")
-    list(APPEND TRINITY_ENGINE_INTERNAL_HEADERS
-        "Internal/Trinity/Platform/Windows/WindowsHeaders.hpp"
-        "Internal/Trinity/Platform/Windows/WindowsWindow.hpp"
-    )
-    list(APPEND TRINITY_ENGINE_SOURCES
-        "Source/Trinity/Platform/Windows/WindowsPlatform.cpp"
-        "Source/Trinity/Platform/Windows/WindowsWindow.cpp"
-    )
-else()
-    list(APPEND TRINITY_ENGINE_SOURCES
-        "Source/Trinity/Platform/Generic/GenericPlatform.cpp"
-    )
-endif()
 
 set(TRINITY_ENGINE_FILES
     ${TRINITY_ENGINE_PUBLIC_HEADERS}
@@ -49,38 +32,100 @@ foreach(directory IN ITEMS Windows Generic)
     endif()
 endforeach()
 
-add_library(${TARGET_NAME} STATIC ${TRINITY_ENGINE_FILES})
-add_library(Trinity::Engine ALIAS ${TARGET_NAME})
+# Global new and delete are compiled into the engine, and on Windows also into each executable and module that uses the shared engine
+set(TRINITY_ENGINE_GLOBAL_ALLOCATIONS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Trinity/Core/GlobalAllocations.cpp")
+list(REMOVE_ITEM TRINITY_ENGINE_FILES "${TRINITY_ENGINE_GLOBAL_ALLOCATIONS}")
+if(TRINITY_TRACK_GLOBAL_ALLOCATIONS)
+    list(APPEND TRINITY_ENGINE_FILES "${TRINITY_ENGINE_GLOBAL_ALLOCATIONS}")
+endif()
 
-trinity_configure_target(${TARGET_NAME})
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_ENGINE_FILES})
+set(TRINITY_ENGINE_HEADERS ${TRINITY_ENGINE_FILES})
+list(FILTER TRINITY_ENGINE_HEADERS EXCLUDE REGEX "\\.cpp$")
+set(TRINITY_ENGINE_COMPILED ${TRINITY_ENGINE_FILES})
+list(FILTER TRINITY_ENGINE_COMPILED INCLUDE REGEX "\\.cpp$")
 
-target_include_directories(${TARGET_NAME}
-    PUBLIC "Include"
-    PRIVATE "Internal"
+# CMake builds every library an executable links in any configuration, in every configuration so each engine target compiles the engine only in the configurations that use it, and a placeholder in the others, written outside bin.
+set(TRINITY_ENGINE_SHARED_CONFIG "$<AND:$<BOOL:${TRINITY_SHARED_ENGINE}>,$<NOT:$<CONFIG:Distribution>>>")
+set(TRINITY_ENGINE_STATIC_CONFIG "$<NOT:${TRINITY_ENGINE_SHARED_CONFIG}>")
+set(TRINITY_ENGINE_PLACEHOLDER_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Placeholder/$<CONFIG>")
+set(TRINITY_ENGINE_PLACEHOLDER "${CMAKE_CURRENT_BINARY_DIR}/EnginePlaceholder.cpp")
+
+# The export makes the linker write an import library for the unused DLL, which Ninja expects as an output
+file(CONFIGURE OUTPUT "${TRINITY_ENGINE_PLACEHOLDER}" CONTENT "#if defined(_WIN32)\n__declspec(dllexport)\n#endif\nint TrinityEnginePlaceholder = 0;\n")
+
+function(trinity_add_engine_library target type active_config)
+    add_library(${target} ${type}
+        ${TRINITY_ENGINE_HEADERS}
+        "$<${active_config}:${TRINITY_ENGINE_COMPILED}>"
+        "$<$<NOT:${active_config}>:${TRINITY_ENGINE_PLACEHOLDER}>"
+    )
+
+    trinity_configure_target(${target})
+    source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_ENGINE_FILES})
+
+    set_target_properties(${target} PROPERTIES
+        LINKER_LANGUAGE CXX
+        RUNTIME_OUTPUT_DIRECTORY "$<IF:${active_config},${OUTPUT_BASE},${TRINITY_ENGINE_PLACEHOLDER_DIRECTORY}>"
+        LIBRARY_OUTPUT_DIRECTORY "$<IF:${active_config},${OUTPUT_BASE},${TRINITY_ENGINE_PLACEHOLDER_DIRECTORY}>"
+        ARCHIVE_OUTPUT_DIRECTORY "$<IF:${active_config},${OUTPUT_BASE},${TRINITY_ENGINE_PLACEHOLDER_DIRECTORY}>"
+    )
+
+    target_include_directories(${target}
+        PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Include"
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Internal"
+    )
+    # The placeholder still gets a header: an empty list in some configurations breaks Ninja generation with MSVC
+    target_precompile_headers(${target}
+        PRIVATE "$<IF:${active_config},${CMAKE_CURRENT_SOURCE_DIR}/Internal/TrinityPCH.hpp,<cstddef$<ANGLE-R>>"
+    )
+
+    target_compile_definitions(${target}
+        PRIVATE
+            TR_VERSION_STRING="${PROJECT_VERSION}"
+            $<$<BOOL:${TRINITY_TRACK_GLOBAL_ALLOCATIONS}>:TR_TRACK_GLOBAL_ALLOCATIONS>
+        PUBLIC
+            GLM_FORCE_DEPTH_ZERO_TO_ONE
+            GLM_FORCE_RADIANS
+            GLM_ENABLE_EXPERIMENTAL
+    )
+
+    target_link_libraries(${target}
+        PUBLIC
+            Trinity::BuildConfig
+            glm::glm
+            EnTT::EnTT
+        PRIVATE
+            spdlog::spdlog
+    )
+
+    if(TRINITY_PLATFORM STREQUAL "Windows")
+        target_link_libraries(${target} PRIVATE user32 gdi32 shell32 ole32 uuid)
+    endif()
+endfunction()
+
+trinity_add_engine_library(Trinity-Engine SHARED "${TRINITY_ENGINE_SHARED_CONFIG}")
+target_compile_definitions(Trinity-Engine
+    PUBLIC TR_ENGINE_SHARED
+    PRIVATE TR_BUILD_ENGINE
 )
-target_precompile_headers(${TARGET_NAME} 
-    PRIVATE "Internal/TrinityPCH.hpp"
+
+# C4251 flags standard library members of exported classes, which is safe while every module uses the same compiler and runtime
+target_compile_options(Trinity-Engine PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/wd4251>)
+set_target_properties(Trinity-Engine PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
 )
 
-target_compile_definitions(${TARGET_NAME}
-    PRIVATE
-        TR_VERSION_STRING="${PROJECT_VERSION}"
-        $<$<BOOL:${TRINITY_TRACK_GLOBAL_ALLOCATIONS}>:TR_TRACK_GLOBAL_ALLOCATIONS>
-    PUBLIC
-        GLM_FORCE_DEPTH_ZERO_TO_ONE
-        GLM_FORCE_RADIANS
-        GLM_ENABLE_EXPERIMENTAL
-)
+# Keeps spdlog and other static dependencies private to the engine on Linux, as a DLL does on Windows
+target_link_options(Trinity-Engine PRIVATE $<$<PLATFORM_ID:Linux>:LINKER:--exclude-libs,ALL>)
 
-target_link_libraries(${TARGET_NAME}
-    PUBLIC
-        Trinity::BuildConfig
-        spdlog::spdlog
-        glm::glm
-        EnTT::EnTT
-)
+trinity_add_engine_library(Trinity-Engine-Static STATIC "${TRINITY_ENGINE_STATIC_CONFIG}")
 
-if(TRINITY_PLATFORM STREQUAL "Windows")
-    target_link_libraries(${TARGET_NAME} PUBLIC user32 gdi32 shell32 ole32 uuid)
+# What executables and modules link: the shared engine or the static one, depending on the configuration
+add_library(Trinity-Engine-Link INTERFACE)
+add_library(Trinity::Engine ALIAS Trinity-Engine-Link)
+target_link_libraries(Trinity-Engine-Link INTERFACE "$<IF:${TRINITY_ENGINE_SHARED_CONFIG},Trinity-Engine,Trinity-Engine-Static>")
+
+if(WIN32 AND TRINITY_TRACK_GLOBAL_ALLOCATIONS)
+    target_sources(Trinity-Engine-Link INTERFACE "$<${TRINITY_ENGINE_SHARED_CONFIG}:${TRINITY_ENGINE_GLOBAL_ALLOCATIONS}>")
 endif()

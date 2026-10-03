@@ -304,8 +304,7 @@ void SandboxLayer::TestFileSystem()
     const std::string l_LogName = std::filesystem::path(l_Args[0]).stem().string() + ".log";
     const std::string l_LogPath = "/logs/" + l_LogName;
 
-    Trinity::Log::Core().flush();
-    Trinity::Log::Client().flush();
+    Trinity::Log::Flush();
 
     const Trinity::Expected<std::string, Trinity::FileError> l_Log = Trinity::FileSystem::ReadText(l_LogPath);
     if (l_Log)

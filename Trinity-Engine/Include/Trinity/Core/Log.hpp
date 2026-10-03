@@ -2,48 +2,70 @@
 
 #include "Trinity/Core/Base.hpp"
 
-#include <spdlog/spdlog.h>
-
+#include <cstdint>
 #include <filesystem>
-#include <memory>
+#include <format>
+#include <string_view>
+#include <utility>
 
 namespace Trinity
 {
+    enum class LogChannel : std::uint8_t
+    {
+        Core,
+        Client
+    };
+
+    enum class LogLevel : std::uint8_t
+    {
+        Trace,
+        Info,
+        Warn,
+        Error,
+        Critical
+    };
+
     class TRINITY_API Log
     {
     public:
         static void Initialize(const std::filesystem::path& logFile);
         static void Shutdown();
 
-        [[nodiscard]] static spdlog::logger& Core() { return *s_CoreLogger; }
-        [[nodiscard]] static spdlog::logger& Client() { return *s_ClientLogger; }
+        [[nodiscard]] static bool ShouldLog(LogChannel channel, LogLevel level);
+        static void Write(LogChannel channel, LogLevel level, std::string_view message);
+        static void Flush();
 
-    private:
-        static std::shared_ptr<spdlog::logger> s_CoreLogger;
-        static std::shared_ptr<spdlog::logger> s_ClientLogger;
+        template<typename... Args>
+        static void Print(LogChannel channel, LogLevel level, std::format_string<Args...> format, Args&&... args)
+        {
+            if (ShouldLog(channel, level))
+            {
+                Write(channel, level, std::format(format, std::forward<Args>(args)...));
+            }
+        }
     };
 }
 
 // Engine-side logging.
-#define TR_CORE_WARN(...) ::Trinity::Log::Core().warn(__VA_ARGS__)
-#define TR_CORE_ERROR(...) ::Trinity::Log::Core().error(__VA_ARGS__)
-#define TR_CORE_CRITICAL(...) ::Trinity::Log::Core().critical(__VA_ARGS__)
+#define TR_CORE_WARN(...) ::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Warn, __VA_ARGS__)
+#define TR_CORE_ERROR(...) ::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Error, __VA_ARGS__)
+#define TR_CORE_CRITICAL(...) ::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Critical, __VA_ARGS__)
 
 // Application-side logging.
-#define TR_WARN(...) ::Trinity::Log::Client().warn(__VA_ARGS__)
-#define TR_ERROR(...) ::Trinity::Log::Client().error(__VA_ARGS__)
-#define TR_CRITICAL(...) ::Trinity::Log::Client().critical(__VA_ARGS__)
+#define TR_WARN(...) ::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Warn, __VA_ARGS__)
+#define TR_ERROR(...) ::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Error, __VA_ARGS__)
+#define TR_CRITICAL(...) ::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Critical, __VA_ARGS__)
 
 #if defined(TR_DISTRIBUTION)
-    #define TR_INTERNAL_LOG_DISABLED(call) do { if (false) { call; } } while (false)
+#define TR_INTERNAL_LOG_DISABLED(call) do { if (false) { call; } } while (false)
 
-    #define TR_CORE_TRACE(...) TR_INTERNAL_LOG_DISABLED(::Trinity::Log::Core().trace(__VA_ARGS__))
-    #define TR_CORE_INFO(...) TR_INTERNAL_LOG_DISABLED(::Trinity::Log::Core().info(__VA_ARGS__))
-    #define TR_TRACE(...) TR_INTERNAL_LOG_DISABLED(::Trinity::Log::Client().trace(__VA_ARGS__))
-    #define TR_INFO(...) TR_INTERNAL_LOG_DISABLED(::Trinity::Log::Client().info(__VA_ARGS__))
+#define TR_CORE_TRACE(...) TR_INTERNAL_LOG_DISABLED(::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Trace, __VA_ARGS__))
+#define TR_CORE_INFO(...) TR_INTERNAL_LOG_DISABLED(::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Info, __VA_ARGS__))
+#define TR_TRACE(...) TR_INTERNAL_LOG_DISABLED(::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Trace, __VA_ARGS__))
+#define TR_INFO(...) TR_INTERNAL_LOG_DISABLED(::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Info, __VA_ARGS__))
 #else
-    #define TR_CORE_TRACE(...) ::Trinity::Log::Core().trace(__VA_ARGS__)
-    #define TR_CORE_INFO(...) ::Trinity::Log::Core().info(__VA_ARGS__)
-    #define TR_TRACE(...) ::Trinity::Log::Client().trace(__VA_ARGS__)
-    #define TR_INFO(...) ::Trinity::Log::Client().info(__VA_ARGS__)
+#define TR_CORE_TRACE(...) ::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Trace, __VA_ARGS__)
+#define TR_CORE_INFO(...) ::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Info, __VA_ARGS__)
+#define TR_TRACE(...) ::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Trace, __VA_ARGS__)
+#define TR_INFO(...) ::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Info, __VA_ARGS__)
 #endif

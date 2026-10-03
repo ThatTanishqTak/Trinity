@@ -178,6 +178,11 @@ namespace Trinity
             FreeTagged(memory);
         }
 
+        void* AllocateUntagged(std::size_t size, std::size_t alignment) noexcept
+        {
+            return AllocateTagged(size, MemoryTag::Untagged, alignment);
+        }
+
         bool IsTrackingGlobalAllocations()
         {
 #if defined(TR_TRACK_GLOBAL_ALLOCATIONS)
@@ -240,65 +245,3 @@ namespace Trinity
         }
     }
 }
-
-
-#if defined(TR_TRACK_GLOBAL_ALLOCATIONS)
-
-namespace
-{
-    void* AllocateUntagged(std::size_t size, std::size_t alignment)
-    {
-        while (true)
-        {
-            if (void* l_Memory = Trinity::AllocateTagged(size, Trinity::MemoryTag::Untagged, alignment))
-            {
-                return l_Memory;
-            }
-
-            const std::new_handler l_Handler = std::get_new_handler();
-            if (l_Handler == nullptr)
-            {
-                throw std::bad_alloc();
-            }
-
-            l_Handler();
-        }
-    }
-
-    void* AllocateUntaggedNoThrow(std::size_t size, std::size_t alignment) noexcept
-    {
-        try
-        {
-            return AllocateUntagged(size, alignment);
-        }
-        catch (...)
-        {
-            return nullptr;
-        }
-    }
-}
-
-void* operator new(std::size_t size) { return AllocateUntagged(size, __STDCPP_DEFAULT_NEW_ALIGNMENT__); }
-void* operator new[](std::size_t size) { return AllocateUntagged(size, __STDCPP_DEFAULT_NEW_ALIGNMENT__); }
-void* operator new(std::size_t size, std::align_val_t alignment) { return AllocateUntagged(size, static_cast<std::size_t>(alignment)); }
-void* operator new[](std::size_t size, std::align_val_t alignment) { return AllocateUntagged(size, static_cast<std::size_t>(alignment)); }
-
-void* operator new(std::size_t size, const std::nothrow_t&) noexcept { return AllocateUntaggedNoThrow(size, __STDCPP_DEFAULT_NEW_ALIGNMENT__); }
-void* operator new[](std::size_t size, const std::nothrow_t&) noexcept { return AllocateUntaggedNoThrow(size, __STDCPP_DEFAULT_NEW_ALIGNMENT__); }
-void* operator new(std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept { return AllocateUntaggedNoThrow(size, static_cast<std::size_t>(alignment)); }
-void* operator new[](std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept { return AllocateUntaggedNoThrow(size, static_cast<std::size_t>(alignment)); }
-
-void operator delete(void* memory) noexcept { Trinity::FreeTagged(memory); }
-void operator delete[](void* memory) noexcept { Trinity::FreeTagged(memory); }
-void operator delete(void* memory, std::size_t) noexcept { Trinity::FreeTagged(memory); }
-void operator delete[](void* memory, std::size_t) noexcept { Trinity::FreeTagged(memory); }
-void operator delete(void* memory, std::align_val_t) noexcept { Trinity::FreeTagged(memory); }
-void operator delete[](void* memory, std::align_val_t) noexcept { Trinity::FreeTagged(memory); }
-void operator delete(void* memory, std::size_t, std::align_val_t) noexcept { Trinity::FreeTagged(memory); }
-void operator delete[](void* memory, std::size_t, std::align_val_t) noexcept { Trinity::FreeTagged(memory); }
-void operator delete(void* memory, const std::nothrow_t&) noexcept { Trinity::FreeTagged(memory); }
-void operator delete[](void* memory, const std::nothrow_t&) noexcept { Trinity::FreeTagged(memory); }
-void operator delete(void* memory, std::align_val_t, const std::nothrow_t&) noexcept { Trinity::FreeTagged(memory); }
-void operator delete[](void* memory, std::align_val_t, const std::nothrow_t&) noexcept { Trinity::FreeTagged(memory); }
-
-#endif

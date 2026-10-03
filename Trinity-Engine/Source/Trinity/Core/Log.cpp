@@ -3,13 +3,50 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <array>
 #include <system_error>
 #include <vector>
 
 namespace Trinity
 {
-    std::shared_ptr<spdlog::logger> Log::s_CoreLogger;
-    std::shared_ptr<spdlog::logger> Log::s_ClientLogger;
+    namespace
+    {
+        std::array<std::shared_ptr<spdlog::logger>, 2> s_Loggers;
+
+        spdlog::logger* GetLogger(LogChannel channel)
+        {
+            return s_Loggers[static_cast<std::size_t>(channel)].get();
+        }
+
+        spdlog::level::level_enum ToSpdlogLevel(LogLevel level)
+        {
+            switch (level)
+            {
+                case LogLevel::Trace:
+                {
+                    return spdlog::level::trace;
+                }
+                case LogLevel::Info:
+                {
+                    return spdlog::level::info;
+                }
+                case LogLevel::Warn:
+                {
+                    return spdlog::level::warn;
+                }
+                case LogLevel::Error:
+                {
+                    return spdlog::level::err;
+                }
+                case LogLevel::Critical:
+                {
+                    return spdlog::level::critical;
+                }
+            }
+
+            return spdlog::level::critical;
+        }
+    }
 
     void Log::Initialize(const std::filesystem::path& logFile)
     {
@@ -37,10 +74,10 @@ namespace Trinity
             l_FileSinkError = exception.what();
         }
 
-        s_CoreLogger = std::make_shared<spdlog::logger>("TRINITY", l_Sinks.begin(), l_Sinks.end());
-        s_ClientLogger = std::make_shared<spdlog::logger>("APP", l_Sinks.begin(), l_Sinks.end());
+        s_Loggers[static_cast<std::size_t>(LogChannel::Core)] = std::make_shared<spdlog::logger>("TRINITY", l_Sinks.begin(), l_Sinks.end());
+        s_Loggers[static_cast<std::size_t>(LogChannel::Client)] = std::make_shared<spdlog::logger>("APP", l_Sinks.begin(), l_Sinks.end());
 
-        for (const auto& it_Logger : { s_CoreLogger, s_ClientLogger })
+        for (const std::shared_ptr<spdlog::logger>& it_Logger : s_Loggers)
         {
             it_Logger->set_level(spdlog::level::trace);
             it_Logger->flush_on(spdlog::level::warn);
@@ -55,8 +92,37 @@ namespace Trinity
 
     void Log::Shutdown()
     {
-        s_ClientLogger.reset();
-        s_CoreLogger.reset();
+        for (std::shared_ptr<spdlog::logger>& it_Logger : s_Loggers)
+        {
+            it_Logger.reset();
+        }
+
         spdlog::shutdown();
+    }
+
+    bool Log::ShouldLog(LogChannel channel, LogLevel level)
+    {
+        const spdlog::logger* l_Logger = GetLogger(channel);
+
+        return l_Logger != nullptr && l_Logger->should_log(ToSpdlogLevel(level));
+    }
+
+    void Log::Write(LogChannel channel, LogLevel level, std::string_view message)
+    {
+        if (spdlog::logger* l_Logger = GetLogger(channel))
+        {
+            l_Logger->log(ToSpdlogLevel(level), message);
+        }
+    }
+
+    void Log::Flush()
+    {
+        for (const std::shared_ptr<spdlog::logger>& it_Logger : s_Loggers)
+        {
+            if (it_Logger != nullptr)
+            {
+                it_Logger->flush();
+            }
+        }
     }
 }

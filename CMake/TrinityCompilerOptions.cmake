@@ -67,4 +67,9 @@ function(trinity_configure_executable target)
     endif()
 
     set_target_properties(${target} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/${target}")
+
+    # Finds the shared engine beside the executable, as Windows does
+    if(NOT WIN32)
+        set_target_properties(${target} PROPERTIES BUILD_RPATH "$ORIGIN")
+    endif()
 endfunction()
