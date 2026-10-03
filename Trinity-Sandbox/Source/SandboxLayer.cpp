@@ -25,6 +25,9 @@ namespace
     constexpr std::size_t c_ParallelValueCount = 10000000;
     constexpr std::string_view c_RunCountPath = "/saves/sandbox/runs.txt";
     constexpr std::uint32_t c_AsyncFileCount = 32;
+    constexpr std::uint32_t c_ResourceRounds = 2;
+    constexpr std::uint32_t c_ResourceFramesPerRound = 100;
+    constexpr std::uint32_t c_BuffersPerFrame = 50;
 
     std::string GetAsyncFilePath(std::uint32_t index)
     {
@@ -103,6 +106,12 @@ void SandboxLayer::OnAttach()
     TestModules();
     TestShaders();
     TestRHI();
+    TestResources();
+    if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("stale-handle"))
+    {
+        TestStaleHandle();
+    }
+
     StartAsyncReads();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
@@ -575,6 +584,126 @@ void SandboxLayer::TestRHI()
 
     const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
     TR_INFO("Trinity::RHI: {} device on {} cleared a {}x{} target and copied it into a {} readback buffer", Trinity::ToString(l_Info.API), l_Info.AdapterName, c_TargetSize, c_TargetSize, Trinity::Memory::FormatBytes(l_Mapped));
+}
+
+// Every round creates and destroys the same buffers and textures across frames, so a second round that ends above the first means a leak
+void SandboxLayer::TestResources()
+{
+    TR_PROFILE_FUNCTION();
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+
+    std::uint32_t l_Buffers = 0;
+    std::uint32_t l_Textures = 0;
+    std::uint32_t l_Failures = 0;
+    std::uint32_t l_BadMappings = 0;
+    std::array<std::uint64_t, c_ResourceRounds> l_RendererBytes{};
+
+    for (std::uint32_t it_Round = 0; it_Round < c_ResourceRounds; ++it_Round)
+    {
+        for (std::uint32_t it_Frame = 0; it_Frame < c_ResourceFramesPerRound; ++it_Frame)
+        {
+            [[maybe_unused]] Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+
+            std::array<Trinity::RHI::BufferHandle, c_BuffersPerFrame> l_FrameBuffers{};
+            for (std::uint32_t it_Index = 0; it_Index < c_BuffersPerFrame; ++it_Index)
+            {
+                Trinity::RHI::BufferDescription l_Description;
+                l_Description.Size = std::uint64_t{ 256 } << (it_Index % 8);
+                l_Description.Memory = static_cast<Trinity::RHI::MemoryType>(it_Index % 3);
+                l_Description.Usage = l_Description.Memory == Trinity::RHI::MemoryType::GPU ? Trinity::RHI::BufferUsage::ShaderResource | Trinity::RHI::BufferUsage::CopyDestination : Trinity::RHI::BufferUsage::None;
+                l_Description.DebugName = "Sandbox churn buffer";
+
+                l_FrameBuffers[it_Index] = l_Device.CreateBuffer(l_Description);
+                if (!l_FrameBuffers[it_Index])
+                {
+                    ++l_Failures;
+
+                    continue;
+                }
+
+                ++l_Buffers;
+
+                const std::span<std::byte> l_Mapped = l_Device.GetMappedData(l_FrameBuffers[it_Index]);
+                const std::uint64_t l_Expected = l_Description.Memory == Trinity::RHI::MemoryType::GPU ? 0 : l_Description.Size;
+                if (l_Mapped.size() != l_Expected)
+                {
+                    ++l_BadMappings;
+                }
+
+                std::ranges::fill(l_Mapped, static_cast<std::byte>(it_Index));
+            }
+
+            Trinity::RHI::TextureDescription l_Color;
+            l_Color.Width = 256;
+            l_Color.Height = 256;
+            l_Color.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::CopySource;
+            l_Color.DebugName = "Sandbox churn color";
+
+            Trinity::RHI::TextureDescription l_Depth = l_Color;
+            l_Depth.TextureFormat = Trinity::RHI::Format::D32Float;
+            l_Depth.Usage = Trinity::RHI::TextureUsage::DepthStencil;
+            l_Depth.DebugName = "Sandbox churn depth";
+
+            Trinity::RHI::TextureDescription l_Mipmapped = l_Color;
+            l_Mipmapped.MipLevels = 9;
+            l_Mipmapped.Usage = Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopyDestination;
+            l_Mipmapped.DebugName = "Sandbox churn mipmapped";
+
+            const std::array<Trinity::RHI::TextureHandle, 3> l_FrameTextures{ l_Device.CreateTexture(l_Color), l_Device.CreateTexture(l_Depth), l_Device.CreateTexture(l_Mipmapped) };
+            for (Trinity::RHI::TextureHandle it_Texture : l_FrameTextures)
+            {
+                l_Textures += it_Texture ? 1 : 0;
+                l_Failures += it_Texture ? 0 : 1;
+                l_Device.DestroyTexture(it_Texture);
+            }
+
+            for (Trinity::RHI::BufferHandle it_Buffer : l_FrameBuffers)
+            {
+                l_Device.DestroyBuffer(it_Buffer);
+            }
+
+            l_Device.EndFrame();
+        }
+
+        l_Device.WaitIdle();
+        l_RendererBytes[it_Round] = Trinity::Memory::GetStats(Trinity::MemoryTag::Renderer).CurrentBytes;
+    }
+
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+    if (l_Failures != 0 || l_BadMappings != 0)
+    {
+        TR_ERROR("Trinity::RHI: {} resource(s) could not be created and {} buffer(s) mapped the wrong size on {}", l_Failures, l_BadMappings, Trinity::ToString(l_Info.API));
+    }
+
+    if (l_RendererBytes.back() != l_RendererBytes.front())
+    {
+        TR_ERROR("Trinity::RHI: Renderer went from {} after the first round to {} after the last, so resources leak on {}", Trinity::Memory::FormatBytes(l_RendererBytes.front()), Trinity::Memory::FormatBytes(l_RendererBytes.back()), Trinity::ToString(l_Info.API));
+
+        return;
+    }
+
+    TR_INFO("Trinity::RHI: {} created and destroyed {} buffers and {} textures over {} frames, and Renderer held {} after every round", Trinity::ToString(l_Info.API), l_Buffers, l_Textures, c_ResourceRounds * c_ResourceFramesPerRound, Trinity::Memory::FormatBytes(l_RendererBytes.back()));
+}
+
+// Asserts on purpose, so it only runs with --stale-handle
+void SandboxLayer::TestStaleHandle()
+{
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+
+    Trinity::RHI::BufferDescription l_Description;
+    l_Description.Size = 256;
+    l_Description.Memory = Trinity::RHI::MemoryType::Upload;
+    l_Description.DebugName = "Sandbox stale buffer";
+
+    const Trinity::RHI::BufferHandle l_Buffer = l_Device.CreateBuffer(l_Description);
+    l_Device.DestroyBuffer(l_Buffer);
+
+    TR_WARN("Trinity::RHI: mapping a destroyed buffer on purpose (--stale-handle), so an assertion should fail next");
+
+    const std::size_t l_Size = l_Device.GetMappedData(l_Buffer).size();
+
+    TR_ERROR("Trinity::RHI: the stale handle did not assert, since asserts are off in this configuration, and mapped {}", Trinity::Memory::FormatBytes(l_Size));
 }
 
 void SandboxLayer::StartAsyncReads()

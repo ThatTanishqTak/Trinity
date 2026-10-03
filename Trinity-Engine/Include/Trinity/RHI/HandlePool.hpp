@@ -69,6 +69,18 @@ namespace Trinity
                 return l_Value;
             }
 
+            template<typename Function>
+            void ForEach(Function&& function)
+            {
+                for (Slot& it_Slot : m_Slots)
+                {
+                    if (it_Slot.Alive)
+                    {
+                        function(it_Slot.Value);
+                    }
+                }
+            }
+
             [[nodiscard]] std::size_t GetCount() const { return m_Count; }
 
         private:

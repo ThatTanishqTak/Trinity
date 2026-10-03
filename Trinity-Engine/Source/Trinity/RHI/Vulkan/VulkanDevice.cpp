@@ -1,5 +1,6 @@
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
 
+#include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 
@@ -7,6 +8,7 @@
 #include <array>
 #include <cstring>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -266,6 +268,146 @@ namespace Trinity
 
                 return l_Largest;
             }
+
+            // VulkanMemoryAllocator's bookkeeping, and what the driver allocates for the objects it creates through it, counted under the Renderer tag
+            void* VKAPI_PTR AllocateHostMemory([[maybe_unused]] void* userData, std::size_t size, std::size_t alignment, [[maybe_unused]] VkSystemAllocationScope scope)
+            {
+                return Memory::TryAllocate(size, MemoryTag::Renderer, alignment);
+            }
+
+            void* VKAPI_PTR ReallocateHostMemory([[maybe_unused]] void* userData, void* original, std::size_t size, std::size_t alignment, [[maybe_unused]] VkSystemAllocationScope scope)
+            {
+                return Memory::Reallocate(original, size, MemoryTag::Renderer, alignment);
+            }
+
+            void VKAPI_PTR FreeHostMemory([[maybe_unused]] void* userData, void* memory)
+            {
+                Memory::Free(memory);
+            }
+
+            constexpr VkAllocationCallbacks c_HostAllocator{ nullptr, &AllocateHostMemory, &ReallocateHostMemory, &FreeHostMemory, nullptr, nullptr };
+
+            VkFormat ToVkFormat(Format format)
+            {
+                switch (format)
+                {
+                    case Format::RGBA8Unorm:
+                    {
+                        return VK_FORMAT_R8G8B8A8_UNORM;
+                    }
+                    case Format::RGBA8Srgb:
+                    {
+                        return VK_FORMAT_R8G8B8A8_SRGB;
+                    }
+                    case Format::BGRA8Unorm:
+                    {
+                        return VK_FORMAT_B8G8R8A8_UNORM;
+                    }
+                    case Format::BGRA8Srgb:
+                    {
+                        return VK_FORMAT_B8G8R8A8_SRGB;
+                    }
+                    case Format::RGBA16Float:
+                    {
+                        return VK_FORMAT_R16G16B16A16_SFLOAT;
+                    }
+                    case Format::R32Float:
+                    {
+                        return VK_FORMAT_R32_SFLOAT;
+                    }
+                    case Format::R32Uint:
+                    {
+                        return VK_FORMAT_R32_UINT;
+                    }
+                    case Format::RG32Float:
+                    {
+                        return VK_FORMAT_R32G32_SFLOAT;
+                    }
+                    case Format::RGB32Float:
+                    {
+                        return VK_FORMAT_R32G32B32_SFLOAT;
+                    }
+                    case Format::RGBA32Float:
+                    {
+                        return VK_FORMAT_R32G32B32A32_SFLOAT;
+                    }
+                    case Format::D32Float:
+                    {
+                        return VK_FORMAT_D32_SFLOAT;
+                    }
+                    default:
+                    {
+                        return VK_FORMAT_UNDEFINED;
+                    }
+                }
+            }
+
+            VkBufferUsageFlags ToVkBufferUsage(BufferUsage usage, MemoryType memory)
+            {
+                VkBufferUsageFlags l_Flags = 0;
+                if (HasFlag(usage, BufferUsage::ShaderResource) || HasFlag(usage, BufferUsage::UnorderedAccess))
+                {
+                    l_Flags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                }
+
+                if (HasFlag(usage, BufferUsage::Index))
+                {
+                    l_Flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+                }
+
+                if (HasFlag(usage, BufferUsage::Indirect))
+                {
+                    l_Flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+                }
+
+                if (HasFlag(usage, BufferUsage::CopySource) || memory == MemoryType::Upload)
+                {
+                    l_Flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+                }
+
+                if (HasFlag(usage, BufferUsage::CopyDestination) || memory == MemoryType::Readback)
+                {
+                    l_Flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                }
+
+                return l_Flags;
+            }
+
+            VkImageUsageFlags ToVkImageUsage(TextureUsage usage)
+            {
+                VkImageUsageFlags l_Flags = 0;
+                if (HasFlag(usage, TextureUsage::ShaderResource))
+                {
+                    l_Flags |= VK_IMAGE_USAGE_SAMPLED_BIT;
+                }
+
+                if (HasFlag(usage, TextureUsage::UnorderedAccess))
+                {
+                    l_Flags |= VK_IMAGE_USAGE_STORAGE_BIT;
+                }
+
+                if (HasFlag(usage, TextureUsage::RenderTarget))
+                {
+                    l_Flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+                }
+
+                if (HasFlag(usage, TextureUsage::DepthStencil))
+                {
+                    l_Flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+                }
+
+                if (HasFlag(usage, TextureUsage::CopySource))
+                {
+                    l_Flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+                }
+
+                if (HasFlag(usage, TextureUsage::CopyDestination))
+                {
+                    l_Flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+                }
+
+                return l_Flags;
+            }
         }
 
         void VulkanCommandList::TextureBarrier([[maybe_unused]] TextureHandle texture, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
@@ -340,6 +482,21 @@ namespace Trinity
             if (m_Device != VK_NULL_HANDLE)
             {
                 vkDeviceWaitIdle(m_Device);
+
+                if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0)
+                {
+                    TR_CORE_WARN("Vulkan: the device was destroyed with {} buffer(s) and {} texture(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount());
+                }
+
+                m_Releases.ReleaseAll([this](const VulkanRelease& release) { Release(release); });
+                m_Buffers.ForEach([this](const VulkanBuffer& buffer) { Release({ buffer.Buffer, VK_NULL_HANDLE, buffer.Allocation }); });
+                m_Textures.ForEach([this](const VulkanTexture& texture) { Release({ VK_NULL_HANDLE, texture.Image, texture.Allocation }); });
+
+                if (m_Allocator != nullptr)
+                {
+                    vmaDestroyAllocator(m_Allocator);
+                }
+
                 vkDestroyDevice(m_Device, nullptr);
             }
 
@@ -376,7 +533,7 @@ namespace Trinity
                 return false;
             }
 
-            return CreateInstance(specification, l_LoaderVersion, error) && CreateLogicalDevice(error);
+            return CreateInstance(specification, l_LoaderVersion, error) && CreateLogicalDevice(error) && CreateAllocator(error);
         }
 
         bool VulkanDevice::CreateInstance(const DeviceSpecification& specification, std::uint32_t loaderVersion, std::string& error)
@@ -599,29 +756,201 @@ namespace Trinity
             return true;
         }
 
-        BufferHandle VulkanDevice::CreateBuffer([[maybe_unused]] const BufferDescription& description)
+        bool VulkanDevice::CreateAllocator(std::string& error)
         {
-            return {};
+            VmaAllocatorCreateInfo l_Create{};
+            l_Create.physicalDevice = m_PhysicalDevice;
+            l_Create.device = m_Device;
+            l_Create.instance = m_Instance;
+            l_Create.vulkanApiVersion = VK_API_VERSION_1_3;
+            l_Create.pAllocationCallbacks = &c_HostAllocator;
+
+            VmaVulkanFunctions l_Functions{};
+            VkResult l_Result = vmaImportVulkanFunctionsFromVolk(&l_Create, &l_Functions);
+            if (l_Result == VK_SUCCESS)
+            {
+                l_Create.pVulkanFunctions = &l_Functions;
+                l_Result = vmaCreateAllocator(&l_Create, &m_Allocator);
+            }
+
+            if (l_Result != VK_SUCCESS)
+            {
+                error = std::format("VulkanMemoryAllocator could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+
+                return false;
+            }
+
+            return true;
         }
 
-        void VulkanDevice::DestroyBuffer([[maybe_unused]] BufferHandle buffer)
+        void VulkanDevice::Release(const VulkanRelease& release)
         {
+            if (release.Buffer != VK_NULL_HANDLE)
+            {
+                vmaDestroyBuffer(m_Allocator, release.Buffer, release.Allocation);
+            }
 
+            if (release.Image != VK_NULL_HANDLE)
+            {
+                vmaDestroyImage(m_Allocator, release.Image, release.Allocation);
+            }
         }
 
-        std::span<std::byte> VulkanDevice::GetMappedData([[maybe_unused]] BufferHandle buffer)
+        // Debug utils is only on with validation, and then the layer's messages name the object
+        void VulkanDevice::SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const
         {
-            return {};
+            if (!m_Validation || name.empty())
+            {
+                return;
+            }
+
+            const std::string l_Name(name);
+
+            VkDebugUtilsObjectNameInfoEXT l_Info = MakeInfo<VkDebugUtilsObjectNameInfoEXT>(VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT);
+            l_Info.objectType = type;
+            l_Info.objectHandle = handle;
+            l_Info.pObjectName = l_Name.c_str();
+            vkSetDebugUtilsObjectNameEXT(m_Device, &l_Info);
         }
 
-        TextureHandle VulkanDevice::CreateTexture([[maybe_unused]] const TextureDescription& description)
+        BufferHandle VulkanDevice::CreateBuffer(const BufferDescription& description)
         {
-            return {};
+            TR_CORE_ASSERT(description.Size != 0, "Buffer '{}' has no size.", description.DebugName);
+
+            VkBufferCreateInfo l_Create = MakeInfo<VkBufferCreateInfo>(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO);
+            l_Create.size = description.Size;
+            l_Create.usage = ToVkBufferUsage(description.Usage, description.Memory);
+            l_Create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            TR_CORE_ASSERT(l_Create.usage != 0, "Buffer '{}' has no usage.", description.DebugName);
+
+            // Upload and Readback memory is coherent, so writes and reads through the mapping need no flush or invalidate
+            VmaAllocationCreateInfo l_Allocation{};
+            switch (description.Memory)
+            {
+                case MemoryType::GPU:
+                {
+                    l_Allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+                    break;
+                }
+                case MemoryType::Upload:
+                {
+                    l_Allocation.usage = VMA_MEMORY_USAGE_AUTO;
+                    l_Allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                    l_Allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+                    break;
+                }
+                case MemoryType::Readback:
+                {
+                    l_Allocation.usage = VMA_MEMORY_USAGE_AUTO;
+                    l_Allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                    l_Allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+                    l_Allocation.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+
+                    break;
+                }
+            }
+
+            VulkanBuffer l_Buffer;
+            VmaAllocationInfo l_Info{};
+            const VkResult l_Result = vmaCreateBuffer(m_Allocator, &l_Create, &l_Allocation, &l_Buffer.Buffer, &l_Buffer.Allocation, &l_Info);
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: buffer '{}' of {} could not be created ({})", description.DebugName, Memory::FormatBytes(description.Size), FormatResult(l_Result));
+
+                return {};
+            }
+
+            l_Buffer.Mapped = static_cast<std::byte*>(l_Info.pMappedData);
+            l_Buffer.Size = description.Size;
+            SetDebugName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(l_Buffer.Buffer), description.DebugName);
+
+            return m_Buffers.Add(l_Buffer);
         }
 
-        void VulkanDevice::DestroyTexture([[maybe_unused]] TextureHandle texture)
+        void VulkanDevice::DestroyBuffer(BufferHandle buffer)
         {
+            if (!buffer)
+            {
+                return;
+            }
 
+            const std::optional<VulkanBuffer> l_Buffer = m_Buffers.Remove(buffer);
+            TR_CORE_ASSERT(l_Buffer.has_value(), "DestroyBuffer on a buffer that was already destroyed.");
+
+            if (l_Buffer)
+            {
+                m_Releases.Push({ l_Buffer->Buffer, VK_NULL_HANDLE, l_Buffer->Allocation });
+            }
+        }
+
+        std::span<std::byte> VulkanDevice::GetMappedData(BufferHandle buffer)
+        {
+            const VulkanBuffer* l_Buffer = m_Buffers.Get(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "GetMappedData on a destroyed or invalid buffer.");
+
+            if (l_Buffer == nullptr || l_Buffer->Mapped == nullptr)
+            {
+                return {};
+            }
+
+            return { l_Buffer->Mapped, static_cast<std::size_t>(l_Buffer->Size) };
+        }
+
+        TextureHandle VulkanDevice::CreateTexture(const TextureDescription& description)
+        {
+            TR_CORE_ASSERT(description.Width != 0 && description.Height != 0 && description.MipLevels != 0, "Texture '{}' has a zero size or no mips.", description.DebugName);
+            TR_CORE_ASSERT(description.TextureFormat != Format::Unknown, "Texture '{}' has no format.", description.DebugName);
+
+            VkImageCreateInfo l_Create = MakeInfo<VkImageCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO);
+            l_Create.imageType = VK_IMAGE_TYPE_2D;
+            l_Create.format = ToVkFormat(description.TextureFormat);
+            l_Create.extent = { description.Width, description.Height, 1 };
+            l_Create.mipLevels = description.MipLevels;
+            l_Create.arrayLayers = 1;
+            l_Create.samples = VK_SAMPLE_COUNT_1_BIT;
+            l_Create.tiling = VK_IMAGE_TILING_OPTIMAL;
+            l_Create.usage = ToVkImageUsage(description.Usage);
+            l_Create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            l_Create.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            TR_CORE_ASSERT(l_Create.usage != 0, "Texture '{}' has no usage.", description.DebugName);
+
+            VmaAllocationCreateInfo l_Allocation{};
+            l_Allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+            VulkanTexture l_Texture;
+            const VkResult l_Result = vmaCreateImage(m_Allocator, &l_Create, &l_Allocation, &l_Texture.Image, &l_Texture.Allocation, nullptr);
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: texture '{}' ({}x{} {}) could not be created ({})", description.DebugName, description.Width, description.Height, ToString(description.TextureFormat), FormatResult(l_Result));
+
+                return {};
+            }
+
+            l_Texture.ImageFormat = l_Create.format;
+            l_Texture.Width = description.Width;
+            l_Texture.Height = description.Height;
+            l_Texture.MipLevels = description.MipLevels;
+            SetDebugName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(l_Texture.Image), description.DebugName);
+
+            return m_Textures.Add(l_Texture);
+        }
+
+        void VulkanDevice::DestroyTexture(TextureHandle texture)
+        {
+            if (!texture)
+            {
+                return;
+            }
+
+            const std::optional<VulkanTexture> l_Texture = m_Textures.Remove(texture);
+            TR_CORE_ASSERT(l_Texture.has_value(), "DestroyTexture on a texture that was already destroyed.");
+
+            if (l_Texture)
+            {
+                m_Releases.Push({ VK_NULL_HANDLE, l_Texture->Image, l_Texture->Allocation });
+            }
         }
 
         PipelineHandle VulkanDevice::CreateGraphicsPipeline([[maybe_unused]] const GraphicsPipelineDescription& description)
@@ -641,12 +970,20 @@ namespace Trinity
 
         CommandList& VulkanDevice::BeginFrame()
         {
+            TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
+
+            m_InFrame = true;
+            m_Releases.BeginFrame([this](const VulkanRelease& release) { Release(release); });
+
             return m_CommandList;
         }
 
         void VulkanDevice::EndFrame()
         {
+            TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
+            m_Releases.EndFrame();
+            m_InFrame = false;
         }
 
         void VulkanDevice::WaitIdle()
@@ -654,6 +991,7 @@ namespace Trinity
             if (m_Device != VK_NULL_HANDLE)
             {
                 vkDeviceWaitIdle(m_Device);
+                m_Releases.ReleaseIdle([this](const VulkanRelease& release) { Release(release); });
             }
         }
 

@@ -2,6 +2,7 @@
 
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
+#include "Trinity/RHI/ReleaseQueue.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -116,10 +117,13 @@ namespace Trinity
 
             };
 
+            static void ReleaseBuffer(NullBuffer& buffer);
+
             DeviceInfo m_Info;
             HandlePool<NullBuffer, BufferHandle> m_Buffers;
             HandlePool<NullTexture, TextureHandle> m_Textures;
             HandlePool<NullPipeline, PipelineHandle> m_Pipelines;
+            ReleaseQueue<NullBuffer> m_ReleasedBuffers;
             NullCommandList m_CommandList;
             bool m_InFrame = false;
         };

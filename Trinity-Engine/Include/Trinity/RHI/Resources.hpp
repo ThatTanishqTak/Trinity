@@ -9,7 +9,7 @@ namespace Trinity
 {
     namespace RHI
     {
-        // Upload and Readback buffers stay mapped for their whole life
+        // Upload and Readback buffers stay mapped for their whole life, upload buffers can always be copied from, and Readback buffers copied into
         struct BufferDescription
         {
             std::uint64_t Size = 0;

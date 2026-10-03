@@ -1,5 +1,6 @@
 #include "Trinity/RHI/D3D12/D3D12Device.hpp"
 
+#include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Platform.hpp"
@@ -7,9 +8,11 @@
 #include <array>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace Trinity
@@ -38,6 +41,20 @@ namespace Trinity
                 const int l_Size = ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
                 std::string l_Result(static_cast<std::size_t>(l_Size), '\0');
                 ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size, nullptr, nullptr);
+
+                return l_Result;
+            }
+
+            std::wstring ToWide(std::string_view text)
+            {
+                if (text.empty())
+                {
+                    return {};
+                }
+
+                const int l_Size = ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+                std::wstring l_Result(static_cast<std::size_t>(l_Size), L'\0');
+                ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size);
 
                 return l_Result;
             }
@@ -156,6 +173,131 @@ namespace Trinity
 
                 return l_Missing;
             }
+
+            // D3D12MemoryAllocator's bookkeeping, counted under the Renderer tag, what the driver allocates is out of reach, since D3D12 takes no allocator
+            void* AllocateHostMemory(std::size_t size, std::size_t alignment, [[maybe_unused]] void* userData)
+            {
+                return Memory::TryAllocate(size, MemoryTag::Renderer, alignment);
+            }
+
+            void FreeHostMemory(void* memory, [[maybe_unused]] void* userData)
+            {
+                Memory::Free(memory);
+            }
+
+            constexpr D3D12MA::ALLOCATION_CALLBACKS c_HostAllocator{ &AllocateHostMemory, &FreeHostMemory, nullptr };
+
+            void ReleaseAllocation(ComPtr<D3D12MA::Allocation>& allocation)
+            {
+                allocation.Reset();
+            }
+
+            DXGI_FORMAT ToDXGIFormat(Format format)
+            {
+                switch (format)
+                {
+                    case Format::RGBA8Unorm:
+                    {
+                        return DXGI_FORMAT_R8G8B8A8_UNORM;
+                    }
+                    case Format::RGBA8Srgb:
+                    {
+                        return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+                    }
+                    case Format::BGRA8Unorm:
+                    {
+                        return DXGI_FORMAT_B8G8R8A8_UNORM;
+                    }
+                    case Format::BGRA8Srgb:
+                    {
+                        return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+                    }
+                    case Format::RGBA16Float:
+                    {
+                        return DXGI_FORMAT_R16G16B16A16_FLOAT;
+                    }
+                    case Format::R32Float:
+                    {
+                        return DXGI_FORMAT_R32_FLOAT;
+                    }
+                    case Format::R32Uint:
+                    {
+                        return DXGI_FORMAT_R32_UINT;
+                    }
+                    case Format::RG32Float:
+                    {
+                        return DXGI_FORMAT_R32G32_FLOAT;
+                    }
+                    case Format::RGB32Float:
+                    {
+                        return DXGI_FORMAT_R32G32B32_FLOAT;
+                    }
+                    case Format::RGBA32Float:
+                    {
+                        return DXGI_FORMAT_R32G32B32A32_FLOAT;
+                    }
+                    case Format::D32Float:
+                    {
+                        return DXGI_FORMAT_D32_FLOAT;
+                    }
+                    default:
+                    {
+                        return DXGI_FORMAT_UNKNOWN;
+                    }
+                }
+            }
+
+            D3D12_HEAP_TYPE ToHeapType(MemoryType memory)
+            {
+                switch (memory)
+                {
+                    case MemoryType::Upload:
+                    {
+                        return D3D12_HEAP_TYPE_UPLOAD;
+                    }
+                    case MemoryType::Readback:
+                    {
+                        return D3D12_HEAP_TYPE_READBACK;
+                    }
+                    default:
+                    {
+                        return D3D12_HEAP_TYPE_DEFAULT;
+                    }
+                }
+            }
+
+            D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage)
+            {
+                D3D12_RESOURCE_FLAGS l_Flags = D3D12_RESOURCE_FLAG_NONE;
+                if (HasFlag(usage, TextureUsage::UnorderedAccess))
+                {
+                    l_Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+                }
+
+                if (HasFlag(usage, TextureUsage::RenderTarget))
+                {
+                    l_Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+                }
+
+                if (HasFlag(usage, TextureUsage::DepthStencil))
+                {
+                    l_Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+                    if (!HasFlag(usage, TextureUsage::ShaderResource))
+                    {
+                        l_Flags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+                    }
+                }
+
+                return l_Flags;
+            }
+
+            void SetDebugName(ID3D12Resource* resource, std::string_view name)
+            {
+                if (!name.empty())
+                {
+                    resource->SetName(ToWide(name).c_str());
+                }
+            }
         }
 
         void D3D12CommandList::TextureBarrier([[maybe_unused]] TextureHandle texture, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
@@ -226,6 +368,16 @@ namespace Trinity
 
         D3D12Device::~D3D12Device()
         {
+            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0)
+            {
+                TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s) and {} texture(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount());
+            }
+
+            m_Releases.ReleaseAll(&ReleaseAllocation);
+            m_Buffers.ForEach([](D3D12Buffer& buffer) { buffer.Allocation.Reset(); });
+            m_Textures.ForEach([](D3D12Texture& texture) { texture.Allocation.Reset(); });
+            m_Allocator.Reset();
+
             if (m_InfoQueue && m_MessageCallbackCookie != 0)
             {
                 m_InfoQueue->UnregisterMessageCallback(m_MessageCallbackCookie);
@@ -329,6 +481,26 @@ namespace Trinity
 
             EnableDebugMessages();
             LogRuntime();
+
+            return CreateAllocator(error);
+        }
+
+        bool D3D12Device::CreateAllocator(std::string& error)
+        {
+            D3D12MA::ALLOCATOR_DESC l_Description{};
+            // D3D12MemoryAllocator's flag operators are global, and RHI's own operator| hides them in here
+            l_Description.Flags = static_cast<D3D12MA::ALLOCATOR_FLAGS>(D3D12MA_RECOMMENDED_ALLOCATOR_FLAGS);
+            l_Description.pDevice = m_Device.Get();
+            l_Description.pAdapter = m_Adapter.Get();
+            l_Description.pAllocationCallbacks = &c_HostAllocator;
+
+            const HRESULT l_Result = D3D12MA::CreateAllocator(&l_Description, &m_Allocator);
+            if (FAILED(l_Result))
+            {
+                error = std::format("D3D12MemoryAllocator could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+
+                return false;
+            }
 
             return true;
         }
@@ -442,29 +614,140 @@ namespace Trinity
             }
         }
 
-        BufferHandle D3D12Device::CreateBuffer([[maybe_unused]] const BufferDescription& description)
+        // Buffers always start in the undefined layout under enhanced barriers. Upload and Readback heaps are coherent and stay mapped
+        BufferHandle D3D12Device::CreateBuffer(const BufferDescription& description)
         {
-            return {};
+            TR_CORE_ASSERT(description.Size != 0, "Buffer '{}' has no size.", description.DebugName);
+
+            D3D12MA::ALLOCATION_DESC l_Allocation{};
+            l_Allocation.HeapType = ToHeapType(description.Memory);
+
+            D3D12_RESOURCE_DESC1 l_Resource{};
+            l_Resource.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            l_Resource.Width = description.Size;
+            l_Resource.Height = 1;
+            l_Resource.DepthOrArraySize = 1;
+            l_Resource.MipLevels = 1;
+            l_Resource.Format = DXGI_FORMAT_UNKNOWN;
+            l_Resource.SampleDesc.Count = 1;
+            l_Resource.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            l_Resource.Flags = HasFlag(description.Usage, BufferUsage::UnorderedAccess) ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
+
+            D3D12Buffer l_Buffer;
+            HRESULT l_Result = m_Allocator->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0, nullptr, &l_Buffer.Allocation, IID_NULL, nullptr);
+            if (FAILED(l_Result))
+            {
+                TR_CORE_ERROR("D3D12: buffer '{}' of {} could not be created ({})", description.DebugName, Memory::FormatBytes(description.Size), FormatResult(l_Result));
+
+                return {};
+            }
+
+            ID3D12Resource* l_Native = l_Buffer.Allocation->GetResource();
+            if (description.Memory != MemoryType::GPU)
+            {
+                // The CPU only writes Upload buffers, so mapping one says nothing will be read
+                const D3D12_RANGE l_NoRead{ 0, 0 };
+                void* l_Mapped = nullptr;
+                l_Result = l_Native->Map(0, description.Memory == MemoryType::Upload ? &l_NoRead : nullptr, &l_Mapped);
+                if (FAILED(l_Result))
+                {
+                    TR_CORE_ERROR("D3D12: buffer '{}' could not be mapped ({})", description.DebugName, FormatResult(l_Result));
+
+                    return {};
+                }
+
+                l_Buffer.Mapped = static_cast<std::byte*>(l_Mapped);
+            }
+
+            l_Buffer.Size = description.Size;
+            SetDebugName(l_Native, description.DebugName);
+
+            return m_Buffers.Add(std::move(l_Buffer));
         }
 
-        void D3D12Device::DestroyBuffer([[maybe_unused]] BufferHandle buffer)
+        void D3D12Device::DestroyBuffer(BufferHandle buffer)
         {
+            if (!buffer)
+            {
+                return;
+            }
 
+            std::optional<D3D12Buffer> l_Buffer = m_Buffers.Remove(buffer);
+            TR_CORE_ASSERT(l_Buffer.has_value(), "DestroyBuffer on a buffer that was already destroyed.");
+
+            if (l_Buffer)
+            {
+                m_Releases.Push(std::move(l_Buffer->Allocation));
+            }
         }
 
-        std::span<std::byte> D3D12Device::GetMappedData([[maybe_unused]] BufferHandle buffer)
+        std::span<std::byte> D3D12Device::GetMappedData(BufferHandle buffer)
         {
-            return {};
+            const D3D12Buffer* l_Buffer = m_Buffers.Get(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "GetMappedData on a destroyed or invalid buffer.");
+
+            if (l_Buffer == nullptr || l_Buffer->Mapped == nullptr)
+            {
+                return {};
+            }
+
+            return { l_Buffer->Mapped, static_cast<std::size_t>(l_Buffer->Size) };
         }
 
-        TextureHandle D3D12Device::CreateTexture([[maybe_unused]] const TextureDescription& description)
+        // A depth texture that shaders also read is typeless, so a shader view can read it as R32_FLOAT
+        TextureHandle D3D12Device::CreateTexture(const TextureDescription& description)
         {
-           return {};
+            TR_CORE_ASSERT(description.Width != 0 && description.Height != 0 && description.MipLevels != 0, "Texture '{}' has a zero size or no mips.", description.DebugName);
+            TR_CORE_ASSERT(description.TextureFormat != Format::Unknown, "Texture '{}' has no format.", description.DebugName);
+
+            const bool l_TypelessDepth = description.TextureFormat == Format::D32Float && HasFlag(description.Usage, TextureUsage::ShaderResource);
+
+            D3D12MA::ALLOCATION_DESC l_Allocation{};
+            l_Allocation.HeapType = D3D12_HEAP_TYPE_DEFAULT;
+
+            D3D12_RESOURCE_DESC1 l_Resource{};
+            l_Resource.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            l_Resource.Width = description.Width;
+            l_Resource.Height = description.Height;
+            l_Resource.DepthOrArraySize = 1;
+            l_Resource.MipLevels = static_cast<UINT16>(description.MipLevels);
+            l_Resource.Format = l_TypelessDepth ? DXGI_FORMAT_R32_TYPELESS : ToDXGIFormat(description.TextureFormat);
+            l_Resource.SampleDesc.Count = 1;
+            l_Resource.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+            l_Resource.Flags = ToResourceFlags(description.Usage);
+
+            D3D12Texture l_Texture;
+            const HRESULT l_Result = m_Allocator->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_COMMON, nullptr, 0, nullptr, &l_Texture.Allocation, IID_NULL, nullptr);
+            if (FAILED(l_Result))
+            {
+                TR_CORE_ERROR("D3D12: texture '{}' ({}x{} {}) could not be created ({})", description.DebugName, description.Width, description.Height, ToString(description.TextureFormat), FormatResult(l_Result));
+
+                return {};
+            }
+
+            l_Texture.ResourceFormat = l_Resource.Format;
+            l_Texture.Width = description.Width;
+            l_Texture.Height = description.Height;
+            l_Texture.MipLevels = description.MipLevels;
+            SetDebugName(l_Texture.Allocation->GetResource(), description.DebugName);
+
+            return m_Textures.Add(std::move(l_Texture));
         }
 
-        void D3D12Device::DestroyTexture([[maybe_unused]] TextureHandle texture)
+        void D3D12Device::DestroyTexture(TextureHandle texture)
         {
+            if (!texture)
+            {
+                return;
+            }
 
+            std::optional<D3D12Texture> l_Texture = m_Textures.Remove(texture);
+            TR_CORE_ASSERT(l_Texture.has_value(), "DestroyTexture on a texture that was already destroyed.");
+
+            if (l_Texture)
+            {
+                m_Releases.Push(std::move(l_Texture->Allocation));
+            }
         }
 
         PipelineHandle D3D12Device::CreateGraphicsPipeline([[maybe_unused]] const GraphicsPipelineDescription& description)
@@ -484,17 +767,25 @@ namespace Trinity
 
         CommandList& D3D12Device::BeginFrame()
         {
+            TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
+
+            m_InFrame = true;
+            m_Releases.BeginFrame(&ReleaseAllocation);
+
             return m_CommandList;
         }
 
         void D3D12Device::EndFrame()
         {
+            TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
+            m_Releases.EndFrame();
+            m_InFrame = false;
         }
 
         void D3D12Device::WaitIdle()
         {
-
+            m_Releases.ReleaseIdle(&ReleaseAllocation);
         }
     }
 }

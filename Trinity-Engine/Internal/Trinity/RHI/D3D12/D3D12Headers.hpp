@@ -13,3 +13,7 @@
 #if !defined(_MSC_VER)
 #include <dxguids/dxguids.h>
 #endif
+
+// D3D12MemoryAllocator on the headers above, rather than including the D3D12 headers again itself
+#define D3D12MA_D3D12_HEADERS_ALREADY_INCLUDED
+#include <D3D12MemAlloc.h>

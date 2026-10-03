@@ -8,6 +8,7 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <cstring>
 #include <format>
 #include <limits>
 
@@ -181,6 +182,42 @@ namespace Trinity
         void* AllocateUntagged(std::size_t size, std::size_t alignment) noexcept
         {
             return AllocateTagged(size, MemoryTag::Untagged, alignment);
+        }
+
+        void* TryAllocate(std::size_t size, MemoryTag tag, std::size_t alignment) noexcept
+        {
+            TR_CORE_ASSERT(std::has_single_bit(alignment), "Alignment must be a power of two.");
+            TR_CORE_ASSERT(tag < MemoryTag::Count, "Invalid memory tag.");
+
+            return AllocateTagged(size, tag, alignment);
+        }
+
+        void* Reallocate(void* memory, std::size_t size, MemoryTag tag, std::size_t alignment) noexcept
+        {
+            if (memory == nullptr)
+            {
+                return TryAllocate(size, tag, alignment);
+            }
+
+            if (size == 0)
+            {
+                FreeTagged(memory);
+
+                return nullptr;
+            }
+
+            const AllocationHeader l_Header = *std::launder(reinterpret_cast<AllocationHeader*>(static_cast<std::byte*>(memory) - sizeof(AllocationHeader)));
+
+            void* l_Memory = TryAllocate(size, tag, alignment);
+            if (l_Memory == nullptr)
+            {
+                return nullptr;
+            }
+
+            std::memcpy(l_Memory, memory, static_cast<std::size_t>(std::min<std::uint64_t>(l_Header.Size, size)));
+            FreeTagged(memory);
+
+            return l_Memory;
         }
 
         bool IsTrackingGlobalAllocations()

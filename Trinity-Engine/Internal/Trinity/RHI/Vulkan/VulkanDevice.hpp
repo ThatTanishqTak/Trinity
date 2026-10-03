@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Trinity/RHI/Device.hpp"
+#include "Trinity/RHI/HandlePool.hpp"
+#include "Trinity/RHI/ReleaseQueue.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
 
 #include <atomic>
@@ -8,6 +10,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace Trinity
 {
@@ -62,11 +65,40 @@ namespace Trinity
             void WaitIdle() override;
 
         private:
+            struct VulkanBuffer
+            {
+                VkBuffer Buffer = VK_NULL_HANDLE;
+                VmaAllocation Allocation = nullptr;
+                std::byte* Mapped = nullptr;
+                std::uint64_t Size = 0;
+            };
+
+            struct VulkanTexture
+            {
+                VkImage Image = VK_NULL_HANDLE;
+                VmaAllocation Allocation = nullptr;
+                VkFormat ImageFormat = VK_FORMAT_UNDEFINED;
+                std::uint32_t Width = 0;
+                std::uint32_t Height = 0;
+                std::uint32_t MipLevels = 0;
+            };
+
+            struct VulkanRelease
+            {
+                VkBuffer Buffer = VK_NULL_HANDLE;
+                VkImage Image = VK_NULL_HANDLE;
+                VmaAllocation Allocation = nullptr;
+            };
+
             static VKAPI_ATTR VkBool32 VKAPI_CALL OnDebugMessage(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* context);
 
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateInstance(const DeviceSpecification& specification, std::uint32_t loaderVersion, std::string& error);
             [[nodiscard]] bool CreateLogicalDevice(std::string& error);
+            [[nodiscard]] bool CreateAllocator(std::string& error);
+
+            void Release(const VulkanRelease& release);
+            void SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const;
 
             DeviceInfo m_Info;
             bool m_Validation = false;
@@ -78,8 +110,14 @@ namespace Trinity
             VkDevice m_Device = VK_NULL_HANDLE;
             VkQueue m_Queue = VK_NULL_HANDLE;
             std::uint32_t m_QueueFamily = 0;
+            VmaAllocator m_Allocator = nullptr;
+
+            HandlePool<VulkanBuffer, BufferHandle> m_Buffers;
+            HandlePool<VulkanTexture, TextureHandle> m_Textures;
+            ReleaseQueue<VulkanRelease> m_Releases;
 
             VulkanCommandList m_CommandList;
+            bool m_InFrame = false;
         };
     }
 }

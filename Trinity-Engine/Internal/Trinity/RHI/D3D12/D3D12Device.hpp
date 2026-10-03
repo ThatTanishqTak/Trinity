@@ -2,12 +2,15 @@
 
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 #include "Trinity/RHI/Device.hpp"
+#include "Trinity/RHI/HandlePool.hpp"
+#include "Trinity/RHI/ReleaseQueue.hpp"
 
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace Trinity
 {
@@ -62,9 +65,26 @@ namespace Trinity
             void WaitIdle() override;
 
         private:
+            struct D3D12Buffer
+            {
+                Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
+                std::byte* Mapped = nullptr;
+                std::uint64_t Size = 0;
+            };
+
+            struct D3D12Texture
+            {
+                Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
+                DXGI_FORMAT ResourceFormat = DXGI_FORMAT_UNKNOWN;
+                std::uint32_t Width = 0;
+                std::uint32_t Height = 0;
+                std::uint32_t MipLevels = 0;
+            };
+
             static void CALLBACK OnDebugMessage(D3D12_MESSAGE_CATEGORY category, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID id, LPCSTR description, void* context);
 
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
+            [[nodiscard]] bool CreateAllocator(std::string& error);
             void EnableDebugMessages();
             void LogRuntime() const;
             void ReportLiveObjects() const;
@@ -78,8 +98,14 @@ namespace Trinity
             Microsoft::WRL::ComPtr<ID3D12InfoQueue1> m_InfoQueue;
             DWORD m_MessageCallbackCookie = 0;
             std::atomic<std::uint32_t> m_MessageCount{ 0 };
+            Microsoft::WRL::ComPtr<D3D12MA::Allocator> m_Allocator;
+
+            HandlePool<D3D12Buffer, BufferHandle> m_Buffers;
+            HandlePool<D3D12Texture, TextureHandle> m_Textures;
+            ReleaseQueue<Microsoft::WRL::ComPtr<D3D12MA::Allocation>> m_Releases;
 
             D3D12CommandList m_CommandList;
+            bool m_InFrame = false;
         };
     }
 }

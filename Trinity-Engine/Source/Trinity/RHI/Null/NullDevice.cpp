@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 namespace Trinity
 {
@@ -160,6 +161,15 @@ namespace Trinity
             {
                 TR_CORE_WARN("The null device was destroyed with {} buffer(s), {} texture(s) and {} pipeline(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount());
             }
+
+            m_ReleasedBuffers.ReleaseAll(&NullDevice::ReleaseBuffer);
+            m_Buffers.ForEach(&NullDevice::ReleaseBuffer);
+        }
+
+        void NullDevice::ReleaseBuffer(NullBuffer& buffer)
+        {
+            Memory::Free(buffer.Mapped);
+            buffer.Mapped = nullptr;
         }
 
         BufferHandle NullDevice::CreateBuffer(const BufferDescription& description)
@@ -184,12 +194,12 @@ namespace Trinity
                 return;
             }
 
-            const std::optional<NullBuffer> l_Buffer = m_Buffers.Remove(buffer);
+            std::optional<NullBuffer> l_Buffer = m_Buffers.Remove(buffer);
             TR_CORE_ASSERT(l_Buffer.has_value(), "DestroyBuffer on a buffer that was already destroyed.");
 
             if (l_Buffer)
             {
-                Memory::Free(l_Buffer->Mapped);
+                m_ReleasedBuffers.Push(std::move(*l_Buffer));
             }
         }
 
@@ -254,6 +264,7 @@ namespace Trinity
             TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
 
             m_InFrame = true;
+            m_ReleasedBuffers.BeginFrame(&NullDevice::ReleaseBuffer);
             m_CommandList.Begin();
 
             return m_CommandList;
@@ -264,12 +275,13 @@ namespace Trinity
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
             m_CommandList.End();
+            m_ReleasedBuffers.EndFrame();
             m_InFrame = false;
         }
 
         void NullDevice::WaitIdle()
         {
-
+            m_ReleasedBuffers.ReleaseIdle(&NullDevice::ReleaseBuffer);
         }
     }
 }

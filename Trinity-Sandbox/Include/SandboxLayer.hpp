@@ -25,6 +25,8 @@ private:
     void TestModules();
     void TestShaders();
     void TestRHI();
+    void TestResources();
+    void TestStaleHandle();
     void StartAsyncReads();
     void CheckAsyncReads();
 
