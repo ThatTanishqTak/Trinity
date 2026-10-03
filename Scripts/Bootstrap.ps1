@@ -65,6 +65,37 @@ foreach ($line in $lockEntries) {
     git add $path .gitmodules
 }
 
+$agilityFields = (Get-Content 'Scripts/AgilitySDK.lock' | Where-Object { $_ -match '^Microsoft\.Direct3D\.D3D12 ' }) -split '\s+'
+$agilityVersion = $agilityFields[1]
+$agilityHash = $agilityFields[2]
+$agilityPath = Join-Path $root "Vendor/AgilitySDK/$agilityVersion"
+
+if (-not (Test-Path "$agilityPath/build/native/bin/x64/D3D12Core.dll")) {
+    Write-Host "==> Agility SDK @ $agilityVersion"
+    $package = Join-Path ([System.IO.Path]::GetTempPath()) "microsoft.direct3d.d3d12.$agilityVersion.nupkg"
+    try {
+        Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.d3d12/$agilityVersion/microsoft.direct3d.d3d12.$agilityVersion.nupkg" -OutFile $package
+        $hash = (Get-FileHash -Algorithm SHA256 $package).Hash
+        if ($hash -ne $agilityHash) {
+            $failed += "Agility SDK $agilityVersion  SHA-256 is $hash, expected $agilityHash"
+        }
+        else {
+            if (Test-Path $agilityPath) { Remove-Item -Recurse -Force $agilityPath }
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($package, $agilityPath)
+        }
+    }
+    catch {
+        $failed += "Agility SDK $agilityVersion  $($_.Exception.Message)"
+    }
+    finally {
+        Remove-Item -ErrorAction SilentlyContinue $package
+    }
+}
+else {
+    Write-Host "==> Agility SDK @ $agilityVersion (already downloaded)"
+}
+
 Write-Host ''
 if ($unreachable.Count -gt 0) {
     Write-Host 'Already at the pinned commit, but the remote could not be reached or does not have it:'
@@ -75,7 +106,7 @@ if ($unreachable.Count -gt 0) {
 if ($failed.Count -gt 0) {
     Write-Host 'Could not fetch:'
     foreach ($entry in $failed) { Write-Host "    $entry" }
-    Write-Host 'Check that each fork exists and contains the pinned commit (see README, Dependencies).'
+    Write-Host 'Check that each fork exists and contains the pinned commit, and that nuget.org is reachable (see README, Dependencies).'
     exit 1
 }
 

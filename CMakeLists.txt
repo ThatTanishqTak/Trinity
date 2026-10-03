@@ -26,6 +26,7 @@ option(TRINITY_SHARED_ENGINE "Build the engine as a shared library in Debug and 
 include(TrinityPlatform)
 include(TrinityCompilerOptions)
 include(TrinityShaders)
+include(TrinityAgilitySDK)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

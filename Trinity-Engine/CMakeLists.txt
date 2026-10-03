@@ -144,3 +144,8 @@ file(GLOB TRINITY_ENGINE_SHADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/
 trinity_add_shaders(Trinity-Shaders ${TRINITY_ENGINE_SHADERS})
 add_dependencies(Trinity-Engine Trinity-Shaders)
 add_dependencies(Trinity-Engine-Static Trinity-Shaders)
+
+# The D3D12 Agility SDK runtime goes to bin/<configuration>/Trinity/D3D12, beside every executable
+trinity_add_agility_sdk(Trinity-AgilitySDK)
+add_dependencies(Trinity-Engine Trinity-AgilitySDK)
+add_dependencies(Trinity-Engine-Static Trinity-AgilitySDK)
