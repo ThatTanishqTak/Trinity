@@ -24,6 +24,14 @@ namespace Trinity
             return std::ranges::equal(left, right, [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
         }
 
+        void Register(ConsoleVariableBase* variable)
+        {
+            if (!s_Variables.emplace(variable->GetName(), variable).second)
+            {
+                TR_CORE_ERROR("Console variable '{}' is defined more than once; only one definition is reachable by name", variable->GetName());
+            }
+        }
+
         bool SetVariable(std::string_view name, std::string_view value, bool allowReadOnly)
         {
             ConsoleVariableBase* l_Variable = ConsoleVariables::Find(name);
@@ -84,6 +92,34 @@ namespace Trinity
     ConsoleVariableBase::ConsoleVariableBase(std::string_view name, std::string_view description, ConsoleVariableType type, ConsoleVariableFlags flags) : m_Name(name), m_Description(description), m_Type(type), m_Flags(flags), m_Next(s_First)
     {
         s_First = this;
+
+        // Variables that exist at startup are indexed by Initialize; one from a module loaded later is indexed here
+        if (s_Initialized)
+        {
+            Register(this);
+        }
+    }
+
+    ConsoleVariableBase::~ConsoleVariableBase()
+    {
+        if (s_Initialized)
+        {
+            const auto a_Iterator = s_Variables.find(m_Name);
+            if (a_Iterator != s_Variables.end() && a_Iterator->second == this)
+            {
+                s_Variables.erase(a_Iterator);
+            }
+        }
+
+        for (ConsoleVariableBase** it_Link = &s_First; *it_Link != nullptr; it_Link = &(*it_Link)->m_Next)
+        {
+            if (*it_Link == this)
+            {
+                *it_Link = m_Next;
+
+                break;
+            }
+        }
     }
 
     std::optional<bool> ConsoleVariableBase::ParseBool(std::string_view text)
@@ -154,10 +190,7 @@ namespace Trinity
 
             for (ConsoleVariableBase* it_Variable = ConsoleVariableBase::GetFirst(); it_Variable != nullptr; it_Variable = it_Variable->GetNext())
             {
-                if (!s_Variables.emplace(it_Variable->GetName(), it_Variable).second)
-                {
-                    TR_CORE_ERROR("Console variable '{}' is defined more than once; only one definition is reachable by name", it_Variable->GetName());
-                }
+                Register(it_Variable);
             }
 
             s_Initialized = true;

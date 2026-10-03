@@ -22,6 +22,7 @@ private:
     void TestParallelFor();
     void TestFileSystem();
     void TestSaves();
+    void TestModules();
     void StartAsyncReads();
     void CheckAsyncReads();
 

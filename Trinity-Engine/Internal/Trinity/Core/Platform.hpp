@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <string>
 
 namespace Trinity
 {
@@ -16,5 +17,11 @@ namespace Trinity
         void Free(void* memory);
 
         [[nodiscard]] std::filesystem::path GetUserDataDirectory();
+        [[nodiscard]] std::filesystem::path GetExecutableDirectory();
+
+        // Null on failure, with the reason in error
+        [[nodiscard]] void* LoadSharedLibrary(const std::filesystem::path& path, std::string& error);
+        [[nodiscard]] void* GetSharedLibrarySymbol(void* library, const char* name);
+        void UnloadSharedLibrary(void* library);
     }
 }

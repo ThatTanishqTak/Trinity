@@ -20,3 +20,8 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_SANDBOX_HEADERS}
 
 target_include_directories(${TARGET_NAME} PRIVATE Include)
 target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine)
+
+# Loaded and unloaded by Sandbox to check that a module shares the engine and leaves nothing behind
+trinity_add_module(Trinity-Sandbox-Module "Module/SandboxModule.cpp")
+add_dependencies(${TARGET_NAME} Trinity-Sandbox-Module)
+target_compile_definitions(${TARGET_NAME} PRIVATE TR_SANDBOX_MODULE="$<TARGET_FILE_NAME:Trinity-Sandbox-Module>")

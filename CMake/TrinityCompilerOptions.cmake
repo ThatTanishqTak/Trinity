@@ -4,6 +4,9 @@ else()
     set(TRINITY_CXX_STANDARD 26)
 endif()
 
+# Debug and Release use the shared engine and Distribution the static one, or the static one everywhere with TRINITY_SHARED_ENGINE off
+set(TRINITY_ENGINE_SHARED_CONFIG "$<AND:$<BOOL:${TRINITY_SHARED_ENGINE}>,$<NOT:$<CONFIG:Distribution>>>")
+
 add_library(Trinity-BuildConfig INTERFACE)
 add_library(Trinity::BuildConfig ALIAS Trinity-BuildConfig)
 
@@ -72,4 +75,36 @@ function(trinity_configure_executable target)
     if(NOT WIN32)
         set_target_properties(${target} PROPERTIES BUILD_RPATH "$ORIGIN")
     endif()
+endfunction()
+
+# A module is a library loaded at runtime, such as a game module. It is built only where the engine is shared, so it uses that one engine, and is a placeholder written outside bin elsewhere
+function(trinity_add_module target)
+    set(sources "")
+    foreach(source IN LISTS ARGN)
+        cmake_path(ABSOLUTE_PATH source BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+        list(APPEND sources "${source}")
+    endforeach()
+
+    set(placeholder "${CMAKE_BINARY_DIR}/TrinityModulePlaceholder.cpp")
+    file(CONFIGURE OUTPUT "${placeholder}" CONTENT "int TrinityModulePlaceholder = 0;\n")
+
+    add_library(${target} MODULE
+        "$<${TRINITY_ENGINE_SHARED_CONFIG}:${sources}>"
+        "$<$<NOT:${TRINITY_ENGINE_SHARED_CONFIG}>:${placeholder}>"
+    )
+
+    trinity_configure_target(${target})
+    source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${sources})
+
+    set_target_properties(${target} PROPERTIES
+        PREFIX ""
+        LINKER_LANGUAGE CXX
+        C_VISIBILITY_PRESET hidden
+        CXX_VISIBILITY_PRESET hidden
+        LIBRARY_OUTPUT_DIRECTORY "$<IF:${TRINITY_ENGINE_SHARED_CONFIG},${OUTPUT_BASE},${CMAKE_CURRENT_BINARY_DIR}/Placeholder/$<CONFIG>>"
+    )
+
+    # GCC marks some template statics as unique symbols, which stops a module from ever unloading
+    target_compile_options(${target} PRIVATE $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)
+    target_link_libraries(${target} PRIVATE Trinity::Engine)
 endfunction()

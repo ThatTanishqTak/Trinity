@@ -12,6 +12,7 @@
 #include "Trinity/Core/MainThread.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Profiler.hpp"
+#include "Trinity/Core/SharedLibrary.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Core/Window.hpp"

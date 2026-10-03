@@ -46,6 +46,21 @@ namespace
         return value & 0xFFFF;
     }
 
+#if defined(TR_ENGINE_SHARED)
+    constexpr std::uint32_t c_ModuleLoadCount = 100;
+
+    std::size_t CountConsoleVariables()
+    {
+        std::size_t l_Count = 0;
+        for (const Trinity::ConsoleVariableBase* it_Variable = Trinity::ConsoleVariableBase::GetFirst(); it_Variable != nullptr; it_Variable = it_Variable->GetNext())
+        {
+            ++l_Count;
+        }
+
+        return l_Count;
+    }
+#endif
+
     Trinity::ConsoleVariable<float> s_ReportInterval("sandbox.report_interval", 1.0f, "Seconds between Sandbox fps reports");
     Trinity::ConsoleVariable<bool> s_ListConsoleVariables("sandbox.list_cvars", false, "Log every console variable when the Sandbox starts", Trinity::ConsoleVariableFlags::ReadOnly);
 }
@@ -84,6 +99,7 @@ void SandboxLayer::OnAttach()
 
     TestFileSystem();
     TestSaves();
+    TestModules();
     StartAsyncReads();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
@@ -366,6 +382,72 @@ void SandboxLayer::TestSaves()
 
     const Trinity::Expected<void, Trinity::FileError> l_Refused = Trinity::FileSystem::WriteText("/builtin/motd.txt", "changed");
     TR_INFO("  WriteText(/builtin/motd.txt) -> {}", l_Refused ? "ok" : Trinity::ToString(l_Refused.GetError()));
+}
+
+void SandboxLayer::TestModules()
+{
+    // Modules exist only where the engine is shared: a module linking the static engine would carry a second copy of it
+#if defined(TR_ENGINE_SHARED)
+    TR_PROFILE_FUNCTION();
+
+    using AttachFunction = void (*)();
+    using DescribeFunction = void (*)(std::string&);
+    using DetachFunction = void (*)();
+
+    const std::size_t l_VariablesBefore = CountConsoleVariables();
+    const Trinity::MemoryTagStats l_GameBefore = Trinity::Memory::GetStats(Trinity::MemoryTag::Game);
+
+    std::string l_Description;
+    std::uint32_t l_Failures = 0;
+    for (std::uint32_t it_Load = 0; it_Load < c_ModuleLoadCount; ++it_Load)
+    {
+        Trinity::Expected<Trinity::SharedLibrary, std::string> l_Module = Trinity::SharedLibrary::Load(TR_SANDBOX_MODULE);
+        if (!l_Module)
+        {
+            TR_ERROR("Module test: {}", l_Module.GetError());
+
+            return;
+        }
+
+        const AttachFunction l_Attach = l_Module->GetFunction<AttachFunction>("SandboxModuleAttach");
+        const DescribeFunction l_Describe = l_Module->GetFunction<DescribeFunction>("SandboxModuleDescribe");
+        const DetachFunction l_Detach = l_Module->GetFunction<DetachFunction>("SandboxModuleDetach");
+        if (l_Attach == nullptr || l_Describe == nullptr || l_Detach == nullptr)
+        {
+            TR_ERROR("Module test: {} is missing an entry point", l_Module->GetPath().string());
+
+            return;
+        }
+
+        l_Attach();
+        l_Describe(l_Description);
+
+        const Trinity::ConsoleVariableBase* l_Variable = Trinity::ConsoleVariables::Find("sandbox.module_value");
+        const bool l_Loaded = l_Variable != nullptr && l_Variable->ToString() == "42" && CountConsoleVariables() == l_VariablesBefore + 1;
+
+        l_Detach();
+        l_Module->Unload();
+
+        const Trinity::MemoryTagStats l_GameAfter = Trinity::Memory::GetStats(Trinity::MemoryTag::Game);
+        const bool l_Unloaded = Trinity::ConsoleVariables::Find("sandbox.module_value") == nullptr && CountConsoleVariables() == l_VariablesBefore && l_GameAfter.CurrentBytes == l_GameBefore.CurrentBytes && l_GameAfter.LiveAllocations == l_GameBefore.LiveAllocations;
+
+        if (!l_Loaded || !l_Unloaded)
+        {
+            ++l_Failures;
+        }
+    }
+
+    TR_INFO("{}", l_Description);
+
+    if (l_Failures != 0)
+    {
+        TR_ERROR("Module test: {} of {} load(s) of {} went wrong or left a console variable or Game memory behind", l_Failures, c_ModuleLoadCount, TR_SANDBOX_MODULE);
+
+        return;
+    }
+
+    TR_INFO("Module test: loaded and unloaded {} {} times; {} console variable(s) and {} under Game before and after", TR_SANDBOX_MODULE, c_ModuleLoadCount, l_VariablesBefore, Trinity::Memory::FormatBytes(l_GameBefore.CurrentBytes));
+#endif
 }
 
 void SandboxLayer::StartAsyncReads()

@@ -45,7 +45,6 @@ set(TRINITY_ENGINE_COMPILED ${TRINITY_ENGINE_FILES})
 list(FILTER TRINITY_ENGINE_COMPILED INCLUDE REGEX "\\.cpp$")
 
 # CMake builds every library an executable links in any configuration, in every configuration so each engine target compiles the engine only in the configurations that use it, and a placeholder in the others, written outside bin.
-set(TRINITY_ENGINE_SHARED_CONFIG "$<AND:$<BOOL:${TRINITY_SHARED_ENGINE}>,$<NOT:$<CONFIG:Distribution>>>")
 set(TRINITY_ENGINE_STATIC_CONFIG "$<NOT:${TRINITY_ENGINE_SHARED_CONFIG}>")
 set(TRINITY_ENGINE_PLACEHOLDER_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Placeholder/$<CONFIG>")
 set(TRINITY_ENGINE_PLACEHOLDER "${CMAKE_CURRENT_BINARY_DIR}/EnginePlaceholder.cpp")
@@ -100,6 +99,8 @@ function(trinity_add_engine_library target type active_config)
 
     if(TRINITY_PLATFORM STREQUAL "Windows")
         target_link_libraries(${target} PRIVATE user32 gdi32 shell32 ole32 uuid)
+    else()
+        target_link_libraries(${target} PRIVATE ${CMAKE_DL_LIBS})
     endif()
 endfunction()
 

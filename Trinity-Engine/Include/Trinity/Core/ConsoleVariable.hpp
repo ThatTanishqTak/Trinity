@@ -41,11 +41,10 @@ namespace Trinity
 
     [[nodiscard]] TRINITY_API std::string_view ToString(ConsoleVariableType type);
 
-    // Console variables are declared as static objects and link themselves into a list during static initialisation
     class TRINITY_API ConsoleVariableBase
     {
     public:
-        virtual ~ConsoleVariableBase() = default;
+        virtual ~ConsoleVariableBase();
 
         ConsoleVariableBase(const ConsoleVariableBase&) = delete;
         ConsoleVariableBase& operator=(const ConsoleVariableBase&) = delete;

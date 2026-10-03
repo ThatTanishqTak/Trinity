@@ -1,6 +1,16 @@
 #include "Trinity/Core/Platform.hpp"
 
 #include <cstdlib>
+#include <system_error>
+
+#include <dlfcn.h>
+
+#if defined(TR_PLATFORM_MACOS)
+#include <mach-o/dyld.h>
+
+#include <cstdint>
+#include <cstring>
+#endif
 
 namespace Trinity
 {
@@ -62,6 +72,48 @@ namespace Trinity
 #endif
 
             return {};
+        }
+
+        std::filesystem::path GetExecutableDirectory()
+        {
+            std::error_code l_Error;
+#if defined(TR_PLATFORM_MACOS)
+            std::uint32_t l_Size = 0;
+            ::_NSGetExecutablePath(nullptr, &l_Size);
+
+            std::string l_Path(l_Size, '\0');
+            if (::_NSGetExecutablePath(l_Path.data(), &l_Size) != 0)
+            {
+                return {};
+            }
+            l_Path.resize(std::strlen(l_Path.c_str()));
+
+            return std::filesystem::canonical(l_Path, l_Error).parent_path();
+#else
+            return std::filesystem::read_symlink("/proc/self/exe", l_Error).parent_path();
+#endif
+        }
+
+        void* LoadSharedLibrary(const std::filesystem::path& path, std::string& error)
+        {
+            void* l_Library = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+            if (l_Library == nullptr)
+            {
+                const char* l_Error = ::dlerror();
+                error = l_Error != nullptr ? l_Error : "unknown error";
+            }
+
+            return l_Library;
+        }
+
+        void* GetSharedLibrarySymbol(void* library, const char* name)
+        {
+            return ::dlsym(library, name);
+        }
+
+        void UnloadSharedLibrary(void* library)
+        {
+            ::dlclose(library);
         }
     }
 }
