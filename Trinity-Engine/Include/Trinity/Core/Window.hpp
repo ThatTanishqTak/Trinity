@@ -23,6 +23,7 @@ namespace Trinity
     {
     public:
         using EventCallback = std::function<void(Event&)>;
+        using RefreshCallback = std::function<void()>;
 
         virtual ~Window() = default;
 
@@ -32,6 +33,7 @@ namespace Trinity
         [[nodiscard]] virtual std::uint32_t GetHeight() const = 0;
 
         virtual void SetEventCallback(EventCallback callback) = 0;
+        virtual void SetRefreshCallback(RefreshCallback callback) = 0;
         virtual void SetTitle(std::string_view title) = 0;
 
         [[nodiscard]] virtual void* GetNativeHandle() const = 0;

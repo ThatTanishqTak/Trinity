@@ -95,7 +95,7 @@ void SandboxLayer::OnAttach()
 {
     m_ScratchBuffer = Trinity::Memory::Allocate(c_ScratchBufferSize, Trinity::MemoryTag::Game);
 
-    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use, O overflows the frame allocator, C lists console variables.");
+    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use, O overflows the frame allocator, C lists console variables, V toggles vsync.");
     TR_INFO("Reporting fps every {} s (sandbox.report_interval)", s_ReportInterval.Get());
 
     if (s_ListConsoleVariables.Get())
@@ -219,6 +219,14 @@ bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
     if (event.GetKeyCode() == Trinity::KeyCode::TR_C)
     {
         Trinity::ConsoleVariables::LogAll();
+
+        return true;
+    }
+
+    if (event.GetKeyCode() == Trinity::KeyCode::TR_V)
+    {
+        Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
+        l_Renderer.SetVSync(!l_Renderer.IsVSync());
 
         return true;
     }

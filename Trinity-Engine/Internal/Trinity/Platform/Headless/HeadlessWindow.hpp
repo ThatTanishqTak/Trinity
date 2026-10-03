@@ -17,6 +17,7 @@ namespace Trinity
         [[nodiscard]] std::uint32_t GetHeight() const override { return m_Height; }
 
         void SetEventCallback(EventCallback callback) override { m_EventCallback = std::move(callback); }
+        void SetRefreshCallback(RefreshCallback) override {}
         void SetTitle(std::string_view) override {}
 
         [[nodiscard]] void* GetNativeHandle() const override { return nullptr; }

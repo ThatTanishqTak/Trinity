@@ -1,5 +1,6 @@
 #include "Trinity/Renderer/Renderer.hpp"
 
+#include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Core/Window.hpp"
@@ -10,16 +11,25 @@
 
 namespace Trinity
 {
+    namespace
+    {
+        ConsoleVariable<bool> s_VSyncVariable("renderer.vsync", true, "Waits for the display's vertical blank before showing each frame");
+    }
+
     Renderer::Renderer(RHI::Device& device, Window& window, std::string_view title) : m_Device(device), m_Window(window), m_Title(title)
     {
         const RHI::DeviceInfo& l_Info = m_Device.GetInfo();
+        m_TargetWidth = m_Window.GetWidth();
+        m_TargetHeight = m_Window.GetHeight();
+        m_VSync = s_VSyncVariable.Get();
 
         if (m_Window.GetNativeHandle() != nullptr)
         {
             RHI::SwapChainSpecification l_Specification;
             l_Specification.NativeWindow = m_Window.GetNativeHandle();
-            l_Specification.Width = m_Window.GetWidth();
-            l_Specification.Height = m_Window.GetHeight();
+            l_Specification.Width = m_TargetWidth;
+            l_Specification.Height = m_TargetHeight;
+            l_Specification.VSync = m_VSync;
 
             m_SwapChain = m_Device.CreateSwapChain(l_Specification);
             if (!m_SwapChain)
@@ -30,15 +40,7 @@ namespace Trinity
 
         if (!m_SwapChain)
         {
-            RHI::TextureDescription l_Description;
-            l_Description.Width = std::max(m_Window.GetWidth(), 1u);
-            l_Description.Height = std::max(m_Window.GetHeight(), 1u);
-            l_Description.TextureFormat = RHI::Format::BGRA8Unorm;
-            l_Description.Usage = RHI::TextureUsage::RenderTarget | RHI::TextureUsage::CopySource;
-            l_Description.ClearColor = m_ClearColor;
-            l_Description.DebugName = "Renderer offscreen target";
-
-            m_OffscreenTarget = m_Device.CreateTexture(l_Description);
+            CreateOffscreenTarget();
         }
 
         m_StartTime = std::chrono::steady_clock::now();
@@ -60,6 +62,13 @@ namespace Trinity
     void Renderer::RenderFrame()
     {
         TR_PROFILE_FUNCTION();
+
+        if (m_Window.GetWidth() == 0 || m_Window.GetHeight() == 0)
+        {
+            return;
+        }
+
+        FollowWindow();
 
         RHI::CommandList& l_Commands = m_Device.BeginFrame();
 
@@ -91,6 +100,63 @@ namespace Trinity
         ++m_FrameCount;
         ++m_FramesSinceReport;
         ReportFrameRate();
+    }
+
+    void Renderer::SetVSync(bool enabled)
+    {
+        s_VSyncVariable.Set(enabled);
+    }
+
+    bool Renderer::IsVSync() const
+    {
+        return s_VSyncVariable.Get();
+    }
+
+    // Applies a new window size or vsync setting between frames, where nothing in flight uses the old swap chain images
+    void Renderer::FollowWindow()
+    {
+        const bool l_VSync = s_VSyncVariable.Get();
+        if (l_VSync != m_VSync)
+        {
+            m_VSync = l_VSync;
+            if (m_SwapChain)
+            {
+                m_SwapChain->SetVSync(m_VSync);
+            }
+
+            TR_CORE_INFO("Renderer: vsync {}", m_VSync ? "on" : "off");
+        }
+
+        if (m_Window.GetWidth() == m_TargetWidth && m_Window.GetHeight() == m_TargetHeight)
+        {
+            return;
+        }
+
+        m_TargetWidth = m_Window.GetWidth();
+        m_TargetHeight = m_Window.GetHeight();
+
+        if (m_SwapChain)
+        {
+            m_SwapChain->Resize(m_TargetWidth, m_TargetHeight);
+        }
+        else
+        {
+            m_Device.DestroyTexture(m_OffscreenTarget);
+            CreateOffscreenTarget();
+        }
+    }
+
+    void Renderer::CreateOffscreenTarget()
+    {
+        RHI::TextureDescription l_Description;
+        l_Description.Width = std::max(m_TargetWidth, 1u);
+        l_Description.Height = std::max(m_TargetHeight, 1u);
+        l_Description.TextureFormat = RHI::Format::BGRA8Unorm;
+        l_Description.Usage = RHI::TextureUsage::RenderTarget | RHI::TextureUsage::CopySource;
+        l_Description.ClearColor = m_ClearColor;
+        l_Description.DebugName = "Renderer offscreen target";
+
+        m_OffscreenTarget = m_Device.CreateTexture(l_Description);
     }
 
     // Once a second, in the window title

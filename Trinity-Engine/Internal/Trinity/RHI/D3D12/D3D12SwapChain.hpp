@@ -34,6 +34,8 @@ namespace Trinity
 
         private:
             [[nodiscard]] bool Initialize();
+            [[nodiscard]] bool AddBuffers();
+            void RemoveBuffers();
 
             D3D12Device& m_Device;
             SwapChainSpecification m_Specification;

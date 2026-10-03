@@ -10,6 +10,7 @@
 #include "Trinity/Renderer/Renderer.hpp"
 #include "Trinity/RHI/Device.hpp"
 
+#include <chrono>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -84,6 +85,7 @@ namespace Trinity
 
     private:
         void Run();
+        void RunFrame(bool pollEvents);
         void CreateDevice();
         void OnEvent(Event& event);
         bool OnWindowClose(WindowCloseEvent& event);
@@ -97,6 +99,7 @@ namespace Trinity
         Scope<Renderer> m_Renderer;
         LayerStack m_LayerStack;
         std::uint64_t m_FrameCount = 0;
+        std::chrono::steady_clock::time_point m_LastFrameTime;
         bool m_Running = true;
         bool m_Minimized = false;
 

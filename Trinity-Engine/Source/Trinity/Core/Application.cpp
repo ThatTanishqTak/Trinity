@@ -268,6 +268,7 @@ namespace Trinity
 
         m_Window = Window::Create(m_Specification.Window);
         m_Window->SetEventCallback(TR_BIND_EVENT_FN(OnEvent));
+        m_Window->SetRefreshCallback([this]() { RunFrame(false); });
 
         CreateDevice();
         m_Renderer = CreateScope<Renderer>(*m_Device, *m_Window, m_Specification.Window.Title);
@@ -327,58 +328,61 @@ namespace Trinity
 
     void Application::Run()
     {
-        using Clock = std::chrono::steady_clock;
-        auto l_LastFrameTime = Clock::now();
+        m_LastFrameTime = std::chrono::steady_clock::now();
 
         while (m_Running)
         {
-            TR_PROFILE_FRAME();
-
-            {
-                TR_PROFILE_SCOPE("Application::WaitForFrameJobs");
-                JobSystem::Wait(m_FrameJobs);
-            }
-            m_FrameAllocator.BeginFrame();
-
-            const auto l_Now = Clock::now();
-            const Timestep l_Timestep = std::chrono::duration<float>(l_Now - l_LastFrameTime).count();
-            l_LastFrameTime = l_Now;
-
-            {
-                TR_PROFILE_SCOPE("Window::PollEvents");
-                m_Window->PollEvents();
-            }
-
-            {
-                TR_PROFILE_SCOPE("MainThread::ExecutePending");
-                MainThread::ExecutePending();
-            }
-
-            if (!m_Minimized)
-            {
-                TR_PROFILE_SCOPE("LayerStack::OnUpdate");
-                for (const Scope<Layer>& it_Layer : m_LayerStack)
-                {
-                    it_Layer->OnUpdate(l_Timestep);
-                }
-            }
-
-            if (!m_Minimized)
-            {
-                m_Renderer->RenderFrame();
-            }
-
-            ++m_FrameCount;
-            if (m_Specification.MaxFrames != 0 && m_FrameCount >= m_Specification.MaxFrames)
-            {
-                Close();
-            }
+            RunFrame(true);
         }
 
         JobSystem::Wait(m_FrameJobs);
 
         TR_CORE_INFO("'{}' ran for {} frames.", m_Specification.Name, m_FrameCount);
         TR_CORE_INFO("Frame allocator peak {} of {} per frame, {} overflowing frame(s)", Memory::FormatBytes(m_FrameAllocator.GetPeakUsed()), Memory::FormatBytes(m_FrameAllocator.GetCapacity()), m_FrameAllocator.GetOverflowFrameCount());
+    }
+
+    // The window also calls this while Win32's drag and resize loop holds the thread inside PollEvents, so those frames skip polling, and the timestep is taken after it
+    void Application::RunFrame(bool pollEvents)
+    {
+        TR_PROFILE_FRAME();
+
+        {
+            TR_PROFILE_SCOPE("Application::WaitForFrameJobs");
+            JobSystem::Wait(m_FrameJobs);
+        }
+        m_FrameAllocator.BeginFrame();
+
+        if (pollEvents)
+        {
+            TR_PROFILE_SCOPE("Window::PollEvents");
+            m_Window->PollEvents();
+        }
+
+        const auto l_Now = std::chrono::steady_clock::now();
+        const Timestep l_Timestep = std::chrono::duration<float>(l_Now - m_LastFrameTime).count();
+        m_LastFrameTime = l_Now;
+
+        {
+            TR_PROFILE_SCOPE("MainThread::ExecutePending");
+            MainThread::ExecutePending();
+        }
+
+        if (!m_Minimized)
+        {
+            TR_PROFILE_SCOPE("LayerStack::OnUpdate");
+            for (const Scope<Layer>& it_Layer : m_LayerStack)
+            {
+                it_Layer->OnUpdate(l_Timestep);
+            }
+
+            m_Renderer->RenderFrame();
+        }
+
+        ++m_FrameCount;
+        if (m_Specification.MaxFrames != 0 && m_FrameCount >= m_Specification.MaxFrames)
+        {
+            Close();
+        }
     }
 
     void Application::OnEvent(Event& event)

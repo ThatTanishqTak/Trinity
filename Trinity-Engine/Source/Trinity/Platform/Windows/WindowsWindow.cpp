@@ -15,6 +15,8 @@ namespace Trinity
 
         std::uint32_t s_WindowCount = 0;
 
+        constexpr UINT_PTR c_RefreshTimer = 1;
+
         std::wstring ToWide(std::string_view utf8)
         {
             if (utf8.empty())
@@ -308,6 +310,19 @@ namespace Trinity
         }
     }
 
+    // Runs a frame from inside Win32's drag and resize loop, which holds the thread until the mouse is released
+    void WindowsWindow::Refresh()
+    {
+        if (!m_RefreshCallback || m_Refreshing)
+        {
+            return;
+        }
+
+        m_Refreshing = true;
+        m_RefreshCallback();
+        m_Refreshing = false;
+    }
+
     void WindowsWindow::OnMouseButton(MouseCode button, bool pressed)
     {
         if (pressed)
@@ -374,7 +389,37 @@ namespace Trinity
                 WindowResizeEvent l_Event(m_Width, m_Height);
                 Dispatch(l_Event);
 
+                if (m_InSizeMove)
+                {
+                    Refresh();
+                }
+
                 return 0;
+            }
+            case WM_ENTERSIZEMOVE:
+            {
+                m_InSizeMove = true;
+                ::SetTimer(m_Handle, c_RefreshTimer, USER_TIMER_MINIMUM, nullptr);
+
+                return 0;
+            }
+            case WM_EXITSIZEMOVE:
+            {
+                ::KillTimer(m_Handle, c_RefreshTimer);
+                m_InSizeMove = false;
+
+                return 0;
+            }
+            case WM_TIMER:
+            {
+                if (wParam == c_RefreshTimer)
+                {
+                    Refresh();
+
+                    return 0;
+                }
+
+                break;
             }
             case WM_DPICHANGED:
             {

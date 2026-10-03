@@ -27,10 +27,15 @@ namespace Trinity
 
         void SetClearColor(const std::array<float, 4>& color) { m_ClearColor = color; }
 
+        void SetVSync(bool enabled);
+        [[nodiscard]] bool IsVSync() const;
+
         [[nodiscard]] bool IsPresenting() const { return m_SwapChain != nullptr; }
         [[nodiscard]] std::uint64_t GetFrameCount() const { return m_FrameCount; }
 
     private:
+        void FollowWindow();
+        void CreateOffscreenTarget();
         void ReportFrameRate();
 
         RHI::Device& m_Device;
@@ -39,6 +44,9 @@ namespace Trinity
 
         Scope<RHI::SwapChain> m_SwapChain;
         RHI::TextureHandle m_OffscreenTarget;
+        std::uint32_t m_TargetWidth = 0;
+        std::uint32_t m_TargetHeight = 0;
+        bool m_VSync = true;
         std::array<float, 4> m_ClearColor{ 0.1f, 0.1f, 0.12f, 1.0f };
 
         std::chrono::steady_clock::time_point m_StartTime;

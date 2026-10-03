@@ -35,6 +35,9 @@ namespace Trinity
 
         private:
             [[nodiscard]] bool Initialize();
+            [[nodiscard]] bool CreateSwapChain();
+            bool Recreate();
+            void RemoveImages();
             void Report(VkResult result, const char* operation);
 
             VulkanDevice& m_Device;
@@ -43,6 +46,7 @@ namespace Trinity
             VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
             VkSwapchainKHR m_SwapChain = VK_NULL_HANDLE;
             Format m_Format = Format::Unknown;
+            VkPresentModeKHR m_PresentMode = VK_PRESENT_MODE_FIFO_KHR;
             std::uint32_t m_Width = 0;
             std::uint32_t m_Height = 0;
 
@@ -51,7 +55,8 @@ namespace Trinity
             std::array<VkSemaphore, c_FramesInFlight> m_AcquireSemaphores{};
             std::uint32_t m_ImageIndex = 0;
             bool m_Acquired = false;
-            bool m_ReportedOutOfDate = false;
+            bool m_OutOfDate = false;
+            bool m_ReportedFailure = false;
         };
     }
 }

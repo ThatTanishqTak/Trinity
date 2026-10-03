@@ -61,13 +61,7 @@ namespace Trinity
         D3D12SwapChain::~D3D12SwapChain()
         {
             m_Device.WaitIdle();
-
-            for (TextureHandle it_Texture : m_Textures)
-            {
-                m_Device.RemoveSwapChainBuffer(it_Texture);
-            }
-
-            m_Buffers.clear();
+            RemoveBuffers();
             m_SwapChain.Reset();
         }
 
@@ -106,23 +100,9 @@ namespace Trinity
 
             m_Device.GetFactory()->MakeWindowAssociation(l_Window, DXGI_MWA_NO_ALT_ENTER);
 
-            m_SwapChain->GetDesc1(&l_Description);
-            m_Width = l_Description.Width;
-            m_Height = l_Description.Height;
-
-            for (UINT it_Index = 0; it_Index < c_BufferCount; ++it_Index)
+            if (!AddBuffers())
             {
-                ComPtr<ID3D12Resource>& l_Buffer = m_Buffers.emplace_back();
-                l_Result = m_SwapChain->GetBuffer(it_Index, IID_PPV_ARGS(&l_Buffer));
-                if (FAILED(l_Result))
-                {
-                    TR_CORE_ERROR("D3D12: swap chain buffer {} could not be read ({})", it_Index, FormatResult(l_Result));
-
-                    return false;
-                }
-
-                l_Buffer->SetName(L"Swap chain buffer");
-                m_Textures.push_back(m_Device.AddSwapChainBuffer(l_Buffer.Get(), m_Format, l_Description.Format, m_Width, m_Height));
+                return false;
             }
 
             TR_CORE_INFO("D3D12: swap chain of {} {}x{} {} buffers, vsync {}{}", c_BufferCount, m_Width, m_Height, ToString(m_Format), m_Specification.VSync ? "on" : "off", m_Device.IsTearingSupported() ? ", tearing supported" : "");
@@ -134,9 +114,10 @@ namespace Trinity
         {
             TR_CORE_ASSERT(m_Device.IsInFrame(), "AcquireNextTexture is called between Device::BeginFrame and EndFrame.");
 
-            m_Acquired = true;
+            const UINT l_Index = m_SwapChain->GetCurrentBackBufferIndex();
+            m_Acquired = l_Index < m_Textures.size();
 
-            return m_Textures[m_SwapChain->GetCurrentBackBufferIndex()];
+            return m_Acquired ? m_Textures[l_Index] : TextureHandle{};
         }
 
         void D3D12SwapChain::Present()
@@ -159,14 +140,69 @@ namespace Trinity
             }
         }
 
-        void D3D12SwapChain::Resize([[maybe_unused]] std::uint32_t width, [[maybe_unused]] std::uint32_t height)
+        // The buffers are released first, since ResizeBuffers fails while anything still holds one
+        void D3D12SwapChain::Resize(std::uint32_t width, std::uint32_t height)
         {
+            if (width == 0 || height == 0)
+            {
+                return;
+            }
 
+            m_Device.WaitIdle();
+            RemoveBuffers();
+
+            const HRESULT l_Result = m_SwapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, m_Device.IsTearingSupported() ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
+            if (FAILED(l_Result))
+            {
+                TR_CORE_ERROR("D3D12: the swap chain could not be resized to {}x{} ({})", width, height, FormatResult(l_Result));
+            }
+
+            if (AddBuffers())
+            {
+                TR_CORE_TRACE("D3D12: swap chain resized to {}x{}", m_Width, m_Height);
+            }
         }
 
         void D3D12SwapChain::SetVSync(bool enabled)
         {
             m_Specification.VSync = enabled;
+        }
+
+        bool D3D12SwapChain::AddBuffers()
+        {
+            DXGI_SWAP_CHAIN_DESC1 l_Description{};
+            m_SwapChain->GetDesc1(&l_Description);
+            m_Width = l_Description.Width;
+            m_Height = l_Description.Height;
+
+            for (UINT it_Index = 0; it_Index < l_Description.BufferCount; ++it_Index)
+            {
+                ComPtr<ID3D12Resource>& l_Buffer = m_Buffers.emplace_back();
+                const HRESULT l_Result = m_SwapChain->GetBuffer(it_Index, IID_PPV_ARGS(&l_Buffer));
+                if (FAILED(l_Result))
+                {
+                    TR_CORE_ERROR("D3D12: swap chain buffer {} could not be read ({})", it_Index, FormatResult(l_Result));
+                    m_Buffers.pop_back();
+
+                    return false;
+                }
+
+                l_Buffer->SetName(L"Swap chain buffer");
+                m_Textures.push_back(m_Device.AddSwapChainBuffer(l_Buffer.Get(), m_Format, l_Description.Format, m_Width, m_Height));
+            }
+
+            return true;
+        }
+
+        void D3D12SwapChain::RemoveBuffers()
+        {
+            for (TextureHandle it_Texture : m_Textures)
+            {
+                m_Device.RemoveSwapChainBuffer(it_Texture);
+            }
+
+            m_Textures.clear();
+            m_Buffers.clear();
         }
     }
 }
