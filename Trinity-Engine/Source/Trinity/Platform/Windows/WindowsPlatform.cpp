@@ -2,14 +2,18 @@
 
 #include "Trinity/Platform/Windows/WindowsHeaders.hpp"
 
+#include <shellscalingapi.h>
 #include <shlobj.h>
 
 #include <malloc.h>
 
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace Trinity
 {
@@ -65,6 +69,39 @@ namespace Trinity
                 ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size);
 
                 return l_Result;
+            }
+
+            MonitorArea ToMonitorArea(const RECT& rectangle)
+            {
+                return { rectangle.left, rectangle.top, static_cast<std::uint32_t>(rectangle.right - rectangle.left), static_cast<std::uint32_t>(rectangle.bottom - rectangle.top) };
+            }
+
+            BOOL CALLBACK AddMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM data)
+            {
+                MONITORINFOEXW l_Info{};
+                l_Info.cbSize = sizeof(l_Info);
+                if (!::GetMonitorInfoW(monitor, &l_Info))
+                {
+                    return TRUE;
+                }
+
+                UINT l_DpiX = USER_DEFAULT_SCREEN_DPI;
+                UINT l_DpiY = USER_DEFAULT_SCREEN_DPI;
+                if (FAILED(::GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &l_DpiX, &l_DpiY)))
+                {
+                    l_DpiX = USER_DEFAULT_SCREEN_DPI;
+                }
+
+                MonitorInfo l_Monitor;
+                l_Monitor.Name = ToUtf8(l_Info.szDevice);
+                l_Monitor.Area = ToMonitorArea(l_Info.rcMonitor);
+                l_Monitor.WorkArea = ToMonitorArea(l_Info.rcWork);
+                l_Monitor.DpiScale = static_cast<float>(l_DpiX) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
+                l_Monitor.Primary = (l_Info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+
+                reinterpret_cast<std::vector<MonitorInfo>*>(data)->push_back(std::move(l_Monitor));
+
+                return TRUE;
             }
         }
 
@@ -201,6 +238,15 @@ namespace Trinity
             }
 
             ::CloseClipboard();
+        }
+
+        std::vector<MonitorInfo> GetMonitors()
+        {
+            std::vector<MonitorInfo> l_Monitors;
+            ::EnumDisplayMonitors(nullptr, nullptr, &AddMonitor, reinterpret_cast<LPARAM>(&l_Monitors));
+            std::ranges::stable_partition(l_Monitors, &MonitorInfo::Primary);
+
+            return l_Monitors;
         }
     }
 }

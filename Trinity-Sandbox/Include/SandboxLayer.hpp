@@ -37,6 +37,10 @@ private:
     void DrawQuadField(Trinity::RHI::CommandList& commands);
     void StartAsyncReads();
     void CheckAsyncReads();
+    void OpenSecondWindow();
+    void UpdateSecondWindow();
+    void CloseSecondWindow();
+    void OnSecondWindowEvent(Trinity::Event& event);
 
     void* m_ScratchBuffer = nullptr;
     std::vector<std::uint32_t> m_Probe;
@@ -71,6 +75,20 @@ private:
     std::uint64_t m_RendererBytesLast = 0;
     std::uint32_t m_UploadOverflowRequests = 0;
     bool m_OverflowUploadNextFrame = false;
+
+    Trinity::Scope<Trinity::Window> m_SecondWindow;
+    std::uint32_t m_SecondOutput = 0;
+    std::uint32_t m_SecondWindowFrames = 0;
+    std::uint32_t m_SecondWindowDraws = 0;
+    std::uint32_t m_SecondWindowFailures = 0;
+    std::uint32_t m_SecondDrawWidth = 0;
+    std::uint32_t m_SecondDrawHeight = 0;
+    Trinity::WindowPosition m_SecondTargetPosition;
+    Trinity::WindowPosition m_SecondMovedTo;
+    std::uint32_t m_SecondResizedWidth = 0;
+    std::uint32_t m_SecondResizedHeight = 0;
+    bool m_SecondWindowPending = false;
+    bool m_SecondWindowClosing = false;
 
     float m_ClearHue = 0.0f;
     float m_SecondsSinceReport = 0.0f;

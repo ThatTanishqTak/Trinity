@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 #include <dlfcn.h>
 
@@ -132,6 +133,11 @@ namespace Trinity
         void SetClipboardText(std::string_view text)
         {
             s_Clipboard = text;
+        }
+
+        std::vector<MonitorInfo> GetMonitors()
+        {
+            return {};
         }
     }
 }

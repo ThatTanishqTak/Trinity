@@ -1,14 +1,34 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
     namespace Platform
     {
+        struct MonitorArea
+        {
+            std::int32_t X = 0;
+            std::int32_t Y = 0;
+            std::uint32_t Width = 0;
+            std::uint32_t Height = 0;
+        };
+
+        // Areas in screen pixels. The work area leaves out the taskbar and docked toolbars
+        struct MonitorInfo
+        {
+            std::string Name;
+            MonitorArea Area;
+            MonitorArea WorkArea;
+            float DpiScale = 1.0f;
+            bool Primary = false;
+        };
+
         void Initialize();
         void Shutdown();
 
@@ -28,5 +48,8 @@ namespace Trinity
         // UTF-8, and empty when the clipboard holds no text
         [[nodiscard]] std::string GetClipboardText();
         void SetClipboardText(std::string_view text);
+
+        // Primary first, and empty where the platform has no windows
+        [[nodiscard]] std::vector<MonitorInfo> GetMonitors();
     }
 }

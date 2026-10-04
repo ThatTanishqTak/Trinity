@@ -27,6 +27,17 @@ namespace Trinity
         void SetTitle(std::string_view title) override;
         void SetCursorShape(CursorShape shape) override;
 
+        [[nodiscard]] WindowPosition GetPosition() const override;
+        void SetPosition(WindowPosition position) override;
+        void SetSize(std::uint32_t width, std::uint32_t height) override;
+
+        void Show(bool focus) override;
+        void Focus() override;
+        [[nodiscard]] bool IsFocused() const override;
+        [[nodiscard]] bool IsMinimized() const override;
+
+        void SetOpacity(float opacity) override;
+
         [[nodiscard]] float GetDpiScale() const override;
 
         [[nodiscard]] void* GetNativeHandle() const override { return m_Handle; }
@@ -39,6 +50,7 @@ namespace Trinity
         void Refresh();
         void OnMouseButton(MouseCode button, bool pressed);
         void ApplyCursor() const;
+        [[nodiscard]] RECT GetFrame(const RECT& client) const;
 
         HWND m_Handle = nullptr;
         EventCallback m_EventCallback;
@@ -51,5 +63,6 @@ namespace Trinity
         bool m_InSizeMove = false;
         bool m_Refreshing = false;
         bool m_TrackingMouse = false;
+        bool m_Counted = false;
     };
 }

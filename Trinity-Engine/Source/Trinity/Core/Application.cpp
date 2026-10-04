@@ -16,6 +16,7 @@
 #include <chrono>
 #include <filesystem>
 #include <ranges>
+#include <vector>
 
 namespace Trinity
 {
@@ -76,6 +77,17 @@ namespace Trinity
             }
 
             return l_Result.empty() ? std::string("Application") : l_Result;
+        }
+
+        // One line per monitor, to compare with Windows' display settings
+        void LogMonitors()
+        {
+            const std::vector<Platform::MonitorInfo> l_Monitors = Platform::GetMonitors();
+            for (std::size_t it_Index = 0; it_Index < l_Monitors.size(); ++it_Index)
+            {
+                const Platform::MonitorInfo& l_Monitor = l_Monitors[it_Index];
+                TR_CORE_INFO("Monitor {} of {}: {}{}, {}x{} at ({}, {}), work area {}x{} at ({}, {}), {:.0f}% scale", it_Index + 1, l_Monitors.size(), l_Monitor.Name, l_Monitor.Primary ? " (primary)" : "", l_Monitor.Area.Width, l_Monitor.Area.Height, l_Monitor.Area.X, l_Monitor.Area.Y, l_Monitor.WorkArea.Width, l_Monitor.WorkArea.Height, l_Monitor.WorkArea.X, l_Monitor.WorkArea.Y, l_Monitor.DpiScale * 100.0f);
+            }
         }
 
         // Engine data, the compiled shaders and the fonts, sits beside the executable
@@ -265,6 +277,11 @@ namespace Trinity
         TR_CORE_INFO("Starting '{}' (graphics: {}{})", m_Specification.Name, ToString(m_Specification.Graphics), m_Specification.Window.Headless ? ", headless" : "");
 
         MountSaveDirectory(l_Args, m_Specification.Name);
+
+        if (!m_Specification.Window.Headless)
+        {
+            LogMonitors();
+        }
 
         m_Window = Window::Create(m_Specification.Window);
         m_Window->SetEventCallback(TR_BIND_EVENT_FN(OnEvent));

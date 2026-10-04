@@ -127,7 +127,7 @@ function(trinity_add_engine_library target type active_config)
     )
 
     if(TRINITY_PLATFORM STREQUAL "Windows")
-        target_link_libraries(${target} PRIVATE user32 gdi32 shell32 ole32 uuid)
+        target_link_libraries(${target} PRIVATE user32 gdi32 shell32 shcore ole32 uuid)
         if(TRINITY_RHI_D3D12)
             target_link_libraries(${target} PRIVATE Microsoft::DirectX-Headers Microsoft::DirectX-Guids D3D12MemoryAllocator d3d12 dxgi dxguid)
         endif()

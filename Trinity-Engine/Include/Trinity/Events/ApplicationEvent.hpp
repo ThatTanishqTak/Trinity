@@ -35,6 +35,31 @@ namespace Trinity
         std::uint32_t m_Height;
     };
 
+    // The top left of the client area, in screen pixels
+    class TRINITY_API WindowMovedEvent final : public Event
+    {
+    public:
+        WindowMovedEvent(std::int32_t x, std::int32_t y) : m_X(x), m_Y(y)
+        {
+
+        }
+
+        [[nodiscard]] std::int32_t GetX() const { return m_X; }
+        [[nodiscard]] std::int32_t GetY() const { return m_Y; }
+
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("WindowMoved: {}, {}", m_X, m_Y);
+        }
+
+        TR_EVENT_CLASS_TYPE(WindowMoved)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+
+    private:
+        std::int32_t m_X;
+        std::int32_t m_Y;
+    };
+
     class TRINITY_API WindowFocusEvent final : public Event
     {
     public:

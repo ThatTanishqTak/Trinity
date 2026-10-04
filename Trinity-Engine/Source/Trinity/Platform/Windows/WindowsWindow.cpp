@@ -5,6 +5,8 @@
 #include "Trinity/Events/KeyEvent.hpp"
 #include "Trinity/Events/MouseEvent.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace Trinity
@@ -312,16 +314,29 @@ namespace Trinity
             TR_CORE_ASSERT(l_Atom != 0, "RegisterClassExW failed with error {}", ::GetLastError());
         }
 
-        DWORD l_Style = WS_OVERLAPPEDWINDOW;
-        if (!specification.Resizable)
+        // Undecorated windows are bare popups. An owned window without a taskbar entry is a tool window, which Windows also leaves out of Alt+Tab
+        DWORD l_Style = specification.Decorated ? WS_OVERLAPPEDWINDOW : WS_POPUP;
+        if (specification.Decorated && !specification.Resizable)
         {
             l_Style &= ~static_cast<DWORD>(WS_THICKFRAME | WS_MAXIMIZEBOX);
         }
 
-        RECT l_Rectangle{ 0, 0, static_cast<LONG>(specification.Width), static_cast<LONG>(specification.Height) };
-        ::AdjustWindowRectEx(&l_Rectangle, l_Style, FALSE, 0);
+        DWORD l_ExStyle = specification.TaskbarIcon ? WS_EX_APPWINDOW : WS_EX_TOOLWINDOW;
+        if (specification.TopMost)
+        {
+            l_ExStyle |= WS_EX_TOPMOST;
+        }
 
-        m_Handle = ::CreateWindowExW(0, c_WindowClassName, ToWide(specification.Title).c_str(), l_Style, CW_USEDEFAULT, CW_USEDEFAULT, l_Rectangle.right - l_Rectangle.left, l_Rectangle.bottom - l_Rectangle.top, nullptr, nullptr, l_Instance, this);
+        const LONG l_X = specification.Position ? specification.Position->X : 0;
+        const LONG l_Y = specification.Position ? specification.Position->Y : 0;
+        RECT l_Rectangle{ l_X, l_Y, l_X + static_cast<LONG>(specification.Width), l_Y + static_cast<LONG>(specification.Height) };
+        ::AdjustWindowRectEx(&l_Rectangle, l_Style, FALSE, l_ExStyle);
+
+        const int l_Left = specification.Position ? l_Rectangle.left : CW_USEDEFAULT;
+        const int l_Top = specification.Position ? l_Rectangle.top : CW_USEDEFAULT;
+        const HWND l_Owner = specification.Owner != nullptr ? static_cast<HWND>(specification.Owner->GetNativeHandle()) : nullptr;
+
+        m_Handle = ::CreateWindowExW(l_ExStyle, c_WindowClassName, ToWide(specification.Title).c_str(), l_Style, l_Left, l_Top, l_Rectangle.right - l_Rectangle.left, l_Rectangle.bottom - l_Rectangle.top, l_Owner, nullptr, l_Instance, this);
 
         TR_CORE_ASSERT(m_Handle != nullptr, "CreateWindowExW failed with error {}", ::GetLastError());
         if (m_Handle == nullptr)
@@ -330,21 +345,25 @@ namespace Trinity
         }
 
         ++s_WindowCount;
-        ::ShowWindow(m_Handle, SW_SHOW);
+        m_Counted = true;
+
+        if (specification.Visible)
+        {
+            ::ShowWindow(m_Handle, SW_SHOW);
+        }
     }
 
+    // Windows destroys owned windows with their owner, which leaves m_Handle null here
     WindowsWindow::~WindowsWindow()
     {
-        if (m_Handle == nullptr)
+        if (m_Handle != nullptr)
         {
-            return;
+            ::SetWindowLongPtrW(m_Handle, GWLP_USERDATA, 0);
+            ::DestroyWindow(m_Handle);
+            m_Handle = nullptr;
         }
 
-        ::SetWindowLongPtrW(m_Handle, GWLP_USERDATA, 0);
-        ::DestroyWindow(m_Handle);
-        m_Handle = nullptr;
-
-        if (--s_WindowCount == 0)
+        if (m_Counted && --s_WindowCount == 0)
         {
             ::UnregisterClassW(c_WindowClassName, ::GetModuleHandleW(nullptr));
         }
@@ -385,6 +404,73 @@ namespace Trinity
     void WindowsWindow::ApplyCursor() const
     {
         ::SetCursor(m_CursorShape == CursorShape::Hidden ? nullptr : ::LoadCursorW(nullptr, ToCursorName(m_CursorShape)));
+    }
+
+    WindowPosition WindowsWindow::GetPosition() const
+    {
+        POINT l_Point{};
+        ::ClientToScreen(m_Handle, &l_Point);
+
+        return { l_Point.x, l_Point.y };
+    }
+
+    void WindowsWindow::SetPosition(WindowPosition position)
+    {
+        const RECT l_Frame = GetFrame({ position.X, position.Y, position.X, position.Y });
+        ::SetWindowPos(m_Handle, nullptr, l_Frame.left, l_Frame.top, 0, 0, SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
+    void WindowsWindow::SetSize(std::uint32_t width, std::uint32_t height)
+    {
+        const RECT l_Frame = GetFrame({ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
+        ::SetWindowPos(m_Handle, nullptr, 0, 0, l_Frame.right - l_Frame.left, l_Frame.bottom - l_Frame.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+    }
+
+    // The frame around a client rectangle, with borders sized for the monitor the window is on
+    RECT WindowsWindow::GetFrame(const RECT& client) const
+    {
+        RECT l_Frame = client;
+        ::AdjustWindowRectExForDpi(&l_Frame, static_cast<DWORD>(::GetWindowLongPtrW(m_Handle, GWL_STYLE)), FALSE, static_cast<DWORD>(::GetWindowLongPtrW(m_Handle, GWL_EXSTYLE)), ::GetDpiForWindow(m_Handle));
+
+        return l_Frame;
+    }
+
+    void WindowsWindow::Show(bool focus)
+    {
+        ::ShowWindow(m_Handle, focus ? SW_SHOW : SW_SHOWNA);
+    }
+
+    // Windows can refuse the foreground to a process the user is not using, and then flashes its taskbar entry instead
+    void WindowsWindow::Focus()
+    {
+        ::BringWindowToTop(m_Handle);
+        ::SetForegroundWindow(m_Handle);
+        ::SetFocus(m_Handle);
+    }
+
+    bool WindowsWindow::IsFocused() const
+    {
+        return ::GetForegroundWindow() == m_Handle;
+    }
+
+    bool WindowsWindow::IsMinimized() const
+    {
+        return ::IsIconic(m_Handle) != FALSE;
+    }
+
+    // A layered window only while it is see-through, since layering costs DWM a copy of every frame
+    void WindowsWindow::SetOpacity(float opacity)
+    {
+        const LONG_PTR l_ExStyle = ::GetWindowLongPtrW(m_Handle, GWL_EXSTYLE);
+        if (opacity < 1.0f)
+        {
+            ::SetWindowLongPtrW(m_Handle, GWL_EXSTYLE, l_ExStyle | WS_EX_LAYERED);
+            ::SetLayeredWindowAttributes(m_Handle, 0, static_cast<BYTE>(std::lround(std::clamp(opacity, 0.0f, 1.0f) * 255.0f)), LWA_ALPHA);
+        }
+        else if ((l_ExStyle & WS_EX_LAYERED) != 0)
+        {
+            ::SetWindowLongPtrW(m_Handle, GWL_EXSTYLE, l_ExStyle & ~static_cast<LONG_PTR>(WS_EX_LAYERED));
+        }
     }
 
     float WindowsWindow::GetDpiScale() const
@@ -485,6 +571,21 @@ namespace Trinity
                 }
 
                 return 0;
+            }
+            case WM_MOVE:
+            {
+                WindowMovedEvent l_Event(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+                Dispatch(l_Event);
+
+                return 0;
+            }
+            case WM_NCDESTROY:
+            {
+                const HWND l_Handle = m_Handle;
+                ::SetWindowLongPtrW(l_Handle, GWLP_USERDATA, 0);
+                m_Handle = nullptr;
+
+                return ::DefWindowProcW(l_Handle, message, wParam, lParam);
             }
             case WM_ENTERSIZEMOVE:
             {

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <format>
 #include <span>
+#include <utility>
 
 namespace Trinity
 {
@@ -68,6 +69,12 @@ namespace Trinity
         const double l_Seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_StartTime).count();
         TR_CORE_INFO("Renderer: {} frame(s) on {} at an average of {:.1f} fps", m_FrameCount, ToString(m_Device.GetInfo().API), l_Seconds > 0.0 ? static_cast<double>(m_FrameCount) / l_Seconds : 0.0);
 
+        for (Output& it_Output : m_Outputs)
+        {
+            DestroyOutput(it_Output);
+        }
+
+        m_Outputs.clear();
         m_SwapChain.reset();
         m_Device.DestroyPipeline(m_CopyPipeline);
         m_Device.DestroyTexture(m_SceneTarget);
@@ -104,11 +111,21 @@ namespace Trinity
             RenderOutput(l_Commands, l_Output, layers);
         }
 
+        RenderAddedOutputs(l_Commands);
+
         m_Device.EndFrame();
 
         if (m_SwapChain)
         {
             m_SwapChain->Present();
+        }
+
+        for (Output& it_Output : m_Outputs)
+        {
+            if (it_Output.SwapChain)
+            {
+                it_Output.SwapChain->Present();
+            }
         }
 
         ++m_FrameCount;
@@ -187,6 +204,115 @@ namespace Trinity
         }
     }
 
+    // Each added output is cleared, then drawn by its callback. Minimized and zero-sized windows are skipped, and a swap chain left unacquired ignores Present
+    void Renderer::RenderAddedOutputs(RHI::CommandList& commands)
+    {
+        TR_PROFILE_FUNCTION();
+
+        for (Output& it_Output : m_Outputs)
+        {
+            if (it_Output.Target->GetWidth() == 0 || it_Output.Target->GetHeight() == 0 || it_Output.Target->IsMinimized())
+            {
+                continue;
+            }
+
+            const RHI::TextureHandle l_Texture = it_Output.SwapChain ? it_Output.SwapChain->AcquireNextTexture() : it_Output.Offscreen;
+            if (!l_Texture)
+            {
+                continue;
+            }
+
+            const std::uint32_t l_Width = it_Output.SwapChain ? it_Output.SwapChain->GetWidth() : it_Output.Width;
+            const std::uint32_t l_Height = it_Output.SwapChain ? it_Output.SwapChain->GetHeight() : it_Output.Height;
+
+            commands.TextureBarrier(l_Texture, RHI::ResourceState::Undefined, RHI::ResourceState::RenderTarget);
+
+            const std::array<RHI::ColorAttachment, 1> l_Attachments{ RHI::ColorAttachment{ l_Texture, RHI::LoadOp::Clear, RHI::StoreOp::Store, it_Output.ClearColor } };
+            RHI::RenderingDescription l_Rendering;
+            l_Rendering.ColorAttachments = l_Attachments;
+            commands.BeginRendering(l_Rendering);
+            SetFullViewport(commands, l_Width, l_Height);
+
+            if (it_Output.Callback)
+            {
+                it_Output.Callback(commands, l_Width, l_Height);
+            }
+
+            commands.EndRendering();
+
+            if (it_Output.SwapChain)
+            {
+                commands.TextureBarrier(l_Texture, RHI::ResourceState::RenderTarget, RHI::ResourceState::Present);
+            }
+        }
+    }
+
+    // A window with no native handle draws into an offscreen target, as the main window does when headless. Extra windows present without vsync, so only the main window paces the frame
+    std::uint32_t Renderer::AddOutput(Window& window, const std::array<float, 4>& clearColor, OutputCallback callback)
+    {
+        Output l_Output;
+        l_Output.Id = m_NextOutputId;
+        l_Output.Target = &window;
+        l_Output.Width = std::max(window.GetWidth(), 1u);
+        l_Output.Height = std::max(window.GetHeight(), 1u);
+        l_Output.ClearColor = clearColor;
+        l_Output.Callback = std::move(callback);
+
+        if (window.GetNativeHandle() != nullptr)
+        {
+            RHI::SwapChainSpecification l_Specification;
+            l_Specification.NativeWindow = window.GetNativeHandle();
+            l_Specification.Width = l_Output.Width;
+            l_Specification.Height = l_Output.Height;
+            l_Specification.VSync = false;
+
+            l_Output.SwapChain = m_Device.CreateSwapChain(l_Specification);
+            if (!l_Output.SwapChain)
+            {
+                TR_CORE_ERROR("Renderer: {} cannot present to an added window", ToString(m_Device.GetInfo().API));
+
+                return 0;
+            }
+
+            // Callbacks draw with pipelines built for the main window's format
+            if (l_Output.SwapChain->GetFormat() != GetOutputFormat())
+            {
+                TR_CORE_ERROR("Renderer: an added window presents {}, but the main window presents {}", RHI::ToString(l_Output.SwapChain->GetFormat()), RHI::ToString(GetOutputFormat()));
+
+                return 0;
+            }
+        }
+        else
+        {
+            l_Output.Offscreen = CreateOutputTarget(l_Output.Width, l_Output.Height, "Renderer added output");
+        }
+
+        ++m_NextOutputId;
+        m_Outputs.push_back(std::move(l_Output));
+
+        return m_Outputs.back().Id;
+    }
+
+    // Between frames only, since a swap chain waits for the GPU as it goes
+    void Renderer::RemoveOutput(std::uint32_t output)
+    {
+        const auto l_Output = std::ranges::find(m_Outputs, output, &Output::Id);
+        if (l_Output == m_Outputs.end())
+        {
+            return;
+        }
+
+        DestroyOutput(*l_Output);
+        m_Outputs.erase(l_Output);
+    }
+
+    void Renderer::DestroyOutput(Output& output)
+    {
+        output.SwapChain.reset();
+        m_Device.DestroyTexture(output.Offscreen);
+        output.Offscreen = {};
+    }
+
     RHI::Format Renderer::GetSceneFormat() const
     {
         return c_SceneFormat;
@@ -248,6 +374,8 @@ namespace Trinity
             }
         }
 
+        FollowOutputs();
+
         // Also catches a swap chain that changed size on its own while acquiring
         if (m_SceneWidth != GetOutputWidth() || m_SceneHeight != GetOutputHeight())
         {
@@ -256,17 +384,49 @@ namespace Trinity
         }
     }
 
+    // Added outputs take a new size between frames, as the main window does. A minimized window keeps its old size until it comes back
+    void Renderer::FollowOutputs()
+    {
+        for (Output& it_Output : m_Outputs)
+        {
+            const std::uint32_t l_Width = it_Output.Target->GetWidth();
+            const std::uint32_t l_Height = it_Output.Target->GetHeight();
+            if (l_Width == 0 || l_Height == 0 || (l_Width == it_Output.Width && l_Height == it_Output.Height))
+            {
+                continue;
+            }
+
+            it_Output.Width = l_Width;
+            it_Output.Height = l_Height;
+
+            if (it_Output.SwapChain)
+            {
+                it_Output.SwapChain->Resize(l_Width, l_Height);
+            }
+            else
+            {
+                m_Device.DestroyTexture(it_Output.Offscreen);
+                it_Output.Offscreen = CreateOutputTarget(l_Width, l_Height, "Renderer added output");
+            }
+        }
+    }
+
     void Renderer::CreateOffscreenTarget()
     {
+        m_OffscreenTarget = CreateOutputTarget(std::max(m_TargetWidth, 1u), std::max(m_TargetHeight, 1u), "Renderer offscreen target");
+    }
+
+    RHI::TextureHandle Renderer::CreateOutputTarget(std::uint32_t width, std::uint32_t height, std::string_view debugName)
+    {
         RHI::TextureDescription l_Description;
-        l_Description.Width = std::max(m_TargetWidth, 1u);
-        l_Description.Height = std::max(m_TargetHeight, 1u);
+        l_Description.Width = width;
+        l_Description.Height = height;
         l_Description.TextureFormat = RHI::Format::BGRA8Unorm;
         l_Description.Usage = RHI::TextureUsage::RenderTarget | RHI::TextureUsage::CopySource;
         l_Description.OptimizedClear = false;
-        l_Description.DebugName = "Renderer offscreen target";
+        l_Description.DebugName = debugName;
 
-        m_OffscreenTarget = m_Device.CreateTexture(l_Description);
+        return m_Device.CreateTexture(l_Description);
     }
 
     // Layers can change the clear colour every frame, so the scene target asks for no optimized clear value

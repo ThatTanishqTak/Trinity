@@ -35,6 +35,14 @@ namespace
     constexpr float c_ClearCycleSeconds = 10.0f;
     constexpr std::array<float, 4> c_TestClearColor{ 0.2f, 0.4f, 0.6f, 1.0f };
 
+    // About a second apart at 60 Hz, so each step of the second window test can be watched
+    constexpr std::uint32_t c_SecondWindowStepFrames = 60;
+    constexpr std::array<float, 4> c_SecondWindowClearColor{ 0.9f, 0.45f, 0.1f, 1.0f };
+    constexpr std::uint32_t c_SecondWindowWidth = 480;
+    constexpr std::uint32_t c_SecondWindowHeight = 270;
+    constexpr std::uint32_t c_SecondWindowResizedWidth = 640;
+    constexpr std::uint32_t c_SecondWindowResizedHeight = 360;
+
     struct TriangleVertex
     {
         std::array<float, 4> Position;
@@ -73,6 +81,9 @@ namespace
     constexpr std::uint32_t c_FieldQuads = c_FieldColumns * c_FieldRows;
     constexpr std::uint32_t c_FieldQuadsPerBatch = c_FieldQuads / 2;
     constexpr std::uint64_t c_FieldCheckFrame = 100;
+
+    // After the quad field's first memory reading, so the field's check at the last frame also shows the closed window gave its Renderer memory back
+    constexpr std::uint64_t c_SecondWindowOpenFrame = c_FieldCheckFrame + 60;
     constexpr std::array<std::uint32_t, 6> c_FieldQuadIndices{ 0, 1, 2, 2, 1, 3 };
 
     // Laid out as QuadField.slang reads it
@@ -216,6 +227,12 @@ void SandboxLayer::OnAttach()
         TestUUIDs();
     }
 
+    m_SecondWindowPending = Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("second-window");
+    if (m_SecondWindowPending)
+    {
+        TR_INFO("Second window: opens at frame {} and closes {} frames later", c_SecondWindowOpenFrame, 6 * c_SecondWindowStepFrames);
+    }
+
     Trinity::Memory::LogUsage();
 }
 
@@ -227,6 +244,12 @@ void SandboxLayer::OnDetach()
     m_Probe = std::vector<std::uint32_t>();
 
     m_AsyncReads.clear();
+
+    if (m_SecondWindow)
+    {
+        TR_WARN("Second window: closed after {} frame(s), before the test finished", m_SecondWindowFrames);
+        CloseSecondWindow();
+    }
 
     DestroyTriangle();
     DestroyCheckerboard();
@@ -257,6 +280,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
     }
 
     CheckAsyncReads();
+    UpdateSecondWindow();
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
     m_FieldSeconds = std::fmod(m_FieldSeconds + timestep.GetSeconds(), 2.0f * std::numbers::pi_v<float>);
@@ -1311,4 +1335,157 @@ void SandboxLayer::CheckAsyncReads()
 
     m_AsyncReported = true;
     TR_INFO("Loaded {} of {} files asynchronously within {} frame(s): {} mismatched, {} callback(s) off the main thread, cancelled callback ran {} time(s)", m_AsyncCompleted, m_AsyncReads.size(), Trinity::Application::Get().GetFrameCount() - m_AsyncStartFrame, m_AsyncMismatches, m_AsyncOffMainThread, m_CancelledCallbacks);
+}
+
+
+// An undecorated window without a taskbar entry, owned by the main window, as ImGui's viewports will be. It stays headless when the main window is
+void SandboxLayer::OpenSecondWindow()
+{
+    Trinity::Window& l_MainWindow = Trinity::Application::Get().GetWindow();
+    const Trinity::WindowPosition l_MainPosition = l_MainWindow.GetPosition();
+
+    Trinity::WindowSpecification l_Specification;
+    l_Specification.Title = "Sandbox second window";
+    l_Specification.Width = c_SecondWindowWidth;
+    l_Specification.Height = c_SecondWindowHeight;
+    l_Specification.Position = Trinity::WindowPosition{ l_MainPosition.X + 60, l_MainPosition.Y + 60 };
+    l_Specification.Owner = &l_MainWindow;
+    l_Specification.Decorated = false;
+    l_Specification.TaskbarIcon = false;
+    l_Specification.Headless = l_MainWindow.GetNativeHandle() == nullptr;
+
+    m_SecondWindow = Trinity::Window::Create(l_Specification);
+    m_SecondWindow->SetEventCallback(TR_BIND_EVENT_FN(OnSecondWindowEvent));
+
+    m_SecondOutput = Trinity::Application::Get().GetRenderer().AddOutput(*m_SecondWindow, c_SecondWindowClearColor, [this](Trinity::RHI::CommandList&, std::uint32_t width, std::uint32_t height)
+    {
+        ++m_SecondWindowDraws;
+        m_SecondDrawWidth = width;
+        m_SecondDrawHeight = height;
+    });
+
+    if (m_SecondOutput == 0)
+    {
+        TR_ERROR("Second window: the renderer cannot draw to it");
+        ++m_SecondWindowFailures;
+    }
+
+    const Trinity::WindowPosition l_Position = m_SecondWindow->GetPosition();
+    TR_INFO("Second window: opened {}x{} at ({}, {}), {}", m_SecondWindow->GetWidth(), m_SecondWindow->GetHeight(), l_Position.X, l_Position.Y, l_Specification.Headless ? "headless" : "owned by the main window, without decorations or a taskbar entry");
+}
+
+// One step every c_SecondWindowStepFrames: move, resize, focus, fade, check the drawing, close
+void SandboxLayer::UpdateSecondWindow()
+{
+    if (m_SecondWindowPending && Trinity::Application::Get().GetRenderer().GetFrameCount() >= c_SecondWindowOpenFrame)
+    {
+        m_SecondWindowPending = false;
+        OpenSecondWindow();
+    }
+
+    if (!m_SecondWindow)
+    {
+        return;
+    }
+
+    if (m_SecondWindowClosing)
+    {
+        TR_INFO("Second window: closed by the user");
+        CloseSecondWindow();
+
+        return;
+    }
+
+    ++m_SecondWindowFrames;
+    if (m_SecondWindowFrames % c_SecondWindowStepFrames != 0)
+    {
+        return;
+    }
+
+    switch (m_SecondWindowFrames / c_SecondWindowStepFrames)
+    {
+        case 1:
+        {
+            const Trinity::WindowPosition l_Start = m_SecondWindow->GetPosition();
+            m_SecondTargetPosition = { l_Start.X + 200, l_Start.Y + 100 };
+            m_SecondWindow->SetPosition(m_SecondTargetPosition);
+
+            const Trinity::WindowPosition l_Position = m_SecondWindow->GetPosition();
+            const bool l_Moved = l_Position.X == m_SecondTargetPosition.X && l_Position.Y == m_SecondTargetPosition.Y && m_SecondMovedTo.X == l_Position.X && m_SecondMovedTo.Y == l_Position.Y;
+            m_SecondWindowFailures += l_Moved ? 0 : 1;
+            TR_INFO("Second window: moved to ({}, {}), asked for ({}, {}), and the last move event said ({}, {})", l_Position.X, l_Position.Y, m_SecondTargetPosition.X, m_SecondTargetPosition.Y, m_SecondMovedTo.X, m_SecondMovedTo.Y);
+
+            break;
+        }
+        case 2:
+        {
+            m_SecondWindow->SetSize(c_SecondWindowResizedWidth, c_SecondWindowResizedHeight);
+
+            const bool l_Resized = m_SecondWindow->GetWidth() == c_SecondWindowResizedWidth && m_SecondWindow->GetHeight() == c_SecondWindowResizedHeight && m_SecondResizedWidth == c_SecondWindowResizedWidth && m_SecondResizedHeight == c_SecondWindowResizedHeight;
+            m_SecondWindowFailures += l_Resized ? 0 : 1;
+            TR_INFO("Second window: resized to {}x{}, and the last resize event said {}x{}", m_SecondWindow->GetWidth(), m_SecondWindow->GetHeight(), m_SecondResizedWidth, m_SecondResizedHeight);
+
+            break;
+        }
+        case 3:
+        {
+            // Windows may keep the foreground with another program the user is in, so this is reported but not counted
+            m_SecondWindow->Focus();
+            TR_INFO("Second window: asked for focus, and it {}", m_SecondWindow->IsFocused() ? "has it" : "does not have it");
+
+            break;
+        }
+        case 4:
+        {
+            m_SecondWindow->SetOpacity(0.5f);
+            TR_INFO("Second window: half transparent");
+
+            break;
+        }
+        case 5:
+        {
+            m_SecondWindow->SetOpacity(1.0f);
+            Trinity::Application::Get().GetWindow().Focus();
+            TR_INFO("Second window: opaque again, and the main window asked for focus back");
+
+            break;
+        }
+        default:
+        {
+            const bool l_Drawn = m_SecondWindowDraws > 0 && m_SecondDrawWidth == c_SecondWindowResizedWidth && m_SecondDrawHeight == c_SecondWindowResizedHeight;
+            m_SecondWindowFailures += l_Drawn ? 0 : 1;
+            TR_INFO("Second window: drawn {} time(s) in {} frame(s), last at {}x{}", m_SecondWindowDraws, m_SecondWindowFrames, m_SecondDrawWidth, m_SecondDrawHeight);
+
+            if (m_SecondWindowFailures == 0)
+            {
+                TR_INFO("Second window: every check passed");
+            }
+            else
+            {
+                TR_ERROR("Second window: {} check(s) failed", m_SecondWindowFailures);
+            }
+
+            CloseSecondWindow();
+
+            break;
+        }
+    }
+}
+
+void SandboxLayer::CloseSecondWindow()
+{
+    Trinity::Application::Get().GetRenderer().RemoveOutput(m_SecondOutput);
+    m_SecondOutput = 0;
+    m_SecondWindow.reset();
+}
+
+// The second window's events go here, not through the layer stack, so closing it never closes the Sandbox
+void SandboxLayer::OnSecondWindowEvent(Trinity::Event& event)
+{
+    TR_TRACE("Second window: {}", event);
+
+    Trinity::EventDispatcher l_Dispatcher(event);
+    l_Dispatcher.Dispatch<Trinity::WindowMovedEvent>([this](Trinity::WindowMovedEvent& moved) { m_SecondMovedTo = { moved.GetX(), moved.GetY() }; return true; });
+    l_Dispatcher.Dispatch<Trinity::WindowResizeEvent>([this](Trinity::WindowResizeEvent& resized) { m_SecondResizedWidth = resized.GetWidth(); m_SecondResizedHeight = resized.GetHeight(); return true; });
+    l_Dispatcher.Dispatch<Trinity::WindowCloseEvent>([this](Trinity::WindowCloseEvent&) { m_SecondWindowClosing = true; return true; });
 }

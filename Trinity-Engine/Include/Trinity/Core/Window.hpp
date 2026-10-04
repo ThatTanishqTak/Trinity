@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -26,12 +27,28 @@ namespace Trinity
         Hidden
     };
 
+    class Window;
+
+    // The top left of a window's client area, in screen pixels
+    struct WindowPosition
+    {
+        std::int32_t X = 0;
+        std::int32_t Y = 0;
+    };
+
+    // Width and Height size the client area. A window with an owner stays above it, and hides and closes with it
     struct WindowSpecification
     {
         std::string Title;
         std::uint32_t Width = 1600;
         std::uint32_t Height = 900;
+        std::optional<WindowPosition> Position;
+        Window* Owner = nullptr;
         bool Resizable = true;
+        bool Decorated = true;
+        bool TaskbarIcon = true;
+        bool TopMost = false;
+        bool Visible = true;
         bool Headless = false;
     };
 
@@ -52,6 +69,17 @@ namespace Trinity
         virtual void SetRefreshCallback(RefreshCallback callback) = 0;
         virtual void SetTitle(std::string_view title) = 0;
         virtual void SetCursorShape(CursorShape shape) = 0;
+
+        [[nodiscard]] virtual WindowPosition GetPosition() const = 0;
+        virtual void SetPosition(WindowPosition position) = 0;
+        virtual void SetSize(std::uint32_t width, std::uint32_t height) = 0;
+
+        virtual void Show(bool focus) = 0;
+        virtual void Focus() = 0;
+        [[nodiscard]] virtual bool IsFocused() const = 0;
+        [[nodiscard]] virtual bool IsMinimized() const = 0;
+
+        virtual void SetOpacity(float opacity) = 0;
 
         [[nodiscard]] virtual float GetDpiScale() const = 0;
 
