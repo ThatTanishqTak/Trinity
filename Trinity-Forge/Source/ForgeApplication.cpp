@@ -7,8 +7,9 @@ class ForgeApplication final : public Trinity::Application
 public:
     explicit ForgeApplication(Trinity::ApplicationSpecification specification) : Application(std::move(specification))
     {
-        PushLayer<ForgeLayer>();
+        // ImGui comes first, so Forge can add its panels to imgui.ini as it attaches. Overlays still update after layers
         PushOverlay<Trinity::ImGuiLayer>();
+        PushLayer<ForgeLayer>();
     }
 };
 

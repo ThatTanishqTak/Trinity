@@ -15,6 +15,11 @@ namespace Trinity
         constexpr const char* c_InfoCircle = "\uF05A";
         constexpr const char* c_Warning = "\uF071";
         constexpr const char* c_TimesCircle = "\uF057";
+        constexpr const char* c_Sitemap = "\uF0E8";
+        constexpr const char* c_Sliders = "\uF1DE";
+        constexpr const char* c_Book = "\uF02D";
+        constexpr const char* c_Refresh = "\uF021";
+        constexpr const char* c_WindowRestore = "\uF2D2";
         constexpr const char* c_Monitor = "\U000F0379";
         constexpr const char* c_CubeOutline = "\U000F01A7";
     }

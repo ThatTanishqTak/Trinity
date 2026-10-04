@@ -437,12 +437,6 @@ namespace Trinity
 
         LoadFonts();
 
-        const Expected<std::string, FileError> l_Settings = FileSystem::ReadText(c_SettingsPath);
-        if (l_Settings)
-        {
-            ImGui::LoadIniSettingsFromMemory(l_Settings->data(), l_Settings->size());
-        }
-
         Application& l_Application = Application::Get();
         Window& l_Window = l_Application.GetWindow();
         m_DpiScale = l_Window.GetDpiScale();
@@ -482,12 +476,17 @@ namespace Trinity
             UpdateViewports();
         }
 
-        TR_CORE_INFO("ImGui: {} context created, with settings {} {}, and multi-viewport {}", IMGUI_VERSION, l_Settings ? "loaded from" : "to be saved in", c_SettingsPath, m_ViewportsSupported ? "available through ui.viewports" : "off, since this platform has no windows");
+        TR_CORE_INFO("ImGui: {} context created, with multi-viewport {}", IMGUI_VERSION, m_ViewportsSupported ? "available through ui.viewports" : "off, since this platform has no windows");
     }
 
+    // Settings never loaded are not saved either, so a run with no frames leaves imgui.ini as it was
     void ImGuiLayer::OnDetach()
     {
-        SaveSettings();
+        if (m_SettingsLoaded)
+        {
+            SaveSettings();
+        }
+
         ImGui::DestroyPlatformWindows();
         ImGui::GetIO().BackendPlatformUserData = nullptr;
         m_Renderer->DestroyTextures();
@@ -505,6 +504,11 @@ namespace Trinity
     void ImGuiLayer::OnUpdate(Timestep timestep)
     {
         TR_PROFILE_FUNCTION();
+
+        if (!m_SettingsLoaded)
+        {
+            LoadSettings();
+        }
 
         Application& l_Application = Application::Get();
         Window& l_Window = l_Application.GetWindow();
@@ -844,6 +848,19 @@ namespace Trinity
         ImGui::GetStyle() = l_Style;
 
         TR_CORE_INFO("ImGui: scaled by {} for DPI and {} from ui.scale, so text is {} px", m_DpiScale, l_UserScale, std::round(c_FontSize * m_DpiScale * l_UserScale));
+    }
+
+    // Read before the first frame rather than on attach, so layers attached after this one have added their own settings handlers by then
+    void ImGuiLayer::LoadSettings()
+    {
+        const Expected<std::string, FileError> l_Settings = FileSystem::ReadText(c_SettingsPath);
+        if (l_Settings)
+        {
+            ImGui::LoadIniSettingsFromMemory(l_Settings->data(), l_Settings->size());
+        }
+
+        m_SettingsLoaded = true;
+        TR_CORE_INFO("ImGui: settings {} {}", l_Settings ? "loaded from" : "to be saved in", c_SettingsPath);
     }
 
     void ImGuiLayer::SaveSettings()

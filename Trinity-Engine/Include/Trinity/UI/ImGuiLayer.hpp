@@ -41,6 +41,7 @@ namespace Trinity
     private:
         struct ViewportWindow;
 
+        void LoadSettings();
         void SaveSettings();
         void UpdateCursor(Window& window);
         void UpdateScale();
@@ -61,6 +62,7 @@ namespace Trinity
         Window* m_MouseWindow = nullptr;
         bool m_ViewportsSupported = false;
         bool m_MonitorsChanged = false;
+        bool m_SettingsLoaded = false;
         int m_Cursor = -2;
         float m_DpiScale = 1.0f;
         float m_AppliedDpiScale = 0.0f;
