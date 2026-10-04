@@ -420,6 +420,41 @@ namespace Trinity
                     }
                 }
             }
+
+            D3D12_FILTER_TYPE ToFilterType(Filter filter)
+            {
+                return filter == Filter::Linear ? D3D12_FILTER_TYPE_LINEAR : D3D12_FILTER_TYPE_POINT;
+            }
+
+            // What D3D12_ENCODE_BASIC_FILTER builds, without its C-style casts
+            D3D12_FILTER ToD3D12Filter(const SamplerDescription& description)
+            {
+                const UINT l_Min = static_cast<UINT>(ToFilterType(description.MinFilter)) << D3D12_MIN_FILTER_SHIFT;
+                const UINT l_Mag = static_cast<UINT>(ToFilterType(description.MagFilter)) << D3D12_MAG_FILTER_SHIFT;
+                const UINT l_Mip = static_cast<UINT>(ToFilterType(description.MipFilter)) << D3D12_MIP_FILTER_SHIFT;
+                const UINT l_Reduction = static_cast<UINT>(D3D12_FILTER_REDUCTION_TYPE_STANDARD) << D3D12_FILTER_REDUCTION_TYPE_SHIFT;
+
+                return static_cast<D3D12_FILTER>(l_Min | l_Mag | l_Mip | l_Reduction);
+            }
+
+            D3D12_TEXTURE_ADDRESS_MODE ToD3D12AddressMode(AddressMode address)
+            {
+                switch (address)
+                {
+                    case AddressMode::MirroredRepeat:
+                    {
+                        return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
+                    }
+                    case AddressMode::ClampToEdge:
+                    {
+                        return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+                    }
+                    default:
+                    {
+                        return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+                    }
+                }
+            }
         }
 
         DXGI_FORMAT ToDXGIFormat(Format format)
@@ -763,6 +798,41 @@ namespace Trinity
             m_CommandList->CopyTextureRegion(&l_Destination, 0, 0, 0, &l_Source, nullptr);
         }
 
+        void D3D12CommandList::CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region)
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
+
+            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(source);
+            const D3D12Texture* l_Texture = m_Device.GetTexture(destination);
+            TR_CORE_ASSERT(l_Buffer != nullptr && l_Texture != nullptr, "CopyBufferToTexture with a destroyed or invalid resource.");
+            if (l_Buffer == nullptr || l_Texture == nullptr)
+            {
+                return;
+            }
+
+            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region outside mip {} of a {}x{} texture with {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
+            TR_CORE_ASSERT(sourceOffset % c_TextureCopyOffsetAlignment == 0, "CopyBufferToTexture reads from offset {}, which is not a multiple of {}.", sourceOffset, c_TextureCopyOffsetAlignment);
+            TR_CORE_ASSERT(sourceOffset + l_RowPitch * region.Height <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_RowPitch * region.Height, sourceOffset, l_Buffer->Size);
+
+            D3D12_TEXTURE_COPY_LOCATION l_Source{};
+            l_Source.pResource = l_Buffer->Allocation->GetResource();
+            l_Source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            l_Source.PlacedFootprint.Offset = sourceOffset;
+            l_Source.PlacedFootprint.Footprint.Format = l_Texture->ResourceFormat;
+            l_Source.PlacedFootprint.Footprint.Width = region.Width;
+            l_Source.PlacedFootprint.Footprint.Height = region.Height;
+            l_Source.PlacedFootprint.Footprint.Depth = 1;
+            l_Source.PlacedFootprint.Footprint.RowPitch = static_cast<UINT>(l_RowPitch);
+
+            D3D12_TEXTURE_COPY_LOCATION l_Destination{};
+            l_Destination.pResource = l_Texture->Resource;
+            l_Destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            l_Destination.SubresourceIndex = mipLevel;
+
+            m_CommandList->CopyTextureRegion(&l_Destination, static_cast<UINT>(region.X), static_cast<UINT>(region.Y), 0, &l_Source, nullptr);
+        }
+
         Scope<D3D12Device> D3D12Device::Create(const DeviceSpecification& specification, std::string& error)
         {
             Scope<D3D12Device> l_Device = CreateScope<D3D12Device>();
@@ -786,9 +856,9 @@ namespace Trinity
                 WaitForFence(m_FrameNumber);
             }
 
-            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0)
+            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0)
             {
-                TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s), {} texture(s) and {} pipeline(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount());
+                TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s) and {} sampler(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount());
             }
 
             m_Releases.ReleaseAll([this](D3D12Release& release) { Release(release); });
@@ -1418,6 +1488,7 @@ namespace Trinity
             m_DepthStencilViews.Free(release.DepthStencilView);
             m_ResourceHeap.Free(release.ShaderResourceIndex);
             m_ResourceHeap.Free(release.UnorderedAccessIndex);
+            m_SamplerHeap.Free(release.SamplerIndex);
             release.Pipeline.Reset();
             release.Allocation.Reset();
         }
@@ -1484,6 +1555,59 @@ namespace Trinity
             TR_CORE_ASSERT(l_Texture != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid texture.");
 
             return l_Texture != nullptr ? l_Texture->UnorderedAccessIndex : c_NoBindlessIndex;
+        }
+
+        // The comparison function only matters to comparison filters, and NEVER is valid on every runtime
+        SamplerHandle D3D12Device::CreateSampler(const SamplerDescription& description)
+        {
+            D3D12Sampler l_Sampler;
+            l_Sampler.Index = m_SamplerHeap.Allocate();
+            if (l_Sampler.Index == c_NoDescriptor)
+            {
+                TR_CORE_ERROR("D3D12: sampler '{}' could not be created, since all {} bindless sampler indices are in use", description.DebugName, c_BindlessSamplerCapacity);
+
+                return {};
+            }
+
+            D3D12_SAMPLER_DESC l_Description{};
+            l_Description.Filter = ToD3D12Filter(description);
+            l_Description.AddressU = ToD3D12AddressMode(description.AddressU);
+            l_Description.AddressV = ToD3D12AddressMode(description.AddressV);
+            l_Description.AddressW = ToD3D12AddressMode(description.AddressW);
+            l_Description.MipLODBias = description.MipLodBias;
+            l_Description.MaxAnisotropy = 1;
+            l_Description.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+            l_Description.MinLOD = description.MinLod;
+            l_Description.MaxLOD = description.MaxLod >= c_LodUnclamped ? D3D12_FLOAT32_MAX : description.MaxLod;
+            m_Device->CreateSampler(&l_Description, m_SamplerHeap.GetHandle(l_Sampler.Index));
+
+            return m_Samplers.Add(l_Sampler);
+        }
+
+        void D3D12Device::DestroySampler(SamplerHandle sampler)
+        {
+            if (!sampler)
+            {
+                return;
+            }
+
+            const std::optional<D3D12Sampler> l_Sampler = m_Samplers.Remove(sampler);
+            TR_CORE_ASSERT(l_Sampler.has_value(), "DestroySampler on a sampler that was already destroyed.");
+
+            if (l_Sampler)
+            {
+                D3D12Release l_Release;
+                l_Release.SamplerIndex = l_Sampler->Index;
+                m_Releases.Push(std::move(l_Release));
+            }
+        }
+
+        std::uint32_t D3D12Device::GetSamplerIndex(SamplerHandle sampler)
+        {
+            const D3D12Sampler* l_Sampler = m_Samplers.Get(sampler);
+            TR_CORE_ASSERT(l_Sampler != nullptr, "GetSamplerIndex on a destroyed or invalid sampler.");
+
+            return l_Sampler != nullptr ? l_Sampler->Index : c_NoBindlessIndex;
         }
 
         PipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDescription& description)

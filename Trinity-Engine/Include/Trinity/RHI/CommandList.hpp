@@ -70,6 +70,7 @@ namespace Trinity
 
             virtual void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) = 0;
             virtual void CopyTextureToBuffer(TextureHandle source, BufferHandle destination) = 0;
+            virtual void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region) = 0;
 
         protected:
             CommandList() = default;

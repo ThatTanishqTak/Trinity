@@ -37,6 +37,7 @@ namespace Trinity
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, BufferHandle destination) override;
+            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region) override;
 
         private:
             NullDevice& m_Device;
@@ -90,6 +91,10 @@ namespace Trinity
             [[nodiscard]] std::uint32_t GetShaderResourceIndex(TextureHandle texture) override;
             [[nodiscard]] std::uint32_t GetUnorderedAccessIndex(TextureHandle texture) override;
 
+            [[nodiscard]] SamplerHandle CreateSampler(const SamplerDescription& description) override;
+            void DestroySampler(SamplerHandle sampler) override;
+            [[nodiscard]] std::uint32_t GetSamplerIndex(SamplerHandle sampler) override;
+
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
 
@@ -102,6 +107,8 @@ namespace Trinity
             [[nodiscard]] bool IsAlive(BufferHandle buffer) { return m_Buffers.Get(buffer) != nullptr; }
             [[nodiscard]] bool IsAlive(TextureHandle texture) { return m_Textures.Get(texture) != nullptr; }
             [[nodiscard]] bool IsAlive(PipelineHandle pipeline) { return m_Pipelines.Get(pipeline) != nullptr; }
+            [[nodiscard]] bool IsAlive(SamplerHandle sampler) { return m_Samplers.Get(sampler) != nullptr; }
+            [[nodiscard]] bool IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region);
 
         private:
             struct NullBuffer
@@ -115,11 +122,17 @@ namespace Trinity
             {
                 std::uint32_t Width = 0;
                 std::uint32_t Height = 0;
+                std::uint32_t MipLevels = 0;
                 Format TextureFormat = Format::Unknown;
                 TextureUsage Usage = TextureUsage::None;
             };
 
             struct NullPipeline
+            {
+
+            };
+
+            struct NullSampler
             {
 
             };
@@ -130,6 +143,7 @@ namespace Trinity
             HandlePool<NullBuffer, BufferHandle> m_Buffers;
             HandlePool<NullTexture, TextureHandle> m_Textures;
             HandlePool<NullPipeline, PipelineHandle> m_Pipelines;
+            HandlePool<NullSampler, SamplerHandle> m_Samplers;
             ReleaseQueue<NullBuffer> m_ReleasedBuffers;
             NullCommandList m_CommandList;
             bool m_InFrame = false;

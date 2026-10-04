@@ -33,5 +33,38 @@ namespace Trinity
 
             std::string_view DebugName;
         };
+
+        enum class Filter : std::uint8_t
+        {
+            Nearest,
+            Linear
+        };
+
+        enum class AddressMode : std::uint8_t
+        {
+            Repeat,
+            MirroredRepeat,
+            ClampToEdge
+        };
+
+        // MaxLod at or above c_LodUnclamped leaves the mip range open
+        constexpr float c_LodUnclamped = 1000.0f;
+
+        struct SamplerDescription
+        {
+            Filter MinFilter = Filter::Linear;
+            Filter MagFilter = Filter::Linear;
+            Filter MipFilter = Filter::Linear;
+
+            AddressMode AddressU = AddressMode::Repeat;
+            AddressMode AddressV = AddressMode::Repeat;
+            AddressMode AddressW = AddressMode::Repeat;
+
+            float MipLodBias = 0.0f;
+            float MinLod = 0.0f;
+            float MaxLod = c_LodUnclamped;
+
+            std::string_view DebugName;
+        };
     }
 }

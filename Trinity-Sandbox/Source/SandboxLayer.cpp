@@ -50,6 +50,36 @@ namespace
 
     static_assert(sizeof(TriangleVertex) == 32);
 
+    constexpr std::uint32_t c_CheckerboardSize = 64;
+    constexpr std::uint32_t c_CheckerboardCellSize = 8;
+    constexpr Trinity::RHI::Rect c_CheckerboardPatch{ 8, 16, 24, 12 };
+
+    // Left, bottom, right and top edges in clip space, so the quad sits in the top-right corner
+    constexpr std::array<float, 4> c_QuadBounds{ 0.55f, 0.55f, 0.95f, 0.95f };
+
+    // Laid out as TexturedQuad.slang reads it: two DescriptorHandles, then the bounds
+    struct QuadPushData
+    {
+        std::array<std::uint32_t, 2> Texture;
+        std::array<std::uint32_t, 2> Sampler;
+        std::array<float, 4> Bounds;
+    };
+
+    static_assert(sizeof(QuadPushData) == 32);
+
+    std::array<std::uint8_t, 4> GetCheckerboardTexel(std::uint32_t x, std::uint32_t y)
+    {
+        const bool l_Light = ((x / c_CheckerboardCellSize) + (y / c_CheckerboardCellSize)) % 2 == 0;
+
+        return l_Light ? std::array<std::uint8_t, 4>{ 230, 230, 230, 255 } : std::array<std::uint8_t, 4>{ 40, 40, 40, 255 };
+    }
+
+    // Different in every texel, so a wrong row pitch or offset in the partial copy shows up in the readback
+    std::array<std::uint8_t, 4> GetPatchTexel(std::uint32_t x, std::uint32_t y)
+    {
+        return { static_cast<std::uint8_t>(128 + x * 5), static_cast<std::uint8_t>(32 + y * 15), static_cast<std::uint8_t>(x * 7 + y * 3), 255 };
+    }
+
     std::string GetAsyncFilePath(std::uint32_t index)
     {
         return std::format("/saves/sandbox/async/file_{:02}.txt", index);
@@ -147,6 +177,7 @@ void SandboxLayer::OnAttach()
     }
 
     CreateTriangle();
+    CreateCheckerboard();
     StartAsyncReads();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
@@ -168,6 +199,7 @@ void SandboxLayer::OnDetach()
     m_AsyncReads.clear();
 
     DestroyTriangle();
+    DestroyCheckerboard();
 
     TR_INFO("Ran {} frame job(s) on frame memory; {} saw it change underneath them", m_FrameJobsRun.load(), m_FrameJobMismatches.load());
 }
@@ -222,17 +254,24 @@ void SandboxLayer::OnEvent(Trinity::Event& event)
 
 void SandboxLayer::OnRender(Trinity::RHI::CommandList& commands)
 {
-    if (!m_TrianglePipeline)
+    if (m_TrianglePipeline)
     {
-        return;
+        // The push constants hold a Slang DescriptorHandle, two 32-bit values of which the first is the index
+        const std::array<std::uint32_t, 2> l_PushData{ m_TriangleVertexIndex, 0 };
+
+        commands.SetPipeline(m_TrianglePipeline);
+        commands.PushConstants(std::as_bytes(std::span(l_PushData)));
+        commands.Draw(3, 1, 0, 0);
     }
 
-    // The push constants hold a Slang DescriptorHandle, two 32-bit values of which the first is the index
-    const std::array<std::uint32_t, 2> l_PushData{ m_TriangleVertexIndex, 0 };
+    if (m_QuadPipeline)
+    {
+        const QuadPushData l_PushData{ { m_CheckerboardIndex, 0 }, { m_CheckerboardSamplerIndex, 0 }, c_QuadBounds };
 
-    commands.SetPipeline(m_TrianglePipeline);
-    commands.PushConstants(std::as_bytes(std::span(l_PushData)));
-    commands.Draw(3, 1, 0, 0);
+        commands.SetPipeline(m_QuadPipeline);
+        commands.PushConstants(std::as_bytes(std::span(&l_PushData, 1)));
+        commands.Draw(4, 1, 0, 0);
+    }
 }
 
 bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
@@ -681,6 +720,7 @@ void SandboxLayer::TestResources()
 
     std::uint32_t l_Buffers = 0;
     std::uint32_t l_Textures = 0;
+    std::uint32_t l_Samplers = 0;
     std::uint32_t l_Failures = 0;
     std::uint32_t l_BadMappings = 0;
     std::array<std::uint64_t, c_ResourceRounds> l_RendererBytes{};
@@ -749,6 +789,16 @@ void SandboxLayer::TestResources()
                 l_Device.DestroyBuffer(it_Buffer);
             }
 
+            Trinity::RHI::SamplerDescription l_SamplerDescription;
+            l_SamplerDescription.MinFilter = static_cast<Trinity::RHI::Filter>(it_Frame % 2);
+            l_SamplerDescription.AddressU = static_cast<Trinity::RHI::AddressMode>(it_Frame % 3);
+            l_SamplerDescription.DebugName = "Sandbox churn sampler";
+
+            const Trinity::RHI::SamplerHandle l_Sampler = l_Device.CreateSampler(l_SamplerDescription);
+            l_Samplers += l_Sampler ? 1 : 0;
+            l_Failures += l_Sampler ? 0 : 1;
+            l_Device.DestroySampler(l_Sampler);
+
             l_Device.EndFrame();
         }
 
@@ -769,7 +819,7 @@ void SandboxLayer::TestResources()
         return;
     }
 
-    TR_INFO("Trinity::RHI: {} created and destroyed {} buffers and {} textures over {} frames, and Renderer held {} after every round", Trinity::ToString(l_Info.API), l_Buffers, l_Textures, c_ResourceRounds * c_ResourceFramesPerRound, Trinity::Memory::FormatBytes(l_RendererBytes.back()));
+    TR_INFO("Trinity::RHI: {} created and destroyed {} buffers and {} textures over {} frames ({} samplers alongside), and Renderer held {} after every round", Trinity::ToString(l_Info.API), l_Buffers, l_Textures, c_ResourceRounds * c_ResourceFramesPerRound, l_Samplers, Trinity::Memory::FormatBytes(l_RendererBytes.back()));
 }
 
 // Asserts on purpose, so it only runs with --stale-handle
@@ -864,6 +914,171 @@ void SandboxLayer::DestroyTriangle()
     m_TrianglePipeline = {};
     m_TriangleVertices = {};
     m_TriangleVertexIndex = Trinity::RHI::c_NoBindlessIndex;
+}
+
+// Uploads the checkerboard whole, patches part of it in a second frame the way the font atlas will be updated, reads it back to compare, then samples it on a quad every frame
+void SandboxLayer::CreateCheckerboard()
+{
+    TR_PROFILE_FUNCTION();
+
+    constexpr Trinity::RHI::Format c_Format = Trinity::RHI::Format::RGBA8Unorm;
+    constexpr std::uint32_t c_TexelSize = 4;
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+
+    const std::uint64_t l_ImagePitch = Trinity::RHI::GetTextureCopyRowPitch(c_Format, c_CheckerboardSize);
+    const std::uint64_t l_PatchPitch = Trinity::RHI::GetTextureCopyRowPitch(c_Format, c_CheckerboardPatch.Width);
+    const std::uint64_t l_PatchOffset = (l_ImagePitch * c_CheckerboardSize + Trinity::RHI::c_TextureCopyOffsetAlignment - 1) / Trinity::RHI::c_TextureCopyOffsetAlignment * Trinity::RHI::c_TextureCopyOffsetAlignment;
+
+    Trinity::RHI::TextureDescription l_TextureDescription;
+    l_TextureDescription.Width = c_CheckerboardSize;
+    l_TextureDescription.Height = c_CheckerboardSize;
+    l_TextureDescription.TextureFormat = c_Format;
+    l_TextureDescription.Usage = Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopyDestination | Trinity::RHI::TextureUsage::CopySource;
+    l_TextureDescription.DebugName = "Sandbox checkerboard";
+
+    Trinity::RHI::SamplerDescription l_SamplerDescription;
+    l_SamplerDescription.MinFilter = Trinity::RHI::Filter::Nearest;
+    l_SamplerDescription.MagFilter = Trinity::RHI::Filter::Nearest;
+    l_SamplerDescription.MipFilter = Trinity::RHI::Filter::Nearest;
+    l_SamplerDescription.DebugName = "Sandbox nearest sampler";
+
+    Trinity::RHI::BufferDescription l_StagingDescription;
+    l_StagingDescription.Size = l_PatchOffset + l_PatchPitch * c_CheckerboardPatch.Height;
+    l_StagingDescription.Memory = Trinity::RHI::MemoryType::Upload;
+    l_StagingDescription.DebugName = "Sandbox checkerboard staging";
+
+    Trinity::RHI::BufferDescription l_ReadbackDescription;
+    l_ReadbackDescription.Size = l_ImagePitch * c_CheckerboardSize;
+    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_ReadbackDescription.DebugName = "Sandbox checkerboard readback";
+
+    m_Checkerboard = l_Device.CreateTexture(l_TextureDescription);
+    m_CheckerboardSampler = l_Device.CreateSampler(l_SamplerDescription);
+    const Trinity::RHI::BufferHandle l_Staging = l_Device.CreateBuffer(l_StagingDescription);
+    const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_ReadbackDescription);
+    m_CheckerboardIndex = m_Checkerboard ? l_Device.GetShaderResourceIndex(m_Checkerboard) : Trinity::RHI::c_NoBindlessIndex;
+    m_CheckerboardSamplerIndex = m_CheckerboardSampler ? l_Device.GetSamplerIndex(m_CheckerboardSampler) : Trinity::RHI::c_NoBindlessIndex;
+    if (!l_Staging || !l_Readback || m_CheckerboardIndex == Trinity::RHI::c_NoBindlessIndex || m_CheckerboardSamplerIndex == Trinity::RHI::c_NoBindlessIndex)
+    {
+        TR_ERROR("Checkerboard: could not create the texture, the sampler, their bindless indices or the staging and readback buffers");
+
+        l_Device.DestroyBuffer(l_Staging);
+        l_Device.DestroyBuffer(l_Readback);
+        DestroyCheckerboard();
+
+        return;
+    }
+
+    // The expected texture, tightly packed, and the staging buffer with the whole image followed by the patch
+    std::vector<std::uint8_t> l_Expected(std::size_t{ c_CheckerboardSize } * c_CheckerboardSize * c_TexelSize);
+    const std::span<std::byte> l_StagingData = l_Device.GetMappedData(l_Staging);
+    for (std::uint32_t it_Y = 0; it_Y < c_CheckerboardSize; ++it_Y)
+    {
+        for (std::uint32_t it_X = 0; it_X < c_CheckerboardSize; ++it_X)
+        {
+            const std::array<std::uint8_t, 4> l_Texel = GetCheckerboardTexel(it_X, it_Y);
+            std::memcpy(l_StagingData.data() + it_Y * l_ImagePitch + it_X * c_TexelSize, l_Texel.data(), c_TexelSize);
+            std::memcpy(l_Expected.data() + (std::size_t{ it_Y } * c_CheckerboardSize + it_X) * c_TexelSize, l_Texel.data(), c_TexelSize);
+        }
+    }
+
+    for (std::uint32_t it_Y = 0; it_Y < c_CheckerboardPatch.Height; ++it_Y)
+    {
+        for (std::uint32_t it_X = 0; it_X < c_CheckerboardPatch.Width; ++it_X)
+        {
+            const std::array<std::uint8_t, 4> l_Texel = GetPatchTexel(it_X, it_Y);
+            const std::size_t l_ExpectedTexel = (std::size_t{ it_Y } + static_cast<std::size_t>(c_CheckerboardPatch.Y)) * c_CheckerboardSize + it_X + static_cast<std::size_t>(c_CheckerboardPatch.X);
+            std::memcpy(l_StagingData.data() + l_PatchOffset + it_Y * l_PatchPitch + it_X * c_TexelSize, l_Texel.data(), c_TexelSize);
+            std::memcpy(l_Expected.data() + l_ExpectedTexel * c_TexelSize, l_Texel.data(), c_TexelSize);
+        }
+    }
+
+    Trinity::RHI::CommandList& l_Upload = l_Device.BeginFrame();
+    l_Upload.TextureBarrier(m_Checkerboard, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::CopyDestination);
+    l_Upload.CopyBufferToTexture(l_Staging, 0, m_Checkerboard, 0, { 0, 0, c_CheckerboardSize, c_CheckerboardSize });
+    l_Upload.TextureBarrier(m_Checkerboard, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::ShaderResource);
+    l_Device.EndFrame();
+
+    Trinity::RHI::CommandList& l_Patch = l_Device.BeginFrame();
+    l_Patch.TextureBarrier(m_Checkerboard, Trinity::RHI::ResourceState::ShaderResource, Trinity::RHI::ResourceState::CopyDestination);
+    l_Patch.CopyBufferToTexture(l_Staging, l_PatchOffset, m_Checkerboard, 0, c_CheckerboardPatch);
+    l_Patch.TextureBarrier(m_Checkerboard, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopySource);
+    l_Patch.CopyTextureToBuffer(m_Checkerboard, l_Readback);
+    l_Patch.TextureBarrier(m_Checkerboard, Trinity::RHI::ResourceState::CopySource, Trinity::RHI::ResourceState::ShaderResource);
+    l_Device.EndFrame();
+    l_Device.WaitIdle();
+
+    // The null device copies nothing, so only a GPU's readback has texels to compare
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+    const std::span<const std::byte> l_ReadbackData = l_Device.GetMappedData(l_Readback);
+    const bool l_Compare = l_Info.API != Trinity::GraphicsAPI::None && l_ReadbackData.size() == l_ReadbackDescription.Size;
+    std::uint32_t l_WrongBytes = 0;
+    for (std::uint32_t it_Y = 0; l_Compare && it_Y < c_CheckerboardSize; ++it_Y)
+    {
+        for (std::uint32_t it_Byte = 0; it_Byte < c_CheckerboardSize * c_TexelSize; ++it_Byte)
+        {
+            const std::uint8_t l_Read = std::to_integer<std::uint8_t>(l_ReadbackData[it_Y * l_ImagePitch + it_Byte]);
+            l_WrongBytes += l_Read == l_Expected[std::size_t{ it_Y } * c_CheckerboardSize * c_TexelSize + it_Byte] ? 0 : 1;
+        }
+    }
+
+    l_Device.DestroyBuffer(l_Staging);
+    l_Device.DestroyBuffer(l_Readback);
+
+    if (l_WrongBytes != 0)
+    {
+        TR_ERROR("Checkerboard: {} of {} bytes read back on {} differ from the upload", l_WrongBytes, l_Expected.size(), Trinity::ToString(l_Info.API));
+    }
+    else
+    {
+        TR_INFO("Checkerboard: {} uploaded a {}x{} texture and a {}x{} patch at ({}, {}){}", Trinity::ToString(l_Info.API), c_CheckerboardSize, c_CheckerboardSize, c_CheckerboardPatch.Width, c_CheckerboardPatch.Height, c_CheckerboardPatch.X, c_CheckerboardPatch.Y, l_Compare ? std::format(", and all {} bytes read back match the upload", l_Expected.size()) : "");
+    }
+
+    const std::string_view l_Extension = l_Info.API == Trinity::GraphicsAPI::D3D12 ? "dxil" : "spv";
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_VertexShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/TexturedQuad.VertexMain.{}", l_Extension));
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_PixelShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/TexturedQuad.PixelMain.{}", l_Extension));
+    if (!l_VertexShader || !l_PixelShader)
+    {
+        TR_INFO("Checkerboard: no {} shaders under /engine/shaders, so the quad is not drawn", l_Extension);
+
+        return;
+    }
+
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ Trinity::Application::Get().GetRenderer().GetTargetFormat() };
+
+    Trinity::RHI::GraphicsPipelineDescription l_PipelineDescription;
+    l_PipelineDescription.VertexShader = { *l_VertexShader, "VertexMain" };
+    l_PipelineDescription.PixelShader = { *l_PixelShader, "PixelMain" };
+    l_PipelineDescription.ColorFormats = l_ColorFormats;
+    l_PipelineDescription.Topology = Trinity::RHI::PrimitiveTopology::TriangleStrip;
+    l_PipelineDescription.Cull = Trinity::RHI::CullMode::None;
+    l_PipelineDescription.DebugName = "Sandbox textured quad";
+
+    m_QuadPipeline = l_Device.CreateGraphicsPipeline(l_PipelineDescription);
+    if (!m_QuadPipeline)
+    {
+        TR_ERROR("Checkerboard: could not create the textured quad pipeline");
+
+        return;
+    }
+
+    TR_INFO("Checkerboard: sampled on a quad at bindless texture index {} and sampler index {}", m_CheckerboardIndex, m_CheckerboardSamplerIndex);
+}
+
+void SandboxLayer::DestroyCheckerboard()
+{
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+
+    l_Device.DestroyPipeline(m_QuadPipeline);
+    l_Device.DestroyTexture(m_Checkerboard);
+    l_Device.DestroySampler(m_CheckerboardSampler);
+    m_QuadPipeline = {};
+    m_Checkerboard = {};
+    m_CheckerboardSampler = {};
+    m_CheckerboardIndex = Trinity::RHI::c_NoBindlessIndex;
+    m_CheckerboardSamplerIndex = Trinity::RHI::c_NoBindlessIndex;
 }
 
 void SandboxLayer::StartAsyncReads()

@@ -13,6 +13,7 @@ namespace Trinity
         constexpr std::uint32_t c_MaxPushConstantSize = 128;
         constexpr std::uint32_t c_MaxColorAttachments = 8;
         constexpr std::uint32_t c_TextureCopyRowAlignment = 256;
+        constexpr std::uint32_t c_TextureCopyOffsetAlignment = 512;
         constexpr std::uint32_t c_NoBindlessIndex = UINT32_MAX;
 
         template<typename Tag>
@@ -30,6 +31,7 @@ namespace Trinity
         using BufferHandle = Handle<struct BufferTag>;
         using TextureHandle = Handle<struct TextureTag>;
         using PipelineHandle = Handle<struct PipelineTag>;
+        using SamplerHandle = Handle<struct SamplerTag>;
 
         enum class Format : std::uint8_t
         {
@@ -52,8 +54,14 @@ namespace Trinity
         // Bytes per texel, 0 for Unknown
         [[nodiscard]] TRINITY_API std::uint32_t GetFormatSize(Format format);
 
-        // The bytes from one row to the next when CopyTextureToBuffer copies a texture of this width
+        // The bytes from one row to the next when CopyTextureToBuffer or CopyBufferToTexture copies this many texels per row
         [[nodiscard]] TRINITY_API std::uint64_t GetTextureCopyRowPitch(Format format, std::uint32_t width);
+
+        // The width or height of a mip, never below 1
+        [[nodiscard]] constexpr std::uint32_t GetMipSize(std::uint32_t size, std::uint32_t mipLevel)
+        {
+            return mipLevel < 32 && (size >> mipLevel) > 1 ? size >> mipLevel : 1;
+        }
 
         [[nodiscard]] constexpr bool IsDepthFormat(Format format)
         {
@@ -142,5 +150,11 @@ namespace Trinity
             std::uint32_t Width = 0;
             std::uint32_t Height = 0;
         };
+
+        // Whether region is not empty and lies inside one mip of a texture this size
+        [[nodiscard]] constexpr bool IsRegionInsideMip(const Rect& region, std::uint32_t width, std::uint32_t height, std::uint32_t mipLevel)
+        {
+            return region.X >= 0 && region.Y >= 0 && region.Width != 0 && region.Height != 0 && std::uint64_t{ static_cast<std::uint32_t>(region.X) } + region.Width <= GetMipSize(width, mipLevel) && std::uint64_t{ static_cast<std::uint32_t>(region.Y) } + region.Height <= GetMipSize(height, mipLevel);
+        }
     }
 }

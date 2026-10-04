@@ -30,6 +30,8 @@ private:
     void TestStaleHandle();
     void CreateTriangle();
     void DestroyTriangle();
+    void CreateCheckerboard();
+    void DestroyCheckerboard();
     void StartAsyncReads();
     void CheckAsyncReads();
 
@@ -51,6 +53,12 @@ private:
     Trinity::RHI::PipelineHandle m_TrianglePipeline;
     Trinity::RHI::BufferHandle m_TriangleVertices;
     std::uint32_t m_TriangleVertexIndex = Trinity::RHI::c_NoBindlessIndex;
+
+    Trinity::RHI::PipelineHandle m_QuadPipeline;
+    Trinity::RHI::TextureHandle m_Checkerboard;
+    Trinity::RHI::SamplerHandle m_CheckerboardSampler;
+    std::uint32_t m_CheckerboardIndex = Trinity::RHI::c_NoBindlessIndex;
+    std::uint32_t m_CheckerboardSamplerIndex = Trinity::RHI::c_NoBindlessIndex;
 
     float m_ClearHue = 0.0f;
     float m_SecondsSinceReport = 0.0f;

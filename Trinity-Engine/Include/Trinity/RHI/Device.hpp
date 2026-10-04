@@ -56,6 +56,11 @@ namespace Trinity
             [[nodiscard]] virtual std::uint32_t GetShaderResourceIndex(TextureHandle texture) = 0;
             [[nodiscard]] virtual std::uint32_t GetUnorderedAccessIndex(TextureHandle texture) = 0;
 
+            // Every sampler gets an index into the bindless sampler heap, separate from the resource indices
+            [[nodiscard]] virtual SamplerHandle CreateSampler(const SamplerDescription& description) = 0;
+            virtual void DestroySampler(SamplerHandle sampler) = 0;
+            [[nodiscard]] virtual std::uint32_t GetSamplerIndex(SamplerHandle sampler) = 0;
+
             [[nodiscard]] virtual PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) = 0;
             virtual void DestroyPipeline(PipelineHandle pipeline) = 0;
 

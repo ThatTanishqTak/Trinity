@@ -104,6 +104,13 @@ namespace Trinity
             TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyTextureToBuffer with a destroyed or invalid resource.");
         }
 
+        void NullCommandList::CopyBufferToTexture([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] TextureHandle destination, [[maybe_unused]] std::uint32_t mipLevel, [[maybe_unused]] const Rect& region)
+        {
+            TR_CORE_ASSERT(m_Recording && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
+            TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyBufferToTexture with a destroyed or invalid resource.");
+            TR_CORE_ASSERT(m_Device.IsCopyRegionValid(source, sourceOffset, destination, mipLevel, region), "CopyBufferToTexture with a misaligned offset, a region outside the mip, or a buffer too small for it.");
+        }
+
         NullSwapChain::NullSwapChain(NullDevice& device, const SwapChainSpecification& specification) : m_Device(device), m_Specification(specification)
         {
             CreateTexture();
@@ -157,9 +164,9 @@ namespace Trinity
 
         NullDevice::~NullDevice()
         {
-            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0)
+            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0)
             {
-                TR_CORE_WARN("The null device was destroyed with {} buffer(s), {} texture(s) and {} pipeline(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount());
+                TR_CORE_WARN("The null device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s) and {} sampler(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount());
             }
 
             m_ReleasedBuffers.ReleaseAll(&NullDevice::ReleaseBuffer);
@@ -222,7 +229,7 @@ namespace Trinity
             TR_CORE_ASSERT(description.Width != 0 && description.Height != 0 && description.MipLevels != 0, "Texture '{}' has a zero size or no mips.", description.DebugName);
             TR_CORE_ASSERT(description.TextureFormat != Format::Unknown, "Texture '{}' has no format.", description.DebugName);
 
-            return m_Textures.Add({ description.Width, description.Height, description.TextureFormat, description.Usage });
+            return m_Textures.Add({ description.Width, description.Height, description.MipLevels, description.TextureFormat, description.Usage });
         }
 
         void NullDevice::DestroyTexture(TextureHandle texture)
@@ -267,6 +274,45 @@ namespace Trinity
             TR_CORE_ASSERT(l_Texture != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid texture.");
 
             return l_Texture != nullptr && HasFlag(l_Texture->Usage, TextureUsage::UnorderedAccess) ? texture.Index : c_NoBindlessIndex;
+        }
+
+        // The same rules the GPU backends assert, so a headless run catches a bad copy too
+        bool NullDevice::IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region)
+        {
+            const NullBuffer* l_Buffer = m_Buffers.Get(source);
+            const NullTexture* l_Texture = m_Textures.Get(destination);
+            if (l_Buffer == nullptr || l_Texture == nullptr || mipLevel >= l_Texture->MipLevels || !HasFlag(l_Texture->Usage, TextureUsage::CopyDestination))
+            {
+                return false;
+            }
+
+            const std::uint64_t l_Size = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width) * region.Height;
+
+            return IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel) && sourceOffset % c_TextureCopyOffsetAlignment == 0 && sourceOffset + l_Size <= l_Buffer->Size;
+        }
+
+        SamplerHandle NullDevice::CreateSampler([[maybe_unused]] const SamplerDescription& description)
+        {
+            return m_Samplers.Add({});
+        }
+
+        void NullDevice::DestroySampler(SamplerHandle sampler)
+        {
+            if (!sampler)
+            {
+                return;
+            }
+
+            [[maybe_unused]] const std::optional<NullSampler> l_Sampler = m_Samplers.Remove(sampler);
+            TR_CORE_ASSERT(l_Sampler.has_value(), "DestroySampler on a sampler that was already destroyed.");
+        }
+
+        std::uint32_t NullDevice::GetSamplerIndex(SamplerHandle sampler)
+        {
+            const NullSampler* l_Sampler = m_Samplers.Get(sampler);
+            TR_CORE_ASSERT(l_Sampler != nullptr, "GetSamplerIndex on a destroyed or invalid sampler.");
+
+            return l_Sampler != nullptr ? sampler.Index : c_NoBindlessIndex;
         }
 
         PipelineHandle NullDevice::CreateGraphicsPipeline([[maybe_unused]] const GraphicsPipelineDescription& description)

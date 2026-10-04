@@ -527,6 +527,30 @@ namespace Trinity
             {
                 return store == StoreOp::Store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
             }
+
+            VkFilter ToVkFilter(Filter filter)
+            {
+                return filter == Filter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+            }
+
+            VkSamplerAddressMode ToVkAddressMode(AddressMode address)
+            {
+                switch (address)
+                {
+                    case AddressMode::MirroredRepeat:
+                    {
+                        return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+                    }
+                    case AddressMode::ClampToEdge:
+                    {
+                        return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                    }
+                    default:
+                    {
+                        return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                    }
+                }
+            }
         }
 
         VkFormat ToVkFormat(Format format)
@@ -844,6 +868,38 @@ namespace Trinity
             vkCmdCopyImageToBuffer(m_CommandBuffer, l_Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, l_Buffer->Buffer, 1, &l_Region);
         }
 
+        void VulkanCommandList::CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
+
+            const VulkanBuffer* l_Buffer = m_Device.GetBuffer(source);
+            const VulkanTexture* l_Texture = m_Device.GetTexture(destination);
+            TR_CORE_ASSERT(l_Buffer != nullptr && l_Texture != nullptr, "CopyBufferToTexture with a destroyed or invalid resource.");
+            if (l_Buffer == nullptr || l_Texture == nullptr)
+            {
+                return;
+            }
+
+            const std::uint32_t l_TexelSize = GetFormatSize(l_Texture->TextureFormat);
+            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width);
+            TR_CORE_ASSERT(l_TexelSize != 0 && l_RowPitch % l_TexelSize == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region outside mip {} of a {}x{} texture with {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
+            TR_CORE_ASSERT(sourceOffset % c_TextureCopyOffsetAlignment == 0, "CopyBufferToTexture reads from offset {}, which is not a multiple of {}.", sourceOffset, c_TextureCopyOffsetAlignment);
+            TR_CORE_ASSERT(sourceOffset + l_RowPitch * region.Height <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_RowPitch * region.Height, sourceOffset, l_Buffer->Size);
+            if (l_TexelSize == 0)
+            {
+                return;
+            }
+
+            VkBufferImageCopy l_Region{};
+            l_Region.bufferOffset = sourceOffset;
+            l_Region.bufferRowLength = static_cast<std::uint32_t>(l_RowPitch / l_TexelSize);
+            l_Region.imageSubresource = { GetAspect(l_Texture->TextureFormat), mipLevel, 0, 1 };
+            l_Region.imageOffset = { region.X, region.Y, 0 };
+            l_Region.imageExtent = { region.Width, region.Height, 1 };
+            vkCmdCopyBufferToImage(m_CommandBuffer, l_Buffer->Buffer, l_Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &l_Region);
+        }
+
         Scope<VulkanDevice> VulkanDevice::Create(const DeviceSpecification& specification, std::string& error)
         {
             Scope<VulkanDevice> l_Device = CreateScope<VulkanDevice>();
@@ -867,15 +923,16 @@ namespace Trinity
             {
                 vkDeviceWaitIdle(m_Device);
 
-                if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0)
+                if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0)
                 {
-                    TR_CORE_WARN("Vulkan: the device was destroyed with {} buffer(s), {} texture(s) and {} pipeline(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount());
+                    TR_CORE_WARN("Vulkan: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s) and {} sampler(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount());
                 }
 
                 m_Releases.ReleaseAll([this](const VulkanRelease& release) { Release(release); });
                 m_Buffers.ForEach([this](const VulkanBuffer& buffer) { Release(ToRelease(buffer)); });
                 m_Textures.ForEach([this](const VulkanTexture& texture) { Release(ToRelease(texture)); });
                 m_Pipelines.ForEach([this](const VulkanPipeline& pipeline) { vkDestroyPipeline(m_Device, pipeline.Pipeline, nullptr); });
+                m_Samplers.ForEach([this](const VulkanSampler& sampler) { Release(ToRelease(sampler)); });
 
                 vkDestroyPipelineLayout(m_Device, m_PipelineLayout, nullptr);
                 vkDestroyDescriptorPool(m_Device, m_BindlessPool, nullptr);
@@ -1319,6 +1376,7 @@ namespace Trinity
 
             SetDebugName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<std::uint64_t>(m_BindlessSet), "Bindless");
             m_ResourceIndices.Reset(c_BindlessResourceCapacity);
+            m_SamplerIndices.Reset(c_BindlessSamplerCapacity);
 
             return true;
         }
@@ -1440,11 +1498,26 @@ namespace Trinity
             return l_Release;
         }
 
+        VulkanDevice::VulkanRelease VulkanDevice::ToRelease(const VulkanSampler& sampler)
+        {
+            VulkanRelease l_Release;
+            l_Release.Sampler = sampler.Sampler;
+            l_Release.SamplerIndex = sampler.Index;
+
+            return l_Release;
+        }
+
         // An index is only handed out again once the frames that could read it have finished
         void VulkanDevice::Release(const VulkanRelease& release)
         {
             m_ResourceIndices.Free(release.ShaderResourceIndex);
             m_ResourceIndices.Free(release.UnorderedAccessIndex);
+            m_SamplerIndices.Free(release.SamplerIndex);
+
+            if (release.Sampler != VK_NULL_HANDLE)
+            {
+                vkDestroySampler(m_Device, release.Sampler, nullptr);
+            }
 
             if (release.Pipeline != VK_NULL_HANDLE)
             {
@@ -1726,6 +1799,79 @@ namespace Trinity
             TR_CORE_ASSERT(l_Texture != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid texture.");
 
             return l_Texture != nullptr ? l_Texture->UnorderedAccessIndex : c_NoBindlessIndex;
+        }
+
+        // Shaders read samplers from their own array at c_SamplerBinding, indexed separately from resources
+        SamplerHandle VulkanDevice::CreateSampler(const SamplerDescription& description)
+        {
+            VkSamplerCreateInfo l_Create = MakeInfo<VkSamplerCreateInfo>(VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO);
+            l_Create.magFilter = ToVkFilter(description.MagFilter);
+            l_Create.minFilter = ToVkFilter(description.MinFilter);
+            l_Create.mipmapMode = description.MipFilter == Filter::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            l_Create.addressModeU = ToVkAddressMode(description.AddressU);
+            l_Create.addressModeV = ToVkAddressMode(description.AddressV);
+            l_Create.addressModeW = ToVkAddressMode(description.AddressW);
+            l_Create.mipLodBias = description.MipLodBias;
+            l_Create.minLod = description.MinLod;
+            l_Create.maxLod = description.MaxLod >= c_LodUnclamped ? VK_LOD_CLAMP_NONE : description.MaxLod;
+            l_Create.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+
+            VulkanSampler l_Sampler;
+            const VkResult l_Result = vkCreateSampler(m_Device, &l_Create, nullptr, &l_Sampler.Sampler);
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: sampler '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
+
+                return {};
+            }
+
+            l_Sampler.Index = m_SamplerIndices.Allocate();
+            if (l_Sampler.Index == c_NoBindlessIndex)
+            {
+                TR_CORE_ERROR("Vulkan: sampler '{}' could not be created, since all {} bindless sampler indices are in use", description.DebugName, c_BindlessSamplerCapacity);
+                vkDestroySampler(m_Device, l_Sampler.Sampler, nullptr);
+
+                return {};
+            }
+
+            SetDebugName(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<std::uint64_t>(l_Sampler.Sampler), description.DebugName);
+
+            const VkDescriptorImageInfo l_Info{ l_Sampler.Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED };
+
+            VkWriteDescriptorSet l_Write = MakeInfo<VkWriteDescriptorSet>(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET);
+            l_Write.dstSet = m_BindlessSet;
+            l_Write.dstBinding = c_SamplerBinding;
+            l_Write.dstArrayElement = l_Sampler.Index;
+            l_Write.descriptorCount = 1;
+            l_Write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+            l_Write.pImageInfo = &l_Info;
+            vkUpdateDescriptorSets(m_Device, 1, &l_Write, 0, nullptr);
+
+            return m_Samplers.Add(l_Sampler);
+        }
+
+        void VulkanDevice::DestroySampler(SamplerHandle sampler)
+        {
+            if (!sampler)
+            {
+                return;
+            }
+
+            const std::optional<VulkanSampler> l_Sampler = m_Samplers.Remove(sampler);
+            TR_CORE_ASSERT(l_Sampler.has_value(), "DestroySampler on a sampler that was already destroyed.");
+
+            if (l_Sampler)
+            {
+                m_Releases.Push(ToRelease(*l_Sampler));
+            }
+        }
+
+        std::uint32_t VulkanDevice::GetSamplerIndex(SamplerHandle sampler)
+        {
+            const VulkanSampler* l_Sampler = m_Samplers.Get(sampler);
+            TR_CORE_ASSERT(l_Sampler != nullptr, "GetSamplerIndex on a destroyed or invalid sampler.");
+
+            return l_Sampler != nullptr ? l_Sampler->Index : c_NoBindlessIndex;
         }
 
         PipelineHandle VulkanDevice::CreateGraphicsPipeline(const GraphicsPipelineDescription& description)

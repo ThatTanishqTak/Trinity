@@ -51,6 +51,12 @@ namespace Trinity
             VkPipeline Pipeline = VK_NULL_HANDLE;
         };
 
+        struct VulkanSampler
+        {
+            VkSampler Sampler = VK_NULL_HANDLE;
+            std::uint32_t Index = c_NoBindlessIndex;
+        };
+
         class VulkanCommandList final : public CommandList
         {
         public:
@@ -73,6 +79,7 @@ namespace Trinity
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, BufferHandle destination) override;
+            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region) override;
 
         private:
             VulkanDevice& m_Device;
@@ -103,6 +110,10 @@ namespace Trinity
             [[nodiscard]] std::uint32_t GetUnorderedAccessIndex(BufferHandle buffer) override;
             [[nodiscard]] std::uint32_t GetShaderResourceIndex(TextureHandle texture) override;
             [[nodiscard]] std::uint32_t GetUnorderedAccessIndex(TextureHandle texture) override;
+
+            [[nodiscard]] SamplerHandle CreateSampler(const SamplerDescription& description) override;
+            void DestroySampler(SamplerHandle sampler) override;
+            [[nodiscard]] std::uint32_t GetSamplerIndex(SamplerHandle sampler) override;
 
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
@@ -144,8 +155,10 @@ namespace Trinity
                 VmaAllocation Allocation = nullptr;
                 VkImageView SampledView = VK_NULL_HANDLE;
                 VkPipeline Pipeline = VK_NULL_HANDLE;
+                VkSampler Sampler = VK_NULL_HANDLE;
                 std::uint32_t ShaderResourceIndex = c_NoBindlessIndex;
                 std::uint32_t UnorderedAccessIndex = c_NoBindlessIndex;
+                std::uint32_t SamplerIndex = c_NoBindlessIndex;
             };
 
             struct FrameContext
@@ -170,6 +183,7 @@ namespace Trinity
             [[nodiscard]] std::uint32_t AddImageDescriptor(std::uint32_t binding, VkDescriptorType type, VkImageView view, VkImageLayout layout);
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanBuffer& buffer);
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanTexture& texture);
+            [[nodiscard]] static VulkanRelease ToRelease(const VulkanSampler& sampler);
             void Release(const VulkanRelease& release);
 
             DeviceInfo m_Info;
@@ -187,6 +201,7 @@ namespace Trinity
             HandlePool<VulkanBuffer, BufferHandle> m_Buffers;
             HandlePool<VulkanTexture, TextureHandle> m_Textures;
             HandlePool<VulkanPipeline, PipelineHandle> m_Pipelines;
+            HandlePool<VulkanSampler, SamplerHandle> m_Samplers;
             ReleaseQueue<VulkanRelease> m_Releases;
 
             VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;
@@ -194,6 +209,7 @@ namespace Trinity
             VkDescriptorSet m_BindlessSet = VK_NULL_HANDLE;
             VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
             IndexAllocator m_ResourceIndices;
+            IndexAllocator m_SamplerIndices;
 
             std::array<FrameContext, c_FramesInFlight> m_Frames{};
             VkSemaphore m_FrameTimeline = VK_NULL_HANDLE;

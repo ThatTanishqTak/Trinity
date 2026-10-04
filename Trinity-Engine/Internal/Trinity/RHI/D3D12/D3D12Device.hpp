@@ -53,6 +53,12 @@ namespace Trinity
             D3D_PRIMITIVE_TOPOLOGY Topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
         };
 
+        // A sampler is only its descriptor in the shader-visible sampler heap
+        struct D3D12Sampler
+        {
+            std::uint32_t Index = c_NoDescriptor;
+        };
+
         // A heap of descriptors handed out a slot at a time, CPU-only for render target and depth views and shader-visible for the bindless heaps
         class D3D12DescriptorHeap
         {
@@ -95,6 +101,7 @@ namespace Trinity
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, BufferHandle destination) override;
+            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region) override;
 
         private:
             D3D12Device& m_Device;
@@ -125,6 +132,10 @@ namespace Trinity
             [[nodiscard]] std::uint32_t GetUnorderedAccessIndex(BufferHandle buffer) override;
             [[nodiscard]] std::uint32_t GetShaderResourceIndex(TextureHandle texture) override;
             [[nodiscard]] std::uint32_t GetUnorderedAccessIndex(TextureHandle texture) override;
+
+            [[nodiscard]] SamplerHandle CreateSampler(const SamplerDescription& description) override;
+            void DestroySampler(SamplerHandle sampler) override;
+            [[nodiscard]] std::uint32_t GetSamplerIndex(SamplerHandle sampler) override;
 
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
@@ -162,6 +173,7 @@ namespace Trinity
                 std::uint32_t DepthStencilView = c_NoDescriptor;
                 std::uint32_t ShaderResourceIndex = c_NoDescriptor;
                 std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
+                std::uint32_t SamplerIndex = c_NoDescriptor;
             };
 
             struct FrameContext
@@ -200,6 +212,7 @@ namespace Trinity
             HandlePool<D3D12Buffer, BufferHandle> m_Buffers;
             HandlePool<D3D12Texture, TextureHandle> m_Textures;
             HandlePool<D3D12Pipeline, PipelineHandle> m_Pipelines;
+            HandlePool<D3D12Sampler, SamplerHandle> m_Samplers;
             ReleaseQueue<D3D12Release> m_Releases;
             D3D12DescriptorHeap m_RenderTargetViews;
             D3D12DescriptorHeap m_DepthStencilViews;
