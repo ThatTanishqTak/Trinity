@@ -200,6 +200,7 @@ namespace Trinity
             void CreateShaderViews(D3D12Texture& texture, TextureUsage usage);
             void Release(D3D12Release& release);
             void WaitForFence(std::uint64_t value);
+            void WaitForQueue();
 
             DeviceInfo m_Info;
             bool m_Validation = false;
@@ -229,6 +230,7 @@ namespace Trinity
             Microsoft::WRL::ComPtr<ID3D12Fence> m_Fence;
             HANDLE m_FenceEvent = nullptr;
             std::uint64_t m_FrameNumber = 0;
+            std::uint64_t m_FenceValue = 0;
             bool m_TearingSupported = false;
 
             D3D12CommandList m_CommandList;

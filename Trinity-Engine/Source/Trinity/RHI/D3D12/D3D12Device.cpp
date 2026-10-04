@@ -880,9 +880,9 @@ namespace Trinity
 
         D3D12Device::~D3D12Device()
         {
-            if (m_Fence)
+            if (m_Fence && m_Queue)
             {
-                WaitForFence(m_FrameNumber);
+                WaitForQueue();
             }
 
             m_UploadRing.Shutdown();
@@ -1556,6 +1556,13 @@ namespace Trinity
             }
         }
 
+        // Presents go on the queue after the frame's signal, so waiting for that signal alone can leave a swap chain buffer in use. A new signal comes after them
+        void D3D12Device::WaitForQueue()
+        {
+            m_Queue->Signal(m_Fence.Get(), ++m_FenceValue);
+            WaitForFence(m_FenceValue);
+        }
+
         std::uint32_t D3D12Device::GetShaderResourceIndex(BufferHandle buffer)
         {
             const D3D12Buffer* l_Buffer = m_Buffers.Get(buffer);
@@ -1753,7 +1760,7 @@ namespace Trinity
             ID3D12CommandList* const l_Lists[] = { m_GraphicsList.Get() };
             m_Queue->ExecuteCommandLists(1, l_Lists);
 
-            l_Frame.CompletionValue = m_FrameNumber + 1;
+            l_Frame.CompletionValue = ++m_FenceValue;
             m_Queue->Signal(m_Fence.Get(), l_Frame.CompletionValue);
 
             ++m_FrameNumber;
@@ -1763,7 +1770,7 @@ namespace Trinity
 
         void D3D12Device::WaitIdle()
         {
-            WaitForFence(m_FrameNumber);
+            WaitForQueue();
             m_Releases.ReleaseIdle([this](D3D12Release& release) { Release(release); });
         }
     }
