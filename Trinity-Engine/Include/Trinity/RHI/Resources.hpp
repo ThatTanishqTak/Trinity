@@ -30,6 +30,7 @@ namespace Trinity
 
             std::array<float, 4> ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
             float ClearDepth = 0.0f;
+            bool OptimizedClear = true;
 
             std::string_view DebugName;
         };

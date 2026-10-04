@@ -1352,13 +1352,13 @@ namespace Trinity
 
             D3D12_CLEAR_VALUE l_ClearValue{};
             const D3D12_CLEAR_VALUE* l_OptimizedClear = nullptr;
-            if (HasFlag(description.Usage, TextureUsage::RenderTarget))
+            if (description.OptimizedClear && HasFlag(description.Usage, TextureUsage::RenderTarget))
             {
                 l_ClearValue.Format = ToDXGIFormat(description.TextureFormat);
                 std::ranges::copy(description.ClearColor, l_ClearValue.Color);
                 l_OptimizedClear = &l_ClearValue;
             }
-            else if (HasFlag(description.Usage, TextureUsage::DepthStencil))
+            else if (description.OptimizedClear && HasFlag(description.Usage, TextureUsage::DepthStencil))
             {
                 l_ClearValue.Format = DXGI_FORMAT_D32_FLOAT;
                 l_ClearValue.DepthStencil.Depth = description.ClearDepth;

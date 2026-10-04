@@ -904,7 +904,7 @@ void SandboxLayer::CreateTriangle()
         return;
     }
 
-    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ Trinity::Application::Get().GetRenderer().GetTargetFormat() };
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ Trinity::Application::Get().GetRenderer().GetSceneFormat() };
 
     Trinity::RHI::GraphicsPipelineDescription l_PipelineDescription;
     l_PipelineDescription.VertexShader = { *l_VertexShader, "VertexMain" };
@@ -1091,7 +1091,7 @@ void SandboxLayer::CreateCheckerboard()
         return;
     }
 
-    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ Trinity::Application::Get().GetRenderer().GetTargetFormat() };
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ Trinity::Application::Get().GetRenderer().GetSceneFormat() };
 
     Trinity::RHI::GraphicsPipelineDescription l_PipelineDescription;
     l_PipelineDescription.VertexShader = { *l_VertexShader, "VertexMain" };
@@ -1142,7 +1142,7 @@ void SandboxLayer::CreateQuadField()
         return;
     }
 
-    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ Trinity::Application::Get().GetRenderer().GetTargetFormat() };
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ Trinity::Application::Get().GetRenderer().GetSceneFormat() };
 
     Trinity::RHI::GraphicsPipelineDescription l_PipelineDescription;
     l_PipelineDescription.VertexShader = { *l_VertexShader, "VertexMain" };

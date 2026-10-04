@@ -48,6 +48,11 @@ namespace Trinity
 
         }
 
+        virtual void OnRenderUI([[maybe_unused]] RHI::CommandList& commands)
+        {
+
+        }
+
         [[nodiscard]] const std::string& GetName() const { return m_Name; }
 
     private:
