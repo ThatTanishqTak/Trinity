@@ -450,6 +450,7 @@ namespace Trinity
 
         Log::Initialize(l_LogFile);
         Memory::Initialize();
+        LogHistory::Initialize();
         Profiler::Initialize(GetProfilerSpecification({ argc, argv }, l_CaptureFile));
         ConsoleVariables::Initialize({ argc, argv });
         MainThread::Initialize();
@@ -474,6 +475,7 @@ namespace Trinity
         MainThread::Shutdown();
         ConsoleVariables::Shutdown();
         Profiler::Shutdown();
+        LogHistory::Shutdown();
         Memory::Shutdown();
         Log::Shutdown();
         Platform::Shutdown();

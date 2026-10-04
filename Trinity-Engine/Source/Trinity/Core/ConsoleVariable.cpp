@@ -60,6 +60,22 @@ namespace Trinity
 
             return true;
         }
+
+        std::string_view Trim(std::string_view text)
+        {
+            const std::size_t l_First = text.find_first_not_of(" \t");
+            if (l_First == std::string_view::npos)
+            {
+                return {};
+            }
+
+            return text.substr(l_First, text.find_last_not_of(" \t") - l_First + 1);
+        }
+
+        void Describe(const ConsoleVariableBase& variable)
+        {
+            TR_CORE_INFO("{} = {} ({}, default {}{}) - {}", variable.GetName(), variable.ToString(), ToString(variable.GetType()), variable.DefaultToString(), HasFlag(variable.GetFlags(), ConsoleVariableFlags::ReadOnly) ? ", read-only" : "", variable.GetDescription());
+        }
     }
 
     constinit ConsoleVariableBase* ConsoleVariableBase::s_First = nullptr;
@@ -241,6 +257,62 @@ namespace Trinity
             {
                 TR_CORE_INFO("  {} = {} ({}, default {}{}) - {}", a_Name, a_Variable->ToString(), ToString(a_Variable->GetType()), a_Variable->DefaultToString(), HasFlag(a_Variable->GetFlags(), ConsoleVariableFlags::ReadOnly) ? ", read-only" : "", a_Variable->GetDescription());
             }
+        }
+
+        // The line is echoed first, so its outcome reads as the answer to it. Everything after the name is the value, spaces included
+        bool Execute(std::string_view line)
+        {
+            const std::string_view l_Line = Trim(line);
+            if (l_Line.empty())
+            {
+                return false;
+            }
+
+            TR_CORE_INFO("> {}", l_Line);
+
+            const std::size_t l_Space = l_Line.find_first_of(" \t");
+            const std::string_view l_Name = l_Line.substr(0, l_Space);
+            const std::string_view l_Argument = l_Space == std::string_view::npos ? std::string_view{} : Trim(l_Line.substr(l_Space));
+
+            if (l_Name == "help")
+            {
+                if (l_Argument.empty())
+                {
+                    TR_CORE_INFO("Type a name to see a variable, a name and a value to set it, or help and a name to describe it");
+                    LogAll();
+
+                    return true;
+                }
+
+                const ConsoleVariableBase* l_Variable = Find(l_Argument);
+                if (l_Variable == nullptr)
+                {
+                    TR_CORE_WARN("Unknown console variable '{}'; help lists them all", l_Argument);
+
+                    return false;
+                }
+
+                Describe(*l_Variable);
+
+                return true;
+            }
+
+            if (l_Argument.empty())
+            {
+                const ConsoleVariableBase* l_Variable = Find(l_Name);
+                if (l_Variable == nullptr)
+                {
+                    TR_CORE_WARN("Unknown console variable '{}'; help lists them all", l_Name);
+
+                    return false;
+                }
+
+                Describe(*l_Variable);
+
+                return true;
+            }
+
+            return Set(l_Name, l_Argument);
         }
     }
 }

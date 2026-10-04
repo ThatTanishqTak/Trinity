@@ -17,6 +17,7 @@ namespace Trinity
     {
         Untagged = 0,
         Engine,
+        Log,
         Frame,
         Jobs,
         FileSystem,

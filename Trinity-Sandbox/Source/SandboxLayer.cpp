@@ -27,6 +27,9 @@ namespace
     constexpr std::uint64_t c_JobTestCount = 1000;
     constexpr std::uint64_t c_ValuesPerJob = 10000;
     constexpr std::size_t c_ParallelValueCount = 10000000;
+    constexpr std::uint32_t c_LogTestWorkers = 8;
+    constexpr std::int64_t c_LogTestLinesPerWorker = 50;
+    constexpr std::uint32_t c_LogTestFloodLines = 100000;
     constexpr std::string_view c_RunCountPath = "/saves/sandbox/runs.txt";
     constexpr std::uint32_t c_AsyncFileCount = 32;
     constexpr std::uint32_t c_ResourceRounds = 2;
@@ -203,6 +206,11 @@ void SandboxLayer::OnAttach()
     if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("parallel-test"))
     {
         TestParallelFor();
+    }
+
+    if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("log-test"))
+    {
+        TestLogHistory();
     }
 
     TestFileSystem();
@@ -1488,4 +1496,114 @@ void SandboxLayer::OnSecondWindowEvent(Trinity::Event& event)
     l_Dispatcher.Dispatch<Trinity::WindowMovedEvent>([this](Trinity::WindowMovedEvent& moved) { m_SecondMovedTo = { moved.GetX(), moved.GetY() }; return true; });
     l_Dispatcher.Dispatch<Trinity::WindowResizeEvent>([this](Trinity::WindowResizeEvent& resized) { m_SecondResizedWidth = resized.GetWidth(); m_SecondResizedHeight = resized.GetHeight(); return true; });
     l_Dispatcher.Dispatch<Trinity::WindowCloseEvent>([this](Trinity::WindowCloseEvent&) { m_SecondWindowClosing = true; return true; });
+}
+
+
+// Each worker's lines must reach the history in the order it wrote them. 100,000 more lines, empty, short and over the length limit, must leave the Log tag where it was, and every kept line whole and apart from the others
+void SandboxLayer::TestLogHistory()
+{
+    Trinity::JobCounter l_Counter;
+    for (std::uint32_t it_Worker = 0; it_Worker < c_LogTestWorkers; ++it_Worker)
+    {
+        Trinity::JobSystem::Submit([it_Worker]
+        {
+            for (std::int64_t it_Line = 0; it_Line < c_LogTestLinesPerWorker; ++it_Line)
+            {
+                Trinity::Log::Print(Trinity::LogChannel::Client, Trinity::LogLevel::Trace, "Log test: worker {} line {}", it_Worker, it_Line);
+            }
+        }, &l_Counter);
+    }
+
+    Trinity::JobSystem::Wait(l_Counter);
+
+    std::array<std::int64_t, c_LogTestWorkers> l_LastLines{};
+    l_LastLines.fill(-1);
+    std::uint32_t l_Found = 0;
+    std::uint32_t l_OutOfOrder = 0;
+
+    // Nothing logs while the history is read, since its lock is held
+    {
+        constexpr std::string_view c_Prefix = "Log test: worker ";
+
+        const Trinity::LogHistory::Reader l_History = Trinity::LogHistory::Read();
+        for (std::size_t it_Index = 0; it_Index < l_History.GetCount(); ++it_Index)
+        {
+            const Trinity::LogEntry& l_Entry = l_History[it_Index];
+            if (it_Index > 0 && l_Entry.Sequence <= l_History[it_Index - 1].Sequence)
+            {
+                ++l_OutOfOrder;
+            }
+
+            if (!l_Entry.Text.starts_with(c_Prefix))
+            {
+                continue;
+            }
+
+            std::uint32_t l_Worker = 0;
+            std::int64_t l_Line = 0;
+            const char* l_End = l_Entry.Text.data() + l_Entry.Text.size();
+            const std::from_chars_result l_WorkerResult = std::from_chars(l_Entry.Text.data() + c_Prefix.size(), l_End, l_Worker);
+            if (l_WorkerResult.ec != std::errc{} || l_WorkerResult.ptr + 6 > l_End || l_Worker >= c_LogTestWorkers)
+            {
+                continue;
+            }
+
+            std::from_chars(l_WorkerResult.ptr + 6, l_End, l_Line);
+            l_OutOfOrder += l_Line == l_LastLines[l_Worker] + 1 ? 0 : 1;
+            l_LastLines[l_Worker] = l_Line;
+            ++l_Found;
+        }
+    }
+
+    const Trinity::MemoryTagStats l_Before = Trinity::Memory::GetStats(Trinity::MemoryTag::Log);
+
+    static const std::string s_Filler(Trinity::LogHistory::c_MaximumLineSize + 1000, 'x');
+    for (std::uint32_t it_Worker = 0; it_Worker < c_LogTestWorkers; ++it_Worker)
+    {
+        Trinity::JobSystem::Submit([it_Worker]
+        {
+            for (std::uint32_t it_Line = it_Worker; it_Line < c_LogTestFloodLines; it_Line += c_LogTestWorkers)
+            {
+                const std::size_t l_Length = it_Line % 997 == 0 ? s_Filler.size() : (it_Line % 3 == 0 ? 0 : (it_Line * 37) % 600);
+                Trinity::LogHistory::Add(Trinity::LogChannel::Client, Trinity::LogLevel::Trace, std::chrono::system_clock::now(), std::string_view(s_Filler).substr(0, l_Length));
+            }
+        }, &l_Counter);
+    }
+
+    Trinity::JobSystem::Wait(l_Counter);
+
+    const Trinity::MemoryTagStats l_After = Trinity::Memory::GetStats(Trinity::MemoryTag::Log);
+    std::size_t l_Kept = 0;
+    std::size_t l_Damaged = 0;
+    {
+        // Each line's text and its closing null, ordered by where they sit in memory, so neighbours can be compared
+        std::vector<std::pair<const char*, std::size_t>> l_Spans;
+
+        const Trinity::LogHistory::Reader l_History = Trinity::LogHistory::Read();
+        l_Kept = l_History.GetCount();
+        for (std::size_t it_Index = 0; it_Index < l_Kept; ++it_Index)
+        {
+            const std::string_view l_Text = l_History[it_Index].Text;
+            const bool l_Whole = l_Text.size() <= Trinity::LogHistory::c_MaximumLineSize && std::ranges::all_of(l_Text, [](char character) { return character == 'x'; }) && l_Text.data()[l_Text.size()] == '\0';
+            l_Damaged += l_Whole ? 0 : 1;
+            l_Spans.emplace_back(l_Text.data(), l_Text.size() + 1);
+        }
+
+        std::ranges::sort(l_Spans);
+        for (std::size_t it_Index = 1; it_Index < l_Spans.size(); ++it_Index)
+        {
+            l_Damaged += l_Spans[it_Index - 1].first + l_Spans[it_Index - 1].second > l_Spans[it_Index].first ? 1 : 0;
+        }
+    }
+
+    const bool l_Flat = l_After.CurrentBytes == l_Before.CurrentBytes && l_After.LiveAllocations == l_Before.LiveAllocations;
+    const bool l_Ordered = l_Found == c_LogTestWorkers * c_LogTestLinesPerWorker && l_OutOfOrder == 0;
+    if (l_Ordered && l_Flat && l_Damaged == 0)
+    {
+        TR_INFO("Log test: {} worker lines in order, and after {} more the Log tag still holds {} in {} allocation(s), with {} whole lines kept", l_Found, c_LogTestFloodLines, Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations, l_Kept);
+    }
+    else
+    {
+        TR_ERROR("Log test: {} of {} worker lines found with {} out of order, the Log tag went from {} to {}, and the {} kept lines had {} damaged or overlapping", l_Found, c_LogTestWorkers * c_LogTestLinesPerWorker, l_OutOfOrder, Trinity::Memory::FormatBytes(l_Before.CurrentBytes), Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_Kept, l_Damaged);
+    }
 }

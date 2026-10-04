@@ -21,6 +21,7 @@ private:
     void TestUUIDs();
     void TestJobs();
     void TestParallelFor();
+    void TestLogHistory();
     void TestFileSystem();
     void TestSaves();
     void TestModules();

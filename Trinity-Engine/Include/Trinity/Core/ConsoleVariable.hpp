@@ -224,5 +224,8 @@ namespace Trinity
         TRINITY_API bool Set(std::string_view name, std::string_view value);
 
         TRINITY_API void LogAll();
+
+        // A console's command line: "name" shows a variable, "name value" sets it through Set, "help" lists every variable and "help name" describes one
+        TRINITY_API bool Execute(std::string_view line);
     }
 }
