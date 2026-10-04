@@ -68,6 +68,17 @@ namespace Trinity
             return format == Format::D32Float;
         }
 
+        enum class IndexFormat : std::uint8_t
+        {
+            UInt16,
+            UInt32
+        };
+
+        [[nodiscard]] constexpr std::uint32_t GetIndexSize(IndexFormat format)
+        {
+            return format == IndexFormat::UInt16 ? 2 : 4;
+        }
+
         enum class MemoryType : std::uint8_t
         {
             GPU,

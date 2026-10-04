@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string>
 #include <utility>
 
 namespace Trinity
@@ -21,6 +22,7 @@ namespace Trinity
             m_Recording = true;
             m_Rendering = false;
             m_HasPipeline = false;
+            m_HasIndexBuffer = false;
         }
 
         void NullCommandList::End()
@@ -61,6 +63,7 @@ namespace Trinity
 
             m_Rendering = false;
             m_HasPipeline = false;
+            m_HasIndexBuffer = false;
         }
 
         void NullCommandList::SetPipeline([[maybe_unused]] PipelineHandle pipeline)
@@ -90,6 +93,19 @@ namespace Trinity
         void NullCommandList::Draw([[maybe_unused]] std::uint32_t vertexCount, [[maybe_unused]] std::uint32_t instanceCount, [[maybe_unused]] std::uint32_t firstVertex, [[maybe_unused]] std::uint32_t firstInstance)
         {
             TR_CORE_ASSERT(m_HasPipeline, "Draw needs a pipeline.");
+        }
+
+        void NullCommandList::SetIndexBuffer([[maybe_unused]] BufferHandle buffer, [[maybe_unused]] std::uint64_t offset, [[maybe_unused]] IndexFormat format)
+        {
+            TR_CORE_ASSERT(m_Rendering, "SetIndexBuffer is recorded inside rendering.");
+            TR_CORE_ASSERT(m_Device.IsIndexRangeValid(buffer, offset, format), "SetIndexBuffer with a destroyed buffer, one without Index usage, or an offset past its end or not a multiple of the index size.");
+
+            m_HasIndexBuffer = true;
+        }
+
+        void NullCommandList::DrawIndexed([[maybe_unused]] std::uint32_t indexCount, [[maybe_unused]] std::uint32_t instanceCount, [[maybe_unused]] std::uint32_t firstIndex, [[maybe_unused]] std::uint32_t firstInstance)
+        {
+            TR_CORE_ASSERT(m_HasPipeline && m_HasIndexBuffer, "DrawIndexed needs a pipeline and an index buffer.");
         }
 
         void NullCommandList::CopyBuffer([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset, [[maybe_unused]] std::uint64_t size)
@@ -160,10 +176,18 @@ namespace Trinity
         {
             m_Info.API = GraphicsAPI::None;
             m_Info.AdapterName = "Null device";
+
+            std::string l_Error;
+            if (!m_UploadRing.Initialize(*this, l_Error))
+            {
+                TR_CORE_ERROR("The null device has no upload ring: {}", l_Error);
+            }
         }
 
         NullDevice::~NullDevice()
         {
+            m_UploadRing.Shutdown();
+
             if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0)
             {
                 TR_CORE_WARN("The null device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s) and {} sampler(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount());
@@ -276,6 +300,13 @@ namespace Trinity
             return l_Texture != nullptr && HasFlag(l_Texture->Usage, TextureUsage::UnorderedAccess) ? texture.Index : c_NoBindlessIndex;
         }
 
+        bool NullDevice::IsIndexRangeValid(BufferHandle buffer, std::uint64_t offset, IndexFormat format)
+        {
+            const NullBuffer* l_Buffer = m_Buffers.Get(buffer);
+
+            return l_Buffer != nullptr && HasFlag(l_Buffer->Usage, BufferUsage::Index) && offset < l_Buffer->Size && offset % GetIndexSize(format) == 0;
+        }
+
         // The same rules the GPU backends assert, so a headless run catches a bad copy too
         bool NullDevice::IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region)
         {
@@ -345,6 +376,7 @@ namespace Trinity
 
             m_InFrame = true;
             m_ReleasedBuffers.BeginFrame(&NullDevice::ReleaseBuffer);
+            m_UploadRing.BeginFrame();
             m_CommandList.Begin();
 
             return m_CommandList;
@@ -354,6 +386,7 @@ namespace Trinity
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
+            m_UploadRing.EndFrame();
             m_CommandList.End();
             m_ReleasedBuffers.EndFrame();
             m_InFrame = false;

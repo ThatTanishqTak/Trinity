@@ -34,6 +34,8 @@ namespace Trinity
             void SetScissor(const Rect& scissor) override;
             void PushConstants(std::span<const std::byte> data) override;
             void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance) override;
+            void SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format) override;
+            void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance) override;
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, BufferHandle destination) override;
@@ -44,6 +46,7 @@ namespace Trinity
             bool m_Recording = false;
             bool m_Rendering = false;
             bool m_HasPipeline = false;
+            bool m_HasIndexBuffer = false;
         };
 
         class NullSwapChain final : public SwapChain
@@ -108,6 +111,7 @@ namespace Trinity
             [[nodiscard]] bool IsAlive(TextureHandle texture) { return m_Textures.Get(texture) != nullptr; }
             [[nodiscard]] bool IsAlive(PipelineHandle pipeline) { return m_Pipelines.Get(pipeline) != nullptr; }
             [[nodiscard]] bool IsAlive(SamplerHandle sampler) { return m_Samplers.Get(sampler) != nullptr; }
+            [[nodiscard]] bool IsIndexRangeValid(BufferHandle buffer, std::uint64_t offset, IndexFormat format);
             [[nodiscard]] bool IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region);
 
         private:

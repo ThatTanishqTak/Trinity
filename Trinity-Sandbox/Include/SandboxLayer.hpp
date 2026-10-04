@@ -32,6 +32,9 @@ private:
     void DestroyTriangle();
     void CreateCheckerboard();
     void DestroyCheckerboard();
+    void CreateQuadField();
+    void DestroyQuadField();
+    void DrawQuadField(Trinity::RHI::CommandList& commands);
     void StartAsyncReads();
     void CheckAsyncReads();
 
@@ -59,6 +62,15 @@ private:
     Trinity::RHI::SamplerHandle m_CheckerboardSampler;
     std::uint32_t m_CheckerboardIndex = Trinity::RHI::c_NoBindlessIndex;
     std::uint32_t m_CheckerboardSamplerIndex = Trinity::RHI::c_NoBindlessIndex;
+
+    Trinity::RHI::PipelineHandle m_FieldPipeline;
+    float m_FieldSeconds = 0.0f;
+    std::uint64_t m_FieldFrames = 0;
+    std::uint64_t m_FieldFailedFrames = 0;
+    std::uint64_t m_RendererBytesAtCheck = 0;
+    std::uint64_t m_RendererBytesLast = 0;
+    std::uint32_t m_UploadOverflowRequests = 0;
+    bool m_OverflowUploadNextFrame = false;
 
     float m_ClearHue = 0.0f;
     float m_SecondsSinceReport = 0.0f;

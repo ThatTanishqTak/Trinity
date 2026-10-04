@@ -76,6 +76,8 @@ namespace Trinity
             void SetScissor(const Rect& scissor) override;
             void PushConstants(std::span<const std::byte> data) override;
             void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance) override;
+            void SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format) override;
+            void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance) override;
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, BufferHandle destination) override;
@@ -86,6 +88,7 @@ namespace Trinity
             VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
             bool m_Rendering = false;
             bool m_HasPipeline = false;
+            bool m_HasIndexBuffer = false;
         };
 
         class VulkanDevice final : public Device

@@ -8,6 +8,7 @@
 #include "Trinity/RHI/Resources.hpp"
 #include "Trinity/RHI/SwapChain.hpp"
 #include "Trinity/RHI/Types.hpp"
+#include "Trinity/RHI/UploadRing.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -66,6 +67,10 @@ namespace Trinity
 
             [[nodiscard]] virtual Scope<SwapChain> CreateSwapChain(const SwapChainSpecification& specification) = 0;
 
+            // Only between BeginFrame and EndFrame, and valid until that frame has finished on the GPU
+            [[nodiscard]] UploadAllocation AllocateUpload(std::uint64_t size, std::uint64_t alignment);
+            [[nodiscard]] std::uint64_t GetUploadCapacity() const;
+
             [[nodiscard]] virtual CommandList& BeginFrame() = 0;
 
             virtual void EndFrame() = 0;
@@ -73,6 +78,8 @@ namespace Trinity
 
         protected:
             Device() = default;
+
+            UploadRing m_UploadRing;
         };
 
         [[nodiscard]] TRINITY_API Expected<Scope<Device>, std::string> CreateDevice(const DeviceSpecification& specification);

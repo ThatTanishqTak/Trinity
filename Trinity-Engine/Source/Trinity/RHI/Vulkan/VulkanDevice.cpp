@@ -627,6 +627,7 @@ namespace Trinity
             m_CommandBuffer = commandBuffer;
             m_Rendering = false;
             m_HasPipeline = false;
+            m_HasIndexBuffer = false;
 
             const VkDescriptorSet l_Set = m_Device.GetBindlessSet();
             vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
@@ -773,6 +774,7 @@ namespace Trinity
             vkCmdEndRendering(m_CommandBuffer);
             m_Rendering = false;
             m_HasPipeline = false;
+            m_HasIndexBuffer = false;
         }
 
         void VulkanCommandList::SetPipeline(PipelineHandle pipeline)
@@ -820,6 +822,29 @@ namespace Trinity
             TR_CORE_ASSERT(m_HasPipeline, "Draw needs a pipeline.");
 
             vkCmdDraw(m_CommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+        }
+
+        void VulkanCommandList::SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format)
+        {
+            TR_CORE_ASSERT(m_Rendering, "SetIndexBuffer is recorded inside rendering.");
+
+            const VulkanBuffer* l_Buffer = m_Device.GetBuffer(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "SetIndexBuffer with a destroyed or invalid buffer.");
+            TR_CORE_ASSERT(l_Buffer == nullptr || (offset < l_Buffer->Size && offset % GetIndexSize(format) == 0), "SetIndexBuffer at offset {}, which is past the end of the buffer or not a multiple of the index size.", offset);
+            if (l_Buffer == nullptr || offset >= l_Buffer->Size)
+            {
+                return;
+            }
+
+            vkCmdBindIndexBuffer(m_CommandBuffer, l_Buffer->Buffer, offset, format == IndexFormat::UInt16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
+            m_HasIndexBuffer = true;
+        }
+
+        void VulkanCommandList::DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance)
+        {
+            TR_CORE_ASSERT(m_HasPipeline && m_HasIndexBuffer, "DrawIndexed needs a pipeline and an index buffer.");
+
+            vkCmdDrawIndexed(m_CommandBuffer, indexCount, instanceCount, firstIndex, 0, firstInstance);
         }
 
         void VulkanCommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
@@ -922,6 +947,7 @@ namespace Trinity
             if (m_Device != VK_NULL_HANDLE)
             {
                 vkDeviceWaitIdle(m_Device);
+                m_UploadRing.Shutdown();
 
                 if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0)
                 {
@@ -986,7 +1012,7 @@ namespace Trinity
                 return false;
             }
 
-            return CreateInstance(specification, l_LoaderVersion, error) && CreateLogicalDevice(error) && CreateAllocator(error) && CreateFrames(error) && CreateBindless(error);
+            return CreateInstance(specification, l_LoaderVersion, error) && CreateLogicalDevice(error) && CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool VulkanDevice::CreateInstance(const DeviceSpecification& specification, std::uint32_t loaderVersion, std::string& error)
@@ -2034,6 +2060,7 @@ namespace Trinity
 
             m_InFrame = true;
             m_Releases.BeginFrame([this](const VulkanRelease& release) { Release(release); });
+            m_UploadRing.BeginFrame();
 
             vkResetCommandPool(m_Device, l_Frame.CommandPool, 0);
             m_FrameWaits.clear();
@@ -2048,6 +2075,7 @@ namespace Trinity
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
             FrameContext& l_Frame = m_Frames[GetFrameSlot()];
+            m_UploadRing.EndFrame();
             m_CommandList.End();
 
             l_Frame.CompletionValue = m_FrameNumber + 1;

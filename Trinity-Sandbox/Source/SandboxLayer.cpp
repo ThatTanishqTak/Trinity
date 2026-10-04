@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <format>
 #include <iterator>
+#include <numbers>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -66,6 +67,34 @@ namespace
     };
 
     static_assert(sizeof(QuadPushData) == 32);
+
+    constexpr std::uint32_t c_FieldColumns = 200;
+    constexpr std::uint32_t c_FieldRows = 50;
+    constexpr std::uint32_t c_FieldQuads = c_FieldColumns * c_FieldRows;
+    constexpr std::uint32_t c_FieldQuadsPerBatch = c_FieldQuads / 2;
+    constexpr std::uint64_t c_FieldCheckFrame = 100;
+    constexpr std::array<std::uint32_t, 6> c_FieldQuadIndices{ 0, 1, 2, 2, 1, 3 };
+
+    // Laid out as QuadField.slang reads it
+    struct FieldVertex
+    {
+        std::array<float, 2> Position;
+        std::uint32_t Color;
+    };
+
+    static_assert(sizeof(FieldVertex) == 12);
+
+    // Red in the low byte, as the shader unpacks it
+    std::uint32_t PackColor(const std::array<float, 4>& color)
+    {
+        std::uint32_t l_Packed = 0;
+        for (std::size_t it_Channel = 0; it_Channel < color.size(); ++it_Channel)
+        {
+            l_Packed |= static_cast<std::uint32_t>(std::lround(std::clamp(color[it_Channel], 0.0f, 1.0f) * 255.0f)) << (it_Channel * 8);
+        }
+
+        return l_Packed;
+    }
 
     std::array<std::uint8_t, 4> GetCheckerboardTexel(std::uint32_t x, std::uint32_t y)
     {
@@ -142,7 +171,7 @@ void SandboxLayer::OnAttach()
 {
     m_ScratchBuffer = Trinity::Memory::Allocate(c_ScratchBufferSize, Trinity::MemoryTag::Game);
 
-    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use, O overflows the frame allocator, C lists console variables, V toggles vsync.");
+    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use, O overflows the frame allocator, U overflows the upload ring, C lists console variables, V toggles vsync.");
     TR_INFO("Reporting fps every {} s (sandbox.report_interval)", s_ReportInterval.Get());
 
     if (s_ListConsoleVariables.Get())
@@ -178,6 +207,7 @@ void SandboxLayer::OnAttach()
 
     CreateTriangle();
     CreateCheckerboard();
+    CreateQuadField();
     StartAsyncReads();
 
     TR_INFO("Example UUID: {}", Trinity::UUID::Generate());
@@ -200,6 +230,7 @@ void SandboxLayer::OnDetach()
 
     DestroyTriangle();
     DestroyCheckerboard();
+    DestroyQuadField();
 
     TR_INFO("Ran {} frame job(s) on frame memory; {} saw it change underneath them", m_FrameJobsRun.load(), m_FrameJobMismatches.load());
 }
@@ -228,6 +259,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
     CheckAsyncReads();
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
+    m_FieldSeconds = std::fmod(m_FieldSeconds + timestep.GetSeconds(), 2.0f * std::numbers::pi_v<float>);
     Trinity::Application::Get().GetRenderer().SetClearColor(HueToColor(m_ClearHue));
 
     m_SecondsSinceReport += timestep;
@@ -272,6 +304,11 @@ void SandboxLayer::OnRender(Trinity::RHI::CommandList& commands)
         commands.PushConstants(std::as_bytes(std::span(&l_PushData, 1)));
         commands.Draw(4, 1, 0, 0);
     }
+
+    if (m_FieldPipeline)
+    {
+        DrawQuadField(commands);
+    }
 }
 
 bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
@@ -309,6 +346,14 @@ bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
     {
         Trinity::FrameAllocator& l_FrameAllocator = Trinity::Application::Get().GetFrameAllocator();
         [[maybe_unused]] void* l_Overflow = l_FrameAllocator.Allocate(l_FrameAllocator.GetCapacity() + 1);
+
+        return true;
+    }
+
+    if (event.GetKeyCode() == Trinity::KeyCode::TR_U)
+    {
+        m_OverflowUploadNextFrame = true;
+        ++m_UploadOverflowRequests;
 
         return true;
     }
@@ -1079,6 +1124,150 @@ void SandboxLayer::DestroyCheckerboard()
     m_CheckerboardSampler = {};
     m_CheckerboardIndex = Trinity::RHI::c_NoBindlessIndex;
     m_CheckerboardSamplerIndex = Trinity::RHI::c_NoBindlessIndex;
+}
+
+void SandboxLayer::CreateQuadField()
+{
+    TR_PROFILE_FUNCTION();
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const std::string_view l_Extension = l_Device.GetInfo().API == Trinity::GraphicsAPI::D3D12 ? "dxil" : "spv";
+
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_VertexShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/QuadField.VertexMain.{}", l_Extension));
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_PixelShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/QuadField.PixelMain.{}", l_Extension));
+    if (!l_VertexShader || !l_PixelShader)
+    {
+        TR_INFO("Quad field: no {} shaders under /engine/shaders, so nothing is drawn", l_Extension);
+
+        return;
+    }
+
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ Trinity::Application::Get().GetRenderer().GetTargetFormat() };
+
+    Trinity::RHI::GraphicsPipelineDescription l_PipelineDescription;
+    l_PipelineDescription.VertexShader = { *l_VertexShader, "VertexMain" };
+    l_PipelineDescription.PixelShader = { *l_PixelShader, "PixelMain" };
+    l_PipelineDescription.ColorFormats = l_ColorFormats;
+    l_PipelineDescription.Cull = Trinity::RHI::CullMode::None;
+    l_PipelineDescription.DebugName = "Sandbox quad field";
+
+    m_FieldPipeline = l_Device.CreateGraphicsPipeline(l_PipelineDescription);
+    if (!m_FieldPipeline)
+    {
+        TR_ERROR("Quad field: could not create the pipeline");
+
+        return;
+    }
+
+    TR_INFO("Quad field: {} pipeline built, drawing {} quads a frame from a {} upload ring slot", Trinity::ToString(l_Device.GetInfo().API), c_FieldQuads, Trinity::Memory::FormatBytes(l_Device.GetUploadCapacity()));
+}
+
+// Reports whether Renderer memory moved between frame c_FieldCheckFrame and the last frame, unless U overflowed the ring on purpose
+void SandboxLayer::DestroyQuadField()
+{
+    Trinity::Application::Get().GetDevice().DestroyPipeline(m_FieldPipeline);
+    m_FieldPipeline = {};
+
+    if (m_FieldFailedFrames != 0)
+    {
+        TR_ERROR("Quad field: {} frame(s) got no upload memory for their quads", m_FieldFailedFrames);
+    }
+
+    if (m_FieldFrames == 0)
+    {
+        return;
+    }
+
+    if (m_FieldFrames >= c_FieldCheckFrame && m_UploadOverflowRequests == 0 && m_RendererBytesLast != m_RendererBytesAtCheck)
+    {
+        TR_ERROR("Quad field: Renderer went from {} at frame {} to {} at frame {}, so per-frame uploads leak", Trinity::Memory::FormatBytes(m_RendererBytesAtCheck), c_FieldCheckFrame, Trinity::Memory::FormatBytes(m_RendererBytesLast), m_FieldFrames);
+
+        return;
+    }
+
+    TR_INFO("Quad field: drew {} quads in each of {} frame(s) from the upload ring{}", c_FieldQuads, m_FieldFrames, m_FieldFrames >= c_FieldCheckFrame ? std::format(", and Renderer held {} at frame {} and {} at the last", Trinity::Memory::FormatBytes(m_RendererBytesAtCheck), c_FieldCheckFrame, Trinity::Memory::FormatBytes(m_RendererBytesLast)) : "");
+}
+
+// Every quad goes into the upload ring each frame: the first half with 16-bit indices and the second with 32-bit, each half in two DrawIndexed calls
+void SandboxLayer::DrawQuadField(Trinity::RHI::CommandList& commands)
+{
+    TR_PROFILE_FUNCTION();
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    if (m_OverflowUploadNextFrame)
+    {
+        [[maybe_unused]] const Trinity::RHI::UploadAllocation l_Overflow = l_Device.AllocateUpload(l_Device.GetUploadCapacity() + 1, 16);
+        m_OverflowUploadNextFrame = false;
+    }
+
+    std::array<float, c_FieldColumns> l_Waves{};
+    std::array<std::uint32_t, c_FieldColumns> l_Colors{};
+    for (std::uint32_t it_Column = 0; it_Column < c_FieldColumns; ++it_Column)
+    {
+        const std::array<float, 4> l_Hue = HueToColor(static_cast<float>(it_Column) / static_cast<float>(c_FieldColumns));
+        l_Waves[it_Column] = 0.06f * std::sin(m_FieldSeconds * 2.0f + static_cast<float>(it_Column) * 0.06f);
+        l_Colors[it_Column] = PackColor({ 1.0f - l_Hue[0], 1.0f - l_Hue[1], 1.0f - l_Hue[2], 1.0f });
+    }
+
+    commands.SetPipeline(m_FieldPipeline);
+
+    bool l_Drawn = true;
+    for (std::uint32_t it_Batch = 0; it_Batch < 2; ++it_Batch)
+    {
+        const Trinity::RHI::IndexFormat l_Format = it_Batch == 0 ? Trinity::RHI::IndexFormat::UInt16 : Trinity::RHI::IndexFormat::UInt32;
+        const std::uint32_t l_IndexSize = Trinity::RHI::GetIndexSize(l_Format);
+        const std::uint32_t l_IndexCount = c_FieldQuadsPerBatch * static_cast<std::uint32_t>(c_FieldQuadIndices.size());
+
+        const Trinity::RHI::UploadAllocation l_Vertices = l_Device.AllocateUpload(std::uint64_t{ c_FieldQuadsPerBatch } * 4 * sizeof(FieldVertex), 4);
+        const Trinity::RHI::UploadAllocation l_Indices = l_Device.AllocateUpload(std::uint64_t{ l_IndexCount } * l_IndexSize, l_IndexSize);
+        if (l_Vertices.Data.empty() || l_Indices.Data.empty())
+        {
+            l_Drawn = false;
+
+            continue;
+        }
+
+        for (std::uint32_t it_Quad = 0; it_Quad < c_FieldQuadsPerBatch; ++it_Quad)
+        {
+            const std::uint32_t l_Column = (it_Batch * c_FieldQuadsPerBatch + it_Quad) % c_FieldColumns;
+            const std::uint32_t l_Row = (it_Batch * c_FieldQuadsPerBatch + it_Quad) / c_FieldColumns;
+            const float l_Left = -0.95f + static_cast<float>(l_Column) * 0.0095f;
+            const float l_Bottom = -0.92f + static_cast<float>(l_Row) * 0.008f + l_Waves[l_Column];
+
+            const std::array<FieldVertex, 4> l_Corners
+            { {
+                { { l_Left, l_Bottom }, l_Colors[l_Column] },
+                { { l_Left + 0.0065f, l_Bottom }, l_Colors[l_Column] },
+                { { l_Left, l_Bottom + 0.005f }, l_Colors[l_Column] },
+                { { l_Left + 0.0065f, l_Bottom + 0.005f }, l_Colors[l_Column] }
+            } };
+            std::memcpy(l_Vertices.Data.data() + std::size_t{ it_Quad } * sizeof(l_Corners), l_Corners.data(), sizeof(l_Corners));
+
+            for (std::size_t it_Index = 0; it_Index < c_FieldQuadIndices.size(); ++it_Index)
+            {
+                const std::uint32_t l_Index = it_Quad * 4 + c_FieldQuadIndices[it_Index];
+                const std::uint16_t l_ShortIndex = static_cast<std::uint16_t>(l_Index);
+                std::byte* l_Destination = l_Indices.Data.data() + (std::size_t{ it_Quad } * c_FieldQuadIndices.size() + it_Index) * l_IndexSize;
+                std::memcpy(l_Destination, l_Format == Trinity::RHI::IndexFormat::UInt16 ? static_cast<const void*>(&l_ShortIndex) : static_cast<const void*>(&l_Index), l_IndexSize);
+            }
+        }
+
+        // The vertex shader reads from wherever the ring put this half's vertices
+        const std::array<std::uint32_t, 3> l_PushData{ l_Vertices.ShaderResourceIndex, 0, static_cast<std::uint32_t>(l_Vertices.Offset) };
+        commands.PushConstants(std::as_bytes(std::span(l_PushData)));
+        commands.SetIndexBuffer(l_Indices.Buffer, l_Indices.Offset, l_Format);
+        commands.DrawIndexed(l_IndexCount / 2, 1, 0, 0);
+        commands.DrawIndexed(l_IndexCount / 2, 1, l_IndexCount / 2, 0);
+    }
+
+    // Read at the same point of every frame, so the two numbers DestroyQuadField compares are alike
+    m_RendererBytesLast = Trinity::Memory::GetStats(Trinity::MemoryTag::Renderer).CurrentBytes;
+    m_FieldFrames += l_Drawn ? 1 : 0;
+    m_FieldFailedFrames += l_Drawn ? 0 : 1;
+    if (m_FieldFrames == c_FieldCheckFrame && l_Drawn)
+    {
+        m_RendererBytesAtCheck = m_RendererBytesLast;
+    }
 }
 
 void SandboxLayer::StartAsyncReads()

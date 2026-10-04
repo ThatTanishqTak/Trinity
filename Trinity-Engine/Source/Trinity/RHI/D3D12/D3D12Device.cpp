@@ -565,6 +565,7 @@ namespace Trinity
             m_CommandList = commandList;
             m_Rendering = false;
             m_HasPipeline = false;
+            m_HasIndexBuffer = false;
 
             const std::array<ID3D12DescriptorHeap*, 2> l_Heaps{ m_Device.GetResourceHeap(), m_Device.GetSamplerHeap() };
             m_CommandList->SetDescriptorHeaps(static_cast<UINT>(l_Heaps.size()), l_Heaps.data());
@@ -698,6 +699,7 @@ namespace Trinity
             m_CommandList->EndRenderPass();
             m_Rendering = false;
             m_HasPipeline = false;
+            m_HasIndexBuffer = false;
         }
 
         void D3D12CommandList::SetPipeline(PipelineHandle pipeline)
@@ -746,6 +748,33 @@ namespace Trinity
             TR_CORE_ASSERT(m_HasPipeline, "Draw needs a pipeline.");
 
             m_CommandList->DrawInstanced(vertexCount, instanceCount, firstVertex, firstInstance);
+        }
+
+        void D3D12CommandList::SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format)
+        {
+            TR_CORE_ASSERT(m_Rendering, "SetIndexBuffer is recorded inside rendering.");
+
+            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(buffer);
+            TR_CORE_ASSERT(l_Buffer != nullptr, "SetIndexBuffer with a destroyed or invalid buffer.");
+            TR_CORE_ASSERT(l_Buffer == nullptr || (offset < l_Buffer->Size && offset % GetIndexSize(format) == 0), "SetIndexBuffer at offset {}, which is past the end of the buffer or not a multiple of the index size.", offset);
+            if (l_Buffer == nullptr || offset >= l_Buffer->Size)
+            {
+                return;
+            }
+
+            D3D12_INDEX_BUFFER_VIEW l_View{};
+            l_View.BufferLocation = l_Buffer->Allocation->GetResource()->GetGPUVirtualAddress() + offset;
+            l_View.SizeInBytes = static_cast<UINT>(std::min<std::uint64_t>(l_Buffer->Size - offset, UINT_MAX));
+            l_View.Format = format == IndexFormat::UInt16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
+            m_CommandList->IASetIndexBuffer(&l_View);
+            m_HasIndexBuffer = true;
+        }
+
+        void D3D12CommandList::DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance)
+        {
+            TR_CORE_ASSERT(m_HasPipeline && m_HasIndexBuffer, "DrawIndexed needs a pipeline and an index buffer.");
+
+            m_CommandList->DrawIndexedInstanced(indexCount, instanceCount, firstIndex, 0, firstInstance);
         }
 
         void D3D12CommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
@@ -855,6 +884,8 @@ namespace Trinity
             {
                 WaitForFence(m_FrameNumber);
             }
+
+            m_UploadRing.Shutdown();
 
             if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0)
             {
@@ -989,7 +1020,7 @@ namespace Trinity
             EnableDebugMessages();
             LogRuntime();
 
-            return CreateAllocator(error) && CreateFrames(error) && CreateBindless(error);
+            return CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool D3D12Device::CreateAllocator(std::string& error)
@@ -1702,6 +1733,7 @@ namespace Trinity
 
             m_InFrame = true;
             m_Releases.BeginFrame([this](D3D12Release& release) { Release(release); });
+            m_UploadRing.BeginFrame();
 
             l_Frame.Allocator->Reset();
             m_GraphicsList->Reset(l_Frame.Allocator.Get(), nullptr);
@@ -1715,6 +1747,7 @@ namespace Trinity
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
             FrameContext& l_Frame = m_Frames[m_FrameNumber % c_FramesInFlight];
+            m_UploadRing.EndFrame();
             m_CommandList.End();
 
             ID3D12CommandList* const l_Lists[] = { m_GraphicsList.Get() };

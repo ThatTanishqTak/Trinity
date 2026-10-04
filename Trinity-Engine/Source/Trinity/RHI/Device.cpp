@@ -17,6 +17,16 @@ namespace Trinity
 {
     namespace RHI
     {
+        UploadAllocation Device::AllocateUpload(std::uint64_t size, std::uint64_t alignment)
+        {
+            return m_UploadRing.Allocate(size, alignment);
+        }
+
+        std::uint64_t Device::GetUploadCapacity() const
+        {
+            return m_UploadRing.GetCapacity();
+        }
+
         Expected<Scope<Device>, std::string> CreateDevice(const DeviceSpecification& specification)
         {
             switch (specification.API)
