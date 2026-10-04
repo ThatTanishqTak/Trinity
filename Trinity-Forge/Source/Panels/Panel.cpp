@@ -27,8 +27,20 @@ void Panel::Draw()
         return;
     }
 
+    // A borderless panel fills its window edge to edge and never scrolls, so what it draws can match the window in pixels
+    if (m_Borderless)
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    }
+
     bool l_Open = true;
-    if (ImGui::Begin(m_WindowName.c_str(), &l_Open))
+    const bool l_Visible = ImGui::Begin(m_WindowName.c_str(), &l_Open, m_Borderless ? ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse : ImGuiWindowFlags_None);
+    if (m_Borderless)
+    {
+        ImGui::PopStyleVar();
+    }
+
+    if (l_Visible)
     {
         OnImGuiRender();
     }

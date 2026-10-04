@@ -36,6 +36,8 @@ namespace Trinity
         void OnPrepareRender(RHI::CommandList& commands) override;
         void OnRenderUI(RHI::CommandList& commands) override;
 
+        void SetSceneInput(bool mouse, bool keyboard);
+
         [[nodiscard]] static ImFont* GetFont(UIFont font);
 
     private:
@@ -63,6 +65,9 @@ namespace Trinity
         bool m_ViewportsSupported = false;
         bool m_MonitorsChanged = false;
         bool m_SettingsLoaded = false;
+        bool m_SceneInputSet = false;
+        bool m_SceneMouse = false;
+        bool m_SceneKeyboard = false;
         int m_Cursor = -2;
         float m_DpiScale = 1.0f;
         float m_AppliedDpiScale = 0.0f;

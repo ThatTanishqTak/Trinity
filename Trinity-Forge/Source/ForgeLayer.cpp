@@ -3,7 +3,6 @@
 #include "Panels/ConsolePanel.hpp"
 #include "Panels/HierarchyPanel.hpp"
 #include "Panels/PropertiesPanel.hpp"
-#include "Panels/ViewportPanel.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -30,7 +29,7 @@ namespace
     }
 }
 
-ForgeLayer::ForgeLayer() : Layer("Forge"), m_AboutTitle(std::format("{} About Trinity Forge###About", Trinity::Icons::c_InfoCircle))
+ForgeLayer::ForgeLayer(Trinity::ImGuiLayer& imGui, const SceneLayer& scene) : Layer("Forge"), m_ImGui(imGui), m_Scene(scene), m_AboutTitle(std::format("{} About Trinity Forge###About", Trinity::Icons::c_InfoCircle))
 {
 
 }
@@ -48,7 +47,12 @@ void ForgeLayer::OnAttach()
         TR_INFO("No project given. Start Forge from Trinity-Hub or pass --project=<path>.");
     }
 
-    m_Panels.push_back(Trinity::CreateScope<ViewportPanel>());
+    // The scene is shown in the Viewport panel, so the window gets no copy of it under the UI
+    Trinity::Application::Get().GetRenderer().SetSceneCopy(false);
+
+    Trinity::Scope<ViewportPanel> l_Viewport = Trinity::CreateScope<ViewportPanel>(m_ImGui, m_Scene);
+    m_ViewportPanel = l_Viewport.get();
+    m_Panels.push_back(std::move(l_Viewport));
     m_Panels.push_back(Trinity::CreateScope<HierarchyPanel>());
     m_Panels.push_back(Trinity::CreateScope<PropertiesPanel>());
     m_Panels.push_back(Trinity::CreateScope<ConsolePanel>());
@@ -64,29 +68,19 @@ void ForgeLayer::OnAttach()
     ImGui::AddSettingsHandler(&l_Handler);
 }
 
-void ForgeLayer::OnEvent(Trinity::Event& event)
-{
-    Trinity::EventDispatcher l_Dispatcher(event);
-    l_Dispatcher.Dispatch<Trinity::KeyPressedEvent>(TR_BIND_EVENT_FN(OnKeyPressed));
-}
-
-// F1 shows and hides the demo window, and never arrives here while an ImGui text field has the keyboard
-bool ForgeLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
-{
-    if (event.GetKeyCode() != Trinity::KeyCode::TR_F1 || event.IsRepeat())
-    {
-        return false;
-    }
-
-    m_ShowDemoWindow = !m_ShowDemoWindow;
-    TR_INFO("Forge: demo window {}", m_ShowDemoWindow ? "shown" : "hidden");
-
-    return true;
-}
-
-// The menu bar comes first, so the dock space fits in the space below it
+// The menu bar comes first, so the dock space fits in the space below it. Shortcuts are read from ImGui, since layer events are the scene's while the Viewport has them
 void ForgeLayer::OnImGuiRender()
 {
+    // The Viewport panel gives the scene its input back while it is hovered or focused, and a closed panel leaves it with none
+    m_ImGui.SetSceneInput(false, false);
+
+    // F1 shows and hides the demo window, though not while a text field takes the keyboard
+    if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F1, false))
+    {
+        m_ShowDemoWindow = !m_ShowDemoWindow;
+        TR_INFO("Forge: demo window {}", m_ShowDemoWindow ? "shown" : "hidden");
+    }
+
     DrawMenuBar();
     DrawDockSpace();
 
@@ -135,6 +129,12 @@ void ForgeLayer::DrawMenuBar()
         }
 
         ImGui::Separator();
+
+        bool l_ShowStats = m_ViewportPanel->IsShowingStats();
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Eye, "Viewport Stats").c_str(), nullptr, &l_ShowStats))
+        {
+            m_ViewportPanel->SetShowingStats(l_ShowStats);
+        }
 
         if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Refresh, "Reset Layout").c_str()))
         {
@@ -231,7 +231,7 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::End();
 }
 
-// imgui.ini holds one [ForgePanels][Open] section, with a Title=1 or Title=0 line for each panel
+// imgui.ini holds one [ForgePanels][Open] section, with a Title=1 or Title=0 line for each panel, and ViewportStats for the Viewport's overlay
 void* ForgeLayer::OpenPanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, [[maybe_unused]] const char* name)
 {
     return handler->UserData;
@@ -247,22 +247,35 @@ void ForgeLayer::ReadPanelSetting([[maybe_unused]] ImGuiContext* context, [[mayb
     }
 
     const std::string_view l_Title = l_Line.substr(0, l_Equals);
-    for (const Trinity::Scope<Panel>& it_Panel : static_cast<ForgeLayer*>(entry)->m_Panels)
+    const bool l_On = l_Line.substr(l_Equals + 1) != "0";
+    ForgeLayer& l_Layer = *static_cast<ForgeLayer*>(entry);
+    if (l_Title == "ViewportStats")
+    {
+        l_Layer.m_ViewportPanel->SetShowingStats(l_On);
+
+        return;
+    }
+
+    for (const Trinity::Scope<Panel>& it_Panel : l_Layer.m_Panels)
     {
         if (it_Panel->GetTitle() == l_Title)
         {
-            it_Panel->SetOpen(l_Line.substr(l_Equals + 1) != "0");
+            it_Panel->SetOpen(l_On);
         }
     }
 }
 
 void ForgeLayer::WritePanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buffer)
 {
+    const ForgeLayer& l_Layer = *static_cast<const ForgeLayer*>(handler->UserData);
+
     buffer->appendf("[%s][Open]\n", handler->TypeName);
-    for (const Trinity::Scope<Panel>& it_Panel : static_cast<ForgeLayer*>(handler->UserData)->m_Panels)
+    for (const Trinity::Scope<Panel>& it_Panel : l_Layer.m_Panels)
     {
         buffer->appendf("%s=%d\n", it_Panel->GetTitle().c_str(), it_Panel->IsOpen() ? 1 : 0);
     }
+
+    buffer->appendf("ViewportStats=%d\n", l_Layer.m_ViewportPanel->IsShowingStats() ? 1 : 0);
 
     buffer->append("\n");
 }

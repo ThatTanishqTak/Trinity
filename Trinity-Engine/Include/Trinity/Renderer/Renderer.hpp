@@ -18,7 +18,7 @@ namespace Trinity
 
     using OutputCallback = std::function<void(RHI::CommandList& commands, std::uint32_t width, std::uint32_t height)>;
 
-    // Layers draw into a scene target the size of the output, which a second pass copies to the window, or to an offscreen target when there is no window, before the UI is drawn over it
+    // Layers draw into a scene target, the size of the output unless SetSceneSize asks for another. A second pass copies it to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it
     class TRINITY_API Renderer
     {
     public:
@@ -35,6 +35,7 @@ namespace Trinity
 
         void SetClearColor(const std::array<float, 4>& color) { m_ClearColor = color; }
         void SetSceneCopy(bool enabled) { m_SceneCopy = enabled; }
+        void SetSceneSize(std::uint32_t width, std::uint32_t height);
 
         void SetVSync(bool enabled);
         [[nodiscard]] bool IsVSync() const;
@@ -42,6 +43,8 @@ namespace Trinity
         [[nodiscard]] RHI::Format GetSceneFormat() const;
         [[nodiscard]] RHI::Format GetOutputFormat() const;
         [[nodiscard]] RHI::TextureHandle GetSceneTarget() const { return m_SceneTarget; }
+        [[nodiscard]] std::uint32_t GetSceneWidth() const { return m_SceneWidth; }
+        [[nodiscard]] std::uint32_t GetSceneHeight() const { return m_SceneHeight; }
         [[nodiscard]] bool IsPresenting() const { return m_SwapChain != nullptr; }
         [[nodiscard]] std::uint64_t GetFrameCount() const { return m_FrameCount; }
 
@@ -72,6 +75,8 @@ namespace Trinity
 
         [[nodiscard]] std::uint32_t GetOutputWidth() const;
         [[nodiscard]] std::uint32_t GetOutputHeight() const;
+        [[nodiscard]] std::uint32_t GetWantedSceneWidth() const;
+        [[nodiscard]] std::uint32_t GetWantedSceneHeight() const;
 
         RHI::Device& m_Device;
         Window& m_Window;
@@ -89,6 +94,8 @@ namespace Trinity
         RHI::ResourceState m_SceneState = RHI::ResourceState::Undefined;
         std::uint32_t m_SceneWidth = 0;
         std::uint32_t m_SceneHeight = 0;
+        std::uint32_t m_RequestedSceneWidth = 0;
+        std::uint32_t m_RequestedSceneHeight = 0;
         RHI::PipelineHandle m_CopyPipeline;
         bool m_SceneCopy = true;
         bool m_VSync = true;

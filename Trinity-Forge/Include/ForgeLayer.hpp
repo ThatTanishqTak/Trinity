@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Panels/Panel.hpp"
+#include "Panels/ViewportPanel.hpp"
+#include "SceneLayer.hpp"
 
 #include <Trinity.hpp>
 
@@ -15,14 +17,12 @@ struct ImGuiTextBuffer;
 class ForgeLayer final : public Trinity::Layer
 {
 public:
-    ForgeLayer();
+    ForgeLayer(Trinity::ImGuiLayer& imGui, const SceneLayer& scene);
 
     void OnAttach() override;
-    void OnEvent(Trinity::Event& event) override;
     void OnImGuiRender() override;
 
 private:
-    bool OnKeyPressed(Trinity::KeyPressedEvent& event);
     void DrawMenuBar();
     void DrawDockSpace();
     void BuildDefaultLayout(std::uint32_t dockSpace);
@@ -32,7 +32,10 @@ private:
     static void ReadPanelSetting(ImGuiContext* context, ImGuiSettingsHandler* handler, void* entry, const char* line);
     static void WritePanelSettings(ImGuiContext* context, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buffer);
 
+    Trinity::ImGuiLayer& m_ImGui;
+    const SceneLayer& m_Scene;
     std::vector<Trinity::Scope<Panel>> m_Panels;
+    ViewportPanel* m_ViewportPanel = nullptr;
     std::string m_AboutTitle;
     bool m_ShowDemoWindow = false;
     bool m_ShowAbout = false;

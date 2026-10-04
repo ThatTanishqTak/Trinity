@@ -556,21 +556,31 @@ namespace Trinity
         }
     }
 
-    // ImGui sees every event, and the ones it wants are hidden from the layers below. Releases always pass, so no layer below is left holding a key or button
+    // An application with a scene view in its UI, such as Forge's viewport panel, decides here what reaches the layers below, rather than ImGui. It holds until called again
+    void ImGuiLayer::SetSceneInput(bool mouse, bool keyboard)
+    {
+        m_SceneInputSet = true;
+        m_SceneMouse = mouse;
+        m_SceneKeyboard = keyboard;
+    }
+
+    // ImGui sees every event, and the ones it wants, or SetSceneInput keeps from the scene, are hidden from the layers below. Releases always pass, so no layer below is left holding a key or button
     void ImGuiLayer::OnEvent(Event& event)
     {
         ImGuiIO& l_IO = ImGui::GetIO();
         Window& l_MainWindow = Application::Get().GetWindow();
+        const bool l_HideMouse = m_SceneInputSet ? !m_SceneMouse : l_IO.WantCaptureMouse;
+        const bool l_HideKeyboard = m_SceneInputSet ? !m_SceneKeyboard : l_IO.WantCaptureKeyboard;
 
         // Positions are relative to the main window, and with multi-viewport ImGui wants them on the screen
-        const auto a_OnMouseMoved = [this, &l_IO, &l_MainWindow](MouseMovedEvent& moved)
+        const auto a_OnMouseMoved = [this, &l_IO, &l_MainWindow, l_HideMouse](MouseMovedEvent& moved)
         {
             m_MouseWindow = m_EventSource != nullptr ? m_EventSource : &l_MainWindow;
 
             const WindowPosition l_Origin = (l_IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0 ? l_MainWindow.GetPosition() : WindowPosition{};
             l_IO.AddMousePosEvent(moved.GetX() + static_cast<float>(l_Origin.X), moved.GetY() + static_cast<float>(l_Origin.Y));
 
-            return l_IO.WantCaptureMouse;
+            return l_HideMouse;
         };
 
         // The mouse may already be in a floating window, whose move arrived first
@@ -588,15 +598,15 @@ namespace Trinity
         EventDispatcher l_Dispatcher(event);
         l_Dispatcher.Dispatch<MouseMovedEvent>(a_OnMouseMoved);
         l_Dispatcher.Dispatch<MouseLeftEvent>(a_OnMouseLeft);
-        l_Dispatcher.Dispatch<MouseButtonPressedEvent>([&l_IO](MouseButtonPressedEvent& pressed) { AddMouseButtonEvent(l_IO, pressed.GetMouseButton(), true); return l_IO.WantCaptureMouse; });
+        l_Dispatcher.Dispatch<MouseButtonPressedEvent>([&l_IO, l_HideMouse](MouseButtonPressedEvent& pressed) { AddMouseButtonEvent(l_IO, pressed.GetMouseButton(), true); return l_HideMouse; });
         l_Dispatcher.Dispatch<MouseButtonReleasedEvent>([&l_IO](MouseButtonReleasedEvent& released) { AddMouseButtonEvent(l_IO, released.GetMouseButton(), false); return false; });
 
         // Trinity scrolls right with a positive X, ImGui with a negative one
-        l_Dispatcher.Dispatch<MouseScrolledEvent>([&l_IO](MouseScrolledEvent& scrolled) { l_IO.AddMouseWheelEvent(-scrolled.GetXOffset(), scrolled.GetYOffset()); return l_IO.WantCaptureMouse; });
+        l_Dispatcher.Dispatch<MouseScrolledEvent>([&l_IO, l_HideMouse](MouseScrolledEvent& scrolled) { l_IO.AddMouseWheelEvent(-scrolled.GetXOffset(), scrolled.GetYOffset()); return l_HideMouse; });
 
-        l_Dispatcher.Dispatch<KeyPressedEvent>([&l_IO](KeyPressedEvent& pressed) { AddKeyEvent(l_IO, pressed.GetKeyCode(), true); return l_IO.WantCaptureKeyboard; });
+        l_Dispatcher.Dispatch<KeyPressedEvent>([&l_IO, l_HideKeyboard](KeyPressedEvent& pressed) { AddKeyEvent(l_IO, pressed.GetKeyCode(), true); return l_HideKeyboard; });
         l_Dispatcher.Dispatch<KeyReleasedEvent>([&l_IO](KeyReleasedEvent& released) { AddKeyEvent(l_IO, released.GetKeyCode(), false); return false; });
-        l_Dispatcher.Dispatch<KeyTypedEvent>([&l_IO](KeyTypedEvent& typed) { l_IO.AddInputCharacter(static_cast<unsigned int>(typed.GetCodepoint())); return l_IO.WantCaptureKeyboard; });
+        l_Dispatcher.Dispatch<KeyTypedEvent>([&l_IO, l_HideKeyboard](KeyTypedEvent& typed) { l_IO.AddInputCharacter(static_cast<unsigned int>(typed.GetCodepoint())); return l_HideKeyboard; });
         l_Dispatcher.Dispatch<WindowFocusEvent>([&l_IO](WindowFocusEvent&) { l_IO.AddFocusEvent(true); return false; });
         l_Dispatcher.Dispatch<WindowLostFocusEvent>([&l_IO](WindowLostFocusEvent&) { l_IO.AddFocusEvent(false); return false; });
         l_Dispatcher.Dispatch<WindowDpiChangedEvent>([this](WindowDpiChangedEvent& changed) { m_DpiScale = changed.GetScale(); m_MonitorsChanged = true; return false; });

@@ -36,10 +36,13 @@ public:
 protected:
     virtual void OnImGuiRender() = 0;
 
+    void SetBorderless(bool borderless) { m_Borderless = borderless; }
+
 private:
     std::string m_Title;
     std::string m_WindowName;
     std::string m_MenuLabel;
     DockSlot m_Slot;
     bool m_Open = true;
+    bool m_Borderless = false;
 };

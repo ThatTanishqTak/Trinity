@@ -323,6 +323,23 @@ namespace Trinity
         return m_SwapChain ? m_SwapChain->GetFormat() : RHI::Format::BGRA8Unorm;
     }
 
+    // Taken between frames. Width and height of 0 make the scene follow the output again, as it does until this is called
+    void Renderer::SetSceneSize(std::uint32_t width, std::uint32_t height)
+    {
+        m_RequestedSceneWidth = width;
+        m_RequestedSceneHeight = height;
+    }
+
+    std::uint32_t Renderer::GetWantedSceneWidth() const
+    {
+        return m_RequestedSceneWidth > 0 && m_RequestedSceneHeight > 0 ? m_RequestedSceneWidth : GetOutputWidth();
+    }
+
+    std::uint32_t Renderer::GetWantedSceneHeight() const
+    {
+        return m_RequestedSceneWidth > 0 && m_RequestedSceneHeight > 0 ? m_RequestedSceneHeight : GetOutputHeight();
+    }
+
     std::uint32_t Renderer::GetOutputWidth() const
     {
         return m_SwapChain ? m_SwapChain->GetWidth() : std::max(m_TargetWidth, 1u);
@@ -376,8 +393,8 @@ namespace Trinity
 
         FollowOutputs();
 
-        // Also catches a swap chain that changed size on its own while acquiring
-        if (m_SceneWidth != GetOutputWidth() || m_SceneHeight != GetOutputHeight())
+        // Also catches a swap chain that changed size on its own while acquiring. The old target is released only once no frame in flight can still show it
+        if (m_SceneWidth != GetWantedSceneWidth() || m_SceneHeight != GetWantedSceneHeight())
         {
             m_Device.DestroyTexture(m_SceneTarget);
             CreateSceneTarget();
@@ -433,8 +450,8 @@ namespace Trinity
     void Renderer::CreateSceneTarget()
     {
         RHI::TextureDescription l_Description;
-        l_Description.Width = GetOutputWidth();
-        l_Description.Height = GetOutputHeight();
+        l_Description.Width = GetWantedSceneWidth();
+        l_Description.Height = GetWantedSceneHeight();
         l_Description.TextureFormat = c_SceneFormat;
         l_Description.Usage = RHI::TextureUsage::RenderTarget | RHI::TextureUsage::ShaderResource | RHI::TextureUsage::CopySource;
         l_Description.OptimizedClear = false;
