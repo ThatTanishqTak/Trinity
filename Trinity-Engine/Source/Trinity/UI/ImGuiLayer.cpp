@@ -1,6 +1,7 @@
 #include "Trinity/UI/ImGuiLayer.hpp"
 
 #include "Trinity/Core/Application.hpp"
+#include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Platform.hpp"
@@ -15,10 +16,14 @@
 #include "Trinity/UI/ImGuiRenderer.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
+#include <cstring>
+#include <format>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -29,6 +34,24 @@ namespace Trinity
     namespace
     {
         constexpr std::string_view c_SettingsPath = "/saves/imgui.ini";
+        constexpr float c_FontSize = 15.0f;
+        constexpr float c_MinimumUserScale = 0.5f;
+        constexpr float c_MaximumUserScale = 4.0f;
+
+        struct FontFile
+        {
+            std::string_view Path;
+            std::string_view Name;
+        };
+
+        // In UIFont order
+        constexpr std::array<FontFile, 2> c_FontFiles
+        { {
+            { "/engine/fonts/JetBrainsMonoNLNerdFontPropo-Regular.ttf", "JetBrains Mono Regular" },
+            { "/engine/fonts/JetBrainsMonoNLNerdFontPropo-Bold.ttf", "JetBrains Mono Bold" }
+        } };
+
+        ConsoleVariable<float> s_UserScaleVariable("ui.scale", 1.0f, "UI size on top of the monitor's DPI scale, from 0.5 to 4");
 
         void* AllocateUI(std::size_t size, [[maybe_unused]] void* userData)
         {
@@ -38,6 +61,62 @@ namespace Trinity
         void FreeUI(void* memory, [[maybe_unused]] void* userData)
         {
             Memory::Free(memory);
+        }
+
+        // The atlas keeps its own copy of the file for its whole life, and frees it through FreeUI
+        bool LoadFont(const FontFile& file)
+        {
+            const Expected<FileBuffer, FileError> l_File = FileSystem::ReadFile(file.Path);
+            if (!l_File)
+            {
+                TR_CORE_WARN("ImGui: cannot read {}: {}", file.Path, ToString(l_File.GetError()));
+
+                return false;
+            }
+
+            // ImGui asserts on fewer than 100 bytes, which no font has
+            if (l_File->size() <= 100 || l_File->size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+            {
+                TR_CORE_WARN("ImGui: {} is {} bytes, too small or too large for a font", file.Path, l_File->size());
+
+                return false;
+            }
+
+            void* l_Data = ImGui::MemAlloc(l_File->size());
+            if (l_Data == nullptr)
+            {
+                TR_CORE_WARN("ImGui: no memory for {}", file.Path);
+
+                return false;
+            }
+
+            std::memcpy(l_Data, l_File->data(), l_File->size());
+
+            ImFontConfig l_Config;
+            std::format_to_n(l_Config.Name, sizeof(l_Config.Name) - 1, "{}", file.Name);
+            if (ImGui::GetIO().Fonts->AddFontFromMemoryTTF(l_Data, static_cast<int>(l_File->size()), c_FontSize, &l_Config) == nullptr)
+            {
+                TR_CORE_WARN("ImGui: FreeType cannot read {}", file.Path);
+
+                return false;
+            }
+
+            return true;
+        }
+
+        // Bold is skipped when Regular fails, so GetFont gives the default font for both. A missing Bold leaves Regular for both
+        void LoadFonts()
+        {
+            if (!LoadFont(c_FontFiles[std::to_underlying(UIFont::Regular)]))
+            {
+                ImGui::GetIO().Fonts->AddFontDefault();
+                TR_CORE_INFO("ImGui: drawing with its default font");
+
+                return;
+            }
+
+            const bool l_Bold = LoadFont(c_FontFiles[std::to_underlying(UIFont::Bold)]);
+            TR_CORE_INFO("ImGui: {} loaded at {} px", l_Bold ? "JetBrains Mono Regular and Bold" : "JetBrains Mono Regular", c_FontSize);
         }
 
         // ImGui keeps the returned text until the next call, in the layer's own string
@@ -254,6 +333,8 @@ namespace Trinity
         l_PlatformIO.Platform_SetClipboardTextFn = &WriteClipboard;
         l_PlatformIO.Platform_ClipboardUserData = &m_ClipboardText;
 
+        LoadFonts();
+
         const Expected<std::string, FileError> l_Settings = FileSystem::ReadText(c_SettingsPath);
         if (l_Settings)
         {
@@ -261,6 +342,7 @@ namespace Trinity
         }
 
         Application& l_Application = Application::Get();
+        m_DpiScale = l_Application.GetWindow().GetDpiScale();
         m_Renderer = CreateScope<ImGuiRenderer>(l_Application.GetDevice(), l_Application.GetRenderer().GetOutputFormat());
 
         TR_CORE_INFO("ImGui: {} context created, with settings {} {}", IMGUI_VERSION, l_Settings ? "loaded from" : "to be saved in", c_SettingsPath);
@@ -288,6 +370,7 @@ namespace Trinity
         Application& l_Application = Application::Get();
         Window& l_Window = l_Application.GetWindow();
         UpdateCursor(l_Window);
+        UpdateScale();
 
         ImGuiIO& l_IO = ImGui::GetIO();
         l_IO.DisplaySize = ImVec2(static_cast<float>(l_Window.GetWidth()), static_cast<float>(l_Window.GetHeight()));
@@ -342,6 +425,7 @@ namespace Trinity
         l_Dispatcher.Dispatch<KeyTypedEvent>([&l_IO](KeyTypedEvent& typed) { l_IO.AddInputCharacter(static_cast<unsigned int>(typed.GetCodepoint())); return l_IO.WantCaptureKeyboard; });
         l_Dispatcher.Dispatch<WindowFocusEvent>([&l_IO](WindowFocusEvent&) { l_IO.AddFocusEvent(true); return false; });
         l_Dispatcher.Dispatch<WindowLostFocusEvent>([&l_IO](WindowLostFocusEvent&) { l_IO.AddFocusEvent(false); return false; });
+        l_Dispatcher.Dispatch<WindowDpiChangedEvent>([this](WindowDpiChangedEvent& changed) { m_DpiScale = changed.GetScale(); return false; });
     }
 
     // ImGui picks the cursor during a frame and the window shows it from the next one, as ImGui's own platform backends do
@@ -359,6 +443,41 @@ namespace Trinity
             m_Cursor = l_Cursor;
             window.SetCursorShape(ToCursorShape(l_Cursor));
         }
+    }
+
+    ImFont* ImGuiLayer::GetFont(UIFont font)
+    {
+        const ImVector<ImFont*>& l_Fonts = ImGui::GetIO().Fonts->Fonts;
+
+        return l_Fonts[std::min(static_cast<int>(std::to_underlying(font)), l_Fonts.Size - 1)];
+    }
+
+    // Fonts are drawn at the scaled size, so text stays sharp. The style is rebuilt from ImGui's defaults because ScaleAllSizes rounds down and cannot be undone, which also drops style editor changes
+    void ImGuiLayer::UpdateScale()
+    {
+        const float l_UserScale = std::clamp(s_UserScaleVariable.Get(), c_MinimumUserScale, c_MaximumUserScale);
+        if (m_DpiScale == m_AppliedDpiScale && l_UserScale == m_AppliedUserScale)
+        {
+            return;
+        }
+
+        // Windows already open grow with their text, as ImGui scales them itself when a viewport changes DPI
+        if (m_AppliedDpiScale > 0.0f)
+        {
+            ImGui::ScaleWindowsInViewport(static_cast<ImGuiViewportP*>(ImGui::GetMainViewport()), (m_DpiScale * l_UserScale) / (m_AppliedDpiScale * m_AppliedUserScale));
+        }
+
+        m_AppliedDpiScale = m_DpiScale;
+        m_AppliedUserScale = l_UserScale;
+
+        ImGuiStyle l_Style;
+        l_Style.FontSizeBase = c_FontSize;
+        l_Style.FontScaleMain = l_UserScale;
+        l_Style.FontScaleDpi = m_DpiScale;
+        l_Style.ScaleAllSizes(m_DpiScale * l_UserScale);
+        ImGui::GetStyle() = l_Style;
+
+        TR_CORE_INFO("ImGui: scaled by {} for DPI and {} from ui.scale, so text is {} px", m_DpiScale, l_UserScale, std::round(c_FontSize * m_DpiScale * l_UserScale));
     }
 
     void ImGuiLayer::SaveSettings()

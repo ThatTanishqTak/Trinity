@@ -1,0 +1,21 @@
+#pragma once
+
+// Nerd Font icons as UTF-8, drawn by the engine fonts. The Material Design ones lie above U+FFFF, which IMGUI_USE_WCHAR32 allows
+namespace Trinity
+{
+    namespace Icons
+    {
+        constexpr const char* c_File = "\uF15B";
+        constexpr const char* c_FolderOpen = "\uF07C";
+        constexpr const char* c_Save = "\uF0C7";
+        constexpr const char* c_PowerOff = "\uF011";
+        constexpr const char* c_Eye = "\uF06E";
+        constexpr const char* c_Gear = "\uF013";
+        constexpr const char* c_Terminal = "\uF120";
+        constexpr const char* c_InfoCircle = "\uF05A";
+        constexpr const char* c_Warning = "\uF071";
+        constexpr const char* c_TimesCircle = "\uF057";
+        constexpr const char* c_Monitor = "\U000F0379";
+        constexpr const char* c_CubeOutline = "\U000F01A7";
+    }
+}

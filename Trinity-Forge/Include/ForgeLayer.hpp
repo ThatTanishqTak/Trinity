@@ -13,6 +13,7 @@ public:
 
 private:
     bool OnKeyPressed(Trinity::KeyPressedEvent& event);
+    void DrawFontWindow();
 
     bool m_ShowDemoWindow = true;
 };

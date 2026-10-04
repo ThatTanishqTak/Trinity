@@ -78,7 +78,7 @@ namespace Trinity
             return l_Result.empty() ? std::string("Application") : l_Result;
         }
 
-        // Engine data such as compiled shaders sits beside the executable, and is missing when the build found no shader compiler
+        // Engine data, the compiled shaders and the fonts, sits beside the executable
         void MountEngineDirectory()
         {
             const std::filesystem::path l_Directory = Platform::GetExecutableDirectory() / "Engine";

@@ -27,6 +27,7 @@ include(TrinityPlatform)
 include(TrinityCompilerOptions)
 include(TrinityShaders)
 include(TrinityAgilitySDK)
+include(TrinityAssets)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -32,4 +32,5 @@
 #include "Trinity/Renderer/GraphicsAPI.hpp"
 #include "Trinity/RHI/Device.hpp"
 
+#include "Trinity/UI/Icons.hpp"
 #include "Trinity/UI/ImGuiLayer.hpp"

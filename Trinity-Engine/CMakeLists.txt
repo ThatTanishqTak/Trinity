@@ -173,6 +173,12 @@ trinity_add_shaders(Trinity-Shaders ${TRINITY_ENGINE_SHADERS})
 add_dependencies(Trinity-Engine Trinity-Shaders)
 add_dependencies(Trinity-Engine-Static Trinity-Shaders)
 
+# Fonts and their licenses go to bin/<configuration>/Trinity/Engine/fonts, read through /engine/fonts
+file(GLOB TRINITY_ENGINE_FONTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Assets/Fonts/*")
+trinity_add_assets(Trinity-Fonts Engine/fonts ${TRINITY_ENGINE_FONTS})
+add_dependencies(Trinity-Engine Trinity-Fonts)
+add_dependencies(Trinity-Engine-Static Trinity-Fonts)
+
 # The D3D12 Agility SDK runtime goes to bin/<configuration>/Trinity/D3D12, beside every executable
 trinity_add_agility_sdk(Trinity-AgilitySDK)
 add_dependencies(Trinity-Engine Trinity-AgilitySDK)
