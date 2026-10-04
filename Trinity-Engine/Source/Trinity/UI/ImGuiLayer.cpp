@@ -6,6 +6,8 @@
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Core/Window.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
+#include "Trinity/Renderer/Renderer.hpp"
+#include "Trinity/UI/ImGuiRenderer.hpp"
 
 #include <imgui.h>
 
@@ -35,6 +37,8 @@ namespace Trinity
 
     }
 
+    ImGuiLayer::~ImGuiLayer() = default;
+
     // ImGui writes no files itself: its settings go through /saves, and are saved when ImGui asks and at shutdown
     void ImGuiLayer::OnAttach()
     {
@@ -45,7 +49,8 @@ namespace Trinity
         ImGuiIO& l_IO = ImGui::GetIO();
         l_IO.IniFilename = nullptr;
         l_IO.LogFilename = nullptr;
-        l_IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+        l_IO.BackendRendererName = "Trinity RHI";
+        l_IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures | ImGuiBackendFlags_RendererHasVtxOffset;
 
         const Expected<std::string, FileError> l_Settings = FileSystem::ReadText(c_SettingsPath);
         if (l_Settings)
@@ -53,13 +58,17 @@ namespace Trinity
             ImGui::LoadIniSettingsFromMemory(l_Settings->data(), l_Settings->size());
         }
 
+        Application& l_Application = Application::Get();
+        m_Renderer = CreateScope<ImGuiRenderer>(l_Application.GetDevice(), l_Application.GetRenderer().GetOutputFormat());
+
         TR_CORE_INFO("ImGui: {} context created, with settings {} {}", IMGUI_VERSION, l_Settings ? "loaded from" : "to be saved in", c_SettingsPath);
     }
 
     void ImGuiLayer::OnDetach()
     {
         SaveSettings();
-        AcknowledgeTextures(true);
+        m_Renderer->DestroyTextures();
+        m_Renderer.reset();
 
         ImGui::DestroyContext(m_Context);
         m_Context = nullptr;
@@ -87,7 +96,6 @@ namespace Trinity
         }
 
         ImGui::Render();
-        AcknowledgeTextures(false);
 
         if (l_IO.WantSaveIniSettings)
         {
@@ -95,6 +103,20 @@ namespace Trinity
         }
 
         ++m_FrameCount;
+    }
+
+    // Texture requests are recorded before any pass begins, since copies cannot happen inside one
+    void ImGuiLayer::OnPrepareRender(RHI::CommandList& commands)
+    {
+        m_Renderer->UpdateTextures(commands);
+    }
+
+    void ImGuiLayer::OnRenderUI(RHI::CommandList& commands)
+    {
+        if (const ImDrawData* l_DrawData = ImGui::GetDrawData())
+        {
+            m_Renderer->Render(commands, *l_DrawData);
+        }
     }
 
     void ImGuiLayer::SaveSettings()
@@ -109,51 +131,5 @@ namespace Trinity
         }
 
         ImGui::GetIO().WantSaveIniSettings = false;
-    }
-
-    // Without a renderer backend, texture requests are accepted without anything being created, so the font atlas can still grow and be freed
-    void ImGuiLayer::AcknowledgeTextures(bool shutdown)
-    {
-        for (ImTextureData* it_Texture : ImGui::GetPlatformIO().Textures)
-        {
-            if (shutdown)
-            {
-                if (it_Texture->RefCount == 1)
-                {
-                    it_Texture->SetTexID(ImTextureID_Invalid);
-                    it_Texture->SetStatus(ImTextureStatus_Destroyed);
-                }
-
-                continue;
-            }
-
-            switch (it_Texture->Status)
-            {
-                case ImTextureStatus_WantCreate:
-                {
-                    it_Texture->SetTexID(static_cast<ImTextureID>(it_Texture->UniqueID) + 1);
-                    it_Texture->SetStatus(ImTextureStatus_OK);
-
-                    break;
-                }
-                case ImTextureStatus_WantUpdates:
-                {
-                    it_Texture->SetStatus(ImTextureStatus_OK);
-
-                    break;
-                }
-                case ImTextureStatus_WantDestroy:
-                {
-                    it_Texture->SetTexID(ImTextureID_Invalid);
-                    it_Texture->SetStatus(ImTextureStatus_Destroyed);
-
-                    break;
-                }
-                default:
-                {
-                    break;
-                }
-            }
-        }
     }
 }

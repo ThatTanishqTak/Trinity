@@ -43,6 +43,11 @@ namespace Trinity
 
         }
 
+        virtual void OnPrepareRender([[maybe_unused]] RHI::CommandList& commands)
+        {
+
+        }
+
         virtual void OnRender([[maybe_unused]] RHI::CommandList& commands)
         {
 

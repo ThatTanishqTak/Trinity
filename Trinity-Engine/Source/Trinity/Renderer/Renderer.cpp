@@ -87,6 +87,15 @@ namespace Trinity
         FollowWindow();
 
         RHI::CommandList& l_Commands = m_Device.BeginFrame();
+
+        {
+            TR_PROFILE_SCOPE("LayerStack::OnPrepareRender");
+            for (const Scope<Layer>& it_Layer : layers)
+            {
+                it_Layer->OnPrepareRender(l_Commands);
+            }
+        }
+
         RenderScene(l_Commands, layers);
 
         const RHI::TextureHandle l_Output = m_SwapChain ? m_SwapChain->AcquireNextTexture() : m_OffscreenTarget;
