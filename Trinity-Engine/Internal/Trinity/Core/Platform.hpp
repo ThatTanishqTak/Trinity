@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -11,6 +12,12 @@ namespace Trinity
 {
     namespace Platform
     {
+        struct ScreenPoint
+        {
+            std::int32_t X = 0;
+            std::int32_t Y = 0;
+        };
+
         struct MonitorArea
         {
             std::int32_t X = 0;
@@ -51,5 +58,12 @@ namespace Trinity
 
         // Primary first, and empty where the platform has no windows
         [[nodiscard]] std::vector<MonitorInfo> GetMonitors();
+
+        // In screen pixels, and empty where the platform has no cursor
+        [[nodiscard]] std::optional<ScreenPoint> GetCursorPosition();
+
+        // Native window handles, null for none. GetWindowAt skips windows that let the mouse pass through
+        [[nodiscard]] void* GetWindowAt(ScreenPoint point);
+        [[nodiscard]] void* GetFocusedWindow();
     }
 }

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstring>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -247,6 +248,28 @@ namespace Trinity
             std::ranges::stable_partition(l_Monitors, &MonitorInfo::Primary);
 
             return l_Monitors;
+        }
+
+        std::optional<ScreenPoint> GetCursorPosition()
+        {
+            POINT l_Point{};
+            if (!::GetCursorPos(&l_Point))
+            {
+                return std::nullopt;
+            }
+
+            return ScreenPoint{ l_Point.x, l_Point.y };
+        }
+
+        // WindowFromPoint asks each window with WM_NCHITTEST, so a window answering HTTRANSPARENT is skipped
+        void* GetWindowAt(ScreenPoint point)
+        {
+            return ::WindowFromPoint({ point.X, point.Y });
+        }
+
+        void* GetFocusedWindow()
+        {
+            return ::GetForegroundWindow();
         }
     }
 }

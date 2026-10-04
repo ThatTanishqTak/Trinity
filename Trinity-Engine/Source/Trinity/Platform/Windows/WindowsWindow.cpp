@@ -358,6 +358,17 @@ namespace Trinity
     {
         if (m_Handle != nullptr)
         {
+            // A drag that started here keeps going in the owner, which then gets the button release
+            if (::GetCapture() == m_Handle)
+            {
+                const HWND l_Owner = ::GetWindow(m_Handle, GW_OWNER);
+                ::ReleaseCapture();
+                if (l_Owner != nullptr)
+                {
+                    ::SetCapture(l_Owner);
+                }
+            }
+
             ::SetWindowLongPtrW(m_Handle, GWLP_USERDATA, 0);
             ::DestroyWindow(m_Handle);
             m_Handle = nullptr;
@@ -435,9 +446,22 @@ namespace Trinity
         return l_Frame;
     }
 
+    // Showing an owned window brings its owner forward too, even with SW_SHOWNA, so the owner is detached while it shows
     void WindowsWindow::Show(bool focus)
     {
+        const HWND l_Owner = ::GetWindow(m_Handle, GW_OWNER);
+        const bool l_Detach = l_Owner != nullptr && (!focus || (::GetWindowLongPtrW(m_Handle, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0);
+        if (l_Detach)
+        {
+            ::SetWindowLongPtrW(m_Handle, GWLP_HWNDPARENT, 0);
+        }
+
         ::ShowWindow(m_Handle, focus ? SW_SHOW : SW_SHOWNA);
+
+        if (l_Detach)
+        {
+            ::SetWindowLongPtrW(m_Handle, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(l_Owner));
+        }
     }
 
     // Windows can refuse the foreground to a process the user is not using, and then flashes its taskbar entry instead
@@ -470,6 +494,15 @@ namespace Trinity
         else if ((l_ExStyle & WS_EX_LAYERED) != 0)
         {
             ::SetWindowLongPtrW(m_Handle, GWL_EXSTYLE, l_ExStyle & ~static_cast<LONG_PTR>(WS_EX_LAYERED));
+        }
+    }
+
+    void WindowsWindow::SetTopMost(bool topMost)
+    {
+        const bool l_TopMost = (::GetWindowLongPtrW(m_Handle, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+        if (topMost != l_TopMost)
+        {
+            ::SetWindowPos(m_Handle, topMost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
     }
 
@@ -513,7 +546,13 @@ namespace Trinity
         }
         else
         {
-            if (m_MouseButtonsDown > 0 && --m_MouseButtonsDown == 0)
+            // Capture handed over from a window that closed mid-drag is released here too, though this window counted no press
+            if (m_MouseButtonsDown > 0)
+            {
+                --m_MouseButtonsDown;
+            }
+
+            if (m_MouseButtonsDown == 0 && ::GetCapture() == m_Handle)
             {
                 ::ReleaseCapture();
             }
@@ -578,6 +617,31 @@ namespace Trinity
                 Dispatch(l_Event);
 
                 return 0;
+            }
+            case WM_DISPLAYCHANGE:
+            {
+                MonitorsChangedEvent l_Event;
+                Dispatch(l_Event);
+
+                break;
+            }
+            case WM_MOUSEACTIVATE:
+            {
+                if (!m_FocusOnClick)
+                {
+                    return MA_NOACTIVATE;
+                }
+
+                break;
+            }
+            case WM_NCHITTEST:
+            {
+                if (m_MousePassthrough)
+                {
+                    return HTTRANSPARENT;
+                }
+
+                break;
             }
             case WM_NCDESTROY:
             {

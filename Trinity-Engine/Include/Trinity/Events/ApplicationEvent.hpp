@@ -96,4 +96,12 @@ namespace Trinity
     private:
         float m_Scale;
     };
+
+    // Monitors were added, removed, moved or resized, so any list of them is out of date
+    class TRINITY_API MonitorsChangedEvent final : public Event
+    {
+    public:
+        TR_EVENT_CLASS_TYPE(MonitorsChanged)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+    };
 }

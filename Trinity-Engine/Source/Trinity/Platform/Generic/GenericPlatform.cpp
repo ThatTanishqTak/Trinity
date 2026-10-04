@@ -1,6 +1,7 @@
 #include "Trinity/Core/Platform.hpp"
 
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -138,6 +139,21 @@ namespace Trinity
         std::vector<MonitorInfo> GetMonitors()
         {
             return {};
+        }
+
+        std::optional<ScreenPoint> GetCursorPosition()
+        {
+            return std::nullopt;
+        }
+
+        void* GetWindowAt(ScreenPoint)
+        {
+            return nullptr;
+        }
+
+        void* GetFocusedWindow()
+        {
+            return nullptr;
         }
     }
 }

@@ -74,6 +74,9 @@ namespace Trinity
         void Close();
         void SubmitFrameJob(Job job);
 
+        // Also how events from windows other than the main one, such as ImGui's viewports, reach Input and the layers
+        void OnEvent(Event& event);
+
         [[nodiscard]] Window& GetWindow() { return *m_Window; }
         [[nodiscard]] RHI::Device& GetDevice() { return *m_Device; }
         [[nodiscard]] Renderer& GetRenderer() { return *m_Renderer; }
@@ -88,7 +91,6 @@ namespace Trinity
         void Run();
         void RunFrame(bool pollEvents);
         void CreateDevice();
-        void OnEvent(Event& event);
         bool OnWindowClose(WindowCloseEvent& event);
         bool OnWindowResize(WindowResizeEvent& event);
 

@@ -31,6 +31,9 @@ namespace Trinity
         [[nodiscard]] bool IsMinimized() const override { return false; }
 
         void SetOpacity(float) override {}
+        void SetTopMost(bool) override {}
+        void SetFocusOnClick(bool) override {}
+        void SetMousePassthrough(bool) override {}
 
         [[nodiscard]] float GetDpiScale() const override { return 1.0f; }
 

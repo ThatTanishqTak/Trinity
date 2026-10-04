@@ -25,6 +25,7 @@
 #include <cstring>
 #include <format>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -52,6 +53,9 @@ namespace Trinity
         } };
 
         ConsoleVariable<float> s_UserScaleVariable("ui.scale", 1.0f, "UI size on top of the monitor's DPI scale, from 0.5 to 4");
+        ConsoleVariable<bool> s_ViewportsVariable("ui.viewports", true, "Lets ImGui windows leave the main window as windows of their own, where the platform has windows");
+
+        constexpr std::array<float, 4> c_ViewportClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
 
         void* AllocateUI(std::size_t size, [[maybe_unused]] void* userData)
         {
@@ -301,7 +305,105 @@ namespace Trinity
                 io.AddMouseButtonEvent(l_Button, pressed);
             }
         }
+
+        // Every viewport's PlatformHandle is its Window, the main one included, so these serve both
+        Window& GetViewportWindow(ImGuiViewport* viewport)
+        {
+            return *static_cast<Window*>(viewport->PlatformHandle);
+        }
+
+        ImGuiViewport* FindViewport(void* nativeHandle)
+        {
+            if (nativeHandle == nullptr)
+            {
+                return nullptr;
+            }
+
+            for (ImGuiViewport* it_Viewport : ImGui::GetPlatformIO().Viewports)
+            {
+                if (it_Viewport->PlatformHandleRaw == nativeHandle)
+                {
+                    return it_Viewport;
+                }
+            }
+
+            return nullptr;
+        }
+
+        void ShowViewport(ImGuiViewport* viewport)
+        {
+            GetViewportWindow(viewport).Show((viewport->Flags & ImGuiViewportFlags_NoFocusOnAppearing) == 0);
+        }
+
+        void SetViewportPosition(ImGuiViewport* viewport, ImVec2 position)
+        {
+            GetViewportWindow(viewport).SetPosition({ static_cast<std::int32_t>(position.x), static_cast<std::int32_t>(position.y) });
+        }
+
+        ImVec2 GetViewportPosition(ImGuiViewport* viewport)
+        {
+            const WindowPosition l_Position = GetViewportWindow(viewport).GetPosition();
+
+            return ImVec2(static_cast<float>(l_Position.X), static_cast<float>(l_Position.Y));
+        }
+
+        void SetViewportSize(ImGuiViewport* viewport, ImVec2 size)
+        {
+            GetViewportWindow(viewport).SetSize(static_cast<std::uint32_t>(std::max(size.x, 1.0f)), static_cast<std::uint32_t>(std::max(size.y, 1.0f)));
+        }
+
+        ImVec2 GetViewportSize(ImGuiViewport* viewport)
+        {
+            const Window& l_Window = GetViewportWindow(viewport);
+
+            return ImVec2(static_cast<float>(l_Window.GetWidth()), static_cast<float>(l_Window.GetHeight()));
+        }
+
+        void FocusViewport(ImGuiViewport* viewport)
+        {
+            GetViewportWindow(viewport).Focus();
+        }
+
+        bool IsViewportFocused(ImGuiViewport* viewport)
+        {
+            return GetViewportWindow(viewport).IsFocused();
+        }
+
+        bool IsViewportMinimized(ImGuiViewport* viewport)
+        {
+            return GetViewportWindow(viewport).IsMinimized();
+        }
+
+        void SetViewportTitle(ImGuiViewport* viewport, const char* title)
+        {
+            GetViewportWindow(viewport).SetTitle(title);
+        }
+
+        void SetViewportAlpha(ImGuiViewport* viewport, float alpha)
+        {
+            GetViewportWindow(viewport).SetOpacity(alpha);
+        }
+
+        // ImGui changes these flags from frame to frame, such as NoInputs while a window is dragged, so the window under it can be found
+        void UpdateViewport(ImGuiViewport* viewport)
+        {
+            Window& l_Window = GetViewportWindow(viewport);
+            l_Window.SetTopMost((viewport->Flags & ImGuiViewportFlags_TopMost) != 0);
+            l_Window.SetFocusOnClick((viewport->Flags & ImGuiViewportFlags_NoFocusOnClick) == 0);
+            l_Window.SetMousePassthrough((viewport->Flags & ImGuiViewportFlags_NoInputs) != 0);
+        }
+
+        float GetViewportDpiScale(ImGuiViewport* viewport)
+        {
+            return GetViewportWindow(viewport).GetDpiScale();
+        }
     }
+
+    struct ImGuiLayer::ViewportWindow
+    {
+        Scope<Window> Platform;
+        std::uint32_t Output = 0;
+    };
 
     ImGuiLayer::ImGuiLayer() : Layer("ImGui")
     {
@@ -323,7 +425,7 @@ namespace Trinity
         l_IO.BackendPlatformName = "Trinity";
         l_IO.BackendRendererName = "Trinity RHI";
         l_IO.BackendFlags |= ImGuiBackendFlags_HasMouseCursors | ImGuiBackendFlags_RendererHasTextures | ImGuiBackendFlags_RendererHasVtxOffset;
-        l_IO.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        l_IO.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
 
         // Navigation alone does not take the keyboard, so layer shortcuts keep working while an ImGui window has focus
         l_IO.ConfigNavCaptureKeyboard = false;
@@ -342,15 +444,52 @@ namespace Trinity
         }
 
         Application& l_Application = Application::Get();
-        m_DpiScale = l_Application.GetWindow().GetDpiScale();
+        Window& l_Window = l_Application.GetWindow();
+        m_DpiScale = l_Window.GetDpiScale();
         m_Renderer = CreateScope<ImGuiRenderer>(l_Application.GetDevice(), l_Application.GetRenderer().GetOutputFormat());
 
-        TR_CORE_INFO("ImGui: {} context created, with settings {} {}", IMGUI_VERSION, l_Settings ? "loaded from" : "to be saved in", c_SettingsPath);
+        // Floating windows are bare popups owned by the main window, with ImGui drawing their title bars, and no taskbar entries
+        ImGuiViewport* l_MainViewport = ImGui::GetMainViewport();
+        l_MainViewport->PlatformHandle = &l_Window;
+        l_MainViewport->PlatformHandleRaw = l_Window.GetNativeHandle();
+        l_IO.BackendPlatformUserData = this;
+        l_IO.ConfigViewportsNoDecoration = true;
+        l_IO.ConfigViewportsNoTaskBarIcon = true;
+
+        UpdateMonitors();
+        m_ViewportsSupported = l_Window.GetNativeHandle() != nullptr && !l_PlatformIO.Monitors.empty();
+        if (m_ViewportsSupported)
+        {
+            l_IO.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports | ImGuiBackendFlags_HasMouseHoveredViewport | ImGuiBackendFlags_RendererHasViewports;
+            l_PlatformIO.Platform_CreateWindow = &ImGuiLayer::CreateViewportWindow;
+            l_PlatformIO.Platform_DestroyWindow = &ImGuiLayer::DestroyViewportWindow;
+            l_PlatformIO.Platform_ShowWindow = &ShowViewport;
+            l_PlatformIO.Platform_SetWindowPos = &SetViewportPosition;
+            l_PlatformIO.Platform_GetWindowPos = &GetViewportPosition;
+            l_PlatformIO.Platform_SetWindowSize = &SetViewportSize;
+            l_PlatformIO.Platform_GetWindowSize = &GetViewportSize;
+            l_PlatformIO.Platform_SetWindowFocus = &FocusViewport;
+            l_PlatformIO.Platform_GetWindowFocus = &IsViewportFocused;
+            l_PlatformIO.Platform_GetWindowMinimized = &IsViewportMinimized;
+            l_PlatformIO.Platform_SetWindowTitle = &SetViewportTitle;
+            l_PlatformIO.Platform_SetWindowAlpha = &SetViewportAlpha;
+            l_PlatformIO.Platform_UpdateWindow = &UpdateViewport;
+            l_PlatformIO.Platform_GetWindowDpiScale = &GetViewportDpiScale;
+            l_PlatformIO.Renderer_CreateWindow = &ImGuiLayer::CreateViewportOutput;
+            l_PlatformIO.Renderer_DestroyWindow = &ImGuiLayer::DestroyViewportOutput;
+
+            // Set before the first frame, as ImGui asks, so imgui.ini keeps the positions of floating windows
+            UpdateViewports();
+        }
+
+        TR_CORE_INFO("ImGui: {} context created, with settings {} {}, and multi-viewport {}", IMGUI_VERSION, l_Settings ? "loaded from" : "to be saved in", c_SettingsPath, m_ViewportsSupported ? "available through ui.viewports" : "off, since this platform has no windows");
     }
 
     void ImGuiLayer::OnDetach()
     {
         SaveSettings();
+        ImGui::DestroyPlatformWindows();
+        ImGui::GetIO().BackendPlatformUserData = nullptr;
         m_Renderer->DestroyTextures();
         m_Renderer.reset();
 
@@ -370,6 +509,7 @@ namespace Trinity
         Application& l_Application = Application::Get();
         Window& l_Window = l_Application.GetWindow();
         UpdateCursor(l_Window);
+        UpdateViewports();
         UpdateScale();
 
         ImGuiIO& l_IO = ImGui::GetIO();
@@ -383,6 +523,12 @@ namespace Trinity
         }
 
         ImGui::Render();
+
+        // Creates, moves and destroys the windows of floating ImGui windows. The Renderer draws them in its frame, through the outputs those windows were given
+        if (m_ViewportsSupported)
+        {
+            ImGui::UpdatePlatformWindows();
+        }
 
         if (l_IO.WantSaveIniSettings)
         {
@@ -410,10 +556,34 @@ namespace Trinity
     void ImGuiLayer::OnEvent(Event& event)
     {
         ImGuiIO& l_IO = ImGui::GetIO();
+        Window& l_MainWindow = Application::Get().GetWindow();
+
+        // Positions are relative to the main window, and with multi-viewport ImGui wants them on the screen
+        const auto a_OnMouseMoved = [this, &l_IO, &l_MainWindow](MouseMovedEvent& moved)
+        {
+            m_MouseWindow = m_EventSource != nullptr ? m_EventSource : &l_MainWindow;
+
+            const WindowPosition l_Origin = (l_IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0 ? l_MainWindow.GetPosition() : WindowPosition{};
+            l_IO.AddMousePosEvent(moved.GetX() + static_cast<float>(l_Origin.X), moved.GetY() + static_cast<float>(l_Origin.Y));
+
+            return l_IO.WantCaptureMouse;
+        };
+
+        // The mouse may already be in a floating window, whose move arrived first
+        const auto a_OnMouseLeft = [this, &l_IO, &l_MainWindow](MouseLeftEvent&)
+        {
+            if (m_MouseWindow == &l_MainWindow)
+            {
+                m_MouseWindow = nullptr;
+                l_IO.AddMousePosEvent(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
+            }
+
+            return false;
+        };
 
         EventDispatcher l_Dispatcher(event);
-        l_Dispatcher.Dispatch<MouseMovedEvent>([&l_IO](MouseMovedEvent& moved) { l_IO.AddMousePosEvent(moved.GetX(), moved.GetY()); return l_IO.WantCaptureMouse; });
-        l_Dispatcher.Dispatch<MouseLeftEvent>([&l_IO](MouseLeftEvent&) { l_IO.AddMousePosEvent(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max()); return false; });
+        l_Dispatcher.Dispatch<MouseMovedEvent>(a_OnMouseMoved);
+        l_Dispatcher.Dispatch<MouseLeftEvent>(a_OnMouseLeft);
         l_Dispatcher.Dispatch<MouseButtonPressedEvent>([&l_IO](MouseButtonPressedEvent& pressed) { AddMouseButtonEvent(l_IO, pressed.GetMouseButton(), true); return l_IO.WantCaptureMouse; });
         l_Dispatcher.Dispatch<MouseButtonReleasedEvent>([&l_IO](MouseButtonReleasedEvent& released) { AddMouseButtonEvent(l_IO, released.GetMouseButton(), false); return false; });
 
@@ -425,7 +595,194 @@ namespace Trinity
         l_Dispatcher.Dispatch<KeyTypedEvent>([&l_IO](KeyTypedEvent& typed) { l_IO.AddInputCharacter(static_cast<unsigned int>(typed.GetCodepoint())); return l_IO.WantCaptureKeyboard; });
         l_Dispatcher.Dispatch<WindowFocusEvent>([&l_IO](WindowFocusEvent&) { l_IO.AddFocusEvent(true); return false; });
         l_Dispatcher.Dispatch<WindowLostFocusEvent>([&l_IO](WindowLostFocusEvent&) { l_IO.AddFocusEvent(false); return false; });
-        l_Dispatcher.Dispatch<WindowDpiChangedEvent>([this](WindowDpiChangedEvent& changed) { m_DpiScale = changed.GetScale(); return false; });
+        l_Dispatcher.Dispatch<WindowDpiChangedEvent>([this](WindowDpiChangedEvent& changed) { m_DpiScale = changed.GetScale(); m_MonitorsChanged = true; return false; });
+        l_Dispatcher.Dispatch<MonitorsChangedEvent>([this](MonitorsChangedEvent&) { m_MonitorsChanged = true; return false; });
+    }
+
+    // Window events become ImGui's requests for that viewport. Input goes the way the main window's does, through Application, so Input and the layers see it too
+    void ImGuiLayer::OnViewportEvent(ImGuiViewport& viewport, Event& event)
+    {
+        ImGuiIO& l_IO = ImGui::GetIO();
+        Window& l_Window = GetViewportWindow(&viewport);
+
+        EventDispatcher l_Dispatcher(event);
+        l_Dispatcher.Dispatch<WindowCloseEvent>([&viewport](WindowCloseEvent&) { viewport.PlatformRequestClose = true; return true; });
+        l_Dispatcher.Dispatch<WindowMovedEvent>([&viewport](WindowMovedEvent&) { viewport.PlatformRequestMove = true; return true; });
+        l_Dispatcher.Dispatch<WindowResizeEvent>([&viewport](WindowResizeEvent&) { viewport.PlatformRequestResize = true; return true; });
+        l_Dispatcher.Dispatch<WindowFocusEvent>([&l_IO](WindowFocusEvent&) { l_IO.AddFocusEvent(true); return true; });
+        l_Dispatcher.Dispatch<WindowLostFocusEvent>([&l_IO](WindowLostFocusEvent&) { l_IO.AddFocusEvent(false); return true; });
+        l_Dispatcher.Dispatch<WindowDpiChangedEvent>([this](WindowDpiChangedEvent&) { m_MonitorsChanged = true; return true; });
+        l_Dispatcher.Dispatch<MonitorsChangedEvent>([this](MonitorsChangedEvent&) { m_MonitorsChanged = true; return true; });
+        l_Dispatcher.Dispatch<MouseLeftEvent>([this, &l_IO, &l_Window](MouseLeftEvent&)
+        {
+            if (m_MouseWindow == &l_Window)
+            {
+                m_MouseWindow = nullptr;
+                l_IO.AddMousePosEvent(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
+            }
+
+            return true;
+        });
+
+        if (event.Handled || !event.IsInCategory(EventCategoryInput))
+        {
+            return;
+        }
+
+        m_EventSource = &l_Window;
+        if (event.GetEventType() == EventType::MouseMoved)
+        {
+            const MouseMovedEvent& l_Moved = static_cast<const MouseMovedEvent&>(event);
+            const WindowPosition l_From = l_Window.GetPosition();
+            const WindowPosition l_To = Application::Get().GetWindow().GetPosition();
+
+            MouseMovedEvent l_Relative(l_Moved.GetX() + static_cast<float>(l_From.X - l_To.X), l_Moved.GetY() + static_cast<float>(l_From.Y - l_To.Y));
+            Application::Get().OnEvent(l_Relative);
+        }
+        else
+        {
+            Application::Get().OnEvent(event);
+        }
+
+        m_EventSource = nullptr;
+    }
+
+    // Turns multi-viewport on or off as ui.viewports asks, refreshes the monitors, and gives ImGui the mouse as Windows sees it
+    void ImGuiLayer::UpdateViewports()
+    {
+        if (!m_ViewportsSupported)
+        {
+            return;
+        }
+
+        ImGuiIO& l_IO = ImGui::GetIO();
+        const bool l_Enable = s_ViewportsVariable.Get();
+        if (l_Enable != ((l_IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0))
+        {
+            l_IO.ConfigFlags ^= ImGuiConfigFlags_ViewportsEnable;
+
+            // ImGui follows each viewport's DPI itself while viewports are on, and the style is rebuilt to hand it over
+            l_IO.ConfigDpiScaleFonts = l_Enable;
+            l_IO.ConfigDpiScaleViewports = l_Enable;
+            m_AppliedDpiScale = 0.0f;
+
+            TR_CORE_INFO("ImGui: multi-viewport {}", l_Enable ? "on" : "off");
+        }
+
+        if (m_MonitorsChanged)
+        {
+            UpdateMonitors();
+        }
+
+        if (!l_Enable)
+        {
+            return;
+        }
+
+        // Fills in while the mouse is over none of these windows, such as when a floating window is dragged faster than it follows
+        const std::optional<Platform::ScreenPoint> l_Cursor = Platform::GetCursorPosition();
+        if (l_Cursor && m_MouseWindow == nullptr && FindViewport(Platform::GetFocusedWindow()) != nullptr)
+        {
+            l_IO.AddMousePosEvent(static_cast<float>(l_Cursor->X), static_cast<float>(l_Cursor->Y));
+        }
+
+        // A window being dragged lets the mouse pass through, so this finds the one under it to dock into
+        const ImGuiViewport* l_Hovered = l_Cursor ? FindViewport(Platform::GetWindowAt(*l_Cursor)) : nullptr;
+        l_IO.AddMouseViewportEvent(l_Hovered != nullptr ? l_Hovered->ID : 0);
+    }
+
+    // Primary first, as ImGui expects
+    void ImGuiLayer::UpdateMonitors()
+    {
+        ImVector<ImGuiPlatformMonitor>& l_Monitors = ImGui::GetPlatformIO().Monitors;
+        l_Monitors.resize(0);
+
+        for (const Platform::MonitorInfo& it_Monitor : Platform::GetMonitors())
+        {
+            ImGuiPlatformMonitor l_Monitor;
+            l_Monitor.MainPos = ImVec2(static_cast<float>(it_Monitor.Area.X), static_cast<float>(it_Monitor.Area.Y));
+            l_Monitor.MainSize = ImVec2(static_cast<float>(it_Monitor.Area.Width), static_cast<float>(it_Monitor.Area.Height));
+            l_Monitor.WorkPos = ImVec2(static_cast<float>(it_Monitor.WorkArea.X), static_cast<float>(it_Monitor.WorkArea.Y));
+            l_Monitor.WorkSize = ImVec2(static_cast<float>(it_Monitor.WorkArea.Width), static_cast<float>(it_Monitor.WorkArea.Height));
+            l_Monitor.DpiScale = it_Monitor.DpiScale;
+            l_Monitors.push_back(l_Monitor);
+        }
+
+        m_MonitorsChanged = false;
+    }
+
+    // Hidden until ImGui shows it, with ImGui's cursor, and with its input routed through OnViewportEvent
+    void ImGuiLayer::CreateViewportWindow(ImGuiViewport* viewport)
+    {
+        ImGuiLayer& l_Layer = *static_cast<ImGuiLayer*>(ImGui::GetIO().BackendPlatformUserData);
+        Window& l_MainWindow = Application::Get().GetWindow();
+
+        WindowSpecification l_Specification;
+        l_Specification.Title = "ImGui";
+        l_Specification.Width = static_cast<std::uint32_t>(std::max(viewport->Size.x, 1.0f));
+        l_Specification.Height = static_cast<std::uint32_t>(std::max(viewport->Size.y, 1.0f));
+        l_Specification.Position = WindowPosition{ static_cast<std::int32_t>(viewport->Pos.x), static_cast<std::int32_t>(viewport->Pos.y) };
+        l_Specification.Owner = viewport->ParentViewport != nullptr ? static_cast<Window*>(viewport->ParentViewport->PlatformHandle) : nullptr;
+        l_Specification.Decorated = (viewport->Flags & ImGuiViewportFlags_NoDecoration) == 0;
+        l_Specification.TaskbarIcon = (viewport->Flags & ImGuiViewportFlags_NoTaskBarIcon) == 0;
+        l_Specification.TopMost = (viewport->Flags & ImGuiViewportFlags_TopMost) != 0;
+        l_Specification.Visible = false;
+        l_Specification.Headless = l_MainWindow.GetNativeHandle() == nullptr;
+
+        Scope<ViewportWindow> l_Viewport = CreateScope<ViewportWindow>();
+        l_Viewport->Platform = Window::Create(l_Specification);
+        l_Viewport->Platform->SetEventCallback([&l_Layer, viewport](Event& event) { l_Layer.OnViewportEvent(*viewport, event); });
+        l_Viewport->Platform->SetCursorShape(ToCursorShape(l_Layer.m_Cursor));
+
+        viewport->PlatformUserData = l_Viewport.get();
+        viewport->PlatformHandle = l_Viewport->Platform.get();
+        viewport->PlatformHandleRaw = l_Viewport->Platform->GetNativeHandle();
+        viewport->PlatformRequestResize = false;
+
+        UpdateViewport(viewport);
+        l_Layer.m_ViewportWindows.push_back(std::move(l_Viewport));
+    }
+
+    // ImGui calls this for the main viewport too, whose window belongs to Application
+    void ImGuiLayer::DestroyViewportWindow(ImGuiViewport* viewport)
+    {
+        ImGuiLayer& l_Layer = *static_cast<ImGuiLayer*>(ImGui::GetIO().BackendPlatformUserData);
+        if (const ViewportWindow* l_Viewport = static_cast<const ViewportWindow*>(viewport->PlatformUserData))
+        {
+            if (l_Layer.m_MouseWindow == l_Viewport->Platform.get())
+            {
+                l_Layer.m_MouseWindow = nullptr;
+            }
+
+            std::erase_if(l_Layer.m_ViewportWindows, [l_Viewport](const Scope<ViewportWindow>& it_Viewport) { return it_Viewport.get() == l_Viewport; });
+        }
+
+        viewport->PlatformUserData = nullptr;
+        viewport->PlatformHandle = nullptr;
+        viewport->PlatformHandleRaw = nullptr;
+    }
+
+    void ImGuiLayer::CreateViewportOutput(ImGuiViewport* viewport)
+    {
+        ImGuiLayer& l_Layer = *static_cast<ImGuiLayer*>(ImGui::GetIO().BackendPlatformUserData);
+        ViewportWindow& l_Viewport = *static_cast<ViewportWindow*>(viewport->PlatformUserData);
+
+        l_Viewport.Output = Application::Get().GetRenderer().AddOutput(*l_Viewport.Platform, c_ViewportClearColor, [&l_Layer, viewport](RHI::CommandList& commands, std::uint32_t, std::uint32_t)
+        {
+            if (const ImDrawData* l_DrawData = viewport->DrawData)
+            {
+                l_Layer.m_Renderer->Render(commands, *l_DrawData);
+            }
+        });
+    }
+
+    void ImGuiLayer::DestroyViewportOutput(ImGuiViewport* viewport)
+    {
+        if (ViewportWindow* l_Viewport = static_cast<ViewportWindow*>(viewport->PlatformUserData))
+        {
+            Application::Get().GetRenderer().RemoveOutput(l_Viewport->Output);
+            l_Viewport->Output = 0;
+        }
     }
 
     // ImGui picks the cursor during a frame and the window shows it from the next one, as ImGui's own platform backends do
@@ -442,6 +799,10 @@ namespace Trinity
         {
             m_Cursor = l_Cursor;
             window.SetCursorShape(ToCursorShape(l_Cursor));
+            for (const Scope<ViewportWindow>& it_Viewport : m_ViewportWindows)
+            {
+                it_Viewport->Platform->SetCursorShape(ToCursorShape(l_Cursor));
+            }
         }
     }
 
@@ -461,10 +822,15 @@ namespace Trinity
             return;
         }
 
-        // Windows already open grow with their text, as ImGui scales them itself when a viewport changes DPI
-        if (m_AppliedDpiScale > 0.0f)
+        // Windows already open grow with their text. With multi-viewport on, ImGui scales them itself for DPI, so only ui.scale is left here
+        const bool l_ImGuiFollowsDpi = (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0;
+        const float l_Ratio = m_AppliedDpiScale > 0.0f ? (l_ImGuiFollowsDpi ? l_UserScale / m_AppliedUserScale : (m_DpiScale * l_UserScale) / (m_AppliedDpiScale * m_AppliedUserScale)) : 1.0f;
+        if (l_Ratio != 1.0f)
         {
-            ImGui::ScaleWindowsInViewport(static_cast<ImGuiViewportP*>(ImGui::GetMainViewport()), (m_DpiScale * l_UserScale) / (m_AppliedDpiScale * m_AppliedUserScale));
+            for (ImGuiViewport* it_Viewport : ImGui::GetPlatformIO().Viewports)
+            {
+                ImGui::ScaleWindowsInViewport(static_cast<ImGuiViewportP*>(it_Viewport), l_Ratio);
+            }
         }
 
         m_AppliedDpiScale = m_DpiScale;

@@ -37,6 +37,9 @@ namespace Trinity
         [[nodiscard]] bool IsMinimized() const override;
 
         void SetOpacity(float opacity) override;
+        void SetTopMost(bool topMost) override;
+        void SetFocusOnClick(bool focus) override { m_FocusOnClick = focus; }
+        void SetMousePassthrough(bool passthrough) override { m_MousePassthrough = passthrough; }
 
         [[nodiscard]] float GetDpiScale() const override;
 
@@ -64,5 +67,7 @@ namespace Trinity
         bool m_Refreshing = false;
         bool m_TrackingMouse = false;
         bool m_Counted = false;
+        bool m_FocusOnClick = true;
+        bool m_MousePassthrough = false;
     };
 }

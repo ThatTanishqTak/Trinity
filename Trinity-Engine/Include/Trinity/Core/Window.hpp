@@ -80,6 +80,9 @@ namespace Trinity
         [[nodiscard]] virtual bool IsMinimized() const = 0;
 
         virtual void SetOpacity(float opacity) = 0;
+        virtual void SetTopMost(bool topMost) = 0;
+        virtual void SetFocusOnClick(bool focus) = 0;
+        virtual void SetMousePassthrough(bool passthrough) = 0;
 
         [[nodiscard]] virtual float GetDpiScale() const = 0;
 
