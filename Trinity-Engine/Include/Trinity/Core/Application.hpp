@@ -78,6 +78,7 @@ namespace Trinity
         [[nodiscard]] RHI::Device& GetDevice() { return *m_Device; }
         [[nodiscard]] Renderer& GetRenderer() { return *m_Renderer; }
         [[nodiscard]] FrameAllocator& GetFrameAllocator() { return m_FrameAllocator; }
+        [[nodiscard]] LayerStack& GetLayerStack() { return m_LayerStack; }
         [[nodiscard]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
         [[nodiscard]] std::uint64_t GetFrameCount() const { return m_FrameCount; }
 

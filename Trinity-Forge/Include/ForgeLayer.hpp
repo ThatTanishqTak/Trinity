@@ -8,4 +8,5 @@ public:
     ForgeLayer();
 
     void OnAttach() override;
+    void OnImGuiRender() override;
 };

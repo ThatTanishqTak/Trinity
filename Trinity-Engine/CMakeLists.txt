@@ -52,6 +52,23 @@ list(FILTER TRINITY_ENGINE_HEADERS EXCLUDE REGEX "\\.cpp$")
 set(TRINITY_ENGINE_COMPILED ${TRINITY_ENGINE_FILES})
 list(FILTER TRINITY_ENGINE_COMPILED INCLUDE REGEX "\\.cpp$")
 
+# Dear ImGui is compiled into the engine, so Forge and every game module share one copy and one context. The engine's imconfig makes IMGUI_API export like TRINITY_API
+set(TRINITY_IMGUI_DIRECTORY "${CMAKE_SOURCE_DIR}/Vendor/imgui")
+set(TRINITY_IMGUI_SOURCES
+    "${TRINITY_IMGUI_DIRECTORY}/imgui.cpp"
+    "${TRINITY_IMGUI_DIRECTORY}/imgui_demo.cpp"
+    "${TRINITY_IMGUI_DIRECTORY}/imgui_draw.cpp"
+    "${TRINITY_IMGUI_DIRECTORY}/imgui_tables.cpp"
+    "${TRINITY_IMGUI_DIRECTORY}/imgui_widgets.cpp"
+    "${TRINITY_IMGUI_DIRECTORY}/misc/cpp/imgui_stdlib.cpp"
+    "${TRINITY_IMGUI_DIRECTORY}/misc/freetype/imgui_freetype.cpp"
+)
+set_source_files_properties(${TRINITY_IMGUI_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
+# FreeType's long and unsigned types meet ImGui's int and float there, so only that file drops the conversion warnings
+set_source_files_properties("${TRINITY_IMGUI_DIRECTORY}/misc/freetype/imgui_freetype.cpp" PROPERTIES COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/wd4244;/wd4267,-Wno-conversion;-Wno-sign-conversion>")
+list(APPEND TRINITY_ENGINE_COMPILED ${TRINITY_IMGUI_SOURCES})
+
 # CMake builds every library an executable links in any configuration, in every configuration so each engine target compiles the engine only in the configurations that use it, and a placeholder in the others, written outside bin.
 set(TRINITY_ENGINE_STATIC_CONFIG "$<NOT:${TRINITY_ENGINE_SHARED_CONFIG}>")
 set(TRINITY_ENGINE_PLACEHOLDER_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Placeholder/$<CONFIG>")
@@ -69,6 +86,7 @@ function(trinity_add_engine_library target type active_config)
 
     trinity_configure_target(${target})
     source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_ENGINE_FILES})
+    source_group("Vendor/imgui" FILES ${TRINITY_IMGUI_SOURCES})
 
     set_target_properties(${target} PROPERTIES
         LINKER_LANGUAGE CXX
@@ -81,6 +99,7 @@ function(trinity_add_engine_library target type active_config)
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Include"
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Internal"
     )
+    target_include_directories(${target} SYSTEM PUBLIC "${TRINITY_IMGUI_DIRECTORY}")
     # The placeholder still gets a header: an empty list in some configurations breaks Ninja generation with MSVC
     target_precompile_headers(${target}
         PRIVATE "$<IF:${active_config},${CMAKE_CURRENT_SOURCE_DIR}/Internal/TrinityPCH.hpp,<cstddef$<ANGLE-R>>"
@@ -94,6 +113,7 @@ function(trinity_add_engine_library target type active_config)
             GLM_FORCE_DEPTH_ZERO_TO_ONE
             GLM_FORCE_RADIANS
             GLM_ENABLE_EXPERIMENTAL
+            "IMGUI_USER_CONFIG=\"Trinity/UI/ImGuiConfig.hpp\""
     )
 
     target_link_libraries(${target}
@@ -103,6 +123,7 @@ function(trinity_add_engine_library target type active_config)
             EnTT::EnTT
         PRIVATE
             spdlog::spdlog
+            Freetype::Freetype
     )
 
     if(TRINITY_PLATFORM STREQUAL "Windows")

@@ -53,6 +53,11 @@ namespace Trinity
 
         }
 
+        virtual void OnImGuiRender()
+        {
+
+        }
+
         [[nodiscard]] const std::string& GetName() const { return m_Name; }
 
     private:

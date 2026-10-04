@@ -8,6 +8,7 @@ public:
     explicit ForgeApplication(Trinity::ApplicationSpecification specification) : Application(std::move(specification))
     {
         PushLayer<ForgeLayer>();
+        PushOverlay<Trinity::ImGuiLayer>();
     }
 };
 

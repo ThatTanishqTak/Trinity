@@ -1,5 +1,7 @@
 #include "ForgeLayer.hpp"
 
+#include <imgui.h>
+
 ForgeLayer::ForgeLayer() : Layer("Forge")
 {
 
@@ -17,4 +19,9 @@ void ForgeLayer::OnAttach()
     {
         TR_INFO("No project given. Start Forge from Trinity-Hub or pass --project=<path>.");
     }
+}
+
+void ForgeLayer::OnImGuiRender()
+{
+    ImGui::ShowDemoWindow();
 }

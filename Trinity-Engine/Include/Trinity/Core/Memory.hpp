@@ -21,6 +21,7 @@ namespace Trinity
         Jobs,
         FileSystem,
         Renderer,
+        UI,
         Scene,
         Assets,
         Audio,
