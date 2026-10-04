@@ -222,9 +222,72 @@ namespace Trinity
                 {
                     return KeyCode::TR_GRAVE_ACCENT;
                 }
+                case VK_OEM_102:
+                {
+                    return KeyCode::TR_WORLD_2;
+                }
+                case VK_BROWSER_BACK:
+                {
+                    return KeyCode::TR_APP_BACK;
+                }
+                case VK_BROWSER_FORWARD:
+                {
+                    return KeyCode::TR_APP_FORWARD;
+                }
                 default:
                 {
                     return KeyCode::UNKNOWN;
+                }
+            }
+        }
+
+        LPCWSTR ToCursorName(CursorShape shape)
+        {
+            switch (shape)
+            {
+                case CursorShape::TextInput:
+                {
+                    return IDC_IBEAM;
+                }
+                case CursorShape::ResizeAll:
+                {
+                    return IDC_SIZEALL;
+                }
+                case CursorShape::ResizeNS:
+                {
+                    return IDC_SIZENS;
+                }
+                case CursorShape::ResizeEW:
+                {
+                    return IDC_SIZEWE;
+                }
+                case CursorShape::ResizeNESW:
+                {
+                    return IDC_SIZENESW;
+                }
+                case CursorShape::ResizeNWSE:
+                {
+                    return IDC_SIZENWSE;
+                }
+                case CursorShape::Hand:
+                {
+                    return IDC_HAND;
+                }
+                case CursorShape::Wait:
+                {
+                    return IDC_WAIT;
+                }
+                case CursorShape::Progress:
+                {
+                    return IDC_APPSTARTING;
+                }
+                case CursorShape::NotAllowed:
+                {
+                    return IDC_NO;
+                }
+                default:
+                {
+                    return IDC_ARROW;
                 }
             }
         }
@@ -300,6 +363,33 @@ namespace Trinity
     void WindowsWindow::SetTitle(std::string_view title)
     {
         ::SetWindowTextW(m_Handle, ToWide(title).c_str());
+    }
+
+    // Applied at once when the cursor is over this window, and otherwise on the next WM_SETCURSOR
+    void WindowsWindow::SetCursorShape(CursorShape shape)
+    {
+        if (shape == m_CursorShape)
+        {
+            return;
+        }
+
+        m_CursorShape = shape;
+
+        POINT l_Point{};
+        if (::GetCursorPos(&l_Point) && ::WindowFromPoint(l_Point) == m_Handle)
+        {
+            ApplyCursor();
+        }
+    }
+
+    void WindowsWindow::ApplyCursor() const
+    {
+        ::SetCursor(m_CursorShape == CursorShape::Hidden ? nullptr : ::LoadCursorW(nullptr, ToCursorName(m_CursorShape)));
+    }
+
+    float WindowsWindow::GetDpiScale() const
+    {
+        return static_cast<float>(::GetDpiForWindow(m_Handle)) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
     }
 
     void WindowsWindow::Dispatch(Event& event)
@@ -426,6 +516,9 @@ namespace Trinity
                 const auto* suggested = reinterpret_cast<const RECT*>(lParam);
                 ::SetWindowPos(m_Handle, nullptr, suggested->left, suggested->top, suggested->right - suggested->left, suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
 
+                WindowDpiChangedEvent l_Event(static_cast<float>(LOWORD(wParam)) / static_cast<float>(USER_DEFAULT_SCREEN_DPI));
+                Dispatch(l_Event);
+
                 return 0;
             }
             case WM_SETFOCUS:
@@ -500,8 +593,35 @@ namespace Trinity
 
                 return 0;
             }
+            case WM_SETCURSOR:
+            {
+                // The borders keep Windows' own resize cursors
+                if (LOWORD(lParam) == HTCLIENT)
+                {
+                    ApplyCursor();
+
+                    return TRUE;
+                }
+
+                break;
+            }
+            case WM_MOUSELEAVE:
+            {
+                m_TrackingMouse = false;
+
+                MouseLeftEvent l_Event;
+                Dispatch(l_Event);
+
+                return 0;
+            }
             case WM_MOUSEMOVE:
             {
+                if (!m_TrackingMouse)
+                {
+                    TRACKMOUSEEVENT l_Track{ sizeof(TRACKMOUSEEVENT), TME_LEAVE, m_Handle, 0 };
+                    m_TrackingMouse = ::TrackMouseEvent(&l_Track) != FALSE;
+                }
+
                 MouseMovedEvent l_Event(static_cast<float>(GET_X_LPARAM(lParam)), static_cast<float>(GET_Y_LPARAM(lParam)));
                 Dispatch(l_Event);
 

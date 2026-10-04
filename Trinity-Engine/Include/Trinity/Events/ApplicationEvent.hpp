@@ -8,7 +8,7 @@ namespace Trinity
     {
     public:
         TR_EVENT_CLASS_TYPE(WindowClose)
-        TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
     };
 
     class TRINITY_API WindowResizeEvent final : public Event
@@ -28,7 +28,7 @@ namespace Trinity
         }
 
         TR_EVENT_CLASS_TYPE(WindowResize)
-        TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
 
     private:
         std::uint32_t m_Width;
@@ -39,13 +39,36 @@ namespace Trinity
     {
     public:
         TR_EVENT_CLASS_TYPE(WindowFocus)
-        TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
     };
 
     class TRINITY_API WindowLostFocusEvent final : public Event
     {
     public:
         TR_EVENT_CLASS_TYPE(WindowLostFocus)
-        TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+    };
+
+    // Scale 1 is 96 dots per inch
+    class TRINITY_API WindowDpiChangedEvent final : public Event
+    {
+    public:
+        explicit WindowDpiChangedEvent(float scale) : m_Scale(scale)
+        {
+
+        }
+
+        [[nodiscard]] float GetScale() const { return m_Scale; }
+
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("WindowDpiChanged: {}", m_Scale);
+        }
+
+        TR_EVENT_CLASS_TYPE(WindowDpiChanged)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+
+    private:
+        float m_Scale;
     };
 }

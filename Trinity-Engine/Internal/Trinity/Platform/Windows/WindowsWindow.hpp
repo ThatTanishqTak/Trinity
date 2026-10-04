@@ -25,6 +25,9 @@ namespace Trinity
         void SetEventCallback(EventCallback callback) override { m_EventCallback = std::move(callback); }
         void SetRefreshCallback(RefreshCallback callback) override { m_RefreshCallback = std::move(callback); }
         void SetTitle(std::string_view title) override;
+        void SetCursorShape(CursorShape shape) override;
+
+        [[nodiscard]] float GetDpiScale() const override;
 
         [[nodiscard]] void* GetNativeHandle() const override { return m_Handle; }
 
@@ -35,6 +38,7 @@ namespace Trinity
         void Dispatch(Event& event);
         void Refresh();
         void OnMouseButton(MouseCode button, bool pressed);
+        void ApplyCursor() const;
 
         HWND m_Handle = nullptr;
         EventCallback m_EventCallback;
@@ -43,7 +47,9 @@ namespace Trinity
         std::uint32_t m_Height = 0;
         std::uint32_t m_MouseButtonsDown = 0;
         wchar_t m_HighSurrogate = 0;
+        CursorShape m_CursorShape = CursorShape::Arrow;
         bool m_InSizeMove = false;
         bool m_Refreshing = false;
+        bool m_TrackingMouse = false;
     };
 }

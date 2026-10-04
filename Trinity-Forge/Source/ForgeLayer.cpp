@@ -21,7 +21,30 @@ void ForgeLayer::OnAttach()
     }
 }
 
+void ForgeLayer::OnEvent(Trinity::Event& event)
+{
+    Trinity::EventDispatcher l_Dispatcher(event);
+    l_Dispatcher.Dispatch<Trinity::KeyPressedEvent>(TR_BIND_EVENT_FN(OnKeyPressed));
+}
+
+// F1 shows and hides the demo window, and never arrives here while an ImGui text field has the keyboard
+bool ForgeLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
+{
+    if (event.GetKeyCode() != Trinity::KeyCode::TR_F1 || event.IsRepeat())
+    {
+        return false;
+    }
+
+    m_ShowDemoWindow = !m_ShowDemoWindow;
+    TR_INFO("Forge: demo window {}", m_ShowDemoWindow ? "shown" : "hidden");
+
+    return true;
+}
+
 void ForgeLayer::OnImGuiRender()
 {
-    ImGui::ShowDemoWindow();
+    if (m_ShowDemoWindow)
+    {
+        ImGui::ShowDemoWindow(&m_ShowDemoWindow);
+    }
 }

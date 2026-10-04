@@ -10,6 +10,22 @@
 
 namespace Trinity
 {
+    enum class CursorShape : std::uint8_t
+    {
+        Arrow,
+        TextInput,
+        ResizeAll,
+        ResizeNS,
+        ResizeEW,
+        ResizeNESW,
+        ResizeNWSE,
+        Hand,
+        Wait,
+        Progress,
+        NotAllowed,
+        Hidden
+    };
+
     struct WindowSpecification
     {
         std::string Title;
@@ -35,6 +51,9 @@ namespace Trinity
         virtual void SetEventCallback(EventCallback callback) = 0;
         virtual void SetRefreshCallback(RefreshCallback callback) = 0;
         virtual void SetTitle(std::string_view title) = 0;
+        virtual void SetCursorShape(CursorShape shape) = 0;
+
+        [[nodiscard]] virtual float GetDpiScale() const = 0;
 
         [[nodiscard]] virtual void* GetNativeHandle() const = 0;
 

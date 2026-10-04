@@ -6,8 +6,10 @@
 
 #include <malloc.h>
 
+#include <cstring>
 #include <format>
 #include <string>
+#include <string_view>
 
 namespace Trinity
 {
@@ -35,6 +37,34 @@ namespace Trinity
                 }
 
                 return l_Message.empty() ? std::format("error {}", error) : l_Message;
+            }
+
+            std::string ToUtf8(std::wstring_view text)
+            {
+                if (text.empty())
+                {
+                    return {};
+                }
+
+                const int l_Size = ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+                std::string l_Result(static_cast<std::size_t>(l_Size), '\0');
+                ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size, nullptr, nullptr);
+
+                return l_Result;
+            }
+
+            std::wstring ToWide(std::string_view text)
+            {
+                if (text.empty())
+                {
+                    return {};
+                }
+
+                const int l_Size = ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+                std::wstring l_Result(static_cast<std::size_t>(l_Size), L'\0');
+                ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size);
+
+                return l_Result;
             }
         }
 
@@ -120,6 +150,57 @@ namespace Trinity
         void UnloadSharedLibrary(void* library)
         {
             ::FreeLibrary(static_cast<HMODULE>(library));
+        }
+
+        std::string GetClipboardText()
+        {
+            std::string l_Text;
+            if (!::OpenClipboard(::GetActiveWindow()))
+            {
+                return l_Text;
+            }
+
+            if (const HANDLE l_Data = ::GetClipboardData(CF_UNICODETEXT))
+            {
+                if (const wchar_t* l_Wide = static_cast<const wchar_t*>(::GlobalLock(l_Data)))
+                {
+                    l_Text = ToUtf8(l_Wide);
+                    ::GlobalUnlock(l_Data);
+                }
+            }
+
+            ::CloseClipboard();
+
+            return l_Text;
+        }
+
+        // The active window owns the clipboard, since a clipboard opened without an owner can refuse SetClipboardData
+        void SetClipboardText(std::string_view text)
+        {
+            const std::wstring l_Wide = ToWide(text);
+            if (!::OpenClipboard(::GetActiveWindow()))
+            {
+                return;
+            }
+
+            ::EmptyClipboard();
+
+            const SIZE_T l_Bytes = (l_Wide.size() + 1) * sizeof(wchar_t);
+            if (const HGLOBAL l_Memory = ::GlobalAlloc(GMEM_MOVEABLE, l_Bytes))
+            {
+                if (void* l_Destination = ::GlobalLock(l_Memory))
+                {
+                    std::memcpy(l_Destination, l_Wide.c_str(), l_Bytes);
+                    ::GlobalUnlock(l_Memory);
+                }
+
+                if (::SetClipboardData(CF_UNICODETEXT, l_Memory) == nullptr)
+                {
+                    ::GlobalFree(l_Memory);
+                }
+            }
+
+            ::CloseClipboard();
         }
     }
 }

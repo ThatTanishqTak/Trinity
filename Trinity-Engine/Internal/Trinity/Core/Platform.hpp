@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace Trinity
 {
@@ -23,5 +24,9 @@ namespace Trinity
         [[nodiscard]] void* LoadSharedLibrary(const std::filesystem::path& path, std::string& error);
         [[nodiscard]] void* GetSharedLibrarySymbol(void* library, const char* name);
         void UnloadSharedLibrary(void* library);
+
+        // UTF-8, and empty when the clipboard holds no text
+        [[nodiscard]] std::string GetClipboardText();
+        void SetClipboardText(std::string_view text);
     }
 }

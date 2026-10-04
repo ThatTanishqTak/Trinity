@@ -8,6 +8,9 @@
 #define IMGUI_DISABLE_OBSOLETE_FUNCTIONS
 #define IMGUI_ENABLE_FREETYPE
 
+// Characters above U+FFFF, such as typed emoji and Nerd Font icons, need a 32-bit ImWchar
+#define IMGUI_USE_WCHAR32
+
 // ImTextureID is a texture's bindless index, so 0 is a valid one
 #define ImTextureID_Invalid (~static_cast<ImTextureID>(0))
 

@@ -22,7 +22,7 @@ namespace Trinity
         }
 
         TR_EVENT_CLASS_TYPE(MouseMoved)
-        TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
 
     private:
         float m_X;
@@ -43,11 +43,18 @@ namespace Trinity
         }
 
         TR_EVENT_CLASS_TYPE(MouseScrolled)
-        TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
 
     private:
         float m_XOffset;
         float m_YOffset;
+    };
+
+    class TRINITY_API MouseLeftEvent final : public Event
+    {
+    public:
+        TR_EVENT_CLASS_TYPE(MouseLeft)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
     };
 
     class TRINITY_API MouseButtonEvent : public Event

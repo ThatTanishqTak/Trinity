@@ -1,6 +1,8 @@
 #include "Trinity/Core/Platform.hpp"
 
 #include <cstdlib>
+#include <string>
+#include <string_view>
 #include <system_error>
 
 #include <dlfcn.h>
@@ -16,6 +18,11 @@ namespace Trinity
 {
     namespace Platform
     {
+        namespace
+        {
+            std::string s_Clipboard;
+        }
+
         void Initialize()
         {
 
@@ -114,6 +121,17 @@ namespace Trinity
         void UnloadSharedLibrary(void* library)
         {
             ::dlclose(library);
+        }
+
+        // No system clipboard until the Linux platform layer exists, so copy and paste work within the process only
+        std::string GetClipboardText()
+        {
+            return s_Clipboard;
+        }
+
+        void SetClipboardText(std::string_view text)
+        {
+            s_Clipboard = text;
         }
     }
 }

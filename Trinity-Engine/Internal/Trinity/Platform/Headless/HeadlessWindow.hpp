@@ -19,6 +19,9 @@ namespace Trinity
         void SetEventCallback(EventCallback callback) override { m_EventCallback = std::move(callback); }
         void SetRefreshCallback(RefreshCallback) override {}
         void SetTitle(std::string_view) override {}
+        void SetCursorShape(CursorShape) override {}
+
+        [[nodiscard]] float GetDpiScale() const override { return 1.0f; }
 
         [[nodiscard]] void* GetNativeHandle() const override { return nullptr; }
 
