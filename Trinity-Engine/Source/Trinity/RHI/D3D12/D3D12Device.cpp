@@ -455,6 +455,12 @@ namespace Trinity
                     }
                 }
             }
+
+            // A footprint of a compressed format covers whole blocks, even where the mip edge cuts one
+            UINT RoundUpToBlock(std::uint32_t size, std::uint32_t block)
+            {
+                return (size + block - 1) / block * block;
+            }
         }
 
         DXGI_FORMAT ToDXGIFormat(Format format)
@@ -504,6 +510,38 @@ namespace Trinity
                 case Format::D32Float:
                 {
                     return DXGI_FORMAT_D32_FLOAT;
+                }
+                case Format::BC1Unorm:
+                {
+                    return DXGI_FORMAT_BC1_UNORM;
+                }
+                case Format::BC1Srgb:
+                {
+                    return DXGI_FORMAT_BC1_UNORM_SRGB;
+                }
+                case Format::BC3Unorm:
+                {
+                    return DXGI_FORMAT_BC3_UNORM;
+                }
+                case Format::BC3Srgb:
+                {
+                    return DXGI_FORMAT_BC3_UNORM_SRGB;
+                }
+                case Format::BC4Unorm:
+                {
+                    return DXGI_FORMAT_BC4_UNORM;
+                }
+                case Format::BC5Unorm:
+                {
+                    return DXGI_FORMAT_BC5_UNORM;
+                }
+                case Format::BC7Unorm:
+                {
+                    return DXGI_FORMAT_BC7_UNORM;
+                }
+                case Format::BC7Srgb:
+                {
+                    return DXGI_FORMAT_BC7_UNORM_SRGB;
                 }
                 default:
                 {
@@ -794,7 +832,8 @@ namespace Trinity
             m_CommandList->CopyBufferRegion(l_Destination->Allocation->GetResource(), destinationOffset, l_Source->Allocation->GetResource(), sourceOffset, size);
         }
 
-        void D3D12CommandList::CopyTextureToBuffer(TextureHandle source, BufferHandle destination)
+        // The whole mip, laid out in the buffer as CopyBufferToTexture reads it: rows of texels or blocks GetTextureCopyRowPitch apart
+        void D3D12CommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
@@ -806,21 +845,27 @@ namespace Trinity
                 return;
             }
 
-            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Texture->Width);
-            TR_CORE_ASSERT(l_RowPitch * l_Texture->Height <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes, and the buffer has {}.", l_RowPitch * l_Texture->Height, l_Buffer->Size);
+            const std::uint32_t l_Width = GetMipSize(l_Texture->Width, mipLevel);
+            const std::uint32_t l_Height = GetMipSize(l_Texture->Height, mipLevel);
+            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Width);
+            [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, l_Width, l_Height);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels, "CopyTextureToBuffer from mip {} of a texture with {} mip(s).", mipLevel, l_Texture->MipLevels);
+            TR_CORE_ASSERT(destinationOffset % c_TextureCopyOffsetAlignment == 0, "CopyTextureToBuffer writes to offset {}, which is not a multiple of {}.", destinationOffset, c_TextureCopyOffsetAlignment);
+            TR_CORE_ASSERT(destinationOffset + l_Size <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes from offset {}, and the buffer has {}.", l_Size, destinationOffset, l_Buffer->Size);
 
             D3D12_TEXTURE_COPY_LOCATION l_Source{};
             l_Source.pResource = l_Texture->Resource;
             l_Source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            l_Source.SubresourceIndex = 0;
+            l_Source.SubresourceIndex = mipLevel;
 
+            const std::uint32_t l_Block = GetFormatBlockDimension(l_Texture->TextureFormat);
             D3D12_TEXTURE_COPY_LOCATION l_Destination{};
             l_Destination.pResource = l_Buffer->Allocation->GetResource();
             l_Destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            l_Destination.PlacedFootprint.Offset = 0;
+            l_Destination.PlacedFootprint.Offset = destinationOffset;
             l_Destination.PlacedFootprint.Footprint.Format = l_Texture->ResourceFormat;
-            l_Destination.PlacedFootprint.Footprint.Width = l_Texture->Width;
-            l_Destination.PlacedFootprint.Footprint.Height = l_Texture->Height;
+            l_Destination.PlacedFootprint.Footprint.Width = RoundUpToBlock(l_Width, l_Block);
+            l_Destination.PlacedFootprint.Footprint.Height = RoundUpToBlock(l_Height, l_Block);
             l_Destination.PlacedFootprint.Footprint.Depth = 1;
             l_Destination.PlacedFootprint.Footprint.RowPitch = static_cast<UINT>(l_RowPitch);
 
@@ -840,17 +885,20 @@ namespace Trinity
             }
 
             const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width);
+            [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, region.Width, region.Height);
             TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region outside mip {} of a {}x{} texture with {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
+            TR_CORE_ASSERT(IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region of {} that does not start on a block or cover whole blocks.", ToString(l_Texture->TextureFormat));
             TR_CORE_ASSERT(sourceOffset % c_TextureCopyOffsetAlignment == 0, "CopyBufferToTexture reads from offset {}, which is not a multiple of {}.", sourceOffset, c_TextureCopyOffsetAlignment);
-            TR_CORE_ASSERT(sourceOffset + l_RowPitch * region.Height <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_RowPitch * region.Height, sourceOffset, l_Buffer->Size);
+            TR_CORE_ASSERT(sourceOffset + l_Size <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_Size, sourceOffset, l_Buffer->Size);
 
+            const std::uint32_t l_Block = GetFormatBlockDimension(l_Texture->TextureFormat);
             D3D12_TEXTURE_COPY_LOCATION l_Source{};
             l_Source.pResource = l_Buffer->Allocation->GetResource();
             l_Source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
             l_Source.PlacedFootprint.Offset = sourceOffset;
             l_Source.PlacedFootprint.Footprint.Format = l_Texture->ResourceFormat;
-            l_Source.PlacedFootprint.Footprint.Width = region.Width;
-            l_Source.PlacedFootprint.Footprint.Height = region.Height;
+            l_Source.PlacedFootprint.Footprint.Width = RoundUpToBlock(region.Width, l_Block);
+            l_Source.PlacedFootprint.Footprint.Height = RoundUpToBlock(region.Height, l_Block);
             l_Source.PlacedFootprint.Footprint.Depth = 1;
             l_Source.PlacedFootprint.Footprint.RowPitch = static_cast<UINT>(l_RowPitch);
 
@@ -1328,11 +1376,72 @@ namespace Trinity
             return { l_Buffer->Mapped, static_cast<std::size_t>(l_Buffer->Size) };
         }
 
+        // Every usage asked for must be in the format's support. Shaders read a depth texture through an R32_FLOAT view, so that is the format to check for reading
+        bool D3D12Device::IsFormatSupported(Format format, TextureUsage usage) const
+        {
+            const DXGI_FORMAT l_Format = ToDXGIFormat(format);
+            if (l_Format == DXGI_FORMAT_UNKNOWN)
+            {
+                return false;
+            }
+
+            const auto a_Query = [this](DXGI_FORMAT queried) -> D3D12_FORMAT_SUPPORT1
+            {
+                D3D12_FEATURE_DATA_FORMAT_SUPPORT l_Data{ queried, D3D12_FORMAT_SUPPORT1_NONE, D3D12_FORMAT_SUPPORT2_NONE };
+                if (FAILED(m_Device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &l_Data, sizeof(l_Data))))
+                {
+                    return D3D12_FORMAT_SUPPORT1_NONE;
+                }
+
+                return l_Data.Support1;
+            };
+
+            const D3D12_FORMAT_SUPPORT1 l_Support = a_Query(l_Format);
+            const D3D12_FORMAT_SUPPORT1 l_ReadSupport = format == Format::D32Float ? a_Query(DXGI_FORMAT_R32_FLOAT) : l_Support;
+
+            const auto a_Has = [](D3D12_FORMAT_SUPPORT1 support, D3D12_FORMAT_SUPPORT1 needed)
+            {
+                return (support & needed) == needed;
+            };
+
+            if (!a_Has(l_Support, D3D12_FORMAT_SUPPORT1_TEXTURE2D))
+            {
+                return false;
+            }
+
+            if (HasFlag(usage, TextureUsage::ShaderResource) && !a_Has(l_ReadSupport, D3D12_FORMAT_SUPPORT1_SHADER_LOAD))
+            {
+                return false;
+            }
+
+            if (HasFlag(usage, TextureUsage::UnorderedAccess) && !a_Has(l_Support, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW))
+            {
+                return false;
+            }
+
+            if (HasFlag(usage, TextureUsage::RenderTarget) && !a_Has(l_Support, D3D12_FORMAT_SUPPORT1_RENDER_TARGET))
+            {
+                return false;
+            }
+
+            if (HasFlag(usage, TextureUsage::DepthStencil) && !a_Has(l_Support, D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         // A depth texture that shaders also read is typeless, so a shader view can read it as R32_FLOAT
         TextureHandle D3D12Device::CreateTexture(const TextureDescription& description)
         {
             TR_CORE_ASSERT(description.Width != 0 && description.Height != 0 && description.MipLevels != 0, "Texture '{}' has a zero size or no mips.", description.DebugName);
             TR_CORE_ASSERT(description.TextureFormat != Format::Unknown, "Texture '{}' has no format.", description.DebugName);
+
+            if (!CanCreateTexture(description))
+            {
+                return {};
+            }
 
             const bool l_TypelessDepth = description.TextureFormat == Format::D32Float && HasFlag(description.Usage, TextureUsage::ShaderResource);
 

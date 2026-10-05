@@ -35,6 +35,7 @@ private:
     void TestShaders();
     void TestRHI();
     void TestResources();
+    void TestCompressedTextures();
     void TestStaleHandle();
     void CreateTriangle();
     void DestroyTriangle();

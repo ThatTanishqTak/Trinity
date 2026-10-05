@@ -56,6 +56,38 @@ namespace Trinity
                 {
                     return "D32Float";
                 }
+                case Format::BC1Unorm:
+                {
+                    return "BC1Unorm";
+                }
+                case Format::BC1Srgb:
+                {
+                    return "BC1Srgb";
+                }
+                case Format::BC3Unorm:
+                {
+                    return "BC3Unorm";
+                }
+                case Format::BC3Srgb:
+                {
+                    return "BC3Srgb";
+                }
+                case Format::BC4Unorm:
+                {
+                    return "BC4Unorm";
+                }
+                case Format::BC5Unorm:
+                {
+                    return "BC5Unorm";
+                }
+                case Format::BC7Unorm:
+                {
+                    return "BC7Unorm";
+                }
+                case Format::BC7Srgb:
+                {
+                    return "BC7Srgb";
+                }
             }
 
             return "Invalid";
@@ -89,8 +121,19 @@ namespace Trinity
                     return 12;
                 }
                 case Format::RGBA32Float:
+                case Format::BC3Unorm:
+                case Format::BC3Srgb:
+                case Format::BC5Unorm:
+                case Format::BC7Unorm:
+                case Format::BC7Srgb:
                 {
                     return 16;
+                }
+                case Format::BC1Unorm:
+                case Format::BC1Srgb:
+                case Format::BC4Unorm:
+                {
+                    return 8;
                 }
             }
 
@@ -99,9 +142,22 @@ namespace Trinity
 
         std::uint64_t GetTextureCopyRowPitch(Format format, std::uint32_t width)
         {
-            const std::uint64_t l_RowSize = std::uint64_t{ width } * GetFormatSize(format);
+            const std::uint32_t l_Block = GetFormatBlockDimension(format);
+            const std::uint64_t l_RowSize = (std::uint64_t{ width } + l_Block - 1) / l_Block * GetFormatSize(format);
 
             return (l_RowSize + c_TextureCopyRowAlignment - 1) / c_TextureCopyRowAlignment * c_TextureCopyRowAlignment;
+        }
+
+        std::uint32_t GetTextureCopyRowCount(Format format, std::uint32_t height)
+        {
+            const std::uint32_t l_Block = GetFormatBlockDimension(format);
+
+            return (height + l_Block - 1) / l_Block;
+        }
+
+        std::uint64_t GetTextureCopySize(Format format, std::uint32_t width, std::uint32_t height)
+        {
+            return GetTextureCopyRowPitch(format, width) * GetTextureCopyRowCount(format, height);
         }
     }
 }

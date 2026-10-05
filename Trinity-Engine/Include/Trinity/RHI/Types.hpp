@@ -46,16 +46,41 @@ namespace Trinity
             RG32Float,
             RGB32Float,
             RGBA32Float,
-            D32Float
+            D32Float,
+            BC1Unorm,
+            BC1Srgb,
+            BC3Unorm,
+            BC3Srgb,
+            BC4Unorm,
+            BC5Unorm,
+            BC7Unorm,
+            BC7Srgb
         };
 
         [[nodiscard]] TRINITY_API std::string_view ToString(Format format);
 
-        // Bytes per texel, 0 for Unknown
+        // Bytes per texel, or per 4x4 block for a compressed format, and 0 for Unknown
         [[nodiscard]] TRINITY_API std::uint32_t GetFormatSize(Format format);
 
-        // The bytes from one row to the next when CopyTextureToBuffer or CopyBufferToTexture copies this many texels per row
+        [[nodiscard]] constexpr bool IsCompressedFormat(Format format)
+        {
+            return format >= Format::BC1Unorm && format <= Format::BC7Srgb;
+        }
+
+        // Texels across and down one block: 4 for a compressed format, and 1 otherwise
+        [[nodiscard]] constexpr std::uint32_t GetFormatBlockDimension(Format format)
+        {
+            return IsCompressedFormat(format) ? 4 : 1;
+        }
+
+        // The bytes from one row of texels, or of blocks, to the next when CopyTextureToBuffer or CopyBufferToTexture copies a region this many texels wide
         [[nodiscard]] TRINITY_API std::uint64_t GetTextureCopyRowPitch(Format format, std::uint32_t width);
+
+        // Rows of texels, or of blocks, in a region this many texels high
+        [[nodiscard]] TRINITY_API std::uint32_t GetTextureCopyRowCount(Format format, std::uint32_t height);
+
+        // The bytes a copy of a region this size reads or writes in its buffer
+        [[nodiscard]] TRINITY_API std::uint64_t GetTextureCopySize(Format format, std::uint32_t width, std::uint32_t height);
 
         // The width or height of a mip, never below 1
         [[nodiscard]] constexpr std::uint32_t GetMipSize(std::uint32_t size, std::uint32_t mipLevel)
@@ -166,6 +191,16 @@ namespace Trinity
         [[nodiscard]] constexpr bool IsRegionInsideMip(const Rect& region, std::uint32_t width, std::uint32_t height, std::uint32_t mipLevel)
         {
             return region.X >= 0 && region.Y >= 0 && region.Width != 0 && region.Height != 0 && std::uint64_t{ static_cast<std::uint32_t>(region.X) } + region.Width <= GetMipSize(width, mipLevel) && std::uint64_t{ static_cast<std::uint32_t>(region.Y) } + region.Height <= GetMipSize(height, mipLevel);
+        }
+
+        // A region of a compressed texture starts on a block and covers whole blocks, except where it reaches the right or bottom edge of its mip
+        [[nodiscard]] constexpr bool IsRegionBlockAligned(const Rect& region, Format format, std::uint32_t width, std::uint32_t height, std::uint32_t mipLevel)
+        {
+            const std::uint32_t l_Block = GetFormatBlockDimension(format);
+            const std::uint32_t l_X = static_cast<std::uint32_t>(region.X);
+            const std::uint32_t l_Y = static_cast<std::uint32_t>(region.Y);
+
+            return l_X % l_Block == 0 && l_Y % l_Block == 0 && (region.Width % l_Block == 0 || l_X + region.Width == GetMipSize(width, mipLevel)) && (region.Height % l_Block == 0 || l_Y + region.Height == GetMipSize(height, mipLevel));
         }
     }
 }

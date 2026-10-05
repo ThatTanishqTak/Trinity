@@ -83,6 +83,13 @@ namespace
     constexpr std::uint32_t c_CheckerboardCellSize = 8;
     constexpr Trinity::RHI::Rect c_CheckerboardPatch{ 8, 16, 24, 12 };
 
+    // Not a multiple of 8, so mip 1 ends part way through a block and the last three mips are smaller than one
+    constexpr std::uint32_t c_CompressedWidth = 52;
+    constexpr std::uint32_t c_CompressedHeight = 36;
+    constexpr std::uint32_t c_CompressedMipLevels = 6;
+    constexpr std::uint32_t c_CompressedSeed = 20261008;
+    constexpr std::array<Trinity::RHI::Format, 8> c_CompressedFormats{ Trinity::RHI::Format::BC1Unorm, Trinity::RHI::Format::BC1Srgb, Trinity::RHI::Format::BC3Unorm, Trinity::RHI::Format::BC3Srgb, Trinity::RHI::Format::BC4Unorm, Trinity::RHI::Format::BC5Unorm, Trinity::RHI::Format::BC7Unorm, Trinity::RHI::Format::BC7Srgb };
+
     // Left, bottom, right and top edges in clip space, so the quad sits in the top-right corner
     constexpr std::array<float, 4> c_QuadBounds{ 0.55f, 0.55f, 0.95f, 0.95f };
 
@@ -475,6 +482,7 @@ void SandboxLayer::OnAttach()
     TestShaders();
     TestRHI();
     TestResources();
+    TestCompressedTextures();
     if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("stale-handle"))
     {
         TestStaleHandle();
@@ -1513,7 +1521,7 @@ void SandboxLayer::TestRHI()
     l_Commands.EndRendering();
 
     l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::CopySource);
-    l_Commands.CopyTextureToBuffer(l_Target, l_Readback);
+    l_Commands.CopyTextureToBuffer(l_Target, 0, l_Readback, 0);
     l_Device.EndFrame();
     l_Device.WaitIdle();
 
@@ -1560,6 +1568,188 @@ void SandboxLayer::TestRHI()
     }
 
     TR_INFO("Trinity::RHI: {} device on {} cleared a {}x{} target and copied it into a {} readback buffer{}", Trinity::ToString(l_Info.API), l_Info.AdapterName, c_TargetSize, c_TargetSize, Trinity::Memory::FormatBytes(l_Mapped), l_CheckPixels ? ", and every pixel holds the clear colour" : "");
+}
+
+// Each mip of every BC format the device supports is uploaded from random blocks and read back, so both copies' block pitch, row count and footprint are checked byte for byte, mips smaller than a block included
+void SandboxLayer::TestCompressedTextures()
+{
+    TR_PROFILE_FUNCTION();
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+    const Trinity::RHI::TextureUsage l_Usage = Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopyDestination | Trinity::RHI::TextureUsage::CopySource;
+
+    // The null device copies nothing, so only a GPU's readback has blocks to compare
+    const bool l_Compare = l_Info.API != Trinity::GraphicsAPI::None;
+
+    std::mt19937 l_Random(c_CompressedSeed);
+    std::vector<std::string_view> l_Tested;
+    std::vector<std::string_view> l_Unsupported;
+    std::uint64_t l_ComparedBytes = 0;
+    std::uint64_t l_WrongBytes = 0;
+    std::uint32_t l_Failures = 0;
+
+    for (const Trinity::RHI::Format it_Format : c_CompressedFormats)
+    {
+        if (!l_Device.IsFormatSupported(it_Format, l_Usage))
+        {
+            l_Unsupported.push_back(Trinity::RHI::ToString(it_Format));
+
+            continue;
+        }
+
+        // Each mip starts on a copy offset boundary, at the same offset in the staging and readback buffers
+        std::array<std::uint64_t, c_CompressedMipLevels> l_Offsets{};
+        std::uint64_t l_Size = 0;
+        for (std::uint32_t it_Mip = 0; it_Mip < c_CompressedMipLevels; ++it_Mip)
+        {
+            l_Offsets[it_Mip] = (l_Size + Trinity::RHI::c_TextureCopyOffsetAlignment - 1) / Trinity::RHI::c_TextureCopyOffsetAlignment * Trinity::RHI::c_TextureCopyOffsetAlignment;
+            l_Size = l_Offsets[it_Mip] + Trinity::RHI::GetTextureCopySize(it_Format, Trinity::RHI::GetMipSize(c_CompressedWidth, it_Mip), Trinity::RHI::GetMipSize(c_CompressedHeight, it_Mip));
+        }
+
+        Trinity::RHI::TextureDescription l_TextureDescription;
+        l_TextureDescription.Width = c_CompressedWidth;
+        l_TextureDescription.Height = c_CompressedHeight;
+        l_TextureDescription.MipLevels = c_CompressedMipLevels;
+        l_TextureDescription.TextureFormat = it_Format;
+        l_TextureDescription.Usage = l_Usage;
+        l_TextureDescription.DebugName = "Sandbox compressed texture";
+
+        Trinity::RHI::BufferDescription l_StagingDescription;
+        l_StagingDescription.Size = l_Size;
+        l_StagingDescription.Memory = Trinity::RHI::MemoryType::Upload;
+        l_StagingDescription.DebugName = "Sandbox compressed staging";
+
+        Trinity::RHI::BufferDescription l_ReadbackDescription;
+        l_ReadbackDescription.Size = l_Size;
+        l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+        l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+        l_ReadbackDescription.DebugName = "Sandbox compressed readback";
+
+        const Trinity::RHI::TextureHandle l_Texture = l_Device.CreateTexture(l_TextureDescription);
+        const Trinity::RHI::BufferHandle l_Staging = l_Device.CreateBuffer(l_StagingDescription);
+        const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_ReadbackDescription);
+        const std::span<std::byte> l_StagingData = l_Device.GetMappedData(l_Staging);
+        if (!l_Texture || !l_Staging || !l_Readback || l_StagingData.size() != l_Size)
+        {
+            TR_ERROR("Compressed textures: could not create a {} texture or its staging and readback buffers", Trinity::RHI::ToString(it_Format));
+
+            l_Device.DestroyTexture(l_Texture);
+            l_Device.DestroyBuffer(l_Staging);
+            l_Device.DestroyBuffer(l_Readback);
+            ++l_Failures;
+
+            continue;
+        }
+
+        std::ranges::generate(l_StagingData, [&l_Random]() { return static_cast<std::byte>(l_Random() & 0xFF); });
+
+        Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+        l_Commands.TextureBarrier(l_Texture, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::CopyDestination);
+        for (std::uint32_t it_Mip = 0; it_Mip < c_CompressedMipLevels; ++it_Mip)
+        {
+            l_Commands.CopyBufferToTexture(l_Staging, l_Offsets[it_Mip], l_Texture, it_Mip, { 0, 0, Trinity::RHI::GetMipSize(c_CompressedWidth, it_Mip), Trinity::RHI::GetMipSize(c_CompressedHeight, it_Mip) });
+        }
+
+        l_Commands.TextureBarrier(l_Texture, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopySource);
+        for (std::uint32_t it_Mip = 0; it_Mip < c_CompressedMipLevels; ++it_Mip)
+        {
+            l_Commands.CopyTextureToBuffer(l_Texture, it_Mip, l_Readback, l_Offsets[it_Mip]);
+        }
+
+        l_Device.EndFrame();
+        l_Device.WaitIdle();
+
+        // Only the blocks of each row are compared; the padding up to the row pitch is not copied
+        const std::span<const std::byte> l_ReadbackData = l_Device.GetMappedData(l_Readback);
+        const std::uint32_t l_Block = Trinity::RHI::GetFormatBlockDimension(it_Format);
+        for (std::uint32_t it_Mip = 0; l_Compare && l_ReadbackData.size() == l_Size && it_Mip < c_CompressedMipLevels; ++it_Mip)
+        {
+            const std::uint32_t l_Width = Trinity::RHI::GetMipSize(c_CompressedWidth, it_Mip);
+            const std::uint32_t l_Height = Trinity::RHI::GetMipSize(c_CompressedHeight, it_Mip);
+            const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(it_Format, l_Width);
+            const std::uint64_t l_RowBytes = std::uint64_t{ (l_Width + l_Block - 1) / l_Block } * Trinity::RHI::GetFormatSize(it_Format);
+            for (std::uint32_t it_Row = 0; it_Row < Trinity::RHI::GetTextureCopyRowCount(it_Format, l_Height); ++it_Row)
+            {
+                const std::size_t l_Start = static_cast<std::size_t>(l_Offsets[it_Mip] + it_Row * l_RowPitch);
+                const std::span<const std::byte> l_Read = l_ReadbackData.subspan(l_Start, static_cast<std::size_t>(l_RowBytes));
+                const std::span<const std::byte> l_Written = l_StagingData.subspan(l_Start, static_cast<std::size_t>(l_RowBytes));
+                for (std::size_t it_Byte = 0; it_Byte < l_Read.size(); ++it_Byte)
+                {
+                    l_WrongBytes += l_Read[it_Byte] == l_Written[it_Byte] ? 0 : 1;
+                }
+
+                l_ComparedBytes += l_RowBytes;
+            }
+        }
+
+        if (l_Compare && l_ReadbackData.size() != l_Size)
+        {
+            TR_ERROR("Compressed textures: the {} readback buffer maps {} of {}", Trinity::RHI::ToString(it_Format), Trinity::Memory::FormatBytes(l_ReadbackData.size()), Trinity::Memory::FormatBytes(l_Size));
+            ++l_Failures;
+        }
+
+        l_Device.DestroyTexture(l_Texture);
+        l_Device.DestroyBuffer(l_Staging);
+        l_Device.DestroyBuffer(l_Readback);
+
+        l_Tested.push_back(Trinity::RHI::ToString(it_Format));
+    }
+
+    if (l_WrongBytes != 0)
+    {
+        TR_ERROR("Compressed textures: {} of {} bytes read back on {} differ from the upload", l_WrongBytes, l_ComparedBytes, Trinity::ToString(l_Info.API));
+    }
+    else if (l_Failures == 0)
+    {
+        TR_INFO("Compressed textures: {} uploaded and read back {} mips of a {}x{} texture in {} format(s){}", Trinity::ToString(l_Info.API), c_CompressedMipLevels, c_CompressedWidth, c_CompressedHeight, l_Tested.size(), l_Compare ? std::format(", and all {} bytes match", l_ComparedBytes) : "");
+    }
+
+    if (!l_Unsupported.empty())
+    {
+        std::string l_Names;
+        for (const std::string_view it_Name : l_Unsupported)
+        {
+            l_Names += l_Names.empty() ? std::string(it_Name) : std::format(", {}", it_Name);
+        }
+
+        TR_INFO("Compressed textures: {} does not support {} for sampling and copies, so the test skipped them", Trinity::ToString(l_Info.API), l_Names);
+    }
+
+    // No GPU renders into a block-compressed texture, so a device that claims to has a broken query
+    constexpr Trinity::RHI::Format c_TargetFormat = Trinity::RHI::Format::BC7Unorm;
+    if (l_Device.IsFormatSupported(c_TargetFormat, Trinity::RHI::TextureUsage::RenderTarget))
+    {
+        TR_ERROR("Compressed textures: {} reports {} as usable for a render target", Trinity::ToString(l_Info.API), Trinity::RHI::ToString(c_TargetFormat));
+    }
+    else
+    {
+        TR_INFO("Compressed textures: {} reports {} as unusable for a render target", Trinity::ToString(l_Info.API), Trinity::RHI::ToString(c_TargetFormat));
+    }
+
+    if (!Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("unsupported-format-test"))
+    {
+        return;
+    }
+
+    // Deliberately logs the refusal as an error, which is why it runs only on request
+    Trinity::RHI::TextureDescription l_TargetDescription;
+    l_TargetDescription.Width = c_CompressedWidth;
+    l_TargetDescription.Height = c_CompressedHeight;
+    l_TargetDescription.TextureFormat = c_TargetFormat;
+    l_TargetDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget;
+    l_TargetDescription.DebugName = "Sandbox compressed render target";
+
+    const Trinity::RHI::TextureHandle l_Target = l_Device.CreateTexture(l_TargetDescription);
+    if (l_Target)
+    {
+        TR_ERROR("Unsupported format test: {} created a {} render target instead of refusing it", Trinity::ToString(l_Info.API), Trinity::RHI::ToString(c_TargetFormat));
+        l_Device.DestroyTexture(l_Target);
+
+        return;
+    }
+
+    TR_INFO("Unsupported format test: {} refused a {} render target with an invalid handle", Trinity::ToString(l_Info.API), Trinity::RHI::ToString(c_TargetFormat));
 }
 
 // Every round creates and destroys the same buffers and textures across frames, so a second round that ends above the first means a leak
@@ -1856,7 +2046,7 @@ void SandboxLayer::CreateCheckerboard()
     l_Patch.TextureBarrier(m_Checkerboard, Trinity::RHI::ResourceState::ShaderResource, Trinity::RHI::ResourceState::CopyDestination);
     l_Patch.CopyBufferToTexture(l_Staging, l_PatchOffset, m_Checkerboard, 0, c_CheckerboardPatch);
     l_Patch.TextureBarrier(m_Checkerboard, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopySource);
-    l_Patch.CopyTextureToBuffer(m_Checkerboard, l_Readback);
+    l_Patch.CopyTextureToBuffer(m_Checkerboard, 0, l_Readback, 0);
     l_Patch.TextureBarrier(m_Checkerboard, Trinity::RHI::ResourceState::CopySource, Trinity::RHI::ResourceState::ShaderResource);
     l_Device.EndFrame();
     l_Device.WaitIdle();

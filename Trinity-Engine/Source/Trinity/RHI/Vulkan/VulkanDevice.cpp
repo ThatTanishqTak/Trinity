@@ -601,6 +601,38 @@ namespace Trinity
                 {
                     return VK_FORMAT_D32_SFLOAT;
                 }
+                case Format::BC1Unorm:
+                {
+                    return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
+                }
+                case Format::BC1Srgb:
+                {
+                    return VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
+                }
+                case Format::BC3Unorm:
+                {
+                    return VK_FORMAT_BC3_UNORM_BLOCK;
+                }
+                case Format::BC3Srgb:
+                {
+                    return VK_FORMAT_BC3_SRGB_BLOCK;
+                }
+                case Format::BC4Unorm:
+                {
+                    return VK_FORMAT_BC4_UNORM_BLOCK;
+                }
+                case Format::BC5Unorm:
+                {
+                    return VK_FORMAT_BC5_UNORM_BLOCK;
+                }
+                case Format::BC7Unorm:
+                {
+                    return VK_FORMAT_BC7_UNORM_BLOCK;
+                }
+                case Format::BC7Srgb:
+                {
+                    return VK_FORMAT_BC7_SRGB_BLOCK;
+                }
                 default:
                 {
                     return VK_FORMAT_UNDEFINED;
@@ -865,7 +897,8 @@ namespace Trinity
             vkCmdCopyBuffer(m_CommandBuffer, l_Source->Buffer, l_Destination->Buffer, 1, &l_Region);
         }
 
-        void VulkanCommandList::CopyTextureToBuffer(TextureHandle source, BufferHandle destination)
+        // The whole mip, laid out in the buffer as CopyBufferToTexture reads it: rows of texels or blocks GetTextureCopyRowPitch apart
+        void VulkanCommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
@@ -877,19 +910,26 @@ namespace Trinity
                 return;
             }
 
-            const std::uint32_t l_TexelSize = GetFormatSize(l_Texture->TextureFormat);
-            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Texture->Width);
-            TR_CORE_ASSERT(l_TexelSize != 0 && l_RowPitch % l_TexelSize == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
-            TR_CORE_ASSERT(l_RowPitch * l_Texture->Height <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes, and the buffer has {}.", l_RowPitch * l_Texture->Height, l_Buffer->Size);
-            if (l_TexelSize == 0)
+            const std::uint32_t l_Width = GetMipSize(l_Texture->Width, mipLevel);
+            const std::uint32_t l_Height = GetMipSize(l_Texture->Height, mipLevel);
+            const std::uint32_t l_BlockBytes = GetFormatSize(l_Texture->TextureFormat);
+            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Width);
+            [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, l_Width, l_Height);
+            TR_CORE_ASSERT(l_BlockBytes != 0 && l_RowPitch % l_BlockBytes == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels, "CopyTextureToBuffer from mip {} of a texture with {} mip(s).", mipLevel, l_Texture->MipLevels);
+            TR_CORE_ASSERT(destinationOffset % c_TextureCopyOffsetAlignment == 0, "CopyTextureToBuffer writes to offset {}, which is not a multiple of {}.", destinationOffset, c_TextureCopyOffsetAlignment);
+            TR_CORE_ASSERT(destinationOffset + l_Size <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes from offset {}, and the buffer has {}.", l_Size, destinationOffset, l_Buffer->Size);
+            if (l_BlockBytes == 0)
             {
                 return;
             }
 
+            // Vulkan counts the buffer's row length in texels, whole blocks of them for a compressed format
             VkBufferImageCopy l_Region{};
-            l_Region.bufferRowLength = static_cast<std::uint32_t>(l_RowPitch / l_TexelSize);
-            l_Region.imageSubresource = { GetAspect(l_Texture->TextureFormat), 0, 0, 1 };
-            l_Region.imageExtent = { l_Texture->Width, l_Texture->Height, 1 };
+            l_Region.bufferOffset = destinationOffset;
+            l_Region.bufferRowLength = static_cast<std::uint32_t>(l_RowPitch / l_BlockBytes) * GetFormatBlockDimension(l_Texture->TextureFormat);
+            l_Region.imageSubresource = { GetAspect(l_Texture->TextureFormat), mipLevel, 0, 1 };
+            l_Region.imageExtent = { l_Width, l_Height, 1 };
             vkCmdCopyImageToBuffer(m_CommandBuffer, l_Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, l_Buffer->Buffer, 1, &l_Region);
         }
 
@@ -905,20 +945,22 @@ namespace Trinity
                 return;
             }
 
-            const std::uint32_t l_TexelSize = GetFormatSize(l_Texture->TextureFormat);
+            const std::uint32_t l_BlockBytes = GetFormatSize(l_Texture->TextureFormat);
             const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width);
-            TR_CORE_ASSERT(l_TexelSize != 0 && l_RowPitch % l_TexelSize == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
+            [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, region.Width, region.Height);
+            TR_CORE_ASSERT(l_BlockBytes != 0 && l_RowPitch % l_BlockBytes == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
             TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region outside mip {} of a {}x{} texture with {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
+            TR_CORE_ASSERT(IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region of {} that does not start on a block or cover whole blocks.", ToString(l_Texture->TextureFormat));
             TR_CORE_ASSERT(sourceOffset % c_TextureCopyOffsetAlignment == 0, "CopyBufferToTexture reads from offset {}, which is not a multiple of {}.", sourceOffset, c_TextureCopyOffsetAlignment);
-            TR_CORE_ASSERT(sourceOffset + l_RowPitch * region.Height <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_RowPitch * region.Height, sourceOffset, l_Buffer->Size);
-            if (l_TexelSize == 0)
+            TR_CORE_ASSERT(sourceOffset + l_Size <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_Size, sourceOffset, l_Buffer->Size);
+            if (l_BlockBytes == 0)
             {
                 return;
             }
 
             VkBufferImageCopy l_Region{};
             l_Region.bufferOffset = sourceOffset;
-            l_Region.bufferRowLength = static_cast<std::uint32_t>(l_RowPitch / l_TexelSize);
+            l_Region.bufferRowLength = static_cast<std::uint32_t>(l_RowPitch / l_BlockBytes) * GetFormatBlockDimension(l_Texture->TextureFormat);
             l_Region.imageSubresource = { GetAspect(l_Texture->TextureFormat), mipLevel, 0, 1 };
             l_Region.imageOffset = { region.X, region.Y, 0 };
             l_Region.imageExtent = { region.Width, region.Height, 1 };
@@ -1196,6 +1238,12 @@ namespace Trinity
             Enable(l_Enabled.Vulkan12, c_Required12);
             Enable(l_Enabled.Vulkan13, c_Required13);
 
+            // Optional: without it, IsFormatSupported reports every BC format as unsupported and textures fall back to RGBA8
+            DeviceFeatures l_Available;
+            vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &l_Available.Features);
+            m_TextureCompressionBC = l_Available.Features.features.textureCompressionBC == VK_TRUE;
+            l_Enabled.Features.features.textureCompressionBC = l_Available.Features.features.textureCompressionBC;
+
             std::vector<const char*> l_Extensions;
             if (HasExtension(GetDeviceExtensions(m_PhysicalDevice), VK_KHR_SWAPCHAIN_EXTENSION_NAME))
             {
@@ -1230,7 +1278,7 @@ namespace Trinity
             m_Info.AdapterName = l_Properties.properties.deviceName;
             m_Info.VideoMemoryBytes = GetVideoMemory(m_PhysicalDevice);
 
-            TR_CORE_INFO("Vulkan: {} ({}) with {} of video memory: Vulkan {}, {} {}, dynamic rendering, synchronization2, descriptor indexing, timeline semaphores", m_Info.AdapterName, ToString(l_Properties.properties.deviceType), Memory::FormatBytes(m_Info.VideoMemoryBytes), FormatVersion(l_Properties.properties.apiVersion), l_DriverProperties.driverName, l_DriverProperties.driverInfo);
+            TR_CORE_INFO("Vulkan: {} ({}) with {} of video memory: Vulkan {}, {} {}, dynamic rendering, synchronization2, descriptor indexing, timeline semaphores{}", m_Info.AdapterName, ToString(l_Properties.properties.deviceType), Memory::FormatBytes(m_Info.VideoMemoryBytes), FormatVersion(l_Properties.properties.apiVersion), l_DriverProperties.driverName, l_DriverProperties.driverInfo, m_TextureCompressionBC ? ", BC textures" : "");
 
             return true;
         }
@@ -1684,10 +1732,39 @@ namespace Trinity
             return { l_Buffer->Mapped, static_cast<std::size_t>(l_Buffer->Size) };
         }
 
+        // The driver's optimal-tiling features for the format must cover every usage asked for
+        bool VulkanDevice::IsFormatSupported(Format format, TextureUsage usage) const
+        {
+            const VkFormat l_Format = ToVkFormat(format);
+            if (l_Format == VK_FORMAT_UNDEFINED || (IsCompressedFormat(format) && !m_TextureCompressionBC))
+            {
+                return false;
+            }
+
+            VkFormatProperties l_Properties{};
+            vkGetPhysicalDeviceFormatProperties(m_PhysicalDevice, l_Format, &l_Properties);
+
+            constexpr std::array<std::pair<TextureUsage, VkFormatFeatureFlags>, 6> c_Needs{ {
+                { TextureUsage::ShaderResource, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT },
+                { TextureUsage::UnorderedAccess, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT },
+                { TextureUsage::RenderTarget, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT },
+                { TextureUsage::DepthStencil, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT },
+                { TextureUsage::CopySource, VK_FORMAT_FEATURE_TRANSFER_SRC_BIT },
+                { TextureUsage::CopyDestination, VK_FORMAT_FEATURE_TRANSFER_DST_BIT }
+            } };
+
+            return std::ranges::all_of(c_Needs, [usage, &l_Properties](const auto& need) { return !HasFlag(usage, need.first) || (l_Properties.optimalTilingFeatures & need.second) != 0; });
+        }
+
         TextureHandle VulkanDevice::CreateTexture(const TextureDescription& description)
         {
             TR_CORE_ASSERT(description.Width != 0 && description.Height != 0 && description.MipLevels != 0, "Texture '{}' has a zero size or no mips.", description.DebugName);
             TR_CORE_ASSERT(description.TextureFormat != Format::Unknown, "Texture '{}' has no format.", description.DebugName);
+
+            if (!CanCreateTexture(description))
+            {
+                return {};
+            }
 
             VkImageCreateInfo l_Create = MakeInfo<VkImageCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO);
             l_Create.imageType = VK_IMAGE_TYPE_2D;

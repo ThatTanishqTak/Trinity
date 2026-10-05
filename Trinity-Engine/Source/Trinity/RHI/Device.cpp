@@ -10,6 +10,8 @@
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
 #endif
 
+#include "Trinity/Core/Log.hpp"
+
 #include <format>
 #include <utility>
 
@@ -25,6 +27,26 @@ namespace Trinity
         std::uint64_t Device::GetUploadCapacity() const
         {
             return m_UploadRing.GetCapacity();
+        }
+
+        bool Device::CanCreateTexture(const TextureDescription& description) const
+        {
+            if (!IsFormatSupported(description.TextureFormat, description.Usage))
+            {
+                TR_CORE_ERROR("{}: this device cannot create texture '{}' as {} with the usage it asks for", ToString(GetInfo().API), description.DebugName, ToString(description.TextureFormat));
+
+                return false;
+            }
+
+            const std::uint32_t l_Block = GetFormatBlockDimension(description.TextureFormat);
+            if (description.Width % l_Block != 0 || description.Height % l_Block != 0)
+            {
+                TR_CORE_ERROR("{}: texture '{}' is {}x{}, and a {} texture's size must be a multiple of {}", ToString(GetInfo().API), description.DebugName, description.Width, description.Height, ToString(description.TextureFormat), l_Block);
+
+                return false;
+            }
+
+            return true;
         }
 
         Expected<Scope<Device>, std::string> CreateDevice(const DeviceSpecification& specification)

@@ -80,7 +80,7 @@ namespace Trinity
             void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance) override;
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
-            void CopyTextureToBuffer(TextureHandle source, BufferHandle destination) override;
+            void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset) override;
             void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region) override;
 
         private:
@@ -106,6 +106,7 @@ namespace Trinity
             void DestroyBuffer(BufferHandle buffer) override;
             [[nodiscard]] std::span<std::byte> GetMappedData(BufferHandle buffer) override;
 
+            [[nodiscard]] bool IsFormatSupported(Format format, TextureUsage usage) const override;
             [[nodiscard]] TextureHandle CreateTexture(const TextureDescription& description) override;
             void DestroyTexture(TextureHandle texture) override;
 
@@ -191,6 +192,7 @@ namespace Trinity
 
             DeviceInfo m_Info;
             bool m_Validation = false;
+            bool m_TextureCompressionBC = false;
             std::atomic<std::uint32_t> m_MessageCount{ 0 };
 
             VkInstance m_Instance = VK_NULL_HANDLE;

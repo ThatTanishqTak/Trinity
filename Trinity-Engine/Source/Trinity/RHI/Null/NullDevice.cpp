@@ -114,10 +114,11 @@ namespace Trinity
             TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyBuffer with a destroyed or invalid buffer.");
         }
 
-        void NullCommandList::CopyTextureToBuffer([[maybe_unused]] TextureHandle source, [[maybe_unused]] BufferHandle destination)
+        void NullCommandList::CopyTextureToBuffer([[maybe_unused]] TextureHandle source, [[maybe_unused]] std::uint32_t mipLevel, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_Recording && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyTextureToBuffer with a destroyed or invalid resource.");
+            TR_CORE_ASSERT(m_Device.IsReadbackValid(source, mipLevel, destination, destinationOffset), "CopyTextureToBuffer with a mip the texture lacks, a misaligned offset, or a buffer too small for the mip.");
         }
 
         void NullCommandList::CopyBufferToTexture([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] TextureHandle destination, [[maybe_unused]] std::uint32_t mipLevel, [[maybe_unused]] const Rect& region)
@@ -248,10 +249,36 @@ namespace Trinity
             return { l_Buffer->Mapped, static_cast<std::size_t>(l_Buffer->Size) };
         }
 
+        // What every GPU allows: a compressed format is only sampled and copied, a depth format is never a colour target or written by shaders, and a colour format is never a depth target
+        bool NullDevice::IsFormatSupported(Format format, TextureUsage usage) const
+        {
+            if (format == Format::Unknown)
+            {
+                return false;
+            }
+
+            if (IsCompressedFormat(format))
+            {
+                return !HasFlag(usage, TextureUsage::RenderTarget) && !HasFlag(usage, TextureUsage::DepthStencil) && !HasFlag(usage, TextureUsage::UnorderedAccess);
+            }
+
+            if (IsDepthFormat(format))
+            {
+                return !HasFlag(usage, TextureUsage::RenderTarget) && !HasFlag(usage, TextureUsage::UnorderedAccess);
+            }
+
+            return !HasFlag(usage, TextureUsage::DepthStencil);
+        }
+
         TextureHandle NullDevice::CreateTexture(const TextureDescription& description)
         {
             TR_CORE_ASSERT(description.Width != 0 && description.Height != 0 && description.MipLevels != 0, "Texture '{}' has a zero size or no mips.", description.DebugName);
             TR_CORE_ASSERT(description.TextureFormat != Format::Unknown, "Texture '{}' has no format.", description.DebugName);
+
+            if (!CanCreateTexture(description))
+            {
+                return {};
+            }
 
             return m_Textures.Add({ description.Width, description.Height, description.MipLevels, description.TextureFormat, description.Usage });
         }
@@ -317,9 +344,23 @@ namespace Trinity
                 return false;
             }
 
-            const std::uint64_t l_Size = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width) * region.Height;
+            const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, region.Width, region.Height);
 
-            return IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel) && sourceOffset % c_TextureCopyOffsetAlignment == 0 && sourceOffset + l_Size <= l_Buffer->Size;
+            return IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel) && IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel) && sourceOffset % c_TextureCopyOffsetAlignment == 0 && sourceOffset + l_Size <= l_Buffer->Size;
+        }
+
+        bool NullDevice::IsReadbackValid(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset)
+        {
+            const NullTexture* l_Texture = m_Textures.Get(source);
+            const NullBuffer* l_Buffer = m_Buffers.Get(destination);
+            if (l_Texture == nullptr || l_Buffer == nullptr || mipLevel >= l_Texture->MipLevels || !HasFlag(l_Texture->Usage, TextureUsage::CopySource))
+            {
+                return false;
+            }
+
+            const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, GetMipSize(l_Texture->Width, mipLevel), GetMipSize(l_Texture->Height, mipLevel));
+
+            return destinationOffset % c_TextureCopyOffsetAlignment == 0 && destinationOffset + l_Size <= l_Buffer->Size;
         }
 
         SamplerHandle NullDevice::CreateSampler([[maybe_unused]] const SamplerDescription& description)
