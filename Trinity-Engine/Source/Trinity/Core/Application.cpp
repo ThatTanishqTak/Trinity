@@ -1,5 +1,6 @@
 #include "Trinity/Core/Application.hpp"
 
+#include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/JobSystem.hpp"
@@ -399,6 +400,8 @@ namespace Trinity
             MainThread::ExecutePending();
         }
 
+        AssetManager::Update();
+
         if (!m_Minimized)
         {
             TR_PROFILE_SCOPE("LayerStack::OnUpdate");
@@ -474,6 +477,7 @@ namespace Trinity
         MountEngineDirectory();
         JobSystem::Initialize();
         SceneSerializer::Initialize();
+        AssetManager::Initialize();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
@@ -486,6 +490,7 @@ namespace Trinity
 
         l_Application.reset();
 
+        AssetManager::Shutdown();
         SceneSerializer::Shutdown();
         JobSystem::Shutdown();
         FileSystem::Shutdown();

@@ -23,8 +23,15 @@ public:
         SaveScene,
         SaveSceneAs,
         SetStartScene,
+        Refresh,
         Exit
     };
+
+    EditorSession() = default;
+    ~EditorSession();
+
+    EditorSession(const EditorSession&) = delete;
+    EditorSession& operator=(const EditorSession&) = delete;
 
     void Start(const Trinity::ApplicationCommandLineArgs& args);
 
@@ -67,6 +74,9 @@ private:
 
     void CreateProject(const std::filesystem::path& directory);
     void OpenProject(const std::filesystem::path& path);
+    void CloseProject();
+    void AttachRegistry();
+    void SaveProject();
     void NewScene();
     void OpenScene(const std::string& assetPath);
     void SaveScene(Action then);
@@ -78,6 +88,7 @@ private:
     void DrawPathPopup();
 
     Trinity::Scope<Trinity::Project> m_Project;
+    Trinity::Scope<Trinity::AssetRegistry> m_Registry;
     Trinity::Scene m_Scene;
     std::string m_ScenePath;
     bool m_Dirty = false;

@@ -45,6 +45,13 @@ namespace
     constexpr std::uint32_t c_SceneFileEntityCount = 5000;
     constexpr std::uint32_t c_SceneFileSeed = 20261006;
     constexpr std::array<std::string_view, 3> c_SceneFilePaths{ "/saves/sandbox/scene_a.trscene", "/saves/sandbox/scene_b.trscene", "/saves/sandbox/scene_c.trscene" };
+    constexpr std::string_view c_AssetTestRoot = "/saves/sandbox/assets";
+    constexpr std::uint32_t c_AssetFileCount = 64;
+    constexpr std::uint32_t c_AssetLoadCount = 1000;
+    constexpr std::uint32_t c_AssetLoadsPerFrame = 32;
+    constexpr std::uint32_t c_AssetCancelEvery = 3;
+    constexpr std::uint64_t c_AssetTimeoutFrames = 600;
+    constexpr std::uint32_t c_AssetSeed = 20261007;
     constexpr float c_ClearCycleSeconds = 10.0f;
     constexpr std::array<float, 4> c_TestClearColor{ 0.05f, 0.05f, 0.05f, 1.0f };
 
@@ -353,6 +360,55 @@ namespace
         return !l_A && !l_B && a.GetEntityCount() == b.GetEntityCount();
     }
 
+    std::string GetAssetFilePath(std::uint32_t index)
+    {
+        return std::format("{}/{}/file_{:02}.bin", c_AssetTestRoot, index % 2 == 0 ? "a" : "b/c", index);
+    }
+
+    // Different lengths, from a few bytes to 4 KiB, so a loaded asset holding another file's bytes shows up
+    std::string GetAssetFileContents(std::uint32_t index)
+    {
+        return std::format("asset {} {}", index, std::string((index * 97) % 4096, static_cast<char>('a' + index % 26)));
+    }
+
+    // Files only. Emptied folders stay, which the registry ignores
+    void RemoveFiles(std::string_view directory)
+    {
+        const Trinity::Expected<std::vector<Trinity::DirectoryEntry>, Trinity::FileError> l_Entries = Trinity::FileSystem::List(directory);
+        if (!l_Entries)
+        {
+            return;
+        }
+
+        for (const Trinity::DirectoryEntry& it_Entry : *l_Entries)
+        {
+            const std::string l_Path = std::format("{}/{}", directory, it_Entry.Name);
+            if (it_Entry.Type == Trinity::FileType::Directory)
+            {
+                RemoveFiles(l_Path);
+            }
+            else
+            {
+                static_cast<void>(Trinity::FileSystem::RemoveFile(l_Path));
+            }
+        }
+    }
+
+    // A file and its .meta, as a file manager moving both would
+    bool MoveWithMeta(const std::string& from, const std::string& to)
+    {
+        for (const auto& [it_From, it_To] : { std::pair{ from, to }, std::pair{ from + ".meta", to + ".meta" } })
+        {
+            const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Data = Trinity::FileSystem::ReadFile(it_From);
+            if (!l_Data || !Trinity::FileSystem::WriteFile(it_To, *l_Data) || !Trinity::FileSystem::RemoveFile(it_From))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
 #if defined(TR_ENGINE_SHARED)
     constexpr std::uint32_t c_ModuleLoadCount = 100;
 
@@ -414,6 +470,7 @@ void SandboxLayer::OnAttach()
     TestScene();
     TestHierarchy();
     TestSceneFiles();
+    TestAssetRegistry();
     TestModules();
     TestShaders();
     TestRHI();
@@ -452,6 +509,15 @@ void SandboxLayer::OnDetach()
 
     m_AsyncReads.clear();
 
+    if (m_AssetLoadsActive)
+    {
+        TR_WARN("Asset load test: stopped after {} of {} loads, before it finished", m_AssetLoadsStarted, c_AssetLoadCount);
+    }
+
+    m_AssetRefs.clear();
+    Trinity::AssetManager::SetRegistry(nullptr);
+    m_AssetRegistry.reset();
+
     if (m_SecondWindow)
     {
         TR_WARN("Second window: closed after {} frame(s), before the test finished", m_SecondWindowFrames);
@@ -487,6 +553,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
     }
 
     CheckAsyncReads();
+    UpdateAssetLoads();
     UpdateSecondWindow();
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
@@ -1082,6 +1149,170 @@ void SandboxLayer::TestSceneFiles()
     }
 
     TR_INFO("Scene file test: {} entities saved, loaded and saved again through {} into {} byte-identical files of {}; every component equal after loading, {} Health components kept as YAML while unregistered; a newer format refused with \"{}\"; Scene holds {} in {} live after the scenes were destroyed", c_SceneFileEntityCount, c_SceneFilePaths[0], c_SceneFilePaths.size(), Trinity::Memory::FormatBytes(l_FileSize), l_KeptUnknown, l_Refusal, Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations);
+}
+
+void SandboxLayer::TestAssetRegistry()
+{
+    TR_PROFILE_FUNCTION();
+
+    RemoveFiles(c_AssetTestRoot);
+
+    std::vector<std::string> l_Paths;
+    for (std::uint32_t it_Index = 0; it_Index < c_AssetFileCount; ++it_Index)
+    {
+        l_Paths.push_back(GetAssetFilePath(it_Index));
+        if (!Trinity::FileSystem::WriteText(l_Paths.back(), GetAssetFileContents(it_Index)))
+        {
+            TR_ERROR("Asset registry test: {} could not be written", l_Paths.back());
+
+            return;
+        }
+    }
+
+    m_AssetRegistry = Trinity::CreateScope<Trinity::AssetRegistry>(c_AssetTestRoot);
+    const Trinity::AssetScanReport l_First = m_AssetRegistry->Scan();
+
+    // One file renamed in its folder, one moved to another, each with its .meta
+    const Trinity::AssetRecord* l_RenamedRecord = m_AssetRegistry->FindByPath(l_Paths[0]);
+    const Trinity::AssetRecord* l_MovedRecord = m_AssetRegistry->FindByPath(l_Paths[1]);
+    const Trinity::UUID l_RenamedID = l_RenamedRecord != nullptr ? l_RenamedRecord->ID : Trinity::UUID();
+    const Trinity::UUID l_MovedID = l_MovedRecord != nullptr ? l_MovedRecord->ID : Trinity::UUID();
+    const std::string l_RenamedPath = std::format("{}/a/renamed_00.bin", c_AssetTestRoot);
+    const std::string l_MovedPath = std::format("{}/moved/file_01.bin", c_AssetTestRoot);
+    const bool l_FilesMoved = MoveWithMeta(l_Paths[0], l_RenamedPath) && MoveWithMeta(l_Paths[1], l_MovedPath);
+
+    const Trinity::AssetScanReport l_Second = m_AssetRegistry->Scan();
+    const Trinity::AssetRecord* l_Renamed = m_AssetRegistry->FindByPath(l_RenamedPath);
+    const Trinity::AssetRecord* l_Moved = m_AssetRegistry->FindByPath(l_MovedPath);
+    const bool l_Kept = l_FilesMoved && l_RenamedID && l_MovedID && l_Renamed != nullptr && l_Moved != nullptr && l_Renamed->ID == l_RenamedID && l_Moved->ID == l_MovedID && m_AssetRegistry->FindByPath(l_Paths[0]) == nullptr;
+    if (l_First.Created != c_AssetFileCount || l_Second.Assets != c_AssetFileCount || l_Second.Moved != 2 || l_Second.Created != 0 || l_Second.Regenerated != 0 || l_Second.Removed != 0 || !l_Kept)
+    {
+        TR_ERROR("Asset registry test: the first scan gave {} of {} files a .meta, and after renaming and moving two the second found {} moved, {} new and {} given a new UUID, {}", l_First.Created, c_AssetFileCount, l_Second.Moved, l_Second.Created, l_Second.Regenerated, l_Kept ? "with their UUIDs kept" : "without their UUIDs kept");
+
+        return;
+    }
+
+    TR_INFO("Asset registry test: {} files under {} given a .meta each, and a renamed and a moved one kept their UUIDs {} and {}", c_AssetFileCount, c_AssetTestRoot, l_RenamedID, l_MovedID);
+
+    l_Paths[0] = l_RenamedPath;
+    l_Paths[1] = l_MovedPath;
+
+    // A warning by design, so it only runs when asked for
+    if (Trinity::Application::Get().GetSpecification().CommandLineArgs.HasOption("asset-meta-test"))
+    {
+        const Trinity::UUID l_OldID = m_AssetRegistry->FindByPath(l_Paths[2])->ID;
+        static_cast<void>(Trinity::FileSystem::RemoveFile(l_Paths[2] + ".meta"));
+
+        const Trinity::AssetScanReport l_Third = m_AssetRegistry->Scan();
+        const Trinity::AssetRecord* l_Record = m_AssetRegistry->FindByPath(l_Paths[2]);
+        if (l_Third.Regenerated != 1 || l_Third.Created != 0 || l_Record == nullptr || l_Record->ID == l_OldID || !Trinity::FileSystem::Exists(l_Paths[2] + ".meta"))
+        {
+            TR_ERROR("Asset meta test: deleting the .meta of {} gave {} new UUID(s) and {} new asset(s), not one new UUID", l_Paths[2], l_Third.Regenerated, l_Third.Created);
+        }
+        else
+        {
+            TR_INFO("Asset meta test: deleting the .meta of {} gave it the new UUID {} in place of {}, with one warning", l_Paths[2], l_Record->ID, l_OldID);
+        }
+    }
+
+    for (std::uint32_t it_Index = 0; it_Index < c_AssetFileCount; ++it_Index)
+    {
+        const Trinity::UUID l_ID = m_AssetRegistry->FindByPath(l_Paths[it_Index])->ID;
+        m_AssetIDs.push_back(l_ID);
+        m_AssetFileIndices.emplace(l_ID, it_Index);
+    }
+
+    Trinity::AssetManager::SetRegistry(m_AssetRegistry.get());
+    m_AssetsBefore = Trinity::Memory::GetStats(Trinity::MemoryTag::Assets);
+    m_AssetRandom.seed(c_AssetSeed);
+    m_AssetPhaseFrame = Trinity::Application::Get().GetFrameCount();
+    m_AssetLoadsActive = true;
+}
+
+// Each frame takes up to 32 assets nobody holds, so every one starts a read. A finished one is checked against its file and let go, and every third is let go a frame later whether or not it has finished. After 1000 loads the rest finish, and once released Assets must be as it was
+void SandboxLayer::UpdateAssetLoads()
+{
+    if (!m_AssetLoadsActive)
+    {
+        return;
+    }
+
+    const std::uint64_t l_Frame = Trinity::Application::Get().GetFrameCount();
+    if (l_Frame - m_AssetPhaseFrame > c_AssetTimeoutFrames)
+    {
+        TR_ERROR("Asset load test: not finished after {} frames, with {} of {} loads started and {} reference(s) held", c_AssetTimeoutFrames, m_AssetLoadsStarted, c_AssetLoadCount, m_AssetRefs.size());
+        m_AssetRefs.clear();
+        Trinity::AssetManager::SetRegistry(nullptr);
+        m_AssetLoadsActive = false;
+
+        return;
+    }
+
+    const bool l_AllStarted = m_AssetLoadsStarted == c_AssetLoadCount;
+    if (l_AllStarted && std::ranges::any_of(m_AssetRefs, [](const HeldAsset& held) { return held.Reference.GetState() == Trinity::AssetState::Loading; }))
+    {
+        return;
+    }
+
+    std::erase_if(m_AssetRefs, [this, l_Frame](const HeldAsset& held)
+    {
+        const Trinity::AssetRef<Trinity::BinaryAsset>& l_Reference = held.Reference;
+        if (l_Reference.GetState() == Trinity::AssetState::Loading && (!held.Cancel || held.Frame == l_Frame))
+        {
+            return false;
+        }
+
+        if (l_Reference.GetState() == Trinity::AssetState::Loading)
+        {
+            ++m_AssetReleasedWhileLoading;
+        }
+        else if (const Trinity::BinaryAsset* l_Asset = l_Reference.Get(); l_Reference.IsReady() && l_Asset != nullptr)
+        {
+            const std::string l_Expected = GetAssetFileContents(m_AssetFileIndices.at(l_Reference.GetID()));
+            const bool l_Matches = l_Asset->Data.size() == l_Expected.size() && std::memcmp(l_Asset->Data.data(), l_Expected.data(), l_Expected.size()) == 0;
+            ++(l_Matches ? m_AssetVerified : m_AssetMismatches);
+        }
+        else
+        {
+            ++m_AssetFailures;
+        }
+
+        return true;
+    });
+
+    if (!l_AllStarted)
+    {
+        std::vector<Trinity::UUID> l_Free;
+        std::ranges::copy_if(m_AssetIDs, std::back_inserter(l_Free), [](Trinity::UUID id) { return Trinity::AssetManager::GetState(id) == Trinity::AssetState::None; });
+        std::ranges::shuffle(l_Free, m_AssetRandom);
+
+        for (std::size_t it_Index = 0; it_Index < l_Free.size() && it_Index < c_AssetLoadsPerFrame && m_AssetLoadsStarted < c_AssetLoadCount; ++it_Index)
+        {
+            m_AssetRefs.push_back({ l_Frame, m_AssetLoadsStarted % c_AssetCancelEvery == 0, Trinity::AssetRef<Trinity::BinaryAsset>(l_Free[it_Index]) });
+            ++m_AssetLoadsStarted;
+        }
+
+        return;
+    }
+
+    // Loads released while their bytes were being decoded finish on a worker and are thrown away a frame or two later
+    const Trinity::MemoryTagStats l_Assets = Trinity::Memory::GetStats(Trinity::MemoryTag::Assets);
+    if (l_Assets.CurrentBytes != m_AssetsBefore.CurrentBytes || l_Assets.LiveAllocations != m_AssetsBefore.LiveAllocations || Trinity::AssetManager::GetEntryCount() != 0)
+    {
+        return;
+    }
+
+    Trinity::AssetManager::SetRegistry(nullptr);
+    m_AssetLoadsActive = false;
+
+    if (m_AssetFailures != 0 || m_AssetMismatches != 0)
+    {
+        TR_ERROR("Asset load test: {} asset(s) failed and {} did not match their file", m_AssetFailures, m_AssetMismatches);
+
+        return;
+    }
+
+    TR_INFO("Asset load test: {} asynchronous loads and releases of {} assets over {} frames; {} finished and matched their file, {} were released while still loading, and Assets holds {} in {} live after the last release", c_AssetLoadCount, c_AssetFileCount, l_Frame - m_AssetPhaseFrame, m_AssetVerified, m_AssetReleasedWhileLoading, Trinity::Memory::FormatBytes(l_Assets.CurrentBytes), l_Assets.LiveAllocations);
 }
 
 void SandboxLayer::TestModules()

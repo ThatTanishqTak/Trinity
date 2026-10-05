@@ -3,6 +3,8 @@
 #include <Trinity.hpp>
 
 #include <atomic>
+#include <random>
+#include <unordered_map>
 #include <vector>
 
 class SandboxLayer final : public Trinity::Layer
@@ -27,6 +29,8 @@ private:
     void TestScene();
     void TestHierarchy();
     void TestSceneFiles();
+    void TestAssetRegistry();
+    void UpdateAssetLoads();
     void TestModules();
     void TestShaders();
     void TestRHI();
@@ -57,6 +61,27 @@ private:
     std::uint32_t m_AsyncOffMainThread = 0;
     std::uint32_t m_CancelledCallbacks = 0;
     bool m_AsyncReported = false;
+
+    struct HeldAsset
+    {
+        std::uint64_t Frame = 0;
+        bool Cancel = false;
+        Trinity::AssetRef<Trinity::BinaryAsset> Reference;
+    };
+
+    Trinity::Scope<Trinity::AssetRegistry> m_AssetRegistry;
+    std::vector<HeldAsset> m_AssetRefs;
+    std::vector<Trinity::UUID> m_AssetIDs;
+    std::unordered_map<Trinity::UUID, std::uint32_t> m_AssetFileIndices;
+    std::mt19937 m_AssetRandom;
+    Trinity::MemoryTagStats m_AssetsBefore;
+    std::uint64_t m_AssetPhaseFrame = 0;
+    std::uint32_t m_AssetLoadsStarted = 0;
+    std::uint32_t m_AssetVerified = 0;
+    std::uint32_t m_AssetReleasedWhileLoading = 0;
+    std::uint32_t m_AssetMismatches = 0;
+    std::uint32_t m_AssetFailures = 0;
+    bool m_AssetLoadsActive = false;
 
     std::atomic<std::uint32_t> m_FrameJobsRun{ 0 };
     std::atomic<std::uint32_t> m_FrameJobMismatches{ 0 };

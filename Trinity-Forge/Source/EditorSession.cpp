@@ -30,6 +30,12 @@ namespace
     }
 }
 
+// Before the asset manager shuts down, which must not be left holding this project's registry
+EditorSession::~EditorSession()
+{
+    CloseProject();
+}
+
 void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
 {
     if (const auto it_Directory = args.GetOption("new-project"))
@@ -151,6 +157,7 @@ void EditorSession::Run(Command command)
             {
                 SaveScene({});
             }
+
             break;
         }
         case Command::SaveSceneAs:
@@ -159,28 +166,34 @@ void EditorSession::Run(Command command)
             {
                 SaveSceneAs({});
             }
+
             break;
         }
         case Command::SetStartScene:
         {
-            if (l_HasProject && !m_ScenePath.empty())
+            const Trinity::AssetRecord* l_Record = l_HasProject && !m_ScenePath.empty() ? m_Registry->FindByPath(m_ScenePath) : nullptr;
+            if (l_Record != nullptr)
             {
-                m_Project->SetStartScene(m_ScenePath);
-                const Trinity::Expected<void, std::string> l_Saved = m_Project->Save();
-                if (l_Saved)
-                {
-                    TR_INFO("Forge: {} is now the start scene of {}", m_ScenePath, m_Project->GetName());
-                }
-                else
-                {
-                    TR_ERROR("Forge: {}", l_Saved.GetError());
-                }
+                m_Project->SetStartScene(l_Record->ID);
+                SaveProject();
+                TR_INFO("Forge: {} ({}) is now the start scene of {}", m_ScenePath, l_Record->ID, m_Project->GetName());
             }
+
+            break;
+        }
+        case Command::Refresh:
+        {
+            if (l_HasProject)
+            {
+                static_cast<void>(m_Registry->Scan());
+            }
+
             break;
         }
         case Command::Exit:
         {
             Trinity::Application::Get().RequestClose();
+
             break;
         }
     }
@@ -237,10 +250,10 @@ void EditorSession::ConfirmDiscard(Action action)
     m_OpenUnsavedPopup = true;
 }
 
-// A new project opens on its empty start scene, saved at once so the project file never names a missing scene
+// A new project opens on its empty start scene, saved and given a UUID at once so the project file never names a missing scene
 void EditorSession::CreateProject(const std::filesystem::path& directory)
 {
-    m_Project.reset();
+    CloseProject();
     NewScene();
 
     Trinity::Expected<Trinity::Scope<Trinity::Project>, std::string> l_Project = Trinity::Project::Create(directory);
@@ -252,16 +265,26 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
     }
 
     m_Project = std::move(*l_Project);
-    if (WriteScene(m_Project->GetStartScenePath()))
+    AttachRegistry();
+
+    const std::string l_StartScene = std::format("{}/{}", Trinity::Project::c_AssetsMount, Trinity::Project::c_DefaultStartScene);
+    if (!WriteScene(l_StartScene))
     {
-        m_ScenePath = m_Project->GetStartScenePath();
-        TR_INFO("Forge: created project {} in {}, with an empty start scene at {}", m_Project->GetName(), ToUtf8(m_Project->GetDirectory()), m_ScenePath);
+        return;
+    }
+
+    m_ScenePath = l_StartScene;
+    if (const Trinity::AssetRecord* l_Record = m_Registry->FindByPath(l_StartScene))
+    {
+        m_Project->SetStartScene(l_Record->ID);
+        SaveProject();
+        TR_INFO("Forge: created project {} in {}, with an empty start scene at {} ({})", m_Project->GetName(), ToUtf8(m_Project->GetDirectory()), m_ScenePath, l_Record->ID);
     }
 }
 
 void EditorSession::OpenProject(const std::filesystem::path& path)
 {
-    m_Project.reset();
+    CloseProject();
     NewScene();
 
     Trinity::Expected<Trinity::Scope<Trinity::Project>, std::string> l_Project = Trinity::Project::Open(path);
@@ -273,16 +296,52 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
     }
 
     m_Project = std::move(*l_Project);
+    AttachRegistry();
 
-    const std::string l_StartScene = m_Project->GetStartScenePath();
-    if (l_StartScene.empty() || !Trinity::FileSystem::Exists(l_StartScene))
+    if (m_Project->ResolveStartScenePath(*m_Registry))
     {
-        TR_INFO("Forge: {} has {}, so it opens on a new scene", m_Project->GetName(), l_StartScene.empty() ? "no start scene" : std::format("no {}", l_StartScene));
+        SaveProject();
+        TR_INFO("Forge: {} now names its start scene by UUID", m_Project->GetName());
+    }
+
+    const Trinity::UUID l_StartScene = m_Project->GetStartScene();
+    const Trinity::AssetRecord* l_Record = l_StartScene ? m_Registry->Find(l_StartScene) : nullptr;
+    if (l_Record == nullptr)
+    {
+        TR_INFO("Forge: {} has {}, so it opens on a new scene", m_Project->GetName(), l_StartScene ? std::format("no asset {} for its start scene", l_StartScene) : std::string("no start scene"));
 
         return;
     }
 
-    OpenScene(l_StartScene);
+    OpenScene(l_Record->Path);
+}
+
+// The registry goes before the project unmounts /assets, and the asset manager lets go of it first
+void EditorSession::CloseProject()
+{
+    if (m_Registry)
+    {
+        Trinity::AssetManager::SetRegistry(nullptr);
+        m_Registry.reset();
+    }
+
+    m_Project.reset();
+}
+
+void EditorSession::AttachRegistry()
+{
+    m_Registry = Trinity::CreateScope<Trinity::AssetRegistry>(Trinity::Project::c_AssetsMount);
+    static_cast<void>(m_Registry->Scan());
+    Trinity::AssetManager::SetRegistry(m_Registry.get());
+}
+
+void EditorSession::SaveProject()
+{
+    const Trinity::Expected<void, std::string> l_Saved = m_Project->Save();
+    if (!l_Saved)
+    {
+        TR_ERROR("Forge: {}", l_Saved.GetError());
+    }
 }
 
 void EditorSession::NewScene()
@@ -366,6 +425,12 @@ bool EditorSession::WriteScene(const std::string& assetPath)
 
     m_Dirty = false;
     TR_INFO("Forge: saved scene {} with {} entities", assetPath, m_Scene.GetEntityCount());
+
+    // A scene saved under a new name gets its .meta and UUID now
+    if (m_Registry && m_Registry->FindByPath(assetPath) == nullptr)
+    {
+        static_cast<void>(m_Registry->Scan());
+    }
 
     return true;
 }

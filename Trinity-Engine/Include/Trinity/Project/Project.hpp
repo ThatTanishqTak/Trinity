@@ -3,6 +3,7 @@
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Expected.hpp"
 #include "Trinity/Core/Export.hpp"
+#include "Trinity/Core/UUID.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -12,10 +13,12 @@
 
 namespace Trinity
 {
+    class AssetRegistry;
+
     class TRINITY_API Project
     {
     public:
-        static constexpr std::uint32_t c_FormatVersion = 1;
+        static constexpr std::uint32_t c_FormatVersion = 2;
         static constexpr std::string_view c_Extension = ".trproj";
         static constexpr std::string_view c_ProjectMount = "/project";
         static constexpr std::string_view c_AssetsMount = "/assets";
@@ -36,9 +39,9 @@ namespace Trinity
         [[nodiscard]] const std::string& GetEngineVersion() const { return m_EngineVersion; }
         [[nodiscard]] bool IsCurrentEngineVersion() const;
 
-        [[nodiscard]] const std::string& GetStartScene() const { return m_StartScene; }
-        [[nodiscard]] std::string GetStartScenePath() const;
-        void SetStartScene(std::string_view assetPath);
+        [[nodiscard]] UUID GetStartScene() const { return m_StartScene; }
+        void SetStartScene(UUID scene) { m_StartScene = scene; }
+        [[nodiscard]] bool ResolveStartScenePath(const AssetRegistry& registry);
 
         [[nodiscard]] const std::filesystem::path& GetDirectory() const { return m_Directory; }
         [[nodiscard]] const std::filesystem::path& GetFilePath() const { return m_FilePath; }
@@ -56,7 +59,8 @@ namespace Trinity
         std::filesystem::path m_FilePath;
         std::string m_Name;
         std::string m_EngineVersion;
-        std::string m_StartScene;
+        UUID m_StartScene;
+        std::string m_StartScenePath;
         bool m_Mounted = false;
     };
 }

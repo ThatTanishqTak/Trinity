@@ -1,5 +1,6 @@
 #include "Trinity/Project/Project.hpp"
 
+#include "Trinity/Asset/AssetRegistry.hpp"
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
@@ -96,7 +97,6 @@ namespace Trinity
         Scope<Project> l_Project(new Project(l_Directory, l_Directory / FromUtf8(l_Name + std::string(c_Extension))));
         l_Project->m_Name = l_Name;
         l_Project->m_EngineVersion = GetVersionString();
-        l_Project->m_StartScene = c_DefaultStartScene;
 
         if (Expected<void, std::string> l_Mounted = l_Project->Mount(); !l_Mounted)
         {
@@ -182,7 +182,22 @@ namespace Trinity
 
         l_Project->m_Name = ReadString(l_Root, "Name", ToUtf8(l_File.stem()));
         l_Project->m_EngineVersion = ReadString(l_Root, "EngineVersion", "");
-        l_Project->m_StartScene = ReadString(l_Root, "StartScene", "");
+        // Format 1 named the start scene by its path under Assets, which only the asset registry can turn into a UUID
+        const std::string l_StartScene = ReadString(l_Root, "StartScene", "");
+        if (l_Format == 1)
+        {
+            l_Project->m_StartScenePath = l_StartScene.empty() ? std::string() : std::format("{}/{}", c_AssetsMount, l_StartScene);
+        }
+        else if (!l_StartScene.empty())
+        {
+            const std::optional<UUID> l_Scene = UUID::Parse(l_StartScene);
+            if (!l_Scene)
+            {
+                return Unexpected{ std::format("{} has a malformed StartScene", ToUtf8(l_File)) };
+            }
+
+            l_Project->m_StartScene = *l_Scene;
+        }
 
         if (!l_Project->IsCurrentEngineVersion())
         {
@@ -201,7 +216,7 @@ namespace Trinity
         l_Emitter << YAML::Key << "Format" << YAML::Value << c_FormatVersion;
         l_Emitter << YAML::Key << "Name" << YAML::Value << YAML::DoubleQuoted << m_Name;
         l_Emitter << YAML::Key << "EngineVersion" << YAML::Value << YAML::DoubleQuoted << m_EngineVersion;
-        l_Emitter << YAML::Key << "StartScene" << YAML::Value << YAML::DoubleQuoted << m_StartScene;
+        l_Emitter << YAML::Key << "StartScene" << YAML::Value << YAML::DoubleQuoted << (m_StartScene ? m_StartScene.ToString() : std::string());
         l_Emitter << YAML::EndMap;
 
         const Expected<void, FileError> l_Written = FileSystem::WriteText(GetProjectFilePath(m_FilePath), std::string(l_Emitter.c_str()) + "\n");
@@ -218,14 +233,27 @@ namespace Trinity
         return m_EngineVersion == GetVersionString();
     }
 
-    std::string Project::GetStartScenePath() const
+    // True once a format 1 start scene path is found in the registry and replaced by its UUID, after which the project should be saved
+    bool Project::ResolveStartScenePath(const AssetRegistry& registry)
     {
-        return m_StartScene.empty() ? std::string() : std::format("{}/{}", c_AssetsMount, m_StartScene);
-    }
+        if (m_StartScenePath.empty())
+        {
+            return false;
+        }
 
-    void Project::SetStartScene(std::string_view assetPath)
-    {
-        m_StartScene = WithoutAssetsMount(assetPath);
+        const AssetRecord* l_Record = registry.FindByPath(m_StartScenePath);
+        if (l_Record == nullptr)
+        {
+            TR_CORE_WARN("Project: the start scene {} named by {} is not in the project's assets", m_StartScenePath, m_Name);
+            m_StartScenePath.clear();
+
+            return false;
+        }
+
+        m_StartScene = l_Record->ID;
+        m_StartScenePath.clear();
+
+        return true;
     }
 
     std::filesystem::path Project::GetAssetsDirectory() const

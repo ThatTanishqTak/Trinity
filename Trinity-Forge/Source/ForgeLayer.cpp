@@ -65,6 +65,15 @@ void ForgeLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
     m_Session.Update();
 }
 
+// Files may have changed while another program had focus
+void ForgeLayer::OnEvent(Trinity::Event& event)
+{
+    if (event.GetEventType() == Trinity::EventType::WindowFocus)
+    {
+        m_Session.Request(EditorSession::Command::Refresh);
+    }
+}
+
 // The menu bar comes first, so the dock space fits in the space below it. Shortcuts are read from ImGui, since layer events are the scene's while the Viewport has them
 void ForgeLayer::OnImGuiRender()
 {
@@ -130,6 +139,10 @@ void ForgeLayer::ReadShortcuts()
     {
         m_Session.Request(EditorSession::Command::SaveScene);
     }
+    else if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
+    {
+        m_Session.Request(EditorSession::Command::Refresh);
+    }
 }
 
 void ForgeLayer::DrawMenuBar()
@@ -158,6 +171,7 @@ void ForgeLayer::DrawMenuBar()
         a_Item(Trinity::Icons::c_Save, "Save", "Ctrl+S", l_HasProject, EditorSession::Command::SaveScene);
         a_Item(Trinity::Icons::c_Save, "Save As...", "Ctrl+Shift+S", l_HasProject, EditorSession::Command::SaveSceneAs);
         a_Item(Trinity::Icons::c_Gear, "Set as Start Scene", nullptr, l_HasProject && m_Session.HasScenePath(), EditorSession::Command::SetStartScene);
+        a_Item(Trinity::Icons::c_Refresh, "Refresh", "F5", l_HasProject, EditorSession::Command::Refresh);
         ImGui::Separator();
         a_Item(Trinity::Icons::c_PowerOff, "Exit", "Alt+F4", true, EditorSession::Command::Exit);
 
