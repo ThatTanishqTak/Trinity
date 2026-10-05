@@ -2,7 +2,7 @@
 
 spdlog https://github.com/ThatTanishqTak/spdlog.git 79524ddd08a4ec981b7fea76afd08ee05f83755d v1.17.0
 glm https://github.com/ThatTanishqTak/glm.git 8d1fd52e5ab5590e2c81768ace50c72bae28f2ed 1.0.3 (upstream branch 1.0)
-entt https://github.com/ThatTanishqTak/entt.git b4e58bdd364ad72246c123a0c28538eab3252672 v3.16.0
+entt https://github.com/ThatTanishqTak/entt.git 85c6bba014049b5de8fad49d25424df2f1f6a8c1 v4.0.0
 yaml-cpp https://github.com/ThatTanishqTak/yaml-cpp.git 56e3bb550c91fd7005566f19c079cb7a503223cf yaml-cpp-0.9.0
 JoltPhysics https://github.com/ThatTanishqTak/JoltPhysics.git e77f175595e64cb44218cc9d9d56fc365ad0e36a v5.6.0
 box2d https://github.com/ThatTanishqTak/box2d.git 8c661469c9507d3ad6fbd2fea3f1aa71669c2fe3 v3.1.1

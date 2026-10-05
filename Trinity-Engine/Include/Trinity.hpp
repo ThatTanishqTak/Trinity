@@ -32,5 +32,10 @@
 #include "Trinity/Renderer/GraphicsAPI.hpp"
 #include "Trinity/RHI/Device.hpp"
 
+#include "Trinity/Scene/ComponentType.hpp"
+#include "Trinity/Scene/Components.hpp"
+#include "Trinity/Scene/Entity.hpp"
+#include "Trinity/Scene/Scene.hpp"
+
 #include "Trinity/UI/Icons.hpp"
 #include "Trinity/UI/ImGuiLayer.hpp"

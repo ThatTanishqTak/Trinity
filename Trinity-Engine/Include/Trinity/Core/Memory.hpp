@@ -143,4 +143,7 @@ namespace Trinity
             return true;
         }
     };
+
+    template<MemoryTag Tag>
+    using TaggedString = std::basic_string<char, std::char_traits<char>, TaggedAllocator<char, Tag>>;
 }

@@ -24,6 +24,7 @@ private:
     void TestLogHistory();
     void TestFileSystem();
     void TestSaves();
+    void TestScene();
     void TestModules();
     void TestShaders();
     void TestRHI();

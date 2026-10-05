@@ -1,4 +1,4 @@
-// Loaded and unloaded by Sandbox: declares a console variable and allocates under Game, and both must be gone once it unloads
+// Loaded and unloaded by Sandbox: declares a console variable and allocates under Game, and both must be gone once it unloads, it also tags an entity of a scene Sandbox owns
 #include <Trinity.hpp>
 
 #include <array>
@@ -31,6 +31,16 @@ TRINITY_MODULE_EXPORT void SandboxModuleAttach()
 TRINITY_MODULE_EXPORT void SandboxModuleDescribe(std::string& description)
 {
     description = std::format("Sandbox module: sandbox.module_value = {}, {} values held under Game", s_ModuleValue.Get(), s_State != nullptr ? s_State->Values.size() : 0);
+}
+
+// Adds a Tag through the module's own instantiation of Entity::Add, which the engine must then find in its own Tag pool
+TRINITY_MODULE_EXPORT void SandboxModuleTagEntity(Trinity::Scene& scene, Trinity::UUID uuid)
+{
+    Trinity::Entity l_Entity = scene.CreateEntityWithUUID(uuid);
+    if (l_Entity)
+    {
+        l_Entity.Add<Trinity::TagComponent>().Tag = std::format("Tagged by the Sandbox module as {}", uuid);
+    }
 }
 
 TRINITY_MODULE_EXPORT void SandboxModuleDetach()

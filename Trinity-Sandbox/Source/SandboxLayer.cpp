@@ -35,6 +35,7 @@ namespace
     constexpr std::uint32_t c_ResourceRounds = 2;
     constexpr std::uint32_t c_ResourceFramesPerRound = 100;
     constexpr std::uint32_t c_BuffersPerFrame = 50;
+    constexpr std::uint32_t c_SceneEntityCount = 100000;
     constexpr float c_ClearCycleSeconds = 10.0f;
     constexpr std::array<float, 4> c_TestClearColor{ 0.2f, 0.4f, 0.6f, 1.0f };
 
@@ -215,6 +216,7 @@ void SandboxLayer::OnAttach()
 
     TestFileSystem();
     TestSaves();
+    TestScene();
     TestModules();
     TestShaders();
     TestRHI();
@@ -575,6 +577,88 @@ void SandboxLayer::TestSaves()
     TR_INFO("  WriteText(/builtin/motd.txt) -> {}", l_Refused ? "ok" : Trinity::ToString(l_Refused.GetError()));
 }
 
+void SandboxLayer::TestScene()
+{
+    TR_PROFILE_FUNCTION();
+
+    const Trinity::MemoryTagStats l_Before = Trinity::Memory::GetStats(Trinity::MemoryTag::Scene);
+
+    std::uint32_t l_Mismatches = 0;
+    std::uint64_t l_PeakBytes = 0;
+    {
+        Trinity::Scene l_Scene;
+
+        std::vector<Trinity::UUID> l_UUIDs;
+        l_UUIDs.reserve(c_SceneEntityCount);
+        for (std::uint32_t it_Index = 0; it_Index < c_SceneEntityCount; ++it_Index)
+        {
+            const Trinity::Entity l_Entity = l_Scene.CreateEntity(std::format("Entity {}", it_Index));
+            l_UUIDs.push_back(l_Entity.GetUUID());
+        }
+
+        // Longer than any small-string buffer, so every renamed Tag allocates under Scene
+        for (std::uint32_t it_Index = 0; it_Index < c_SceneEntityCount; ++it_Index)
+        {
+            Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(l_UUIDs[it_Index]);
+            if (!l_Entity || std::string_view(l_Entity.Get<Trinity::TagComponent>().Tag) != std::format("Entity {}", it_Index))
+            {
+                ++l_Mismatches;
+
+                continue;
+            }
+
+            l_Entity.Get<Trinity::TagComponent>().Tag = std::format("Renamed by the Sandbox scene test as entity {}", it_Index);
+        }
+
+        // Every other entity goes first, so the rest are checked with holes between them
+        for (std::uint32_t it_Index = 1; it_Index < c_SceneEntityCount; it_Index += 2)
+        {
+            const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(l_UUIDs[it_Index]);
+            if (l_Entity)
+            {
+                l_Scene.DestroyEntity(l_Entity);
+            }
+        }
+
+        l_PeakBytes = Trinity::Memory::GetStats(Trinity::MemoryTag::Scene).PeakBytes;
+
+        if (l_Scene.GetEntityCount() != c_SceneEntityCount / 2)
+        {
+            ++l_Mismatches;
+        }
+
+        for (std::uint32_t it_Index = 0; it_Index < c_SceneEntityCount; ++it_Index)
+        {
+            const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(l_UUIDs[it_Index]);
+            const bool l_Kept = it_Index % 2 == 0;
+            if (l_Kept != static_cast<bool>(l_Entity) || (l_Kept && (l_Entity.GetUUID() != l_UUIDs[it_Index] || std::string_view(l_Entity.Get<Trinity::TagComponent>().Tag) != std::format("Renamed by the Sandbox scene test as entity {}", it_Index))))
+            {
+                ++l_Mismatches;
+            }
+
+            if (l_Entity)
+            {
+                l_Scene.DestroyEntity(l_Entity);
+            }
+        }
+
+        if (l_Scene.GetEntityCount() != 0)
+        {
+            ++l_Mismatches;
+        }
+    }
+
+    const Trinity::MemoryTagStats l_After = Trinity::Memory::GetStats(Trinity::MemoryTag::Scene);
+    if (l_Mismatches != 0 || l_After.CurrentBytes != l_Before.CurrentBytes || l_After.LiveAllocations != l_Before.LiveAllocations)
+    {
+        TR_ERROR("Scene test: {} mismatch(es) over {} entities, and Scene holds {} in {} live after the scene was destroyed", l_Mismatches, c_SceneEntityCount, Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations);
+
+        return;
+    }
+
+    TR_INFO("Scene test: created, renamed and destroyed {} entities with 0 mismatches; Scene peaked at {} and holds {} in {} live after the scene was destroyed", c_SceneEntityCount, Trinity::Memory::FormatBytes(l_PeakBytes), Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations);
+}
+
 void SandboxLayer::TestModules()
 {
     // Modules exist only where the engine is shared: a module linking the static engine would carry a second copy of it
@@ -583,13 +667,19 @@ void SandboxLayer::TestModules()
 
     using AttachFunction = void (*)();
     using DescribeFunction = void (*)(std::string&);
+    using TagEntityFunction = void (*)(Trinity::Scene&, Trinity::UUID);
     using DetachFunction = void (*)();
 
     const std::size_t l_VariablesBefore = CountConsoleVariables();
     const Trinity::MemoryTagStats l_GameBefore = Trinity::Memory::GetStats(Trinity::MemoryTag::Game);
+    const Trinity::MemoryTagStats l_SceneBefore = Trinity::Memory::GetStats(Trinity::MemoryTag::Scene);
+
+    // Outlives every load, so a pool the module created would be destroyed through code that has already unloaded
+    Trinity::Scope<Trinity::Scene> l_Scene = Trinity::CreateScope<Trinity::Scene>();
 
     std::string l_Description;
     std::uint32_t l_Failures = 0;
+    std::uint32_t l_SceneFailures = 0;
     for (std::uint32_t it_Load = 0; it_Load < c_ModuleLoadCount; ++it_Load)
     {
         Trinity::Expected<Trinity::SharedLibrary, std::string> l_Module = Trinity::SharedLibrary::Load(TR_SANDBOX_MODULE);
@@ -602,8 +692,9 @@ void SandboxLayer::TestModules()
 
         const AttachFunction l_Attach = l_Module->GetFunction<AttachFunction>("SandboxModuleAttach");
         const DescribeFunction l_Describe = l_Module->GetFunction<DescribeFunction>("SandboxModuleDescribe");
+        const TagEntityFunction l_TagEntity = l_Module->GetFunction<TagEntityFunction>("SandboxModuleTagEntity");
         const DetachFunction l_Detach = l_Module->GetFunction<DetachFunction>("SandboxModuleDetach");
-        if (l_Attach == nullptr || l_Describe == nullptr || l_Detach == nullptr)
+        if (l_Attach == nullptr || l_Describe == nullptr || l_TagEntity == nullptr || l_Detach == nullptr)
         {
             TR_ERROR("Module test: {} is missing an entry point", l_Module->GetPath().string());
 
@@ -616,8 +707,23 @@ void SandboxLayer::TestModules()
         const Trinity::ConsoleVariableBase* l_Variable = Trinity::ConsoleVariables::Find("sandbox.module_value");
         const bool l_Loaded = l_Variable != nullptr && l_Variable->ToString() == "42" && CountConsoleVariables() == l_VariablesBefore + 1;
 
+        // FindEntityByName runs in the engine, so it reads the engine's Tag pool, not one the module made
+        const Trinity::UUID l_UUID = Trinity::UUID::Generate();
+        l_TagEntity(*l_Scene, l_UUID);
+        const Trinity::Entity l_Tagged = l_Scene->FindEntityByName(std::format("Tagged by the Sandbox module as {}", l_UUID));
+
         l_Detach();
         l_Module->Unload();
+
+        if (!l_Tagged || l_Tagged.GetUUID() != l_UUID || l_Scene->GetEntityCount() != 1)
+        {
+            ++l_SceneFailures;
+        }
+
+        if (l_Tagged)
+        {
+            l_Scene->DestroyEntity(l_Tagged);
+        }
 
         const Trinity::MemoryTagStats l_GameAfter = Trinity::Memory::GetStats(Trinity::MemoryTag::Game);
         const bool l_Unloaded = Trinity::ConsoleVariables::Find("sandbox.module_value") == nullptr && CountConsoleVariables() == l_VariablesBefore && l_GameAfter.CurrentBytes == l_GameBefore.CurrentBytes && l_GameAfter.LiveAllocations == l_GameBefore.LiveAllocations;
@@ -638,6 +744,18 @@ void SandboxLayer::TestModules()
     }
 
     TR_INFO("Module test: loaded and unloaded {} {} times; {} console variable(s) and {} under Game before and after", TR_SANDBOX_MODULE, c_ModuleLoadCount, l_VariablesBefore, Trinity::Memory::FormatBytes(l_GameBefore.CurrentBytes));
+
+    l_Scene.reset();
+
+    const Trinity::MemoryTagStats l_SceneAfter = Trinity::Memory::GetStats(Trinity::MemoryTag::Scene);
+    if (l_SceneFailures != 0 || l_SceneAfter.CurrentBytes != l_SceneBefore.CurrentBytes || l_SceneAfter.LiveAllocations != l_SceneBefore.LiveAllocations)
+    {
+        TR_ERROR("Module scene test: the engine missed {} of {} Tag(s) added by the module, and Scene went from {} in {} live to {} in {} live", l_SceneFailures, c_ModuleLoadCount, Trinity::Memory::FormatBytes(l_SceneBefore.CurrentBytes), l_SceneBefore.LiveAllocations, Trinity::Memory::FormatBytes(l_SceneAfter.CurrentBytes), l_SceneAfter.LiveAllocations);
+
+        return;
+    }
+
+    TR_INFO("Module scene test: the module tagged an entity of Sandbox's scene on each of {} loads, and the engine found all {} in its own Tag pool; Scene holds {} in {} live before and after", c_ModuleLoadCount, c_ModuleLoadCount, Trinity::Memory::FormatBytes(l_SceneAfter.CurrentBytes), l_SceneAfter.LiveAllocations);
 #endif
 }
 
