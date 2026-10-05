@@ -25,6 +25,7 @@ private:
     void TestFileSystem();
     void TestSaves();
     void TestScene();
+    void TestHierarchy();
     void TestModules();
     void TestShaders();
     void TestRHI();

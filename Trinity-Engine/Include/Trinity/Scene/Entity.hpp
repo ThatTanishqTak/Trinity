@@ -8,6 +8,7 @@
 
 #include <entt/entity/entity.hpp>
 
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 
@@ -57,13 +58,20 @@ namespace Trinity
         template<Component T>
         void Remove()
         {
-            static_assert(!std::is_same_v<T, IDComponent>, "An entity keeps its ID until it is destroyed");
+            static_assert(!std::is_same_v<T, IDComponent> && !std::is_same_v<T, TransformComponent> && !std::is_same_v<T, WorldTransformComponent> && !std::is_same_v<T, RelationshipComponent>, "An entity keeps its ID, Transform, WorldTransform and Relationship until it is destroyed");
             TR_CORE_ASSERT(Has<T>(), "Entity has no {}", T::c_TypeName);
 
             m_Scene->m_Registry.remove<T>(m_Handle);
         }
 
         [[nodiscard]] UUID GetUUID() const { return Get<IDComponent>().ID; }
+
+        [[nodiscard]] Entity GetParent() const { return Entity(Get<RelationshipComponent>().Parent, m_Scene); }
+        [[nodiscard]] Entity GetFirstChild() const { return Entity(Get<RelationshipComponent>().FirstChild, m_Scene); }
+        [[nodiscard]] Entity GetLastChild() const { return Entity(Get<RelationshipComponent>().LastChild, m_Scene); }
+        [[nodiscard]] Entity GetPreviousSibling() const { return Entity(Get<RelationshipComponent>().PreviousSibling, m_Scene); }
+        [[nodiscard]] Entity GetNextSibling() const { return Entity(Get<RelationshipComponent>().NextSibling, m_Scene); }
+        [[nodiscard]] std::uint32_t GetChildCount() const { return Get<RelationshipComponent>().ChildCount; }
 
         [[nodiscard]] bool IsValid() const { return m_Scene != nullptr && m_Scene->m_Registry.valid(m_Handle); }
         explicit operator bool() const { return IsValid(); }

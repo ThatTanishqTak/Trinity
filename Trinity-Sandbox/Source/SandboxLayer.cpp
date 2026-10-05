@@ -13,6 +13,7 @@
 #include <format>
 #include <iterator>
 #include <numbers>
+#include <random>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -36,6 +37,10 @@ namespace
     constexpr std::uint32_t c_ResourceFramesPerRound = 100;
     constexpr std::uint32_t c_BuffersPerFrame = 50;
     constexpr std::uint32_t c_SceneEntityCount = 100000;
+    constexpr std::uint32_t c_HierarchyEntityCount = 10000;
+    constexpr std::uint32_t c_HierarchyReparentCount = 1000;
+    constexpr std::uint32_t c_HierarchySeed = 20261005;
+    constexpr double c_HierarchyTolerance = 1e-5;
     constexpr float c_ClearCycleSeconds = 10.0f;
     constexpr std::array<float, 4> c_TestClearColor{ 0.2f, 0.4f, 0.6f, 1.0f };
 
@@ -158,6 +163,67 @@ namespace
         return value & 0xFFFF;
     }
 
+    // From the Transforms alone in double precision, so it shares no code or rounding with Scene::UpdateWorldTransforms
+    glm::dmat4 ComputeReferenceWorld(Trinity::Entity entity)
+    {
+        glm::dmat4 l_World(1.0);
+        for (Trinity::Entity it_Entity = entity; it_Entity; it_Entity = it_Entity.GetParent())
+        {
+            const Trinity::TransformComponent& l_Transform = it_Entity.Get<Trinity::TransformComponent>();
+            const glm::dmat4 l_Local = glm::translate(glm::dmat4(1.0), glm::dvec3(l_Transform.Position)) * glm::mat4_cast(glm::dquat(l_Transform.Rotation)) * glm::scale(glm::dmat4(1.0), glm::dvec3(l_Transform.Scale));
+            l_World = l_Local * l_World;
+        }
+
+        return l_World;
+    }
+
+    // The largest difference of any element, relative to that element's size once it is above 1
+    double GetMatrixError(const glm::mat4& matrix, const glm::dmat4& reference)
+    {
+        double l_Error = 0.0;
+        for (glm::length_t it_Column = 0; it_Column < 4; ++it_Column)
+        {
+            for (glm::length_t it_Row = 0; it_Row < 4; ++it_Row)
+            {
+                const double l_Expected = reference[it_Column][it_Row];
+                l_Error = std::max(l_Error, std::abs(static_cast<double>(matrix[it_Column][it_Row]) - l_Expected) / std::max(1.0, std::abs(l_Expected)));
+            }
+        }
+
+        return l_Error;
+    }
+
+    // Every link agrees with its neighbours, every child count matches its list, and hierarchy order reaches every entity once
+    bool CheckHierarchyLinks(Trinity::Scene& scene)
+    {
+        std::size_t l_Visited = 0;
+        for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+        {
+            ++l_Visited;
+
+            // A missing neighbour is a null handle in this scene, which only equals another such handle
+            std::uint32_t l_Children = 0;
+            Trinity::Entity l_Previous(entt::null, &scene);
+            for (Trinity::Entity it_Child = it_Entity.GetFirstChild(); it_Child; it_Child = it_Child.GetNextSibling())
+            {
+                if (it_Child.GetParent() != it_Entity || it_Child.GetPreviousSibling() != l_Previous)
+                {
+                    return false;
+                }
+
+                l_Previous = it_Child;
+                ++l_Children;
+            }
+
+            if (l_Children != it_Entity.GetChildCount() || it_Entity.GetLastChild() != l_Previous)
+            {
+                return false;
+            }
+        }
+
+        return l_Visited == scene.GetEntityCount();
+    }
+
 #if defined(TR_ENGINE_SHARED)
     constexpr std::uint32_t c_ModuleLoadCount = 100;
 
@@ -217,6 +283,7 @@ void SandboxLayer::OnAttach()
     TestFileSystem();
     TestSaves();
     TestScene();
+    TestHierarchy();
     TestModules();
     TestShaders();
     TestRHI();
@@ -657,6 +724,144 @@ void SandboxLayer::TestScene()
     }
 
     TR_INFO("Scene test: created, renamed and destroyed {} entities with 0 mismatches; Scene peaked at {} and holds {} in {} live after the scene was destroyed", c_SceneEntityCount, Trinity::Memory::FormatBytes(l_PeakBytes), Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations);
+}
+
+void SandboxLayer::TestHierarchy()
+{
+    TR_PROFILE_FUNCTION();
+
+    const Trinity::MemoryTagStats l_Before = Trinity::Memory::GetStats(Trinity::MemoryTag::Scene);
+
+    std::mt19937 l_Random(c_HierarchySeed);
+    std::uniform_real_distribution<float> l_Signed(-1.0f, 1.0f);
+    std::uniform_real_distribution<float> l_Angle(0.0f, 2.0f * std::numbers::pi_v<float>);
+    std::uniform_real_distribution<float> l_Scale(0.8f, 1.25f);
+    const auto a_Pick = [&l_Random](std::size_t first, std::size_t count)
+    {
+        return std::uniform_int_distribution<std::size_t>(first, count - 1)(l_Random);
+    };
+
+    std::uint32_t l_Failures = 0;
+    std::uint32_t l_Refused = 0;
+    double l_WorldError = 0.0;
+    double l_KeptError = 0.0;
+    std::size_t l_SubtreeSize = 0;
+    {
+        Trinity::Scene l_Scene;
+
+        std::vector<Trinity::Entity> l_Entities;
+        l_Entities.reserve(c_HierarchyEntityCount);
+        l_Entities.push_back(l_Scene.CreateEntity("Hierarchy root"));
+
+        // Uniform scales, so keeping a world transform through a reparent never needs the shear a Transform cannot hold
+        for (std::uint32_t it_Index = 1; it_Index < c_HierarchyEntityCount; ++it_Index)
+        {
+            Trinity::Entity l_Entity = l_Scene.CreateEntity(std::format("Node {}", it_Index), l_Entities[a_Pick(0, l_Entities.size())]);
+
+            Trinity::TransformComponent& l_Transform = l_Entity.Get<Trinity::TransformComponent>();
+            l_Transform.Position = glm::vec3(l_Signed(l_Random), l_Signed(l_Random), l_Signed(l_Random));
+            l_Transform.Rotation = glm::angleAxis(l_Angle(l_Random), glm::normalize(glm::vec3(l_Signed(l_Random), l_Signed(l_Random), l_Signed(l_Random)) + glm::vec3(0.0f, 0.0f, 0.01f)));
+            l_Transform.Scale = glm::vec3(l_Scale(l_Random));
+
+            l_Entities.push_back(l_Entity);
+        }
+
+        // Half append to a new parent, half move before a new sibling. The root is never moved or made a sibling, so destroying it destroys everything
+        for (std::uint32_t it_Move = 0; it_Move < c_HierarchyReparentCount; ++it_Move)
+        {
+            const Trinity::Entity l_Entity = l_Entities[a_Pick(1, l_Entities.size())];
+            const glm::mat4 l_WorldBefore = l_Scene.ComputeWorldMatrix(l_Entity);
+
+            bool l_Moved = false;
+            while (!l_Moved)
+            {
+                const Trinity::Entity l_Target = l_Entities[a_Pick(it_Move % 2 == 0 ? 0 : 1, l_Entities.size())];
+                l_Moved = it_Move % 2 == 0 ? l_Scene.SetParent(l_Entity, l_Target) : l_Scene.MoveBefore(l_Entity, l_Target);
+                if (!l_Moved)
+                {
+                    ++l_Refused;
+                }
+            }
+
+            l_KeptError = std::max(l_KeptError, GetMatrixError(l_Scene.ComputeWorldMatrix(l_Entity), glm::dmat4(l_WorldBefore)));
+        }
+
+        if (!CheckHierarchyLinks(l_Scene))
+        {
+            ++l_Failures;
+        }
+
+        l_Scene.UpdateWorldTransforms();
+        for (const Trinity::Entity it_Entity : l_Entities)
+        {
+            l_WorldError = std::max(l_WorldError, GetMatrixError(it_Entity.Get<Trinity::WorldTransformComponent>().Matrix, ComputeReferenceWorld(it_Entity)));
+        }
+
+        // The root's first child, compared with its copy entity by entity in hierarchy order
+        const Trinity::Entity l_Source = l_Entities.front().GetFirstChild();
+        std::unordered_set<Trinity::UUID> l_SourceUUIDs;
+        for (Trinity::Entity it_Entity = l_Source; it_Entity; it_Entity = l_Scene.GetNextInSubtree(it_Entity, l_Source))
+        {
+            l_SourceUUIDs.insert(it_Entity.GetUUID());
+        }
+
+        l_SubtreeSize = l_SourceUUIDs.size();
+
+        const Trinity::Entity l_Copy = l_Scene.DuplicateEntity(l_Source);
+        if (l_Copy.GetParent() != l_Source.GetParent() || l_Source.GetNextSibling() != l_Copy || l_Scene.GetEntityCount() != c_HierarchyEntityCount + l_SubtreeSize)
+        {
+            ++l_Failures;
+        }
+
+        Trinity::Entity l_Original = l_Source;
+        Trinity::Entity l_Duplicate = l_Copy;
+        std::size_t l_Compared = 0;
+        while (l_Original && l_Duplicate)
+        {
+            const Trinity::TransformComponent& l_A = l_Original.Get<Trinity::TransformComponent>();
+            const Trinity::TransformComponent& l_B = l_Duplicate.Get<Trinity::TransformComponent>();
+            const bool l_SameShape = l_Original.GetChildCount() == l_Duplicate.GetChildCount() && std::string_view(l_Original.Get<Trinity::TagComponent>().Tag) == std::string_view(l_Duplicate.Get<Trinity::TagComponent>().Tag);
+            const bool l_SameTransform = l_A.Position == l_B.Position && l_A.Rotation == l_B.Rotation && l_A.Scale == l_B.Scale;
+            const bool l_NewUUID = !l_SourceUUIDs.contains(l_Duplicate.GetUUID()) && l_Scene.FindEntityByUUID(l_Duplicate.GetUUID()) == l_Duplicate;
+            if (!l_SameShape || !l_SameTransform || !l_NewUUID)
+            {
+                ++l_Failures;
+            }
+
+            ++l_Compared;
+            l_Original = l_Scene.GetNextInSubtree(l_Original, l_Source);
+            l_Duplicate = l_Scene.GetNextInSubtree(l_Duplicate, l_Copy);
+        }
+
+        if (l_Original || l_Duplicate || l_Compared != l_SubtreeSize || !CheckHierarchyLinks(l_Scene))
+        {
+            ++l_Failures;
+        }
+
+        l_Scene.DestroyEntity(l_Entities.front());
+        if (l_Scene.GetEntityCount() != 0 || l_Scene.GetRootCount() != 0 || l_Scene.GetFirstRoot())
+        {
+            ++l_Failures;
+        }
+
+        for (const auto [it_Id, it_Storage] : l_Scene.GetRegistry().storage())
+        {
+            if (!it_Storage.empty())
+            {
+                ++l_Failures;
+            }
+        }
+    }
+
+    const Trinity::MemoryTagStats l_After = Trinity::Memory::GetStats(Trinity::MemoryTag::Scene);
+    if (l_Failures != 0 || l_WorldError > c_HierarchyTolerance || l_KeptError > c_HierarchyTolerance || l_After.CurrentBytes != l_Before.CurrentBytes || l_After.LiveAllocations != l_Before.LiveAllocations)
+    {
+        TR_ERROR("Hierarchy test: {} failure(s), world matrices off by {:.2e} and kept world transforms by {:.2e} (limit {:.0e}), and Scene holds {} in {} live after the scene was destroyed", l_Failures, l_WorldError, l_KeptError, c_HierarchyTolerance, Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations);
+
+        return;
+    }
+
+    TR_INFO("Hierarchy test: {} entities, {} reparented ({} refused as cycles); world matrices within {:.2e} of a double-precision reference and kept world transforms within {:.2e} (limit {:.0e}); a {}-entity subtree duplicated with new UUIDs and the same shape; destroying the root emptied every pool, and Scene holds {} in {} live after the scene was destroyed", c_HierarchyEntityCount, c_HierarchyReparentCount, l_Refused, l_WorldError, l_KeptError, c_HierarchyTolerance, l_SubtreeSize, Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations);
 }
 
 void SandboxLayer::TestModules()

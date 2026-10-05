@@ -6,7 +6,10 @@
 
 #include <entt/entity/registry.hpp>
 
+#include <glm/glm.hpp>
+
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string_view>
 #include <unordered_map>
@@ -18,7 +21,7 @@ namespace Trinity
 
     using SceneRegistry = entt::basic_registry<entt::entity, TaggedAllocator<entt::entity, MemoryTag::Scene>>;
 
-    // Owns an EnTT registry whose pools and components allocate under Scene, and finds entities by UUID
+    // Owns an EnTT registry whose pools and components allocate under Scene, finds entities by UUID, and keeps them in a hierarchy whose roots are ordered too
     class TRINITY_API Scene
     {
     public:
@@ -30,15 +33,25 @@ namespace Trinity
         Scene(Scene&&) = delete;
         Scene& operator=(Scene&&) = delete;
 
-        // Adds an ID with a new UUID, and a Tag
         Entity CreateEntity(std::string_view name = "Entity");
-        // Adds only the ID, for code that adds every other component itself, such as a scene loader. Returns an invalid entity if the UUID is invalid or taken
+        Entity CreateEntity(std::string_view name, Entity parent);
         Entity CreateEntityWithUUID(UUID uuid);
         void DestroyEntity(Entity entity);
+        Entity DuplicateEntity(Entity entity);
         void Clear();
 
+        bool SetParent(Entity entity, Entity parent, bool keepWorldTransform = true);
+        bool MoveBefore(Entity entity, Entity sibling, bool keepWorldTransform = true);
+
+        void UpdateWorldTransforms();
+        [[nodiscard]] glm::mat4 ComputeWorldMatrix(Entity entity) const;
+
+        [[nodiscard]] Entity GetFirstRoot();
+        [[nodiscard]] Entity GetNextInHierarchyOrder(Entity entity);
+        [[nodiscard]] Entity GetNextInSubtree(Entity entity, Entity root);
+        [[nodiscard]] std::uint32_t GetRootCount() const { return m_RootCount; }
+
         [[nodiscard]] Entity FindEntityByUUID(UUID uuid);
-        // The first entity in the Tag pool with this name
         [[nodiscard]] Entity FindEntityByName(std::string_view name);
         [[nodiscard]] std::size_t GetEntityCount() const;
 
@@ -50,7 +63,18 @@ namespace Trinity
 
         using EntityMap = std::unordered_map<UUID, entt::entity, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, entt::entity>, MemoryTag::Scene>>;
 
+        [[nodiscard]] entt::entity GetNext(entt::entity entity, entt::entity root) const;
+        [[nodiscard]] bool IsSelfOrAncestor(entt::entity entity, entt::entity descendant) const;
+        [[nodiscard]] glm::mat4 ComputeWorld(entt::entity entity) const;
+        bool Move(Entity entity, entt::entity parent, entt::entity before, bool keepWorldTransform);
+        void Link(entt::entity entity, entt::entity parent, entt::entity before);
+        void Unlink(entt::entity entity);
+        entt::entity Duplicate(entt::entity source, entt::entity parent, entt::entity before);
+
         SceneRegistry m_Registry;
         EntityMap m_EntityMap;
+        entt::entity m_FirstRoot = entt::null;
+        entt::entity m_LastRoot = entt::null;
+        std::uint32_t m_RootCount = 0;
     };
 }
