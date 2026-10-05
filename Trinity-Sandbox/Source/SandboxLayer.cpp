@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <numbers>
 #include <random>
 #include <span>
@@ -41,8 +42,11 @@ namespace
     constexpr std::uint32_t c_HierarchyReparentCount = 1000;
     constexpr std::uint32_t c_HierarchySeed = 20261005;
     constexpr double c_HierarchyTolerance = 1e-5;
+    constexpr std::uint32_t c_SceneFileEntityCount = 5000;
+    constexpr std::uint32_t c_SceneFileSeed = 20261006;
+    constexpr std::array<std::string_view, 3> c_SceneFilePaths{ "/saves/sandbox/scene_a.trscene", "/saves/sandbox/scene_b.trscene", "/saves/sandbox/scene_c.trscene" };
     constexpr float c_ClearCycleSeconds = 10.0f;
-    constexpr std::array<float, 4> c_TestClearColor{ 0.2f, 0.4f, 0.6f, 1.0f };
+    constexpr std::array<float, 4> c_TestClearColor{ 0.05f, 0.05f, 0.05f, 1.0f };
 
     // About a second apart at 60 Hz, so each step of the second window test can be watched
     constexpr std::uint32_t c_SecondWindowStepFrames = 60;
@@ -224,6 +228,131 @@ namespace
         return l_Visited == scene.GetEntityCount();
     }
 
+    // Stands in for a game module's component, so the scene file test can unregister it and see it kept as YAML
+    struct HealthComponent
+    {
+        static constexpr std::string_view c_TypeName = "Sandbox.Health";
+
+        float Current = 100.0f;
+        float Maximum = 100.0f;
+
+        [[nodiscard]] bool operator==(const HealthComponent&) const = default;
+    };
+
+    void SaveHealth(const HealthComponent& component, Trinity::ComponentWriter& writer)
+    {
+        writer.Write("Current", component.Current);
+        writer.Write("Maximum", component.Maximum);
+    }
+
+    void LoadHealth(HealthComponent& component, const Trinity::ComponentReader& reader)
+    {
+        reader.Read("Current", component.Current);
+        reader.Read("Maximum", component.Maximum);
+    }
+
+    // Plain, huge, tiny, subnormal and negative zero, so the shortest round-trip form is tested at its edges
+    float RandomSceneFloat(std::mt19937& random)
+    {
+        constexpr std::array<float, 6> c_Edges{ -0.0f, 1e-45f, 1.17549435e-38f, 3.40282347e38f, -1e-30f, 0.1f };
+
+        switch (std::uniform_int_distribution<std::uint32_t>(0, 3)(random))
+        {
+            case 0:
+                return c_Edges[std::uniform_int_distribution<std::size_t>(0, c_Edges.size() - 1)(random)];
+            case 1:
+                return std::uniform_real_distribution<float>(-1e-6f, 1e-6f)(random);
+            default:
+                return std::uniform_real_distribution<float>(-1000.0f, 1000.0f)(random);
+        }
+    }
+
+    // Names YAML would misread as other types or as syntax, so the writer's quoting is tested
+    void BuildRandomScene(Trinity::Scene& scene, std::mt19937& random)
+    {
+        constexpr std::array<std::string_view, 16> c_Names{ "Player", "true", "123", "a: b", "#hash", "  padded  ", "", "quote\"s", "line\nbreak", "Ünïcødé", "- dash", "[bracket]", "{brace}", "null", "~", "Entity" };
+
+        std::vector<Trinity::Entity> l_Entities;
+        l_Entities.reserve(c_SceneFileEntityCount);
+        for (std::uint32_t it_Index = 0; it_Index < c_SceneFileEntityCount; ++it_Index)
+        {
+            const bool l_Root = l_Entities.empty() || std::uniform_int_distribution<std::uint32_t>(0, 4)(random) == 0;
+            const Trinity::Entity l_Parent = l_Root ? Trinity::Entity() : l_Entities[std::uniform_int_distribution<std::size_t>(0, l_Entities.size() - 1)(random)];
+            const std::string_view l_Name = c_Names[std::uniform_int_distribution<std::size_t>(0, c_Names.size() - 1)(random)];
+
+            Trinity::Entity l_Entity = scene.CreateEntity(it_Index % 3 == 0 ? std::format("{} {}", l_Name, it_Index) : std::string(l_Name), l_Parent);
+            if (it_Index % 11 == 0)
+            {
+                l_Entity.Remove<Trinity::TagComponent>();
+            }
+
+            Trinity::TransformComponent& l_Transform = l_Entity.Get<Trinity::TransformComponent>();
+            l_Transform.Position = glm::vec3(RandomSceneFloat(random), RandomSceneFloat(random), RandomSceneFloat(random));
+            l_Transform.Rotation = glm::normalize(glm::quat(RandomSceneFloat(random), RandomSceneFloat(random), RandomSceneFloat(random), 1.0f));
+            l_Transform.Scale = glm::vec3(RandomSceneFloat(random), RandomSceneFloat(random), RandomSceneFloat(random));
+
+            if (it_Index % 4 == 0)
+            {
+                Trinity::CameraComponent& l_Camera = l_Entity.Add<Trinity::CameraComponent>();
+                l_Camera.OrthographicSize = RandomSceneFloat(random);
+                l_Camera.Near = RandomSceneFloat(random);
+                l_Camera.Far = RandomSceneFloat(random);
+                l_Camera.Primary = it_Index % 8 == 0;
+            }
+
+            if (it_Index % 2 == 0)
+            {
+                Trinity::SpriteRendererComponent& l_Sprite = l_Entity.Add<Trinity::SpriteRendererComponent>();
+                l_Sprite.Texture = it_Index % 6 == 0 ? Trinity::UUID() : Trinity::UUID::Generate();
+                l_Sprite.Tint = glm::vec4(RandomSceneFloat(random), RandomSceneFloat(random), RandomSceneFloat(random), RandomSceneFloat(random));
+                l_Sprite.FlipX = it_Index % 4 == 2;
+                l_Sprite.FlipY = it_Index % 8 == 2;
+                l_Sprite.UVRect = glm::vec4(RandomSceneFloat(random), RandomSceneFloat(random), RandomSceneFloat(random), RandomSceneFloat(random));
+                l_Sprite.SortingLayer = std::uniform_int_distribution<std::int32_t>(std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max())(random);
+                l_Sprite.OrderInLayer = std::uniform_int_distribution<std::int32_t>(-100, 100)(random);
+            }
+
+            if (it_Index % 5 == 0)
+            {
+                l_Entity.Add<HealthComponent>(RandomSceneFloat(random), RandomSceneFloat(random));
+            }
+
+            l_Entities.push_back(l_Entity);
+        }
+    }
+
+    template<Trinity::Component T>
+    bool ComponentMatches(const Trinity::Entity& a, const Trinity::Entity& b)
+    {
+        return a.Has<T>() == b.Has<T>() && (!a.Has<T>() || a.Get<T>() == b.Get<T>());
+    }
+
+    // The same entities in the same hierarchy order, with the same parents and equal components
+    bool ScenesMatch(Trinity::Scene& a, Trinity::Scene& b, bool compareHealth)
+    {
+        Trinity::Entity l_A = a.GetFirstRoot();
+        Trinity::Entity l_B = b.GetFirstRoot();
+        while (l_A && l_B)
+        {
+            const Trinity::Entity l_ParentA = l_A.GetParent();
+            const Trinity::Entity l_ParentB = l_B.GetParent();
+            if (l_A.GetUUID() != l_B.GetUUID() || static_cast<bool>(l_ParentA) != static_cast<bool>(l_ParentB) || (l_ParentA && l_ParentA.GetUUID() != l_ParentB.GetUUID()))
+            {
+                return false;
+            }
+
+            if (!ComponentMatches<Trinity::TagComponent>(l_A, l_B) || !ComponentMatches<Trinity::TransformComponent>(l_A, l_B) || !ComponentMatches<Trinity::CameraComponent>(l_A, l_B) || !ComponentMatches<Trinity::SpriteRendererComponent>(l_A, l_B) || (compareHealth && !ComponentMatches<HealthComponent>(l_A, l_B)))
+            {
+                return false;
+            }
+
+            l_A = a.GetNextInHierarchyOrder(l_A);
+            l_B = b.GetNextInHierarchyOrder(l_B);
+        }
+
+        return !l_A && !l_B && a.GetEntityCount() == b.GetEntityCount();
+    }
+
 #if defined(TR_ENGINE_SHARED)
     constexpr std::uint32_t c_ModuleLoadCount = 100;
 
@@ -284,6 +413,7 @@ void SandboxLayer::OnAttach()
     TestSaves();
     TestScene();
     TestHierarchy();
+    TestSceneFiles();
     TestModules();
     TestShaders();
     TestRHI();
@@ -862,6 +992,96 @@ void SandboxLayer::TestHierarchy()
     }
 
     TR_INFO("Hierarchy test: {} entities, {} reparented ({} refused as cycles); world matrices within {:.2e} of a double-precision reference and kept world transforms within {:.2e} (limit {:.0e}); a {}-entity subtree duplicated with new UUIDs and the same shape; destroying the root emptied every pool, and Scene holds {} in {} live after the scene was destroyed", c_HierarchyEntityCount, c_HierarchyReparentCount, l_Refused, l_WorldError, l_KeptError, c_HierarchyTolerance, l_SubtreeSize, Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations);
+}
+
+void SandboxLayer::TestSceneFiles()
+{
+    TR_PROFILE_FUNCTION();
+
+    const Trinity::MemoryTagStats l_Before = Trinity::Memory::GetStats(Trinity::MemoryTag::Scene);
+    const Trinity::ComponentSerializer l_HealthSerializer = Trinity::MakeComponentSerializer<HealthComponent, SaveHealth, LoadHealth>();
+
+    std::vector<std::string> l_Failures;
+    std::size_t l_FileSize = 0;
+    std::size_t l_KeptUnknown = 0;
+    std::size_t l_HealthCount = 0;
+    std::string l_Refusal;
+    {
+        Trinity::Scene l_A;
+        Trinity::Scene l_B;
+        Trinity::Scene l_C;
+        for (Trinity::Scene* it_Scene : { &l_A, &l_B, &l_C })
+        {
+            static_cast<void>(it_Scene->GetRegistry().storage<HealthComponent>());
+        }
+
+        std::mt19937 l_Random(c_SceneFileSeed);
+        BuildRandomScene(l_A, l_Random);
+        l_HealthCount = l_A.GetRegistry().storage<HealthComponent>().size();
+
+        // A is saved knowing Health, B loads it without, and C loads B's file knowing Health again
+        Trinity::SceneSerializer::RegisterComponent(l_HealthSerializer);
+        const Trinity::Expected<void, std::string> l_SavedA = Trinity::SceneSerializer::Save(l_A, c_SceneFilePaths[0]);
+
+        Trinity::SceneSerializer::UnregisterComponent(HealthComponent::c_TypeName);
+        const Trinity::Expected<void, std::string> l_LoadedB = Trinity::SceneSerializer::Load(l_B, c_SceneFilePaths[0]);
+        const Trinity::Expected<void, std::string> l_SavedB = Trinity::SceneSerializer::Save(l_B, c_SceneFilePaths[1]);
+        l_KeptUnknown = l_B.GetRegistry().storage<Trinity::UnknownComponentsComponent>().size();
+
+        Trinity::SceneSerializer::RegisterComponent(l_HealthSerializer);
+        const Trinity::Expected<void, std::string> l_LoadedC = Trinity::SceneSerializer::Load(l_C, c_SceneFilePaths[1]);
+        const Trinity::Expected<void, std::string> l_SavedC = Trinity::SceneSerializer::Save(l_C, c_SceneFilePaths[2]);
+
+        for (const Trinity::Expected<void, std::string>* it_Result : { &l_SavedA, &l_LoadedB, &l_SavedB, &l_LoadedC, &l_SavedC })
+        {
+            if (!*it_Result)
+            {
+                l_Failures.push_back(it_Result->GetError());
+            }
+        }
+
+        const Trinity::Expected<std::string, Trinity::FileError> l_TextA = Trinity::FileSystem::ReadText(c_SceneFilePaths[0]);
+        const Trinity::Expected<std::string, Trinity::FileError> l_TextB = Trinity::FileSystem::ReadText(c_SceneFilePaths[1]);
+        const Trinity::Expected<std::string, Trinity::FileError> l_TextC = Trinity::FileSystem::ReadText(c_SceneFilePaths[2]);
+        if (!l_TextA || !l_TextB || !l_TextC || *l_TextA != *l_TextB || *l_TextA != *l_TextC)
+        {
+            l_Failures.push_back("the three saved files differ");
+        }
+
+        l_FileSize = l_TextA ? l_TextA->size() : 0;
+
+        if (l_KeptUnknown != l_HealthCount || !ScenesMatch(l_A, l_B, false) || !ScenesMatch(l_A, l_C, true))
+        {
+            l_Failures.push_back(std::format("components differ after loading, with {} of {} Health components kept as YAML", l_KeptUnknown, l_HealthCount));
+        }
+
+        const Trinity::Expected<void, std::string> l_Newer = Trinity::SceneSerializer::LoadFromText(l_C, std::format("Format: {}\nEntities: []\n", Trinity::SceneSerializer::c_FormatVersion + 1));
+        if (l_Newer || l_C.GetEntityCount() != c_SceneFileEntityCount)
+        {
+            l_Failures.push_back("a file from a newer format was loaded, or emptied the scene");
+        }
+        else
+        {
+            l_Refusal = l_Newer.GetError();
+        }
+
+        Trinity::SceneSerializer::UnregisterComponent(HealthComponent::c_TypeName);
+    }
+
+    const Trinity::MemoryTagStats l_After = Trinity::Memory::GetStats(Trinity::MemoryTag::Scene);
+    if (!l_Failures.empty() || l_After.CurrentBytes != l_Before.CurrentBytes || l_After.LiveAllocations != l_Before.LiveAllocations)
+    {
+        for (const std::string& it_Failure : l_Failures)
+        {
+            TR_ERROR("Scene file test: {}", it_Failure);
+        }
+
+        TR_ERROR("Scene file test: {} failure(s), and Scene holds {} in {} live after the scenes were destroyed", l_Failures.size(), Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations);
+
+        return;
+    }
+
+    TR_INFO("Scene file test: {} entities saved, loaded and saved again through {} into {} byte-identical files of {}; every component equal after loading, {} Health components kept as YAML while unregistered; a newer format refused with \"{}\"; Scene holds {} in {} live after the scenes were destroyed", c_SceneFileEntityCount, c_SceneFilePaths[0], c_SceneFilePaths.size(), Trinity::Memory::FormatBytes(l_FileSize), l_KeptUnknown, l_Refusal, Trinity::Memory::FormatBytes(l_After.CurrentBytes), l_After.LiveAllocations);
 }
 
 void SandboxLayer::TestModules()

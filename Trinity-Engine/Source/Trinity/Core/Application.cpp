@@ -11,6 +11,7 @@
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Input/Input.hpp"
+#include "Trinity/Scene/SceneSerializer.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -458,6 +459,7 @@ namespace Trinity
         FileSystem::MountDirectory("/logs", l_LogFile.parent_path());
         MountEngineDirectory();
         JobSystem::Initialize();
+        SceneSerializer::Initialize();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
@@ -470,6 +472,7 @@ namespace Trinity
 
         l_Application.reset();
 
+        SceneSerializer::Shutdown();
         JobSystem::Shutdown();
         FileSystem::Shutdown();
         MainThread::Shutdown();

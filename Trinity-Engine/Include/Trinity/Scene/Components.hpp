@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -29,6 +30,8 @@ namespace Trinity
         static constexpr std::string_view c_TypeName = "Trinity.Tag";
 
         TaggedString<MemoryTag::Scene> Tag;
+
+        [[nodiscard]] bool operator==(const TagComponent&) const = default;
     };
 
     // Relative to the parent. Every entity has one
@@ -66,6 +69,8 @@ namespace Trinity
 
             Rotation = glm::normalize(glm::quat_cast(glm::mat3(l_Basis[0] / Scale.x, l_Basis[1] / Scale.y, l_Basis[2] / Scale.z)));
         }
+
+        [[nodiscard]] bool operator==(const TransformComponent&) const = default;
     };
 
     // Written by Scene::UpdateWorldTransforms, parents first. Every entity has one, and it is never saved
@@ -107,6 +112,8 @@ namespace Trinity
 
             return glm::ortho(-l_HalfWidth, l_HalfWidth, -l_HalfHeight, l_HalfHeight, Far, Near);
         }
+
+        [[nodiscard]] bool operator==(const CameraComponent&) const = default;
     };
 
     struct SpriteRendererComponent
@@ -122,5 +129,23 @@ namespace Trinity
         glm::vec4 UVRect{ 0.0f, 0.0f, 1.0f, 1.0f };
         std::int32_t SortingLayer = 0;
         std::int32_t OrderInLayer = 0;
+
+        [[nodiscard]] bool operator==(const SpriteRendererComponent&) const = default;
+    };
+
+    // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save
+    struct UnknownComponentsComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.UnknownComponents";
+
+        struct Entry
+        {
+            TaggedString<MemoryTag::Scene> Name;
+            TaggedString<MemoryTag::Scene> Yaml;
+
+            [[nodiscard]] bool operator==(const Entry&) const = default;
+        };
+
+        std::vector<Entry, TaggedAllocator<Entry, MemoryTag::Scene>> Entries;
     };
 }

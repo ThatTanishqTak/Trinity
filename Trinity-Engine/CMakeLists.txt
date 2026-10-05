@@ -124,6 +124,7 @@ function(trinity_add_engine_library target type active_config)
         PRIVATE
             spdlog::spdlog
             Freetype::Freetype
+            yaml-cpp::yaml-cpp
     )
 
     if(TRINITY_PLATFORM STREQUAL "Windows")
