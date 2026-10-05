@@ -34,6 +34,7 @@ namespace Trinity
         void RemoveOutput(std::uint32_t output);
 
         void SetClearColor(const std::array<float, 4>& color) { m_ClearColor = color; }
+        void SetTitle(std::string_view title);
         void SetSceneCopy(bool enabled) { m_SceneCopy = enabled; }
         void SetSceneSize(std::uint32_t width, std::uint32_t height);
 

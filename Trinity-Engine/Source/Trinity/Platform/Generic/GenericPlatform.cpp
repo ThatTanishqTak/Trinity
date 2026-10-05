@@ -155,5 +155,16 @@ namespace Trinity
         {
             return nullptr;
         }
+
+        // No dialogs until the Linux platform layer exists, so Forge asks for paths itself
+        bool HasFileDialogs()
+        {
+            return false;
+        }
+
+        std::optional<std::filesystem::path> ShowFileDialog(const FileDialogRequest&)
+        {
+            return std::nullopt;
+        }
     }
 }

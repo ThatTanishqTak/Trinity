@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EditorSession.hpp"
 #include "Panels/Panel.hpp"
 #include "Panels/ViewportPanel.hpp"
 #include "SceneLayer.hpp"
@@ -20,9 +21,12 @@ public:
     ForgeLayer(Trinity::ImGuiLayer& imGui, const SceneLayer& scene);
 
     void OnAttach() override;
+    void OnUpdate(Trinity::Timestep timestep) override;
     void OnImGuiRender() override;
+    [[nodiscard]] bool OnCloseRequested() override;
 
 private:
+    void ReadShortcuts();
     void DrawMenuBar();
     void DrawDockSpace();
     void BuildDefaultLayout(std::uint32_t dockSpace);
@@ -34,6 +38,7 @@ private:
 
     Trinity::ImGuiLayer& m_ImGui;
     const SceneLayer& m_Scene;
+    EditorSession m_Session;
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
     std::string m_AboutTitle;

@@ -5,6 +5,7 @@
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Expected.hpp"
+#include "Trinity/Core/FileDialog.hpp"
 #include "Trinity/Core/FrameAllocator.hpp"
 #include "Trinity/Core/JobSystem.hpp"
 #include "Trinity/Core/Layer.hpp"
@@ -31,6 +32,8 @@
 
 #include "Trinity/Renderer/GraphicsAPI.hpp"
 #include "Trinity/RHI/Device.hpp"
+
+#include "Trinity/Project/Project.hpp"
 
 #include "Trinity/Scene/ComponentType.hpp"
 #include "Trinity/Scene/Components.hpp"

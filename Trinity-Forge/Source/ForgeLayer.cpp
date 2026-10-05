@@ -36,16 +36,7 @@ ForgeLayer::ForgeLayer(Trinity::ImGuiLayer& imGui, const SceneLayer& scene) : La
 
 void ForgeLayer::OnAttach()
 {
-    const Trinity::ApplicationCommandLineArgs& l_Args = Trinity::Application::Get().GetSpecification().CommandLineArgs;
-
-    if (const auto it_Project = l_Args.GetOption("project"))
-    {
-        TR_INFO("Project: {}", *it_Project);
-    }
-    else
-    {
-        TR_INFO("No project given. Start Forge from Trinity-Hub or pass --project=<path>.");
-    }
+    m_Session.Start(Trinity::Application::Get().GetSpecification().CommandLineArgs);
 
     // The scene is shown in the Viewport panel, so the window gets no copy of it under the UI
     Trinity::Application::Get().GetRenderer().SetSceneCopy(false);
@@ -68,6 +59,12 @@ void ForgeLayer::OnAttach()
     ImGui::AddSettingsHandler(&l_Handler);
 }
 
+// Before ImGui's frame begins, so a native file dialog never blocks with a frame open
+void ForgeLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
+{
+    m_Session.Update();
+}
+
 // The menu bar comes first, so the dock space fits in the space below it. Shortcuts are read from ImGui, since layer events are the scene's while the Viewport has them
 void ForgeLayer::OnImGuiRender()
 {
@@ -81,6 +78,7 @@ void ForgeLayer::OnImGuiRender()
         TR_INFO("Forge: demo window {}", m_ShowDemoWindow ? "shown" : "hidden");
     }
 
+    ReadShortcuts();
     DrawMenuBar();
     DrawDockSpace();
 
@@ -98,6 +96,40 @@ void ForgeLayer::OnImGuiRender()
     {
         ImGui::ShowDemoWindow(&m_ShowDemoWindow);
     }
+
+    m_Session.DrawPopups();
+    m_Session.UpdateTitle();
+}
+
+// Unsaved changes keep Forge open until the person has answered
+bool ForgeLayer::OnCloseRequested()
+{
+    return m_Session.RequestClose();
+}
+
+void ForgeLayer::ReadShortcuts()
+{
+    if (ImGui::GetIO().WantTextInput)
+    {
+        return;
+    }
+
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N))
+    {
+        m_Session.Request(EditorSession::Command::NewScene);
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O))
+    {
+        m_Session.Request(EditorSession::Command::OpenScene);
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S))
+    {
+        m_Session.Request(EditorSession::Command::SaveSceneAs);
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
+    {
+        m_Session.Request(EditorSession::Command::SaveScene);
+    }
 }
 
 void ForgeLayer::DrawMenuBar()
@@ -109,9 +141,36 @@ void ForgeLayer::DrawMenuBar()
 
     if (ImGui::BeginMenu("File"))
     {
-        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_PowerOff, "Exit").c_str(), "Alt+F4"))
+        const bool l_HasProject = m_Session.HasProject();
+        const auto a_Item = [this](const char* icon, std::string_view label, const char* shortcut, bool enabled, EditorSession::Command command)
         {
-            Trinity::Application::Get().Close();
+            if (ImGui::MenuItem(WithIcon(icon, label).c_str(), shortcut, false, enabled))
+            {
+                m_Session.Request(command);
+            }
+        };
+
+        a_Item(Trinity::Icons::c_File, "New Project...", nullptr, true, EditorSession::Command::NewProject);
+        a_Item(Trinity::Icons::c_FolderOpen, "Open Project...", nullptr, true, EditorSession::Command::OpenProject);
+        ImGui::Separator();
+        a_Item(Trinity::Icons::c_File, "New Scene", "Ctrl+N", l_HasProject, EditorSession::Command::NewScene);
+        a_Item(Trinity::Icons::c_FolderOpen, "Open Scene...", "Ctrl+O", l_HasProject, EditorSession::Command::OpenScene);
+        a_Item(Trinity::Icons::c_Save, "Save", "Ctrl+S", l_HasProject, EditorSession::Command::SaveScene);
+        a_Item(Trinity::Icons::c_Save, "Save As...", "Ctrl+Shift+S", l_HasProject, EditorSession::Command::SaveSceneAs);
+        a_Item(Trinity::Icons::c_Gear, "Set as Start Scene", nullptr, l_HasProject && m_Session.HasScenePath(), EditorSession::Command::SetStartScene);
+        ImGui::Separator();
+        a_Item(Trinity::Icons::c_PowerOff, "Exit", "Alt+F4", true, EditorSession::Command::Exit);
+
+        ImGui::EndMenu();
+    }
+
+    // A stand-in edit until the command stack exists, so unsaved changes can be tried
+    if (ImGui::BeginMenu("Edit"))
+    {
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty Entity").c_str(), nullptr, false, m_Session.HasProject()))
+        {
+            static_cast<void>(m_Session.GetScene().CreateEntity("Empty Entity"));
+            m_Session.MarkDirty();
         }
 
         ImGui::EndMenu();

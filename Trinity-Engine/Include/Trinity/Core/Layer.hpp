@@ -63,6 +63,11 @@ namespace Trinity
 
         }
 
+        [[nodiscard]] virtual bool OnCloseRequested()
+        {
+            return true;
+        }
+
         [[nodiscard]] const std::string& GetName() const { return m_Name; }
 
     private:

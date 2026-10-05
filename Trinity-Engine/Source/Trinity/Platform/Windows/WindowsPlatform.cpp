@@ -4,6 +4,7 @@
 
 #include <shellscalingapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 
 #include <malloc.h>
 
@@ -68,6 +69,102 @@ namespace Trinity
                 const int l_Size = ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
                 std::wstring l_Result(static_cast<std::size_t>(l_Size), L'\0');
                 ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size);
+
+                return l_Result;
+            }
+
+            template<typename T>
+            void Release(T*& object)
+            {
+                if (object != nullptr)
+                {
+                    object->Release();
+                    object = nullptr;
+                }
+            }
+
+            std::optional<std::filesystem::path> ShowFileDialogWithCom(const FileDialogRequest& request)
+            {
+                const bool l_Save = request.Kind == FileDialogKind::Save;
+
+                IFileDialog* l_Dialog = nullptr;
+                if (FAILED(::CoCreateInstance(l_Save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, l_Save ? IID_IFileSaveDialog : IID_IFileOpenDialog, reinterpret_cast<void**>(&l_Dialog))))
+                {
+                    return std::nullopt;
+                }
+
+                FILEOPENDIALOGOPTIONS l_Options = 0;
+                l_Dialog->GetOptions(&l_Options);
+                l_Options |= FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR | FOS_PATHMUSTEXIST;
+                if (request.Kind == FileDialogKind::Folder)
+                {
+                    l_Options |= FOS_PICKFOLDERS;
+                }
+                else if (request.Kind == FileDialogKind::Open)
+                {
+                    l_Options |= FOS_FILEMUSTEXIST;
+                }
+                else
+                {
+                    l_Options |= FOS_OVERWRITEPROMPT;
+                }
+
+                l_Dialog->SetOptions(l_Options);
+                l_Dialog->SetTitle(ToWide(request.Title).c_str());
+
+                // The strings must outlive SetFileTypes, which keeps pointers to them
+                std::vector<std::wstring> l_Names;
+                std::vector<std::wstring> l_Patterns;
+                std::vector<COMDLG_FILTERSPEC> l_Filters;
+                l_Names.reserve(request.Filters.size());
+                l_Patterns.reserve(request.Filters.size());
+                for (const FileDialogFilter& it_Filter : request.Filters)
+                {
+                    l_Names.push_back(ToWide(it_Filter.Name));
+                    l_Patterns.push_back(L"*." + ToWide(it_Filter.Extension));
+                    l_Filters.push_back({ l_Names.back().c_str(), l_Patterns.back().c_str() });
+                }
+
+                if (!l_Filters.empty())
+                {
+                    l_Dialog->SetFileTypes(static_cast<UINT>(l_Filters.size()), l_Filters.data());
+                    if (l_Save)
+                    {
+                        l_Dialog->SetDefaultExtension(ToWide(request.Filters.front().Extension).c_str());
+                    }
+                }
+
+                std::error_code l_Error;
+                if (!request.Folder.empty() && std::filesystem::is_directory(request.Folder, l_Error))
+                {
+                    IShellItem* l_Folder = nullptr;
+                    if (SUCCEEDED(::SHCreateItemFromParsingName(request.Folder.wstring().c_str(), nullptr, IID_IShellItem, reinterpret_cast<void**>(&l_Folder))))
+                    {
+                        l_Dialog->SetFolder(l_Folder);
+                        Release(l_Folder);
+                    }
+                }
+
+                if (l_Save && !request.FileName.empty())
+                {
+                    l_Dialog->SetFileName(ToWide(request.FileName).c_str());
+                }
+
+                std::optional<std::filesystem::path> l_Result;
+                IShellItem* l_Item = nullptr;
+                if (SUCCEEDED(l_Dialog->Show(static_cast<HWND>(request.Owner))) && SUCCEEDED(l_Dialog->GetResult(&l_Item)))
+                {
+                    PWSTR l_Path = nullptr;
+                    if (SUCCEEDED(l_Item->GetDisplayName(SIGDN_FILESYSPATH, &l_Path)))
+                    {
+                        l_Result = std::filesystem::path(l_Path);
+                        ::CoTaskMemFree(l_Path);
+                    }
+
+                    Release(l_Item);
+                }
+
+                Release(l_Dialog);
 
                 return l_Result;
             }
@@ -270,6 +367,24 @@ namespace Trinity
         void* GetFocusedWindow()
         {
             return ::GetForegroundWindow();
+        }
+
+        bool HasFileDialogs()
+        {
+            return true;
+        }
+
+        // The dialogs need a single-threaded apartment. A thread that already has a different one still tries, and leaves it as it was
+        std::optional<std::filesystem::path> ShowFileDialog(const FileDialogRequest& request)
+        {
+            const HRESULT l_Com = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            std::optional<std::filesystem::path> l_Result = ShowFileDialogWithCom(request);
+            if (SUCCEEDED(l_Com))
+            {
+                ::CoUninitialize();
+            }
+
+            return l_Result;
         }
     }
 }

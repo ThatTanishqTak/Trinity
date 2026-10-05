@@ -339,6 +339,20 @@ namespace Trinity
         m_Running = false;
     }
 
+    // Each layer may keep the application open, as an editor with unsaved changes does
+    void Application::RequestClose()
+    {
+        for (const Scope<Layer>& it_Layer : m_LayerStack | std::views::reverse)
+        {
+            if (!it_Layer->OnCloseRequested())
+            {
+                return;
+            }
+        }
+
+        Close();
+    }
+
     void Application::SubmitFrameJob(Job job)
     {
         JobSystem::Submit(std::move(job), &m_FrameJobs);
@@ -424,7 +438,7 @@ namespace Trinity
 
     bool Application::OnWindowClose(WindowCloseEvent&)
     {
-        Close();
+        RequestClose();
 
         return true;
     }

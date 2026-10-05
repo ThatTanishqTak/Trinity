@@ -72,6 +72,7 @@ namespace Trinity
         }
 
         void Close();
+        void RequestClose();
         void SubmitFrameJob(Job job);
 
         // Also how events from windows other than the main one, such as ImGui's viewports, reach Input and the layers

@@ -491,6 +491,13 @@ namespace Trinity
         }
     }
 
+    // The frame rate is added again at the next report
+    void Renderer::SetTitle(std::string_view title)
+    {
+        m_Title = title;
+        m_Window.SetTitle(std::format("{} - {}", m_Title, ToString(m_Device.GetInfo().API)));
+    }
+
     // Once a second, in the window title
     void Renderer::ReportFrameRate()
     {

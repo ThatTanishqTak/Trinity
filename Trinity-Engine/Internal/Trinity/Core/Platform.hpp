@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Trinity/Core/FileDialog.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,6 +39,23 @@ namespace Trinity
             bool Primary = false;
         };
 
+        enum class FileDialogKind : std::uint8_t
+        {
+            Open,
+            Save,
+            Folder
+        };
+
+        struct FileDialogRequest
+        {
+            FileDialogKind Kind = FileDialogKind::Open;
+            std::string_view Title;
+            std::span<const FileDialogFilter> Filters;
+            std::filesystem::path Folder;
+            std::string_view FileName;
+            void* Owner = nullptr;
+        };
+
         void Initialize();
         void Shutdown();
 
@@ -65,5 +85,9 @@ namespace Trinity
         // Native window handles, null for none. GetWindowAt skips windows that let the mouse pass through
         [[nodiscard]] void* GetWindowAt(ScreenPoint point);
         [[nodiscard]] void* GetFocusedWindow();
+
+        // Blocks until the person chooses or cancels. Empty when cancelled, or where the platform has no dialogs
+        [[nodiscard]] bool HasFileDialogs();
+        [[nodiscard]] std::optional<std::filesystem::path> ShowFileDialog(const FileDialogRequest& request);
     }
 }
