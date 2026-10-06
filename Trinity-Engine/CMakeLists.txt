@@ -127,6 +127,9 @@ function(trinity_add_engine_library target type active_config)
             yaml-cpp::yaml-cpp
     )
 
+    # The engine only reads and transcodes KTX2. An executable that sets TRINITY_TEXTURE_ENCODER links the whole of libktx in its place, as the static engine and both libraries would otherwise define the same symbols
+    target_link_libraries(${target} PRIVATE "$<IF:$<BOOL:$<TARGET_PROPERTY:TRINITY_TEXTURE_ENCODER>>,ktx,ktx_read>")
+
     if(TRINITY_PLATFORM STREQUAL "Windows")
         target_link_libraries(${target} PRIVATE user32 gdi32 shell32 shcore ole32 uuid)
         if(TRINITY_RHI_D3D12)

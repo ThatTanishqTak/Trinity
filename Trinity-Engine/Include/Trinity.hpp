@@ -3,6 +3,7 @@
 #include "Trinity/Asset/Asset.hpp"
 #include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Asset/AssetRegistry.hpp"
+#include "Trinity/Asset/TextureAsset.hpp"
 
 #include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/Assert.hpp"

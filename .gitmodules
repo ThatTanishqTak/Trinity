@@ -78,3 +78,7 @@
 	path = Vendor/D3D12MemoryAllocator
 	url = https://github.com/ThatTanishqTak/D3D12MemoryAllocator.git
 	shallow = true
+[submodule "Vendor/KTX-Software"]
+	path = Vendor/KTX-Software
+	url = https://github.com/ThatTanishqTak/KTX-Software.git
+	shallow = true

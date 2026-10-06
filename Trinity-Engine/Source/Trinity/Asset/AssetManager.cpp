@@ -169,6 +169,11 @@ namespace Trinity
         return "unknown";
     }
 
+    std::string AssetLoader::GetLoadPath(const AssetRecord& record) const
+    {
+        return record.Path;
+    }
+
     namespace AssetManager
     {
         // Bookkeeping is under Engine, so Assets holds only entries and loaded assets, and is 0 B whenever nothing is loaded
@@ -214,8 +219,24 @@ namespace Trinity
                 if (l_Entry == nullptr)
                 {
                     Memory::Delete(it_Task->Result);
+                    Memory::Delete(it_Task);
+
+                    continue;
                 }
-                else if (it_Task->Result != nullptr)
+
+                // What a worker cannot do, such as creating GPU resources, the loader finishes here
+                if (it_Task->Result != nullptr)
+                {
+                    const Expected<void, std::string> l_Finished = it_Task->Loader->Finish(*it_Task->Result);
+                    if (!l_Finished)
+                    {
+                        it_Task->Error = l_Finished.GetError();
+                        Memory::Delete(it_Task->Result);
+                        it_Task->Result = nullptr;
+                    }
+                }
+
+                if (it_Task->Result != nullptr)
                 {
                     l_Entry->Loaded = it_Task->Result;
                     l_Entry->State = AssetState::Ready;
@@ -250,9 +271,55 @@ namespace Trinity
             s_State->Loaders.push_back(&loader);
         }
 
+        // Its decodes may still be running, and its assets may need it to be destroyed, so both end before it goes. Assets still referenced read as failed from then on
         void UnregisterLoader(std::string_view assetType)
         {
-            std::erase_if(s_State->Loaders, [assetType](const AssetLoader* loader) { return loader->GetAssetType() == assetType; });
+            const AssetLoader* l_Loader = FindLoader(assetType);
+            if (l_Loader == nullptr)
+            {
+                return;
+            }
+
+            JobSystem::Wait(s_State->Jobs);
+
+            std::size_t l_Dropped = 0;
+            {
+                std::scoped_lock l_Lock(s_State->CompletedMutex);
+                std::erase_if(s_State->Completed, [l_Loader](LoadTask* task)
+                {
+                    if (task->Loader != l_Loader)
+                    {
+                        return false;
+                    }
+
+                    Memory::Delete(task->Result);
+                    Memory::Delete(task);
+
+                    return true;
+                });
+            }
+
+            for (auto& [it_ID, it_Entry] : s_State->Entries)
+            {
+                if (it_Entry.Loader != l_Loader)
+                {
+                    continue;
+                }
+
+                it_Entry.Request.Cancel();
+                Memory::Delete(it_Entry.Loaded);
+                it_Entry.Loaded = nullptr;
+                it_Entry.Loader = nullptr;
+                it_Entry.State = AssetState::Failed;
+                ++l_Dropped;
+            }
+
+            if (l_Dropped != 0)
+            {
+                TR_CORE_WARN("Assets: {} {} asset(s) were still referenced when their loader went, so they now read as failed", l_Dropped, assetType);
+            }
+
+            std::erase(s_State->Loaders, l_Loader);
         }
 
         void Acquire(UUID id)
@@ -292,7 +359,7 @@ namespace Trinity
                 return;
             }
 
-            l_Entry.Request = FileSystem::ReadFileAsync(l_Record->Path, [id, l_Generation = l_Entry.Generation](Expected<FileBuffer, FileError> result) { OnRead(id, l_Generation, std::move(result)); });
+            l_Entry.Request = FileSystem::ReadFileAsync(l_Entry.Loader->GetLoadPath(*l_Record), [id, l_Generation = l_Entry.Generation](Expected<FileBuffer, FileError> result) { OnRead(id, l_Generation, std::move(result)); });
         }
 
         void Release(UUID id)

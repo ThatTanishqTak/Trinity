@@ -14,6 +14,8 @@ if (-not (Test-Path '.git')) {
 
 $env:GIT_TERMINAL_PROMPT = '0'
 $env:GCM_INTERACTIVE = 'never'
+# KTX-Software keeps its test images in Git LFS, and nothing here needs them
+$env:GIT_LFS_SKIP_SMUDGE = '1'
 
 $lockEntries = Get-Content 'Scripts/Vendor.lock'
 

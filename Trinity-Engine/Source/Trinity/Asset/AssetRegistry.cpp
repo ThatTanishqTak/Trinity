@@ -90,9 +90,17 @@ namespace Trinity
                 record.Importer = l_Importer.Scalar();
             }
 
+            // Settings are flat keys and values
             if (const YAML::Node l_Settings = l_Root["Settings"]; l_Settings && l_Settings.IsMap())
             {
-                record.Settings = YAML::Dump(l_Settings);
+                record.Settings.clear();
+                for (const auto& it_Setting : l_Settings)
+                {
+                    if (it_Setting.first.IsScalar() && it_Setting.second.IsScalar())
+                    {
+                        record.Settings.push_back({ it_Setting.first.Scalar(), it_Setting.second.Scalar() });
+                    }
+                }
             }
 
             return MetaResult::Read;
@@ -105,7 +113,13 @@ namespace Trinity
             l_Emitter << YAML::Key << "Format" << YAML::Value << AssetRegistry::c_MetaFormatVersion;
             l_Emitter << YAML::Key << "ID" << YAML::Value << record.ID.ToString();
             l_Emitter << YAML::Key << "Importer" << YAML::Value << record.Importer;
-            l_Emitter << YAML::Key << "Settings" << YAML::Value << YAML::Load(record.Settings);
+            l_Emitter << YAML::Key << "Settings" << YAML::Value << YAML::BeginMap;
+            for (const AssetSetting& it_Setting : record.Settings)
+            {
+                l_Emitter << YAML::Key << it_Setting.Key << YAML::Value << it_Setting.Value;
+            }
+
+            l_Emitter << YAML::EndMap;
             l_Emitter << YAML::EndMap;
 
             const Expected<void, FileError> l_Written = FileSystem::WriteText(metaPath, std::string(l_Emitter.c_str()) + "\n");
@@ -121,6 +135,12 @@ namespace Trinity
     AssetRegistry::AssetRegistry(std::string_view root) : m_Root(root)
     {
 
+    }
+
+    // What a new .meta holds for an importer. An existing .meta keeps the settings it has, and an importer reads a missing one as its default
+    void AssetRegistry::SetDefaultSettings(std::string_view importer, AssetSettings settings)
+    {
+        m_Defaults.insert_or_assign(std::string(importer), std::move(settings));
     }
 
     // Every file gets a .meta beside it holding its UUID. A file and its .meta moved together keep the UUID. Existing .meta files are never rewritten here
@@ -178,7 +198,10 @@ namespace Trinity
             AssetRecord l_Record;
             l_Record.Path = it_File;
             l_Record.Importer = GetDefaultImporter(it_File);
-            l_Record.Settings = "{}";
+            if (const auto a_Defaults = m_Defaults.find(l_Record.Importer); a_Defaults != m_Defaults.end())
+            {
+                l_Record.Settings = a_Defaults->second;
+            }
 
             const MetaResult l_Result = l_HadMeta ? ReadMeta(l_MetaPath, l_Record) : MetaResult::Unreadable;
             if (l_Result == MetaResult::Newer)
@@ -265,6 +288,21 @@ namespace Trinity
         const auto a_Found = m_Records.find(id);
 
         return a_Found != m_Records.end() ? &a_Found->second : nullptr;
+    }
+
+    // Ordered by path, so work over every asset runs and logs in the same order each time
+    std::vector<const AssetRecord*> AssetRegistry::GetRecords() const
+    {
+        std::vector<const AssetRecord*> l_Records;
+        l_Records.reserve(m_Records.size());
+        for (const auto& [it_ID, it_Record] : m_Records)
+        {
+            l_Records.push_back(&it_Record);
+        }
+
+        std::ranges::sort(l_Records, {}, &AssetRecord::Path);
+
+        return l_Records;
     }
 
     const AssetRecord* AssetRegistry::FindByPath(std::string_view path) const

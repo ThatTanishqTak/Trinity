@@ -13,6 +13,8 @@
 
 namespace Trinity
 {
+    struct AssetRecord;
+
     enum class AssetState : std::uint8_t
     {
         None,
@@ -37,7 +39,13 @@ namespace Trinity
         virtual ~AssetLoader() = default;
 
         [[nodiscard]] virtual std::string_view GetAssetType() const = 0;
+        [[nodiscard]] virtual std::string GetLoadPath(const AssetRecord& record) const;
         [[nodiscard]] virtual Expected<Asset*, std::string> Load(std::span<const std::byte> data) const = 0;
+        [[nodiscard]] virtual Expected<void, std::string> Finish([[maybe_unused]] Asset& asset) const
+        {
+            return {};
+        }
+
         [[nodiscard]] virtual const Asset* GetPlaceholder() const
         {
             return nullptr;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EditorSession.hpp"
+#include "ImportTest.hpp"
 #include "Panels/Panel.hpp"
 #include "Panels/ViewportPanel.hpp"
 #include "SceneLayer.hpp"
@@ -40,6 +41,7 @@ private:
     Trinity::ImGuiLayer& m_ImGui;
     const SceneLayer& m_Scene;
     EditorSession m_Session;
+    ImportTest m_ImportTest{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
     std::string m_AboutTitle;

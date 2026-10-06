@@ -1,6 +1,8 @@
 #pragma once
 
-#include <Trinity.hpp>
+#include "Importers/TextureImporter.hpp"
+
+#include "Trinity.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -34,6 +36,9 @@ public:
     EditorSession& operator=(const EditorSession&) = delete;
 
     void Start(const Trinity::ApplicationCommandLineArgs& args);
+    void CreateProject(const std::filesystem::path& directory);
+    void OpenProject(const std::filesystem::path& path);
+    TextureImportReport ScanAssets();
 
     void Request(Command command);
     void Update();
@@ -44,6 +49,8 @@ public:
     void MarkDirty() { m_Dirty = true; }
 
     [[nodiscard]] Trinity::Scene& GetScene() { return m_Scene; }
+    [[nodiscard]] const Trinity::Project* GetProject() const { return m_Project.get(); }
+    [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
 
@@ -72,8 +79,6 @@ private:
     void AskPath(PathRequest request);
     void ConfirmDiscard(Action action);
 
-    void CreateProject(const std::filesystem::path& directory);
-    void OpenProject(const std::filesystem::path& path);
     void CloseProject();
     void AttachRegistry();
     void SaveProject();

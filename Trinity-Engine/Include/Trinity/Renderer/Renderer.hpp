@@ -14,6 +14,7 @@
 namespace Trinity
 {
     class LayerStack;
+    class TextureLoader;
     class Window;
 
     using OutputCallback = std::function<void(RHI::CommandList& commands, std::uint32_t width, std::uint32_t height)>;
@@ -82,6 +83,7 @@ namespace Trinity
         RHI::Device& m_Device;
         Window& m_Window;
         std::string m_Title;
+        Scope<TextureLoader> m_TextureLoader;
 
         Scope<RHI::SwapChain> m_SwapChain;
         RHI::TextureHandle m_OffscreenTarget;

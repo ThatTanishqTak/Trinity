@@ -185,7 +185,7 @@ void EditorSession::Run(Command command)
         {
             if (l_HasProject)
             {
-                static_cast<void>(m_Registry->Scan());
+                static_cast<void>(ScanAssets());
             }
 
             break;
@@ -331,8 +331,22 @@ void EditorSession::CloseProject()
 void EditorSession::AttachRegistry()
 {
     m_Registry = Trinity::CreateScope<Trinity::AssetRegistry>(Trinity::Project::c_AssetsMount);
-    static_cast<void>(m_Registry->Scan());
+    m_Registry->SetDefaultSettings(TextureImporter::c_Importer, TextureImporter::GetDefaultSettings());
+    static_cast<void>(ScanAssets());
     Trinity::AssetManager::SetRegistry(m_Registry.get());
+}
+
+// Every texture the scan finds is cooked into /cache, unless the cache already holds it for the same file and settings
+TextureImportReport EditorSession::ScanAssets()
+{
+    if (!m_Registry)
+    {
+        return {};
+    }
+
+    static_cast<void>(m_Registry->Scan());
+
+    return TextureImporter::ImportAll(*m_Registry);
 }
 
 void EditorSession::SaveProject()

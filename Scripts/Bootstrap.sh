@@ -8,6 +8,8 @@ command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 
 export GIT_TERMINAL_PROMPT=0
 export GCM_INTERACTIVE=never
+# KTX-Software keeps its test images in Git LFS, and nothing here needs them
+export GIT_LFS_SKIP_SMUDGE=1
 
 failed=()
 unreachable=()

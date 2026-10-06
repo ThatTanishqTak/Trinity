@@ -36,7 +36,16 @@ ForgeLayer::ForgeLayer(Trinity::ImGuiLayer& imGui, const SceneLayer& scene) : La
 
 void ForgeLayer::OnAttach()
 {
-    m_Session.Start(Trinity::Application::Get().GetSpecification().CommandLineArgs);
+    const Trinity::ApplicationCommandLineArgs& l_Args = Trinity::Application::Get().GetSpecification().CommandLineArgs;
+    if (const auto it_Directory = l_Args.GetOption("import-test"))
+    {
+        m_ImportTest.Start(it_Directory->empty() ? std::filesystem::temp_directory_path() / "Trinity-ImportTest" : std::filesystem::path(*it_Directory));
+        m_Session.UpdateTitle();
+    }
+    else
+    {
+        m_Session.Start(l_Args);
+    }
 
     // The scene is shown in the Viewport panel, so the window gets no copy of it under the UI
     Trinity::Application::Get().GetRenderer().SetSceneCopy(false);
@@ -63,6 +72,7 @@ void ForgeLayer::OnAttach()
 void ForgeLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
 {
     m_Session.Update();
+    m_ImportTest.Update();
 }
 
 // Files may have changed while another program had focus

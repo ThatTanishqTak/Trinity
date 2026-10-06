@@ -142,6 +142,20 @@ add_library(stb INTERFACE)
 add_library(stb::stb ALIAS stb)
 target_include_directories(stb SYSTEM INTERFACE stb)
 
+# KTX-Software - KTX2 textures with Basis Universal. ktx_read reads and transcodes, and ktx also encodes and writes
+trinity_vendor_set(KTX_GIT_VERSION_FULL v4.4.2)
+trinity_vendor_set(KTX_FEATURE_TOOLS OFF)
+trinity_vendor_set(KTX_FEATURE_TESTS OFF)
+trinity_vendor_set(KTX_FEATURE_DOC OFF)
+trinity_vendor_set(KTX_FEATURE_JNI OFF)
+trinity_vendor_set(KTX_FEATURE_PY OFF)
+trinity_vendor_set(KTX_FEATURE_GL_UPLOAD OFF)
+trinity_vendor_set(KTX_FEATURE_VK_UPLOAD OFF)
+trinity_vendor_set(KTX_FEATURE_LOADTEST_APPS OFF)
+trinity_vendor_set(BASISU_SUPPORT_OPENCL OFF)
+trinity_vendor_directory(KTX-Software)
+list(APPEND TRINITY_VENDOR_TARGETS ktx ktx_read)
+
 # miniaudio - audio device, mixing and decoding.
 trinity_vendor_require(miniaudio miniaudio.c)
 add_library(miniaudio STATIC EXCLUDE_FROM_ALL miniaudio/miniaudio.c)

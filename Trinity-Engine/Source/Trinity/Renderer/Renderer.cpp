@@ -1,5 +1,7 @@
 #include "Trinity/Renderer/Renderer.hpp"
 
+#include "Trinity/Asset/AssetManager.hpp"
+#include "Trinity/Asset/TextureLoader.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/LayerStack.hpp"
 #include "Trinity/Core/Log.hpp"
@@ -58,6 +60,10 @@ namespace Trinity
         CreateSceneTarget();
         CreateCopyPipeline();
 
+        // Textures need this device, so their loader lives exactly as long as the renderer
+        m_TextureLoader = CreateScope<TextureLoader>(m_Device);
+        AssetManager::RegisterLoader(*m_TextureLoader);
+
         m_StartTime = std::chrono::steady_clock::now();
         m_ReportTime = m_StartTime;
 
@@ -73,6 +79,9 @@ namespace Trinity
         {
             DestroyOutput(it_Output);
         }
+
+        AssetManager::UnregisterLoader(TextureAsset::c_AssetType);
+        m_TextureLoader.reset();
 
         m_Outputs.clear();
         m_SwapChain.reset();
@@ -94,6 +103,7 @@ namespace Trinity
         FollowWindow();
 
         RHI::CommandList& l_Commands = m_Device.BeginFrame();
+        m_TextureLoader->RecordUploads(l_Commands);
 
         {
             TR_PROFILE_SCOPE("LayerStack::OnPrepareRender");
