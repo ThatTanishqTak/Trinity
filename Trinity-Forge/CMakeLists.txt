@@ -24,7 +24,10 @@ trinity_configure_executable(${TARGET_NAME})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_FORGE_HEADERS} ${TRINITY_FORGE_SOURCES})
 
 target_include_directories(${TARGET_NAME} PRIVATE Include)
-target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine ktx stb::stb)
+target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine ktx stb::stb ImGuizmo::ImGuizmo)
+
+# ImGuizmo's own code keeps its own warnings, and reads ImGui before any precompiled header could
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/Vendor/ImGuizmoUnit.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/W0,-w>")
 
 # The texture importer encodes, so Forge takes the whole of libktx, and a static engine links it instead of ktx_read
 set_target_properties(${TARGET_NAME} PROPERTIES TRINITY_TEXTURE_ENCODER ON)

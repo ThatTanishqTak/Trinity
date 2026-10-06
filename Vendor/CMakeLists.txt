@@ -113,19 +113,11 @@ target_compile_features(imgui PUBLIC cxx_std_17)
 target_link_libraries(imgui PRIVATE Freetype::Freetype)
 list(APPEND TRINITY_VENDOR_TARGETS imgui)
 
-# ImGuizmo - gizmos, plus its sequencer / curve / gradient / graph editors.
+# ImGuizmo - gizmos. Only its headers come from here: Forge compiles ImGuizmo.cpp itself against the engine's Dear ImGui, so the gizmos draw with Forge's one ImGui context. Its sequencer, curve, gradient and graph editors are compiled the same way once a panel needs them
 trinity_vendor_require(ImGuizmo src/ImGuizmo.cpp)
-add_library(ImGuizmo STATIC EXCLUDE_FROM_ALL
-    ImGuizmo/src/ImGuizmo.cpp
-    ImGuizmo/src/ImSequencer.cpp
-    ImGuizmo/src/ImCurveEdit.cpp
-    ImGuizmo/src/ImGradient.cpp
-    ImGuizmo/src/GraphEditor.cpp
-)
+add_library(ImGuizmo INTERFACE)
 add_library(ImGuizmo::ImGuizmo ALIAS ImGuizmo)
-target_include_directories(ImGuizmo SYSTEM PUBLIC ImGuizmo/src)
-target_link_libraries(ImGuizmo PUBLIC imgui::imgui)
-list(APPEND TRINITY_VENDOR_TARGETS ImGuizmo)
+target_include_directories(ImGuizmo SYSTEM INTERFACE ImGuizmo/src)
 
 # RmlUi - in-game UI. Finds FreeType through the target defined above.
 trinity_vendor_set(RMLUI_SAMPLES OFF)

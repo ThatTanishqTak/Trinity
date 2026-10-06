@@ -2,6 +2,7 @@
 
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
+#include "ImGuizmoInclude.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -18,6 +19,7 @@
 #include <string_view>
 #include <system_error>
 
+#include <glm/gtc/type_ptr.hpp>
 #include <stb_image.h>
 
 namespace
@@ -32,6 +34,38 @@ namespace
 
     // A dropped texture's sprite is this many of its pixels to a world unit
     constexpr float c_PixelsPerUnit = 100.0f;
+
+    // The gizmo's camera looks down Z from this far above the sprites, which sit near Z = 0
+    constexpr float c_GizmoDistance = 10000.0f;
+    constexpr float c_MinimumSnap = 0.001f;
+    constexpr float c_MaximumSnap = 1000.0f;
+    constexpr std::array<const char*, 3> c_GizmoFields{ "Position", "Rotation", "Scale" };
+    constexpr std::array<std::string_view, 3> c_GizmoOperationNames{ "Translate", "Rotate", "Scale" };
+
+    // A whole number of steps, so a snapped value is exactly k times the step
+    float Snap(float value, float step)
+    {
+        return std::round(value / step) * step;
+    }
+
+    // The editor camera as ImGuizmo takes it, a view and a projection apart, with depth the usual way round
+    glm::mat4 GetGizmoView(const EditorCamera& camera)
+    {
+        return glm::translate(glm::mat4(1.0f), glm::vec3(-camera.GetPosition(), -c_GizmoDistance));
+    }
+
+    glm::mat4 GetGizmoProjection(const EditorCamera& camera, glm::vec2 viewportSize)
+    {
+        const glm::vec2 l_HalfExtent = camera.GetHalfExtent(viewportSize);
+
+        return glm::ortho(-l_HalfExtent.x, l_HalfExtent.x, -l_HalfExtent.y, l_HalfExtent.y, 1.0f, c_GizmoDistance * 2.0f);
+    }
+
+    // The angle of the X axis about Z. A negative X scale turns it round, but by the same amount before and after a rotation, so differences stay true
+    float GetAngleZ(const glm::mat4& matrix)
+    {
+        return std::atan2(matrix[0][1], matrix[0][0]);
+    }
 
     void TextLine(std::string_view text)
     {
@@ -91,13 +125,70 @@ ViewportPanel::ViewportPanel(Trinity::ImGuiLayer& imGui, EditorSession& session)
     SetBorderless(true);
 }
 
-// The session is still open here, so a camera moved in the last moments is saved
+// The session is still open here, so a camera moved in the last moments is saved. The Viewport is ImGuizmo's only user, so it lets go of ImGuizmo's memory too
 ViewportPanel::~ViewportPanel()
 {
     if (m_CameraDirty)
     {
         SaveCamera();
     }
+
+    ReleaseImGuizmo();
+}
+
+// The Viewport's own lines in imgui.ini: the stats overlay, the gizmo's operation and axes, and the snap steps
+bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
+{
+    const auto a_ReadStep = [value](float& step)
+    {
+        float l_Value = 0.0f;
+        const std::from_chars_result l_Parsed = std::from_chars(value.data(), value.data() + value.size(), l_Value);
+        if (l_Parsed.ec == std::errc() && std::isfinite(l_Value))
+        {
+            step = std::clamp(l_Value, c_MinimumSnap, c_MaximumSnap);
+        }
+    };
+
+    if (key == "ViewportStats")
+    {
+        m_ShowStats = value != "0";
+    }
+    else if (key == "GizmoOperation")
+    {
+        const auto a_Found = std::ranges::find(c_GizmoOperationNames, value);
+        if (a_Found != c_GizmoOperationNames.end())
+        {
+            m_GizmoOperation = static_cast<GizmoOperation>(a_Found - c_GizmoOperationNames.begin());
+        }
+    }
+    else if (key == "GizmoSpace")
+    {
+        m_GizmoLocal = value != "World";
+    }
+    else if (key == "SnapTranslate")
+    {
+        a_ReadStep(m_SnapSteps.x);
+    }
+    else if (key == "SnapRotate")
+    {
+        a_ReadStep(m_SnapSteps.y);
+    }
+    else if (key == "SnapScale")
+    {
+        a_ReadStep(m_SnapSteps.z);
+    }
+    else
+    {
+        return false;
+    }
+
+    return true;
+}
+
+void ViewportPanel::WriteSettings(ImGuiTextBuffer& buffer) const
+{
+    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\n", m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z);
+    buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
 // Saved in imgui.ini with the panels
@@ -141,21 +232,25 @@ void ViewportPanel::OnImGuiRender()
         AcceptTextureDrop(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
     }
 
+    // The scene has input over the whole panel. Picking, panning and zooming are only for the image itself, not the toolbar over it
     const bool l_Hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
     const bool l_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
     m_ImGui.SetSceneInput(l_Hovered, l_Focused);
 
-    HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, l_Hovered, l_Focused);
-
     ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
     l_DrawList.PushClipRect(ImGui::GetWindowPos(), ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y), true);
     DrawOverlays(l_DrawList, glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
+    DrawGizmo(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
     l_DrawList.PopClipRect();
+
+    HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
 
     if (m_ShowStats)
     {
         DrawStats(l_ViewportSize);
     }
+
+    DrawToolbar();
 
     if (m_CameraDirty && ImGui::GetTime() - m_CameraChangeTime >= c_CameraSaveSeconds)
     {
@@ -270,12 +365,33 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
         MarkCameraChanged();
     }
 
-    if (focused && !l_IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false))
+    // W, E and R pick the gizmo's operation and X its axes, as long as no drag is under way
+    if (focused && !l_IO.WantTextInput && !m_GizmoDragging)
     {
-        FrameSelection(viewportSize);
+        if (ImGui::IsKeyPressed(ImGuiKey_F, false))
+        {
+            FrameSelection(viewportSize);
+        }
+
+        constexpr std::array<ImGuiKey, 3> c_OperationKeys{ ImGuiKey_W, ImGuiKey_E, ImGuiKey_R };
+        for (std::size_t it_Operation = 0; it_Operation < c_OperationKeys.size(); ++it_Operation)
+        {
+            if (ImGui::IsKeyPressed(c_OperationKeys[it_Operation], false))
+            {
+                m_GizmoOperation = static_cast<GizmoOperation>(it_Operation);
+                ImGui::MarkIniSettingsDirty();
+            }
+        }
+
+        if (ImGui::IsKeyPressed(ImGuiKey_X, false))
+        {
+            m_GizmoLocal = !m_GizmoLocal;
+            ImGui::MarkIniSettingsDirty();
+        }
     }
 
-    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    // A click on the gizmo is the gizmo's, not a pick
+    if (hovered && !m_GizmoHovered && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
         const Trinity::Entity l_Picked = Trinity::PickSprite(m_Session.GetScene(), m_Camera.ScreenToWorld(l_Mouse, viewportSize));
         m_Session.SetSelection(l_Picked ? l_Picked.Get<Trinity::IDComponent>().ID : Trinity::UUID());
@@ -436,6 +552,212 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
         TextLine(std::format("Scene {}x{}, {} sprite(s) in {} draw call(s)", l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight(), l_Sprites.Sprites, l_Sprites.DrawCalls));
         TextLine(std::format("Camera at ({:.2f}, {:.2f}), {:.3g} units high, grid every {:g}", l_Position.x, l_Position.y, m_Camera.GetHeight(), EditorGrid::GetSpacing(m_Camera, viewportSize)));
         TextLine(l_Selected ? std::format("Selected: {}", std::string_view(l_Selected.Get<Trinity::TagComponent>().Tag)) : std::string("Nothing selected"));
+    }
+
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+}
+
+// On the selected entity, editing its transform relative to its parent, so its children follow. ImGuizmo drags a matrix of its own, unsnapped, and the entity takes from it the part the operation changes. The drag is one command, and holds ImGui's active item while it lasts, so nothing else closes the command or takes the mouse
+void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
+{
+    ImGuizmo::BeginFrame();
+    m_GizmoHovered = false;
+    m_GizmoID = ImGui::GetID("##Gizmo");
+
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(m_Session.GetSelection());
+    if (m_GizmoDragging && (!l_Entity || l_Entity.GetUUID() != m_GizmoEntity))
+    {
+        EndGizmoDrag();
+    }
+
+    if (!l_Entity || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
+    {
+        return;
+    }
+
+    const Trinity::Entity l_Parent = l_Entity.GetParent();
+    const glm::mat4 l_ParentWorld = l_Parent ? l_Scene.ComputeWorldMatrix(l_Parent) : glm::mat4(1.0f);
+    if (!m_GizmoDragging)
+    {
+        m_GizmoMatrix = l_ParentWorld * l_Entity.Get<Trinity::TransformComponent>().GetMatrix();
+    }
+
+    // A 2D gizmo: moving in X and Y, turning about Z, and scaling X and Y
+    const std::array<ImGuizmo::OPERATION, 3> l_Operations{ ImGuizmo::TRANSLATE_X | ImGuizmo::TRANSLATE_Y, ImGuizmo::ROTATE_Z, ImGuizmo::SCALE_X | ImGuizmo::SCALE_Y };
+    const ImGuizmo::OPERATION l_Operation = l_Operations[static_cast<std::size_t>(m_GizmoOperation)];
+    const glm::mat4 l_View = GetGizmoView(m_Camera);
+    const glm::mat4 l_Projection = GetGizmoProjection(m_Camera, viewportSize);
+
+    ImGuizmo::SetOrthographic(true);
+    ImGuizmo::AllowAxisFlip(false);
+    ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
+    ImGuizmo::SetRect(imageMin.x, imageMin.y, viewportSize.x, viewportSize.y);
+    const bool l_Changed = ImGuizmo::Manipulate(glm::value_ptr(l_View), glm::value_ptr(l_Projection), l_Operation, m_GizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD, glm::value_ptr(m_GizmoMatrix));
+    m_GizmoHovered = ImGuizmo::IsOver(l_Operation);
+
+    if (ImGuizmo::IsUsing() && !m_GizmoDragging)
+    {
+        m_GizmoDragging = true;
+        m_GizmoEntity = l_Entity.GetUUID();
+        m_GizmoStart = l_Entity.Get<Trinity::TransformComponent>();
+        m_Session.GetHistory().EndMerge();
+    }
+
+    if (!m_GizmoDragging)
+    {
+        return;
+    }
+
+    if (!ImGuizmo::IsUsing())
+    {
+        EndGizmoDrag();
+
+        return;
+    }
+
+    if (ImGui::GetActiveID() != m_GizmoID)
+    {
+        ImGui::SetActiveID(m_GizmoID, ImGui::GetCurrentWindow());
+    }
+
+    ImGui::KeepAliveID(m_GizmoID);
+
+    if (l_Changed)
+    {
+        Trinity::TransformComponent l_Value = ApplyGizmo(l_ParentWorld, ImGui::GetIO().KeyCtrl);
+        m_Session.GetHistory().Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(m_GizmoEntity, std::move(l_Value), c_GizmoFields[static_cast<std::size_t>(m_GizmoOperation)]));
+    }
+}
+
+void ViewportPanel::EndGizmoDrag()
+{
+    m_GizmoDragging = false;
+    m_GizmoEntity = {};
+    m_Session.GetHistory().EndMerge();
+    if (ImGui::GetActiveID() == m_GizmoID)
+    {
+        ImGui::ClearActiveID();
+    }
+}
+
+// The change the drag has made so far, in the parent's space, applied to the transform the drag began with. Only the part the operation changes is taken, so the rest keeps its values exactly. Snapping puts the result on the grid of the step, not the change
+Trinity::TransformComponent ViewportPanel::ApplyGizmo(const glm::mat4& parentWorld, bool snap) const
+{
+    const glm::mat4 l_Local = glm::inverse(parentWorld) * m_GizmoMatrix;
+    const glm::mat4 l_Start = m_GizmoStart.GetMatrix();
+
+    Trinity::TransformComponent l_Value = m_GizmoStart;
+    switch (m_GizmoOperation)
+    {
+        case GizmoOperation::Translate:
+        {
+            l_Value.Position.x = snap ? Snap(l_Local[3].x, m_SnapSteps.x) : l_Local[3].x;
+            l_Value.Position.y = snap ? Snap(l_Local[3].y, m_SnapSteps.x) : l_Local[3].y;
+            break;
+        }
+        case GizmoOperation::Rotate:
+        {
+            l_Value.Rotation = glm::angleAxis(GetAngleZ(l_Local) - GetAngleZ(l_Start), glm::vec3(0.0f, 0.0f, 1.0f)) * m_GizmoStart.Rotation;
+            if (snap)
+            {
+                glm::vec3 l_Euler = glm::eulerAngles(l_Value.Rotation);
+                l_Euler.z = glm::radians(Snap(glm::degrees(l_Euler.z), m_SnapSteps.y));
+                l_Value.Rotation = glm::quat(l_Euler);
+            }
+
+            break;
+        }
+        case GizmoOperation::Scale:
+        {
+            // As a ratio of each axis' length, which keeps a flip. Snapping never lands on zero, which would flatten the sprite for good
+            for (glm::length_t it_Axis = 0; it_Axis < 2; ++it_Axis)
+            {
+                const float l_Before = glm::length(glm::vec3(l_Start[it_Axis]));
+                if (l_Before > 1e-12f)
+                {
+                    l_Value.Scale[it_Axis] = m_GizmoStart.Scale[it_Axis] * glm::length(glm::vec3(l_Local[it_Axis])) / l_Before;
+                }
+
+                if (snap)
+                {
+                    const float l_Snapped = Snap(l_Value.Scale[it_Axis], m_SnapSteps.z);
+                    l_Value.Scale[it_Axis] = l_Snapped != 0.0f ? l_Snapped : std::copysign(m_SnapSteps.z, m_GizmoStart.Scale[it_Axis]);
+                }
+            }
+
+            break;
+        }
+    }
+
+    return l_Value;
+}
+
+// Over the image's top-right corner: the operation, the axes, and the steps Ctrl snaps to. Placed by its width last frame, since it sizes itself to what it holds
+void ViewportPanel::DrawToolbar()
+{
+    const ImVec2 l_Start = ImGui::GetCursorStartPos();
+    ImGui::SetCursorPos(ImVec2(std::max(l_Start.x + c_StatsMargin, ImGui::GetWindowWidth() - m_ToolbarWidth - c_StatsMargin), l_Start.y + c_StatsMargin));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.55f));
+
+    const ImGuiChildFlags l_ChildFlags = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding;
+    if (ImGui::BeginChild("##Toolbar", ImVec2(0.0f, 0.0f), l_ChildFlags, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
+    {
+        constexpr std::array<const char*, 3> c_Icons{ Trinity::Icons::c_Arrows, Trinity::Icons::c_RotateRight, Trinity::Icons::c_Expand };
+        constexpr std::array<const char*, 3> c_Tips{ "Move (W)", "Rotate about Z (E)", "Scale (R)" };
+        for (std::size_t it_Operation = 0; it_Operation < c_Icons.size(); ++it_Operation)
+        {
+            const bool l_Current = static_cast<std::size_t>(m_GizmoOperation) == it_Operation;
+            if (l_Current)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            }
+
+            if (ImGui::Button(std::format("{}##Operation{}", c_Icons[it_Operation], it_Operation).c_str()))
+            {
+                m_GizmoOperation = static_cast<GizmoOperation>(it_Operation);
+                ImGui::MarkIniSettingsDirty();
+            }
+
+            if (l_Current)
+            {
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::SetItemTooltip("%s", c_Tips[it_Operation]);
+            ImGui::SameLine();
+        }
+
+        if (ImGui::Button(std::format("{} {}###Space", m_GizmoLocal ? Trinity::Icons::c_Cube : Trinity::Icons::c_Globe, m_GizmoLocal ? "Local" : "World").c_str()))
+        {
+            m_GizmoLocal = !m_GizmoLocal;
+            ImGui::MarkIniSettingsDirty();
+        }
+
+        ImGui::SetItemTooltip("The gizmo's axes: the entity's own, or the world's (X)");
+
+        const auto a_Step = [](const char* id, float& step, const char* format, const char* tip)
+        {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 3.5f);
+            if (ImGui::DragFloat(id, &step, 0.01f, c_MinimumSnap, c_MaximumSnap, format, ImGuiSliderFlags_AlwaysClamp))
+            {
+                ImGui::MarkIniSettingsDirty();
+            }
+
+            ImGui::SetItemTooltip("%s", tip);
+        };
+
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(Trinity::Icons::c_Magnet);
+        ImGui::SetItemTooltip("Hold Ctrl while dragging to snap to these steps");
+        a_Step("##SnapTranslate", m_SnapSteps.x, "%g", "Move snap, in units");
+        a_Step("##SnapRotate", m_SnapSteps.y, "%g\xC2\xB0", "Rotate snap, in degrees");
+        a_Step("##SnapScale", m_SnapSteps.z, "%g", "Scale snap");
+
+        m_ToolbarWidth = ImGui::GetWindowWidth();
     }
 
     ImGui::EndChild();

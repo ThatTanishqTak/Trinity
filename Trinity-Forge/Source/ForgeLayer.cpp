@@ -145,9 +145,10 @@ bool ForgeLayer::OnCloseRequested()
     return m_Session.RequestClose();
 }
 
+// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open
 void ForgeLayer::ReadShortcuts()
 {
-    if (ImGui::GetIO().WantTextInput)
+    if (ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive())
     {
         return;
     }
@@ -472,7 +473,7 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::End();
 }
 
-// imgui.ini holds one [ForgePanels][Open] section, with a Title=1 or Title=0 line for each panel, and ViewportStats for the Viewport's overlay
+// imgui.ini holds one [ForgePanels][Open] section, with a Title=1 or Title=0 line for each panel, and the Viewport's own settings: its overlay, gizmo and snap steps
 void* ForgeLayer::OpenPanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, [[maybe_unused]] const char* name)
 {
     return handler->UserData;
@@ -490,10 +491,8 @@ void ForgeLayer::ReadPanelSetting([[maybe_unused]] ImGuiContext* context, [[mayb
     const std::string_view l_Title = l_Line.substr(0, l_Equals);
     const bool l_On = l_Line.substr(l_Equals + 1) != "0";
     ForgeLayer& l_Layer = *static_cast<ForgeLayer*>(entry);
-    if (l_Title == "ViewportStats")
+    if (l_Layer.m_ViewportPanel->ReadSetting(l_Title, l_Line.substr(l_Equals + 1)))
     {
-        l_Layer.m_ViewportPanel->SetShowingStats(l_On);
-
         return;
     }
 
@@ -516,7 +515,7 @@ void ForgeLayer::WritePanelSettings([[maybe_unused]] ImGuiContext* context, ImGu
         buffer->appendf("%s=%d\n", it_Panel->GetTitle().c_str(), it_Panel->IsOpen() ? 1 : 0);
     }
 
-    buffer->appendf("ViewportStats=%d\n", l_Layer.m_ViewportPanel->IsShowingStats() ? 1 : 0);
+    l_Layer.m_ViewportPanel->WriteSettings(*buffer);
 
     buffer->append("\n");
 }
