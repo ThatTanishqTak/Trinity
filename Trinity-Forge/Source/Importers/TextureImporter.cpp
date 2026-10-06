@@ -117,9 +117,12 @@ namespace
 
 Trinity::AssetSettings TextureImporter::GetDefaultSettings()
 {
-    const TextureImportSettings l_Defaults;
+    return MakeSettings({});
+}
 
-    return { { std::string(c_SrgbSetting), l_Defaults.Srgb ? "true" : "false" }, { std::string(c_MipsSetting), l_Defaults.GenerateMips ? "true" : "false" }, { std::string(c_UastcSetting), std::to_string(l_Defaults.UastcLevel) }, { std::string(c_FilterSetting), std::string(ToString(l_Defaults.Filter)) } };
+Trinity::AssetSettings TextureImporter::MakeSettings(const TextureImportSettings& settings)
+{
+    return { { std::string(c_SrgbSetting), settings.Srgb ? "true" : "false" }, { std::string(c_MipsSetting), settings.GenerateMips ? "true" : "false" }, { std::string(c_UastcSetting), std::to_string(settings.UastcLevel) }, { std::string(c_FilterSetting), std::string(ToString(settings.Filter)) } };
 }
 
 // A missing setting takes its default. One that cannot be read does too, with a warning naming the file
@@ -338,15 +341,15 @@ TextureImporter::Result TextureImporter::Import(const Trinity::AssetRecord& reco
     return Result::Encoded;
 }
 
-// Runs after every scan. A folder whose textures are all in the cache stays quiet
-TextureImportReport TextureImporter::ImportAll(const Trinity::AssetRegistry& registry)
+// Runs after every scan. A folder whose textures are all in the cache stays quiet. Textures skip names, such as those a background import is busy with, are left to it
+TextureImportReport TextureImporter::ImportAll(const Trinity::AssetRegistry& registry, const std::function<bool(Trinity::UUID)>& skip)
 {
     TR_PROFILE_FUNCTION();
 
     TextureImportReport l_Report;
     for (const Trinity::AssetRecord* it_Record : registry.GetRecords())
     {
-        if (it_Record->Importer != c_Importer)
+        if (it_Record->Importer != c_Importer || (skip && skip(it_Record->ID)))
         {
             continue;
         }

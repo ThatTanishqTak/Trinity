@@ -60,6 +60,7 @@ namespace Trinity
 
         void SetDefaultSettings(std::string_view importer, AssetSettings settings);
         AssetScanReport Scan();
+        bool SetSettings(UUID id, AssetSettings settings);
 
         [[nodiscard]] const AssetRecord* Find(UUID id) const;
         [[nodiscard]] const AssetRecord* FindByPath(std::string_view path) const;

@@ -283,6 +283,27 @@ namespace Trinity
         return l_Report;
     }
 
+    // Into the record and its .meta, which is the only time this rewrites one
+    bool AssetRegistry::SetSettings(UUID id, AssetSettings settings)
+    {
+        const auto a_Found = m_Records.find(id);
+        if (a_Found == m_Records.end())
+        {
+            return false;
+        }
+
+        AssetRecord l_Record = a_Found->second;
+        l_Record.Settings = std::move(settings);
+        if (!WriteMeta(l_Record.Path + std::string(c_MetaExtension), l_Record))
+        {
+            return false;
+        }
+
+        a_Found->second = std::move(l_Record);
+
+        return true;
+    }
+
     const AssetRecord* AssetRegistry::Find(UUID id) const
     {
         const auto a_Found = m_Records.find(id);

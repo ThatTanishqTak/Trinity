@@ -2,6 +2,7 @@
 
 #include "CommandStack.hpp"
 #include "Importers/TextureImporter.hpp"
+#include "Importers/TextureReimporter.hpp"
 
 #include "Trinity.hpp"
 
@@ -58,7 +59,25 @@ public:
     [[nodiscard]] Trinity::UUID GetSceneID() const;
 
     [[nodiscard]] Trinity::UUID GetSelection() const { return m_Selection; }
-    void SetSelection(Trinity::UUID selection) { m_Selection = selection; }
+    void SetSelection(Trinity::UUID selection)
+    {
+        m_Selection = selection;
+        m_InspectedAsset = {};
+    }
+
+    [[nodiscard]] Trinity::UUID GetInspectedAsset() const { return m_InspectedAsset; }
+    void SetInspectedAsset(Trinity::UUID asset) { m_InspectedAsset = asset; }
+
+    std::uint64_t AddCloseListener(std::move_only_function<void()> listener);
+    void RemoveCloseListener(std::uint64_t id);
+
+    void RequestOpenScene(std::string assetPath);
+    [[nodiscard]] std::optional<std::string> CreateFolder(std::string_view parent);
+    bool MoveAsset(std::string_view path, std::string_view folder, std::string_view name);
+    bool DeleteAsset(std::string_view path);
+    bool ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings settings);
+    [[nodiscard]] bool IsImporting(Trinity::UUID id) const { return m_Reimporter.IsBusy(id); }
+    [[nodiscard]] std::uint64_t GetScanCount() const { return m_ScanCount; }
 
 private:
     using Action = std::move_only_function<void()>;
@@ -104,6 +123,11 @@ private:
     std::string m_ScenePath;
     Trinity::UUID m_Selection;
     CommandStack m_History{ m_Scene, m_Selection };
+    Trinity::UUID m_InspectedAsset;
+    TextureReimporter m_Reimporter;
+    std::vector<std::pair<std::uint64_t, std::move_only_function<void()>>> m_CloseListeners;
+    std::uint64_t m_NextCloseListener = 1;
+    std::uint64_t m_ScanCount = 0;
 
     std::vector<Action> m_Pending;
     Action m_AfterDiscard;

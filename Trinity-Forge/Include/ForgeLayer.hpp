@@ -2,6 +2,7 @@
 
 #include "EditorSession.hpp"
 #include "ImportTest.hpp"
+#include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/Panel.hpp"
 #include "Panels/ViewportPanel.hpp"
 
@@ -34,6 +35,7 @@ private:
     void DrawHistoryMenu();
     void DrawDockSpace();
     void BuildDefaultLayout(std::uint32_t dockSpace);
+    void DockNewPanels();
     void DrawAboutWindow();
 
     static void* OpenPanelSettings(ImGuiContext* context, ImGuiSettingsHandler* handler, const char* name);
@@ -45,8 +47,10 @@ private:
     ImportTest m_ImportTest{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
+    ContentBrowserPanel* m_ContentBrowser = nullptr;
     std::string m_AboutTitle;
     bool m_ShowDemoWindow = false;
     bool m_ShowAbout = false;
     bool m_ResetLayout = false;
+    bool m_DockedNewPanels = false;
 };

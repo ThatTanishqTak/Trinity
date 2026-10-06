@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -15,6 +16,7 @@ class PropertiesPanel final : public Panel
 {
 public:
     explicit PropertiesPanel(EditorSession& session);
+    ~PropertiesPanel() override;
 
 protected:
     void OnImGuiRender() override;
@@ -30,10 +32,19 @@ private:
     void DrawOtherComponents(Trinity::Entity entity);
     void DrawAddComponent(Trinity::Entity entity);
 
+    void DrawAsset(Trinity::UUID id);
+    void DrawTexturePreview();
+    void DrawTextureSettings(const Trinity::AssetRecord& record);
+
     [[nodiscard]] bool BeginComponent(std::string_view name, const char* icon, bool removable);
     void SetTexture(Trinity::Entity entity, Trinity::UUID texture);
 
     EditorSession& m_Session;
+    std::uint64_t m_CloseListener = 0;
+    Trinity::UUID m_LastSelection;
+    Trinity::AssetRef<Trinity::TextureAsset> m_Preview;
+    Trinity::UUID m_SettingsAsset;
+    TextureImportSettings m_TextureSettings;
     std::string m_PendingRemoval;
     std::string m_NameText;
     Trinity::UUID m_NameEntity;

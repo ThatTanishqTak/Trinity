@@ -107,6 +107,42 @@ std::size_t CreateEntityCommand::GetMemorySize() const
     return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
 }
 
+CreateSpriteCommand::CreateSpriteCommand(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size) : m_Name(std::move(name)), m_Texture(texture), m_Position(position), m_Size(size)
+{
+
+}
+
+// A root entity with its transform, SpriteRenderer and texture set in one step, so a single undo takes it away. Kept as text after the first run, as CreateEntityCommand does
+bool CreateSpriteCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_Text.empty())
+    {
+        return Restore(scene, m_Text, {}, {}, m_Label);
+    }
+
+    Trinity::Entity l_Entity = scene.CreateEntity(m_Name);
+    Trinity::TransformComponent& l_Transform = l_Entity.Get<Trinity::TransformComponent>();
+    l_Transform.Position = m_Position;
+    l_Transform.Scale = glm::vec3(m_Size, 1.0f);
+    l_Entity.Add<Trinity::SpriteRendererComponent>().Texture = m_Texture;
+
+    m_Entity = l_Entity.GetUUID();
+    m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Entity);
+    m_Label = std::format("Create sprite {}", GetEntityLabel(l_Entity));
+
+    return true;
+}
+
+void CreateSpriteCommand::Undo(Trinity::Scene& scene)
+{
+    scene.DestroyEntity(scene.FindEntityByUUID(m_Entity));
+}
+
+std::size_t CreateSpriteCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
+}
+
 DeleteEntityCommand::DeleteEntityCommand(Trinity::UUID entity) : m_Entity(entity)
 {
 

@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -14,6 +15,8 @@ struct TextureImportSettings
     bool GenerateMips = true;
     std::uint32_t UastcLevel = 2;
     Trinity::RHI::Filter Filter = Trinity::RHI::Filter::Linear;
+
+    [[nodiscard]] bool operator==(const TextureImportSettings&) const = default;
 };
 
 struct TextureImportReport
@@ -39,10 +42,11 @@ public:
     static constexpr std::uint32_t c_MaxUastcLevel = 4;
 
     [[nodiscard]] static Trinity::AssetSettings GetDefaultSettings();
+    [[nodiscard]] static Trinity::AssetSettings MakeSettings(const TextureImportSettings& settings);
     [[nodiscard]] static TextureImportSettings ReadSettings(const Trinity::AssetRecord& record);
     [[nodiscard]] static std::string GetCacheKey(std::span<const std::byte> source, const TextureImportSettings& settings);
     [[nodiscard]] static std::string GetCacheKeyPath(Trinity::UUID id);
 
     [[nodiscard]] static Result Import(const Trinity::AssetRecord& record);
-    static TextureImportReport ImportAll(const Trinity::AssetRegistry& registry);
+    static TextureImportReport ImportAll(const Trinity::AssetRegistry& registry, const std::function<bool(Trinity::UUID)>& skip = {});
 };

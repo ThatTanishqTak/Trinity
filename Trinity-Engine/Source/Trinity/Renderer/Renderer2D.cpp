@@ -159,6 +159,12 @@ namespace Trinity
         }
     }
 
+    // Every texture at once, as when the project whose assets they are closes, since the asset manager cannot hold one project's assets while another's are set
+    void Renderer2D::ReleaseTextures()
+    {
+        TextureCache().swap(m_Textures);
+    }
+
     // Through the primary camera, with the target's aspect ratio. Returns false, and draws nothing, when the scene has no primary camera
     bool Renderer2D::DrawScene(RHI::CommandList& commands, Scene& scene, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height)
     {

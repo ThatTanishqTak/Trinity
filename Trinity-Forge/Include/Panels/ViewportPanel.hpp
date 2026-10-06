@@ -34,6 +34,7 @@ private:
     void MarkCameraChanged();
     void HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused);
     void FrameSelection(glm::vec2 viewportSize);
+    void AcceptTextureDrop(glm::vec2 imageMin, glm::vec2 viewportSize);
     void DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize);
     void DrawStats(glm::vec2 viewportSize) const;
 

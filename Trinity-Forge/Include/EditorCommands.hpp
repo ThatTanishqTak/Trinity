@@ -35,6 +35,28 @@ private:
     std::string m_Label;
 };
 
+class CreateSpriteCommand final : public EditorCommand
+{
+public:
+    CreateSpriteCommand(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    std::string m_Name;
+    Trinity::UUID m_Texture;
+    glm::vec3 m_Position{ 0.0f };
+    glm::vec2 m_Size{ 1.0f };
+    Trinity::UUID m_Entity;
+    std::string m_Text;
+    std::string m_Label;
+};
+
 class DeleteEntityCommand final : public EditorCommand
 {
 public:

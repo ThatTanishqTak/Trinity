@@ -5,6 +5,7 @@
 
 #include <array>
 #include <format>
+#include <system_error>
 #include <utility>
 
 namespace
@@ -27,6 +28,17 @@ namespace
         const std::u8string l_Text = path.u8string();
 
         return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
+    }
+
+    // A single file or folder name, never hidden, and never one the registry would take for a .meta
+    bool IsValidName(std::string_view name)
+    {
+        return !name.empty() && name.find_first_of("/\\:*?\"<>|") == std::string_view::npos && !name.starts_with('.') && !name.ends_with(' ') && !name.ends_with(Trinity::AssetRegistry::c_MetaExtension);
+    }
+
+    bool IsSameOrInside(std::string_view path, std::string_view folder)
+    {
+        return path == folder || (path.starts_with(folder) && path.size() > folder.size() && path[folder.size()] == '/');
     }
 }
 
@@ -62,6 +74,8 @@ void EditorSession::Request(Command command)
 
 void EditorSession::Update()
 {
+    m_Reimporter.Update();
+
     std::vector<Action> l_Pending = std::exchange(m_Pending, {});
     for (Action& it_Action : l_Pending)
     {
@@ -319,6 +333,17 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 // The registry goes before the project unmounts /assets, and the asset manager lets go of it first
 void EditorSession::CloseProject()
 {
+    m_Reimporter.Finish();
+    m_InspectedAsset = {};
+
+    // Everything holding the project's assets lets go of them, so none are left loaded from it when another project's registry is set
+    for (auto& [it_ID, it_Listener] : m_CloseListeners)
+    {
+        it_Listener();
+    }
+
+    Trinity::Application::Get().GetRenderer().GetRenderer2D().ReleaseTextures();
+
     if (m_Registry)
     {
         Trinity::AssetManager::SetRegistry(nullptr);
@@ -344,9 +369,207 @@ TextureImportReport EditorSession::ScanAssets()
         return {};
     }
 
+    // The open scene is found again by its UUID, so it follows its file when that is moved or renamed
+    const Trinity::UUID l_Scene = GetSceneID();
     static_cast<void>(m_Registry->Scan());
+    ++m_ScanCount;
+    if (const Trinity::AssetRecord* l_Record = l_Scene ? m_Registry->Find(l_Scene) : nullptr)
+    {
+        m_ScenePath = l_Record->Path;
+    }
 
-    return TextureImporter::ImportAll(*m_Registry);
+    return TextureImporter::ImportAll(*m_Registry, [this](Trinity::UUID id) { return m_Reimporter.IsBusy(id); });
+}
+
+// Called before the project closes, by anything holding its assets
+std::uint64_t EditorSession::AddCloseListener(std::move_only_function<void()> listener)
+{
+    const std::uint64_t l_ID = m_NextCloseListener++;
+    m_CloseListeners.emplace_back(l_ID, std::move(listener));
+
+    return l_ID;
+}
+
+void EditorSession::RemoveCloseListener(std::uint64_t id)
+{
+    std::erase_if(m_CloseListeners, [id](const auto& listener) { return listener.first == id; });
+}
+
+void EditorSession::RequestOpenScene(std::string assetPath)
+{
+    m_Pending.push_back([this, l_Path = std::move(assetPath)]() mutable { ConfirmDiscard([this, l_Path = std::move(l_Path)] { OpenScene(l_Path); }); });
+}
+
+// Named New Folder, or New Folder 1 and on when that is taken. An empty folder has no assets, so the registry need not scan
+std::optional<std::string> EditorSession::CreateFolder(std::string_view parent)
+{
+    if (!m_Project)
+    {
+        return std::nullopt;
+    }
+
+    std::string l_Path;
+    for (std::uint32_t it_Index = 0; l_Path.empty() || std::filesystem::exists(m_Project->ToNativePath(l_Path)); ++it_Index)
+    {
+        l_Path = it_Index == 0 ? std::format("{}/New Folder", parent) : std::format("{}/New Folder {}", parent, it_Index);
+    }
+
+    std::error_code l_Error;
+    if (!std::filesystem::create_directory(m_Project->ToNativePath(l_Path), l_Error))
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, l_Error ? l_Error.message() : std::string("it already exists"));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created folder {}", l_Path);
+
+    return l_Path;
+}
+
+// Renames, or moves into another folder, or both. A file takes its .meta along, so it keeps its UUID and everything naming it still finds it
+bool EditorSession::MoveAsset(std::string_view path, std::string_view folder, std::string_view name)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return false;
+    }
+
+    const std::string l_Target = std::format("{}/{}", folder, name);
+    if (l_Target == path)
+    {
+        return true;
+    }
+
+    if (!IsValidName(name))
+    {
+        TR_ERROR("Forge: \"{}\" cannot name a file or folder", name);
+
+        return false;
+    }
+
+    if (IsSameOrInside(folder, path))
+    {
+        TR_ERROR("Forge: {} cannot move into itself", path);
+
+        return false;
+    }
+
+    const std::filesystem::path l_Source = m_Project->ToNativePath(path);
+    const std::filesystem::path l_Destination = m_Project->ToNativePath(l_Target);
+    std::error_code l_Error;
+    if (std::filesystem::exists(l_Destination, l_Error))
+    {
+        TR_ERROR("Forge: {} cannot become {}, which already exists", path, l_Target);
+
+        return false;
+    }
+
+    std::filesystem::rename(l_Source, l_Destination, l_Error);
+    if (l_Error)
+    {
+        TR_ERROR("Forge: {} could not become {}: {}", path, l_Target, l_Error.message());
+
+        return false;
+    }
+
+    const std::string l_Meta = std::string(Trinity::AssetRegistry::c_MetaExtension);
+    std::filesystem::path l_SourceMeta = l_Source;
+    l_SourceMeta += l_Meta;
+    if (!std::filesystem::is_directory(l_Destination) && std::filesystem::exists(l_SourceMeta))
+    {
+        std::filesystem::path l_DestinationMeta = l_Destination;
+        l_DestinationMeta += l_Meta;
+        std::filesystem::rename(l_SourceMeta, l_DestinationMeta, l_Error);
+        if (l_Error)
+        {
+            TR_ERROR("Forge: the .meta of {} could not follow it, so it is put back: {}", path, l_Error.message());
+            std::filesystem::rename(l_Destination, l_Source, l_Error);
+
+            return false;
+        }
+    }
+
+    TR_INFO("Forge: {} is now {}", path, l_Target);
+    static_cast<void>(ScanAssets());
+
+    return true;
+}
+
+// For good, with its .meta and any cooked copy in Cache. Assets still in use read as failed, so sprites using a deleted texture draw white. The open scene stays
+bool EditorSession::DeleteAsset(std::string_view path)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return false;
+    }
+
+    if (!m_ScenePath.empty() && IsSameOrInside(m_ScenePath, path))
+    {
+        TR_ERROR("Forge: {} holds the open scene, so it is not deleted", path);
+
+        return false;
+    }
+
+    std::vector<Trinity::UUID> l_Removed;
+    for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
+    {
+        if (IsSameOrInside(it_Record->Path, path))
+        {
+            l_Removed.push_back(it_Record->ID);
+            if (it_Record->Importer == TextureImporter::c_Importer)
+            {
+                static_cast<void>(Trinity::FileSystem::RemoveFile(Trinity::GetCookedTexturePath(it_Record->ID)));
+                static_cast<void>(Trinity::FileSystem::RemoveFile(TextureImporter::GetCacheKeyPath(it_Record->ID)));
+            }
+        }
+    }
+
+    const std::filesystem::path l_Native = m_Project->ToNativePath(path);
+    std::filesystem::path l_Meta = l_Native;
+    l_Meta += std::string(Trinity::AssetRegistry::c_MetaExtension);
+    std::error_code l_Error;
+    std::filesystem::remove_all(l_Native, l_Error);
+    if (!l_Error)
+    {
+        std::filesystem::remove(l_Meta, l_Error);
+    }
+
+    if (l_Error)
+    {
+        TR_ERROR("Forge: {} could not be deleted: {}", path, l_Error.message());
+    }
+    else
+    {
+        TR_INFO("Forge: deleted {}, which held {} asset(s)", path, l_Removed.size());
+    }
+
+    static_cast<void>(ScanAssets());
+    for (const Trinity::UUID it_ID : l_Removed)
+    {
+        Trinity::AssetManager::Reload(it_ID);
+        if (it_ID == m_InspectedAsset)
+        {
+            m_InspectedAsset = {};
+        }
+    }
+
+    return !l_Error;
+}
+
+// Into the .meta at once, and then encoded in the background. Sprites keep the old texture until the new one has loaded
+bool EditorSession::ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings settings)
+{
+    if (!m_Registry || !m_Registry->SetSettings(id, std::move(settings)))
+    {
+        return false;
+    }
+
+    const Trinity::AssetRecord* l_Record = m_Registry->Find(id);
+    TR_INFO("Forge: reimporting {} with its new settings", l_Record->Path);
+    m_Reimporter.Queue(*l_Record);
+
+    return true;
 }
 
 void EditorSession::SaveProject()

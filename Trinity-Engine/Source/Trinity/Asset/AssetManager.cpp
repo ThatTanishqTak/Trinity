@@ -117,8 +117,8 @@ namespace Trinity
             l_Entry->Request = FileRequest();
             if (!result)
             {
-                l_Entry->State = AssetState::Failed;
-                TR_CORE_ERROR("Assets: {} could not be read: {}", id, ToString(result.GetError()));
+                l_Entry->State = l_Entry->Loaded != nullptr ? AssetState::Ready : AssetState::Failed;
+                TR_CORE_ERROR("Assets: {} could not be read: {}{}", id, ToString(result.GetError()), l_Entry->Loaded != nullptr ? ", so it keeps the version it had" : "");
 
                 return;
             }
@@ -236,15 +236,17 @@ namespace Trinity
                     }
                 }
 
+                // A reload replaces the version the asset had, which was in use until now. A failed one keeps it
                 if (it_Task->Result != nullptr)
                 {
+                    Memory::Delete(l_Entry->Loaded);
                     l_Entry->Loaded = it_Task->Result;
                     l_Entry->State = AssetState::Ready;
                 }
                 else
                 {
-                    l_Entry->State = AssetState::Failed;
-                    TR_CORE_ERROR("Assets: {} could not be loaded: {}", it_Task->ID, it_Task->Error);
+                    l_Entry->State = l_Entry->Loaded != nullptr ? AssetState::Ready : AssetState::Failed;
+                    TR_CORE_ERROR("Assets: {} could not be loaded: {}{}", it_Task->ID, it_Task->Error, l_Entry->Loaded != nullptr ? ", so it keeps the version it had" : "");
                 }
 
                 Memory::Delete(it_Task);
@@ -387,6 +389,38 @@ namespace Trinity
             {
                 EntryMap().swap(s_State->Entries);
             }
+        }
+
+        // As after a reimport. The version already loaded stays in use until the new one is ready, and a load still running is dropped. An asset gone from the registry fails, so it reads as its loader's placeholder
+        void Reload(UUID id)
+        {
+            TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are reloaded on the main thread.");
+
+            const auto a_Found = s_State->Entries.find(id);
+            if (a_Found == s_State->Entries.end())
+            {
+                return;
+            }
+
+            Entry& l_Entry = a_Found->second;
+            l_Entry.Request.Cancel();
+            l_Entry.Generation = s_State->NextGeneration++;
+
+            const AssetRecord* l_Record = s_State->Registry != nullptr ? s_State->Registry->Find(id) : nullptr;
+            const AssetLoader* l_Loader = l_Record != nullptr ? FindLoader(l_Record->Importer) : nullptr;
+            if (l_Loader == nullptr)
+            {
+                Memory::Delete(l_Entry.Loaded);
+                l_Entry.Loaded = nullptr;
+                l_Entry.State = AssetState::Failed;
+                TR_CORE_WARN("Assets: {} {}, so it reads as failed", id, l_Record == nullptr ? "is no longer in the project" : "has no loader any more");
+
+                return;
+            }
+
+            l_Entry.Loader = l_Loader;
+            l_Entry.State = l_Entry.Loaded != nullptr ? AssetState::Ready : AssetState::Loading;
+            l_Entry.Request = FileSystem::ReadFileAsync(l_Loader->GetLoadPath(*l_Record), [id, l_Generation = l_Entry.Generation](Expected<FileBuffer, FileError> result) { OnRead(id, l_Generation, std::move(result)); });
         }
 
         AssetState GetState(UUID id)

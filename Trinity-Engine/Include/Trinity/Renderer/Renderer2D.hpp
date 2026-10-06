@@ -43,6 +43,7 @@ namespace Trinity
         Renderer2D& operator=(const Renderer2D&) = delete;
 
         void BeginFrame();
+        void ReleaseTextures();
 
         bool DrawScene(RHI::CommandList& commands, Scene& scene, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
         void DrawScene(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);

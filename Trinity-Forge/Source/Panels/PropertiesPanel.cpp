@@ -53,7 +53,16 @@ namespace
 
 PropertiesPanel::PropertiesPanel(EditorSession& session) : Panel("Properties", Trinity::Icons::c_Sliders, DockSlot::Right), m_Session(session)
 {
+    m_CloseListener = m_Session.AddCloseListener([this]
+    {
+        m_Preview = {};
+        m_SettingsAsset = {};
+    });
+}
 
+PropertiesPanel::~PropertiesPanel()
+{
+    m_Session.RemoveCloseListener(m_CloseListener);
 }
 
 // The selected entity's components, each in its own section, under IDs of that entity's own. A removal waits until every section is drawn, since the sections read the components
@@ -62,12 +71,34 @@ void PropertiesPanel::OnImGuiRender()
     Trinity::Scene& l_Scene = m_Session.GetScene();
     const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(m_Session.GetSelection());
 
+    // An entity selected since an asset was, here or by an undo, takes Properties back from the asset
+    if (m_Session.GetSelection() != m_LastSelection)
+    {
+        m_LastSelection = m_Session.GetSelection();
+        if (m_LastSelection.IsValid())
+        {
+            m_Session.SetInspectedAsset({});
+        }
+    }
+
     // A name still being typed when the selection moved on is kept for the entity it was typed for
-    if (m_NameActive && (!l_Entity || l_Entity.GetUUID() != m_NameEntity))
+    if (m_NameActive && (!l_Entity || l_Entity.GetUUID() != m_NameEntity || m_Session.GetInspectedAsset()))
     {
         CommitName(l_Scene.FindEntityByUUID(m_NameEntity));
         m_NameActive = false;
     }
+
+    if (const Trinity::UUID l_Asset = m_Session.GetInspectedAsset())
+    {
+        ImGui::PushID(l_Asset.ToString().c_str());
+        DrawAsset(l_Asset);
+        ImGui::PopID();
+
+        return;
+    }
+
+    m_Preview = {};
+    m_SettingsAsset = {};
 
     if (!l_Entity)
     {
@@ -408,6 +439,119 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
     }
 
     ImGui::EndPopup();
+}
+
+// An asset picked in the Content Browser: where it is, and for a texture a preview and its import settings
+void PropertiesPanel::DrawAsset(Trinity::UUID id)
+{
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(id) : nullptr;
+    if (l_Record == nullptr)
+    {
+        m_Session.SetInspectedAsset({});
+
+        return;
+    }
+
+    const bool l_Texture = l_Record->Importer == Trinity::TextureAsset::c_AssetType;
+    ImGui::TextUnformatted(std::format("{} {}", l_Texture ? Trinity::Icons::c_FileImage : Trinity::Icons::c_File, GetAssetName(*l_Record)).c_str());
+    ImGui::TextDisabled("%s", l_Record->Path.c_str());
+    ImGui::TextDisabled("UUID %s, %s", id.ToString().c_str(), l_Record->Importer.c_str());
+    ImGui::Spacing();
+
+    if (!l_Texture)
+    {
+        m_Preview = {};
+        ImGui::TextDisabled("This kind of asset has no import settings");
+
+        return;
+    }
+
+    if (m_Preview.GetID() != id)
+    {
+        m_Preview = Trinity::AssetRef<Trinity::TextureAsset>(id);
+    }
+
+    DrawTexturePreview();
+    DrawTextureSettings(*l_Record);
+}
+
+// Fitted to the panel's width, and to a height that leaves the settings in view
+void PropertiesPanel::DrawTexturePreview()
+{
+    const Trinity::TextureAsset* l_Texture = m_Preview.IsReady() ? m_Preview.Get() : nullptr;
+    if (l_Texture == nullptr || !l_Texture->GetTexture() || l_Texture->GetShaderResourceIndex() == Trinity::RHI::c_NoBindlessIndex)
+    {
+        ImGui::TextDisabled("%s", m_Preview.GetState() == Trinity::AssetState::Failed ? "The texture could not be loaded" : "Loading...");
+        ImGui::Spacing();
+
+        return;
+    }
+
+    const float l_Width = static_cast<float>(l_Texture->GetWidth());
+    const float l_Height = static_cast<float>(std::max(l_Texture->GetHeight(), 1u));
+    const float l_Scale = std::min({ ImGui::GetContentRegionAvail().x / l_Width, ImGui::GetFontSize() * 16.0f / l_Height, 1.0f });
+    ImGui::Image(ImTextureRef(static_cast<ImTextureID>(l_Texture->GetShaderResourceIndex())), ImVec2(l_Width * l_Scale, l_Height * l_Scale));
+    ImGui::TextDisabled("%ux%u, %u mip(s), %s", l_Texture->GetWidth(), l_Texture->GetHeight(), l_Texture->GetMipLevels(), std::string(Trinity::RHI::ToString(l_Texture->GetFormat())).c_str());
+    ImGui::Spacing();
+}
+
+// Edited here first, and written to the .meta and reimported only on Apply, which the texture's sprites pick up once the new one has loaded
+void PropertiesPanel::DrawTextureSettings(const Trinity::AssetRecord& record)
+{
+    const TextureImportSettings l_Saved = TextureImporter::ReadSettings(record);
+    if (m_SettingsAsset != record.ID)
+    {
+        m_SettingsAsset = record.ID;
+        m_TextureSettings = l_Saved;
+    }
+
+    if (!BeginComponent("Import Settings", Trinity::Icons::c_Gear, false))
+    {
+        return;
+    }
+
+    Label("sRGB");
+    ImGui::Checkbox("##Srgb", &m_TextureSettings.Srgb);
+
+    Label("Generate Mips");
+    ImGui::Checkbox("##GenerateMips", &m_TextureSettings.GenerateMips);
+
+    Label("UASTC Level");
+    int l_Level = static_cast<int>(m_TextureSettings.UastcLevel);
+    if (ImGui::SliderInt("##UastcLevel", &l_Level, 0, static_cast<int>(TextureImporter::c_MaxUastcLevel), "%d", ImGuiSliderFlags_AlwaysClamp))
+    {
+        m_TextureSettings.UastcLevel = static_cast<std::uint32_t>(l_Level);
+    }
+
+    Label("Filter");
+    int l_Filter = m_TextureSettings.Filter == Trinity::RHI::Filter::Nearest ? 1 : 0;
+    if (ImGui::Combo("##Filter", &l_Filter, "Linear\0Nearest\0"))
+    {
+        m_TextureSettings.Filter = l_Filter == 1 ? Trinity::RHI::Filter::Nearest : Trinity::RHI::Filter::Linear;
+    }
+
+    ImGui::Spacing();
+    const bool l_Changed = m_TextureSettings != l_Saved;
+    ImGui::BeginDisabled(!l_Changed);
+    if (ImGui::Button("Apply"))
+    {
+        static_cast<void>(m_Session.ApplyImportSettings(record.ID, TextureImporter::MakeSettings(m_TextureSettings)));
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Revert"))
+    {
+        m_TextureSettings = l_Saved;
+    }
+
+    ImGui::EndDisabled();
+
+    if (m_Session.IsImporting(record.ID))
+    {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Importing...");
+    }
 }
 
 // A section with the component's name, open by default. Right-clicking a removable one offers to remove it

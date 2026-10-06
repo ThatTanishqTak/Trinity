@@ -2,6 +2,7 @@
 
 #include "EditorCommands.hpp"
 #include "Panels/ConsolePanel.hpp"
+#include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/HierarchyPanel.hpp"
 #include "Panels/PropertiesPanel.hpp"
 
@@ -60,6 +61,11 @@ void ForgeLayer::OnAttach()
     m_Panels.push_back(Trinity::CreateScope<PropertiesPanel>(m_Session));
     m_Panels.push_back(Trinity::CreateScope<ConsolePanel>());
 
+    // Docked after the Console, so it is the tab the default layout shows
+    Trinity::Scope<ContentBrowserPanel> l_ContentBrowser = Trinity::CreateScope<ContentBrowserPanel>(m_Session);
+    m_ContentBrowser = l_ContentBrowser.get();
+    m_Panels.push_back(std::move(l_ContentBrowser));
+
     // ImGui reads imgui.ini before its first frame, which is after this, so the panels get their saved state
     ImGuiSettingsHandler l_Handler;
     l_Handler.TypeName = c_PanelSettingsName;
@@ -117,6 +123,8 @@ void ForgeLayer::OnImGuiRender()
         it_Panel->Draw();
     }
 
+    m_ContentBrowser->EndFrame();
+
     if (m_ShowAbout)
     {
         DrawAboutWindow();
@@ -171,6 +179,10 @@ void ForgeLayer::ReadShortcuts()
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_Repeat))
     {
         m_Session.GetHistory().Undo();
+    }
+    else if (m_ContentBrowser->IsFocused())
+    {
+        // Duplicate and Delete are the browser's own while it has focus
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
     {
@@ -375,7 +387,36 @@ void ForgeLayer::DrawDockSpace()
         m_ResetLayout = false;
     }
 
+    if (!std::exchange(m_DockedNewPanels, true))
+    {
+        DockNewPanels();
+    }
+
     ImGui::DockSpaceOverViewport(l_DockSpace, ImGui::GetMainViewport());
+}
+
+// A panel added to Forge after the user's imgui.ini was saved has no place in it, so it joins the node of a panel with the same slot rather than floating
+void ForgeLayer::DockNewPanels()
+{
+    for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
+    {
+        if (ImGui::FindWindowSettingsByID(ImHashStr(it_Panel->GetWindowName().c_str())) != nullptr)
+        {
+            continue;
+        }
+
+        for (const Trinity::Scope<Panel>& it_Other : m_Panels)
+        {
+            const ImGuiWindowSettings* l_Settings = it_Other->GetSlot() == it_Panel->GetSlot() ? ImGui::FindWindowSettingsByID(ImHashStr(it_Other->GetWindowName().c_str())) : nullptr;
+            if (l_Settings != nullptr && l_Settings->DockId != 0)
+            {
+                ImGui::DockBuilderDockWindow(it_Panel->GetWindowName().c_str(), l_Settings->DockId);
+                TR_INFO("Forge: {} joins {} in the saved layout", it_Panel->GetTitle(), it_Other->GetTitle());
+
+                break;
+            }
+        }
+    }
 }
 
 // Hierarchy on the left, Properties on the right, Console below the Viewport. Every panel opens again, including any floating in windows of their own

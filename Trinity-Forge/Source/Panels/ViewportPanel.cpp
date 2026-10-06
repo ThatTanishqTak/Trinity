@@ -1,5 +1,8 @@
 #include "Panels/ViewportPanel.hpp"
 
+#include "EditorCommands.hpp"
+#include "EditorPayloads.hpp"
+
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -7,11 +10,15 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cstring>
+#include <filesystem>
 #include <format>
 #include <limits>
 #include <string>
 #include <string_view>
 #include <system_error>
+
+#include <stb_image.h>
 
 namespace
 {
@@ -22,6 +29,9 @@ namespace
     constexpr ImU32 c_CameraOutlineColor = IM_COL32(255, 255, 255, 200);
     constexpr ImU32 c_SelectionOutlineColor = IM_COL32(255, 160, 40, 255);
     constexpr float c_SelectionThickness = 2.0f;
+
+    // A dropped texture's sprite is this many of its pixels to a world unit
+    constexpr float c_PixelsPerUnit = 100.0f;
 
     void TextLine(std::string_view text)
     {
@@ -128,6 +138,7 @@ void ViewportPanel::OnImGuiRender()
     if (l_Index != Trinity::RHI::c_NoBindlessIndex)
     {
         ImGui::Image(ImTextureRef(static_cast<ImTextureID>(l_Index)), ImVec2(l_ViewportSize.x, l_ViewportSize.y));
+        AcceptTextureDrop(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
     }
 
     const bool l_Hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
@@ -310,6 +321,56 @@ void ViewportPanel::FrameSelection(glm::vec2 viewportSize)
     }
 
     MarkCameraChanged();
+}
+
+// A texture dropped from the Content Browser becomes a sprite where it lands, at its pixel size, in one command
+void ViewportPanel::AcceptTextureDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
+{
+    if (!ImGui::BeginDragDropTarget())
+    {
+        return;
+    }
+
+    if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_AssetPayload))
+    {
+        std::uint64_t l_Value = 0;
+        std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+        const Trinity::UUID l_ID(l_Value);
+        const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+        const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(l_ID) : nullptr;
+        if (l_Record == nullptr || l_Record->Importer != Trinity::TextureAsset::c_AssetType)
+        {
+            TR_WARN("Forge: only a texture dropped into the Viewport makes a sprite");
+        }
+        else
+        {
+            // From the texture when it is loaded, and otherwise from the source file's header
+            glm::vec2 l_Pixels{ c_PixelsPerUnit };
+            const Trinity::Asset* l_Asset = Trinity::AssetManager::GetState(l_ID) == Trinity::AssetState::Ready ? Trinity::AssetManager::GetAsset(l_ID) : nullptr;
+            if (l_Asset != nullptr && l_Asset->GetAssetType() == Trinity::TextureAsset::c_AssetType)
+            {
+                const Trinity::TextureAsset& l_Texture = static_cast<const Trinity::TextureAsset&>(*l_Asset);
+                l_Pixels = { static_cast<float>(l_Texture.GetWidth()), static_cast<float>(l_Texture.GetHeight()) };
+            }
+            else if (const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Source = Trinity::FileSystem::ReadFile(l_Record->Path))
+            {
+                int l_Width = 0;
+                int l_Height = 0;
+                int l_Channels = 0;
+                if (stbi_info_from_memory(reinterpret_cast<const stbi_uc*>(l_Source->data()), static_cast<int>(l_Source->size()), &l_Width, &l_Height, &l_Channels) != 0)
+                {
+                    l_Pixels = { static_cast<float>(l_Width), static_cast<float>(l_Height) };
+                }
+            }
+
+            const ImVec2 l_Mouse = ImGui::GetMousePos();
+            const glm::vec2 l_World = m_Camera.ScreenToWorld(glm::vec2(l_Mouse.x, l_Mouse.y) - imageMin, viewportSize);
+            const std::string l_Name = std::filesystem::path(l_Record->Path).stem().string();
+            m_Session.GetHistory().Execute(Trinity::CreateScope<CreateSpriteCommand>(l_Name, l_ID, glm::vec3(l_World, 0.0f), l_Pixels / c_PixelsPerUnit));
+        }
+    }
+
+    ImGui::EndDragDropTarget();
 }
 
 // The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them, and the selected sprite's rectangle. Corners snap to pixel centres so one-pixel lines stay sharp
