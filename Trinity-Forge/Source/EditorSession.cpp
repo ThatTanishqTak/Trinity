@@ -81,7 +81,7 @@ void EditorSession::DrawPopups()
 // The project, the scene and an asterisk while unsaved. The renderer adds the backend and frame rate
 void EditorSession::UpdateTitle()
 {
-    const std::string l_Title = m_Project ? std::format("{} - {}{} - {}", m_Project->GetName(), GetSceneName(), m_Dirty ? "*" : "", c_ApplicationTitle) : std::string(c_ApplicationTitle);
+    const std::string l_Title = m_Project ? std::format("{} - {}{} - {}", m_Project->GetName(), GetSceneName(), IsDirty() ? "*" : "", c_ApplicationTitle) : std::string(c_ApplicationTitle);
     if (l_Title != m_Title)
     {
         m_Title = l_Title;
@@ -91,7 +91,7 @@ void EditorSession::UpdateTitle()
 
 bool EditorSession::RequestClose()
 {
-    if (!m_Dirty)
+    if (!IsDirty())
     {
         return true;
     }
@@ -239,7 +239,7 @@ void EditorSession::AskPath(PathRequest request)
 
 void EditorSession::ConfirmDiscard(Action action)
 {
-    if (!m_Dirty)
+    if (!IsDirty())
     {
         action();
 
@@ -363,7 +363,7 @@ void EditorSession::NewScene()
     m_Scene.Clear();
     m_ScenePath.clear();
     m_Selection = {};
-    m_Dirty = false;
+    m_History.Clear();
 }
 
 // On an error the scene is left as it was
@@ -379,7 +379,7 @@ void EditorSession::OpenScene(const std::string& assetPath)
 
     m_ScenePath = assetPath;
     m_Selection = {};
-    m_Dirty = false;
+    m_History.Clear();
     TR_INFO("Forge: opened scene {} with {} entities", m_ScenePath, m_Scene.GetEntityCount());
 }
 
@@ -439,7 +439,7 @@ bool EditorSession::WriteScene(const std::string& assetPath)
         return false;
     }
 
-    m_Dirty = false;
+    m_History.MarkSaved();
     TR_INFO("Forge: saved scene {} with {} entities", assetPath, m_Scene.GetEntityCount());
 
     // A scene saved under a new name gets its .meta and UUID now

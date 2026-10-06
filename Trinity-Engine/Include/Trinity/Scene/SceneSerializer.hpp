@@ -19,6 +19,7 @@ namespace YAML
 
 namespace Trinity
 {
+    class Entity;
     class Scene;
 
     class TRINITY_API ComponentWriter
@@ -96,6 +97,15 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::string SaveToText(Scene& scene);
 
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadFromText(Scene& scene, std::string_view text);
+        [[nodiscard]] TRINITY_API std::string SaveEntityToText(Scene& scene, Entity root);
+        [[nodiscard]] TRINITY_API Expected<Entity, std::string> LoadEntityFromText(Scene& scene, std::string_view text, Entity parent, Entity before);
+
+        [[nodiscard]] TRINITY_API bool HasComponent(Entity entity, std::string_view name);
+        TRINITY_API bool AddComponent(Entity entity, std::string_view name);
+        TRINITY_API bool RemoveComponent(Entity entity, std::string_view name);
+        [[nodiscard]] TRINITY_API std::string SaveComponentToText(Entity entity, std::string_view name);
+        [[nodiscard]] TRINITY_API Expected<void, std::string> LoadComponentFromText(Entity entity, std::string_view name, std::string_view text);
+
         [[nodiscard]] TRINITY_API Expected<void, std::string> Save(Scene& scene, std::string_view path);
         [[nodiscard]] TRINITY_API Expected<void, std::string> Load(Scene& scene, std::string_view path);
     }

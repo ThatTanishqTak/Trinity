@@ -20,6 +20,10 @@ namespace Trinity
         constexpr const char* c_Book = "\uF02D";
         constexpr const char* c_Refresh = "\uF021";
         constexpr const char* c_WindowRestore = "\uF2D2";
+        constexpr const char* c_Undo = "\uF0E2";
+        constexpr const char* c_Redo = "\uF01E";
+        constexpr const char* c_History = "\uF1DA";
+        constexpr const char* c_Trash = "\uF1F8";
         constexpr const char* c_Monitor = "\U000F0379";
         constexpr const char* c_CubeOutline = "\U000F01A7";
     }

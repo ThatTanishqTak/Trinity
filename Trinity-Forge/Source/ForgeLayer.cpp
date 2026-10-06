@@ -1,5 +1,6 @@
 #include "ForgeLayer.hpp"
 
+#include "EditorCommands.hpp"
 #include "Panels/ConsolePanel.hpp"
 #include "Panels/HierarchyPanel.hpp"
 #include "Panels/PropertiesPanel.hpp"
@@ -7,7 +8,9 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <format>
 #include <string_view>
 #include <utility>
@@ -17,6 +20,8 @@ namespace
     // Hashed without the ID stack, so the dock space keeps its ID whatever ImGui window is current
     constexpr std::string_view c_DockSpaceName = "Forge dock space";
     constexpr const char* c_PanelSettingsName = "ForgePanels";
+    constexpr std::size_t c_HistoryMenuEntries = 30;
+    constexpr std::uint64_t c_DefaultUndoTestSeed = 1;
 
     std::string WithIcon(const char* icon, std::string_view text)
     {
@@ -85,9 +90,10 @@ void ForgeLayer::OnEvent(Trinity::Event& event)
     }
 }
 
-// Drawn whether or not the Viewport panel is open, so the scene target holds the scene when the panel opens again
+// Drawn whether or not the Viewport panel is open, so the scene target holds the scene when the panel opens again. Transforms are brought up to date again, since the UI may have changed the scene since OnUpdate
 void ForgeLayer::OnRender(Trinity::RHI::CommandList& commands)
 {
+    m_Session.GetScene().UpdateWorldTransforms();
     m_ViewportPanel->RenderScene(commands);
 }
 
@@ -160,6 +166,18 @@ void ForgeLayer::ReadShortcuts()
     {
         m_Session.Request(EditorSession::Command::Refresh);
     }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, ImGuiInputFlags_Repeat) || ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_Repeat))
+    {
+        m_Session.GetHistory().Redo();
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_Repeat))
+    {
+        m_Session.GetHistory().Undo();
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiKey_Delete) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
+    {
+        m_Session.GetHistory().Execute(Trinity::CreateScope<DeleteEntityCommand>(m_Session.GetSelection()));
+    }
 }
 
 void ForgeLayer::DrawMenuBar()
@@ -195,14 +213,9 @@ void ForgeLayer::DrawMenuBar()
         ImGui::EndMenu();
     }
 
-    // A stand-in edit until the command stack exists, so unsaved changes can be tried
     if (ImGui::BeginMenu("Edit"))
     {
-        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty Entity").c_str(), nullptr, false, m_Session.HasProject()))
-        {
-            static_cast<void>(m_Session.GetScene().CreateEntity("Empty Entity"));
-            m_Session.MarkDirty();
-        }
+        DrawEditMenu();
 
         ImGui::EndMenu();
     }
@@ -253,6 +266,96 @@ void ForgeLayer::DrawMenuBar()
     }
 
     ImGui::EndMainMenuBar();
+}
+
+// Undo and Redo name the command they act on. Every edit goes through the history, so it can be undone
+void ForgeLayer::DrawEditMenu()
+{
+    CommandStack& l_History = m_Session.GetHistory();
+    const bool l_CanUndo = l_History.CanUndo();
+    const bool l_CanRedo = l_History.CanRedo();
+
+    const std::string l_Undo = l_CanUndo ? std::format("Undo {}###Undo", l_History.GetCommand(l_History.GetPosition() - 1).GetName()) : std::string("Undo###Undo");
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Undo, l_Undo).c_str(), "Ctrl+Z", false, l_CanUndo))
+    {
+        l_History.Undo();
+    }
+
+    const std::string l_Redo = l_CanRedo ? std::format("Redo {}###Redo", l_History.GetCommand(l_History.GetPosition()).GetName()) : std::string("Redo###Redo");
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Redo, l_Redo).c_str(), "Ctrl+Y", false, l_CanRedo))
+    {
+        l_History.Redo();
+    }
+
+    if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_History, "History").c_str(), l_History.GetCount() > 0))
+    {
+        DrawHistoryMenu();
+
+        ImGui::EndMenu();
+    }
+
+    ImGui::Separator();
+
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty Entity").c_str(), nullptr, false, m_Session.HasProject()))
+    {
+        l_History.Execute(Trinity::CreateScope<CreateEntityCommand>("Empty Entity", Trinity::UUID(), Trinity::UUID()));
+    }
+
+    const bool l_HasSelection = static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Trash, "Delete").c_str(), "Delete", false, l_HasSelection))
+    {
+        l_History.Execute(Trinity::CreateScope<DeleteEntityCommand>(m_Session.GetSelection()));
+    }
+}
+
+// The commands around the current position, oldest at the top, with those that would be redone greyed. Picking one undoes or redoes to just after it, and Start undoes everything the history holds
+void ForgeLayer::DrawHistoryMenu()
+{
+    CommandStack& l_History = m_Session.GetHistory();
+    const std::size_t l_Count = l_History.GetCount();
+    const std::size_t l_Position = l_History.GetPosition();
+    const std::size_t l_First = l_Count > c_HistoryMenuEntries ? std::min(l_Position - std::min(l_Position, c_HistoryMenuEntries / 2), l_Count - c_HistoryMenuEntries) : 0;
+    const std::size_t l_Last = std::min(l_First + c_HistoryMenuEntries, l_Count);
+
+    std::size_t l_Target = l_Position;
+    if (ImGui::MenuItem("Start###HistoryStart", nullptr, l_Position == 0))
+    {
+        l_Target = 0;
+    }
+
+    if (l_First > 0)
+    {
+        ImGui::TextDisabled("%s", std::format("{} earlier", l_First).c_str());
+    }
+
+    for (std::size_t it_Index = l_First; it_Index < l_Last; ++it_Index)
+    {
+        const bool l_Undone = it_Index >= l_Position;
+        if (l_Undone)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        }
+
+        if (ImGui::MenuItem(std::format("{}###History{}", l_History.GetCommand(it_Index).GetName(), it_Index).c_str(), nullptr, it_Index + 1 == l_Position))
+        {
+            l_Target = it_Index + 1;
+        }
+
+        if (l_Undone)
+        {
+            ImGui::PopStyleColor();
+        }
+    }
+
+    if (l_Last < l_Count)
+    {
+        ImGui::TextDisabled("%s", std::format("{} later", l_Count - l_Last).c_str());
+    }
+
+    if (l_Target != l_Position)
+    {
+        l_History.JumpTo(l_Target);
+    }
 }
 
 // imgui.ini keeps each user's layout, and the default is built when it has none, such as on the first run, or on View > Reset Layout

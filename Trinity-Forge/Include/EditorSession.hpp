@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CommandStack.hpp"
 #include "Importers/TextureImporter.hpp"
 
 #include "Trinity.hpp"
@@ -46,9 +47,10 @@ public:
     void UpdateTitle();
 
     [[nodiscard]] bool RequestClose();
-    void MarkDirty() { m_Dirty = true; }
+    [[nodiscard]] bool IsDirty() const { return !m_History.IsSaved(); }
 
     [[nodiscard]] Trinity::Scene& GetScene() { return m_Scene; }
+    [[nodiscard]] CommandStack& GetHistory() { return m_History; }
     [[nodiscard]] const Trinity::Project* GetProject() const { return m_Project.get(); }
     [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
@@ -101,7 +103,7 @@ private:
     Trinity::Scene m_Scene;
     std::string m_ScenePath;
     Trinity::UUID m_Selection;
-    bool m_Dirty = false;
+    CommandStack m_History{ m_Scene, m_Selection };
 
     std::vector<Action> m_Pending;
     Action m_AfterDiscard;

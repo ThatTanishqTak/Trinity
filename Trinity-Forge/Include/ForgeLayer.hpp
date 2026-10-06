@@ -30,6 +30,8 @@ public:
 private:
     void ReadShortcuts();
     void DrawMenuBar();
+    void DrawEditMenu();
+    void DrawHistoryMenu();
     void DrawDockSpace();
     void BuildDefaultLayout(std::uint32_t dockSpace);
     void DrawAboutWindow();

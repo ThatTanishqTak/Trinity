@@ -337,6 +337,140 @@ namespace Trinity
 
             return l_Result;
         }
+
+        // Format and migrations first, so entity text kept by the editor reads exactly like a scene file
+        Expected<YAML::Node, std::string> ParseDocument(std::string_view text)
+        {
+            YAML::Node l_Root;
+            try
+            {
+                l_Root = YAML::Load(std::string(text));
+            }
+            catch (const YAML::Exception& exception)
+            {
+                return Unexpected{ std::format("not valid YAML: {}", exception.what()) };
+            }
+
+            const YAML::Node l_Format = l_Root.IsMap() ? l_Root["Format"] : YAML::Node();
+            std::uint32_t l_Version = 0;
+            if (!l_Format || !l_Format.IsScalar() || !ParseNumber(l_Format.Scalar(), l_Version) || l_Version == 0)
+            {
+                return Unexpected{ std::string("no valid Format version") };
+            }
+
+            if (l_Version > SceneSerializer::c_FormatVersion)
+            {
+                return Unexpected{ std::format("written in format {} by a newer Trinity, and this build reads format {} and older", l_Version, SceneSerializer::c_FormatVersion) };
+            }
+
+            for (std::uint32_t it_Version = l_Version; it_Version < SceneSerializer::c_FormatVersion; ++it_Version)
+            {
+                c_Migrations[it_Version - 1](l_Root);
+            }
+
+            return l_Root;
+        }
+
+        void AppendEntity(std::string& text, Entity entity, bool writeParent)
+        {
+            constexpr std::uint32_t c_FieldIndent = 6;
+
+            SceneRegistry& l_Registry = entity.GetScene()->GetRegistry();
+
+            text += std::format("\n  - {}: {}", c_EntityKey, ToHex(entity.GetUUID()));
+            if (const Entity l_Parent = entity.GetParent(); writeParent && l_Parent)
+            {
+                text += std::format("\n    {}: {}", c_ParentKey, ToHex(l_Parent.GetUUID()));
+            }
+
+            for (const ComponentSerializer& it_Serializer : s_State->Serializers)
+            {
+                const SceneRegistry::common_type* l_Storage = l_Registry.storage(GetPoolId(it_Serializer.Name));
+                if (l_Storage == nullptr || !l_Storage->contains(entity.GetHandle()))
+                {
+                    continue;
+                }
+
+                text += std::format("\n    {}:", FormatString(it_Serializer.Name));
+                ComponentWriter l_Writer(text, c_FieldIndent);
+                it_Serializer.Save(l_Storage->value(entity.GetHandle()), l_Writer);
+            }
+
+            if (entity.Has<UnknownComponentsComponent>())
+            {
+                for (const UnknownComponentsComponent::Entry& it_Unknown : entity.Get<UnknownComponentsComponent>().Entries)
+                {
+                    text += std::format("\n    {}:", FormatString(it_Unknown.Name));
+                    AppendUnknown(text, it_Unknown.Yaml, c_FieldIndent);
+                }
+            }
+        }
+
+        void LoadComponent(Entity entity, const ComponentSerializer& serializer, SceneRegistry::common_type& storage, const YAML::Node& node)
+        {
+            if (!storage.contains(entity.GetHandle()))
+            {
+                storage.push(entity.GetHandle());
+            }
+
+            const ComponentReader l_Reader(node, serializer.Name);
+            serializer.Load(storage.value(entity.GetHandle()), l_Reader);
+        }
+
+        // Every entity first, with its own UUID, then parents in file order, which is hierarchy order, so siblings keep theirs. Components no loaded code knows are kept as YAML and counted by name
+        void CreateEntities(Scene& scene, const std::vector<FileEntity>& entities, std::unordered_map<std::string, std::size_t>& unknown)
+        {
+            SceneRegistry& l_Registry = scene.GetRegistry();
+
+            for (const FileEntity& it_Entity : entities)
+            {
+                static_cast<void>(scene.CreateEntityWithUUID(it_Entity.ID));
+            }
+
+            for (const FileEntity& it_Entity : entities)
+            {
+                if (it_Entity.Parent.IsValid())
+                {
+                    scene.SetParent(scene.FindEntityByUUID(it_Entity.ID), scene.FindEntityByUUID(it_Entity.Parent), false);
+                }
+            }
+
+            for (const FileEntity& it_Entity : entities)
+            {
+                Entity l_Entity = scene.FindEntityByUUID(it_Entity.ID);
+                for (const auto& it_Pair : it_Entity.Node)
+                {
+                    const std::string& l_Name = it_Pair.first.Scalar();
+                    if (l_Name == c_EntityKey || l_Name == c_ParentKey)
+                    {
+                        continue;
+                    }
+
+                    const ComponentSerializer* l_Serializer = FindSerializer(l_Name);
+                    SceneRegistry::common_type* l_Storage = l_Serializer != nullptr ? l_Registry.storage(GetPoolId(l_Name)) : nullptr;
+                    if (l_Storage == nullptr)
+                    {
+                        if (!l_Entity.Has<UnknownComponentsComponent>())
+                        {
+                            l_Entity.Add<UnknownComponentsComponent>();
+                        }
+
+                        l_Entity.Get<UnknownComponentsComponent>().Entries.push_back({ TaggedString<MemoryTag::Scene>(l_Name), TaggedString<MemoryTag::Scene>(YAML::Dump(it_Pair.second)) });
+                        ++unknown[l_Name];
+
+                        continue;
+                    }
+
+                    LoadComponent(l_Entity, *l_Serializer, *l_Storage, it_Pair.second);
+                }
+            }
+        }
+
+        // Only a component with a registered serializer, which code knows how to save and load
+        SceneRegistry::common_type* FindStorage(Entity entity, std::string_view name)
+        {
+            return FindSerializer(name) != nullptr ? entity.GetScene()->GetRegistry().storage(GetPoolId(name)) : nullptr;
+        }
     }
 
     ComponentWriter::ComponentWriter(std::string& output, std::uint32_t indent) : m_Output(&output), m_Indent(indent)
@@ -647,10 +781,6 @@ namespace Trinity
             TR_PROFILE_FUNCTION();
             TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
 
-            constexpr std::uint32_t c_FieldIndent = 6;
-
-            SceneRegistry& l_Registry = scene.GetRegistry();
-
             std::string l_Text = std::format("Format: {}\nEntities:", c_FormatVersion);
             if (!scene.GetFirstRoot())
             {
@@ -659,33 +789,7 @@ namespace Trinity
 
             for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
             {
-                l_Text += std::format("\n  - {}: {}", c_EntityKey, ToHex(it_Entity.GetUUID()));
-                if (const Entity l_Parent = it_Entity.GetParent())
-                {
-                    l_Text += std::format("\n    {}: {}", c_ParentKey, ToHex(l_Parent.GetUUID()));
-                }
-
-                for (const ComponentSerializer& it_Serializer : s_State->Serializers)
-                {
-                    const SceneRegistry::common_type* l_Storage = l_Registry.storage(GetPoolId(it_Serializer.Name));
-                    if (l_Storage == nullptr || !l_Storage->contains(it_Entity.GetHandle()))
-                    {
-                        continue;
-                    }
-
-                    l_Text += std::format("\n    {}:", FormatString(it_Serializer.Name));
-                    ComponentWriter l_Writer(l_Text, c_FieldIndent);
-                    it_Serializer.Save(l_Storage->value(it_Entity.GetHandle()), l_Writer);
-                }
-
-                if (it_Entity.Has<UnknownComponentsComponent>())
-                {
-                    for (const UnknownComponentsComponent::Entry& it_Unknown : it_Entity.Get<UnknownComponentsComponent>().Entries)
-                    {
-                        l_Text += std::format("\n    {}:", FormatString(it_Unknown.Name));
-                        AppendUnknown(l_Text, it_Unknown.Yaml, c_FieldIndent);
-                    }
-                }
+                AppendEntity(l_Text, it_Entity, true);
             }
 
             return l_Text + "\n";
@@ -695,6 +799,155 @@ namespace Trinity
         {
             TR_PROFILE_FUNCTION();
             TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            const Expected<YAML::Node, std::string> l_Root = ParseDocument(text);
+            if (!l_Root)
+            {
+                return Unexpected{ l_Root.GetError() };
+            }
+
+            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root);
+            if (!l_Entities)
+            {
+                return Unexpected{ l_Entities.GetError() };
+            }
+
+            // Nothing can fail from here, so the scene is only replaced once the file is known to be whole
+            scene.Clear();
+
+            std::unordered_map<std::string, std::size_t> l_Unknown;
+            CreateEntities(scene, *l_Entities, l_Unknown);
+            for (const auto& [it_Name, it_Count] : l_Unknown)
+            {
+                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since no loaded code knows that component", it_Count, it_Name);
+            }
+
+            return {};
+        }
+
+        // The root has no Parent in the text, so it can be put back anywhere
+        std::string SaveEntityToText(Scene& scene, Entity root)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+            TR_CORE_ASSERT(root.GetScene() == &scene && root.IsValid(), "SaveEntityToText was given an entity of another scene, or one already destroyed");
+
+            std::string l_Text = std::format("Format: {}\nEntities:", c_FormatVersion);
+            for (Entity it_Entity = root; it_Entity; it_Entity = scene.GetNextInSubtree(it_Entity, root))
+            {
+                AppendEntity(l_Text, it_Entity, it_Entity != root);
+            }
+
+            return l_Text + "\n";
+        }
+
+        // The entities keep the UUIDs in the text, so none may already be in the scene. The root goes before a sibling when one is given, which must be a child of parent, and otherwise last under parent or among the roots
+        Expected<Entity, std::string> LoadEntityFromText(Scene& scene, std::string_view text, Entity parent, Entity before)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            const Expected<YAML::Node, std::string> l_Root = ParseDocument(text);
+            if (!l_Root)
+            {
+                return Unexpected{ l_Root.GetError() };
+            }
+
+            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root);
+            if (!l_Entities)
+            {
+                return Unexpected{ l_Entities.GetError() };
+            }
+
+            const auto a_IsRoot = [](const FileEntity& entity) { return !entity.Parent.IsValid(); };
+            if (l_Entities->empty() || !a_IsRoot(l_Entities->front()) || std::any_of(l_Entities->begin() + 1, l_Entities->end(), a_IsRoot))
+            {
+                return Unexpected{ std::string("does not hold one entity and its subtree, with the entity first") };
+            }
+
+            for (const FileEntity& it_Entity : *l_Entities)
+            {
+                if (scene.FindEntityByUUID(it_Entity.ID))
+                {
+                    return Unexpected{ std::format("entity {} is already in the scene", it_Entity.ID) };
+                }
+            }
+
+            std::unordered_map<std::string, std::size_t> l_Unknown;
+            CreateEntities(scene, *l_Entities, l_Unknown);
+
+            const Entity l_Entity = scene.FindEntityByUUID(l_Entities->front().ID);
+            if (before)
+            {
+                scene.MoveBefore(l_Entity, before, false);
+            }
+            else if (parent)
+            {
+                scene.SetParent(l_Entity, parent, false);
+            }
+
+            return l_Entity;
+        }
+
+        bool HasComponent(Entity entity, std::string_view name)
+        {
+            const SceneRegistry::common_type* l_Storage = entity.GetScene()->GetRegistry().storage(GetPoolId(name));
+
+            return l_Storage != nullptr && l_Storage->contains(entity.GetHandle());
+        }
+
+        // Default constructed. Only a component with a serializer, which the entity is without
+        bool AddComponent(Entity entity, std::string_view name)
+        {
+            SceneRegistry::common_type* l_Storage = FindStorage(entity, name);
+            if (l_Storage == nullptr || l_Storage->contains(entity.GetHandle()))
+            {
+                return false;
+            }
+
+            l_Storage->push(entity.GetHandle());
+
+            return true;
+        }
+
+        // Transform stays, since every entity has one
+        bool RemoveComponent(Entity entity, std::string_view name)
+        {
+            SceneRegistry::common_type* l_Storage = name != TransformComponent::c_TypeName ? FindStorage(entity, name) : nullptr;
+            if (l_Storage == nullptr || !l_Storage->contains(entity.GetHandle()))
+            {
+                return false;
+            }
+
+            l_Storage->erase(entity.GetHandle());
+
+            return true;
+        }
+
+        // The component's fields as a scene file holds them, under a Value key, or nothing when the entity is without it
+        std::string SaveComponentToText(Entity entity, std::string_view name)
+        {
+            const SceneRegistry::common_type* l_Storage = FindStorage(entity, name);
+            if (l_Storage == nullptr || !l_Storage->contains(entity.GetHandle()))
+            {
+                return {};
+            }
+
+            std::string l_Text = "Value:";
+            ComponentWriter l_Writer(l_Text, 2);
+            FindSerializer(name)->Save(l_Storage->value(entity.GetHandle()), l_Writer);
+
+            return l_Text + "\n";
+        }
+
+        // Adds the component first when the entity is without it
+        Expected<void, std::string> LoadComponentFromText(Entity entity, std::string_view name, std::string_view text)
+        {
+            SceneRegistry::common_type* l_Storage = FindStorage(entity, name);
+            if (l_Storage == nullptr)
+            {
+                return Unexpected{ std::format("no loaded code knows {}", name) };
+            }
 
             YAML::Node l_Root;
             try
@@ -706,87 +959,13 @@ namespace Trinity
                 return Unexpected{ std::format("not valid YAML: {}", exception.what()) };
             }
 
-            const YAML::Node l_Format = l_Root.IsMap() ? l_Root["Format"] : YAML::Node();
-            std::uint32_t l_Version = 0;
-            if (!l_Format || !l_Format.IsScalar() || !ParseNumber(l_Format.Scalar(), l_Version) || l_Version == 0)
+            const YAML::Node l_Value = l_Root.IsMap() ? l_Root["Value"] : YAML::Node();
+            if (!l_Value)
             {
-                return Unexpected{ std::string("no valid Format version") };
+                return Unexpected{ std::string("has no Value") };
             }
 
-            if (l_Version > c_FormatVersion)
-            {
-                return Unexpected{ std::format("written in format {} by a newer Trinity, and this build reads format {} and older", l_Version, c_FormatVersion) };
-            }
-
-            for (std::uint32_t it_Version = l_Version; it_Version < c_FormatVersion; ++it_Version)
-            {
-                c_Migrations[it_Version - 1](l_Root);
-            }
-
-            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(l_Root);
-            if (!l_Entities)
-            {
-                return Unexpected{ l_Entities.GetError() };
-            }
-
-            // Nothing can fail from here, so the scene is only replaced once the file is known to be whole
-            scene.Clear();
-            SceneRegistry& l_Registry = scene.GetRegistry();
-
-            for (const FileEntity& it_Entity : *l_Entities)
-            {
-                static_cast<void>(scene.CreateEntityWithUUID(it_Entity.ID));
-            }
-
-            for (const FileEntity& it_Entity : *l_Entities)
-            {
-                if (it_Entity.Parent.IsValid())
-                {
-                    scene.SetParent(scene.FindEntityByUUID(it_Entity.ID), scene.FindEntityByUUID(it_Entity.Parent), false);
-                }
-            }
-
-            std::unordered_map<std::string, std::size_t> l_Unknown;
-            for (const FileEntity& it_Entity : *l_Entities)
-            {
-                Entity l_Entity = scene.FindEntityByUUID(it_Entity.ID);
-                for (const auto& it_Pair : it_Entity.Node)
-                {
-                    const std::string& l_Name = it_Pair.first.Scalar();
-                    if (l_Name == c_EntityKey || l_Name == c_ParentKey)
-                    {
-                        continue;
-                    }
-
-                    const ComponentSerializer* l_Serializer = FindSerializer(l_Name);
-                    SceneRegistry::common_type* l_Storage = l_Serializer != nullptr ? l_Registry.storage(GetPoolId(l_Name)) : nullptr;
-                    if (l_Storage == nullptr)
-                    {
-                        if (!l_Entity.Has<UnknownComponentsComponent>())
-                        {
-                            l_Entity.Add<UnknownComponentsComponent>();
-                        }
-
-                        l_Entity.Get<UnknownComponentsComponent>().Entries.push_back({ TaggedString<MemoryTag::Scene>(l_Name), TaggedString<MemoryTag::Scene>(YAML::Dump(it_Pair.second)) });
-                        ++l_Unknown[l_Name];
-
-                        continue;
-                    }
-
-                    if (!l_Storage->contains(l_Entity.GetHandle()))
-                    {
-                        l_Storage->push(l_Entity.GetHandle());
-                    }
-
-                    const ComponentReader l_Reader(it_Pair.second, l_Serializer->Name);
-                    l_Serializer->Load(l_Storage->value(l_Entity.GetHandle()), l_Reader);
-                }
-            }
-
-            for (const auto& [it_Name, it_Count] : l_Unknown)
-            {
-                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since no loaded code knows that component", it_Count, it_Name);
-            }
+            LoadComponent(entity, *FindSerializer(name), *l_Storage, l_Value);
 
             return {};
         }
