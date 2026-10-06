@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CommandStack.hpp"
+#include "Importers/TextureImportBatch.hpp"
 #include "Importers/TextureImporter.hpp"
 #include "Importers/TextureReimporter.hpp"
 
@@ -40,7 +41,8 @@ public:
     void Start(const Trinity::ApplicationCommandLineArgs& args);
     void CreateProject(const std::filesystem::path& directory);
     void OpenProject(const std::filesystem::path& path);
-    TextureImportReport ScanAssets();
+    void ScanAssets();
+    TextureImportReport WaitForImports();
 
     void Request(Command command);
     void Update();
@@ -106,6 +108,8 @@ private:
 
     void CloseProject();
     void AttachRegistry();
+    void StartImports();
+    void FinishImports(const TextureImportReport& report);
     void SaveProject();
     void NewScene();
     void OpenScene(const std::string& assetPath);
@@ -116,6 +120,7 @@ private:
 
     void DrawUnsavedPopup();
     void DrawPathPopup();
+    void DrawImportPopup();
 
     Trinity::Scope<Trinity::Project> m_Project;
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
@@ -125,6 +130,9 @@ private:
     CommandStack m_History{ m_Scene, m_Selection };
     Trinity::UUID m_InspectedAsset;
     TextureReimporter m_Reimporter;
+    TextureImportBatch m_Imports;
+    bool m_ImportAgain = false;
+    bool m_ImportPopupOpen = false;
     std::vector<std::pair<std::uint64_t, std::move_only_function<void()>>> m_CloseListeners;
     std::uint64_t m_NextCloseListener = 1;
     std::uint64_t m_ScanCount = 0;

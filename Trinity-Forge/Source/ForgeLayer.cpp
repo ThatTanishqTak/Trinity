@@ -145,10 +145,10 @@ bool ForgeLayer::OnCloseRequested()
     return m_Session.RequestClose();
 }
 
-// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open
+// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open, nor while a popup is up, such as the texture import's
 void ForgeLayer::ReadShortcuts()
 {
-    if (ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive())
+    if (ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
     {
         return;
     }

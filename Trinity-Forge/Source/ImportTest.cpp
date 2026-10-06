@@ -81,8 +81,10 @@ void ImportTest::Start(const std::filesystem::path& directory)
     }
 
     const std::size_t l_Copied = CopyTestImages();
-    const TextureImportReport l_First = m_Session.ScanAssets();
-    const TextureImportReport l_Second = m_Session.ScanAssets();
+    m_Session.ScanAssets();
+    const TextureImportReport l_First = m_Session.WaitForImports();
+    m_Session.ScanAssets();
+    const TextureImportReport l_Second = m_Session.WaitForImports();
 
     TR_INFO("Import test: {} image(s) copied in, {} texture(s): {} encoded and {} from the cache, then {} from the cache on a second pass", l_Copied, l_First.Textures, l_First.Encoded, l_First.Cached, l_Second.Cached);
     if (l_First.Textures == 0 || l_First.Failed != 0 || l_Second.Encoded != 0 || l_Second.Failed != 0 || l_Second.Cached != l_Second.Textures)

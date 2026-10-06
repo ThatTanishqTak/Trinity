@@ -3,20 +3,38 @@
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <format>
+#include <optional>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace
 {
     constexpr std::string_view c_ApplicationTitle = "Trinity Forge";
     constexpr const char* c_UnsavedPopup = "Unsaved Changes###ForgeUnsaved";
     constexpr const char* c_PathPopup = "Choose a Path###ForgePath";
+    constexpr const char* c_ImportPopup = "Importing Textures###ForgeImport";
     constexpr std::string_view c_SceneExtension = ".trscene";
 
     constexpr std::array<Trinity::FileDialogFilter, 1> c_ProjectFilters{ { { "Trinity project", "trproj" } } };
     constexpr std::array<Trinity::FileDialogFilter, 1> c_SceneFilters{ { { "Trinity scene", "trscene" } } };
+
+    // A batch that finishes sooner, or finds every texture in the cache, never shows its popup
+    constexpr double c_ImportPopupDelay = 0.3;
+
+    // An estimate for the texture being encoded stops short of it, since the encoder reports nothing until it is done
+    constexpr double c_MaximumEstimate = 0.95;
+
+    std::string FormatDuration(double seconds)
+    {
+        const long long l_Seconds = std::max(0ll, std::llround(seconds));
+
+        return std::format("{}:{:02}", l_Seconds / 60, l_Seconds % 60);
+    }
 
     std::filesystem::path FromUtf8(std::string_view text)
     {
@@ -75,6 +93,10 @@ void EditorSession::Request(Command command)
 void EditorSession::Update()
 {
     m_Reimporter.Update();
+    if (const std::optional<TextureImportReport> l_Report = m_Imports.Update())
+    {
+        FinishImports(*l_Report);
+    }
 
     std::vector<Action> l_Pending = std::exchange(m_Pending, {});
     for (Action& it_Action : l_Pending)
@@ -90,6 +112,7 @@ void EditorSession::DrawPopups()
 {
     DrawUnsavedPopup();
     DrawPathPopup();
+    DrawImportPopup();
 }
 
 // The project, the scene and an asterisk while unsaved. The renderer adds the backend and frame rate
@@ -199,7 +222,7 @@ void EditorSession::Run(Command command)
         {
             if (l_HasProject)
             {
-                static_cast<void>(ScanAssets());
+                ScanAssets();
             }
 
             break;
@@ -333,6 +356,14 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 // The registry goes before the project unmounts /assets, and the asset manager lets go of it first
 void EditorSession::CloseProject()
 {
+    // The texture being encoded is finished, since the encoder cannot leave it halfway, and the rest wait for the project to open again
+    m_ImportAgain = false;
+    if (m_Imports.IsRunning())
+    {
+        m_Imports.Stop();
+        FinishImports(m_Imports.Wait());
+    }
+
     m_Reimporter.Finish();
     m_InspectedAsset = {};
 
@@ -357,16 +388,16 @@ void EditorSession::AttachRegistry()
 {
     m_Registry = Trinity::CreateScope<Trinity::AssetRegistry>(Trinity::Project::c_AssetsMount);
     m_Registry->SetDefaultSettings(TextureImporter::c_Importer, TextureImporter::GetDefaultSettings());
-    static_cast<void>(ScanAssets());
     Trinity::AssetManager::SetRegistry(m_Registry.get());
+    ScanAssets();
 }
 
-// Every texture the scan finds is cooked into /cache, unless the cache already holds it for the same file and settings
-TextureImportReport EditorSession::ScanAssets()
+// Every texture the scan finds is cooked into /cache in the background, unless the cache already holds it for the same file and settings
+void EditorSession::ScanAssets()
 {
     if (!m_Registry)
     {
-        return {};
+        return;
     }
 
     // The open scene is found again by its UUID, so it follows its file when that is moved or renamed
@@ -378,7 +409,64 @@ TextureImportReport EditorSession::ScanAssets()
         m_ScenePath = l_Record->Path;
     }
 
-    return TextureImporter::ImportAll(*m_Registry, [this](Trinity::UUID id) { return m_Reimporter.IsBusy(id); });
+    StartImports();
+}
+
+// Until every import the scans so far asked for is over, with the report of the last one. For tests, which need the cache filled before they go on
+TextureImportReport EditorSession::WaitForImports()
+{
+    TextureImportReport l_Report;
+    while (m_Imports.IsRunning())
+    {
+        l_Report = m_Imports.Wait();
+        FinishImports(l_Report);
+    }
+
+    return l_Report;
+}
+
+// A scan while a batch runs imports again once it is over, since the batch has the records it started with. Textures the background reimport is busy with are left to it
+void EditorSession::StartImports()
+{
+    if (m_Imports.IsRunning())
+    {
+        m_ImportAgain = true;
+
+        return;
+    }
+
+    std::vector<Trinity::AssetRecord> l_Records;
+    for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
+    {
+        if (it_Record->Importer == TextureImporter::c_Importer && !m_Reimporter.IsBusy(it_Record->ID))
+        {
+            l_Records.push_back(*it_Record);
+        }
+    }
+
+    if (!l_Records.empty())
+    {
+        m_Imports.Start(std::move(l_Records));
+    }
+}
+
+// A folder whose textures are all in the cache stays quiet
+void EditorSession::FinishImports(const TextureImportReport& report)
+{
+    if (report.Encoded != 0 || report.Failed != 0 || report.Stopped != 0)
+    {
+        TR_INFO("Textures: {} in the project, {} encoded, {} from the cache, {} failed", report.Textures, report.Encoded, report.Cached, report.Failed);
+    }
+
+    if (report.Stopped != 0)
+    {
+        TR_INFO("Textures: the import was stopped with {} texture(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
+    }
+
+    if (std::exchange(m_ImportAgain, false) && m_Registry)
+    {
+        StartImports();
+    }
 }
 
 // Called before the project closes, by anything holding its assets
@@ -783,6 +871,83 @@ void EditorSession::DrawPathPopup()
     {
         m_PathPrompt.reset();
         ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+// Over everything while the batch runs, so nothing edits or opens a texture still being imported. The import itself runs in the background, so Forge keeps drawing. It waits for any other popup to close, since opening it would close that one, and comes back once a popup that took its place has closed. Cancel lets the texture being encoded finish
+void EditorSession::DrawImportPopup()
+{
+    const bool l_Running = m_Imports.IsRunning();
+    const TextureImportBatch::Progress l_Progress = m_Imports.GetProgress();
+    if (!l_Running || (m_ImportPopupOpen && !ImGui::IsPopupOpen(c_ImportPopup)))
+    {
+        m_ImportPopupOpen = false;
+    }
+
+    if (l_Running && !m_ImportPopupOpen && l_Progress.ElapsedSeconds >= c_ImportPopupDelay && (!l_Progress.Planned || l_Progress.ToEncode != 0) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    {
+        ImGui::OpenPopup(c_ImportPopup);
+        m_ImportPopupOpen = true;
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_ImportPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    if (!l_Running)
+    {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    std::string l_Status;
+    if (!l_Progress.Planned)
+    {
+        l_Status = std::format("Checking {} texture(s)...", l_Progress.Textures);
+    }
+    else if (l_Progress.Encoding != 0)
+    {
+        const std::string_view l_Path = l_Progress.Path;
+        l_Status = std::format("Encoding {} of {}: {} ({}x{})", l_Progress.Encoding, l_Progress.ToEncode, l_Path.substr(l_Path.find_last_of('/') + 1), l_Progress.Width, l_Progress.Height);
+    }
+    else
+    {
+        l_Status = "Finishing...";
+    }
+
+    ImGui::TextUnformatted(l_Status.c_str());
+
+    // The texture being encoded counts by the rate the encoder has kept so far. Before there is one, the bar only shows that work goes on
+    const std::optional<double> l_Rate = l_Progress.TexelsPerSecond;
+    const double l_Total = static_cast<double>(l_Progress.TotalTexels);
+    const double l_Current = l_Rate && l_Progress.Encoding != 0 ? std::min(l_Progress.CurrentSeconds * *l_Rate, static_cast<double>(l_Progress.CurrentTexels) * c_MaximumEstimate) : 0.0;
+    const double l_Done = static_cast<double>(l_Progress.DoneTexels) + l_Current;
+    const bool l_Known = l_Progress.Planned && l_Total > 0.0 && (l_Rate || l_Progress.Encoding == 0);
+    const float l_Fraction = l_Known ? static_cast<float>(std::clamp(l_Done / l_Total, 0.0, 1.0)) : -static_cast<float>(ImGui::GetTime());
+    const std::string l_Percent = l_Known ? std::format("{:.0f}%", l_Fraction * 100.0f) : std::string();
+    ImGui::ProgressBar(l_Fraction, ImVec2(ImGui::GetFontSize() * 26.0f, 0.0f), l_Known ? l_Percent.c_str() : "");
+
+    const std::string l_Time = l_Known && l_Rate ? std::format("{} elapsed, about {} left", FormatDuration(l_Progress.ElapsedSeconds), FormatDuration((l_Total - l_Done) / *l_Rate)) : std::format("{} elapsed, estimating the time left", FormatDuration(l_Progress.ElapsedSeconds));
+    ImGui::TextDisabled("%s", l_Time.c_str());
+    ImGui::Spacing();
+
+    ImGui::BeginDisabled(l_Progress.Stopping);
+    if (ImGui::Button(l_Progress.Stopping ? "Stopping..." : "Cancel") || (!l_Progress.Stopping && ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
+    {
+        m_Imports.Stop();
+    }
+
+    ImGui::EndDisabled();
+    if (l_Progress.Stopping)
+    {
+        ImGui::SameLine();
+        ImGui::TextDisabled("The rest wait for the next refresh");
     }
 
     ImGui::EndPopup();

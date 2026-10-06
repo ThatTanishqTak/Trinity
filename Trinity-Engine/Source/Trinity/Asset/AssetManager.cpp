@@ -11,6 +11,7 @@
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -57,12 +58,14 @@ namespace Trinity
         };
 
         using EntryMap = std::unordered_map<UUID, Entry, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Entry>, MemoryTag::Assets>>;
+        using HeldSet = std::unordered_set<UUID, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<UUID, MemoryTag::Engine>>;
 
         struct State
         {
             EntryMap Entries;
             std::vector<const AssetLoader*, TaggedAllocator<const AssetLoader*, MemoryTag::Engine>> Loaders;
             const AssetRegistry* Registry = nullptr;
+            HeldSet Held;
             std::uint64_t NextGeneration = 1;
             JobCounter Jobs;
             std::mutex CompletedMutex;
@@ -258,6 +261,11 @@ namespace Trinity
         {
             TR_CORE_ASSERT(registry == nullptr || s_State->Entries.empty() || registry == s_State->Registry, "Assets from one registry are still loaded while another is set");
 
+            if (registry != s_State->Registry)
+            {
+                HeldSet().swap(s_State->Held);
+            }
+
             s_State->Registry = registry;
         }
 
@@ -361,6 +369,11 @@ namespace Trinity
                 return;
             }
 
+            if (s_State->Held.contains(id))
+            {
+                return;
+            }
+
             l_Entry.Request = FileSystem::ReadFileAsync(l_Entry.Loader->GetLoadPath(*l_Record), [id, l_Generation = l_Entry.Generation](Expected<FileBuffer, FileError> result) { OnRead(id, l_Generation, std::move(result)); });
         }
 
@@ -391,7 +404,7 @@ namespace Trinity
             }
         }
 
-        // As after a reimport. The version already loaded stays in use until the new one is ready, and a load still running is dropped. An asset gone from the registry fails, so it reads as its loader's placeholder
+        // As after a reimport. The version already loaded stays in use until the new one is ready, and a load still running is dropped. An asset gone from the registry fails, so it reads as its loader's placeholder. A held asset waits for Resume
         void Reload(UUID id)
         {
             TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are reloaded on the main thread.");
@@ -420,7 +433,47 @@ namespace Trinity
 
             l_Entry.Loader = l_Loader;
             l_Entry.State = l_Entry.Loaded != nullptr ? AssetState::Ready : AssetState::Loading;
+            if (s_State->Held.contains(id))
+            {
+                return;
+            }
+
             l_Entry.Request = FileSystem::ReadFileAsync(l_Loader->GetLoadPath(*l_Record), [id, l_Generation = l_Entry.Generation](Expected<FileBuffer, FileError> result) { OnRead(id, l_Generation, std::move(result)); });
+        }
+
+        // For a file still being made, such as a texture an editor is importing. A held asset reads as loading, with its loader's placeholder, and is not read until Resume. A registry set for another project lets go of every hold
+        void Hold(UUID id)
+        {
+            TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are held on the main thread.");
+
+            if (!id || !s_State->Held.insert(id).second)
+            {
+                return;
+            }
+
+            // A load already under way would only find the file missing. A version already loaded stays in use
+            const auto a_Found = s_State->Entries.find(id);
+            if (a_Found != s_State->Entries.end() && a_Found->second.Loaded == nullptr)
+            {
+                Entry& l_Entry = a_Found->second;
+                l_Entry.Request.Cancel();
+                l_Entry.Generation = s_State->NextGeneration++;
+                l_Entry.State = AssetState::Loading;
+            }
+        }
+
+        // Once the file is made. An asset in use loads now, or again if it had a version already
+        void Resume(UUID id)
+        {
+            TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are resumed on the main thread.");
+
+            s_State->Held.erase(id);
+            if (s_State->Held.empty())
+            {
+                HeldSet().swap(s_State->Held);
+            }
+
+            Reload(id);
         }
 
         AssetState GetState(UUID id)

@@ -113,6 +113,19 @@ namespace
 
         return l_Value;
     }
+
+    // The cooked file, and the key written after it for the same source and settings
+    bool IsCached(Trinity::UUID id, std::string_view key)
+    {
+        if (!Trinity::FileSystem::Exists(Trinity::GetCookedTexturePath(id)))
+        {
+            return false;
+        }
+
+        const Trinity::Expected<std::string, Trinity::FileError> l_CachedKey = Trinity::FileSystem::ReadText(TextureImporter::GetCacheKeyPath(id));
+
+        return l_CachedKey && *l_CachedKey == key;
+    }
 }
 
 Trinity::AssetSettings TextureImporter::GetDefaultSettings()
@@ -189,6 +202,45 @@ std::string TextureImporter::GetCacheKeyPath(Trinity::UUID id)
     return std::format("{}/Textures/{}.key", Trinity::Project::c_CacheMount, id);
 }
 
+// Reads the source and its header only, so a scan can tell what is left to encode, and how much, before encoding any of it
+TextureImporter::Plan TextureImporter::PlanImport(const Trinity::AssetRecord& record)
+{
+    TR_PROFILE_FUNCTION();
+
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Source = Trinity::FileSystem::ReadFile(record.Path);
+    if (!l_Source)
+    {
+        TR_ERROR("Textures: {} could not be read: {}", record.Path, Trinity::ToString(l_Source.GetError()));
+
+        return {};
+    }
+
+    const TextureImportSettings l_Settings = ReadSettings(record);
+    if (IsCached(record.ID, GetCacheKey(*l_Source, l_Settings)))
+    {
+        return { .Outcome = Result::Cached };
+    }
+
+    int l_Width = 0;
+    int l_Height = 0;
+    int l_SourceChannels = 0;
+    if (stbi_info_from_memory(reinterpret_cast<const stbi_uc*>(l_Source->data()), static_cast<int>(l_Source->size()), &l_Width, &l_Height, &l_SourceChannels) == 0)
+    {
+        TR_ERROR("Textures: {} could not be decoded: {}", record.Path, stbi_failure_reason());
+
+        return {};
+    }
+
+    Plan l_Plan{ .Outcome = Result::Encoded, .Width = static_cast<std::uint32_t>(l_Width), .Height = static_cast<std::uint32_t>(l_Height) };
+    const std::uint32_t l_Levels = l_Settings.GenerateMips ? static_cast<std::uint32_t>(std::bit_width(std::max(l_Plan.Width, l_Plan.Height))) : 1;
+    for (std::uint32_t it_Level = 0; it_Level < l_Levels; ++it_Level)
+    {
+        l_Plan.Texels += std::uint64_t{ Trinity::RHI::GetMipSize(l_Plan.Width, it_Level) } * Trinity::RHI::GetMipSize(l_Plan.Height, it_Level);
+    }
+
+    return l_Plan;
+}
+
 // The key is written after the KTX2 file, so an import cut short leaves no key and is encoded again
 TextureImporter::Result TextureImporter::Import(const Trinity::AssetRecord& record)
 {
@@ -208,13 +260,9 @@ TextureImporter::Result TextureImporter::Import(const Trinity::AssetRecord& reco
     const std::string l_Key = GetCacheKey(*l_Source, l_Settings);
     const std::string l_CookedPath = Trinity::GetCookedTexturePath(record.ID);
     const std::string l_KeyPath = GetCacheKeyPath(record.ID);
-    if (Trinity::FileSystem::Exists(l_CookedPath))
+    if (IsCached(record.ID, l_Key))
     {
-        const Trinity::Expected<std::string, Trinity::FileError> l_CachedKey = Trinity::FileSystem::ReadText(l_KeyPath);
-        if (l_CachedKey && *l_CachedKey == l_Key)
-        {
-            return Result::Cached;
-        }
+        return Result::Cached;
     }
 
     int l_Width = 0;
@@ -339,46 +387,4 @@ TextureImporter::Result TextureImporter::Import(const Trinity::AssetRecord& reco
     TR_INFO("Textures: encoded {} ({}x{}, {} mip(s), {}, UASTC level {}, {} filtering) into {} in {} ms", record.Path, l_Width, l_Height, l_Levels, l_Settings.Srgb ? "sRGB" : "linear", l_Settings.UastcLevel, ToString(l_Settings.Filter), Trinity::Memory::FormatBytes(l_WrittenSize), l_Milliseconds);
 
     return Result::Encoded;
-}
-
-// Runs after every scan. A folder whose textures are all in the cache stays quiet. Textures skip names, such as those a background import is busy with, are left to it
-TextureImportReport TextureImporter::ImportAll(const Trinity::AssetRegistry& registry, const std::function<bool(Trinity::UUID)>& skip)
-{
-    TR_PROFILE_FUNCTION();
-
-    TextureImportReport l_Report;
-    for (const Trinity::AssetRecord* it_Record : registry.GetRecords())
-    {
-        if (it_Record->Importer != c_Importer || (skip && skip(it_Record->ID)))
-        {
-            continue;
-        }
-
-        ++l_Report.Textures;
-        switch (Import(*it_Record))
-        {
-            case Result::Cached:
-            {
-                ++l_Report.Cached;
-                break;
-            }
-            case Result::Encoded:
-            {
-                ++l_Report.Encoded;
-                break;
-            }
-            case Result::Failed:
-            {
-                ++l_Report.Failed;
-                break;
-            }
-        }
-    }
-
-    if (l_Report.Encoded != 0 || l_Report.Failed != 0)
-    {
-        TR_INFO("Textures: {} in the project, {} encoded, {} from the cache, {} failed", l_Report.Textures, l_Report.Encoded, l_Report.Cached, l_Report.Failed);
-    }
-
-    return l_Report;
 }

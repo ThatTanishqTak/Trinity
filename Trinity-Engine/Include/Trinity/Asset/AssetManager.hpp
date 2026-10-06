@@ -27,6 +27,8 @@ namespace Trinity
         TRINITY_API void Acquire(UUID id);
         TRINITY_API void Release(UUID id);
         TRINITY_API void Reload(UUID id);
+        TRINITY_API void Hold(UUID id);
+        TRINITY_API void Resume(UUID id);
 
         [[nodiscard]] TRINITY_API AssetState GetState(UUID id);
         [[nodiscard]] TRINITY_API const Asset* GetAsset(UUID id);
