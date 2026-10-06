@@ -1,15 +1,438 @@
 #include "Panels/PropertiesPanel.hpp"
 
-#include <Trinity.hpp>
+#include "EditorCommands.hpp"
+#include "EditorPayloads.hpp"
 
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
 
-PropertiesPanel::PropertiesPanel() : Panel("Properties", Trinity::Icons::c_Sliders, DockSlot::Right)
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cfloat>
+#include <cstring>
+#include <filesystem>
+#include <format>
+#include <utility>
+#include <vector>
+
+namespace
+{
+    constexpr float c_LabelWidthInFonts = 8.0f;
+    constexpr const char* c_TexturePickerPopup = "##TexturePicker";
+    constexpr const char* c_AddComponentPopup = "##AddComponent";
+
+    // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
+    constexpr std::array<std::string_view, 4> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName };
+
+    // A label on the left and the widget filling the rest of the row
+    void Label(const char* label)
+    {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(label);
+        ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+    }
+
+    // The widget edits a copy, and a change becomes a command. While a widget stays active, as during a drag, its commands merge into one
+    template<Trinity::Component T, typename F>
+    void EditField(CommandStack& history, Trinity::Entity entity, std::string_view field, F widget)
+    {
+        T l_Value = entity.Get<T>();
+        if (widget(l_Value))
+        {
+            history.Execute(Trinity::CreateScope<SetComponentCommand<T>>(entity.GetUUID(), std::move(l_Value), std::string(field)));
+        }
+    }
+
+    std::string GetAssetName(const Trinity::AssetRecord& record)
+    {
+        return std::filesystem::path(record.Path).filename().string();
+    }
+}
+
+PropertiesPanel::PropertiesPanel(EditorSession& session) : Panel("Properties", Trinity::Icons::c_Sliders, DockSlot::Right), m_Session(session)
 {
 
 }
 
+// The selected entity's components, each in its own section, under IDs of that entity's own. A removal waits until every section is drawn, since the sections read the components
 void PropertiesPanel::OnImGuiRender()
 {
-    ImGui::TextDisabled("The selected entity's components go here");
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(m_Session.GetSelection());
+
+    // A name still being typed when the selection moved on is kept for the entity it was typed for
+    if (m_NameActive && (!l_Entity || l_Entity.GetUUID() != m_NameEntity))
+    {
+        CommitName(l_Scene.FindEntityByUUID(m_NameEntity));
+        m_NameActive = false;
+    }
+
+    if (!l_Entity)
+    {
+        ImGui::TextDisabled("Select an entity in the Hierarchy or the Viewport");
+
+        return;
+    }
+
+    ImGui::PushID(l_Entity.GetUUID().ToString().c_str());
+    DrawName(l_Entity);
+    DrawTransform(l_Entity);
+    DrawCamera(l_Entity);
+    DrawSpriteRenderer(l_Entity);
+    DrawOtherComponents(l_Entity);
+    DrawAddComponent(l_Entity);
+    ImGui::PopID();
+
+    if (!m_PendingRemoval.empty())
+    {
+        m_Session.GetHistory().Execute(Trinity::CreateScope<RemoveComponentCommand>(l_Entity.GetUUID(), std::exchange(m_PendingRemoval, {})));
+    }
+
+    // Nothing is being dragged or typed into, so the next change is a command of its own
+    if (!ImGui::IsAnyItemActive())
+    {
+        m_Session.GetHistory().EndMerge();
+    }
+}
+
+// The name follows the Tag while it is not being typed into, and becomes one command when the field is left, however it is left. Escape puts the text back, so nothing changes
+void PropertiesPanel::DrawName(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::TagComponent>())
+    {
+        ImGui::TextDisabled("%s", std::format("{} No name, since the entity has no Tag", Trinity::Icons::c_CubeOutline).c_str());
+    }
+    else
+    {
+        if (!m_NameActive)
+        {
+            m_NameText = std::string(std::string_view(entity.Get<Trinity::TagComponent>().Tag));
+        }
+
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(Trinity::Icons::c_CubeOutline);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputText("##Name", &m_NameText);
+        m_NameActive = ImGui::IsItemActive();
+        m_NameEntity = entity.GetUUID();
+        if (ImGui::IsItemDeactivated())
+        {
+            CommitName(entity);
+        }
+    }
+
+    ImGui::TextDisabled("UUID %s", entity.GetUUID().ToString().c_str());
+    ImGui::Spacing();
+}
+
+void PropertiesPanel::CommitName(Trinity::Entity entity)
+{
+    if (!entity || !entity.Has<Trinity::TagComponent>() || std::string_view(entity.Get<Trinity::TagComponent>().Tag) == m_NameText)
+    {
+        return;
+    }
+
+    Trinity::TagComponent l_Value = entity.Get<Trinity::TagComponent>();
+    l_Value.Tag = m_NameText;
+
+    // The command selects what it renamed, which is not what was clicked when the field was left by selecting something else
+    const Trinity::UUID l_Selection = m_Session.GetSelection();
+    CommandStack& l_History = m_Session.GetHistory();
+    l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TagComponent>>(entity.GetUUID(), std::move(l_Value), "Name"));
+    l_History.EndMerge();
+    m_Session.SetSelection(l_Selection);
+}
+
+// Rotation shows as X, Y and Z degrees, kept while the entity stays selected and its rotation is only changed here, so a drag never jumps between equivalent angles
+void PropertiesPanel::DrawTransform(Trinity::Entity entity)
+{
+    if (!BeginComponent(Trinity::TransformComponent::c_TypeName, Trinity::Icons::c_WindowRestore, false))
+    {
+        return;
+    }
+
+    CommandStack& l_History = m_Session.GetHistory();
+    const Trinity::TransformComponent& l_Transform = entity.Get<Trinity::TransformComponent>();
+    if (m_EulerEntity != entity.GetUUID() || m_EulerRotation != l_Transform.Rotation)
+    {
+        m_EulerEntity = entity.GetUUID();
+        m_EulerRotation = l_Transform.Rotation;
+        m_EulerDegrees = glm::degrees(glm::eulerAngles(l_Transform.Rotation));
+    }
+
+    Label("Position");
+    EditField<Trinity::TransformComponent>(l_History, entity, "Position", [](Trinity::TransformComponent& transform) { return ImGui::DragFloat3("##Position", &transform.Position.x, 0.05f, 0.0f, 0.0f, "%.3f"); });
+
+    Label("Rotation");
+    glm::vec3 l_Degrees = m_EulerDegrees;
+    if (ImGui::DragFloat3("##Rotation", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
+    {
+        Trinity::TransformComponent l_Value = l_Transform;
+        l_Value.Rotation = glm::quat(glm::radians(l_Degrees));
+        m_EulerDegrees = l_Degrees;
+        m_EulerRotation = l_Value.Rotation;
+        l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(entity.GetUUID(), std::move(l_Value), "Rotation"));
+    }
+
+    Label("Scale");
+    EditField<Trinity::TransformComponent>(l_History, entity, "Scale", [](Trinity::TransformComponent& transform) { return ImGui::DragFloat3("##Scale", &transform.Scale.x, 0.01f, 0.0f, 0.0f, "%.3f"); });
+}
+
+void PropertiesPanel::DrawCamera(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::CameraComponent>() || !BeginComponent(Trinity::CameraComponent::c_TypeName, Trinity::Icons::c_Monitor, true))
+    {
+        return;
+    }
+
+    CommandStack& l_History = m_Session.GetHistory();
+
+    Label("Size");
+    EditField<Trinity::CameraComponent>(l_History, entity, "OrthographicSize", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Size", &camera.OrthographicSize, 0.05f, 0.01f, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Near");
+    EditField<Trinity::CameraComponent>(l_History, entity, "Near", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Near", &camera.Near, 0.05f, 0.0f, 0.0f, "%.3f"); });
+
+    Label("Far");
+    EditField<Trinity::CameraComponent>(l_History, entity, "Far", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Far", &camera.Far, 0.05f, 0.0f, 0.0f, "%.3f"); });
+
+    Label("Primary");
+    EditField<Trinity::CameraComponent>(l_History, entity, "Primary", [](Trinity::CameraComponent& camera) { return ImGui::Checkbox("##Primary", &camera.Primary); });
+}
+
+void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::SpriteRendererComponent>() || !BeginComponent(Trinity::SpriteRendererComponent::c_TypeName, Trinity::Icons::c_File, true))
+    {
+        return;
+    }
+
+    CommandStack& l_History = m_Session.GetHistory();
+
+    DrawTextureSlot(entity);
+
+    Label("Tint");
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "Tint", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::ColorEdit4("##Tint", &sprite.Tint.x, ImGuiColorEditFlags_AlphaPreviewHalf); });
+
+    Label("Flip");
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "FlipX", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::Checkbox("X##FlipX", &sprite.FlipX); });
+    ImGui::SameLine();
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "FlipY", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::Checkbox("Y##FlipY", &sprite.FlipY); });
+
+    Label("UV Rect");
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "UVRect", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::DragFloat4("##UVRect", &sprite.UVRect.x, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Sorting Layer");
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "SortingLayer", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::DragInt("##SortingLayer", &sprite.SortingLayer, 0.1f); });
+
+    Label("Order in Layer");
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "OrderInLayer", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::DragInt("##OrderInLayer", &sprite.OrderInLayer, 0.1f); });
+}
+
+// Takes a texture dropped from elsewhere in Forge, or one picked from the project's textures, and the cross clears it
+void PropertiesPanel::DrawTextureSlot(Trinity::Entity entity)
+{
+    const Trinity::UUID l_Texture = entity.Get<Trinity::SpriteRendererComponent>().Texture;
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::AssetRecord* l_Record = l_Registry != nullptr && l_Texture ? l_Registry->Find(l_Texture) : nullptr;
+    const std::string l_Name = !l_Texture ? std::string("None") : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", l_Texture);
+
+    Label("Texture");
+    const float l_ClearWidth = ImGui::GetFrameHeight();
+    const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f);
+    if (ImGui::Button(std::format("{}###Texture", l_Name).c_str(), ImVec2(l_Width, 0.0f)))
+    {
+        m_TextureFilter.clear();
+        ImGui::OpenPopup(c_TexturePickerPopup);
+    }
+
+    if (l_Record != nullptr && ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("%s", l_Record->Path.c_str());
+    }
+
+    if (ImGui::BeginDragDropTarget())
+    {
+        if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_AssetPayload))
+        {
+            std::uint64_t l_Value = 0;
+            std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+            const Trinity::AssetRecord* l_Dropped = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
+            if (l_Dropped != nullptr && l_Dropped->Importer == Trinity::TextureAsset::c_AssetType)
+            {
+                SetTexture(entity, l_Dropped->ID);
+            }
+            else
+            {
+                TR_WARN("Forge: only a texture can go in a SpriteRenderer's Texture slot");
+            }
+        }
+
+        ImGui::EndDragDropTarget();
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!l_Texture);
+    if (ImGui::Button(std::format("{}##ClearTexture", Trinity::Icons::c_TimesCircle).c_str(), ImVec2(l_ClearWidth, 0.0f)))
+    {
+        SetTexture(entity, {});
+    }
+
+    ImGui::EndDisabled();
+
+    DrawTexturePicker(entity);
+}
+
+// The project's textures by path, narrowed by what is typed
+void PropertiesPanel::DrawTexturePicker(Trinity::Entity entity)
+{
+    if (!ImGui::BeginPopup(c_TexturePickerPopup))
+    {
+        return;
+    }
+
+    if (ImGui::IsWindowAppearing())
+    {
+        ImGui::SetKeyboardFocusHere();
+    }
+
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
+    ImGui::InputTextWithHint("##Filter", "Search textures", &m_TextureFilter);
+
+    if (ImGui::Selectable("None"))
+    {
+        SetTexture(entity, {});
+    }
+
+    std::vector<const Trinity::AssetRecord*> l_Textures;
+    if (const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry())
+    {
+        for (const Trinity::AssetRecord* it_Record : l_Registry->GetRecords())
+        {
+            const auto a_Matches = [this](const std::string& path) { return m_TextureFilter.empty() || std::ranges::search(path, m_TextureFilter, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).begin() != path.end(); };
+            if (it_Record->Importer == Trinity::TextureAsset::c_AssetType && a_Matches(it_Record->Path))
+            {
+                l_Textures.push_back(it_Record);
+            }
+        }
+    }
+
+    std::ranges::sort(l_Textures, {}, &Trinity::AssetRecord::Path);
+    const Trinity::UUID l_Current = entity.Get<Trinity::SpriteRendererComponent>().Texture;
+    for (const Trinity::AssetRecord* it_Record : l_Textures)
+    {
+        if (ImGui::Selectable(std::format("{}###{}", it_Record->Path, it_Record->ID).c_str(), it_Record->ID == l_Current))
+        {
+            SetTexture(entity, it_Record->ID);
+        }
+    }
+
+    if (l_Textures.empty())
+    {
+        ImGui::TextDisabled("No textures in the project match");
+    }
+
+    ImGui::EndPopup();
+}
+
+// Components the engine or a module registered without an editor here, and those no loaded code knows, which are kept as they were read
+void PropertiesPanel::DrawOtherComponents(Trinity::Entity entity)
+{
+    for (const std::string_view it_Name : Trinity::SceneSerializer::GetComponentNames())
+    {
+        if (std::ranges::find(c_EditedComponents, it_Name) != c_EditedComponents.end() || !Trinity::SceneSerializer::HasComponent(entity, it_Name))
+        {
+            continue;
+        }
+
+        if (BeginComponent(it_Name, Trinity::Icons::c_Gear, true))
+        {
+            ImGui::TextDisabled("No editor for this component yet");
+        }
+    }
+
+    if (!entity.Has<Trinity::UnknownComponentsComponent>())
+    {
+        return;
+    }
+
+    for (const Trinity::UnknownComponentsComponent::Entry& it_Unknown : entity.Get<Trinity::UnknownComponentsComponent>().Entries)
+    {
+        if (BeginComponent(it_Unknown.Name, Trinity::Icons::c_Warning, false))
+        {
+            ImGui::TextDisabled("Kept as it was read, since no loaded code knows this component");
+        }
+    }
+}
+
+// Every registered component the entity is without, except Transform, which it always has
+void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
+{
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const float l_Width = ImGui::GetFontSize() * 12.0f;
+    ImGui::SetCursorPosX(std::max((ImGui::GetContentRegionAvail().x - l_Width) * 0.5f, 0.0f) + ImGui::GetCursorPosX());
+    if (ImGui::Button("Add Component", ImVec2(l_Width, 0.0f)))
+    {
+        ImGui::OpenPopup(c_AddComponentPopup);
+    }
+
+    if (!ImGui::BeginPopup(c_AddComponentPopup))
+    {
+        return;
+    }
+
+    bool l_Any = false;
+    for (const std::string_view it_Name : Trinity::SceneSerializer::GetComponentNames())
+    {
+        if (it_Name == Trinity::TransformComponent::c_TypeName || Trinity::SceneSerializer::HasComponent(entity, it_Name))
+        {
+            continue;
+        }
+
+        l_Any = true;
+        if (ImGui::MenuItem(std::string(GetComponentLabel(it_Name)).c_str()))
+        {
+            m_Session.GetHistory().Execute(Trinity::CreateScope<AddComponentCommand>(entity.GetUUID(), std::string(it_Name)));
+        }
+    }
+
+    if (!l_Any)
+    {
+        ImGui::TextDisabled("The entity has every component there is");
+    }
+
+    ImGui::EndPopup();
+}
+
+// A section with the component's name, open by default. Right-clicking a removable one offers to remove it
+bool PropertiesPanel::BeginComponent(std::string_view name, const char* icon, bool removable)
+{
+    const bool l_Open = ImGui::CollapsingHeader(std::format("{} {}###{}", icon, GetComponentLabel(name), name).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+    if (removable && ImGui::BeginPopupContextItem())
+    {
+        if (ImGui::MenuItem(std::format("{} Remove Component", Trinity::Icons::c_Trash).c_str()))
+        {
+            m_PendingRemoval = std::string(name);
+        }
+
+        ImGui::EndPopup();
+    }
+
+    return l_Open;
+}
+
+void PropertiesPanel::SetTexture(Trinity::Entity entity, Trinity::UUID texture)
+{
+    Trinity::SpriteRendererComponent l_Value = entity.Get<Trinity::SpriteRendererComponent>();
+    l_Value.Texture = texture;
+
+    CommandStack& l_History = m_Session.GetHistory();
+    l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::SpriteRendererComponent>>(entity.GetUUID(), std::move(l_Value), "Texture"));
+    l_History.EndMerge();
 }

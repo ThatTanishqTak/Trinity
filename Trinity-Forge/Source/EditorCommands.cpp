@@ -144,6 +144,45 @@ std::size_t DeleteEntityCommand::GetMemorySize() const
     return sizeof(*this) + m_Text.capacity() + m_Label.capacity();
 }
 
+DuplicateEntityCommand::DuplicateEntityCommand(Trinity::UUID source) : m_Source(source)
+{
+
+}
+
+// The copy and its subtree get new UUIDs once, on the first run, and go just after the source. They are kept as text, so a redo brings back the same UUIDs
+bool DuplicateEntityCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_Text.empty())
+    {
+        return Restore(scene, m_Text, m_Parent, m_Before, m_Label);
+    }
+
+    const Trinity::Entity l_Source = scene.FindEntityByUUID(m_Source);
+    if (!l_Source)
+    {
+        return false;
+    }
+
+    const Trinity::Entity l_Copy = scene.DuplicateEntity(l_Source);
+    m_Copy = l_Copy.GetUUID();
+    m_Parent = GetID(l_Copy.GetParent());
+    m_Before = GetID(l_Copy.GetNextSibling());
+    m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Copy);
+    m_Label = std::format("Duplicate {}", GetEntityLabel(l_Source));
+
+    return true;
+}
+
+void DuplicateEntityCommand::Undo(Trinity::Scene& scene)
+{
+    scene.DestroyEntity(scene.FindEntityByUUID(m_Copy));
+}
+
+std::size_t DuplicateEntityCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Text.capacity() + m_Label.capacity();
+}
+
 MoveEntityCommand::MoveEntityCommand(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before, bool keepWorldTransform) : m_Entity(entity), m_NewParent(parent), m_NewBefore(before), m_KeepWorldTransform(keepWorldTransform)
 {
 

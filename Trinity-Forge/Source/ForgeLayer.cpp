@@ -10,7 +10,6 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <format>
 #include <string_view>
 #include <utility>
@@ -21,7 +20,6 @@ namespace
     constexpr std::string_view c_DockSpaceName = "Forge dock space";
     constexpr const char* c_PanelSettingsName = "ForgePanels";
     constexpr std::size_t c_HistoryMenuEntries = 30;
-    constexpr std::uint64_t c_DefaultUndoTestSeed = 1;
 
     std::string WithIcon(const char* icon, std::string_view text)
     {
@@ -58,8 +56,8 @@ void ForgeLayer::OnAttach()
     Trinity::Scope<ViewportPanel> l_Viewport = Trinity::CreateScope<ViewportPanel>(m_ImGui, m_Session);
     m_ViewportPanel = l_Viewport.get();
     m_Panels.push_back(std::move(l_Viewport));
-    m_Panels.push_back(Trinity::CreateScope<HierarchyPanel>());
-    m_Panels.push_back(Trinity::CreateScope<PropertiesPanel>());
+    m_Panels.push_back(Trinity::CreateScope<HierarchyPanel>(m_Session));
+    m_Panels.push_back(Trinity::CreateScope<PropertiesPanel>(m_Session));
     m_Panels.push_back(Trinity::CreateScope<ConsolePanel>());
 
     // ImGui reads imgui.ini before its first frame, which is after this, so the panels get their saved state
@@ -173,6 +171,10 @@ void ForgeLayer::ReadShortcuts()
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_Repeat))
     {
         m_Session.GetHistory().Undo();
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
+    {
+        m_Session.GetHistory().Execute(Trinity::CreateScope<DuplicateEntityCommand>(m_Session.GetSelection()));
     }
     else if (ImGui::IsKeyChordPressed(ImGuiKey_Delete) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
     {
@@ -302,6 +304,11 @@ void ForgeLayer::DrawEditMenu()
     }
 
     const bool l_HasSelection = static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Duplicate").c_str(), "Ctrl+D", false, l_HasSelection))
+    {
+        l_History.Execute(Trinity::CreateScope<DuplicateEntityCommand>(m_Session.GetSelection()));
+    }
+
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Trash, "Delete").c_str(), "Delete", false, l_HasSelection))
     {
         l_History.Execute(Trinity::CreateScope<DeleteEntityCommand>(m_Session.GetSelection()));

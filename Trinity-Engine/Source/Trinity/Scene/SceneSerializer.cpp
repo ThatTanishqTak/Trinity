@@ -776,6 +776,21 @@ namespace Trinity
             std::erase_if(s_State->Serializers, [name](const ComponentSerializer& serializer) { return serializer.Name == name; });
         }
 
+        // In the order they were registered, the engine's first
+        std::vector<std::string_view> GetComponentNames()
+        {
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            std::vector<std::string_view> l_Names;
+            l_Names.reserve(s_State->Serializers.size());
+            for (const ComponentSerializer& it_Serializer : s_State->Serializers)
+            {
+                l_Names.push_back(it_Serializer.Name);
+            }
+
+            return l_Names;
+        }
+
         std::string SaveToText(Scene& scene)
         {
             TR_PROFILE_FUNCTION();

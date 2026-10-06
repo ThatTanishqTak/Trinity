@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace YAML
 {
@@ -93,6 +94,7 @@ namespace Trinity
 
         TRINITY_API bool RegisterComponent(const ComponentSerializer& serializer);
         TRINITY_API void UnregisterComponent(std::string_view name);
+        [[nodiscard]] TRINITY_API std::vector<std::string_view> GetComponentNames();
 
         [[nodiscard]] TRINITY_API std::string SaveToText(Scene& scene);
 

@@ -55,6 +55,27 @@ private:
     std::string m_Label;
 };
 
+class DuplicateEntityCommand final : public EditorCommand
+{
+public:
+    explicit DuplicateEntityCommand(Trinity::UUID source);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Copy; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::UUID m_Source;
+    Trinity::UUID m_Copy;
+    Trinity::UUID m_Parent;
+    Trinity::UUID m_Before;
+    std::string m_Text;
+    std::string m_Label;
+};
+
 class MoveEntityCommand final : public EditorCommand
 {
 public:
