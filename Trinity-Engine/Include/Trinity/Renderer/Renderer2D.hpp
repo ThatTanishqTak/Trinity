@@ -7,6 +7,7 @@
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/RHI/Device.hpp"
+#include "Trinity/Scene/Entity.hpp"
 
 #include <glm/glm.hpp>
 
@@ -22,6 +23,8 @@ namespace Trinity
 {
     class Scene;
     struct CameraComponent;
+
+    [[nodiscard]] TRINITY_API Entity PickSprite(Scene& scene, const glm::vec2& worldPoint);
 
     class TRINITY_API Renderer2D
     {

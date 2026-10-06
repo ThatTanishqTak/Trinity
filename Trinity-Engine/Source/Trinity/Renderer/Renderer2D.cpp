@@ -63,6 +63,63 @@ namespace Trinity
 
             return device.CreateSampler(l_Description);
         }
+
+        // Drawn later means drawn on top, by the same order Renderer2D sorts in
+        bool IsDrawnBefore(std::int32_t layer, std::int32_t order, std::uint32_t index, std::int32_t otherLayer, std::int32_t otherOrder, std::uint32_t otherIndex)
+        {
+            if (layer != otherLayer)
+            {
+                return layer < otherLayer;
+            }
+
+            return order != otherOrder ? order < otherOrder : index < otherIndex;
+        }
+    }
+
+    // The sprite drawn last of those whose rotated rectangle holds the point, in world X and Y. A sprite scaled flat to a line or a point holds nothing
+    Entity PickSprite(Scene& scene, const glm::vec2& worldPoint)
+    {
+        TR_PROFILE_FUNCTION();
+
+        SceneRegistry& l_Registry = scene.GetRegistry();
+        Entity l_Picked;
+        std::int32_t l_PickedLayer = 0;
+        std::int32_t l_PickedOrder = 0;
+        std::uint32_t l_PickedIndex = 0;
+        std::uint32_t l_Index = 0;
+        for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+        {
+            const SpriteRendererComponent* l_Sprite = l_Registry.try_get<SpriteRendererComponent>(it_Entity.GetHandle());
+            if (l_Sprite == nullptr)
+            {
+                continue;
+            }
+
+            const std::uint32_t l_SpriteIndex = l_Index++;
+            const glm::mat4& l_World = l_Registry.get<WorldTransformComponent>(it_Entity.GetHandle()).Matrix;
+            const glm::mat2 l_Axes{ glm::vec2(l_World[0]), glm::vec2(l_World[1]) };
+            const float l_Determinant = glm::determinant(l_Axes);
+            if (std::abs(l_Determinant) < 1e-12f)
+            {
+                continue;
+            }
+
+            const glm::vec2 l_Local = glm::inverse(l_Axes) * (worldPoint - glm::vec2(l_World[3]));
+            if (std::abs(l_Local.x) > 0.5f || std::abs(l_Local.y) > 0.5f)
+            {
+                continue;
+            }
+
+            if (!l_Picked || IsDrawnBefore(l_PickedLayer, l_PickedOrder, l_PickedIndex, l_Sprite->SortingLayer, l_Sprite->OrderInLayer, l_SpriteIndex))
+            {
+                l_Picked = it_Entity;
+                l_PickedLayer = l_Sprite->SortingLayer;
+                l_PickedOrder = l_Sprite->OrderInLayer;
+                l_PickedIndex = l_SpriteIndex;
+            }
+        }
+
+        return l_Picked;
     }
 
     Renderer2D::Renderer2D(RHI::Device& device, std::uint32_t whiteTexture) : m_Device(device), m_WhiteTexture(whiteTexture)
@@ -220,15 +277,7 @@ namespace Trinity
             return;
         }
 
-        std::ranges::sort(m_Keys, [](const SortKey& left, const SortKey& right)
-        {
-            if (left.Layer != right.Layer)
-            {
-                return left.Layer < right.Layer;
-            }
-
-            return left.Order != right.Order ? left.Order < right.Order : left.Index < right.Index;
-        });
+        std::ranges::sort(m_Keys, [](const SortKey& left, const SortKey& right) { return IsDrawnBefore(left.Layer, left.Order, left.Index, right.Layer, right.Order, right.Index); });
 
         const RHI::UploadAllocation l_Upload = m_Device.AllocateUpload(std::uint64_t{ m_Instances.size() } * sizeof(SpriteInstance), c_InstanceAlignment);
         if (l_Upload.Data.empty() || l_Upload.ShaderResourceIndex == RHI::c_NoBindlessIndex)

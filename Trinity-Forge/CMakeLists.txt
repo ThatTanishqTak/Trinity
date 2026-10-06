@@ -15,6 +15,11 @@ file(GLOB_RECURSE TRINITY_FORGE_HEADERS CONFIGURE_DEPENDS
 
 add_executable(${TARGET_NAME} ${TRINITY_FORGE_SOURCES} ${TRINITY_FORGE_HEADERS})
 
+# The editor's own shaders, such as the Viewport's grid, are compiled beside the engine's under /engine/shaders
+file(GLOB TRINITY_FORGE_SHADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/*.slang")
+trinity_add_shaders(Trinity-Forge-Shaders ${TRINITY_FORGE_SHADERS})
+add_dependencies(${TARGET_NAME} Trinity-Forge-Shaders)
+
 trinity_configure_executable(${TARGET_NAME})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_FORGE_HEADERS} ${TRINITY_FORGE_SOURCES})
 

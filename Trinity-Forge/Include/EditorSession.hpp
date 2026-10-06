@@ -53,6 +53,10 @@ public:
     [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
+    [[nodiscard]] Trinity::UUID GetSceneID() const;
+
+    [[nodiscard]] Trinity::UUID GetSelection() const { return m_Selection; }
+    void SetSelection(Trinity::UUID selection) { m_Selection = selection; }
 
 private:
     using Action = std::move_only_function<void()>;
@@ -96,6 +100,7 @@ private:
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
     Trinity::Scene m_Scene;
     std::string m_ScenePath;
+    Trinity::UUID m_Selection;
     bool m_Dirty = false;
 
     std::vector<Action> m_Pending;

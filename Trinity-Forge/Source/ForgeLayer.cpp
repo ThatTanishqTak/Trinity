@@ -29,7 +29,7 @@ namespace
     }
 }
 
-ForgeLayer::ForgeLayer(Trinity::ImGuiLayer& imGui, const SceneLayer& scene) : Layer("Forge"), m_ImGui(imGui), m_Scene(scene), m_AboutTitle(std::format("{} About Trinity Forge###About", Trinity::Icons::c_InfoCircle))
+ForgeLayer::ForgeLayer(Trinity::ImGuiLayer& imGui) : Layer("Forge"), m_ImGui(imGui), m_AboutTitle(std::format("{} About Trinity Forge###About", Trinity::Icons::c_InfoCircle))
 {
 
 }
@@ -50,7 +50,7 @@ void ForgeLayer::OnAttach()
     // The scene is shown in the Viewport panel, so the window gets no copy of it under the UI
     Trinity::Application::Get().GetRenderer().SetSceneCopy(false);
 
-    Trinity::Scope<ViewportPanel> l_Viewport = Trinity::CreateScope<ViewportPanel>(m_ImGui, m_Scene);
+    Trinity::Scope<ViewportPanel> l_Viewport = Trinity::CreateScope<ViewportPanel>(m_ImGui, m_Session);
     m_ViewportPanel = l_Viewport.get();
     m_Panels.push_back(std::move(l_Viewport));
     m_Panels.push_back(Trinity::CreateScope<HierarchyPanel>());
@@ -68,11 +68,12 @@ void ForgeLayer::OnAttach()
     ImGui::AddSettingsHandler(&l_Handler);
 }
 
-// Before ImGui's frame begins, so a native file dialog never blocks with a frame open
+// Before ImGui's frame begins, so a native file dialog never blocks with a frame open. World transforms are brought up to date last, for the Viewport to draw and pick with
 void ForgeLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
 {
     m_Session.Update();
     m_ImportTest.Update();
+    m_Session.GetScene().UpdateWorldTransforms();
 }
 
 // Files may have changed while another program had focus
@@ -82,6 +83,12 @@ void ForgeLayer::OnEvent(Trinity::Event& event)
     {
         m_Session.Request(EditorSession::Command::Refresh);
     }
+}
+
+// Drawn whether or not the Viewport panel is open, so the scene target holds the scene when the panel opens again
+void ForgeLayer::OnRender(Trinity::RHI::CommandList& commands)
+{
+    m_ViewportPanel->RenderScene(commands);
 }
 
 // The menu bar comes first, so the dock space fits in the space below it. Shortcuts are read from ImGui, since layer events are the scene's while the Viewport has them

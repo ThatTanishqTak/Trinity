@@ -362,6 +362,7 @@ void EditorSession::NewScene()
 {
     m_Scene.Clear();
     m_ScenePath.clear();
+    m_Selection = {};
     m_Dirty = false;
 }
 
@@ -377,6 +378,7 @@ void EditorSession::OpenScene(const std::string& assetPath)
     }
 
     m_ScenePath = assetPath;
+    m_Selection = {};
     m_Dirty = false;
     TR_INFO("Forge: opened scene {} with {} entities", m_ScenePath, m_Scene.GetEntityCount());
 }
@@ -447,6 +449,14 @@ bool EditorSession::WriteScene(const std::string& assetPath)
     }
 
     return true;
+}
+
+// The scene's asset UUID, which an untitled scene has none of
+Trinity::UUID EditorSession::GetSceneID() const
+{
+    const Trinity::AssetRecord* l_Record = m_Registry && !m_ScenePath.empty() ? m_Registry->FindByPath(m_ScenePath) : nullptr;
+
+    return l_Record != nullptr ? l_Record->ID : Trinity::UUID();
 }
 
 std::string EditorSession::GetSceneName() const
