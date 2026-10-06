@@ -28,6 +28,7 @@ namespace
     constexpr std::string_view c_SrgbSetting = "Srgb";
     constexpr std::string_view c_MipsSetting = "GenerateMips";
     constexpr std::string_view c_UastcSetting = "UastcLevel";
+    constexpr std::string_view c_FilterSetting = "Filter";
 
     struct KtxDeleter
     {
@@ -81,6 +82,26 @@ namespace
         return std::nullopt;
     }
 
+    std::string_view ToString(Trinity::RHI::Filter filter)
+    {
+        return filter == Trinity::RHI::Filter::Nearest ? "Nearest" : "Linear";
+    }
+
+    std::optional<Trinity::RHI::Filter> ParseFilter(const std::string& text)
+    {
+        if (text == "Linear")
+        {
+            return Trinity::RHI::Filter::Linear;
+        }
+
+        if (text == "Nearest")
+        {
+            return Trinity::RHI::Filter::Nearest;
+        }
+
+        return std::nullopt;
+    }
+
     std::optional<std::uint32_t> ParseUnsigned(const std::string& text)
     {
         std::uint32_t l_Value = 0;
@@ -98,7 +119,7 @@ Trinity::AssetSettings TextureImporter::GetDefaultSettings()
 {
     const TextureImportSettings l_Defaults;
 
-    return { { std::string(c_SrgbSetting), l_Defaults.Srgb ? "true" : "false" }, { std::string(c_MipsSetting), l_Defaults.GenerateMips ? "true" : "false" }, { std::string(c_UastcSetting), std::to_string(l_Defaults.UastcLevel) } };
+    return { { std::string(c_SrgbSetting), l_Defaults.Srgb ? "true" : "false" }, { std::string(c_MipsSetting), l_Defaults.GenerateMips ? "true" : "false" }, { std::string(c_UastcSetting), std::to_string(l_Defaults.UastcLevel) }, { std::string(c_FilterSetting), std::string(ToString(l_Defaults.Filter)) } };
 }
 
 // A missing setting takes its default. One that cannot be read does too, with a warning naming the file
@@ -140,13 +161,24 @@ TextureImportSettings TextureImporter::ReadSettings(const Trinity::AssetRecord& 
         }
     }
 
+    if (const std::string* l_Filter = record.FindSetting(c_FilterSetting))
+    {
+        const std::optional<Trinity::RHI::Filter> l_Value = ParseFilter(*l_Filter);
+        if (!l_Value)
+        {
+            TR_WARN("Textures: {} has {}: {}, which is not Linear or Nearest, so it is read as {}", record.Path, c_FilterSetting, *l_Filter, ToString(l_Settings.Filter));
+        }
+
+        l_Settings.Filter = l_Value.value_or(l_Settings.Filter);
+    }
+
     return l_Settings;
 }
 
 // Anything that changes the cooked file changes the key: the source, its settings, and the importer, whose version goes up with any change to how it encodes, KTX-Software's included
 std::string TextureImporter::GetCacheKey(std::span<const std::byte> source, const TextureImportSettings& settings)
 {
-    return std::format("content {:016x}, srgb {}, mips {}, uastc {}, importer {}", HashBytes(source), settings.Srgb, settings.GenerateMips, settings.UastcLevel, c_Version);
+    return std::format("content {:016x}, srgb {}, mips {}, uastc {}, filter {}, importer {}", HashBytes(source), settings.Srgb, settings.GenerateMips, settings.UastcLevel, ToString(settings.Filter), c_Version);
 }
 
 std::string TextureImporter::GetCacheKeyPath(Trinity::UUID id)
@@ -268,6 +300,14 @@ TextureImporter::Result TextureImporter::Import(const Trinity::AssetRecord& reco
         l_Result = ktxTexture2_DeflateZstd(l_Texture.get(), c_ZstdLevel);
     }
 
+    // The loader reads the filter from the file, so a game needs no import settings. KTX2 strings carry their terminating null
+    if (l_Result == KTX_SUCCESS)
+    {
+        const std::string l_FilterKey(Trinity::c_TextureFilterKey);
+        const std::string_view l_FilterName = ToString(l_Settings.Filter);
+        l_Result = ktxHashList_AddKVPair(&l_Texture->kvDataHead, l_FilterKey.c_str(), static_cast<unsigned int>(l_FilterName.size() + 1), std::string(l_FilterName).c_str());
+    }
+
     ktx_uint8_t* l_Written = nullptr;
     ktx_size_t l_WrittenSize = 0;
     if (l_Result == KTX_SUCCESS)
@@ -293,7 +333,7 @@ TextureImporter::Result TextureImporter::Import(const Trinity::AssetRecord& reco
     }
 
     const auto l_Milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - l_Start).count();
-    TR_INFO("Textures: encoded {} ({}x{}, {} mip(s), {}, UASTC level {}) into {} in {} ms", record.Path, l_Width, l_Height, l_Levels, l_Settings.Srgb ? "sRGB" : "linear", l_Settings.UastcLevel, Trinity::Memory::FormatBytes(l_WrittenSize), l_Milliseconds);
+    TR_INFO("Textures: encoded {} ({}x{}, {} mip(s), {}, UASTC level {}, {} filtering) into {} in {} ms", record.Path, l_Width, l_Height, l_Levels, l_Settings.Srgb ? "sRGB" : "linear", l_Settings.UastcLevel, ToString(l_Settings.Filter), Trinity::Memory::FormatBytes(l_WrittenSize), l_Milliseconds);
 
     return Result::Encoded;
 }

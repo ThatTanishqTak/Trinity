@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/Core/Base.hpp"
+#include "Trinity/Renderer/Renderer2D.hpp"
 #include "Trinity/RHI/Device.hpp"
 
 #include <array>
@@ -42,6 +43,7 @@ namespace Trinity
         void SetVSync(bool enabled);
         [[nodiscard]] bool IsVSync() const;
 
+        [[nodiscard]] Renderer2D& GetRenderer2D() { return *m_Renderer2D; }
         [[nodiscard]] RHI::Format GetSceneFormat() const;
         [[nodiscard]] RHI::Format GetOutputFormat() const;
         [[nodiscard]] RHI::TextureHandle GetSceneTarget() const { return m_SceneTarget; }
@@ -84,6 +86,7 @@ namespace Trinity
         Window& m_Window;
         std::string m_Title;
         Scope<TextureLoader> m_TextureLoader;
+        Scope<Renderer2D> m_Renderer2D;
 
         Scope<RHI::SwapChain> m_SwapChain;
         RHI::TextureHandle m_OffscreenTarget;

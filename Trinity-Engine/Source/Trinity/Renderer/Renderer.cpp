@@ -64,6 +64,10 @@ namespace Trinity
         m_TextureLoader = CreateScope<TextureLoader>(m_Device);
         AssetManager::RegisterLoader(*m_TextureLoader);
 
+        // Sprites without a texture, or whose texture is still loading, draw with the loader's white placeholder
+        const Asset* l_White = m_TextureLoader->GetPlaceholder();
+        m_Renderer2D = CreateScope<Renderer2D>(m_Device, l_White != nullptr ? static_cast<const TextureAsset*>(l_White)->GetShaderResourceIndex() : RHI::c_NoBindlessIndex);
+
         m_StartTime = std::chrono::steady_clock::now();
         m_ReportTime = m_StartTime;
 
@@ -80,6 +84,7 @@ namespace Trinity
             DestroyOutput(it_Output);
         }
 
+        m_Renderer2D.reset();
         AssetManager::UnregisterLoader(TextureAsset::c_AssetType);
         m_TextureLoader.reset();
 
@@ -104,6 +109,7 @@ namespace Trinity
 
         RHI::CommandList& l_Commands = m_Device.BeginFrame();
         m_TextureLoader->RecordUploads(l_Commands);
+        m_Renderer2D->BeginFrame();
 
         {
             TR_PROFILE_SCOPE("LayerStack::OnPrepareRender");

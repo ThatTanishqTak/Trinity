@@ -13,6 +13,7 @@ struct TextureImportSettings
     bool Srgb = true;
     bool GenerateMips = true;
     std::uint32_t UastcLevel = 2;
+    Trinity::RHI::Filter Filter = Trinity::RHI::Filter::Linear;
 };
 
 struct TextureImportReport
@@ -34,7 +35,7 @@ public:
     };
 
     static constexpr std::string_view c_Importer = Trinity::TextureAsset::c_AssetType;
-    static constexpr std::uint32_t c_Version = 1;
+    static constexpr std::uint32_t c_Version = 2;
     static constexpr std::uint32_t c_MaxUastcLevel = 4;
 
     [[nodiscard]] static Trinity::AssetSettings GetDefaultSettings();

@@ -14,10 +14,10 @@ namespace Trinity
     {
         namespace
         {
-            constexpr std::int32_t c_DefaultCapacityKiB = 4096;
+            constexpr std::int32_t c_DefaultCapacityKiB = 16384;
             constexpr BufferUsage c_RingUsage = BufferUsage::ShaderResource | BufferUsage::Index;
 
-            ConsoleVariable<std::int32_t> s_UploadCapacityVariable("renderer.upload_capacity", c_DefaultCapacityKiB, "Upload memory per frame in KiB before uploads fall back to temporary buffers; 0 or less uses 4096", ConsoleVariableFlags::ReadOnly);
+            ConsoleVariable<std::int32_t> s_UploadCapacityVariable("renderer.upload_capacity", c_DefaultCapacityKiB, "Upload memory per frame in KiB before uploads fall back to temporary buffers; 0 or less uses 16384", ConsoleVariableFlags::ReadOnly);
         }
 
         bool UploadRing::Initialize(Device& device, std::string& error)

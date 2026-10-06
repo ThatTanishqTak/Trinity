@@ -27,7 +27,7 @@ namespace Trinity
         constexpr ktx_uint32_t c_VkFormatRGBA8Srgb = 43;
 
         constexpr RHI::TextureUsage c_TextureUsage = RHI::TextureUsage::ShaderResource | RHI::TextureUsage::CopyDestination;
-        constexpr std::array<std::byte, 4> c_PlaceholderTexel{ std::byte{ 128 }, std::byte{ 128 }, std::byte{ 128 }, std::byte{ 255 } };
+        constexpr std::array<std::byte, 4> c_PlaceholderTexel{ std::byte{ 255 }, std::byte{ 255 }, std::byte{ 255 }, std::byte{ 255 } };
 
         struct KtxDeleter
         {
@@ -136,6 +136,16 @@ namespace Trinity
         l_Texture->m_MipLevels = l_Ktx->numLevels;
         l_Texture->m_Format = l_Format;
         l_Texture->m_Srgb = ktxTexture2_GetTransferFunction_e(l_Ktx.get()) == KHR_DF_TRANSFER_SRGB;
+
+        // The importer records how the texture should be filtered. A file without the key is filtered linearly
+        unsigned int l_FilterLength = 0;
+        void* l_FilterValue = nullptr;
+        const std::string l_FilterKey(c_TextureFilterKey);
+        if (ktxHashList_FindValue(&l_Ktx->kvDataHead, l_FilterKey.c_str(), &l_FilterLength, &l_FilterValue) == KTX_SUCCESS && std::string_view(static_cast<const char*>(l_FilterValue), l_FilterLength).starts_with("Nearest"))
+        {
+            l_Texture->m_Filter = RHI::Filter::Nearest;
+        }
+
         l_Texture->m_Mips.resize(l_Ktx->numLevels);
 
         ktxTexture* l_Base = ktxTexture(l_Ktx.get());

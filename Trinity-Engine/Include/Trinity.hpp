@@ -36,6 +36,7 @@
 #include "Trinity/Input/MouseCodes.hpp"
 
 #include "Trinity/Renderer/GraphicsAPI.hpp"
+#include "Trinity/Renderer/Renderer2D.hpp"
 #include "Trinity/RHI/Device.hpp"
 
 #include "Trinity/Project/Project.hpp"

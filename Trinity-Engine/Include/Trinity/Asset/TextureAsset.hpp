@@ -4,6 +4,7 @@
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
+#include "Trinity/RHI/Resources.hpp"
 #include "Trinity/RHI/Types.hpp"
 
 #include <cstddef>
@@ -15,6 +16,8 @@
 namespace Trinity
 {
     class TextureLoader;
+
+    inline constexpr std::string_view c_TextureFilterKey = "Trinity.Filter";
 
     [[nodiscard]] TRINITY_API std::string GetCookedTexturePath(UUID id);
 
@@ -40,6 +43,7 @@ namespace Trinity
         [[nodiscard]] std::uint32_t GetHeight() const { return m_Height; }
         [[nodiscard]] std::uint32_t GetMipLevels() const { return m_MipLevels; }
         [[nodiscard]] RHI::Format GetFormat() const { return m_Format; }
+        [[nodiscard]] RHI::Filter GetFilter() const { return m_Filter; }
         [[nodiscard]] bool IsSrgb() const { return m_Srgb; }
 
     private:
@@ -54,6 +58,7 @@ namespace Trinity
         std::uint32_t m_Height = 0;
         std::uint32_t m_MipLevels = 0;
         RHI::Format m_Format = RHI::Format::Unknown;
+        RHI::Filter m_Filter = RHI::Filter::Linear;
         bool m_Srgb = false;
         std::vector<MipData, TaggedAllocator<MipData, MemoryTag::Assets>> m_Mips;
     };
