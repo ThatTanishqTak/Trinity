@@ -277,6 +277,10 @@ namespace Trinity
                     {
                         return { D3D12_BARRIER_SYNC_RENDER_TARGET, D3D12_BARRIER_ACCESS_RENDER_TARGET, D3D12_BARRIER_LAYOUT_RENDER_TARGET };
                     }
+                    case ResourceState::ResolveDestination:
+                    {
+                        return { D3D12_BARRIER_SYNC_RESOLVE, D3D12_BARRIER_ACCESS_RESOLVE_DEST, D3D12_BARRIER_LAYOUT_RESOLVE_DEST };
+                    }
                     case ResourceState::DepthWrite:
                     {
                         return { D3D12_BARRIER_SYNC_DEPTH_STENCIL, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE };
@@ -748,6 +752,27 @@ namespace Trinity
                 }
 
                 l_Target.EndingAccess.Type = ToEndingAccess(it_Attachment.Store);
+                if (it_Attachment.ResolveTexture)
+                {
+                    const D3D12Texture* l_Resolve = m_Device.GetTexture(it_Attachment.ResolveTexture);
+                    const bool l_Resolvable = l_Resolve != nullptr && !l_Resolve->RenderTargetViews.empty() && l_Texture->SampleCount > 1 && l_Resolve->SampleCount == 1 && l_Resolve->TextureFormat == l_Texture->TextureFormat && l_Resolve->TextureFormat != Format::R32Uint;
+                    TR_CORE_ASSERT(l_Resolvable, "BeginRendering resolving into a destroyed texture, one without RenderTarget usage, or one whose format or sample count does not fit.");
+                    if (l_Resolvable)
+                    {
+                        D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS& l_Parameters = m_ResolveParameters[l_TargetCount - 1];
+                        l_Parameters = {};
+                        l_Parameters.SrcRect = { 0, 0, static_cast<LONG>(l_Texture->Width), static_cast<LONG>(l_Texture->Height) };
+
+                        l_Target.EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE;
+                        l_Target.EndingAccess.Resolve.pSrcResource = l_Texture->Resource;
+                        l_Target.EndingAccess.Resolve.pDstResource = l_Resolve->Resource;
+                        l_Target.EndingAccess.Resolve.SubresourceCount = 1;
+                        l_Target.EndingAccess.Resolve.pSubresourceParameters = &l_Parameters;
+                        l_Target.EndingAccess.Resolve.Format = ToDXGIFormat(l_Texture->TextureFormat);
+                        l_Target.EndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_AVERAGE;
+                        l_Target.EndingAccess.Resolve.PreserveResolveSource = it_Attachment.Store == StoreOp::Store ? TRUE : FALSE;
+                    }
+                }
             }
 
             D3D12_RENDER_PASS_DEPTH_STENCIL_DESC l_Depth{};
@@ -1443,7 +1468,7 @@ namespace Trinity
         }
 
         // Every usage asked for must be in the format's support. Shaders read a depth texture through an R32_FLOAT view, so that is the format to check for reading
-        bool D3D12Device::IsFormatSupported(Format format, TextureUsage usage) const
+        bool D3D12Device::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
             const DXGI_FORMAT l_Format = ToDXGIFormat(format);
             if (l_Format == DXGI_FORMAT_UNKNOWN)
@@ -1495,7 +1520,20 @@ namespace Trinity
                 return false;
             }
 
-            return true;
+            if (sampleCount == 1)
+            {
+                return true;
+            }
+
+            const bool l_Attachment = HasFlag(usage, TextureUsage::RenderTarget) || HasFlag(usage, TextureUsage::DepthStencil);
+            if ((l_Attachment && !a_Has(l_Support, D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET)) || (HasFlag(usage, TextureUsage::ShaderResource) && !a_Has(l_ReadSupport, D3D12_FORMAT_SUPPORT1_MULTISAMPLE_LOAD)))
+            {
+                return false;
+            }
+
+            D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS l_Levels{ l_Format, sampleCount, D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE, 0 };
+
+            return SUCCEEDED(m_Device->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &l_Levels, sizeof(l_Levels))) && l_Levels.NumQualityLevels > 0;
         }
 
         // A depth texture that shaders also read is typeless, so a shader view can read it as R32_FLOAT
@@ -1521,7 +1559,7 @@ namespace Trinity
             l_Resource.DepthOrArraySize = static_cast<UINT16>(description.ArrayLayers);
             l_Resource.MipLevels = static_cast<UINT16>(description.MipLevels);
             l_Resource.Format = l_TypelessDepth ? DXGI_FORMAT_R32_TYPELESS : ToDXGIFormat(description.TextureFormat);
-            l_Resource.SampleDesc.Count = 1;
+            l_Resource.SampleDesc.Count = description.SampleCount;
             l_Resource.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
             l_Resource.Flags = ToResourceFlags(description.Usage);
 
@@ -1557,6 +1595,7 @@ namespace Trinity
             l_Texture.Height = description.Height;
             l_Texture.MipLevels = description.MipLevels;
             l_Texture.ArrayLayers = description.ArrayLayers;
+            l_Texture.SampleCount = description.SampleCount;
             SetDebugName(l_Texture.Resource, description.DebugName);
 
             if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil))
@@ -1596,6 +1635,7 @@ namespace Trinity
         {
             const bool l_Depth = IsDepthFormat(texture.TextureFormat);
             const bool l_Array = texture.Dimension != TextureDimension::Texture2D;
+            const bool l_Multisampled = texture.SampleCount > 1;
             D3D12DescriptorIndices& l_Views = l_Depth ? texture.DepthStencilViews : texture.RenderTargetViews;
             D3D12DescriptorHeap& l_Heap = l_Depth ? m_DepthStencilViews : m_RenderTargetViews;
 
@@ -1616,7 +1656,7 @@ namespace Trinity
                     {
                         D3D12_DEPTH_STENCIL_VIEW_DESC l_Description{};
                         l_Description.Format = DXGI_FORMAT_D32_FLOAT;
-                        l_Description.ViewDimension = l_Array ? D3D12_DSV_DIMENSION_TEXTURE2DARRAY : D3D12_DSV_DIMENSION_TEXTURE2D;
+                        l_Description.ViewDimension = l_Array ? D3D12_DSV_DIMENSION_TEXTURE2DARRAY : l_Multisampled ? D3D12_DSV_DIMENSION_TEXTURE2DMS : D3D12_DSV_DIMENSION_TEXTURE2D;
                         if (l_Array)
                         {
                             l_Description.Texture2DArray = { it_Mip, it_Layer, 1 };
@@ -1632,7 +1672,7 @@ namespace Trinity
                     {
                         D3D12_RENDER_TARGET_VIEW_DESC l_Description{};
                         l_Description.Format = ToDXGIFormat(texture.TextureFormat);
-                        l_Description.ViewDimension = l_Array ? D3D12_RTV_DIMENSION_TEXTURE2DARRAY : D3D12_RTV_DIMENSION_TEXTURE2D;
+                        l_Description.ViewDimension = l_Array ? D3D12_RTV_DIMENSION_TEXTURE2DARRAY : l_Multisampled ? D3D12_RTV_DIMENSION_TEXTURE2DMS : D3D12_RTV_DIMENSION_TEXTURE2D;
                         if (l_Array)
                         {
                             l_Description.Texture2DArray = { it_Mip, it_Layer, 1, 0 };
@@ -1717,7 +1757,7 @@ namespace Trinity
                         }
                         default:
                         {
-                            l_View.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                            l_View.ViewDimension = texture.SampleCount > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DMS : D3D12_SRV_DIMENSION_TEXTURE2D;
                             l_View.Texture2D.MipLevels = texture.MipLevels;
 
                             break;
@@ -1902,7 +1942,7 @@ namespace Trinity
             l_Description.PS = { description.PixelShader.Code.data(), description.PixelShader.Code.size() };
             l_Description.SampleMask = UINT_MAX;
             l_Description.PrimitiveTopologyType = ToTopologyType(description.Topology);
-            l_Description.SampleDesc.Count = 1;
+            l_Description.SampleDesc.Count = description.SampleCount;
 
             l_Description.NumRenderTargets = static_cast<UINT>(std::min<std::size_t>(description.ColorFormats.size(), c_MaxColorAttachments));
             for (UINT it_Target = 0; it_Target < l_Description.NumRenderTargets; ++it_Target)

@@ -19,7 +19,7 @@ namespace Trinity
             std::string_view DebugName;
         };
 
-        // A Texture2D has one layer, a TextureCube six and a square size, and a Texture2DArray up to c_MaxArrayLayers
+        // A Texture2D has one layer, a TextureCube six and a square size, and a Texture2DArray up to c_MaxArrayLayers. A multisampled texture is a Texture2D with one mip, used as a render target or depth texture and read by shaders, never copied or written as storage
         struct TextureDescription
         {
             std::uint32_t Width = 1;
@@ -27,6 +27,7 @@ namespace Trinity
             std::uint32_t MipLevels = 1;
             std::uint32_t ArrayLayers = 1;
             TextureDimension Dimension = TextureDimension::Texture2D;
+            std::uint32_t SampleCount = 1;
 
             Format TextureFormat = Format::RGBA8Unorm;
             TextureUsage Usage = TextureUsage::ShaderResource;

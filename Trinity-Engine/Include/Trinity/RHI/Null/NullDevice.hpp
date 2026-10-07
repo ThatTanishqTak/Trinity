@@ -88,7 +88,7 @@ namespace Trinity
             void DestroyBuffer(BufferHandle buffer) override;
             [[nodiscard]] std::span<std::byte> GetMappedData(BufferHandle buffer) override;
 
-            [[nodiscard]] bool IsFormatSupported(Format format, TextureUsage usage) const override;
+            [[nodiscard]] bool IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const override;
             [[nodiscard]] TextureHandle CreateTexture(const TextureDescription& description) override;
             void DestroyTexture(TextureHandle texture) override;
 
@@ -119,6 +119,7 @@ namespace Trinity
             [[nodiscard]] bool IsIndexRangeValid(BufferHandle buffer, std::uint64_t offset, IndexFormat format);
             [[nodiscard]] bool IsRangeValid(TextureHandle texture, const TextureSubresourceRange& range);
             [[nodiscard]] bool IsAttachmentValid(TextureHandle texture, TextureUsage usage, std::uint32_t mipLevel, std::uint32_t arrayLayer);
+            [[nodiscard]] bool IsResolveValid(TextureHandle source, TextureHandle destination);
             [[nodiscard]] bool IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region);
             [[nodiscard]] bool IsReadbackValid(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset);
 
@@ -136,6 +137,7 @@ namespace Trinity
                 std::uint32_t Height = 0;
                 std::uint32_t MipLevels = 0;
                 std::uint32_t ArrayLayers = 0;
+                std::uint32_t SampleCount = 1;
                 Format TextureFormat = Format::Unknown;
                 TextureUsage Usage = TextureUsage::None;
             };

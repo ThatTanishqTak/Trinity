@@ -54,6 +54,7 @@ namespace Trinity
             for (const ColorAttachment& it_Attachment : description.ColorAttachments)
             {
                 TR_CORE_VERIFY(m_Device.IsAttachmentValid(it_Attachment.Texture, TextureUsage::RenderTarget, it_Attachment.MipLevel, it_Attachment.ArrayLayer), "BeginRendering with a destroyed color attachment, one without RenderTarget usage, or a mip or layer it lacks.");
+                TR_CORE_VERIFY(!it_Attachment.ResolveTexture || m_Device.IsResolveValid(it_Attachment.Texture, it_Attachment.ResolveTexture), "BeginRendering resolving into a destroyed texture, one without RenderTarget usage, or one whose size, format or sample count does not fit.");
             }
 
             TR_CORE_VERIFY(!description.Depth.Texture || m_Device.IsAttachmentValid(description.Depth.Texture, TextureUsage::DepthStencil, description.Depth.MipLevel, description.Depth.ArrayLayer), "BeginRendering with a destroyed depth attachment, one without DepthStencil usage, or a mip or layer it lacks.");
@@ -271,9 +272,9 @@ namespace Trinity
         }
 
         // What every GPU allows: a compressed format is only sampled and copied, a depth format is never a colour target or written by shaders, and a colour format is never a depth target
-        bool NullDevice::IsFormatSupported(Format format, TextureUsage usage) const
+        bool NullDevice::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
-            if (format == Format::Unknown)
+            if (format == Format::Unknown || (sampleCount != 1 && sampleCount != 2 && sampleCount != 4 && sampleCount != 8))
             {
                 return false;
             }
@@ -301,7 +302,7 @@ namespace Trinity
                 return {};
             }
 
-            return m_Textures.Add({ description.Width, description.Height, description.MipLevels, description.ArrayLayers, description.TextureFormat, description.Usage });
+            return m_Textures.Add({ description.Width, description.Height, description.MipLevels, description.ArrayLayers, description.SampleCount, description.TextureFormat, description.Usage });
         }
 
         void NullDevice::DestroyTexture(TextureHandle texture)
@@ -368,6 +369,14 @@ namespace Trinity
             const NullTexture* l_Texture = m_Textures.Get(texture);
 
             return l_Texture != nullptr && HasFlag(l_Texture->Usage, usage) && mipLevel < l_Texture->MipLevels && arrayLayer < l_Texture->ArrayLayers;
+        }
+
+        bool NullDevice::IsResolveValid(TextureHandle source, TextureHandle destination)
+        {
+            const NullTexture* l_Source = m_Textures.Get(source);
+            const NullTexture* l_Destination = m_Textures.Get(destination);
+
+            return l_Source != nullptr && l_Destination != nullptr && HasFlag(l_Destination->Usage, TextureUsage::RenderTarget) && l_Source->SampleCount > 1 && l_Destination->SampleCount == 1 && l_Source->TextureFormat == l_Destination->TextureFormat && l_Source->TextureFormat != Format::R32Uint && l_Source->Width == l_Destination->Width && l_Source->Height == l_Destination->Height;
         }
 
         bool NullDevice::IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region)

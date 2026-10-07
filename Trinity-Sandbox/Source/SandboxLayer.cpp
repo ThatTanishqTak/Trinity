@@ -345,6 +345,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
         TestCompute();
         TestLayeredTextures();
         TestRasterState();
+        TestMultisampling();
     }
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
@@ -1145,6 +1146,167 @@ void SandboxLayer::TestRasterState()
     }
 
     TR_INFO("Raster: {} passed all {} probes for culling with both windings, depth bias of 0, +16 and -16 and depth clamp, and R11G11B10Float and RGBA16Float targets read back bit for bit", Trinity::ToString(l_Info.API), c_Probes.size());
+}
+
+// A white triangle on black, drawn with 4x multisampled colour and depth and resolved into a single-sampled target as rendering ends. Pixels the edge crosses must resolve to a quarter, half or three quarters of white, and every other pixel to black or white
+void SandboxLayer::TestMultisampling()
+{
+    TR_PROFILE_FUNCTION();
+
+    constexpr Trinity::RHI::Format c_Format = Trinity::RHI::Format::RGBA8Unorm;
+    constexpr Trinity::RHI::Format c_DepthFormat = Trinity::RHI::Format::D32Float;
+    constexpr std::uint32_t c_Size = 16;
+    constexpr std::uint32_t c_SampleCount = 4;
+    constexpr std::int32_t c_Tolerance = 2;
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+
+    if (!l_Device.IsFormatSupported(c_Format, Trinity::RHI::TextureUsage::RenderTarget, c_SampleCount) || !l_Device.IsFormatSupported(c_DepthFormat, Trinity::RHI::TextureUsage::DepthStencil, c_SampleCount))
+    {
+        TR_ERROR("Multisampling: {} cannot render {} or {} with {} samples", Trinity::ToString(l_Info.API), Trinity::RHI::ToString(c_Format), Trinity::RHI::ToString(c_DepthFormat), c_SampleCount);
+
+        return;
+    }
+
+    const std::string_view l_Extension = l_Info.API == Trinity::GraphicsAPI::D3D12 ? "dxil" : "spv";
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_VertexShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/RasterTest.VertexMain.{}", l_Extension));
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_PixelShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/RasterTest.PixelMain.{}", l_Extension));
+    if (!l_VertexShader || !l_PixelShader)
+    {
+        TR_ERROR("Multisampling: the RasterTest {} shaders could not be read from /engine/shaders", l_Extension);
+
+        return;
+    }
+
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ c_Format };
+    Trinity::RHI::GraphicsPipelineDescription l_PipelineDescription;
+    l_PipelineDescription.VertexShader = { *l_VertexShader, "VertexMain" };
+    l_PipelineDescription.PixelShader = { *l_PixelShader, "PixelMain" };
+    l_PipelineDescription.ColorFormats = l_ColorFormats;
+    l_PipelineDescription.DepthFormat = c_DepthFormat;
+    l_PipelineDescription.SampleCount = c_SampleCount;
+    l_PipelineDescription.Cull = Trinity::RHI::CullMode::None;
+    l_PipelineDescription.DepthTest = true;
+    l_PipelineDescription.DepthWrite = true;
+    l_PipelineDescription.DebugName = "Sandbox multisampled triangle";
+    const Trinity::RHI::PipelineHandle l_Pipeline = l_Device.CreateGraphicsPipeline(l_PipelineDescription);
+
+    Trinity::RHI::TextureDescription l_TextureDescription;
+    l_TextureDescription.Width = c_Size;
+    l_TextureDescription.Height = c_Size;
+    l_TextureDescription.TextureFormat = c_Format;
+    l_TextureDescription.SampleCount = c_SampleCount;
+    l_TextureDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget;
+    l_TextureDescription.DebugName = "Sandbox multisampled target";
+    const Trinity::RHI::TextureHandle l_Multisampled = l_Device.CreateTexture(l_TextureDescription);
+
+    l_TextureDescription.TextureFormat = c_DepthFormat;
+    l_TextureDescription.Usage = Trinity::RHI::TextureUsage::DepthStencil;
+    l_TextureDescription.DebugName = "Sandbox multisampled depth";
+    const Trinity::RHI::TextureHandle l_Depth = l_Device.CreateTexture(l_TextureDescription);
+
+    l_TextureDescription.TextureFormat = c_Format;
+    l_TextureDescription.SampleCount = 1;
+    l_TextureDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::CopySource;
+    l_TextureDescription.DebugName = "Sandbox resolved target";
+    const Trinity::RHI::TextureHandle l_Resolved = l_Device.CreateTexture(l_TextureDescription);
+
+    const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(c_Format, c_Size);
+
+    Trinity::RHI::BufferDescription l_ReadbackDescription;
+    l_ReadbackDescription.Size = l_RowPitch * c_Size;
+    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_ReadbackDescription.DebugName = "Sandbox resolved readback";
+    const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_ReadbackDescription);
+
+    const auto a_Destroy = [&]()
+    {
+        l_Device.DestroyBuffer(l_Readback);
+        l_Device.DestroyTexture(l_Resolved);
+        l_Device.DestroyTexture(l_Depth);
+        l_Device.DestroyTexture(l_Multisampled);
+        l_Device.DestroyPipeline(l_Pipeline);
+    };
+
+    if (!l_Pipeline || !l_Multisampled || !l_Depth || !l_Resolved || !l_Readback)
+    {
+        TR_ERROR("Multisampling: could not create the pipeline, the targets or the readback");
+        a_Destroy();
+
+        return;
+    }
+
+    Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+    l_Commands.TextureBarrier(l_Multisampled, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::RenderTarget);
+    l_Commands.TextureBarrier(l_Depth, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::DepthWrite);
+    l_Commands.TextureBarrier(l_Resolved, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::ResolveDestination);
+
+    // The multisampled target is only resolved, never stored
+    Trinity::RHI::ColorAttachment l_Attachment{ l_Multisampled, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::DontCare };
+    l_Attachment.ResolveTexture = l_Resolved;
+
+    Trinity::RHI::RenderingDescription l_Rendering;
+    l_Rendering.ColorAttachments = std::span(&l_Attachment, 1);
+    l_Rendering.Depth = { l_Depth, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::DontCare, 0.0f };
+    l_Commands.BeginRendering(l_Rendering);
+    l_Commands.SetPipeline(l_Pipeline);
+    l_Commands.SetViewport({ 0.0f, 0.0f, static_cast<float>(c_Size), static_cast<float>(c_Size), 0.0f, 1.0f });
+    l_Commands.SetScissor({ 0, 0, c_Size, c_Size });
+
+    // The long edge runs from the bottom right to two-thirds of the way up the left side, so it crosses pixels at many different offsets
+    const RasterPushData l_Push{ { glm::vec4(-1.0f, -1.0f, 0.5f, 1.0f), glm::vec4(1.0f, -1.0f, 0.5f, 1.0f), glm::vec4(-1.0f, 0.6f, 0.5f, 1.0f) }, glm::vec4(1.0f) };
+    l_Commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+    l_Commands.Draw(3, 1, 0, 0);
+    l_Commands.EndRendering();
+
+    l_Commands.TextureBarrier(l_Resolved, Trinity::RHI::ResourceState::ResolveDestination, Trinity::RHI::ResourceState::CopySource);
+    l_Commands.CopyTextureToBuffer(l_Resolved, 0, 0, l_Readback, 0);
+    l_Device.EndFrame();
+    l_Device.WaitIdle();
+
+    if (l_Info.API == Trinity::GraphicsAPI::None)
+    {
+        TR_INFO("Multisampling: None recorded a draw into {}x {} colour and depth resolved into a single-sampled target", c_SampleCount, c_Size);
+        a_Destroy();
+
+        return;
+    }
+
+    const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+    const auto a_Channel = [&l_Data, l_RowPitch](std::uint32_t x, std::uint32_t y, std::uint32_t channel) { return std::to_integer<std::int32_t>(l_Data[static_cast<std::size_t>(y * l_RowPitch + x * 4 + channel)]); };
+
+    std::string l_Wrong;
+    std::uint32_t l_Partial = 0;
+    for (std::uint32_t it_Y = 0; it_Y < c_Size && l_Data.size() >= l_RowPitch * c_Size; ++it_Y)
+    {
+        for (std::uint32_t it_X = 0; it_X < c_Size; ++it_X)
+        {
+            const std::int32_t l_Value = a_Channel(it_X, it_Y, 0);
+            const bool l_Grey = a_Channel(it_X, it_Y, 1) == l_Value && a_Channel(it_X, it_Y, 2) == l_Value && a_Channel(it_X, it_Y, 3) == 255;
+            const std::int32_t l_Quarters = (l_Value * static_cast<std::int32_t>(c_SampleCount) + 127) / 255;
+            const bool l_Covered = std::abs(l_Value - (l_Quarters * 255 + 2) / 4) <= c_Tolerance;
+            if (!l_Grey || !l_Covered)
+            {
+                l_Wrong += std::format("{}({}, {}) is ({}, {}, {}, {})", l_Wrong.empty() ? "" : ", ", it_X, it_Y, l_Value, a_Channel(it_X, it_Y, 1), a_Channel(it_X, it_Y, 2), a_Channel(it_X, it_Y, 3));
+            }
+
+            l_Partial += l_Value > c_Tolerance && l_Value < 255 - c_Tolerance ? 1 : 0;
+        }
+    }
+
+    const bool l_Solid = l_Data.size() >= l_RowPitch * c_Size && a_Channel(1, c_Size - 2, 0) == 255 && a_Channel(c_Size - 2, 1, 0) == 0;
+    a_Destroy();
+
+    if (!l_Wrong.empty() || !l_Solid || l_Partial == 0)
+    {
+        TR_ERROR("Multisampling: the resolved triangle {}{}{}", l_Partial == 0 ? "has no in-between pixels along its edge" : std::format("has {} in-between pixel(s)", l_Partial), l_Solid ? "" : ", and is not white inside and black outside", l_Wrong.empty() ? "" : std::format(", and these are not black, white or a quarter step of grey: {}", l_Wrong));
+
+        return;
+    }
+
+    TR_INFO("Multisampling: {} resolved a {}x triangle as rendering ended, with {} edge pixel(s) at a quarter, half or three quarters of white and every other pixel black or white", Trinity::ToString(l_Info.API), c_SampleCount, l_Partial);
 }
 
 // 64 placeholder source files give the registry 64 texture assets, whose cooked KTX2 a memory source serves at /cache

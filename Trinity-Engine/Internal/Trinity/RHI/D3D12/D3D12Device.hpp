@@ -47,6 +47,7 @@ namespace Trinity
             std::uint32_t Height = 0;
             std::uint32_t MipLevels = 0;
             std::uint32_t ArrayLayers = 0;
+            std::uint32_t SampleCount = 1;
             D3D12DescriptorIndices RenderTargetViews;
             D3D12DescriptorIndices DepthStencilViews;
             std::uint32_t ShaderResourceIndex = c_NoDescriptor;
@@ -116,6 +117,8 @@ namespace Trinity
         private:
             D3D12Device& m_Device;
             ID3D12GraphicsCommandList7* m_CommandList = nullptr;
+            // What each resolving attachment's ending access points to, so it lives until EndRenderPass
+            std::array<D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS, c_MaxColorAttachments> m_ResolveParameters{};
             bool m_Rendering = false;
             bool m_HasPipeline = false;
             bool m_HasComputePipeline = false;
@@ -137,7 +140,7 @@ namespace Trinity
             void DestroyBuffer(BufferHandle buffer) override;
             [[nodiscard]] std::span<std::byte> GetMappedData(BufferHandle buffer) override;
 
-            [[nodiscard]] bool IsFormatSupported(Format format, TextureUsage usage) const override;
+            [[nodiscard]] bool IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const override;
             [[nodiscard]] TextureHandle CreateTexture(const TextureDescription& description) override;
             void DestroyTexture(TextureHandle texture) override;
 

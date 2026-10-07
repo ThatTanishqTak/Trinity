@@ -374,6 +374,10 @@ namespace Trinity
                     {
                         return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
                     }
+                    case ResourceState::ResolveDestination:
+                    {
+                        return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+                    }
                     case ResourceState::DepthWrite:
                     {
                         return { c_DepthStages, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
@@ -810,6 +814,19 @@ namespace Trinity
                 l_Info = MakeInfo<VkRenderingAttachmentInfo>(VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO);
                 l_Info.imageView = l_View;
                 l_Info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                if (it_Attachment.ResolveTexture)
+                {
+                    const VulkanTexture* l_Resolve = m_Device.GetTexture(it_Attachment.ResolveTexture);
+                    const VkImageView l_ResolveView = l_Resolve != nullptr ? GetAttachmentView(*l_Resolve, 0, 0) : VK_NULL_HANDLE;
+                    TR_CORE_ASSERT(l_ResolveView != VK_NULL_HANDLE && l_Texture->SampleCount > 1 && l_Resolve->SampleCount == 1 && l_Resolve->TextureFormat == l_Texture->TextureFormat && l_Resolve->TextureFormat != Format::R32Uint, "BeginRendering resolving into a destroyed texture, one without RenderTarget usage, or one whose format or sample count does not fit.");
+                    if (l_ResolveView != VK_NULL_HANDLE)
+                    {
+                        l_Info.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                        l_Info.resolveImageView = l_ResolveView;
+                        l_Info.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    }
+                }
+
                 l_Info.loadOp = ToVkLoadOp(it_Attachment.Load);
                 l_Info.storeOp = ToVkStoreOp(it_Attachment.Store);
                 for (std::size_t it_Channel = 0; it_Channel < it_Attachment.ClearColor.size(); ++it_Channel)
@@ -1792,7 +1809,7 @@ namespace Trinity
         }
 
         // The driver's optimal-tiling features for the format must cover every usage asked for
-        bool VulkanDevice::IsFormatSupported(Format format, TextureUsage usage) const
+        bool VulkanDevice::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
             const VkFormat l_Format = ToVkFormat(format);
             if (l_Format == VK_FORMAT_UNDEFINED || (IsCompressedFormat(format) && !m_TextureCompressionBC))
@@ -1812,7 +1829,24 @@ namespace Trinity
                 { TextureUsage::CopyDestination, VK_FORMAT_FEATURE_TRANSFER_DST_BIT }
             } };
 
-            return std::ranges::all_of(c_Needs, [usage, &l_Properties](const auto& need) { return !HasFlag(usage, need.first) || (l_Properties.optimalTilingFeatures & need.second) != 0; });
+            if (!std::ranges::all_of(c_Needs, [usage, &l_Properties](const auto& need) { return !HasFlag(usage, need.first) || (l_Properties.optimalTilingFeatures & need.second) != 0; }))
+            {
+                return false;
+            }
+
+            if (sampleCount == 1)
+            {
+                return true;
+            }
+
+            const VkImageUsageFlags l_Usage = ToVkImageUsage(usage);
+            VkImageFormatProperties l_ImageProperties{};
+            if (l_Usage == 0 || vkGetPhysicalDeviceImageFormatProperties(m_PhysicalDevice, l_Format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, l_Usage, 0, &l_ImageProperties) != VK_SUCCESS)
+            {
+                return false;
+            }
+
+            return (l_ImageProperties.sampleCounts & sampleCount) != 0;
         }
 
         TextureHandle VulkanDevice::CreateTexture(const TextureDescription& description)
@@ -1832,7 +1866,7 @@ namespace Trinity
             l_Create.extent = { description.Width, description.Height, 1 };
             l_Create.mipLevels = description.MipLevels;
             l_Create.arrayLayers = description.ArrayLayers;
-            l_Create.samples = VK_SAMPLE_COUNT_1_BIT;
+            l_Create.samples = static_cast<VkSampleCountFlagBits>(description.SampleCount);
             l_Create.tiling = VK_IMAGE_TILING_OPTIMAL;
             l_Create.usage = ToVkImageUsage(description.Usage);
             l_Create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -1857,6 +1891,7 @@ namespace Trinity
             l_Texture.Height = description.Height;
             l_Texture.MipLevels = description.MipLevels;
             l_Texture.ArrayLayers = description.ArrayLayers;
+            l_Texture.SampleCount = description.SampleCount;
             SetDebugName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(l_Texture.Image), description.DebugName);
 
             if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil))
@@ -2098,7 +2133,7 @@ namespace Trinity
             l_Rasterization.lineWidth = 1.0f;
 
             VkPipelineMultisampleStateCreateInfo l_Multisample = MakeInfo<VkPipelineMultisampleStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO);
-            l_Multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+            l_Multisample.rasterizationSamples = static_cast<VkSampleCountFlagBits>(description.SampleCount);
 
             VkPipelineDepthStencilStateCreateInfo l_DepthStencil = MakeInfo<VkPipelineDepthStencilStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO);
             l_DepthStencil.depthTestEnable = description.DepthTest ? VK_TRUE : VK_FALSE;

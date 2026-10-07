@@ -33,6 +33,8 @@ namespace Trinity
             std::array<float, 4> ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
             std::uint32_t MipLevel = 0;
             std::uint32_t ArrayLayer = 0;
+            // A single-sampled texture in ResolveDestination that the multisampled one is averaged into when rendering ends
+            TextureHandle ResolveTexture{};
         };
 
         struct DepthAttachment

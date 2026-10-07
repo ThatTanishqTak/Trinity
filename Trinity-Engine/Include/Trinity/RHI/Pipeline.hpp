@@ -50,6 +50,7 @@ namespace Trinity
             ShaderDescription PixelShader;
             std::span<const Format> ColorFormats;
             Format DepthFormat = Format::Unknown;
+            std::uint32_t SampleCount = 1;
             PrimitiveTopology Topology = PrimitiveTopology::TriangleList;
             CullMode Cull = CullMode::Back;
             bool FrontCounterClockwise = true;

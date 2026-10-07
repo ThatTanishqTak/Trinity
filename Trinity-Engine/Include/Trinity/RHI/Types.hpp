@@ -198,6 +198,7 @@ namespace Trinity
             Undefined,
             Present,
             RenderTarget,
+            ResolveDestination,
             DepthWrite,
             DepthRead,
             ShaderResource,

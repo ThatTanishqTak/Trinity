@@ -49,8 +49,8 @@ namespace Trinity
 
             [[nodiscard]] virtual std::span<std::byte> GetMappedData(BufferHandle buffer) = 0;
 
-            // Whether a texture of this format can be created with every usage asked for. CreateTexture refuses one that cannot, returning an invalid handle
-            [[nodiscard]] virtual bool IsFormatSupported(Format format, TextureUsage usage) const = 0;
+            // Whether a texture of this format can be created with every usage asked for and this many samples. CreateTexture refuses one that cannot, returning an invalid handle
+            [[nodiscard]] virtual bool IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount = 1) const = 0;
 
             [[nodiscard]] virtual TextureHandle CreateTexture(const TextureDescription& description) = 0;
             virtual void DestroyTexture(TextureHandle texture) = 0;

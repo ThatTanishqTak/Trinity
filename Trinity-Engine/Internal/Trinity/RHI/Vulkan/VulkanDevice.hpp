@@ -48,6 +48,7 @@ namespace Trinity
             std::uint32_t Height = 0;
             std::uint32_t MipLevels = 0;
             std::uint32_t ArrayLayers = 0;
+            std::uint32_t SampleCount = 1;
             std::uint32_t ShaderResourceIndex = c_NoBindlessIndex;
             std::uint32_t UnorderedAccessIndex = c_NoBindlessIndex;
         };
@@ -115,7 +116,7 @@ namespace Trinity
             void DestroyBuffer(BufferHandle buffer) override;
             [[nodiscard]] std::span<std::byte> GetMappedData(BufferHandle buffer) override;
 
-            [[nodiscard]] bool IsFormatSupported(Format format, TextureUsage usage) const override;
+            [[nodiscard]] bool IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const override;
             [[nodiscard]] TextureHandle CreateTexture(const TextureDescription& description) override;
             void DestroyTexture(TextureHandle texture) override;
 

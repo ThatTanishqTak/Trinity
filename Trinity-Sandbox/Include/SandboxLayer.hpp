@@ -28,6 +28,7 @@ private:
     void TestCompute();
     void TestLayeredTextures();
     void TestRasterState();
+    void TestMultisampling();
     void CreateSprites();
     void UpdateSprites();
     void TestSpriteReadback();
