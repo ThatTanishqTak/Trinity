@@ -232,6 +232,38 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
 
     Label("Primary");
     EditField<Trinity::CameraComponent>(l_History, entity, "Primary", [](Trinity::CameraComponent& camera) { return ImGui::Checkbox("##Primary", &camera.Primary); });
+
+    Label("Exposure");
+    EditField<Trinity::CameraComponent>(l_History, entity, "ExposureEV100", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Exposure", &camera.ExposureEV100, 0.05f, -10.0f, 24.0f, "%.2f EV100", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Tonemapper");
+    EditField<Trinity::CameraComponent>(l_History, entity, "Tonemap", [](Trinity::CameraComponent& camera)
+    {
+        constexpr std::array<std::pair<Trinity::Tonemapper, const char*>, 2> c_Tonemappers{ { { Trinity::Tonemapper::None, "None" }, { Trinity::Tonemapper::PBRNeutral, "PBR Neutral" } } };
+
+        bool l_Changed = false;
+        const auto a_Current = std::ranges::find(c_Tonemappers, camera.Tonemap, &std::pair<Trinity::Tonemapper, const char*>::first);
+        if (ImGui::BeginCombo("##Tonemapper", a_Current != c_Tonemappers.end() ? a_Current->second : "?"))
+        {
+            for (const auto& [it_Tonemapper, it_Name] : c_Tonemappers)
+            {
+                if (ImGui::Selectable(it_Name, it_Tonemapper == camera.Tonemap) && it_Tonemapper != camera.Tonemap)
+                {
+                    camera.Tonemap = it_Tonemapper;
+                    l_Changed = true;
+                }
+            }
+
+            ImGui::EndCombo();
+        }
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Exposure 1 is EV100 %.3f. PBR Neutral matches glTF Sample Viewer, and None only clamps, which keeps unlit 2D colours as they are", Trinity::c_NeutralEV100);
+    }
 }
 
 void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
@@ -491,7 +523,7 @@ void PropertiesPanel::DrawTexturePreview()
     const float l_Width = static_cast<float>(l_Texture->GetWidth());
     const float l_Height = static_cast<float>(std::max(l_Texture->GetHeight(), 1u));
     const float l_Scale = std::min({ ImGui::GetContentRegionAvail().x / l_Width, ImGui::GetFontSize() * 16.0f / l_Height, 1.0f });
-    ImGui::Image(ImTextureRef(static_cast<ImTextureID>(l_Texture->GetShaderResourceIndex())), ImVec2(l_Width * l_Scale, l_Height * l_Scale));
+    ImGui::Image(ImTextureRef(static_cast<ImTextureID>(Trinity::GetImGuiTextureID(*l_Texture))), ImVec2(l_Width * l_Scale, l_Height * l_Scale));
     ImGui::TextDisabled("%ux%u, %u mip(s), %s", l_Texture->GetWidth(), l_Texture->GetHeight(), l_Texture->GetMipLevels(), std::string(Trinity::RHI::ToString(l_Texture->GetFormat())).c_str());
     ImGui::Spacing();
 }

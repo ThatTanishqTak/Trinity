@@ -327,7 +327,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, float size)
             const float l_Aspect = static_cast<float>(l_Texture->GetWidth()) / static_cast<float>(std::max(l_Texture->GetHeight(), 1u));
             const ImVec2 l_Fit = l_Aspect >= 1.0f ? ImVec2(l_ImageSize, l_ImageSize / l_Aspect) : ImVec2(l_ImageSize * l_Aspect, l_ImageSize);
             const ImVec2 l_FitMin(l_ImageMin.x + (l_ImageSize - l_Fit.x) * 0.5f, l_ImageMin.y + (l_ImageSize - l_Fit.y) * 0.5f);
-            l_DrawList.AddImage(ImTextureRef(static_cast<ImTextureID>(l_Texture->GetShaderResourceIndex())), l_FitMin, ImVec2(l_FitMin.x + l_Fit.x, l_FitMin.y + l_Fit.y));
+            l_DrawList.AddImage(ImTextureRef(static_cast<ImTextureID>(Trinity::GetImGuiTextureID(*l_Texture))), l_FitMin, ImVec2(l_FitMin.x + l_Fit.x, l_FitMin.y + l_Fit.y));
         }
         else
         {

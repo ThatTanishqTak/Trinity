@@ -33,6 +33,7 @@ private:
     void TestMultisampling();
     void TestTimestamps();
     void TestFrameGraph();
+    void TestToneMapping();
     void CheckRendererGraph();
     void CheckGpuTimes();
     void UpdateResizes();
@@ -47,6 +48,7 @@ private:
     Trinity::Scope<Trinity::Scene> m_SpriteScene;
     Trinity::Scope<Trinity::Scene> m_SpriteReadbackScene;
     std::vector<Trinity::UUID> m_SpriteTextures;
+    Trinity::UUID m_GreyTexture;
     SpritePhase m_SpritePhase = SpritePhase::Idle;
     std::uint64_t m_SpritePhaseFrame = 0;
     Trinity::RHI::BufferHandle m_SpriteReadback;

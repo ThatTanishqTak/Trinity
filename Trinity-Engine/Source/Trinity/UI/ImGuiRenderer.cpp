@@ -25,7 +25,7 @@ namespace Trinity
             std::array<std::uint32_t, 2> Texture;
             std::array<std::uint32_t, 2> Sampler;
             std::uint32_t VertexOffset = 0;
-            std::uint32_t Padding = 0;
+            std::uint32_t Flags = 0;
             std::array<float, 2> Scale;
             std::array<float, 2> Translate;
         };
@@ -367,7 +367,8 @@ namespace Trinity
                 const std::int32_t l_Top = static_cast<std::int32_t>(l_MinY);
                 commands.SetScissor({ l_Left, l_Top, static_cast<std::uint32_t>(static_cast<std::int32_t>(l_MaxX) - l_Left), static_cast<std::uint32_t>(static_cast<std::int32_t>(l_MaxY) - l_Top) });
 
-                l_PushData.Texture = { static_cast<std::uint32_t>(l_Texture), 0 };
+                l_PushData.Texture = { static_cast<std::uint32_t>(l_Texture & 0xFFFFFFFF), 0 };
+                l_PushData.Flags = static_cast<std::uint32_t>(l_Texture >> 32);
                 l_PushData.VertexOffset = static_cast<std::uint32_t>(l_Vertices.Offset + (l_GlobalVertex + it_Command.VtxOffset) * sizeof(ImDrawVert));
                 commands.PushConstants(std::as_bytes(std::span(&l_PushData, 1)));
                 commands.DrawIndexed(it_Command.ElemCount, 1, l_GlobalIndex + it_Command.IdxOffset, 0);

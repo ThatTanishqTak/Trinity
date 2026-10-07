@@ -68,8 +68,7 @@ namespace Trinity
 
     TextureLoader::TextureLoader(RHI::Device& device) : m_Device(device)
     {
-        constexpr RHI::Format c_Compressed = RHI::Format::BC7Unorm;
-        m_BC7Supported = m_Device.IsFormatSupported(c_Compressed, c_TextureUsage);
+        m_BC7Supported = m_Device.IsFormatSupported(RHI::Format::BC7Unorm, c_TextureUsage) && m_Device.IsFormatSupported(RHI::Format::BC7Srgb, c_TextureUsage);
 
         m_Placeholder.m_Width = 1;
         m_Placeholder.m_Height = 1;
@@ -91,7 +90,7 @@ namespace Trinity
         return GetCookedTexturePath(record.ID);
     }
 
-    // On a worker. Gamma space for now: an sRGB texture is recorded as such but sampled as UNORM, as everything else is
+    // On a worker. A texture whose transfer function is sRGB gets an sRGB format, so sampling it returns linear values and filters in linear light
     Expected<Asset*, std::string> TextureLoader::Load(std::span<const std::byte> data) const
     {
         TR_PROFILE_FUNCTION();
@@ -112,7 +111,8 @@ namespace Trinity
         const std::uint32_t l_Width = l_Ktx->baseWidth;
         const std::uint32_t l_Height = l_Ktx->baseHeight;
 
-        RHI::Format l_Format = RHI::Format::RGBA8Unorm;
+        const bool l_Srgb = ktxTexture2_GetTransferFunction_e(l_Ktx.get()) == KHR_DF_TRANSFER_SRGB;
+        RHI::Format l_Format = l_Srgb ? RHI::Format::RGBA8Srgb : RHI::Format::RGBA8Unorm;
         if (ktxTexture2_NeedsTranscoding(l_Ktx.get()))
         {
             // D3D12 creates a BC texture only when the top mip is whole blocks
@@ -123,7 +123,10 @@ namespace Trinity
                 return Unexpected{ std::format("could not be transcoded to {} ({})", l_BC7 ? "BC7" : "RGBA8", ktxErrorString(l_Transcoded)) };
             }
 
-            l_Format = l_BC7 ? RHI::Format::BC7Unorm : RHI::Format::RGBA8Unorm;
+            if (l_BC7)
+            {
+                l_Format = l_Srgb ? RHI::Format::BC7Srgb : RHI::Format::BC7Unorm;
+            }
         }
         else if (l_Ktx->vkFormat != c_VkFormatRGBA8Unorm && l_Ktx->vkFormat != c_VkFormatRGBA8Srgb)
         {
@@ -135,7 +138,7 @@ namespace Trinity
         l_Texture->m_Height = l_Height;
         l_Texture->m_MipLevels = l_Ktx->numLevels;
         l_Texture->m_Format = l_Format;
-        l_Texture->m_Srgb = ktxTexture2_GetTransferFunction_e(l_Ktx.get()) == KHR_DF_TRANSFER_SRGB;
+        l_Texture->m_Srgb = l_Srgb;
 
         // The importer records how the texture should be filtered. A file without the key is filtered linearly
         unsigned int l_FilterLength = 0;

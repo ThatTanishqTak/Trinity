@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
+#include "Trinity/Renderer/ToneMapping.hpp"
 #include "Trinity/Scene/ComponentType.hpp"
 
 #include <entt/entity/entity.hpp>
@@ -103,6 +104,12 @@ namespace Trinity
         float Near = -1.0f;
         float Far = 1.0f;
         bool Primary = true;
+
+        // How the image this camera shows is exposed and tone mapped. Scenes saved before these existed load with no curve, as they were drawn then
+        float ExposureEV100 = c_NeutralEV100;
+        Tonemapper Tonemap = Tonemapper::PBRNeutral;
+
+        [[nodiscard]] ToneMapping GetToneMapping() const { return { ExposureEV100, Tonemap }; }
 
         // OrthographicSize is the visible height. Near and far are swapped for reversed depth, so near maps to 1 and far to 0
         [[nodiscard]] glm::mat4 GetProjection(float aspectRatio) const

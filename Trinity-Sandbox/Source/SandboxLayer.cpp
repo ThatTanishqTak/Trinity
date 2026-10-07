@@ -1,5 +1,7 @@
 #include "SandboxLayer.hpp"
 
+#include <glm/gtc/packing.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -26,8 +28,18 @@ namespace
     constexpr std::uint64_t c_SpriteReportFrame = 1000;
     constexpr std::uint64_t c_SpriteLoadTimeoutFrames = 600;
     constexpr std::uint32_t c_SpriteReadbackSize = 128;
+
+    // The Renderer's display format, which its tonemap pass writes
     constexpr Trinity::RHI::Format c_SpriteReadbackFormat = Trinity::RHI::Format::RGBA8Unorm;
     constexpr std::array<float, 4> c_SpriteReadbackClear{ 0.0f, 0.0f, 0.0f, 1.0f };
+
+    // Exposure 1 and no curve, so unlit sprites reach the readback as they were drawn
+    constexpr Trinity::ToneMapping c_SpriteReadbackToneMapping{ Trinity::c_NeutralEV100, Trinity::Tonemapper::None };
+
+    // An sRGB texture of one grey, which must come back from the readback as the same 8-bit value
+    constexpr std::string_view c_GreyTextureName = "Grey.png";
+    constexpr std::uint8_t c_GreyValue = 128;
+
     constexpr float c_ClearCycleSeconds = 10.0f;
 
     // The storage buffer holds c_ComputeWordCount words from one dispatch and as many again from the next, and the storage texture is c_ComputeTextureSize texels square
@@ -190,8 +202,8 @@ namespace
         AppendU32(bytes, static_cast<std::uint32_t>(value >> 32));
     }
 
-    // A single-mip RGBA8 UNORM KTX2 file: the header, the level index, a basic data format descriptor with four 8-bit samples, the filter key when asked for, then the texels
-    std::vector<std::byte> MakeSpriteKtx2(std::span<const std::uint8_t> texels, std::uint32_t size, bool nearest)
+    // A single-mip RGBA8 UNORM or sRGB KTX2 file: the header, the level index, a basic data format descriptor with four 8-bit samples, the filter key when asked for, then the texels
+    std::vector<std::byte> MakeSpriteKtx2(std::span<const std::uint8_t> texels, std::uint32_t size, bool nearest, bool srgb)
     {
         constexpr std::uint32_t c_HeaderSize = 80;
         constexpr std::uint32_t c_LevelIndexSize = 24;
@@ -224,7 +236,7 @@ namespace
             l_File.push_back(static_cast<std::byte>(it_Byte));
         }
 
-        AppendU32(l_File, 37);
+        AppendU32(l_File, srgb ? 43 : 37);
         AppendU32(l_File, 1);
         AppendU32(l_File, size);
         AppendU32(l_File, size);
@@ -244,17 +256,17 @@ namespace
         AppendU64(l_File, texels.size());
         AppendU64(l_File, texels.size());
 
-        // RGBSDA colour model, BT.709 primaries and a linear transfer function, then R, G, B and A, with alpha as channel 15
+        // RGBSDA colour model, BT.709 primaries and a linear or sRGB transfer function, then R, G, B and A, with alpha as channel 15, marked linear in an sRGB texture
         AppendU32(l_File, c_DfdSize);
         AppendU32(l_File, 0);
         AppendU32(l_File, 2 | ((c_DfdSize - 4) << 16));
-        AppendU32(l_File, 1 | (1 << 8) | (1 << 16));
+        AppendU32(l_File, 1 | (1 << 8) | ((srgb ? 2u : 1u) << 16));
         AppendU32(l_File, 0);
         AppendU32(l_File, 4);
         AppendU32(l_File, 0);
         for (std::uint32_t it_Sample = 0; it_Sample < 4; ++it_Sample)
         {
-            const std::uint32_t l_Channel = it_Sample < 3 ? it_Sample : 15;
+            const std::uint32_t l_Channel = it_Sample < 3 ? it_Sample : (srgb ? 15 | 0x10 : 15);
             AppendU32(l_File, (it_Sample * 8) | (7 << 16) | (l_Channel << 24));
             AppendU32(l_File, 0);
             AppendU32(l_File, 0);
@@ -378,6 +390,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
         TestMultisampling();
         TestTimestamps();
         TestFrameGraph();
+        TestToneMapping();
     }
 
     CheckRendererGraph();
@@ -1723,7 +1736,175 @@ void SandboxLayer::TestFrameGraph()
     TR_INFO("Frame graph: {} ran 3 of 4 passes with the unused one culled and {} barriers a frame, reused 2 pooled textures over {} frames with Renderer holding {} over the last two, and all {} probes for the pattern and the triangle hold", Trinity::ToString(l_Info.API), l_First.Barriers, c_FrameCount, Trinity::Memory::FormatBytes(l_RendererBytes[3]), l_Probes.size());
 }
 
-// Once the Renderer has run a frame: its scene and output passes ran and the Sandbox's unused pass was culled
+// Linear colours from black to far past white go through the Renderer's tonemap pass three ways, and each 8-bit result must be within one step of ApplyToneMapping on the CPU
+void SandboxLayer::TestToneMapping()
+{
+    TR_PROFILE_FUNCTION();
+
+    constexpr std::array<glm::vec3, 24> c_Colors
+    { {
+        { 0.0f, 0.0f, 0.0f }, { 0.001f, 0.001f, 0.001f }, { 0.003f, 0.003f, 0.003f }, { 0.01f, 0.01f, 0.01f },
+        { 0.05f, 0.05f, 0.05f }, { 0.1f, 0.1f, 0.1f }, { 0.18f, 0.18f, 0.18f }, { 0.2159f, 0.2159f, 0.2159f },
+        { 0.5f, 0.5f, 0.5f }, { 0.75f, 0.75f, 0.75f }, { 0.9f, 0.9f, 0.9f }, { 1.0f, 1.0f, 1.0f },
+        { 1.5f, 1.5f, 1.5f }, { 2.0f, 2.0f, 2.0f }, { 4.0f, 4.0f, 4.0f }, { 16.0f, 16.0f, 16.0f },
+        { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 2.0f, 0.5f, 0.1f },
+        { 0.2f, 0.6f, 1.2f }, { 0.05f, 0.03f, 0.01f }, { 10.0f, 5.0f, 1.0f }, { 0.5f, 0.25f, 0.125f }
+    } };
+
+    constexpr std::size_t c_MidGrey = 6;
+    constexpr std::uint32_t c_Width = static_cast<std::uint32_t>(c_Colors.size());
+    constexpr Trinity::RHI::Format c_InputFormat = Trinity::RHI::Format::RGBA16Float;
+    constexpr Trinity::RHI::Format c_OutputFormat = Trinity::RHI::Format::RGBA8Unorm;
+
+    // No change, half the light with no curve, and four times the light through the curve
+    constexpr std::array<Trinity::ToneMapping, 3> c_Settings
+    { {
+        { Trinity::c_NeutralEV100, Trinity::Tonemapper::PBRNeutral },
+        { Trinity::c_NeutralEV100 + 1.0f, Trinity::Tonemapper::None },
+        { Trinity::c_NeutralEV100 - 2.0f, Trinity::Tonemapper::PBRNeutral }
+    } };
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+    const Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
+
+    const std::uint64_t l_InputPitch = Trinity::RHI::GetTextureCopyRowPitch(c_InputFormat, c_Width);
+    const std::uint64_t l_OutputStride = (Trinity::RHI::GetTextureCopyRowPitch(c_OutputFormat, c_Width) + Trinity::RHI::c_TextureCopyOffsetAlignment - 1) / Trinity::RHI::c_TextureCopyOffsetAlignment * Trinity::RHI::c_TextureCopyOffsetAlignment;
+
+    Trinity::RHI::BufferDescription l_ReadbackDescription;
+    l_ReadbackDescription.Size = l_OutputStride * c_Settings.size();
+    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_ReadbackDescription.DebugName = "Sandbox tone mapping readback";
+    const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_ReadbackDescription);
+    if (!l_Readback)
+    {
+        TR_ERROR("Tone mapping: could not create the readback");
+
+        return;
+    }
+
+    // The CPU reference starts from the colours as the half floats hold them
+    std::array<glm::vec3, c_Colors.size()> l_Inputs{};
+    {
+        Trinity::FrameGraph l_Graph(l_Device);
+        Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+
+        const Trinity::RHI::UploadAllocation l_Upload = l_Device.AllocateUpload(l_InputPitch, Trinity::RHI::c_TextureCopyOffsetAlignment);
+        for (std::size_t it_Color = 0; it_Color < c_Colors.size(); ++it_Color)
+        {
+            const glm::vec4 l_Color(c_Colors[it_Color], 1.0f);
+            std::array<std::uint16_t, 4> l_Halves{};
+            for (glm::length_t it_Channel = 0; it_Channel < 4; ++it_Channel)
+            {
+                l_Halves[static_cast<std::size_t>(it_Channel)] = glm::packHalf1x16(l_Color[it_Channel]);
+                if (it_Channel < 3)
+                {
+                    l_Inputs[it_Color][it_Channel] = glm::unpackHalf1x16(l_Halves[static_cast<std::size_t>(it_Channel)]);
+                }
+            }
+
+            if (l_Upload.Data.size() >= (it_Color + 1) * sizeof(l_Halves))
+            {
+                std::memcpy(l_Upload.Data.data() + it_Color * sizeof(l_Halves), l_Halves.data(), sizeof(l_Halves));
+            }
+        }
+
+        Trinity::RHI::TextureDescription l_InputDescription;
+        l_InputDescription.Width = c_Width;
+        l_InputDescription.Height = 1;
+        l_InputDescription.TextureFormat = c_InputFormat;
+
+        Trinity::RHI::TextureDescription l_OutputDescription = l_InputDescription;
+        l_OutputDescription.TextureFormat = c_OutputFormat;
+
+        const Trinity::FrameGraphTexture l_Input = l_Graph.CreateTexture("Tone mapping input", l_InputDescription);
+        const Trinity::FrameGraphBuffer l_GraphUpload = l_Graph.ImportBuffer("Tone mapping upload", l_Upload.Buffer, l_Upload.Offset + l_InputPitch, Trinity::RHI::ResourceState::CopySource, Trinity::RHI::ResourceState::CopySource);
+        const Trinity::FrameGraphBuffer l_GraphReadback = l_Graph.ImportBuffer("Tone mapping readback", l_Readback, l_ReadbackDescription.Size, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination);
+
+        const std::uint64_t l_UploadOffset = l_Upload.Offset;
+        l_Graph.AddPass("Tone mapping upload", Trinity::FrameGraphPassType::Copy, [l_Input, l_GraphUpload](Trinity::FrameGraphPassBuilder& builder)
+        {
+            builder.Read(l_GraphUpload, Trinity::RHI::ResourceState::CopySource);
+            builder.Write(l_Input, Trinity::RHI::ResourceState::CopyDestination);
+        }, [l_Input, l_GraphUpload, l_UploadOffset](const Trinity::FrameGraphContext& context)
+        {
+            context.GetCommands().CopyBufferToTexture(context.GetBuffer(l_GraphUpload), l_UploadOffset, context.GetTexture(l_Input), 0, 0, { 0, 0, c_Width, 1 });
+        });
+
+        std::array<Trinity::FrameGraphTexture, c_Settings.size()> l_Outputs{};
+        for (std::size_t it_Setting = 0; it_Setting < c_Settings.size(); ++it_Setting)
+        {
+            l_Outputs[it_Setting] = l_Graph.CreateTexture("Tone mapping output", l_OutputDescription);
+            l_Renderer.AddTonemapPass(l_Graph, l_Input, l_Outputs[it_Setting], c_Settings[it_Setting]);
+        }
+
+        l_Graph.AddPass("Tone mapping readback", Trinity::FrameGraphPassType::Copy, [l_Outputs, l_GraphReadback](Trinity::FrameGraphPassBuilder& builder)
+        {
+            for (const Trinity::FrameGraphTexture it_Output : l_Outputs)
+            {
+                builder.Read(it_Output, Trinity::RHI::ResourceState::CopySource);
+            }
+
+            builder.Write(l_GraphReadback, Trinity::RHI::ResourceState::CopyDestination);
+        }, [l_Outputs, l_GraphReadback, l_OutputStride](const Trinity::FrameGraphContext& context)
+        {
+            for (std::size_t it_Output = 0; it_Output < l_Outputs.size(); ++it_Output)
+            {
+                context.GetCommands().CopyTextureToBuffer(context.GetTexture(l_Outputs[it_Output]), 0, 0, context.GetBuffer(l_GraphReadback), it_Output * l_OutputStride);
+            }
+        });
+
+        l_Graph.Execute(l_Commands);
+        l_Device.EndFrame();
+        l_Device.WaitIdle();
+    }
+
+    if (l_Info.API == Trinity::GraphicsAPI::None)
+    {
+        TR_INFO("Tone mapping: None ran {} colours through the tonemap pass {} ways", c_Colors.size(), c_Settings.size());
+        l_Device.DestroyBuffer(l_Readback);
+
+        return;
+    }
+
+    const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+    std::string l_Wrong;
+    std::uint32_t l_MidGrey = 0;
+    for (std::size_t it_Setting = 0; it_Setting < c_Settings.size(); ++it_Setting)
+    {
+        for (std::size_t it_Color = 0; it_Color < c_Colors.size(); ++it_Color)
+        {
+            const glm::vec3 l_Expected = glm::round(Trinity::ApplyToneMapping(l_Inputs[it_Color], c_Settings[it_Setting]) * 255.0f);
+            const std::size_t l_Offset = static_cast<std::size_t>(it_Setting * l_OutputStride + it_Color * 4);
+            const auto a_Channel = [&l_Data, l_Offset](std::size_t channel) { return l_Offset + channel < l_Data.size() ? std::to_integer<std::int32_t>(l_Data[l_Offset + channel]) : -1; };
+
+            bool l_Matches = true;
+            for (glm::length_t it_Channel = 0; it_Channel < 3; ++it_Channel)
+            {
+                l_Matches = l_Matches && std::abs(a_Channel(static_cast<std::size_t>(it_Channel)) - static_cast<std::int32_t>(l_Expected[it_Channel])) <= 1;
+            }
+
+            if (!l_Matches)
+            {
+                l_Wrong += std::format("{}setting {} colour ({}, {}, {}) is ({}, {}, {}) where ({}, {}, {}) was expected", l_Wrong.empty() ? "" : "; ", it_Setting, c_Colors[it_Color].r, c_Colors[it_Color].g, c_Colors[it_Color].b, a_Channel(0), a_Channel(1), a_Channel(2), l_Expected.r, l_Expected.g, l_Expected.b);
+            }
+
+            l_MidGrey = it_Setting == 0 && it_Color == c_MidGrey ? static_cast<std::uint32_t>(std::max(a_Channel(0), 0)) : l_MidGrey;
+        }
+    }
+
+    l_Device.DestroyBuffer(l_Readback);
+
+    if (!l_Wrong.empty())
+    {
+        TR_ERROR("Tone mapping: the tonemap pass differs from the CPU reference: {}", l_Wrong);
+
+        return;
+    }
+
+    TR_INFO("Tone mapping: {} matched the CPU reference within one 8-bit step for {} linear colours through PBR Neutral, through no curve at EV100 +1 and through PBR Neutral at EV100 -2, from exposure 1, with linear 0.18 under PBR Neutral at {}", Trinity::ToString(l_Info.API), c_Colors.size(), l_MidGrey);
+}
 void SandboxLayer::CheckRendererGraph()
 {
     const Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
@@ -1859,6 +2040,13 @@ void SandboxLayer::CreateSprites()
         }
     }
 
+    if (!Trinity::FileSystem::WriteText(std::format("{}/{}", c_SpriteTestRoot, c_GreyTextureName), "A grey sRGB texture; the cooked KTX2 is made in memory"))
+    {
+        TR_ERROR("Sprites: the source files under {} could not be written", c_SpriteTestRoot);
+
+        return;
+    }
+
     m_SpriteRegistry = Trinity::CreateScope<Trinity::AssetRegistry>(c_SpriteTestRoot);
     static_cast<void>(m_SpriteRegistry->Scan());
 
@@ -1874,11 +2062,29 @@ void SandboxLayer::CreateSprites()
         }
 
         const std::vector<std::uint8_t> l_Texels = MakeSpriteTexels(it_Index);
-        const std::vector<std::byte> l_File = MakeSpriteKtx2(l_Texels, c_SpriteTextureSize, it_Index == 0);
+        const std::vector<std::byte> l_File = MakeSpriteKtx2(l_Texels, c_SpriteTextureSize, it_Index == 0, false);
         const std::string l_Path = Trinity::GetCookedTexturePath(l_Record->ID);
         static_cast<void>(l_Cache->AddFile(std::string_view(l_Path).substr(Trinity::Project::c_CacheMount.size() + 1), l_File));
         m_SpriteTextures.push_back(l_Record->ID);
     }
+
+    const Trinity::AssetRecord* l_GreyRecord = m_SpriteRegistry->FindByPath(std::format("{}/{}", c_SpriteTestRoot, c_GreyTextureName));
+    if (l_GreyRecord == nullptr)
+    {
+        TR_ERROR("Sprites: the registry has no record for the grey texture");
+
+        return;
+    }
+
+    std::vector<std::uint8_t> l_GreyTexels(std::size_t{ c_SpriteTextureSize } * c_SpriteTextureSize * 4, c_GreyValue);
+    for (std::size_t it_Alpha = 3; it_Alpha < l_GreyTexels.size(); it_Alpha += 4)
+    {
+        l_GreyTexels[it_Alpha] = 255;
+    }
+
+    const std::string l_GreyPath = Trinity::GetCookedTexturePath(l_GreyRecord->ID);
+    static_cast<void>(l_Cache->AddFile(std::string_view(l_GreyPath).substr(Trinity::Project::c_CacheMount.size() + 1), MakeSpriteKtx2(l_GreyTexels, c_SpriteTextureSize, true, true)));
+    m_GreyTexture = l_GreyRecord->ID;
 
     if (!Trinity::FileSystem::Mount(Trinity::Project::c_CacheMount, std::move(l_Cache)))
     {
@@ -1931,7 +2137,10 @@ void SandboxLayer::CreateSprites()
     // One unit is one pixel of the 128x128 readback target, centred on the origin
     m_SpriteReadbackScene = Trinity::CreateScope<Trinity::Scene>();
     Trinity::Scene& l_Scene = *m_SpriteReadbackScene;
-    l_Scene.CreateEntity("Camera").Add<Trinity::CameraComponent>().OrthographicSize = static_cast<float>(c_SpriteReadbackSize);
+    Trinity::CameraComponent& l_ReadbackCamera = l_Scene.CreateEntity("Camera").Add<Trinity::CameraComponent>();
+    l_ReadbackCamera.OrthographicSize = static_cast<float>(c_SpriteReadbackSize);
+    l_ReadbackCamera.ExposureEV100 = c_SpriteReadbackToneMapping.ExposureEV100;
+    l_ReadbackCamera.Tonemap = c_SpriteReadbackToneMapping.Curve;
 
     const auto a_Sprite = [&l_Scene](std::string_view name, glm::vec2 position, glm::vec2 size, glm::vec4 tint, std::int32_t layer, std::int32_t order, Trinity::Entity parent = {})
     {
@@ -1965,6 +2174,9 @@ void SandboxLayer::CreateSprites()
     l_Quadrants.Get<Trinity::SpriteRendererComponent>().Texture = m_SpriteTextures[0];
     l_Quadrants.Get<Trinity::SpriteRendererComponent>().FlipX = true;
 
+    Trinity::Entity l_Grey = a_Sprite("Grey", { -55.0f, -55.0f }, { 10.0f, 10.0f }, glm::vec4(1.0f), 0, 0);
+    l_Grey.Get<Trinity::SpriteRendererComponent>().Texture = m_GreyTexture;
+
     l_Scene.UpdateWorldTransforms();
 
     Trinity::AssetManager::SetRegistry(m_SpriteRegistry.get());
@@ -1994,19 +2206,20 @@ void SandboxLayer::UpdateSprites()
 
     // A texture that became ready this frame is uploaded before the graph runs, so the readback can draw it in this frame
     const std::uint64_t l_Frame = Trinity::Application::Get().GetFrameCount();
-    const bool l_Loaded = std::ranges::all_of(m_SpriteTextures, [](Trinity::UUID id) { return Trinity::AssetManager::GetState(id) == Trinity::AssetState::Ready; });
+    const auto a_Ready = [](Trinity::UUID id) { return Trinity::AssetManager::GetState(id) == Trinity::AssetState::Ready; };
+    const bool l_Loaded = std::ranges::all_of(m_SpriteTextures, a_Ready) && a_Ready(m_GreyTexture);
     if (!l_Loaded)
     {
         if (l_Frame - m_SpritePhaseFrame > c_SpriteLoadTimeoutFrames)
         {
-            TR_ERROR("Sprites: the {} textures were not all loaded after {} frames", c_SpriteTextureCount, c_SpriteLoadTimeoutFrames);
+            TR_ERROR("Sprites: the {} textures and the grey one were not all loaded after {} frames", c_SpriteTextureCount, c_SpriteLoadTimeoutFrames);
             m_SpritePhase = SpritePhase::Running;
         }
 
         return;
     }
 
-    TR_INFO("Sprites: {} textures loaded in {} frame(s)", c_SpriteTextureCount, l_Frame - m_SpritePhaseFrame);
+    TR_INFO("Sprites: {} textures and the grey one loaded in {} frame(s)", c_SpriteTextureCount, l_Frame - m_SpritePhaseFrame);
 
     Trinity::RHI::BufferDescription l_ReadbackDescription;
     l_ReadbackDescription.Size = Trinity::RHI::GetTextureCopyRowPitch(c_SpriteReadbackFormat, c_SpriteReadbackSize) * c_SpriteReadbackSize;
@@ -2026,27 +2239,36 @@ void SandboxLayer::UpdateSprites()
     m_SpritePhase = SpritePhase::Reading;
 }
 
-// A transient target cleared to black, the readback scene drawn into it, and a copy into the readback buffer
+// As the Renderer draws a frame: the readback scene into a transient linear target cleared to black, the tonemap pass with the readback camera's exposure 1 and no curve into an 8-bit target, then a copy into the readback buffer
 void SandboxLayer::AddSpriteReadback(Trinity::FrameGraph& graph)
 {
     m_SpriteReadbackAdded = true;
 
-    Trinity::RHI::TextureDescription l_TargetDescription;
-    l_TargetDescription.Width = c_SpriteReadbackSize;
-    l_TargetDescription.Height = c_SpriteReadbackSize;
+    const Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
+    const Trinity::RHI::Format l_SceneFormat = l_Renderer.GetSceneFormat();
+
+    Trinity::RHI::TextureDescription l_SceneDescription;
+    l_SceneDescription.Width = c_SpriteReadbackSize;
+    l_SceneDescription.Height = c_SpriteReadbackSize;
+    l_SceneDescription.TextureFormat = l_SceneFormat;
+    l_SceneDescription.ClearColor = c_SpriteReadbackClear;
+
+    Trinity::RHI::TextureDescription l_TargetDescription = l_SceneDescription;
     l_TargetDescription.TextureFormat = c_SpriteReadbackFormat;
-    l_TargetDescription.ClearColor = c_SpriteReadbackClear;
 
     const std::uint64_t l_Size = Trinity::RHI::GetTextureCopyRowPitch(c_SpriteReadbackFormat, c_SpriteReadbackSize) * c_SpriteReadbackSize;
+    const Trinity::FrameGraphTexture l_Scene = graph.CreateTexture("Sandbox sprite scene", l_SceneDescription);
     const Trinity::FrameGraphTexture l_Target = graph.CreateTexture("Sandbox sprite target", l_TargetDescription);
     const Trinity::FrameGraphBuffer l_Readback = graph.ImportBuffer("Sandbox sprite readback", m_SpriteReadback, l_Size, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination);
 
-    graph.AddPass("Sandbox sprites", Trinity::FrameGraphPassType::Raster, [l_Target](Trinity::FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Target, Trinity::RHI::LoadOp::Clear, c_SpriteReadbackClear }); }, [this](const Trinity::FrameGraphContext& context)
+    graph.AddPass("Sandbox sprites", Trinity::FrameGraphPassType::Raster, [l_Scene](Trinity::FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Scene, Trinity::RHI::LoadOp::Clear, c_SpriteReadbackClear }); }, [this, l_SceneFormat](const Trinity::FrameGraphContext& context)
     {
         Trinity::Renderer2D& l_Renderer2D = Trinity::Application::Get().GetRenderer().GetRenderer2D();
-        m_SpriteReadbackDrawn = l_Renderer2D.DrawScene(context.GetCommands(), *m_SpriteReadbackScene, c_SpriteReadbackFormat, c_SpriteReadbackSize, c_SpriteReadbackSize);
+        m_SpriteReadbackDrawn = l_Renderer2D.DrawScene(context.GetCommands(), *m_SpriteReadbackScene, l_SceneFormat, c_SpriteReadbackSize, c_SpriteReadbackSize);
         m_SpriteReadbackStatistics = l_Renderer2D.GetStatistics();
     });
+
+    l_Renderer.AddTonemapPass(graph, l_Scene, l_Target, c_SpriteReadbackToneMapping);
 
     graph.AddPass("Sandbox sprite copy", Trinity::FrameGraphPassType::Copy, [l_Target, l_Readback](Trinity::FrameGraphPassBuilder& builder)
     {
@@ -2071,13 +2293,13 @@ void SandboxLayer::CheckSpriteReadback()
         std::int32_t Tolerance = 2;
     };
 
-    constexpr std::array<Probe, 16> c_Probes
+    constexpr std::array<Probe, 17> c_Probes
     { {
         { "red alone", { -48.0f, 48.0f }, { 255, 0, 0 } },
         { "green over red, order 1 over 0", { -26.0f, 26.0f }, { 0, 255, 0 } },
         { "blue alone on layer -1", { 5.0f, 15.0f }, { 0, 0, 255 } },
         { "green over blue, layer 0 over -1 despite order 9", { -15.0f, 15.0f }, { 0, 255, 0 } },
-        { "half-transparent blue over red", { -20.0f, 46.0f }, { 128, 0, 128 }, 3 },
+        { "half-transparent blue over red, blended in linear light", { -20.0f, 46.0f }, { 187, 0, 188 }, 3 },
         { "yellow over cyan, later in hierarchy order", { 35.0f, 35.0f }, { 255, 255, 0 } },
         { "cyan alone", { 50.0f, 50.0f }, { 0, 255, 255 } },
         { "yellow alone", { 20.0f, 20.0f }, { 255, 255, 0 } },
@@ -2088,7 +2310,8 @@ void SandboxLayer::CheckSpriteReadback()
         { "flipped bottom left shows yellow", { -38.0f, -38.0f }, { 255, 255, 0 } },
         { "flipped bottom right shows blue", { -22.0f, -38.0f }, { 0, 0, 255 } },
         { "a quarter texel from the edge, nearest filtering keeps green unmixed", { -30.5f, -22.0f }, { 0, 255, 0 } },
-        { "background", { 55.0f, -55.0f }, { 0, 0, 0 } }
+        { "background", { 55.0f, -55.0f }, { 0, 0, 0 } },
+        { "a mid-grey sRGB texture comes back as it went in", { -55.0f, -55.0f }, { c_GreyValue, c_GreyValue, c_GreyValue }, 0 }
     } };
 
     Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
@@ -2131,7 +2354,7 @@ void SandboxLayer::CheckSpriteReadback()
     l_Device.DestroyBuffer(m_SpriteReadback);
     m_SpriteReadback = {};
 
-    if (!l_Drawn || l_Statistics.Sprites != 8 || l_Statistics.DrawCalls != (l_Info.API != Trinity::GraphicsAPI::None ? 1u : l_Statistics.DrawCalls))
+    if (!l_Drawn || l_Statistics.Sprites != 9 || l_Statistics.DrawCalls != (l_Info.API != Trinity::GraphicsAPI::None ? 1u : l_Statistics.DrawCalls))
     {
         TR_ERROR("Sprites: the readback scene drew {} sprite(s) in {} draw call(s){}", l_Statistics.Sprites, l_Statistics.DrawCalls, l_Drawn ? "" : ", without finding its camera");
 
@@ -2145,7 +2368,7 @@ void SandboxLayer::CheckSpriteReadback()
         return;
     }
 
-    TR_INFO("Sprites: {} drew 8 sprites in one draw call{}", Trinity::ToString(l_Info.API), l_Check ? std::format(", and all {} probes for sort order, transforms, flips, filtering and blending hold the expected colour, with the readback hashing to 0x{:016x}", c_Probes.size(), l_Hash) : "");
+    TR_INFO("Sprites: {} drew 9 sprites in one draw call{}", Trinity::ToString(l_Info.API), l_Check ? std::format(", and all {} probes for sort order, transforms, flips, filtering, blending in linear light and the sRGB round trip hold the expected colour, with the readback hashing to 0x{:016x}", c_Probes.size(), l_Hash) : "");
 }
 
 // Whether Renderer memory moved between sprite frame c_SpriteCheckFrame and c_SpriteReportFrame, or the last frame when the run ends sooner

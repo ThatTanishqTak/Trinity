@@ -14,6 +14,7 @@ struct ImGuiViewport;
 namespace Trinity
 {
     class ImGuiRenderer;
+    class TextureAsset;
     class Window;
 
     enum class UIFont : std::uint8_t
@@ -21,6 +22,12 @@ namespace Trinity
         Regular,
         Bold
     };
+
+    // The upper half of an ImGui texture ID carries flags for ImGui.slang. This one has it encode what an sRGB texture decodes to back to sRGB, since ImGui draws in gamma space
+    constexpr std::uint64_t c_ImGuiEncodeSrgb = std::uint64_t{ 1 } << 32;
+
+    // The ID to draw a texture asset with in ImGui: its bindless index, with c_ImGuiEncodeSrgb for an sRGB texture
+    [[nodiscard]] TRINITY_API std::uint64_t GetImGuiTextureID(const TextureAsset& texture);
 
     // Runs a Dear ImGui frame around every layer's OnImGuiRender, an application opts in by pushing it as an overlay, so programs without it never link ImGui
     class TRINITY_API ImGuiLayer final : public Layer

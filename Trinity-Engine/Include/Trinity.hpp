@@ -38,6 +38,7 @@
 #include "Trinity/Renderer/FrameGraph.hpp"
 #include "Trinity/Renderer/GraphicsAPI.hpp"
 #include "Trinity/Renderer/Renderer2D.hpp"
+#include "Trinity/Renderer/ToneMapping.hpp"
 #include "Trinity/RHI/Device.hpp"
 
 #include "Trinity/Project/Project.hpp"

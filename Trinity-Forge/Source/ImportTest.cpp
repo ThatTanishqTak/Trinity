@@ -268,7 +268,7 @@ void ImportTest::BeginLoads(Phase phase)
     m_ReadyFrames = 0;
 }
 
-// BC7 needs a device that samples it and a size of whole blocks. Anything else is RGBA8, and every texture keeps its full mip chain
+// BC7 needs a device that samples it and a size of whole blocks. Anything else is RGBA8, an sRGB texture takes the sRGB format, and every texture keeps its full mip chain
 void ImportTest::FinishLoads()
 {
     const bool l_BC7Allowed = m_Phase == Phase::LoadingBC7 && Trinity::Application::Get().GetDevice().IsFormatSupported(Trinity::RHI::Format::BC7Unorm, Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopyDestination);
@@ -280,7 +280,8 @@ void ImportTest::FinishLoads()
         const Trinity::TextureAsset* l_Texture = it_Texture.Get();
         const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->Find(it_Texture.GetID());
         const bool l_WholeBlocks = l_Texture->GetWidth() % 4 == 0 && l_Texture->GetHeight() % 4 == 0;
-        const Trinity::RHI::Format l_Expected = l_BC7Allowed && l_WholeBlocks ? Trinity::RHI::Format::BC7Unorm : Trinity::RHI::Format::RGBA8Unorm;
+        const bool l_BC7 = l_BC7Allowed && l_WholeBlocks;
+        const Trinity::RHI::Format l_Expected = l_Texture->IsSrgb() ? (l_BC7 ? Trinity::RHI::Format::BC7Srgb : Trinity::RHI::Format::RGBA8Srgb) : (l_BC7 ? Trinity::RHI::Format::BC7Unorm : Trinity::RHI::Format::RGBA8Unorm);
         const std::uint32_t l_ExpectedLevels = static_cast<std::uint32_t>(std::bit_width(std::max(l_Texture->GetWidth(), l_Texture->GetHeight())));
 
         l_AsExpected = l_AsExpected && l_Texture->GetFormat() == l_Expected && l_Texture->GetMipLevels() == l_ExpectedLevels && l_Texture->GetTexture() && l_Texture->GetShaderResourceIndex() != Trinity::RHI::c_NoBindlessIndex;

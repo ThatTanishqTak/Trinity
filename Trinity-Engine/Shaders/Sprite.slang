@@ -1,5 +1,6 @@
 // Sprites drawn as instanced quads. Each instance is read from the upload ring and names its own texture, so sprites with different textures share one draw
 #include "Bindless.slang"
+#include "Color.slang"
 
 // The view-projection as four columns, as glm stores it, so no matrix layout convention is involved
 struct PushData
@@ -14,7 +15,7 @@ struct PushData
 
 [[vk::push_constant]] ConstantBuffer<PushData> g_Push;
 
-// The rows of a 3x4 world matrix, then the UV rectangle as 16-bit UNORMs, minimum U and V before maximum U and V, the tint as RGBA8 with red in the low byte, and the texture's bindless index with its filter in the top bit
+// The rows of a 3x4 world matrix, then the UV rectangle as 16-bit UNORMs, minimum U and V before maximum U and V, the tint as sRGB RGBA8 with red in the low byte, and the texture's bindless index with its filter in the top bit
 static const uint c_InstanceStride = 64;
 static const uint c_NearestBit = 0x80000000;
 
@@ -55,7 +56,8 @@ VertexOutput VertexMain(uint vertexIndex: SV_VertexID, uint instanceIndex: SV_In
     VertexOutput l_Output;
     l_Output.Position = g_Push.ViewProjection[0] * l_World.x + g_Push.ViewProjection[1] * l_World.y + g_Push.ViewProjection[2] * l_World.z + g_Push.ViewProjection[3];
     l_Output.TexCoord = float2(lerp(l_Rect.x, l_Rect.z, l_Corner.x), lerp(l_Rect.w, l_Rect.y, l_Corner.y));
-    l_Output.Color = UnpackColor(l_Color);
+    const float4 l_Tint = UnpackColor(l_Color);
+    l_Output.Color = float4(SrgbToLinear(l_Tint.rgb), l_Tint.a);
     l_Output.Texture = l_Texture;
 
     return l_Output;

@@ -31,6 +31,21 @@ namespace
     {
         ImGui::TextUnformatted(text.data(), text.data() + text.size());
     }
+
+    // From the first primary camera in hierarchy order, the one Renderer2D shows. A scene without one shows at exposure 1 with no curve
+    Trinity::ToneMapping GetSceneToneMapping(Trinity::Scene& scene)
+    {
+        const Trinity::SceneRegistry& l_Registry = scene.GetRegistry();
+        for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+        {
+            if (const Trinity::CameraComponent* l_Camera = l_Registry.try_get<Trinity::CameraComponent>(it_Entity.GetHandle()); l_Camera != nullptr && l_Camera->Primary)
+            {
+                return l_Camera->GetToneMapping();
+            }
+        }
+
+        return { Trinity::c_NeutralEV100, Trinity::Tonemapper::None };
+    }
 }
 
 ForgeLayer::ForgeLayer(Trinity::ImGuiLayer& imGui) : Layer("Forge"), m_ImGui(imGui), m_AboutTitle(std::format("{} About Trinity Forge###About", Trinity::Icons::c_InfoCircle))
@@ -92,6 +107,12 @@ void ForgeLayer::OnEvent(Trinity::Event& event)
     {
         m_Session.Request(EditorSession::Command::Refresh);
     }
+}
+
+// After the UI has had its say this frame and before the Renderer builds its graph, so an exposure dragged in the Properties panel shows in the same frame
+void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& commands)
+{
+    Trinity::Application::Get().GetRenderer().SetToneMapping(GetSceneToneMapping(m_Session.GetScene()));
 }
 
 // Drawn whether or not the Viewport panel is open, so the scene target holds the scene when the panel opens again. Transforms are brought up to date again, since the UI may have changed the scene since OnUpdate

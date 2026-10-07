@@ -21,7 +21,18 @@ namespace Trinity
     {
         ConsoleVariable<bool> s_VSyncVariable("renderer.vsync", true, "Waits for the display's vertical blank before showing each frame");
 
-        constexpr RHI::Format c_SceneFormat = RHI::Format::BGRA8Unorm;
+        constexpr RHI::Format c_SceneFormat = RHI::Format::RGBA16Float;
+        constexpr RHI::Format c_DisplayFormat = RHI::Format::RGBA8Unorm;
+
+        // Laid out as Tonemap.slang reads it
+        struct TonemapPushData
+        {
+            std::array<std::uint32_t, 2> Scene{};
+            float Exposure = 1.0f;
+            std::uint32_t Curve = 0;
+        };
+
+        static_assert(sizeof(TonemapPushData) == 16);
 
         // What the graph is told about a window's texture or an offscreen target it imports, of which it only reads the size
         RHI::TextureDescription GetOutputDescription(std::uint32_t width, std::uint32_t height, RHI::Format format)
@@ -65,7 +76,8 @@ namespace Trinity
         }
 
         CreateSceneTarget();
-        CreateCopyPipeline();
+        m_CopyPipeline = CreateFullscreenPipeline("SceneCopy", GetOutputFormat(), "Renderer scene copy", "the output only shows the clear colour");
+        m_TonemapPipeline = CreateFullscreenPipeline("Tonemap", c_DisplayFormat, "Renderer tonemap", "the scene is shown as black");
 
         // Textures need this device, so their loader lives exactly as long as the renderer
         m_TextureLoader = CreateScope<TextureLoader>(m_Device);
@@ -79,7 +91,7 @@ namespace Trinity
         m_StartTime = std::chrono::steady_clock::now();
         m_ReportTime = m_StartTime;
 
-        TR_CORE_INFO("Renderer: {} on {}, drawing to {} through a {} scene target", ToString(l_Info.API), l_Info.AdapterName, m_SwapChain ? std::format("the window ({}x{})", m_SwapChain->GetWidth(), m_SwapChain->GetHeight()) : std::format("an offscreen {}x{} target", m_Window.GetWidth(), m_Window.GetHeight()), RHI::ToString(c_SceneFormat));
+        TR_CORE_INFO("Renderer: {} on {}, drawing to {} through a {} scene target tone mapped into {}", ToString(l_Info.API), l_Info.AdapterName, m_SwapChain ? std::format("the window ({}x{})", m_SwapChain->GetWidth(), m_SwapChain->GetHeight()) : std::format("an offscreen {}x{} target", m_Window.GetWidth(), m_Window.GetHeight()), RHI::ToString(c_SceneFormat), RHI::ToString(c_DisplayFormat));
     }
 
     Renderer::~Renderer()
@@ -99,7 +111,9 @@ namespace Trinity
 
         m_Outputs.clear();
         m_SwapChain.reset();
+        m_Device.DestroyPipeline(m_TonemapPipeline);
         m_Device.DestroyPipeline(m_CopyPipeline);
+        m_Device.DestroyTexture(m_DisplayTarget);
         m_Device.DestroyTexture(m_SceneTarget);
         m_Device.DestroyTexture(m_OffscreenTarget);
         m_Device.WaitIdle();
@@ -131,6 +145,7 @@ namespace Trinity
         BuildFrameGraph(layers);
         m_FrameGraph->Execute(l_Commands);
         m_SceneState = m_SceneTarget ? RHI::ResourceState::ShaderResource : RHI::ResourceState::Undefined;
+        m_DisplayState = m_SceneTarget && m_DisplayTarget ? RHI::ResourceState::ShaderResource : m_DisplayState;
 
         m_Device.EndFrame();
 
@@ -152,7 +167,7 @@ namespace Trinity
         ReportFrameRate();
     }
 
-    // The scene target is imported in whatever state the last frame left it, and every pass that can show it, the UI's included, reads it as a shader resource, which is also how the graph leaves it
+    // The scene and display targets are imported in whatever state the last frame left them, and both end as shader resources. The scene is cleared to the linear clear colour, and every pass that can show the display target, the UI's included, reads it
     void Renderer::BuildFrameGraph(LayerStack& layers)
     {
         TR_PROFILE_FUNCTION();
@@ -163,8 +178,9 @@ namespace Trinity
         FrameGraphTexture l_Scene;
         if (m_SceneTarget)
         {
+            const std::array<float, 4> l_Clear{ SrgbToLinear(m_ClearColor[0]), SrgbToLinear(m_ClearColor[1]), SrgbToLinear(m_ClearColor[2]), m_ClearColor[3] };
             l_Scene = l_Graph.ImportTexture("Scene", m_SceneTarget, m_SceneDescription, m_SceneState, RHI::ResourceState::ShaderResource);
-            l_Graph.AddPass("Scene", FrameGraphPassType::Raster, [this, l_Scene](FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Scene, RHI::LoadOp::Clear, m_ClearColor }); }, [&layers](const FrameGraphContext& context)
+            l_Graph.AddPass("Scene", FrameGraphPassType::Raster, [l_Scene, l_Clear](FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Scene, RHI::LoadOp::Clear, l_Clear }); }, [&layers](const FrameGraphContext& context)
             {
                 TR_PROFILE_SCOPE("LayerStack::OnRender");
                 for (const Scope<Layer>& it_Layer : layers)
@@ -182,39 +198,73 @@ namespace Trinity
             }
         }
 
+        FrameGraphTexture l_Display;
+        if (l_Scene && m_DisplayTarget)
+        {
+            l_Display = l_Graph.ImportTexture("Display", m_DisplayTarget, m_DisplayDescription, m_DisplayState, RHI::ResourceState::ShaderResource);
+            AddTonemapPass(l_Graph, l_Scene, l_Display, m_ToneMapping);
+        }
+
         const RHI::TextureHandle l_Output = m_SwapChain ? m_SwapChain->AcquireNextTexture() : m_OffscreenTarget;
         if (l_Output)
         {
-            AddOutputPass(l_Scene, l_Output, layers);
+            AddOutputPass(l_Display, l_Output, layers);
         }
 
-        AddAddedOutputPasses(l_Scene);
+        AddAddedOutputPasses(l_Display);
     }
 
-    // The copy reads one scene texel per output pixel, so the scene reaches the output exactly as drawn, and the UI goes over it
-    void Renderer::AddOutputPass(FrameGraphTexture scene, RHI::TextureHandle output, LayerStack& layers)
+    void Renderer::AddTonemapPass(FrameGraph& graph, FrameGraphTexture scene, FrameGraphTexture target, const ToneMapping& toneMapping) const
+    {
+        const RHI::PipelineHandle l_Pipeline = m_TonemapPipeline;
+        const float l_Exposure = GetExposureScale(toneMapping.ExposureEV100);
+        const std::uint32_t l_Curve = static_cast<std::uint32_t>(toneMapping.Curve);
+        graph.AddPass("Tonemap", FrameGraphPassType::Raster, [scene, target, l_Pipeline](FrameGraphPassBuilder& builder)
+        {
+            builder.AddColorAttachment({ target, l_Pipeline ? RHI::LoadOp::DontCare : RHI::LoadOp::Clear });
+            builder.Read(scene, RHI::ResourceState::ShaderResource);
+        }, [scene, l_Pipeline, l_Exposure, l_Curve](const FrameGraphContext& context)
+        {
+            if (!l_Pipeline)
+            {
+                return;
+            }
+
+            TonemapPushData l_PushData;
+            l_PushData.Scene = { context.GetDevice().GetShaderResourceIndex(context.GetTexture(scene)), 0 };
+            l_PushData.Exposure = l_Exposure;
+            l_PushData.Curve = l_Curve;
+
+            context.GetCommands().SetPipeline(l_Pipeline);
+            context.GetCommands().PushConstants(std::as_bytes(std::span(&l_PushData, 1)));
+            context.GetCommands().Draw(3, 1, 0, 0);
+        });
+    }
+
+    // The copy reads one display texel per output pixel, so the tone mapped scene reaches the output exactly as written, and the UI goes over it
+    void Renderer::AddOutputPass(FrameGraphTexture display, RHI::TextureHandle output, LayerStack& layers)
     {
         const std::uint32_t l_Width = GetOutputWidth();
         const std::uint32_t l_Height = GetOutputHeight();
 
-        // A swap chain recreated while acquiring can differ from the scene target for one frame, which then shows the clear colour
-        const bool l_Copy = m_SceneCopy && m_CopyPipeline && scene && m_SceneWidth == l_Width && m_SceneHeight == l_Height;
+        // A swap chain recreated while acquiring can differ from the display target for one frame, which then shows the clear colour
+        const bool l_Copy = m_SceneCopy && m_CopyPipeline && display && m_SceneWidth == l_Width && m_SceneHeight == l_Height;
 
         FrameGraph& l_Graph = *m_FrameGraph;
         const FrameGraphTexture l_Output = l_Graph.ImportTexture("Output", output, GetOutputDescription(l_Width, l_Height, GetOutputFormat()), RHI::ResourceState::Undefined, m_SwapChain ? RHI::ResourceState::Present : RHI::ResourceState::RenderTarget);
-        l_Graph.AddPass("Output", FrameGraphPassType::Raster, [this, scene, l_Output, l_Copy](FrameGraphPassBuilder& builder)
+        l_Graph.AddPass("Output", FrameGraphPassType::Raster, [this, display, l_Output, l_Copy](FrameGraphPassBuilder& builder)
         {
             builder.AddColorAttachment({ l_Output, l_Copy ? RHI::LoadOp::DontCare : RHI::LoadOp::Clear, m_ClearColor });
-            if (scene)
+            if (display)
             {
-                builder.Read(scene, RHI::ResourceState::ShaderResource);
+                builder.Read(display, RHI::ResourceState::ShaderResource);
             }
-        }, [this, scene, l_Copy, &layers](const FrameGraphContext& context)
+        }, [this, display, l_Copy, &layers](const FrameGraphContext& context)
         {
             RHI::CommandList& l_Commands = context.GetCommands();
             if (l_Copy)
             {
-                const std::array<std::uint32_t, 2> l_PushData{ context.GetDevice().GetShaderResourceIndex(context.GetTexture(scene)), 0 };
+                const std::array<std::uint32_t, 2> l_PushData{ context.GetDevice().GetShaderResourceIndex(context.GetTexture(display)), 0 };
 
                 l_Commands.SetPipeline(m_CopyPipeline);
                 l_Commands.PushConstants(std::as_bytes(std::span(l_PushData)));
@@ -229,8 +279,8 @@ namespace Trinity
         });
     }
 
-    // Each added output is cleared, then drawn by its callback, which may show the scene. Minimized and zero-sized windows are skipped, and a swap chain left unacquired ignores Present
-    void Renderer::AddAddedOutputPasses(FrameGraphTexture scene)
+    // Each added output is cleared, then drawn by its callback, which may show the display target. Minimized and zero-sized windows are skipped, and a swap chain left unacquired ignores Present
+    void Renderer::AddAddedOutputPasses(FrameGraphTexture display)
     {
         FrameGraph& l_Graph = *m_FrameGraph;
         for (Output& it_Output : m_Outputs)
@@ -251,12 +301,12 @@ namespace Trinity
 
             const FrameGraphTexture l_Output = l_Graph.ImportTexture("Added output", l_Texture, GetOutputDescription(l_Width, l_Height, GetOutputFormat()), RHI::ResourceState::Undefined, it_Output.SwapChain ? RHI::ResourceState::Present : RHI::ResourceState::RenderTarget);
             const Output* l_Added = &it_Output;
-            l_Graph.AddPass("Added output", FrameGraphPassType::Raster, [scene, l_Output, l_Added](FrameGraphPassBuilder& builder)
+            l_Graph.AddPass("Added output", FrameGraphPassType::Raster, [display, l_Output, l_Added](FrameGraphPassBuilder& builder)
             {
                 builder.AddColorAttachment({ l_Output, RHI::LoadOp::Clear, l_Added->ClearColor });
-                if (scene)
+                if (display)
                 {
-                    builder.Read(scene, RHI::ResourceState::ShaderResource);
+                    builder.Read(display, RHI::ResourceState::ShaderResource);
                 }
             }, [l_Added](const FrameGraphContext& context)
             {
@@ -339,6 +389,11 @@ namespace Trinity
         return c_SceneFormat;
     }
 
+    RHI::Format Renderer::GetDisplayFormat() const
+    {
+        return c_DisplayFormat;
+    }
+
     RHI::Format Renderer::GetOutputFormat() const
     {
         return m_SwapChain ? m_SwapChain->GetFormat() : RHI::Format::BGRA8Unorm;
@@ -418,6 +473,7 @@ namespace Trinity
         if (m_SceneWidth != GetWantedSceneWidth() || m_SceneHeight != GetWantedSceneHeight())
         {
             m_Device.DestroyTexture(m_SceneTarget);
+            m_Device.DestroyTexture(m_DisplayTarget);
             CreateSceneTarget();
         }
     }
@@ -467,7 +523,7 @@ namespace Trinity
         return m_Device.CreateTexture(l_Description);
     }
 
-    // Layers can change the clear colour every frame, so the scene target asks for no optimized clear value
+    // Layers can change the clear colour every frame, so the scene target asks for no optimized clear value. The display target is the scene's size, and the tonemap pass writes all of it
     void Renderer::CreateSceneTarget()
     {
         RHI::TextureDescription l_Description;
@@ -483,34 +539,43 @@ namespace Trinity
         m_SceneState = RHI::ResourceState::Undefined;
         m_SceneWidth = l_Description.Width;
         m_SceneHeight = l_Description.Height;
+
+        l_Description.TextureFormat = c_DisplayFormat;
+        l_Description.DebugName = "Renderer display target";
+        m_DisplayTarget = m_Device.CreateTexture(l_Description);
+        m_DisplayDescription = l_Description;
+        m_DisplayState = RHI::ResourceState::Undefined;
     }
 
-    void Renderer::CreateCopyPipeline()
+    // One triangle over the whole target from a shader's VertexMain and PixelMain, as the scene copy and the tonemap are drawn
+    RHI::PipelineHandle Renderer::CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence)
     {
         const std::string_view l_Extension = m_Device.GetInfo().API == GraphicsAPI::D3D12 ? "dxil" : "spv";
-        const Expected<FileBuffer, FileError> l_VertexShader = FileSystem::ReadFile(std::format("/engine/shaders/SceneCopy.VertexMain.{}", l_Extension));
-        const Expected<FileBuffer, FileError> l_PixelShader = FileSystem::ReadFile(std::format("/engine/shaders/SceneCopy.PixelMain.{}", l_Extension));
+        const Expected<FileBuffer, FileError> l_VertexShader = FileSystem::ReadFile(std::format("/engine/shaders/{}.VertexMain.{}", shader, l_Extension));
+        const Expected<FileBuffer, FileError> l_PixelShader = FileSystem::ReadFile(std::format("/engine/shaders/{}.PixelMain.{}", shader, l_Extension));
         if (!l_VertexShader || !l_PixelShader)
         {
-            TR_CORE_INFO("Renderer: no {} scene copy shaders under /engine/shaders, so the output only shows the clear colour", l_Extension);
+            TR_CORE_INFO("Renderer: no {} {} shaders under /engine/shaders, so {}", l_Extension, shader, consequence);
 
-            return;
+            return {};
         }
 
-        const std::array<RHI::Format, 1> l_ColorFormats{ GetOutputFormat() };
+        const std::array<RHI::Format, 1> l_ColorFormats{ format };
 
         RHI::GraphicsPipelineDescription l_Description;
         l_Description.VertexShader = { *l_VertexShader, "VertexMain" };
         l_Description.PixelShader = { *l_PixelShader, "PixelMain" };
         l_Description.ColorFormats = l_ColorFormats;
         l_Description.Cull = RHI::CullMode::None;
-        l_Description.DebugName = "Renderer scene copy";
+        l_Description.DebugName = debugName;
 
-        m_CopyPipeline = m_Device.CreateGraphicsPipeline(l_Description);
-        if (!m_CopyPipeline)
+        const RHI::PipelineHandle l_Pipeline = m_Device.CreateGraphicsPipeline(l_Description);
+        if (!l_Pipeline)
         {
-            TR_CORE_ERROR("Renderer: the scene copy pipeline could not be created, so the output only shows the clear colour");
+            TR_CORE_ERROR("Renderer: the {} pipeline could not be created, so {}", debugName, consequence);
         }
+
+        return l_Pipeline;
     }
 
     // The frame rate is added again at the next report

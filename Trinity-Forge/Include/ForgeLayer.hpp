@@ -24,6 +24,7 @@ public:
     void OnAttach() override;
     void OnUpdate(Trinity::Timestep timestep) override;
     void OnEvent(Trinity::Event& event) override;
+    void OnPrepareRender(Trinity::RHI::CommandList& commands) override;
     void OnRender(Trinity::RHI::CommandList& commands) override;
     void OnImGuiRender() override;
     [[nodiscard]] bool OnCloseRequested() override;

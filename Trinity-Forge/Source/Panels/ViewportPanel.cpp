@@ -211,7 +211,7 @@ void ViewportPanel::RenderScene(Trinity::RHI::CommandList& commands)
     Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_Camera.GetViewProjection(l_ViewportSize), l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight());
 }
 
-// The image is drawn at the scene target's own size, which only catches up with the panel once its size settles, so it is cropped or bordered meanwhile but never stretched. Overlays follow the image, so they line up with what it shows
+// The tone mapped image, the display target, is drawn at the scene target's own size, which only catches up with the panel once its size settles, so it is cropped or bordered meanwhile but never stretched. Overlays follow the image, so they line up with what it shows
 void ViewportPanel::OnImGuiRender()
 {
     FollowScene();
@@ -222,7 +222,7 @@ void ViewportPanel::OnImGuiRender()
     FollowPanelSize(l_Width, l_Height);
 
     Trinity::Application& l_Application = Trinity::Application::Get();
-    const Trinity::RHI::TextureHandle l_Target = l_Application.GetRenderer().GetSceneTarget();
+    const Trinity::RHI::TextureHandle l_Target = l_Application.GetRenderer().GetDisplayTarget();
     const std::uint32_t l_Index = l_Target ? l_Application.GetDevice().GetShaderResourceIndex(l_Target) : Trinity::RHI::c_NoBindlessIndex;
     const glm::vec2 l_ViewportSize = GetViewportSize();
     const ImVec2 l_ImageMin = ImGui::GetCursorScreenPos();

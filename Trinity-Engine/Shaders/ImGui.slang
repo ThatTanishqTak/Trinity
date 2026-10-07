@@ -1,5 +1,6 @@
 // Dear ImGui's vertices read from the upload ring, its textures and sampler through bindless indices
 #include "Bindless.slang"
+#include "Color.slang"
 
 struct PushData
 {
@@ -7,7 +8,7 @@ struct PushData
     DescriptorHandle<Texture2D> Texture;
     DescriptorHandle<SamplerState> Sampler;
     uint VertexOffset;
-    uint Padding;
+    uint Flags;
     float2 Scale;
     float2 Translate;
 };
@@ -16,6 +17,9 @@ struct PushData
 
 // ImDrawVert: a float2 position, a float2 texture coordinate and an RGBA8 colour with red in the low byte
 static const uint c_VertexStride = 20;
+
+// ImGui draws in gamma space, so what an sRGB texture decodes to is encoded again
+static const uint c_EncodeSrgb = 1;
 
 struct VertexOutput
 {
@@ -45,5 +49,11 @@ float4 PixelMain(VertexOutput input) : SV_Target
     Texture2D l_Texture = g_Push.Texture;
     SamplerState l_Sampler = g_Push.Sampler;
 
-    return input.Color * l_Texture.Sample(l_Sampler, input.TexCoord);
+    float4 l_Texel = l_Texture.Sample(l_Sampler, input.TexCoord);
+    if ((g_Push.Flags & c_EncodeSrgb) != 0)
+    {
+        l_Texel.rgb = LinearToSrgb(l_Texel.rgb);
+    }
+
+    return input.Color * l_Texel;
 }

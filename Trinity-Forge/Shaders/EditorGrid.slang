@@ -38,7 +38,7 @@ float GridLine(float2 world, float spacing)
     return 1.0 - min(min(l_Distance.x, l_Distance.y), 1.0);
 }
 
-// Minor lines fade in as their cells grow, major lines every ten, and the axes in red for X and green for Y
+// Minor lines fade in as their cells grow, major lines every ten, and the axes in red for X and green for Y. The colours are linear, as the scene target is, and match sRGB (0.9, 0.3, 0.3) and (0.3, 0.85, 0.3)
 [shader("fragment")]
 float4 PixelMain(VertexOutput input) : SV_Target
 {
@@ -47,8 +47,8 @@ float4 PixelMain(VertexOutput input) : SV_Target
     const float2 l_Axis = 1.0 - min(abs(input.World) / (fwidth(input.World) * 1.5), 1.0);
 
     float4 l_Color = float4(1.0, 1.0, 1.0, max(l_Minor * 0.1, l_Major * 0.25));
-    l_Color = lerp(l_Color, float4(0.9, 0.3, 0.3, 0.8), l_Axis.y);
-    l_Color = lerp(l_Color, float4(0.3, 0.85, 0.3, 0.8), l_Axis.x);
+    l_Color = lerp(l_Color, float4(0.787, 0.073, 0.073, 0.8), l_Axis.y);
+    l_Color = lerp(l_Color, float4(0.073, 0.692, 0.073, 0.8), l_Axis.x);
 
     return l_Color;
 }

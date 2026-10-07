@@ -16,6 +16,7 @@
 #include <charconv>
 #include <format>
 #include <span>
+#include <string>
 #include <system_error>
 #include <unordered_map>
 #include <utility>
@@ -229,6 +230,8 @@ namespace Trinity
             writer.Write("Near", component.Near);
             writer.Write("Far", component.Far);
             writer.Write("Primary", component.Primary);
+            writer.Write("ExposureEV100", component.ExposureEV100);
+            writer.Write("Tonemapper", ToString(component.Tonemap));
         }
 
         void LoadCamera(CameraComponent& component, const ComponentReader& reader)
@@ -237,6 +240,11 @@ namespace Trinity
             reader.Read("Near", component.Near);
             reader.Read("Far", component.Far);
             reader.Read("Primary", component.Primary);
+            reader.Read("ExposureEV100", component.ExposureEV100);
+
+            // A scene saved before cameras had a tone curve, or naming one this build lacks, shows none
+            std::string l_Tonemapper;
+            component.Tonemap = reader.Read("Tonemapper", l_Tonemapper) ? ParseTonemapper(l_Tonemapper).value_or(Tonemapper::None) : Tonemapper::None;
         }
 
         void SaveSpriteRenderer(const SpriteRendererComponent& component, ComponentWriter& writer)

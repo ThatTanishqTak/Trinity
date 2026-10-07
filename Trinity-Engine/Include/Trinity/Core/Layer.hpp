@@ -59,7 +59,7 @@ namespace Trinity
 
         }
 
-        // Adds passes to the frame's graph after the scene pass, where OnRender draws, and before the output pass, where OnRenderUI draws. They can read the scene colour or draw over it. sceneColor is invalid when the scene target could not be created
+        // Adds passes to the frame's graph after the scene pass, where OnRender draws, and before the tonemap pass and the output pass, where OnRenderUI draws. They can read the linear scene colour or draw over it. sceneColor is invalid when the scene target could not be created
         virtual void OnBuildFrameGraph([[maybe_unused]] FrameGraph& graph, [[maybe_unused]] FrameGraphTexture sceneColor)
         {
 

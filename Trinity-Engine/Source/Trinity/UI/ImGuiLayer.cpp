@@ -1,5 +1,6 @@
 #include "Trinity/UI/ImGuiLayer.hpp"
 
+#include "Trinity/Asset/TextureAsset.hpp"
 #include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Log.hpp"
@@ -397,6 +398,11 @@ namespace Trinity
         {
             return GetViewportWindow(viewport).GetDpiScale();
         }
+    }
+
+    std::uint64_t GetImGuiTextureID(const TextureAsset& texture)
+    {
+        return std::uint64_t{ texture.GetShaderResourceIndex() } | (texture.IsSrgb() ? c_ImGuiEncodeSrgb : 0);
     }
 
     struct ImGuiLayer::ViewportWindow
