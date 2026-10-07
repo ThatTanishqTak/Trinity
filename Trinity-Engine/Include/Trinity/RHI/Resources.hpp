@@ -55,6 +55,13 @@ namespace Trinity
         // MaxLod at or above c_LodUnclamped leaves the mip range open
         constexpr float c_LodUnclamped = 1000.0f;
 
+        // GPU timestamps, written by CommandList::WriteTimestamp and copied out as 64-bit ticks by ResolveTimestamps
+        struct QueryPoolDescription
+        {
+            std::uint32_t Count = 0;
+            std::string_view DebugName;
+        };
+
         struct SamplerDescription
         {
             Filter MinFilter = Filter::Linear;

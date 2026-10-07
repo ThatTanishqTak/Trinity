@@ -61,6 +61,12 @@ namespace Trinity
             bool Compute = false;
         };
 
+        struct D3D12QueryPool
+        {
+            Microsoft::WRL::ComPtr<ID3D12QueryHeap> Heap;
+            std::uint32_t Count = 0;
+        };
+
         // A sampler is only its descriptor in the shader-visible sampler heap
         struct D3D12Sampler
         {
@@ -110,6 +116,9 @@ namespace Trinity
             void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance) override;
             void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) override;
 
+            void WriteTimestamp(QueryPoolHandle pool, std::uint32_t index) override;
+            void ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset) override;
+
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) override;
             void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) override;
@@ -153,6 +162,10 @@ namespace Trinity
             void DestroySampler(SamplerHandle sampler) override;
             [[nodiscard]] std::uint32_t GetSamplerIndex(SamplerHandle sampler) override;
 
+            [[nodiscard]] QueryPoolHandle CreateQueryPool(const QueryPoolDescription& description) override;
+            void DestroyQueryPool(QueryPoolHandle pool) override;
+            [[nodiscard]] std::uint64_t GetTimestampFrequency() const override;
+
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             [[nodiscard]] PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
@@ -166,6 +179,7 @@ namespace Trinity
             [[nodiscard]] D3D12Buffer* GetBuffer(BufferHandle buffer) { return m_Buffers.Get(buffer); }
             [[nodiscard]] D3D12Texture* GetTexture(TextureHandle texture) { return m_Textures.Get(texture); }
             [[nodiscard]] D3D12Pipeline* GetPipeline(PipelineHandle pipeline) { return m_Pipelines.Get(pipeline); }
+            [[nodiscard]] D3D12QueryPool* GetQueryPool(QueryPoolHandle pool) { return m_QueryPools.Get(pool); }
             [[nodiscard]] ID3D12RootSignature* GetRootSignature() const { return m_RootSignature.Get(); }
             [[nodiscard]] ID3D12DescriptorHeap* GetResourceHeap() const { return m_ResourceHeap.GetHeap(); }
             [[nodiscard]] ID3D12DescriptorHeap* GetSamplerHeap() const { return m_SamplerHeap.GetHeap(); }
@@ -186,6 +200,7 @@ namespace Trinity
             {
                 Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
                 Microsoft::WRL::ComPtr<ID3D12PipelineState> Pipeline;
+                Microsoft::WRL::ComPtr<ID3D12QueryHeap> QueryHeap;
                 D3D12DescriptorIndices RenderTargetViews;
                 D3D12DescriptorIndices DepthStencilViews;
                 std::uint32_t ShaderResourceIndex = c_NoDescriptor;
@@ -231,6 +246,7 @@ namespace Trinity
             HandlePool<D3D12Texture, TextureHandle> m_Textures;
             HandlePool<D3D12Pipeline, PipelineHandle> m_Pipelines;
             HandlePool<D3D12Sampler, SamplerHandle> m_Samplers;
+            HandlePool<D3D12QueryPool, QueryPoolHandle> m_QueryPools;
             ReleaseQueue<D3D12Release> m_Releases;
             D3D12DescriptorHeap m_RenderTargetViews;
             D3D12DescriptorHeap m_DepthStencilViews;

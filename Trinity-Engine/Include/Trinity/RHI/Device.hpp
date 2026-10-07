@@ -65,6 +65,12 @@ namespace Trinity
             virtual void DestroySampler(SamplerHandle sampler) = 0;
             [[nodiscard]] virtual std::uint32_t GetSamplerIndex(SamplerHandle sampler) = 0;
 
+            [[nodiscard]] virtual QueryPoolHandle CreateQueryPool(const QueryPoolDescription& description) = 0;
+            virtual void DestroyQueryPool(QueryPoolHandle pool) = 0;
+
+            // Timestamp ticks per second
+            [[nodiscard]] virtual std::uint64_t GetTimestampFrequency() const = 0;
+
             [[nodiscard]] virtual PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) = 0;
             [[nodiscard]] virtual PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) = 0;
             virtual void DestroyPipeline(PipelineHandle pipeline) = 0;

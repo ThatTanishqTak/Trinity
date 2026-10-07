@@ -130,6 +130,19 @@ namespace Trinity
             TR_CORE_ASSERT(m_Recording && !m_Rendering && m_HasComputePipeline, "Dispatch is recorded outside rendering, with a compute pipeline set.");
         }
 
+        void NullCommandList::WriteTimestamp([[maybe_unused]] QueryPoolHandle pool, [[maybe_unused]] std::uint32_t index)
+        {
+            TR_CORE_ASSERT(m_Recording, "WriteTimestamp is recorded within a frame.");
+            TR_CORE_ASSERT(m_Device.IsQueryRangeValid(pool, index, 1), "WriteTimestamp with a destroyed query pool, or an index past its end.");
+        }
+
+        void NullCommandList::ResolveTimestamps([[maybe_unused]] QueryPoolHandle pool, [[maybe_unused]] std::uint32_t first, [[maybe_unused]] std::uint32_t count, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset)
+        {
+            TR_CORE_ASSERT(m_Recording && !m_Rendering, "ResolveTimestamps is recorded within a frame and outside rendering.");
+            TR_CORE_ASSERT(m_Device.IsQueryRangeValid(pool, first, count), "ResolveTimestamps with a destroyed query pool, or a range past its end.");
+            TR_CORE_ASSERT(m_Device.IsAlive(destination) && destinationOffset % 8 == 0, "ResolveTimestamps into a destroyed buffer, or at an offset that is not a multiple of 8.");
+        }
+
         void NullCommandList::CopyBuffer([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset, [[maybe_unused]] std::uint64_t size)
         {
             TR_CORE_ASSERT(m_Recording && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
@@ -211,9 +224,9 @@ namespace Trinity
         {
             m_UploadRing.Shutdown();
 
-            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0)
+            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0 || m_QueryPools.GetCount() != 0)
             {
-                TR_CORE_WARN("The null device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s) and {} sampler(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount());
+                TR_CORE_WARN("The null device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s), {} sampler(s) and {} query pool(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
             }
 
             m_ReleasedBuffers.ReleaseAll(&NullDevice::ReleaseBuffer);
@@ -444,6 +457,31 @@ namespace Trinity
             TR_CORE_ASSERT(!description.ComputeShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
 
             return m_Pipelines.Add({ true });
+        }
+
+        QueryPoolHandle NullDevice::CreateQueryPool(const QueryPoolDescription& description)
+        {
+            TR_CORE_ASSERT(description.Count != 0, "Query pool '{}' has no queries.", description.DebugName);
+
+            return m_QueryPools.Add({ description.Count });
+        }
+
+        void NullDevice::DestroyQueryPool(QueryPoolHandle pool)
+        {
+            if (!pool)
+            {
+                return;
+            }
+
+            [[maybe_unused]] const std::optional<NullQueryPool> l_Pool = m_QueryPools.Remove(pool);
+            TR_CORE_ASSERT(l_Pool.has_value(), "DestroyQueryPool on a query pool that was already destroyed.");
+        }
+
+        bool NullDevice::IsQueryRangeValid(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count)
+        {
+            const NullQueryPool* l_Pool = m_QueryPools.Get(pool);
+
+            return l_Pool != nullptr && count != 0 && std::uint64_t{ first } + count <= l_Pool->Count;
         }
 
         bool NullDevice::IsComputePipeline(PipelineHandle pipeline)

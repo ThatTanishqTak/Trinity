@@ -38,6 +38,9 @@ namespace Trinity
             void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance) override;
             void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) override;
 
+            void WriteTimestamp(QueryPoolHandle pool, std::uint32_t index) override;
+            void ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset) override;
+
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) override;
             void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) override;
@@ -101,6 +104,10 @@ namespace Trinity
             void DestroySampler(SamplerHandle sampler) override;
             [[nodiscard]] std::uint32_t GetSamplerIndex(SamplerHandle sampler) override;
 
+            [[nodiscard]] QueryPoolHandle CreateQueryPool(const QueryPoolDescription& description) override;
+            void DestroyQueryPool(QueryPoolHandle pool) override;
+            [[nodiscard]] std::uint64_t GetTimestampFrequency() const override { return 1000000000; }
+
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             [[nodiscard]] PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
@@ -115,6 +122,7 @@ namespace Trinity
             [[nodiscard]] bool IsAlive(TextureHandle texture) { return m_Textures.Get(texture) != nullptr; }
             [[nodiscard]] bool IsAlive(PipelineHandle pipeline) { return m_Pipelines.Get(pipeline) != nullptr; }
             [[nodiscard]] bool IsComputePipeline(PipelineHandle pipeline);
+            [[nodiscard]] bool IsQueryRangeValid(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count);
             [[nodiscard]] bool IsAlive(SamplerHandle sampler) { return m_Samplers.Get(sampler) != nullptr; }
             [[nodiscard]] bool IsIndexRangeValid(BufferHandle buffer, std::uint64_t offset, IndexFormat format);
             [[nodiscard]] bool IsRangeValid(TextureHandle texture, const TextureSubresourceRange& range);
@@ -152,6 +160,11 @@ namespace Trinity
 
             };
 
+            struct NullQueryPool
+            {
+                std::uint32_t Count = 0;
+            };
+
             static void ReleaseBuffer(NullBuffer& buffer);
 
             DeviceInfo m_Info;
@@ -159,6 +172,7 @@ namespace Trinity
             HandlePool<NullTexture, TextureHandle> m_Textures;
             HandlePool<NullPipeline, PipelineHandle> m_Pipelines;
             HandlePool<NullSampler, SamplerHandle> m_Samplers;
+            HandlePool<NullQueryPool, QueryPoolHandle> m_QueryPools;
             ReleaseQueue<NullBuffer> m_ReleasedBuffers;
             NullCommandList m_CommandList;
             bool m_InFrame = false;

@@ -905,6 +905,38 @@ namespace Trinity
             m_CommandList->Dispatch(groupCountX, groupCountY, groupCountZ);
         }
 
+        void D3D12CommandList::WriteTimestamp(QueryPoolHandle pool, std::uint32_t index)
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr, "WriteTimestamp is recorded within a frame.");
+
+            const D3D12QueryPool* l_Pool = m_Device.GetQueryPool(pool);
+            TR_CORE_ASSERT(l_Pool != nullptr && index < l_Pool->Count, "WriteTimestamp with a destroyed query pool, or an index past its end.");
+            if (l_Pool == nullptr || index >= l_Pool->Count)
+            {
+                return;
+            }
+
+            m_CommandList->EndQuery(l_Pool->Heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, index);
+        }
+
+        void D3D12CommandList::ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset)
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "ResolveTimestamps is recorded within a frame and outside rendering.");
+
+            const D3D12QueryPool* l_Pool = m_Device.GetQueryPool(pool);
+            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(destination);
+            TR_CORE_ASSERT(l_Pool != nullptr && l_Buffer != nullptr, "ResolveTimestamps with a destroyed query pool or buffer.");
+            if (l_Pool == nullptr || l_Buffer == nullptr)
+            {
+                return;
+            }
+
+            TR_CORE_ASSERT(count != 0 && std::uint64_t{ first } + count <= l_Pool->Count, "ResolveTimestamps with a range past the end of a pool of {}.", l_Pool->Count);
+            TR_CORE_ASSERT(destinationOffset % 8 == 0 && destinationOffset + std::uint64_t{ count } * 8 <= l_Buffer->Size, "ResolveTimestamps at an offset that is not a multiple of 8, or past the end of the buffer.");
+
+            m_CommandList->ResolveQueryData(l_Pool->Heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, first, count, l_Buffer->Allocation->GetResource(), destinationOffset);
+        }
+
         void D3D12CommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
@@ -1026,15 +1058,16 @@ namespace Trinity
 
             m_UploadRing.Shutdown();
 
-            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0)
+            if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0 || m_QueryPools.GetCount() != 0)
             {
-                TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s) and {} sampler(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount());
+                TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s), {} sampler(s) and {} query pool(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
             }
 
             m_Releases.ReleaseAll([this](D3D12Release& release) { Release(release); });
             m_Buffers.ForEach([](D3D12Buffer& buffer) { buffer.Allocation.Reset(); });
             m_Textures.ForEach([](D3D12Texture& texture) { texture.Allocation.Reset(); });
             m_Pipelines.ForEach([](D3D12Pipeline& pipeline) { pipeline.State.Reset(); });
+            m_QueryPools.ForEach([](D3D12QueryPool& pool) { pool.Heap.Reset(); });
             m_Allocator.Reset();
             m_RootSignature.Reset();
             m_ResourceHeap.Reset();
@@ -1803,6 +1836,7 @@ namespace Trinity
             m_ResourceHeap.Free(release.UnorderedAccessIndex);
             m_SamplerHeap.Free(release.SamplerIndex);
             release.Pipeline.Reset();
+            release.QueryHeap.Reset();
             release.Allocation.Reset();
         }
 
@@ -1993,6 +2027,57 @@ namespace Trinity
             }
 
             return m_Pipelines.Add(std::move(l_Pipeline));
+        }
+
+        QueryPoolHandle D3D12Device::CreateQueryPool(const QueryPoolDescription& description)
+        {
+            TR_CORE_ASSERT(description.Count != 0, "Query pool '{}' has no queries.", description.DebugName);
+
+            D3D12_QUERY_HEAP_DESC l_Description{};
+            l_Description.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+            l_Description.Count = description.Count;
+
+            D3D12QueryPool l_Pool;
+            l_Pool.Count = description.Count;
+            const HRESULT l_Result = m_Device->CreateQueryHeap(&l_Description, IID_PPV_ARGS(&l_Pool.Heap));
+            if (FAILED(l_Result))
+            {
+                TR_CORE_ERROR("D3D12: query pool '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
+
+                return {};
+            }
+
+            if (!description.DebugName.empty())
+            {
+                l_Pool.Heap->SetName(ToWide(description.DebugName).c_str());
+            }
+
+            return m_QueryPools.Add(std::move(l_Pool));
+        }
+
+        void D3D12Device::DestroyQueryPool(QueryPoolHandle pool)
+        {
+            if (!pool)
+            {
+                return;
+            }
+
+            std::optional<D3D12QueryPool> l_Pool = m_QueryPools.Remove(pool);
+            TR_CORE_ASSERT(l_Pool.has_value(), "DestroyQueryPool on a query pool that was already destroyed.");
+
+            if (l_Pool)
+            {
+                D3D12Release l_Release;
+                l_Release.QueryHeap = std::move(l_Pool->Heap);
+                m_Releases.Push(std::move(l_Release));
+            }
+        }
+
+        std::uint64_t D3D12Device::GetTimestampFrequency() const
+        {
+            UINT64 l_Frequency = 0;
+
+            return m_Queue && SUCCEEDED(m_Queue->GetTimestampFrequency(&l_Frequency)) ? l_Frequency : 0;
         }
 
         PipelineHandle D3D12Device::CreateComputePipeline(const ComputePipelineDescription& description)

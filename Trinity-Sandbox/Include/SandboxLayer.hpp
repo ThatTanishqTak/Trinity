@@ -29,6 +29,7 @@ private:
     void TestLayeredTextures();
     void TestRasterState();
     void TestMultisampling();
+    void TestTimestamps();
     void CreateSprites();
     void UpdateSprites();
     void TestSpriteReadback();

@@ -37,6 +37,7 @@ namespace Trinity
         using TextureHandle = Handle<struct TextureTag>;
         using PipelineHandle = Handle<struct PipelineTag>;
         using SamplerHandle = Handle<struct SamplerTag>;
+        using QueryPoolHandle = Handle<struct QueryPoolTag>;
 
         enum class Format : std::uint8_t
         {

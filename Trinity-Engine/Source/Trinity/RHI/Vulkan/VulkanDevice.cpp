@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <format>
 #include <optional>
@@ -42,9 +43,10 @@ namespace Trinity
                 { "shaderDrawParameters", &VkPhysicalDeviceVulkan11Features::shaderDrawParameters }
             } };
 
-            constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan12Features>, 10> c_Required12
+            constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan12Features>, 11> c_Required12
             { {
                 { "timelineSemaphore", &VkPhysicalDeviceVulkan12Features::timelineSemaphore },
+                { "hostQueryReset", &VkPhysicalDeviceVulkan12Features::hostQueryReset },
                 { "runtimeDescriptorArray", &VkPhysicalDeviceVulkan12Features::runtimeDescriptorArray },
                 { "descriptorBindingPartiallyBound", &VkPhysicalDeviceVulkan12Features::descriptorBindingPartiallyBound },
                 { "descriptorBindingUpdateUnusedWhilePending", &VkPhysicalDeviceVulkan12Features::descriptorBindingUpdateUnusedWhilePending },
@@ -964,6 +966,40 @@ namespace Trinity
             vkCmdDispatch(m_CommandBuffer, groupCountX, groupCountY, groupCountZ);
         }
 
+        void VulkanCommandList::WriteTimestamp(QueryPoolHandle pool, std::uint32_t index)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE, "WriteTimestamp is recorded within a frame.");
+
+            const VulkanQueryPool* l_Pool = m_Device.GetQueryPool(pool);
+            TR_CORE_ASSERT(l_Pool != nullptr && index < l_Pool->Count, "WriteTimestamp with a destroyed query pool, or an index past its end.");
+            if (l_Pool == nullptr || index >= l_Pool->Count)
+            {
+                return;
+            }
+
+            vkCmdWriteTimestamp2(m_CommandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, l_Pool->Pool, index);
+        }
+
+        // Resetting the range after the copy readies it for the next frame. A reset is ordered after earlier query commands on the same queries, the copy included, without a barrier
+        void VulkanCommandList::ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "ResolveTimestamps is recorded within a frame and outside rendering.");
+
+            const VulkanQueryPool* l_Pool = m_Device.GetQueryPool(pool);
+            const VulkanBuffer* l_Buffer = m_Device.GetBuffer(destination);
+            TR_CORE_ASSERT(l_Pool != nullptr && l_Buffer != nullptr, "ResolveTimestamps with a destroyed query pool or buffer.");
+            if (l_Pool == nullptr || l_Buffer == nullptr)
+            {
+                return;
+            }
+
+            TR_CORE_ASSERT(count != 0 && std::uint64_t{ first } + count <= l_Pool->Count, "ResolveTimestamps with a range past the end of a pool of {}.", l_Pool->Count);
+            TR_CORE_ASSERT(destinationOffset % 8 == 0 && destinationOffset + std::uint64_t{ count } * 8 <= l_Buffer->Size, "ResolveTimestamps at an offset that is not a multiple of 8, or past the end of the buffer.");
+
+            vkCmdCopyQueryPoolResults(m_CommandBuffer, l_Pool->Pool, first, count, l_Buffer->Buffer, destinationOffset, 8, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+            vkCmdResetQueryPool(m_CommandBuffer, l_Pool->Pool, first, count);
+        }
+
         void VulkanCommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
@@ -1077,9 +1113,9 @@ namespace Trinity
                 vkDeviceWaitIdle(m_Device);
                 m_UploadRing.Shutdown();
 
-                if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0)
+                if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0 || m_QueryPools.GetCount() != 0)
                 {
-                    TR_CORE_WARN("Vulkan: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s) and {} sampler(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount());
+                    TR_CORE_WARN("Vulkan: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s), {} sampler(s) and {} query pool(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
                 }
 
                 m_Releases.ReleaseAll([this](const VulkanRelease& release) { Release(release); });
@@ -1087,6 +1123,7 @@ namespace Trinity
                 m_Textures.ForEach([this](const VulkanTexture& texture) { Release(ToRelease(texture)); });
                 m_Pipelines.ForEach([this](const VulkanPipeline& pipeline) { vkDestroyPipeline(m_Device, pipeline.Pipeline, nullptr); });
                 m_Samplers.ForEach([this](const VulkanSampler& sampler) { Release(ToRelease(sampler)); });
+                m_QueryPools.ForEach([this](const VulkanQueryPool& pool) { vkDestroyQueryPool(m_Device, pool.Pool, nullptr); });
 
                 vkDestroyPipelineLayout(m_Device, m_PipelineLayout, nullptr);
                 vkDestroyDescriptorPool(m_Device, m_BindlessPool, nullptr);
@@ -1319,6 +1356,14 @@ namespace Trinity
             VkPhysicalDeviceProperties2 l_Properties = MakeInfo<VkPhysicalDeviceProperties2>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2);
             l_Properties.pNext = &l_DriverProperties;
             vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &l_Properties);
+
+            // Optional: without valid timestamp bits on the queue, CreateQueryPool refuses with an error
+            std::uint32_t l_FamilyCount = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &l_FamilyCount, nullptr);
+            std::vector<VkQueueFamilyProperties> l_Families(l_FamilyCount);
+            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &l_FamilyCount, l_Families.data());
+            m_TimestampsSupported = m_QueueFamily < l_Families.size() && l_Families[m_QueueFamily].timestampValidBits != 0 && l_Properties.properties.limits.timestampPeriod > 0.0f;
+            m_TimestampPeriod = l_Properties.properties.limits.timestampPeriod;
 
             DeviceFeatures l_Enabled;
             Enable(l_Enabled.Features.features, c_Required10);
@@ -1669,6 +1714,11 @@ namespace Trinity
             if (release.Pipeline != VK_NULL_HANDLE)
             {
                 vkDestroyPipeline(m_Device, release.Pipeline, nullptr);
+            }
+
+            if (release.QueryPool != VK_NULL_HANDLE)
+            {
+                vkDestroyQueryPool(m_Device, release.QueryPool, nullptr);
             }
 
             if (release.SampledView != VK_NULL_HANDLE)
@@ -2207,6 +2257,61 @@ namespace Trinity
             SetDebugName(VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<std::uint64_t>(l_Pipeline.Pipeline), description.DebugName);
 
             return m_Pipelines.Add(l_Pipeline);
+        }
+
+        // Reset on the host at once, so its first timestamps need no reset recorded before them
+        QueryPoolHandle VulkanDevice::CreateQueryPool(const QueryPoolDescription& description)
+        {
+            TR_CORE_ASSERT(description.Count != 0, "Query pool '{}' has no queries.", description.DebugName);
+            if (!m_TimestampsSupported)
+            {
+                TR_CORE_ERROR("Vulkan: query pool '{}' could not be created, since {} has no timestamps on its graphics queue", description.DebugName, m_Info.AdapterName);
+
+                return {};
+            }
+
+            VkQueryPoolCreateInfo l_Create = MakeInfo<VkQueryPoolCreateInfo>(VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO);
+            l_Create.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            l_Create.queryCount = description.Count;
+
+            VulkanQueryPool l_Pool;
+            l_Pool.Count = description.Count;
+            const VkResult l_Result = vkCreateQueryPool(m_Device, &l_Create, nullptr, &l_Pool.Pool);
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: query pool '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
+
+                return {};
+            }
+
+            vkResetQueryPool(m_Device, l_Pool.Pool, 0, description.Count);
+            SetDebugName(VK_OBJECT_TYPE_QUERY_POOL, reinterpret_cast<std::uint64_t>(l_Pool.Pool), description.DebugName);
+
+            return m_QueryPools.Add(l_Pool);
+        }
+
+        void VulkanDevice::DestroyQueryPool(QueryPoolHandle pool)
+        {
+            if (!pool)
+            {
+                return;
+            }
+
+            const std::optional<VulkanQueryPool> l_Pool = m_QueryPools.Remove(pool);
+            TR_CORE_ASSERT(l_Pool.has_value(), "DestroyQueryPool on a query pool that was already destroyed.");
+
+            if (l_Pool)
+            {
+                VulkanRelease l_Release;
+                l_Release.QueryPool = l_Pool->Pool;
+                m_Releases.Push(std::move(l_Release));
+            }
+        }
+
+        // Vulkan gives nanoseconds per tick
+        std::uint64_t VulkanDevice::GetTimestampFrequency() const
+        {
+            return static_cast<std::uint64_t>(std::llround(1000000000.0 / static_cast<double>(m_TimestampPeriod)));
         }
 
         PipelineHandle VulkanDevice::CreateComputePipeline(const ComputePipelineDescription& description)

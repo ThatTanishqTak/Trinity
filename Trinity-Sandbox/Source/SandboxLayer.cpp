@@ -346,6 +346,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
         TestLayeredTextures();
         TestRasterState();
         TestMultisampling();
+        TestTimestamps();
     }
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
@@ -1307,6 +1308,135 @@ void SandboxLayer::TestMultisampling()
     }
 
     TR_INFO("Multisampling: {} resolved a {}x triangle as rendering ended, with {} edge pixel(s) at a quarter, half or three quarters of white and every other pixel black or white", Trinity::ToString(l_Info.API), c_SampleCount, l_Partial);
+}
+
+// Two frames each write four timestamps into the same pool, around and inside a pass that clears and fills a large target, and resolve them. Every timestamp must be non-zero, each frame's in order, and the second frame's after the first's, which also shows the pool can be written again once resolved
+void SandboxLayer::TestTimestamps()
+{
+    TR_PROFILE_FUNCTION();
+
+    constexpr Trinity::RHI::Format c_Format = Trinity::RHI::Format::RGBA16Float;
+    constexpr std::uint32_t c_Size = 1024;
+    constexpr std::uint32_t c_TimestampCount = 4;
+    constexpr std::uint32_t c_FrameCount = 2;
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+    const std::uint64_t l_Frequency = l_Device.GetTimestampFrequency();
+
+    const std::string_view l_Extension = l_Info.API == Trinity::GraphicsAPI::D3D12 ? "dxil" : "spv";
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_VertexShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/RasterTest.VertexMain.{}", l_Extension));
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_PixelShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/RasterTest.PixelMain.{}", l_Extension));
+    if (!l_VertexShader || !l_PixelShader || l_Frequency == 0)
+    {
+        TR_ERROR("Timestamps: {}", l_Frequency == 0 ? "the device reports no timestamp frequency" : std::format("the RasterTest {} shaders could not be read from /engine/shaders", l_Extension));
+
+        return;
+    }
+
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ c_Format };
+    Trinity::RHI::GraphicsPipelineDescription l_PipelineDescription;
+    l_PipelineDescription.VertexShader = { *l_VertexShader, "VertexMain" };
+    l_PipelineDescription.PixelShader = { *l_PixelShader, "PixelMain" };
+    l_PipelineDescription.ColorFormats = l_ColorFormats;
+    l_PipelineDescription.Cull = Trinity::RHI::CullMode::None;
+    l_PipelineDescription.DebugName = "Sandbox timed fill";
+    const Trinity::RHI::PipelineHandle l_Pipeline = l_Device.CreateGraphicsPipeline(l_PipelineDescription);
+
+    Trinity::RHI::TextureDescription l_TargetDescription;
+    l_TargetDescription.Width = c_Size;
+    l_TargetDescription.Height = c_Size;
+    l_TargetDescription.TextureFormat = c_Format;
+    l_TargetDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget;
+    l_TargetDescription.DebugName = "Sandbox timed target";
+    const Trinity::RHI::TextureHandle l_Target = l_Device.CreateTexture(l_TargetDescription);
+
+    const Trinity::RHI::QueryPoolHandle l_Pool = l_Device.CreateQueryPool({ c_TimestampCount, "Sandbox timestamps" });
+
+    Trinity::RHI::BufferDescription l_ReadbackDescription;
+    l_ReadbackDescription.Size = std::uint64_t{ c_TimestampCount } * c_FrameCount * 8;
+    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_ReadbackDescription.DebugName = "Sandbox timestamp readback";
+    const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_ReadbackDescription);
+
+    const auto a_Destroy = [&]()
+    {
+        l_Device.DestroyBuffer(l_Readback);
+        l_Device.DestroyQueryPool(l_Pool);
+        l_Device.DestroyTexture(l_Target);
+        l_Device.DestroyPipeline(l_Pipeline);
+    };
+
+    if (!l_Pipeline || !l_Target || !l_Pool || !l_Readback)
+    {
+        TR_ERROR("Timestamps: could not create the pipeline, the target, the query pool or the readback");
+        a_Destroy();
+
+        return;
+    }
+
+    const RasterPushData l_Push{ { glm::vec4(-1.0f, -1.0f, 0.5f, 1.0f), glm::vec4(3.0f, -1.0f, 0.5f, 1.0f), glm::vec4(-1.0f, 3.0f, 0.5f, 1.0f) }, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f) };
+    const std::array<Trinity::RHI::ColorAttachment, 1> l_Attachments{ Trinity::RHI::ColorAttachment{ l_Target, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::Store } };
+    Trinity::RHI::RenderingDescription l_Rendering;
+    l_Rendering.ColorAttachments = l_Attachments;
+
+    // Timestamps before the pass, inside it before and after the draw, and after it
+    for (std::uint32_t it_Frame = 0; it_Frame < c_FrameCount; ++it_Frame)
+    {
+        Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+        l_Commands.TextureBarrier(l_Target, it_Frame == 0 ? Trinity::RHI::ResourceState::Undefined : Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::RenderTarget);
+        l_Commands.WriteTimestamp(l_Pool, 0);
+        l_Commands.BeginRendering(l_Rendering);
+        l_Commands.WriteTimestamp(l_Pool, 1);
+        l_Commands.SetPipeline(l_Pipeline);
+        l_Commands.SetViewport({ 0.0f, 0.0f, static_cast<float>(c_Size), static_cast<float>(c_Size), 0.0f, 1.0f });
+        l_Commands.SetScissor({ 0, 0, c_Size, c_Size });
+        l_Commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+        l_Commands.Draw(3, 1, 0, 0);
+        l_Commands.WriteTimestamp(l_Pool, 2);
+        l_Commands.EndRendering();
+        l_Commands.WriteTimestamp(l_Pool, 3);
+        l_Commands.ResolveTimestamps(l_Pool, 0, c_TimestampCount, l_Readback, std::uint64_t{ it_Frame } * c_TimestampCount * 8);
+        l_Device.EndFrame();
+    }
+
+    l_Device.WaitIdle();
+
+    if (l_Info.API == Trinity::GraphicsAPI::None)
+    {
+        TR_INFO("Timestamps: None recorded {} timestamps in each of {} frames and resolved them", c_TimestampCount, c_FrameCount);
+        a_Destroy();
+
+        return;
+    }
+
+    std::array < std::uint64_t, std::size_t{ c_TimestampCount }* c_FrameCount > l_Ticks{};
+    const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+    if (l_Data.size() >= sizeof(l_Ticks))
+    {
+        std::memcpy(l_Ticks.data(), l_Data.data(), sizeof(l_Ticks));
+    }
+
+    a_Destroy();
+
+    const bool l_NonZero = std::ranges::none_of(l_Ticks, [](std::uint64_t ticks) { return ticks == 0; });
+    const bool l_InOrder = std::ranges::is_sorted(l_Ticks);
+    if (!l_NonZero || !l_InOrder || l_Ticks.back() == l_Ticks.front())
+    {
+        std::string l_Values;
+        for (const std::uint64_t it_Ticks : l_Ticks)
+        {
+            l_Values += std::format("{}{}", l_Values.empty() ? "" : ", ", it_Ticks);
+        }
+
+        TR_ERROR("Timestamps: {} read back {}, which are not all non-zero and in order", Trinity::ToString(l_Info.API), l_Values);
+
+        return;
+    }
+
+    const auto a_Microseconds = [l_Frequency](std::uint64_t ticks) { return static_cast<double>(ticks) * 1000000.0 / static_cast<double>(l_Frequency); };
+    TR_INFO("Timestamps: {} wrote {} non-zero timestamps in order over {} frames at {} ticks a second, and the second frame's {}x{} pass took {:.1f} us", Trinity::ToString(l_Info.API), l_Ticks.size(), c_FrameCount, l_Frequency, c_Size, c_Size, a_Microseconds(l_Ticks[7] - l_Ticks[4]));
 }
 
 // 64 placeholder source files give the registry 64 texture assets, whose cooked KTX2 a memory source serves at /cache

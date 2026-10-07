@@ -59,6 +59,12 @@ namespace Trinity
             VkPipelineBindPoint BindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         };
 
+        struct VulkanQueryPool
+        {
+            VkQueryPool Pool = VK_NULL_HANDLE;
+            std::uint32_t Count = 0;
+        };
+
         struct VulkanSampler
         {
             VkSampler Sampler = VK_NULL_HANDLE;
@@ -87,6 +93,9 @@ namespace Trinity
             void SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format) override;
             void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance) override;
             void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) override;
+
+            void WriteTimestamp(QueryPoolHandle pool, std::uint32_t index) override;
+            void ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset) override;
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) override;
@@ -129,6 +138,10 @@ namespace Trinity
             void DestroySampler(SamplerHandle sampler) override;
             [[nodiscard]] std::uint32_t GetSamplerIndex(SamplerHandle sampler) override;
 
+            [[nodiscard]] QueryPoolHandle CreateQueryPool(const QueryPoolDescription& description) override;
+            void DestroyQueryPool(QueryPoolHandle pool) override;
+            [[nodiscard]] std::uint64_t GetTimestampFrequency() const override;
+
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             [[nodiscard]] PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
@@ -142,6 +155,7 @@ namespace Trinity
             [[nodiscard]] VulkanBuffer* GetBuffer(BufferHandle buffer) { return m_Buffers.Get(buffer); }
             [[nodiscard]] VulkanTexture* GetTexture(TextureHandle texture) { return m_Textures.Get(texture); }
             [[nodiscard]] VulkanPipeline* GetPipeline(PipelineHandle pipeline) { return m_Pipelines.Get(pipeline); }
+            [[nodiscard]] VulkanQueryPool* GetQueryPool(QueryPoolHandle pool) { return m_QueryPools.Get(pool); }
             [[nodiscard]] VkPipelineLayout GetPipelineLayout() const { return m_PipelineLayout; }
             [[nodiscard]] VkDescriptorSet GetBindlessSet() const { return m_BindlessSet; }
 
@@ -171,6 +185,7 @@ namespace Trinity
                 VkImageView SampledView = VK_NULL_HANDLE;
                 VkPipeline Pipeline = VK_NULL_HANDLE;
                 VkSampler Sampler = VK_NULL_HANDLE;
+                VkQueryPool QueryPool = VK_NULL_HANDLE;
                 std::uint32_t ShaderResourceIndex = c_NoBindlessIndex;
                 std::uint32_t UnorderedAccessIndex = c_NoBindlessIndex;
                 std::uint32_t SamplerIndex = c_NoBindlessIndex;
@@ -203,6 +218,8 @@ namespace Trinity
             DeviceInfo m_Info;
             bool m_Validation = false;
             bool m_TextureCompressionBC = false;
+            bool m_TimestampsSupported = false;
+            float m_TimestampPeriod = 1.0f;
             std::atomic<std::uint32_t> m_MessageCount{ 0 };
 
             VkInstance m_Instance = VK_NULL_HANDLE;
@@ -217,6 +234,7 @@ namespace Trinity
             HandlePool<VulkanTexture, TextureHandle> m_Textures;
             HandlePool<VulkanPipeline, PipelineHandle> m_Pipelines;
             HandlePool<VulkanSampler, SamplerHandle> m_Samplers;
+            HandlePool<VulkanQueryPool, QueryPoolHandle> m_QueryPools;
             ReleaseQueue<VulkanRelease> m_Releases;
 
             VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;

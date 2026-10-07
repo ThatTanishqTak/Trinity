@@ -79,6 +79,10 @@ namespace Trinity
 
             virtual void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) = 0;
 
+            // A timestamp can be written inside rendering or outside it, and each index once between resolves. ResolveTimestamps, outside rendering, writes 8 bytes per timestamp at an offset that is a multiple of 8, into a buffer in CopyDestination
+            virtual void WriteTimestamp(QueryPoolHandle pool, std::uint32_t index) = 0;
+            virtual void ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset) = 0;
+
             virtual void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) = 0;
             virtual void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) = 0;
             virtual void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) = 0;
