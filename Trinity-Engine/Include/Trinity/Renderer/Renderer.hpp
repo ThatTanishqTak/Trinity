@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/Core/Base.hpp"
+#include "Trinity/Renderer/FrameGraph.hpp"
 #include "Trinity/Renderer/Renderer2D.hpp"
 #include "Trinity/RHI/Device.hpp"
 
@@ -20,7 +21,7 @@ namespace Trinity
 
     using OutputCallback = std::function<void(RHI::CommandList& commands, std::uint32_t width, std::uint32_t height)>;
 
-    // Layers draw into a scene target, the size of the output unless SetSceneSize asks for another. A second pass copies it to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it
+    // Each frame is a frame graph. Layers draw into a scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The output pass copies the scene to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it. Each added output gets a pass of its own
     class TRINITY_API Renderer
     {
     public:
@@ -44,6 +45,7 @@ namespace Trinity
         [[nodiscard]] bool IsVSync() const;
 
         [[nodiscard]] Renderer2D& GetRenderer2D() { return *m_Renderer2D; }
+        [[nodiscard]] const FrameGraph& GetFrameGraph() const { return *m_FrameGraph; }
         [[nodiscard]] RHI::Format GetSceneFormat() const;
         [[nodiscard]] RHI::Format GetOutputFormat() const;
         [[nodiscard]] RHI::TextureHandle GetSceneTarget() const { return m_SceneTarget; }
@@ -70,9 +72,9 @@ namespace Trinity
         void CreateOffscreenTarget();
         void CreateSceneTarget();
         void CreateCopyPipeline();
-        void RenderScene(RHI::CommandList& commands, LayerStack& layers);
-        void RenderOutput(RHI::CommandList& commands, RHI::TextureHandle output, LayerStack& layers);
-        void RenderAddedOutputs(RHI::CommandList& commands);
+        void BuildFrameGraph(LayerStack& layers);
+        void AddOutputPass(FrameGraphTexture scene, RHI::TextureHandle output, LayerStack& layers);
+        void AddAddedOutputPasses(FrameGraphTexture scene);
         void DestroyOutput(Output& output);
         [[nodiscard]] RHI::TextureHandle CreateOutputTarget(std::uint32_t width, std::uint32_t height, std::string_view debugName);
         void ReportFrameRate();
@@ -87,6 +89,7 @@ namespace Trinity
         std::string m_Title;
         Scope<TextureLoader> m_TextureLoader;
         Scope<Renderer2D> m_Renderer2D;
+        Scope<FrameGraph> m_FrameGraph;
 
         Scope<RHI::SwapChain> m_SwapChain;
         RHI::TextureHandle m_OffscreenTarget;
@@ -97,6 +100,7 @@ namespace Trinity
         std::uint32_t m_NextOutputId = 1;
 
         RHI::TextureHandle m_SceneTarget;
+        RHI::TextureDescription m_SceneDescription;
         RHI::ResourceState m_SceneState = RHI::ResourceState::Undefined;
         std::uint32_t m_SceneWidth = 0;
         std::uint32_t m_SceneHeight = 0;

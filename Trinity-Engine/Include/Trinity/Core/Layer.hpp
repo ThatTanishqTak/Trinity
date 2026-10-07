@@ -3,6 +3,7 @@
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Events/Event.hpp"
+#include "Trinity/Renderer/FrameGraph.hpp"
 #include "Trinity/RHI/CommandList.hpp"
 
 #include <string>
@@ -54,6 +55,12 @@ namespace Trinity
         }
 
         virtual void OnRenderUI([[maybe_unused]] RHI::CommandList& commands)
+        {
+
+        }
+
+        // Adds passes to the frame's graph after the scene pass, where OnRender draws, and before the output pass, where OnRenderUI draws. They can read the scene colour or draw over it. sceneColor is invalid when the scene target could not be created
+        virtual void OnBuildFrameGraph([[maybe_unused]] FrameGraph& graph, [[maybe_unused]] FrameGraphTexture sceneColor)
         {
 
         }

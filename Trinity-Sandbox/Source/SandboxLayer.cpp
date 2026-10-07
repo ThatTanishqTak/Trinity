@@ -26,6 +26,8 @@ namespace
     constexpr std::uint64_t c_SpriteReportFrame = 1000;
     constexpr std::uint64_t c_SpriteLoadTimeoutFrames = 600;
     constexpr std::uint32_t c_SpriteReadbackSize = 128;
+    constexpr Trinity::RHI::Format c_SpriteReadbackFormat = Trinity::RHI::Format::RGBA8Unorm;
+    constexpr std::array<float, 4> c_SpriteReadbackClear{ 0.0f, 0.0f, 0.0f, 1.0f };
     constexpr float c_ClearCycleSeconds = 10.0f;
 
     // The storage buffer holds c_ComputeWordCount words from one dispatch and as many again from the next, and the storage texture is c_ComputeTextureSize texels square
@@ -325,6 +327,17 @@ namespace
 
     Trinity::ConsoleVariable<float> s_ReportInterval("sandbox.report_interval", 1.0f, "Seconds between Sandbox fps reports");
     Trinity::ConsoleVariable<bool> s_ListConsoleVariables("sandbox.list_cvars", false, "Log every console variable when the Sandbox starts", Trinity::ConsoleVariableFlags::ReadOnly);
+    Trinity::ConsoleVariable<bool> s_ResizeTest("sandbox.resize_test", false, "Once the sprites run, gives the window a new size every frame for 200 frames and checks that Renderer memory stays flat", Trinity::ConsoleVariableFlags::ReadOnly);
+
+    // Added to the Renderer's graph every frame, writing a texture nobody reads, so the graph culls it
+    constexpr std::string_view c_UnusedPassName = "Sandbox unused";
+
+    // The window cycles through 25 sizes, so after 100 and after 200 resizes it has been through the same ones
+    constexpr std::uint32_t c_ResizeCount = 200;
+    constexpr std::uint32_t c_ResizeCycle = 25;
+    constexpr std::uint32_t c_ResizeStep = 16;
+    constexpr std::uint32_t c_ResizeBaseWidth = 640;
+    constexpr std::uint32_t c_ResizeBaseHeight = 360;
 }
 
 SandboxLayer::SandboxLayer() : Layer("Sandbox")
@@ -367,7 +380,9 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
         TestFrameGraph();
     }
 
+    CheckRendererGraph();
     UpdateSprites();
+    UpdateResizes();
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
     Trinity::Application::Get().GetRenderer().SetClearColor(HueToColor(m_ClearHue));
@@ -398,7 +413,7 @@ void SandboxLayer::OnEvent(Trinity::Event& event)
 void SandboxLayer::OnRender(Trinity::RHI::CommandList& commands)
 {
     // Renderer memory is watched from the first frame after the readback
-    if (m_SpritePhase == SpritePhase::Loading || m_SpritePhase == SpritePhase::Running)
+    if (m_SpritePhase != SpritePhase::Idle)
     {
         Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
         Trinity::Renderer2D& l_Renderer2D = l_Renderer.GetRenderer2D();
@@ -421,6 +436,32 @@ void SandboxLayer::OnRender(Trinity::RHI::CommandList& commands)
                 ReportSprites();
             }
         }
+    }
+}
+
+// Every frame adds a pass the graph culls, and on the one frame it is wanted the sprite readback, which so goes through the Renderer's own graph
+void SandboxLayer::OnBuildFrameGraph(Trinity::FrameGraph& graph, Trinity::FrameGraphTexture sceneColor)
+{
+    Trinity::RHI::TextureDescription l_UnusedDescription;
+    l_UnusedDescription.Width = 64;
+    l_UnusedDescription.Height = 64;
+
+    const Trinity::FrameGraphTexture l_Unused = graph.CreateTexture(c_UnusedPassName, l_UnusedDescription);
+    graph.AddPass(c_UnusedPassName, Trinity::FrameGraphPassType::Raster, [l_Unused, sceneColor](Trinity::FrameGraphPassBuilder& builder)
+    {
+        builder.AddColorAttachment({ l_Unused });
+        if (sceneColor)
+        {
+            builder.Read(sceneColor, Trinity::RHI::ResourceState::ShaderResource);
+        }
+    }, []([[maybe_unused]] const Trinity::FrameGraphContext& context)
+    {
+
+    });
+
+    if (m_SpritePhase == SpritePhase::Reading && !m_SpriteReadbackAdded)
+    {
+        AddSpriteReadback(graph);
     }
 }
 
@@ -1681,6 +1722,86 @@ void SandboxLayer::TestFrameGraph()
     TR_INFO("Frame graph: {} ran 3 of 4 passes with the unused one culled and {} barriers a frame, reused 2 pooled textures over {} frames with Renderer holding {} over the last two, and all {} probes for the pattern and the triangle hold", Trinity::ToString(l_Info.API), l_First.Barriers, c_FrameCount, Trinity::Memory::FormatBytes(l_RendererBytes[3]), l_Probes.size());
 }
 
+// Once the Renderer has run a frame: its scene and output passes ran and the Sandbox's unused pass was culled
+void SandboxLayer::CheckRendererGraph()
+{
+    const Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
+    const Trinity::FrameGraph& l_Graph = l_Renderer.GetFrameGraph();
+    if (m_GraphChecked || l_Graph.GetPassCount() == 0)
+    {
+        return;
+    }
+
+    m_GraphChecked = true;
+
+    std::string l_Passes;
+    bool l_Scene = false;
+    bool l_Output = false;
+    bool l_UnusedCulled = false;
+    for (std::uint32_t it_Pass = 0; it_Pass < l_Graph.GetPassCount(); ++it_Pass)
+    {
+        const std::string_view l_Name = l_Graph.GetPassName(it_Pass);
+        const bool l_Culled = l_Graph.IsPassCulled(it_Pass);
+        l_Passes += std::format("{}{}{}", l_Passes.empty() ? "" : ", ", l_Name, l_Culled ? " (culled)" : "");
+
+        l_Scene = l_Scene || (l_Name == "Scene" && !l_Culled);
+        l_Output = l_Output || (l_Name == "Output" && !l_Culled);
+        l_UnusedCulled = l_UnusedCulled || (l_Name == c_UnusedPassName && l_Culled);
+    }
+
+    const Trinity::FrameGraph::Statistics& l_Statistics = l_Graph.GetStatistics();
+    if (!l_Scene || !l_Output || !l_UnusedCulled || l_Statistics.CulledPasses != 1)
+    {
+        TR_ERROR("Renderer graph: the first frame's passes were {}, where Scene and Output run and only {} is culled", l_Passes, c_UnusedPassName);
+
+        return;
+    }
+
+    TR_INFO("Renderer graph: {} ran {} with {} barriers", Trinity::ToString(Trinity::Application::Get().GetDevice().GetInfo().API), l_Passes, l_Statistics.Barriers);
+}
+
+// Each resize recreates the scene target and the swap chain or offscreen target between frames, and Renderer memory after 100 resizes must match that after 200. The window gets its size back afterwards
+void SandboxLayer::UpdateResizes()
+{
+    if (!s_ResizeTest.Get() || m_SpritePhase != SpritePhase::Running || m_Resizes > c_ResizeCount)
+    {
+        return;
+    }
+
+    Trinity::Window& l_Window = Trinity::Application::Get().GetWindow();
+    if (m_Resizes == 0)
+    {
+        m_ResizeWidth = l_Window.GetWidth();
+        m_ResizeHeight = l_Window.GetHeight();
+    }
+
+    const std::uint64_t l_Bytes = Trinity::Memory::GetStats(Trinity::MemoryTag::Renderer).CurrentBytes;
+    if (m_Resizes == c_ResizeCount / 2)
+    {
+        m_ResizeBytesMiddle = l_Bytes;
+    }
+
+    if (m_Resizes == c_ResizeCount)
+    {
+        ++m_Resizes;
+        l_Window.SetSize(m_ResizeWidth, m_ResizeHeight);
+        if (l_Bytes != m_ResizeBytesMiddle)
+        {
+            TR_ERROR("Resizes: Renderer went from {} after {} resizes to {} after {}", Trinity::Memory::FormatBytes(m_ResizeBytesMiddle), c_ResizeCount / 2, Trinity::Memory::FormatBytes(l_Bytes), c_ResizeCount);
+
+            return;
+        }
+
+        TR_INFO("Resizes: {} resized the window {} times with Renderer holding {} after {} and after {}", Trinity::ToString(Trinity::Application::Get().GetDevice().GetInfo().API), c_ResizeCount, Trinity::Memory::FormatBytes(l_Bytes), c_ResizeCount / 2, c_ResizeCount);
+
+        return;
+    }
+
+    const std::uint32_t l_Step = m_Resizes % c_ResizeCycle;
+    l_Window.SetSize(c_ResizeBaseWidth + l_Step * c_ResizeStep, c_ResizeBaseHeight + (l_Step * 7 % c_ResizeCycle) * c_ResizeStep);
+    ++m_Resizes;
+}
+
 // 64 placeholder source files give the registry 64 texture assets, whose cooked KTX2 a memory source serves at /cache
 void SandboxLayer::CreateSprites()
 {
@@ -1810,23 +1931,30 @@ void SandboxLayer::CreateSprites()
     m_SpritePhaseFrame = Trinity::Application::Get().GetFrameCount();
 }
 
-// Waits for every texture to load, checks a readback, and from then on watches Renderer memory
+// Waits for every texture to load, reads a frame's readback back, and from then on watches Renderer memory
 void SandboxLayer::UpdateSprites()
 {
-    const std::uint64_t l_Frame = Trinity::Application::Get().GetFrameCount();
+    // The readback passes went into a frame that has been submitted since
+    if (m_SpritePhase == SpritePhase::Reading)
+    {
+        if (m_SpriteReadbackAdded)
+        {
+            CheckSpriteReadback();
+            m_SpritePhase = SpritePhase::Running;
+        }
+
+        return;
+    }
+
     if (m_SpritePhase != SpritePhase::Loading)
     {
         return;
     }
 
-    // A texture becomes ready at the start of a frame and is uploaded when that frame renders, so the readback, which draws outside the renderer's frame, waits one more frame
+    // A texture that became ready this frame is uploaded before the graph runs, so the readback can draw it in this frame
+    const std::uint64_t l_Frame = Trinity::Application::Get().GetFrameCount();
     const bool l_Loaded = std::ranges::all_of(m_SpriteTextures, [](Trinity::UUID id) { return Trinity::AssetManager::GetState(id) == Trinity::AssetState::Ready; });
-    if (l_Loaded && m_SpriteLoadedFrame == 0)
-    {
-        m_SpriteLoadedFrame = l_Frame;
-    }
-
-    if (!l_Loaded || l_Frame == m_SpriteLoadedFrame)
+    if (!l_Loaded)
     {
         if (l_Frame - m_SpritePhaseFrame > c_SpriteLoadTimeoutFrames)
         {
@@ -1837,13 +1965,60 @@ void SandboxLayer::UpdateSprites()
         return;
     }
 
-    TR_INFO("Sprites: {} textures loaded in {} frame(s)", c_SpriteTextureCount, m_SpriteLoadedFrame - m_SpritePhaseFrame);
-    TestSpriteReadback();
-    m_SpritePhase = SpritePhase::Running;
+    TR_INFO("Sprites: {} textures loaded in {} frame(s)", c_SpriteTextureCount, l_Frame - m_SpritePhaseFrame);
+
+    Trinity::RHI::BufferDescription l_ReadbackDescription;
+    l_ReadbackDescription.Size = Trinity::RHI::GetTextureCopyRowPitch(c_SpriteReadbackFormat, c_SpriteReadbackSize) * c_SpriteReadbackSize;
+    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_ReadbackDescription.DebugName = "Sandbox sprite readback";
+
+    m_SpriteReadback = Trinity::Application::Get().GetDevice().CreateBuffer(l_ReadbackDescription);
+    if (!m_SpriteReadback)
+    {
+        TR_ERROR("Sprites: could not create the readback buffer");
+        m_SpritePhase = SpritePhase::Running;
+
+        return;
+    }
+
+    m_SpritePhase = SpritePhase::Reading;
+}
+
+// A transient target cleared to black, the readback scene drawn into it, and a copy into the readback buffer
+void SandboxLayer::AddSpriteReadback(Trinity::FrameGraph& graph)
+{
+    m_SpriteReadbackAdded = true;
+
+    Trinity::RHI::TextureDescription l_TargetDescription;
+    l_TargetDescription.Width = c_SpriteReadbackSize;
+    l_TargetDescription.Height = c_SpriteReadbackSize;
+    l_TargetDescription.TextureFormat = c_SpriteReadbackFormat;
+    l_TargetDescription.ClearColor = c_SpriteReadbackClear;
+
+    const std::uint64_t l_Size = Trinity::RHI::GetTextureCopyRowPitch(c_SpriteReadbackFormat, c_SpriteReadbackSize) * c_SpriteReadbackSize;
+    const Trinity::FrameGraphTexture l_Target = graph.CreateTexture("Sandbox sprite target", l_TargetDescription);
+    const Trinity::FrameGraphBuffer l_Readback = graph.ImportBuffer("Sandbox sprite readback", m_SpriteReadback, l_Size, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination);
+
+    graph.AddPass("Sandbox sprites", Trinity::FrameGraphPassType::Raster, [l_Target](Trinity::FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Target, Trinity::RHI::LoadOp::Clear, c_SpriteReadbackClear }); }, [this](const Trinity::FrameGraphContext& context)
+    {
+        Trinity::Renderer2D& l_Renderer2D = Trinity::Application::Get().GetRenderer().GetRenderer2D();
+        m_SpriteReadbackDrawn = l_Renderer2D.DrawScene(context.GetCommands(), *m_SpriteReadbackScene, c_SpriteReadbackFormat, c_SpriteReadbackSize, c_SpriteReadbackSize);
+        m_SpriteReadbackStatistics = l_Renderer2D.GetStatistics();
+    });
+
+    graph.AddPass("Sandbox sprite copy", Trinity::FrameGraphPassType::Copy, [l_Target, l_Readback](Trinity::FrameGraphPassBuilder& builder)
+    {
+        builder.Read(l_Target, Trinity::RHI::ResourceState::CopySource);
+        builder.Write(l_Readback, Trinity::RHI::ResourceState::CopyDestination);
+    }, [l_Target, l_Readback](const Trinity::FrameGraphContext& context)
+    {
+        context.GetCommands().CopyTextureToBuffer(context.GetTexture(l_Target), 0, 0, context.GetBuffer(l_Readback), 0);
+    });
 }
 
 // Probes inside each sprite of a small scene, chosen so that a wrong sort, transform, flip, filter or blend each changes at least one of them
-void SandboxLayer::TestSpriteReadback()
+void SandboxLayer::CheckSpriteReadback()
 {
     TR_PROFILE_FUNCTION();
 
@@ -1875,60 +2050,17 @@ void SandboxLayer::TestSpriteReadback()
         { "background", { 55.0f, -55.0f }, { 0, 0, 0 } }
     } };
 
-    constexpr Trinity::RHI::Format c_Format = Trinity::RHI::Format::RGBA8Unorm;
-    constexpr std::array<float, 4> c_Black{ 0.0f, 0.0f, 0.0f, 1.0f };
-
     Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
-    Trinity::Renderer2D& l_Renderer2D = Trinity::Application::Get().GetRenderer().GetRenderer2D();
-
-    Trinity::RHI::TextureDescription l_TargetDescription;
-    l_TargetDescription.Width = c_SpriteReadbackSize;
-    l_TargetDescription.Height = c_SpriteReadbackSize;
-    l_TargetDescription.TextureFormat = c_Format;
-    l_TargetDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::CopySource;
-    l_TargetDescription.ClearColor = c_Black;
-    l_TargetDescription.DebugName = "Sandbox sprite target";
-
-    const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(c_Format, c_SpriteReadbackSize);
-
-    Trinity::RHI::BufferDescription l_ReadbackDescription;
-    l_ReadbackDescription.Size = l_RowPitch * c_SpriteReadbackSize;
-    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
-    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
-    l_ReadbackDescription.DebugName = "Sandbox sprite readback";
-
-    const Trinity::RHI::TextureHandle l_Target = l_Device.CreateTexture(l_TargetDescription);
-    const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_ReadbackDescription);
-    if (!l_Target || !l_Readback)
-    {
-        TR_ERROR("Sprites: could not create the readback target or buffer");
-        l_Device.DestroyTexture(l_Target);
-        l_Device.DestroyBuffer(l_Readback);
-
-        return;
-    }
-
-    Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
-    l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::RenderTarget);
-
-    const std::array<Trinity::RHI::ColorAttachment, 1> l_Attachments{ Trinity::RHI::ColorAttachment{ l_Target, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::Store, c_Black } };
-    Trinity::RHI::RenderingDescription l_Rendering;
-    l_Rendering.ColorAttachments = l_Attachments;
-    l_Rendering.RenderArea = { 0, 0, c_SpriteReadbackSize, c_SpriteReadbackSize };
-    l_Commands.BeginRendering(l_Rendering);
-    const bool l_Drawn = l_Renderer2D.DrawScene(l_Commands, *m_SpriteReadbackScene, c_Format, c_SpriteReadbackSize, c_SpriteReadbackSize);
-    const Trinity::Renderer2D::Statistics l_Statistics = l_Renderer2D.GetStatistics();
-    l_Commands.EndRendering();
-
-    l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::CopySource);
-    l_Commands.CopyTextureToBuffer(l_Target, 0, 0, l_Readback, 0);
-    l_Device.EndFrame();
     l_Device.WaitIdle();
+
+    const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(c_SpriteReadbackFormat, c_SpriteReadbackSize);
+    const bool l_Drawn = m_SpriteReadbackDrawn;
+    const Trinity::Renderer2D::Statistics l_Statistics = m_SpriteReadbackStatistics;
 
     // The null device draws nothing, so only a GPU's readback has pixels to check
     const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
-    const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
-    const bool l_Check = l_Info.API != Trinity::GraphicsAPI::None && l_Data.size() == l_ReadbackDescription.Size;
+    const std::span<const std::byte> l_Data = l_Device.GetMappedData(m_SpriteReadback);
+    const bool l_Check = l_Info.API != Trinity::GraphicsAPI::None && l_Data.size() == l_RowPitch * c_SpriteReadbackSize;
 
     std::string l_Wrong;
     for (const Probe& it_Probe : c_Probes)
@@ -1955,8 +2087,8 @@ void SandboxLayer::TestSpriteReadback()
 
     const std::uint64_t l_Hash = l_Check ? HashRows(l_Data, l_RowPitch, std::uint64_t{ c_SpriteReadbackSize } * 4, c_SpriteReadbackSize) : 0;
 
-    l_Device.DestroyBuffer(l_Readback);
-    l_Device.DestroyTexture(l_Target);
+    l_Device.DestroyBuffer(m_SpriteReadback);
+    m_SpriteReadback = {};
 
     if (!l_Drawn || l_Statistics.Sprites != 8 || l_Statistics.DrawCalls != (l_Info.API != Trinity::GraphicsAPI::None ? 1u : l_Statistics.DrawCalls))
     {
@@ -2019,6 +2151,8 @@ void SandboxLayer::DestroySprites()
         static_cast<void>(Trinity::FileSystem::Unmount(Trinity::Project::c_CacheMount));
     }
 
+    Trinity::Application::Get().GetDevice().DestroyBuffer(m_SpriteReadback);
+    m_SpriteReadback = {};
     m_SpriteScene.reset();
     m_SpriteReadbackScene.reset();
     m_SpriteRegistry.reset();

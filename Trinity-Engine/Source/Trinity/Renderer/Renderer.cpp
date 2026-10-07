@@ -23,10 +23,17 @@ namespace Trinity
 
         constexpr RHI::Format c_SceneFormat = RHI::Format::BGRA8Unorm;
 
-        void SetFullViewport(RHI::CommandList& commands, std::uint32_t width, std::uint32_t height)
+        // What the graph is told about a window's texture or an offscreen target it imports, of which it only reads the size
+        RHI::TextureDescription GetOutputDescription(std::uint32_t width, std::uint32_t height, RHI::Format format)
         {
-            commands.SetViewport({ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f });
-            commands.SetScissor({ 0, 0, width, height });
+            RHI::TextureDescription l_Description;
+            l_Description.Width = width;
+            l_Description.Height = height;
+            l_Description.TextureFormat = format;
+            l_Description.Usage = RHI::TextureUsage::RenderTarget;
+            l_Description.OptimizedClear = false;
+
+            return l_Description;
         }
     }
 
@@ -67,6 +74,7 @@ namespace Trinity
         // Sprites without a texture, or whose texture is still loading, draw with the loader's white placeholder
         const Asset* l_White = m_TextureLoader->GetPlaceholder();
         m_Renderer2D = CreateScope<Renderer2D>(m_Device, l_White != nullptr ? static_cast<const TextureAsset*>(l_White)->GetShaderResourceIndex() : RHI::c_NoBindlessIndex);
+        m_FrameGraph = CreateScope<FrameGraph>(m_Device);
 
         m_StartTime = std::chrono::steady_clock::now();
         m_ReportTime = m_StartTime;
@@ -84,6 +92,7 @@ namespace Trinity
             DestroyOutput(it_Output);
         }
 
+        m_FrameGraph.reset();
         m_Renderer2D.reset();
         AssetManager::UnregisterLoader(TextureAsset::c_AssetType);
         m_TextureLoader.reset();
@@ -119,15 +128,9 @@ namespace Trinity
             }
         }
 
-        RenderScene(l_Commands, layers);
-
-        const RHI::TextureHandle l_Output = m_SwapChain ? m_SwapChain->AcquireNextTexture() : m_OffscreenTarget;
-        if (l_Output)
-        {
-            RenderOutput(l_Commands, l_Output, layers);
-        }
-
-        RenderAddedOutputs(l_Commands);
+        BuildFrameGraph(layers);
+        m_FrameGraph->Execute(l_Commands);
+        m_SceneState = m_SceneTarget ? RHI::ResourceState::ShaderResource : RHI::ResourceState::Undefined;
 
         m_Device.EndFrame();
 
@@ -149,82 +152,87 @@ namespace Trinity
         ReportFrameRate();
     }
 
-    // Layers draw into the scene target, which then waits as a shader resource for the output pass
-    void Renderer::RenderScene(RHI::CommandList& commands, LayerStack& layers)
+    // The scene target is imported in whatever state the last frame left it, and every pass that can show it, the UI's included, reads it as a shader resource, which is also how the graph leaves it
+    void Renderer::BuildFrameGraph(LayerStack& layers)
     {
-        if (!m_SceneTarget)
+        TR_PROFILE_FUNCTION();
+
+        FrameGraph& l_Graph = *m_FrameGraph;
+        l_Graph.Reset();
+
+        FrameGraphTexture l_Scene;
+        if (m_SceneTarget)
         {
-            return;
+            l_Scene = l_Graph.ImportTexture("Scene", m_SceneTarget, m_SceneDescription, m_SceneState, RHI::ResourceState::ShaderResource);
+            l_Graph.AddPass("Scene", FrameGraphPassType::Raster, [this, l_Scene](FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Scene, RHI::LoadOp::Clear, m_ClearColor }); }, [&layers](const FrameGraphContext& context)
+            {
+                TR_PROFILE_SCOPE("LayerStack::OnRender");
+                for (const Scope<Layer>& it_Layer : layers)
+                {
+                    it_Layer->OnRender(context.GetCommands());
+                }
+            });
         }
 
-        commands.TextureBarrier(m_SceneTarget, m_SceneState, RHI::ResourceState::RenderTarget);
-
-        const std::array<RHI::ColorAttachment, 1> l_Attachments{ RHI::ColorAttachment{ m_SceneTarget, RHI::LoadOp::Clear, RHI::StoreOp::Store, m_ClearColor } };
-        RHI::RenderingDescription l_Rendering;
-        l_Rendering.ColorAttachments = l_Attachments;
-        commands.BeginRendering(l_Rendering);
-        SetFullViewport(commands, m_SceneWidth, m_SceneHeight);
-
         {
-            TR_PROFILE_SCOPE("LayerStack::OnRender");
+            TR_PROFILE_SCOPE("LayerStack::OnBuildFrameGraph");
             for (const Scope<Layer>& it_Layer : layers)
             {
-                it_Layer->OnRender(commands);
+                it_Layer->OnBuildFrameGraph(l_Graph, l_Scene);
             }
         }
 
-        commands.EndRendering();
-        commands.TextureBarrier(m_SceneTarget, RHI::ResourceState::RenderTarget, RHI::ResourceState::ShaderResource);
-        m_SceneState = RHI::ResourceState::ShaderResource;
+        const RHI::TextureHandle l_Output = m_SwapChain ? m_SwapChain->AcquireNextTexture() : m_OffscreenTarget;
+        if (l_Output)
+        {
+            AddOutputPass(l_Scene, l_Output, layers);
+        }
+
+        AddAddedOutputPasses(l_Scene);
     }
 
     // The copy reads one scene texel per output pixel, so the scene reaches the output exactly as drawn, and the UI goes over it
-    void Renderer::RenderOutput(RHI::CommandList& commands, RHI::TextureHandle output, LayerStack& layers)
+    void Renderer::AddOutputPass(FrameGraphTexture scene, RHI::TextureHandle output, LayerStack& layers)
     {
         const std::uint32_t l_Width = GetOutputWidth();
         const std::uint32_t l_Height = GetOutputHeight();
 
         // A swap chain recreated while acquiring can differ from the scene target for one frame, which then shows the clear colour
-        const bool l_Copy = m_SceneCopy && m_CopyPipeline && m_SceneTarget && m_SceneWidth == l_Width && m_SceneHeight == l_Height;
+        const bool l_Copy = m_SceneCopy && m_CopyPipeline && scene && m_SceneWidth == l_Width && m_SceneHeight == l_Height;
 
-        commands.TextureBarrier(output, RHI::ResourceState::Undefined, RHI::ResourceState::RenderTarget);
-
-        const std::array<RHI::ColorAttachment, 1> l_Attachments{ RHI::ColorAttachment{ output, l_Copy ? RHI::LoadOp::DontCare : RHI::LoadOp::Clear, RHI::StoreOp::Store, m_ClearColor } };
-        RHI::RenderingDescription l_Rendering;
-        l_Rendering.ColorAttachments = l_Attachments;
-        commands.BeginRendering(l_Rendering);
-        SetFullViewport(commands, l_Width, l_Height);
-
-        if (l_Copy)
+        FrameGraph& l_Graph = *m_FrameGraph;
+        const FrameGraphTexture l_Output = l_Graph.ImportTexture("Output", output, GetOutputDescription(l_Width, l_Height, GetOutputFormat()), RHI::ResourceState::Undefined, m_SwapChain ? RHI::ResourceState::Present : RHI::ResourceState::RenderTarget);
+        l_Graph.AddPass("Output", FrameGraphPassType::Raster, [this, scene, l_Output, l_Copy](FrameGraphPassBuilder& builder)
         {
-            const std::array<std::uint32_t, 2> l_PushData{ m_Device.GetShaderResourceIndex(m_SceneTarget), 0 };
-
-            commands.SetPipeline(m_CopyPipeline);
-            commands.PushConstants(std::as_bytes(std::span(l_PushData)));
-            commands.Draw(3, 1, 0, 0);
-        }
-
+            builder.AddColorAttachment({ l_Output, l_Copy ? RHI::LoadOp::DontCare : RHI::LoadOp::Clear, m_ClearColor });
+            if (scene)
+            {
+                builder.Read(scene, RHI::ResourceState::ShaderResource);
+            }
+        }, [this, scene, l_Copy, &layers](const FrameGraphContext& context)
         {
+            RHI::CommandList& l_Commands = context.GetCommands();
+            if (l_Copy)
+            {
+                const std::array<std::uint32_t, 2> l_PushData{ context.GetDevice().GetShaderResourceIndex(context.GetTexture(scene)), 0 };
+
+                l_Commands.SetPipeline(m_CopyPipeline);
+                l_Commands.PushConstants(std::as_bytes(std::span(l_PushData)));
+                l_Commands.Draw(3, 1, 0, 0);
+            }
+
             TR_PROFILE_SCOPE("LayerStack::OnRenderUI");
             for (const Scope<Layer>& it_Layer : layers)
             {
-                it_Layer->OnRenderUI(commands);
+                it_Layer->OnRenderUI(l_Commands);
             }
-        }
-
-        commands.EndRendering();
-
-        if (m_SwapChain)
-        {
-            commands.TextureBarrier(output, RHI::ResourceState::RenderTarget, RHI::ResourceState::Present);
-        }
+        });
     }
 
-    // Each added output is cleared, then drawn by its callback. Minimized and zero-sized windows are skipped, and a swap chain left unacquired ignores Present
-    void Renderer::RenderAddedOutputs(RHI::CommandList& commands)
+    // Each added output is cleared, then drawn by its callback, which may show the scene. Minimized and zero-sized windows are skipped, and a swap chain left unacquired ignores Present
+    void Renderer::AddAddedOutputPasses(FrameGraphTexture scene)
     {
-        TR_PROFILE_FUNCTION();
-
+        FrameGraph& l_Graph = *m_FrameGraph;
         for (Output& it_Output : m_Outputs)
         {
             if (it_Output.Target->GetWidth() == 0 || it_Output.Target->GetHeight() == 0 || it_Output.Target->IsMinimized())
@@ -241,25 +249,22 @@ namespace Trinity
             const std::uint32_t l_Width = it_Output.SwapChain ? it_Output.SwapChain->GetWidth() : it_Output.Width;
             const std::uint32_t l_Height = it_Output.SwapChain ? it_Output.SwapChain->GetHeight() : it_Output.Height;
 
-            commands.TextureBarrier(l_Texture, RHI::ResourceState::Undefined, RHI::ResourceState::RenderTarget);
-
-            const std::array<RHI::ColorAttachment, 1> l_Attachments{ RHI::ColorAttachment{ l_Texture, RHI::LoadOp::Clear, RHI::StoreOp::Store, it_Output.ClearColor } };
-            RHI::RenderingDescription l_Rendering;
-            l_Rendering.ColorAttachments = l_Attachments;
-            commands.BeginRendering(l_Rendering);
-            SetFullViewport(commands, l_Width, l_Height);
-
-            if (it_Output.Callback)
+            const FrameGraphTexture l_Output = l_Graph.ImportTexture("Added output", l_Texture, GetOutputDescription(l_Width, l_Height, GetOutputFormat()), RHI::ResourceState::Undefined, it_Output.SwapChain ? RHI::ResourceState::Present : RHI::ResourceState::RenderTarget);
+            const Output* l_Added = &it_Output;
+            l_Graph.AddPass("Added output", FrameGraphPassType::Raster, [scene, l_Output, l_Added](FrameGraphPassBuilder& builder)
             {
-                it_Output.Callback(commands, l_Width, l_Height);
-            }
-
-            commands.EndRendering();
-
-            if (it_Output.SwapChain)
+                builder.AddColorAttachment({ l_Output, RHI::LoadOp::Clear, l_Added->ClearColor });
+                if (scene)
+                {
+                    builder.Read(scene, RHI::ResourceState::ShaderResource);
+                }
+            }, [l_Added](const FrameGraphContext& context)
             {
-                commands.TextureBarrier(l_Texture, RHI::ResourceState::RenderTarget, RHI::ResourceState::Present);
-            }
+                if (l_Added->Callback)
+                {
+                    l_Added->Callback(context.GetCommands(), context.GetWidth(), context.GetHeight());
+                }
+            });
         }
     }
 
@@ -474,6 +479,7 @@ namespace Trinity
         l_Description.DebugName = "Renderer scene target";
 
         m_SceneTarget = m_Device.CreateTexture(l_Description);
+        m_SceneDescription = l_Description;
         m_SceneState = RHI::ResourceState::Undefined;
         m_SceneWidth = l_Description.Width;
         m_SceneHeight = l_Description.Height;
