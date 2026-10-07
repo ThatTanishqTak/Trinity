@@ -14,7 +14,8 @@ export GIT_LFS_SKIP_SMUDGE=1
 failed=()
 unreachable=()
 
-while read -r name url ref _; do
+# The last line counts even without a newline after it
+while read -r name url ref _ || [ -n "${name:-}" ]; do
     case "$name" in ''|\#*) continue ;; esac
     path="Vendor/$name"
 

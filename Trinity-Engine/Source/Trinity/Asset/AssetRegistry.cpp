@@ -519,6 +519,11 @@ namespace Trinity
             return "Scene";
         }
 
+        if (l_Extension == ".gltf" || l_Extension == ".glb")
+        {
+            return "Model";
+        }
+
         return "Binary";
     }
 }

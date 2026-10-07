@@ -3,7 +3,9 @@
 #include "Trinity/Asset/Asset.hpp"
 #include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Asset/AssetRegistry.hpp"
+#include "Trinity/Asset/MaterialData.hpp"
 #include "Trinity/Asset/MeshAsset.hpp"
+#include "Trinity/Asset/ModelData.hpp"
 #include "Trinity/Asset/TextureAsset.hpp"
 
 #include "Trinity/Core/Application.hpp"

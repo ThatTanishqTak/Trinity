@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Importers/ModelImporter.hpp"
+
 #include <Trinity.hpp>
 
 #include <cstdint>
 #include <filesystem>
+#include <unordered_map>
 #include <vector>
 
 class EditorSession;
@@ -29,6 +32,9 @@ private:
 
     [[nodiscard]] bool OpenProject(const std::filesystem::path& directory);
     [[nodiscard]] std::size_t CopyTestImages();
+    [[nodiscard]] std::size_t CopyTestModels();
+    [[nodiscard]] bool CheckModels();
+    [[nodiscard]] bool ReimportModels();
     void CheckQuality();
     void BeginLoads(Phase phase);
     void FinishLoads();
@@ -36,6 +42,8 @@ private:
     EditorSession& m_Session;
     Phase m_Phase = Phase::Idle;
     std::vector<Trinity::AssetRef<Trinity::TextureAsset>> m_Textures;
+    // Every texture the test models' materials use, and how
+    std::unordered_map<Trinity::UUID, ModelImporter::TextureUsage> m_ModelTextures;
     std::uint64_t m_PhaseFrames = 0;
     std::uint64_t m_ReadyFrames = 0;
 };

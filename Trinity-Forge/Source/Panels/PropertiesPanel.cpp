@@ -505,6 +505,13 @@ void PropertiesPanel::DrawAsset(Trinity::UUID id)
     }
 
     DrawTexturePreview();
+    if (l_Record->Parent.IsValid())
+    {
+        ImGui::TextDisabled("Imported with its model, which decides how");
+
+        return;
+    }
+
     DrawTextureSettings(*l_Record);
 }
 
@@ -544,7 +551,12 @@ void PropertiesPanel::DrawTextureSettings(const Trinity::AssetRecord& record)
     }
 
     Label("sRGB");
+    ImGui::BeginDisabled(m_TextureSettings.NormalMap);
     ImGui::Checkbox("##Srgb", &m_TextureSettings.Srgb);
+    ImGui::EndDisabled();
+
+    Label("Normal Map");
+    ImGui::Checkbox("##NormalMap", &m_TextureSettings.NormalMap);
 
     Label("Generate Mips");
     ImGui::Checkbox("##GenerateMips", &m_TextureSettings.GenerateMips);

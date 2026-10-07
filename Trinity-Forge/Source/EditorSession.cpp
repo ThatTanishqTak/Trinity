@@ -58,6 +58,33 @@ namespace
     {
         return path == folder || (path.starts_with(folder) && path.size() > folder.size() && path[folder.size()] == '/');
     }
+
+    // Everything an importer cooked for the asset into /cache
+    void RemoveCooked(const Trinity::AssetRecord& record)
+    {
+        std::vector<std::string> l_Paths;
+        if (record.Importer == TextureImporter::c_Importer)
+        {
+            l_Paths = { Trinity::GetCookedTexturePath(record.ID), TextureImporter::GetCacheKeyPath(record.ID) };
+        }
+        else if (record.Importer == Trinity::MeshAsset::c_AssetType)
+        {
+            l_Paths = { Trinity::GetCookedMeshPath(record.ID) };
+        }
+        else if (record.Importer == ModelImporter::c_MaterialImporter)
+        {
+            l_Paths = { Trinity::GetCookedMaterialPath(record.ID) };
+        }
+        else if (record.Importer == ModelImporter::c_Importer)
+        {
+            l_Paths = { Trinity::GetCookedModelPath(record.ID), ModelImporter::GetCacheKeyPath(record.ID) };
+        }
+
+        for (const std::string& it_Path : l_Paths)
+        {
+            static_cast<void>(Trinity::FileSystem::RemoveFile(it_Path));
+        }
+    }
 }
 
 // Before the asset manager shuts down, which must not be left holding this project's registry
@@ -93,10 +120,23 @@ void EditorSession::Request(Command command)
 void EditorSession::Update()
 {
     m_Reimporter.Update();
+    if (const std::optional<ModelImportReport> l_Report = m_ModelImports.Update())
+    {
+        FinishModelImports(*l_Report);
+    }
+
+    if (m_TexturesAfterModels && !m_ModelImports.IsPlanning())
+    {
+        m_TexturesAfterModels = false;
+        StartTextureImports();
+    }
+
     if (const std::optional<TextureImportReport> l_Report = m_Imports.Update())
     {
         FinishImports(*l_Report);
     }
+
+    ImportAgainIfAsked();
 
     std::vector<Action> l_Pending = std::exchange(m_Pending, {});
     for (Action& it_Action : l_Pending)
@@ -358,6 +398,13 @@ void EditorSession::CloseProject()
 {
     // The texture being encoded is finished, since the encoder cannot leave it halfway, and the rest wait for the project to open again
     m_ImportAgain = false;
+    m_TexturesAfterModels = false;
+    if (m_ModelImports.IsRunning())
+    {
+        m_ModelImports.Stop();
+        FinishModelImports(m_ModelImports.Wait());
+    }
+
     if (m_Imports.IsRunning())
     {
         m_Imports.Stop();
@@ -392,7 +439,7 @@ void EditorSession::AttachRegistry()
     ScanAssets();
 }
 
-// Every texture the scan finds is cooked into /cache in the background, unless the cache already holds it for the same file and settings
+// Every texture and model the scan finds is cooked into /cache in the background, unless the cache already holds it for the same files and settings
 void EditorSession::ScanAssets()
 {
     if (!m_Registry)
@@ -412,33 +459,72 @@ void EditorSession::ScanAssets()
     StartImports();
 }
 
-// Until every import the scans so far asked for is over, with the report of the last one. For tests, which need the cache filled before they go on
-TextureImportReport EditorSession::WaitForImports()
+// Until every import the scans so far asked for is over, with the last report of each kind. For tests, which need the cache filled before they go on, so models are cooked before textures start here
+EditorSession::ImportReport EditorSession::WaitForImports()
 {
-    TextureImportReport l_Report;
-    while (m_Imports.IsRunning())
+    ImportReport l_Report;
+    while (m_ModelImports.IsRunning() || m_Imports.IsRunning() || m_TexturesAfterModels || (m_ImportAgain && m_Registry))
     {
-        l_Report = m_Imports.Wait();
-        FinishImports(l_Report);
+        if (m_ModelImports.IsRunning())
+        {
+            l_Report.Models = m_ModelImports.Wait();
+            FinishModelImports(l_Report.Models);
+        }
+
+        if (std::exchange(m_TexturesAfterModels, false))
+        {
+            StartTextureImports();
+        }
+
+        if (m_Imports.IsRunning())
+        {
+            l_Report.Textures = m_Imports.Wait();
+            FinishImports(l_Report.Textures);
+        }
+
+        ImportAgainIfAsked();
     }
 
     return l_Report;
 }
 
-// A scan while a batch runs imports again once it is over, since the batch has the records it started with. Textures the background reimport is busy with are left to it
+// A scan while imports run imports again once they are over, since each batch has the records it started with. Models go first, and textures once the models are planned, so a texture beside a model is encoded the way the model uses it
 void EditorSession::StartImports()
 {
-    if (m_Imports.IsRunning())
+    if (m_Imports.IsRunning() || m_ModelImports.IsRunning() || m_TexturesAfterModels)
     {
         m_ImportAgain = true;
 
         return;
     }
 
+    std::vector<Trinity::AssetRecord> l_Models;
+    for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
+    {
+        if (it_Record->Importer == ModelImporter::c_Importer)
+        {
+            l_Models.push_back(*it_Record);
+        }
+    }
+
+    if (l_Models.empty())
+    {
+        StartTextureImports();
+
+        return;
+    }
+
+    m_ModelImports.Start(*m_Registry, std::move(l_Models));
+    m_TexturesAfterModels = true;
+}
+
+// Texture files only, since a model encodes the textures it holds itself. Textures the background reimport is busy with are left to it
+void EditorSession::StartTextureImports()
+{
     std::vector<Trinity::AssetRecord> l_Records;
     for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
     {
-        if (it_Record->Importer == TextureImporter::c_Importer && !m_Reimporter.IsBusy(it_Record->ID))
+        if (it_Record->Importer == TextureImporter::c_Importer && !it_Record->Parent.IsValid() && !m_Reimporter.IsBusy(it_Record->ID))
         {
             l_Records.push_back(*it_Record);
         }
@@ -447,6 +533,15 @@ void EditorSession::StartImports()
     if (!l_Records.empty())
     {
         m_Imports.Start(std::move(l_Records));
+    }
+}
+
+void EditorSession::ImportAgainIfAsked()
+{
+    if (m_ImportAgain && m_Registry && !m_Imports.IsRunning() && !m_ModelImports.IsRunning() && !m_TexturesAfterModels)
+    {
+        m_ImportAgain = false;
+        StartImports();
     }
 }
 
@@ -462,10 +557,18 @@ void EditorSession::FinishImports(const TextureImportReport& report)
     {
         TR_INFO("Textures: the import was stopped with {} texture(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
     }
+}
 
-    if (std::exchange(m_ImportAgain, false) && m_Registry)
+void EditorSession::FinishModelImports(const ModelImportReport& report)
+{
+    if (report.Imported != 0 || report.Failed != 0 || report.Stopped != 0)
     {
-        StartImports();
+        TR_INFO("Models: {} in the project, {} imported, {} from the cache, {} failed, with {} embedded texture(s) encoded and {} from the cache", report.Models, report.Imported, report.Cached, report.Failed, report.TexturesEncoded, report.TexturesCached);
+    }
+
+    if (report.Stopped != 0)
+    {
+        TR_INFO("Models: the import was stopped with {} model(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
     }
 }
 
@@ -584,7 +687,7 @@ bool EditorSession::MoveAsset(std::string_view path, std::string_view folder, st
     return true;
 }
 
-// For good, with its .meta and any cooked copy in Cache. Assets still in use read as failed, so sprites using a deleted texture draw white. The open scene stays
+// For good, with its .meta and everything cooked from it in Cache, a model's sub-assets included. Assets still in use read as failed, so sprites using a deleted texture draw white. The open scene stays
 bool EditorSession::DeleteAsset(std::string_view path)
 {
     if (!m_Project || !m_Registry)
@@ -602,14 +705,11 @@ bool EditorSession::DeleteAsset(std::string_view path)
     std::vector<Trinity::UUID> l_Removed;
     for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
     {
-        if (IsSameOrInside(it_Record->Path, path))
+        const Trinity::AssetRecord* l_File = it_Record->Parent.IsValid() ? m_Registry->Find(it_Record->Parent) : it_Record;
+        if (l_File != nullptr && IsSameOrInside(l_File->Path, path))
         {
             l_Removed.push_back(it_Record->ID);
-            if (it_Record->Importer == TextureImporter::c_Importer)
-            {
-                static_cast<void>(Trinity::FileSystem::RemoveFile(Trinity::GetCookedTexturePath(it_Record->ID)));
-                static_cast<void>(Trinity::FileSystem::RemoveFile(TextureImporter::GetCacheKeyPath(it_Record->ID)));
-            }
+            RemoveCooked(*it_Record);
         }
     }
 

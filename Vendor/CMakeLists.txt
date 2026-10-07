@@ -169,6 +169,11 @@ trinity_vendor_set(FASTGLTF_ENABLE_INSTALL OFF)
 trinity_vendor_directory(fastgltf)
 list(APPEND TRINITY_VENDOR_TARGETS simdjson fastgltf)
 
+# meshoptimizer - vertex cache and vertex fetch ordering for imported meshes
+trinity_vendor_set(MESHOPT_INSTALL OFF)
+trinity_vendor_directory(meshoptimizer)
+list(APPEND TRINITY_VENDOR_TARGETS meshoptimizer)
+
 # assimp
 trinity_vendor_set(ASSIMP_BUILD_TESTS OFF)
 trinity_vendor_set(ASSIMP_BUILD_ASSIMP_TOOLS OFF)

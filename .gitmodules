@@ -82,3 +82,7 @@
 	path = Vendor/KTX-Software
 	url = https://github.com/ThatTanishqTak/KTX-Software.git
 	shallow = true
+[submodule "Vendor/meshoptimizer"]
+	path = Vendor/meshoptimizer
+	url = https://github.com/ThatTanishqTak/meshoptimizer.git
+	shallow = true

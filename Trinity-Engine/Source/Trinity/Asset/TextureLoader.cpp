@@ -20,7 +20,7 @@ namespace Trinity
 {
     namespace
     {
-        ConsoleVariable<bool> s_TextureBC7Variable("renderer.texture_bc7", true, "Transcodes textures to BC7 where the device samples it; off transcodes them to RGBA8");
+        ConsoleVariable<bool> s_TextureBC7Variable("renderer.texture_bc7", true, "Transcodes textures to BC7, and normal maps to BC5, where the device samples them; off transcodes them to RGBA8");
 
         // The VkFormat values KTX2 records for textures that need no transcoding
         constexpr ktx_uint32_t c_VkFormatRGBA8Unorm = 37;
@@ -51,6 +51,15 @@ namespace Trinity
         {
             return (offset + RHI::c_TextureCopyOffsetAlignment - 1) / RHI::c_TextureCopyOffsetAlignment * RHI::c_TextureCopyOffsetAlignment;
         }
+
+        bool HasValue(ktxTexture2* texture, std::string_view key, std::string_view value)
+        {
+            unsigned int l_Length = 0;
+            void* l_Value = nullptr;
+            const std::string l_Key(key);
+
+            return ktxHashList_FindValue(&texture->kvDataHead, l_Key.c_str(), &l_Length, &l_Value) == KTX_SUCCESS && std::string_view(static_cast<const char*>(l_Value), l_Length).starts_with(value);
+        }
     }
 
     std::string GetCookedTexturePath(UUID id)
@@ -69,6 +78,7 @@ namespace Trinity
     TextureLoader::TextureLoader(RHI::Device& device) : m_Device(device)
     {
         m_BC7Supported = m_Device.IsFormatSupported(RHI::Format::BC7Unorm, c_TextureUsage) && m_Device.IsFormatSupported(RHI::Format::BC7Srgb, c_TextureUsage);
+        m_BC5Supported = m_Device.IsFormatSupported(RHI::Format::BC5Unorm, c_TextureUsage);
 
         m_Placeholder.m_Width = 1;
         m_Placeholder.m_Height = 1;
@@ -90,7 +100,7 @@ namespace Trinity
         return GetCookedTexturePath(record.ID);
     }
 
-    // On a worker. A texture whose transfer function is sRGB gets an sRGB format, so sampling it returns linear values and filters in linear light
+    // On a worker. A texture whose transfer function is sRGB gets an sRGB format, so sampling it returns linear values and filters in linear light. A normal map holds X in red and Y in alpha, which BC5 takes as its two channels, and RGBA8 is rearranged to match
     Expected<Asset*, std::string> TextureLoader::Load(std::span<const std::byte> data) const
     {
         TR_PROFILE_FUNCTION();
@@ -111,22 +121,21 @@ namespace Trinity
         const std::uint32_t l_Width = l_Ktx->baseWidth;
         const std::uint32_t l_Height = l_Ktx->baseHeight;
 
-        const bool l_Srgb = ktxTexture2_GetTransferFunction_e(l_Ktx.get()) == KHR_DF_TRANSFER_SRGB;
+        const bool l_NormalMap = HasValue(l_Ktx.get(), c_TextureNormalMapKey, "true");
+        const bool l_Srgb = !l_NormalMap && ktxTexture2_GetTransferFunction_e(l_Ktx.get()) == KHR_DF_TRANSFER_SRGB;
         RHI::Format l_Format = l_Srgb ? RHI::Format::RGBA8Srgb : RHI::Format::RGBA8Unorm;
         if (ktxTexture2_NeedsTranscoding(l_Ktx.get()))
         {
             // D3D12 creates a BC texture only when the top mip is whole blocks
-            const bool l_BC7 = m_BC7Supported && s_TextureBC7Variable.Get() && l_Width % 4 == 0 && l_Height % 4 == 0;
-            const KTX_error_code l_Transcoded = ktxTexture2_TranscodeBasis(l_Ktx.get(), l_BC7 ? KTX_TTF_BC7_RGBA : KTX_TTF_RGBA32, 0);
+            const bool l_Block = (l_NormalMap ? m_BC5Supported : m_BC7Supported) && s_TextureBC7Variable.Get() && l_Width % 4 == 0 && l_Height % 4 == 0;
+            const RHI::Format l_BlockFormat = l_NormalMap ? RHI::Format::BC5Unorm : (l_Srgb ? RHI::Format::BC7Srgb : RHI::Format::BC7Unorm);
+            const KTX_error_code l_Transcoded = ktxTexture2_TranscodeBasis(l_Ktx.get(), l_Block ? (l_NormalMap ? KTX_TTF_BC5_RG : KTX_TTF_BC7_RGBA) : KTX_TTF_RGBA32, 0);
             if (l_Transcoded != KTX_SUCCESS)
             {
-                return Unexpected{ std::format("could not be transcoded to {} ({})", l_BC7 ? "BC7" : "RGBA8", ktxErrorString(l_Transcoded)) };
+                return Unexpected{ std::format("could not be transcoded to {} ({})", l_Block ? RHI::ToString(l_BlockFormat) : RHI::ToString(l_Format), ktxErrorString(l_Transcoded)) };
             }
 
-            if (l_BC7)
-            {
-                l_Format = l_Srgb ? RHI::Format::BC7Srgb : RHI::Format::BC7Unorm;
-            }
+            l_Format = l_Block ? l_BlockFormat : l_Format;
         }
         else if (l_Ktx->vkFormat != c_VkFormatRGBA8Unorm && l_Ktx->vkFormat != c_VkFormatRGBA8Srgb)
         {
@@ -139,12 +148,10 @@ namespace Trinity
         l_Texture->m_MipLevels = l_Ktx->numLevels;
         l_Texture->m_Format = l_Format;
         l_Texture->m_Srgb = l_Srgb;
+        l_Texture->m_NormalMap = l_NormalMap;
 
         // The importer records how the texture should be filtered. A file without the key is filtered linearly
-        unsigned int l_FilterLength = 0;
-        void* l_FilterValue = nullptr;
-        const std::string l_FilterKey(c_TextureFilterKey);
-        if (ktxHashList_FindValue(&l_Ktx->kvDataHead, l_FilterKey.c_str(), &l_FilterLength, &l_FilterValue) == KTX_SUCCESS && std::string_view(static_cast<const char*>(l_FilterValue), l_FilterLength).starts_with("Nearest"))
+        if (HasValue(l_Ktx.get(), c_TextureFilterKey, "Nearest"))
         {
             l_Texture->m_Filter = RHI::Filter::Nearest;
         }
@@ -167,6 +174,15 @@ namespace Trinity
             }
 
             l_Texture->m_Mips[it_Level].assign(l_Data + l_Offset, l_Data + l_Offset + l_Size);
+
+            // X, X, X, Y becomes X, Y, 0, 1, as BC5 is sampled
+            for (std::size_t it_Texel = 0; l_NormalMap && l_Format == RHI::Format::RGBA8Unorm && it_Texel < l_Size / 4; ++it_Texel)
+            {
+                std::byte* l_Texel = l_Texture->m_Mips[it_Level].data() + it_Texel * 4;
+                l_Texel[1] = l_Texel[3];
+                l_Texel[2] = std::byte{ 0 };
+                l_Texel[3] = std::byte{ 255 };
+            }
         }
 
         return l_Texture;

@@ -12,6 +12,7 @@ stb https://github.com/ThatTanishqTak/stb.git 2c980bb59875b0d32144a71867fbdebb2f
 miniaudio https://github.com/ThatTanishqTak/miniaudio.git 9634bedb5b5a2ca38c1ee7108a9358a4e233f14d 0.11.25
 simdjson https://github.com/ThatTanishqTak/simdjson.git f5de14f09256982933af2849beb43778bd421ca7 v4.6.11 (upstream branch 4.6.x)
 fastgltf https://github.com/ThatTanishqTak/fastgltf.git 705564d4d54500ae88befb0db9e361e447923655 v0.9.1
+meshoptimizer https://github.com/ThatTanishqTak/meshoptimizer.git 9e1f07b159d3cb777f1c67ed31fc11fd117986f4 v1.3
 assimp https://github.com/ThatTanishqTak/assimp.git 392a658f9c271be965271f45e7521a1b80ea4392 v6.0.5
 freetype https://github.com/ThatTanishqTak/freetype.git 0a0221a1347e2f1e07c395263540026e9a0aa7c7 VER-2-14-3
 RmlUi https://github.com/ThatTanishqTak/RmlUi.git ba95ffe8bfb6370efb2cdcca927eaad4710c5413 6.3

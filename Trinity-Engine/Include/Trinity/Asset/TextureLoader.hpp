@@ -13,7 +13,7 @@
 
 namespace Trinity
 {
-    // Loads the KTX2 file the texture importer cooked into /cache. A worker transcodes Basis Universal to BC7 where the device samples it and the size is whole blocks, otherwise to RGBA8, and the main thread creates the texture, whose mips the renderer uploads at the start of the next frame
+    // Loads the KTX2 file the texture importer cooked into /cache. A worker transcodes Basis Universal to BC7, or a normal map to BC5, where the device samples it and the size is whole blocks, otherwise to RGBA8, and the main thread creates the texture, whose mips the renderer uploads at the start of the next frame
     class TextureLoader final : public AssetLoader
     {
     public:
@@ -42,6 +42,7 @@ namespace Trinity
 
         RHI::Device& m_Device;
         bool m_BC7Supported = false;
+        bool m_BC5Supported = false;
         TextureAsset m_Placeholder;
 
         // Finish and Release are const like the rest of the loader interface, and only ever run on the main thread

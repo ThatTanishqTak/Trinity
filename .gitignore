@@ -5,6 +5,9 @@
 # Compiled binaries: bin/<config>-<system>-<arch>/Trinity/
 /bin/
 
+# Test models fetched by Scripts/FetchSamples
+/Trinity-Forge/Tests/Models/
+
 # Runtime output
 Logs/
 *.log

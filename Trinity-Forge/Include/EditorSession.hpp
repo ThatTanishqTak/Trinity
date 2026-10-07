@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CommandStack.hpp"
+#include "Importers/ModelImportBatch.hpp"
+#include "Importers/ModelImporter.hpp"
 #include "Importers/TextureImportBatch.hpp"
 #include "Importers/TextureImporter.hpp"
 #include "Importers/TextureReimporter.hpp"
@@ -32,6 +34,13 @@ public:
         Exit
     };
 
+    // The last report of each kind of import
+    struct ImportReport
+    {
+        TextureImportReport Textures;
+        ModelImportReport Models;
+    };
+
     EditorSession() = default;
     ~EditorSession();
 
@@ -42,7 +51,7 @@ public:
     void CreateProject(const std::filesystem::path& directory);
     void OpenProject(const std::filesystem::path& path);
     void ScanAssets();
-    TextureImportReport WaitForImports();
+    ImportReport WaitForImports();
 
     void Request(Command command);
     void Update();
@@ -109,7 +118,10 @@ private:
     void CloseProject();
     void AttachRegistry();
     void StartImports();
+    void StartTextureImports();
+    void ImportAgainIfAsked();
     void FinishImports(const TextureImportReport& report);
+    void FinishModelImports(const ModelImportReport& report);
     void SaveProject();
     void NewScene();
     void OpenScene(const std::string& assetPath);
@@ -131,6 +143,8 @@ private:
     Trinity::UUID m_InspectedAsset;
     TextureReimporter m_Reimporter;
     TextureImportBatch m_Imports;
+    ModelImportBatch m_ModelImports;
+    bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;
     std::vector<std::pair<std::uint64_t, std::move_only_function<void()>>> m_CloseListeners;

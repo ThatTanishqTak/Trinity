@@ -7,6 +7,7 @@
 #include <stb_image.h>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <format>
@@ -19,11 +20,52 @@ namespace
 {
     constexpr std::string_view c_TestMount = "/forge-tests";
     constexpr std::string_view c_TestFolder = "Textures";
+    constexpr std::string_view c_ModelMount = "/forge-models";
+    constexpr std::string_view c_ModelFolder = "Models";
     constexpr std::string_view c_BC7Variable = "renderer.texture_bc7";
 
     // UASTC at level 2 keeps the test images between 41 and 46 dB, so a drop below this means a broken encode or transcode, not a lossy setting
     constexpr double c_MinimumPsnr = 38.0;
-    constexpr std::uint64_t c_LoadTimeoutFrames = 600;
+    // Long enough for the test models' textures too, Sponza's among them
+    constexpr std::uint64_t c_LoadTimeoutFrames = 1800;
+
+    // Khronos glTF sample models, as Scripts/FetchSamples checks them out under TR_FORGE_TEST_MODELS: one with images beside it and two that embed theirs
+    struct TestModel
+    {
+        std::string_view Name;
+        std::string_view Folder;
+        std::string_view File;
+    };
+
+    constexpr std::array<TestModel, 3> c_TestModels{ {
+        { "Sponza", "glTF-Sample-Assets/Models/Sponza/glTF", "Sponza.gltf" },
+        { "DamagedHelmet", "glTF-Sample-Assets/Models/DamagedHelmet/glTF-Binary", "DamagedHelmet.glb" },
+        { "MetalRoughSpheres", "glTF-Sample-Assets/Models/MetalRoughSpheres/glTF-Binary", "MetalRoughSpheres.glb" }
+    } };
+
+    std::string GetTestModelPath(const TestModel& model)
+    {
+        return std::format("{}/{}/{}/{}", Trinity::Project::c_AssetsMount, c_ModelFolder, model.Name, model.File);
+    }
+
+    // Only files that are missing or differ are written, so an unchanged set stays in the cache
+    bool CopyIfChanged(const std::string& source, const std::string& destination)
+    {
+        const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Source = Trinity::FileSystem::ReadFile(source);
+        const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Existing = Trinity::FileSystem::ReadFile(destination);
+        if (!l_Source || (l_Existing && *l_Existing == *l_Source))
+        {
+            return false;
+        }
+
+        const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteFile(destination, *l_Source);
+        if (!l_Written)
+        {
+            TR_ERROR("Import test: {} could not be written: {}", destination, Trinity::ToString(l_Written.GetError()));
+        }
+
+        return static_cast<bool>(l_Written);
+    }
 
     // Frames a loaded set is kept, so the renderer records its uploads before it is released
     constexpr std::uint64_t c_HeldFrames = 2;
@@ -81,17 +123,38 @@ void ImportTest::Start(const std::filesystem::path& directory)
     }
 
     const std::size_t l_Copied = CopyTestImages();
+    const std::size_t l_Models = CopyTestModels();
     m_Session.ScanAssets();
-    const TextureImportReport l_First = m_Session.WaitForImports();
+    const EditorSession::ImportReport l_First = m_Session.WaitForImports();
     m_Session.ScanAssets();
-    const TextureImportReport l_Second = m_Session.WaitForImports();
+    const EditorSession::ImportReport l_Second = m_Session.WaitForImports();
 
-    TR_INFO("Import test: {} image(s) copied in, {} texture(s): {} encoded and {} from the cache, then {} from the cache on a second pass", l_Copied, l_First.Textures, l_First.Encoded, l_First.Cached, l_Second.Cached);
-    if (l_First.Textures == 0 || l_First.Failed != 0 || l_Second.Encoded != 0 || l_Second.Failed != 0 || l_Second.Cached != l_Second.Textures)
+    const TextureImportReport& l_FirstTextures = l_First.Textures;
+    const TextureImportReport& l_SecondTextures = l_Second.Textures;
+    TR_INFO("Import test: {} image(s) copied in, {} texture(s): {} encoded and {} from the cache, then {} from the cache on a second pass", l_Copied, l_FirstTextures.Textures, l_FirstTextures.Encoded, l_FirstTextures.Cached, l_SecondTextures.Cached);
+    if (l_FirstTextures.Textures == 0 || l_FirstTextures.Failed != 0 || l_SecondTextures.Encoded != 0 || l_SecondTextures.Failed != 0 || l_SecondTextures.Cached != l_SecondTextures.Textures)
     {
         TR_ERROR("Import test: every texture should import, and a second pass should find all of them in the cache");
 
         return;
+    }
+
+    if (l_Models != 0)
+    {
+        const ModelImportReport& l_FirstModels = l_First.Models;
+        const ModelImportReport& l_SecondModels = l_Second.Models;
+        TR_INFO("Import test: {} model(s): {} imported and {} from the cache, with {} embedded texture(s) encoded, then {} from the cache on a second pass", l_FirstModels.Models, l_FirstModels.Imported, l_FirstModels.Cached, l_FirstModels.TexturesEncoded, l_SecondModels.Cached);
+        if (l_FirstModels.Models < l_Models || l_FirstModels.Failed != 0 || l_FirstModels.Stopped != 0 || l_SecondModels.Imported != 0 || l_SecondModels.Failed != 0 || l_SecondModels.Cached != l_SecondModels.Models)
+        {
+            TR_ERROR("Import test: every model should import, and a second pass should find all of them in the cache");
+
+            return;
+        }
+
+        if (!CheckModels() || !ReimportModels())
+        {
+            return;
+        }
     }
 
     CheckQuality();
@@ -186,6 +249,202 @@ std::size_t ImportTest::CopyTestImages()
     return l_Copied;
 }
 
+// The Khronos samples, when Scripts/FetchSamples has fetched them, each into a folder of its own. Without them the test goes on with the images alone
+std::size_t ImportTest::CopyTestModels()
+{
+    if (!std::filesystem::is_directory(std::filesystem::path(TR_FORGE_TEST_MODELS)) || !Trinity::FileSystem::MountDirectory(c_ModelMount, std::filesystem::path(TR_FORGE_TEST_MODELS)))
+    {
+        TR_WARN("Import test: there are no test models in {}, so only images are tested. Scripts/FetchSamples.sh or FetchSamples.ps1 fetches them", TR_FORGE_TEST_MODELS);
+
+        return 0;
+    }
+
+    std::size_t l_Found = 0;
+    std::size_t l_Copied = 0;
+    for (const TestModel& it_Model : c_TestModels)
+    {
+        const std::string l_Folder = std::format("{}/{}", c_ModelMount, it_Model.Folder);
+        const Trinity::Expected<std::vector<Trinity::DirectoryEntry>, Trinity::FileError> l_Entries = Trinity::FileSystem::List(l_Folder);
+        if (!l_Entries || !Trinity::FileSystem::Exists(std::format("{}/{}", l_Folder, it_Model.File)))
+        {
+            TR_WARN("Import test: {} is missing from {}, so it is not tested. Scripts/FetchSamples.sh or FetchSamples.ps1 fetches it", it_Model.File, TR_FORGE_TEST_MODELS);
+
+            continue;
+        }
+
+        ++l_Found;
+        for (const Trinity::DirectoryEntry& it_Entry : *l_Entries)
+        {
+            if (it_Entry.Type == Trinity::FileType::File && CopyIfChanged(std::format("{}/{}", l_Folder, it_Entry.Name), std::format("{}/{}/{}/{}", Trinity::Project::c_AssetsMount, c_ModelFolder, it_Model.Name, it_Entry.Name)))
+            {
+                ++l_Copied;
+            }
+        }
+    }
+
+    static_cast<void>(Trinity::FileSystem::Unmount(c_ModelMount));
+    TR_INFO("Import test: {} of {} test model(s) found, with {} file(s) copied in", l_Found, c_TestModels.size(), l_Copied);
+
+    return l_Found;
+}
+
+// Every cooked mesh, material and node of each model reads back, and names only sub-assets of its model or textures in the project. The textures the materials use are kept, with how they are used, for the loads
+bool ImportTest::CheckModels()
+{
+    const Trinity::AssetRegistry& l_Registry = *m_Session.GetRegistry();
+    bool l_Passed = true;
+    m_ModelTextures.clear();
+    for (const TestModel& it_Model : c_TestModels)
+    {
+        const Trinity::AssetRecord* l_Record = l_Registry.FindByPath(GetTestModelPath(it_Model));
+        if (l_Record == nullptr)
+        {
+            continue;
+        }
+
+        const auto a_Fail = [&l_Passed, l_Record](std::string_view what)
+        {
+            TR_ERROR("Import test: {} {}", l_Record->Path, what);
+            l_Passed = false;
+        };
+
+        const auto a_IsSubAsset = [l_Record](Trinity::UUID id, std::string_view importer)
+        {
+            return std::ranges::any_of(l_Record->SubAssets, [id, importer](const Trinity::SubAsset& subAsset) { return subAsset.ID == id && subAsset.Importer == importer; });
+        };
+
+        std::size_t l_Meshes = 0;
+        std::size_t l_Submeshes = 0;
+        std::uint64_t l_Vertices = 0;
+        std::size_t l_Materials = 0;
+        std::size_t l_Embedded = 0;
+        for (const Trinity::SubAsset& it_SubAsset : l_Record->SubAssets)
+        {
+            if (it_SubAsset.Importer == Trinity::MeshAsset::c_AssetType)
+            {
+                const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_File = Trinity::FileSystem::ReadFile(Trinity::GetCookedMeshPath(it_SubAsset.ID));
+                const Trinity::Expected<Trinity::MeshFile, std::string> l_Mesh = l_File ? Trinity::ReadMeshFile(*l_File) : Trinity::Expected<Trinity::MeshFile, std::string>(Trinity::Unexpected{ std::string("it could not be read") });
+                if (!l_Mesh)
+                {
+                    a_Fail(std::format("has mesh {}, which does not read back: {}", it_SubAsset.Key, l_Mesh.GetError()));
+
+                    continue;
+                }
+
+                ++l_Meshes;
+                l_Submeshes += l_Mesh->Submeshes.size();
+                l_Vertices += l_Mesh->Layout.VertexCount;
+            }
+            else if (it_SubAsset.Importer == ModelImporter::c_MaterialImporter)
+            {
+                const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(Trinity::GetCookedMaterialPath(it_SubAsset.ID));
+                const Trinity::Expected<Trinity::MaterialData, std::string> l_Material = l_Text ? Trinity::ParseMaterialData(*l_Text) : Trinity::Expected<Trinity::MaterialData, std::string>(Trinity::Unexpected{ std::string("it could not be read") });
+                if (!l_Material)
+                {
+                    a_Fail(std::format("has material {}, which does not read back: {}", it_SubAsset.Key, l_Material.GetError()));
+
+                    continue;
+                }
+
+                ++l_Materials;
+                const std::array<std::pair<Trinity::MaterialTexture, ModelImporter::TextureUsage>, 5> l_Slots{ { { l_Material->BaseColorTexture, ModelImporter::TextureUsage::Color }, { l_Material->MetallicRoughnessTexture, ModelImporter::TextureUsage::Data }, { l_Material->NormalTexture, ModelImporter::TextureUsage::Normal }, { l_Material->OcclusionTexture, ModelImporter::TextureUsage::Data }, { l_Material->EmissiveTexture, ModelImporter::TextureUsage::Color } } };
+                for (const auto& [it_Texture, it_Usage] : l_Slots)
+                {
+                    const Trinity::AssetRecord* l_Texture = it_Texture.Texture.IsValid() ? l_Registry.Find(it_Texture.Texture) : nullptr;
+                    if (it_Texture.Texture.IsValid() && (l_Texture == nullptr || l_Texture->Importer != Trinity::TextureAsset::c_AssetType))
+                    {
+                        a_Fail(std::format("has material {} using {}, which is not a texture in the project", it_SubAsset.Key, it_Texture.Texture));
+                    }
+                    else if (l_Texture != nullptr)
+                    {
+                        m_ModelTextures.insert({ it_Texture.Texture, it_Usage });
+                    }
+                }
+            }
+            else if (it_SubAsset.Importer == Trinity::TextureAsset::c_AssetType)
+            {
+                ++l_Embedded;
+                if (!Trinity::FileSystem::Exists(Trinity::GetCookedTexturePath(it_SubAsset.ID)))
+                {
+                    a_Fail(std::format("has texture {} with nothing cooked", it_SubAsset.Key));
+                }
+            }
+        }
+
+        const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(Trinity::GetCookedModelPath(l_Record->ID));
+        const Trinity::Expected<Trinity::ModelData, std::string> l_Model = l_Text ? Trinity::ParseModelData(*l_Text) : Trinity::Expected<Trinity::ModelData, std::string>(Trinity::Unexpected{ std::string("it could not be read") });
+        if (!l_Model || l_Model->Nodes.empty())
+        {
+            a_Fail(std::format("has a hierarchy that does not read back: {}", l_Model ? std::string("it has no nodes") : l_Model.GetError()));
+
+            continue;
+        }
+
+        std::size_t l_MeshNodes = 0;
+        for (const Trinity::ModelNode& it_Node : l_Model->Nodes)
+        {
+            const bool l_OwnMaterials = std::ranges::all_of(it_Node.Materials, [&a_IsSubAsset](Trinity::UUID id) { return !id.IsValid() || a_IsSubAsset(id, ModelImporter::c_MaterialImporter); });
+            if ((it_Node.Mesh.IsValid() && !a_IsSubAsset(it_Node.Mesh, Trinity::MeshAsset::c_AssetType)) || !l_OwnMaterials)
+            {
+                a_Fail(std::format("has node {} naming a mesh or material that is not its own", it_Node.Name));
+            }
+
+            l_MeshNodes += it_Node.Mesh.IsValid() ? 1 : 0;
+        }
+
+        if (l_Meshes == 0 || l_Materials == 0 || l_MeshNodes == 0)
+        {
+            a_Fail("has no meshes, no materials or no node drawing a mesh");
+        }
+
+        TR_INFO("Import test: {} has {} mesh(es) with {} submesh(es) and {} vertices, {} material(s), {} embedded texture(s), and {} node(s), {} with a mesh", l_Record->Path, l_Meshes, l_Submeshes, l_Vertices, l_Materials, l_Embedded, l_Model->Nodes.size(), l_MeshNodes);
+    }
+
+    return l_Passed;
+}
+
+// With every model's key removed, each is imported again, and must come back with the same sub-assets under the same UUIDs, and encode nothing its textures' own keys still hold
+bool ImportTest::ReimportModels()
+{
+    std::vector<std::pair<Trinity::UUID, std::vector<Trinity::SubAsset>>> l_Before;
+    for (const TestModel& it_Model : c_TestModels)
+    {
+        if (const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(GetTestModelPath(it_Model)))
+        {
+            l_Before.emplace_back(l_Record->ID, l_Record->SubAssets);
+            static_cast<void>(Trinity::FileSystem::RemoveFile(ModelImporter::GetCacheKeyPath(l_Record->ID)));
+        }
+    }
+
+    m_Session.ScanAssets();
+    const EditorSession::ImportReport l_Report = m_Session.WaitForImports();
+
+    std::size_t l_SubAssets = 0;
+    bool l_Kept = true;
+    for (const auto& [it_ID, it_SubAssets] : l_Before)
+    {
+        const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->Find(it_ID);
+        if (l_Record == nullptr || l_Record->SubAssets != it_SubAssets)
+        {
+            TR_ERROR("Import test: {} came back from a reimport with different sub-assets or UUIDs", l_Record != nullptr ? l_Record->Path : it_ID.ToString());
+            l_Kept = false;
+        }
+
+        l_SubAssets += it_SubAssets.size();
+    }
+
+    if (!l_Kept || l_Report.Models.Imported != l_Before.size() || l_Report.Models.TexturesEncoded != 0 || l_Report.Textures.Encoded != 0)
+    {
+        TR_ERROR("Import test: a forced reimport of {} model(s) imported {}, encoded {} embedded and {} other texture(s), and should have imported all and encoded none", l_Before.size(), l_Report.Models.Imported, l_Report.Models.TexturesEncoded, l_Report.Textures.Encoded);
+
+        return false;
+    }
+
+    TR_INFO("Import test: a forced reimport of {} model(s) kept all {} sub-asset UUID(s), and encoded no texture again", l_Before.size(), l_SubAssets);
+
+    return true;
+}
+
 // The cooked file is transcoded to RGBA8 as the loader would on a device without BC7, and its top mip compared with the decoded source
 void ImportTest::CheckQuality()
 {
@@ -257,7 +516,7 @@ void ImportTest::BeginLoads(Phase phase)
     m_Textures.clear();
     for (const Trinity::AssetRecord* it_Record : m_Session.GetRegistry()->GetRecords())
     {
-        if (IsTestTexture(*it_Record))
+        if (IsTestTexture(*it_Record) || m_ModelTextures.contains(it_Record->ID))
         {
             m_Textures.emplace_back(it_Record->ID);
         }
@@ -268,34 +527,60 @@ void ImportTest::BeginLoads(Phase phase)
     m_ReadyFrames = 0;
 }
 
-// BC7 needs a device that samples it and a size of whole blocks. Anything else is RGBA8, an sRGB texture takes the sRGB format, and every texture keeps its full mip chain
+// BC7, or BC5 for a normal map, needs a device that samples it and a size of whole blocks. Anything else is RGBA8, an sRGB texture takes the sRGB format, and every texture keeps its full mip chain. A model's texture is sRGB as colour, linear as data, and a normal map in a normal slot
 void ImportTest::FinishLoads()
 {
-    const bool l_BC7Allowed = m_Phase == Phase::LoadingBC7 && Trinity::Application::Get().GetDevice().IsFormatSupported(Trinity::RHI::Format::BC7Unorm, Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopyDestination);
+    const Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::RHI::TextureUsage l_Usage = Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopyDestination;
+    const bool l_BlocksAllowed = m_Phase == Phase::LoadingBC7;
+    const bool l_BC7Supported = l_Device.IsFormatSupported(Trinity::RHI::Format::BC7Unorm, l_Usage);
+    const bool l_BC5Supported = l_Device.IsFormatSupported(Trinity::RHI::Format::BC5Unorm, l_Usage);
 
     std::string l_Loaded;
-    bool l_AsExpected = true;
+    std::string l_Wrong;
+    std::size_t l_ModelTextures = 0;
+    std::size_t l_NormalMaps = 0;
     for (const Trinity::AssetRef<Trinity::TextureAsset>& it_Texture : m_Textures)
     {
         const Trinity::TextureAsset* l_Texture = it_Texture.Get();
         const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->Find(it_Texture.GetID());
+        const auto a_ModelUsage = m_ModelTextures.find(it_Texture.GetID());
+        const bool l_FromModel = a_ModelUsage != m_ModelTextures.end();
+        const bool l_NormalMap = l_FromModel && a_ModelUsage->second == ModelImporter::TextureUsage::Normal;
+        const bool l_Srgb = l_FromModel ? a_ModelUsage->second == ModelImporter::TextureUsage::Color : l_Texture->IsSrgb();
         const bool l_WholeBlocks = l_Texture->GetWidth() % 4 == 0 && l_Texture->GetHeight() % 4 == 0;
-        const bool l_BC7 = l_BC7Allowed && l_WholeBlocks;
-        const Trinity::RHI::Format l_Expected = l_Texture->IsSrgb() ? (l_BC7 ? Trinity::RHI::Format::BC7Srgb : Trinity::RHI::Format::RGBA8Srgb) : (l_BC7 ? Trinity::RHI::Format::BC7Unorm : Trinity::RHI::Format::RGBA8Unorm);
+        const bool l_Blocks = l_BlocksAllowed && l_WholeBlocks && (l_NormalMap ? l_BC5Supported : l_BC7Supported);
+
+        Trinity::RHI::Format l_Expected = l_Srgb ? (l_Blocks ? Trinity::RHI::Format::BC7Srgb : Trinity::RHI::Format::RGBA8Srgb) : (l_Blocks ? Trinity::RHI::Format::BC7Unorm : Trinity::RHI::Format::RGBA8Unorm);
+        l_Expected = l_NormalMap ? (l_Blocks ? Trinity::RHI::Format::BC5Unorm : Trinity::RHI::Format::RGBA8Unorm) : l_Expected;
         const std::uint32_t l_ExpectedLevels = static_cast<std::uint32_t>(std::bit_width(std::max(l_Texture->GetWidth(), l_Texture->GetHeight())));
 
-        l_AsExpected = l_AsExpected && l_Texture->GetFormat() == l_Expected && l_Texture->GetMipLevels() == l_ExpectedLevels && l_Texture->GetTexture() && l_Texture->GetShaderResourceIndex() != Trinity::RHI::c_NoBindlessIndex;
-        l_Loaded += std::format("{}{} as {} with {} mips{}", l_Loaded.empty() ? "" : ", ", l_Record != nullptr ? l_Record->Path : std::string("?"), Trinity::RHI::ToString(l_Texture->GetFormat()), l_Texture->GetMipLevels(), l_Texture->IsSrgb() ? " (sRGB)" : "");
+        const std::string l_Description = std::format("{} as {} with {} mips{}{}", l_Record != nullptr ? l_Record->Path : std::string("?"), Trinity::RHI::ToString(l_Texture->GetFormat()), l_Texture->GetMipLevels(), l_Texture->IsSrgb() ? " (sRGB)" : "", l_Texture->IsNormalMap() ? " (normal map)" : "");
+        const bool l_AsExpected = l_Texture->GetFormat() == l_Expected && l_Texture->IsSrgb() == l_Srgb && l_Texture->IsNormalMap() == l_NormalMap && l_Texture->GetMipLevels() == l_ExpectedLevels && l_Texture->GetTexture() && l_Texture->GetShaderResourceIndex() != Trinity::RHI::c_NoBindlessIndex;
+        if (!l_AsExpected)
+        {
+            l_Wrong += std::format("{}{}, expected {}", l_Wrong.empty() ? "" : "; ", l_Description, Trinity::RHI::ToString(l_Expected));
+        }
+
+        if (l_FromModel)
+        {
+            ++l_ModelTextures;
+            l_NormalMaps += l_NormalMap ? 1 : 0;
+        }
+        else
+        {
+            l_Loaded += std::format("{}{}", l_Loaded.empty() ? "" : ", ", l_Description);
+        }
     }
 
-    const std::string_view l_PhaseName = m_Phase == Phase::LoadingBC7 ? "with BC7 allowed" : "with BC7 turned off";
-    if (!l_AsExpected)
+    const std::string_view l_PhaseName = m_Phase == Phase::LoadingBC7 ? "with BC7 and BC5 allowed" : "with BC7 and BC5 turned off";
+    if (!l_Wrong.empty())
     {
-        TR_ERROR("Import test: {}, a texture loaded in the wrong format, without its mips or without a GPU texture: {}", l_PhaseName, l_Loaded);
+        TR_ERROR("Import test: {}, textures loaded in the wrong format, without their mips or without a GPU texture: {}", l_PhaseName, l_Wrong);
     }
     else
     {
-        TR_INFO("Import test: {}, {} texture(s) loaded in {} frame(s): {}", l_PhaseName, m_Textures.size(), m_PhaseFrames, l_Loaded);
+        TR_INFO("Import test: {}, {} texture(s) loaded in {} frame(s): {}, and {} used by the test models, {} of them normal maps", l_PhaseName, m_Textures.size(), m_PhaseFrames, l_Loaded, l_ModelTextures, l_NormalMaps);
     }
 
     m_Textures.clear();

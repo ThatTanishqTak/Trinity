@@ -18,6 +18,7 @@ namespace Trinity
     class TextureLoader;
 
     inline constexpr std::string_view c_TextureFilterKey = "Trinity.Filter";
+    inline constexpr std::string_view c_TextureNormalMapKey = "Trinity.NormalMap";
 
     [[nodiscard]] TRINITY_API std::string GetCookedTexturePath(UUID id);
 
@@ -45,6 +46,7 @@ namespace Trinity
         [[nodiscard]] RHI::Format GetFormat() const { return m_Format; }
         [[nodiscard]] RHI::Filter GetFilter() const { return m_Filter; }
         [[nodiscard]] bool IsSrgb() const { return m_Srgb; }
+        [[nodiscard]] bool IsNormalMap() const { return m_NormalMap; }
 
     private:
         friend class TextureLoader;
@@ -60,6 +62,7 @@ namespace Trinity
         RHI::Format m_Format = RHI::Format::Unknown;
         RHI::Filter m_Filter = RHI::Filter::Linear;
         bool m_Srgb = false;
+        bool m_NormalMap = false;
         std::vector<MipData, TaggedAllocator<MipData, MemoryTag::Assets>> m_Mips;
     };
 }
