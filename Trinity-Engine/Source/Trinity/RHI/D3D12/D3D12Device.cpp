@@ -204,6 +204,23 @@ namespace Trinity
                 }
             }
 
+            // CPU-only heaps, so a large capacity costs little. A layered or mipped render target takes a view per mip of each layer
+            constexpr std::uint32_t c_RenderTargetViewCapacity = 2048;
+            constexpr std::uint32_t c_DepthStencilViewCapacity = 512;
+
+            // The descriptor of one mip of one layer, or c_NoDescriptor when the texture has no such view
+            std::uint32_t GetAttachmentView(const D3D12DescriptorIndices& views, const D3D12Texture& texture, std::uint32_t mipLevel, std::uint32_t arrayLayer)
+            {
+                if (mipLevel >= texture.MipLevels || arrayLayer >= texture.ArrayLayers)
+                {
+                    return c_NoDescriptor;
+                }
+
+                const std::size_t l_Index = GetSubresourceIndex(mipLevel, arrayLayer, texture.MipLevels);
+
+                return l_Index < views.size() ? views[l_Index] : c_NoDescriptor;
+            }
+
             D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage)
             {
                 D3D12_RESOURCE_FLAGS l_Flags = D3D12_RESOURCE_FLAG_NONE;
@@ -621,7 +638,7 @@ namespace Trinity
         }
 
         // Moving out of Undefined discards the contents, which also counts as the first write a render target or depth texture needs
-        void D3D12CommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after)
+        void D3D12CommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(after != ResourceState::Undefined, "A texture cannot move into the undefined state.");
@@ -632,6 +649,8 @@ namespace Trinity
             {
                 return;
             }
+
+            TR_CORE_ASSERT(IsRangeInsideTexture(range, l_Texture->MipLevels, l_Texture->ArrayLayers), "TextureBarrier on mips or layers that a texture with {} mip(s) and {} layer(s) lacks.", l_Texture->MipLevels, l_Texture->ArrayLayers);
 
             const D3D12State l_Before = ToD3D12State(before);
             const D3D12State l_After = ToD3D12State(after);
@@ -644,7 +663,20 @@ namespace Trinity
             l_Barrier.LayoutBefore = l_Before.Layout;
             l_Barrier.LayoutAfter = l_After.Layout;
             l_Barrier.pResource = l_Texture->Resource;
-            l_Barrier.Subresources.IndexOrFirstMipLevel = 0xFFFFFFFF;
+            if (range.IsWhole())
+            {
+                l_Barrier.Subresources.IndexOrFirstMipLevel = 0xFFFFFFFF;
+            }
+            else
+            {
+                l_Barrier.Subresources.IndexOrFirstMipLevel = range.BaseMipLevel;
+                l_Barrier.Subresources.NumMipLevels = range.MipLevelCount == c_RemainingSubresources ? l_Texture->MipLevels - range.BaseMipLevel : range.MipLevelCount;
+                l_Barrier.Subresources.FirstArraySlice = range.BaseArrayLayer;
+                l_Barrier.Subresources.NumArraySlices = range.ArrayLayerCount == c_RemainingSubresources ? l_Texture->ArrayLayers - range.BaseArrayLayer : range.ArrayLayerCount;
+                l_Barrier.Subresources.FirstPlane = 0;
+                l_Barrier.Subresources.NumPlanes = 1;
+            }
+
             l_Barrier.Flags = before == ResourceState::Undefined ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
 
             D3D12_BARRIER_GROUP l_Group{};
@@ -695,14 +727,15 @@ namespace Trinity
             for (const ColorAttachment& it_Attachment : description.ColorAttachments)
             {
                 const D3D12Texture* l_Texture = m_Device.GetTexture(it_Attachment.Texture);
-                TR_CORE_ASSERT(l_Texture != nullptr && l_Texture->RenderTargetView != c_NoDescriptor, "BeginRendering with a destroyed texture, or one without RenderTarget usage.");
-                if (l_Texture == nullptr || l_Texture->RenderTargetView == c_NoDescriptor || l_TargetCount == c_MaxColorAttachments)
+                const std::uint32_t l_View = l_Texture != nullptr ? GetAttachmentView(l_Texture->RenderTargetViews, *l_Texture, it_Attachment.MipLevel, it_Attachment.ArrayLayer) : c_NoDescriptor;
+                TR_CORE_ASSERT(l_View != c_NoDescriptor, "BeginRendering with a destroyed texture, one without RenderTarget usage, or a mip or layer it lacks.");
+                if (l_View == c_NoDescriptor || l_TargetCount == c_MaxColorAttachments)
                 {
                     continue;
                 }
 
                 D3D12_RENDER_PASS_RENDER_TARGET_DESC& l_Target = l_Targets[l_TargetCount++];
-                l_Target.cpuDescriptor = m_Device.GetRenderTargetView(*l_Texture);
+                l_Target.cpuDescriptor = m_Device.GetRenderTargetView(l_View);
                 l_Target.BeginningAccess.Type = ToBeginningAccess(it_Attachment.Load);
                 l_Target.BeginningAccess.Clear.ClearValue.Format = ToDXGIFormat(l_Texture->TextureFormat);
                 for (std::size_t it_Channel = 0; it_Channel < it_Attachment.ClearColor.size(); ++it_Channel)
@@ -715,11 +748,12 @@ namespace Trinity
 
             D3D12_RENDER_PASS_DEPTH_STENCIL_DESC l_Depth{};
             const D3D12Texture* l_DepthTexture = description.Depth.Texture ? m_Device.GetTexture(description.Depth.Texture) : nullptr;
-            TR_CORE_ASSERT(!description.Depth.Texture || (l_DepthTexture != nullptr && l_DepthTexture->DepthStencilView != c_NoDescriptor), "BeginRendering with a destroyed depth texture, or one without DepthStencil usage.");
-            const bool l_HasDepth = l_DepthTexture != nullptr && l_DepthTexture->DepthStencilView != c_NoDescriptor;
+            const std::uint32_t l_DepthView = l_DepthTexture != nullptr ? GetAttachmentView(l_DepthTexture->DepthStencilViews, *l_DepthTexture, description.Depth.MipLevel, description.Depth.ArrayLayer) : c_NoDescriptor;
+            TR_CORE_ASSERT(!description.Depth.Texture || l_DepthView != c_NoDescriptor, "BeginRendering with a destroyed depth texture, one without DepthStencil usage, or a mip or layer it lacks.");
+            const bool l_HasDepth = l_DepthView != c_NoDescriptor;
             if (l_HasDepth)
             {
-                l_Depth.cpuDescriptor = m_Device.GetDepthStencilView(*l_DepthTexture);
+                l_Depth.cpuDescriptor = m_Device.GetDepthStencilView(l_DepthView);
                 l_Depth.DepthBeginningAccess.Type = ToBeginningAccess(description.Depth.Load);
                 l_Depth.DepthBeginningAccess.Clear.ClearValue.Format = DXGI_FORMAT_D32_FLOAT;
                 l_Depth.DepthBeginningAccess.Clear.ClearValue.DepthStencil.Depth = description.Depth.ClearDepth;
@@ -860,7 +894,7 @@ namespace Trinity
         }
 
         // The whole mip, laid out in the buffer as CopyBufferToTexture reads it: rows of texels or blocks GetTextureCopyRowPitch apart
-        void D3D12CommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset)
+        void D3D12CommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
@@ -876,14 +910,14 @@ namespace Trinity
             const std::uint32_t l_Height = GetMipSize(l_Texture->Height, mipLevel);
             const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Width);
             [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, l_Width, l_Height);
-            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels, "CopyTextureToBuffer from mip {} of a texture with {} mip(s).", mipLevel, l_Texture->MipLevels);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && arrayLayer < l_Texture->ArrayLayers, "CopyTextureToBuffer from mip {} of layer {} of a texture with {} mip(s) and {} layer(s).", mipLevel, arrayLayer, l_Texture->MipLevels, l_Texture->ArrayLayers);
             TR_CORE_ASSERT(destinationOffset % c_TextureCopyOffsetAlignment == 0, "CopyTextureToBuffer writes to offset {}, which is not a multiple of {}.", destinationOffset, c_TextureCopyOffsetAlignment);
             TR_CORE_ASSERT(destinationOffset + l_Size <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes from offset {}, and the buffer has {}.", l_Size, destinationOffset, l_Buffer->Size);
 
             D3D12_TEXTURE_COPY_LOCATION l_Source{};
             l_Source.pResource = l_Texture->Resource;
             l_Source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            l_Source.SubresourceIndex = mipLevel;
+            l_Source.SubresourceIndex = GetSubresourceIndex(mipLevel, arrayLayer, l_Texture->MipLevels);
 
             const std::uint32_t l_Block = GetFormatBlockDimension(l_Texture->TextureFormat);
             D3D12_TEXTURE_COPY_LOCATION l_Destination{};
@@ -899,7 +933,7 @@ namespace Trinity
             m_CommandList->CopyTextureRegion(&l_Destination, 0, 0, 0, &l_Source, nullptr);
         }
 
-        void D3D12CommandList::CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region)
+        void D3D12CommandList::CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
@@ -914,6 +948,7 @@ namespace Trinity
             const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width);
             [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, region.Width, region.Height);
             TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region outside mip {} of a {}x{} texture with {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
+            TR_CORE_ASSERT(arrayLayer < l_Texture->ArrayLayers, "CopyBufferToTexture into layer {} of a texture with {} layer(s).", arrayLayer, l_Texture->ArrayLayers);
             TR_CORE_ASSERT(IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region of {} that does not start on a block or cover whole blocks.", ToString(l_Texture->TextureFormat));
             TR_CORE_ASSERT(sourceOffset % c_TextureCopyOffsetAlignment == 0, "CopyBufferToTexture reads from offset {}, which is not a multiple of {}.", sourceOffset, c_TextureCopyOffsetAlignment);
             TR_CORE_ASSERT(sourceOffset + l_Size <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_Size, sourceOffset, l_Buffer->Size);
@@ -932,7 +967,7 @@ namespace Trinity
             D3D12_TEXTURE_COPY_LOCATION l_Destination{};
             l_Destination.pResource = l_Texture->Resource;
             l_Destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            l_Destination.SubresourceIndex = mipLevel;
+            l_Destination.SubresourceIndex = GetSubresourceIndex(mipLevel, arrayLayer, l_Texture->MipLevels);
 
             m_CommandList->CopyTextureRegion(&l_Destination, static_cast<UINT>(region.X), static_cast<UINT>(region.Y), 0, &l_Source, nullptr);
         }
@@ -1147,7 +1182,7 @@ namespace Trinity
             }
 
             m_FenceEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-            if (m_FenceEvent == nullptr || !m_RenderTargetViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 256, false) || !m_DepthStencilViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 64, false))
+            if (m_FenceEvent == nullptr || !m_RenderTargetViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, c_RenderTargetViewCapacity, false) || !m_DepthStencilViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, c_DepthStencilViewCapacity, false))
             {
                 error = std::format("the fence event and view heaps could not be created on {}", m_Info.AdapterName);
 
@@ -1479,7 +1514,7 @@ namespace Trinity
             l_Resource.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
             l_Resource.Width = description.Width;
             l_Resource.Height = description.Height;
-            l_Resource.DepthOrArraySize = 1;
+            l_Resource.DepthOrArraySize = static_cast<UINT16>(description.ArrayLayers);
             l_Resource.MipLevels = static_cast<UINT16>(description.MipLevels);
             l_Resource.Format = l_TypelessDepth ? DXGI_FORMAT_R32_TYPELESS : ToDXGIFormat(description.TextureFormat);
             l_Resource.SampleDesc.Count = 1;
@@ -1513,9 +1548,11 @@ namespace Trinity
             l_Texture.Resource = l_Texture.Allocation->GetResource();
             l_Texture.TextureFormat = description.TextureFormat;
             l_Texture.ResourceFormat = l_Resource.Format;
+            l_Texture.Dimension = description.Dimension;
             l_Texture.Width = description.Width;
             l_Texture.Height = description.Height;
             l_Texture.MipLevels = description.MipLevels;
+            l_Texture.ArrayLayers = description.ArrayLayers;
             SetDebugName(l_Texture.Resource, description.DebugName);
 
             if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil))
@@ -1542,39 +1579,68 @@ namespace Trinity
             {
                 D3D12Release l_Release;
                 l_Release.Allocation = std::move(l_Texture->Allocation);
-                l_Release.RenderTargetView = l_Texture->RenderTargetView;
-                l_Release.DepthStencilView = l_Texture->DepthStencilView;
+                l_Release.RenderTargetViews = std::move(l_Texture->RenderTargetViews);
+                l_Release.DepthStencilViews = std::move(l_Texture->DepthStencilViews);
                 l_Release.ShaderResourceIndex = l_Texture->ShaderResourceIndex;
                 l_Release.UnorderedAccessIndex = l_Texture->UnorderedAccessIndex;
                 m_Releases.Push(std::move(l_Release));
             }
         }
 
+        // A view per mip of each layer, as a single 2D texture for a Texture2D and as one slice of an array otherwise
         void D3D12Device::CreateViews(D3D12Texture& texture)
         {
-            if (IsDepthFormat(texture.TextureFormat))
+            const bool l_Depth = IsDepthFormat(texture.TextureFormat);
+            const bool l_Array = texture.Dimension != TextureDimension::Texture2D;
+            D3D12DescriptorIndices& l_Views = l_Depth ? texture.DepthStencilViews : texture.RenderTargetViews;
+            D3D12DescriptorHeap& l_Heap = l_Depth ? m_DepthStencilViews : m_RenderTargetViews;
+
+            l_Views.reserve(std::size_t{ texture.MipLevels } * texture.ArrayLayers);
+            for (std::uint32_t it_Layer = 0; it_Layer < texture.ArrayLayers; ++it_Layer)
             {
-                texture.DepthStencilView = m_DepthStencilViews.Allocate();
-                TR_CORE_ASSERT(texture.DepthStencilView != c_NoDescriptor, "Out of depth stencil views.");
-                if (texture.DepthStencilView != c_NoDescriptor)
+                for (std::uint32_t it_Mip = 0; it_Mip < texture.MipLevels; ++it_Mip)
                 {
-                    D3D12_DEPTH_STENCIL_VIEW_DESC l_View{};
-                    l_View.Format = DXGI_FORMAT_D32_FLOAT;
-                    l_View.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-                    m_Device->CreateDepthStencilView(texture.Resource, &l_View, m_DepthStencilViews.GetHandle(texture.DepthStencilView));
+                    const std::uint32_t l_View = l_Heap.Allocate();
+                    TR_CORE_ASSERT(l_View != c_NoDescriptor, "Out of {} views.", l_Depth ? "depth stencil" : "render target");
+                    l_Views.push_back(l_View);
+                    if (l_View == c_NoDescriptor)
+                    {
+                        continue;
+                    }
+
+                    if (l_Depth)
+                    {
+                        D3D12_DEPTH_STENCIL_VIEW_DESC l_Description{};
+                        l_Description.Format = DXGI_FORMAT_D32_FLOAT;
+                        l_Description.ViewDimension = l_Array ? D3D12_DSV_DIMENSION_TEXTURE2DARRAY : D3D12_DSV_DIMENSION_TEXTURE2D;
+                        if (l_Array)
+                        {
+                            l_Description.Texture2DArray = { it_Mip, it_Layer, 1 };
+                        }
+                        else
+                        {
+                            l_Description.Texture2D.MipSlice = it_Mip;
+                        }
+
+                        m_Device->CreateDepthStencilView(texture.Resource, &l_Description, l_Heap.GetHandle(l_View));
+                    }
+                    else
+                    {
+                        D3D12_RENDER_TARGET_VIEW_DESC l_Description{};
+                        l_Description.Format = ToDXGIFormat(texture.TextureFormat);
+                        l_Description.ViewDimension = l_Array ? D3D12_RTV_DIMENSION_TEXTURE2DARRAY : D3D12_RTV_DIMENSION_TEXTURE2D;
+                        if (l_Array)
+                        {
+                            l_Description.Texture2DArray = { it_Mip, it_Layer, 1, 0 };
+                        }
+                        else
+                        {
+                            l_Description.Texture2D.MipSlice = it_Mip;
+                        }
+
+                        m_Device->CreateRenderTargetView(texture.Resource, &l_Description, l_Heap.GetHandle(l_View));
+                    }
                 }
-
-                return;
-            }
-
-            texture.RenderTargetView = m_RenderTargetViews.Allocate();
-            TR_CORE_ASSERT(texture.RenderTargetView != c_NoDescriptor, "Out of render target views.");
-            if (texture.RenderTargetView != c_NoDescriptor)
-            {
-                D3D12_RENDER_TARGET_VIEW_DESC l_View{};
-                l_View.Format = ToDXGIFormat(texture.TextureFormat);
-                l_View.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-                m_Device->CreateRenderTargetView(texture.Resource, &l_View, m_RenderTargetViews.GetHandle(texture.RenderTargetView));
             }
         }
 
@@ -1616,7 +1682,7 @@ namespace Trinity
             }
         }
 
-        // The shader resource view covers every mip, and the unordered access view mip 0
+        // The shader resource view covers every mip and layer, and the unordered access view mip 0 of every layer, a cube's faces as an array since there are no cube unordered access views
         void D3D12Device::CreateShaderViews(D3D12Texture& texture, TextureUsage usage)
         {
             if (HasFlag(usage, TextureUsage::ShaderResource))
@@ -1627,9 +1693,32 @@ namespace Trinity
                 {
                     D3D12_SHADER_RESOURCE_VIEW_DESC l_View{};
                     l_View.Format = texture.ResourceFormat == DXGI_FORMAT_R32_TYPELESS ? DXGI_FORMAT_R32_FLOAT : texture.ResourceFormat;
-                    l_View.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
                     l_View.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-                    l_View.Texture2D.MipLevels = texture.MipLevels;
+                    switch (texture.Dimension)
+                    {
+                        case TextureDimension::Texture2DArray:
+                        {
+                            l_View.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+                            l_View.Texture2DArray.MipLevels = texture.MipLevels;
+                            l_View.Texture2DArray.ArraySize = texture.ArrayLayers;
+
+                            break;
+                        }
+                        case TextureDimension::TextureCube:
+                        {
+                            l_View.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+                            l_View.TextureCube.MipLevels = texture.MipLevels;
+
+                            break;
+                        }
+                        default:
+                        {
+                            l_View.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                            l_View.Texture2D.MipLevels = texture.MipLevels;
+
+                            break;
+                        }
+                    }
                     m_Device->CreateShaderResourceView(texture.Resource, &l_View, m_ResourceHeap.GetHandle(texture.ShaderResourceIndex));
                 }
             }
@@ -1642,7 +1731,12 @@ namespace Trinity
                 {
                     D3D12_UNORDERED_ACCESS_VIEW_DESC l_View{};
                     l_View.Format = texture.ResourceFormat;
-                    l_View.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+                    l_View.ViewDimension = texture.Dimension == TextureDimension::Texture2D ? D3D12_UAV_DIMENSION_TEXTURE2D : D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+                    if (texture.Dimension != TextureDimension::Texture2D)
+                    {
+                        l_View.Texture2DArray.ArraySize = texture.ArrayLayers;
+                    }
+
                     m_Device->CreateUnorderedAccessView(texture.Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(texture.UnorderedAccessIndex));
                 }
             }
@@ -1651,8 +1745,16 @@ namespace Trinity
         // An index is only handed out again once the frames that could read it have finished
         void D3D12Device::Release(D3D12Release& release)
         {
-            m_RenderTargetViews.Free(release.RenderTargetView);
-            m_DepthStencilViews.Free(release.DepthStencilView);
+            for (const std::uint32_t it_View : release.RenderTargetViews)
+            {
+                m_RenderTargetViews.Free(it_View);
+            }
+
+            for (const std::uint32_t it_View : release.DepthStencilViews)
+            {
+                m_DepthStencilViews.Free(it_View);
+            }
+
             m_ResourceHeap.Free(release.ShaderResourceIndex);
             m_ResourceHeap.Free(release.UnorderedAccessIndex);
             m_SamplerHeap.Free(release.SamplerIndex);
@@ -1669,6 +1771,7 @@ namespace Trinity
             l_Texture.Width = width;
             l_Texture.Height = height;
             l_Texture.MipLevels = 1;
+            l_Texture.ArrayLayers = 1;
             CreateViews(l_Texture);
 
             return m_Textures.Add(std::move(l_Texture));
@@ -1680,7 +1783,7 @@ namespace Trinity
             const std::optional<D3D12Texture> l_Texture = m_Textures.Remove(texture);
             if (l_Texture)
             {
-                m_RenderTargetViews.Free(l_Texture->RenderTargetView);
+                m_RenderTargetViews.Free(l_Texture->RenderTargetViews.front());
             }
         }
 

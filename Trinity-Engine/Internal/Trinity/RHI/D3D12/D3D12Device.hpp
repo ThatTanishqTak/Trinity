@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/Core/Memory.hpp"
 #include "Trinity/RHI/Bindless.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 #include "Trinity/RHI/Device.hpp"
@@ -13,6 +14,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -21,6 +23,8 @@ namespace Trinity
         class D3D12Device;
 
         constexpr std::uint32_t c_NoDescriptor = c_NoBindlessIndex;
+
+        using D3D12DescriptorIndices = std::vector<std::uint32_t, TaggedAllocator<std::uint32_t, MemoryTag::Renderer>>;
 
         struct D3D12Buffer
         {
@@ -31,18 +35,20 @@ namespace Trinity
             std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
         };
 
-        // Swap chain buffers have no allocation, since the swap chain owns them
+        // Swap chain buffers have no allocation, since the swap chain owns them. A render target or depth texture has a view per mip of each layer, numbered by GetSubresourceIndex
         struct D3D12Texture
         {
             Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
             ID3D12Resource* Resource = nullptr;
             Format TextureFormat = Format::Unknown;
             DXGI_FORMAT ResourceFormat = DXGI_FORMAT_UNKNOWN;
+            TextureDimension Dimension = TextureDimension::Texture2D;
             std::uint32_t Width = 0;
             std::uint32_t Height = 0;
             std::uint32_t MipLevels = 0;
-            std::uint32_t RenderTargetView = c_NoDescriptor;
-            std::uint32_t DepthStencilView = c_NoDescriptor;
+            std::uint32_t ArrayLayers = 0;
+            D3D12DescriptorIndices RenderTargetViews;
+            D3D12DescriptorIndices DepthStencilViews;
             std::uint32_t ShaderResourceIndex = c_NoDescriptor;
             std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
         };
@@ -88,7 +94,7 @@ namespace Trinity
             void Begin(ID3D12GraphicsCommandList7* commandList);
             void End();
 
-            void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after) override;
+            void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range) override;
             void BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after) override;
 
             void BeginRendering(const RenderingDescription& description) override;
@@ -104,8 +110,8 @@ namespace Trinity
             void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) override;
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
-            void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset) override;
-            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region) override;
+            void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) override;
+            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) override;
 
         private:
             D3D12Device& m_Device;
@@ -160,8 +166,8 @@ namespace Trinity
             [[nodiscard]] ID3D12RootSignature* GetRootSignature() const { return m_RootSignature.Get(); }
             [[nodiscard]] ID3D12DescriptorHeap* GetResourceHeap() const { return m_ResourceHeap.GetHeap(); }
             [[nodiscard]] ID3D12DescriptorHeap* GetSamplerHeap() const { return m_SamplerHeap.GetHeap(); }
-            [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView(const D3D12Texture& texture) const { return m_RenderTargetViews.GetHandle(texture.RenderTargetView); }
-            [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView(const D3D12Texture& texture) const { return m_DepthStencilViews.GetHandle(texture.DepthStencilView); }
+            [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView(std::uint32_t view) const { return m_RenderTargetViews.GetHandle(view); }
+            [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE GetDepthStencilView(std::uint32_t view) const { return m_DepthStencilViews.GetHandle(view); }
 
             // For the swap chain, whose buffers become textures with a render target view each
             [[nodiscard]] TextureHandle AddSwapChainBuffer(ID3D12Resource* resource, Format format, DXGI_FORMAT resourceFormat, std::uint32_t width, std::uint32_t height);
@@ -177,8 +183,8 @@ namespace Trinity
             {
                 Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
                 Microsoft::WRL::ComPtr<ID3D12PipelineState> Pipeline;
-                std::uint32_t RenderTargetView = c_NoDescriptor;
-                std::uint32_t DepthStencilView = c_NoDescriptor;
+                D3D12DescriptorIndices RenderTargetViews;
+                D3D12DescriptorIndices DepthStencilViews;
                 std::uint32_t ShaderResourceIndex = c_NoDescriptor;
                 std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
                 std::uint32_t SamplerIndex = c_NoDescriptor;

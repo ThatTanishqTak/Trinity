@@ -19,11 +19,14 @@ namespace Trinity
             std::string_view DebugName;
         };
 
+        // A Texture2D has one layer, a TextureCube six and a square size, and a Texture2DArray up to c_MaxArrayLayers
         struct TextureDescription
         {
             std::uint32_t Width = 1;
             std::uint32_t Height = 1;
             std::uint32_t MipLevels = 1;
+            std::uint32_t ArrayLayers = 1;
+            TextureDimension Dimension = TextureDimension::Texture2D;
 
             Format TextureFormat = Format::RGBA8Unorm;
             TextureUsage Usage = TextureUsage::ShaderResource;

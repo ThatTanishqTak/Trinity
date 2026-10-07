@@ -26,6 +26,7 @@ private:
 
     bool OnKeyPressed(Trinity::KeyPressedEvent& event);
     void TestCompute();
+    void TestLayeredTextures();
     void CreateSprites();
     void UpdateSprites();
     void TestSpriteReadback();
@@ -44,7 +45,7 @@ private:
     std::uint64_t m_SpriteBytesLast = 0;
     std::uint64_t m_SpriteBadFrames = 0;
     bool m_SpriteReported = false;
-    bool m_ComputeTested = false;
+    bool m_RHITested = false;
 
     float m_ClearHue = 0.0f;
     float m_SecondsSinceReport = 0.0f;

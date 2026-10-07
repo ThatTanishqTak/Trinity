@@ -106,6 +106,32 @@ namespace
         return std::nullopt;
     }
 
+    // A cube and an array, each with two mips, every mip of every layer cleared to its own colour
+    constexpr std::uint32_t c_LayeredCubeSize = 16;
+    constexpr std::uint32_t c_LayeredArrayWidth = 32;
+    constexpr std::uint32_t c_LayeredArrayHeight = 16;
+    constexpr std::uint32_t c_LayeredArrayLayers = 4;
+    constexpr std::uint32_t c_LayeredMipLevels = 2;
+
+    // LayeredTest.slang's push constants: four descriptor handles, then the mip and layer counts
+    struct LayeredPushData
+    {
+        std::array<std::uint32_t, 2> Cube{};
+        std::array<std::uint32_t, 2> Array{};
+        std::array<std::uint32_t, 2> Sampler{};
+        std::array<std::uint32_t, 2> Output{};
+        std::uint32_t MipLevels = 0;
+        std::uint32_t ArrayLayers = 0;
+    };
+
+    static_assert(sizeof(LayeredPushData) == 40);
+
+    // Red counts layers, green mips, and blue tells the cube from the array, each a whole 8-bit value that RGBA8 stores exactly
+    std::array<std::uint8_t, 4> MakeLayerColor(bool cube, std::uint32_t layer, std::uint32_t mipLevel)
+    {
+        return { static_cast<std::uint8_t>((layer + 1) * 32), static_cast<std::uint8_t>((mipLevel + 1) * 64), static_cast<std::uint8_t>(cube ? 0x40 : 0xC0), 255 };
+    }
+
     // A hue in [0, 1) at saturation 0.6 and value 0.5, so the window never gets too bright to look at
     std::array<float, 4> HueToColor(float hue)
     {
@@ -299,10 +325,11 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
 {
     TR_PROFILE_FUNCTION();
 
-    if (!m_ComputeTested)
+    if (!m_RHITested)
     {
-        m_ComputeTested = true;
+        m_RHITested = true;
         TestCompute();
+        TestLayeredTextures();
     }
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
@@ -541,9 +568,9 @@ void SandboxLayer::TestCompute()
     l_Commands.EndRendering();
 
     l_Commands.TextureBarrier(l_Texture, Trinity::RHI::ResourceState::ShaderResource, Trinity::RHI::ResourceState::CopySource);
-    l_Commands.CopyTextureToBuffer(l_Texture, 0, l_TextureReadback, 0);
+    l_Commands.CopyTextureToBuffer(l_Texture, 0, 0, l_TextureReadback, 0);
     l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::CopySource);
-    l_Commands.CopyTextureToBuffer(l_Target, 0, l_TargetReadback, 0);
+    l_Commands.CopyTextureToBuffer(l_Target, 0, 0, l_TargetReadback, 0);
     l_Device.EndFrame();
     l_Device.WaitIdle();
 
@@ -588,6 +615,221 @@ void SandboxLayer::TestCompute()
     }
 
     TR_INFO("Compute: {} filled a storage buffer of {} and a {}x{} storage texture, and all {} bytes of the buffer, the texture and a draw reading the texture read back as expected", Trinity::ToString(l_Info.API), Trinity::Memory::FormatBytes(c_BufferSize), c_ComputeTextureSize, c_ComputeTextureSize, c_BufferSize + 2 * std::uint64_t{ c_ComputeTextureSize } * c_ComputeTextureSize * 4);
+}
+
+// Clears every mip of every face of a cube and every layer of an array to its own colour, each moved in and out of RenderTarget by a barrier on that mip and layer alone, and reads each back by a copy. A dispatch then reads the same colours through the cube's and the array's shader views
+void SandboxLayer::TestLayeredTextures()
+{
+    TR_PROFILE_FUNCTION();
+
+    struct Layered
+    {
+        bool Cube = false;
+        Trinity::RHI::TextureHandle Texture;
+        std::uint32_t Width = 0;
+        std::uint32_t Height = 0;
+        std::uint32_t Layers = 0;
+    };
+
+    constexpr Trinity::RHI::Format c_Format = Trinity::RHI::Format::RGBA8Unorm;
+    constexpr std::uint32_t c_WordCount = (Trinity::RHI::c_CubeFaceCount + c_LayeredArrayLayers) * c_LayeredMipLevels;
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+
+    const std::string_view l_Extension = l_Info.API == Trinity::GraphicsAPI::D3D12 ? "dxil" : "spv";
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_ReadLayersShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/LayeredTest.ReadLayers.{}", l_Extension));
+    if (!l_ReadLayersShader)
+    {
+        TR_ERROR("Layers: the LayeredTest {} shader could not be read from /engine/shaders", l_Extension);
+
+        return;
+    }
+
+    Trinity::RHI::ComputePipelineDescription l_PipelineDescription;
+    l_PipelineDescription.ComputeShader = { *l_ReadLayersShader, "ReadLayers" };
+    l_PipelineDescription.DebugName = "Sandbox read layers";
+    const Trinity::RHI::PipelineHandle l_ReadLayers = l_Device.CreateComputePipeline(l_PipelineDescription);
+
+    Trinity::RHI::SamplerDescription l_SamplerDescription;
+    l_SamplerDescription.MinFilter = Trinity::RHI::Filter::Nearest;
+    l_SamplerDescription.MagFilter = Trinity::RHI::Filter::Nearest;
+    l_SamplerDescription.MipFilter = Trinity::RHI::Filter::Nearest;
+    l_SamplerDescription.AddressU = Trinity::RHI::AddressMode::ClampToEdge;
+    l_SamplerDescription.AddressV = Trinity::RHI::AddressMode::ClampToEdge;
+    l_SamplerDescription.AddressW = Trinity::RHI::AddressMode::ClampToEdge;
+    l_SamplerDescription.DebugName = "Sandbox layers sampler";
+    const Trinity::RHI::SamplerHandle l_Sampler = l_Device.CreateSampler(l_SamplerDescription);
+
+    // Clear colours change from layer to layer, so no single optimized clear value fits
+    Trinity::RHI::TextureDescription l_TextureDescription;
+    l_TextureDescription.MipLevels = c_LayeredMipLevels;
+    l_TextureDescription.TextureFormat = c_Format;
+    l_TextureDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopySource;
+    l_TextureDescription.OptimizedClear = false;
+
+    l_TextureDescription.Width = c_LayeredCubeSize;
+    l_TextureDescription.Height = c_LayeredCubeSize;
+    l_TextureDescription.ArrayLayers = Trinity::RHI::c_CubeFaceCount;
+    l_TextureDescription.Dimension = Trinity::RHI::TextureDimension::TextureCube;
+    l_TextureDescription.DebugName = "Sandbox cube";
+    const Layered l_Cube{ true, l_Device.CreateTexture(l_TextureDescription), c_LayeredCubeSize, c_LayeredCubeSize, Trinity::RHI::c_CubeFaceCount };
+
+    l_TextureDescription.Width = c_LayeredArrayWidth;
+    l_TextureDescription.Height = c_LayeredArrayHeight;
+    l_TextureDescription.ArrayLayers = c_LayeredArrayLayers;
+    l_TextureDescription.Dimension = Trinity::RHI::TextureDimension::Texture2DArray;
+    l_TextureDescription.DebugName = "Sandbox array";
+    const Layered l_Array{ false, l_Device.CreateTexture(l_TextureDescription), c_LayeredArrayWidth, c_LayeredArrayHeight, c_LayeredArrayLayers };
+
+    // Every mip of every layer gets a slot of the same size, the largest mip's rounded up to the copy offset alignment
+    const std::uint64_t l_LargestMip = std::max(Trinity::RHI::GetTextureCopySize(c_Format, c_LayeredCubeSize, c_LayeredCubeSize), Trinity::RHI::GetTextureCopySize(c_Format, c_LayeredArrayWidth, c_LayeredArrayHeight));
+    const std::uint64_t l_SlotSize = (l_LargestMip + Trinity::RHI::c_TextureCopyOffsetAlignment - 1) / Trinity::RHI::c_TextureCopyOffsetAlignment * Trinity::RHI::c_TextureCopyOffsetAlignment;
+
+    Trinity::RHI::BufferDescription l_BufferDescription;
+    l_BufferDescription.Size = l_SlotSize * c_WordCount;
+    l_BufferDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_BufferDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_BufferDescription.DebugName = "Sandbox layers readback";
+    const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_BufferDescription);
+
+    l_BufferDescription.Size = std::uint64_t{ c_WordCount } * 4;
+    l_BufferDescription.Usage = Trinity::RHI::BufferUsage::UnorderedAccess | Trinity::RHI::BufferUsage::CopySource;
+    l_BufferDescription.Memory = Trinity::RHI::MemoryType::GPU;
+    l_BufferDescription.DebugName = "Sandbox layers words";
+    const Trinity::RHI::BufferHandle l_Words = l_Device.CreateBuffer(l_BufferDescription);
+
+    l_BufferDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_BufferDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_BufferDescription.DebugName = "Sandbox layers words readback";
+    const Trinity::RHI::BufferHandle l_WordsReadback = l_Device.CreateBuffer(l_BufferDescription);
+
+    const auto a_Destroy = [&]()
+    {
+        l_Device.DestroyBuffer(l_WordsReadback);
+        l_Device.DestroyBuffer(l_Words);
+        l_Device.DestroyBuffer(l_Readback);
+        l_Device.DestroyTexture(l_Array.Texture);
+        l_Device.DestroyTexture(l_Cube.Texture);
+        l_Device.DestroySampler(l_Sampler);
+        l_Device.DestroyPipeline(l_ReadLayers);
+    };
+
+    if (!l_ReadLayers || !l_Sampler || !l_Cube.Texture || !l_Array.Texture || !l_Readback || !l_Words || !l_WordsReadback)
+    {
+        TR_ERROR("Layers: could not create the pipeline, the sampler, the cube and array, or their readbacks");
+        a_Destroy();
+
+        return;
+    }
+
+    const std::array<Layered, 2> l_Textures{ l_Cube, l_Array };
+
+    Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+    std::uint32_t l_Slot = 0;
+    for (const Layered& it_Texture : l_Textures)
+    {
+        for (std::uint32_t it_Layer = 0; it_Layer < it_Texture.Layers; ++it_Layer)
+        {
+            for (std::uint32_t it_Mip = 0; it_Mip < c_LayeredMipLevels; ++it_Mip)
+            {
+                const Trinity::RHI::TextureSubresourceRange l_Range{ it_Mip, 1, it_Layer, 1 };
+                const std::array<std::uint8_t, 4> l_Color = MakeLayerColor(it_Texture.Cube, it_Layer, it_Mip);
+
+                Trinity::RHI::ColorAttachment l_Attachment{ it_Texture.Texture, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::Store };
+                std::ranges::transform(l_Color, l_Attachment.ClearColor.begin(), [](std::uint8_t channel) { return static_cast<float>(channel) / 255.0f; });
+                l_Attachment.MipLevel = it_Mip;
+                l_Attachment.ArrayLayer = it_Layer;
+
+                Trinity::RHI::RenderingDescription l_Rendering;
+                l_Rendering.ColorAttachments = std::span(&l_Attachment, 1);
+
+                l_Commands.TextureBarrier(it_Texture.Texture, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::RenderTarget, l_Range);
+                l_Commands.BeginRendering(l_Rendering);
+                l_Commands.EndRendering();
+                l_Commands.TextureBarrier(it_Texture.Texture, Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::CopySource, l_Range);
+                l_Commands.CopyTextureToBuffer(it_Texture.Texture, it_Mip, it_Layer, l_Readback, l_Slot++ * l_SlotSize);
+            }
+        }
+
+        l_Commands.TextureBarrier(it_Texture.Texture, Trinity::RHI::ResourceState::CopySource, Trinity::RHI::ResourceState::ShaderResource);
+    }
+
+    LayeredPushData l_Push;
+    l_Push.Cube = { l_Device.GetShaderResourceIndex(l_Cube.Texture), 0 };
+    l_Push.Array = { l_Device.GetShaderResourceIndex(l_Array.Texture), 0 };
+    l_Push.Sampler = { l_Device.GetSamplerIndex(l_Sampler), 0 };
+    l_Push.Output = { l_Device.GetUnorderedAccessIndex(l_Words), 0 };
+    l_Push.MipLevels = c_LayeredMipLevels;
+    l_Push.ArrayLayers = c_LayeredArrayLayers;
+
+    l_Commands.BufferBarrier(l_Words, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::UnorderedAccess);
+    l_Commands.SetPipeline(l_ReadLayers);
+    l_Commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+    l_Commands.Dispatch(1, 1, 2);
+    l_Commands.BufferBarrier(l_Words, Trinity::RHI::ResourceState::UnorderedAccess, Trinity::RHI::ResourceState::CopySource);
+    l_Commands.CopyBuffer(l_Words, 0, l_WordsReadback, 0, std::uint64_t{ c_WordCount } * 4);
+    l_Device.EndFrame();
+    l_Device.WaitIdle();
+
+    if (l_Info.API == Trinity::GraphicsAPI::None)
+    {
+        TR_INFO("Layers: None recorded a clear and a copy for each of {} mips of {} cube faces and {} array layers", c_LayeredMipLevels, Trinity::RHI::c_CubeFaceCount, c_LayeredArrayLayers);
+        a_Destroy();
+
+        return;
+    }
+
+    const std::span<const std::byte> l_Texels = l_Device.GetMappedData(l_Readback);
+    const std::span<const std::byte> l_ReadWords = l_Device.GetMappedData(l_WordsReadback);
+
+    std::string l_Wrong;
+    l_Slot = 0;
+    for (const Layered& it_Texture : l_Textures)
+    {
+        for (std::uint32_t it_Layer = 0; it_Layer < it_Texture.Layers; ++it_Layer)
+        {
+            for (std::uint32_t it_Mip = 0; it_Mip < c_LayeredMipLevels; ++it_Mip)
+            {
+                const std::array<std::uint8_t, 4> l_Color = MakeLayerColor(it_Texture.Cube, it_Layer, it_Mip);
+                const std::uint32_t l_Width = Trinity::RHI::GetMipSize(it_Texture.Width, it_Mip);
+                const std::uint32_t l_Height = Trinity::RHI::GetMipSize(it_Texture.Height, it_Mip);
+                const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(c_Format, l_Width);
+                const std::uint64_t l_Base = l_Slot * l_SlotSize;
+
+                bool l_Cleared = l_Texels.size() >= l_Base + l_RowPitch * l_Height;
+                for (std::uint32_t it_Y = 0; it_Y < l_Height && l_Cleared; ++it_Y)
+                {
+                    for (std::uint32_t it_X = 0; it_X < l_Width && l_Cleared; ++it_X)
+                    {
+                        l_Cleared = std::memcmp(l_Texels.data() + static_cast<std::size_t>(l_Base + it_Y * l_RowPitch + it_X * 4), l_Color.data(), l_Color.size()) == 0;
+                    }
+                }
+
+                std::uint32_t l_Expected = 0;
+                std::memcpy(&l_Expected, l_Color.data(), sizeof(l_Expected));
+                const bool l_Read = l_ReadWords.size() >= (std::size_t{ l_Slot } + 1) * 4 && std::memcmp(l_ReadWords.data() + std::size_t{ l_Slot } * 4, &l_Expected, 4) == 0;
+
+                if (!l_Cleared || !l_Read)
+                {
+                    l_Wrong += std::format("{}{} {} {} mip {}{}", l_Wrong.empty() ? "" : "; ", it_Texture.Cube ? "cube" : "array", it_Texture.Cube ? "face" : "layer", it_Layer, it_Mip, !l_Cleared ? " reads back the wrong texels" : " reads wrong through its shader view");
+                }
+
+                ++l_Slot;
+            }
+        }
+    }
+
+    a_Destroy();
+
+    if (!l_Wrong.empty())
+    {
+        TR_ERROR("Layers: {}", l_Wrong);
+
+        return;
+    }
+
+    TR_INFO("Layers: {} cleared each of {} mips of {} cube faces and {} array layers to its own colour, and every one reads back by a copy and through its texture's shader view", Trinity::ToString(l_Info.API), c_LayeredMipLevels, Trinity::RHI::c_CubeFaceCount, c_LayeredArrayLayers);
 }
 
 // 64 placeholder source files give the registry 64 texture assets, whose cooked KTX2 a memory source serves at /cache
@@ -830,7 +1072,7 @@ void SandboxLayer::TestSpriteReadback()
     l_Commands.EndRendering();
 
     l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::CopySource);
-    l_Commands.CopyTextureToBuffer(l_Target, 0, l_Readback, 0);
+    l_Commands.CopyTextureToBuffer(l_Target, 0, 0, l_Readback, 0);
     l_Device.EndFrame();
     l_Device.WaitIdle();
 

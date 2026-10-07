@@ -410,6 +410,38 @@ namespace Trinity
                 return IsDepthFormat(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
             }
 
+            // Null when the texture has no render target or depth view, or no such mip or layer
+            VkImageView GetAttachmentView(const VulkanTexture& texture, std::uint32_t mipLevel, std::uint32_t arrayLayer)
+            {
+                if (mipLevel >= texture.MipLevels || arrayLayer >= texture.ArrayLayers)
+                {
+                    return VK_NULL_HANDLE;
+                }
+
+                const std::size_t l_Index = GetSubresourceIndex(mipLevel, arrayLayer, texture.MipLevels);
+
+                return l_Index < texture.AttachmentViews.size() ? texture.AttachmentViews[l_Index] : VK_NULL_HANDLE;
+            }
+
+            VkImageViewType ToVkSampledViewType(TextureDimension dimension)
+            {
+                switch (dimension)
+                {
+                    case TextureDimension::Texture2DArray:
+                    {
+                        return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                    }
+                    case TextureDimension::TextureCube:
+                    {
+                        return VK_IMAGE_VIEW_TYPE_CUBE;
+                    }
+                    default:
+                    {
+                        return VK_IMAGE_VIEW_TYPE_2D;
+                    }
+                }
+            }
+
             VkAttachmentLoadOp ToVkLoadOp(LoadOp load)
             {
                 switch (load)
@@ -675,7 +707,7 @@ namespace Trinity
             m_CommandBuffer = VK_NULL_HANDLE;
         }
 
-        void VulkanCommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after)
+        void VulkanCommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(after != ResourceState::Undefined, "A texture cannot move into the undefined state.");
@@ -686,6 +718,8 @@ namespace Trinity
             {
                 return;
             }
+
+            TR_CORE_ASSERT(IsRangeInsideTexture(range, l_Texture->MipLevels, l_Texture->ArrayLayers), "TextureBarrier on mips or layers that a texture with {} mip(s) and {} layer(s) lacks.", l_Texture->MipLevels, l_Texture->ArrayLayers);
 
             const VulkanState l_Before = ToVulkanState(before);
             const VulkanState l_After = ToVulkanState(after);
@@ -700,7 +734,7 @@ namespace Trinity
             l_Barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             l_Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             l_Barrier.image = l_Texture->Image;
-            l_Barrier.subresourceRange = { GetAspect(l_Texture->TextureFormat), 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS };
+            l_Barrier.subresourceRange = { GetAspect(l_Texture->TextureFormat), range.BaseMipLevel, range.MipLevelCount == c_RemainingSubresources ? VK_REMAINING_MIP_LEVELS : range.MipLevelCount, range.BaseArrayLayer, range.ArrayLayerCount == c_RemainingSubresources ? VK_REMAINING_ARRAY_LAYERS : range.ArrayLayerCount };
 
             VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
             l_Dependency.imageMemoryBarrierCount = 1;
@@ -750,20 +784,21 @@ namespace Trinity
             for (const ColorAttachment& it_Attachment : description.ColorAttachments)
             {
                 const VulkanTexture* l_Texture = m_Device.GetTexture(it_Attachment.Texture);
-                TR_CORE_ASSERT(l_Texture != nullptr && l_Texture->AttachmentView != VK_NULL_HANDLE, "BeginRendering with a destroyed texture, or one without RenderTarget usage.");
-                if (l_Texture == nullptr || l_Texture->AttachmentView == VK_NULL_HANDLE || l_ColorCount == c_MaxColorAttachments)
+                const VkImageView l_View = l_Texture != nullptr ? GetAttachmentView(*l_Texture, it_Attachment.MipLevel, it_Attachment.ArrayLayer) : VK_NULL_HANDLE;
+                TR_CORE_ASSERT(l_View != VK_NULL_HANDLE, "BeginRendering with a destroyed texture, one without RenderTarget usage, or a mip or layer it lacks.");
+                if (l_View == VK_NULL_HANDLE || l_ColorCount == c_MaxColorAttachments)
                 {
                     continue;
                 }
 
                 if (l_Area.Width == 0 || l_Area.Height == 0)
                 {
-                    l_Area = { 0, 0, l_Texture->Width, l_Texture->Height };
+                    l_Area = { 0, 0, GetMipSize(l_Texture->Width, it_Attachment.MipLevel), GetMipSize(l_Texture->Height, it_Attachment.MipLevel) };
                 }
 
                 VkRenderingAttachmentInfo& l_Info = l_Colors[l_ColorCount++];
                 l_Info = MakeInfo<VkRenderingAttachmentInfo>(VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO);
-                l_Info.imageView = l_Texture->AttachmentView;
+                l_Info.imageView = l_View;
                 l_Info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 l_Info.loadOp = ToVkLoadOp(it_Attachment.Load);
                 l_Info.storeOp = ToVkStoreOp(it_Attachment.Store);
@@ -775,15 +810,16 @@ namespace Trinity
 
             VkRenderingAttachmentInfo l_Depth = MakeInfo<VkRenderingAttachmentInfo>(VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO);
             const VulkanTexture* l_DepthTexture = description.Depth.Texture ? m_Device.GetTexture(description.Depth.Texture) : nullptr;
-            TR_CORE_ASSERT(!description.Depth.Texture || (l_DepthTexture != nullptr && l_DepthTexture->AttachmentView != VK_NULL_HANDLE), "BeginRendering with a destroyed depth texture, or one without DepthStencil usage.");
-            if (l_DepthTexture != nullptr)
+            const VkImageView l_DepthView = l_DepthTexture != nullptr ? GetAttachmentView(*l_DepthTexture, description.Depth.MipLevel, description.Depth.ArrayLayer) : VK_NULL_HANDLE;
+            TR_CORE_ASSERT(!description.Depth.Texture || l_DepthView != VK_NULL_HANDLE, "BeginRendering with a destroyed depth texture, one without DepthStencil usage, or a mip or layer it lacks.");
+            if (l_DepthView != VK_NULL_HANDLE)
             {
                 if (l_Area.Width == 0 || l_Area.Height == 0)
                 {
-                    l_Area = { 0, 0, l_DepthTexture->Width, l_DepthTexture->Height };
+                    l_Area = { 0, 0, GetMipSize(l_DepthTexture->Width, description.Depth.MipLevel), GetMipSize(l_DepthTexture->Height, description.Depth.MipLevel) };
                 }
 
-                l_Depth.imageView = l_DepthTexture->AttachmentView;
+                l_Depth.imageView = l_DepthView;
                 l_Depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 l_Depth.loadOp = ToVkLoadOp(description.Depth.Load);
                 l_Depth.storeOp = ToVkStoreOp(description.Depth.Store);
@@ -795,7 +831,7 @@ namespace Trinity
             l_Rendering.layerCount = 1;
             l_Rendering.colorAttachmentCount = l_ColorCount;
             l_Rendering.pColorAttachments = l_Colors.data();
-            l_Rendering.pDepthAttachment = l_DepthTexture != nullptr && l_DepthTexture->AttachmentView != VK_NULL_HANDLE ? &l_Depth : nullptr;
+            l_Rendering.pDepthAttachment = l_DepthView != VK_NULL_HANDLE ? &l_Depth : nullptr;
             vkCmdBeginRendering(m_CommandBuffer, &l_Rendering);
 
             m_Rendering = true;
@@ -920,7 +956,7 @@ namespace Trinity
         }
 
         // The whole mip, laid out in the buffer as CopyBufferToTexture reads it: rows of texels or blocks GetTextureCopyRowPitch apart
-        void VulkanCommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset)
+        void VulkanCommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
@@ -938,7 +974,7 @@ namespace Trinity
             const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Width);
             [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, l_Width, l_Height);
             TR_CORE_ASSERT(l_BlockBytes != 0 && l_RowPitch % l_BlockBytes == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
-            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels, "CopyTextureToBuffer from mip {} of a texture with {} mip(s).", mipLevel, l_Texture->MipLevels);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && arrayLayer < l_Texture->ArrayLayers, "CopyTextureToBuffer from mip {} of layer {} of a texture with {} mip(s) and {} layer(s).", mipLevel, arrayLayer, l_Texture->MipLevels, l_Texture->ArrayLayers);
             TR_CORE_ASSERT(destinationOffset % c_TextureCopyOffsetAlignment == 0, "CopyTextureToBuffer writes to offset {}, which is not a multiple of {}.", destinationOffset, c_TextureCopyOffsetAlignment);
             TR_CORE_ASSERT(destinationOffset + l_Size <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes from offset {}, and the buffer has {}.", l_Size, destinationOffset, l_Buffer->Size);
             if (l_BlockBytes == 0)
@@ -950,12 +986,12 @@ namespace Trinity
             VkBufferImageCopy l_Region{};
             l_Region.bufferOffset = destinationOffset;
             l_Region.bufferRowLength = static_cast<std::uint32_t>(l_RowPitch / l_BlockBytes) * GetFormatBlockDimension(l_Texture->TextureFormat);
-            l_Region.imageSubresource = { GetAspect(l_Texture->TextureFormat), mipLevel, 0, 1 };
+            l_Region.imageSubresource = { GetAspect(l_Texture->TextureFormat), mipLevel, arrayLayer, 1 };
             l_Region.imageExtent = { l_Width, l_Height, 1 };
             vkCmdCopyImageToBuffer(m_CommandBuffer, l_Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, l_Buffer->Buffer, 1, &l_Region);
         }
 
-        void VulkanCommandList::CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region)
+        void VulkanCommandList::CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
 
@@ -972,6 +1008,7 @@ namespace Trinity
             [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, region.Width, region.Height);
             TR_CORE_ASSERT(l_BlockBytes != 0 && l_RowPitch % l_BlockBytes == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
             TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region outside mip {} of a {}x{} texture with {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
+            TR_CORE_ASSERT(arrayLayer < l_Texture->ArrayLayers, "CopyBufferToTexture into layer {} of a texture with {} layer(s).", arrayLayer, l_Texture->ArrayLayers);
             TR_CORE_ASSERT(IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region of {} that does not start on a block or cover whole blocks.", ToString(l_Texture->TextureFormat));
             TR_CORE_ASSERT(sourceOffset % c_TextureCopyOffsetAlignment == 0, "CopyBufferToTexture reads from offset {}, which is not a multiple of {}.", sourceOffset, c_TextureCopyOffsetAlignment);
             TR_CORE_ASSERT(sourceOffset + l_Size <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_Size, sourceOffset, l_Buffer->Size);
@@ -983,7 +1020,7 @@ namespace Trinity
             VkBufferImageCopy l_Region{};
             l_Region.bufferOffset = sourceOffset;
             l_Region.bufferRowLength = static_cast<std::uint32_t>(l_RowPitch / l_BlockBytes) * GetFormatBlockDimension(l_Texture->TextureFormat);
-            l_Region.imageSubresource = { GetAspect(l_Texture->TextureFormat), mipLevel, 0, 1 };
+            l_Region.imageSubresource = { GetAspect(l_Texture->TextureFormat), mipLevel, arrayLayer, 1 };
             l_Region.imageOffset = { region.X, region.Y, 0 };
             l_Region.imageExtent = { region.Width, region.Height, 1 };
             vkCmdCopyBufferToImage(m_CommandBuffer, l_Buffer->Buffer, l_Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &l_Region);
@@ -1477,39 +1514,19 @@ namespace Trinity
             return true;
         }
 
-        VkImageView VulkanDevice::CreateAttachmentView(VkImage image, Format format)
+        VkImageView VulkanDevice::CreateView(VkImage image, Format format, VkImageViewType type, std::uint32_t baseMipLevel, std::uint32_t mipLevels, std::uint32_t baseArrayLayer, std::uint32_t arrayLayers)
         {
             VkImageViewCreateInfo l_Create = MakeInfo<VkImageViewCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO);
             l_Create.image = image;
-            l_Create.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            l_Create.viewType = type;
             l_Create.format = ToVkFormat(format);
-            l_Create.subresourceRange = { GetAspect(format), 0, 1, 0, 1 };
+            l_Create.subresourceRange = { GetAspect(format), baseMipLevel, mipLevels, baseArrayLayer, arrayLayers };
 
             VkImageView l_View = VK_NULL_HANDLE;
             const VkResult l_Result = vkCreateImageView(m_Device, &l_Create, nullptr, &l_View);
             if (l_Result != VK_SUCCESS)
             {
-                TR_CORE_ERROR("Vulkan: an attachment view of a {} image could not be created ({})", ToString(format), FormatResult(l_Result));
-
-                return VK_NULL_HANDLE;
-            }
-
-            return l_View;
-        }
-
-        VkImageView VulkanDevice::CreateSampledView(VkImage image, Format format, std::uint32_t mipLevels)
-        {
-            VkImageViewCreateInfo l_Create = MakeInfo<VkImageViewCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO);
-            l_Create.image = image;
-            l_Create.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            l_Create.format = ToVkFormat(format);
-            l_Create.subresourceRange = { GetAspect(format), 0, mipLevels, 0, 1 };
-
-            VkImageView l_View = VK_NULL_HANDLE;
-            const VkResult l_Result = vkCreateImageView(m_Device, &l_Create, nullptr, &l_View);
-            if (l_Result != VK_SUCCESS)
-            {
-                TR_CORE_ERROR("Vulkan: a sampled view of a {} image could not be created ({})", ToString(format), FormatResult(l_Result));
+                TR_CORE_ERROR("Vulkan: a view of {} mip(s) and {} layer(s) of a {} image could not be created ({})", mipLevels, arrayLayers, ToString(format), FormatResult(l_Result));
 
                 return VK_NULL_HANDLE;
             }
@@ -1585,7 +1602,12 @@ namespace Trinity
         {
             VulkanRelease l_Release;
             l_Release.Image = texture.Image;
-            l_Release.View = texture.AttachmentView;
+            l_Release.Views = texture.AttachmentViews;
+            if (texture.StorageView != VK_NULL_HANDLE)
+            {
+                l_Release.Views.push_back(texture.StorageView);
+            }
+
             l_Release.Allocation = texture.Allocation;
             l_Release.SampledView = texture.SampledView;
             l_Release.ShaderResourceIndex = texture.ShaderResourceIndex;
@@ -1625,9 +1647,12 @@ namespace Trinity
                 vkDestroyImageView(m_Device, release.SampledView, nullptr);
             }
 
-            if (release.View != VK_NULL_HANDLE)
+            for (VkImageView it_View : release.Views)
             {
-                vkDestroyImageView(m_Device, release.View, nullptr);
+                if (it_View != VK_NULL_HANDLE)
+                {
+                    vkDestroyImageView(m_Device, it_View, nullptr);
+                }
             }
 
             if (release.Buffer != VK_NULL_HANDLE)
@@ -1791,9 +1816,10 @@ namespace Trinity
             VkImageCreateInfo l_Create = MakeInfo<VkImageCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO);
             l_Create.imageType = VK_IMAGE_TYPE_2D;
             l_Create.format = ToVkFormat(description.TextureFormat);
+            l_Create.flags = description.Dimension == TextureDimension::TextureCube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
             l_Create.extent = { description.Width, description.Height, 1 };
             l_Create.mipLevels = description.MipLevels;
-            l_Create.arrayLayers = 1;
+            l_Create.arrayLayers = description.ArrayLayers;
             l_Create.samples = VK_SAMPLE_COUNT_1_BIT;
             l_Create.tiling = VK_IMAGE_TILING_OPTIMAL;
             l_Create.usage = ToVkImageUsage(description.Usage);
@@ -1814,29 +1840,40 @@ namespace Trinity
             }
 
             l_Texture.TextureFormat = description.TextureFormat;
+            l_Texture.Dimension = description.Dimension;
             l_Texture.Width = description.Width;
             l_Texture.Height = description.Height;
             l_Texture.MipLevels = description.MipLevels;
+            l_Texture.ArrayLayers = description.ArrayLayers;
             SetDebugName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(l_Texture.Image), description.DebugName);
 
-            // Storage images are written one mip at a time, so the unordered access descriptor reuses the attachment view of mip 0
-            if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil) || HasFlag(description.Usage, TextureUsage::UnorderedAccess))
+            if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil))
             {
-                l_Texture.AttachmentView = CreateAttachmentView(l_Texture.Image, description.TextureFormat);
+                l_Texture.AttachmentViews.reserve(std::size_t{ description.MipLevels } * description.ArrayLayers);
+                for (std::uint32_t it_Layer = 0; it_Layer < description.ArrayLayers; ++it_Layer)
+                {
+                    for (std::uint32_t it_Mip = 0; it_Mip < description.MipLevels; ++it_Mip)
+                    {
+                        l_Texture.AttachmentViews.push_back(CreateView(l_Texture.Image, description.TextureFormat, VK_IMAGE_VIEW_TYPE_2D, it_Mip, 1, it_Layer, 1));
+                    }
+                }
             }
 
             if (HasFlag(description.Usage, TextureUsage::ShaderResource))
             {
-                l_Texture.SampledView = CreateSampledView(l_Texture.Image, description.TextureFormat, description.MipLevels);
+                l_Texture.SampledView = CreateView(l_Texture.Image, description.TextureFormat, ToVkSampledViewType(description.Dimension), 0, description.MipLevels, 0, description.ArrayLayers);
                 l_Texture.ShaderResourceIndex = AddImageDescriptor(c_SampledImageBinding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, l_Texture.SampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
 
+            // Storage images are written one mip at a time, and a cube's faces as the layers of an array, since a storage view cannot be a cube
             if (HasFlag(description.Usage, TextureUsage::UnorderedAccess))
             {
-                l_Texture.UnorderedAccessIndex = AddImageDescriptor(c_StorageImageBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, l_Texture.AttachmentView, VK_IMAGE_LAYOUT_GENERAL);
+                const VkImageViewType l_Type = description.Dimension == TextureDimension::Texture2D ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                l_Texture.StorageView = CreateView(l_Texture.Image, description.TextureFormat, l_Type, 0, 1, 0, description.ArrayLayers);
+                l_Texture.UnorderedAccessIndex = AddImageDescriptor(c_StorageImageBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, l_Texture.StorageView, VK_IMAGE_LAYOUT_GENERAL);
             }
 
-            return m_Textures.Add(l_Texture);
+            return m_Textures.Add(std::move(l_Texture));
         }
 
         void VulkanDevice::DestroyTexture(TextureHandle texture)
@@ -1859,13 +1896,14 @@ namespace Trinity
         {
             VulkanTexture l_Texture;
             l_Texture.Image = image;
-            l_Texture.AttachmentView = CreateAttachmentView(image, format);
+            l_Texture.AttachmentViews.push_back(CreateView(image, format, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1));
             l_Texture.TextureFormat = format;
             l_Texture.Width = width;
             l_Texture.Height = height;
             l_Texture.MipLevels = 1;
+            l_Texture.ArrayLayers = 1;
 
-            return m_Textures.Add(l_Texture);
+            return m_Textures.Add(std::move(l_Texture));
         }
 
         // The swap chain waits for the device to be idle first, so the view goes at once
@@ -1874,7 +1912,7 @@ namespace Trinity
             const std::optional<VulkanTexture> l_Texture = m_Textures.Remove(texture);
             if (l_Texture)
             {
-                vkDestroyImageView(m_Device, l_Texture->AttachmentView, nullptr);
+                vkDestroyImageView(m_Device, l_Texture->AttachmentViews.front(), nullptr);
             }
         }
 

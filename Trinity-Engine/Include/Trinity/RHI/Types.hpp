@@ -15,6 +15,11 @@ namespace Trinity
         constexpr std::uint32_t c_TextureCopyRowAlignment = 256;
         constexpr std::uint32_t c_TextureCopyOffsetAlignment = 512;
         constexpr std::uint32_t c_NoBindlessIndex = UINT32_MAX;
+        constexpr std::uint32_t c_MaxArrayLayers = 2048;
+        constexpr std::uint32_t c_CubeFaceCount = 6;
+
+        // A mip or layer count that reaches the last mip or layer
+        constexpr std::uint32_t c_RemainingSubresources = UINT32_MAX;
 
         template<typename Tag>
         struct Handle
@@ -91,6 +96,39 @@ namespace Trinity
         [[nodiscard]] constexpr bool IsDepthFormat(Format format)
         {
             return format == Format::D32Float;
+        }
+
+        // A cube has six layers, one per face in the order +X, -X, +Y, -Y, +Z, -Z
+        enum class TextureDimension : std::uint8_t
+        {
+            Texture2D,
+            Texture2DArray,
+            TextureCube
+        };
+
+        // Mips and layers that a barrier covers, all of them by default
+        struct TextureSubresourceRange
+        {
+            std::uint32_t BaseMipLevel = 0;
+            std::uint32_t MipLevelCount = c_RemainingSubresources;
+            std::uint32_t BaseArrayLayer = 0;
+            std::uint32_t ArrayLayerCount = c_RemainingSubresources;
+
+            [[nodiscard]] constexpr bool IsWhole() const { return BaseMipLevel == 0 && MipLevelCount == c_RemainingSubresources && BaseArrayLayer == 0 && ArrayLayerCount == c_RemainingSubresources; }
+        };
+
+        // Whether a range starts inside a texture with this many mips and layers and does not reach past its end
+        [[nodiscard]] constexpr bool IsRangeInsideTexture(const TextureSubresourceRange& range, std::uint32_t mipLevels, std::uint32_t arrayLayers)
+        {
+            const auto a_Fits = [](std::uint32_t base, std::uint32_t count, std::uint32_t total) { return base < total && count != 0 && (count == c_RemainingSubresources || std::uint64_t{ base } + count <= total); };
+
+            return a_Fits(range.BaseMipLevel, range.MipLevelCount, mipLevels) && a_Fits(range.BaseArrayLayer, range.ArrayLayerCount, arrayLayers);
+        }
+
+        // One mip of one layer, numbered with the mips of each layer together, as D3D12 numbers subresources
+        [[nodiscard]] constexpr std::uint32_t GetSubresourceIndex(std::uint32_t mipLevel, std::uint32_t arrayLayer, std::uint32_t mipLevels)
+        {
+            return mipLevel + arrayLayer * mipLevels;
         }
 
         enum class IndexFormat : std::uint8_t

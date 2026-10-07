@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/Core/Memory.hpp"
 #include "Trinity/RHI/Bindless.hpp"
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
@@ -31,17 +32,22 @@ namespace Trinity
             std::uint32_t UnorderedAccessIndex = c_NoBindlessIndex;
         };
 
-        // Swap chain images have no allocation, since the swap chain owns them
+        using VulkanImageViews = std::vector<VkImageView, TaggedAllocator<VkImageView, MemoryTag::Renderer>>;
+
+        // Swap chain images have no allocation, since the swap chain owns them. A render target or depth texture has an attachment view per mip of each layer, numbered by GetSubresourceIndex
         struct VulkanTexture
         {
             VkImage Image = VK_NULL_HANDLE;
             VmaAllocation Allocation = nullptr;
-            VkImageView AttachmentView = VK_NULL_HANDLE;
+            VulkanImageViews AttachmentViews;
             VkImageView SampledView = VK_NULL_HANDLE;
+            VkImageView StorageView = VK_NULL_HANDLE;
             Format TextureFormat = Format::Unknown;
+            TextureDimension Dimension = TextureDimension::Texture2D;
             std::uint32_t Width = 0;
             std::uint32_t Height = 0;
             std::uint32_t MipLevels = 0;
+            std::uint32_t ArrayLayers = 0;
             std::uint32_t ShaderResourceIndex = c_NoBindlessIndex;
             std::uint32_t UnorderedAccessIndex = c_NoBindlessIndex;
         };
@@ -66,7 +72,7 @@ namespace Trinity
             void Begin(VkCommandBuffer commandBuffer);
             void End();
 
-            void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after) override;
+            void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range) override;
             void BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after) override;
 
             void BeginRendering(const RenderingDescription& description) override;
@@ -82,8 +88,8 @@ namespace Trinity
             void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) override;
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
-            void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset) override;
-            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region) override;
+            void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) override;
+            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) override;
 
         private:
             VulkanDevice& m_Device;
@@ -159,7 +165,7 @@ namespace Trinity
             {
                 VkBuffer Buffer = VK_NULL_HANDLE;
                 VkImage Image = VK_NULL_HANDLE;
-                VkImageView View = VK_NULL_HANDLE;
+                VulkanImageViews Views;
                 VmaAllocation Allocation = nullptr;
                 VkImageView SampledView = VK_NULL_HANDLE;
                 VkPipeline Pipeline = VK_NULL_HANDLE;
@@ -185,8 +191,7 @@ namespace Trinity
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
 
-            [[nodiscard]] VkImageView CreateAttachmentView(VkImage image, Format format);
-            [[nodiscard]] VkImageView CreateSampledView(VkImage image, Format format, std::uint32_t mipLevels);
+            [[nodiscard]] VkImageView CreateView(VkImage image, Format format, VkImageViewType type, std::uint32_t baseMipLevel, std::uint32_t mipLevels, std::uint32_t baseArrayLayer, std::uint32_t arrayLayers);
             [[nodiscard]] std::uint32_t AddBufferDescriptor(VkBuffer buffer);
             [[nodiscard]] std::uint32_t AddImageDescriptor(std::uint32_t binding, VkDescriptorType type, VkImageView view, VkImageLayout layout);
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanBuffer& buffer);

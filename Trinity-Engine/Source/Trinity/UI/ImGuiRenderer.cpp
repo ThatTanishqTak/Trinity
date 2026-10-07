@@ -241,7 +241,7 @@ namespace Trinity
         }
 
         commands.TextureBarrier(destination, before, RHI::ResourceState::CopyDestination);
-        commands.CopyBufferToTexture(l_Staging, l_Offset, destination, 0, { rect.x, rect.y, rect.w, rect.h });
+        commands.CopyBufferToTexture(l_Staging, l_Offset, destination, 0, 0, { rect.x, rect.y, rect.w, rect.h });
         commands.TextureBarrier(destination, RHI::ResourceState::CopyDestination, RHI::ResourceState::ShaderResource);
 
         if (!l_FromRing)

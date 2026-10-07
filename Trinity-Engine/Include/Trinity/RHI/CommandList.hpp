@@ -31,6 +31,8 @@ namespace Trinity
             LoadOp Load = LoadOp::Clear;
             StoreOp Store = StoreOp::Store;
             std::array<float, 4> ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
+            std::uint32_t MipLevel = 0;
+            std::uint32_t ArrayLayer = 0;
         };
 
         struct DepthAttachment
@@ -39,6 +41,8 @@ namespace Trinity
             LoadOp Load = LoadOp::Clear;
             StoreOp Store = StoreOp::DontCare;
             float ClearDepth = 0.0f;
+            std::uint32_t MipLevel = 0;
+            std::uint32_t ArrayLayer = 0;
         };
 
         struct RenderingDescription
@@ -56,7 +60,7 @@ namespace Trinity
             CommandList(const CommandList&) = delete;
             CommandList& operator=(const CommandList&) = delete;
 
-            virtual void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after) = 0;
+            virtual void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range = {}) = 0;
             virtual void BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after) = 0;
 
             virtual void BeginRendering(const RenderingDescription& description) = 0;
@@ -74,8 +78,8 @@ namespace Trinity
             virtual void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) = 0;
 
             virtual void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) = 0;
-            virtual void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset) = 0;
-            virtual void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region) = 0;
+            virtual void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) = 0;
+            virtual void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) = 0;
 
         protected:
             CommandList() = default;

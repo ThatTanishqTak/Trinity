@@ -289,7 +289,7 @@ namespace Trinity
                 std::memcpy(l_Data.data() + l_Offsets[it_Level] + it_Row * l_RowPitch, l_Mip.data() + it_Row * l_RowSize, static_cast<std::size_t>(l_RowSize));
             }
 
-            commands.CopyBufferToTexture(l_Staging, l_Base + l_Offsets[it_Level], texture.m_Texture, it_Level, { 0, 0, l_Width, l_Height });
+            commands.CopyBufferToTexture(l_Staging, l_Base + l_Offsets[it_Level], texture.m_Texture, it_Level, 0, { 0, 0, l_Width, l_Height });
         }
 
         commands.TextureBarrier(texture.m_Texture, RHI::ResourceState::CopyDestination, RHI::ResourceState::ShaderResource);

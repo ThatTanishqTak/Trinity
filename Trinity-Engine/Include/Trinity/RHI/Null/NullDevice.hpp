@@ -23,7 +23,7 @@ namespace Trinity
             void Begin();
             void End();
 
-            void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after) override;
+            void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range) override;
             void BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after) override;
 
             void BeginRendering(const RenderingDescription& description) override;
@@ -39,8 +39,8 @@ namespace Trinity
             void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) override;
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
-            void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset) override;
-            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region) override;
+            void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) override;
+            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) override;
 
         private:
             NullDevice& m_Device;
@@ -117,8 +117,10 @@ namespace Trinity
             [[nodiscard]] bool IsComputePipeline(PipelineHandle pipeline);
             [[nodiscard]] bool IsAlive(SamplerHandle sampler) { return m_Samplers.Get(sampler) != nullptr; }
             [[nodiscard]] bool IsIndexRangeValid(BufferHandle buffer, std::uint64_t offset, IndexFormat format);
-            [[nodiscard]] bool IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region);
-            [[nodiscard]] bool IsReadbackValid(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset);
+            [[nodiscard]] bool IsRangeValid(TextureHandle texture, const TextureSubresourceRange& range);
+            [[nodiscard]] bool IsAttachmentValid(TextureHandle texture, TextureUsage usage, std::uint32_t mipLevel, std::uint32_t arrayLayer);
+            [[nodiscard]] bool IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region);
+            [[nodiscard]] bool IsReadbackValid(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset);
 
         private:
             struct NullBuffer
@@ -133,6 +135,7 @@ namespace Trinity
                 std::uint32_t Width = 0;
                 std::uint32_t Height = 0;
                 std::uint32_t MipLevels = 0;
+                std::uint32_t ArrayLayers = 0;
                 Format TextureFormat = Format::Unknown;
                 TextureUsage Usage = TextureUsage::None;
             };

@@ -46,6 +46,14 @@ namespace Trinity
                 return false;
             }
 
+            const bool l_Layers = description.Dimension == TextureDimension::Texture2D ? description.ArrayLayers == 1 : description.Dimension == TextureDimension::TextureCube ? description.ArrayLayers == c_CubeFaceCount : description.ArrayLayers != 0 && description.ArrayLayers <= c_MaxArrayLayers;
+            if (!l_Layers || (description.Dimension == TextureDimension::TextureCube && description.Width != description.Height))
+            {
+                TR_CORE_ERROR("{}: texture '{}' is {}x{} with {} layer(s), and a 2D texture has 1 layer, a cube {} layers and a square size, and an array 1 to {}", ToString(GetInfo().API), description.DebugName, description.Width, description.Height, description.ArrayLayers, c_CubeFaceCount, c_MaxArrayLayers);
+
+                return false;
+            }
+
             return true;
         }
 

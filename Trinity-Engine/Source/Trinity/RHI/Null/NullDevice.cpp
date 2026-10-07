@@ -33,10 +33,11 @@ namespace Trinity
             m_Recording = false;
         }
 
-        void NullCommandList::TextureBarrier([[maybe_unused]] TextureHandle texture, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
+        void NullCommandList::TextureBarrier([[maybe_unused]] TextureHandle texture, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after, [[maybe_unused]] const TextureSubresourceRange& range)
         {
             TR_CORE_ASSERT(m_Recording && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(m_Device.IsAlive(texture), "TextureBarrier on a destroyed or invalid texture.");
+            TR_CORE_ASSERT(m_Device.IsRangeValid(texture, range), "TextureBarrier on mips or layers the texture lacks.");
         }
 
         void NullCommandList::BufferBarrier([[maybe_unused]] BufferHandle buffer, [[maybe_unused]] ResourceState before, [[maybe_unused]] ResourceState after)
@@ -52,8 +53,10 @@ namespace Trinity
 
             for (const ColorAttachment& it_Attachment : description.ColorAttachments)
             {
-                TR_CORE_VERIFY(m_Device.IsAlive(it_Attachment.Texture), "BeginRendering with a destroyed or invalid color attachment.");
+                TR_CORE_VERIFY(m_Device.IsAttachmentValid(it_Attachment.Texture, TextureUsage::RenderTarget, it_Attachment.MipLevel, it_Attachment.ArrayLayer), "BeginRendering with a destroyed color attachment, one without RenderTarget usage, or a mip or layer it lacks.");
             }
+
+            TR_CORE_VERIFY(!description.Depth.Texture || m_Device.IsAttachmentValid(description.Depth.Texture, TextureUsage::DepthStencil, description.Depth.MipLevel, description.Depth.ArrayLayer), "BeginRendering with a destroyed depth attachment, one without DepthStencil usage, or a mip or layer it lacks.");
 
             m_Rendering = true;
             m_HasComputePipeline = false;
@@ -132,18 +135,18 @@ namespace Trinity
             TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyBuffer with a destroyed or invalid buffer.");
         }
 
-        void NullCommandList::CopyTextureToBuffer([[maybe_unused]] TextureHandle source, [[maybe_unused]] std::uint32_t mipLevel, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset)
+        void NullCommandList::CopyTextureToBuffer([[maybe_unused]] TextureHandle source, [[maybe_unused]] std::uint32_t mipLevel, [[maybe_unused]] std::uint32_t arrayLayer, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_Recording && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyTextureToBuffer with a destroyed or invalid resource.");
-            TR_CORE_ASSERT(m_Device.IsReadbackValid(source, mipLevel, destination, destinationOffset), "CopyTextureToBuffer with a mip the texture lacks, a misaligned offset, or a buffer too small for the mip.");
+            TR_CORE_ASSERT(m_Device.IsReadbackValid(source, mipLevel, arrayLayer, destination, destinationOffset), "CopyTextureToBuffer with a mip or layer the texture lacks, a misaligned offset, or a buffer too small for the mip.");
         }
 
-        void NullCommandList::CopyBufferToTexture([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] TextureHandle destination, [[maybe_unused]] std::uint32_t mipLevel, [[maybe_unused]] const Rect& region)
+        void NullCommandList::CopyBufferToTexture([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] TextureHandle destination, [[maybe_unused]] std::uint32_t mipLevel, [[maybe_unused]] std::uint32_t arrayLayer, [[maybe_unused]] const Rect& region)
         {
             TR_CORE_ASSERT(m_Recording && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyBufferToTexture with a destroyed or invalid resource.");
-            TR_CORE_ASSERT(m_Device.IsCopyRegionValid(source, sourceOffset, destination, mipLevel, region), "CopyBufferToTexture with a misaligned offset, a region outside the mip, or a buffer too small for it.");
+            TR_CORE_ASSERT(m_Device.IsCopyRegionValid(source, sourceOffset, destination, mipLevel, arrayLayer, region), "CopyBufferToTexture with a layer the texture lacks, a misaligned offset, a region outside the mip, or a buffer too small for it.");
         }
 
         NullSwapChain::NullSwapChain(NullDevice& device, const SwapChainSpecification& specification) : m_Device(device), m_Specification(specification)
@@ -298,7 +301,7 @@ namespace Trinity
                 return {};
             }
 
-            return m_Textures.Add({ description.Width, description.Height, description.MipLevels, description.TextureFormat, description.Usage });
+            return m_Textures.Add({ description.Width, description.Height, description.MipLevels, description.ArrayLayers, description.TextureFormat, description.Usage });
         }
 
         void NullDevice::DestroyTexture(TextureHandle texture)
@@ -353,11 +356,25 @@ namespace Trinity
         }
 
         // The same rules the GPU backends assert, so a headless run catches a bad copy too
-        bool NullDevice::IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region)
+        bool NullDevice::IsRangeValid(TextureHandle texture, const TextureSubresourceRange& range)
+        {
+            const NullTexture* l_Texture = m_Textures.Get(texture);
+
+            return l_Texture != nullptr && IsRangeInsideTexture(range, l_Texture->MipLevels, l_Texture->ArrayLayers);
+        }
+
+        bool NullDevice::IsAttachmentValid(TextureHandle texture, TextureUsage usage, std::uint32_t mipLevel, std::uint32_t arrayLayer)
+        {
+            const NullTexture* l_Texture = m_Textures.Get(texture);
+
+            return l_Texture != nullptr && HasFlag(l_Texture->Usage, usage) && mipLevel < l_Texture->MipLevels && arrayLayer < l_Texture->ArrayLayers;
+        }
+
+        bool NullDevice::IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region)
         {
             const NullBuffer* l_Buffer = m_Buffers.Get(source);
             const NullTexture* l_Texture = m_Textures.Get(destination);
-            if (l_Buffer == nullptr || l_Texture == nullptr || mipLevel >= l_Texture->MipLevels || !HasFlag(l_Texture->Usage, TextureUsage::CopyDestination))
+            if (l_Buffer == nullptr || l_Texture == nullptr || mipLevel >= l_Texture->MipLevels || arrayLayer >= l_Texture->ArrayLayers || !HasFlag(l_Texture->Usage, TextureUsage::CopyDestination))
             {
                 return false;
             }
@@ -367,11 +384,11 @@ namespace Trinity
             return IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel) && IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel) && sourceOffset % c_TextureCopyOffsetAlignment == 0 && sourceOffset + l_Size <= l_Buffer->Size;
         }
 
-        bool NullDevice::IsReadbackValid(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset)
+        bool NullDevice::IsReadbackValid(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset)
         {
             const NullTexture* l_Texture = m_Textures.Get(source);
             const NullBuffer* l_Buffer = m_Buffers.Get(destination);
-            if (l_Texture == nullptr || l_Buffer == nullptr || mipLevel >= l_Texture->MipLevels || !HasFlag(l_Texture->Usage, TextureUsage::CopySource))
+            if (l_Texture == nullptr || l_Buffer == nullptr || mipLevel >= l_Texture->MipLevels || arrayLayer >= l_Texture->ArrayLayers || !HasFlag(l_Texture->Usage, TextureUsage::CopySource))
             {
                 return false;
             }
