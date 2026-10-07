@@ -51,6 +51,7 @@ namespace Trinity
         {
             Microsoft::WRL::ComPtr<ID3D12PipelineState> State;
             D3D_PRIMITIVE_TOPOLOGY Topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+            bool Compute = false;
         };
 
         // A sampler is only its descriptor in the shader-visible sampler heap
@@ -100,6 +101,7 @@ namespace Trinity
             void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance) override;
             void SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format) override;
             void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance) override;
+            void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) override;
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset) override;
@@ -110,6 +112,7 @@ namespace Trinity
             ID3D12GraphicsCommandList7* m_CommandList = nullptr;
             bool m_Rendering = false;
             bool m_HasPipeline = false;
+            bool m_HasComputePipeline = false;
             bool m_HasIndexBuffer = false;
         };
 
@@ -142,6 +145,7 @@ namespace Trinity
             [[nodiscard]] std::uint32_t GetSamplerIndex(SamplerHandle sampler) override;
 
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
+            [[nodiscard]] PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
 
             [[nodiscard]] Scope<SwapChain> CreateSwapChain(const SwapChainSpecification& specification) override;

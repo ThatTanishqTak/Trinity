@@ -59,5 +59,12 @@ namespace Trinity
             bool AlphaBlend = false;
             std::string_view DebugName;
         };
+
+        // Shares the root signature or pipeline layout, and so the push constants and bindless heaps, with every graphics pipeline
+        struct ComputePipelineDescription
+        {
+            ShaderDescription ComputeShader;
+            std::string_view DebugName;
+        };
     }
 }

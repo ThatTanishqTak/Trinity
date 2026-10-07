@@ -22,6 +22,7 @@ namespace Trinity
             m_Recording = true;
             m_Rendering = false;
             m_HasPipeline = false;
+            m_HasComputePipeline = false;
             m_HasIndexBuffer = false;
         }
 
@@ -55,6 +56,7 @@ namespace Trinity
             }
 
             m_Rendering = true;
+            m_HasComputePipeline = false;
         }
 
         void NullCommandList::EndRendering()
@@ -66,12 +68,23 @@ namespace Trinity
             m_HasIndexBuffer = false;
         }
 
-        void NullCommandList::SetPipeline([[maybe_unused]] PipelineHandle pipeline)
+        void NullCommandList::SetPipeline(PipelineHandle pipeline)
         {
-            TR_CORE_ASSERT(m_Rendering, "SetPipeline is recorded inside rendering.");
+            TR_CORE_ASSERT(m_Recording, "SetPipeline is recorded within a frame.");
             TR_CORE_ASSERT(m_Device.IsAlive(pipeline), "SetPipeline with a destroyed or invalid pipeline.");
 
-            m_HasPipeline = true;
+            if (m_Device.IsComputePipeline(pipeline))
+            {
+                TR_CORE_ASSERT(!m_Rendering, "A compute pipeline is set outside rendering.");
+
+                m_HasComputePipeline = true;
+            }
+            else
+            {
+                TR_CORE_ASSERT(m_Rendering, "A graphics pipeline is set inside rendering.");
+
+                m_HasPipeline = true;
+            }
         }
 
         void NullCommandList::SetViewport([[maybe_unused]] const Viewport& viewport)
@@ -86,7 +99,7 @@ namespace Trinity
 
         void NullCommandList::PushConstants([[maybe_unused]] std::span<const std::byte> data)
         {
-            TR_CORE_ASSERT(m_HasPipeline, "PushConstants needs a pipeline.");
+            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a graphics pipeline inside rendering, or a compute pipeline outside it.");
             TR_CORE_ASSERT(data.size() <= c_MaxPushConstantSize && data.size() % 4 == 0, "Push constants are whole 32-bit values, at most c_MaxPushConstantSize bytes.");
         }
 
@@ -106,6 +119,11 @@ namespace Trinity
         void NullCommandList::DrawIndexed([[maybe_unused]] std::uint32_t indexCount, [[maybe_unused]] std::uint32_t instanceCount, [[maybe_unused]] std::uint32_t firstIndex, [[maybe_unused]] std::uint32_t firstInstance)
         {
             TR_CORE_ASSERT(m_HasPipeline && m_HasIndexBuffer, "DrawIndexed needs a pipeline and an index buffer.");
+        }
+
+        void NullCommandList::Dispatch([[maybe_unused]] std::uint32_t groupCountX, [[maybe_unused]] std::uint32_t groupCountY, [[maybe_unused]] std::uint32_t groupCountZ)
+        {
+            TR_CORE_ASSERT(m_Recording && !m_Rendering && m_HasComputePipeline, "Dispatch is recorded outside rendering, with a compute pipeline set.");
         }
 
         void NullCommandList::CopyBuffer([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset, [[maybe_unused]] std::uint64_t size)
@@ -393,6 +411,20 @@ namespace Trinity
             TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
 
             return m_Pipelines.Add({});
+        }
+
+        PipelineHandle NullDevice::CreateComputePipeline([[maybe_unused]] const ComputePipelineDescription& description)
+        {
+            TR_CORE_ASSERT(!description.ComputeShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
+
+            return m_Pipelines.Add({ true });
+        }
+
+        bool NullDevice::IsComputePipeline(PipelineHandle pipeline)
+        {
+            const NullPipeline* l_Pipeline = m_Pipelines.Get(pipeline);
+
+            return l_Pipeline != nullptr && l_Pipeline->Compute;
         }
 
         void NullDevice::DestroyPipeline(PipelineHandle pipeline)

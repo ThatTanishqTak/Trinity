@@ -36,6 +36,7 @@ namespace Trinity
             void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance) override;
             void SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format) override;
             void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance) override;
+            void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) override;
 
             void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, BufferHandle destination, std::uint64_t destinationOffset) override;
@@ -46,6 +47,7 @@ namespace Trinity
             bool m_Recording = false;
             bool m_Rendering = false;
             bool m_HasPipeline = false;
+            bool m_HasComputePipeline = false;
             bool m_HasIndexBuffer = false;
         };
 
@@ -100,6 +102,7 @@ namespace Trinity
             [[nodiscard]] std::uint32_t GetSamplerIndex(SamplerHandle sampler) override;
 
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
+            [[nodiscard]] PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) override;
             void DestroyPipeline(PipelineHandle pipeline) override;
 
             [[nodiscard]] Scope<SwapChain> CreateSwapChain(const SwapChainSpecification& specification) override;
@@ -111,6 +114,7 @@ namespace Trinity
             [[nodiscard]] bool IsAlive(BufferHandle buffer) { return m_Buffers.Get(buffer) != nullptr; }
             [[nodiscard]] bool IsAlive(TextureHandle texture) { return m_Textures.Get(texture) != nullptr; }
             [[nodiscard]] bool IsAlive(PipelineHandle pipeline) { return m_Pipelines.Get(pipeline) != nullptr; }
+            [[nodiscard]] bool IsComputePipeline(PipelineHandle pipeline);
             [[nodiscard]] bool IsAlive(SamplerHandle sampler) { return m_Samplers.Get(sampler) != nullptr; }
             [[nodiscard]] bool IsIndexRangeValid(BufferHandle buffer, std::uint64_t offset, IndexFormat format);
             [[nodiscard]] bool IsCopyRegionValid(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, const Rect& region);
@@ -135,7 +139,7 @@ namespace Trinity
 
             struct NullPipeline
             {
-
+                bool Compute = false;
             };
 
             struct NullSampler

@@ -6,6 +6,7 @@
 #include <cstring>
 #include <format>
 #include <numbers>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -26,6 +27,84 @@ namespace
     constexpr std::uint64_t c_SpriteLoadTimeoutFrames = 600;
     constexpr std::uint32_t c_SpriteReadbackSize = 128;
     constexpr float c_ClearCycleSeconds = 10.0f;
+
+    // The storage buffer holds c_ComputeWordCount words from one dispatch and as many again from the next, and the storage texture is c_ComputeTextureSize texels square
+    constexpr std::uint32_t c_ComputeWordCount = 4096;
+    constexpr std::uint32_t c_ComputeBufferGroupSize = 64;
+    constexpr std::uint32_t c_ComputeTextureSize = 64;
+    constexpr std::uint32_t c_ComputeTextureGroupSize = 8;
+
+    // ComputeTest.slang's push constants: two descriptor handles, then the word count and texture size
+    struct ComputePushData
+    {
+        std::array<std::uint32_t, 2> Buffer{};
+        std::array<std::uint32_t, 2> Texture{};
+        std::uint32_t Count = 0;
+        std::uint32_t Size = 0;
+    };
+
+    static_assert(sizeof(ComputePushData) == 24);
+
+    // The words FillBuffer and then ReverseBuffer write, as ComputeTest.slang computes them
+    std::vector<std::uint32_t> MakeComputeWords()
+    {
+        std::vector<std::uint32_t> l_Words(std::size_t{ c_ComputeWordCount } * 2);
+        for (std::uint32_t it_Index = 0; it_Index < c_ComputeWordCount; ++it_Index)
+        {
+            l_Words[it_Index] = it_Index * 2654435761u + 0x9E3779B9u;
+        }
+
+        for (std::uint32_t it_Index = 0; it_Index < c_ComputeWordCount; ++it_Index)
+        {
+            const std::uint32_t l_Word = l_Words[c_ComputeWordCount - 1 - it_Index];
+            l_Words[c_ComputeWordCount + it_Index] = ((l_Word << 7) | (l_Word >> 25)) ^ it_Index;
+        }
+
+        return l_Words;
+    }
+
+    // The RGBA8 texel FillTexture writes at a column and row
+    std::array<std::uint8_t, 4> MakeComputeTexel(std::uint32_t x, std::uint32_t y)
+    {
+        return { static_cast<std::uint8_t>(x), static_cast<std::uint8_t>(y), static_cast<std::uint8_t>((x * 3 + y * 5) & 0xFF), 255 };
+    }
+
+    // The first word of a readback that differs from the expected words, or nothing when all match
+    std::optional<std::size_t> FindWrongWord(std::span<const std::byte> data, std::span<const std::uint32_t> expected)
+    {
+        for (std::size_t it_Word = 0; it_Word < expected.size(); ++it_Word)
+        {
+            if ((it_Word + 1) * 4 > data.size() || std::memcmp(data.data() + it_Word * 4, &expected[it_Word], 4) != 0)
+            {
+                return it_Word;
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    // The first texel of a readback, at a row pitch, that differs from the texture FillTexture writes, or nothing when all match
+    std::optional<std::array<std::uint32_t, 2>> FindWrongTexel(std::span<const std::byte> data, std::uint64_t rowPitch)
+    {
+        if (data.size() < rowPitch * c_ComputeTextureSize)
+        {
+            return std::array<std::uint32_t, 2>{ 0, 0 };
+        }
+
+        for (std::uint32_t it_Y = 0; it_Y < c_ComputeTextureSize; ++it_Y)
+        {
+            for (std::uint32_t it_X = 0; it_X < c_ComputeTextureSize; ++it_X)
+            {
+                const std::array<std::uint8_t, 4> l_Expected = MakeComputeTexel(it_X, it_Y);
+                if (std::memcmp(data.data() + static_cast<std::size_t>(it_Y * rowPitch + it_X * 4), l_Expected.data(), l_Expected.size()) != 0)
+                {
+                    return std::array<std::uint32_t, 2>{ it_X, it_Y };
+                }
+            }
+        }
+
+        return std::nullopt;
+    }
 
     // A hue in [0, 1) at saturation 0.6 and value 0.5, so the window never gets too bright to look at
     std::array<float, 4> HueToColor(float hue)
@@ -208,8 +287,6 @@ void SandboxLayer::OnAttach()
         Trinity::ConsoleVariables::LogAll();
     }
 
-    CreateSprites();
-
     Trinity::Memory::LogUsage();
 }
 
@@ -222,7 +299,11 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
 {
     TR_PROFILE_FUNCTION();
 
-    UpdateSprites();
+    if (!m_ComputeTested)
+    {
+        m_ComputeTested = true;
+        TestCompute();
+    }
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
     Trinity::Application::Get().GetRenderer().SetClearColor(HueToColor(m_ClearHue));
@@ -311,6 +392,202 @@ bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
     }
 
     return false;
+}
+
+// Three dispatches and a draw in one frame, outside the renderer's: FillBuffer, then ReverseBuffer behind an UnorderedAccess to UnorderedAccess barrier, then FillTexture, whose texture the scene copy pipeline draws into a render target. The buffer, the texture and the target are read back and compared byte for byte
+void SandboxLayer::TestCompute()
+{
+    TR_PROFILE_FUNCTION();
+
+    constexpr Trinity::RHI::Format c_Format = Trinity::RHI::Format::RGBA8Unorm;
+    constexpr std::uint64_t c_BufferSize = std::uint64_t{ c_ComputeWordCount } * 2 * 4;
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+
+    const std::string_view l_Extension = l_Info.API == Trinity::GraphicsAPI::D3D12 ? "dxil" : "spv";
+    const auto a_ReadShader = [l_Extension](std::string_view name) { return Trinity::FileSystem::ReadFile(std::format("/engine/shaders/{}.{}", name, l_Extension)); };
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_FillBufferShader = a_ReadShader("ComputeTest.FillBuffer");
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_ReverseBufferShader = a_ReadShader("ComputeTest.ReverseBuffer");
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_FillTextureShader = a_ReadShader("ComputeTest.FillTexture");
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_CopyVertexShader = a_ReadShader("SceneCopy.VertexMain");
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_CopyPixelShader = a_ReadShader("SceneCopy.PixelMain");
+    if (!l_FillBufferShader || !l_ReverseBufferShader || !l_FillTextureShader || !l_CopyVertexShader || !l_CopyPixelShader)
+    {
+        TR_ERROR("Compute: the ComputeTest and SceneCopy {} shaders could not be read from /engine/shaders", l_Extension);
+
+        return;
+    }
+
+    Trinity::RHI::ComputePipelineDescription l_ComputeDescription;
+    l_ComputeDescription.ComputeShader = { *l_FillBufferShader, "FillBuffer" };
+    l_ComputeDescription.DebugName = "Sandbox fill buffer";
+    const Trinity::RHI::PipelineHandle l_FillBuffer = l_Device.CreateComputePipeline(l_ComputeDescription);
+
+    l_ComputeDescription.ComputeShader = { *l_ReverseBufferShader, "ReverseBuffer" };
+    l_ComputeDescription.DebugName = "Sandbox reverse buffer";
+    const Trinity::RHI::PipelineHandle l_ReverseBuffer = l_Device.CreateComputePipeline(l_ComputeDescription);
+
+    l_ComputeDescription.ComputeShader = { *l_FillTextureShader, "FillTexture" };
+    l_ComputeDescription.DebugName = "Sandbox fill texture";
+    const Trinity::RHI::PipelineHandle l_FillTexture = l_Device.CreateComputePipeline(l_ComputeDescription);
+
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ c_Format };
+    Trinity::RHI::GraphicsPipelineDescription l_CopyDescription;
+    l_CopyDescription.VertexShader = { *l_CopyVertexShader, "VertexMain" };
+    l_CopyDescription.PixelShader = { *l_CopyPixelShader, "PixelMain" };
+    l_CopyDescription.ColorFormats = l_ColorFormats;
+    l_CopyDescription.Cull = Trinity::RHI::CullMode::None;
+    l_CopyDescription.DebugName = "Sandbox compute copy";
+    const Trinity::RHI::PipelineHandle l_Copy = l_Device.CreateGraphicsPipeline(l_CopyDescription);
+
+    Trinity::RHI::BufferDescription l_BufferDescription;
+    l_BufferDescription.Size = c_BufferSize;
+    l_BufferDescription.Usage = Trinity::RHI::BufferUsage::UnorderedAccess | Trinity::RHI::BufferUsage::CopySource;
+    l_BufferDescription.DebugName = "Sandbox storage buffer";
+    const Trinity::RHI::BufferHandle l_Buffer = l_Device.CreateBuffer(l_BufferDescription);
+
+    Trinity::RHI::TextureDescription l_TextureDescription;
+    l_TextureDescription.Width = c_ComputeTextureSize;
+    l_TextureDescription.Height = c_ComputeTextureSize;
+    l_TextureDescription.TextureFormat = c_Format;
+    l_TextureDescription.Usage = Trinity::RHI::TextureUsage::UnorderedAccess | Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopySource;
+    l_TextureDescription.DebugName = "Sandbox storage texture";
+    const Trinity::RHI::TextureHandle l_Texture = l_Device.CreateTexture(l_TextureDescription);
+
+    Trinity::RHI::TextureDescription l_TargetDescription = l_TextureDescription;
+    l_TargetDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::CopySource;
+    l_TargetDescription.DebugName = "Sandbox compute copy target";
+    const Trinity::RHI::TextureHandle l_Target = l_Device.CreateTexture(l_TargetDescription);
+
+    const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(c_Format, c_ComputeTextureSize);
+
+    Trinity::RHI::BufferDescription l_ReadbackDescription;
+    l_ReadbackDescription.Size = c_BufferSize;
+    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_ReadbackDescription.DebugName = "Sandbox storage buffer readback";
+    const Trinity::RHI::BufferHandle l_BufferReadback = l_Device.CreateBuffer(l_ReadbackDescription);
+
+    l_ReadbackDescription.Size = l_RowPitch * c_ComputeTextureSize;
+    l_ReadbackDescription.DebugName = "Sandbox storage texture readback";
+    const Trinity::RHI::BufferHandle l_TextureReadback = l_Device.CreateBuffer(l_ReadbackDescription);
+
+    l_ReadbackDescription.DebugName = "Sandbox compute copy readback";
+    const Trinity::RHI::BufferHandle l_TargetReadback = l_Device.CreateBuffer(l_ReadbackDescription);
+
+    const auto a_Destroy = [&]()
+    {
+        l_Device.DestroyBuffer(l_TargetReadback);
+        l_Device.DestroyBuffer(l_TextureReadback);
+        l_Device.DestroyBuffer(l_BufferReadback);
+        l_Device.DestroyTexture(l_Target);
+        l_Device.DestroyTexture(l_Texture);
+        l_Device.DestroyBuffer(l_Buffer);
+        l_Device.DestroyPipeline(l_Copy);
+        l_Device.DestroyPipeline(l_FillTexture);
+        l_Device.DestroyPipeline(l_ReverseBuffer);
+        l_Device.DestroyPipeline(l_FillBuffer);
+    };
+
+    if (!l_FillBuffer || !l_ReverseBuffer || !l_FillTexture || !l_Copy || !l_Buffer || !l_Texture || !l_Target || !l_BufferReadback || !l_TextureReadback || !l_TargetReadback)
+    {
+        TR_ERROR("Compute: could not create the pipelines, the storage buffer and texture, or their readbacks");
+        a_Destroy();
+
+        return;
+    }
+
+    ComputePushData l_Push;
+    l_Push.Buffer = { l_Device.GetUnorderedAccessIndex(l_Buffer), 0 };
+    l_Push.Texture = { l_Device.GetUnorderedAccessIndex(l_Texture), 0 };
+    l_Push.Count = c_ComputeWordCount;
+    l_Push.Size = c_ComputeTextureSize;
+
+    Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+    l_Commands.BufferBarrier(l_Buffer, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::UnorderedAccess);
+    l_Commands.TextureBarrier(l_Texture, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::UnorderedAccess);
+
+    l_Commands.SetPipeline(l_FillBuffer);
+    l_Commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+    l_Commands.Dispatch(c_ComputeWordCount / c_ComputeBufferGroupSize, 1, 1);
+
+    l_Commands.BufferBarrier(l_Buffer, Trinity::RHI::ResourceState::UnorderedAccess, Trinity::RHI::ResourceState::UnorderedAccess);
+    l_Commands.SetPipeline(l_ReverseBuffer);
+    l_Commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+    l_Commands.Dispatch(c_ComputeWordCount / c_ComputeBufferGroupSize, 1, 1);
+
+    l_Commands.SetPipeline(l_FillTexture);
+    l_Commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+    l_Commands.Dispatch(c_ComputeTextureSize / c_ComputeTextureGroupSize, c_ComputeTextureSize / c_ComputeTextureGroupSize, 1);
+
+    l_Commands.BufferBarrier(l_Buffer, Trinity::RHI::ResourceState::UnorderedAccess, Trinity::RHI::ResourceState::CopySource);
+    l_Commands.CopyBuffer(l_Buffer, 0, l_BufferReadback, 0, c_BufferSize);
+
+    l_Commands.TextureBarrier(l_Texture, Trinity::RHI::ResourceState::UnorderedAccess, Trinity::RHI::ResourceState::ShaderResource);
+    l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::RenderTarget);
+
+    const std::array<Trinity::RHI::ColorAttachment, 1> l_Attachments{ Trinity::RHI::ColorAttachment{ l_Target, Trinity::RHI::LoadOp::DontCare, Trinity::RHI::StoreOp::Store } };
+    Trinity::RHI::RenderingDescription l_Rendering;
+    l_Rendering.ColorAttachments = l_Attachments;
+    l_Rendering.RenderArea = { 0, 0, c_ComputeTextureSize, c_ComputeTextureSize };
+    l_Commands.BeginRendering(l_Rendering);
+    l_Commands.SetPipeline(l_Copy);
+    l_Commands.SetViewport({ 0.0f, 0.0f, static_cast<float>(c_ComputeTextureSize), static_cast<float>(c_ComputeTextureSize), 0.0f, 1.0f });
+    l_Commands.SetScissor({ 0, 0, c_ComputeTextureSize, c_ComputeTextureSize });
+    const std::array<std::uint32_t, 2> l_CopyPush{ l_Device.GetShaderResourceIndex(l_Texture), 0 };
+    l_Commands.PushConstants(std::as_bytes(std::span(l_CopyPush)));
+    l_Commands.Draw(3, 1, 0, 0);
+    l_Commands.EndRendering();
+
+    l_Commands.TextureBarrier(l_Texture, Trinity::RHI::ResourceState::ShaderResource, Trinity::RHI::ResourceState::CopySource);
+    l_Commands.CopyTextureToBuffer(l_Texture, 0, l_TextureReadback, 0);
+    l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::CopySource);
+    l_Commands.CopyTextureToBuffer(l_Target, 0, l_TargetReadback, 0);
+    l_Device.EndFrame();
+    l_Device.WaitIdle();
+
+    // The null device runs nothing, so only a GPU's readbacks have contents to check
+    if (l_Info.API == Trinity::GraphicsAPI::None)
+    {
+        TR_INFO("Compute: None recorded 3 dispatches and a draw reading the storage texture");
+        a_Destroy();
+
+        return;
+    }
+
+    const std::vector<std::uint32_t> l_Words = MakeComputeWords();
+    const std::span<const std::byte> l_BufferData = l_Device.GetMappedData(l_BufferReadback);
+    const std::span<const std::byte> l_TextureData = l_Device.GetMappedData(l_TextureReadback);
+    const std::span<const std::byte> l_TargetData = l_Device.GetMappedData(l_TargetReadback);
+
+    std::string l_Wrong;
+    const auto a_Mismatch = [&l_Wrong](std::string message) { l_Wrong += std::format("{}{}", l_Wrong.empty() ? "" : "; ", message); };
+    if (const std::optional<std::size_t> l_Word = FindWrongWord(l_BufferData, l_Words))
+    {
+        a_Mismatch(std::format("the storage buffer differs at word {}, which {} wrote", *l_Word, *l_Word < c_ComputeWordCount ? "FillBuffer" : "ReverseBuffer"));
+    }
+
+    if (const std::optional<std::array<std::uint32_t, 2>> l_Texel = FindWrongTexel(l_TextureData, l_RowPitch))
+    {
+        a_Mismatch(std::format("the storage texture differs at ({}, {})", (*l_Texel)[0], (*l_Texel)[1]));
+    }
+
+    if (const std::optional<std::array<std::uint32_t, 2>> l_Texel = FindWrongTexel(l_TargetData, l_RowPitch))
+    {
+        a_Mismatch(std::format("the draw reading the storage texture differs at ({}, {})", (*l_Texel)[0], (*l_Texel)[1]));
+    }
+
+    a_Destroy();
+
+    if (!l_Wrong.empty())
+    {
+        TR_ERROR("Compute: the readback differs: {}", l_Wrong);
+
+        return;
+    }
+
+    TR_INFO("Compute: {} filled a storage buffer of {} and a {}x{} storage texture, and all {} bytes of the buffer, the texture and a draw reading the texture read back as expected", Trinity::ToString(l_Info.API), Trinity::Memory::FormatBytes(c_BufferSize), c_ComputeTextureSize, c_ComputeTextureSize, c_BufferSize + 2 * std::uint64_t{ c_ComputeTextureSize } * c_ComputeTextureSize * 4);
 }
 
 // 64 placeholder source files give the registry 64 texture assets, whose cooked KTX2 a memory source serves at /cache

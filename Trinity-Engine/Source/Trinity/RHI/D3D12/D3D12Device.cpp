@@ -603,11 +603,13 @@ namespace Trinity
             m_CommandList = commandList;
             m_Rendering = false;
             m_HasPipeline = false;
+            m_HasComputePipeline = false;
             m_HasIndexBuffer = false;
 
             const std::array<ID3D12DescriptorHeap*, 2> l_Heaps{ m_Device.GetResourceHeap(), m_Device.GetSamplerHeap() };
             m_CommandList->SetDescriptorHeaps(static_cast<UINT>(l_Heaps.size()), l_Heaps.data());
             m_CommandList->SetGraphicsRootSignature(m_Device.GetRootSignature());
+            m_CommandList->SetComputeRootSignature(m_Device.GetRootSignature());
         }
 
         void D3D12CommandList::End()
@@ -728,6 +730,7 @@ namespace Trinity
 
             m_CommandList->BeginRenderPass(l_TargetCount, l_Targets.data(), l_HasDepth ? &l_Depth : nullptr, D3D12_RENDER_PASS_FLAG_NONE);
             m_Rendering = true;
+            m_HasComputePipeline = false;
         }
 
         void D3D12CommandList::EndRendering()
@@ -740,9 +743,10 @@ namespace Trinity
             m_HasIndexBuffer = false;
         }
 
+        // Graphics and compute share one pipeline state slot, so setting either replaces the other
         void D3D12CommandList::SetPipeline(PipelineHandle pipeline)
         {
-            TR_CORE_ASSERT(m_Rendering, "SetPipeline is recorded inside rendering.");
+            TR_CORE_ASSERT(m_CommandList != nullptr, "SetPipeline is recorded within a frame.");
 
             const D3D12Pipeline* l_Pipeline = m_Device.GetPipeline(pipeline);
             TR_CORE_ASSERT(l_Pipeline != nullptr, "SetPipeline with a destroyed or invalid pipeline.");
@@ -751,9 +755,18 @@ namespace Trinity
                 return;
             }
 
+            TR_CORE_ASSERT(l_Pipeline->Compute != m_Rendering, "A graphics pipeline is set inside rendering, and a compute pipeline outside it.");
+
             m_CommandList->SetPipelineState(l_Pipeline->State.Get());
-            m_CommandList->IASetPrimitiveTopology(l_Pipeline->Topology);
-            m_HasPipeline = true;
+            if (l_Pipeline->Compute)
+            {
+                m_HasComputePipeline = true;
+            }
+            else
+            {
+                m_CommandList->IASetPrimitiveTopology(l_Pipeline->Topology);
+                m_HasPipeline = true;
+            }
         }
 
         void D3D12CommandList::SetViewport(const Viewport& viewport)
@@ -772,13 +785,20 @@ namespace Trinity
             m_CommandList->RSSetScissorRects(1, &l_Scissor);
         }
 
-        // The push constants are root constants at b0, the first parameter of the shared root signature
+        // The push constants are root constants at b0, the first parameter of the shared root signature. Graphics and compute keep their own, so they go to whichever pipeline the commands are recorded for
         void D3D12CommandList::PushConstants(std::span<const std::byte> data)
         {
-            TR_CORE_ASSERT(m_HasPipeline, "PushConstants needs a pipeline.");
+            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a graphics pipeline inside rendering, or a compute pipeline outside it.");
             TR_CORE_ASSERT(data.size() <= c_MaxPushConstantSize && data.size() % 4 == 0, "Push constants are whole 32-bit values, at most c_MaxPushConstantSize bytes.");
 
-            m_CommandList->SetGraphicsRoot32BitConstants(0, static_cast<UINT>(data.size() / 4), data.data(), 0);
+            if (m_Rendering)
+            {
+                m_CommandList->SetGraphicsRoot32BitConstants(0, static_cast<UINT>(data.size() / 4), data.data(), 0);
+            }
+            else
+            {
+                m_CommandList->SetComputeRoot32BitConstants(0, static_cast<UINT>(data.size() / 4), data.data(), 0);
+            }
         }
 
         void D3D12CommandList::Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance)
@@ -813,6 +833,13 @@ namespace Trinity
             TR_CORE_ASSERT(m_HasPipeline && m_HasIndexBuffer, "DrawIndexed needs a pipeline and an index buffer.");
 
             m_CommandList->DrawIndexedInstanced(indexCount, instanceCount, firstIndex, 0, firstInstance);
+        }
+
+        void D3D12CommandList::Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ)
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering && m_HasComputePipeline, "Dispatch is recorded outside rendering, with a compute pipeline set.");
+
+            m_CommandList->Dispatch(groupCountX, groupCountY, groupCountZ);
         }
 
         void D3D12CommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
@@ -1801,6 +1828,32 @@ namespace Trinity
             D3D12Pipeline l_Pipeline;
             l_Pipeline.Topology = ToD3DTopology(description.Topology);
             const HRESULT l_Result = m_Device->CreateGraphicsPipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
+            if (FAILED(l_Result))
+            {
+                TR_CORE_ERROR("D3D12: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
+
+                return {};
+            }
+
+            if (!description.DebugName.empty())
+            {
+                l_Pipeline.State->SetName(ToWide(description.DebugName).c_str());
+            }
+
+            return m_Pipelines.Add(std::move(l_Pipeline));
+        }
+
+        PipelineHandle D3D12Device::CreateComputePipeline(const ComputePipelineDescription& description)
+        {
+            TR_CORE_ASSERT(!description.ComputeShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
+
+            D3D12_COMPUTE_PIPELINE_STATE_DESC l_Description{};
+            l_Description.pRootSignature = m_RootSignature.Get();
+            l_Description.CS = { description.ComputeShader.Code.data(), description.ComputeShader.Code.size() };
+
+            D3D12Pipeline l_Pipeline;
+            l_Pipeline.Compute = true;
+            const HRESULT l_Result = m_Device->CreateComputePipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
             if (FAILED(l_Result))
             {
                 TR_CORE_ERROR("D3D12: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));

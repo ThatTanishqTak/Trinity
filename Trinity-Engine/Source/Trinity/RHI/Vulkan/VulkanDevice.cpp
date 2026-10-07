@@ -659,10 +659,12 @@ namespace Trinity
             m_CommandBuffer = commandBuffer;
             m_Rendering = false;
             m_HasPipeline = false;
+            m_HasComputePipeline = false;
             m_HasIndexBuffer = false;
 
             const VkDescriptorSet l_Set = m_Device.GetBindlessSet();
             vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
+            vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
         }
 
         void VulkanCommandList::End()
@@ -797,6 +799,7 @@ namespace Trinity
             vkCmdBeginRendering(m_CommandBuffer, &l_Rendering);
 
             m_Rendering = true;
+            m_HasComputePipeline = false;
         }
 
         void VulkanCommandList::EndRendering()
@@ -809,9 +812,10 @@ namespace Trinity
             m_HasIndexBuffer = false;
         }
 
+        // Vulkan keeps a compute pipeline bound through rendering, but D3D12 does not, so both backends ask for it to be set again after rendering
         void VulkanCommandList::SetPipeline(PipelineHandle pipeline)
         {
-            TR_CORE_ASSERT(m_Rendering, "SetPipeline is recorded inside rendering.");
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE, "SetPipeline is recorded within a frame.");
 
             const VulkanPipeline* l_Pipeline = m_Device.GetPipeline(pipeline);
             TR_CORE_ASSERT(l_Pipeline != nullptr, "SetPipeline with a destroyed or invalid pipeline.");
@@ -820,8 +824,18 @@ namespace Trinity
                 return;
             }
 
-            vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, l_Pipeline->Pipeline);
-            m_HasPipeline = true;
+            const bool l_Compute = l_Pipeline->BindPoint == VK_PIPELINE_BIND_POINT_COMPUTE;
+            TR_CORE_ASSERT(l_Compute != m_Rendering, "A graphics pipeline is set inside rendering, and a compute pipeline outside it.");
+
+            vkCmdBindPipeline(m_CommandBuffer, l_Pipeline->BindPoint, l_Pipeline->Pipeline);
+            if (l_Compute)
+            {
+                m_HasComputePipeline = true;
+            }
+            else
+            {
+                m_HasPipeline = true;
+            }
         }
 
         // A negative height turns Vulkan's downward Y around, so clip space has Y up and the same winding as on D3D12
@@ -841,9 +855,10 @@ namespace Trinity
             vkCmdSetScissor(m_CommandBuffer, 0, 1, &l_Scissor);
         }
 
+        // Push constants belong to the shared pipeline layout rather than a bind point, so graphics and compute set them the same way
         void VulkanCommandList::PushConstants(std::span<const std::byte> data)
         {
-            TR_CORE_ASSERT(m_HasPipeline, "PushConstants needs a pipeline.");
+            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a graphics pipeline inside rendering, or a compute pipeline outside it.");
             TR_CORE_ASSERT(data.size() <= c_MaxPushConstantSize && data.size() % 4 == 0, "Push constants are whole 32-bit values, at most c_MaxPushConstantSize bytes.");
 
             vkCmdPushConstants(m_CommandBuffer, m_Device.GetPipelineLayout(), VK_SHADER_STAGE_ALL, 0, static_cast<std::uint32_t>(data.size()), data.data());
@@ -877,6 +892,13 @@ namespace Trinity
             TR_CORE_ASSERT(m_HasPipeline && m_HasIndexBuffer, "DrawIndexed needs a pipeline and an index buffer.");
 
             vkCmdDrawIndexed(m_CommandBuffer, indexCount, instanceCount, firstIndex, 0, firstInstance);
+        }
+
+        void VulkanCommandList::Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering && m_HasComputePipeline, "Dispatch is recorded outside rendering, with a compute pipeline set.");
+
+            vkCmdDispatch(m_CommandBuffer, groupCountX, groupCountY, groupCountZ);
         }
 
         void VulkanCommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
@@ -2084,6 +2106,49 @@ namespace Trinity
             {
                 vkDestroyShaderModule(m_Device, it_Module, nullptr);
             }
+
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
+
+                return {};
+            }
+
+            SetDebugName(VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<std::uint64_t>(l_Pipeline.Pipeline), description.DebugName);
+
+            return m_Pipelines.Add(l_Pipeline);
+        }
+
+        PipelineHandle VulkanDevice::CreateComputePipeline(const ComputePipelineDescription& description)
+        {
+            const std::span<const std::byte> l_Code = description.ComputeShader.Code;
+            TR_CORE_ASSERT(!l_Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
+            TR_CORE_ASSERT(l_Code.size() % 4 == 0 && reinterpret_cast<std::uintptr_t>(l_Code.data()) % 4 == 0, "Pipeline '{}' has SPIR-V that is not whole, aligned 32-bit words.", description.DebugName);
+
+            VkShaderModuleCreateInfo l_Module = MakeInfo<VkShaderModuleCreateInfo>(VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO);
+            l_Module.codeSize = l_Code.size();
+            l_Module.pCode = reinterpret_cast<const std::uint32_t*>(l_Code.data());
+
+            VkShaderModule l_ShaderModule = VK_NULL_HANDLE;
+            VkResult l_Result = vkCreateShaderModule(m_Device, &l_Module, nullptr, &l_ShaderModule);
+
+            const std::string l_EntryPoint(description.ComputeShader.EntryPoint);
+
+            VkComputePipelineCreateInfo l_Create = MakeInfo<VkComputePipelineCreateInfo>(VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO);
+            l_Create.stage = MakeInfo<VkPipelineShaderStageCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO);
+            l_Create.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+            l_Create.stage.module = l_ShaderModule;
+            l_Create.stage.pName = l_EntryPoint.c_str();
+            l_Create.layout = m_PipelineLayout;
+
+            VulkanPipeline l_Pipeline;
+            l_Pipeline.BindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
+            if (l_Result == VK_SUCCESS)
+            {
+                l_Result = vkCreateComputePipelines(m_Device, VK_NULL_HANDLE, 1, &l_Create, nullptr, &l_Pipeline.Pipeline);
+            }
+
+            vkDestroyShaderModule(m_Device, l_ShaderModule, nullptr);
 
             if (l_Result != VK_SUCCESS)
             {

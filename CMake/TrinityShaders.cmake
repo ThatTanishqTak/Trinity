@@ -66,9 +66,10 @@ function(trinity_add_shaders target)
                     set(validate COMMAND "${TRINITY_SPIRV_VAL}" --target-env vulkan1.3 "${output}")
                 endif()
 
+                # Storage images are declared with an unknown format, which Vulkan 1.3 allows, so one shader writes any format the view has. Otherwise Slang guesses rgba32f from a float4 and the view's format must match it
                 add_custom_command(OUTPUT "${output}"
                     COMMAND "${CMAKE_COMMAND}" -E make_directory "${directory}" "${depfile_directory}"
-                    COMMAND "${TRINITY_SLANGC}" "${source}" -target spirv -profile spirv_1_6 -stage ${stage} -entry ${entry} -fvk-use-entrypoint-name -o "${output}" -depfile "${depfile_directory}/${name}.${entry}.spv.d"
+                    COMMAND "${TRINITY_SLANGC}" "${source}" -target spirv -profile spirv_1_6 -stage ${stage} -entry ${entry} -fvk-use-entrypoint-name -default-image-format-unknown -o "${output}" -depfile "${depfile_directory}/${name}.${entry}.spv.d"
                     ${validate}
                     DEPENDS "${source}" "${TRINITY_SLANGC}"
                     DEPFILE "${depfile_directory}/${name}.${entry}.spv.d"

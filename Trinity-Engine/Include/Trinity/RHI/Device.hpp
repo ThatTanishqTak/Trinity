@@ -66,6 +66,7 @@ namespace Trinity
             [[nodiscard]] virtual std::uint32_t GetSamplerIndex(SamplerHandle sampler) = 0;
 
             [[nodiscard]] virtual PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) = 0;
+            [[nodiscard]] virtual PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) = 0;
             virtual void DestroyPipeline(PipelineHandle pipeline) = 0;
 
             [[nodiscard]] virtual Scope<SwapChain> CreateSwapChain(const SwapChainSpecification& specification) = 0;
