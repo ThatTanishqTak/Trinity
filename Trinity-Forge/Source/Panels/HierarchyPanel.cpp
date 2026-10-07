@@ -25,12 +25,20 @@ namespace
         return entity ? entity.GetUUID() : Trinity::UUID();
     }
 
-    Trinity::UUID ReadEntityPayload(const ImGuiPayload& payload)
+    // An entity's or an asset's, which both payloads carry
+    Trinity::UUID ReadPayloadUUID(const ImGuiPayload& payload)
     {
         std::uint64_t l_Value = 0;
         std::memcpy(&l_Value, payload.Data, sizeof(l_Value));
 
         return Trinity::UUID(l_Value);
+    }
+
+    bool IsModelPayload(const ImGuiPayload* payload, const Trinity::AssetRegistry* registry)
+    {
+        const Trinity::AssetRecord* l_Record = payload != nullptr && payload->IsDataType(c_AssetPayload) && registry != nullptr ? registry->Find(ReadPayloadUUID(*payload)) : nullptr;
+
+        return l_Record != nullptr && l_Record->Importer == ModelImporter::c_Importer;
     }
 
     const void* ToImGuiID(Trinity::UUID uuid)
@@ -243,15 +251,20 @@ void HierarchyPanel::DrawBackground()
     {
         if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload))
         {
-            const Trinity::UUID l_Dragged = ReadEntityPayload(*l_Payload);
+            const Trinity::UUID l_Dragged = ReadPayloadUUID(*l_Payload);
             m_Deferred.push_back([this, l_Dragged] { Move(l_Dragged, {}, {}); });
+        }
+        else if (const ImGuiPayload* l_Model = IsModelPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry()) ? ImGui::AcceptDragDropPayload(c_AssetPayload) : nullptr)
+        {
+            const Trinity::UUID l_Dropped = ReadPayloadUUID(*l_Model);
+            m_Deferred.push_back([this, l_Dropped] { static_cast<void>(m_Session.CreateModel(l_Dropped, {}, {}, glm::vec3(0.0f))); });
         }
 
         ImGui::EndDragDropTarget();
     }
 }
 
-// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which
+// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, and a model is created there
 void HierarchyPanel::AcceptDrop(Trinity::Entity target)
 {
     if (!ImGui::BeginDragDropTarget())
@@ -266,7 +279,9 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
     const bool l_Before = l_MouseY < l_Min.y + l_Edge;
     const bool l_After = !l_Before && l_MouseY > l_Max.y - l_Edge;
 
-    if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
+    const ImGuiDragDropFlags l_Flags = ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect;
+    const bool l_Model = IsModelPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry());
+    if (const ImGuiPayload* l_Payload = l_Model ? ImGui::AcceptDragDropPayload(c_AssetPayload, l_Flags) : ImGui::AcceptDragDropPayload(c_EntityPayload, l_Flags))
     {
         const ImU32 l_Color = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
         ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
@@ -280,23 +295,19 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
             l_DrawList.AddRect(l_Min, l_Max, l_Color, 0.0f, c_DropLineThickness);
         }
 
-        const Trinity::UUID l_Dragged = ReadEntityPayload(*l_Payload);
+        const Trinity::UUID l_Dragged = ReadPayloadUUID(*l_Payload);
         if (l_Payload->IsDelivery() && l_Dragged != target.GetUUID())
         {
             const Trinity::UUID l_Target = target.GetUUID();
-            const Trinity::UUID l_Parent = GetID(target.GetParent());
-            if (l_Before)
+            const Trinity::UUID l_Parent = l_Before || l_After ? GetID(target.GetParent()) : l_Target;
+            const Trinity::UUID l_Next = l_Before ? l_Target : (l_After ? GetID(target.GetNextSibling()) : Trinity::UUID());
+            if (l_Model)
             {
-                m_Deferred.push_back([this, l_Dragged, l_Parent, l_Target] { Move(l_Dragged, l_Parent, l_Target); });
-            }
-            else if (l_After)
-            {
-                const Trinity::UUID l_Next = GetID(target.GetNextSibling());
-                m_Deferred.push_back([this, l_Dragged, l_Parent, l_Next] { Move(l_Dragged, l_Parent, l_Next); });
+                m_Deferred.push_back([this, l_Dragged, l_Parent, l_Next] { static_cast<void>(m_Session.CreateModel(l_Dragged, l_Parent, l_Next, glm::vec3(0.0f))); });
             }
             else
             {
-                m_Deferred.push_back([this, l_Dragged, l_Target] { Move(l_Dragged, l_Target, {}); });
+                m_Deferred.push_back([this, l_Dragged, l_Parent, l_Next] { Move(l_Dragged, l_Parent, l_Next); });
             }
         }
     }

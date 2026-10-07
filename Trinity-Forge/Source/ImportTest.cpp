@@ -1,7 +1,11 @@
 #include "ImportTest.hpp"
 
+#include "EditorCommands.hpp"
 #include "EditorSession.hpp"
 #include "Importers/TextureImporter.hpp"
+
+#include <fastgltf/core.hpp>
+#include <fastgltf/tools.hpp>
 
 #include <ktx.h>
 #include <stb_image.h>
@@ -13,8 +17,10 @@
 #include <format>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace
 {
@@ -28,6 +34,8 @@ namespace
     constexpr double c_MinimumPsnr = 38.0;
     // Long enough for the test models' textures too, Sponza's among them
     constexpr std::uint64_t c_LoadTimeoutFrames = 1800;
+    // How far an instantiated entity's world matrix may be from fastgltf's for its node, in any element
+    constexpr float c_MaximumMatrixError = 1e-5f;
 
     // Khronos glTF sample models, as Scripts/FetchSamples checks them out under TR_FORGE_TEST_MODELS: one with images beside it and two that embed theirs
     struct TestModel
@@ -151,7 +159,7 @@ void ImportTest::Start(const std::filesystem::path& directory)
             return;
         }
 
-        if (!CheckModels() || !ReimportModels())
+        if (!CheckModels() || !ReimportModels() || !CheckInstances())
         {
             return;
         }
@@ -443,6 +451,113 @@ bool ImportTest::ReimportModels()
     TR_INFO("Import test: a forced reimport of {} model(s) kept all {} sub-asset UUID(s), and encoded no texture again", l_Before.size(), l_SubAssets);
 
     return true;
+}
+
+// Each model is created in a scene of its own by the command a drop runs, which must undo to nothing and redo with the same UUIDs. Every node's world matrix is then compared with the one fastgltf computes from the file, matrices and all
+bool ImportTest::CheckInstances()
+{
+    bool l_Passed = true;
+    for (const TestModel& it_Model : c_TestModels)
+    {
+        const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(GetTestModelPath(it_Model));
+        if (l_Record == nullptr)
+        {
+            continue;
+        }
+
+        const auto a_Fail = [&l_Passed, l_Record](std::string_view what)
+        {
+            TR_ERROR("Import test: {} {}", l_Record->Path, what);
+            l_Passed = false;
+        };
+
+        Trinity::Scene l_Scene;
+        CreateModelCommand l_Command(l_Record->ID, std::string(it_Model.Name), {}, {}, glm::vec3(0.0f));
+        if (!l_Command.Execute(l_Scene))
+        {
+            a_Fail("could not be created in a scene");
+
+            continue;
+        }
+
+        const std::size_t l_Created = l_Scene.GetEntityCount();
+        const Trinity::UUID l_Root = l_Command.GetSubject();
+        l_Command.Undo(l_Scene);
+        const std::size_t l_AfterUndo = l_Scene.GetEntityCount();
+        const bool l_Redone = l_Command.Execute(l_Scene);
+        if (l_AfterUndo != 0 || !l_Redone || l_Scene.GetEntityCount() != l_Created || !l_Scene.FindEntityByUUID(l_Root))
+        {
+            a_Fail(std::format("made {} entities, left {} after an undo, and {} after a redo", l_Created, l_AfterUndo, l_Scene.GetEntityCount()));
+
+            continue;
+        }
+
+        const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(Trinity::GetCookedModelPath(l_Record->ID));
+        const Trinity::Expected<Trinity::ModelData, std::string> l_Model = l_Text ? Trinity::ParseModelData(*l_Text) : Trinity::Expected<Trinity::ModelData, std::string>(Trinity::Unexpected{ std::string("it could not be read") });
+        const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Source = Trinity::FileSystem::ReadFile(l_Record->Path);
+        fastgltf::Expected<fastgltf::GltfDataBuffer> l_Data = l_Source ? fastgltf::GltfDataBuffer::FromBytes(l_Source->data(), l_Source->size()) : fastgltf::Expected<fastgltf::GltfDataBuffer>(fastgltf::Error::InvalidPath);
+        fastgltf::Parser l_Parser(fastgltf::Extensions::KHR_materials_emissive_strength | fastgltf::Extensions::KHR_mesh_quantization | fastgltf::Extensions::KHR_texture_transform);
+        fastgltf::Expected<fastgltf::Asset> l_Asset = l_Data.error() == fastgltf::Error::None ? l_Parser.loadGltf(l_Data.get(), {}, fastgltf::Options::None, fastgltf::Category::Scenes | fastgltf::Category::Nodes) : fastgltf::Expected<fastgltf::Asset>(l_Data.error());
+        if (!l_Model || l_Asset.error() != fastgltf::Error::None || l_Asset->scenes.empty())
+        {
+            a_Fail("has a hierarchy or a source that could not be read for the check");
+
+            continue;
+        }
+
+        // Every node of the scene the importer took, by its index in the file
+        std::vector<std::optional<glm::mat4>> l_Expected(l_Asset->nodes.size());
+        const std::size_t l_SceneIndex = l_Asset->defaultScene.value_or(0) < l_Asset->scenes.size() ? l_Asset->defaultScene.value_or(0) : 0;
+        fastgltf::iterateSceneNodes(l_Asset.get(), l_SceneIndex, fastgltf::math::fmat4x4(), [&](fastgltf::Node& node, const fastgltf::math::fmat4x4& matrix)
+        {
+            glm::mat4 l_Matrix(1.0f);
+            for (glm::length_t it_Column = 0; it_Column < 4; ++it_Column)
+            {
+                for (glm::length_t it_Row = 0; it_Row < 4; ++it_Row)
+                {
+                    l_Matrix[it_Column][it_Row] = matrix[static_cast<std::size_t>(it_Column)][static_cast<std::size_t>(it_Row)];
+                }
+            }
+
+            l_Expected[static_cast<std::size_t>(&node - l_Asset->nodes.data())] = l_Matrix;
+        });
+
+        // The root's subtree holds the nodes in the model's order
+        l_Scene.UpdateWorldTransforms();
+        const Trinity::Entity l_RootEntity = l_Scene.FindEntityByUUID(l_Root);
+        std::size_t l_Node = 0;
+        float l_Worst = 0.0f;
+        for (Trinity::Entity it_Entity = l_Scene.GetNextInSubtree(l_RootEntity, l_RootEntity); it_Entity; it_Entity = l_Scene.GetNextInSubtree(it_Entity, l_RootEntity), ++l_Node)
+        {
+            const std::uint32_t l_SourceNode = l_Node < l_Model->Nodes.size() ? l_Model->Nodes[l_Node].SourceNode : UINT32_MAX;
+            if (l_SourceNode >= l_Expected.size() || !l_Expected[l_SourceNode])
+            {
+                l_Worst = std::numeric_limits<float>::infinity();
+
+                break;
+            }
+
+            const glm::mat4& l_World = it_Entity.Get<Trinity::WorldTransformComponent>().Matrix;
+            for (glm::length_t it_Column = 0; it_Column < 4; ++it_Column)
+            {
+                for (glm::length_t it_Row = 0; it_Row < 4; ++it_Row)
+                {
+                    l_Worst = std::max(l_Worst, std::abs(l_World[it_Column][it_Row] - (*l_Expected[l_SourceNode])[it_Column][it_Row]));
+                }
+            }
+        }
+
+        if (l_Node != l_Model->Nodes.size() || !(l_Worst <= c_MaximumMatrixError))
+        {
+            a_Fail(std::format("has {} of {} node(s) matching fastgltf's world matrices, the worst by {}, and {} is allowed", l_Node, l_Model->Nodes.size(), l_Worst, c_MaximumMatrixError));
+
+            continue;
+        }
+
+        TR_INFO("Import test: {} created {} entities in one command that undoes and redoes, with every world matrix within {:.2e} of fastgltf's", l_Record->Path, l_Created, l_Worst);
+    }
+
+    return l_Passed;
 }
 
 // The cooked file is transcoded to RGBA8 as the loader would on a device without BC7, and its top mip compared with the decoded source

@@ -29,6 +29,7 @@ namespace Trinity
             l_Writer.Write("Translation", it_Node.Translation);
             l_Writer.Write("Rotation", it_Node.Rotation);
             l_Writer.Write("Scale", it_Node.Scale);
+            l_Writer.Write("SourceNode", it_Node.SourceNode);
             if (it_Node.Mesh.IsValid())
             {
                 l_Writer.Write("Mesh", it_Node.Mesh);
@@ -71,6 +72,7 @@ namespace Trinity
             CookedText::ReadFloats(it_Node, "Translation", std::span(&l_Node.Translation.x, 3), l_Malformed);
             CookedText::ReadFloats(it_Node, "Rotation", std::span(&l_Node.Rotation.x, 4), l_Malformed);
             CookedText::ReadFloats(it_Node, "Scale", std::span(&l_Node.Scale.x, 3), l_Malformed);
+            CookedText::ReadNumber(it_Node, "SourceNode", l_Node.SourceNode, l_Malformed);
             CookedText::ReadUUID(it_Node, "Mesh", l_Node.Mesh, l_Malformed);
 
             if (const YAML::Node l_Materials = it_Node["Materials"])

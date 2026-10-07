@@ -28,6 +28,8 @@ namespace Trinity
         // A mesh asset and the material in each of its slots, or no mesh
         UUID Mesh;
         std::vector<UUID> Materials;
+        // The node's index in the file it came from, so the hierarchy can be checked against that file
+        std::uint32_t SourceNode = 0;
 
         [[nodiscard]] bool operator==(const ModelNode&) const = default;
     };

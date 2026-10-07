@@ -1,6 +1,7 @@
 #include "EditorCommands.hpp"
 
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -64,6 +65,32 @@ std::string_view GetComponentLabel(std::string_view name)
     const std::size_t l_Dot = name.rfind('.');
 
     return l_Dot == std::string_view::npos ? name : name.substr(l_Dot + 1);
+}
+
+// Parents come before their children in the model, so each node's parent entity already exists, and children are added last, in the model's order
+Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelData& model, std::string_view name, Trinity::Entity parent)
+{
+    const Trinity::Entity l_Root = scene.CreateEntity(name, parent);
+    std::vector<Trinity::Entity> l_Entities;
+    l_Entities.reserve(model.Nodes.size());
+    for (const Trinity::ModelNode& it_Node : model.Nodes)
+    {
+        Trinity::Entity l_Entity = scene.CreateEntity(it_Node.Name, it_Node.Parent == Trinity::ModelNode::c_NoParent ? l_Root : l_Entities[static_cast<std::size_t>(it_Node.Parent)]);
+        Trinity::TransformComponent& l_Transform = l_Entity.Get<Trinity::TransformComponent>();
+        l_Transform.Position = it_Node.Translation;
+        l_Transform.Rotation = it_Node.Rotation;
+        l_Transform.Scale = it_Node.Scale;
+        if (it_Node.Mesh.IsValid())
+        {
+            Trinity::MeshRendererComponent& l_Renderer = l_Entity.Add<Trinity::MeshRendererComponent>();
+            l_Renderer.Mesh = it_Node.Mesh;
+            l_Renderer.Materials.assign(it_Node.Materials.begin(), it_Node.Materials.end());
+        }
+
+        l_Entities.push_back(l_Entity);
+    }
+
+    return l_Root;
 }
 
 CreateEntityCommand::CreateEntityCommand(std::string name, Trinity::UUID parent, Trinity::UUID before) : m_Name(std::move(name)), m_Parent(parent), m_Before(before)
@@ -139,6 +166,57 @@ void CreateSpriteCommand::Undo(Trinity::Scene& scene)
 }
 
 std::size_t CreateSpriteCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
+}
+
+CreateModelCommand::CreateModelCommand(Trinity::UUID model, std::string name, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position) : m_Model(model), m_Name(std::move(name)), m_Parent(parent), m_Before(before), m_Position(position)
+{
+
+}
+
+// The first run reads the hierarchy the model's import cooked and keeps what it made as text, so a redo brings back the same UUIDs even after a reimport
+bool CreateModelCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_Text.empty())
+    {
+        return Restore(scene, m_Text, m_Parent, m_Before, m_Label);
+    }
+
+    if (!IsPlaceValid(scene, m_Parent, m_Before))
+    {
+        return false;
+    }
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(Trinity::GetCookedModelPath(m_Model));
+    const Trinity::Expected<Trinity::ModelData, std::string> l_Model = l_Text ? Trinity::ParseModelData(*l_Text) : Trinity::Expected<Trinity::ModelData, std::string>(Trinity::Unexpected{ std::string("it has not been imported yet, or its import failed") });
+    if (!l_Model)
+    {
+        TR_ERROR("Forge: {} cannot be created: {}", m_Name, l_Model.GetError());
+
+        return false;
+    }
+
+    Trinity::Entity l_Root = CreateModelEntities(scene, *l_Model, m_Name, scene.FindEntityByUUID(m_Parent));
+    if (const Trinity::Entity l_Before = scene.FindEntityByUUID(m_Before))
+    {
+        scene.MoveBefore(l_Root, l_Before, false);
+    }
+
+    l_Root.Get<Trinity::TransformComponent>().Position = m_Position;
+    m_Entity = l_Root.GetUUID();
+    m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Root);
+    m_Label = std::format("Create model {}", GetEntityLabel(l_Root));
+
+    return true;
+}
+
+void CreateModelCommand::Undo(Trinity::Scene& scene)
+{
+    scene.DestroyEntity(scene.FindEntityByUUID(m_Entity));
+}
+
+std::size_t CreateModelCommand::GetMemorySize() const
 {
     return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
 }

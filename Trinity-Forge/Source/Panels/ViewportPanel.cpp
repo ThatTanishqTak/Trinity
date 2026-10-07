@@ -229,7 +229,7 @@ void ViewportPanel::OnImGuiRender()
     if (l_Index != Trinity::RHI::c_NoBindlessIndex)
     {
         ImGui::Image(ImTextureRef(static_cast<ImTextureID>(l_Index)), ImVec2(l_ViewportSize.x, l_ViewportSize.y));
-        AcceptTextureDrop(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
+        AcceptAssetDrop(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
     }
 
     // The scene has input over the whole panel. Picking, panning and zooming are only for the image itself, not the toolbar over it
@@ -439,8 +439,8 @@ void ViewportPanel::FrameSelection(glm::vec2 viewportSize)
     MarkCameraChanged();
 }
 
-// A texture dropped from the Content Browser becomes a sprite where it lands, at its pixel size, in one command
-void ViewportPanel::AcceptTextureDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
+// Dropped from the Content Browser, a texture becomes a sprite where it lands, at its pixel size, and a model becomes its hierarchy under one root there, each in one command
+void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     if (!ImGui::BeginDragDropTarget())
     {
@@ -454,9 +454,15 @@ void ViewportPanel::AcceptTextureDrop(glm::vec2 imageMin, glm::vec2 viewportSize
         const Trinity::UUID l_ID(l_Value);
         const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
         const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(l_ID) : nullptr;
-        if (l_Record == nullptr || l_Record->Importer != Trinity::TextureAsset::c_AssetType)
+        const ImVec2 l_Mouse = ImGui::GetMousePos();
+        const glm::vec2 l_World = m_Camera.ScreenToWorld(glm::vec2(l_Mouse.x, l_Mouse.y) - imageMin, viewportSize);
+        if (l_Record != nullptr && l_Record->Importer == ModelImporter::c_Importer)
         {
-            TR_WARN("Forge: only a texture dropped into the Viewport makes a sprite");
+            static_cast<void>(m_Session.CreateModel(l_ID, {}, {}, glm::vec3(l_World, 0.0f)));
+        }
+        else if (l_Record == nullptr || l_Record->Importer != Trinity::TextureAsset::c_AssetType)
+        {
+            TR_WARN("Forge: only a texture or a model dropped into the Viewport makes entities");
         }
         else
         {
@@ -479,8 +485,6 @@ void ViewportPanel::AcceptTextureDrop(glm::vec2 imageMin, glm::vec2 viewportSize
                 }
             }
 
-            const ImVec2 l_Mouse = ImGui::GetMousePos();
-            const glm::vec2 l_World = m_Camera.ScreenToWorld(glm::vec2(l_Mouse.x, l_Mouse.y) - imageMin, viewportSize);
             const std::string l_Name = std::filesystem::path(l_Record->Path).stem().string();
             m_Session.GetHistory().Execute(Trinity::CreateScope<CreateSpriteCommand>(l_Name, l_ID, glm::vec3(l_World, 0.0f), l_Pixels / c_PixelsPerUnit));
         }

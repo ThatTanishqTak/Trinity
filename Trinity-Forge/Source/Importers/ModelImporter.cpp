@@ -645,6 +645,7 @@ namespace
             Trinity::ModelNode l_Node;
             l_Node.Name = !l_Source.name.empty() ? std::string(std::string_view(l_Source.name)) : (l_Mesh && !asset.meshes[*l_Mesh].name.empty() ? std::string(std::string_view(asset.meshes[*l_Mesh].name)) : std::format("Node {}", l_NodeIndex));
             l_Node.Parent = l_Parent;
+            l_Node.SourceNode = static_cast<std::uint32_t>(l_NodeIndex);
             if (const auto* l_TRS = std::get_if<fastgltf::TRS>(&l_Source.transform))
             {
                 l_Node.Translation = glm::vec3(l_TRS->translation[0], l_TRS->translation[1], l_TRS->translation[2]);

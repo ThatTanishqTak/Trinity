@@ -14,6 +14,9 @@
 [[nodiscard]] std::string GetEntityLabel(Trinity::Entity entity);
 [[nodiscard]] std::string_view GetComponentLabel(std::string_view name);
 
+// The model's nodes under one root with the given name, each with its transform, and a MeshRenderer where it has a mesh. The root's subtree holds the nodes in the model's order
+Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelData& model, std::string_view name, Trinity::Entity parent);
+
 class CreateEntityCommand final : public EditorCommand
 {
 public:
@@ -52,6 +55,29 @@ private:
     Trinity::UUID m_Texture;
     glm::vec3 m_Position{ 0.0f };
     glm::vec2 m_Size{ 1.0f };
+    Trinity::UUID m_Entity;
+    std::string m_Text;
+    std::string m_Label;
+};
+
+class CreateModelCommand final : public EditorCommand
+{
+public:
+    CreateModelCommand(Trinity::UUID model, std::string name, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::UUID m_Model;
+    std::string m_Name;
+    Trinity::UUID m_Parent;
+    Trinity::UUID m_Before;
+    glm::vec3 m_Position{ 0.0f };
     Trinity::UUID m_Entity;
     std::string m_Text;
     std::string m_Label;

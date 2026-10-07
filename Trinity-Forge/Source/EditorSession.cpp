@@ -1,5 +1,7 @@
 #include "EditorSession.hpp"
 
+#include "EditorCommands.hpp"
+
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
@@ -758,6 +760,20 @@ bool EditorSession::ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings
     m_Reimporter.Queue(*l_Record);
 
     return true;
+}
+
+// Its hierarchy under one root named after the file, in one command, so a single undo takes it all away. A model still importing, or one whose import failed, has nothing to create yet
+bool EditorSession::CreateModel(Trinity::UUID model, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(model) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != ModelImporter::c_Importer)
+    {
+        TR_WARN("Forge: only a model dropped into the scene creates its hierarchy");
+
+        return false;
+    }
+
+    return m_History.Execute(Trinity::CreateScope<CreateModelCommand>(model, ToUtf8(FromUtf8(l_Record->Path).stem()), parent, before, position));
 }
 
 void EditorSession::SaveProject()

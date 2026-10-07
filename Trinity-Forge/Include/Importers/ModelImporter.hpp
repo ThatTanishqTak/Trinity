@@ -44,7 +44,7 @@ public:
 
     static constexpr std::string_view c_Importer = "Model";
     static constexpr std::string_view c_MaterialImporter = "Material";
-    static constexpr std::uint32_t c_Version = 1;
+    static constexpr std::uint32_t c_Version = 2;
 
     // The parsed glTF with its buffers and embedded images, kept from planning to cooking
     struct Source;

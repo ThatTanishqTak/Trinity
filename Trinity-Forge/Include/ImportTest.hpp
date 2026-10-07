@@ -35,6 +35,7 @@ private:
     [[nodiscard]] std::size_t CopyTestModels();
     [[nodiscard]] bool CheckModels();
     [[nodiscard]] bool ReimportModels();
+    [[nodiscard]] bool CheckInstances();
     void CheckQuality();
     void BeginLoads(Phase phase);
     void FinishLoads();

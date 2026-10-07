@@ -1,0 +1,16 @@
+# Run by cmake -P after a build, with BINARY, NAMES joined by '+', EXPECT absent or present, and CONFIGURATION. Only Distribution is checked
+if(NOT CONFIGURATION STREQUAL "Distribution")
+    return()
+endif()
+
+string(REPLACE "+" ";" names "${NAMES}")
+get_filename_component(binary_name "${BINARY}" NAME)
+foreach(name IN LISTS names)
+    file(STRINGS "${BINARY}" found REGEX "${name}" LIMIT_COUNT 1)
+    if(EXPECT STREQUAL "absent" AND found)
+        list(GET found 0 example)
+        message(FATAL_ERROR "${binary_name} carries code from ${name}, which belongs to the editor alone, such as \"${example}\". Something the game links has pulled it in")
+    elseif(EXPECT STREQUAL "present" AND NOT found)
+        message(FATAL_ERROR "${binary_name} links ${name}, yet its name was not found in the binary, so this check would not notice it in a game either")
+    endif()
+endforeach()

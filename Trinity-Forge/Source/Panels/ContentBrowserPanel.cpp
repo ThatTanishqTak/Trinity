@@ -57,6 +57,11 @@ namespace
             return Trinity::Icons::c_FileImage;
         }
 
+        if (record != nullptr && record->Importer == ModelImporter::c_Importer)
+        {
+            return Trinity::Icons::c_Cube;
+        }
+
         return record != nullptr && record->Importer == "Scene" ? Trinity::Icons::c_CubeOutline : Trinity::Icons::c_File;
     }
 }

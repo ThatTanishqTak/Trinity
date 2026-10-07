@@ -87,6 +87,7 @@ public:
     bool MoveAsset(std::string_view path, std::string_view folder, std::string_view name);
     bool DeleteAsset(std::string_view path);
     bool ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings settings);
+    bool CreateModel(Trinity::UUID model, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
     [[nodiscard]] bool IsImporting(Trinity::UUID id) const { return m_Reimporter.IsBusy(id); }
     [[nodiscard]] std::uint64_t GetScanCount() const { return m_ScanCount; }
 
