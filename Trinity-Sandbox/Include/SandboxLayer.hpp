@@ -2,7 +2,10 @@
 
 #include <Trinity.hpp>
 
+#include <cstddef>
 #include <cstdint>
+#include <random>
+#include <string_view>
 #include <vector>
 
 class SandboxLayer final : public Trinity::Layer
@@ -26,6 +29,31 @@ private:
         Running
     };
 
+    // The meshes load and read back first, then a thousand loads and releases run, and the sprites start once Assets is empty again
+    enum class MeshPhase : std::uint8_t
+    {
+        Idle,
+        Loading,
+        Reading,
+        Churning,
+        Settling,
+        Done
+    };
+
+    struct TestMesh
+    {
+        std::string_view Name;
+        Trinity::UUID ID;
+        Trinity::MeshData Data;
+        std::vector<std::byte> Cooked;
+    };
+
+    struct ChurnRef
+    {
+        Trinity::AssetRef<Trinity::MeshAsset> Ref;
+        std::uint64_t ReleaseFrame = 0;
+    };
+
     bool OnKeyPressed(Trinity::KeyPressedEvent& event);
     void TestCompute();
     void TestLayeredTextures();
@@ -37,12 +65,19 @@ private:
     void CheckRendererGraph();
     void CheckGpuTimes();
     void UpdateResizes();
-    void CreateSprites();
+    void TestMeshRendererScene();
+    void CreateTestAssets();
+    [[nodiscard]] bool AddTestMeshes(Trinity::MemorySource& cache);
+    void UpdateMeshes();
+    void AddMeshReadbacks(Trinity::FrameGraph& graph);
+    void CheckMeshReadbacks();
+    void UpdateMeshChurn(std::uint64_t frame);
+    void FinishMeshes();
     void UpdateSprites();
     void AddSpriteReadback(Trinity::FrameGraph& graph);
     void CheckSpriteReadback();
     void ReportSprites();
-    void DestroySprites();
+    void DestroyTestAssets();
 
     Trinity::Scope<Trinity::AssetRegistry> m_SpriteRegistry;
     Trinity::Scope<Trinity::Scene> m_SpriteScene;
@@ -60,6 +95,18 @@ private:
     std::uint64_t m_SpriteBytesLast = 0;
     std::uint64_t m_SpriteBadFrames = 0;
     bool m_SpriteReported = false;
+    bool m_SpritesReady = false;
+
+    std::vector<TestMesh> m_TestMeshes;
+    std::vector<Trinity::AssetRef<Trinity::MeshAsset>> m_MeshRefs;
+    std::vector<Trinity::RHI::BufferHandle> m_MeshReadbacks;
+    std::vector<ChurnRef> m_MeshChurn;
+    std::mt19937 m_MeshRandom;
+    MeshPhase m_MeshPhase = MeshPhase::Idle;
+    std::uint64_t m_MeshPhaseFrame = 0;
+    std::uint32_t m_MeshChurnLoads = 0;
+    std::uint32_t m_MeshChurnFinished = 0;
+    bool m_MeshReadbackAdded = false;
     bool m_RHITested = false;
     bool m_GraphChecked = false;
     bool m_GpuTimesChecked = false;

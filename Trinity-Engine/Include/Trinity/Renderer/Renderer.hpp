@@ -17,6 +17,7 @@
 namespace Trinity
 {
     class LayerStack;
+    class MeshLoader;
     class TextureLoader;
     class Window;
 
@@ -98,6 +99,7 @@ namespace Trinity
         Window& m_Window;
         std::string m_Title;
         Scope<TextureLoader> m_TextureLoader;
+        Scope<MeshLoader> m_MeshLoader;
         Scope<Renderer2D> m_Renderer2D;
         Scope<FrameGraph> m_FrameGraph;
 

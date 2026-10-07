@@ -350,6 +350,188 @@ namespace
     constexpr std::uint32_t c_ResizeStep = 16;
     constexpr std::uint32_t c_ResizeBaseWidth = 640;
     constexpr std::uint32_t c_ResizeBaseHeight = 360;
+
+    // The file whose sub-assets are the test meshes, standing in for a model an importer reads
+    constexpr std::string_view c_ModelName = "Shapes.model";
+    constexpr std::uint32_t c_MeshSeed = 20261015;
+    constexpr std::uint32_t c_GridSize = 260;
+    constexpr std::uint32_t c_MeshChurnLoads = 1000;
+    constexpr std::uint32_t c_MeshChurnPerFrame = 12;
+    constexpr std::uint32_t c_MeshChurnMaxLifetime = 3;
+    constexpr std::uint64_t c_MeshSettleFrames = 120;
+    constexpr float c_MeshDirectionDot = 0.9999f;
+
+    // Six faces of four vertices, so each face has its own normal and tangent. The bottom and back faces have left-handed tangents, and the last two faces draw in material slot 1
+    Trinity::MeshData MakeCubeMesh()
+    {
+        struct Face
+        {
+            glm::vec3 Normal;
+            glm::vec3 Tangent;
+            float Handedness = 1.0f;
+        };
+
+        const std::array<Face, 6> l_Faces
+        { {
+            { { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 1.0f },
+            { { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 1.0f },
+            { { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, 1.0f },
+            { { 0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, -1.0f },
+            { { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f }, 1.0f },
+            { { 0.0f, 0.0f, -1.0f }, { -1.0f, 0.0f, 0.0f }, -1.0f }
+        } };
+
+        Trinity::MeshData l_Mesh;
+        for (const Face& it_Face : l_Faces)
+        {
+            const std::uint32_t l_Base = static_cast<std::uint32_t>(l_Mesh.Positions.size());
+            const glm::vec3 l_Bitangent = glm::cross(it_Face.Normal, it_Face.Tangent) * it_Face.Handedness;
+            for (std::uint32_t it_Corner = 0; it_Corner < 4; ++it_Corner)
+            {
+                const glm::vec2 l_UV(static_cast<float>(it_Corner & 1), static_cast<float>(it_Corner >> 1));
+                l_Mesh.Positions.push_back(it_Face.Normal * 0.5f + it_Face.Tangent * (l_UV.x - 0.5f) + l_Bitangent * (l_UV.y - 0.5f));
+                l_Mesh.Normals.push_back(it_Face.Normal);
+                l_Mesh.Tangents.push_back(glm::vec4(it_Face.Tangent, it_Face.Handedness));
+                l_Mesh.TexCoords0.push_back(l_UV);
+            }
+
+            for (const std::uint32_t it_Corner : { 0u, 1u, 2u, 2u, 1u, 3u })
+            {
+                l_Mesh.Indices.push_back(l_Base + it_Corner);
+            }
+        }
+
+        l_Mesh.Submeshes = { { 0, 24, 0, {} }, { 24, 12, 1, {} } };
+
+        return l_Mesh;
+    }
+
+    // A rippled square of more vertices than 16-bit indices can name, with two UV sets and colours, and normals without tangents
+    Trinity::MeshData MakeGridMesh()
+    {
+        Trinity::MeshData l_Mesh;
+        const float l_Last = static_cast<float>(c_GridSize - 1);
+        for (std::uint32_t it_Z = 0; it_Z < c_GridSize; ++it_Z)
+        {
+            for (std::uint32_t it_X = 0; it_X < c_GridSize; ++it_X)
+            {
+                const glm::vec2 l_Fraction(static_cast<float>(it_X) / l_Last, static_cast<float>(it_Z) / l_Last);
+                const float l_Height = 0.1f * std::sin(l_Fraction.x * 12.0f) * std::cos(l_Fraction.y * 9.0f);
+                const float l_SlopeX = 0.1f * 12.0f * std::cos(l_Fraction.x * 12.0f) * std::cos(l_Fraction.y * 9.0f) / 10.0f;
+                const float l_SlopeZ = -0.1f * 9.0f * std::sin(l_Fraction.x * 12.0f) * std::sin(l_Fraction.y * 9.0f) / 10.0f;
+
+                l_Mesh.Positions.push_back({ l_Fraction.x * 10.0f - 5.0f, l_Height, l_Fraction.y * 10.0f - 5.0f });
+                l_Mesh.Normals.push_back(glm::normalize(glm::vec3(-l_SlopeX, 1.0f, -l_SlopeZ)));
+                l_Mesh.TexCoords0.push_back(l_Fraction);
+                l_Mesh.TexCoords1.push_back({ l_Fraction.x * 2.0f, 1.0f - l_Fraction.y });
+                l_Mesh.Colors.push_back({ l_Fraction.x, l_Fraction.y, 0.5f, 1.0f });
+            }
+        }
+
+        for (std::uint32_t it_Z = 0; it_Z + 1 < c_GridSize; ++it_Z)
+        {
+            for (std::uint32_t it_X = 0; it_X + 1 < c_GridSize; ++it_X)
+            {
+                const std::uint32_t l_Corner = it_Z * c_GridSize + it_X;
+                for (const std::uint32_t it_Offset : { 0u, c_GridSize, 1u, 1u, c_GridSize, c_GridSize + 1 })
+                {
+                    l_Mesh.Indices.push_back(l_Corner + it_Offset);
+                }
+            }
+        }
+
+        return l_Mesh;
+    }
+
+    // Positions alone
+    Trinity::MeshData MakeTriangleMesh()
+    {
+        Trinity::MeshData l_Mesh;
+        l_Mesh.Positions = { { -1.0f, -1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f }, { 0.0f, 1.0f, 2.0f } };
+        l_Mesh.Indices = { 0, 1, 2 };
+
+        return l_Mesh;
+    }
+
+    template<typename T>
+    T LoadBytes(std::span<const std::byte> data, std::uint64_t offset)
+    {
+        T l_Value{};
+        std::memcpy(&l_Value, data.data() + offset, sizeof(T));
+
+        return l_Value;
+    }
+
+    // What the first difference is between a mesh and a GPU buffer laid out by its cooked layout, or nothing. Positions, UVs and indices are exact, directions keep within c_MeshDirectionDot, and colours within one 16-bit step
+    std::string CompareMesh(const Trinity::MeshData& mesh, const Trinity::MeshLayout& layout, std::span<const std::byte> data)
+    {
+        if (data.size() < layout.Size || layout.VertexCount != mesh.Positions.size() || layout.IndexCount != mesh.Indices.size())
+        {
+            return std::format("{} bytes for {} vertices and {} indices, where the mesh has {} and {} in {} bytes", data.size(), layout.VertexCount, layout.IndexCount, mesh.Positions.size(), mesh.Indices.size(), layout.Size);
+        }
+
+        for (std::size_t it_Vertex = 0; it_Vertex < mesh.Positions.size(); ++it_Vertex)
+        {
+            if (LoadBytes<glm::vec3>(data, layout.Positions + it_Vertex * 12) != mesh.Positions[it_Vertex])
+            {
+                return std::format("position {} differs", it_Vertex);
+            }
+
+            if (layout.NormalTangents != Trinity::MeshLayout::c_Absent)
+            {
+                const std::array<std::int16_t, 4> l_Packed = LoadBytes<std::array<std::int16_t, 4>>(data, layout.NormalTangents + it_Vertex * 8);
+                const glm::vec3 l_Normal = Trinity::DecodeOctahedral({ l_Packed[0], l_Packed[1] });
+                const glm::vec3 l_Tangent = Trinity::DecodeOctahedral({ l_Packed[2], l_Packed[3] });
+                const float l_Handedness = (static_cast<std::uint16_t>(l_Packed[3]) & 1u) != 0 ? -1.0f : 1.0f;
+                const glm::vec3 l_SourceNormal = glm::normalize(mesh.Normals[it_Vertex]);
+                const bool l_TangentMatches = mesh.Tangents.empty() ? std::abs(glm::dot(l_Tangent, l_Normal)) < 1.0f - c_MeshDirectionDot + 1e-3f : glm::dot(l_Tangent, glm::normalize(glm::vec3(mesh.Tangents[it_Vertex]))) >= c_MeshDirectionDot && l_Handedness == (mesh.Tangents[it_Vertex].w < 0.0f ? -1.0f : 1.0f);
+                if (glm::dot(l_Normal, l_SourceNormal) < c_MeshDirectionDot || !l_TangentMatches)
+                {
+                    return std::format("the normal or tangent of vertex {} differs", it_Vertex);
+                }
+            }
+
+            if ((layout.TexCoords0 != Trinity::MeshLayout::c_Absent && LoadBytes<glm::vec2>(data, layout.TexCoords0 + it_Vertex * 8) != mesh.TexCoords0[it_Vertex]) || (layout.TexCoords1 != Trinity::MeshLayout::c_Absent && LoadBytes<glm::vec2>(data, layout.TexCoords1 + it_Vertex * 8) != mesh.TexCoords1[it_Vertex]))
+            {
+                return std::format("a UV of vertex {} differs", it_Vertex);
+            }
+
+            if (layout.Colors != Trinity::MeshLayout::c_Absent)
+            {
+                const std::array<std::uint16_t, 4> l_Packed = LoadBytes<std::array<std::uint16_t, 4>>(data, layout.Colors + it_Vertex * 8);
+                for (glm::length_t it_Channel = 0; it_Channel < 4; ++it_Channel)
+                {
+                    if (std::abs(static_cast<float>(l_Packed[static_cast<std::size_t>(it_Channel)]) / 65535.0f - mesh.Colors[it_Vertex][it_Channel]) > 1.0f / 65535.0f)
+                    {
+                        return std::format("the colour of vertex {} differs", it_Vertex);
+                    }
+                }
+            }
+        }
+
+        for (std::size_t it_Index = 0; it_Index < mesh.Indices.size(); ++it_Index)
+        {
+            const std::uint32_t l_Index = layout.IndexFormat == Trinity::RHI::IndexFormat::UInt16 ? LoadBytes<std::uint16_t>(data, layout.Indices + it_Index * 2) : LoadBytes<std::uint32_t>(data, layout.Indices + it_Index * 4);
+            if (l_Index != mesh.Indices[it_Index])
+            {
+                return std::format("index {} is {} where {} was cooked", it_Index, l_Index, mesh.Indices[it_Index]);
+            }
+        }
+
+        return {};
+    }
+
+    Trinity::MeshBounds GetPositionBounds(const Trinity::MeshData& mesh, std::span<const std::uint32_t> indices)
+    {
+        Trinity::MeshBounds l_Bounds{ glm::vec3(std::numeric_limits<float>::max()), glm::vec3(std::numeric_limits<float>::lowest()) };
+        for (const std::uint32_t it_Index : indices)
+        {
+            l_Bounds.Min = glm::min(l_Bounds.Min, mesh.Positions[it_Index]);
+            l_Bounds.Max = glm::max(l_Bounds.Max, mesh.Positions[it_Index]);
+        }
+
+        return l_Bounds;
+    }
 }
 
 SandboxLayer::SandboxLayer() : Layer("Sandbox")
@@ -367,14 +549,14 @@ void SandboxLayer::OnAttach()
         Trinity::ConsoleVariables::LogAll();
     }
 
-    CreateSprites();
+    CreateTestAssets();
 
     Trinity::Memory::LogUsage();
 }
 
 void SandboxLayer::OnDetach()
 {
-    DestroySprites();
+    DestroyTestAssets();
 }
 
 void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
@@ -391,10 +573,12 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
         TestTimestamps();
         TestFrameGraph();
         TestToneMapping();
+        TestMeshRendererScene();
     }
 
     CheckRendererGraph();
     CheckGpuTimes();
+    UpdateMeshes();
     UpdateSprites();
     UpdateResizes();
 
@@ -453,7 +637,7 @@ void SandboxLayer::OnRender(Trinity::RHI::CommandList& commands)
     }
 }
 
-// Every frame adds a pass the graph culls, and on the one frame it is wanted the sprite readback, which so goes through the Renderer's own graph
+// Every frame adds a pass the graph culls, and on the one frame each is wanted the mesh and sprite readbacks, which so go through the Renderer's own graph
 void SandboxLayer::OnBuildFrameGraph(Trinity::FrameGraph& graph, Trinity::FrameGraphTexture sceneColor)
 {
     Trinity::RHI::TextureDescription l_UnusedDescription;
@@ -472,6 +656,11 @@ void SandboxLayer::OnBuildFrameGraph(Trinity::FrameGraph& graph, Trinity::FrameG
     {
 
     });
+
+    if (m_MeshPhase == MeshPhase::Reading && !m_MeshReadbackAdded)
+    {
+        AddMeshReadbacks(graph);
+    }
 
     if (m_SpritePhase == SpritePhase::Reading && !m_SpriteReadbackAdded)
     {
@@ -2024,8 +2213,394 @@ void SandboxLayer::UpdateResizes()
     ++m_Resizes;
 }
 
-// 64 placeholder source files give the registry 64 texture assets, whose cooked KTX2 a memory source serves at /cache
-void SandboxLayer::CreateSprites()
+// Entities with MeshRenderers holding none to three materials, some invalid, an invalid mesh and shadows on and off, saved, loaded and saved again: the two files match, and every component comes back equal
+void SandboxLayer::TestMeshRendererScene()
+{
+    TR_PROFILE_FUNCTION();
+
+    constexpr std::uint32_t c_EntityCount = 12;
+    constexpr std::string_view c_FirstPath = "/saves/sandbox/meshes/MeshRenderers.trscene";
+    constexpr std::string_view c_SecondPath = "/saves/sandbox/meshes/MeshRenderers.Again.trscene";
+
+    Trinity::Scene l_Scene;
+    std::mt19937 l_Random(c_MeshSeed);
+    std::uniform_real_distribution<float> l_Position(-10.0f, 10.0f);
+    std::vector<Trinity::UUID> l_Entities;
+    Trinity::Entity l_Parent;
+    for (std::uint32_t it_Entity = 0; it_Entity < c_EntityCount; ++it_Entity)
+    {
+        const std::string l_Name = std::format("Mesh {}", it_Entity);
+        Trinity::Entity l_Entity = it_Entity % 4 == 1 ? l_Scene.CreateEntity(l_Name, l_Parent) : l_Scene.CreateEntity(l_Name);
+        l_Entity.Get<Trinity::TransformComponent>().Position = { l_Position(l_Random), l_Position(l_Random), l_Position(l_Random) };
+
+        Trinity::MeshRendererComponent& l_Renderer = l_Entity.Add<Trinity::MeshRendererComponent>();
+        l_Renderer.Mesh = it_Entity % 5 == 4 ? Trinity::UUID() : Trinity::UUID::Generate();
+        for (std::uint32_t it_Material = 0; it_Material < it_Entity % 4; ++it_Material)
+        {
+            l_Renderer.Materials.push_back(it_Material == 1 ? Trinity::UUID() : Trinity::UUID::Generate());
+        }
+
+        l_Renderer.CastShadows = it_Entity % 3 != 0;
+        l_Entities.push_back(l_Entity.GetUUID());
+        l_Parent = l_Entity;
+    }
+
+    Trinity::Scene l_Loaded;
+    const Trinity::Expected<void, std::string> l_Saved = Trinity::SceneSerializer::Save(l_Scene, c_FirstPath);
+    const Trinity::Expected<void, std::string> l_Read = l_Saved ? Trinity::SceneSerializer::Load(l_Loaded, c_FirstPath) : l_Saved;
+    const Trinity::Expected<void, std::string> l_SavedAgain = l_Read ? Trinity::SceneSerializer::Save(l_Loaded, c_SecondPath) : l_Read;
+    if (!l_SavedAgain)
+    {
+        TR_ERROR("Mesh scene: {}", l_SavedAgain.GetError());
+
+        return;
+    }
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_First = Trinity::FileSystem::ReadText(c_FirstPath);
+    const Trinity::Expected<std::string, Trinity::FileError> l_Second = Trinity::FileSystem::ReadText(c_SecondPath);
+    const bool l_Same = l_First && l_Second && *l_First == *l_Second;
+    const std::size_t l_Equal = static_cast<std::size_t>(std::ranges::count_if(l_Entities, [&l_Scene, &l_Loaded](Trinity::UUID id)
+    {
+        const Trinity::Entity l_Original = l_Scene.FindEntityByUUID(id);
+        const Trinity::Entity l_Copy = l_Loaded.FindEntityByUUID(id);
+
+        return l_Copy && l_Copy.Has<Trinity::MeshRendererComponent>() && l_Copy.Get<Trinity::MeshRendererComponent>() == l_Original.Get<Trinity::MeshRendererComponent>();
+    }));
+
+    if (!l_Same || l_Equal != l_Entities.size())
+    {
+        TR_ERROR("Mesh scene: the second save {} the first, and {} of {} MeshRenderers came back equal", l_Same ? "matched" : "differed from", l_Equal, l_Entities.size());
+
+        return;
+    }
+
+    TR_INFO("Mesh scene: {} MeshRenderers with 0 to 3 materials saved, loaded and saved again into two identical files of {} bytes, and every component came back equal", l_Entities.size(), l_First->size());
+}
+
+// The model stands in for a file an importer reads: the registry lists a mesh sub-asset per key in its .meta, and each mesh is cooked into the cache where an import would write it. Listing the keys again in another order, and scanning the folder with a second registry, must find the same UUIDs
+bool SandboxLayer::AddTestMeshes(Trinity::MemorySource& cache)
+{
+    const std::string l_ModelPath = std::format("{}/{}", c_SpriteTestRoot, c_ModelName);
+    const Trinity::AssetRecord* l_Model = m_SpriteRegistry->FindByPath(l_ModelPath);
+    if (l_Model == nullptr)
+    {
+        TR_ERROR("Meshes: the registry has no record for {}", l_ModelPath);
+
+        return false;
+    }
+
+    const Trinity::UUID l_ModelID = l_Model->ID;
+    std::vector<std::pair<std::string_view, Trinity::MeshData>> l_Meshes;
+    l_Meshes.emplace_back("Cube", MakeCubeMesh());
+    l_Meshes.emplace_back("Grid", MakeGridMesh());
+    l_Meshes.emplace_back("Triangle", MakeTriangleMesh());
+
+    std::vector<Trinity::SubAsset> l_SubAssets;
+    for (const auto& [it_Name, it_Data] : l_Meshes)
+    {
+        l_SubAssets.push_back({ std::string(it_Name), std::string(Trinity::MeshAsset::c_AssetType), {} });
+    }
+
+    if (!m_SpriteRegistry->SetSubAssets(l_ModelID, l_SubAssets))
+    {
+        TR_ERROR("Meshes: the sub-assets of {} could not be recorded", l_ModelPath);
+
+        return false;
+    }
+
+    const std::vector<Trinity::SubAsset> l_First = m_SpriteRegistry->Find(l_ModelID)->SubAssets;
+    std::ranges::reverse(l_SubAssets);
+    bool l_Kept = m_SpriteRegistry->SetSubAssets(l_ModelID, l_SubAssets);
+
+    Trinity::AssetRegistry l_Rescan(c_SpriteTestRoot);
+    static_cast<void>(l_Rescan.Scan());
+    for (const Trinity::SubAsset& it_SubAsset : l_First)
+    {
+        const Trinity::AssetRecord* l_Child = m_SpriteRegistry->Find(it_SubAsset.ID);
+        const Trinity::AssetRecord* l_Rescanned = l_Rescan.Find(it_SubAsset.ID);
+        l_Kept = l_Kept && l_Child != nullptr && l_Child->Parent == l_ModelID && l_Child->Importer == Trinity::MeshAsset::c_AssetType && l_Child->Path == std::format("{}#{}", l_ModelPath, it_SubAsset.Key) && l_Rescanned != nullptr && l_Rescanned->Path == l_Child->Path && l_Rescanned->Parent == l_ModelID;
+    }
+
+    if (!l_Kept)
+    {
+        TR_ERROR("Meshes: the sub-assets of {} changed UUID when listed again or scanned by a second registry", l_ModelPath);
+
+        return false;
+    }
+
+    for (auto& [it_Name, it_Data] : l_Meshes)
+    {
+        Trinity::Expected<std::vector<std::byte>, std::string> l_Cooked = Trinity::CookMesh(it_Data);
+        if (!l_Cooked)
+        {
+            TR_ERROR("Meshes: {} could not be cooked: {}", it_Name, l_Cooked.GetError());
+
+            return false;
+        }
+
+        const Trinity::UUID l_ID = std::ranges::find(l_First, std::string(it_Name), &Trinity::SubAsset::Key)->ID;
+        const std::string l_Path = Trinity::GetCookedMeshPath(l_ID);
+        static_cast<void>(cache.AddFile(std::string_view(l_Path).substr(Trinity::Project::c_CacheMount.size() + 1), *l_Cooked));
+        m_TestMeshes.push_back({ it_Name, l_ID, std::move(it_Data), std::move(*l_Cooked) });
+    }
+
+    TR_INFO("Meshes: {} recorded {} mesh sub-assets, whose UUIDs held when listed again and when a second registry scanned the folder", c_ModelName, m_TestMeshes.size());
+
+    return true;
+}
+
+// Loads the test meshes and reads their GPU buffers back, then runs the loads and releases, and starts the sprites once Assets is back to 0 B
+void SandboxLayer::UpdateMeshes()
+{
+    const std::uint64_t l_Frame = Trinity::Application::Get().GetFrameCount();
+    if (m_MeshPhase == MeshPhase::Loading)
+    {
+        if (m_MeshRefs.empty())
+        {
+            for (const TestMesh& it_Mesh : m_TestMeshes)
+            {
+                m_MeshRefs.emplace_back(it_Mesh.ID);
+            }
+        }
+
+        const bool l_Failed = std::ranges::any_of(m_MeshRefs, [](const Trinity::AssetRef<Trinity::MeshAsset>& mesh) { return mesh.GetState() == Trinity::AssetState::Failed; });
+        const bool l_Ready = std::ranges::all_of(m_MeshRefs, [](const Trinity::AssetRef<Trinity::MeshAsset>& mesh) { return mesh.IsReady(); });
+        if (l_Failed || (!l_Ready && l_Frame - m_MeshPhaseFrame > c_SpriteLoadTimeoutFrames))
+        {
+            TR_ERROR("Meshes: the {} test meshes {}", m_TestMeshes.size(), l_Failed ? "did not all load" : std::format("were not all loaded after {} frames", c_SpriteLoadTimeoutFrames));
+            FinishMeshes();
+
+            return;
+        }
+
+        if (!l_Ready)
+        {
+            return;
+        }
+
+        // Uploaded at the start of this frame, then copied out by a pass in the Renderer's graph
+        for (const Trinity::AssetRef<Trinity::MeshAsset>& it_Mesh : m_MeshRefs)
+        {
+            Trinity::RHI::BufferDescription l_Description;
+            l_Description.Size = it_Mesh.Get()->GetLayout().Size;
+            l_Description.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+            l_Description.Memory = Trinity::RHI::MemoryType::Readback;
+            l_Description.DebugName = "Sandbox mesh readback";
+            m_MeshReadbacks.push_back(Trinity::Application::Get().GetDevice().CreateBuffer(l_Description));
+        }
+
+        if (std::ranges::any_of(m_MeshReadbacks, [](Trinity::RHI::BufferHandle readback) { return !readback; }))
+        {
+            TR_ERROR("Meshes: could not create the readback buffers");
+            FinishMeshes();
+
+            return;
+        }
+
+        m_MeshPhase = MeshPhase::Reading;
+
+        return;
+    }
+
+    if (m_MeshPhase == MeshPhase::Reading)
+    {
+        if (m_MeshReadbackAdded)
+        {
+            CheckMeshReadbacks();
+            m_MeshRefs.clear();
+            m_MeshRandom.seed(c_MeshSeed);
+            m_MeshPhase = MeshPhase::Churning;
+            m_MeshPhaseFrame = l_Frame;
+        }
+
+        return;
+    }
+
+    if (m_MeshPhase == MeshPhase::Churning)
+    {
+        UpdateMeshChurn(l_Frame);
+
+        return;
+    }
+
+    if (m_MeshPhase == MeshPhase::Settling)
+    {
+        // Reads cancelled on release and decodes still running let go of their memory as they finish
+        const std::uint64_t l_Bytes = Trinity::Memory::GetStats(Trinity::MemoryTag::Assets).CurrentBytes;
+        if (l_Bytes == 0 && Trinity::AssetManager::GetEntryCount() == 0)
+        {
+            TR_INFO("Meshes: {} asynchronous loads and releases, {} of them released once loaded and the rest cancelled while reading or decoding, left Assets at 0 B in {} frame(s) after the last release", m_MeshChurnLoads, m_MeshChurnFinished, l_Frame - m_MeshPhaseFrame);
+            FinishMeshes();
+        }
+        else if (l_Frame - m_MeshPhaseFrame > c_MeshSettleFrames)
+        {
+            TR_ERROR("Meshes: Assets still held {} in {} entries {} frames after the last of {} loads was released", Trinity::Memory::FormatBytes(l_Bytes), Trinity::AssetManager::GetEntryCount(), c_MeshSettleFrames, m_MeshChurnLoads);
+            FinishMeshes();
+        }
+    }
+}
+
+// One pass copies every mesh's buffer into its readback buffer, moving each from Geometry to CopySource and back
+void SandboxLayer::AddMeshReadbacks(Trinity::FrameGraph& graph)
+{
+    m_MeshReadbackAdded = true;
+
+    std::vector<std::pair<Trinity::FrameGraphBuffer, Trinity::FrameGraphBuffer>> l_Copies;
+    for (std::size_t it_Mesh = 0; it_Mesh < m_MeshRefs.size(); ++it_Mesh)
+    {
+        const Trinity::MeshAsset* l_Mesh = m_MeshRefs[it_Mesh].Get();
+        const std::uint64_t l_Size = l_Mesh->GetLayout().Size;
+        l_Copies.emplace_back(graph.ImportBuffer("Sandbox mesh", l_Mesh->GetBuffer(), l_Size, Trinity::RHI::ResourceState::Geometry, Trinity::RHI::ResourceState::Geometry), graph.ImportBuffer("Sandbox mesh readback", m_MeshReadbacks[it_Mesh], l_Size, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination));
+    }
+
+    std::vector<std::uint64_t> l_Sizes;
+    for (const Trinity::AssetRef<Trinity::MeshAsset>& it_Mesh : m_MeshRefs)
+    {
+        l_Sizes.push_back(it_Mesh.Get()->GetLayout().Size);
+    }
+
+    graph.AddPass("Sandbox mesh readback", Trinity::FrameGraphPassType::Copy, [&l_Copies](Trinity::FrameGraphPassBuilder& builder)
+    {
+        for (const auto& [it_Mesh, it_Readback] : l_Copies)
+        {
+            builder.Read(it_Mesh, Trinity::RHI::ResourceState::CopySource);
+            builder.Write(it_Readback, Trinity::RHI::ResourceState::CopyDestination);
+        }
+    }, [l_Copies, l_Sizes](const Trinity::FrameGraphContext& context)
+    {
+        for (std::size_t it_Copy = 0; it_Copy < l_Copies.size(); ++it_Copy)
+        {
+            context.GetCommands().CopyBuffer(context.GetBuffer(l_Copies[it_Copy].first), 0, context.GetBuffer(l_Copies[it_Copy].second), 0, l_Sizes[it_Copy]);
+        }
+    });
+}
+
+// Each loaded mesh must hold what its file held, its bounds must be those of its positions, and its GPU buffer must read back as the cooked bytes and decode to the mesh it was cooked from. The null device reads back nothing, so there the cooked bytes are decoded instead
+void SandboxLayer::CheckMeshReadbacks()
+{
+    TR_PROFILE_FUNCTION();
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    l_Device.WaitIdle();
+
+    const Trinity::GraphicsAPI l_API = l_Device.GetInfo().API;
+    std::string l_Wrong;
+    std::uint64_t l_Vertices = 0;
+    std::uint64_t l_Indices = 0;
+    std::string l_Summary;
+    for (std::size_t it_Mesh = 0; it_Mesh < m_TestMeshes.size() && l_Wrong.empty(); ++it_Mesh)
+    {
+        const TestMesh& l_Test = m_TestMeshes[it_Mesh];
+        const Trinity::MeshAsset* l_Mesh = m_MeshRefs[it_Mesh].Get();
+        const Trinity::Expected<Trinity::MeshFile, std::string> l_File = Trinity::ReadMeshFile(l_Test.Cooked);
+        if (!l_File)
+        {
+            l_Wrong = std::format("{}'s cooked file does not read back: {}", l_Test.Name, l_File.GetError());
+
+            break;
+        }
+
+        const std::vector<Trinity::Submesh> l_Submeshes(l_Mesh->GetSubmeshes().begin(), l_Mesh->GetSubmeshes().end());
+        const bool l_Matches = l_Mesh->GetLayout() == l_File->Layout && l_Mesh->GetBounds() == l_File->Bounds && l_Submeshes == l_File->Submeshes;
+        bool l_Bounds = l_Mesh->GetBounds() == GetPositionBounds(l_Test.Data, l_Test.Data.Indices);
+        for (const Trinity::Submesh& it_Submesh : l_Submeshes)
+        {
+            l_Bounds = l_Bounds && it_Submesh.Bounds == GetPositionBounds(l_Test.Data, std::span(l_Test.Data.Indices).subspan(it_Submesh.FirstIndex, it_Submesh.IndexCount));
+        }
+
+        const std::span<const std::byte> l_Gpu = l_Device.GetMappedData(m_MeshReadbacks[it_Mesh]);
+        const bool l_ReadBack = l_API == Trinity::GraphicsAPI::None || (l_Gpu.size() >= l_File->Data.size() && std::memcmp(l_Gpu.data(), l_File->Data.data(), l_File->Data.size()) == 0);
+        const std::string l_Decoded = CompareMesh(l_Test.Data, l_File->Layout, l_API == Trinity::GraphicsAPI::None ? l_File->Data : l_Gpu);
+        if (!l_Matches || !l_Bounds || !l_ReadBack || !l_Decoded.empty())
+        {
+            l_Wrong = std::format("{} {}", l_Test.Name, !l_Matches ? "loaded with a layout, bounds or submeshes other than its file's" : !l_Bounds ? "has bounds other than its positions'" : !l_ReadBack ? "read back from the GPU other than as cooked" : l_Decoded);
+
+            break;
+        }
+
+        l_Vertices += l_File->Layout.VertexCount;
+        l_Indices += l_File->Layout.IndexCount;
+        l_Summary += std::format("{}{} with {} vertices, {}-bit indices and {} submesh(es)", l_Summary.empty() ? "" : ", ", l_Test.Name, l_File->Layout.VertexCount, Trinity::RHI::GetIndexSize(l_File->Layout.IndexFormat) * 8, l_Submeshes.size());
+    }
+
+    for (const Trinity::RHI::BufferHandle it_Readback : m_MeshReadbacks)
+    {
+        l_Device.DestroyBuffer(it_Readback);
+    }
+
+    m_MeshReadbacks.clear();
+
+    if (!l_Wrong.empty())
+    {
+        TR_ERROR("Meshes: {}", l_Wrong);
+
+        return;
+    }
+
+    TR_INFO("Meshes: {} loaded {} ({} vertices and {} indices in all), and every vertex, index, bound and submesh {} as cooked", Trinity::ToString(l_API), l_Summary, l_Vertices, l_Indices, l_API == Trinity::GraphicsAPI::None ? "decoded" : "read back from the GPU");
+}
+
+// Every frame acquires meshes at random and releases what is due. A quarter are released at once, so their reads are cancelled, and the rest live up to c_MeshChurnMaxLifetime frames. Only an acquisition that starts a load counts
+void SandboxLayer::UpdateMeshChurn(std::uint64_t frame)
+{
+    std::erase_if(m_MeshChurn, [this, frame](const ChurnRef& churn)
+    {
+        if (churn.ReleaseFrame > frame)
+        {
+            return false;
+        }
+
+        m_MeshChurnFinished += churn.Ref.IsReady() ? 1 : 0;
+
+        return true;
+    });
+
+    std::uniform_int_distribution<std::size_t> l_Mesh(0, m_TestMeshes.size() - 1);
+    std::uniform_int_distribution<std::uint32_t> l_Lifetimes(0, c_MeshChurnMaxLifetime);
+    for (std::uint32_t it_Acquire = 0; it_Acquire < c_MeshChurnPerFrame && m_MeshChurnLoads < c_MeshChurnLoads; ++it_Acquire)
+    {
+        const Trinity::UUID l_ID = m_TestMeshes[l_Mesh(m_MeshRandom)].ID;
+        const std::uint32_t l_Lifetime = l_Lifetimes(m_MeshRandom);
+        m_MeshChurnLoads += Trinity::AssetManager::GetState(l_ID) == Trinity::AssetState::None ? 1 : 0;
+        if (l_Lifetime == 0)
+        {
+            const Trinity::AssetRef<Trinity::MeshAsset> l_Released(l_ID);
+
+            continue;
+        }
+
+        m_MeshChurn.push_back({ Trinity::AssetRef<Trinity::MeshAsset>(l_ID), frame + l_Lifetime });
+    }
+
+    if (m_MeshChurnLoads >= c_MeshChurnLoads)
+    {
+        m_MeshChurn.clear();
+        m_MeshPhase = MeshPhase::Settling;
+        m_MeshPhaseFrame = frame;
+    }
+}
+
+// Lets go of everything the mesh test held, and starts the sprites
+void SandboxLayer::FinishMeshes()
+{
+    m_MeshChurn.clear();
+    m_MeshRefs.clear();
+    for (const Trinity::RHI::BufferHandle it_Readback : m_MeshReadbacks)
+    {
+        Trinity::Application::Get().GetDevice().DestroyBuffer(it_Readback);
+    }
+
+    m_MeshReadbacks.clear();
+    m_MeshPhase = MeshPhase::Done;
+    if (m_SpritesReady)
+    {
+        m_SpritePhase = SpritePhase::Loading;
+        m_SpritePhaseFrame = Trinity::Application::Get().GetFrameCount();
+    }
+}
+
+// 64 placeholder source files give the registry 64 texture assets, a grey one and a model whose sub-assets are the test meshes, and a memory source serves what they cook into at /cache. The meshes run first
+void SandboxLayer::CreateTestAssets()
 {
     TR_PROFILE_FUNCTION();
 
@@ -2040,7 +2615,7 @@ void SandboxLayer::CreateSprites()
         }
     }
 
-    if (!Trinity::FileSystem::WriteText(std::format("{}/{}", c_SpriteTestRoot, c_GreyTextureName), "A grey sRGB texture; the cooked KTX2 is made in memory"))
+    if (!Trinity::FileSystem::WriteText(std::format("{}/{}", c_SpriteTestRoot, c_GreyTextureName), "A grey sRGB texture; the cooked KTX2 is made in memory") || !Trinity::FileSystem::WriteText(std::format("{}/{}", c_SpriteTestRoot, c_ModelName), "A model; its meshes are made in memory"))
     {
         TR_ERROR("Sprites: the source files under {} could not be written", c_SpriteTestRoot);
 
@@ -2085,6 +2660,11 @@ void SandboxLayer::CreateSprites()
     const std::string l_GreyPath = Trinity::GetCookedTexturePath(l_GreyRecord->ID);
     static_cast<void>(l_Cache->AddFile(std::string_view(l_GreyPath).substr(Trinity::Project::c_CacheMount.size() + 1), MakeSpriteKtx2(l_GreyTexels, c_SpriteTextureSize, true, true)));
     m_GreyTexture = l_GreyRecord->ID;
+
+    if (!AddTestMeshes(*l_Cache))
+    {
+        m_TestMeshes.clear();
+    }
 
     if (!Trinity::FileSystem::Mount(Trinity::Project::c_CacheMount, std::move(l_Cache)))
     {
@@ -2180,8 +2760,13 @@ void SandboxLayer::CreateSprites()
     l_Scene.UpdateWorldTransforms();
 
     Trinity::AssetManager::SetRegistry(m_SpriteRegistry.get());
-    m_SpritePhase = SpritePhase::Loading;
-    m_SpritePhaseFrame = Trinity::Application::Get().GetFrameCount();
+    m_SpritesReady = true;
+    m_MeshPhase = MeshPhase::Loading;
+    m_MeshPhaseFrame = Trinity::Application::Get().GetFrameCount();
+    if (m_TestMeshes.empty())
+    {
+        FinishMeshes();
+    }
 }
 
 // Waits for every texture to load, reads a frame's readback back, and from then on watches Renderer memory
@@ -2398,14 +2983,22 @@ void SandboxLayer::ReportSprites()
     }
 }
 
-void SandboxLayer::DestroySprites()
+void SandboxLayer::DestroyTestAssets()
 {
+    m_MeshChurn.clear();
+    m_MeshRefs.clear();
+    for (const Trinity::RHI::BufferHandle it_Readback : m_MeshReadbacks)
+    {
+        Trinity::Application::Get().GetDevice().DestroyBuffer(it_Readback);
+    }
+
+    m_MeshReadbacks.clear();
     if (m_SpritePhase == SpritePhase::Running)
     {
         ReportSprites();
     }
 
-    if (m_SpritePhase != SpritePhase::Idle)
+    if (m_SpriteRegistry)
     {
         Trinity::AssetManager::SetRegistry(nullptr);
     }

@@ -269,6 +269,20 @@ namespace Trinity
             reader.Read("OrderInLayer", component.OrderInLayer);
         }
 
+        void SaveMeshRenderer(const MeshRendererComponent& component, ComponentWriter& writer)
+        {
+            writer.Write("Mesh", component.Mesh);
+            writer.Write("Materials", std::span<const UUID>(component.Materials));
+            writer.Write("CastShadows", component.CastShadows);
+        }
+
+        void LoadMeshRenderer(MeshRendererComponent& component, const ComponentReader& reader)
+        {
+            reader.Read("Mesh", component.Mesh);
+            reader.Read("Materials", component.Materials);
+            reader.Read("CastShadows", component.CastShadows);
+        }
+
         struct FileEntity
         {
             UUID ID;
@@ -535,6 +549,20 @@ namespace Trinity
         *m_Output += ToHex(value);
     }
 
+    // As a flow sequence, so an empty list is [] rather than nothing
+    void ComponentWriter::Write(std::string_view key, std::span<const UUID> values)
+    {
+        WriteKey(key);
+        *m_Output += '[';
+        for (std::size_t it_Index = 0; it_Index < values.size(); ++it_Index)
+        {
+            *m_Output += it_Index == 0 ? "" : ", ";
+            *m_Output += ToHex(values[it_Index]);
+        }
+
+        *m_Output += ']';
+    }
+
     void ComponentWriter::Write(std::string_view key, const glm::vec2& value)
     {
         WriteKey(key);
@@ -690,6 +718,37 @@ namespace Trinity
         return true;
     }
 
+    bool ComponentReader::Read(std::string_view key, std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>>& values) const
+    {
+        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
+        if (!l_Value)
+        {
+            return false;
+        }
+
+        if (!l_Value->IsSequence())
+        {
+            return Malformed(m_ComponentName, key);
+        }
+
+        std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>> l_Values;
+        l_Values.reserve(l_Value->size());
+        for (const YAML::Node it_Element : *l_Value)
+        {
+            const std::optional<UUID> l_UUID = it_Element.IsScalar() ? UUID::Parse(it_Element.Scalar()) : std::nullopt;
+            if (!l_UUID)
+            {
+                return Malformed(m_ComponentName, key);
+            }
+
+            l_Values.push_back(*l_UUID);
+        }
+
+        values = std::move(l_Values);
+
+        return true;
+    }
+
     bool ComponentReader::Read(std::string_view key, glm::vec2& value) const
     {
         return ReadFloats(*m_Node, m_ComponentName, key, std::span<float, 2>(&value.x, 2));
@@ -744,6 +803,7 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<TransformComponent, SaveTransform, LoadTransform>());
             RegisterComponent(MakeComponentSerializer<CameraComponent, SaveCamera, LoadCamera>());
             RegisterComponent(MakeComponentSerializer<SpriteRendererComponent, SaveSpriteRenderer, LoadSpriteRenderer>());
+            RegisterComponent(MakeComponentSerializer<MeshRendererComponent, SaveMeshRenderer, LoadMeshRenderer>());
         }
 
         void Shutdown()

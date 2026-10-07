@@ -24,12 +24,25 @@ namespace Trinity
 
     using AssetSettings = std::vector<AssetSetting>;
 
+    // Something an importer made from a file, such as a model's mesh, named by a key the importer keeps the same from one import to the next
+    struct SubAsset
+    {
+        std::string Key;
+        std::string Importer;
+        UUID ID;
+
+        [[nodiscard]] bool operator==(const SubAsset&) const = default;
+    };
+
+    // A file's record lists its sub-assets. A sub-asset's own record has its file's path, then '#' and its key, and its file's UUID as its parent
     struct AssetRecord
     {
         UUID ID;
         std::string Path;
         std::string Importer;
         AssetSettings Settings;
+        UUID Parent;
+        std::vector<SubAsset> SubAssets;
 
         [[nodiscard]] const std::string* FindSetting(std::string_view key) const
         {
@@ -54,13 +67,15 @@ namespace Trinity
     {
     public:
         static constexpr std::string_view c_MetaExtension = ".meta";
-        static constexpr std::uint32_t c_MetaFormatVersion = 1;
+        static constexpr std::uint32_t c_MetaFormatVersion = 2;
+        static constexpr char c_SubAssetSeparator = '#';
 
         explicit AssetRegistry(std::string_view root);
 
         void SetDefaultSettings(std::string_view importer, AssetSettings settings);
         AssetScanReport Scan();
         bool SetSettings(UUID id, AssetSettings settings);
+        bool SetSubAssets(UUID parent, std::vector<SubAsset> subAssets);
 
         [[nodiscard]] const AssetRecord* Find(UUID id) const;
         [[nodiscard]] const AssetRecord* FindByPath(std::string_view path) const;

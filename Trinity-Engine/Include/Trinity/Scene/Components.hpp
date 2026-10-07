@@ -140,6 +140,19 @@ namespace Trinity
         [[nodiscard]] bool operator==(const SpriteRendererComponent&) const = default;
     };
 
+    struct MeshRendererComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.MeshRenderer";
+
+        // A mesh asset's UUID. An invalid one draws nothing
+        UUID Mesh;
+        // By material slot, which each submesh names. A slot past the end, or holding an invalid UUID, draws with the default material
+        std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>> Materials;
+        bool CastShadows = true;
+
+        [[nodiscard]] bool operator==(const MeshRendererComponent&) const = default;
+    };
+
     // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save
     struct UnknownComponentsComponent
     {

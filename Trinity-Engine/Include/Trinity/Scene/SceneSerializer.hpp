@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Expected.hpp"
 #include "Trinity/Core/Export.hpp"
+#include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Scene/ComponentType.hpp"
 
@@ -9,6 +10,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -39,6 +41,7 @@ namespace Trinity
         void Write(std::string_view key, const glm::vec3& value);
         void Write(std::string_view key, const glm::vec4& value);
         void Write(std::string_view key, const glm::quat& value);
+        void Write(std::string_view key, std::span<const UUID> values);
 
         void WriteValue(std::string_view value);
 
@@ -64,6 +67,7 @@ namespace Trinity
         bool Read(std::string_view key, glm::vec3& value) const;
         bool Read(std::string_view key, glm::vec4& value) const;
         bool Read(std::string_view key, glm::quat& value) const;
+        bool Read(std::string_view key, std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>>& values) const;
 
         bool ReadValue(std::string& value) const;
 

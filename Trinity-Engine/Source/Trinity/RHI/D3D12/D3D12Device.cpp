@@ -313,6 +313,10 @@ namespace Trinity
                     {
                         return { D3D12_BARRIER_SYNC_EXECUTE_INDIRECT, D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT, D3D12_BARRIER_LAYOUT_UNDEFINED };
                     }
+                    case ResourceState::Geometry:
+                    {
+                        return { D3D12_BARRIER_SYNC_ALL_SHADING | D3D12_BARRIER_SYNC_INDEX_INPUT, D3D12_BARRIER_ACCESS_SHADER_RESOURCE | D3D12_BARRIER_ACCESS_INDEX_BUFFER, D3D12_BARRIER_LAYOUT_UNDEFINED };
+                    }
                 }
 
                 return {};

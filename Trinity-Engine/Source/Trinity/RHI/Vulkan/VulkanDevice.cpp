@@ -412,6 +412,10 @@ namespace Trinity
                     {
                         return { VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
                     }
+                    case ResourceState::Geometry:
+                    {
+                        return { c_ShaderStages | VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
+                    }
                 }
 
                 return {};

@@ -207,7 +207,8 @@ namespace Trinity
             CopySource,
             CopyDestination,
             IndexBuffer,
-            IndirectArgument
+            IndirectArgument,
+            Geometry
         };
 
         struct Viewport

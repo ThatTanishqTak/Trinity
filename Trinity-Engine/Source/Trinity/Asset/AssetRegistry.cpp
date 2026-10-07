@@ -42,6 +42,11 @@ namespace Trinity
             return l_Extension;
         }
 
+        std::string GetSubAssetPath(std::string_view file, std::string_view key)
+        {
+            return std::format("{}{}{}", file, AssetRegistry::c_SubAssetSeparator, key);
+        }
+
         MetaResult ReadMeta(const std::string& metaPath, AssetRecord& record)
         {
             const Expected<std::string, FileError> l_Text = FileSystem::ReadText(metaPath);
@@ -103,6 +108,25 @@ namespace Trinity
                 }
             }
 
+            // A key, an importer and a UUID each. An entry without a key or an importer is left out, and one without a usable UUID gets a new one when scanned
+            if (const YAML::Node l_SubAssets = l_Root["SubAssets"]; l_SubAssets && l_SubAssets.IsSequence())
+            {
+                record.SubAssets.clear();
+                for (const YAML::Node it_SubAsset : l_SubAssets)
+                {
+                    const YAML::Node l_Key = it_SubAsset.IsMap() ? it_SubAsset["Key"] : YAML::Node();
+                    const YAML::Node l_SubImporter = it_SubAsset.IsMap() ? it_SubAsset["Importer"] : YAML::Node();
+                    const YAML::Node l_SubID = it_SubAsset.IsMap() ? it_SubAsset["ID"] : YAML::Node();
+                    if (!l_Key || !l_Key.IsScalar() || !l_SubImporter || !l_SubImporter.IsScalar())
+                    {
+                        continue;
+                    }
+
+                    const std::optional<UUID> l_SubUUID = l_SubID && l_SubID.IsScalar() ? UUID::Parse(l_SubID.Scalar()) : std::nullopt;
+                    record.SubAssets.push_back({ l_Key.Scalar(), l_SubImporter.Scalar(), l_SubUUID ? *l_SubUUID : UUID() });
+                }
+            }
+
             return MetaResult::Read;
         }
 
@@ -120,6 +144,21 @@ namespace Trinity
             }
 
             l_Emitter << YAML::EndMap;
+            if (!record.SubAssets.empty())
+            {
+                l_Emitter << YAML::Key << "SubAssets" << YAML::Value << YAML::BeginSeq;
+                for (const SubAsset& it_SubAsset : record.SubAssets)
+                {
+                    l_Emitter << YAML::BeginMap;
+                    l_Emitter << YAML::Key << "Key" << YAML::Value << it_SubAsset.Key;
+                    l_Emitter << YAML::Key << "Importer" << YAML::Value << it_SubAsset.Importer;
+                    l_Emitter << YAML::Key << "ID" << YAML::Value << it_SubAsset.ID.ToString();
+                    l_Emitter << YAML::EndMap;
+                }
+
+                l_Emitter << YAML::EndSeq;
+            }
+
             l_Emitter << YAML::EndMap;
 
             const Expected<void, FileError> l_Written = FileSystem::WriteText(metaPath, std::string(l_Emitter.c_str()) + "\n");
@@ -143,7 +182,7 @@ namespace Trinity
         m_Defaults.insert_or_assign(std::string(importer), std::move(settings));
     }
 
-    // Every file gets a .meta beside it holding its UUID. A file and its .meta moved together keep the UUID. Existing .meta files are never rewritten here
+    // Every file gets a .meta beside it holding its UUID and its sub-assets' UUIDs. A file and its .meta moved together keep them. An existing .meta is rewritten here only when its UUIDs clash with others or are missing
     AssetScanReport AssetRegistry::Scan()
     {
         TR_PROFILE_FUNCTION();
@@ -190,6 +229,12 @@ namespace Trinity
         AssetScanReport l_Report;
         RecordMap l_Records;
         PathMap l_ByPath;
+
+        const auto a_IsTaken = [this, &l_Records](UUID id, const AssetRecord& record, std::size_t subAssets)
+        {
+            const auto a_Earlier = record.SubAssets.begin() + static_cast<std::ptrdiff_t>(subAssets);
+            return !id.IsValid() || l_Records.contains(id) || m_Records.contains(id) || id == record.ID || std::ranges::find(record.SubAssets.begin(), a_Earlier, id, &SubAsset::ID) != a_Earlier;
+        };
         for (const std::string& it_File : l_Files)
         {
             const std::string l_MetaPath = it_File + std::string(c_MetaExtension);
@@ -227,6 +272,15 @@ namespace Trinity
                     l_Record.ID = UUID::Generate();
                 } while (l_Records.contains(l_Record.ID) || m_Records.contains(l_Record.ID));
 
+                // A file given a new UUID, as a copy is, gives its sub-assets new ones too, so they never clash with the original's
+                for (std::size_t it_SubAsset = 0; it_SubAsset < l_Record.SubAssets.size(); ++it_SubAsset)
+                {
+                    do
+                    {
+                        l_Record.SubAssets[it_SubAsset].ID = UUID::Generate();
+                    } while (a_IsTaken(l_Record.SubAssets[it_SubAsset].ID, l_Record, it_SubAsset));
+                }
+
                 if (!WriteMeta(l_MetaPath, l_Record))
                 {
                     continue;
@@ -253,6 +307,55 @@ namespace Trinity
             else if (const auto a_Old = m_Records.find(l_Record.ID); a_Old != m_Records.end() && a_Old->second.Path != it_File)
             {
                 ++l_Report.Moved;
+            }
+
+            // Later entries with a key already listed are dropped. A sub-asset whose UUID is missing or clashes gets a new one, and the .meta is rewritten
+            std::vector<SubAsset> l_Unique;
+            for (SubAsset& it_SubAsset : l_Record.SubAssets)
+            {
+                if (std::ranges::find(l_Unique, it_SubAsset.Key, &SubAsset::Key) == l_Unique.end())
+                {
+                    l_Unique.push_back(std::move(it_SubAsset));
+                }
+            }
+
+            l_Record.SubAssets = std::move(l_Unique);
+
+            // A UUID this file's sub-asset had at the last scan is its own, and anything else already in use clashes
+            bool l_Renamed = false;
+            for (std::size_t it_SubAsset = 0; it_SubAsset < l_Record.SubAssets.size(); ++it_SubAsset)
+            {
+                const auto a_Earlier = l_Record.SubAssets.begin() + static_cast<std::ptrdiff_t>(it_SubAsset);
+                const auto a_Clashes = [&](UUID id)
+                {
+                    const auto a_Old = m_Records.find(id);
+
+                    return !id.IsValid() || id == l_Record.ID || l_Records.contains(id) || (a_Old != m_Records.end() && a_Old->second.Parent != l_Record.ID) || std::ranges::find(l_Record.SubAssets.begin(), a_Earlier, id, &SubAsset::ID) != a_Earlier;
+                };
+
+                while (a_Clashes(l_Record.SubAssets[it_SubAsset].ID))
+                {
+                    l_Record.SubAssets[it_SubAsset].ID = UUID::Generate();
+                    l_Renamed = true;
+                }
+            }
+
+            if (l_Renamed)
+            {
+                TR_CORE_WARN("Assets: sub-assets of {} had missing or clashing UUIDs and were given new ones", it_File);
+                static_cast<void>(WriteMeta(l_MetaPath, l_Record));
+                ++l_Report.Regenerated;
+            }
+
+            for (const SubAsset& it_SubAsset : l_Record.SubAssets)
+            {
+                AssetRecord l_Child;
+                l_Child.ID = it_SubAsset.ID;
+                l_Child.Path = GetSubAssetPath(it_File, it_SubAsset.Key);
+                l_Child.Importer = it_SubAsset.Importer;
+                l_Child.Parent = l_Record.ID;
+                l_ByPath.emplace(l_Child.Path, l_Child.ID);
+                l_Records.emplace(l_Child.ID, std::move(l_Child));
             }
 
             l_ByPath.emplace(it_File, l_Record.ID);
@@ -283,11 +386,11 @@ namespace Trinity
         return l_Report;
     }
 
-    // Into the record and its .meta, which is the only time this rewrites one
+    // Into the record and its .meta. A sub-asset has no .meta of its own, so no settings either
     bool AssetRegistry::SetSettings(UUID id, AssetSettings settings)
     {
         const auto a_Found = m_Records.find(id);
-        if (a_Found == m_Records.end())
+        if (a_Found == m_Records.end() || a_Found->second.Parent.IsValid())
         {
             return false;
         }
@@ -300,6 +403,74 @@ namespace Trinity
         }
 
         a_Found->second = std::move(l_Record);
+
+        return true;
+    }
+
+    // What an importer made from a file. A key the file already had keeps its UUID, so references to it survive a reimport, a new key gets a new UUID, and a key left out is dropped. Fails for a sub-asset, an unknown file, keys listed twice, or a .meta that cannot be written
+    bool AssetRegistry::SetSubAssets(UUID parent, std::vector<SubAsset> subAssets)
+    {
+        const auto a_Found = m_Records.find(parent);
+        if (a_Found == m_Records.end() || a_Found->second.Parent.IsValid())
+        {
+            return false;
+        }
+
+        for (std::size_t it_SubAsset = 0; it_SubAsset < subAssets.size(); ++it_SubAsset)
+        {
+            const auto a_Earlier = subAssets.begin() + static_cast<std::ptrdiff_t>(it_SubAsset);
+            if (std::ranges::find(subAssets.begin(), a_Earlier, subAssets[it_SubAsset].Key, &SubAsset::Key) != a_Earlier)
+            {
+                TR_CORE_ERROR("Assets: {} was given the sub-asset key {} twice", a_Found->second.Path, subAssets[it_SubAsset].Key);
+
+                return false;
+            }
+        }
+
+        AssetRecord l_Record = a_Found->second;
+        for (std::size_t it_SubAsset = 0; it_SubAsset < subAssets.size(); ++it_SubAsset)
+        {
+            SubAsset& l_SubAsset = subAssets[it_SubAsset];
+            const auto a_Old = std::ranges::find(l_Record.SubAssets, l_SubAsset.Key, &SubAsset::Key);
+            if (a_Old != l_Record.SubAssets.end())
+            {
+                l_SubAsset.ID = a_Old->ID;
+
+                continue;
+            }
+
+            const auto a_Earlier = subAssets.begin() + static_cast<std::ptrdiff_t>(it_SubAsset);
+            do
+            {
+                l_SubAsset.ID = UUID::Generate();
+            } while (m_Records.contains(l_SubAsset.ID) || std::ranges::find(subAssets.begin(), a_Earlier, l_SubAsset.ID, &SubAsset::ID) != a_Earlier);
+        }
+
+        const std::vector<SubAsset> l_Old = std::move(l_Record.SubAssets);
+        l_Record.SubAssets = std::move(subAssets);
+        if (!WriteMeta(l_Record.Path + std::string(c_MetaExtension), l_Record))
+        {
+            return false;
+        }
+
+        for (const SubAsset& it_SubAsset : l_Old)
+        {
+            m_ByPath.erase(GetSubAssetPath(l_Record.Path, it_SubAsset.Key));
+            m_Records.erase(it_SubAsset.ID);
+        }
+
+        for (const SubAsset& it_SubAsset : l_Record.SubAssets)
+        {
+            AssetRecord l_Child;
+            l_Child.ID = it_SubAsset.ID;
+            l_Child.Path = GetSubAssetPath(l_Record.Path, it_SubAsset.Key);
+            l_Child.Importer = it_SubAsset.Importer;
+            l_Child.Parent = parent;
+            m_ByPath.insert_or_assign(l_Child.Path, l_Child.ID);
+            m_Records.insert_or_assign(l_Child.ID, std::move(l_Child));
+        }
+
+        m_Records.insert_or_assign(parent, std::move(l_Record));
 
         return true;
     }

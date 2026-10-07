@@ -1,6 +1,7 @@
 #include "Trinity/Renderer/Renderer.hpp"
 
 #include "Trinity/Asset/AssetManager.hpp"
+#include "Trinity/Asset/MeshLoader.hpp"
 #include "Trinity/Asset/TextureLoader.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/LayerStack.hpp"
@@ -79,9 +80,11 @@ namespace Trinity
         m_CopyPipeline = CreateFullscreenPipeline("SceneCopy", GetOutputFormat(), "Renderer scene copy", "the output only shows the clear colour");
         m_TonemapPipeline = CreateFullscreenPipeline("Tonemap", c_DisplayFormat, "Renderer tonemap", "the scene is shown as black");
 
-        // Textures need this device, so their loader lives exactly as long as the renderer
+        // Textures and meshes need this device, so their loaders live exactly as long as the renderer
         m_TextureLoader = CreateScope<TextureLoader>(m_Device);
         AssetManager::RegisterLoader(*m_TextureLoader);
+        m_MeshLoader = CreateScope<MeshLoader>(m_Device);
+        AssetManager::RegisterLoader(*m_MeshLoader);
 
         // Sprites without a texture, or whose texture is still loading, draw with the loader's white placeholder
         const Asset* l_White = m_TextureLoader->GetPlaceholder();
@@ -106,6 +109,8 @@ namespace Trinity
 
         m_FrameGraph.reset();
         m_Renderer2D.reset();
+        AssetManager::UnregisterLoader(MeshAsset::c_AssetType);
+        m_MeshLoader.reset();
         AssetManager::UnregisterLoader(TextureAsset::c_AssetType);
         m_TextureLoader.reset();
 
@@ -132,6 +137,7 @@ namespace Trinity
 
         RHI::CommandList& l_Commands = m_Device.BeginFrame();
         m_TextureLoader->RecordUploads(l_Commands);
+        m_MeshLoader->RecordUploads(l_Commands);
         m_Renderer2D->BeginFrame();
 
         {

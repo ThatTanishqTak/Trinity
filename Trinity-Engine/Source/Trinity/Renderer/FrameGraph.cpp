@@ -121,6 +121,10 @@ namespace Trinity
                 {
                     return RHI::BufferUsage::Indirect;
                 }
+                case RHI::ResourceState::Geometry:
+                {
+                    return RHI::BufferUsage::ShaderResource | RHI::BufferUsage::Index;
+                }
                 default:
                 {
                     return RHI::BufferUsage::None;
