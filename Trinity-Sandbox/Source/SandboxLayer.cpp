@@ -146,6 +146,21 @@ namespace
 
     static_assert(sizeof(RasterPushData) == 64);
 
+    // FNV-1a over the texels of each row of a readback, leaving out the padding after each row
+    std::uint64_t HashRows(std::span<const std::byte> data, std::uint64_t rowPitch, std::uint64_t rowSize, std::uint32_t rows)
+    {
+        std::uint64_t l_Hash = 14695981039346656037ull;
+        for (std::uint32_t it_Row = 0; it_Row < rows && (it_Row * rowPitch + rowSize) <= data.size(); ++it_Row)
+        {
+            for (const std::byte it_Byte : data.subspan(static_cast<std::size_t>(it_Row* rowPitch), static_cast<std::size_t>(rowSize)))
+            {
+                l_Hash = (l_Hash ^ std::to_integer<std::uint64_t>(it_Byte)) * 1099511628211ull;
+            }
+        }
+
+        return l_Hash;
+    }
+
     // A hue in [0, 1) at saturation 0.6 and value 0.5, so the window never gets too bright to look at
     std::array<float, 4> HueToColor(float hue)
     {
@@ -327,6 +342,8 @@ void SandboxLayer::OnAttach()
         Trinity::ConsoleVariables::LogAll();
     }
 
+    CreateSprites();
+
     Trinity::Memory::LogUsage();
 }
 
@@ -347,7 +364,10 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
         TestRasterState();
         TestMultisampling();
         TestTimestamps();
+        TestFrameGraph();
     }
+
+    UpdateSprites();
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
     Trinity::Application::Get().GetRenderer().SetClearColor(HueToColor(m_ClearHue));
@@ -1439,6 +1459,228 @@ void SandboxLayer::TestTimestamps()
     TR_INFO("Timestamps: {} wrote {} non-zero timestamps in order over {} frames at {} ticks a second, and the second frame's {}x{} pass took {:.1f} us", Trinity::ToString(l_Info.API), l_Ticks.size(), c_FrameCount, l_Frequency, c_Size, c_Size, a_Microseconds(l_Ticks[7] - l_Ticks[4]));
 }
 
+// Four passes over four frames: a compute pass fills a transient texture with ComputeTest's pattern, a raster pass copies it into a transient 4x target and draws a triangle over it, resolving into an imported texture, and a copy pass reads that back. A fourth pass draws into a texture nobody reads and must be culled. From the second frame the transient textures come from the pool, Renderer memory holds still from the third frame to the fourth, once what earlier tests destroyed has been released, and probes read the pattern and the triangle
+void SandboxLayer::TestFrameGraph()
+{
+    TR_PROFILE_FUNCTION();
+
+    struct Probe
+    {
+        std::uint32_t X = 0;
+        std::uint32_t Y = 0;
+        std::array<std::uint8_t, 4> Expected{};
+    };
+
+    constexpr Trinity::RHI::Format c_Format = Trinity::RHI::Format::RGBA8Unorm;
+    constexpr std::uint32_t c_Size = 64;
+    constexpr std::uint32_t c_SampleCount = 4;
+    constexpr std::uint32_t c_FrameCount = 4;
+    constexpr std::array<std::uint8_t, 4> c_Yellow{ 255, 255, 0, 255 };
+
+    // The triangle covers the corner of the lower-left quadrant below its diagonal, and everywhere else shows the pattern
+    const std::array<Probe, 6> l_Probes
+    { {
+        { 40, 10, MakeComputeTexel(40, 10) },
+        { 10, 20, MakeComputeTexel(10, 20) },
+        { 60, 60, MakeComputeTexel(60, 60) },
+        { 20, 50, MakeComputeTexel(20, 50) },
+        { 4, 59, c_Yellow },
+        { 2, 40, c_Yellow }
+    } };
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+
+    const std::string_view l_Extension = l_Info.API == Trinity::GraphicsAPI::D3D12 ? "dxil" : "spv";
+    const auto a_ReadShader = [l_Extension](std::string_view name) { return Trinity::FileSystem::ReadFile(std::format("/engine/shaders/{}.{}", name, l_Extension)); };
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_FillShader = a_ReadShader("ComputeTest.FillTexture");
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_CopyVertexShader = a_ReadShader("SceneCopy.VertexMain");
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_CopyPixelShader = a_ReadShader("SceneCopy.PixelMain");
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_TriangleVertexShader = a_ReadShader("RasterTest.VertexMain");
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_TrianglePixelShader = a_ReadShader("RasterTest.PixelMain");
+    if (!l_FillShader || !l_CopyVertexShader || !l_CopyPixelShader || !l_TriangleVertexShader || !l_TrianglePixelShader)
+    {
+        TR_ERROR("Frame graph: the ComputeTest, SceneCopy and RasterTest {} shaders could not be read from /engine/shaders", l_Extension);
+
+        return;
+    }
+
+    Trinity::RHI::ComputePipelineDescription l_FillDescription;
+    l_FillDescription.ComputeShader = { *l_FillShader, "FillTexture" };
+    l_FillDescription.DebugName = "Sandbox graph pattern";
+    const Trinity::RHI::PipelineHandle l_Fill = l_Device.CreateComputePipeline(l_FillDescription);
+
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ c_Format };
+    Trinity::RHI::GraphicsPipelineDescription l_CopyDescription;
+    l_CopyDescription.VertexShader = { *l_CopyVertexShader, "VertexMain" };
+    l_CopyDescription.PixelShader = { *l_CopyPixelShader, "PixelMain" };
+    l_CopyDescription.ColorFormats = l_ColorFormats;
+    l_CopyDescription.SampleCount = c_SampleCount;
+    l_CopyDescription.Cull = Trinity::RHI::CullMode::None;
+    l_CopyDescription.DebugName = "Sandbox graph copy";
+    const Trinity::RHI::PipelineHandle l_Copy = l_Device.CreateGraphicsPipeline(l_CopyDescription);
+
+    Trinity::RHI::GraphicsPipelineDescription l_TriangleDescription = l_CopyDescription;
+    l_TriangleDescription.VertexShader = { *l_TriangleVertexShader, "VertexMain" };
+    l_TriangleDescription.PixelShader = { *l_TrianglePixelShader, "PixelMain" };
+    l_TriangleDescription.DebugName = "Sandbox graph triangle";
+    const Trinity::RHI::PipelineHandle l_Triangle = l_Device.CreateGraphicsPipeline(l_TriangleDescription);
+
+    Trinity::RHI::TextureDescription l_OutputDescription;
+    l_OutputDescription.Width = c_Size;
+    l_OutputDescription.Height = c_Size;
+    l_OutputDescription.TextureFormat = c_Format;
+    l_OutputDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::CopySource;
+    l_OutputDescription.DebugName = "Sandbox graph output";
+    const Trinity::RHI::TextureHandle l_Output = l_Device.CreateTexture(l_OutputDescription);
+
+    const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(c_Format, c_Size);
+
+    Trinity::RHI::BufferDescription l_ReadbackDescription;
+    l_ReadbackDescription.Size = l_RowPitch * c_Size;
+    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_ReadbackDescription.DebugName = "Sandbox graph readback";
+    const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_ReadbackDescription);
+
+    const auto a_Destroy = [&]()
+    {
+        l_Device.DestroyBuffer(l_Readback);
+        l_Device.DestroyTexture(l_Output);
+        l_Device.DestroyPipeline(l_Triangle);
+        l_Device.DestroyPipeline(l_Copy);
+        l_Device.DestroyPipeline(l_Fill);
+    };
+
+    if (!l_Fill || !l_Copy || !l_Triangle || !l_Output || !l_Readback)
+    {
+        TR_ERROR("Frame graph: could not create the pipelines, the output texture or the readback");
+        a_Destroy();
+
+        return;
+    }
+
+    Trinity::RHI::TextureDescription l_PatternDescription;
+    l_PatternDescription.Width = c_Size;
+    l_PatternDescription.Height = c_Size;
+    l_PatternDescription.TextureFormat = c_Format;
+
+    Trinity::RHI::TextureDescription l_MultisampledDescription = l_PatternDescription;
+    l_MultisampledDescription.SampleCount = c_SampleCount;
+
+    Trinity::FrameGraph::Statistics l_First;
+    std::array<std::uint64_t, c_FrameCount> l_RendererBytes{};
+    {
+        Trinity::FrameGraph l_Graph(l_Device);
+        for (std::uint32_t it_Frame = 0; it_Frame < c_FrameCount; ++it_Frame)
+        {
+            l_Graph.Reset();
+
+            const Trinity::FrameGraphTexture l_GraphOutput = l_Graph.ImportTexture("Output", l_Output, l_OutputDescription, it_Frame == 0 ? Trinity::RHI::ResourceState::Undefined : Trinity::RHI::ResourceState::CopySource, Trinity::RHI::ResourceState::CopySource);
+            const Trinity::FrameGraphBuffer l_GraphReadback = l_Graph.ImportBuffer("Readback", l_Readback, l_ReadbackDescription.Size, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination);
+            const Trinity::FrameGraphTexture l_Pattern = l_Graph.CreateTexture("Pattern", l_PatternDescription);
+            const Trinity::FrameGraphTexture l_Multisampled = l_Graph.CreateTexture("Multisampled", l_MultisampledDescription);
+            const Trinity::FrameGraphTexture l_Unused = l_Graph.CreateTexture("Unused", l_PatternDescription);
+
+            l_Graph.AddPass("Pattern", Trinity::FrameGraphPassType::Compute, [l_Pattern](Trinity::FrameGraphPassBuilder& builder) { builder.Write(l_Pattern, Trinity::RHI::ResourceState::UnorderedAccess); }, [l_Pattern, l_Fill](const Trinity::FrameGraphContext& context)
+            {
+                ComputePushData l_Push;
+                l_Push.Texture = { context.GetDevice().GetUnorderedAccessIndex(context.GetTexture(l_Pattern)), 0 };
+                l_Push.Size = c_Size;
+
+                context.GetCommands().SetPipeline(l_Fill);
+                context.GetCommands().PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+                context.GetCommands().Dispatch(c_Size / c_ComputeTextureGroupSize, c_Size / c_ComputeTextureGroupSize, 1);
+            });
+
+            l_Graph.AddPass("Unused", Trinity::FrameGraphPassType::Raster, [l_Unused](Trinity::FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Unused }); }, []([[maybe_unused]] const Trinity::FrameGraphContext& context)
+            {
+
+            });
+
+            l_Graph.AddPass("Composite", Trinity::FrameGraphPassType::Raster, [l_Multisampled, l_GraphOutput, l_Pattern](Trinity::FrameGraphPassBuilder& builder)
+            {
+                Trinity::FrameGraphColorAttachment l_Attachment{ l_Multisampled };
+                l_Attachment.Resolve = l_GraphOutput;
+                builder.AddColorAttachment(l_Attachment);
+                builder.Read(l_Pattern, Trinity::RHI::ResourceState::ShaderResource);
+            }, [l_Pattern, l_Copy, l_Triangle](const Trinity::FrameGraphContext& context)
+            {
+                const std::array<std::uint32_t, 2> l_CopyPush{ context.GetDevice().GetShaderResourceIndex(context.GetTexture(l_Pattern)), 0 };
+                context.GetCommands().SetPipeline(l_Copy);
+                context.GetCommands().PushConstants(std::as_bytes(std::span(l_CopyPush)));
+                context.GetCommands().Draw(3, 1, 0, 0);
+
+                const RasterPushData l_TrianglePush{ { glm::vec4(-1.0f, -1.0f, 0.5f, 1.0f), glm::vec4(0.0f, -1.0f, 0.5f, 1.0f), glm::vec4(-1.0f, 0.0f, 0.5f, 1.0f) }, glm::vec4(1.0f, 1.0f, 0.0f, 1.0f) };
+                context.GetCommands().SetPipeline(l_Triangle);
+                context.GetCommands().PushConstants(std::as_bytes(std::span(&l_TrianglePush, 1)));
+                context.GetCommands().Draw(3, 1, 0, 0);
+            });
+
+            l_Graph.AddPass("Readback", Trinity::FrameGraphPassType::Copy, [l_GraphOutput, l_GraphReadback](Trinity::FrameGraphPassBuilder& builder)
+            {
+                builder.Read(l_GraphOutput, Trinity::RHI::ResourceState::CopySource);
+                builder.Write(l_GraphReadback, Trinity::RHI::ResourceState::CopyDestination);
+            }, [l_GraphOutput, l_GraphReadback](const Trinity::FrameGraphContext& context)
+            {
+                context.GetCommands().CopyTextureToBuffer(context.GetTexture(l_GraphOutput), 0, 0, context.GetBuffer(l_GraphReadback), 0);
+            });
+
+            Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+            l_Graph.Execute(l_Commands);
+            l_Device.EndFrame();
+
+            l_First = it_Frame == 0 ? l_Graph.GetStatistics() : l_First;
+            l_RendererBytes[it_Frame] = Trinity::Memory::GetStats(Trinity::MemoryTag::Renderer).CurrentBytes;
+        }
+
+        const Trinity::FrameGraph::Statistics& l_Last = l_Graph.GetStatistics();
+        const bool l_Shape = l_First.Passes == 4 && l_First.CulledPasses == 1 && !l_Graph.IsPassCulled(0) && l_Graph.IsPassCulled(1) && !l_Graph.IsPassCulled(2) && !l_Graph.IsPassCulled(3);
+        const bool l_Pooled = l_First.TransientTextures == 2 && l_First.PooledTextures == 2 && l_Last.TransientTextures == 2 && l_Last.PooledTextures == 2;
+        if (!l_Shape || !l_Pooled || l_RendererBytes[2] != l_RendererBytes[3])
+        {
+            TR_ERROR("Frame graph: the first frame ran {} pass(es) with {} culled, {} transient and {} pooled texture(s), the last {} transient and {} pooled, and Renderer went from {} to {} between the last two frames", l_First.Passes, l_First.CulledPasses, l_First.TransientTextures, l_First.PooledTextures, l_Last.TransientTextures, l_Last.PooledTextures, Trinity::Memory::FormatBytes(l_RendererBytes[2]), Trinity::Memory::FormatBytes(l_RendererBytes[3]));
+            l_Device.WaitIdle();
+            a_Destroy();
+
+            return;
+        }
+
+        l_Device.WaitIdle();
+    }
+
+    if (l_Info.API == Trinity::GraphicsAPI::None)
+    {
+        TR_INFO("Frame graph: None ran 3 of 4 passes with the unused one culled, and reused 2 pooled textures over {} frames", c_FrameCount);
+        a_Destroy();
+
+        return;
+    }
+
+    const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+    std::string l_Wrong;
+    for (const Probe& it_Probe : l_Probes)
+    {
+        const std::size_t l_Offset = static_cast<std::size_t>(it_Probe.Y * l_RowPitch + it_Probe.X * 4);
+        if (l_Offset + 4 > l_Data.size() || std::memcmp(l_Data.data() + l_Offset, it_Probe.Expected.data(), it_Probe.Expected.size()) != 0)
+        {
+            const auto a_Channel = [&l_Data, l_Offset](std::size_t channel) { return l_Offset + channel < l_Data.size() ? std::to_integer<std::uint32_t>(l_Data[l_Offset + channel]) : 0u; };
+            l_Wrong += std::format("{}({}, {}) is ({}, {}, {}, {}) where ({}, {}, {}, {}) was expected", l_Wrong.empty() ? "" : "; ", it_Probe.X, it_Probe.Y, a_Channel(0), a_Channel(1), a_Channel(2), a_Channel(3), it_Probe.Expected[0], it_Probe.Expected[1], it_Probe.Expected[2], it_Probe.Expected[3]);
+        }
+    }
+
+    a_Destroy();
+
+    if (!l_Wrong.empty())
+    {
+        TR_ERROR("Frame graph: the readback differs: {}", l_Wrong);
+
+        return;
+    }
+
+    TR_INFO("Frame graph: {} ran 3 of 4 passes with the unused one culled and {} barriers a frame, reused 2 pooled textures over {} frames with Renderer holding {} over the last two, and all {} probes for the pattern and the triangle hold", Trinity::ToString(l_Info.API), l_First.Barriers, c_FrameCount, Trinity::Memory::FormatBytes(l_RendererBytes[3]), l_Probes.size());
+}
+
 // 64 placeholder source files give the registry 64 texture assets, whose cooked KTX2 a memory source serves at /cache
 void SandboxLayer::CreateSprites()
 {
@@ -1711,6 +1953,8 @@ void SandboxLayer::TestSpriteReadback()
         }
     }
 
+    const std::uint64_t l_Hash = l_Check ? HashRows(l_Data, l_RowPitch, std::uint64_t{ c_SpriteReadbackSize } * 4, c_SpriteReadbackSize) : 0;
+
     l_Device.DestroyBuffer(l_Readback);
     l_Device.DestroyTexture(l_Target);
 
@@ -1728,7 +1972,7 @@ void SandboxLayer::TestSpriteReadback()
         return;
     }
 
-    TR_INFO("Sprites: {} drew 8 sprites in one draw call{}", Trinity::ToString(l_Info.API), l_Check ? std::format(", and all {} probes for sort order, transforms, flips, filtering and blending hold the expected colour", c_Probes.size()) : "");
+    TR_INFO("Sprites: {} drew 8 sprites in one draw call{}", Trinity::ToString(l_Info.API), l_Check ? std::format(", and all {} probes for sort order, transforms, flips, filtering and blending hold the expected colour, with the readback hashing to 0x{:016x}", c_Probes.size(), l_Hash) : "");
 }
 
 // Whether Renderer memory moved between sprite frame c_SpriteCheckFrame and c_SpriteReportFrame, or the last frame when the run ends sooner

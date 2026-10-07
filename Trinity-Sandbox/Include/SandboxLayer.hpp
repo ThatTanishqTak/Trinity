@@ -30,6 +30,7 @@ private:
     void TestRasterState();
     void TestMultisampling();
     void TestTimestamps();
+    void TestFrameGraph();
     void CreateSprites();
     void UpdateSprites();
     void TestSpriteReadback();
