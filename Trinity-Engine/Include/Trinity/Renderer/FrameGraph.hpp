@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <span>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -134,6 +135,12 @@ namespace Trinity
             std::uint32_t PooledBuffers = 0;
         };
 
+        struct PassTime
+        {
+            std::string_view Name;
+            float Milliseconds = 0.0f;
+        };
+
         explicit FrameGraph(RHI::Device& device);
         ~FrameGraph();
 
@@ -174,6 +181,10 @@ namespace Trinity
         [[nodiscard]] std::string_view GetPassName(std::uint32_t pass) const;
         [[nodiscard]] bool IsPassCulled(std::uint32_t pass) const;
 
+        // The GPU time of each pass that ran, in the order of the latest timed execution, and of all of them together, averaged over 30 executions and published once every 30. A pass's time includes the barriers before it. An execution's timestamps are read back c_FramesInFlight executions later, so a graph executes at most once per device frame, and the times stay empty until the first 30 are in
+        [[nodiscard]] std::span<const PassTime> GetPassTimes() const;
+        [[nodiscard]] float GetGpuMilliseconds() const;
+
     private:
         friend class FrameGraphPassBuilder;
         friend class FrameGraphContext;
@@ -196,6 +207,12 @@ namespace Trinity
         void TransitionTexture(RHI::CommandList& commands, std::uint32_t texture, RHI::ResourceState state);
         void TransitionBuffer(RHI::CommandList& commands, std::uint32_t buffer, RHI::ResourceState state);
         void ReleaseResources();
+
+        void BeginTimestamps(RHI::CommandList& commands);
+        void WritePassTimestamp(RHI::CommandList& commands, std::uint32_t pass);
+        void EndTimestamps(RHI::CommandList& commands);
+        void ReadTimestamps(std::uint32_t slot);
+        void PublishTimes(std::uint32_t slot);
 
         RHI::Device& m_Device;
         State* m_State = nullptr;

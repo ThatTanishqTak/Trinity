@@ -23,8 +23,14 @@ namespace Trinity
         // A pooled texture or buffer that no execution has used for this many executions is destroyed, so the sizes a resize leaves behind do not pile up
         constexpr std::uint64_t c_PoolKeepExecutions = 4;
 
+        // Pass times are summed over this many timed executions and then published together, so the numbers hold still long enough to read
+        constexpr std::uint32_t c_TimingWindow = 30;
+        constexpr std::uint32_t c_MinimumTimestamps = 32;
+        constexpr std::uint64_t c_TimestampSize = 8;
+
         template<typename T>
         using RendererVector = std::vector<T, TaggedAllocator<T, MemoryTag::Renderer>>;
+        using RendererString = TaggedString<MemoryTag::Renderer>;
 
         // Undefined counts as a write, since leaving it discards the contents
         bool IsWriteState(RHI::ResourceState state)
@@ -127,6 +133,12 @@ namespace Trinity
         {
             return left.Width == right.Width && left.Height == right.Height && left.MipLevels == right.MipLevels && left.ArrayLayers == right.ArrayLayers && left.Dimension == right.Dimension && left.SampleCount == right.SampleCount && left.TextureFormat == right.TextureFormat && left.Usage == right.Usage && left.ClearColor == right.ClearColor && left.ClearDepth == right.ClearDepth && left.OptimizedClear == right.OptimizedClear;
         }
+
+        // How many of the first count names are this one, which tells apart passes that share a name
+        std::uint32_t CountName(std::span<const RendererString> names, std::uint32_t count, std::string_view name)
+        {
+            return static_cast<std::uint32_t>(std::ranges::count(names.first(count), name));
+        }
     }
 
     struct FrameGraph::State
@@ -206,6 +218,26 @@ namespace Trinity
             std::size_t Size = 0;
         };
 
+        // One per frame in flight. A slot is read back when the graph comes round to it again, by when the device has finished the frame that wrote it. Timestamp 0 is before the first pass, and timestamp n + 1 after pass n
+        struct TimingSlot
+        {
+            RHI::QueryPoolHandle Pool;
+            RHI::BufferHandle Readback;
+            std::uint32_t Capacity = 0;
+            std::uint32_t Timestamps = 0;
+            std::uint32_t PassCount = 0;
+            RendererVector<RendererString> PassNames;
+        };
+
+        // Occurrence tells apart passes that share a name, such as one per added output
+        struct PassTiming
+        {
+            RendererString Name;
+            std::uint32_t Occurrence = 0;
+            double Milliseconds = 0.0;
+            std::uint32_t Samples = 0;
+        };
+
         RendererVector<Pass> Passes;
         RendererVector<Access> Accesses;
         RendererVector<FrameGraphColorAttachment> ColorAttachments;
@@ -219,6 +251,14 @@ namespace Trinity
         std::uint64_t Executions = 0;
         Statistics Stats;
         bool Executed = false;
+
+        std::array<TimingSlot, RHI::c_FramesInFlight> TimingSlots;
+        RendererVector<PassTiming> Timings;
+        double TotalMilliseconds = 0.0;
+        std::uint32_t TimingSamples = 0;
+        RendererVector<RendererString> PublishedNames;
+        RendererVector<PassTime> PublishedTimes;
+        float PublishedTotal = 0.0f;
     };
 
     void FrameGraphPassBuilder::AddColorAttachment(const FrameGraphColorAttachment& attachment)
@@ -325,6 +365,12 @@ namespace Trinity
             m_Device.DestroyBuffer(it_Buffer.Handle);
         }
 
+        for (const State::TimingSlot& it_Slot : m_State->TimingSlots)
+        {
+            m_Device.DestroyQueryPool(it_Slot.Pool);
+            m_Device.DestroyBuffer(it_Slot.Readback);
+        }
+
         for (const State::MemoryBlock& it_Block : m_State->Blocks)
         {
             Memory::Free(it_Block.Memory);
@@ -423,12 +469,14 @@ namespace Trinity
 
         CullPasses();
         AcquireResources();
+        BeginTimestamps(commands);
 
         for (std::uint32_t it_Pass = 0; it_Pass < l_State.Passes.size(); ++it_Pass)
         {
             if (!l_State.Passes[it_Pass].Culled)
             {
                 RecordPass(commands, it_Pass);
+                WritePassTimestamp(commands, it_Pass);
             }
         }
 
@@ -450,6 +498,7 @@ namespace Trinity
             }
         }
 
+        EndTimestamps(commands);
         ReleaseResources();
         DestroyCallbacks();
     }
@@ -472,6 +521,16 @@ namespace Trinity
     bool FrameGraph::IsPassCulled(std::uint32_t pass) const
     {
         return pass < m_State->Passes.size() && m_State->Passes[pass].Culled;
+    }
+
+    std::span<const FrameGraph::PassTime> FrameGraph::GetPassTimes() const
+    {
+        return m_State->PublishedTimes;
+    }
+
+    float FrameGraph::GetGpuMilliseconds() const
+    {
+        return m_State->PublishedTotal;
     }
 
     std::uint32_t FrameGraph::BeginPass(std::string_view name, FrameGraphPassType type)
@@ -840,5 +899,155 @@ namespace Trinity
 
         l_State.Stats.PooledTextures = static_cast<std::uint32_t>(l_State.TexturePool.size());
         l_State.Stats.PooledBuffers = static_cast<std::uint32_t>(l_State.BufferPool.size());
+    }
+
+    // Reads what this slot timed last, makes room for a timestamp before the first pass and one after each pass that runs, and writes the first. A slot whose pool or readback could not be created times nothing
+    void FrameGraph::BeginTimestamps(RHI::CommandList& commands)
+    {
+        State& l_State = *m_State;
+        const std::uint32_t l_Slot = static_cast<std::uint32_t>(l_State.Executions % RHI::c_FramesInFlight);
+        ReadTimestamps(l_Slot);
+
+        State::TimingSlot& l_Timing = l_State.TimingSlots[l_Slot];
+        const std::uint32_t l_Needed = l_State.Stats.Passes - l_State.Stats.CulledPasses + 1;
+        if (l_Timing.Capacity < l_Needed)
+        {
+            m_Device.DestroyQueryPool(l_Timing.Pool);
+            m_Device.DestroyBuffer(l_Timing.Readback);
+            l_Timing.Capacity = std::max({ l_Needed, l_Timing.Capacity * 2, c_MinimumTimestamps });
+
+            RHI::BufferDescription l_Description;
+            l_Description.Size = l_Timing.Capacity * c_TimestampSize;
+            l_Description.Usage = RHI::BufferUsage::CopyDestination;
+            l_Description.Memory = RHI::MemoryType::Readback;
+            l_Description.DebugName = "Frame graph timestamp readback";
+
+            l_Timing.Pool = m_Device.CreateQueryPool({ l_Timing.Capacity, "Frame graph timestamps" });
+            l_Timing.Readback = m_Device.CreateBuffer(l_Description);
+            if (!l_Timing.Pool || !l_Timing.Readback)
+            {
+                TR_CORE_ERROR("Frame graph: could not create {} timestamps and their readback, so this graph's passes are not timed", l_Timing.Capacity);
+                m_Device.DestroyQueryPool(l_Timing.Pool);
+                m_Device.DestroyBuffer(l_Timing.Readback);
+                l_Timing.Pool = {};
+                l_Timing.Readback = {};
+            }
+        }
+
+        l_Timing.Timestamps = 0;
+        l_Timing.PassCount = 0;
+        if (l_Timing.Pool)
+        {
+            commands.WriteTimestamp(l_Timing.Pool, l_Timing.Timestamps++);
+        }
+    }
+
+    void FrameGraph::WritePassTimestamp(RHI::CommandList& commands, std::uint32_t pass)
+    {
+        State& l_State = *m_State;
+        State::TimingSlot& l_Timing = l_State.TimingSlots[l_State.Executions % RHI::c_FramesInFlight];
+        if (!l_Timing.Pool)
+        {
+            return;
+        }
+
+        commands.WriteTimestamp(l_Timing.Pool, l_Timing.Timestamps++);
+        if (l_Timing.PassNames.size() <= l_Timing.PassCount)
+        {
+            l_Timing.PassNames.emplace_back();
+        }
+
+        l_Timing.PassNames[l_Timing.PassCount++].assign(l_State.Passes[pass].Name);
+    }
+
+    // After the final transitions, so the last pass's time leaves them out
+    void FrameGraph::EndTimestamps(RHI::CommandList& commands)
+    {
+        State& l_State = *m_State;
+        const State::TimingSlot& l_Timing = l_State.TimingSlots[l_State.Executions % RHI::c_FramesInFlight];
+        if (l_Timing.Pool && l_Timing.Timestamps > 0)
+        {
+            commands.ResolveTimestamps(l_Timing.Pool, 0, l_Timing.Timestamps, l_Timing.Readback, 0);
+        }
+    }
+
+    // Adds each pass's time to its sum, and publishes once the window is full
+    void FrameGraph::ReadTimestamps(std::uint32_t slot)
+    {
+        State& l_State = *m_State;
+        State::TimingSlot& l_Timing = l_State.TimingSlots[slot];
+        const std::uint64_t l_Frequency = m_Device.GetTimestampFrequency();
+        const std::span<const std::byte> l_Data = l_Timing.Readback ? m_Device.GetMappedData(l_Timing.Readback) : std::span<const std::byte>{};
+        if (l_Timing.Timestamps == 0 || l_Frequency == 0 || l_Data.size() < l_Timing.Timestamps * c_TimestampSize)
+        {
+            return;
+        }
+
+        const auto a_Ticks = [&l_Data](std::uint32_t index)
+        {
+            std::uint64_t l_Ticks = 0;
+            std::memcpy(&l_Ticks, l_Data.data() + index * c_TimestampSize, sizeof(l_Ticks));
+
+            return l_Ticks;
+        };
+
+        const auto a_Milliseconds = [l_Frequency](std::uint64_t begin, std::uint64_t end) { return end > begin ? static_cast<double>(end - begin) * 1000.0 / static_cast<double>(l_Frequency) : 0.0; };
+
+        for (std::uint32_t it_Pass = 0; it_Pass < l_Timing.PassCount; ++it_Pass)
+        {
+            const RendererString& l_Name = l_Timing.PassNames[it_Pass];
+            const std::uint32_t l_Occurrence = CountName(l_Timing.PassNames, it_Pass, l_Name);
+            auto a_Timing = std::ranges::find_if(l_State.Timings, [&l_Name, l_Occurrence](const State::PassTiming& timing) { return timing.Occurrence == l_Occurrence && timing.Name == l_Name; });
+            if (a_Timing == l_State.Timings.end())
+            {
+                l_State.Timings.push_back({ l_Name, l_Occurrence, 0.0, 0 });
+                a_Timing = l_State.Timings.end() - 1;
+            }
+
+            a_Timing->Milliseconds += a_Milliseconds(a_Ticks(it_Pass), a_Ticks(it_Pass + 1));
+            ++a_Timing->Samples;
+        }
+
+        l_State.TotalMilliseconds += a_Milliseconds(a_Ticks(0), a_Ticks(l_Timing.Timestamps - 1));
+        ++l_State.TimingSamples;
+        if (l_State.TimingSamples == c_TimingWindow)
+        {
+            PublishTimes(slot);
+        }
+    }
+
+    // In the order the latest execution ran its passes, each averaged over the executions it ran in. Passes the latest execution did not run are forgotten, and the rest start a new window
+    void FrameGraph::PublishTimes(std::uint32_t slot)
+    {
+        State& l_State = *m_State;
+        const State::TimingSlot& l_Latest = l_State.TimingSlots[slot];
+        while (l_State.PublishedNames.size() < l_Latest.PassCount)
+        {
+            l_State.PublishedNames.emplace_back();
+        }
+
+        l_State.PublishedTimes.clear();
+        for (std::uint32_t it_Pass = 0; it_Pass < l_Latest.PassCount; ++it_Pass)
+        {
+            const RendererString& l_Name = l_Latest.PassNames[it_Pass];
+            const std::uint32_t l_Occurrence = CountName(l_Latest.PassNames, it_Pass, l_Name);
+            const auto a_Timing = std::ranges::find_if(l_State.Timings, [&l_Name, l_Occurrence](const State::PassTiming& timing) { return timing.Occurrence == l_Occurrence && timing.Name == l_Name; });
+            const bool l_Timed = a_Timing != l_State.Timings.end() && a_Timing->Samples != 0;
+
+            l_State.PublishedNames[it_Pass].assign(l_Name);
+            l_State.PublishedTimes.push_back({ l_State.PublishedNames[it_Pass], l_Timed ? static_cast<float>(a_Timing->Milliseconds / a_Timing->Samples) : 0.0f });
+        }
+
+        l_State.PublishedTotal = static_cast<float>(l_State.TotalMilliseconds / l_State.TimingSamples);
+
+        std::erase_if(l_State.Timings, [&l_Latest](const State::PassTiming& timing) { return CountName(l_Latest.PassNames, l_Latest.PassCount, timing.Name) <= timing.Occurrence; });
+        for (State::PassTiming& it_Timing : l_State.Timings)
+        {
+            it_Timing.Milliseconds = 0.0;
+            it_Timing.Samples = 0;
+        }
+
+        l_State.TotalMilliseconds = 0.0;
+        l_State.TimingSamples = 0;
     }
 }

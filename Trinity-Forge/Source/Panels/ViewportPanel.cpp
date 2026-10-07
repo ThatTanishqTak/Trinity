@@ -550,6 +550,17 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
         TextLine(std::format("{:.0f} fps, {:.2f} ms", l_IO.Framerate, l_IO.Framerate > 0.0f ? 1000.0f / l_IO.Framerate : 0.0f));
         TextLine(std::format("{} on {}", Trinity::ToString(l_Device.API), l_Device.AdapterName.empty() ? "no adapter" : l_Device.AdapterName));
         TextLine(std::format("Scene {}x{}, {} sprite(s) in {} draw call(s)", l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight(), l_Sprites.Sprites, l_Sprites.DrawCalls));
+
+        // Averaged over 30 frames by the graph, so the lines change twice a second at 60 fps
+        const Trinity::FrameGraph& l_Graph = l_Renderer.GetFrameGraph();
+        if (!l_Graph.GetPassTimes().empty())
+        {
+            TextLine(std::format("GPU {:.2f} ms", l_Graph.GetGpuMilliseconds()));
+            for (const Trinity::FrameGraph::PassTime& it_Time : l_Graph.GetPassTimes())
+            {
+                TextLine(std::format("  {} {:.2f} ms", it_Time.Name, it_Time.Milliseconds));
+            }
+        }
         TextLine(std::format("Camera at ({:.2f}, {:.2f}), {:.3g} units high, grid every {:g}", l_Position.x, l_Position.y, m_Camera.GetHeight(), EditorGrid::GetSpacing(m_Camera, viewportSize)));
         TextLine(l_Selected ? std::format("Selected: {}", std::string_view(l_Selected.Get<Trinity::TagComponent>().Tag)) : std::string("Nothing selected"));
     }

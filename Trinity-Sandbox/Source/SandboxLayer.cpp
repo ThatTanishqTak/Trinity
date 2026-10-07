@@ -381,6 +381,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
     }
 
     CheckRendererGraph();
+    CheckGpuTimes();
     UpdateSprites();
     UpdateResizes();
 
@@ -1758,6 +1759,46 @@ void SandboxLayer::CheckRendererGraph()
     }
 
     TR_INFO("Renderer graph: {} ran {} with {} barriers", Trinity::ToString(Trinity::Application::Get().GetDevice().GetInfo().API), l_Passes, l_Statistics.Barriers);
+}
+
+// Once the Renderer's graph has published its first averages: Scene and Output were timed, and no pass took less than nothing or longer than the whole. The null device's timestamps all read 0
+void SandboxLayer::CheckGpuTimes()
+{
+    const Trinity::FrameGraph& l_Graph = Trinity::Application::Get().GetRenderer().GetFrameGraph();
+    const std::span<const Trinity::FrameGraph::PassTime> l_Times = l_Graph.GetPassTimes();
+    if (m_GpuTimesChecked || l_Times.empty())
+    {
+        return;
+    }
+
+    m_GpuTimesChecked = true;
+
+    const Trinity::GraphicsAPI l_API = Trinity::Application::Get().GetDevice().GetInfo().API;
+    const float l_Total = l_Graph.GetGpuMilliseconds();
+
+    std::string l_Passes;
+    float l_Sum = 0.0f;
+    bool l_Scene = false;
+    bool l_Output = false;
+    bool l_InRange = true;
+    for (const Trinity::FrameGraph::PassTime& it_Time : l_Times)
+    {
+        l_Passes += std::format("{}{} {:.3f} ms", l_Passes.empty() ? "" : ", ", it_Time.Name, it_Time.Milliseconds);
+        l_Sum += it_Time.Milliseconds;
+        l_Scene = l_Scene || it_Time.Name == "Scene";
+        l_Output = l_Output || it_Time.Name == "Output";
+        l_InRange = l_InRange && it_Time.Milliseconds >= 0.0f && it_Time.Milliseconds <= l_Total * 1.001f + 0.001f;
+    }
+
+    const bool l_Timed = l_API == Trinity::GraphicsAPI::None ? l_Total == 0.0f : l_Total > 0.0f;
+    if (!l_Scene || !l_Output || !l_InRange || !l_Timed)
+    {
+        TR_ERROR("GPU times: {} timed {} with {:.3f} ms in all, where Scene and Output are timed and each pass takes from 0 to the whole", Trinity::ToString(l_API), l_Passes, l_Total);
+
+        return;
+    }
+
+    TR_INFO("GPU times: {} averaged over 30 frames {}, adding up to {:.3f} ms of {:.3f} ms in all", Trinity::ToString(l_API), l_Passes, l_Sum, l_Total);
 }
 
 // Each resize recreates the scene target and the swap chain or offscreen target between frames, and Renderer memory after 100 resizes must match that after 200. The window gets its size back afterwards

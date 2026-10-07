@@ -34,6 +34,7 @@ private:
     void TestTimestamps();
     void TestFrameGraph();
     void CheckRendererGraph();
+    void CheckGpuTimes();
     void UpdateResizes();
     void CreateSprites();
     void UpdateSprites();
@@ -59,6 +60,7 @@ private:
     bool m_SpriteReported = false;
     bool m_RHITested = false;
     bool m_GraphChecked = false;
+    bool m_GpuTimesChecked = false;
 
     std::uint32_t m_Resizes = 0;
     std::uint32_t m_ResizeWidth = 0;
