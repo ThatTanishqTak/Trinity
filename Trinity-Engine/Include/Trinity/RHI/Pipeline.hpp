@@ -56,6 +56,12 @@ namespace Trinity
             bool DepthTest = false;
             bool DepthWrite = false;
             CompareOp DepthCompare = CompareOp::GreaterOrEqual;
+            // Added to each fragment's depth: the constant in units of the smallest step of a 32-bit float depth near that depth, the slope times the triangle's largest depth slope, and the sum limited to the clamp unless the clamp is 0. With reversed depth a positive bias moves towards the camera
+            std::int32_t DepthBiasConstant = 0;
+            float DepthBiasSlope = 0.0f;
+            float DepthBiasClamp = 0.0f;
+            // Clamps depth to the viewport's range instead of clipping triangles that reach past it
+            bool DepthClamp = false;
             bool AlphaBlend = false;
             std::string_view DebugName;
         };

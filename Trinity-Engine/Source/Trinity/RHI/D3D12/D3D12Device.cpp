@@ -504,6 +504,10 @@ namespace Trinity
                 {
                     return DXGI_FORMAT_R16G16B16A16_FLOAT;
                 }
+                case Format::R11G11B10Float:
+                {
+                    return DXGI_FORMAT_R11G11B10_FLOAT;
+                }
                 case Format::R32Float:
                 {
                     return DXGI_FORMAT_R32_FLOAT;
@@ -1920,7 +1924,12 @@ namespace Trinity
             l_Description.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
             l_Description.RasterizerState.CullMode = ToCullMode(description.Cull);
             l_Description.RasterizerState.FrontCounterClockwise = description.FrontCounterClockwise ? TRUE : FALSE;
-            l_Description.RasterizerState.DepthClipEnable = TRUE;
+            l_Description.RasterizerState.DepthBias = description.DepthBiasConstant;
+            l_Description.RasterizerState.SlopeScaledDepthBias = description.DepthBiasSlope;
+            l_Description.RasterizerState.DepthBiasClamp = description.DepthBiasClamp;
+
+            // D3D12 always clamps depth to the viewport's range, so turning clipping off is what Vulkan's depth clamp does
+            l_Description.RasterizerState.DepthClipEnable = description.DepthClamp ? FALSE : TRUE;
 
             // Vulkan never writes depth without the depth test, so neither does this
             l_Description.DepthStencilState.DepthEnable = description.DepthTest ? TRUE : FALSE;

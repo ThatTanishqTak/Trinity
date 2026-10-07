@@ -46,6 +46,7 @@ namespace Trinity
             BGRA8Unorm,
             BGRA8Srgb,
             RGBA16Float,
+            R11G11B10Float,
             R32Float,
             R32Uint,
             RG32Float,

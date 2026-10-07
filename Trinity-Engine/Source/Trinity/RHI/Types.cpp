@@ -32,6 +32,10 @@ namespace Trinity
                 {
                     return "RGBA16Float";
                 }
+                case Format::R11G11B10Float:
+                {
+                    return "R11G11B10Float";
+                }
                 case Format::R32Float:
                 {
                     return "R32Float";
@@ -105,6 +109,7 @@ namespace Trinity
                 case Format::RGBA8Srgb:
                 case Format::BGRA8Unorm:
                 case Format::BGRA8Srgb:
+                case Format::R11G11B10Float:
                 case Format::R32Float:
                 case Format::R32Uint:
                 case Format::D32Float:

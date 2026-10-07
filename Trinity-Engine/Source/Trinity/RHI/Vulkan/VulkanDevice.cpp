@@ -30,7 +30,13 @@ namespace Trinity
                 VkBool32 T::* Member;
             };
 
-            // What the backend is built on. Descriptor indexing is for the bindless tables, and shader draw parameters is what Slang's SV_VertexID needs
+            // What the backend is built on. Descriptor indexing is for the bindless tables, shader draw parameters is what Slang's SV_VertexID needs, and depth clamp and bias clamp are for shadow maps
+            constexpr std::array<RequiredFeature<VkPhysicalDeviceFeatures>, 2> c_Required10
+            { {
+                { "depthClamp", &VkPhysicalDeviceFeatures::depthClamp },
+                { "depthBiasClamp", &VkPhysicalDeviceFeatures::depthBiasClamp }
+            } };
+
             constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan11Features>, 1> c_Required11
             { {
                 { "shaderDrawParameters", &VkPhysicalDeviceVulkan11Features::shaderDrawParameters }
@@ -608,6 +614,10 @@ namespace Trinity
                 case Format::RGBA16Float:
                 {
                     return VK_FORMAT_R16G16B16A16_SFLOAT;
+                }
+                case Format::R11G11B10Float:
+                {
+                    return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
                 }
                 case Format::R32Float:
                 {
@@ -1261,6 +1271,7 @@ namespace Trinity
                 vkGetPhysicalDeviceFeatures2(it_PhysicalDevice, &l_Features.Features);
 
                 std::string l_Missing;
+                AddMissing(l_Features.Features.features, c_Required10, l_Missing);
                 AddMissing(l_Features.Vulkan11, c_Required11, l_Missing);
                 AddMissing(l_Features.Vulkan12, c_Required12, l_Missing);
                 AddMissing(l_Features.Vulkan13, c_Required13, l_Missing);
@@ -1293,6 +1304,7 @@ namespace Trinity
             vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &l_Properties);
 
             DeviceFeatures l_Enabled;
+            Enable(l_Enabled.Features.features, c_Required10);
             Enable(l_Enabled.Vulkan11, c_Required11);
             Enable(l_Enabled.Vulkan12, c_Required12);
             Enable(l_Enabled.Vulkan13, c_Required13);
@@ -2078,6 +2090,11 @@ namespace Trinity
             l_Rasterization.polygonMode = VK_POLYGON_MODE_FILL;
             l_Rasterization.cullMode = ToVkCullMode(description.Cull);
             l_Rasterization.frontFace = description.FrontCounterClockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
+            l_Rasterization.depthClampEnable = description.DepthClamp ? VK_TRUE : VK_FALSE;
+            l_Rasterization.depthBiasEnable = description.DepthBiasConstant != 0 || description.DepthBiasSlope != 0.0f ? VK_TRUE : VK_FALSE;
+            l_Rasterization.depthBiasConstantFactor = static_cast<float>(description.DepthBiasConstant);
+            l_Rasterization.depthBiasSlopeFactor = description.DepthBiasSlope;
+            l_Rasterization.depthBiasClamp = description.DepthBiasClamp;
             l_Rasterization.lineWidth = 1.0f;
 
             VkPipelineMultisampleStateCreateInfo l_Multisample = MakeInfo<VkPipelineMultisampleStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO);

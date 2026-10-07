@@ -27,6 +27,7 @@ private:
     bool OnKeyPressed(Trinity::KeyPressedEvent& event);
     void TestCompute();
     void TestLayeredTextures();
+    void TestRasterState();
     void CreateSprites();
     void UpdateSprites();
     void TestSpriteReadback();

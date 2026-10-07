@@ -132,6 +132,20 @@ namespace
         return { static_cast<std::uint8_t>((layer + 1) * 32), static_cast<std::uint8_t>((mipLevel + 1) * 64), static_cast<std::uint8_t>(cube ? 0x40 : 0xC0), 255 };
     }
 
+    // Nine 32x32 cells side by side, each drawn through its own viewport with its own pipeline
+    constexpr std::uint32_t c_RasterCellSize = 32;
+    constexpr std::uint32_t c_RasterCellCount = 9;
+    constexpr std::uint32_t c_RasterFloatSize = 4;
+
+    // RasterTest.slang's push constants: a triangle in clip space and its colour
+    struct RasterPushData
+    {
+        std::array<glm::vec4, 3> Positions{};
+        glm::vec4 Color{};
+    };
+
+    static_assert(sizeof(RasterPushData) == 64);
+
     // A hue in [0, 1) at saturation 0.6 and value 0.5, so the window never gets too bright to look at
     std::array<float, 4> HueToColor(float hue)
     {
@@ -330,6 +344,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
         m_RHITested = true;
         TestCompute();
         TestLayeredTextures();
+        TestRasterState();
     }
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
@@ -830,6 +845,306 @@ void SandboxLayer::TestLayeredTextures()
     }
 
     TR_INFO("Layers: {} cleared each of {} mips of {} cube faces and {} array layers to its own colour, and every one reads back by a copy and through its texture's shader view", Trinity::ToString(l_Info.API), c_LayeredMipLevels, Trinity::RHI::c_CubeFaceCount, c_LayeredArrayLayers);
+}
+
+// Culling with both windings, constant depth bias of 0, +16 and -16 over a plane at the same depth, depth with and without clamping beyond the far end of the range, then R11G11B10Float and RGBA16Float targets cleared to values each format stores exactly. Every cell is probed and both float targets read back bit for bit
+void SandboxLayer::TestRasterState()
+{
+    TR_PROFILE_FUNCTION();
+
+    enum RasterPipeline : std::uint32_t
+    {
+        CullBack,
+        CullFront,
+        CullBackClockwise,
+        CullNone,
+        DepthPlane,
+        Overlay,
+        OverlayBiasUp,
+        OverlayBiasDown,
+        Unclamped,
+        Clamped,
+        PipelineCount
+    };
+
+    struct Probe
+    {
+        std::string_view Name;
+        std::uint32_t Cell = 0;
+        std::uint32_t X = 0;
+        std::uint32_t Y = 0;
+        std::array<std::uint8_t, 3> Expected{};
+    };
+
+    constexpr std::array<std::uint8_t, 3> c_Black{ 0, 0, 0 };
+    constexpr std::array<std::uint8_t, 3> c_Red{ 255, 0, 0 };
+    constexpr std::array<std::uint8_t, 3> c_Green{ 0, 255, 0 };
+    constexpr std::array<std::uint8_t, 3> c_Blue{ 0, 0, 255 };
+    constexpr std::array<std::uint8_t, 3> c_Yellow{ 255, 255, 0 };
+
+    // The left triangle winds counter-clockwise and the right one clockwise, as seen with Y up
+    constexpr std::array<Probe, 18> c_Probes
+    { {
+        { "back culling keeps the counter-clockwise triangle", 0, 8, 20, c_Red },
+        { "back culling drops the clockwise triangle", 0, 24, 20, c_Black },
+        { "front culling drops the counter-clockwise triangle", 1, 8, 20, c_Black },
+        { "front culling keeps the clockwise triangle", 1, 24, 20, c_Green },
+        { "back culling with clockwise front faces drops the counter-clockwise triangle", 2, 8, 20, c_Black },
+        { "back culling with clockwise front faces keeps the clockwise triangle", 2, 24, 20, c_Green },
+        { "no culling keeps the counter-clockwise triangle", 3, 8, 20, c_Red },
+        { "no culling keeps the clockwise triangle", 3, 24, 20, c_Green },
+        { "outside both triangles", 3, 16, 2, c_Black },
+        { "a coplanar overlay without bias fails a greater test", 4, 16, 16, c_Blue },
+        { "a coplanar overlay biased by +16 passes a greater test", 5, 16, 16, c_Green },
+        { "a coplanar overlay biased by -16 fails a greater-or-equal test", 6, 16, 16, c_Blue },
+        { "a triangle beyond the depth range is clipped without depth clamp", 7, 16, 16, c_Black },
+        { "a triangle beyond the depth range is drawn with depth clamp", 8, 16, 16, c_Yellow },
+        { "the biased overlay covers its whole cell", 5, 1, 30, c_Green },
+        { "the clamped triangle covers its whole cell", 8, 30, 1, c_Yellow },
+        { "the first cell's background", 0, 16, 2, c_Black },
+        { "the last cell's corner", 8, 31, 31, c_Yellow }
+    } };
+
+    constexpr Trinity::RHI::Format c_Format = Trinity::RHI::Format::RGBA8Unorm;
+    constexpr Trinity::RHI::Format c_DepthFormat = Trinity::RHI::Format::D32Float;
+    constexpr std::uint32_t c_Width = c_RasterCellSize * c_RasterCellCount;
+
+    // 0.5, 2 and 0.25 as R11G11B10's 6-bit and 5-bit mantissa floats with an exponent bias of 15, red in the low bits
+    constexpr std::uint32_t c_PackedR11G11B10 = (14u << 6) | ((16u << 6) << 11) | ((13u << 5) << 22);
+    constexpr std::array<std::uint16_t, 4> c_HalfRGBA16{ 0x3800, 0x4000, 0x3400, 0x3C00 };
+    constexpr std::array<float, 4> c_FloatClear{ 0.5f, 2.0f, 0.25f, 1.0f };
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+
+    const std::string_view l_Extension = l_Info.API == Trinity::GraphicsAPI::D3D12 ? "dxil" : "spv";
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_VertexShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/RasterTest.VertexMain.{}", l_Extension));
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_PixelShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/RasterTest.PixelMain.{}", l_Extension));
+    if (!l_VertexShader || !l_PixelShader)
+    {
+        TR_ERROR("Raster: the RasterTest {} shaders could not be read from /engine/shaders", l_Extension);
+
+        return;
+    }
+
+    const std::array<Trinity::RHI::Format, 1> l_ColorFormats{ c_Format };
+    std::array<Trinity::RHI::GraphicsPipelineDescription, PipelineCount> l_Descriptions{};
+    for (Trinity::RHI::GraphicsPipelineDescription& it_Description : l_Descriptions)
+    {
+        it_Description.VertexShader = { *l_VertexShader, "VertexMain" };
+        it_Description.PixelShader = { *l_PixelShader, "PixelMain" };
+        it_Description.ColorFormats = l_ColorFormats;
+        it_Description.DepthFormat = c_DepthFormat;
+        it_Description.Cull = Trinity::RHI::CullMode::None;
+        it_Description.DebugName = "Sandbox raster state";
+    }
+
+    l_Descriptions[CullBack].Cull = Trinity::RHI::CullMode::Back;
+    l_Descriptions[CullFront].Cull = Trinity::RHI::CullMode::Front;
+    l_Descriptions[CullBackClockwise].Cull = Trinity::RHI::CullMode::Back;
+    l_Descriptions[CullBackClockwise].FrontCounterClockwise = false;
+
+    l_Descriptions[DepthPlane].DepthTest = true;
+    l_Descriptions[DepthPlane].DepthWrite = true;
+    for (const RasterPipeline it_Overlay : { Overlay, OverlayBiasUp, OverlayBiasDown })
+    {
+        l_Descriptions[it_Overlay].DepthTest = true;
+        l_Descriptions[it_Overlay].DepthCompare = Trinity::RHI::CompareOp::Greater;
+    }
+
+    l_Descriptions[OverlayBiasUp].DepthBiasConstant = 16;
+    l_Descriptions[OverlayBiasDown].DepthBiasConstant = -16;
+    l_Descriptions[OverlayBiasDown].DepthCompare = Trinity::RHI::CompareOp::GreaterOrEqual;
+    l_Descriptions[Clamped].DepthClamp = true;
+
+    std::array<Trinity::RHI::PipelineHandle, PipelineCount> l_Pipelines{};
+    std::ranges::transform(l_Descriptions, l_Pipelines.begin(), [&l_Device](const Trinity::RHI::GraphicsPipelineDescription& description) { return l_Device.CreateGraphicsPipeline(description); });
+
+    Trinity::RHI::TextureDescription l_TargetDescription;
+    l_TargetDescription.Width = c_Width;
+    l_TargetDescription.Height = c_RasterCellSize;
+    l_TargetDescription.TextureFormat = c_Format;
+    l_TargetDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::CopySource;
+    l_TargetDescription.DebugName = "Sandbox raster target";
+    const Trinity::RHI::TextureHandle l_Target = l_Device.CreateTexture(l_TargetDescription);
+
+    Trinity::RHI::TextureDescription l_DepthDescription = l_TargetDescription;
+    l_DepthDescription.TextureFormat = c_DepthFormat;
+    l_DepthDescription.Usage = Trinity::RHI::TextureUsage::DepthStencil;
+    l_DepthDescription.DebugName = "Sandbox raster depth";
+    const Trinity::RHI::TextureHandle l_Depth = l_Device.CreateTexture(l_DepthDescription);
+
+    Trinity::RHI::TextureDescription l_FloatDescription;
+    l_FloatDescription.Width = c_RasterFloatSize;
+    l_FloatDescription.Height = c_RasterFloatSize;
+    l_FloatDescription.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::CopySource;
+    l_FloatDescription.ClearColor = c_FloatClear;
+    l_FloatDescription.TextureFormat = Trinity::RHI::Format::R11G11B10Float;
+    l_FloatDescription.DebugName = "Sandbox R11G11B10Float target";
+    const Trinity::RHI::TextureHandle l_SmallFloat = l_Device.CreateTexture(l_FloatDescription);
+
+    l_FloatDescription.TextureFormat = Trinity::RHI::Format::RGBA16Float;
+    l_FloatDescription.DebugName = "Sandbox RGBA16Float target";
+    const Trinity::RHI::TextureHandle l_HalfFloat = l_Device.CreateTexture(l_FloatDescription);
+
+    // The cells, then each float target, every part starting on the copy offset alignment
+    const auto a_Align = [](std::uint64_t size) { return (size + Trinity::RHI::c_TextureCopyOffsetAlignment - 1) / Trinity::RHI::c_TextureCopyOffsetAlignment * Trinity::RHI::c_TextureCopyOffsetAlignment; };
+    const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(c_Format, c_Width);
+    const std::uint64_t l_SmallFloatOffset = a_Align(Trinity::RHI::GetTextureCopySize(c_Format, c_Width, c_RasterCellSize));
+    const std::uint64_t l_HalfFloatOffset = l_SmallFloatOffset + a_Align(Trinity::RHI::GetTextureCopySize(Trinity::RHI::Format::R11G11B10Float, c_RasterFloatSize, c_RasterFloatSize));
+
+    Trinity::RHI::BufferDescription l_ReadbackDescription;
+    l_ReadbackDescription.Size = l_HalfFloatOffset + Trinity::RHI::GetTextureCopySize(Trinity::RHI::Format::RGBA16Float, c_RasterFloatSize, c_RasterFloatSize);
+    l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+    l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+    l_ReadbackDescription.DebugName = "Sandbox raster readback";
+    const Trinity::RHI::BufferHandle l_Readback = l_Device.CreateBuffer(l_ReadbackDescription);
+
+    const auto a_Destroy = [&]()
+    {
+        l_Device.DestroyBuffer(l_Readback);
+        l_Device.DestroyTexture(l_HalfFloat);
+        l_Device.DestroyTexture(l_SmallFloat);
+        l_Device.DestroyTexture(l_Depth);
+        l_Device.DestroyTexture(l_Target);
+        for (const Trinity::RHI::PipelineHandle it_Pipeline : l_Pipelines)
+        {
+            l_Device.DestroyPipeline(it_Pipeline);
+        }
+    };
+
+    if (!std::ranges::all_of(l_Pipelines, [](Trinity::RHI::PipelineHandle pipeline) { return pipeline.IsValid(); }) || !l_Target || !l_Depth || !l_SmallFloat || !l_HalfFloat || !l_Readback)
+    {
+        TR_ERROR("Raster: could not create the pipelines, the targets or the readback");
+        a_Destroy();
+
+        return;
+    }
+
+    Trinity::RHI::CommandList& l_Commands = l_Device.BeginFrame();
+    l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::RenderTarget);
+    l_Commands.TextureBarrier(l_Depth, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::DepthWrite);
+
+    const std::array<Trinity::RHI::ColorAttachment, 1> l_Attachments{ Trinity::RHI::ColorAttachment{ l_Target, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::Store } };
+    Trinity::RHI::RenderingDescription l_Rendering;
+    l_Rendering.ColorAttachments = l_Attachments;
+    l_Rendering.Depth = { l_Depth, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::DontCare, 0.0f };
+    l_Commands.BeginRendering(l_Rendering);
+
+    const auto a_Draw = [&l_Commands, &l_Pipelines](std::uint32_t cell, RasterPipeline pipeline, std::array<glm::vec4, 3> positions, glm::vec4 color)
+    {
+        const float l_X = static_cast<float>(cell * c_RasterCellSize);
+        l_Commands.SetPipeline(l_Pipelines[pipeline]);
+        l_Commands.SetViewport({ l_X, 0.0f, static_cast<float>(c_RasterCellSize), static_cast<float>(c_RasterCellSize), 0.0f, 1.0f });
+        l_Commands.SetScissor({ static_cast<std::int32_t>(cell * c_RasterCellSize), 0, c_RasterCellSize, c_RasterCellSize });
+
+        const RasterPushData l_Push{ positions, color };
+        l_Commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+        l_Commands.Draw(3, 1, 0, 0);
+    };
+
+    const std::array<glm::vec4, 3> l_CounterClockwise{ glm::vec4(-0.9f, -0.9f, 0.5f, 1.0f), glm::vec4(-0.1f, -0.9f, 0.5f, 1.0f), glm::vec4(-0.5f, 0.9f, 0.5f, 1.0f) };
+    const std::array<glm::vec4, 3> l_Clockwise{ glm::vec4(0.1f, -0.9f, 0.5f, 1.0f), glm::vec4(0.5f, 0.9f, 0.5f, 1.0f), glm::vec4(0.9f, -0.9f, 0.5f, 1.0f) };
+    const auto a_Cover = [](float depth) { return std::array<glm::vec4, 3>{ glm::vec4(-1.0f, -1.0f, depth, 1.0f), glm::vec4(3.0f, -1.0f, depth, 1.0f), glm::vec4(-1.0f, 3.0f, depth, 1.0f) }; };
+    const glm::vec4 l_Red(1.0f, 0.0f, 0.0f, 1.0f);
+    const glm::vec4 l_Green(0.0f, 1.0f, 0.0f, 1.0f);
+    const glm::vec4 l_Blue(0.0f, 0.0f, 1.0f, 1.0f);
+    const glm::vec4 l_Yellow(1.0f, 1.0f, 0.0f, 1.0f);
+
+    for (const RasterPipeline it_Pipeline : { CullBack, CullFront, CullBackClockwise, CullNone })
+    {
+        a_Draw(it_Pipeline, it_Pipeline, l_CounterClockwise, l_Red);
+        a_Draw(it_Pipeline, it_Pipeline, l_Clockwise, l_Green);
+    }
+
+    for (const RasterPipeline it_Overlay : { Overlay, OverlayBiasUp, OverlayBiasDown })
+    {
+        const std::uint32_t l_Cell = 4 + static_cast<std::uint32_t>(it_Overlay - Overlay);
+        a_Draw(l_Cell, DepthPlane, a_Cover(0.5f), l_Blue);
+        a_Draw(l_Cell, it_Overlay, a_Cover(0.5f), l_Green);
+    }
+
+    a_Draw(7, Unclamped, a_Cover(1.5f), l_Yellow);
+    a_Draw(8, Clamped, a_Cover(1.5f), l_Yellow);
+    l_Commands.EndRendering();
+
+    l_Commands.TextureBarrier(l_Target, Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::CopySource);
+    l_Commands.CopyTextureToBuffer(l_Target, 0, 0, l_Readback, 0);
+
+    for (const Trinity::RHI::TextureHandle it_Float : { l_SmallFloat, l_HalfFloat })
+    {
+        const std::array<Trinity::RHI::ColorAttachment, 1> l_FloatAttachments{ Trinity::RHI::ColorAttachment{ it_Float, Trinity::RHI::LoadOp::Clear, Trinity::RHI::StoreOp::Store, c_FloatClear } };
+        Trinity::RHI::RenderingDescription l_FloatRendering;
+        l_FloatRendering.ColorAttachments = l_FloatAttachments;
+
+        l_Commands.TextureBarrier(it_Float, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::RenderTarget);
+        l_Commands.BeginRendering(l_FloatRendering);
+        l_Commands.EndRendering();
+        l_Commands.TextureBarrier(it_Float, Trinity::RHI::ResourceState::RenderTarget, Trinity::RHI::ResourceState::CopySource);
+        l_Commands.CopyTextureToBuffer(it_Float, 0, 0, l_Readback, it_Float == l_SmallFloat ? l_SmallFloatOffset : l_HalfFloatOffset);
+    }
+
+    l_Device.EndFrame();
+    l_Device.WaitIdle();
+
+    if (l_Info.API == Trinity::GraphicsAPI::None)
+    {
+        TR_INFO("Raster: None recorded {} draws through {} pipelines and cleared R11G11B10Float and RGBA16Float targets", 16, static_cast<std::uint32_t>(PipelineCount));
+        a_Destroy();
+
+        return;
+    }
+
+    const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+    std::string l_Wrong;
+    for (const Probe& it_Probe : c_Probes)
+    {
+        const std::size_t l_Offset = static_cast<std::size_t>(it_Probe.Y * l_RowPitch + (it_Probe.Cell * c_RasterCellSize + it_Probe.X) * 4);
+        if (l_Offset + 4 > l_Data.size() || std::memcmp(l_Data.data() + l_Offset, it_Probe.Expected.data(), it_Probe.Expected.size()) != 0)
+        {
+            const auto a_Channel = [&l_Data, l_Offset](std::size_t channel) { return l_Offset + channel < l_Data.size() ? std::to_integer<std::uint32_t>(l_Data[l_Offset + channel]) : 0u; };
+            l_Wrong += std::format("{}{} at ({}, {}) is ({}, {}, {}) where ({}, {}, {}) was expected", l_Wrong.empty() ? "" : "; ", it_Probe.Name, it_Probe.Cell * c_RasterCellSize + it_Probe.X, it_Probe.Y, a_Channel(0), a_Channel(1), a_Channel(2), it_Probe.Expected[0], it_Probe.Expected[1], it_Probe.Expected[2]);
+        }
+    }
+
+    const auto a_Matches = [&l_Data](std::uint64_t offset, std::span<const std::byte> texel)
+    {
+        const std::uint64_t l_FloatPitch = Trinity::RHI::GetTextureCopyRowPitch(texel.size() == 4 ? Trinity::RHI::Format::R11G11B10Float : Trinity::RHI::Format::RGBA16Float, c_RasterFloatSize);
+        for (std::uint32_t it_Y = 0; it_Y < c_RasterFloatSize; ++it_Y)
+        {
+            for (std::uint32_t it_X = 0; it_X < c_RasterFloatSize; ++it_X)
+            {
+                const std::uint64_t l_Texel = offset + it_Y * l_FloatPitch + it_X * texel.size();
+                if (l_Texel + texel.size() > l_Data.size() || std::memcmp(l_Data.data() + l_Texel, texel.data(), texel.size()) != 0)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    };
+
+    if (!a_Matches(l_SmallFloatOffset, std::as_bytes(std::span(&c_PackedR11G11B10, 1))))
+    {
+        l_Wrong += std::format("{}the R11G11B10Float target does not read back as 0x{:08x}", l_Wrong.empty() ? "" : "; ", c_PackedR11G11B10);
+    }
+
+    if (!a_Matches(l_HalfFloatOffset, std::as_bytes(std::span(c_HalfRGBA16))))
+    {
+        l_Wrong += std::format("{}the RGBA16Float target does not read back as half floats 0.5, 2, 0.25 and 1", l_Wrong.empty() ? "" : "; ");
+    }
+
+    a_Destroy();
+
+    if (!l_Wrong.empty())
+    {
+        TR_ERROR("Raster: {}", l_Wrong);
+
+        return;
+    }
+
+    TR_INFO("Raster: {} passed all {} probes for culling with both windings, depth bias of 0, +16 and -16 and depth clamp, and R11G11B10Float and RGBA16Float targets read back bit for bit", Trinity::ToString(l_Info.API), c_Probes.size());
 }
 
 // 64 placeholder source files give the registry 64 texture assets, whose cooked KTX2 a memory source serves at /cache
