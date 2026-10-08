@@ -30,10 +30,12 @@ private:
     void DrawTransform(Trinity::Entity entity);
     void DrawCamera(Trinity::Entity entity);
     void DrawSpriteRenderer(Trinity::Entity entity);
+    void DrawMeshRenderer(Trinity::Entity entity);
     void DrawLight(Trinity::Entity entity);
     void DrawTextureSlot(Trinity::Entity entity);
     void DrawEnvironment(Trinity::Entity entity);
     void DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);
+    void DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint);
     void DrawOtherComponents(Trinity::Entity entity);
     void DrawAddComponent(Trinity::Entity entity);
 

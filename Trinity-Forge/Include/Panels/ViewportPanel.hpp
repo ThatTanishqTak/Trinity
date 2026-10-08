@@ -1,7 +1,9 @@
 #pragma once
 
 #include "EditorCamera.hpp"
+#include "EditorCamera3D.hpp"
 #include "EditorGrid.hpp"
+#include "EditorGrid3D.hpp"
 #include "EditorSession.hpp"
 #include "Panels/Panel.hpp"
 
@@ -46,15 +48,22 @@ private:
     void SaveCamera();
     void MarkCameraChanged();
     void HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused);
+    void HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused);
+    void HandleGizmoKeys();
     void FrameSelection(glm::vec2 viewportSize);
+    void FrameSelection3D(glm::vec2 viewportSize);
+    [[nodiscard]] Trinity::Entity Pick3D(glm::vec2 mouse, glm::vec2 viewportSize);
     void AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize);
     void DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize);
+    void DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize);
     void DrawStats(glm::vec2 viewportSize) const;
     void DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize);
     void EndGizmoDrag();
     void DrawToolbar();
 
     [[nodiscard]] Trinity::TransformComponent ApplyGizmo(const glm::mat4& parentWorld, bool snap) const;
+    [[nodiscard]] Trinity::TransformComponent ApplyGizmo3D(const glm::mat4& parentWorld) const;
+    [[nodiscard]] glm::vec3 GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize) const;
 
     [[nodiscard]] glm::vec2 GetViewportSize() const;
 
@@ -62,6 +71,8 @@ private:
     EditorSession& m_Session;
     EditorCamera m_Camera;
     EditorGrid m_Grid;
+    EditorCamera3D m_Camera3D;
+    EditorGrid3D m_Grid3D;
     Trinity::UUID m_SceneID;
     std::uint32_t m_PanelWidth = 0;
     std::uint32_t m_PanelHeight = 0;
@@ -69,6 +80,10 @@ private:
     double m_CameraChangeTime = 0.0;
     bool m_CameraDirty = false;
     bool m_Panning = false;
+    // The editor camera looks down -Z at the sprites in 2D, and flies and orbits in perspective in 3D. Each scene keeps its own choice with its camera
+    bool m_Mode3D = false;
+    bool m_Flying = false;
+    bool m_Orbiting = false;
     // Through the scene's primary camera, as the game shows it, rather than the editor's, which editing needs
     bool m_SceneCameraView = false;
     bool m_HasSceneCamera = false;

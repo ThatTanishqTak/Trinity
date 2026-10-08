@@ -1274,8 +1274,10 @@ namespace Trinity
             return l_Shading;
         };
 
+        // The last of the forward passes resolves the multisampled colour into the target
         const bool l_Blended = !list.Transparent.empty();
-        const FrameGraphTexture l_OpaqueResolve = l_Samples > 1 && !l_Blended ? target : FrameGraphTexture{};
+        const bool l_Overlay = static_cast<bool>(options.Overlay);
+        const FrameGraphTexture l_OpaqueResolve = l_Samples > 1 && !l_Blended && !l_Overlay ? target : FrameGraphTexture{};
         graph.AddPass("Opaque", FrameGraphPassType::Raster, [l_Color, l_OpaqueResolve, l_Depth, clearColor, a_Read](FrameGraphPassBuilder& builder)
         {
             builder.AddColorAttachment({ l_Color, RHI::LoadOp::Clear, clearColor, 0, 0, l_OpaqueResolve });
@@ -1288,7 +1290,7 @@ namespace Trinity
 
         if (l_Blended)
         {
-            const FrameGraphTexture l_Resolve = l_Samples > 1 ? target : FrameGraphTexture{};
+            const FrameGraphTexture l_Resolve = l_Samples > 1 && !l_Overlay ? target : FrameGraphTexture{};
             graph.AddPass("Transparent", FrameGraphPassType::Raster, [l_Color, l_Resolve, l_Depth, clearColor, a_Read](FrameGraphPassBuilder& builder)
             {
                 builder.AddColorAttachment({ l_Color, RHI::LoadOp::Load, clearColor, 0, 0, l_Resolve });
@@ -1297,6 +1299,21 @@ namespace Trinity
             }, [this, l_List, l_Format, l_Samples, l_Width, l_Height, a_Shading](const FrameGraphContext& context)
             {
                 RecordDraws(context.GetCommands(), *l_List, l_List->Transparent, l_Format, MeshPass::Transparent, l_Samples, l_Width, l_Height, a_Shading(context));
+            });
+        }
+
+        if (l_Overlay)
+        {
+            const FrameGraphTexture l_Resolve = l_Samples > 1 ? target : FrameGraphTexture{};
+            graph.AddPass("Overlay", FrameGraphPassType::Raster, [l_Color, l_Resolve, l_Depth, clearColor](FrameGraphPassBuilder& builder)
+            {
+                builder.AddColorAttachment({ l_Color, RHI::LoadOp::Load, clearColor, 0, 0, l_Resolve });
+                builder.SetDepthAttachment({ l_Depth, RHI::LoadOp::Load, 0.0f });
+            }, [l_List, l_Format, l_Samples, l_Width, l_Height, a_Overlay = options.Overlay](const FrameGraphContext& context)
+            {
+                context.GetCommands().SetViewport({ 0.0f, 0.0f, static_cast<float>(l_Width), static_cast<float>(l_Height), 0.0f, 1.0f });
+                context.GetCommands().SetScissor({ 0, 0, l_Width, l_Height });
+                a_Overlay(context.GetCommands(), l_List->View, l_Format, l_Samples);
             });
         }
 

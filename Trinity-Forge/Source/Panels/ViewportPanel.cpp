@@ -15,9 +15,12 @@
 #include <filesystem>
 #include <format>
 #include <limits>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 #include <glm/gtc/type_ptr.hpp>
 #include <stb_image.h>
@@ -41,6 +44,19 @@ namespace
     constexpr float c_MaximumSnap = 1000.0f;
     constexpr std::array<const char*, 3> c_GizmoFields{ "Position", "Rotation", "Scale" };
     constexpr std::array<std::string_view, 3> c_GizmoOperationNames{ "Translate", "Rotate", "Scale" };
+
+    // In 3D: a model or sprite dropped where the mouse's ray misses the ground, or meets it further away than the maximum, lands this far ahead of the camera
+    constexpr float c_DropDistance = 10.0f;
+    constexpr float c_MaximumDropDistance = 1000.0f;
+    // A light's marker is this many pixels across, and a click this near its centre picks it
+    constexpr float c_LightMarkerRadius = 5.0f;
+    constexpr float c_LightPickPixels = 8.0f;
+    // Segments in each circle drawn for a light's reach
+    constexpr int c_CircleSegments = 48;
+    // A scene camera's frustum is drawn this far out in front of it
+    constexpr float c_FrustumDistance = 5.0f;
+    // Flying never jumps further than a frame of this long, however long the frame took
+    constexpr float c_MaximumFlyStep = 0.1f;
 
     // A whole number of steps, so a snapped value is exactly k times the step
     float Snap(float value, float step)
@@ -91,13 +107,12 @@ namespace
         return l_Corners;
     }
 
-    // Three numbers: the camera's X and Y, and the world height it shows
-    bool ParseCamera(std::string_view text, glm::vec2& position, float& height)
+    // Finite numbers apart by spaces, from the start of the text, which is left after the last of them
+    bool ReadNumbers(std::string_view& text, std::span<float> values)
     {
-        std::array<float, 3> l_Values{};
         const char* l_Cursor = text.data();
         const char* l_End = text.data() + text.size();
-        for (float& it_Value : l_Values)
+        for (float& it_Value : values)
         {
             while (l_Cursor != l_End && (*l_Cursor == ' ' || *l_Cursor == '\n' || *l_Cursor == '\r'))
             {
@@ -113,10 +128,130 @@ namespace
             l_Cursor = l_Parsed.ptr;
         }
 
+        text = std::string_view(l_Cursor, l_End);
+
+        return true;
+    }
+
+    // Three numbers: the camera's X and Y, and the world height it shows
+    bool ParseCamera(std::string_view text, glm::vec2& position, float& height)
+    {
+        std::array<float, 3> l_Values{};
+        if (!ReadNumbers(text, l_Values))
+        {
+            return false;
+        }
+
         position = { l_Values[0], l_Values[1] };
         height = l_Values[2];
 
         return height > 0.0f;
+    }
+
+    // The second line, which views saved before 3D editing are without: 2D or 3D, as the scene was last edited, then the 3D camera's focus, yaw, pitch, distance and flying speed
+    bool ParseCamera3D(std::string_view text, bool& mode3D, EditorCamera3D& camera)
+    {
+        const std::size_t l_LineEnd = text.find('\n');
+        if (l_LineEnd == std::string_view::npos)
+        {
+            return false;
+        }
+
+        std::string_view l_Line = text.substr(l_LineEnd + 1);
+        const bool l_Mode3D = l_Line.starts_with("3D");
+        if (!l_Mode3D && !l_Line.starts_with("2D"))
+        {
+            return false;
+        }
+
+        l_Line.remove_prefix(2);
+        std::array<float, 7> l_Values{};
+        if (!ReadNumbers(l_Line, l_Values) || l_Values[5] <= 0.0f || l_Values[6] <= 0.0f)
+        {
+            return false;
+        }
+
+        mode3D = l_Mode3D;
+        camera.Set(glm::vec3(l_Values[0], l_Values[1], l_Values[2]), l_Values[3], l_Values[4], l_Values[5], l_Values[6]);
+
+        return true;
+    }
+
+    // A mesh asset once it has loaded, which its bounds need
+    const Trinity::MeshAsset* GetLoadedMesh(Trinity::UUID id)
+    {
+        if (!id || Trinity::AssetManager::GetState(id) != Trinity::AssetState::Ready)
+        {
+            return nullptr;
+        }
+
+        const Trinity::Asset* l_Asset = Trinity::AssetManager::GetAsset(id);
+
+        return l_Asset != nullptr && l_Asset->GetAssetType() == Trinity::MeshAsset::c_AssetType ? static_cast<const Trinity::MeshAsset*>(l_Asset) : nullptr;
+    }
+
+    std::array<glm::vec3, 8> GetBoxCorners(const Trinity::MeshBounds& bounds, const glm::mat4& world)
+    {
+        std::array<glm::vec3, 8> l_Corners{};
+        for (std::size_t it_Corner = 0; it_Corner < l_Corners.size(); ++it_Corner)
+        {
+            const glm::vec3 l_Local((it_Corner & 1) != 0 ? bounds.Max.x : bounds.Min.x, (it_Corner & 2) != 0 ? bounds.Max.y : bounds.Min.y, (it_Corner & 4) != 0 ? bounds.Max.z : bounds.Min.z);
+            l_Corners[it_Corner] = glm::vec3(world * glm::vec4(l_Local, 1.0f));
+        }
+
+        return l_Corners;
+    }
+
+    // The unit quad a sprite is drawn on, through its world transform, in 3D
+    std::array<glm::vec3, 4> GetSpriteCorners3D(const glm::mat4& world)
+    {
+        constexpr std::array<glm::vec2, 4> c_Local{ glm::vec2(-0.5f, -0.5f), glm::vec2(0.5f, -0.5f), glm::vec2(0.5f, 0.5f), glm::vec2(-0.5f, 0.5f) };
+
+        std::array<glm::vec3, 4> l_Corners{};
+        for (std::size_t it_Corner = 0; it_Corner < c_Local.size(); ++it_Corner)
+        {
+            l_Corners[it_Corner] = glm::vec3(world * glm::vec4(c_Local[it_Corner], 0.0f, 1.0f));
+        }
+
+        return l_Corners;
+    }
+
+    // Where a ray first enters a box, as a multiple of its direction, or nothing when it misses the box or starts inside it
+    std::optional<float> IntersectBox(const glm::vec3& origin, const glm::vec3& direction, const Trinity::MeshBounds& bounds)
+    {
+        const glm::vec3 l_Inverse = 1.0f / direction;
+        const glm::vec3 l_ToMin = (bounds.Min - origin) * l_Inverse;
+        const glm::vec3 l_ToMax = (bounds.Max - origin) * l_Inverse;
+        const glm::vec3 l_Enter = glm::min(l_ToMin, l_ToMax);
+        const glm::vec3 l_Exit = glm::max(l_ToMin, l_ToMax);
+        const float l_First = std::max({ l_Enter.x, l_Enter.y, l_Enter.z });
+        const float l_Last = std::min({ l_Exit.x, l_Exit.y, l_Exit.z });
+        if (!(l_First <= l_Last) || l_First <= 0.0f)
+        {
+            return std::nullopt;
+        }
+
+        return l_First;
+    }
+
+    // A world point in pixels from the image's top-left corner, or nothing when it is behind the eye
+    std::optional<glm::vec2> ProjectPoint(const glm::mat4& viewProjection, const glm::vec3& point, glm::vec2 viewportSize)
+    {
+        const glm::vec4 l_Clip = viewProjection * glm::vec4(point, 1.0f);
+        if (l_Clip.w <= EditorCamera3D::c_Near)
+        {
+            return std::nullopt;
+        }
+
+        return glm::vec2((l_Clip.x / l_Clip.w + 1.0f) * 0.5f * viewportSize.x, (1.0f - l_Clip.y / l_Clip.w) * 0.5f * viewportSize.y);
+    }
+
+    // As the light looks, from linear to sRGB, and opaque
+    ImU32 GetLightColor(const Trinity::LightComponent& light, float alpha)
+    {
+        const glm::vec3 l_Color = glm::clamp(light.Color, glm::vec3(0.0f), glm::vec3(1.0f));
+
+        return ImGui::ColorConvertFloat4ToU32(ImVec4(Trinity::LinearToSrgb(l_Color.r), Trinity::LinearToSrgb(l_Color.g), Trinity::LinearToSrgb(l_Color.b), alpha));
     }
 }
 
@@ -209,7 +344,7 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
-// The scene's meshes, submitted before the frame graph is built: through the editor camera, which looks down -Z as 2D does, or through the scene's primary camera. A scene without one shows nothing through it. Transforms are brought up to date first, since the UI may have changed them
+// The scene's meshes, submitted before the frame graph is built: through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them, or through the scene's primary camera. A scene without one shows nothing through it. Transforms are brought up to date first, since the UI may have changed them
 void ViewportPanel::PrepareScene()
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -241,6 +376,10 @@ void ViewportPanel::PrepareScene()
             return;
         }
     }
+    else if (m_Mode3D)
+    {
+        l_View = Trinity::RenderView::FromMatrices(m_Camera3D.GetView(), m_Camera3D.GetProjection(l_ViewportSize), false);
+    }
     else
     {
         // The editor camera's projection holds its place, so its view is the world's own axes
@@ -251,10 +390,14 @@ void ViewportPanel::PrepareScene()
     Trinity::SceneOptions l_Options;
     l_Options.LightHeatmap = m_LightHeatmap;
     l_Options.SampleCount = Trinity::Renderer3D::c_SampleCount;
+    if (m_Mode3D && !m_SceneCameraView)
+    {
+        l_Options.Overlay = [this](Trinity::RHI::CommandList& commands, const Trinity::RenderView& view, Trinity::RHI::Format colorFormat, std::uint32_t sampleCount) { m_Grid3D.Draw(commands, view, colorFormat, sampleCount); };
+    }
     Trinity::Application::Get().GetRenderer().SubmitScene(l_Scene, l_View, l_Options);
 }
 
-// Into the scene target, which the Viewport shows, over the scene's meshes: through the editor camera the grid, then the scene's sprites, and through the scene's camera its sprites alone
+// Into the scene target, which the Viewport shows, over the scene's meshes: through the 2D editor camera the grid, then the scene's sprites, and through the 3D editor camera or the scene's camera the sprites alone, since the 3D grid was drawn with the meshes
 void ViewportPanel::RenderScene(Trinity::RHI::CommandList& commands)
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -265,6 +408,13 @@ void ViewportPanel::RenderScene(Trinity::RHI::CommandList& commands)
         {
             Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_SceneViewProjection, l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight());
         }
+
+        return;
+    }
+
+    if (m_Mode3D)
+    {
+        Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_Camera3D.GetProjection(l_ViewportSize) * m_Camera3D.GetView(), l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight());
 
         return;
     }
@@ -299,16 +449,31 @@ void ViewportPanel::OnImGuiRender()
     const bool l_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
     m_ImGui.SetSceneInput(l_Hovered, l_Focused);
 
-    // Picking, the gizmo, the camera and the outlines all work in the editor camera's 2D view, so the scene camera's view only shows
+    // Picking, the gizmo, the camera and the outlines all work in the editor camera's view, 2D or 3D, so the scene camera's view only shows
     if (!m_SceneCameraView)
     {
         ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
         l_DrawList.PushClipRect(ImGui::GetWindowPos(), ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y), true);
-        DrawOverlays(l_DrawList, glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
+        if (m_Mode3D)
+        {
+            DrawOverlays3D(l_DrawList, glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
+        }
+        else
+        {
+            DrawOverlays(l_DrawList, glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
+        }
+
         DrawGizmo(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
         l_DrawList.PopClipRect();
 
-        HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
+        if (m_Mode3D)
+        {
+            HandleInput3D(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
+        }
+        else
+        {
+            HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
+        }
     }
     else if (!m_HasSceneCamera)
     {
@@ -349,7 +514,7 @@ void ViewportPanel::FollowPanelSize(std::uint32_t width, std::uint32_t height)
     }
 }
 
-// Each saved scene keeps its camera. A scene saved for the first time keeps the view it had while untitled, and one without a saved camera starts at the origin
+// Each saved scene keeps its cameras, and whether it was last edited in 2D or 3D. A scene saved for the first time keeps the view it had while untitled, one without a saved camera starts at the origin, and one saved before 3D editing opens in 2D
 void ViewportPanel::FollowScene()
 {
     const Trinity::UUID l_SceneID = m_Session.GetSceneID();
@@ -369,6 +534,7 @@ void ViewportPanel::FollowScene()
     if (!m_SceneID)
     {
         m_Camera.Reset();
+        m_Camera3D.Reset();
 
         return;
     }
@@ -379,10 +545,16 @@ void ViewportPanel::FollowScene()
     if (l_Text && ParseCamera(*l_Text, l_Position, l_Height))
     {
         m_Camera.Set(l_Position, l_Height);
+        if (!ParseCamera3D(*l_Text, m_Mode3D, m_Camera3D))
+        {
+            m_Mode3D = false;
+            m_Camera3D.Reset();
+        }
     }
     else if (!l_WasUntitled)
     {
         m_Camera.Reset();
+        m_Camera3D.Reset();
     }
 }
 
@@ -396,7 +568,9 @@ void ViewportPanel::SaveCamera()
     }
 
     const glm::vec2 l_Position = m_Camera.GetPosition();
-    const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(GetCameraPath(m_SceneID), std::format("{} {} {}\n", l_Position.x, l_Position.y, m_Camera.GetHeight()));
+    const glm::vec3 l_Focus = m_Camera3D.GetFocus();
+    const std::string l_Text = std::format("{} {} {}\n{} {} {} {} {} {} {} {}\n", l_Position.x, l_Position.y, m_Camera.GetHeight(), m_Mode3D ? "3D" : "2D", l_Focus.x, l_Focus.y, l_Focus.z, m_Camera3D.GetYaw(), m_Camera3D.GetPitch(), m_Camera3D.GetDistance(), m_Camera3D.GetSpeed());
+    const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(GetCameraPath(m_SceneID), l_Text);
     if (!l_Written)
     {
         TR_WARN("Scene view: the camera of scene {} could not be saved: {}", m_SceneID, Trinity::ToString(l_Written.GetError()));
@@ -445,21 +619,7 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
             FrameSelection(viewportSize);
         }
 
-        constexpr std::array<ImGuiKey, 3> c_OperationKeys{ ImGuiKey_W, ImGuiKey_E, ImGuiKey_R };
-        for (std::size_t it_Operation = 0; it_Operation < c_OperationKeys.size(); ++it_Operation)
-        {
-            if (ImGui::IsKeyPressed(c_OperationKeys[it_Operation], false))
-            {
-                m_GizmoOperation = static_cast<GizmoOperation>(it_Operation);
-                ImGui::MarkIniSettingsDirty();
-            }
-        }
-
-        if (ImGui::IsKeyPressed(ImGuiKey_X, false))
-        {
-            m_GizmoLocal = !m_GizmoLocal;
-            ImGui::MarkIniSettingsDirty();
-        }
+        HandleGizmoKeys();
     }
 
     // A click on the gizmo is the gizmo's, not a pick
@@ -468,6 +628,189 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
         const Trinity::Entity l_Picked = Trinity::PickSprite(m_Session.GetScene(), m_Camera.ScreenToWorld(l_Mouse, viewportSize));
         m_Session.SetSelection(l_Picked ? l_Picked.Get<Trinity::IDComponent>().ID : Trinity::UUID());
     }
+}
+
+// The right mouse button looks around, and while it is held W, A, S and D fly, Q and E go down and up, Shift flies faster and the wheel changes the speed. Alt with the left button orbits the focus, a middle drag pans, the wheel moves towards the focus, F frames the selection and a left click picks. A drag begun in the Viewport carries on outside it, and the gizmo's keys wait while flying, since W and E are flying keys then
+void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused)
+{
+    const ImGuiIO& l_IO = ImGui::GetIO();
+    const glm::vec2 l_Mouse = glm::vec2(l_IO.MousePos.x, l_IO.MousePos.y) - imageMin;
+    const glm::vec2 l_Delta(l_IO.MouseDelta.x, l_IO.MouseDelta.y);
+    bool l_Changed = false;
+
+    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+    {
+        m_Flying = true;
+    }
+
+    if (hovered && l_IO.KeyAlt && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    {
+        m_Orbiting = true;
+    }
+
+    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
+    {
+        m_Panning = true;
+    }
+
+    m_Flying = m_Flying && ImGui::IsMouseDown(ImGuiMouseButton_Right);
+    m_Orbiting = m_Orbiting && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    m_Panning = m_Panning && ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+
+    if (l_Delta.x != 0.0f || l_Delta.y != 0.0f)
+    {
+        if (m_Flying)
+        {
+            m_Camera3D.Look(l_Delta);
+            l_Changed = true;
+        }
+        else if (m_Orbiting)
+        {
+            m_Camera3D.Orbit(l_Delta);
+            l_Changed = true;
+        }
+        else if (m_Panning)
+        {
+            m_Camera3D.Pan(l_Delta, viewportSize);
+            l_Changed = true;
+        }
+    }
+
+    if (m_Flying)
+    {
+        const auto a_Axis = [](ImGuiKey negative, ImGuiKey positive) { return (ImGui::IsKeyDown(positive) ? 1.0f : 0.0f) - (ImGui::IsKeyDown(negative) ? 1.0f : 0.0f); };
+        const glm::vec3 l_Direction(a_Axis(ImGuiKey_A, ImGuiKey_D), a_Axis(ImGuiKey_Q, ImGuiKey_E), a_Axis(ImGuiKey_S, ImGuiKey_W));
+        if (!l_IO.WantTextInput && l_Direction != glm::vec3(0.0f))
+        {
+            m_Camera3D.Fly(l_Direction, std::min(l_IO.DeltaTime, c_MaximumFlyStep), l_IO.KeyShift);
+            l_Changed = true;
+        }
+
+        if (l_IO.MouseWheel != 0.0f)
+        {
+            m_Camera3D.ChangeSpeed(l_IO.MouseWheel);
+            l_Changed = true;
+        }
+    }
+    else if (hovered && l_IO.MouseWheel != 0.0f)
+    {
+        m_Camera3D.Dolly(l_IO.MouseWheel);
+        l_Changed = true;
+    }
+
+    if (l_Changed)
+    {
+        MarkCameraChanged();
+    }
+
+    if (focused && !l_IO.WantTextInput && !m_GizmoDragging && !m_Flying)
+    {
+        if (ImGui::IsKeyPressed(ImGuiKey_F, false))
+        {
+            FrameSelection3D(viewportSize);
+        }
+
+        HandleGizmoKeys();
+    }
+
+    // A click on the gizmo is the gizmo's, and one with Alt held begins an orbit, so neither is a pick
+    if (hovered && !l_IO.KeyAlt && !m_GizmoHovered && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    {
+        const Trinity::Entity l_Picked = Pick3D(l_Mouse, viewportSize);
+        m_Session.SetSelection(l_Picked ? l_Picked.GetUUID() : Trinity::UUID());
+    }
+}
+
+// W, E and R pick the gizmo's operation and X its axes
+void ViewportPanel::HandleGizmoKeys()
+{
+    constexpr std::array<ImGuiKey, 3> c_OperationKeys{ ImGuiKey_W, ImGuiKey_E, ImGuiKey_R };
+    for (std::size_t it_Operation = 0; it_Operation < c_OperationKeys.size(); ++it_Operation)
+    {
+        if (ImGui::IsKeyPressed(c_OperationKeys[it_Operation], false))
+        {
+            m_GizmoOperation = static_cast<GizmoOperation>(it_Operation);
+            ImGui::MarkIniSettingsDirty();
+        }
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_X, false))
+    {
+        m_GizmoLocal = !m_GizmoLocal;
+        ImGui::MarkIniSettingsDirty();
+    }
+}
+
+// What the mouse's ray meets first. A light's marker comes before anything else, since a light has no surface to click. Then the nearest of the meshes' submesh bounds and the sprites' quads, passing over boxes the eye is inside, so a mesh around the camera never hides what is in front of it. ID-buffer picking will take over from these bounds
+Trinity::Entity ViewportPanel::Pick3D(glm::vec2 mouse, glm::vec2 viewportSize)
+{
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    Trinity::SceneRegistry& l_Registry = l_Scene.GetRegistry();
+    const glm::vec3 l_Origin = m_Camera3D.GetPosition();
+    const glm::vec3 l_Direction = m_Camera3D.GetRayDirection(mouse, viewportSize);
+    const glm::mat4 l_ViewProjection = m_Camera3D.GetProjection(viewportSize) * m_Camera3D.GetView();
+
+    entt::entity l_Hit = entt::null;
+    float l_Closest = c_LightPickPixels;
+    for (const auto [it_Entity, it_Light, it_World] : l_Registry.view<Trinity::LightComponent, Trinity::WorldTransformComponent>().each())
+    {
+        const std::optional<glm::vec2> l_Pixel = ProjectPoint(l_ViewProjection, glm::vec3(it_World.Matrix[3]), viewportSize);
+        if (l_Pixel && glm::distance(*l_Pixel, mouse) < l_Closest)
+        {
+            l_Closest = glm::distance(*l_Pixel, mouse);
+            l_Hit = it_Entity;
+        }
+    }
+
+    if (l_Hit != entt::null)
+    {
+        return Trinity::Entity(l_Hit, &l_Scene);
+    }
+
+    float l_Nearest = std::numeric_limits<float>::max();
+    for (const auto [it_Entity, it_MeshRenderer, it_World] : l_Registry.view<Trinity::MeshRendererComponent, Trinity::WorldTransformComponent>().each())
+    {
+        const Trinity::MeshAsset* l_Mesh = GetLoadedMesh(it_MeshRenderer.Mesh);
+        if (l_Mesh == nullptr)
+        {
+            continue;
+        }
+
+        // The ray in the mesh's own space, where its bounds are boxes. Its distances stay those of the world ray
+        const glm::mat4 l_Inverse = glm::inverse(it_World.Matrix);
+        const glm::vec3 l_LocalOrigin(l_Inverse * glm::vec4(l_Origin, 1.0f));
+        const glm::vec3 l_LocalDirection(l_Inverse * glm::vec4(l_Direction, 0.0f));
+        for (const Trinity::Submesh& it_Submesh : l_Mesh->GetSubmeshes())
+        {
+            const std::optional<float> l_Distance = IntersectBox(l_LocalOrigin, l_LocalDirection, it_Submesh.Bounds);
+            if (l_Distance && *l_Distance < l_Nearest)
+            {
+                l_Nearest = *l_Distance;
+                l_Hit = it_Entity;
+            }
+        }
+    }
+
+    for (const auto [it_Entity, it_Sprite, it_World] : l_Registry.view<Trinity::SpriteRendererComponent, Trinity::WorldTransformComponent>().each())
+    {
+        const glm::mat4 l_Inverse = glm::inverse(it_World.Matrix);
+        const glm::vec3 l_LocalOrigin(l_Inverse * glm::vec4(l_Origin, 1.0f));
+        const glm::vec3 l_LocalDirection(l_Inverse * glm::vec4(l_Direction, 0.0f));
+        if (std::abs(l_LocalDirection.z) < 1e-12f)
+        {
+            continue;
+        }
+
+        const float l_Distance = -l_LocalOrigin.z / l_LocalDirection.z;
+        const glm::vec3 l_Point = l_LocalOrigin + l_LocalDirection * l_Distance;
+        if (l_Distance > 0.0f && l_Distance < l_Nearest && std::abs(l_Point.x) <= 0.5f && std::abs(l_Point.y) <= 0.5f)
+        {
+            l_Nearest = l_Distance;
+            l_Hit = it_Entity;
+        }
+    }
+
+    return l_Hit != entt::null ? Trinity::Entity(l_Hit, &l_Scene) : Trinity::Entity();
 }
 
 // The selected sprite's rotated rectangle, or with nothing selected every sprite in the scene. An empty scene frames the origin
@@ -511,6 +854,114 @@ void ViewportPanel::FrameSelection(glm::vec2 viewportSize)
     MarkCameraChanged();
 }
 
+// The selected entity and everything under it, or with nothing selected the scene's meshes and sprites: meshes by their bounds, sprites by their quads, and anything else by where it is. A scene with none of them frames its entities, and an empty one the origin
+void ViewportPanel::FrameSelection3D(glm::vec2 viewportSize)
+{
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    glm::vec3 l_Minimum(std::numeric_limits<float>::max());
+    glm::vec3 l_Maximum(std::numeric_limits<float>::lowest());
+    const auto a_Include = [&](Trinity::Entity entity, bool position)
+    {
+        const glm::mat4& l_World = entity.Get<Trinity::WorldTransformComponent>().Matrix;
+        const auto a_Add = [&](const glm::vec3& point)
+        {
+            l_Minimum = glm::min(l_Minimum, point);
+            l_Maximum = glm::max(l_Maximum, point);
+        };
+
+        bool l_Shaped = false;
+        const Trinity::MeshAsset* l_Mesh = entity.Has<Trinity::MeshRendererComponent>() ? GetLoadedMesh(entity.Get<Trinity::MeshRendererComponent>().Mesh) : nullptr;
+        if (l_Mesh != nullptr)
+        {
+            for (const glm::vec3& it_Corner : GetBoxCorners(l_Mesh->GetBounds(), l_World))
+            {
+                a_Add(it_Corner);
+            }
+
+            l_Shaped = true;
+        }
+
+        if (entity.Has<Trinity::SpriteRendererComponent>())
+        {
+            for (const glm::vec3& it_Corner : GetSpriteCorners3D(l_World))
+            {
+                a_Add(it_Corner);
+            }
+
+            l_Shaped = true;
+        }
+
+        if (!l_Shaped && position)
+        {
+            a_Add(glm::vec3(l_World[3]));
+        }
+    };
+
+    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
+    if (l_Selected)
+    {
+        std::vector<Trinity::Entity> l_Pending{ l_Selected };
+        while (!l_Pending.empty())
+        {
+            const Trinity::Entity l_Entity = l_Pending.back();
+            l_Pending.pop_back();
+            a_Include(l_Entity, true);
+            for (Trinity::Entity it_Child = l_Entity.GetFirstChild(); it_Child; it_Child = it_Child.GetNextSibling())
+            {
+                l_Pending.push_back(it_Child);
+            }
+        }
+    }
+    else
+    {
+        for (const bool it_Positions : { false, true })
+        {
+            if (l_Minimum.x <= l_Maximum.x)
+            {
+                break;
+            }
+
+            for (Trinity::Entity it_Entity = l_Scene.GetFirstRoot(); it_Entity; it_Entity = l_Scene.GetNextInHierarchyOrder(it_Entity))
+            {
+                a_Include(it_Entity, it_Positions);
+            }
+        }
+    }
+
+    if (l_Minimum.x > l_Maximum.x)
+    {
+        m_Camera3D.Reset();
+    }
+    else
+    {
+        m_Camera3D.Frame((l_Minimum + l_Maximum) * 0.5f, glm::length(l_Maximum - l_Minimum) * 0.5f, viewportSize);
+    }
+
+    MarkCameraChanged();
+}
+
+// Where a dropped asset lands: under the mouse on Z = 0 in 2D, and in 3D where the mouse's ray meets the ground, Y = 0, or a little way ahead of the camera when it meets the ground nowhere near. Through the scene's camera, at the origin
+glm::vec3 ViewportPanel::GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize) const
+{
+    const ImVec2 l_Mouse = ImGui::GetMousePos();
+    const glm::vec2 l_Pixel = glm::vec2(l_Mouse.x, l_Mouse.y) - imageMin;
+    if (m_SceneCameraView)
+    {
+        return glm::vec3(0.0f);
+    }
+
+    if (!m_Mode3D)
+    {
+        return glm::vec3(m_Camera.ScreenToWorld(l_Pixel, viewportSize), 0.0f);
+    }
+
+    const glm::vec3 l_Origin = m_Camera3D.GetPosition();
+    const glm::vec3 l_Direction = m_Camera3D.GetRayDirection(l_Pixel, viewportSize);
+    const float l_Distance = std::abs(l_Direction.y) > 1e-6f ? -l_Origin.y / l_Direction.y : -1.0f;
+
+    return l_Origin + l_Direction * (l_Distance > 0.0f && l_Distance <= c_MaximumDropDistance ? l_Distance : c_DropDistance);
+}
+
 // Dropped from the Content Browser, a texture becomes a sprite where it lands, at its pixel size, and a model becomes its hierarchy under one root there, each in one command
 void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
 {
@@ -526,11 +977,10 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
         const Trinity::UUID l_ID(l_Value);
         const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
         const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(l_ID) : nullptr;
-        const ImVec2 l_Mouse = ImGui::GetMousePos();
-        const glm::vec2 l_World = m_SceneCameraView ? glm::vec2(0.0f) : m_Camera.ScreenToWorld(glm::vec2(l_Mouse.x, l_Mouse.y) - imageMin, viewportSize);
+        const glm::vec3 l_Point = GetDropPoint(imageMin, viewportSize);
         if (l_Record != nullptr && l_Record->Importer == ModelImporter::c_Importer)
         {
-            static_cast<void>(m_Session.CreateModel(l_ID, {}, {}, glm::vec3(l_World, 0.0f)));
+            static_cast<void>(m_Session.CreateModel(l_ID, {}, {}, l_Point));
         }
         else if (l_Record == nullptr || l_Record->Importer != Trinity::TextureAsset::c_AssetType)
         {
@@ -558,7 +1008,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
             }
 
             const std::string l_Name = std::filesystem::path(l_Record->Path).stem().string();
-            m_Session.GetHistory().Execute(Trinity::CreateScope<CreateSpriteCommand>(l_Name, l_ID, glm::vec3(l_World, 0.0f), l_Pixels / c_PixelsPerUnit));
+            m_Session.GetHistory().Execute(Trinity::CreateScope<CreateSpriteCommand>(l_Name, l_ID, l_Point, l_Pixels / c_PixelsPerUnit));
         }
     }
 
@@ -603,6 +1053,176 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
     if (l_Selected && l_Selected.Has<Trinity::SpriteRendererComponent>())
     {
         a_DrawQuad(GetSpriteCorners(l_Selected.Get<Trinity::WorldTransformComponent>().Matrix), c_SelectionOutlineColor, c_SelectionThickness);
+    }
+}
+
+// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light, since nothing else shows where one is, and for the selected entity its reach as a light, a point light's range as three circles, a spot light's cones and the way a directional light shines, or its bounds as a mesh or its quad as a sprite. Lines are cut where they pass behind the eye
+void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
+{
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    Trinity::SceneRegistry& l_Registry = l_Scene.GetRegistry();
+    const glm::mat4 l_View = m_Camera3D.GetView();
+    const glm::mat4 l_Projection = m_Camera3D.GetProjection(viewportSize);
+    const auto a_ToScreen = [&](const glm::vec3& view)
+    {
+        const glm::vec4 l_Clip = l_Projection * glm::vec4(view, 1.0f);
+
+        return ImVec2(imageMin.x + (l_Clip.x / l_Clip.w + 1.0f) * 0.5f * viewportSize.x, imageMin.y + (1.0f - l_Clip.y / l_Clip.w) * 0.5f * viewportSize.y);
+    };
+
+    // Each end in view space, where the eye looks down -Z, and the part nearer than the near plane cut off
+    const auto a_Line = [&](const glm::vec3& from, const glm::vec3& to, ImU32 color, float thickness)
+    {
+        glm::vec3 l_From(l_View * glm::vec4(from, 1.0f));
+        glm::vec3 l_To(l_View * glm::vec4(to, 1.0f));
+        const float l_Plane = -EditorCamera3D::c_Near;
+        if (l_From.z > l_Plane && l_To.z > l_Plane)
+        {
+            return;
+        }
+
+        if (l_From.z > l_Plane)
+        {
+            l_From = glm::mix(l_From, l_To, (l_From.z - l_Plane) / (l_From.z - l_To.z));
+        }
+        else if (l_To.z > l_Plane)
+        {
+            l_To = glm::mix(l_To, l_From, (l_To.z - l_Plane) / (l_To.z - l_From.z));
+        }
+
+        drawList.AddLine(a_ToScreen(l_From), a_ToScreen(l_To), color, thickness);
+    };
+
+    const auto a_Circle = [&](const glm::vec3& center, const glm::vec3& axisA, const glm::vec3& axisB, float radius, ImU32 color)
+    {
+        glm::vec3 l_Previous = center + axisA * radius;
+        for (int it_Segment = 1; it_Segment <= c_CircleSegments; ++it_Segment)
+        {
+            const float l_Angle = glm::two_pi<float>() * static_cast<float>(it_Segment) / static_cast<float>(c_CircleSegments);
+            const glm::vec3 l_Point = center + (axisA * std::cos(l_Angle) + axisB * std::sin(l_Angle)) * radius;
+            a_Line(l_Previous, l_Point, color, 1.0f);
+            l_Previous = l_Point;
+        }
+    };
+
+    for (Trinity::Entity it_Entity = l_Scene.GetFirstRoot(); it_Entity; it_Entity = l_Scene.GetNextInHierarchyOrder(it_Entity))
+    {
+        const Trinity::CameraComponent* l_Camera = l_Registry.try_get<Trinity::CameraComponent>(it_Entity.GetHandle());
+        if (l_Camera == nullptr || !l_Camera->Primary)
+        {
+            continue;
+        }
+
+        // Reversed depth: 1 is the near plane, and the far end is the frustum distance for a perspective camera and the far plane for an orthographic one
+        const float l_AspectRatio = viewportSize.y > 0.0f ? viewportSize.x / viewportSize.y : 1.0f;
+        const glm::mat4 l_Inverse = glm::inverse(Trinity::RenderView::FromCamera(*l_Camera, l_Registry.get<Trinity::WorldTransformComponent>(it_Entity.GetHandle()).Matrix, l_AspectRatio).ViewProjection);
+        const float l_FarDepth = l_Camera->Projection == Trinity::CameraProjection::Perspective ? l_Camera->PerspectiveNear / c_FrustumDistance : 0.0f;
+        std::array<glm::vec3, 8> l_Corners{};
+        for (std::size_t it_Corner = 0; it_Corner < l_Corners.size(); ++it_Corner)
+        {
+            const glm::vec4 l_Point = l_Inverse * glm::vec4((it_Corner & 1) != 0 ? 1.0f : -1.0f, (it_Corner & 2) != 0 ? 1.0f : -1.0f, (it_Corner & 4) != 0 ? l_FarDepth : 1.0f, 1.0f);
+            l_Corners[it_Corner] = glm::vec3(l_Point) / l_Point.w;
+        }
+
+        for (const auto [it_From, it_To] : { std::pair{ 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 }, { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } })
+        {
+            a_Line(l_Corners[static_cast<std::size_t>(it_From)], l_Corners[static_cast<std::size_t>(it_To)], c_CameraOutlineColor, 1.0f);
+        }
+
+        break;
+    }
+
+    const glm::mat4 l_ViewProjection = l_Projection * l_View;
+    for (const auto [it_Entity, it_Light, it_World] : l_Registry.view<Trinity::LightComponent, Trinity::WorldTransformComponent>().each())
+    {
+        if (const std::optional<glm::vec2> l_Pixel = ProjectPoint(l_ViewProjection, glm::vec3(it_World.Matrix[3]), viewportSize))
+        {
+            drawList.AddCircleFilled(ImVec2(imageMin.x + l_Pixel->x, imageMin.y + l_Pixel->y), c_LightMarkerRadius, GetLightColor(it_Light, 0.9f));
+            drawList.AddCircle(ImVec2(imageMin.x + l_Pixel->x, imageMin.y + l_Pixel->y), c_LightMarkerRadius, IM_COL32(0, 0, 0, 200));
+        }
+    }
+
+    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
+    if (!l_Selected)
+    {
+        return;
+    }
+
+    const glm::mat4& l_World = l_Selected.Get<Trinity::WorldTransformComponent>().Matrix;
+    if (l_Selected.Has<Trinity::LightComponent>())
+    {
+        const Trinity::LightComponent& l_Light = l_Selected.Get<Trinity::LightComponent>();
+        const ImU32 l_Color = GetLightColor(l_Light, 1.0f);
+        const glm::vec3 l_Position(l_World[3]);
+        const float l_Length = glm::length(glm::vec3(l_World[2]));
+        const glm::vec3 l_Forward = l_Length > 1e-12f ? -glm::vec3(l_World[2]) / l_Length : glm::vec3(0.0f, 0.0f, -1.0f);
+        const glm::vec3 l_Side = glm::normalize(glm::cross(l_Forward, std::abs(l_Forward.y) < 0.99f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f)));
+        const glm::vec3 l_Up = glm::cross(l_Side, l_Forward);
+        switch (l_Light.Type)
+        {
+            case Trinity::LightType::Point:
+            {
+                const float l_Range = l_Light.GetRange();
+                a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), l_Range, l_Color);
+                a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), l_Range, l_Color);
+                a_Circle(l_Position, glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), l_Range, l_Color);
+                break;
+            }
+            case Trinity::LightType::Spot:
+            {
+                // Each cone ends where it meets the sphere of the light's range, which is a circle round the axis
+                const float l_Range = l_Light.GetRange();
+                for (const float it_Angle : { l_Light.OuterConeAngle, l_Light.InnerConeAngle })
+                {
+                    const float l_Radians = glm::radians(std::clamp(it_Angle, 0.0f, 90.0f));
+                    const glm::vec3 l_Center = l_Position + l_Forward * (l_Range * std::cos(l_Radians));
+                    const float l_Radius = l_Range * std::sin(l_Radians);
+                    const ImU32 l_ConeColor = it_Angle == l_Light.OuterConeAngle ? l_Color : GetLightColor(l_Light, 0.45f);
+                    a_Circle(l_Center, l_Side, l_Up, l_Radius, l_ConeColor);
+                    for (const glm::vec3& it_Edge : { l_Side, -l_Side, l_Up, -l_Up })
+                    {
+                        a_Line(l_Position, l_Center + it_Edge * l_Radius, l_ConeColor, 1.0f);
+                    }
+                }
+
+                a_Line(l_Position, l_Position + l_Forward * l_Range, l_Color, 1.0f);
+                break;
+            }
+            case Trinity::LightType::Directional:
+            {
+                // A ring with rays along the light, sized by its distance so it reads the same at any zoom
+                const float l_Size = std::max(glm::distance(l_Position, m_Camera3D.GetPosition()) * 0.15f, 0.01f);
+                a_Circle(l_Position, l_Side, l_Up, l_Size * 0.25f, l_Color);
+                for (int it_Ray = 0; it_Ray < 8; ++it_Ray)
+                {
+                    const float l_Angle = glm::two_pi<float>() * static_cast<float>(it_Ray) / 8.0f;
+                    const glm::vec3 l_Start = l_Position + (l_Side * std::cos(l_Angle) + l_Up * std::sin(l_Angle)) * (l_Size * 0.25f);
+                    a_Line(l_Start, l_Start + l_Forward * l_Size, l_Color, 1.0f);
+                }
+
+                a_Line(l_Position, l_Position + l_Forward * (l_Size * 1.5f), l_Color, 2.0f);
+                break;
+            }
+        }
+    }
+
+    const Trinity::MeshAsset* l_Mesh = l_Selected.Has<Trinity::MeshRendererComponent>() ? GetLoadedMesh(l_Selected.Get<Trinity::MeshRendererComponent>().Mesh) : nullptr;
+    if (l_Mesh != nullptr)
+    {
+        const std::array<glm::vec3, 8> l_Corners = GetBoxCorners(l_Mesh->GetBounds(), l_World);
+        for (const auto [it_From, it_To] : { std::pair{ 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 }, { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } })
+        {
+            a_Line(l_Corners[static_cast<std::size_t>(it_From)], l_Corners[static_cast<std::size_t>(it_To)], c_SelectionOutlineColor, c_SelectionThickness);
+        }
+    }
+
+    if (l_Selected.Has<Trinity::SpriteRendererComponent>())
+    {
+        const std::array<glm::vec3, 4> l_Corners = GetSpriteCorners3D(l_World);
+        for (std::size_t it_Corner = 0; it_Corner < l_Corners.size(); ++it_Corner)
+        {
+            a_Line(l_Corners[it_Corner], l_Corners[(it_Corner + 1) % l_Corners.size()], c_SelectionOutlineColor, c_SelectionThickness);
+        }
     }
 }
 
@@ -656,7 +1276,16 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
                 TextLine(std::format("  {} {:.2f} ms", it_Time.Name, it_Time.Milliseconds));
             }
         }
-        TextLine(std::format("Camera at ({:.2f}, {:.2f}), {:.3g} units high, grid every {:g}", l_Position.x, l_Position.y, m_Camera.GetHeight(), EditorGrid::GetSpacing(m_Camera, viewportSize)));
+        if (m_Mode3D)
+        {
+            const glm::vec3 l_Eye = m_Camera3D.GetPosition();
+            TextLine(std::format("Camera at ({:.2f}, {:.2f}, {:.2f}), yaw {:.0f}\xC2\xB0, pitch {:.0f}\xC2\xB0, flying at {:.3g} m/s, grid every {:g}", l_Eye.x, l_Eye.y, l_Eye.z, m_Camera3D.GetYaw(), m_Camera3D.GetPitch(), m_Camera3D.GetSpeed(), EditorGrid3D::GetSpacing(l_Eye)));
+        }
+        else
+        {
+            TextLine(std::format("Camera at ({:.2f}, {:.2f}), {:.3g} units high, grid every {:g}", l_Position.x, l_Position.y, m_Camera.GetHeight(), EditorGrid::GetSpacing(m_Camera, viewportSize)));
+        }
+
         TextLine(l_Selected ? std::format("Selected: {}", std::string_view(l_Selected.Get<Trinity::TagComponent>().Tag)) : std::string("Nothing selected"));
     }
 
@@ -664,7 +1293,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
     ImGui::PopStyleColor();
 }
 
-// On the selected entity, editing its transform relative to its parent, so its children follow. ImGuizmo drags a matrix of its own, unsnapped, and the entity takes from it the part the operation changes. The drag is one command, and holds ImGui's active item while it lasts, so nothing else closes the command or takes the mouse
+// On the selected entity, editing its transform relative to its parent, so its children follow. ImGuizmo drags a matrix of its own, and the entity takes from it the part the operation changes. The drag is one command, and holds ImGui's active item while it lasts, so nothing else closes the command or takes the mouse
 void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     ImGuizmo::BeginFrame();
@@ -690,17 +1319,39 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
         m_GizmoMatrix = l_ParentWorld * l_Entity.Get<Trinity::TransformComponent>().GetMatrix();
     }
 
-    // A 2D gizmo: moving in X and Y, turning about Z, and scaling X and Y
-    const std::array<ImGuizmo::OPERATION, 3> l_Operations{ ImGuizmo::TRANSLATE_X | ImGuizmo::TRANSLATE_Y, ImGuizmo::ROTATE_Z, ImGuizmo::SCALE_X | ImGuizmo::SCALE_Y };
-    const ImGuizmo::OPERATION l_Operation = l_Operations[static_cast<std::size_t>(m_GizmoOperation)];
-    const glm::mat4 l_View = GetGizmoView(m_Camera);
-    const glm::mat4 l_Projection = GetGizmoProjection(m_Camera, viewportSize);
-
-    ImGuizmo::SetOrthographic(true);
-    ImGuizmo::AllowAxisFlip(false);
+    ImGuizmo::OPERATION l_Operation = ImGuizmo::TRANSLATE;
+    bool l_Changed = false;
     ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
     ImGuizmo::SetRect(imageMin.x, imageMin.y, viewportSize.x, viewportSize.y);
-    const bool l_Changed = ImGuizmo::Manipulate(glm::value_ptr(l_View), glm::value_ptr(l_Projection), l_Operation, m_GizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD, glm::value_ptr(m_GizmoMatrix));
+    if (m_Mode3D)
+    {
+        // A full 3D gizmo, which Ctrl snaps as it drags: along the axis dragged, by the angle turned, and by the ratio scaled. It lets go of the mouse while the camera is being moved, or Alt is held to start orbiting
+        const std::array<ImGuizmo::OPERATION, 3> l_Operations{ ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE };
+        l_Operation = l_Operations[static_cast<std::size_t>(m_GizmoOperation)];
+        const float l_Step = m_SnapSteps[static_cast<glm::length_t>(m_GizmoOperation)];
+        const std::array<float, 3> l_Snap{ l_Step, l_Step, l_Step };
+        const glm::mat4 l_View = m_Camera3D.GetView();
+        const glm::mat4 l_Projection = m_Camera3D.GetGizmoProjection(viewportSize);
+
+        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::AllowAxisFlip(true);
+        ImGuizmo::Enable(m_GizmoDragging || !(ImGui::GetIO().KeyAlt || m_Orbiting || m_Flying || m_Panning));
+        l_Changed = ImGuizmo::Manipulate(glm::value_ptr(l_View), glm::value_ptr(l_Projection), l_Operation, m_GizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD, glm::value_ptr(m_GizmoMatrix), nullptr, ImGui::GetIO().KeyCtrl ? l_Snap.data() : nullptr);
+    }
+    else
+    {
+        // A 2D gizmo: moving in X and Y, turning about Z, and scaling X and Y, unsnapped, since the snapping is done on the entity's values
+        const std::array<ImGuizmo::OPERATION, 3> l_Operations{ ImGuizmo::TRANSLATE_X | ImGuizmo::TRANSLATE_Y, ImGuizmo::ROTATE_Z, ImGuizmo::SCALE_X | ImGuizmo::SCALE_Y };
+        l_Operation = l_Operations[static_cast<std::size_t>(m_GizmoOperation)];
+        const glm::mat4 l_View = GetGizmoView(m_Camera);
+        const glm::mat4 l_Projection = GetGizmoProjection(m_Camera, viewportSize);
+
+        ImGuizmo::SetOrthographic(true);
+        ImGuizmo::AllowAxisFlip(false);
+        ImGuizmo::Enable(true);
+        l_Changed = ImGuizmo::Manipulate(glm::value_ptr(l_View), glm::value_ptr(l_Projection), l_Operation, m_GizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD, glm::value_ptr(m_GizmoMatrix));
+    }
+
     m_GizmoHovered = ImGuizmo::IsOver(l_Operation);
 
     if (ImGuizmo::IsUsing() && !m_GizmoDragging)
@@ -732,7 +1383,7 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
 
     if (l_Changed)
     {
-        Trinity::TransformComponent l_Value = ApplyGizmo(l_ParentWorld, ImGui::GetIO().KeyCtrl);
+        Trinity::TransformComponent l_Value = m_Mode3D ? ApplyGizmo3D(l_ParentWorld) : ApplyGizmo(l_ParentWorld, ImGui::GetIO().KeyCtrl);
         m_Session.GetHistory().Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(m_GizmoEntity, std::move(l_Value), c_GizmoFields[static_cast<std::size_t>(m_GizmoOperation)]));
     }
 }
@@ -800,6 +1451,47 @@ Trinity::TransformComponent ViewportPanel::ApplyGizmo(const glm::mat4& parentWor
     return l_Value;
 }
 
+// The change the drag has made so far, in the parent's space, applied to the transform the drag began with, and only the part the operation changes, as in 2D. A turn is the rotation from the start to now, which leaves the scale, flips and all, as it was, and a scale is each axis' length as a ratio of its length at the start, which keeps a flip
+Trinity::TransformComponent ViewportPanel::ApplyGizmo3D(const glm::mat4& parentWorld) const
+{
+    const glm::mat4 l_Local = glm::inverse(parentWorld) * m_GizmoMatrix;
+    const glm::mat4 l_Start = m_GizmoStart.GetMatrix();
+
+    Trinity::TransformComponent l_Value = m_GizmoStart;
+    switch (m_GizmoOperation)
+    {
+        case GizmoOperation::Translate:
+        {
+            l_Value.Position = glm::vec3(l_Local[3]);
+            break;
+        }
+        case GizmoOperation::Rotate:
+        {
+            Trinity::TransformComponent l_Before;
+            l_Before.SetMatrix(l_Start);
+            Trinity::TransformComponent l_Now;
+            l_Now.SetMatrix(l_Local);
+            l_Value.Rotation = glm::normalize(l_Now.Rotation * glm::inverse(l_Before.Rotation) * m_GizmoStart.Rotation);
+            break;
+        }
+        case GizmoOperation::Scale:
+        {
+            for (glm::length_t it_Axis = 0; it_Axis < 3; ++it_Axis)
+            {
+                const float l_Before = glm::length(glm::vec3(l_Start[it_Axis]));
+                if (l_Before > 1e-12f)
+                {
+                    l_Value.Scale[it_Axis] = m_GizmoStart.Scale[it_Axis] * glm::length(glm::vec3(l_Local[it_Axis])) / l_Before;
+                }
+            }
+
+            break;
+        }
+    }
+
+    return l_Value;
+}
+
 // Over the image's top-right corner: the operation, the axes, and the steps Ctrl snaps to. Placed by its width last frame, since it sizes itself to what it holds
 void ViewportPanel::DrawToolbar()
 {
@@ -817,6 +1509,17 @@ void ViewportPanel::DrawToolbar()
         }
 
         ImGui::SetItemTooltip("Through the editor's camera, which editing works in, or through the scene's primary camera, as the game shows it");
+        ImGui::SameLine();
+
+        if (ImGui::Button(std::format("{}###ViewMode", m_Mode3D ? "3D" : "2D").c_str()))
+        {
+            m_Mode3D = !m_Mode3D;
+            m_Flying = false;
+            m_Orbiting = false;
+            MarkCameraChanged();
+        }
+
+        ImGui::SetItemTooltip("The editor's camera: looking down -Z at the sprites in 2D, or in perspective in 3D, where the right mouse button looks and with W, A, S, D, Q and E flies, Alt with the left button orbits, the middle button pans and the wheel moves in. Each scene keeps its own");
         ImGui::SameLine();
 
         const bool l_Heatmap = m_LightHeatmap;
@@ -861,7 +1564,7 @@ void ViewportPanel::DrawToolbar()
                 ImGui::PopStyleColor();
             }
 
-            ImGui::SetItemTooltip("%s", c_Tips[it_Operation]);
+            ImGui::SetItemTooltip("%s", m_Mode3D && it_Operation == 1 ? "Rotate (E)" : c_Tips[it_Operation]);
             ImGui::SameLine();
         }
 

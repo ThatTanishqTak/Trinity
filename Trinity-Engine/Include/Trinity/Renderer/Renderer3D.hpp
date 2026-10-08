@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -213,6 +214,8 @@ namespace Trinity
         bool LightHeatmap = false;
         // Samples per pixel in the forward passes, 1 or Renderer3D::c_SampleCount, resolved into the target before anything else draws on it
         std::uint32_t SampleCount = 1;
+        // Drawn after the scene, before the resolve, over its colour and tested against its depth, which it must not write: an editor's grid, say. It sets its own pipeline, built for the target's colour format, Renderer3D::c_DepthFormat and the sample count it is given
+        std::function<void(RHI::CommandList& commands, const RenderView& view, RHI::Format colorFormat, std::uint32_t sampleCount)> Overlay;
     };
 
     // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in. Alpha-masked submeshes are cut out in the pre-pass, and alpha-blended ones drawn after, from back to front. The sun and spot lights cast shadows from maps in one atlas, filtered with PCF. The forward passes can be multisampled, and resolve into the target
@@ -285,7 +288,7 @@ namespace Trinity
         // Each cluster's light count, which may pass c_MaxLights, then its first c_MaxLights lights, as the cluster pass sorts them, for checking it against
         static void BuildClustersReference(const SceneDrawList& list, std::vector<std::uint32_t>& counts, std::vector<std::uint32_t>& lights);
 
-        // When anything casts a shadow, a pass that draws every shadow map into the atlas, then a depth pre-pass into a depth texture the size of the target, then, when there are point or spot lights, a compute pass that sorts them into clusters, then the opaque pass, which clears the target and draws again with an equal depth test, then the blended submeshes over it. Multisampled, they draw into textures of their own, resolved into the target by the last. The list must last until the graph has run
+        // When anything casts a shadow, a pass that draws every shadow map into the atlas, then a depth pre-pass into a depth texture the size of the target, then, when there are point or spot lights, a compute pass that sorts them into clusters, then the opaque pass, which clears the target and draws again with an equal depth test, then the blended submeshes over it, then any overlay. Multisampled, they draw into textures of their own, resolved into the target by the last. The list must last until the graph has run
         Passes AddPasses(FrameGraph& graph, const SceneDrawList& list, FrameGraphTexture target, const RHI::TextureDescription& targetDescription, const std::array<float, 4>& clearColor, const SceneOptions& options = {});
 
         [[nodiscard]] const Statistics& GetStatistics() const { return m_Statistics; }

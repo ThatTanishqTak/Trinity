@@ -23,10 +23,12 @@ namespace
     constexpr float c_LabelWidthInFonts = 8.0f;
     constexpr const char* c_TexturePickerPopup = "##TexturePicker";
     constexpr const char* c_EnvironmentPickerPopup = "##EnvironmentPicker";
+    constexpr const char* c_MeshPickerPopup = "##MeshPicker";
+    constexpr const char* c_MaterialPickerPopup = "##MaterialPicker";
     constexpr const char* c_AddComponentPopup = "##AddComponent";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 6> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName };
+    constexpr std::array<std::string_view, 7> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName };
 
     // A label on the left and the widget filling the rest of the row
     void Label(const char* label)
@@ -117,6 +119,7 @@ void PropertiesPanel::OnImGuiRender()
     DrawTransform(l_Entity);
     DrawCamera(l_Entity);
     DrawSpriteRenderer(l_Entity);
+    DrawMeshRenderer(l_Entity);
     DrawLight(l_Entity);
     DrawEnvironment(l_Entity);
     DrawOtherComponents(l_Entity);
@@ -480,6 +483,125 @@ void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
 
     Label("Order in Layer");
     EditField<Trinity::SpriteRendererComponent>(l_History, entity, "OrderInLayer", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::DragInt("##OrderInLayer", &sprite.OrderInLayer, 0.1f); });
+}
+
+// The mesh, a material for each of its slots and whether it casts shadows, each change one command. The slots are those the mesh's submeshes use once it has loaded, and any set past them. An empty slot draws with the default material, and empty slots at the end are not kept
+void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::MeshRendererComponent>() || !BeginComponent(Trinity::MeshRendererComponent::c_TypeName, Trinity::Icons::c_Cube, true))
+    {
+        return;
+    }
+
+    CommandStack& l_History = m_Session.GetHistory();
+    const auto a_Set = [&l_History, entity](const std::function<void(Trinity::MeshRendererComponent&)>& change, const char* field)
+    {
+        Trinity::MeshRendererComponent l_Value = entity.Get<Trinity::MeshRendererComponent>();
+        change(l_Value);
+        while (!l_Value.Materials.empty() && !l_Value.Materials.back())
+        {
+            l_Value.Materials.pop_back();
+        }
+
+        l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::MeshRendererComponent>>(entity.GetUUID(), std::move(l_Value), field));
+        l_History.EndMerge();
+    };
+
+    const Trinity::UUID l_MeshID = entity.Get<Trinity::MeshRendererComponent>().Mesh;
+    DrawAssetSlot("Mesh", c_MeshPickerPopup, Trinity::MeshAsset::c_AssetType, l_MeshID, [&a_Set](Trinity::UUID mesh) { a_Set([mesh](Trinity::MeshRendererComponent& value) { value.Mesh = mesh; }, "Mesh"); }, "A mesh of a model in the project. Without one nothing is drawn");
+
+    std::size_t l_Slots = entity.Get<Trinity::MeshRendererComponent>().Materials.size();
+    const bool l_Loaded = l_MeshID && Trinity::AssetManager::GetState(l_MeshID) == Trinity::AssetState::Ready;
+    const Trinity::Asset* l_Asset = l_Loaded ? Trinity::AssetManager::GetAsset(l_MeshID) : nullptr;
+    if (l_Asset != nullptr && l_Asset->GetAssetType() == Trinity::MeshAsset::c_AssetType)
+    {
+        for (const Trinity::Submesh& it_Submesh : static_cast<const Trinity::MeshAsset*>(l_Asset)->GetSubmeshes())
+        {
+            l_Slots = std::max(l_Slots, static_cast<std::size_t>(it_Submesh.MaterialSlot) + 1);
+        }
+    }
+    else if (l_MeshID && l_Slots == 0)
+    {
+        Label("Materials");
+        ImGui::TextDisabled("Shown once the mesh has loaded");
+    }
+
+    for (std::size_t it_Slot = 0; it_Slot < l_Slots; ++it_Slot)
+    {
+        const auto& l_Materials = entity.Get<Trinity::MeshRendererComponent>().Materials;
+        const Trinity::UUID l_Material = it_Slot < l_Materials.size() ? l_Materials[it_Slot] : Trinity::UUID();
+        const std::string l_Label = std::format("Material {}", it_Slot);
+        ImGui::PushID(static_cast<int>(it_Slot));
+        DrawAssetSlot(l_Label.c_str(), c_MaterialPickerPopup, Trinity::MaterialAsset::c_AssetType, l_Material, [&a_Set, it_Slot](Trinity::UUID material)
+        {
+            a_Set([it_Slot, material](Trinity::MeshRendererComponent& value)
+            {
+                if (value.Materials.size() <= it_Slot)
+                {
+                    value.Materials.resize(it_Slot + 1);
+                }
+
+                value.Materials[it_Slot] = material;
+            }, "Materials");
+        }, "Empty, so the default material draws this slot");
+        ImGui::PopID();
+    }
+
+    Label("Cast Shadows");
+    EditField<Trinity::MeshRendererComponent>(l_History, entity, "CastShadows", [](Trinity::MeshRendererComponent& meshRenderer) { return ImGui::Checkbox("##CastShadows", &meshRenderer.CastShadows); });
+}
+
+// A slot for one asset of a type: a button naming it that opens a picker of the project's assets of that type, which also takes one dropped from elsewhere in Forge, and a cross that clears it
+void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint)
+{
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::AssetRecord* l_Record = l_Registry != nullptr && current ? l_Registry->Find(current) : nullptr;
+    const std::string l_Name = !current ? std::string("None") : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", current);
+
+    Label(label);
+    const float l_ClearWidth = ImGui::GetFrameHeight();
+    const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f);
+    if (ImGui::Button(std::format("{}###{}", l_Name, label).c_str(), ImVec2(l_Width, 0.0f)))
+    {
+        m_AssetFilter.clear();
+        ImGui::OpenPopup(popup);
+    }
+
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("%s", l_Record != nullptr ? l_Record->Path.c_str() : hint);
+    }
+
+    if (ImGui::BeginDragDropTarget())
+    {
+        if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_AssetPayload))
+        {
+            std::uint64_t l_Value = 0;
+            std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+            const Trinity::AssetRecord* l_Dropped = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
+            if (l_Dropped != nullptr && l_Dropped->Importer == assetType)
+            {
+                set(l_Dropped->ID);
+            }
+            else
+            {
+                TR_WARN("Forge: only a {} asset can go in the {} slot", assetType, label);
+            }
+        }
+
+        ImGui::EndDragDropTarget();
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!current);
+    if (ImGui::Button(std::format("{}##Clear{}", Trinity::Icons::c_TimesCircle, label).c_str(), ImVec2(l_ClearWidth, 0.0f)))
+    {
+        set({});
+    }
+
+    ImGui::EndDisabled();
+
+    DrawAssetPicker(popup, assetType, current, set);
 }
 
 // Takes a texture dropped from elsewhere in Forge, or one picked from the project's textures, and the cross clears it
