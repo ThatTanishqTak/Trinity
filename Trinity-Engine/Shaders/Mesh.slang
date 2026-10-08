@@ -69,7 +69,7 @@ DrawData LoadDraw()
     return l_Draw;
 }
 
-// The parts of the frame's constants the pixel shader needs: the eye, with w set for an orthographic view, the way it looks, the row a point's view depth comes from, the ambient light, the directional lights, the light counts and flags, how depth maps to slices, and the bindless indices of the material table, the samplers, the lights and the clusters
+// The parts of the frame's constants the pixel shader needs: the eye, with w set for an orthographic view, the way it looks, the row a point's view depth comes from, the ambient light, the directional lights, the light counts and flags, how depth maps to slices, the bindless indices of the material table, the samplers, the lights and the clusters, and the environment: its specular cubemap, irradiance cubemap, lookup table and specular mip count, then its intensity and the cosine and sine of its turn
 struct FrameConstants
 {
     float4 Eye;
@@ -88,6 +88,9 @@ struct FrameConstants
     uint2 ClusterCounts;
     uint2 ClusterLights;
     uint LightsOffset;
+    uint2 ClampSampler;
+    uint4 Environment;
+    float4 EnvironmentParameters;
 };
 
 FrameConstants LoadFrame()
@@ -115,7 +118,11 @@ FrameConstants LoadFrame()
     l_Constants.Lights = l_Nearest.zw;
     l_Constants.ClusterCounts = l_Clusters.xy;
     l_Constants.ClusterLights = l_Clusters.zw;
-    l_Constants.LightsOffset = l_Frame.Load(l_Base + 336);
+    const uint4 l_Offsets = l_Frame.Load<uint4>(l_Base + 336);
+    l_Constants.LightsOffset = l_Offsets.x;
+    l_Constants.ClampSampler = l_Offsets.yz;
+    l_Constants.Environment = l_Frame.Load<uint4>(l_Base + 352);
+    l_Constants.EnvironmentParameters = l_Frame.Load<float4>(l_Base + 368);
 
     return l_Constants;
 }
@@ -129,6 +136,15 @@ uint GetClusterIndex(FrameConstants frame, float4 clip, float viewDepth)
     const float l_Slice = clamp(floor(l_Depth * frame.Slicing.x + frame.Slicing.y), 0.0, float(c_ClusterSlices - 1));
 
     return uint(l_Tile.x) + c_ClusterTilesX * (uint(l_Tile.y) + c_ClusterTilesY * uint(l_Slice));
+}
+
+// A direction turned about +Y by the environment's rotation, as glTF Sample Viewer turns every direction it looks up
+float3 RotateToEnvironment(FrameConstants frame, float3 direction)
+{
+    const float l_Cosine = frame.EnvironmentParameters.y;
+    const float l_Sine = frame.EnvironmentParameters.z;
+
+    return float3(l_Cosine * direction.x + l_Sine * direction.z, direction.y, l_Cosine * direction.z - l_Sine * direction.x);
 }
 
 // A unit direction unfolded from the octahedron, as MeshAsset.cpp's DecodeOctahedral does
@@ -216,7 +232,7 @@ float4 SampleMaterial(Material material, uint slot, float4 texCoords, FrameConst
     return l_Image.Sample(l_Sampler, material.GetTexCoord(slot) == 1 ? texCoords.zw : texCoords.xy);
 }
 
-// glTF's metallic-roughness material lit by the directional lights, then by the point and spot lights of the pixel's cluster, or by every one of them when asked, in light order either way. Ambient light stands in for image-based lighting until it arrives, and only it is occluded
+// glTF's metallic-roughness material lit by the directional lights, then by the point and spot lights of the pixel's cluster, or by every one of them when asked, in light order either way, then by the environment, or with no environment a little ambient light, which alone is occluded. The environment's radiance is prefiltered for roughness m / (levels - 1) at mip m
 [shader("fragment")]
 float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Target
 {
@@ -268,9 +284,10 @@ float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Targ
     l_Surface.Normal = l_Normal;
     l_Surface.View = l_Frame.Eye.w != 0.0 ? -normalize(l_Frame.Forward) : normalize(l_Frame.Eye.xyz - input.WorldPosition);
     l_Surface.NormalDotView = max(dot(l_Normal, l_Surface.View), 1e-4);
-    l_Surface.Alpha = max(l_Roughness * l_Roughness, 0.002);
-    l_Surface.Diffuse = l_BaseColor.rgb * (1.0 - l_Metallic);
-    l_Surface.Reflectance = lerp(float3(0.04, 0.04, 0.04), l_BaseColor.rgb, l_Metallic);
+    l_Surface.BaseColor = l_BaseColor.rgb;
+    l_Surface.Metallic = saturate(l_Metallic);
+    l_Surface.PerceptualRoughness = saturate(l_Roughness);
+    l_Surface.Alpha = max(l_Surface.PerceptualRoughness * l_Surface.PerceptualRoughness, 0.002);
 
     ByteAddressBuffer l_FrameBuffer = g_Push.Frame;
     float3 l_Color = float3(0.0, 0.0, 0.0);
@@ -306,7 +323,26 @@ float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Targ
         }
     }
 
-    l_Color += l_Frame.Ambient * (l_Surface.Diffuse + l_Surface.Reflectance) * l_Occlusion + l_Emissive;
+    if (l_Frame.Environment.w != 0)
+    {
+        TextureCube l_Specular = DescriptorHandle<TextureCube>(uint2(l_Frame.Environment.x, 0));
+        TextureCube l_Irradiance = DescriptorHandle<TextureCube>(uint2(l_Frame.Environment.y, 0));
+        Texture2D l_Lookup = DescriptorHandle<Texture2D>(uint2(l_Frame.Environment.z, 0));
+        SamplerState l_Linear = DescriptorHandle<SamplerState>(l_Frame.LinearSampler);
+        SamplerState l_Clamp = DescriptorHandle<SamplerState>(l_Frame.ClampSampler);
+        const float3 l_Reflection = normalize(reflect(-l_Surface.View, l_Surface.Normal));
+        const float l_Level = l_Surface.PerceptualRoughness * float(l_Frame.Environment.w - 1);
+        const float3 l_Prefiltered = l_Specular.SampleLevel(l_Linear, RotateToEnvironment(l_Frame, l_Reflection), l_Level).rgb * l_Frame.EnvironmentParameters.x;
+        const float3 l_Incoming = l_Irradiance.SampleLevel(l_Linear, RotateToEnvironment(l_Frame, l_Surface.Normal), 0.0).rgb * l_Frame.EnvironmentParameters.x;
+        const float2 l_ScaleBias = l_Lookup.SampleLevel(l_Clamp, float2(saturate(dot(l_Surface.Normal, l_Surface.View)), l_Surface.PerceptualRoughness), 0.0).rg;
+        l_Color += ShadeEnvironment(l_Surface, l_Incoming, l_Prefiltered, l_ScaleBias) * l_Occlusion;
+    }
+    else
+    {
+        l_Color += l_Frame.Ambient * (l_Surface.BaseColor * (1.0 - l_Surface.Metallic) + lerp(float3(0.04, 0.04, 0.04), l_Surface.BaseColor, l_Surface.Metallic)) * l_Occlusion;
+    }
+
+    l_Color += l_Emissive;
     if ((l_Frame.Flags & c_LightHeatmapFlag) != 0)
     {
         l_Color = lerp(l_Color * 0.25, GetHeatColor(l_ClusterCount), 0.75);

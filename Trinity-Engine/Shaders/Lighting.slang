@@ -96,15 +96,16 @@ PunctualLight LoadPunctualLight(ByteAddressBuffer buffer, uint address)
     return l_Punctual;
 }
 
-// A shaded point: its position and normal, the way towards the eye, and its diffuse colour, reflectance at normal incidence and GGX alpha
+// A shaded point: its position and normal, the way towards the eye, and glTF's metallic-roughness inputs, with GGX alpha the square of perceptual roughness
 struct Surface
 {
     float3 Position;
     float3 Normal;
     float3 View;
     float NormalDotView;
-    float3 Diffuse;
-    float3 Reflectance;
+    float3 BaseColor;
+    float Metallic;
+    float PerceptualRoughness;
     float Alpha;
 };
 
@@ -134,7 +135,7 @@ float3 FresnelSchlick(float3 reflectance, float viewDotHalf)
     return reflectance + (1.0 - reflectance) * l_Factor;
 }
 
-// glTF's metallic-roughness BRDF for light arriving from one direction: Lambert diffuse taking what Fresnel leaves, and GGX specular. Light from behind the surface adds exactly nothing
+// glTF's metallic-roughness BRDF for light arriving from one direction, as glTF Sample Viewer writes it: a dielectric that mixes Lambert diffuse with GGX specular by its Fresnel, and a metal whose GGX specular takes the base colour's Fresnel, mixed by metalness. Light from behind the surface adds exactly nothing
 float3 ShadeLight(Surface surface, float3 toLight, float3 radiance)
 {
     const float l_NormalDotLight = saturate(dot(surface.Normal, toLight));
@@ -147,11 +148,38 @@ float3 ShadeLight(Surface surface, float3 toLight, float3 radiance)
     const float3 l_Half = l_Sum * rsqrt(max(dot(l_Sum, l_Sum), 1e-12));
     const float l_NormalDotHalf = saturate(dot(surface.Normal, l_Half));
     const float l_ViewDotHalf = saturate(dot(surface.View, l_Half));
-    const float3 l_Fresnel = FresnelSchlick(surface.Reflectance, l_ViewDotHalf);
-    const float3 l_Specular = l_Fresnel * (DistributionGGX(l_NormalDotHalf, surface.Alpha) * VisibilitySmithGGXCorrelated(surface.NormalDotView, l_NormalDotLight, surface.Alpha));
-    const float3 l_Diffuse = (1.0 - l_Fresnel) * surface.Diffuse / c_Pi;
+    const float3 l_DielectricFresnel = FresnelSchlick(float3(0.04, 0.04, 0.04), l_ViewDotHalf);
+    const float3 l_MetalFresnel = FresnelSchlick(surface.BaseColor, l_ViewDotHalf);
+    const float3 l_Diffuse = surface.BaseColor / c_Pi;
+    const float l_Specular = DistributionGGX(l_NormalDotHalf, surface.Alpha) * VisibilitySmithGGXCorrelated(surface.NormalDotView, l_NormalDotLight, surface.Alpha);
+    const float3 l_Dielectric = lerp(l_Diffuse, float3(l_Specular, l_Specular, l_Specular), l_DielectricFresnel);
+    const float3 l_Metal = l_MetalFresnel * l_Specular;
 
-    return (l_Diffuse + l_Specular) * radiance * l_NormalDotLight;
+    return lerp(l_Dielectric, l_Metal, surface.Metallic) * radiance * l_NormalDotLight;
+}
+
+// The split sum's Fresnel for one reflectance, with the multiple-scattering energy Fdez-Aguera adds back, from the lookup table's scale and bias for this view and roughness, as glTF Sample Viewer has it
+float3 GetEnvironmentFresnel(float3 reflectance, float normalDotView, float roughness, float2 scaleBias)
+{
+    const float3 l_Roughened = max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), reflectance) - reflectance;
+    const float3 l_Single = reflectance + l_Roughened * pow(1.0 - normalDotView, 5.0);
+    const float3 l_SingleEnergy = l_Single * scaleBias.x + scaleBias.y;
+    const float l_MissingEnergy = 1.0 - (scaleBias.x + scaleBias.y);
+    const float3 l_Average = reflectance + (1.0 - reflectance) / 21.0;
+    const float3 l_MultipleEnergy = l_MissingEnergy * l_SingleEnergy * l_Average / (1.0 - l_Average * l_MissingEnergy);
+
+    return l_SingleEnergy + l_MultipleEnergy;
+}
+
+// The environment's light on a surface, from its irradiance and its radiance prefiltered for the surface's roughness, mixed as ShadeLight mixes a light's
+float3 ShadeEnvironment(Surface surface, float3 irradiance, float3 prefiltered, float2 scaleBias)
+{
+    const float l_NormalDotView = saturate(dot(surface.Normal, surface.View));
+    const float3 l_Diffuse = irradiance * surface.BaseColor;
+    const float3 l_Metal = GetEnvironmentFresnel(surface.BaseColor, l_NormalDotView, surface.PerceptualRoughness, scaleBias) * prefiltered;
+    const float3 l_Dielectric = lerp(l_Diffuse, prefiltered, GetEnvironmentFresnel(float3(0.04, 0.04, 0.04), l_NormalDotView, surface.PerceptualRoughness, scaleBias));
+
+    return lerp(l_Dielectric, l_Metal, surface.Metallic);
 }
 
 // KHR_lights_punctual's falloff: the inverse square, windowed to reach 0 at the range, and for a spot light a smooth edge between its cone angles. Beyond its range a light adds exactly nothing, so shading by every light adds what shading by a cluster's lights does
