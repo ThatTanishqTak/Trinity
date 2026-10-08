@@ -35,6 +35,7 @@ private:
     void DrawAsset(Trinity::UUID id);
     void DrawTexturePreview();
     void DrawTextureSettings(const Trinity::AssetRecord& record);
+    void DrawModelSettings(const Trinity::AssetRecord& record);
 
     [[nodiscard]] bool BeginComponent(std::string_view name, const char* icon, bool removable);
     void SetTexture(Trinity::Entity entity, Trinity::UUID texture);
@@ -45,6 +46,7 @@ private:
     Trinity::AssetRef<Trinity::TextureAsset> m_Preview;
     Trinity::UUID m_SettingsAsset;
     TextureImportSettings m_TextureSettings;
+    ModelImportSettings m_ModelSettings;
     std::string m_PendingRemoval;
     std::string m_NameText;
     Trinity::UUID m_NameEntity;

@@ -437,6 +437,7 @@ void EditorSession::AttachRegistry()
 {
     m_Registry = Trinity::CreateScope<Trinity::AssetRegistry>(Trinity::Project::c_AssetsMount);
     m_Registry->SetDefaultSettings(TextureImporter::c_Importer, TextureImporter::GetDefaultSettings());
+    m_Registry->SetDefaultSettings(ModelImporter::c_Importer, ModelImporter::GetDefaultSettings());
     Trinity::AssetManager::SetRegistry(m_Registry.get());
     ScanAssets();
 }
@@ -757,6 +758,14 @@ bool EditorSession::ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings
 
     const Trinity::AssetRecord* l_Record = m_Registry->Find(id);
     TR_INFO("Forge: reimporting {} with its new settings", l_Record->Path);
+    if (l_Record->Importer == ModelImporter::c_Importer)
+    {
+        // Its cache key holds its settings, so the model imports again while every other model stays cached
+        StartImports();
+
+        return true;
+    }
+
     m_Reimporter.Queue(*l_Record);
 
     return true;

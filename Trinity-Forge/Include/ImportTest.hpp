@@ -36,6 +36,7 @@ private:
     [[nodiscard]] bool CheckModels();
     [[nodiscard]] bool ReimportModels();
     [[nodiscard]] bool CheckInstances();
+    [[nodiscard]] bool CompareFormats();
     void CheckQuality();
     void BeginLoads(Phase phase);
     void FinishLoads();

@@ -24,8 +24,8 @@ trinity_configure_executable(${TARGET_NAME})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_FORGE_HEADERS} ${TRINITY_FORGE_SOURCES})
 
 target_include_directories(${TARGET_NAME} PRIVATE Include)
-# The model importer's glTF reading and mesh ordering stay in the editor, so no game links them
-target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine ktx stb::stb ImGuizmo::ImGuizmo fastgltf::fastgltf meshoptimizer)
+# The model importer's glTF, FBX, OBJ and COLLADA reading and mesh ordering stay in the editor, so no game links them
+target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine ktx stb::stb ImGuizmo::ImGuizmo fastgltf::fastgltf meshoptimizer assimp::assimp)
 trinity_check_editor_libraries(${TARGET_NAME} present)
 
 # ImGuizmo's own code keeps its own warnings, and reads ImGui before any precompiled header could
@@ -34,5 +34,5 @@ set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/ImGuizmoUnit.cpp
 # The texture importer encodes, so Forge takes the whole of libktx, and a static engine links it instead of ktx_read
 set_target_properties(${TARGET_NAME} PROPERTIES TRINITY_TEXTURE_ENCODER ON)
 
-# --import-test copies these into a project, so the importer always meets the same images, and the models Scripts/FetchSamples fetches when they are there
-target_compile_definitions(${TARGET_NAME} PRIVATE TR_FORGE_TEST_TEXTURES="${CMAKE_CURRENT_SOURCE_DIR}/Tests/Textures" TR_FORGE_TEST_MODELS="${CMAKE_CURRENT_SOURCE_DIR}/Tests/Models")
+# --import-test copies these into a project, so the importer always meets the same images, the models Scripts/FetchSamples fetches when they are there, and assimp's own test models in FBX, OBJ and COLLADA
+target_compile_definitions(${TARGET_NAME} PRIVATE TR_FORGE_TEST_TEXTURES="${CMAKE_CURRENT_SOURCE_DIR}/Tests/Textures" TR_FORGE_TEST_MODELS="${CMAKE_CURRENT_SOURCE_DIR}/Tests/Models" TR_FORGE_TEST_ASSIMP="${CMAKE_SOURCE_DIR}/Vendor/assimp/test")

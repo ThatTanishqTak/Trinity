@@ -6,10 +6,29 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+class ModelSource;
+
+enum class ModelUpAxis : std::uint8_t
+{
+    Auto,
+    Y,
+    Z
+};
+
+// What the file says of its units and axes, unless these say otherwise. A unit scale is metres in one of the file's units, and Z up is turned to Y up as a right-handed Z-up tool exports it
+struct ModelImportSettings
+{
+    std::optional<float> UnitScale;
+    ModelUpAxis UpAxis = ModelUpAxis::Auto;
+
+    [[nodiscard]] bool operator==(const ModelImportSettings&) const = default;
+};
 
 struct ModelImportReport
 {
@@ -22,7 +41,7 @@ struct ModelImportReport
     std::size_t TexturesCached = 0;
 };
 
-// A .gltf or .glb becomes sub-assets of its file: a mesh for each glTF mesh, a material for each material, and a texture for each image it embeds and each way a material uses it. An image beside the model is its own texture asset, which the model sets to be encoded as it uses it. The node hierarchy is cooked beside them
+// A .gltf, .glb, .fbx, .obj or .dae becomes sub-assets of its file: a mesh for each mesh, a material for each material, and a texture for each image it embeds and each way a material uses it. An image beside the model is its own texture asset, which the model sets to be encoded as it uses it. The node hierarchy is cooked beside them, in Trinity's metres with Y up. glTF is read with fastgltf and the rest with assimp
 class ModelImporter
 {
 public:
@@ -44,10 +63,7 @@ public:
 
     static constexpr std::string_view c_Importer = "Model";
     static constexpr std::string_view c_MaterialImporter = "Material";
-    static constexpr std::uint32_t c_Version = 2;
-
-    // The parsed glTF with its buffers and embedded images, kept from planning to cooking
-    struct Source;
+    static constexpr std::uint32_t c_Version = 3;
 
     struct ExternalTexture
     {
@@ -66,7 +82,7 @@ public:
         // What the last cook left: its key, and whether the file of every sub-asset the record lists, and the model's own, is there
         std::string CachedKey;
         bool CookedFilesExist = false;
-        std::shared_ptr<const Source> Model;
+        std::shared_ptr<const ModelSource> Model;
     };
 
     struct Cooked
@@ -78,6 +94,9 @@ public:
         std::size_t TexturesCached = 0;
     };
 
+    [[nodiscard]] static Trinity::AssetSettings GetDefaultSettings();
+    [[nodiscard]] static Trinity::AssetSettings MakeSettings(const ModelImportSettings& settings);
+    [[nodiscard]] static ModelImportSettings ReadSettings(const Trinity::AssetRecord& record);
     [[nodiscard]] static std::string GetCacheKeyPath(Trinity::UUID id);
     [[nodiscard]] static std::string GetCacheKey(const Trinity::AssetRecord& record, const Plan& plan, std::span<const Trinity::UUID> externalTextures);
     [[nodiscard]] static std::string_view ToString(TextureUsage usage);

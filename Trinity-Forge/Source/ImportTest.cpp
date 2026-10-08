@@ -14,7 +14,9 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstring>
 #include <format>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -28,6 +30,8 @@ namespace
     constexpr std::string_view c_TestFolder = "Textures";
     constexpr std::string_view c_ModelMount = "/forge-models";
     constexpr std::string_view c_ModelFolder = "Models";
+    constexpr std::string_view c_InterchangeMount = "/forge-assimp";
+    constexpr std::string_view c_InterchangeFolder = "Interchange";
     constexpr std::string_view c_BC7Variable = "renderer.texture_bc7";
 
     // UASTC at level 2 keeps the test images between 41 and 46 dB, so a drop below this means a broken encode or transcode, not a lossy setting
@@ -36,8 +40,10 @@ namespace
     constexpr std::uint64_t c_LoadTimeoutFrames = 1800;
     // How far an instantiated entity's world matrix may be from fastgltf's for its node, in any element
     constexpr float c_MaximumMatrixError = 1e-5f;
+    // How far any vertex of one format may be from the nearest of another's, in metres once both are converted
+    constexpr float c_MaximumPositionError = 1e-4f;
 
-    // Khronos glTF sample models, as Scripts/FetchSamples checks them out under TR_FORGE_TEST_MODELS: one with images beside it and two that embed theirs
+    // Khronos glTF sample models, as Scripts/FetchSamples checks them out under TR_FORGE_TEST_MODELS: two with images beside them and two that embed theirs
     struct TestModel
     {
         std::string_view Name;
@@ -45,15 +51,147 @@ namespace
         std::string_view File;
     };
 
-    constexpr std::array<TestModel, 3> c_TestModels{ {
+    constexpr std::array<TestModel, 4> c_TestModels{ {
         { "Sponza", "glTF-Sample-Assets/Models/Sponza/glTF", "Sponza.gltf" },
         { "DamagedHelmet", "glTF-Sample-Assets/Models/DamagedHelmet/glTF-Binary", "DamagedHelmet.glb" },
-        { "MetalRoughSpheres", "glTF-Sample-Assets/Models/MetalRoughSpheres/glTF-Binary", "MetalRoughSpheres.glb" }
+        { "MetalRoughSpheres", "glTF-Sample-Assets/Models/MetalRoughSpheres/glTF-Binary", "MetalRoughSpheres.glb" },
+        { "Duck", "glTF-Sample-Assets/Models/Duck/glTF", "Duck.gltf" }
     } };
+
+    // assimp's own test models under TR_FORGE_TEST_ASSIMP, the model first and then the files it names, each copied into a folder of its own. The binary duck borrows the ASCII one's texture, and the FBX spider names its textures by paths on another machine, so it finds them by name
+    struct InterchangeModel
+    {
+        std::string_view Name;
+        std::string_view Files;
+        std::string_view Textures;
+    };
+
+    constexpr std::string_view c_DuckTexture = "models-nonbsd/FBX/2013_ASCII/duckCM.tga";
+    constexpr std::string_view c_SpiderTextures = "models/OBJ/SpiderTex.jpg models/OBJ/drkwood2.jpg models/OBJ/engineflare1.jpg models/OBJ/wal67ar_small.jpg models/OBJ/wal69ar_small.jpg";
+    constexpr std::array<InterchangeModel, 5> c_InterchangeModels{ {
+        { "Duck-COLLADA", "models/Collada/duck.dae", "models/Collada/duckCM.tga" },
+        { "Duck-FBX-ASCII", "models-nonbsd/FBX/2013_ASCII/duck.fbx", c_DuckTexture },
+        { "Duck-FBX-Binary", "models-nonbsd/FBX/2013_BINARY/duck.fbx", c_DuckTexture },
+        { "Spider-OBJ", "models/OBJ/spider.obj models/OBJ/spider.mtl", c_SpiderTextures },
+        { "Spider-FBX", "models/FBX/spider.fbx", c_SpiderTextures }
+    } };
+
+    // One model and another exported from the same scene, which must come to the same vertices
+    constexpr std::array<std::pair<std::string_view, std::string_view>, 4> c_FormatComparisons{ {
+        { "Duck", "Duck-COLLADA" },
+        { "Duck", "Duck-FBX-ASCII" },
+        { "Duck", "Duck-FBX-Binary" },
+        { "Spider-OBJ", "Spider-FBX" }
+    } };
+
+    std::vector<std::string_view> SplitFiles(std::string_view files)
+    {
+        std::vector<std::string_view> l_Files;
+        while (!files.empty())
+        {
+            const std::size_t l_End = std::min(files.find(' '), files.size());
+            l_Files.push_back(files.substr(0, l_End));
+            files.remove_prefix(std::min(l_End + 1, files.size()));
+        }
+
+        return l_Files;
+    }
 
     std::string GetTestModelPath(const TestModel& model)
     {
         return std::format("{}/{}/{}/{}", Trinity::Project::c_AssetsMount, c_ModelFolder, model.Name, model.File);
+    }
+
+    std::string GetInterchangePath(const InterchangeModel& model)
+    {
+        const std::string_view l_Source = SplitFiles(model.Files).front();
+
+        return std::format("{}/{}/{}/{}", Trinity::Project::c_AssetsMount, c_InterchangeFolder, model.Name, l_Source.substr(l_Source.find_last_of('/') + 1));
+    }
+
+    // Where every test model is put in the project, glTF first
+    std::vector<std::string> GetTestModelPaths()
+    {
+        std::vector<std::string> l_Paths;
+        std::ranges::transform(c_TestModels, std::back_inserter(l_Paths), [](const TestModel& model) { return GetTestModelPath(model); });
+        std::ranges::transform(c_InterchangeModels, std::back_inserter(l_Paths), GetInterchangePath);
+
+        return l_Paths;
+    }
+
+    std::string FindTestModelPath(std::string_view name)
+    {
+        const auto a_Model = std::ranges::find(c_TestModels, name, &TestModel::Name);
+        if (a_Model != c_TestModels.end())
+        {
+            return GetTestModelPath(*a_Model);
+        }
+
+        const auto a_Interchange = std::ranges::find(c_InterchangeModels, name, &InterchangeModel::Name);
+
+        return a_Interchange != c_InterchangeModels.end() ? GetInterchangePath(*a_Interchange) : std::string();
+    }
+
+    bool IsGltf(std::string_view path)
+    {
+        return path.ends_with(".gltf") || path.ends_with(".glb");
+    }
+
+    // Every vertex of every mesh the cooked hierarchy places, in world space, or nothing when the model cannot be read
+    std::optional<std::vector<glm::vec3>> GetWorldPositions(const Trinity::AssetRecord& record)
+    {
+        const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(Trinity::GetCookedModelPath(record.ID));
+        const Trinity::Expected<Trinity::ModelData, std::string> l_Model = l_Text ? Trinity::ParseModelData(*l_Text) : Trinity::Expected<Trinity::ModelData, std::string>(Trinity::Unexpected{ std::string("it could not be read") });
+        if (!l_Model)
+        {
+            return std::nullopt;
+        }
+
+        std::vector<glm::vec3> l_Positions;
+        std::vector<glm::mat4> l_Worlds;
+        for (const Trinity::ModelNode& it_Node : l_Model->Nodes)
+        {
+            const glm::mat4 l_Local = Trinity::TransformComponent{ it_Node.Translation, it_Node.Rotation, it_Node.Scale }.GetMatrix();
+            l_Worlds.push_back(it_Node.Parent == Trinity::ModelNode::c_NoParent ? l_Local : l_Worlds[static_cast<std::size_t>(it_Node.Parent)] * l_Local);
+            if (!it_Node.Mesh.IsValid())
+            {
+                continue;
+            }
+
+            const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_File = Trinity::FileSystem::ReadFile(Trinity::GetCookedMeshPath(it_Node.Mesh));
+            const Trinity::Expected<Trinity::MeshFile, std::string> l_Mesh = l_File ? Trinity::ReadMeshFile(*l_File) : Trinity::Expected<Trinity::MeshFile, std::string>(Trinity::Unexpected{ std::string("it could not be read") });
+            if (!l_Mesh)
+            {
+                return std::nullopt;
+            }
+
+            for (std::uint32_t it_Vertex = 0; it_Vertex < l_Mesh->Layout.VertexCount; ++it_Vertex)
+            {
+                glm::vec3 l_Position;
+                std::memcpy(&l_Position, l_Mesh->Data.data() + l_Mesh->Layout.Positions + it_Vertex * sizeof(glm::vec3), sizeof(glm::vec3));
+                l_Positions.push_back(glm::vec3(l_Worlds.back() * glm::vec4(l_Position, 1.0f)));
+            }
+        }
+
+        return l_Positions;
+    }
+
+    // The farthest any point of one set is from its nearest in the other
+    float GetFarthestNearest(const std::vector<glm::vec3>& from, const std::vector<glm::vec3>& to)
+    {
+        float l_Farthest = 0.0f;
+        for (const glm::vec3& it_Point : from)
+        {
+            float l_Nearest = std::numeric_limits<float>::infinity();
+            for (const glm::vec3& it_Other : to)
+            {
+                l_Nearest = std::min(l_Nearest, glm::dot(it_Point - it_Other, it_Point - it_Other));
+            }
+
+            l_Farthest = std::max(l_Farthest, l_Nearest);
+        }
+
+        return std::sqrt(l_Farthest);
     }
 
     // Only files that are missing or differ are written, so an unchanged set stays in the cache
@@ -159,7 +297,7 @@ void ImportTest::Start(const std::filesystem::path& directory)
             return;
         }
 
-        if (!CheckModels() || !ReimportModels() || !CheckInstances())
+        if (!CheckModels() || !ReimportModels() || !CheckInstances() || !CompareFormats())
         {
             return;
         }
@@ -257,18 +395,51 @@ std::size_t ImportTest::CopyTestImages()
     return l_Copied;
 }
 
-// The Khronos samples, when Scripts/FetchSamples has fetched them, each into a folder of its own. Without them the test goes on with the images alone
+// The Khronos samples, when Scripts/FetchSamples has fetched them, and assimp's test models, each into a folder of its own. Without the samples the test goes on with assimp's models alone
 std::size_t ImportTest::CopyTestModels()
 {
-    if (!std::filesystem::is_directory(std::filesystem::path(TR_FORGE_TEST_MODELS)) || !Trinity::FileSystem::MountDirectory(c_ModelMount, std::filesystem::path(TR_FORGE_TEST_MODELS)))
-    {
-        TR_WARN("Import test: there are no test models in {}, so only images are tested. Scripts/FetchSamples.sh or FetchSamples.ps1 fetches them", TR_FORGE_TEST_MODELS);
-
-        return 0;
-    }
-
     std::size_t l_Found = 0;
     std::size_t l_Copied = 0;
+    if (std::filesystem::is_directory(std::filesystem::path(TR_FORGE_TEST_ASSIMP)) && Trinity::FileSystem::MountDirectory(c_InterchangeMount, std::filesystem::path(TR_FORGE_TEST_ASSIMP)))
+    {
+        for (const InterchangeModel& it_Model : c_InterchangeModels)
+        {
+            std::vector<std::string_view> l_Files = SplitFiles(it_Model.Files);
+            std::ranges::copy(SplitFiles(it_Model.Textures), std::back_inserter(l_Files));
+
+            if (!Trinity::FileSystem::Exists(std::format("{}/{}", c_InterchangeMount, l_Files.front())))
+            {
+                TR_WARN("Import test: {} is missing from {}, so {} is not tested", l_Files.front(), TR_FORGE_TEST_ASSIMP, it_Model.Name);
+
+                continue;
+            }
+
+            ++l_Found;
+            for (const std::string_view it_File : l_Files)
+            {
+                const std::string_view l_Name = it_File.substr(it_File.find_last_of('/') + 1);
+                if (CopyIfChanged(std::format("{}/{}", c_InterchangeMount, it_File), std::format("{}/{}/{}/{}", Trinity::Project::c_AssetsMount, c_InterchangeFolder, it_Model.Name, l_Name)))
+                {
+                    ++l_Copied;
+                }
+            }
+        }
+
+        static_cast<void>(Trinity::FileSystem::Unmount(c_InterchangeMount));
+    }
+    else
+    {
+        TR_WARN("Import test: assimp's test models are not in {}, so FBX, OBJ and COLLADA are not tested", TR_FORGE_TEST_ASSIMP);
+    }
+
+    if (!std::filesystem::is_directory(std::filesystem::path(TR_FORGE_TEST_MODELS)) || !Trinity::FileSystem::MountDirectory(c_ModelMount, std::filesystem::path(TR_FORGE_TEST_MODELS)))
+    {
+        TR_WARN("Import test: there are no glTF test models in {}, so glTF is not tested. Scripts/FetchSamples.sh or FetchSamples.ps1 fetches them", TR_FORGE_TEST_MODELS);
+        TR_INFO("Import test: {} of {} test model(s) found, with {} file(s) copied in", l_Found, c_TestModels.size() + c_InterchangeModels.size(), l_Copied);
+
+        return l_Found;
+    }
+
     for (const TestModel& it_Model : c_TestModels)
     {
         const std::string l_Folder = std::format("{}/{}", c_ModelMount, it_Model.Folder);
@@ -291,7 +462,7 @@ std::size_t ImportTest::CopyTestModels()
     }
 
     static_cast<void>(Trinity::FileSystem::Unmount(c_ModelMount));
-    TR_INFO("Import test: {} of {} test model(s) found, with {} file(s) copied in", l_Found, c_TestModels.size(), l_Copied);
+    TR_INFO("Import test: {} of {} test model(s) found, with {} file(s) copied in", l_Found, c_TestModels.size() + c_InterchangeModels.size(), l_Copied);
 
     return l_Found;
 }
@@ -302,9 +473,10 @@ bool ImportTest::CheckModels()
     const Trinity::AssetRegistry& l_Registry = *m_Session.GetRegistry();
     bool l_Passed = true;
     m_ModelTextures.clear();
-    for (const TestModel& it_Model : c_TestModels)
+    m_ModelTextures.clear();
+    for (const std::string& it_Path : GetTestModelPaths())
     {
-        const Trinity::AssetRecord* l_Record = l_Registry.FindByPath(GetTestModelPath(it_Model));
+        const Trinity::AssetRecord* l_Record = l_Registry.FindByPath(it_Path);
         if (l_Record == nullptr)
         {
             continue;
@@ -415,9 +587,9 @@ bool ImportTest::CheckModels()
 bool ImportTest::ReimportModels()
 {
     std::vector<std::pair<Trinity::UUID, std::vector<Trinity::SubAsset>>> l_Before;
-    for (const TestModel& it_Model : c_TestModels)
+    for (const std::string& it_Path : GetTestModelPaths())
     {
-        if (const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(GetTestModelPath(it_Model)))
+        if (const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(it_Path))
         {
             l_Before.emplace_back(l_Record->ID, l_Record->SubAssets);
             static_cast<void>(Trinity::FileSystem::RemoveFile(ModelImporter::GetCacheKeyPath(l_Record->ID)));
@@ -453,13 +625,13 @@ bool ImportTest::ReimportModels()
     return true;
 }
 
-// Each model is created in a scene of its own by the command a drop runs, which must undo to nothing and redo with the same UUIDs. Every node's world matrix is then compared with the one fastgltf computes from the file, matrices and all
+// Each model is created in a scene of its own by the command a drop runs, which must undo to nothing and redo with the same UUIDs. For a glTF, every node's world matrix is then compared with the one fastgltf computes from the file, matrices and all
 bool ImportTest::CheckInstances()
 {
     bool l_Passed = true;
-    for (const TestModel& it_Model : c_TestModels)
+    for (const std::string& it_Path : GetTestModelPaths())
     {
-        const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(GetTestModelPath(it_Model));
+        const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(it_Path);
         if (l_Record == nullptr)
         {
             continue;
@@ -472,7 +644,7 @@ bool ImportTest::CheckInstances()
         };
 
         Trinity::Scene l_Scene;
-        CreateModelCommand l_Command(l_Record->ID, std::string(it_Model.Name), {}, {}, glm::vec3(0.0f));
+        CreateModelCommand l_Command(l_Record->ID, std::filesystem::path(it_Path).stem().string(), {}, {}, glm::vec3(0.0f));
         if (!l_Command.Execute(l_Scene))
         {
             a_Fail("could not be created in a scene");
@@ -488,6 +660,13 @@ bool ImportTest::CheckInstances()
         if (l_AfterUndo != 0 || !l_Redone || l_Scene.GetEntityCount() != l_Created || !l_Scene.FindEntityByUUID(l_Root))
         {
             a_Fail(std::format("made {} entities, left {} after an undo, and {} after a redo", l_Created, l_AfterUndo, l_Scene.GetEntityCount()));
+
+            continue;
+        }
+
+        if (!IsGltf(it_Path))
+        {
+            TR_INFO("Import test: {} created {} entities in one command that undoes and redoes", l_Record->Path, l_Created);
 
             continue;
         }
@@ -555,6 +734,46 @@ bool ImportTest::CheckInstances()
         }
 
         TR_INFO("Import test: {} created {} entities in one command that undoes and redoes, with every world matrix within {:.2e} of fastgltf's", l_Record->Path, l_Created, l_Worst);
+    }
+
+    return l_Passed;
+}
+
+// The same model in two formats comes to the same vertices once each is in metres with Y up, which checks the units and axes each format is read in. A pair missing either model is left out
+bool ImportTest::CompareFormats()
+{
+    bool l_Passed = true;
+    for (const auto& [it_Reference, it_Other] : c_FormatComparisons)
+    {
+        const Trinity::AssetRecord* l_Reference = m_Session.GetRegistry()->FindByPath(FindTestModelPath(it_Reference));
+        const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(FindTestModelPath(it_Other));
+        if (l_Reference == nullptr || l_Record == nullptr)
+        {
+            TR_WARN("Import test: {} or {} is missing, so they are not compared", it_Reference, it_Other);
+
+            continue;
+        }
+
+        const std::optional<std::vector<glm::vec3>> l_Expected = GetWorldPositions(*l_Reference);
+        const std::optional<std::vector<glm::vec3>> l_Found = GetWorldPositions(*l_Record);
+        if (!l_Expected || !l_Found || l_Expected->empty() || l_Found->empty())
+        {
+            TR_ERROR("Import test: {} or {} has a hierarchy or mesh that could not be read for the comparison", l_Reference->Path, l_Record->Path);
+            l_Passed = false;
+
+            continue;
+        }
+
+        const float l_Error = std::max(GetFarthestNearest(*l_Expected, *l_Found), GetFarthestNearest(*l_Found, *l_Expected));
+        if (!(l_Error <= c_MaximumPositionError))
+        {
+            TR_ERROR("Import test: {} ({} vertices) and {} ({} vertices) are {} apart at their farthest, and {} is allowed", l_Reference->Path, l_Expected->size(), l_Record->Path, l_Found->size(), l_Error, c_MaximumPositionError);
+            l_Passed = false;
+
+            continue;
+        }
+
+        TR_INFO("Import test: {} ({} vertices) and {} ({} vertices) match within {:.2e}", l_Reference->Path, l_Expected->size(), l_Record->Path, l_Found->size(), l_Error);
     }
 
     return l_Passed;

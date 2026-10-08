@@ -1,4 +1,4 @@
 # Test models for Forge's --import-test, which Scripts/FetchSamples.sh or FetchSamples.ps1 checks out into Trinity-Forge/Tests/Models. Git ignores that folder, so nothing here is committed
 # <name> <repository> <commit> <paths in the repository, only these are checked out>
 
-glTF-Sample-Assets https://github.com/KhronosGroup/glTF-Sample-Assets.git edc7c9e67c639d230715049ee31f9a96a6babbbe Models/Sponza/glTF Models/Sponza/LICENSE.md Models/DamagedHelmet/glTF-Binary Models/DamagedHelmet/LICENSE.md Models/MetalRoughSpheres/glTF-Binary Models/MetalRoughSpheres/LICENSE.md
+glTF-Sample-Assets https://github.com/KhronosGroup/glTF-Sample-Assets.git edc7c9e67c639d230715049ee31f9a96a6babbbe Models/Sponza/glTF Models/Sponza/LICENSE.md Models/DamagedHelmet/glTF-Binary Models/DamagedHelmet/LICENSE.md Models/MetalRoughSpheres/glTF-Binary Models/MetalRoughSpheres/LICENSE.md Models/Duck/glTF Models/Duck/LICENSE.md

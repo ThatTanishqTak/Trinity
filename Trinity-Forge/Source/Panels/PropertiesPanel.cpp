@@ -473,7 +473,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
     ImGui::EndPopup();
 }
 
-// An asset picked in the Content Browser: where it is, and for a texture a preview and its import settings
+// An asset picked in the Content Browser: where it is, for a texture a preview and its import settings, and for a model its import settings
 void PropertiesPanel::DrawAsset(Trinity::UUID id)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -486,10 +486,19 @@ void PropertiesPanel::DrawAsset(Trinity::UUID id)
     }
 
     const bool l_Texture = l_Record->Importer == Trinity::TextureAsset::c_AssetType;
-    ImGui::TextUnformatted(std::format("{} {}", l_Texture ? Trinity::Icons::c_FileImage : Trinity::Icons::c_File, GetAssetName(*l_Record)).c_str());
+    const bool l_Model = l_Record->Importer == ModelImporter::c_Importer;
+    ImGui::TextUnformatted(std::format("{} {}", l_Texture ? Trinity::Icons::c_FileImage : (l_Model ? Trinity::Icons::c_Cube : Trinity::Icons::c_File), GetAssetName(*l_Record)).c_str());
     ImGui::TextDisabled("%s", l_Record->Path.c_str());
     ImGui::TextDisabled("UUID %s, %s", id.ToString().c_str(), l_Record->Importer.c_str());
     ImGui::Spacing();
+
+    if (l_Model)
+    {
+        m_Preview = {};
+        DrawModelSettings(*l_Record);
+
+        return;
+    }
 
     if (!l_Texture)
     {
@@ -592,6 +601,64 @@ void PropertiesPanel::DrawTextureSettings(const Trinity::AssetRecord& record)
     ImGui::EndDisabled();
 
     if (m_Session.IsImporting(record.ID))
+    {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Importing...");
+    }
+}
+
+// Units and axes as the file gives them unless set here. Apply writes them to the .meta and imports the model again, which entities already created from it do not follow
+void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
+{
+    const ModelImportSettings l_Saved = ModelImporter::ReadSettings(record);
+    if (m_SettingsAsset != record.ID)
+    {
+        m_SettingsAsset = record.ID;
+        m_ModelSettings = l_Saved;
+    }
+
+    if (!BeginComponent("Import Settings", Trinity::Icons::c_Gear, false))
+    {
+        return;
+    }
+
+    Label("Auto Unit Scale");
+    bool l_AutoScale = !m_ModelSettings.UnitScale.has_value();
+    if (ImGui::Checkbox("##AutoUnitScale", &l_AutoScale))
+    {
+        m_ModelSettings.UnitScale = l_AutoScale ? std::nullopt : std::optional<float>(1.0f);
+    }
+
+    if (m_ModelSettings.UnitScale)
+    {
+        Label("Unit Scale");
+        ImGui::DragFloat("##UnitScale", &*m_ModelSettings.UnitScale, 0.001f, 0.0001f, 10000.0f, "%.4f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+    }
+
+    Label("Up Axis");
+    int l_Axis = static_cast<int>(m_ModelSettings.UpAxis);
+    if (ImGui::Combo("##UpAxis", &l_Axis, "Auto\0Y\0Z\0"))
+    {
+        m_ModelSettings.UpAxis = static_cast<ModelUpAxis>(l_Axis);
+    }
+
+    ImGui::Spacing();
+    const bool l_Changed = m_ModelSettings != l_Saved;
+    ImGui::BeginDisabled(!l_Changed);
+    if (ImGui::Button("Apply"))
+    {
+        static_cast<void>(m_Session.ApplyImportSettings(record.ID, ModelImporter::MakeSettings(m_ModelSettings)));
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Revert"))
+    {
+        m_ModelSettings = l_Saved;
+    }
+
+    ImGui::EndDisabled();
+
+    if (m_Session.IsImportingModels())
     {
         ImGui::SameLine();
         ImGui::TextDisabled("Importing...");

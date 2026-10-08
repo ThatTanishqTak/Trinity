@@ -89,6 +89,7 @@ public:
     bool ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings settings);
     bool CreateModel(Trinity::UUID model, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
     [[nodiscard]] bool IsImporting(Trinity::UUID id) const { return m_Reimporter.IsBusy(id); }
+    [[nodiscard]] bool IsImportingModels() const { return m_ModelImports.IsRunning() || m_ImportAgain; }
     [[nodiscard]] std::uint64_t GetScanCount() const { return m_ScanCount; }
 
 private:
