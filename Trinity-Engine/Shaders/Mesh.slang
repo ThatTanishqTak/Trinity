@@ -8,6 +8,11 @@ static const uint c_DrawStride = 80;
 static const uint c_MaxDirectionalLights = 4;
 static const uint c_ShadeAllLightsFlag = 1;
 static const uint c_LightHeatmapFlag = 2;
+// As ShadowAtlas in Renderer3D.hpp has them, and the shadow data as Renderer3D.cpp lays it out: a header, then a record for each shadow view
+static const uint c_ShadowTileSize = 1024;
+static const uint c_ShadowCascades = 4;
+static const uint c_ShadowHeaderSize = 48;
+static const uint c_ShadowRecordStride = 80;
 
 // Laid out as Renderer3D.cpp writes them. The frame is FrameData there, and each draw a DrawData
 struct PushData
@@ -69,7 +74,7 @@ DrawData LoadDraw()
     return l_Draw;
 }
 
-// The parts of the frame's constants the pixel shader needs: the eye, with w set for an orthographic view, the way it looks, the row a point's view depth comes from, the ambient light, the directional lights, the light counts and flags, how depth maps to slices, the bindless indices of the material table, the samplers, the lights and the clusters, and the environment: its specular cubemap, irradiance cubemap, lookup table and specular mip count, then its intensity and the cosine and sine of its turn
+// The parts of the frame's constants the pixel shader needs: the eye, with w set for an orthographic view, the way it looks, the row a point's view depth comes from, the ambient light, the directional lights, the light counts and flags, how depth maps to slices, the bindless indices of the material table, the samplers, the lights and the clusters, the environment: its specular cubemap, irradiance cubemap, lookup table and specular mip count, then its intensity and the cosine and sine of its turn, and the shadow atlas, with no atlas when nothing casts a shadow, then the shadow data's buffer and offset
 struct FrameConstants
 {
     float4 Eye;
@@ -91,6 +96,7 @@ struct FrameConstants
     uint2 ClampSampler;
     uint4 Environment;
     float4 EnvironmentParameters;
+    uint4 Shadows;
 };
 
 FrameConstants LoadFrame()
@@ -123,6 +129,7 @@ FrameConstants LoadFrame()
     l_Constants.ClampSampler = l_Offsets.yz;
     l_Constants.Environment = l_Frame.Load<uint4>(l_Base + 352);
     l_Constants.EnvironmentParameters = l_Frame.Load<float4>(l_Base + 368);
+    l_Constants.Shadows = l_Frame.Load<uint4>(l_Base + 384);
 
     return l_Constants;
 }
@@ -145,6 +152,111 @@ float3 RotateToEnvironment(FrameConstants frame, float3 direction)
     const float l_Sine = frame.EnvironmentParameters.z;
 
     return float3(l_Cosine * direction.x + l_Sine * direction.z, direction.y, l_Cosine * direction.z - l_Sine * direction.x);
+}
+
+// Where a point lands in a shadow view's tile: the atlas texel it falls in, with texel centres on whole numbers, then its depth, and in w whether it lies in the view at all
+float4 GetShadowMapPosition(float4 rowX, float4 rowY, float4 rowZ, float4 rowW, float4 tile, float3 position)
+{
+    const float4 l_Point = float4(position, 1.0);
+    const float4 l_Clip = float4(dot(rowX, l_Point), dot(rowY, l_Point), dot(rowZ, l_Point), dot(rowW, l_Point));
+    const float3 l_Projected = l_Clip.xyz / max(l_Clip.w, 1e-12);
+    const bool l_Inside = l_Clip.w > 0.0 && all(abs(l_Projected.xy) < 1.0) && l_Projected.z > 0.0;
+
+    // Clip space has Y up and the atlas its first row at the top
+    return float4(tile.xy + float2(l_Projected.x * 0.5 + 0.5, 0.5 - l_Projected.y * 0.5) * float(c_ShadowTileSize) - 0.5, l_Projected.z, l_Inside ? 1.0 : 0.0);
+}
+
+// The fraction of a light that gets past the casters in one shadow map, for a point on a face with this normal, lit from this direction. The point moves off its face by the normal offset, then each of the 4x4 texels around it is lit where its depth is no nearer the light than the face's own plane there, made nearer by the depth bias, and the taps are weighed as a 3x3 grid of bilinear lookups would weigh them. A point outside the map is lit
+float GetShadow(FrameConstants frame, uint view, float3 position, float3 normal, float3 toLight)
+{
+    ByteAddressBuffer l_Shadows = DescriptorHandle<ByteAddressBuffer>(uint2(frame.Shadows.y, 0));
+    const uint l_Address = frame.Shadows.z + c_ShadowHeaderSize + view * c_ShadowRecordStride;
+    const float4 l_RowX = l_Shadows.Load<float4>(l_Address);
+    const float4 l_RowY = l_Shadows.Load<float4>(l_Address + 16);
+    const float4 l_RowZ = l_Shadows.Load<float4>(l_Address + 32);
+    const float4 l_RowW = l_Shadows.Load<float4>(l_Address + 48);
+    const float4 l_Tile = l_Shadows.Load<float4>(l_Address + 64);
+    const float4 l_Parameters = l_Shadows.Load<float4>(frame.Shadows.z + 32);
+
+    // A spot light's texels widen with distance, and a cascade's are the same size throughout
+    const float l_Texel = l_Tile.z * (l_Tile.w != 0.0 ? max(dot(l_RowW, float4(position, 1.0)), 0.0) : 1.0);
+    const float3 l_Point = position + normal * (l_Texel * l_Parameters.z);
+    const float4 l_Center = GetShadowMapPosition(l_RowX, l_RowY, l_RowZ, l_RowW, l_Tile, l_Point);
+    if (l_Center.w == 0.0)
+    {
+        return 1.0;
+    }
+
+    // The face's plane in the map, from two points along it a texel away, as a change of depth per texel across the map. A face edge-on to the light has none to speak of
+    const float3 l_Across = normalize(cross(normal, abs(normal.y) < 0.9 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0)));
+    const float3 l_Along = cross(normal, l_Across);
+    const float4 l_First = GetShadowMapPosition(l_RowX, l_RowY, l_RowZ, l_RowW, l_Tile, l_Point + l_Across * l_Texel) - l_Center;
+    const float4 l_Second = GetShadowMapPosition(l_RowX, l_RowY, l_RowZ, l_RowW, l_Tile, l_Point + l_Along * l_Texel) - l_Center;
+    const float l_Determinant = l_First.x * l_Second.y - l_First.y * l_Second.x;
+    const float2 l_Slope = abs(l_Determinant) > 1e-8 ? float2(l_First.z * l_Second.y - l_Second.z * l_First.y, l_Second.z * l_First.x - l_First.z * l_Second.x) / l_Determinant : float2(0.0, 0.0);
+    const float l_Bias = max( GetShadowMapPosition(l_RowX, l_RowY, l_RowZ, l_RowW, l_Tile, l_Point + toLight * (l_Texel * l_Parameters.w)).z - l_Center.z, 0.0);
+
+    const float2 l_Base = floor(l_Center.xy);
+    const float2 l_Fraction = l_Center.xy - l_Base;
+    const float4 l_WeightsX = float4(1.0 - l_Fraction.x, 1.0, 1.0, l_Fraction.x);
+    const float4 l_WeightsY = float4(1.0 - l_Fraction.y, 1.0, 1.0, l_Fraction.y);
+    const int2 l_TileFirst = int2(l_Tile.xy);
+    const int2 l_TileLast = l_TileFirst + int(c_ShadowTileSize) - 1;
+    Texture2D l_Atlas = DescriptorHandle<Texture2D>(uint2(frame.Shadows.x, 0));
+
+    float l_Lit = 0.0;
+    for (int it_Y = 0; it_Y < 4; ++it_Y)
+    {
+        for (int it_X = 0; it_X < 4; ++it_X)
+        {
+            const int2 l_Texel = clamp(int2(l_Base) + int2(it_X - 1, it_Y - 1), l_TileFirst, l_TileLast);
+            const float l_Plane = min(l_Center.z + dot(l_Slope, float2(l_Texel) - l_Center.xy) + l_Bias, 1.0);
+            if (l_Atlas.Load(int3(l_Texel, 0)).r <= l_Plane)
+            {
+                l_Lit += l_WeightsX[it_X] * l_WeightsY[it_Y];
+            }
+        }
+    }
+
+    return l_Lit / 9.0;
+}
+
+// The sun's light past its casters, from the cascade the point's view depth falls in, fading out over the far end of the last. Beyond the last the sun casts no shadow
+float GetSunShadow(FrameConstants frame, float3 position, float3 normal, float3 toLight, float viewDepth)
+{
+    ByteAddressBuffer l_Shadows = DescriptorHandle<ByteAddressBuffer>(uint2(frame.Shadows.y, 0));
+    const float4 l_Splits = l_Shadows.Load<float4>(frame.Shadows.z);
+    const float4 l_Parameters = l_Shadows.Load<float4>(frame.Shadows.z + 32);
+
+    uint l_Cascade = c_ShadowCascades;
+    for (uint it_Cascade = c_ShadowCascades; it_Cascade > 0; --it_Cascade)
+    {
+        if (viewDepth <= l_Splits[it_Cascade - 1])
+        {
+            l_Cascade = it_Cascade - 1;
+        }
+    }
+
+    if (l_Cascade == c_ShadowCascades)
+    {
+        return 1.0;
+    }
+
+    const float l_Fade = saturate((viewDepth - l_Parameters.x) / max(l_Parameters.y - l_Parameters.x, 1e-6));
+
+    return lerp(GetShadow(frame, l_Cascade, position, normal, toLight), 1.0, l_Fade);
+}
+
+// A point or spot light, past the casters in its shadow map when it has one. The face's normal is the triangle's own, which the receiver's plane needs
+float3 ShadeShadowedLight(FrameConstants frame, Surface surface, PunctualLight light, float3 faceNormal, bool shadowed)
+{
+    float3 l_Light = ShadePunctualLight(surface, light);
+    if (shadowed && light.Shadow != c_NoShadow && any(l_Light > 0.0))
+    {
+        l_Light *= GetShadow(frame, light.Shadow, surface.Position, faceNormal, normalize(light.Position - surface.Position));
+    }
+
+    return l_Light;
 }
 
 // A unit direction unfolded from the octahedron, as MeshAsset.cpp's DecodeOctahedral does
@@ -232,7 +344,7 @@ float4 SampleMaterial(Material material, uint slot, float4 texCoords, FrameConst
     return l_Image.Sample(l_Sampler, material.GetTexCoord(slot) == 1 ? texCoords.zw : texCoords.xy);
 }
 
-// glTF's metallic-roughness material lit by the directional lights, then by the point and spot lights of the pixel's cluster, or by every one of them when asked, in light order either way, then by the environment, or with no environment a little ambient light, which alone is occluded. The environment's radiance is prefiltered for roughness m / (levels - 1) at mip m
+// glTF's metallic-roughness material lit by the directional lights, then by the point and spot lights of the pixel's cluster, or by every one of them when asked, in light order either way, then by the environment, or with no environment a little ambient light, which alone is occluded. The sun and spot lights with shadow maps are shadowed, compared with the triangle's own plane rather than a normal map's. The environment's radiance is prefiltered for roughness m / (levels - 1) at mip m
 [shader("fragment")]
 float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Target
 {
@@ -255,8 +367,17 @@ float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Targ
         l_Roughness *= l_Sample.g;
     }
 
-    // A back face of a double-sided surface is lit as its own front
-    float3 l_Normal = normalize(input.Normal) * (isFrontFace ? 1.0 : -1.0);
+    // A back face of a double-sided surface is lit as its own front. The triangle's own plane, which shadows compare with, lies along the position's screen derivatives, turned to the side the shading normal is on, and an edge-on triangle keeps the shading normal
+    const float3 l_FaceNormal = normalize(input.Normal) * (isFrontFace ? 1.0 : -1.0);
+    const float3 l_Tangents = cross(ddx(input.WorldPosition), ddy(input.WorldPosition));
+    const float l_TangentsLength = length(l_Tangents);
+    const float3 l_PlaneNormal = l_TangentsLength > 1e-12 ? l_Tangents / l_TangentsLength * (dot(l_Tangents, l_FaceNormal) < 0.0 ? -1.0 : 1.0) : l_FaceNormal;
+    float3 l_Normal = l_FaceNormal;
+    if (l_Material.HasTexture(c_NormalSlot))
+    {
+        const float2 l_Sample = SampleMaterial(l_Material, c_NormalSlot, input.TexCoords, l_Frame).rg * 2.0 - 1.0;
+    }
+
     if (l_Material.HasTexture(c_NormalSlot))
     {
         const float2 l_Sample = SampleMaterial(l_Material, c_NormalSlot, input.TexCoords, l_Frame).rg * 2.0 - 1.0;
@@ -289,12 +410,29 @@ float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Targ
     l_Surface.PerceptualRoughness = saturate(l_Roughness);
     l_Surface.Alpha = max(l_Surface.PerceptualRoughness * l_Surface.PerceptualRoughness, 0.002);
 
+    // The shadow data's header names the directional light that is the sun, when it casts shadows
+    const bool l_Shadowed = l_Frame.Shadows.x != c_Absent;
+    uint l_Sun = c_NoShadow;
+    if (l_Shadowed)
+    {
+        const uint4 l_Counts = DescriptorHandle<ByteAddressBuffer>(uint2(l_Frame.Shadows.y, 0)).Load<uint4>(l_Frame.Shadows.z + 16);
+        l_Sun = l_Counts.x != 0 ? l_Counts.y : c_NoShadow;
+    }
+
+    const float l_ViewDepth = dot(l_Frame.ViewDepth, float4(input.WorldPosition, 1.0));
     ByteAddressBuffer l_FrameBuffer = g_Push.Frame;
     float3 l_Color = float3(0.0, 0.0, 0.0);
     for (uint it_Light = 0; it_Light < l_Frame.DirectionalCount; ++it_Light)
     {
         const uint l_Address = g_Push.FrameOffset + 128 + it_Light * 32;
-        l_Color += ShadeLight(l_Surface, normalize(l_FrameBuffer.Load<float4>(l_Address).xyz), l_FrameBuffer.Load<float4>(l_Address + 16).xyz);
+        const float3 l_ToLight = normalize(l_FrameBuffer.Load<float4>(l_Address).xyz);
+        float3 l_Radiance = l_FrameBuffer.Load<float4>(l_Address + 16).xyz;
+        if (it_Light == l_Sun && dot(l_Surface.Normal, l_ToLight) > 0.0)
+        {
+            l_Radiance *= GetSunShadow(l_Frame, input.WorldPosition, l_PlaneNormal, l_ToLight, l_ViewDepth);
+        }
+
+        l_Color += ShadeLight(l_Surface, l_ToLight, l_Radiance);
     }
 
     uint l_ClusterCount = 0;
@@ -305,20 +443,20 @@ float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Targ
         {
             for (uint it_Light = 0; it_Light < l_Frame.LightCount; ++it_Light)
             {
-                l_Color += ShadePunctualLight(l_Surface, LoadPunctualLight(l_Lights, l_Frame.LightsOffset + it_Light * c_PunctualLightStride));
+                l_Color += ShadeShadowedLight( l_Frame, l_Surface, LoadPunctualLight(l_Lights, l_Frame.LightsOffset + it_Light * c_PunctualLightStride), l_PlaneNormal, l_Shadowed);
             }
         }
         else
         {
             ByteAddressBuffer l_Counts = DescriptorHandle<ByteAddressBuffer>(l_Frame.ClusterCounts);
             ByteAddressBuffer l_ClusterLights = DescriptorHandle<ByteAddressBuffer>(l_Frame.ClusterLights);
-            const uint l_Cluster = GetClusterIndex(l_Frame, input.Clip, dot(l_Frame.ViewDepth, float4(input.WorldPosition, 1.0)));
+            const uint l_Cluster = GetClusterIndex(l_Frame, input.Clip, l_ViewDepth);
             l_ClusterCount = l_Counts.Load(l_Cluster * 4);
             const uint l_Shaded = min(l_ClusterCount, c_MaxClusterLights);
             for (uint it_Entry = 0; it_Entry < l_Shaded; ++it_Entry)
             {
                 const uint l_Light = l_ClusterLights.Load((l_Cluster * c_MaxClusterLights + it_Entry) * 4);
-                l_Color += ShadePunctualLight(l_Surface, LoadPunctualLight(l_Lights, l_Frame.LightsOffset + l_Light * c_PunctualLightStride));
+                l_Color += ShadeShadowedLight( l_Frame, l_Surface, LoadPunctualLight(l_Lights, l_Frame.LightsOffset + l_Light * c_PunctualLightStride), l_PlaneNormal, l_Shadowed);
             }
         }
     }

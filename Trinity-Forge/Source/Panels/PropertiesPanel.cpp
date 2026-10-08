@@ -294,7 +294,7 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
     }
 }
 
-// Directional, point or spot, in glTF's units: lux for a directional light, candela for the others. Directional and spot lights shine along the entity's -Z, so turning the entity aims them. Colour is edited as it looks, in sRGB, and kept linear. A range of 0 is worked out from the intensity, and the cone's inner angle stays inside its outer one
+// Directional, point or spot, in glTF's units: lux for a directional light, candela for the others. Directional and spot lights shine along the entity's -Z, so turning the entity aims them, and can cast shadows. Colour is edited as it looks, in sRGB, and kept linear. A range of 0 is worked out from the intensity, and the cone's inner angle stays inside its outer one
 void PropertiesPanel::DrawLight(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::LightComponent>() || !BeginComponent(Trinity::LightComponent::c_TypeName, Trinity::Icons::c_Globe, true))
@@ -328,6 +328,21 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     const bool l_Directional = l_Light.Type == Trinity::LightType::Directional;
     Label("Intensity");
     EditField<Trinity::LightComponent>(l_History, entity, "Intensity", [l_Directional](Trinity::LightComponent& light) { return ImGui::DragFloat("##Intensity", &light.Intensity, 0.05f, 0.0f, 200000.0f, l_Directional ? "%.3f lux" : "%.3f cd", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+
+    if (l_Light.Type != Trinity::LightType::Point)
+    {
+        Label("Cast Shadows");
+        EditField<Trinity::LightComponent>(l_History, entity, "CastShadows", [](Trinity::LightComponent& light) { return ImGui::Checkbox("##CastShadows", &light.CastShadows); });
+        if (ImGui::IsItemHovered() && l_Directional)
+        {
+            ImGui::SetTooltip("The first directional light that casts shadows is the sun, whose shadows reach %.0f m from the camera", static_cast<double>(Trinity::ShadowAtlas::c_Distance));
+        }
+        else if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("The first %u spot lights in view that cast shadows, in hierarchy order, each get a shadow map", Trinity::ShadowAtlas::c_MaxSpotShadows);
+        }
+    }
+
     if (l_Directional)
     {
         return;

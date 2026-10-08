@@ -640,6 +640,11 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
             TextLine(std::format("{} directional and {} point or spot light(s), up to {} in a cluster{}{}", l_Draws.DirectionalCount, l_Meshes.Lights, l_Meshes.MostLightsInCluster, l_Overfull, l_Dropped));
         }
 
+        if (l_Meshes.ShadowMaps > 0)
+        {
+            TextLine(std::format("{} shadow map(s), {} caster draw(s)", l_Meshes.ShadowMaps, l_Meshes.ShadowDraws));
+        }
+
         // Averaged over 30 frames by the graph, so the lines change twice a second at 60 fps
         const Trinity::FrameGraph& l_Graph = l_Renderer.GetFrameGraph();
         if (!l_Graph.GetPassTimes().empty())

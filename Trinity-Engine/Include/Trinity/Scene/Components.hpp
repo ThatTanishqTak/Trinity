@@ -198,6 +198,8 @@ namespace Trinity
         // Spot: from the -Z axis to where the light starts to fade and to where it ends, in degrees, as glTF's cone angles are in radians
         float InnerConeAngle = 0.0f;
         float OuterConeAngle = 45.0f;
+        // Directional and spot: the first directional light that casts shadows is the sun, whose shadows reach the camera in cascades, and spot lights that do get a shadow map each while there is room. Point lights cast none yet
+        bool CastShadows = true;
 
         // The range lighting and clustering use: the range set, or the distance at which the brightest channel falls to c_AutomaticRangeCutoff
         [[nodiscard]] float GetRange() const

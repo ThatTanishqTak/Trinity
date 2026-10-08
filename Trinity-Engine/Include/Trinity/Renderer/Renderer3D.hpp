@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -84,7 +85,7 @@ namespace Trinity
     // The box in world space that holds the local box under the transform, by its centre and half extents
     TRINITY_API void GetWorldBounds(const MeshBounds& local, const glm::mat4& world, glm::vec3& center, glm::vec3& extents);
 
-    // One submesh to draw, with the pipeline and the material table record it is drawn with
+    // One submesh to draw, with the pipeline and the material table record it is drawn with, and whether its MeshRenderer casts shadows
     struct MeshDraw
     {
         UUID Entity;
@@ -94,8 +95,50 @@ namespace Trinity
         std::uint32_t Pipeline = 0;
         glm::mat4 World{ 1.0f };
         std::uint64_t Key = 0;
+        bool CastShadows = true;
 
         [[nodiscard]] bool operator==(const MeshDraw&) const = default;
+    };
+
+    // A shadow map in its tile of the atlas: the light's view-projection, with reversed depth as the camera's has, the tile's top-left texel, and how wide a texel is in world space, anywhere in a cascade or at 1 m in front of a spot light. Its casters are a range of SceneDrawList::ShadowDraws
+    struct ShadowView
+    {
+        glm::mat4 ViewProjection{ 1.0f };
+        glm::uvec2 Origin{ 0 };
+        float TexelSize = 0.0f;
+        bool Perspective = false;
+        std::uint32_t FirstDraw = 0;
+        std::uint32_t DrawCount = 0;
+    };
+
+    // The one depth texture every shadow map is drawn into, a grid of tiles: the sun's cascades along the top row, nearest first, and spot lights' in the rows below. Mesh.slang holds the same sizes
+    struct TRINITY_API ShadowAtlas
+    {
+        static constexpr RHI::Format c_Format = RHI::Format::D32Float;
+        static constexpr std::uint32_t c_Size = 4096;
+        static constexpr std::uint32_t c_TileSize = 1024;
+        static constexpr std::uint32_t c_Cascades = 4;
+        static constexpr std::uint32_t c_MaxSpotShadows = 12;
+        static constexpr std::uint32_t c_MaxViews = c_Cascades + c_MaxSpotShadows;
+        static constexpr std::uint32_t c_NoShadow = 0xFFFFFFFFu;
+        // How far in front of the eye the sun's shadows reach, with the far tenth of the last cascade fading out, and how much the cascade splits lean towards logarithmic spacing over even spacing
+        static constexpr float c_Distance = 100.0f;
+        static constexpr float c_FadeFraction = 0.1f;
+        static constexpr float c_SplitBlend = 0.8f;
+        // A spot light's map starts this far in front of it and covers its cone up to this half angle in degrees, beyond which it casts no shadow
+        static constexpr float c_SpotNear = 0.05f;
+        static constexpr float c_MaxSpotAngle = 80.0f;
+        // Bias: the raster's depth bias in multiples of a triangle's depth slope, negative since with reversed depth that moves a caster away from the light. A receiver then moves along its face's normal by c_NormalOffset texels at that point, and each PCF tap is compared with the depth of the receiver's own plane at that tap, nearer the light by c_DepthBias texels, so a surface never shadows itself however it slopes and a caster just above a surface still shadows it
+        static constexpr float c_SlopeBias = -0.5f;
+        static constexpr float c_NormalOffset = 0.5f;
+        static constexpr float c_DepthBias = 0.1f;
+
+        // Tile by tile along each row, cascades first
+        [[nodiscard]] static glm::uvec2 GetTileOrigin(std::uint32_t view);
+        // The sun's cascades for a view. Each holds a slice of the view's depth in the smallest sphere around it, which keeps its size however the view turns, seen down the light's direction with its centre snapped to whole texels, so a view that moves less than a texel leaves its map as it was. Splits gets each cascade's far view depth
+        static void BuildCascades(const RenderView& view, const glm::vec3& toLight, std::span<ShadowView, c_Cascades> cascades, std::array<float, c_Cascades>& splits);
+        // A spot light's map, which looks down its direction out to its range
+        [[nodiscard]] static ShadowView BuildSpot(const glm::vec3& position, const glm::vec3& direction, float range, float outerAngle, std::uint32_t view);
     };
 
     // Towards the light, and its colour times its illuminance in lux
@@ -105,7 +148,7 @@ namespace Trinity
         glm::vec3 Radiance{ 0.0f };
     };
 
-    // A point or spot light as the shaders read it, in world space: where it is and its range, the way it shines and its colour times its intensity in candela, with the cone terms glTF gives, which leave a point light at full strength every way
+    // A point or spot light as the shaders read it, in world space: where it is and its range, the way it shines and its colour times its intensity in candela, with the cone terms glTF gives, which leave a point light at full strength every way, and the shadow view it casts shadows from
     struct PunctualLight
     {
         glm::vec3 Position{ 0.0f };
@@ -114,9 +157,11 @@ namespace Trinity
         float ConeScale = 0.0f;
         glm::vec3 Radiance{ 0.0f };
         float ConeOffset = 1.0f;
+        std::uint32_t Shadow = ShadowAtlas::c_NoShadow;
+        std::array<std::uint32_t, 3> Padding{};
     };
 
-    static_assert(sizeof(PunctualLight) == 48);
+    static_assert(sizeof(PunctualLight) == 64);
 
     // What a view of a scene draws, in the order it draws it, and the lights it is lit by
     struct TRINITY_API SceneDrawList
@@ -141,6 +186,12 @@ namespace Trinity
         bool HasEnvironment = false;
         // Lit by the default sun, as a scene with no lights and no environment is
         bool DefaultSun = false;
+        // The shadows: the directional light that is the sun, whose cascades take the first c_Cascades views, and spot lights' views after them, each named by its light. Every view draws a range of ShadowDraws, the casters in it sorted as Draws is
+        std::uint32_t SunShadow = ShadowAtlas::c_NoShadow;
+        std::array<float, ShadowAtlas::c_Cascades> CascadeSplits{};
+        std::array<ShadowView, ShadowAtlas::c_MaxViews> ShadowViews{};
+        std::uint32_t SpotShadows = 0;
+        std::vector<MeshDraw, TaggedAllocator<MeshDraw, MemoryTag::Renderer>> ShadowDraws;
         // Lights past c_MaxDirectionalLights or c_MaxPunctualLights, which light nothing
         std::uint32_t DroppedLights = 0;
         std::uint32_t Submeshes = 0;
@@ -160,7 +211,7 @@ namespace Trinity
         bool LightHeatmap = false;
     };
 
-    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in
+    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in. The sun and spot lights cast shadows from maps in one atlas, filtered with PCF
     class TRINITY_API Renderer3D
     {
     public:
@@ -183,12 +234,13 @@ namespace Trinity
         // In a scene with no environment, every surface also takes this fraction of the directional lights' light from all around
         static constexpr float c_AmbientFraction = 0.03f;
 
-        // What AddPasses leaves in the graph: the depth, and each cluster's light count then its lights, c_MaxLights to a cluster. The buffers are invalid when no clusters were built
+        // What AddPasses leaves in the graph: the depth, each cluster's light count then its lights, c_MaxLights to a cluster, and the shadow atlas. The buffers are invalid when no clusters were built, and the atlas when nothing casts a shadow
         struct Passes
         {
             FrameGraphTexture Depth;
             FrameGraphBuffer ClusterCounts;
             FrameGraphBuffer ClusterLights;
+            FrameGraphTexture ShadowAtlas;
         };
 
         struct Statistics
@@ -199,6 +251,9 @@ namespace Trinity
             std::uint32_t PrePassDraws = 0;
             std::uint32_t OpaqueDraws = 0;
             std::uint32_t PipelineChanges = 0;
+            // Shadow maps drawn, and the casters drawn into them
+            std::uint32_t ShadowMaps = 0;
+            std::uint32_t ShadowDraws = 0;
             // From the first view drawn in a frame, read back c_FramesInFlight frames later
             std::uint32_t Lights = 0;
             std::uint32_t MostLightsInCluster = 0;
@@ -221,7 +276,7 @@ namespace Trinity
         // Each cluster's light count, which may pass c_MaxLights, then its first c_MaxLights lights, as the cluster pass sorts them, for checking it against
         static void BuildClustersReference(const SceneDrawList& list, std::vector<std::uint32_t>& counts, std::vector<std::uint32_t>& lights);
 
-        // A depth pre-pass into a depth texture the size of the target, then, when there are point or spot lights, a compute pass that sorts them into clusters, then the opaque pass, which clears the target and draws again with an equal depth test. The list must last until the graph has run
+        // When anything casts a shadow, a pass that draws every shadow map into the atlas, then a depth pre-pass into a depth texture the size of the target, then, when there are point or spot lights, a compute pass that sorts them into clusters, then the opaque pass, which clears the target and draws again with an equal depth test. The list must last until the graph has run
         Passes AddPasses(FrameGraph& graph, const SceneDrawList& list, FrameGraphTexture target, const RHI::TextureDescription& targetDescription, const std::array<float, 4>& clearColor, const SceneOptions& options = {});
 
         [[nodiscard]] const Statistics& GetStatistics() const { return m_Statistics; }
@@ -238,18 +293,26 @@ namespace Trinity
         using MaterialCache = std::unordered_map<UUID, Cached<MaterialAsset>, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Cached<MaterialAsset>>, MemoryTag::Renderer>>;
         using EnvironmentCache = std::unordered_map<UUID, Cached<EnvironmentAsset>, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Cached<EnvironmentAsset>>, MemoryTag::Renderer>>;
 
+        // The pass a pipeline draws in: the depth pre-pass, the opaque pass, or a shadow map, which writes depth alone with a bias and clamps it instead of clipping
+        enum class MeshPass : std::uint8_t
+        {
+            PrePass,
+            Opaque,
+            Shadow
+        };
+
         struct PipelineEntry
         {
             RHI::Format Format = RHI::Format::Unknown;
             PipelineKind Kind = PipelineKind::Front;
-            bool DepthOnly = false;
+            MeshPass Pass = MeshPass::Opaque;
             RHI::PipelineHandle Pipeline;
         };
 
         [[nodiscard]] const MeshAsset* ResolveMesh(UUID id);
         [[nodiscard]] const MaterialAsset* ResolveMaterial(UUID id);
         [[nodiscard]] const EnvironmentAsset* ResolveEnvironment(UUID id);
-        // Where this view's lights and clusters are for the opaque pass, and how it shades
+        // Where this view's lights, clusters and shadows are for the opaque pass, and how it shades
         struct LightInputs
         {
             std::uint32_t Lights = RHI::c_NoBindlessIndex;
@@ -257,10 +320,18 @@ namespace Trinity
             std::uint32_t ClusterCounts = RHI::c_NoBindlessIndex;
             std::uint32_t ClusterLights = RHI::c_NoBindlessIndex;
             std::uint32_t Flags = 0;
+            std::uint32_t ShadowAtlas = RHI::c_NoBindlessIndex;
+            std::uint32_t Shadows = RHI::c_NoBindlessIndex;
+            std::uint32_t ShadowsOffset = 0;
         };
 
-        [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format colorFormat, PipelineKind kind, bool depthOnly);
+        // Every caster against every shadow view on the job system, then each view's casters in draw order
+        void CollectShadowCasters(SceneDrawList& list);
+        [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format colorFormat, PipelineKind kind, MeshPass pass);
         void RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool depthOnly, std::uint32_t width, std::uint32_t height, const LightInputs& lights);
+        void RecordShadowDraws(RHI::CommandList& commands, const SceneDrawList& list);
+        // Each draw's record into the upload ring, then the draws with the pipeline each needs, which reports false when the mesh shaders are missing
+        [[nodiscard]] bool DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass);
         void ReadClusterStatistics();
 
         RHI::Device& m_Device;
@@ -282,6 +353,8 @@ namespace Trinity
         EnvironmentCache m_Environments;
         std::vector<MeshDraw, TaggedAllocator<MeshDraw, MemoryTag::Renderer>> m_Candidates;
         std::vector<std::uint8_t, TaggedAllocator<std::uint8_t, MemoryTag::Renderer>> m_Visible;
+        // For each candidate, a bit for each shadow view it casts into
+        std::vector<std::uint16_t, TaggedAllocator<std::uint16_t, MemoryTag::Renderer>> m_ShadowMasks;
         Statistics m_Statistics;
         std::uint64_t m_Frame = 0;
         bool m_ReportedNoShaders = false;

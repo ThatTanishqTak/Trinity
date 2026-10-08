@@ -1,11 +1,12 @@
-// What the cluster pass and the opaque pass share: the cluster grid, as ClusterGrid in Renderer3D.hpp has it, point and spot lights as PunctualLight lays them out, and the BRDF every light is shaded with
+// What the cluster pass and the opaque pass share: the cluster grid, as ClusterGrid in Renderer3D.hpp has it, point and spot lights as PunctualLight lays them out, with the shadow view a spot light casts from, and the BRDF every light is shaded with
 static const float c_Pi = 3.14159265;
 static const uint c_ClusterTilesX = 16;
 static const uint c_ClusterTilesY = 9;
 static const uint c_ClusterSlices = 24;
 static const uint c_ClusterCount = c_ClusterTilesX * c_ClusterTilesY * c_ClusterSlices;
 static const uint c_MaxClusterLights = 128;
-static const uint c_PunctualLightStride = 48;
+static const uint c_PunctualLightStride = 64;
+static const uint c_NoShadow = 0xFFFFFFFF;
 
 struct ClusterGrid
 {
@@ -77,6 +78,7 @@ struct PunctualLight
     float ConeScale;
     float3 Radiance;
     float ConeOffset;
+    uint Shadow;
 };
 
 PunctualLight LoadPunctualLight(ByteAddressBuffer buffer, uint address)
@@ -84,6 +86,7 @@ PunctualLight LoadPunctualLight(ByteAddressBuffer buffer, uint address)
     const float4 l_Place = buffer.Load<float4>(address);
     const float4 l_Aim = buffer.Load<float4>(address + 16);
     const float4 l_Light = buffer.Load<float4>(address + 32);
+    const uint4 l_Shadow = buffer.Load<uint4>(address + 48);
 
     PunctualLight l_Punctual;
     l_Punctual.Position = l_Place.xyz;
@@ -92,6 +95,7 @@ PunctualLight LoadPunctualLight(ByteAddressBuffer buffer, uint address)
     l_Punctual.ConeScale = l_Aim.w;
     l_Punctual.Radiance = l_Light.xyz;
     l_Punctual.ConeOffset = l_Light.w;
+    l_Punctual.Shadow = l_Shadow.x;
 
     return l_Punctual;
 }

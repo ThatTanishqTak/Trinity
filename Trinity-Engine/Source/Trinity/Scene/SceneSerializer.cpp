@@ -313,6 +313,7 @@ namespace Trinity
             writer.Write("Range", component.Range);
             writer.Write("InnerConeAngle", component.InnerConeAngle);
             writer.Write("OuterConeAngle", component.OuterConeAngle);
+            writer.Write("CastShadows", component.CastShadows);
         }
 
         // A light saved before there were other types, or naming one this build lacks, loads as a directional light
@@ -327,6 +328,7 @@ namespace Trinity
             reader.Read("Range", component.Range);
             reader.Read("InnerConeAngle", component.InnerConeAngle);
             reader.Read("OuterConeAngle", component.OuterConeAngle);
+            reader.Read("CastShadows", component.CastShadows);
         }
 
         void SaveEnvironment(const EnvironmentComponent& component, ComponentWriter& writer)
