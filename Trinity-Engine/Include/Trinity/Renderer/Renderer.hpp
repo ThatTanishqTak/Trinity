@@ -17,6 +17,7 @@
 namespace Trinity
 {
     class LayerStack;
+    class MaterialLoader;
     class MeshLoader;
     class TextureLoader;
     class Window;
@@ -54,6 +55,7 @@ namespace Trinity
         [[nodiscard]] bool IsVSync() const;
 
         [[nodiscard]] Renderer2D& GetRenderer2D() { return *m_Renderer2D; }
+        [[nodiscard]] MaterialLoader& GetMaterialLoader() { return *m_MaterialLoader; }
         [[nodiscard]] const FrameGraph& GetFrameGraph() const { return *m_FrameGraph; }
         [[nodiscard]] RHI::Format GetSceneFormat() const;
         [[nodiscard]] RHI::Format GetDisplayFormat() const;
@@ -99,6 +101,7 @@ namespace Trinity
         Window& m_Window;
         std::string m_Title;
         Scope<TextureLoader> m_TextureLoader;
+        Scope<MaterialLoader> m_MaterialLoader;
         Scope<MeshLoader> m_MeshLoader;
         Scope<Renderer2D> m_Renderer2D;
         Scope<FrameGraph> m_FrameGraph;

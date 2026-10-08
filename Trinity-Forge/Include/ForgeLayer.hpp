@@ -26,6 +26,7 @@ public:
     void OnEvent(Trinity::Event& event) override;
     void OnPrepareRender(Trinity::RHI::CommandList& commands) override;
     void OnRender(Trinity::RHI::CommandList& commands) override;
+    void OnBuildFrameGraph(Trinity::FrameGraph& graph, Trinity::FrameGraphTexture sceneColor) override;
     void OnImGuiRender() override;
     [[nodiscard]] bool OnCloseRequested() override;
 

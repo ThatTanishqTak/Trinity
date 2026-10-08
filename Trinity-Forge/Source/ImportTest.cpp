@@ -2,6 +2,7 @@
 
 #include "EditorCommands.hpp"
 #include "EditorSession.hpp"
+#include "Importers/ModelSource.hpp"
 #include "Importers/TextureImporter.hpp"
 
 #include <fastgltf/core.hpp>
@@ -20,8 +21,11 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <system_error>
+#include <utility>
+#include <variant>
 #include <vector>
 
 namespace
@@ -42,6 +46,9 @@ namespace
     constexpr float c_MaximumMatrixError = 1e-5f;
     // How far any vertex of one format may be from the nearest of another's, in metres once both are converted
     constexpr float c_MaximumPositionError = 1e-4f;
+    // Frames of material edits, after the first hundred of which the renderer's memory must stay as it is
+    constexpr std::uint64_t c_EditFrames = 1000;
+    constexpr std::uint64_t c_EditWarmupFrames = 100;
 
     // Khronos glTF sample models, as Scripts/FetchSamples checks them out under TR_FORGE_TEST_MODELS: two with images beside them and two that embed theirs
     struct TestModel
@@ -297,7 +304,7 @@ void ImportTest::Start(const std::filesystem::path& directory)
             return;
         }
 
-        if (!CheckModels() || !ReimportModels() || !CheckInstances() || !CompareFormats())
+        if (!CheckModels() || !ReimportModels() || !CheckInstances() || !CompareFormats() || !CheckMaterialMapping() || !CheckMaterialFiles())
         {
             return;
         }
@@ -315,6 +322,12 @@ void ImportTest::Update()
     }
 
     ++m_PhaseFrames;
+    if (m_Phase != Phase::LoadingBC7 && m_Phase != Phase::LoadingRGBA8)
+    {
+        UpdateMaterials();
+
+        return;
+    }
 
     const bool l_Failed = std::ranges::any_of(m_Textures, [](const auto& texture) { return texture.GetState() == Trinity::AssetState::Failed; });
     const bool l_Ready = std::ranges::all_of(m_Textures, [](const auto& texture) { return texture.IsReady(); });
@@ -925,7 +938,634 @@ void ImportTest::FinishLoads()
         return;
     }
 
-    m_Phase = Phase::Idle;
     static_cast<void>(Trinity::ConsoleVariables::Set(c_BC7Variable, "true"));
+    BeginMaterials();
+}
+
+
+ImportTest::~ImportTest()
+{
+    if (m_TableReadback)
+    {
+        Trinity::Application::Get().GetDevice().DestroyBuffer(m_TableReadback);
+    }
+}
+
+// The material table copied whole, on a frame a check asks for it
+void ImportTest::OnBuildFrameGraph(Trinity::FrameGraph& graph)
+{
+    if (!m_ReadbackWanted)
+    {
+        return;
+    }
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::MaterialLoader& l_Loader = Trinity::Application::Get().GetRenderer().GetMaterialLoader();
+    const std::uint64_t l_Size = static_cast<std::uint64_t>(l_Loader.GetCapacity()) * Trinity::MaterialLoader::c_RecordSize;
+    if (!l_Loader.GetTable() || l_Size == 0)
+    {
+        return;
+    }
+
+    if (m_TableReadbackSize != l_Size)
+    {
+        l_Device.DestroyBuffer(m_TableReadback);
+
+        Trinity::RHI::BufferDescription l_Description;
+        l_Description.Size = l_Size;
+        l_Description.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+        l_Description.Memory = Trinity::RHI::MemoryType::Readback;
+        l_Description.DebugName = "Import test material table readback";
+        m_TableReadback = l_Device.CreateBuffer(l_Description);
+        m_TableReadbackSize = m_TableReadback ? l_Size : 0;
+    }
+
+    m_ReadbackWanted = false;
+    m_ReadbackAdded = true;
+    if (!m_TableReadback)
+    {
+        return;
+    }
+
+    const Trinity::FrameGraphBuffer l_Table = graph.ImportBuffer("Material table", l_Loader.GetTable(), l_Size, Trinity::RHI::ResourceState::ShaderResource, Trinity::RHI::ResourceState::ShaderResource);
+    const Trinity::FrameGraphBuffer l_Readback = graph.ImportBuffer("Import test material table readback", m_TableReadback, l_Size, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination);
+    graph.AddPass("Import test material readback", Trinity::FrameGraphPassType::Copy, [l_Table, l_Readback](Trinity::FrameGraphPassBuilder& builder)
+    {
+        builder.Read(l_Table, Trinity::RHI::ResourceState::CopySource);
+        builder.Write(l_Readback, Trinity::RHI::ResourceState::CopyDestination);
+    }, [l_Table, l_Readback, l_Size](const Trinity::FrameGraphContext& context)
+    {
+        context.GetCommands().CopyBuffer(context.GetBuffer(l_Table), 0, context.GetBuffer(l_Readback), 0, l_Size);
+    });
+}
+
+// Each glTF material as fastgltf reads it, with its texture slots naming the texture the importer made for that glTF texture and use, or the texture file its image names, and the same UV sets. Compared with the material as imported, before any overrides
+bool ImportTest::CheckMaterialMapping()
+{
+    const Trinity::AssetRegistry& l_Registry = *m_Session.GetRegistry();
+    bool l_Passed = true;
+    std::size_t l_Materials = 0;
+    std::size_t l_Textures = 0;
+    for (const TestModel& it_Model : c_TestModels)
+    {
+        const Trinity::AssetRecord* l_Record = l_Registry.FindByPath(GetTestModelPath(it_Model));
+        if (l_Record == nullptr)
+        {
+            continue;
+        }
+
+        const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Source = Trinity::FileSystem::ReadFile(l_Record->Path);
+        fastgltf::Expected<fastgltf::GltfDataBuffer> l_Data = l_Source ? fastgltf::GltfDataBuffer::FromBytes(l_Source->data(), l_Source->size()) : fastgltf::Expected<fastgltf::GltfDataBuffer>(fastgltf::Error::InvalidPath);
+        fastgltf::Parser l_Parser(fastgltf::Extensions::KHR_materials_emissive_strength | fastgltf::Extensions::KHR_mesh_quantization | fastgltf::Extensions::KHR_texture_transform);
+        fastgltf::Expected<fastgltf::Asset> l_Asset = l_Data.error() == fastgltf::Error::None ? l_Parser.loadGltf(l_Data.get(), {}, fastgltf::Options::None, fastgltf::Category::Materials | fastgltf::Category::Textures | fastgltf::Category::Images) : fastgltf::Expected<fastgltf::Asset>(l_Data.error());
+        if (l_Asset.error() != fastgltf::Error::None)
+        {
+            TR_ERROR("Import test: {} could not be read with fastgltf for the material check", l_Record->Path);
+            l_Passed = false;
+
+            continue;
+        }
+
+        const auto a_SubAsset = [l_Record](std::string_view prefix) -> Trinity::UUID
+        {
+            const auto a_Found = std::ranges::find_if(l_Record->SubAssets, [prefix](const Trinity::SubAsset& subAsset) { return subAsset.Key == prefix || (subAsset.Key.starts_with(prefix) && subAsset.Key.size() > prefix.size() && subAsset.Key[prefix.size()] == '.'); });
+
+            return a_Found != l_Record->SubAssets.end() ? a_Found->ID : Trinity::UUID();
+        };
+
+        // The texture the slot should name: the model's own for an image it holds, or the project's texture at the path its image names
+        const auto a_Texture = [&](const auto& info, ModelImporter::TextureUsage usage) -> Trinity::MaterialTexture
+        {
+            if (!info)
+            {
+                return {};
+            }
+
+            const fastgltf::Texture& l_Texture = l_Asset->textures[info->textureIndex];
+            const fastgltf::Image& l_Image = l_Asset->images[l_Texture.imageIndex.value_or(0)];
+            Trinity::UUID l_ID;
+            if (const auto* l_URI = std::get_if<fastgltf::sources::URI>(&l_Image.data))
+            {
+                const std::optional<std::string> l_Path = ModelReading::ResolvePath(l_Record->Path, l_URI->uri.path());
+                const Trinity::AssetRecord* l_File = l_Path ? l_Registry.FindByPath(*l_Path) : nullptr;
+                l_ID = l_File != nullptr ? l_File->ID : Trinity::UUID();
+            }
+            else
+            {
+                l_ID = a_SubAsset(std::format("Texture.{}.{}", info->textureIndex, ModelImporter::ToString(usage)));
+            }
+
+            return { l_ID, static_cast<std::uint32_t>(info->texCoordIndex) };
+        };
+
+        for (std::size_t it_Material = 0; it_Material < l_Asset->materials.size(); ++it_Material)
+        {
+            const fastgltf::Material& l_Gltf = l_Asset->materials[it_Material];
+            Trinity::MaterialData l_Expected;
+            const auto& l_Factor = l_Gltf.pbrData.baseColorFactor;
+            l_Expected.BaseColorFactor = glm::vec4(l_Factor[0], l_Factor[1], l_Factor[2], l_Factor[3]);
+            l_Expected.MetallicFactor = l_Gltf.pbrData.metallicFactor;
+            l_Expected.RoughnessFactor = l_Gltf.pbrData.roughnessFactor;
+            l_Expected.EmissiveFactor = glm::vec3(l_Gltf.emissiveFactor[0], l_Gltf.emissiveFactor[1], l_Gltf.emissiveFactor[2]);
+            l_Expected.EmissiveStrength = l_Gltf.emissiveStrength;
+            l_Expected.NormalScale = l_Gltf.normalTexture ? l_Gltf.normalTexture->scale : 1.0f;
+            l_Expected.OcclusionStrength = l_Gltf.occlusionTexture ? l_Gltf.occlusionTexture->strength : 1.0f;
+            l_Expected.AlphaMode = l_Gltf.alphaMode == fastgltf::AlphaMode::Mask ? Trinity::MaterialAlphaMode::Mask : (l_Gltf.alphaMode == fastgltf::AlphaMode::Blend ? Trinity::MaterialAlphaMode::Blend : Trinity::MaterialAlphaMode::Opaque);
+            l_Expected.AlphaCutoff = l_Gltf.alphaCutoff;
+            l_Expected.DoubleSided = l_Gltf.doubleSided;
+            l_Expected.BaseColorTexture = a_Texture(l_Gltf.pbrData.baseColorTexture, ModelImporter::TextureUsage::Color);
+            l_Expected.MetallicRoughnessTexture = a_Texture(l_Gltf.pbrData.metallicRoughnessTexture, ModelImporter::TextureUsage::Data);
+            l_Expected.NormalTexture = a_Texture(l_Gltf.normalTexture, ModelImporter::TextureUsage::Normal);
+            l_Expected.OcclusionTexture = a_Texture(l_Gltf.occlusionTexture, ModelImporter::TextureUsage::Data);
+            l_Expected.EmissiveTexture = a_Texture(l_Gltf.emissiveTexture, ModelImporter::TextureUsage::Color);
+
+            const Trinity::UUID l_ID = a_SubAsset(std::format("Material.{}", it_Material));
+            const Trinity::Expected<std::string, Trinity::FileError> l_Text = l_ID.IsValid() ? Trinity::FileSystem::ReadText(ModelImporter::GetImportedMaterialPath(l_ID)) : Trinity::Expected<std::string, Trinity::FileError>(Trinity::Unexpected{ Trinity::FileError::NotFound });
+            const Trinity::Expected<Trinity::MaterialData, std::string> l_Imported = l_Text ? Trinity::ParseMaterialData(*l_Text) : Trinity::Expected<Trinity::MaterialData, std::string>(Trinity::Unexpected{ std::string("it has no imported file") });
+            if (!l_Imported)
+            {
+                TR_ERROR("Import test: material {} of {} does not read back: {}", it_Material, l_Record->Path, l_Imported.GetError());
+                l_Passed = false;
+
+                continue;
+            }
+
+            std::string l_Wrong;
+            const std::vector<Trinity::MaterialField> l_Found = Trinity::GetMaterialFields(*l_Imported);
+            const std::vector<Trinity::MaterialField> l_Wanted = Trinity::GetMaterialFields(l_Expected);
+            for (std::size_t it_Field = 0; it_Field < l_Found.size(); ++it_Field)
+            {
+                if (l_Found[it_Field] != l_Wanted[it_Field])
+                {
+                    l_Wrong += std::format("{}{} is {} and glTF gives {}", l_Wrong.empty() ? "" : "; ", l_Found[it_Field].Name, l_Found[it_Field].Value, l_Wanted[it_Field].Value);
+                }
+            }
+
+            const std::array<Trinity::MaterialTexture, 5> l_Slots{ l_Expected.BaseColorTexture, l_Expected.MetallicRoughnessTexture, l_Expected.NormalTexture, l_Expected.OcclusionTexture, l_Expected.EmissiveTexture };
+            const std::size_t l_Named = static_cast<std::size_t>(std::ranges::count_if(l_Slots, [](const Trinity::MaterialTexture& texture) { return texture.Texture.IsValid(); }));
+            const bool l_AllFound = l_Named == static_cast<std::size_t>((l_Gltf.pbrData.baseColorTexture ? 1 : 0) + (l_Gltf.pbrData.metallicRoughnessTexture ? 1 : 0) + (l_Gltf.normalTexture ? 1 : 0) + (l_Gltf.occlusionTexture ? 1 : 0) + (l_Gltf.emissiveTexture ? 1 : 0));
+            if (!l_Wrong.empty() || !l_AllFound || *l_Imported != l_Expected)
+            {
+                TR_ERROR("Import test: material {} of {} does not map onto its material: {}", it_Material, l_Record->Path, l_Wrong.empty() ? std::string("a texture glTF names has no texture in the project") : l_Wrong);
+                l_Passed = false;
+
+                continue;
+            }
+
+            ++l_Materials;
+            l_Textures += l_Named;
+        }
+    }
+
+    if (l_Passed)
+    {
+        TR_INFO("Import test: {} glTF material(s) map onto their materials in every factor, and in {} texture slot(s) with their UV sets", l_Materials, l_Textures);
+    }
+
+    return l_Passed;
+}
+
+// Every cooked and imported material of every test model writes back as the same file, and a model whose .meta overrides none has the two the same
+bool ImportTest::CheckMaterialFiles()
+{
+    bool l_Passed = true;
+    std::size_t l_Files = 0;
+    for (const std::string& it_Path : GetTestModelPaths())
+    {
+        const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(it_Path);
+        if (l_Record == nullptr)
+        {
+            continue;
+        }
+
+        for (const Trinity::SubAsset& it_SubAsset : l_Record->SubAssets)
+        {
+            if (it_SubAsset.Importer != ModelImporter::c_MaterialImporter)
+            {
+                continue;
+            }
+
+            const Trinity::Expected<std::string, Trinity::FileError> l_Cooked = Trinity::FileSystem::ReadText(Trinity::GetCookedMaterialPath(it_SubAsset.ID));
+            const Trinity::Expected<std::string, Trinity::FileError> l_Imported = Trinity::FileSystem::ReadText(ModelImporter::GetImportedMaterialPath(it_SubAsset.ID));
+            const auto a_RoundTrips = [](const Trinity::Expected<std::string, Trinity::FileError>& text)
+            {
+                const Trinity::Expected<Trinity::MaterialData, std::string> l_Material = text ? Trinity::ParseMaterialData(*text) : Trinity::Expected<Trinity::MaterialData, std::string>(Trinity::Unexpected{ std::string() });
+
+                return l_Material && Trinity::WriteMaterialData(*l_Material) == *text;
+            };
+
+            const bool l_Same = ModelImporter::ReadMaterialOverrides(*l_Record, it_SubAsset.Key).empty() ? l_Cooked && l_Imported && *l_Cooked == *l_Imported : true;
+            if (!a_RoundTrips(l_Cooked) || !a_RoundTrips(l_Imported) || !l_Same)
+            {
+                TR_ERROR("Import test: {} of {} does not write back as the same file, or differs from its import with nothing overridden", it_SubAsset.Key, l_Record->Path);
+                l_Passed = false;
+
+                continue;
+            }
+
+            l_Files += 2;
+        }
+    }
+
+    if (l_Passed)
+    {
+        TR_INFO("Import test: {} material file(s) of the test models write back byte for byte", l_Files);
+    }
+
+    return l_Passed;
+}
+
+// Every material of the glTF test models is loaded, with its textures, then the table is read back
+void ImportTest::BeginMaterials()
+{
+    m_Materials.clear();
+    m_MaterialIDs.clear();
+    for (const TestModel& it_Model : c_TestModels)
+    {
+        const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(GetTestModelPath(it_Model));
+        for (const Trinity::SubAsset& it_SubAsset : l_Record != nullptr ? l_Record->SubAssets : std::vector<Trinity::SubAsset>())
+        {
+            if (it_SubAsset.Importer == ModelImporter::c_MaterialImporter)
+            {
+                m_MaterialIDs.push_back(it_SubAsset.ID);
+                m_Materials.emplace_back(it_SubAsset.ID);
+            }
+        }
+    }
+
+    m_MaterialsPassed = true;
+    m_PhaseFrames = 0;
+    m_Phase = Phase::LoadingMaterials;
+    if (m_MaterialIDs.empty())
+    {
+        TR_WARN("Import test: there are no glTF test models, so only a material of its own is edited");
+        BeginStandalone();
+    }
+}
+
+bool ImportTest::AreTexturesReady(const Trinity::MaterialData& material) const
+{
+    for (const Trinity::MaterialTexture& it_Texture : { material.BaseColorTexture, material.MetallicRoughnessTexture, material.NormalTexture, material.OcclusionTexture, material.EmissiveTexture })
+    {
+        if (it_Texture.Texture.IsValid() && Trinity::AssetManager::GetState(it_Texture.Texture) != Trinity::AssetState::Ready)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// The null device reads back nothing, so there only the table's own copy is compared
+std::string ImportTest::CheckRecords(std::span<const Trinity::UUID> materials, bool readBack) const
+{
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const Trinity::MaterialLoader& l_Loader = Trinity::Application::Get().GetRenderer().GetMaterialLoader();
+    const bool l_Gpu = readBack && l_Device.GetInfo().API != Trinity::GraphicsAPI::None;
+    const std::span<const std::byte> l_ReadBack = m_TableReadback ? l_Device.GetMappedData(m_TableReadback) : std::span<std::byte>();
+    std::vector<std::uint32_t> l_Indices;
+    for (const Trinity::UUID it_ID : materials)
+    {
+        const Trinity::Asset* l_Asset = Trinity::AssetManager::GetState(it_ID) == Trinity::AssetState::Ready ? Trinity::AssetManager::GetAsset(it_ID) : nullptr;
+        if (l_Asset == nullptr || l_Asset->GetAssetType() != Trinity::MaterialAsset::c_AssetType)
+        {
+            return std::format("material {} is not loaded", it_ID);
+        }
+
+        const Trinity::MaterialAsset& l_Material = static_cast<const Trinity::MaterialAsset&>(*l_Asset);
+        const std::uint32_t l_Index = l_Material.GetTableIndex();
+        const std::size_t l_Offset = static_cast<std::size_t>(l_Index) * Trinity::MaterialLoader::c_RecordSize;
+        const Trinity::MaterialLoader::Record l_Expected = Trinity::MaterialLoader::Pack(l_Material.GetData(), Trinity::MaterialLoader::ResolveTextures(l_Material.GetData()));
+        if (l_Index == Trinity::MaterialLoader::c_DefaultIndex || std::ranges::find(l_Indices, l_Index) != l_Indices.end() || l_Offset + l_Expected.size() > l_Loader.GetRecords().size())
+        {
+            return std::format("material {} has record {}, which is the default's, another material's or past the table", it_ID, l_Index);
+        }
+
+        l_Indices.push_back(l_Index);
+        if (std::memcmp(l_Loader.GetRecords().data() + l_Offset, l_Expected.data(), l_Expected.size()) != 0)
+        {
+            return std::format("material {}'s record {} in the table's copy is not its data and textures", it_ID, l_Index);
+        }
+
+        if (l_Gpu && (l_Offset + l_Expected.size() > l_ReadBack.size() || std::memcmp(l_ReadBack.data() + l_Offset, l_Expected.data(), l_Expected.size()) != 0))
+        {
+            return std::format("material {}'s record {} on the GPU is not its data and textures", it_ID, l_Index);
+        }
+    }
+
+    return {};
+}
+
+void ImportTest::UpdateMaterials()
+{
+    switch (m_Phase)
+    {
+        case Phase::LoadingMaterials:
+        {
+            const bool l_Failed = std::ranges::any_of(m_Materials, [](const auto& material) { return material.GetState() == Trinity::AssetState::Failed; });
+            const bool l_Ready = std::ranges::all_of(m_Materials, [this](const auto& material) { return material.IsReady() && AreTexturesReady(material.Get()->GetData()); });
+            if (l_Failed || (!l_Ready && m_PhaseFrames > c_LoadTimeoutFrames))
+            {
+                TR_ERROR("Import test: the test models' materials {} after {} frame(s)", l_Failed ? "failed to load" : "or their textures were still loading", m_PhaseFrames);
+                FinishMaterials(false);
+            }
+            else if (l_Ready)
+            {
+                m_ReadbackWanted = true;
+                m_Phase = Phase::ReadingMaterials;
+            }
+
+            break;
+        }
+        case Phase::ReadingMaterials:
+        {
+            if (!std::exchange(m_ReadbackAdded, false))
+            {
+                break;
+            }
+
+            Trinity::Application::Get().GetDevice().WaitIdle();
+            const std::string l_Wrong = CheckRecords(m_MaterialIDs, true);
+            if (!l_Wrong.empty())
+            {
+                TR_ERROR("Import test: {}", l_Wrong);
+                FinishMaterials(false);
+
+                break;
+            }
+
+            TR_INFO("Import test: {} material(s) of the glTF test models hold records of their own in the material table, naming their loaded textures, on the GPU as in the table's copy", m_MaterialIDs.size());
+
+            // A material with a normal map, so clearing a texture slot is edited too
+            const auto a_Edited = std::ranges::find_if(m_MaterialIDs, [](Trinity::UUID id) { return static_cast<const Trinity::MaterialAsset*>(Trinity::AssetManager::GetAsset(id))->GetData().NormalTexture.Texture.IsValid(); });
+            m_Edited = a_Edited != m_MaterialIDs.end() ? *a_Edited : m_MaterialIDs.front();
+            m_EditBefore = static_cast<const Trinity::MaterialAsset*>(Trinity::AssetManager::GetAsset(m_Edited))->GetData();
+            const Trinity::AssetRecord* l_Model = m_Session.GetRegistry()->Find(m_Session.GetRegistry()->Find(m_Edited)->Parent);
+            const Trinity::Expected<std::string, Trinity::FileError> l_Cooked = Trinity::FileSystem::ReadText(Trinity::GetCookedMaterialPath(m_Edited));
+            const Trinity::Expected<std::string, Trinity::FileError> l_Meta = Trinity::FileSystem::ReadText(l_Model->Path + std::string(Trinity::AssetRegistry::c_MetaExtension));
+            m_EditBeforeCooked = l_Cooked ? *l_Cooked : std::string();
+            m_EditBeforeMeta = l_Meta ? *l_Meta : std::string();
+            m_EditFrames = 0;
+            m_EditLate = 0;
+            m_Phase = Phase::EditingMaterial;
+
+            break;
+        }
+        case Phase::EditingMaterial:
+        {
+            EditMaterial();
+
+            break;
+        }
+        case Phase::ReadingEdit:
+        {
+            if (std::exchange(m_ReadbackAdded, false))
+            {
+                FinishEdit();
+            }
+
+            break;
+        }
+        case Phase::ReadingUndo:
+        {
+            if (std::exchange(m_ReadbackAdded, false))
+            {
+                FinishUndo();
+            }
+
+            break;
+        }
+        case Phase::LoadingStandalone:
+        {
+            if (m_Standalone.GetState() == Trinity::AssetState::Failed || m_PhaseFrames > c_LoadTimeoutFrames)
+            {
+                TR_ERROR("Import test: the material of its own {} after {} frame(s)", m_Standalone.GetState() == Trinity::AssetState::Failed ? "failed to load" : "was still loading", m_PhaseFrames);
+                FinishMaterials(false);
+            }
+            else if (m_Standalone.IsReady() && AreTexturesReady(m_Standalone.Get()->GetData()))
+            {
+                FinishStandalone();
+            }
+
+            break;
+        }
+        default:
+        {
+            break;
+        }
+    }
+}
+
+// A thousand frames of edits, each written where the material lives as a drag's are. Each must be in the table by the frame after it, and the renderer's memory must not change after the first hundred frames
+void ImportTest::EditMaterial()
+{
+    const Trinity::MaterialLoader& l_Loader = Trinity::Application::Get().GetRenderer().GetMaterialLoader();
+    const Trinity::MaterialAsset* l_Material = static_cast<const Trinity::MaterialAsset*>(Trinity::AssetManager::GetAsset(m_Edited));
+    if (m_EditFrames > 0)
+    {
+        const Trinity::MaterialLoader::Record l_Expected = Trinity::MaterialLoader::Pack(m_EditLast, Trinity::MaterialLoader::ResolveTextures(m_EditLast));
+        const bool l_Shown = l_Material->GetData() == m_EditLast && std::memcmp(l_Loader.GetRecords().data() + static_cast<std::size_t>(l_Material->GetTableIndex()) * Trinity::MaterialLoader::c_RecordSize, l_Expected.data(), l_Expected.size()) == 0;
+        m_EditLate += l_Shown ? 0 : 1;
+    }
+
+    if (m_EditFrames == c_EditWarmupFrames)
+    {
+        m_EditMemory = Trinity::Memory::GetStats(Trinity::MemoryTag::Renderer).CurrentBytes;
+    }
+
+    if (m_EditFrames == c_EditFrames)
+    {
+        const std::uint64_t l_Memory = Trinity::Memory::GetStats(Trinity::MemoryTag::Renderer).CurrentBytes;
+        if (m_EditLate != 0 || l_Memory != m_EditMemory)
+        {
+            TR_ERROR("Import test: over {} frames of material edits, {} were not in the table the frame after, and the renderer's memory went from {} to {}", c_EditFrames, m_EditLate, Trinity::Memory::FormatBytes(m_EditMemory), Trinity::Memory::FormatBytes(l_Memory));
+            m_MaterialsPassed = false;
+        }
+        else
+        {
+            TR_INFO("Import test: {} frames of material edits each showed in the table the frame after, with the renderer's memory at {} from frame {} on", c_EditFrames, Trinity::Memory::FormatBytes(l_Memory), c_EditWarmupFrames);
+        }
+
+        // Two edits of one field in a row, as a drag makes, become one command
+        static_cast<void>(m_Session.WriteMaterial(m_Edited, m_EditBefore));
+        m_Session.GetHistory().EndMerge();
+        m_EditHistory = m_Session.GetHistory().GetCount();
+        Trinity::MaterialData l_First = m_EditBefore;
+        l_First.RoughnessFactor = 0.125f;
+        Trinity::MaterialData l_Second = l_First;
+        l_Second.RoughnessFactor = 0.875f;
+        l_Second.NormalTexture = {};
+        const bool l_Edited = m_Session.EditMaterial(m_Edited, m_EditBefore, l_First, "Import test") && m_Session.EditMaterial(m_Edited, l_First, l_Second, "Import test");
+        if (!l_Edited || m_Session.GetHistory().GetCount() != m_EditHistory + 1)
+        {
+            TR_ERROR("Import test: two edits of one material field made {} command(s), and should have made one", m_Session.GetHistory().GetCount() - m_EditHistory);
+            m_MaterialsPassed = false;
+        }
+
+        m_EditLast = l_Second;
+        m_ReadbackWanted = true;
+        m_Phase = Phase::ReadingEdit;
+
+        return;
+    }
+
+    Trinity::MaterialData l_Edit = m_EditBefore;
+    l_Edit.RoughnessFactor = static_cast<float>(m_EditFrames % 100) / 100.0f;
+    l_Edit.BaseColorFactor = glm::vec4(static_cast<float>(m_EditFrames % 7) / 7.0f, 0.5f, 0.25f, 1.0f);
+    l_Edit.NormalTexture = {};
+    if (!m_Session.WriteMaterial(m_Edited, l_Edit))
+    {
+        TR_ERROR("Import test: material {} could not be edited", m_Edited);
+        FinishMaterials(false);
+
+        return;
+    }
+
+    m_EditLast = l_Edit;
+    ++m_EditFrames;
+}
+
+// The edit is on the GPU, in the cooked file and as overrides in the model's .meta. One undo then puts back the material, its file and the .meta byte for byte
+void ImportTest::FinishEdit()
+{
+    Trinity::Application::Get().GetDevice().WaitIdle();
+    const Trinity::AssetRecord* l_Model = m_Session.GetRegistry()->Find(m_Session.GetRegistry()->Find(m_Edited)->Parent);
+    const std::string l_Key = m_Session.GetMaterialKey(m_Edited).value_or(std::string());
+    const std::string l_Wrong = CheckRecords(std::span(&m_Edited, 1), true);
+    const Trinity::Expected<std::string, Trinity::FileError> l_Cooked = Trinity::FileSystem::ReadText(Trinity::GetCookedMaterialPath(m_Edited));
+    const std::vector<Trinity::MaterialField> l_Overrides = ModelImporter::ReadMaterialOverrides(*l_Model, l_Key);
+    if (!l_Wrong.empty() || !l_Cooked || *l_Cooked != Trinity::WriteMaterialData(m_EditLast) || l_Overrides.size() != 2)
+    {
+        TR_ERROR("Import test: an edit of {} is not on the GPU, in its cooked file, or as its 2 overrides in {}'s .meta, which has {}{}", l_Key, l_Model->Path, l_Overrides.size(), l_Wrong.empty() ? std::string() : std::format(": {}", l_Wrong));
+        m_MaterialsPassed = false;
+    }
+
+    m_Session.GetHistory().Undo();
+    m_ReadbackWanted = true;
+    m_Phase = Phase::ReadingUndo;
+}
+
+// The material, its cooked file and the .meta are as before the edit. A reimport then keeps an override, which an edit back to the import takes out again
+void ImportTest::FinishUndo()
+{
+    Trinity::Application::Get().GetDevice().WaitIdle();
+    const Trinity::AssetRecord* l_Model = m_Session.GetRegistry()->Find(m_Session.GetRegistry()->Find(m_Edited)->Parent);
+    const std::string l_MetaPath = l_Model->Path + std::string(Trinity::AssetRegistry::c_MetaExtension);
+    const std::string l_Wrong = CheckRecords(std::span(&m_Edited, 1), true);
+    const Trinity::Expected<std::string, Trinity::FileError> l_Cooked = Trinity::FileSystem::ReadText(Trinity::GetCookedMaterialPath(m_Edited));
+    const Trinity::Expected<std::string, Trinity::FileError> l_Meta = Trinity::FileSystem::ReadText(l_MetaPath);
+    const Trinity::MaterialAsset* l_Material = static_cast<const Trinity::MaterialAsset*>(Trinity::AssetManager::GetAsset(m_Edited));
+    if (!l_Wrong.empty() || l_Material->GetData() != m_EditBefore || !l_Cooked || *l_Cooked != m_EditBeforeCooked || !l_Meta || *l_Meta != m_EditBeforeMeta)
+    {
+        TR_ERROR("Import test: one undo did not put back the material, its cooked file and {} as they were{}", l_MetaPath, l_Wrong.empty() ? std::string() : std::format(": {}", l_Wrong));
+        m_MaterialsPassed = false;
+    }
+    else
+    {
+        TR_INFO("Import test: an edit of a material showed on the GPU the next frame, and one undo put back the GPU record, the cooked file and the .meta byte for byte");
+    }
+
+    Trinity::MaterialData l_Overridden = m_EditBefore;
+    l_Overridden.EmissiveStrength = 3.5f;
+    static_cast<void>(m_Session.WriteMaterial(m_Edited, l_Overridden));
+    static_cast<void>(Trinity::FileSystem::RemoveFile(ModelImporter::GetCacheKeyPath(l_Model->ID)));
+    m_Session.ScanAssets();
+    const EditorSession::ImportReport l_Report = m_Session.WaitForImports();
+    const Trinity::Expected<std::string, Trinity::FileError> l_Reimported = Trinity::FileSystem::ReadText(Trinity::GetCookedMaterialPath(m_Edited));
+    const bool l_Kept = l_Report.Models.Imported == 1 && l_Reimported && *l_Reimported == Trinity::WriteMaterialData(l_Overridden);
+
+    static_cast<void>(m_Session.WriteMaterial(m_Edited, m_EditBefore));
+    const Trinity::Expected<std::string, Trinity::FileError> l_Restored = Trinity::FileSystem::ReadText(l_MetaPath);
+    if (!l_Kept || !l_Restored || *l_Restored != m_EditBeforeMeta)
+    {
+        TR_ERROR("Import test: a reimport of {} lost a material override, or an edit back to the import left the .meta different", l_Model->Path);
+        m_MaterialsPassed = false;
+    }
+    else
+    {
+        TR_INFO("Import test: a reimport of {} kept its material override, and an edit back to the import left the .meta as it was", l_Model->Path);
+    }
+
+    BeginStandalone();
+}
+
+// A material of its own, made as the Content Browser makes one, then given colours, a mask, both sides and a texture on the second UV set
+void ImportTest::BeginStandalone()
+{
+    const std::optional<std::string> l_Path = m_Session.CreateMaterial(Trinity::Project::c_AssetsMount);
+    const Trinity::AssetRecord* l_Record = l_Path ? m_Session.GetRegistry()->FindByPath(*l_Path) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::MaterialAsset::c_AssetType)
+    {
+        TR_ERROR("Import test: a material of its own could not be created");
+        FinishMaterials(false);
+
+        return;
+    }
+
+    m_StandalonePath = *l_Path;
+    m_StandaloneData = *m_Session.ReadMaterial(l_Record->ID);
+    m_StandaloneData.BaseColorFactor = glm::vec4(0.2f, 0.4f, 0.6f, 0.75f);
+    m_StandaloneData.EmissiveFactor = glm::vec3(0.1f, 0.0f, 0.3f);
+    m_StandaloneData.AlphaMode = Trinity::MaterialAlphaMode::Mask;
+    m_StandaloneData.AlphaCutoff = 0.4f;
+    m_StandaloneData.DoubleSided = true;
+    for (const Trinity::AssetRecord* it_Record : m_Session.GetRegistry()->GetRecords())
+    {
+        if (IsTestTexture(*it_Record))
+        {
+            m_StandaloneData.BaseColorTexture = { it_Record->ID, 1 };
+
+            break;
+        }
+    }
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = m_Session.WriteMaterial(l_Record->ID, m_StandaloneData) ? Trinity::FileSystem::ReadText(m_StandalonePath) : Trinity::Expected<std::string, Trinity::FileError>(Trinity::Unexpected{ Trinity::FileError::NotFound });
+    const Trinity::Expected<Trinity::MaterialData, std::string> l_Read = l_Text ? Trinity::ParseMaterialData(*l_Text) : Trinity::Expected<Trinity::MaterialData, std::string>(Trinity::Unexpected{ std::string() });
+    if (!l_Read || *l_Read != m_StandaloneData || Trinity::WriteMaterialData(*l_Read) != *l_Text)
+    {
+        TR_ERROR("Import test: {} does not read back as written, or does not write back as the same file", m_StandalonePath);
+        FinishMaterials(false);
+
+        return;
+    }
+
+    m_Standalone = Trinity::AssetRef<Trinity::MaterialAsset>(l_Record->ID);
+    m_PhaseFrames = 0;
+    m_Phase = Phase::LoadingStandalone;
+}
+
+// Loaded as written, then written again into the same bytes, and deleted
+void ImportTest::FinishStandalone()
+{
+    const Trinity::UUID l_ID = m_Standalone.GetID();
+    const Trinity::Expected<std::string, Trinity::FileError> l_Before = Trinity::FileSystem::ReadText(m_StandalonePath);
+    const bool l_Loaded = m_Standalone.Get()->GetData() == m_StandaloneData && CheckRecords(std::span(&l_ID, 1), false).empty();
+    const bool l_Written = m_Session.WriteMaterial(l_ID, *m_Session.ReadMaterial(l_ID));
+    const Trinity::Expected<std::string, Trinity::FileError> l_After = Trinity::FileSystem::ReadText(m_StandalonePath);
+    if (!l_Loaded || !l_Written || !l_Before || !l_After || *l_Before != *l_After)
+    {
+        TR_ERROR("Import test: {} did not load as written, or did not save and reload into the same file", m_StandalonePath);
+        m_MaterialsPassed = false;
+    }
+    else
+    {
+        TR_INFO("Import test: {} loaded as written, with its texture, and saved and reloaded into the same file", m_StandalonePath);
+    }
+
+    m_Standalone = {};
+    static_cast<void>(m_Session.DeleteAsset(m_StandalonePath));
+    FinishMaterials(m_MaterialsPassed);
+}
+
+void ImportTest::FinishMaterials(bool passed)
+{
+    m_Materials.clear();
+    m_Standalone = {};
+    m_Phase = Phase::Idle;
+    if (passed)
+    {
+        TR_INFO("Import test: materials passed");
+    }
+
     TR_INFO("Import test: finished, and {} asset(s) are still loaded", Trinity::AssetManager::GetEntryCount());
 }

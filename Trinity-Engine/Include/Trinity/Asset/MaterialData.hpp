@@ -8,8 +8,10 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -54,11 +56,25 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MaterialData&) const = default;
     };
 
+    // One key of a material file and its value as the file writes it, such as BaseColorFactor and [1, 1, 1, 1]
+    struct MaterialField
+    {
+        std::string Name;
+        std::string Value;
+
+        [[nodiscard]] bool operator==(const MaterialField&) const = default;
+    };
+
     [[nodiscard]] TRINITY_API std::string GetCookedMaterialPath(UUID id);
 
     // YAML, with an empty slot left out
     [[nodiscard]] TRINITY_API std::string WriteMaterialData(const MaterialData& material);
     [[nodiscard]] TRINITY_API Expected<MaterialData, std::string> ParseMaterialData(std::string_view text);
+
+    // Every key of the material in file order, an empty texture slot's too as an invalid UUID, so two materials compare key by key
+    [[nodiscard]] TRINITY_API std::vector<MaterialField> GetMaterialFields(const MaterialData& material);
+    // The material with the fields set as a file would set them. A name that is not a key, or a value that does not read, refuses them all
+    [[nodiscard]] TRINITY_API Expected<MaterialData, std::string> ApplyMaterialFields(MaterialData material, std::span<const MaterialField> fields);
 
     [[nodiscard]] TRINITY_API std::string_view ToString(MaterialAlphaMode mode);
     [[nodiscard]] TRINITY_API std::optional<MaterialAlphaMode> ParseMaterialAlphaMode(std::string_view text);

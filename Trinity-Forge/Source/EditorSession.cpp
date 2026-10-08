@@ -73,9 +73,9 @@ namespace
         {
             l_Paths = { Trinity::GetCookedMeshPath(record.ID) };
         }
-        else if (record.Importer == ModelImporter::c_MaterialImporter)
+        else if (record.Importer == ModelImporter::c_MaterialImporter && record.Parent.IsValid())
         {
-            l_Paths = { Trinity::GetCookedMaterialPath(record.ID) };
+            l_Paths = { Trinity::GetCookedMaterialPath(record.ID), ModelImporter::GetImportedMaterialPath(record.ID) };
         }
         else if (record.Importer == ModelImporter::c_Importer)
         {
@@ -564,6 +564,7 @@ void EditorSession::FinishImports(const TextureImportReport& report)
 
 void EditorSession::FinishModelImports(const ModelImportReport& report)
 {
+    ++m_ModelImportCount;
     if (report.Imported != 0 || report.Failed != 0 || report.Stopped != 0)
     {
         TR_INFO("Models: {} in the project, {} imported, {} from the cache, {} failed, with {} embedded texture(s) encoded and {} from the cache", report.Models, report.Imported, report.Cached, report.Failed, report.TexturesEncoded, report.TexturesCached);
@@ -746,6 +747,134 @@ bool EditorSession::DeleteAsset(std::string_view path)
     }
 
     return !l_Error;
+}
+
+// A metal-free, half-rough white, which shows light better than glTF's default of metal
+std::optional<std::string> EditorSession::CreateMaterial(std::string_view folder)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return std::nullopt;
+    }
+
+    std::string l_Path;
+    for (std::uint32_t it_Index = 0; l_Path.empty() || std::filesystem::exists(m_Project->ToNativePath(l_Path)); ++it_Index)
+    {
+        l_Path = it_Index == 0 ? std::format("{}/New Material.trmat", folder) : std::format("{}/New Material {}.trmat", folder, it_Index);
+    }
+
+    Trinity::MaterialData l_Material;
+    l_Material.MetallicFactor = 0.0f;
+    l_Material.RoughnessFactor = 0.5f;
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, Trinity::WriteMaterialData(l_Material)); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created material {}", l_Path);
+    ScanAssets();
+
+    return l_Path;
+}
+
+std::optional<std::string> EditorSession::GetMaterialKey(Trinity::UUID material) const
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(material) : nullptr;
+    const Trinity::AssetRecord* l_Model = l_Record != nullptr && l_Record->Parent.IsValid() ? m_Registry->Find(l_Record->Parent) : nullptr;
+    if (l_Model == nullptr)
+    {
+        return std::nullopt;
+    }
+
+    const auto a_SubAsset = std::ranges::find(l_Model->SubAssets, material, &Trinity::SubAsset::ID);
+
+    return a_SubAsset != l_Model->SubAssets.end() ? std::optional(a_SubAsset->Key) : std::nullopt;
+}
+
+std::optional<Trinity::MaterialData> EditorSession::ReadMaterial(Trinity::UUID material) const
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(material) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != ModelImporter::c_MaterialImporter)
+    {
+        return std::nullopt;
+    }
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Record->Parent.IsValid() ? Trinity::GetCookedMaterialPath(material) : l_Record->Path);
+    const Trinity::Expected<Trinity::MaterialData, std::string> l_Material = l_Text ? Trinity::ParseMaterialData(*l_Text) : Trinity::Expected<Trinity::MaterialData, std::string>(Trinity::Unexpected{ std::string() });
+
+    return l_Material ? std::optional(*l_Material) : std::nullopt;
+}
+
+std::optional<Trinity::MaterialData> EditorSession::ReadImportedMaterial(Trinity::UUID material) const
+{
+    if (!GetMaterialKey(material))
+    {
+        return std::nullopt;
+    }
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(ModelImporter::GetImportedMaterialPath(material));
+    const Trinity::Expected<Trinity::MaterialData, std::string> l_Material = l_Text ? Trinity::ParseMaterialData(*l_Text) : Trinity::Expected<Trinity::MaterialData, std::string>(Trinity::Unexpected{ std::string() });
+
+    return l_Material ? std::optional(*l_Material) : std::nullopt;
+}
+
+// The .meta first, so the cooked file never holds what the .meta would not give again
+bool EditorSession::WriteMaterial(Trinity::UUID material, const Trinity::MaterialData& data)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(material) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != ModelImporter::c_MaterialImporter)
+    {
+        return false;
+    }
+
+    std::string l_Path = l_Record->Path;
+    if (l_Record->Parent.IsValid())
+    {
+        const std::optional<std::string> l_Key = GetMaterialKey(material);
+        const std::optional<Trinity::MaterialData> l_Imported = ReadImportedMaterial(material);
+        const Trinity::AssetRecord* l_Model = m_Registry->Find(l_Record->Parent);
+        if (!l_Key || !l_Imported || l_Model == nullptr)
+        {
+            TR_ERROR("Forge: {} has no imported version to compare an edit with, so it can be edited once its model is imported again", l_Record->Path);
+
+            return false;
+        }
+
+        if (!m_Registry->SetSettings(l_Model->ID, ModelImporter::MakeMaterialOverrides(*l_Model, *l_Key, *l_Imported, data)))
+        {
+            TR_ERROR("Forge: the overrides of {} could not be written to {}'s .meta", *l_Key, l_Model->Path);
+
+            return false;
+        }
+
+        l_Path = Trinity::GetCookedMaterialPath(material);
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, Trinity::WriteMaterialData(data)); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be written: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return false;
+    }
+
+    static_cast<void>(Trinity::Application::Get().GetRenderer().GetMaterialLoader().Apply(material, data));
+
+    return true;
+}
+
+bool EditorSession::EditMaterial(Trinity::UUID material, const Trinity::MaterialData& before, const Trinity::MaterialData& after, std::string field)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(material) : nullptr;
+    if (l_Record == nullptr)
+    {
+        return false;
+    }
+
+    const std::string l_Name = GetMaterialKey(material).value_or(ToUtf8(FromUtf8(l_Record->Path).stem()));
+
+    return m_History.Execute(Trinity::CreateScope<SetMaterialCommand>([this](Trinity::UUID id, const Trinity::MaterialData& data) { return WriteMaterial(id, data); }, material, before, after, std::move(field), l_Name));
 }
 
 // Into the .meta at once, and then encoded in the background. Sprites keep the old texture until the new one has loaded

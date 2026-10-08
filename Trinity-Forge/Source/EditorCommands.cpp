@@ -438,3 +438,38 @@ std::size_t RemoveComponentCommand::GetMemorySize() const
 {
     return sizeof(*this) + m_Component.capacity() + m_Text.capacity() + m_Label.capacity();
 }
+
+
+SetMaterialCommand::SetMaterialCommand(Writer writer, Trinity::UUID material, Trinity::MaterialData before, Trinity::MaterialData after, std::string field, std::string name) : m_Writer(std::move(writer)), m_Material(material), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::format("Edit {} of {}", m_Field, name))
+{
+
+}
+
+// An edit that changes nothing is no command
+bool SetMaterialCommand::Execute([[maybe_unused]] Trinity::Scene& scene)
+{
+    return m_Before != m_After && m_Writer(m_Material, m_After);
+}
+
+void SetMaterialCommand::Undo([[maybe_unused]] Trinity::Scene& scene)
+{
+    static_cast<void>(m_Writer(m_Material, m_Before));
+}
+
+bool SetMaterialCommand::MergeWith(const EditorCommand& next)
+{
+    const SetMaterialCommand* l_Next = dynamic_cast<const SetMaterialCommand*>(&next);
+    if (l_Next == nullptr || l_Next->m_Material != m_Material || l_Next->m_Field != m_Field)
+    {
+        return false;
+    }
+
+    m_After = l_Next->m_After;
+
+    return true;
+}
+
+std::size_t SetMaterialCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Field.capacity() + m_Label.capacity();
+}

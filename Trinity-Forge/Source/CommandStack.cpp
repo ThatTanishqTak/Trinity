@@ -116,9 +116,35 @@ void CommandStack::MarkSaved()
     m_MergeOpen = false;
 }
 
+// When only asset edits lie between the saved state and now, since they are already in their files
+bool CommandStack::IsSaved() const
+{
+    if (!m_SavedPosition)
+    {
+        return false;
+    }
+
+    const std::size_t l_First = std::min(*m_SavedPosition, m_Position);
+    const std::size_t l_End = std::max(*m_SavedPosition, m_Position);
+    for (std::size_t it_Index = l_First; it_Index < l_End; ++it_Index)
+    {
+        if (m_Commands[it_Index]->ChangesScene())
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // What the command touched, while it is in the scene. One that is gone, such as a deleted entity, leaves nothing selected
 void CommandStack::Select(const EditorCommand& command)
 {
+    if (!command.ChangesScene())
+    {
+        return;
+    }
+
     const Trinity::UUID l_Subject = command.GetSubject();
     m_Selection = m_Scene.FindEntityByUUID(l_Subject) ? l_Subject : Trinity::UUID();
 }

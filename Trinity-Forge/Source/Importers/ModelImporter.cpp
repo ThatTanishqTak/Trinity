@@ -8,6 +8,7 @@
 #include <charconv>
 #include <chrono>
 #include <format>
+#include <iterator>
 #include <system_error>
 
 namespace
@@ -41,6 +42,16 @@ namespace
         return scale ? std::format("{}", *scale) : std::string(c_Auto);
     }
 
+    bool IsOverride(const Trinity::AssetSetting& setting)
+    {
+        return setting.Key.find(ModelImporter::c_OverrideSeparator) != std::string::npos;
+    }
+
+    bool IsOverrideOf(const Trinity::AssetSetting& setting, std::string_view material)
+    {
+        return setting.Key.size() > material.size() && setting.Key.starts_with(material) && setting.Key[material.size()] == ModelImporter::c_OverrideSeparator;
+    }
+
     bool IsGltf(std::string_view path)
     {
         std::string l_Extension(path.substr(std::min(path.find_last_of('.'), path.size())));
@@ -67,6 +78,14 @@ Trinity::AssetSettings ModelImporter::GetDefaultSettings()
 Trinity::AssetSettings ModelImporter::MakeSettings(const ModelImportSettings& settings)
 {
     return { { std::string(c_UnitScaleSetting), FormatUnitScale(settings.UnitScale) }, { std::string(c_UpAxisSetting), std::string(::ToString(settings.UpAxis)) } };
+}
+
+Trinity::AssetSettings ModelImporter::MakeSettings(const ModelImportSettings& settings, const Trinity::AssetRecord& record)
+{
+    Trinity::AssetSettings l_Settings = MakeSettings(settings);
+    std::ranges::copy_if(record.Settings, std::back_inserter(l_Settings), IsOverride);
+
+    return l_Settings;
 }
 
 // A missing setting takes its default. One that cannot be read does too, with a warning naming the file
@@ -101,6 +120,123 @@ ModelImportSettings ModelImporter::ReadSettings(const Trinity::AssetRecord& reco
     }
 
     return l_Settings;
+}
+
+std::string ModelImporter::GetImportedMaterialPath(Trinity::UUID id)
+{
+    return std::format("{}/Materials/{}.imported", Trinity::Project::c_CacheMount, id);
+}
+
+std::vector<Trinity::MaterialField> ModelImporter::ReadMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material)
+{
+    std::vector<Trinity::MaterialField> l_Fields;
+    for (const Trinity::AssetSetting& it_Setting : model.Settings)
+    {
+        if (IsOverrideOf(it_Setting, material))
+        {
+            l_Fields.push_back({ it_Setting.Key.substr(material.size() + 1), it_Setting.Value });
+        }
+    }
+
+    return l_Fields;
+}
+
+// Overrides that do not read leave the material as it was imported, with a warning naming them
+Trinity::MaterialData ModelImporter::ApplyMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material, const Trinity::MaterialData& imported)
+{
+    const std::vector<Trinity::MaterialField> l_Fields = ReadMaterialOverrides(model, material);
+    if (l_Fields.empty())
+    {
+        return imported;
+    }
+
+    const Trinity::Expected<Trinity::MaterialData, std::string> l_Applied = Trinity::ApplyMaterialFields(imported, l_Fields);
+    if (!l_Applied)
+    {
+        TR_WARN("Models: the overrides of {} in {}'s .meta cannot be applied, since {}, so it stays as imported", material, model.Path, l_Applied.GetError());
+
+        return imported;
+    }
+
+    return *l_Applied;
+}
+
+// Kept in the order the fields are written, after the settings that are not this material's overrides
+Trinity::AssetSettings ModelImporter::MakeMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material, const Trinity::MaterialData& imported, const Trinity::MaterialData& edited)
+{
+    Trinity::AssetSettings l_Settings;
+    std::ranges::copy_if(model.Settings, std::back_inserter(l_Settings), [material](const Trinity::AssetSetting& setting) { return !IsOverrideOf(setting, material); });
+
+    const std::vector<Trinity::MaterialField> l_Imported = Trinity::GetMaterialFields(imported);
+    const std::vector<Trinity::MaterialField> l_Edited = Trinity::GetMaterialFields(edited);
+    for (std::size_t it_Field = 0; it_Field < l_Edited.size(); ++it_Field)
+    {
+        if (l_Edited[it_Field] != l_Imported[it_Field])
+        {
+            l_Settings.push_back({ std::format("{}{}{}", material, c_OverrideSeparator, l_Edited[it_Field].Name), l_Edited[it_Field].Value });
+        }
+    }
+
+    return l_Settings;
+}
+
+// A material whose imported file is missing is left to the next import, which a missing file brings about
+std::vector<Trinity::UUID> ModelImporter::RefreshMaterials(const Trinity::AssetRecord& model)
+{
+    std::vector<Trinity::UUID> l_Written;
+    for (const Trinity::SubAsset& it_SubAsset : model.SubAssets)
+    {
+        if (it_SubAsset.Importer != c_MaterialImporter)
+        {
+            continue;
+        }
+
+        const Trinity::Expected<std::string, Trinity::FileError> l_ImportedText = Trinity::FileSystem::ReadText(GetImportedMaterialPath(it_SubAsset.ID));
+        const Trinity::Expected<Trinity::MaterialData, std::string> l_Imported = l_ImportedText ? Trinity::ParseMaterialData(*l_ImportedText) : Trinity::Expected<Trinity::MaterialData, std::string>(Trinity::Unexpected{ std::string() });
+        if (!l_Imported)
+        {
+            continue;
+        }
+
+        const std::string l_Text = Trinity::WriteMaterialData(ApplyMaterialOverrides(model, it_SubAsset.Key, *l_Imported));
+        const std::string l_Path = Trinity::GetCookedMaterialPath(it_SubAsset.ID);
+        const Trinity::Expected<std::string, Trinity::FileError> l_Cooked = Trinity::FileSystem::ReadText(l_Path);
+        if (l_Cooked && *l_Cooked == l_Text)
+        {
+            continue;
+        }
+
+        if (const Trinity::Expected<void, Trinity::FileError> l_Result = Trinity::FileSystem::WriteText(l_Path, l_Text); !l_Result)
+        {
+            TR_ERROR("Models: {} could not be written for {}: {}", l_Path, model.Path, Trinity::ToString(l_Result.GetError()));
+
+            continue;
+        }
+
+        TR_INFO("Models: {} of {} now has the overrides its .meta gives", it_SubAsset.Key, model.Path);
+        l_Written.push_back(it_SubAsset.ID);
+    }
+
+    return l_Written;
+}
+
+std::optional<Trinity::AssetSettings> ModelImporter::PruneMaterialOverrides(const Trinity::AssetRecord& model)
+{
+    Trinity::AssetSettings l_Settings;
+    for (const Trinity::AssetSetting& it_Setting : model.Settings)
+    {
+        const bool l_Kept = !IsOverride(it_Setting) || std::ranges::any_of(model.SubAssets, [&it_Setting](const Trinity::SubAsset& subAsset) { return subAsset.Importer == c_MaterialImporter && IsOverrideOf(it_Setting, subAsset.Key); });
+        if (l_Kept)
+        {
+            l_Settings.push_back(it_Setting);
+        }
+        else
+        {
+            TR_WARN("Models: {} no longer has the material {} overrides, so the override is dropped from its .meta", model.Path, it_Setting.Key);
+        }
+    }
+
+    return l_Settings.size() != model.Settings.size() ? std::optional(std::move(l_Settings)) : std::nullopt;
 }
 
 std::string ModelImporter::GetCacheKeyPath(Trinity::UUID id)
@@ -200,7 +336,7 @@ ModelImporter::Plan ModelImporter::PlanImport(const Trinity::AssetRecord& record
     {
         const std::string l_Path = GetCookedPath(subAsset);
 
-        return !l_Path.empty() && Trinity::FileSystem::Exists(l_Path);
+        return !l_Path.empty() && Trinity::FileSystem::Exists(l_Path) && (subAsset.Importer != c_MaterialImporter || Trinity::FileSystem::Exists(GetImportedMaterialPath(subAsset.ID)));
     });
 
     l_Plan.Model = l_Source;
@@ -317,10 +453,16 @@ ModelImporter::Cooked ModelImporter::Cook(const Trinity::AssetRecord& record, co
     }
 
     const auto a_Resolve = [&](const ModelSource::TextureUse& use) { return use.Key.empty() ? (use.External < externalTextures.size() ? externalTextures[use.External] : Trinity::UUID()) : a_Find(use.Key); };
+    // Each material as imported, which edits are compared with, then with the overrides its .meta gives
     for (std::size_t it_Material = 0; it_Material < l_Source.MaterialKeys.size(); ++it_Material)
     {
-        const std::string l_Text = Trinity::WriteMaterialData(l_Source.BuildMaterial(it_Material, a_Resolve));
-        static_cast<void>(a_Write(l_Materials[it_Material], Trinity::GetCookedMaterialPath(l_Materials[it_Material]), std::as_bytes(std::span(l_Text))));
+        const Trinity::MaterialData l_Imported = l_Source.BuildMaterial(it_Material, a_Resolve);
+        const std::string l_ImportedText = Trinity::WriteMaterialData(l_Imported);
+        const std::string l_Text = Trinity::WriteMaterialData(ApplyMaterialOverrides(record, l_Source.MaterialKeys[it_Material], l_Imported));
+        if (a_Write({}, GetImportedMaterialPath(l_Materials[it_Material]), std::as_bytes(std::span(l_ImportedText))))
+        {
+            static_cast<void>(a_Write(l_Materials[it_Material], Trinity::GetCookedMaterialPath(l_Materials[it_Material]), std::as_bytes(std::span(l_Text))));
+        }
     }
 
     const Trinity::ModelData l_Model = l_Source.BuildHierarchy(GetConversion(l_Source, ReadSettings(record)), l_Meshes, l_MeshMaterials);

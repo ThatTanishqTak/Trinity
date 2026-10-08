@@ -9,6 +9,9 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
+#include <functional>
+#include <initializer_list>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -28,7 +31,7 @@ private:
     void DrawCamera(Trinity::Entity entity);
     void DrawSpriteRenderer(Trinity::Entity entity);
     void DrawTextureSlot(Trinity::Entity entity);
-    void DrawTexturePicker(Trinity::Entity entity);
+    void DrawTexturePicker(const char* popup, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);
     void DrawOtherComponents(Trinity::Entity entity);
     void DrawAddComponent(Trinity::Entity entity);
 
@@ -36,6 +39,9 @@ private:
     void DrawTexturePreview();
     void DrawTextureSettings(const Trinity::AssetRecord& record);
     void DrawModelSettings(const Trinity::AssetRecord& record);
+    void DrawModelMaterials(const Trinity::AssetRecord& record);
+    void DrawMaterial(const Trinity::AssetRecord& record);
+    void DrawMaterialTextures(const Trinity::AssetRecord& record, const Trinity::MaterialData& current, const std::function<void(const char*, std::initializer_list<std::string_view>)>& label);
 
     [[nodiscard]] bool BeginComponent(std::string_view name, const char* icon, bool removable);
     void SetTexture(Trinity::Entity entity, Trinity::UUID texture);
@@ -47,6 +53,10 @@ private:
     Trinity::UUID m_SettingsAsset;
     TextureImportSettings m_TextureSettings;
     ModelImportSettings m_ModelSettings;
+    Trinity::AssetRef<Trinity::MaterialAsset> m_Material;
+    // A model's material as imported, read again after each model import, which the fields that differ from are marked against
+    std::optional<Trinity::MaterialData> m_ImportedMaterial;
+    std::uint64_t m_ImportedMaterialImports = UINT64_MAX;
     std::string m_PendingRemoval;
     std::string m_NameText;
     Trinity::UUID m_NameEntity;

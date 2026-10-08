@@ -6,6 +6,7 @@
 
 #include <concepts>
 #include <format>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -263,4 +264,31 @@ private:
     std::string m_Field;
     std::string m_Label;
     bool m_Executed = false;
+};
+
+
+// An edit of a material, which the writer puts where the material lives, its own file or its model's .meta, as it runs and as it is undone. Edits of one field in a row become one, as a drag does
+class SetMaterialCommand final : public EditorCommand
+{
+public:
+    using Writer = std::function<bool(Trinity::UUID, const Trinity::MaterialData&)>;
+
+    SetMaterialCommand(Writer writer, Trinity::UUID material, Trinity::MaterialData before, Trinity::MaterialData after, std::string field, std::string name);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
+    [[nodiscard]] bool ChangesScene() const override { return false; }
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Material; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Writer m_Writer;
+    Trinity::UUID m_Material;
+    Trinity::MaterialData m_Before;
+    Trinity::MaterialData m_After;
+    std::string m_Field;
+    std::string m_Label;
 };

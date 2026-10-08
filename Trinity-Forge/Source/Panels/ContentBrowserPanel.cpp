@@ -62,6 +62,11 @@ namespace
             return Trinity::Icons::c_Cube;
         }
 
+        if (record != nullptr && record->Importer == Trinity::MaterialAsset::c_AssetType)
+        {
+            return Trinity::Icons::c_PaintBrush;
+        }
+
         return record != nullptr && record->Importer == "Scene" ? Trinity::Icons::c_CubeOutline : Trinity::Icons::c_File;
     }
 }
@@ -438,6 +443,18 @@ void ContentBrowserPanel::DrawBackground()
                 {
                     m_Listings.clear();
                     BeginRename({ std::string(GetName(*l_Folder)), *l_Folder, true, nullptr });
+                }
+            });
+        }
+
+        if (ImGui::MenuItem(std::format("{} New Material", Trinity::Icons::c_PaintBrush).c_str()))
+        {
+            m_Deferred.push_back([this]
+            {
+                if (const std::optional<std::string> l_Material = m_Session.CreateMaterial(m_Folder))
+                {
+                    m_Listings.clear();
+                    BeginRename({ std::string(GetName(*l_Material)), *l_Material, false, m_Session.GetRegistry()->FindByPath(*l_Material) });
                 }
             });
         }

@@ -63,7 +63,9 @@ public:
 
     static constexpr std::string_view c_Importer = "Model";
     static constexpr std::string_view c_MaterialImporter = "Material";
-    static constexpr std::uint32_t c_Version = 3;
+    static constexpr std::uint32_t c_Version = 4;
+    // Between a material's key and a field's name in the key of a .meta setting that overrides it, such as Material.0.blinn3/RoughnessFactor
+    static constexpr char c_OverrideSeparator = '/';
 
     struct ExternalTexture
     {
@@ -96,7 +98,20 @@ public:
 
     [[nodiscard]] static Trinity::AssetSettings GetDefaultSettings();
     [[nodiscard]] static Trinity::AssetSettings MakeSettings(const ModelImportSettings& settings);
+    // The settings with the record's material overrides kept
+    [[nodiscard]] static Trinity::AssetSettings MakeSettings(const ModelImportSettings& settings, const Trinity::AssetRecord& record);
     [[nodiscard]] static ModelImportSettings ReadSettings(const Trinity::AssetRecord& record);
+
+    // A model's material as it was imported, before the .meta's overrides, cooked beside the material so an edit needs no import
+    [[nodiscard]] static std::string GetImportedMaterialPath(Trinity::UUID id);
+    [[nodiscard]] static std::vector<Trinity::MaterialField> ReadMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material);
+    [[nodiscard]] static Trinity::MaterialData ApplyMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material, const Trinity::MaterialData& imported);
+    // The model's settings with the material's overrides replaced by every field in which the edit differs from the import
+    [[nodiscard]] static Trinity::AssetSettings MakeMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material, const Trinity::MaterialData& imported, const Trinity::MaterialData& edited);
+    // For a model whose cache is otherwise whole: each cooked material is brought in line with the .meta, which may have changed since, and those rewritten are given back
+    [[nodiscard]] static std::vector<Trinity::UUID> RefreshMaterials(const Trinity::AssetRecord& model);
+    // The settings without overrides of materials the model no longer has, or nothing when there are none
+    [[nodiscard]] static std::optional<Trinity::AssetSettings> PruneMaterialOverrides(const Trinity::AssetRecord& model);
     [[nodiscard]] static std::string GetCacheKeyPath(Trinity::UUID id);
     [[nodiscard]] static std::string GetCacheKey(const Trinity::AssetRecord& record, const Plan& plan, std::span<const Trinity::UUID> externalTextures);
     [[nodiscard]] static std::string_view ToString(TextureUsage usage);

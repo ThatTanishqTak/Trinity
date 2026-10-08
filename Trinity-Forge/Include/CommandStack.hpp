@@ -15,6 +15,8 @@ public:
     [[nodiscard]] virtual bool Execute(Trinity::Scene& scene) = 0;
     virtual void Undo(Trinity::Scene& scene) = 0;
     [[nodiscard]] virtual bool MergeWith([[maybe_unused]] const EditorCommand& next) { return false; }
+    // An edit of an asset, written to its file as it runs, leaves the scene and the selection as they are
+    [[nodiscard]] virtual bool ChangesScene() const { return true; }
 
     [[nodiscard]] virtual std::string GetName() const = 0;
     [[nodiscard]] virtual Trinity::UUID GetSubject() const = 0;
@@ -43,7 +45,7 @@ public:
 
     [[nodiscard]] bool CanUndo() const { return m_Position > 0; }
     [[nodiscard]] bool CanRedo() const { return m_Position < m_Commands.size(); }
-    [[nodiscard]] bool IsSaved() const { return m_SavedPosition == m_Position; }
+    [[nodiscard]] bool IsSaved() const;
 
     [[nodiscard]] std::size_t GetCount() const { return m_Commands.size(); }
     [[nodiscard]] std::size_t GetPosition() const { return m_Position; }

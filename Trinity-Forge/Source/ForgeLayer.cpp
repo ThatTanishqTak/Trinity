@@ -122,6 +122,12 @@ void ForgeLayer::OnRender(Trinity::RHI::CommandList& commands)
     m_ViewportPanel->RenderScene(commands);
 }
 
+// Only the import test adds passes of its own, to read back what the renderer holds
+void ForgeLayer::OnBuildFrameGraph(Trinity::FrameGraph& graph, [[maybe_unused]] Trinity::FrameGraphTexture sceneColor)
+{
+    m_ImportTest.OnBuildFrameGraph(graph);
+}
+
 // The menu bar comes first, so the dock space fits in the space below it. Shortcuts are read from ImGui, since layer events are the scene's while the Viewport has them
 void ForgeLayer::OnImGuiRender()
 {

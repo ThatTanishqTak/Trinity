@@ -13,6 +13,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <utility>
 #include <vector>
 
@@ -56,6 +57,7 @@ PropertiesPanel::PropertiesPanel(EditorSession& session) : Panel("Properties", T
     m_CloseListener = m_Session.AddCloseListener([this]
     {
         m_Preview = {};
+        m_Material = {};
         m_SettingsAsset = {};
     });
 }
@@ -98,6 +100,7 @@ void PropertiesPanel::OnImGuiRender()
     }
 
     m_Preview = {};
+    m_Material = {};
     m_SettingsAsset = {};
 
     if (!l_Entity)
@@ -346,13 +349,13 @@ void PropertiesPanel::DrawTextureSlot(Trinity::Entity entity)
 
     ImGui::EndDisabled();
 
-    DrawTexturePicker(entity);
+    DrawTexturePicker(c_TexturePickerPopup, l_Texture, [this, entity](Trinity::UUID texture) { SetTexture(entity, texture); });
 }
 
 // The project's textures by path, narrowed by what is typed
-void PropertiesPanel::DrawTexturePicker(Trinity::Entity entity)
+void PropertiesPanel::DrawTexturePicker(const char* popup, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick)
 {
-    if (!ImGui::BeginPopup(c_TexturePickerPopup))
+    if (!ImGui::BeginPopup(popup))
     {
         return;
     }
@@ -367,7 +370,7 @@ void PropertiesPanel::DrawTexturePicker(Trinity::Entity entity)
 
     if (ImGui::Selectable("None"))
     {
-        SetTexture(entity, {});
+        pick({});
     }
 
     std::vector<const Trinity::AssetRecord*> l_Textures;
@@ -384,12 +387,11 @@ void PropertiesPanel::DrawTexturePicker(Trinity::Entity entity)
     }
 
     std::ranges::sort(l_Textures, {}, &Trinity::AssetRecord::Path);
-    const Trinity::UUID l_Current = entity.Get<Trinity::SpriteRendererComponent>().Texture;
     for (const Trinity::AssetRecord* it_Record : l_Textures)
     {
-        if (ImGui::Selectable(std::format("{}###{}", it_Record->Path, it_Record->ID).c_str(), it_Record->ID == l_Current))
+        if (ImGui::Selectable(std::format("{}###{}", it_Record->Path, it_Record->ID).c_str(), it_Record->ID == current))
         {
-            SetTexture(entity, it_Record->ID);
+            pick(it_Record->ID);
         }
     }
 
@@ -473,7 +475,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
     ImGui::EndPopup();
 }
 
-// An asset picked in the Content Browser: where it is, for a texture a preview and its import settings, and for a model its import settings
+// An asset picked in the Content Browser: where it is, for a texture a preview and its import settings, for a model its import settings and materials, and for a material its editor
 void PropertiesPanel::DrawAsset(Trinity::UUID id)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -487,15 +489,31 @@ void PropertiesPanel::DrawAsset(Trinity::UUID id)
 
     const bool l_Texture = l_Record->Importer == Trinity::TextureAsset::c_AssetType;
     const bool l_Model = l_Record->Importer == ModelImporter::c_Importer;
-    ImGui::TextUnformatted(std::format("{} {}", l_Texture ? Trinity::Icons::c_FileImage : (l_Model ? Trinity::Icons::c_Cube : Trinity::Icons::c_File), GetAssetName(*l_Record)).c_str());
+    const bool l_Material = l_Record->Importer == Trinity::MaterialAsset::c_AssetType;
+    const char* l_Icon = l_Texture ? Trinity::Icons::c_FileImage : (l_Model ? Trinity::Icons::c_Cube : (l_Material ? Trinity::Icons::c_PaintBrush : Trinity::Icons::c_File));
+    ImGui::TextUnformatted(std::format("{} {}", l_Icon, GetAssetName(*l_Record)).c_str());
     ImGui::TextDisabled("%s", l_Record->Path.c_str());
     ImGui::TextDisabled("UUID %s, %s", id.ToString().c_str(), l_Record->Importer.c_str());
     ImGui::Spacing();
+
+    if (!l_Material)
+    {
+        m_Material = {};
+    }
 
     if (l_Model)
     {
         m_Preview = {};
         DrawModelSettings(*l_Record);
+        DrawModelMaterials(*l_Record);
+
+        return;
+    }
+
+    if (l_Material)
+    {
+        m_Preview = {};
+        DrawMaterial(*l_Record);
 
         return;
     }
@@ -647,7 +665,7 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
     ImGui::BeginDisabled(!l_Changed);
     if (ImGui::Button("Apply"))
     {
-        static_cast<void>(m_Session.ApplyImportSettings(record.ID, ModelImporter::MakeSettings(m_ModelSettings)));
+        static_cast<void>(m_Session.ApplyImportSettings(record.ID, ModelImporter::MakeSettings(m_ModelSettings, record)));
     }
 
     ImGui::SameLine();
@@ -662,6 +680,325 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
     {
         ImGui::SameLine();
         ImGui::TextDisabled("Importing...");
+    }
+}
+
+// Each of the model's materials, which opens its editor, with how many fields its .meta overrides
+void PropertiesPanel::DrawModelMaterials(const Trinity::AssetRecord& record)
+{
+    if (!BeginComponent("Materials", Trinity::Icons::c_PaintBrush, false))
+    {
+        return;
+    }
+
+    bool l_Any = false;
+    for (const Trinity::SubAsset& it_SubAsset : record.SubAssets)
+    {
+        if (it_SubAsset.Importer != ModelImporter::c_MaterialImporter)
+        {
+            continue;
+        }
+
+        l_Any = true;
+        const std::size_t l_Overrides = ModelImporter::ReadMaterialOverrides(record, it_SubAsset.Key).size();
+        const std::string l_Label = l_Overrides == 0 ? it_SubAsset.Key : std::format("{} ({} overridden)", it_SubAsset.Key, l_Overrides);
+        if (ImGui::Selectable(std::format("{} {}###{}", Trinity::Icons::c_PaintBrush, l_Label, it_SubAsset.ID).c_str()))
+        {
+            m_Session.SetInspectedAsset(it_SubAsset.ID);
+        }
+    }
+
+    if (!l_Any)
+    {
+        ImGui::TextDisabled("%s", m_Session.IsImportingModels() ? "Importing..." : "The model has no materials");
+    }
+}
+
+// Every factor and texture, each edit written at once and shown the same frame, and undone in one step. A model's material marks in colour the fields its .meta overrides, and right-clicking one puts back what was imported. Colours are edited as they look, in sRGB, and kept linear
+void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
+{
+    if (m_Material.GetID() != record.ID)
+    {
+        m_Material = Trinity::AssetRef<Trinity::MaterialAsset>(record.ID);
+        m_ImportedMaterialImports = UINT64_MAX;
+    }
+
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::AssetRecord* l_Model = record.Parent.IsValid() && l_Registry != nullptr ? l_Registry->Find(record.Parent) : nullptr;
+    if (l_Model != nullptr)
+    {
+        if (m_ImportedMaterialImports != m_Session.GetModelImportCount())
+        {
+            m_ImportedMaterial = m_Session.ReadImportedMaterial(record.ID);
+            m_ImportedMaterialImports = m_Session.GetModelImportCount();
+        }
+
+        ImGui::TextDisabled("Imported with %s. Edits are kept in its .meta", GetAssetName(*l_Model).c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton(std::format("{} Show Model", Trinity::Icons::c_Cube).c_str()))
+        {
+            m_Session.SetInspectedAsset(l_Model->ID);
+
+            return;
+        }
+
+        ImGui::Spacing();
+    }
+    else
+    {
+        m_ImportedMaterial.reset();
+    }
+
+    const Trinity::MaterialAsset* l_Asset = m_Material.IsReady() ? m_Material.Get() : nullptr;
+    if (l_Asset == nullptr)
+    {
+        ImGui::TextDisabled("%s", m_Material.GetState() == Trinity::AssetState::Failed ? "The material could not be loaded" : "Loading...");
+
+        return;
+    }
+
+    if (!BeginComponent("Material", Trinity::Icons::c_PaintBrush, false))
+    {
+        return;
+    }
+
+    const Trinity::MaterialData l_Current = l_Asset->GetData();
+    std::vector<Trinity::MaterialField> l_ImportedFields;
+    std::vector<std::string> l_Overridden;
+    if (m_ImportedMaterial)
+    {
+        l_ImportedFields = Trinity::GetMaterialFields(*m_ImportedMaterial);
+        const std::vector<Trinity::MaterialField> l_Fields = Trinity::GetMaterialFields(l_Current);
+        for (std::size_t it_Field = 0; it_Field < l_Fields.size(); ++it_Field)
+        {
+            if (l_Fields[it_Field] != l_ImportedFields[it_Field])
+            {
+                l_Overridden.push_back(l_Fields[it_Field].Name);
+            }
+        }
+    }
+
+    // The label, in the accent colour when any of its fields is overridden, with a menu that puts them back as imported
+    const auto a_Label = [&](const char* label, std::initializer_list<std::string_view> fields)
+    {
+        const bool l_IsOverridden = std::ranges::any_of(fields, [&l_Overridden](std::string_view field) { return std::ranges::find(l_Overridden, field) != l_Overridden.end(); });
+        ImGui::AlignTextToFramePadding();
+        if (l_IsOverridden)
+        {
+            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "%s", label);
+        }
+        else
+        {
+            ImGui::TextUnformatted(label);
+        }
+
+        const std::string l_Popup = std::format("##Revert{}", label);
+        if (l_IsOverridden)
+        {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            {
+                ImGui::SetTooltip("Overridden in the model's .meta. Right-click to put back what was imported");
+            }
+
+            ImGui::OpenPopupOnItemClick(l_Popup.c_str(), ImGuiPopupFlags_MouseButtonRight);
+        }
+
+        if (ImGui::BeginPopup(l_Popup.c_str()))
+        {
+            if (ImGui::MenuItem(std::format("{} Revert to Imported", Trinity::Icons::c_Undo).c_str()))
+            {
+                std::vector<Trinity::MaterialField> l_Reverted;
+                std::ranges::copy_if(l_ImportedFields, std::back_inserter(l_Reverted), [fields](const Trinity::MaterialField& field) { return std::ranges::find(fields, std::string_view(field.Name)) != fields.end(); });
+                if (const Trinity::Expected<Trinity::MaterialData, std::string> l_Edited = Trinity::ApplyMaterialFields(l_Current, l_Reverted))
+                {
+                    static_cast<void>(m_Session.EditMaterial(record.ID, l_Current, *l_Edited, std::format("Revert {}", label)));
+                }
+            }
+
+            ImGui::EndPopup();
+        }
+
+        ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+    };
+
+    // The widget edits a copy, and a change becomes an edit, which merges with the next while the widget stays active
+    const auto a_Edit = [&](std::string_view field, const auto& widget)
+    {
+        Trinity::MaterialData l_Edited = l_Current;
+        if (widget(l_Edited))
+        {
+            static_cast<void>(m_Session.EditMaterial(record.ID, l_Current, l_Edited, std::string(field)));
+        }
+    };
+
+    const auto a_ToSrgb = [](glm::vec3 color) { return glm::vec3(Trinity::LinearToSrgb(color.r), Trinity::LinearToSrgb(color.g), Trinity::LinearToSrgb(color.b)); };
+    const auto a_ToLinear = [](glm::vec3 color) { return glm::vec3(Trinity::SrgbToLinear(color.r), Trinity::SrgbToLinear(color.g), Trinity::SrgbToLinear(color.b)); };
+
+    a_Label("Base Color", { "BaseColorFactor" });
+    a_Edit("Base Color", [&](Trinity::MaterialData& material)
+    {
+        glm::vec4 l_Color(a_ToSrgb(glm::vec3(material.BaseColorFactor)), material.BaseColorFactor.a);
+        const bool l_Changed = ImGui::ColorEdit4("##BaseColor", &l_Color.x, ImGuiColorEditFlags_AlphaPreviewHalf | ImGuiColorEditFlags_AlphaBar);
+        material.BaseColorFactor = glm::vec4(a_ToLinear(glm::vec3(l_Color)), l_Color.a);
+
+        return l_Changed;
+    });
+
+    a_Label("Metallic", { "MetallicFactor" });
+    a_Edit("Metallic", [](Trinity::MaterialData& material) { return ImGui::SliderFloat("##Metallic", &material.MetallicFactor, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    a_Label("Roughness", { "RoughnessFactor" });
+    a_Edit("Roughness", [](Trinity::MaterialData& material) { return ImGui::SliderFloat("##Roughness", &material.RoughnessFactor, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    a_Label("Emissive", { "EmissiveFactor" });
+    a_Edit("Emissive", [&](Trinity::MaterialData& material)
+    {
+        glm::vec3 l_Color = a_ToSrgb(material.EmissiveFactor);
+        const bool l_Changed = ImGui::ColorEdit3("##Emissive", &l_Color.x);
+        material.EmissiveFactor = a_ToLinear(l_Color);
+
+        return l_Changed;
+    });
+
+    a_Label("Emissive Strength", { "EmissiveStrength" });
+    a_Edit("Emissive Strength", [](Trinity::MaterialData& material) { return ImGui::DragFloat("##EmissiveStrength", &material.EmissiveStrength, 0.05f, 0.0f, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    a_Label("Normal Scale", { "NormalScale" });
+    a_Edit("Normal Scale", [](Trinity::MaterialData& material) { return ImGui::DragFloat("##NormalScale", &material.NormalScale, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    a_Label("Occlusion Strength", { "OcclusionStrength" });
+    a_Edit("Occlusion Strength", [](Trinity::MaterialData& material) { return ImGui::SliderFloat("##OcclusionStrength", &material.OcclusionStrength, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    a_Label("Alpha Mode", { "AlphaMode" });
+    a_Edit("Alpha Mode", [](Trinity::MaterialData& material)
+    {
+        int l_Mode = static_cast<int>(material.AlphaMode);
+        const bool l_Changed = ImGui::Combo("##AlphaMode", &l_Mode, "Opaque\0Mask\0Blend\0");
+        material.AlphaMode = static_cast<Trinity::MaterialAlphaMode>(l_Mode);
+
+        return l_Changed;
+    });
+
+    a_Label("Alpha Cutoff", { "AlphaCutoff" });
+    ImGui::BeginDisabled(l_Current.AlphaMode != Trinity::MaterialAlphaMode::Mask);
+    a_Edit("Alpha Cutoff", [](Trinity::MaterialData& material) { return ImGui::SliderFloat("##AlphaCutoff", &material.AlphaCutoff, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    ImGui::EndDisabled();
+
+    a_Label("Double Sided", { "DoubleSided" });
+    a_Edit("Double Sided", [](Trinity::MaterialData& material) { return ImGui::Checkbox("##DoubleSided", &material.DoubleSided); });
+
+    DrawMaterialTextures(record, l_Current, a_Label);
+
+    // Nothing is being dragged or typed into, so the next change is an edit of its own
+    if (!ImGui::IsAnyItemActive())
+    {
+        m_Session.GetHistory().EndMerge();
+    }
+}
+
+// Each slot shows its texture once loaded, takes a texture dropped from elsewhere in Forge or picked from the project's, and names the UV set it is sampled with
+void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, const Trinity::MaterialData& current, const std::function<void(const char*, std::initializer_list<std::string_view>)>& label)
+{
+    struct Slot
+    {
+        const char* Label;
+        std::string_view Texture;
+        std::string_view TexCoord;
+        Trinity::MaterialTexture Trinity::MaterialData::* Member;
+    };
+
+    constexpr std::array<Slot, 5> c_Slots{ {
+        { "Base Color Map", "BaseColorTexture", "BaseColorTexCoord", &Trinity::MaterialData::BaseColorTexture },
+        { "Metal/Rough Map", "MetallicRoughnessTexture", "MetallicRoughnessTexCoord", &Trinity::MaterialData::MetallicRoughnessTexture },
+        { "Normal Map", "NormalTexture", "NormalTexCoord", &Trinity::MaterialData::NormalTexture },
+        { "Occlusion Map", "OcclusionTexture", "OcclusionTexCoord", &Trinity::MaterialData::OcclusionTexture },
+        { "Emissive Map", "EmissiveTexture", "EmissiveTexCoord", &Trinity::MaterialData::EmissiveTexture }
+    } };
+
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    for (const Slot& it_Slot : c_Slots)
+    {
+        ImGui::PushID(it_Slot.Label);
+        const Trinity::MaterialTexture& l_Slot = current.*it_Slot.Member;
+        const auto a_Set = [&](Trinity::MaterialTexture texture)
+        {
+            Trinity::MaterialData l_Edited = current;
+            l_Edited.*it_Slot.Member = texture;
+            static_cast<void>(m_Session.EditMaterial(record.ID, current, l_Edited, it_Slot.Label));
+            m_Session.GetHistory().EndMerge();
+        };
+
+        label(it_Slot.Label, { it_Slot.Texture, it_Slot.TexCoord });
+
+        // The thumbnail only for a texture already loaded, which the material keeps loaded
+        const float l_Size = ImGui::GetFrameHeight();
+        const Trinity::Asset* l_Loaded = l_Slot.Texture.IsValid() && Trinity::AssetManager::GetState(l_Slot.Texture) == Trinity::AssetState::Ready ? Trinity::AssetManager::GetAsset(l_Slot.Texture) : nullptr;
+        const Trinity::TextureAsset* l_Texture = l_Loaded != nullptr && l_Loaded->GetAssetType() == Trinity::TextureAsset::c_AssetType ? static_cast<const Trinity::TextureAsset*>(l_Loaded) : nullptr;
+        if (l_Texture != nullptr && l_Texture->GetTexture() && l_Texture->GetShaderResourceIndex() != Trinity::RHI::c_NoBindlessIndex)
+        {
+            ImGui::Image(ImTextureRef(static_cast<ImTextureID>(Trinity::GetImGuiTextureID(*l_Texture))), ImVec2(l_Size, l_Size));
+        }
+        else
+        {
+            ImGui::Dummy(ImVec2(l_Size, l_Size));
+        }
+
+        ImGui::SameLine();
+        const Trinity::AssetRecord* l_Record = l_Registry != nullptr && l_Slot.Texture ? l_Registry->Find(l_Slot.Texture) : nullptr;
+        const std::string l_Name = !l_Slot.Texture ? std::string("None") : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", l_Slot.Texture);
+        const float l_UVWidth = ImGui::GetFontSize() * 3.5f;
+        const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_Size - l_UVWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f, 1.0f);
+        const std::string l_Popup = std::format("##Pick{}", it_Slot.Texture);
+        if (ImGui::Button(std::format("{}###Texture", l_Name).c_str(), ImVec2(l_Width, 0.0f)))
+        {
+            m_TextureFilter.clear();
+            ImGui::OpenPopup(l_Popup.c_str());
+        }
+
+        if (l_Record != nullptr && ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("%s", l_Record->Path.c_str());
+        }
+
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_AssetPayload))
+            {
+                std::uint64_t l_Value = 0;
+                std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+                const Trinity::AssetRecord* l_Dropped = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
+                if (l_Dropped != nullptr && l_Dropped->Importer == Trinity::TextureAsset::c_AssetType)
+                {
+                    a_Set({ l_Dropped->ID, l_Slot.TexCoord });
+                }
+                else
+                {
+                    TR_WARN("Forge: only a texture can go in a material's {}", it_Slot.Label);
+                }
+            }
+
+            ImGui::EndDragDropTarget();
+        }
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!l_Slot.Texture);
+        if (ImGui::Button(std::format("{}##Clear", Trinity::Icons::c_TimesCircle).c_str(), ImVec2(l_Size, 0.0f)))
+        {
+            a_Set({});
+        }
+
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(l_UVWidth);
+        int l_TexCoord = static_cast<int>(l_Slot.TexCoord);
+        if (ImGui::Combo("##UV", &l_TexCoord, "UV 0\0UV 1\0"))
+        {
+            a_Set({ l_Slot.Texture, static_cast<std::uint32_t>(l_TexCoord) });
+        }
+
+        DrawTexturePicker(l_Popup.c_str(), l_Slot.Texture, [&](Trinity::UUID texture) { a_Set({ texture, l_Slot.TexCoord }); });
+        ImGui::PopID();
     }
 }
 

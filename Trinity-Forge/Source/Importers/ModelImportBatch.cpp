@@ -128,7 +128,7 @@ void ModelImportBatch::RunCooks(Running& running)
     running.Done.store(true, std::memory_order_release);
 }
 
-// A texture beside a model is set to be encoded as the model uses it, which the texture import that follows picks up. A model whose key, sub-assets and files all match is left as it is. Any other gets its sub-assets' UUIDs, the same ones for keys it had before, and those not cooked yet are held until the cook makes them
+// A texture beside a model is set to be encoded as the model uses it, which the texture import that follows picks up. A model whose key, sub-assets and files all match is left as it is, but for materials whose .meta overrides changed since they were cooked. Any other gets its sub-assets' UUIDs, the same ones for keys it had before, and those not cooked yet are held until the cook makes them. Overrides of materials a model no longer has are dropped
 void ModelImportBatch::TakePlans()
 {
     Running& l_Running = *m_Running;
@@ -180,6 +180,10 @@ void ModelImportBatch::TakePlans()
         if (HasSameSubAssets(l_Record->SubAssets, l_Plan.SubAssets) && l_Plan.CookedFilesExist && l_Plan.CachedKey == ModelImporter::GetCacheKey(*l_Record, l_Plan, l_ExternalTextures))
         {
             ++l_Running.Report.Cached;
+            for (const Trinity::UUID it_ID : ModelImporter::RefreshMaterials(*l_Record))
+            {
+                Trinity::AssetManager::Reload(it_ID);
+            }
 
             continue;
         }
@@ -193,6 +197,12 @@ void ModelImportBatch::TakePlans()
         }
 
         l_Record = m_Registry->Find(l_Planned.ID);
+        if (std::optional<Trinity::AssetSettings> l_Pruned = ModelImporter::PruneMaterialOverrides(*l_Record))
+        {
+            static_cast<void>(m_Registry->SetSettings(l_Planned.ID, std::move(*l_Pruned)));
+            l_Record = m_Registry->Find(l_Planned.ID);
+        }
+
         for (const Trinity::SubAsset& it_SubAsset : l_Record->SubAssets)
         {
             if (!Trinity::FileSystem::Exists(ModelImporter::GetCookedPath(it_SubAsset)))
