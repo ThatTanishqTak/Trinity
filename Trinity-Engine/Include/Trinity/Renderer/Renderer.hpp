@@ -3,6 +3,7 @@
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Renderer/FrameGraph.hpp"
 #include "Trinity/Renderer/Renderer2D.hpp"
+#include "Trinity/Renderer/Renderer3D.hpp"
 #include "Trinity/Renderer/ToneMapping.hpp"
 #include "Trinity/RHI/Device.hpp"
 
@@ -24,7 +25,7 @@ namespace Trinity
 
     using OutputCallback = std::function<void(RHI::CommandList& commands, std::uint32_t width, std::uint32_t height)>;
 
-    // Each frame is a frame graph. Layers draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns the scene into a display target of sRGB-encoded 8-bit values, which the output pass copies to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space. Each added output gets a pass of its own
+    // Each frame is a frame graph. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. Layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns the scene into a display target of sRGB-encoded 8-bit values, which the output pass copies to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space. Each added output gets a pass of its own
     class TRINITY_API Renderer
     {
     public:
@@ -40,6 +41,8 @@ namespace Trinity
         void RemoveOutput(std::uint32_t output);
 
         void SetClearColor(const std::array<float, 4>& color) { m_ClearColor = color; }
+        // Draws the scene's meshes into the scene target this frame, before layers draw over them. On the main thread, after the transform pass and before the frame graph is built, as in OnPrepareRender
+        void SubmitScene(Scene& scene, const RenderView& view);
         void SetTitle(std::string_view title);
         void SetSceneCopy(bool enabled) { m_SceneCopy = enabled; }
         void SetSceneSize(std::uint32_t width, std::uint32_t height);
@@ -56,6 +59,8 @@ namespace Trinity
 
         [[nodiscard]] Renderer2D& GetRenderer2D() { return *m_Renderer2D; }
         [[nodiscard]] MaterialLoader& GetMaterialLoader() { return *m_MaterialLoader; }
+        [[nodiscard]] Renderer3D& GetRenderer3D() { return *m_Renderer3D; }
+        [[nodiscard]] const SceneDrawList& GetSceneDraws() const { return m_SceneDraws; }
         [[nodiscard]] const FrameGraph& GetFrameGraph() const { return *m_FrameGraph; }
         [[nodiscard]] RHI::Format GetSceneFormat() const;
         [[nodiscard]] RHI::Format GetDisplayFormat() const;
@@ -104,6 +109,9 @@ namespace Trinity
         Scope<MaterialLoader> m_MaterialLoader;
         Scope<MeshLoader> m_MeshLoader;
         Scope<Renderer2D> m_Renderer2D;
+        Scope<Renderer3D> m_Renderer3D;
+        SceneDrawList m_SceneDraws;
+        bool m_SceneSubmitted = false;
         Scope<FrameGraph> m_FrameGraph;
 
         Scope<RHI::SwapChain> m_SwapChain;

@@ -11,6 +11,9 @@
 #include <ktx.h>
 #include <stb_image.h>
 
+#include <glm/gtc/packing.hpp>
+#include <glm/gtx/quaternion.hpp>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -21,6 +24,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <random>
 #include <span>
 #include <string>
 #include <system_error>
@@ -49,6 +53,11 @@ namespace
     // Frames of material edits, after the first hundred of which the renderer's memory must stay as it is
     constexpr std::uint64_t c_EditFrames = 1000;
     constexpr std::uint64_t c_EditWarmupFrames = 100;
+    // The offscreen view of MetalRoughSpheres, and the random poses and scattered meshes culling is checked with
+    constexpr std::uint32_t c_RenderSize = 256;
+    constexpr std::uint32_t c_CullPoses = 1000;
+    constexpr std::uint32_t c_CullEntities = 400;
+    constexpr std::array<float, 4> c_RenderClear{ 0.0f, 0.0f, 0.0f, 0.0f };
 
     // Khronos glTF sample models, as Scripts/FetchSamples checks them out under TR_FORGE_TEST_MODELS: two with images beside them and two that embed theirs
     struct TestModel
@@ -945,15 +954,21 @@ void ImportTest::FinishLoads()
 
 ImportTest::~ImportTest()
 {
-    if (m_TableReadback)
-    {
-        Trinity::Application::Get().GetDevice().DestroyBuffer(m_TableReadback);
-    }
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    l_Device.DestroyBuffer(m_TableReadback);
+    l_Device.DestroyBuffer(m_ColorReadback);
+    l_Device.DestroyBuffer(m_DepthReadback);
+    l_Device.DestroyTexture(m_RenderTarget);
 }
 
-// The material table copied whole, on a frame a check asks for it
+// The material table copied whole, on a frame a check asks for it, and MetalRoughSpheres drawn offscreen on the frame the render check asks for it
 void ImportTest::OnBuildFrameGraph(Trinity::FrameGraph& graph)
 {
+    if (m_RenderWanted)
+    {
+        AddRenderPasses(graph);
+    }
+
     if (!m_ReadbackWanted)
     {
         return;
@@ -1335,6 +1350,13 @@ void ImportTest::UpdateMaterials()
 
             break;
         }
+        case Phase::LoadingRender:
+        case Phase::Rendering:
+        {
+            UpdateRendering();
+
+            break;
+        }
         case Phase::LoadingStandalone:
         {
             if (m_Standalone.GetState() == Trinity::AssetState::Failed || m_PhaseFrames > c_LoadTimeoutFrames)
@@ -1561,11 +1583,350 @@ void ImportTest::FinishMaterials(bool passed)
 {
     m_Materials.clear();
     m_Standalone = {};
-    m_Phase = Phase::Idle;
     if (passed)
     {
         TR_INFO("Import test: materials passed");
     }
 
+    BeginRendering();
+}
+
+void ImportTest::Finish(bool passed)
+{
+    m_RenderScene.reset();
+    m_CullScene.reset();
+    m_RenderDraws.Clear();
+    m_CullDraws.Clear();
+    m_Phase = Phase::Idle;
+    if (passed)
+    {
+        TR_INFO("Import test: rendering passed");
+    }
+
     TR_INFO("Import test: finished, and {} asset(s) are still loaded", Trinity::AssetManager::GetEntryCount());
+}
+
+// MetalRoughSpheres in a scene of its own, with a perspective camera framing it and a directional light from over the camera's shoulder, and its meshes scattered at random through another scene for the culling check. Both are collected every frame until every mesh, material and texture they use has loaded
+void ImportTest::BeginRendering()
+{
+    const auto a_Model = std::ranges::find(c_TestModels, std::string_view("MetalRoughSpheres"), &TestModel::Name);
+    const Trinity::AssetRecord* l_Record = m_Session.GetRegistry()->FindByPath(GetTestModelPath(*a_Model));
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = l_Record != nullptr ? Trinity::FileSystem::ReadText(Trinity::GetCookedModelPath(l_Record->ID)) : Trinity::Expected<std::string, Trinity::FileError>(Trinity::Unexpected{ Trinity::FileError::NotFound });
+    const Trinity::Expected<Trinity::ModelData, std::string> l_Model = l_Text ? Trinity::ParseModelData(*l_Text) : Trinity::Expected<Trinity::ModelData, std::string>(Trinity::Unexpected{ std::string() });
+    if (!l_Model)
+    {
+        TR_WARN("Import test: MetalRoughSpheres is not in the project, so rendering is not tested");
+        Finish(true);
+
+        return;
+    }
+
+    m_RenderScene = std::make_unique<Trinity::Scene>();
+    static_cast<void>(CreateModelEntities(*m_RenderScene, *l_Model, "MetalRoughSpheres", {}));
+
+    std::vector<const Trinity::ModelNode*> l_MeshNodes;
+    m_RenderMaterials.clear();
+    for (const Trinity::ModelNode& it_Node : l_Model->Nodes)
+    {
+        if (it_Node.Mesh.IsValid())
+        {
+            l_MeshNodes.push_back(&it_Node);
+            std::ranges::copy_if(it_Node.Materials, std::back_inserter(m_RenderMaterials), [](Trinity::UUID id) { return id.IsValid(); });
+        }
+    }
+
+    // Random places, turns and scales, some of them mirroring, of the model's own meshes and materials
+    m_CullScene = std::make_unique<Trinity::Scene>();
+    std::mt19937 l_Random(9);
+    std::uniform_real_distribution<float> l_Unit(-1.0f, 1.0f);
+    for (std::uint32_t it_Entity = 0; it_Entity < c_CullEntities && !l_MeshNodes.empty(); ++it_Entity)
+    {
+        const Trinity::ModelNode& l_Node = *l_MeshNodes[l_Random() % l_MeshNodes.size()];
+        Trinity::Entity l_Entity = m_CullScene->CreateEntity(std::format("Scattered {}", it_Entity));
+        Trinity::TransformComponent& l_Transform = l_Entity.Get<Trinity::TransformComponent>();
+        l_Transform.Position = glm::vec3(l_Unit(l_Random), l_Unit(l_Random), l_Unit(l_Random)) * 20.0f;
+        l_Transform.Rotation = glm::normalize(glm::quat(l_Unit(l_Random), l_Unit(l_Random), l_Unit(l_Random), l_Unit(l_Random)) + glm::quat(0.001f, 0.0f, 0.0f, 0.0f));
+        l_Transform.Scale = glm::vec3(0.2f + std::abs(l_Unit(l_Random)) * 2.8f, 0.2f + std::abs(l_Unit(l_Random)) * 2.8f, 0.2f + std::abs(l_Unit(l_Random)) * 2.8f) * (it_Entity % 5 == 0 ? -1.0f : 1.0f);
+        Trinity::MeshRendererComponent& l_Renderer = l_Entity.Add<Trinity::MeshRendererComponent>();
+        l_Renderer.Mesh = l_Node.Mesh;
+        l_Renderer.Materials.assign(l_Node.Materials.begin(), l_Node.Materials.end());
+    }
+
+    m_RenderScene->UpdateWorldTransforms();
+    m_CullScene->UpdateWorldTransforms();
+    m_PhaseFrames = 0;
+    m_Phase = Phase::LoadingRender;
+}
+
+void ImportTest::UpdateRendering()
+{
+    Trinity::Renderer3D& l_Renderer = Trinity::Application::Get().GetRenderer().GetRenderer3D();
+    if (m_Phase == Phase::Rendering)
+    {
+        if (std::exchange(m_RenderAdded, false))
+        {
+            FinishRendering();
+        }
+
+        return;
+    }
+
+    // Collecting keeps the meshes and materials loaded, and the camera is only placed once their bounds are known
+    l_Renderer.Collect(*m_RenderScene, Trinity::RenderView(), m_RenderDraws);
+    l_Renderer.Collect(*m_CullScene, Trinity::RenderView(), m_CullDraws);
+    const bool l_Materials = std::ranges::all_of(m_RenderMaterials, [this](Trinity::UUID id)
+    {
+        const Trinity::Asset* l_Asset = Trinity::AssetManager::GetState(id) == Trinity::AssetState::Ready ? Trinity::AssetManager::GetAsset(id) : nullptr;
+
+        return l_Asset != nullptr && AreTexturesReady(static_cast<const Trinity::MaterialAsset*>(l_Asset)->GetData());
+    });
+
+    if (m_RenderDraws.Pending != 0 || m_CullDraws.Pending != 0 || !l_Materials)
+    {
+        if (m_PhaseFrames > c_LoadTimeoutFrames)
+        {
+            TR_ERROR("Import test: MetalRoughSpheres' meshes, materials or textures were still loading after {} frame(s)", m_PhaseFrames);
+            Finish(false);
+        }
+
+        return;
+    }
+
+    if (!CheckCulling())
+    {
+        Finish(false);
+
+        return;
+    }
+
+    // Framed from +Z, the side the spheres face, with the whole model inside a 45 degree field of view, and lit from above and behind the camera
+    glm::vec3 l_Minimum(std::numeric_limits<float>::max());
+    glm::vec3 l_Maximum(std::numeric_limits<float>::lowest());
+    Trinity::SceneRegistry& l_Registry = m_RenderScene->GetRegistry();
+    for (Trinity::Entity it_Entity = m_RenderScene->GetFirstRoot(); it_Entity; it_Entity = m_RenderScene->GetNextInHierarchyOrder(it_Entity))
+    {
+        const Trinity::MeshRendererComponent* l_Mesh = l_Registry.try_get<Trinity::MeshRendererComponent>(it_Entity.GetHandle());
+        const Trinity::Asset* l_Asset = l_Mesh != nullptr ? Trinity::AssetManager::GetAsset(l_Mesh->Mesh) : nullptr;
+        if (l_Asset == nullptr)
+        {
+            continue;
+        }
+
+        glm::vec3 l_Center;
+        glm::vec3 l_Extents;
+        Trinity::GetWorldBounds(static_cast<const Trinity::MeshAsset*>(l_Asset)->GetBounds(), l_Registry.get<Trinity::WorldTransformComponent>(it_Entity.GetHandle()).Matrix, l_Center, l_Extents);
+        l_Minimum = glm::min(l_Minimum, l_Center - l_Extents);
+        l_Maximum = glm::max(l_Maximum, l_Center + l_Extents);
+    }
+
+    const glm::vec3 l_Center = (l_Minimum + l_Maximum) * 0.5f;
+    const float l_Radius = glm::length(l_Maximum - l_Minimum) * 0.5f;
+    Trinity::Entity l_Camera = m_RenderScene->CreateEntity("Camera");
+    Trinity::CameraComponent& l_CameraComponent = l_Camera.Add<Trinity::CameraComponent>();
+    l_CameraComponent.Projection = Trinity::CameraProjection::Perspective;
+    l_CameraComponent.FieldOfView = 45.0f;
+    l_CameraComponent.PerspectiveNear = l_Radius * 0.01f;
+    l_Camera.Get<Trinity::TransformComponent>().Position = l_Center + glm::vec3(0.0f, 0.0f, l_Radius / std::sin(glm::radians(22.5f)) + l_Radius * 0.1f);
+
+    Trinity::Entity l_Light = m_RenderScene->CreateEntity("Sun");
+    l_Light.Add<Trinity::LightComponent>();
+    l_Light.Get<Trinity::TransformComponent>().Rotation = glm::rotation(glm::vec3(0.0f, 0.0f, 1.0f), glm::normalize(glm::vec3(0.3f, 0.6f, 1.0f)));
+    m_RenderScene->UpdateWorldTransforms();
+    m_RenderView = Trinity::RenderView::FromCamera(l_CameraComponent, l_Camera.Get<Trinity::WorldTransformComponent>().Matrix, 1.0f);
+
+    m_RenderWanted = true;
+    m_Phase = Phase::Rendering;
+}
+
+// Over random poses, perspective and orthographic, the culled and sorted list must equal the one tested a submesh at a time, and nothing culled may reach into the view: every corner of each culled submesh's box lies outside one side of the frustum
+bool ImportTest::CheckCulling()
+{
+    Trinity::Renderer3D& l_Renderer = Trinity::Application::Get().GetRenderer().GetRenderer3D();
+    Trinity::SceneDrawList l_Reference;
+    std::mt19937 l_Random(17);
+    std::uniform_real_distribution<float> l_Unit(-1.0f, 1.0f);
+    std::uniform_real_distribution<float> l_Fraction(0.0f, 1.0f);
+    std::uint32_t l_Mismatches = 0;
+    std::uint32_t l_Unsafe = 0;
+    std::uint64_t l_Drawn = 0;
+    std::uint64_t l_Culled = 0;
+    Trinity::SceneRegistry& l_Registry = m_CullScene->GetRegistry();
+    for (std::uint32_t it_Pose = 0; it_Pose < c_CullPoses; ++it_Pose)
+    {
+        Trinity::CameraComponent l_Camera;
+        l_Camera.Projection = it_Pose % 5 == 0 ? Trinity::CameraProjection::Orthographic : Trinity::CameraProjection::Perspective;
+        l_Camera.FieldOfView = 20.0f + l_Fraction(l_Random) * 100.0f;
+        l_Camera.PerspectiveNear = 0.01f + l_Fraction(l_Random);
+        l_Camera.OrthographicSize = 1.0f + l_Fraction(l_Random) * 40.0f;
+        l_Camera.Near = -50.0f;
+        l_Camera.Far = 50.0f;
+        Trinity::TransformComponent l_Pose;
+        l_Pose.Position = glm::vec3(l_Unit(l_Random), l_Unit(l_Random), l_Unit(l_Random)) * 40.0f;
+        l_Pose.Rotation = glm::normalize(glm::quat(l_Unit(l_Random), l_Unit(l_Random), l_Unit(l_Random), l_Unit(l_Random)) + glm::quat(0.001f, 0.0f, 0.0f, 0.0f));
+        const Trinity::RenderView l_View = Trinity::RenderView::FromCamera(l_Camera, l_Pose.GetMatrix(), 0.5f + l_Fraction(l_Random) * 1.5f);
+
+        l_Renderer.Collect(*m_CullScene, l_View, m_CullDraws);
+        Trinity::Renderer3D::CollectReference(*m_CullScene, l_View, l_Reference);
+        const bool l_Same = m_CullDraws.Draws.size() == l_Reference.Draws.size() && std::ranges::equal(m_CullDraws.Draws, l_Reference.Draws) && m_CullDraws.Submeshes == l_Reference.Submeshes && m_CullDraws.Culled == l_Reference.Culled;
+        l_Mismatches += l_Same ? 0 : 1;
+        l_Drawn += m_CullDraws.Draws.size();
+        l_Culled += m_CullDraws.Culled;
+
+        // A box is culled only when wholly outside one plane, so its eight corners must all be on the outside of one side of clip space
+        for (Trinity::Entity it_Entity = m_CullScene->GetFirstRoot(); it_Entity; it_Entity = m_CullScene->GetNextInHierarchyOrder(it_Entity))
+        {
+            const Trinity::MeshRendererComponent& l_Mesh = it_Entity.Get<Trinity::MeshRendererComponent>();
+            const Trinity::MeshAsset* l_Asset = static_cast<const Trinity::MeshAsset*>(Trinity::AssetManager::GetAsset(l_Mesh.Mesh));
+            const glm::mat4 l_Clip = l_View.ViewProjection * l_Registry.get<Trinity::WorldTransformComponent>(it_Entity.GetHandle()).Matrix;
+            for (std::uint32_t it_Submesh = 0; it_Submesh < l_Asset->GetSubmeshes().size(); ++it_Submesh)
+            {
+                const bool l_IsDrawn = std::ranges::any_of(m_CullDraws.Draws, [&](const Trinity::MeshDraw& draw) { return draw.Entity == it_Entity.GetUUID() && draw.Submesh == it_Submesh; });
+                if (l_IsDrawn)
+                {
+                    continue;
+                }
+
+                const Trinity::MeshBounds& l_Bounds = l_Asset->GetSubmeshes()[it_Submesh].Bounds;
+                std::array<int, 6> l_Outside{};
+                for (std::uint32_t it_Corner = 0; it_Corner < 8; ++it_Corner)
+                {
+                    const glm::vec4 l_Point = l_Clip * glm::vec4((it_Corner & 1) != 0 ? l_Bounds.Max.x : l_Bounds.Min.x, (it_Corner & 2) != 0 ? l_Bounds.Max.y : l_Bounds.Min.y, (it_Corner & 4) != 0 ? l_Bounds.Max.z : l_Bounds.Min.z, 1.0f);
+                    const float l_Slack = 1e-4f * std::max(std::abs(l_Point.w), 1.0f);
+                    l_Outside[0] += l_Point.x < -l_Point.w + l_Slack ? 1 : 0;
+                    l_Outside[1] += l_Point.x > l_Point.w - l_Slack ? 1 : 0;
+                    l_Outside[2] += l_Point.y < -l_Point.w + l_Slack ? 1 : 0;
+                    l_Outside[3] += l_Point.y > l_Point.w - l_Slack ? 1 : 0;
+                    l_Outside[4] += l_Point.z > l_Point.w - l_Slack ? 1 : 0;
+                    l_Outside[5] += l_Point.z < l_Slack ? 1 : 0;
+                }
+
+                l_Unsafe += std::ranges::find(l_Outside, 8) != l_Outside.end() ? 0 : 1;
+            }
+        }
+    }
+
+    if (l_Mismatches != 0 || l_Unsafe != 0)
+    {
+        TR_ERROR("Import test: over {} random poses, {} culled list(s) differed from the reference, and {} submesh(es) culled while reaching into the view", c_CullPoses, l_Mismatches, l_Unsafe);
+
+        return false;
+    }
+
+    TR_INFO("Import test: over {} random poses of {} scattered meshes, every culled and sorted list equalled the reference, {} draws kept and {} culled, and nothing culled reached into the view", c_CullPoses, c_CullEntities, l_Drawn, l_Culled);
+
+    return true;
+}
+
+// Into a target of the test's own, with its depth, both then copied for reading back
+void ImportTest::AddRenderPasses(Trinity::FrameGraph& graph)
+{
+    m_RenderWanted = false;
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    Trinity::RHI::TextureDescription l_Description;
+    l_Description.Width = c_RenderSize;
+    l_Description.Height = c_RenderSize;
+    l_Description.TextureFormat = Trinity::RHI::Format::RGBA16Float;
+    l_Description.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopySource;
+    l_Description.ClearColor = c_RenderClear;
+    l_Description.DebugName = "Import test render target";
+    if (!m_RenderTarget)
+    {
+        m_RenderTarget = l_Device.CreateTexture(l_Description);
+
+        Trinity::RHI::BufferDescription l_Readback;
+        l_Readback.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+        l_Readback.Memory = Trinity::RHI::MemoryType::Readback;
+        l_Readback.Size = Trinity::RHI::GetTextureCopyRowPitch(Trinity::RHI::Format::RGBA16Float, c_RenderSize) * c_RenderSize;
+        l_Readback.DebugName = "Import test color readback";
+        m_ColorReadback = l_Device.CreateBuffer(l_Readback);
+        l_Readback.Size = Trinity::RHI::GetTextureCopyRowPitch(Trinity::Renderer3D::c_DepthFormat, c_RenderSize) * c_RenderSize;
+        l_Readback.DebugName = "Import test depth readback";
+        m_DepthReadback = l_Device.CreateBuffer(l_Readback);
+    }
+
+    m_RenderAdded = true;
+    if (!m_RenderTarget || !m_ColorReadback || !m_DepthReadback)
+    {
+        return;
+    }
+
+    Trinity::Renderer3D& l_Renderer = Trinity::Application::Get().GetRenderer().GetRenderer3D();
+    l_Renderer.Collect(*m_RenderScene, m_RenderView, m_RenderDraws);
+    const Trinity::FrameGraphTexture l_Target = graph.ImportTexture("Import test render target", m_RenderTarget, l_Description, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::CopySource);
+    const Trinity::FrameGraphTexture l_Depth = l_Renderer.AddPasses(graph, m_RenderDraws, l_Target, l_Description, c_RenderClear);
+    const Trinity::FrameGraphBuffer l_Color = graph.ImportBuffer("Import test color readback", m_ColorReadback, Trinity::RHI::GetTextureCopyRowPitch(Trinity::RHI::Format::RGBA16Float, c_RenderSize) * c_RenderSize, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination);
+    const Trinity::FrameGraphBuffer l_DepthCopy = graph.ImportBuffer("Import test depth readback", m_DepthReadback, Trinity::RHI::GetTextureCopyRowPitch(Trinity::Renderer3D::c_DepthFormat, c_RenderSize) * c_RenderSize, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination);
+    graph.AddPass("Import test render readback", Trinity::FrameGraphPassType::Copy, [l_Target, l_Depth, l_Color, l_DepthCopy](Trinity::FrameGraphPassBuilder& builder)
+    {
+        builder.Read(l_Target, Trinity::RHI::ResourceState::CopySource);
+        builder.Read(l_Depth, Trinity::RHI::ResourceState::CopySource);
+        builder.Write(l_Color, Trinity::RHI::ResourceState::CopyDestination);
+        builder.Write(l_DepthCopy, Trinity::RHI::ResourceState::CopyDestination);
+    }, [l_Target, l_Depth, l_Color, l_DepthCopy](const Trinity::FrameGraphContext& context)
+    {
+        context.GetCommands().CopyTextureToBuffer(context.GetTexture(l_Target), 0, 0, context.GetBuffer(l_Color), 0);
+        context.GetCommands().CopyTextureToBuffer(context.GetTexture(l_Depth), 0, 0, context.GetBuffer(l_DepthCopy), 0);
+    });
+}
+
+// Every pixel the pre-pass wrote depth to was shaded by the opaque pass's equal test, every other kept the clear colour, the spheres cover a good part of the view, and the lit side is brighter than the ambient light alone could make it
+void ImportTest::FinishRendering()
+{
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    l_Device.WaitIdle();
+    const Trinity::Renderer3D::Statistics& l_Statistics = Trinity::Application::Get().GetRenderer().GetRenderer3D().GetStatistics();
+    if (l_Device.GetInfo().API == Trinity::GraphicsAPI::None || !m_RenderTarget)
+    {
+        TR_WARN("Import test: the null device draws nothing, so MetalRoughSpheres is not checked on screen");
+        Finish(true);
+
+        return;
+    }
+
+    const std::uint64_t l_ColorPitch = Trinity::RHI::GetTextureCopyRowPitch(Trinity::RHI::Format::RGBA16Float, c_RenderSize);
+    const std::uint64_t l_DepthPitch = Trinity::RHI::GetTextureCopyRowPitch(Trinity::Renderer3D::c_DepthFormat, c_RenderSize);
+    const std::span<const std::byte> l_Color = l_Device.GetMappedData(m_ColorReadback);
+    const std::span<const std::byte> l_Depth = l_Device.GetMappedData(m_DepthReadback);
+    std::uint32_t l_Covered = 0;
+    std::uint32_t l_Holes = 0;
+    std::uint32_t l_Overdrawn = 0;
+    std::uint32_t l_NotFinite = 0;
+    float l_Brightest = 0.0f;
+    for (std::uint32_t it_Y = 0; it_Y < c_RenderSize; ++it_Y)
+    {
+        for (std::uint32_t it_X = 0; it_X < c_RenderSize; ++it_X)
+        {
+            std::array<std::uint16_t, 4> l_Half{};
+            float l_DepthValue = 0.0f;
+            std::memcpy(l_Half.data(), l_Color.data() + it_Y * l_ColorPitch + it_X * 8, 8);
+            std::memcpy(&l_DepthValue, l_Depth.data() + it_Y * l_DepthPitch + it_X * 4, 4);
+            const glm::vec4 l_Pixel(glm::unpackHalf1x16(l_Half[0]), glm::unpackHalf1x16(l_Half[1]), glm::unpackHalf1x16(l_Half[2]), glm::unpackHalf1x16(l_Half[3]));
+            const bool l_Cleared = l_Pixel == glm::vec4(c_RenderClear[0], c_RenderClear[1], c_RenderClear[2], c_RenderClear[3]);
+            if (l_DepthValue > 0.0f)
+            {
+                ++l_Covered;
+                l_Holes += l_Cleared ? 1 : 0;
+                l_NotFinite += std::isfinite(l_Pixel.r) && std::isfinite(l_Pixel.g) && std::isfinite(l_Pixel.b) && std::isfinite(l_Pixel.a) ? 0 : 1;
+                l_Brightest = std::max(l_Brightest, std::max({ l_Pixel.r, l_Pixel.g, l_Pixel.b }));
+            }
+            else
+            {
+                l_Overdrawn += l_Cleared ? 0 : 1;
+            }
+        }
+    }
+
+    const std::uint32_t l_Pixels = c_RenderSize * c_RenderSize;
+    const float l_Ambient = Trinity::Renderer3D::c_DefaultSunIntensity * Trinity::Renderer3D::c_AmbientFraction;
+    const bool l_Passed = l_Covered > l_Pixels / 10 && l_Holes == 0 && l_Overdrawn == 0 && l_NotFinite == 0 && l_Brightest > l_Ambient && l_Statistics.PrePassDraws == l_Statistics.OpaqueDraws && m_RenderDraws.Draws.size() > 0;
+    if (!l_Passed)
+    {
+        TR_ERROR("Import test: MetalRoughSpheres covered {} of {} pixels, with {} the opaque pass left unshaded, {} shaded outside the pre-pass's depth, {} not finite and the brightest at {}, in {} draws with {} in the pre-pass and {} in the opaque pass", l_Covered, l_Pixels, l_Holes, l_Overdrawn, l_NotFinite, l_Brightest, m_RenderDraws.Draws.size(), l_Statistics.PrePassDraws, l_Statistics.OpaqueDraws);
+        Finish(false);
+
+        return;
+    }
+
+    TR_INFO("Import test: MetalRoughSpheres drew through a perspective camera in {} draws, covering {} of {} pixels, every one the pre-pass reached shaded by the opaque pass's equal depth test and the brightest at {:.3f}", m_RenderDraws.Draws.size(), l_Covered, l_Pixels, l_Brightest);
+    Finish(true);
 }

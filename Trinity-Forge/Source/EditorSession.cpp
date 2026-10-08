@@ -423,6 +423,7 @@ void EditorSession::CloseProject()
     }
 
     Trinity::Application::Get().GetRenderer().GetRenderer2D().ReleaseTextures();
+    Trinity::Application::Get().GetRenderer().GetRenderer3D().ReleaseAssets();
 
     if (m_Registry)
     {

@@ -24,7 +24,7 @@ namespace
     constexpr const char* c_AddComponentPopup = "##AddComponent";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 4> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName };
+    constexpr std::array<std::string_view, 5> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName };
 
     // A label on the left and the widget filling the rest of the row
     void Label(const char* label)
@@ -115,6 +115,7 @@ void PropertiesPanel::OnImGuiRender()
     DrawTransform(l_Entity);
     DrawCamera(l_Entity);
     DrawSpriteRenderer(l_Entity);
+    DrawLight(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawAddComponent(l_Entity);
     ImGui::PopID();
@@ -224,14 +225,35 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
 
     CommandStack& l_History = m_Session.GetHistory();
 
-    Label("Size");
-    EditField<Trinity::CameraComponent>(l_History, entity, "OrthographicSize", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Size", &camera.OrthographicSize, 0.05f, 0.01f, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    Label("Projection");
+    EditField<Trinity::CameraComponent>(l_History, entity, "Projection", [](Trinity::CameraComponent& camera)
+    {
+        int l_Projection = static_cast<int>(camera.Projection);
+        const bool l_Changed = ImGui::Combo("##Projection", &l_Projection, "Orthographic\0Perspective\0");
+        camera.Projection = static_cast<Trinity::CameraProjection>(l_Projection);
 
-    Label("Near");
-    EditField<Trinity::CameraComponent>(l_History, entity, "Near", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Near", &camera.Near, 0.05f, 0.0f, 0.0f, "%.3f"); });
+        return l_Changed;
+    });
 
-    Label("Far");
-    EditField<Trinity::CameraComponent>(l_History, entity, "Far", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Far", &camera.Far, 0.05f, 0.0f, 0.0f, "%.3f"); });
+    if (entity.Get<Trinity::CameraComponent>().Projection == Trinity::CameraProjection::Perspective)
+    {
+        Label("Field of View");
+        EditField<Trinity::CameraComponent>(l_History, entity, "FieldOfView", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##FieldOfView", &camera.FieldOfView, 0.25f, 1.0f, 179.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
+
+        Label("Near");
+        EditField<Trinity::CameraComponent>(l_History, entity, "PerspectiveNear", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##PerspectiveNear", &camera.PerspectiveNear, 0.001f, 0.0001f, 1000.0f, "%.4f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    }
+    else
+    {
+        Label("Size");
+        EditField<Trinity::CameraComponent>(l_History, entity, "OrthographicSize", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Size", &camera.OrthographicSize, 0.05f, 0.01f, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+        Label("Near");
+        EditField<Trinity::CameraComponent>(l_History, entity, "Near", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Near", &camera.Near, 0.05f, 0.0f, 0.0f, "%.3f"); });
+
+        Label("Far");
+        EditField<Trinity::CameraComponent>(l_History, entity, "Far", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Far", &camera.Far, 0.05f, 0.0f, 0.0f, "%.3f"); });
+    }
 
     Label("Primary");
     EditField<Trinity::CameraComponent>(l_History, entity, "Primary", [](Trinity::CameraComponent& camera) { return ImGui::Checkbox("##Primary", &camera.Primary); });
@@ -267,6 +289,36 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
     {
         ImGui::SetTooltip("Exposure 1 is EV100 %.3f. PBR Neutral matches glTF Sample Viewer, and None only clamps, which keeps unlit 2D colours as they are", Trinity::c_NeutralEV100);
     }
+}
+
+// Directional only until point and spot lights arrive. It shines along the entity's -Z, so turning the entity aims it. Colour is edited as it looks, in sRGB, and kept linear
+void PropertiesPanel::DrawLight(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::LightComponent>() || !BeginComponent(Trinity::LightComponent::c_TypeName, Trinity::Icons::c_Globe, true))
+    {
+        return;
+    }
+
+    CommandStack& l_History = m_Session.GetHistory();
+
+    Label("Type");
+    ImGui::BeginDisabled();
+    int l_Type = 0;
+    ImGui::Combo("##Type", &l_Type, "Directional\0");
+    ImGui::EndDisabled();
+
+    Label("Color");
+    EditField<Trinity::LightComponent>(l_History, entity, "Color", [](Trinity::LightComponent& light)
+    {
+        glm::vec3 l_Color(Trinity::LinearToSrgb(light.Color.r), Trinity::LinearToSrgb(light.Color.g), Trinity::LinearToSrgb(light.Color.b));
+        const bool l_Changed = ImGui::ColorEdit3("##Color", &l_Color.x);
+        light.Color = glm::vec3(Trinity::SrgbToLinear(l_Color.r), Trinity::SrgbToLinear(l_Color.g), Trinity::SrgbToLinear(l_Color.b));
+
+        return l_Changed;
+    });
+
+    Label("Intensity");
+    EditField<Trinity::LightComponent>(l_History, entity, "Intensity", [](Trinity::LightComponent& light) { return ImGui::DragFloat("##Intensity", &light.Intensity, 0.05f, 0.0f, 200000.0f, "%.3f lux", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
 }
 
 void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)

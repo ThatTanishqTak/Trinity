@@ -30,6 +30,7 @@ private:
     void DrawTransform(Trinity::Entity entity);
     void DrawCamera(Trinity::Entity entity);
     void DrawSpriteRenderer(Trinity::Entity entity);
+    void DrawLight(Trinity::Entity entity);
     void DrawTextureSlot(Trinity::Entity entity);
     void DrawTexturePicker(const char* popup, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);
     void DrawOtherComponents(Trinity::Entity entity);

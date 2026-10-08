@@ -113,6 +113,7 @@ void ForgeLayer::OnEvent(Trinity::Event& event)
 void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& commands)
 {
     Trinity::Application::Get().GetRenderer().SetToneMapping(GetSceneToneMapping(m_Session.GetScene()));
+    m_ViewportPanel->PrepareScene();
 }
 
 // Drawn whether or not the Viewport panel is open, so the scene target holds the scene when the panel opens again. Transforms are brought up to date again, since the UI may have changed the scene since OnUpdate

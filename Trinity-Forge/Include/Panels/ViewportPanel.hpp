@@ -21,6 +21,7 @@ public:
     ViewportPanel(Trinity::ImGuiLayer& imGui, EditorSession& session);
     ~ViewportPanel() override;
 
+    void PrepareScene();
     void RenderScene(Trinity::RHI::CommandList& commands);
 
     [[nodiscard]] bool IsShowingStats() const { return m_ShowStats; }
@@ -68,6 +69,10 @@ private:
     double m_CameraChangeTime = 0.0;
     bool m_CameraDirty = false;
     bool m_Panning = false;
+    // Through the scene's primary camera, as the game shows it, rather than the editor's, which editing needs
+    bool m_SceneCameraView = false;
+    bool m_HasSceneCamera = false;
+    glm::mat4 m_SceneViewProjection{ 1.0f };
     bool m_ShowStats = true;
 
     GizmoOperation m_GizmoOperation = GizmoOperation::Translate;

@@ -95,14 +95,24 @@ namespace Trinity
         std::uint32_t ChildCount = 0;
     };
 
-    // Orthographic for now. The view is the inverse of the entity's world transform
+    enum class CameraProjection : std::uint8_t
+    {
+        Orthographic,
+        Perspective
+    };
+
+    // Looks down its entity's -Z with +Y up. The view is the inverse of the entity's world transform
     struct CameraComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.Camera";
 
+        CameraProjection Projection = CameraProjection::Orthographic;
         float OrthographicSize = 10.0f;
         float Near = -1.0f;
         float Far = 1.0f;
+        // The vertical field of view in degrees, and the near plane. There is no far plane
+        float FieldOfView = 60.0f;
+        float PerspectiveNear = 0.1f;
         bool Primary = true;
 
         // How the image this camera shows is exposed and tone mapped. Scenes saved before these existed load with no curve, as they were drawn then
@@ -111,9 +121,21 @@ namespace Trinity
 
         [[nodiscard]] ToneMapping GetToneMapping() const { return { ExposureEV100, Tonemap }; }
 
-        // OrthographicSize is the visible height. Near and far are swapped for reversed depth, so near maps to 1 and far to 0
+        // Reversed depth, so near maps to 1 and far to 0. Orthographic: OrthographicSize is the visible height, and near and far are swapped. Perspective: depth falls towards 0 at infinity, which keeps precision evenly spread
         [[nodiscard]] glm::mat4 GetProjection(float aspectRatio) const
         {
+            if (Projection == CameraProjection::Perspective)
+            {
+                const float l_Focal = 1.0f / std::tan(glm::radians(FieldOfView) * 0.5f);
+                glm::mat4 l_Projection(0.0f);
+                l_Projection[0][0] = l_Focal / aspectRatio;
+                l_Projection[1][1] = l_Focal;
+                l_Projection[2][3] = -1.0f;
+                l_Projection[3][2] = PerspectiveNear;
+
+                return l_Projection;
+            }
+
             const float l_HalfHeight = OrthographicSize * 0.5f;
             const float l_HalfWidth = l_HalfHeight * aspectRatio;
 
@@ -151,6 +173,23 @@ namespace Trinity
         bool CastShadows = true;
 
         [[nodiscard]] bool operator==(const MeshRendererComponent&) const = default;
+    };
+
+    enum class LightType : std::uint8_t
+    {
+        Directional
+    };
+
+    // A light in physical units, as glTF's KHR_lights_punctual has them. A directional light shines along its entity's -Z, with its intensity in lux. Colour is linear
+    struct LightComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.Light";
+
+        LightType Type = LightType::Directional;
+        glm::vec3 Color{ 1.0f };
+        float Intensity = 3.14159265f;
+
+        [[nodiscard]] bool operator==(const LightComponent&) const = default;
     };
 
     // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save

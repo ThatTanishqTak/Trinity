@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -42,7 +43,9 @@ private:
         EditingMaterial,
         ReadingEdit,
         ReadingUndo,
-        LoadingStandalone
+        LoadingStandalone,
+        LoadingRender,
+        Rendering
     };
 
     [[nodiscard]] bool OpenProject(const std::filesystem::path& directory);
@@ -70,6 +73,13 @@ private:
     [[nodiscard]] std::string CheckRecords(std::span<const Trinity::UUID> materials, bool readBack) const;
     [[nodiscard]] bool AreTexturesReady(const Trinity::MaterialData& material) const;
 
+    void BeginRendering();
+    void UpdateRendering();
+    [[nodiscard]] bool CheckCulling();
+    void AddRenderPasses(Trinity::FrameGraph& graph);
+    void FinishRendering();
+    void Finish(bool passed);
+
     EditorSession& m_Session;
     Phase m_Phase = Phase::Idle;
     std::vector<Trinity::AssetRef<Trinity::TextureAsset>> m_Textures;
@@ -94,6 +104,19 @@ private:
     std::string m_StandalonePath;
     Trinity::MaterialData m_StandaloneData;
     bool m_MaterialsPassed = true;
+
+    // MetalRoughSpheres seen through a perspective camera and drawn offscreen, and its meshes scattered at random for the culling check
+    std::unique_ptr<Trinity::Scene> m_RenderScene;
+    std::unique_ptr<Trinity::Scene> m_CullScene;
+    Trinity::RenderView m_RenderView;
+    Trinity::SceneDrawList m_RenderDraws;
+    Trinity::SceneDrawList m_CullDraws;
+    std::vector<Trinity::UUID> m_RenderMaterials;
+    Trinity::RHI::TextureHandle m_RenderTarget;
+    Trinity::RHI::BufferHandle m_ColorReadback;
+    Trinity::RHI::BufferHandle m_DepthReadback;
+    bool m_RenderWanted = false;
+    bool m_RenderAdded = false;
 
     // The material table copied into a readback buffer by a pass of the frame after one is asked for, and read once that frame has finished
     Trinity::RHI::BufferHandle m_TableReadback;

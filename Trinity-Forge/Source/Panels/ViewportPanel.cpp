@@ -177,6 +177,10 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
     {
         a_ReadStep(m_SnapSteps.z);
     }
+    else if (key == "ViewCamera")
+    {
+        m_SceneCameraView = value == "Scene";
+    }
     else
     {
         return false;
@@ -187,7 +191,7 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 
 void ViewportPanel::WriteSettings(ImGuiTextBuffer& buffer) const
 {
-    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\n", m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z);
+    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\nViewCamera={}\n", m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z, m_SceneCameraView ? "Scene" : "Editor");
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
@@ -201,11 +205,63 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
-// Into the scene target, which the Viewport shows: the grid, then the scene's sprites through the editor camera
+// The scene's meshes, submitted before the frame graph is built: through the editor camera, which looks down -Z as 2D does, or through the scene's primary camera. A scene without one shows nothing through it. Transforms are brought up to date first, since the UI may have changed them
+void ViewportPanel::PrepareScene()
+{
+    const glm::vec2 l_ViewportSize = GetViewportSize();
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    m_HasSceneCamera = false;
+    if (l_ViewportSize.x <= 0.0f || l_ViewportSize.y <= 0.0f)
+    {
+        return;
+    }
+
+    l_Scene.UpdateWorldTransforms();
+    Trinity::RenderView l_View;
+    if (m_SceneCameraView)
+    {
+        Trinity::SceneRegistry& l_Registry = l_Scene.GetRegistry();
+        for (Trinity::Entity it_Entity = l_Scene.GetFirstRoot(); it_Entity && !m_HasSceneCamera; it_Entity = l_Scene.GetNextInHierarchyOrder(it_Entity))
+        {
+            const Trinity::CameraComponent* l_Camera = l_Registry.try_get<Trinity::CameraComponent>(it_Entity.GetHandle());
+            if (l_Camera != nullptr && l_Camera->Primary)
+            {
+                l_View = Trinity::RenderView::FromCamera(*l_Camera, l_Registry.get<Trinity::WorldTransformComponent>(it_Entity.GetHandle()).Matrix, l_ViewportSize.x / l_ViewportSize.y);
+                m_SceneViewProjection = l_View.ViewProjection;
+                m_HasSceneCamera = true;
+            }
+        }
+
+        if (!m_HasSceneCamera)
+        {
+            return;
+        }
+    }
+    else
+    {
+        l_View.ViewProjection = m_Camera.GetViewProjection(l_ViewportSize);
+        l_View.Position = glm::vec3(m_Camera.GetPosition(), 0.0f);
+        l_View.Forward = glm::vec3(0.0f, 0.0f, -1.0f);
+        l_View.Orthographic = true;
+    }
+
+    Trinity::Application::Get().GetRenderer().SubmitScene(l_Scene, l_View);
+}
+
+// Into the scene target, which the Viewport shows, over the scene's meshes: through the editor camera the grid, then the scene's sprites, and through the scene's camera its sprites alone
 void ViewportPanel::RenderScene(Trinity::RHI::CommandList& commands)
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
     const Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
+    if (m_SceneCameraView)
+    {
+        if (m_HasSceneCamera)
+        {
+            Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_SceneViewProjection, l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight());
+        }
+
+        return;
+    }
 
     m_Grid.Draw(commands, m_Camera, l_ViewportSize);
     Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_Camera.GetViewProjection(l_ViewportSize), l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight());
@@ -237,13 +293,23 @@ void ViewportPanel::OnImGuiRender()
     const bool l_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
     m_ImGui.SetSceneInput(l_Hovered, l_Focused);
 
-    ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
-    l_DrawList.PushClipRect(ImGui::GetWindowPos(), ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y), true);
-    DrawOverlays(l_DrawList, glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
-    DrawGizmo(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
-    l_DrawList.PopClipRect();
+    // Picking, the gizmo, the camera and the outlines all work in the editor camera's 2D view, so the scene camera's view only shows
+    if (!m_SceneCameraView)
+    {
+        ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+        l_DrawList.PushClipRect(ImGui::GetWindowPos(), ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y), true);
+        DrawOverlays(l_DrawList, glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
+        DrawGizmo(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
+        l_DrawList.PopClipRect();
 
-    HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
+        HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
+    }
+    else if (!m_HasSceneCamera)
+    {
+        const char* l_Message = "The scene has no primary camera to show it through";
+        const ImVec2 l_TextSize = ImGui::CalcTextSize(l_Message);
+        ImGui::GetWindowDrawList()->AddText(ImVec2(l_ImageMin.x + (l_ViewportSize.x - l_TextSize.x) * 0.5f, l_ImageMin.y + (l_ViewportSize.y - l_TextSize.y) * 0.5f), IM_COL32(255, 255, 255, 200), l_Message);
+    }
 
     if (m_ShowStats)
     {
@@ -455,7 +521,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
         const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
         const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(l_ID) : nullptr;
         const ImVec2 l_Mouse = ImGui::GetMousePos();
-        const glm::vec2 l_World = m_Camera.ScreenToWorld(glm::vec2(l_Mouse.x, l_Mouse.y) - imageMin, viewportSize);
+        const glm::vec2 l_World = m_SceneCameraView ? glm::vec2(0.0f) : m_Camera.ScreenToWorld(glm::vec2(l_Mouse.x, l_Mouse.y) - imageMin, viewportSize);
         if (l_Record != nullptr && l_Record->Importer == ModelImporter::c_Importer)
         {
             static_cast<void>(m_Session.CreateModel(l_ID, {}, {}, glm::vec3(l_World, 0.0f)));
@@ -554,6 +620,9 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
         TextLine(std::format("{:.0f} fps, {:.2f} ms", l_IO.Framerate, l_IO.Framerate > 0.0f ? 1000.0f / l_IO.Framerate : 0.0f));
         TextLine(std::format("{} on {}", Trinity::ToString(l_Device.API), l_Device.AdapterName.empty() ? "no adapter" : l_Device.AdapterName));
         TextLine(std::format("Scene {}x{}, {} sprite(s) in {} draw call(s)", l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight(), l_Sprites.Sprites, l_Sprites.DrawCalls));
+        const Trinity::Renderer3D::Statistics& l_Meshes = l_Renderer.GetRenderer3D().GetStatistics();
+        const Trinity::SceneDrawList& l_Draws = l_Renderer.GetSceneDraws();
+        TextLine(std::format("{} of {} submesh(es) drawn, {} mesh(es) loading, lit by {}", l_Meshes.Visible, l_Meshes.Submeshes, l_Meshes.Pending, l_Draws.DefaultSun ? "the default sun" : "the scene's light"));
 
         // Averaged over 30 frames by the graph, so the lines change twice a second at 60 fps
         const Trinity::FrameGraph& l_Graph = l_Renderer.GetFrameGraph();
@@ -719,6 +788,16 @@ void ViewportPanel::DrawToolbar()
     const ImGuiChildFlags l_ChildFlags = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding;
     if (ImGui::BeginChild("##Toolbar", ImVec2(0.0f, 0.0f), l_ChildFlags, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
     {
+        if (ImGui::Button(std::format("{} {}###ViewCamera", m_SceneCameraView ? Trinity::Icons::c_Monitor : Trinity::Icons::c_CubeOutline, m_SceneCameraView ? "Scene Camera" : "Editor").c_str()))
+        {
+            m_SceneCameraView = !m_SceneCameraView;
+            ImGui::MarkIniSettingsDirty();
+        }
+
+        ImGui::SetItemTooltip("Through the editor's camera, which editing works in, or through the scene's primary camera, as the game shows it");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m_SceneCameraView);
+
         constexpr std::array<const char*, 3> c_Icons{ Trinity::Icons::c_Arrows, Trinity::Icons::c_RotateRight, Trinity::Icons::c_Expand };
         constexpr std::array<const char*, 3> c_Tips{ "Move (W)", "Rotate about Z (E)", "Scale (R)" };
         for (std::size_t it_Operation = 0; it_Operation < c_Icons.size(); ++it_Operation)
@@ -771,6 +850,7 @@ void ViewportPanel::DrawToolbar()
         a_Step("##SnapTranslate", m_SnapSteps.x, "%g", "Move snap, in units");
         a_Step("##SnapRotate", m_SnapSteps.y, "%g\xC2\xB0", "Rotate snap, in degrees");
         a_Step("##SnapScale", m_SnapSteps.z, "%g", "Scale snap");
+        ImGui::EndDisabled();
 
         m_ToolbarWidth = ImGui::GetWindowWidth();
     }

@@ -224,21 +224,47 @@ namespace Trinity
             reader.Read("Scale", component.Scale);
         }
 
+        std::string_view GetProjectionName(CameraProjection projection)
+        {
+            return projection == CameraProjection::Perspective ? "Perspective" : "Orthographic";
+        }
+
+        std::string_view GetLightTypeName(LightType type)
+        {
+            switch (type)
+            {
+                case LightType::Directional:
+                {
+                    return "Directional";
+                }
+            }
+
+            return "Directional";
+        }
+
         void SaveCamera(const CameraComponent& component, ComponentWriter& writer)
         {
+            writer.Write("Projection", GetProjectionName(component.Projection));
             writer.Write("OrthographicSize", component.OrthographicSize);
             writer.Write("Near", component.Near);
             writer.Write("Far", component.Far);
+            writer.Write("FieldOfView", component.FieldOfView);
+            writer.Write("PerspectiveNear", component.PerspectiveNear);
             writer.Write("Primary", component.Primary);
             writer.Write("ExposureEV100", component.ExposureEV100);
             writer.Write("Tonemapper", ToString(component.Tonemap));
         }
 
+        // A scene saved before cameras had a projection loads them orthographic, as they were drawn then
         void LoadCamera(CameraComponent& component, const ComponentReader& reader)
         {
+            std::string l_Projection;
+            component.Projection = reader.Read("Projection", l_Projection) && l_Projection == GetProjectionName(CameraProjection::Perspective) ? CameraProjection::Perspective : CameraProjection::Orthographic;
             reader.Read("OrthographicSize", component.OrthographicSize);
             reader.Read("Near", component.Near);
             reader.Read("Far", component.Far);
+            reader.Read("FieldOfView", component.FieldOfView);
+            reader.Read("PerspectiveNear", component.PerspectiveNear);
             reader.Read("Primary", component.Primary);
             reader.Read("ExposureEV100", component.ExposureEV100);
 
@@ -281,6 +307,21 @@ namespace Trinity
             reader.Read("Mesh", component.Mesh);
             reader.Read("Materials", component.Materials);
             reader.Read("CastShadows", component.CastShadows);
+        }
+
+        void SaveLight(const LightComponent& component, ComponentWriter& writer)
+        {
+            writer.Write("Type", GetLightTypeName(component.Type));
+            writer.Write("Color", component.Color);
+            writer.Write("Intensity", component.Intensity);
+        }
+
+        // Only directional lights exist yet, so any type reads as one
+        void LoadLight(LightComponent& component, const ComponentReader& reader)
+        {
+            component.Type = LightType::Directional;
+            reader.Read("Color", component.Color);
+            reader.Read("Intensity", component.Intensity);
         }
 
         struct FileEntity
@@ -804,6 +845,7 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<CameraComponent, SaveCamera, LoadCamera>());
             RegisterComponent(MakeComponentSerializer<SpriteRendererComponent, SaveSpriteRenderer, LoadSpriteRenderer>());
             RegisterComponent(MakeComponentSerializer<MeshRendererComponent, SaveMeshRenderer, LoadMeshRenderer>());
+            RegisterComponent(MakeComponentSerializer<LightComponent, SaveLight, LoadLight>());
         }
 
         void Shutdown()

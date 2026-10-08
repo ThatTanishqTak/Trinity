@@ -92,6 +92,7 @@ namespace Trinity
         // Sprites without a texture, or whose texture is still loading, draw with the loader's white placeholder
         const Asset* l_White = m_TextureLoader->GetPlaceholder();
         m_Renderer2D = CreateScope<Renderer2D>(m_Device, l_White != nullptr ? static_cast<const TextureAsset*>(l_White)->GetShaderResourceIndex() : RHI::c_NoBindlessIndex);
+        m_Renderer3D = CreateScope<Renderer3D>(m_Device, *m_MaterialLoader);
         m_FrameGraph = CreateScope<FrameGraph>(m_Device);
 
         m_StartTime = std::chrono::steady_clock::now();
@@ -111,6 +112,8 @@ namespace Trinity
         }
 
         m_FrameGraph.reset();
+        m_SceneDraws.Clear();
+        m_Renderer3D.reset();
         m_Renderer2D.reset();
         AssetManager::UnregisterLoader(MeshAsset::c_AssetType);
         m_MeshLoader.reset();
@@ -145,6 +148,7 @@ namespace Trinity
         m_MaterialLoader->RecordUploads(l_Commands);
         m_MeshLoader->RecordUploads(l_Commands);
         m_Renderer2D->BeginFrame();
+        m_Renderer3D->BeginFrame();
 
         {
             TR_PROFILE_SCOPE("LayerStack::OnPrepareRender");
@@ -156,6 +160,7 @@ namespace Trinity
 
         BuildFrameGraph(layers);
         m_FrameGraph->Execute(l_Commands);
+        m_SceneSubmitted = false;
         m_SceneState = m_SceneTarget ? RHI::ResourceState::ShaderResource : RHI::ResourceState::Undefined;
         m_DisplayState = m_SceneTarget && m_DisplayTarget ? RHI::ResourceState::ShaderResource : m_DisplayState;
 
@@ -179,7 +184,7 @@ namespace Trinity
         ReportFrameRate();
     }
 
-    // The scene and display targets are imported in whatever state the last frame left them, and both end as shader resources. The scene is cleared to the linear clear colour, and every pass that can show the display target, the UI's included, reads it
+    // The scene and display targets are imported in whatever state the last frame left them, and both end as shader resources. The scene is cleared to the linear clear colour, by the opaque pass when a scene was submitted, and every pass that can show the display target, the UI's included, reads it
     void Renderer::BuildFrameGraph(LayerStack& layers)
     {
         TR_PROFILE_FUNCTION();
@@ -192,7 +197,13 @@ namespace Trinity
         {
             const std::array<float, 4> l_Clear{ SrgbToLinear(m_ClearColor[0]), SrgbToLinear(m_ClearColor[1]), SrgbToLinear(m_ClearColor[2]), m_ClearColor[3] };
             l_Scene = l_Graph.ImportTexture("Scene", m_SceneTarget, m_SceneDescription, m_SceneState, RHI::ResourceState::ShaderResource);
-            l_Graph.AddPass("Scene", FrameGraphPassType::Raster, [l_Scene, l_Clear](FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Scene, RHI::LoadOp::Clear, l_Clear }); }, [&layers](const FrameGraphContext& context)
+            if (m_SceneSubmitted)
+            {
+                static_cast<void>(m_Renderer3D->AddPasses(l_Graph, m_SceneDraws, l_Scene, m_SceneDescription, l_Clear));
+            }
+
+            const RHI::LoadOp l_Load = m_SceneSubmitted ? RHI::LoadOp::Load : RHI::LoadOp::Clear;
+            l_Graph.AddPass("Scene", FrameGraphPassType::Raster, [l_Scene, l_Clear, l_Load](FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Scene, l_Load, l_Clear }); }, [&layers](const FrameGraphContext& context)
             {
                 TR_PROFILE_SCOPE("LayerStack::OnRender");
                 for (const Scope<Layer>& it_Layer : layers)
@@ -224,6 +235,12 @@ namespace Trinity
         }
 
         AddAddedOutputPasses(l_Display);
+    }
+
+    void Renderer::SubmitScene(Scene& scene, const RenderView& view)
+    {
+        m_Renderer3D->Collect(scene, view, m_SceneDraws);
+        m_SceneSubmitted = true;
     }
 
     void Renderer::AddTonemapPass(FrameGraph& graph, FrameGraphTexture scene, FrameGraphTexture target, const ToneMapping& toneMapping) const
