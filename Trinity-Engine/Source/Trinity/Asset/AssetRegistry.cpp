@@ -514,6 +514,11 @@ namespace Trinity
             return "Texture";
         }
 
+        if (l_Extension == ".hdr")
+        {
+            return "Environment";
+        }
+
         if (l_Extension == ".trscene")
         {
             return "Scene";

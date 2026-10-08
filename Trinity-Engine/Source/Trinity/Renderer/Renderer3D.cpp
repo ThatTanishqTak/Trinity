@@ -52,7 +52,11 @@ namespace Trinity
             std::array<std::uint32_t, 2> ClusterCounts{};
             std::array<std::uint32_t, 2> ClusterLights{};
             std::uint32_t LightsOffset = 0;
-            std::array<std::uint32_t, 3> Padding{};
+            std::array<std::uint32_t, 2> ClampSampler{};
+            std::uint32_t Padding = 0;
+            // The specular cubemap, the irradiance cubemap, the BRDF lookup table and the specular mip count, 0 with no environment, then its intensity and the cosine and sine of its turn
+            std::array<std::uint32_t, 4> Environment{};
+            glm::vec4 EnvironmentParameters{ 0.0f };
         };
 
         // Laid out as LightClusters.slang reads it
@@ -87,7 +91,7 @@ namespace Trinity
         };
 
         static_assert(sizeof(PushData) == 32);
-        static_assert(sizeof(FrameData) == 352);
+        static_assert(sizeof(FrameData) == 384);
         static_assert(sizeof(ClusterPushData) == 64);
         static_assert(sizeof(DrawData) == 80);
 
@@ -112,12 +116,15 @@ namespace Trinity
             return offset == MeshLayout::c_Absent ? c_Absent : static_cast<std::uint32_t>(offset);
         }
 
-        RHI::SamplerHandle CreateMaterialSampler(RHI::Device& device, RHI::Filter filter, std::string_view name)
+        RHI::SamplerHandle CreateMaterialSampler(RHI::Device& device, RHI::Filter filter, std::string_view name, RHI::AddressMode address = RHI::AddressMode::Repeat)
         {
             RHI::SamplerDescription l_Description;
             l_Description.MinFilter = filter;
             l_Description.MagFilter = filter;
             l_Description.MipFilter = filter;
+            l_Description.AddressU = address;
+            l_Description.AddressV = address;
+            l_Description.AddressW = address;
             l_Description.DebugName = name;
 
             return device.CreateSampler(l_Description);
@@ -167,7 +174,7 @@ namespace Trinity
             center = apex + direction * radius;
         }
 
-        // Every light in hierarchy order: the first c_MaxDirectionalLights directional lights, and every point and spot light that reaches anywhere, with the sphere in view space holding what it lights. A scene with no lights at all is lit by the default sun. The clusters span the depths the spheres reach, within the projection's own for an orthographic view
+        // The first Environment component in hierarchy order, then every light in hierarchy order: the first c_MaxDirectionalLights directional lights, and every point and spot light that reaches anywhere, with the sphere in view space holding what it lights. A scene with no lights and no environment is lit by the default sun. The clusters span the depths the spheres reach, within the projection's own for an orthographic view
         void GatherLights(Scene& scene, const RenderView& view, SceneDrawList& list)
         {
             SceneRegistry& l_Registry = scene.GetRegistry();
@@ -180,6 +187,15 @@ namespace Trinity
             bool l_AnyLight = false;
             for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
             {
+                const EnvironmentComponent* l_Environment = list.HasEnvironment ? nullptr : l_Registry.try_get<EnvironmentComponent>(it_Entity.GetHandle());
+                if (l_Environment != nullptr)
+                {
+                    list.HasEnvironment = true;
+                    list.EnvironmentID = l_Environment->Environment;
+                    list.EnvironmentIntensity = l_Environment->Intensity;
+                    list.EnvironmentRotation = l_Environment->Rotation;
+                }
+
                 const LightComponent* l_Light = l_Registry.try_get<LightComponent>(it_Entity.GetHandle());
                 if (l_Light == nullptr)
                 {
@@ -244,7 +260,7 @@ namespace Trinity
                 l_Farthest = std::max(l_Farthest, -l_ViewCenter.z + l_ViewRadius);
             }
 
-            if (!l_AnyLight)
+            if (!l_AnyLight && !list.HasEnvironment)
             {
                 list.Directional[0] = { glm::normalize(c_DefaultToSun), glm::vec3(Renderer3D::c_DefaultSunIntensity) };
                 list.DirectionalCount = 1;
@@ -408,6 +424,11 @@ namespace Trinity
         Lights.clear();
         LightBounds.clear();
         Clusters = {};
+        EnvironmentID = UUID();
+        Environment = nullptr;
+        EnvironmentIntensity = 1.0f;
+        EnvironmentRotation = 90.0f;
+        HasEnvironment = false;
         DefaultSun = false;
         DroppedLights = 0;
         Submeshes = 0;
@@ -419,6 +440,7 @@ namespace Trinity
     {
         m_LinearSampler = CreateMaterialSampler(m_Device, RHI::Filter::Linear, "Material linear sampler");
         m_NearestSampler = CreateMaterialSampler(m_Device, RHI::Filter::Nearest, "Material nearest sampler");
+        m_ClampSampler = CreateMaterialSampler(m_Device, RHI::Filter::Linear, "Environment lookup sampler", RHI::AddressMode::ClampToEdge);
 
         const std::string_view l_Extension = m_Device.GetInfo().API == GraphicsAPI::D3D12 ? "dxil" : "spv";
         Expected<FileBuffer, FileError> l_Vertex = FileSystem::ReadFile(std::format("/engine/shaders/Mesh.VertexMain.{}", l_Extension));
@@ -472,6 +494,7 @@ namespace Trinity
         m_Device.DestroyPipeline(m_ClusterPipeline);
         m_Device.DestroySampler(m_LinearSampler);
         m_Device.DestroySampler(m_NearestSampler);
+        m_Device.DestroySampler(m_ClampSampler);
     }
 
     // Meshes and materials no view has drawn for a while are released, and an emptied cache gives its buckets back
@@ -480,6 +503,7 @@ namespace Trinity
         ++m_Frame;
         std::erase_if(m_Meshes, [this](const auto& entry) { return m_Frame - entry.second.LastUsedFrame > c_AssetKeepFrames; });
         std::erase_if(m_MaterialCache, [this](const auto& entry) { return m_Frame - entry.second.LastUsedFrame > c_AssetKeepFrames; });
+        std::erase_if(m_Environments, [this](const auto& entry) { return m_Frame - entry.second.LastUsedFrame > c_AssetKeepFrames; });
         if (m_Meshes.empty())
         {
             MeshCache().swap(m_Meshes);
@@ -522,11 +546,12 @@ namespace Trinity
         }
     }
 
-    // Every mesh and material at once, as when the project whose assets they are closes
+    // Every mesh, material and environment at once, as when the project whose assets they are closes
     void Renderer3D::ReleaseAssets()
     {
         MeshCache().swap(m_Meshes);
         MaterialCache().swap(m_MaterialCache);
+        EnvironmentCache().swap(m_Environments);
     }
 
     const MeshAsset* Renderer3D::ResolveMesh(UUID id)
@@ -564,6 +589,26 @@ namespace Trinity
         return l_Asset != nullptr && l_Asset->GetAssetType() == MaterialAsset::c_AssetType ? static_cast<const MaterialAsset*>(l_Asset) : nullptr;
     }
 
+    // Kept loaded while a view uses it, and read once it is ready
+    const EnvironmentAsset* Renderer3D::ResolveEnvironment(UUID id)
+    {
+        if (!id)
+        {
+            return nullptr;
+        }
+
+        auto a_Found = m_Environments.find(id);
+        if (a_Found == m_Environments.end())
+        {
+            a_Found = m_Environments.emplace(id, Cached<EnvironmentAsset>{ AssetRef<EnvironmentAsset>(id), m_Frame }).first;
+        }
+
+        a_Found->second.LastUsedFrame = m_Frame;
+        const Asset* l_Asset = a_Found->second.Asset.IsReady() ? AssetManager::GetAsset(id) : nullptr;
+
+        return l_Asset != nullptr && l_Asset->GetAssetType() == EnvironmentAsset::c_AssetType ? static_cast<const EnvironmentAsset*>(l_Asset) : nullptr;
+    }
+
     // Each submesh of each ready mesh in hierarchy order, then culled in batches on the job system, then sorted stably, so draws with equal keys keep hierarchy order
     void Renderer3D::Collect(Scene& scene, const RenderView& view, SceneDrawList& list)
     {
@@ -572,6 +617,7 @@ namespace Trinity
         list.Clear();
         list.View = view;
         GatherLights(scene, view, list);
+        list.Environment = ResolveEnvironment(list.EnvironmentID);
 
         m_Candidates.clear();
         SceneRegistry& l_Registry = scene.GetRegistry();
@@ -644,6 +690,8 @@ namespace Trinity
         list.Clear();
         list.View = view;
         GatherLights(scene, view, list);
+        const Asset* l_Environment = list.EnvironmentID && AssetManager::GetState(list.EnvironmentID) == AssetState::Ready ? AssetManager::GetAsset(list.EnvironmentID) : nullptr;
+        list.Environment = l_Environment != nullptr && l_Environment->GetAssetType() == EnvironmentAsset::c_AssetType ? static_cast<const EnvironmentAsset*>(l_Environment) : nullptr;
 
         const Frustum l_Frustum = Frustum::FromViewProjection(view.ViewProjection);
         SceneRegistry& l_Registry = scene.GetRegistry();
@@ -926,7 +974,15 @@ namespace Trinity
         {
             l_FrameData.Directional[std::size_t{ it_Light } * 2] = glm::vec4(list.Directional[it_Light].Direction, 0.0f);
             l_FrameData.Directional[std::size_t{ it_Light } * 2 + 1] = glm::vec4(list.Directional[it_Light].Radiance, 0.0f);
-            l_Ambient += list.Directional[it_Light].Radiance * c_AmbientFraction;
+            l_Ambient += list.HasEnvironment ? glm::vec3(0.0f) : list.Directional[it_Light].Radiance * c_AmbientFraction;
+        }
+
+        // Its turn is the same rotation about +Y glTF Sample Viewer applies to every direction it looks up
+        if (const EnvironmentAsset* l_Environment = list.Environment)
+        {
+            const float l_Angle = glm::radians(list.EnvironmentRotation);
+            l_FrameData.Environment = { l_Environment->GetShaderResourceIndex(EnvironmentImage::Specular), l_Environment->GetShaderResourceIndex(EnvironmentImage::Irradiance), l_Environment->GetShaderResourceIndex(EnvironmentImage::BrdfLookup), l_Environment->GetSpecularLevels() };
+            l_FrameData.EnvironmentParameters = glm::vec4(list.EnvironmentIntensity, std::cos(l_Angle), std::sin(l_Angle), 0.0f);
         }
 
         l_FrameData.Eye = glm::vec4(list.View.Position, list.View.Orthographic ? 1.0f : 0.0f);
@@ -942,6 +998,7 @@ namespace Trinity
         l_FrameData.ClusterCounts = { lights.ClusterCounts, 0 };
         l_FrameData.ClusterLights = { lights.ClusterLights, 0 };
         l_FrameData.LightsOffset = lights.LightsOffset;
+        l_FrameData.ClampSampler = { m_Device.GetSamplerIndex(m_ClampSampler), 0 };
         std::memcpy(l_Frame.Data.data(), &l_FrameData, sizeof(l_FrameData));
 
         for (std::size_t it_Draw = 0; it_Draw < list.Draws.size(); ++it_Draw)

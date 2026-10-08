@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/Asset/AssetManager.hpp"
+#include "Trinity/Asset/EnvironmentAsset.hpp"
 #include "Trinity/Asset/MaterialAsset.hpp"
 #include "Trinity/Asset/MeshAsset.hpp"
 #include "Trinity/Core/Export.hpp"
@@ -131,7 +132,14 @@ namespace Trinity
         std::vector<PunctualLight, TaggedAllocator<PunctualLight, MemoryTag::Renderer>> Lights;
         std::vector<glm::vec4, TaggedAllocator<glm::vec4, MemoryTag::Renderer>> LightBounds;
         ClusterGrid Clusters;
-        // Lit by the default sun, as a scene with no lights at all is
+        // The scene's environment, from its first Environment component, once it has loaded, its intensity, and its turn about +Y in degrees
+        UUID EnvironmentID;
+        const EnvironmentAsset* Environment = nullptr;
+        float EnvironmentIntensity = 1.0f;
+        float EnvironmentRotation = 90.0f;
+        // Whether the scene has an Environment component, which stands in for the ambient light even while its environment loads
+        bool HasEnvironment = false;
+        // Lit by the default sun, as a scene with no lights and no environment is
         bool DefaultSun = false;
         // Lights past c_MaxDirectionalLights or c_MaxPunctualLights, which light nothing
         std::uint32_t DroppedLights = 0;
@@ -152,7 +160,7 @@ namespace Trinity
         bool LightHeatmap = false;
     };
 
-    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with the GGX BRDF lit by up to four directional lights and the point and spot lights of the cluster the pixel lies in
+    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in
     class TRINITY_API Renderer3D
     {
     public:
@@ -172,7 +180,7 @@ namespace Trinity
         static constexpr RHI::CompareOp c_OpaqueCompare = RHI::CompareOp::Equal;
         // The light a scene with no lights at all is lit by, so a model dropped into a new scene shows, which is white at an illuminance that lights a white surface facing it to 1
         static constexpr float c_DefaultSunIntensity = 3.14159265f;
-        // Until image-based lighting arrives, every surface also takes this fraction of the directional lights' light from all around
+        // In a scene with no environment, every surface also takes this fraction of the directional lights' light from all around
         static constexpr float c_AmbientFraction = 0.03f;
 
         // What AddPasses leaves in the graph: the depth, and each cluster's light count then its lights, c_MaxLights to a cluster. The buffers are invalid when no clusters were built
@@ -228,6 +236,7 @@ namespace Trinity
 
         using MeshCache = std::unordered_map<UUID, Cached<MeshAsset>, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Cached<MeshAsset>>, MemoryTag::Renderer>>;
         using MaterialCache = std::unordered_map<UUID, Cached<MaterialAsset>, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Cached<MaterialAsset>>, MemoryTag::Renderer>>;
+        using EnvironmentCache = std::unordered_map<UUID, Cached<EnvironmentAsset>, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Cached<EnvironmentAsset>>, MemoryTag::Renderer>>;
 
         struct PipelineEntry
         {
@@ -239,6 +248,7 @@ namespace Trinity
 
         [[nodiscard]] const MeshAsset* ResolveMesh(UUID id);
         [[nodiscard]] const MaterialAsset* ResolveMaterial(UUID id);
+        [[nodiscard]] const EnvironmentAsset* ResolveEnvironment(UUID id);
         // Where this view's lights and clusters are for the opaque pass, and how it shades
         struct LightInputs
         {
@@ -264,9 +274,12 @@ namespace Trinity
         std::uint64_t m_ClusterReadbackFrame = 0;
         RHI::SamplerHandle m_LinearSampler;
         RHI::SamplerHandle m_NearestSampler;
+        // For the BRDF lookup table, whose edges must not wrap into each other
+        RHI::SamplerHandle m_ClampSampler;
         std::vector<PipelineEntry, TaggedAllocator<PipelineEntry, MemoryTag::Renderer>> m_Pipelines;
         MeshCache m_Meshes;
         MaterialCache m_MaterialCache;
+        EnvironmentCache m_Environments;
         std::vector<MeshDraw, TaggedAllocator<MeshDraw, MemoryTag::Renderer>> m_Candidates;
         std::vector<std::uint8_t, TaggedAllocator<std::uint8_t, MemoryTag::Renderer>> m_Visible;
         Statistics m_Statistics;

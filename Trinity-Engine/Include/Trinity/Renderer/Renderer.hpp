@@ -17,6 +17,7 @@
 
 namespace Trinity
 {
+    class EnvironmentLoader;
     class LayerStack;
     class MaterialLoader;
     class MeshLoader;
@@ -108,6 +109,7 @@ namespace Trinity
         Scope<TextureLoader> m_TextureLoader;
         Scope<MaterialLoader> m_MaterialLoader;
         Scope<MeshLoader> m_MeshLoader;
+        Scope<EnvironmentLoader> m_EnvironmentLoader;
         Scope<Renderer2D> m_Renderer2D;
         Scope<Renderer3D> m_Renderer3D;
         SceneDrawList m_SceneDraws;

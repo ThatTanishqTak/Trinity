@@ -67,6 +67,11 @@ namespace
             return Trinity::Icons::c_PaintBrush;
         }
 
+        if (record != nullptr && record->Importer == Trinity::EnvironmentAsset::c_AssetType)
+        {
+            return Trinity::Icons::c_Globe;
+        }
+
         return record != nullptr && record->Importer == "Scene" ? Trinity::Icons::c_CubeOutline : Trinity::Icons::c_File;
     }
 }

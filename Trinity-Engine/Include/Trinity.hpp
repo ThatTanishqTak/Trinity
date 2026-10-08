@@ -3,6 +3,7 @@
 #include "Trinity/Asset/Asset.hpp"
 #include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Asset/AssetRegistry.hpp"
+#include "Trinity/Asset/EnvironmentAsset.hpp"
 #include "Trinity/Asset/MaterialAsset.hpp"
 #include "Trinity/Asset/MaterialData.hpp"
 #include "Trinity/Asset/MaterialLoader.hpp"

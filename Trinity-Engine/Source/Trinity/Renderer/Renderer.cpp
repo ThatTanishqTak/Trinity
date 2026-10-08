@@ -1,6 +1,7 @@
 #include "Trinity/Renderer/Renderer.hpp"
 
 #include "Trinity/Asset/AssetManager.hpp"
+#include "Trinity/Asset/EnvironmentLoader.hpp"
 #include "Trinity/Asset/MaterialLoader.hpp"
 #include "Trinity/Asset/MeshLoader.hpp"
 #include "Trinity/Asset/TextureLoader.hpp"
@@ -81,13 +82,15 @@ namespace Trinity
         m_CopyPipeline = CreateFullscreenPipeline("SceneCopy", GetOutputFormat(), "Renderer scene copy", "the output only shows the clear colour");
         m_TonemapPipeline = CreateFullscreenPipeline("Tonemap", c_DisplayFormat, "Renderer tonemap", "the scene is shown as black");
 
-        // Textures, materials and meshes need this device, so their loaders live exactly as long as the renderer. Materials keep textures loaded, so they go before textures do
+        // Textures, materials, meshes and environments need this device, so their loaders live exactly as long as the renderer. Materials keep textures loaded, so they go before textures do
         m_TextureLoader = CreateScope<TextureLoader>(m_Device);
         AssetManager::RegisterLoader(*m_TextureLoader);
         m_MaterialLoader = CreateScope<MaterialLoader>(m_Device);
         AssetManager::RegisterLoader(*m_MaterialLoader);
         m_MeshLoader = CreateScope<MeshLoader>(m_Device);
         AssetManager::RegisterLoader(*m_MeshLoader);
+        m_EnvironmentLoader = CreateScope<EnvironmentLoader>(m_Device);
+        AssetManager::RegisterLoader(*m_EnvironmentLoader);
 
         // Sprites without a texture, or whose texture is still loading, draw with the loader's white placeholder
         const Asset* l_White = m_TextureLoader->GetPlaceholder();
@@ -115,6 +118,8 @@ namespace Trinity
         m_SceneDraws.Clear();
         m_Renderer3D.reset();
         m_Renderer2D.reset();
+        AssetManager::UnregisterLoader(EnvironmentAsset::c_AssetType);
+        m_EnvironmentLoader.reset();
         AssetManager::UnregisterLoader(MeshAsset::c_AssetType);
         m_MeshLoader.reset();
         AssetManager::UnregisterLoader(MaterialAsset::c_AssetType);
@@ -147,6 +152,7 @@ namespace Trinity
         m_TextureLoader->RecordUploads(l_Commands);
         m_MaterialLoader->RecordUploads(l_Commands);
         m_MeshLoader->RecordUploads(l_Commands);
+        m_EnvironmentLoader->RecordUploads(l_Commands);
         m_Renderer2D->BeginFrame();
         m_Renderer3D->BeginFrame();
 

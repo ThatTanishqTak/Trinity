@@ -81,6 +81,10 @@ namespace
         {
             l_Paths = { Trinity::GetCookedModelPath(record.ID), ModelImporter::GetCacheKeyPath(record.ID) };
         }
+        else if (record.Importer == EnvironmentImporter::c_Importer)
+        {
+            l_Paths = { Trinity::GetCookedEnvironmentPath(record.ID), EnvironmentImporter::GetCacheKeyPath(record.ID) };
+        }
 
         for (const std::string& it_Path : l_Paths)
         {
@@ -136,6 +140,11 @@ void EditorSession::Update()
     if (const std::optional<TextureImportReport> l_Report = m_Imports.Update())
     {
         FinishImports(*l_Report);
+    }
+
+    if (const std::optional<EnvironmentImportReport> l_Report = m_EnvironmentImports.Update())
+    {
+        FinishEnvironmentImports(*l_Report);
     }
 
     ImportAgainIfAsked();
@@ -398,7 +407,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 // The registry goes before the project unmounts /assets, and the asset manager lets go of it first
 void EditorSession::CloseProject()
 {
-    // The texture being encoded is finished, since the encoder cannot leave it halfway, and the rest wait for the project to open again
+    // The texture being encoded and the environment being filtered are finished, since neither can be left halfway, and the rest wait for the project to open again
     m_ImportAgain = false;
     m_TexturesAfterModels = false;
     if (m_ModelImports.IsRunning())
@@ -411,6 +420,12 @@ void EditorSession::CloseProject()
     {
         m_Imports.Stop();
         FinishImports(m_Imports.Wait());
+    }
+
+    if (m_EnvironmentImports.IsRunning())
+    {
+        m_EnvironmentImports.Stop();
+        FinishEnvironmentImports(m_EnvironmentImports.Wait());
     }
 
     m_Reimporter.Finish();
@@ -443,7 +458,7 @@ void EditorSession::AttachRegistry()
     ScanAssets();
 }
 
-// Every texture and model the scan finds is cooked into /cache in the background, unless the cache already holds it for the same files and settings
+// Every texture, model and environment the scan finds is cooked into /cache in the background, unless the cache already holds it for the same files and settings
 void EditorSession::ScanAssets()
 {
     if (!m_Registry)
@@ -467,7 +482,7 @@ void EditorSession::ScanAssets()
 EditorSession::ImportReport EditorSession::WaitForImports()
 {
     ImportReport l_Report;
-    while (m_ModelImports.IsRunning() || m_Imports.IsRunning() || m_TexturesAfterModels || (m_ImportAgain && m_Registry))
+    while (IsImportRunning() || (m_ImportAgain && m_Registry))
     {
         if (m_ModelImports.IsRunning())
         {
@@ -486,16 +501,22 @@ EditorSession::ImportReport EditorSession::WaitForImports()
             FinishImports(l_Report.Textures);
         }
 
+        if (m_EnvironmentImports.IsRunning())
+        {
+            l_Report.Environments = m_EnvironmentImports.Wait();
+            FinishEnvironmentImports(l_Report.Environments);
+        }
+
         ImportAgainIfAsked();
     }
 
     return l_Report;
 }
 
-// A scan while imports run imports again once they are over, since each batch has the records it started with. Models go first, and textures once the models are planned, so a texture beside a model is encoded the way the model uses it
+// A scan while imports run imports again once they are over, since each batch has the records it started with. Models go first, and textures once the models are planned, so a texture beside a model is encoded the way the model uses it. Environments need nothing else, so they start at once
 void EditorSession::StartImports()
 {
-    if (m_Imports.IsRunning() || m_ModelImports.IsRunning() || m_TexturesAfterModels)
+    if (IsImportRunning())
     {
         m_ImportAgain = true;
 
@@ -503,12 +524,22 @@ void EditorSession::StartImports()
     }
 
     std::vector<Trinity::AssetRecord> l_Models;
+    std::vector<Trinity::AssetRecord> l_Environments;
     for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
     {
         if (it_Record->Importer == ModelImporter::c_Importer)
         {
             l_Models.push_back(*it_Record);
         }
+        else if (it_Record->Importer == EnvironmentImporter::c_Importer)
+        {
+            l_Environments.push_back(*it_Record);
+        }
+    }
+
+    if (!l_Environments.empty())
+    {
+        m_EnvironmentImports.Start(std::move(l_Environments));
     }
 
     if (l_Models.empty())
@@ -542,7 +573,7 @@ void EditorSession::StartTextureImports()
 
 void EditorSession::ImportAgainIfAsked()
 {
-    if (m_ImportAgain && m_Registry && !m_Imports.IsRunning() && !m_ModelImports.IsRunning() && !m_TexturesAfterModels)
+    if (m_ImportAgain && m_Registry && !IsImportRunning())
     {
         m_ImportAgain = false;
         StartImports();
@@ -560,6 +591,24 @@ void EditorSession::FinishImports(const TextureImportReport& report)
     if (report.Stopped != 0)
     {
         TR_INFO("Textures: the import was stopped with {} texture(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
+    }
+}
+
+bool EditorSession::IsImportRunning() const
+{
+    return m_Imports.IsRunning() || m_ModelImports.IsRunning() || m_EnvironmentImports.IsRunning() || m_TexturesAfterModels;
+}
+
+void EditorSession::FinishEnvironmentImports(const EnvironmentImportReport& report)
+{
+    if (report.Filtered != 0 || report.Failed != 0 || report.Stopped != 0)
+    {
+        TR_INFO("Environments: {} in the project, {} filtered, {} from the cache, {} failed", report.Environments, report.Filtered, report.Cached, report.Failed);
+    }
+
+    if (report.Stopped != 0)
+    {
+        TR_INFO("Environments: the import was stopped with {} environment(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
     }
 }
 

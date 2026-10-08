@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CommandStack.hpp"
+#include "Importers/EnvironmentImportBatch.hpp"
+#include "Importers/EnvironmentImporter.hpp"
 #include "Importers/ModelImportBatch.hpp"
 #include "Importers/ModelImporter.hpp"
 #include "Importers/TextureImportBatch.hpp"
@@ -39,6 +41,7 @@ public:
     {
         TextureImportReport Textures;
         ModelImportReport Models;
+        EnvironmentImportReport Environments;
     };
 
     EditorSession() = default;
@@ -135,8 +138,10 @@ private:
     void StartImports();
     void StartTextureImports();
     void ImportAgainIfAsked();
+    [[nodiscard]] bool IsImportRunning() const;
     void FinishImports(const TextureImportReport& report);
     void FinishModelImports(const ModelImportReport& report);
+    void FinishEnvironmentImports(const EnvironmentImportReport& report);
     void SaveProject();
     void NewScene();
     void OpenScene(const std::string& assetPath);
@@ -159,6 +164,7 @@ private:
     TextureReimporter m_Reimporter;
     TextureImportBatch m_Imports;
     ModelImportBatch m_ModelImports;
+    EnvironmentImportBatch m_EnvironmentImports;
     bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;

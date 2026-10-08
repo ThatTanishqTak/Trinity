@@ -32,7 +32,8 @@ private:
     void DrawSpriteRenderer(Trinity::Entity entity);
     void DrawLight(Trinity::Entity entity);
     void DrawTextureSlot(Trinity::Entity entity);
-    void DrawTexturePicker(const char* popup, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);
+    void DrawEnvironment(Trinity::Entity entity);
+    void DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);
     void DrawOtherComponents(Trinity::Entity entity);
     void DrawAddComponent(Trinity::Entity entity);
 
@@ -62,7 +63,7 @@ private:
     std::string m_NameText;
     Trinity::UUID m_NameEntity;
     bool m_NameActive = false;
-    std::string m_TextureFilter;
+    std::string m_AssetFilter;
     Trinity::UUID m_EulerEntity;
     glm::quat m_EulerRotation = glm::identity<glm::quat>();
     glm::vec3 m_EulerDegrees{ 0.0f };

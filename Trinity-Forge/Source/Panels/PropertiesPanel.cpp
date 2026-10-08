@@ -22,10 +22,11 @@ namespace
 {
     constexpr float c_LabelWidthInFonts = 8.0f;
     constexpr const char* c_TexturePickerPopup = "##TexturePicker";
+    constexpr const char* c_EnvironmentPickerPopup = "##EnvironmentPicker";
     constexpr const char* c_AddComponentPopup = "##AddComponent";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 5> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName };
+    constexpr std::array<std::string_view, 6> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName };
 
     // A label on the left and the widget filling the rest of the row
     void Label(const char* label)
@@ -117,6 +118,7 @@ void PropertiesPanel::OnImGuiRender()
     DrawCamera(l_Entity);
     DrawSpriteRenderer(l_Entity);
     DrawLight(l_Entity);
+    DrawEnvironment(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawAddComponent(l_Entity);
     ImGui::PopID();
@@ -362,6 +364,80 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     });
 }
 
+// Image-based lighting from an HDR environment in the project, which takes one dropped from the Content Browser. Rotation turns it about +Y, and 90 degrees lights a model as glTF Sample Viewer does by default
+void PropertiesPanel::DrawEnvironment(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::EnvironmentComponent>() || !BeginComponent(Trinity::EnvironmentComponent::c_TypeName, Trinity::Icons::c_Globe, true))
+    {
+        return;
+    }
+
+    CommandStack& l_History = m_Session.GetHistory();
+    const auto a_SetEnvironment = [&l_History, entity](Trinity::UUID environment)
+    {
+        Trinity::EnvironmentComponent l_Value = entity.Get<Trinity::EnvironmentComponent>();
+        l_Value.Environment = environment;
+        l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::EnvironmentComponent>>(entity.GetUUID(), std::move(l_Value), "Environment"));
+        l_History.EndMerge();
+    };
+
+    const Trinity::UUID l_Environment = entity.Get<Trinity::EnvironmentComponent>().Environment;
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::AssetRecord* l_Record = l_Registry != nullptr && l_Environment ? l_Registry->Find(l_Environment) : nullptr;
+    const std::string l_Name = !l_Environment ? std::string("None") : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", l_Environment);
+
+    Label("Environment");
+    const float l_ClearWidth = ImGui::GetFrameHeight();
+    const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f);
+    if (ImGui::Button(std::format("{}###Environment", l_Name).c_str(), ImVec2(l_Width, 0.0f)))
+    {
+        m_AssetFilter.clear();
+        ImGui::OpenPopup(c_EnvironmentPickerPopup);
+    }
+
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("%s", l_Record != nullptr ? l_Record->Path.c_str() : "An equirectangular .hdr in the project. Without one the scene keeps its ambient light");
+    }
+
+    if (ImGui::BeginDragDropTarget())
+    {
+        if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_AssetPayload))
+        {
+            std::uint64_t l_Value = 0;
+            std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+            const Trinity::AssetRecord* l_Dropped = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
+            if (l_Dropped != nullptr && l_Dropped->Importer == Trinity::EnvironmentAsset::c_AssetType)
+            {
+                a_SetEnvironment(l_Dropped->ID);
+            }
+            else
+            {
+                TR_WARN("Forge: only an environment, an .hdr file, can go in an Environment's slot");
+            }
+        }
+
+        ImGui::EndDragDropTarget();
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!l_Environment);
+    if (ImGui::Button(std::format("{}##ClearEnvironment", Trinity::Icons::c_TimesCircle).c_str(), ImVec2(l_ClearWidth, 0.0f)))
+    {
+        a_SetEnvironment({});
+    }
+
+    ImGui::EndDisabled();
+
+    DrawAssetPicker(c_EnvironmentPickerPopup, Trinity::EnvironmentAsset::c_AssetType, l_Environment, a_SetEnvironment);
+
+    Label("Intensity");
+    EditField<Trinity::EnvironmentComponent>(l_History, entity, "Intensity", [](Trinity::EnvironmentComponent& environment) { return ImGui::DragFloat("##Intensity", &environment.Intensity, 0.01f, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+
+    Label("Rotation");
+    EditField<Trinity::EnvironmentComponent>(l_History, entity, "Rotation", [](Trinity::EnvironmentComponent& environment) { return ImGui::DragFloat("##Rotation", &environment.Rotation, 0.5f, -360.0f, 360.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
+}
+
 void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::SpriteRendererComponent>() || !BeginComponent(Trinity::SpriteRendererComponent::c_TypeName, Trinity::Icons::c_File, true))
@@ -404,7 +480,7 @@ void PropertiesPanel::DrawTextureSlot(Trinity::Entity entity)
     const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f);
     if (ImGui::Button(std::format("{}###Texture", l_Name).c_str(), ImVec2(l_Width, 0.0f)))
     {
-        m_TextureFilter.clear();
+        m_AssetFilter.clear();
         ImGui::OpenPopup(c_TexturePickerPopup);
     }
 
@@ -442,11 +518,11 @@ void PropertiesPanel::DrawTextureSlot(Trinity::Entity entity)
 
     ImGui::EndDisabled();
 
-    DrawTexturePicker(c_TexturePickerPopup, l_Texture, [this, entity](Trinity::UUID texture) { SetTexture(entity, texture); });
+    DrawAssetPicker(c_TexturePickerPopup, Trinity::TextureAsset::c_AssetType, l_Texture, [this, entity](Trinity::UUID texture) { SetTexture(entity, texture); });
 }
 
-// The project's textures by path, narrowed by what is typed
-void PropertiesPanel::DrawTexturePicker(const char* popup, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick)
+// The project's assets of one type by path, narrowed by what is typed
+void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick)
 {
     if (!ImGui::BeginPopup(popup))
     {
@@ -459,28 +535,28 @@ void PropertiesPanel::DrawTexturePicker(const char* popup, Trinity::UUID current
     }
 
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
-    ImGui::InputTextWithHint("##Filter", "Search textures", &m_TextureFilter);
+    ImGui::InputTextWithHint("##Filter", std::format("Search {} assets", assetType).c_str(), &m_AssetFilter);
 
     if (ImGui::Selectable("None"))
     {
         pick({});
     }
 
-    std::vector<const Trinity::AssetRecord*> l_Textures;
+    std::vector<const Trinity::AssetRecord*> l_Assets;
     if (const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry())
     {
         for (const Trinity::AssetRecord* it_Record : l_Registry->GetRecords())
         {
-            const auto a_Matches = [this](const std::string& path) { return m_TextureFilter.empty() || std::ranges::search(path, m_TextureFilter, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).begin() != path.end(); };
-            if (it_Record->Importer == Trinity::TextureAsset::c_AssetType && a_Matches(it_Record->Path))
+            const auto a_Matches = [this](const std::string& path) { return m_AssetFilter.empty() || std::ranges::search(path, m_AssetFilter, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).begin() != path.end(); };
+            if (it_Record->Importer == assetType && a_Matches(it_Record->Path))
             {
-                l_Textures.push_back(it_Record);
+                l_Assets.push_back(it_Record);
             }
         }
     }
 
-    std::ranges::sort(l_Textures, {}, &Trinity::AssetRecord::Path);
-    for (const Trinity::AssetRecord* it_Record : l_Textures)
+    std::ranges::sort(l_Assets, {}, &Trinity::AssetRecord::Path);
+    for (const Trinity::AssetRecord* it_Record : l_Assets)
     {
         if (ImGui::Selectable(std::format("{}###{}", it_Record->Path, it_Record->ID).c_str(), it_Record->ID == current))
         {
@@ -488,9 +564,9 @@ void PropertiesPanel::DrawTexturePicker(const char* popup, Trinity::UUID current
         }
     }
 
-    if (l_Textures.empty())
+    if (l_Assets.empty())
     {
-        ImGui::TextDisabled("No textures in the project match");
+        ImGui::TextDisabled("%s", std::format("No {} assets in the project match", assetType).c_str());
     }
 
     ImGui::EndPopup();
@@ -1045,7 +1121,7 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
         const std::string l_Popup = std::format("##Pick{}", it_Slot.Texture);
         if (ImGui::Button(std::format("{}###Texture", l_Name).c_str(), ImVec2(l_Width, 0.0f)))
         {
-            m_TextureFilter.clear();
+            m_AssetFilter.clear();
             ImGui::OpenPopup(l_Popup.c_str());
         }
 
@@ -1090,7 +1166,7 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
             a_Set({ l_Slot.Texture, static_cast<std::uint32_t>(l_TexCoord) });
         }
 
-        DrawTexturePicker(l_Popup.c_str(), l_Slot.Texture, [&](Trinity::UUID texture) { a_Set({ texture, l_Slot.TexCoord }); });
+        DrawAssetPicker(l_Popup.c_str(), Trinity::TextureAsset::c_AssetType, l_Slot.Texture, [&](Trinity::UUID texture) { a_Set({ texture, l_Slot.TexCoord }); });
         ImGui::PopID();
     }
 }

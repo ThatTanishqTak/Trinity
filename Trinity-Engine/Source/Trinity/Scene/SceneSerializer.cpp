@@ -329,6 +329,20 @@ namespace Trinity
             reader.Read("OuterConeAngle", component.OuterConeAngle);
         }
 
+        void SaveEnvironment(const EnvironmentComponent& component, ComponentWriter& writer)
+        {
+            writer.Write("Environment", component.Environment);
+            writer.Write("Intensity", component.Intensity);
+            writer.Write("Rotation", component.Rotation);
+        }
+
+        void LoadEnvironment(EnvironmentComponent& component, const ComponentReader& reader)
+        {
+            reader.Read("Environment", component.Environment);
+            reader.Read("Intensity", component.Intensity);
+            reader.Read("Rotation", component.Rotation);
+        }
+
         struct FileEntity
         {
             UUID ID;
@@ -851,6 +865,7 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<SpriteRendererComponent, SaveSpriteRenderer, LoadSpriteRenderer>());
             RegisterComponent(MakeComponentSerializer<MeshRendererComponent, SaveMeshRenderer, LoadMeshRenderer>());
             RegisterComponent(MakeComponentSerializer<LightComponent, SaveLight, LoadLight>());
+            RegisterComponent(MakeComponentSerializer<EnvironmentComponent, SaveEnvironment, LoadEnvironment>());
         }
 
         void Shutdown()
