@@ -31,11 +31,12 @@ namespace Trinity
                 VkBool32 T::* Member;
             };
 
-            // What the backend is built on. Descriptor indexing is for the bindless tables, shader draw parameters is what Slang's SV_VertexID needs, and depth clamp and bias clamp are for shadow maps
-            constexpr std::array<RequiredFeature<VkPhysicalDeviceFeatures>, 2> c_Required10
+            // What the backend is built on. Descriptor indexing is for the bindless tables, shader draw parameters is what Slang's SV_VertexID needs, depth clamp and bias clamp are for shadow maps, and independent blend is for an integer target beside a blended one
+            constexpr std::array<RequiredFeature<VkPhysicalDeviceFeatures>, 3> c_Required10
             { {
                 { "depthClamp", &VkPhysicalDeviceFeatures::depthClamp },
-                { "depthBiasClamp", &VkPhysicalDeviceFeatures::depthBiasClamp }
+                { "depthBiasClamp", &VkPhysicalDeviceFeatures::depthBiasClamp },
+                { "independentBlend", &VkPhysicalDeviceFeatures::independentBlend }
             } };
 
             constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan11Features>, 1> c_Required11
@@ -2199,8 +2200,9 @@ namespace Trinity
             const std::uint32_t l_ColorCount = static_cast<std::uint32_t>(std::min<std::size_t>(description.ColorFormats.size(), c_MaxColorAttachments));
             for (std::uint32_t it_Color = 0; it_Color < l_ColorCount; ++it_Color)
             {
+                // An integer target is never blended
                 VkPipelineColorBlendAttachmentState& l_Blend = l_Blends[it_Color];
-                l_Blend.blendEnable = description.AlphaBlend ? VK_TRUE : VK_FALSE;
+                l_Blend.blendEnable = description.AlphaBlend && !IsIntegerFormat(description.ColorFormats[it_Color]) ? VK_TRUE : VK_FALSE;
                 l_Blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
                 l_Blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
                 l_Blend.colorBlendOp = VK_BLEND_OP_ADD;

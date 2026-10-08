@@ -47,6 +47,8 @@ namespace Trinity
 
         bool DrawScene(RHI::CommandList& commands, Scene& scene, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
         void DrawScene(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
+        // Each sprite's entity, as ToPickID gives it, into an R32Uint target, in the order DrawScene draws them, so a pixel holds the sprite on top there
+        void DrawSceneIDs(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, std::uint32_t width, std::uint32_t height);
 
         [[nodiscard]] const Statistics& GetStatistics() const { return m_Statistics; }
 
@@ -78,6 +80,7 @@ namespace Trinity
         void DrawSprites(RHI::CommandList& commands, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
         [[nodiscard]] std::uint32_t ResolveTexture(UUID id);
         [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format targetFormat);
+        [[nodiscard]] RHI::PipelineHandle GetIDPipeline();
 
         RHI::Device& m_Device;
         std::uint32_t m_WhiteTexture = RHI::c_NoBindlessIndex;
@@ -85,9 +88,15 @@ namespace Trinity
         RHI::SamplerHandle m_NearestSampler;
         FileBuffer m_VertexShader;
         FileBuffer m_PixelShader;
+        FileBuffer m_PickVertexShader;
+        FileBuffer m_PickPixelShader;
+        RHI::PipelineHandle m_IDPipeline;
+        bool m_IDPipelineTried = false;
         std::vector<std::pair<RHI::Format, RHI::PipelineHandle>, TaggedAllocator<std::pair<RHI::Format, RHI::PipelineHandle>, MemoryTag::Renderer>> m_Pipelines;
         std::vector<SpriteInstance, TaggedAllocator<SpriteInstance, MemoryTag::Renderer>> m_Instances;
         std::vector<SortKey, TaggedAllocator<SortKey, MemoryTag::Renderer>> m_Keys;
+        // Each instance's entity, as ToPickID gives it, in the same order
+        std::vector<std::uint32_t, TaggedAllocator<std::uint32_t, MemoryTag::Renderer>> m_EntityIDs;
         TextureCache m_Textures;
         Statistics m_Statistics;
         std::uint64_t m_Frame = 0;

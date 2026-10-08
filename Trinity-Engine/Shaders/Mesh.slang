@@ -39,7 +39,7 @@ struct VertexOutput
     float4 Clip : TEXCOORD1;
 };
 
-// The rows of a 3x4 world matrix, then the mesh buffer's bindless index, the material's record, and where the positions, normals and tangents, both UV sets and the colours start, or c_Absent
+// The rows of a 3x4 world matrix, then the mesh buffer's bindless index, the material's record, where the positions, normals and tangents, both UV sets and the colours start, or c_Absent, and the entity, as the ID target holds it
 struct DrawData
 {
     float4 Rows[3];
@@ -50,6 +50,7 @@ struct DrawData
     uint TexCoords0;
     uint TexCoords1;
     uint Colors;
+    uint Entity;
 };
 
 DrawData LoadDraw()
@@ -70,6 +71,7 @@ DrawData LoadDraw()
     l_Draw.TexCoords0 = l_Streams.x;
     l_Draw.TexCoords1 = l_Streams.y;
     l_Draw.Colors = l_Streams.z;
+    l_Draw.Entity = l_Streams.w;
 
     return l_Draw;
 }
@@ -365,8 +367,7 @@ void MaskPixelMain(VertexOutput input)
 }
 
 // glTF's metallic-roughness material lit by the directional lights, then by the point and spot lights of the pixel's cluster, or by every one of them when asked, in light order either way, then by the environment, or with no environment a little ambient light, which alone is occluded. Only a blended material keeps its alpha, which the pipeline blends with. The sun and spot lights with shadow maps are shadowed, compared with the triangle's own plane rather than a normal map's. The environment's radiance is prefiltered for roughness m / (levels - 1) at mip m
-[shader("fragment")]
-float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Target
+float4 Shade(VertexOutput input, bool isFrontFace)
 {
     const FrameConstants l_Frame = LoadFrame();
     const DrawData l_Draw = LoadDraw();
@@ -507,4 +508,27 @@ float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Targ
     }
 
     return float4(l_Color, l_Material.GetAlphaMode() == c_AlphaModeBlend ? l_BaseColor.a : 1.0);
+}
+
+[shader("fragment")]
+float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Target
+{
+    return Shade(input, isFrontFace);
+}
+
+struct PickOutput
+{
+    float4 Color : SV_Target0;
+    uint Entity : SV_Target1;
+};
+
+// The shaded colour, and the draw's entity into the ID target beside it, which is never blended, so a blended surface owns its pixels there as an opaque one does
+[shader("fragment")]
+PickOutput PickPixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace)
+{
+    PickOutput l_Output;
+    l_Output.Color = Shade(input, isFrontFace);
+    l_Output.Entity = LoadDraw().Entity;
+
+    return l_Output;
 }

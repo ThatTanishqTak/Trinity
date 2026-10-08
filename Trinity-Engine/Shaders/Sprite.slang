@@ -2,7 +2,7 @@
 #include "Bindless.slang"
 #include "Color.slang"
 
-// The view-projection as four columns, as glm stores it, so no matrix layout convention is involved
+// The view-projection as four columns, as glm stores it, so no matrix layout convention is involved. The entities follow the instances, one 32-bit ID each, in the ID pass alone
 struct PushData
 {
     float4 ViewProjection[4];
@@ -10,7 +10,7 @@ struct PushData
     DescriptorHandle<SamplerState> LinearSampler;
     DescriptorHandle<SamplerState> NearestSampler;
     uint InstanceOffset;
-    uint Padding;
+    uint EntityOffset;
 };
 
 [[vk::push_constant]] ConstantBuffer<PushData> g_Push;
@@ -35,6 +35,11 @@ float4 UnpackColor(uint color)
 // Four vertices as a triangle strip over a unit quad centred on the origin: bottom left, bottom right, top left, top right
 [shader("vertex")]
 VertexOutput VertexMain(uint vertexIndex: SV_VertexID, uint instanceIndex: SV_InstanceID)
+{
+    return TransformSprite(vertexIndex, instanceIndex);
+}
+
+VertexOutput TransformSprite(uint vertexIndex, uint instanceIndex)
 {
     ByteAddressBuffer l_Instances = g_Push.Instances;
     const uint l_Address = g_Push.InstanceOffset + instanceIndex * c_InstanceStride;
@@ -73,4 +78,30 @@ float4 PixelMain(VertexOutput input) : SV_Target
     SamplerState l_Sampler = nonuniform(l_SamplerHandle);
 
     return input.Color * l_Texture.Sample(l_Sampler, input.TexCoord);
+}
+
+struct PickVertexOutput
+{
+    float4 Position : SV_Position;
+    nointerpolation uint Entity : TEXCOORD0;
+};
+
+// The same quad, and the sprite's entity
+[shader("vertex")]
+PickVertexOutput PickVertexMain(uint vertexIndex: SV_VertexID, uint instanceIndex: SV_InstanceID)
+{
+    ByteAddressBuffer l_Instances = g_Push.Instances;
+
+    PickVertexOutput l_Output;
+    l_Output.Position = TransformSprite(vertexIndex, instanceIndex).Position;
+    l_Output.Entity = l_Instances.Load(g_Push.EntityOffset + instanceIndex * 4);
+
+    return l_Output;
+}
+
+// The whole quad, whatever its texture's alpha, as PickSprite counts it
+[shader("fragment")]
+uint PickPixelMain(PickVertexOutput input) : SV_Target
+{
+    return input.Entity;
 }

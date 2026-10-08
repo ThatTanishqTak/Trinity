@@ -1982,11 +1982,13 @@ namespace Trinity
             l_Description.PrimitiveTopologyType = ToTopologyType(description.Topology);
             l_Description.SampleDesc.Count = description.SampleCount;
 
+            // An integer target is never blended, so blending is set for each target
             l_Description.NumRenderTargets = static_cast<UINT>(std::min<std::size_t>(description.ColorFormats.size(), c_MaxColorAttachments));
+            l_Description.BlendState.IndependentBlendEnable = TRUE;
             for (UINT it_Target = 0; it_Target < l_Description.NumRenderTargets; ++it_Target)
             {
                 D3D12_RENDER_TARGET_BLEND_DESC& l_Blend = l_Description.BlendState.RenderTarget[it_Target];
-                l_Blend.BlendEnable = description.AlphaBlend ? TRUE : FALSE;
+                l_Blend.BlendEnable = description.AlphaBlend && !IsIntegerFormat(description.ColorFormats[it_Target]) ? TRUE : FALSE;
                 l_Blend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
                 l_Blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
                 l_Blend.BlendOp = D3D12_BLEND_OP_ADD;

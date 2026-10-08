@@ -14,9 +14,12 @@
 #include "Trinity/Renderer/GraphicsAPI.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <format>
+#include <optional>
 #include <span>
 #include <utility>
+#include <vector>
 
 namespace Trinity
 {
@@ -36,6 +39,41 @@ namespace Trinity
         };
 
         static_assert(sizeof(TonemapPushData) == 16);
+
+        // Laid out as EntityPick.slang reads it
+        struct PickPushData
+        {
+            std::uint32_t Sprites = 0;
+            std::uint32_t Meshes = 0;
+            std::uint32_t MeshSamples = 0;
+            std::uint32_t Padding = 0;
+            std::array<std::int32_t, 2> Pixel{};
+            std::array<std::uint32_t, 2> Output{};
+        };
+
+        static_assert(sizeof(PickPushData) == 32);
+
+        // Laid out as SelectionOutline.slang reads it
+        struct OutlinePushData
+        {
+            std::uint32_t Sprites = 0;
+            std::uint32_t Meshes = 0;
+            std::uint32_t MeshSamples = 0;
+            std::uint32_t SelectedCount = 0;
+            std::array<std::uint32_t, 2> Selected{};
+            std::uint32_t SelectedOffset = 0;
+            std::uint32_t Padding = 0;
+            std::array<std::int32_t, 2> Size{};
+            std::array<std::int32_t, 2> Padding2{};
+            std::array<float, 4> Color{};
+        };
+
+        static_assert(sizeof(OutlinePushData) == 64);
+
+        // One entity ID, in a buffer of the size a copy is safe with on every backend
+        constexpr std::uint64_t c_PickSize = 16;
+        // The orange an editor marks its selection with, sRGB-encoded as the display target is
+        constexpr std::array<float, 4> c_OutlineColor{ 1.0f, 0.627f, 0.157f, 1.0f };
 
         // What the graph is told about a window's texture or an offscreen target it imports, of which it only reads the size
         RHI::TextureDescription GetOutputDescription(std::uint32_t width, std::uint32_t height, RHI::Format format)
@@ -81,6 +119,7 @@ namespace Trinity
         CreateSceneTarget();
         m_CopyPipeline = CreateFullscreenPipeline("SceneCopy", GetOutputFormat(), "Renderer scene copy", "the output only shows the clear colour");
         m_TonemapPipeline = CreateFullscreenPipeline("Tonemap", c_DisplayFormat, "Renderer tonemap", "the scene is shown as black");
+        CreatePicking();
 
         // Textures, materials, meshes and environments need this device, so their loaders live exactly as long as the renderer. Materials keep textures loaded, so they go before textures do
         m_TextureLoader = CreateScope<TextureLoader>(m_Device);
@@ -130,6 +169,13 @@ namespace Trinity
         m_Outputs.clear();
         m_SwapChain.reset();
         m_Device.DestroyPipeline(m_TonemapPipeline);
+        m_Device.DestroyPipeline(m_PickPipeline);
+        m_Device.DestroyPipeline(m_OutlinePipeline);
+        for (const RHI::BufferHandle it_Readback : m_PickReadbacks)
+        {
+            m_Device.DestroyBuffer(it_Readback);
+        }
+
         m_Device.DestroyPipeline(m_CopyPipeline);
         m_Device.DestroyTexture(m_DisplayTarget);
         m_Device.DestroyTexture(m_SceneTarget);
@@ -149,6 +195,7 @@ namespace Trinity
         FollowWindow();
 
         RHI::CommandList& l_Commands = m_Device.BeginFrame();
+        ReadPick();
         m_TextureLoader->RecordUploads(l_Commands);
         m_MaterialLoader->RecordUploads(l_Commands);
         m_MeshLoader->RecordUploads(l_Commands);
@@ -167,6 +214,7 @@ namespace Trinity
         BuildFrameGraph(layers);
         m_FrameGraph->Execute(l_Commands);
         m_SceneSubmitted = false;
+        m_SubmittedScene = nullptr;
         m_SceneState = m_SceneTarget ? RHI::ResourceState::ShaderResource : RHI::ResourceState::Undefined;
         m_DisplayState = m_SceneTarget && m_DisplayTarget ? RHI::ResourceState::ShaderResource : m_DisplayState;
 
@@ -199,13 +247,14 @@ namespace Trinity
         l_Graph.Reset();
 
         FrameGraphTexture l_Scene;
+        Renderer3D::Passes l_Passes;
         if (m_SceneTarget)
         {
             const std::array<float, 4> l_Clear{ SrgbToLinear(m_ClearColor[0]), SrgbToLinear(m_ClearColor[1]), SrgbToLinear(m_ClearColor[2]), m_ClearColor[3] };
             l_Scene = l_Graph.ImportTexture("Scene", m_SceneTarget, m_SceneDescription, m_SceneState, RHI::ResourceState::ShaderResource);
             if (m_SceneSubmitted)
             {
-                static_cast<void>(m_Renderer3D->AddPasses(l_Graph, m_SceneDraws, l_Scene, m_SceneDescription, l_Clear, m_SceneOptions));
+                l_Passes = m_Renderer3D->AddPasses(l_Graph, m_SceneDraws, l_Scene, m_SceneDescription, l_Clear, m_SceneOptions);
             }
 
             const RHI::LoadOp l_Load = m_SceneSubmitted ? RHI::LoadOp::Load : RHI::LoadOp::Clear;
@@ -218,6 +267,8 @@ namespace Trinity
                 }
             });
         }
+
+        const EntityTargets l_Entities = l_Scene && m_SceneSubmitted && m_SceneOptions.EntityIDs && m_SubmittedScene != nullptr ? AddEntityPasses(l_Graph, l_Passes) : EntityTargets{};
 
         {
             TR_PROFILE_SCOPE("LayerStack::OnBuildFrameGraph");
@@ -232,6 +283,10 @@ namespace Trinity
         {
             l_Display = l_Graph.ImportTexture("Display", m_DisplayTarget, m_DisplayDescription, m_DisplayState, RHI::ResourceState::ShaderResource);
             AddTonemapPass(l_Graph, l_Scene, l_Display, m_ToneMapping);
+            if (l_Entities.Sprites)
+            {
+                AddOutlinePass(l_Graph, l_Entities, l_Display);
+            }
         }
 
         const RHI::TextureHandle l_Output = m_SwapChain ? m_SwapChain->AcquireNextTexture() : m_OffscreenTarget;
@@ -247,7 +302,160 @@ namespace Trinity
     {
         m_Renderer3D->Collect(scene, view, m_SceneDraws);
         m_SceneOptions = options;
+        m_SubmittedScene = &scene;
         m_SceneSubmitted = true;
+    }
+
+    // The sprites' entities, through the view the scene was submitted with, into a target of their own, since they are drawn into the single-sampled scene after the meshes. Then, when a pixel is asked about, its entity is copied into this frame's readback slot. Nothing reads the sprites' target when nothing is picked or outlined, so the graph culls its pass
+    Renderer::EntityTargets Renderer::AddEntityPasses(FrameGraph& graph, const Renderer3D::Passes& passes)
+    {
+        const std::uint32_t l_Width = m_SceneDescription.Width;
+        const std::uint32_t l_Height = m_SceneDescription.Height;
+
+        EntityTargets l_Targets;
+        l_Targets.Meshes = passes.EntityIDs;
+        l_Targets.MeshSamples = passes.EntityIDs ? passes.SampleCount : 0;
+
+        RHI::TextureDescription l_Description;
+        l_Description.Width = l_Width;
+        l_Description.Height = l_Height;
+        l_Description.TextureFormat = Renderer3D::c_EntityIDFormat;
+        l_Description.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+        l_Description.DebugName = "Sprite entity IDs";
+        l_Targets.Sprites = graph.CreateTexture("Sprite entity IDs", l_Description);
+
+        const FrameGraphTexture l_Sprites = l_Targets.Sprites;
+        Scene* l_Scene = m_SubmittedScene;
+        const glm::mat4 l_ViewProjection = m_SceneDraws.View.ViewProjection;
+        graph.AddPass("Sprite entity IDs", FrameGraphPassType::Raster, [l_Sprites](FrameGraphPassBuilder& builder)
+        {
+            builder.AddColorAttachment({ l_Sprites, RHI::LoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } });
+        }, [this, l_Scene, l_ViewProjection, l_Width, l_Height](const FrameGraphContext& context)
+        {
+            m_Renderer2D->DrawSceneIDs(context.GetCommands(), *l_Scene, l_ViewProjection, l_Width, l_Height);
+        });
+
+        const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
+        const std::optional<glm::uvec2> l_Pixel = m_SceneOptions.PickPixel;
+        if (!l_Pixel || l_Pixel->x >= l_Width || l_Pixel->y >= l_Height || !m_PickPipeline || !m_PickReadbacks[l_Slot])
+        {
+            return l_Targets;
+        }
+
+        m_PickPixels[l_Slot] = *l_Pixel;
+        const FrameGraphTexture l_Meshes = l_Targets.Meshes;
+        const std::uint32_t l_MeshSamples = l_Targets.MeshSamples;
+        const FrameGraphBuffer l_Picked = graph.CreateBuffer("Picked entity", c_PickSize);
+        const FrameGraphBuffer l_Readback = graph.ImportBuffer("Picked entity readback", m_PickReadbacks[l_Slot], c_PickSize, RHI::ResourceState::CopyDestination, RHI::ResourceState::CopyDestination);
+        const RHI::PipelineHandle l_Pipeline = m_PickPipeline;
+        graph.AddPass("Entity pick", FrameGraphPassType::Compute, [l_Sprites, l_Meshes, l_Picked](FrameGraphPassBuilder& builder)
+        {
+            builder.Read(l_Sprites, RHI::ResourceState::ShaderResource);
+            if (l_Meshes)
+            {
+                builder.Read(l_Meshes, RHI::ResourceState::ShaderResource);
+            }
+
+            builder.Write(l_Picked, RHI::ResourceState::UnorderedAccess);
+        }, [l_Sprites, l_Meshes, l_MeshSamples, l_Picked, l_Pipeline, l_Pixel](const FrameGraphContext& context)
+        {
+            PickPushData l_Push;
+            l_Push.Sprites = context.GetDevice().GetShaderResourceIndex(context.GetTexture(l_Sprites));
+            l_Push.Meshes = l_Meshes ? context.GetDevice().GetShaderResourceIndex(context.GetTexture(l_Meshes)) : 0;
+            l_Push.MeshSamples = l_MeshSamples;
+            l_Push.Pixel = { static_cast<std::int32_t>(l_Pixel->x), static_cast<std::int32_t>(l_Pixel->y) };
+            l_Push.Output = { context.GetDevice().GetUnorderedAccessIndex(context.GetBuffer(l_Picked)), 0 };
+
+            context.GetCommands().SetPipeline(l_Pipeline);
+            context.GetCommands().PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+            context.GetCommands().Dispatch(1, 1, 1);
+        });
+
+        graph.AddPass("Entity pick readback", FrameGraphPassType::Copy, [l_Picked, l_Readback](FrameGraphPassBuilder& builder)
+        {
+            builder.Read(l_Picked, RHI::ResourceState::CopySource);
+            builder.Write(l_Readback, RHI::ResourceState::CopyDestination);
+            builder.SetSideEffect();
+        }, [l_Picked, l_Readback](const FrameGraphContext& context)
+        {
+            context.GetCommands().CopyBuffer(context.GetBuffer(l_Picked), 0, context.GetBuffer(l_Readback), 0, c_PickSize);
+        });
+
+        return l_Targets;
+    }
+
+    // Around the entities the scene asked to outline, over the tonemapped image and under the UI. Their IDs go into the upload ring sorted, for the shader's binary search
+    void Renderer::AddOutlinePass(FrameGraph& graph, const EntityTargets& targets, FrameGraphTexture display)
+    {
+        std::vector<std::uint32_t> l_Outlined(m_SceneOptions.Outlined.begin(), m_SceneOptions.Outlined.end());
+        std::erase(l_Outlined, ToPickID(entt::null));
+        std::ranges::sort(l_Outlined);
+        l_Outlined.erase(std::ranges::unique(l_Outlined).begin(), l_Outlined.end());
+        if (l_Outlined.empty() || !m_OutlinePipeline)
+        {
+            return;
+        }
+
+        const RHI::UploadAllocation l_Upload = m_Device.AllocateUpload(l_Outlined.size() * sizeof(std::uint32_t), 16);
+        if (l_Upload.Data.empty() || l_Upload.ShaderResourceIndex == RHI::c_NoBindlessIndex)
+        {
+            TR_CORE_ERROR("Renderer: no upload memory for {} outlined entities, so the selection is not outlined this frame", l_Outlined.size());
+
+            return;
+        }
+
+        std::memcpy(l_Upload.Data.data(), l_Outlined.data(), l_Outlined.size() * sizeof(std::uint32_t));
+
+        OutlinePushData l_Push;
+        l_Push.MeshSamples = targets.MeshSamples;
+        l_Push.SelectedCount = static_cast<std::uint32_t>(l_Outlined.size());
+        l_Push.Selected = { l_Upload.ShaderResourceIndex, 0 };
+        l_Push.SelectedOffset = static_cast<std::uint32_t>(l_Upload.Offset);
+        l_Push.Size = { static_cast<std::int32_t>(m_SceneDescription.Width), static_cast<std::int32_t>(m_SceneDescription.Height) };
+        l_Push.Color = c_OutlineColor;
+
+        const FrameGraphTexture l_Sprites = targets.Sprites;
+        const FrameGraphTexture l_Meshes = targets.Meshes;
+        const RHI::PipelineHandle l_Pipeline = m_OutlinePipeline;
+        graph.AddPass("Selection outline", FrameGraphPassType::Raster, [display, l_Sprites, l_Meshes](FrameGraphPassBuilder& builder)
+        {
+            builder.AddColorAttachment({ display, RHI::LoadOp::Load });
+            builder.Read(l_Sprites, RHI::ResourceState::ShaderResource);
+            if (l_Meshes)
+            {
+                builder.Read(l_Meshes, RHI::ResourceState::ShaderResource);
+            }
+        }, [l_Push, l_Sprites, l_Meshes, l_Pipeline](const FrameGraphContext& context)
+        {
+            OutlinePushData l_Data = l_Push;
+            l_Data.Sprites = context.GetDevice().GetShaderResourceIndex(context.GetTexture(l_Sprites));
+            l_Data.Meshes = l_Meshes ? context.GetDevice().GetShaderResourceIndex(context.GetTexture(l_Meshes)) : 0;
+
+            context.GetCommands().SetPipeline(l_Pipeline);
+            context.GetCommands().PushConstants(std::as_bytes(std::span(&l_Data, 1)));
+            context.GetCommands().Draw(3, 1, 0, 0);
+        });
+    }
+
+    // What the frame that last used this slot asked about. That frame is c_FramesInFlight behind, and BeginFrame has waited for it, so its copy is done and reading it never stalls
+    void Renderer::ReadPick()
+    {
+        const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
+        const std::optional<glm::uvec2> l_Pixel = std::exchange(m_PickPixels[l_Slot], std::nullopt);
+        if (!l_Pixel)
+        {
+            return;
+        }
+
+        const std::span<const std::byte> l_Data = m_Device.GetMappedData(m_PickReadbacks[l_Slot]);
+        if (l_Data.size() < sizeof(std::uint32_t))
+        {
+            return;
+        }
+
+        std::uint32_t l_ID = 0;
+        std::memcpy(&l_ID, l_Data.data(), sizeof(l_ID));
+        m_PickResult = PickResult{ *l_Pixel, FromPickID(l_ID) };
     }
 
     void Renderer::AddTonemapPass(FrameGraph& graph, FrameGraphTexture scene, FrameGraphTexture target, const ToneMapping& toneMapping) const
@@ -584,7 +792,7 @@ namespace Trinity
     }
 
     // One triangle over the whole target from a shader's VertexMain and PixelMain, as the scene copy and the tonemap are drawn
-    RHI::PipelineHandle Renderer::CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence)
+    RHI::PipelineHandle Renderer::CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence, bool alphaBlend)
     {
         const std::string_view l_Extension = m_Device.GetInfo().API == GraphicsAPI::D3D12 ? "dxil" : "spv";
         const Expected<FileBuffer, FileError> l_VertexShader = FileSystem::ReadFile(std::format("/engine/shaders/{}.VertexMain.{}", shader, l_Extension));
@@ -603,6 +811,7 @@ namespace Trinity
         l_Description.PixelShader = { *l_PixelShader, "PixelMain" };
         l_Description.ColorFormats = l_ColorFormats;
         l_Description.Cull = RHI::CullMode::None;
+        l_Description.AlphaBlend = alphaBlend;
         l_Description.DebugName = debugName;
 
         const RHI::PipelineHandle l_Pipeline = m_Device.CreateGraphicsPipeline(l_Description);
@@ -612,6 +821,37 @@ namespace Trinity
         }
 
         return l_Pipeline;
+    }
+
+    // The pick's compute pipeline, the outline's, and a readback buffer for each frame in flight
+    void Renderer::CreatePicking()
+    {
+        const std::string_view l_Extension = m_Device.GetInfo().API == GraphicsAPI::D3D12 ? "dxil" : "spv";
+        const Expected<FileBuffer, FileError> l_Pick = FileSystem::ReadFile(std::format("/engine/shaders/EntityPick.PickEntity.{}", l_Extension));
+        if (l_Pick)
+        {
+            RHI::ComputePipelineDescription l_Description;
+            l_Description.ComputeShader = { *l_Pick, "PickEntity" };
+            l_Description.DebugName = "Entity pick";
+            m_PickPipeline = m_Device.CreateComputePipeline(l_Description);
+        }
+
+        if (!m_PickPipeline)
+        {
+            TR_CORE_INFO("Renderer: no {} EntityPick shader under /engine/shaders, so nothing can be picked", l_Extension);
+        }
+
+        m_OutlinePipeline = CreateFullscreenPipeline("SelectionOutline", c_DisplayFormat, "Selection outline", "the selection is not outlined", true);
+
+        RHI::BufferDescription l_Readback;
+        l_Readback.Size = c_PickSize;
+        l_Readback.Usage = RHI::BufferUsage::CopyDestination;
+        l_Readback.Memory = RHI::MemoryType::Readback;
+        l_Readback.DebugName = "Picked entity readback";
+        for (RHI::BufferHandle& it_Readback : m_PickReadbacks)
+        {
+            it_Readback = m_Device.CreateBuffer(l_Readback);
+        }
     }
 
     // The frame rate is added again at the next report

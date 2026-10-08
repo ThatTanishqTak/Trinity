@@ -32,8 +32,6 @@ namespace
     constexpr float c_StatsMargin = 8.0f;
 
     constexpr ImU32 c_CameraOutlineColor = IM_COL32(255, 255, 255, 200);
-    constexpr ImU32 c_SelectionOutlineColor = IM_COL32(255, 160, 40, 255);
-    constexpr float c_SelectionThickness = 2.0f;
 
     // A dropped texture's sprite is this many of its pixels to a world unit
     constexpr float c_PixelsPerUnit = 100.0f;
@@ -216,24 +214,6 @@ namespace
         return l_Corners;
     }
 
-    // Where a ray first enters a box, as a multiple of its direction, or nothing when it misses the box or starts inside it
-    std::optional<float> IntersectBox(const glm::vec3& origin, const glm::vec3& direction, const Trinity::MeshBounds& bounds)
-    {
-        const glm::vec3 l_Inverse = 1.0f / direction;
-        const glm::vec3 l_ToMin = (bounds.Min - origin) * l_Inverse;
-        const glm::vec3 l_ToMax = (bounds.Max - origin) * l_Inverse;
-        const glm::vec3 l_Enter = glm::min(l_ToMin, l_ToMax);
-        const glm::vec3 l_Exit = glm::max(l_ToMin, l_ToMax);
-        const float l_First = std::max({ l_Enter.x, l_Enter.y, l_Enter.z });
-        const float l_Last = std::min({ l_Exit.x, l_Exit.y, l_Exit.z });
-        if (!(l_First <= l_Last) || l_First <= 0.0f)
-        {
-            return std::nullopt;
-        }
-
-        return l_First;
-    }
-
     // A world point in pixels from the image's top-left corner, or nothing when it is behind the eye
     std::optional<glm::vec2> ProjectPoint(const glm::mat4& viewProjection, const glm::vec3& point, glm::vec2 viewportSize)
     {
@@ -344,7 +324,7 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
-// The scene's meshes, submitted before the frame graph is built: through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them, or through the scene's primary camera. A scene without one shows nothing through it. Transforms are brought up to date first, since the UI may have changed them
+// The scene's meshes, submitted before the frame graph is built: through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them, or through the scene's primary camera. A scene without one shows nothing through it. Through the editor camera every entity is drawn into ID targets too, for a click to pick from and the selection's outline. Transforms are brought up to date first, since the UI may have changed them
 void ViewportPanel::PrepareScene()
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -390,6 +370,13 @@ void ViewportPanel::PrepareScene()
     Trinity::SceneOptions l_Options;
     l_Options.LightHeatmap = m_LightHeatmap;
     l_Options.SampleCount = Trinity::Renderer3D::c_SampleCount;
+    if (!m_SceneCameraView)
+    {
+        l_Options.EntityIDs = true;
+        l_Options.PickPixel = std::exchange(m_PickPixel, std::nullopt);
+        l_Options.Outlined = GetOutlined();
+    }
+
     if (m_Mode3D && !m_SceneCameraView)
     {
         l_Options.Overlay = [this](Trinity::RHI::CommandList& commands, const Trinity::RenderView& view, Trinity::RHI::Format colorFormat, std::uint32_t sampleCount) { m_Grid3D.Draw(commands, view, colorFormat, sampleCount); };
@@ -427,6 +414,7 @@ void ViewportPanel::RenderScene(Trinity::RHI::CommandList& commands)
 void ViewportPanel::OnImGuiRender()
 {
     FollowScene();
+    ApplyPick();
 
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
     const std::uint32_t l_Width = static_cast<std::uint32_t>(std::max(std::floor(l_Available.x), 1.0f));
@@ -531,6 +519,8 @@ void ViewportPanel::FollowScene()
     const bool l_WasUntitled = !m_SceneID;
     m_SceneID = l_SceneID;
     m_CameraDirty = false;
+    m_PickPixel.reset();
+    m_PicksPending = 0;
     if (!m_SceneID)
     {
         m_Camera.Reset();
@@ -625,8 +615,7 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
     // A click on the gizmo is the gizmo's, not a pick
     if (hovered && !m_GizmoHovered && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
-        const Trinity::Entity l_Picked = Trinity::PickSprite(m_Session.GetScene(), m_Camera.ScreenToWorld(l_Mouse, viewportSize));
-        m_Session.SetSelection(l_Picked ? l_Picked.Get<Trinity::IDComponent>().ID : Trinity::UUID());
+        RequestPick(l_Mouse, viewportSize);
     }
 }
 
@@ -713,11 +702,17 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
         HandleGizmoKeys();
     }
 
-    // A click on the gizmo is the gizmo's, and one with Alt held begins an orbit, so neither is a pick
+    // A click on the gizmo is the gizmo's, and one with Alt held begins an orbit, so neither is a pick. A light's marker is picked at once, and anything else through the entity IDs
     if (hovered && !l_IO.KeyAlt && !m_GizmoHovered && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
-        const Trinity::Entity l_Picked = Pick3D(l_Mouse, viewportSize);
-        m_Session.SetSelection(l_Picked ? l_Picked.GetUUID() : Trinity::UUID());
+        if (const Trinity::Entity l_Light = PickLight(l_Mouse, viewportSize))
+        {
+            m_Session.SetSelection(l_Light.GetUUID());
+        }
+        else
+        {
+            RequestPick(l_Mouse, viewportSize);
+        }
     }
 }
 
@@ -741,13 +736,11 @@ void ViewportPanel::HandleGizmoKeys()
     }
 }
 
-// What the mouse's ray meets first. A light's marker comes before anything else, since a light has no surface to click. Then the nearest of the meshes' submesh bounds and the sprites' quads, passing over boxes the eye is inside, so a mesh around the camera never hides what is in front of it. ID-buffer picking will take over from these bounds
-Trinity::Entity ViewportPanel::Pick3D(glm::vec2 mouse, glm::vec2 viewportSize)
+// The light whose marker is nearest the mouse, within a few pixels. A light has no surface to draw an ID on, so it is picked here rather than through the entity IDs
+Trinity::Entity ViewportPanel::PickLight(glm::vec2 mouse, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
     Trinity::SceneRegistry& l_Registry = l_Scene.GetRegistry();
-    const glm::vec3 l_Origin = m_Camera3D.GetPosition();
-    const glm::vec3 l_Direction = m_Camera3D.GetRayDirection(mouse, viewportSize);
     const glm::mat4 l_ViewProjection = m_Camera3D.GetProjection(viewportSize) * m_Camera3D.GetView();
 
     entt::entity l_Hit = entt::null;
@@ -762,55 +755,59 @@ Trinity::Entity ViewportPanel::Pick3D(glm::vec2 mouse, glm::vec2 viewportSize)
         }
     }
 
-    if (l_Hit != entt::null)
-    {
-        return Trinity::Entity(l_Hit, &l_Scene);
-    }
-
-    float l_Nearest = std::numeric_limits<float>::max();
-    for (const auto [it_Entity, it_MeshRenderer, it_World] : l_Registry.view<Trinity::MeshRendererComponent, Trinity::WorldTransformComponent>().each())
-    {
-        const Trinity::MeshAsset* l_Mesh = GetLoadedMesh(it_MeshRenderer.Mesh);
-        if (l_Mesh == nullptr)
-        {
-            continue;
-        }
-
-        // The ray in the mesh's own space, where its bounds are boxes. Its distances stay those of the world ray
-        const glm::mat4 l_Inverse = glm::inverse(it_World.Matrix);
-        const glm::vec3 l_LocalOrigin(l_Inverse * glm::vec4(l_Origin, 1.0f));
-        const glm::vec3 l_LocalDirection(l_Inverse * glm::vec4(l_Direction, 0.0f));
-        for (const Trinity::Submesh& it_Submesh : l_Mesh->GetSubmeshes())
-        {
-            const std::optional<float> l_Distance = IntersectBox(l_LocalOrigin, l_LocalDirection, it_Submesh.Bounds);
-            if (l_Distance && *l_Distance < l_Nearest)
-            {
-                l_Nearest = *l_Distance;
-                l_Hit = it_Entity;
-            }
-        }
-    }
-
-    for (const auto [it_Entity, it_Sprite, it_World] : l_Registry.view<Trinity::SpriteRendererComponent, Trinity::WorldTransformComponent>().each())
-    {
-        const glm::mat4 l_Inverse = glm::inverse(it_World.Matrix);
-        const glm::vec3 l_LocalOrigin(l_Inverse * glm::vec4(l_Origin, 1.0f));
-        const glm::vec3 l_LocalDirection(l_Inverse * glm::vec4(l_Direction, 0.0f));
-        if (std::abs(l_LocalDirection.z) < 1e-12f)
-        {
-            continue;
-        }
-
-        const float l_Distance = -l_LocalOrigin.z / l_LocalDirection.z;
-        const glm::vec3 l_Point = l_LocalOrigin + l_LocalDirection * l_Distance;
-        if (l_Distance > 0.0f && l_Distance < l_Nearest && std::abs(l_Point.x) <= 0.5f && std::abs(l_Point.y) <= 0.5f)
-        {
-            l_Nearest = l_Distance;
-            l_Hit = it_Entity;
-        }
-    }
-
     return l_Hit != entt::null ? Trinity::Entity(l_Hit, &l_Scene) : Trinity::Entity();
+}
+
+// The pixel under the mouse, read from the entity IDs the next frame draws. The answer comes back a frame or two later, and selects whatever was drawn there, a sprite over a mesh as they are seen
+void ViewportPanel::RequestPick(glm::vec2 mouse, glm::vec2 viewportSize)
+{
+    if (mouse.x < 0.0f || mouse.y < 0.0f || mouse.x >= viewportSize.x || mouse.y >= viewportSize.y)
+    {
+        return;
+    }
+
+    m_PickPixel = glm::uvec2(mouse);
+    ++m_PicksPending;
+}
+
+// Each pick that comes back selects its entity, or nothing where nothing was drawn or the entity has gone since, in the order the clicks were made. One no longer awaited, since the scene changed, is dropped
+void ViewportPanel::ApplyPick()
+{
+    const std::optional<Trinity::PickResult> l_Result = Trinity::Application::Get().GetRenderer().TakePickResult();
+    if (!l_Result || m_PicksPending == 0)
+    {
+        return;
+    }
+
+    --m_PicksPending;
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    const bool l_Valid = l_Result->Entity != entt::null && l_Scene.GetRegistry().valid(l_Result->Entity);
+    m_Session.SetSelection(l_Valid ? Trinity::Entity(l_Result->Entity, &l_Scene).GetUUID() : Trinity::UUID());
+}
+
+// The selected entity and everything under it, so selecting a model's root outlines the whole model
+std::vector<std::uint32_t> ViewportPanel::GetOutlined()
+{
+    std::vector<std::uint32_t> l_Outlined;
+    const Trinity::Entity l_Selected = m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection());
+    if (!l_Selected)
+    {
+        return l_Outlined;
+    }
+
+    std::vector<Trinity::Entity> l_Pending{ l_Selected };
+    while (!l_Pending.empty())
+    {
+        const Trinity::Entity l_Entity = l_Pending.back();
+        l_Pending.pop_back();
+        l_Outlined.push_back(Trinity::ToPickID(l_Entity.GetHandle()));
+        for (Trinity::Entity it_Child = l_Entity.GetFirstChild(); it_Child; it_Child = it_Child.GetNextSibling())
+        {
+            l_Pending.push_back(it_Child);
+        }
+    }
+
+    return l_Outlined;
 }
 
 // The selected sprite's rotated rectangle, or with nothing selected every sprite in the scene. An empty scene frames the origin
@@ -1015,7 +1012,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
     ImGui::EndDragDropTarget();
 }
 
-// The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them, and the selected sprite's rectangle. Corners snap to pixel centres so one-pixel lines stay sharp
+// The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them. Corners snap to pixel centres so one-pixel lines stay sharp. The selection is outlined from the entity IDs
 void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1048,15 +1045,9 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
 
         break;
     }
-
-    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
-    if (l_Selected && l_Selected.Has<Trinity::SpriteRendererComponent>())
-    {
-        a_DrawQuad(GetSpriteCorners(l_Selected.Get<Trinity::WorldTransformComponent>().Matrix), c_SelectionOutlineColor, c_SelectionThickness);
-    }
 }
 
-// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light, since nothing else shows where one is, and for the selected entity its reach as a light, a point light's range as three circles, a spot light's cones and the way a directional light shines, or its bounds as a mesh or its quad as a sprite. Lines are cut where they pass behind the eye
+// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light, since nothing else shows where one is, and for a selected light its reach: a point light's range as three circles, a spot light's cones and the way a directional light shines. Lines are cut where they pass behind the eye. The selection itself is outlined from the entity IDs
 void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1203,25 +1194,6 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
                 a_Line(l_Position, l_Position + l_Forward * (l_Size * 1.5f), l_Color, 2.0f);
                 break;
             }
-        }
-    }
-
-    const Trinity::MeshAsset* l_Mesh = l_Selected.Has<Trinity::MeshRendererComponent>() ? GetLoadedMesh(l_Selected.Get<Trinity::MeshRendererComponent>().Mesh) : nullptr;
-    if (l_Mesh != nullptr)
-    {
-        const std::array<glm::vec3, 8> l_Corners = GetBoxCorners(l_Mesh->GetBounds(), l_World);
-        for (const auto [it_From, it_To] : { std::pair{ 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 }, { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } })
-        {
-            a_Line(l_Corners[static_cast<std::size_t>(it_From)], l_Corners[static_cast<std::size_t>(it_To)], c_SelectionOutlineColor, c_SelectionThickness);
-        }
-    }
-
-    if (l_Selected.Has<Trinity::SpriteRendererComponent>())
-    {
-        const std::array<glm::vec3, 4> l_Corners = GetSpriteCorners3D(l_World);
-        for (std::size_t it_Corner = 0; it_Corner < l_Corners.size(); ++it_Corner)
-        {
-            a_Line(l_Corners[it_Corner], l_Corners[(it_Corner + 1) % l_Corners.size()], c_SelectionOutlineColor, c_SelectionThickness);
         }
     }
 }

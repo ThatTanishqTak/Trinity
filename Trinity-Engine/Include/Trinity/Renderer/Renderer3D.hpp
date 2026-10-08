@@ -9,6 +9,7 @@
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Renderer/FrameGraph.hpp"
+#include "Trinity/Renderer/PickID.hpp"
 #include "Trinity/RHI/Device.hpp"
 
 #include <glm/glm.hpp>
@@ -16,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -90,6 +92,8 @@ namespace Trinity
     struct MeshDraw
     {
         UUID Entity;
+        // The entity as ToPickID gives it, which the ID target holds
+        std::uint32_t PickID = 0;
         const MeshAsset* Mesh = nullptr;
         std::uint32_t Submesh = 0;
         std::uint32_t Material = 0;
@@ -216,6 +220,12 @@ namespace Trinity
         std::uint32_t SampleCount = 1;
         // Drawn after the scene, before the resolve, over its colour and tested against its depth, which it must not write: an editor's grid, say. It sets its own pipeline, built for the target's colour format, Renderer3D::c_DepthFormat and the sample count it is given
         std::function<void(RHI::CommandList& commands, const RenderView& view, RHI::Format colorFormat, std::uint32_t sampleCount)> Overlay;
+        // Each pixel's entity, as ToPickID gives it, drawn into ID targets beside the scene, for picking and outlines: by the meshes in the forward passes, and by the sprites after them. An editor's view wants them, and a game's does not
+        bool EntityIDs = false;
+        // With EntityIDs, a pixel of the target whose entity Renderer::TakePickResult hands back once the GPU has finished with this frame
+        std::optional<glm::uvec2> PickPixel;
+        // With EntityIDs, entities to outline over the tonemapped image, as ToPickID gives them, in any order
+        std::vector<std::uint32_t> Outlined;
     };
 
     // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in. Alpha-masked submeshes are cut out in the pre-pass, and alpha-blended ones drawn after, from back to front. The sun and spot lights cast shadows from maps in one atlas, filtered with PCF. The forward passes can be multisampled, and resolve into the target
@@ -233,6 +243,7 @@ namespace Trinity
         };
 
         static constexpr RHI::Format c_DepthFormat = RHI::Format::D32Float;
+        static constexpr RHI::Format c_EntityIDFormat = RHI::Format::R32Uint;
         // Reversed depth: the pre-pass keeps the nearest surface, and the opaque pass then draws only where it matches it exactly
         static constexpr RHI::CompareOp c_PrePassCompare = RHI::CompareOp::GreaterOrEqual;
         static constexpr RHI::CompareOp c_OpaqueCompare = RHI::CompareOp::Equal;
@@ -245,10 +256,12 @@ namespace Trinity
         // In a scene with no environment, every surface also takes this fraction of the directional lights' light from all around
         static constexpr float c_AmbientFraction = 0.03f;
 
-        // What AddPasses leaves in the graph: the depth, multisampled when the passes are, each cluster's light count then its lights, c_MaxLights to a cluster, and the shadow atlas. The buffers are invalid when no clusters were built, and the atlas when nothing casts a shadow
+        // What AddPasses leaves in the graph: the depth and the meshes' entity IDs, multisampled when the passes are, with that many samples, each cluster's light count then its lights, c_MaxLights to a cluster, and the shadow atlas. The IDs are invalid unless SceneOptions asks for them, the buffers when no clusters were built, and the atlas when nothing casts a shadow
         struct Passes
         {
             FrameGraphTexture Depth;
+            FrameGraphTexture EntityIDs;
+            std::uint32_t SampleCount = 1;
             FrameGraphBuffer ClusterCounts;
             FrameGraphBuffer ClusterLights;
             FrameGraphTexture ShadowAtlas;
@@ -314,13 +327,14 @@ namespace Trinity
             Shadow
         };
 
-        // An alpha-masked submesh writes depth through a pixel shader that cuts it out, in the pre-pass and shadow maps
+        // An alpha-masked submesh writes depth through a pixel shader that cuts it out, in the pre-pass and shadow maps, and a forward pass can write entity IDs beside its colour
         struct PipelineEntry
         {
             RHI::Format Format = RHI::Format::Unknown;
             PipelineKind Kind = PipelineKind::Front;
             MeshPass Pass = MeshPass::Opaque;
             bool Masked = false;
+            bool EntityIDs = false;
             std::uint32_t SampleCount = 1;
             RHI::PipelineHandle Pipeline;
         };
@@ -343,11 +357,11 @@ namespace Trinity
 
         // Every caster against every shadow view on the job system, then each view's casters in draw order
         void CollectShadowCasters(SceneDrawList& list);
-        [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format colorFormat, PipelineKind kind, MeshPass pass, bool masked, std::uint32_t sampleCount);
-        void RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, std::span<const MeshDraw> draws, RHI::Format colorFormat, MeshPass pass, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height, const LightInputs& lights);
+        [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format colorFormat, PipelineKind kind, MeshPass pass, bool masked, bool entityIDs, std::uint32_t sampleCount);
+        void RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, std::span<const MeshDraw> draws, RHI::Format colorFormat, MeshPass pass, bool entityIDs, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height, const LightInputs& lights);
         void RecordShadowDraws(RHI::CommandList& commands, const SceneDrawList& list);
         // Each draw's record into the upload ring, then the draws with the pipeline each needs, which reports false when the mesh shaders are missing
-        [[nodiscard]] bool DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass, std::uint32_t sampleCount);
+        [[nodiscard]] bool DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass, bool entityIDs, std::uint32_t sampleCount);
         void ReadClusterStatistics();
 
         RHI::Device& m_Device;
@@ -356,6 +370,7 @@ namespace Trinity
         FileBuffer m_PixelShader;
         FileBuffer m_DepthPixelShader;
         FileBuffer m_MaskPixelShader;
+        FileBuffer m_PickPixelShader;
         RHI::PipelineHandle m_ClusterPipeline;
         std::array<RHI::BufferHandle, RHI::c_FramesInFlight> m_ClusterReadbacks{};
         std::array<bool, RHI::c_FramesInFlight> m_ClusterReadbackWritten{};
@@ -375,5 +390,8 @@ namespace Trinity
         Statistics m_Statistics;
         std::uint64_t m_Frame = 0;
         bool m_ReportedNoShaders = false;
+        // Whether the device can draw entity IDs and read them, single-sampled then with c_SampleCount samples
+        std::array<bool, 2> m_EntityIDSupport{};
+        bool m_ReportedNoEntityIDs = false;
     };
 }

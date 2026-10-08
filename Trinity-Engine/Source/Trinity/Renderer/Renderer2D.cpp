@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Profiler.hpp"
+#include "Trinity/Renderer/PickID.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
@@ -17,7 +18,7 @@ namespace Trinity
 {
     namespace
     {
-        // Laid out as Sprite.slang reads it: the view-projection's columns, three descriptor handles, then the instances' offset in the upload buffer
+        // Laid out as Sprite.slang reads it: the view-projection's columns, three descriptor handles, then the instances' offset in the upload buffer, and the entities' after them in the ID pass
         struct PushData
         {
             std::array<glm::vec4, 4> ViewProjection{};
@@ -25,7 +26,7 @@ namespace Trinity
             std::array<std::uint32_t, 2> LinearSampler{};
             std::array<std::uint32_t, 2> NearestSampler{};
             std::uint32_t InstanceOffset = 0;
-            std::uint32_t Padding = 0;
+            std::uint32_t EntityOffset = 0;
         };
 
         static_assert(sizeof(PushData) == 96);
@@ -135,6 +136,14 @@ namespace Trinity
             m_VertexShader = std::move(*l_Vertex);
             m_PixelShader = std::move(*l_Pixel);
         }
+
+        Expected<FileBuffer, FileError> l_PickVertex = FileSystem::ReadFile(std::format("/engine/shaders/Sprite.PickVertexMain.{}", l_Extension));
+        Expected<FileBuffer, FileError> l_PickPixel = FileSystem::ReadFile(std::format("/engine/shaders/Sprite.PickPixelMain.{}", l_Extension));
+        if (l_PickVertex && l_PickPixel)
+        {
+            m_PickVertexShader = std::move(*l_PickVertex);
+            m_PickPixelShader = std::move(*l_PickPixel);
+        }
     }
 
     Renderer2D::~Renderer2D()
@@ -144,6 +153,7 @@ namespace Trinity
             m_Device.DestroyPipeline(it_Pipeline);
         }
 
+        m_Device.DestroyPipeline(m_IDPipeline);
         m_Device.DestroySampler(m_LinearSampler);
         m_Device.DestroySampler(m_NearestSampler);
     }
@@ -203,6 +213,59 @@ namespace Trinity
         DrawSprites(commands, viewProjection, targetFormat, width, height);
     }
 
+    // In DrawScene's order, over the whole of each quad, whatever its texture's alpha, as PickSprite counts it. The statistics stay those of the sprites drawn
+    void Renderer2D::DrawSceneIDs(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, std::uint32_t width, std::uint32_t height)
+    {
+        TR_PROFILE_FUNCTION();
+
+        glm::mat4 l_CameraWorld{ 1.0f };
+        static_cast<void>(CollectSprites(scene, l_CameraWorld));
+        if (m_Instances.empty() || width == 0 || height == 0)
+        {
+            return;
+        }
+
+        const RHI::PipelineHandle l_Pipeline = GetIDPipeline();
+        if (!l_Pipeline)
+        {
+            return;
+        }
+
+        std::ranges::sort(m_Keys, [](const SortKey& left, const SortKey& right) { return IsDrawnBefore(left.Layer, left.Order, left.Index, right.Layer, right.Order, right.Index); });
+
+        const std::uint64_t l_InstancesSize = std::uint64_t{ m_Instances.size() } * sizeof(SpriteInstance);
+        const RHI::UploadAllocation l_Upload = m_Device.AllocateUpload(l_InstancesSize + std::uint64_t{ m_EntityIDs.size() } * sizeof(std::uint32_t), c_InstanceAlignment);
+        if (l_Upload.Data.empty() || l_Upload.ShaderResourceIndex == RHI::c_NoBindlessIndex)
+        {
+            TR_CORE_ERROR("Renderer2D: no upload memory for {} sprites' entities, so they cannot be picked this frame", m_Instances.size());
+
+            return;
+        }
+
+        for (std::size_t it_Sprite = 0; it_Sprite < m_Keys.size(); ++it_Sprite)
+        {
+            const std::uint32_t l_Index = m_Keys[it_Sprite].Index;
+            std::memcpy(l_Upload.Data.data() + it_Sprite * sizeof(SpriteInstance), &m_Instances[l_Index], sizeof(SpriteInstance));
+            std::memcpy(l_Upload.Data.data() + l_InstancesSize + it_Sprite * sizeof(std::uint32_t), &m_EntityIDs[l_Index], sizeof(std::uint32_t));
+        }
+
+        PushData l_Push;
+        for (glm::length_t it_Column = 0; it_Column < 4; ++it_Column)
+        {
+            l_Push.ViewProjection[static_cast<std::size_t>(it_Column)] = viewProjection[it_Column];
+        }
+
+        l_Push.Instances = { l_Upload.ShaderResourceIndex, 0 };
+        l_Push.InstanceOffset = static_cast<std::uint32_t>(l_Upload.Offset);
+        l_Push.EntityOffset = static_cast<std::uint32_t>(l_Upload.Offset + l_InstancesSize);
+
+        commands.SetPipeline(l_Pipeline);
+        commands.SetViewport({ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f });
+        commands.SetScissor({ 0, 0, width, height });
+        commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+        commands.Draw(4, static_cast<std::uint32_t>(m_Instances.size()), 0, 0);
+    }
+
     // In hierarchy order, which is the last tie-break when sorting. World transforms are read as they are, so the caller runs the transform pass first. The first primary camera met is the one used
     const CameraComponent* Renderer2D::CollectSprites(Scene& scene, glm::mat4& cameraWorld)
     {
@@ -210,6 +273,7 @@ namespace Trinity
 
         m_Instances.clear();
         m_Keys.clear();
+        m_EntityIDs.clear();
 
         SceneRegistry& l_Registry = scene.GetRegistry();
         const CameraComponent* l_Camera = nullptr;
@@ -261,6 +325,7 @@ namespace Trinity
             l_Instance.Texture = l_LastIndex;
 
             m_Keys.push_back({ l_Sprite->SortingLayer, l_Sprite->OrderInLayer, static_cast<std::uint32_t>(m_Keys.size()) });
+            m_EntityIDs.push_back(ToPickID(l_Handle));
         }
 
         return l_Camera;
@@ -391,5 +456,40 @@ namespace Trinity
         m_Pipelines.emplace_back(targetFormat, l_Pipeline);
 
         return l_Pipeline;
+    }
+
+    // Made the first time it is needed, and not tried again if that fails
+    RHI::PipelineHandle Renderer2D::GetIDPipeline()
+    {
+        if (m_IDPipelineTried)
+        {
+            return m_IDPipeline;
+        }
+
+        m_IDPipelineTried = true;
+        if (m_PickVertexShader.empty() || m_PickPixelShader.empty())
+        {
+            TR_CORE_INFO("Renderer2D: no Sprite pick shaders under /engine/shaders, so sprites cannot be picked");
+
+            return {};
+        }
+
+        const std::array<RHI::Format, 1> l_ColorFormats{ RHI::Format::R32Uint };
+
+        RHI::GraphicsPipelineDescription l_Description;
+        l_Description.VertexShader = { m_PickVertexShader, "PickVertexMain" };
+        l_Description.PixelShader = { m_PickPixelShader, "PickPixelMain" };
+        l_Description.ColorFormats = l_ColorFormats;
+        l_Description.Topology = RHI::PrimitiveTopology::TriangleStrip;
+        l_Description.Cull = RHI::CullMode::None;
+        l_Description.DebugName = "Sprite entity IDs";
+
+        m_IDPipeline = m_Device.CreateGraphicsPipeline(l_Description);
+        if (!m_IDPipeline)
+        {
+            TR_CORE_ERROR("Renderer2D: the sprite entity ID pipeline could not be created, so sprites cannot be picked");
+        }
+
+        return m_IDPipeline;
     }
 }

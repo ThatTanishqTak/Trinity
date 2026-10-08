@@ -11,8 +11,10 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Trinity
@@ -26,7 +28,14 @@ namespace Trinity
 
     using OutputCallback = std::function<void(RHI::CommandList& commands, std::uint32_t width, std::uint32_t height)>;
 
-    // Each frame is a frame graph. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. Layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns the scene into a display target of sRGB-encoded 8-bit values, which the output pass copies to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space. Each added output gets a pass of its own
+    // The entity drawn in a pixel SceneOptions::PickPixel asked about, entt::null where there is none
+    struct PickResult
+    {
+        glm::uvec2 Pixel{ 0 };
+        entt::entity Entity = entt::null;
+    };
+
+    // Each frame is a frame graph. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. Layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns the scene into a display target of sRGB-encoded 8-bit values, which the output pass copies to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space. A scene that asks for entity IDs also has its sprites' drawn after the scene pass, a pixel picked from them and read back without waiting, and its selection outlined over the tonemapped image. Each added output gets a pass of its own
     class TRINITY_API Renderer
     {
     public:
@@ -42,8 +51,10 @@ namespace Trinity
         void RemoveOutput(std::uint32_t output);
 
         void SetClearColor(const std::array<float, 4>& color) { m_ClearColor = color; }
-        // Draws the scene's meshes into the scene target this frame, before layers draw over them. On the main thread, after the transform pass and before the frame graph is built, as in OnPrepareRender
+        // Draws the scene's meshes into the scene target this frame, before layers draw over them. On the main thread, after the transform pass and before the frame graph is built, as in OnPrepareRender. The scene must last until the frame is rendered
         void SubmitScene(Scene& scene, const RenderView& view, const SceneOptions& options = {});
+        // The pick a scene asked for c_FramesInFlight frames ago, read without waiting on the GPU since that frame has finished, and handed over once. Picks come back in the order they were asked for
+        [[nodiscard]] std::optional<PickResult> TakePickResult() { return std::exchange(m_PickResult, std::nullopt); }
         void SetTitle(std::string_view title);
         void SetSceneCopy(bool enabled) { m_SceneCopy = enabled; }
         void SetSceneSize(std::uint32_t width, std::uint32_t height);
@@ -74,6 +85,14 @@ namespace Trinity
         [[nodiscard]] std::uint64_t GetFrameCount() const { return m_FrameCount; }
 
     private:
+        // The ID targets a scene's entities were drawn into, sprites' and meshes', with as many samples as the meshes' have, and 0 when they have none
+        struct EntityTargets
+        {
+            FrameGraphTexture Sprites;
+            FrameGraphTexture Meshes;
+            std::uint32_t MeshSamples = 0;
+        };
+
         struct Output
         {
             std::uint32_t Id = 0;
@@ -90,8 +109,12 @@ namespace Trinity
         void FollowOutputs();
         void CreateOffscreenTarget();
         void CreateSceneTarget();
-        [[nodiscard]] RHI::PipelineHandle CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence);
+        [[nodiscard]] RHI::PipelineHandle CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence, bool alphaBlend = false);
+        void CreatePicking();
         void BuildFrameGraph(LayerStack& layers);
+        [[nodiscard]] EntityTargets AddEntityPasses(FrameGraph& graph, const Renderer3D::Passes& passes);
+        void AddOutlinePass(FrameGraph& graph, const EntityTargets& targets, FrameGraphTexture display);
+        void ReadPick();
         void AddOutputPass(FrameGraphTexture display, RHI::TextureHandle output, LayerStack& layers);
         void AddAddedOutputPasses(FrameGraphTexture display);
         void DestroyOutput(Output& output);
@@ -114,6 +137,7 @@ namespace Trinity
         Scope<Renderer3D> m_Renderer3D;
         SceneDrawList m_SceneDraws;
         SceneOptions m_SceneOptions;
+        Scene* m_SubmittedScene = nullptr;
         bool m_SceneSubmitted = false;
         Scope<FrameGraph> m_FrameGraph;
 
@@ -137,6 +161,12 @@ namespace Trinity
         std::uint32_t m_RequestedSceneHeight = 0;
         RHI::PipelineHandle m_CopyPipeline;
         RHI::PipelineHandle m_TonemapPipeline;
+        RHI::PipelineHandle m_PickPipeline;
+        RHI::PipelineHandle m_OutlinePipeline;
+        // A slot for each frame in flight, read when the slot comes round again, with the pixel its frame asked about, if any
+        std::array<RHI::BufferHandle, RHI::c_FramesInFlight> m_PickReadbacks{};
+        std::array<std::optional<glm::uvec2>, RHI::c_FramesInFlight> m_PickPixels{};
+        std::optional<PickResult> m_PickResult;
         ToneMapping m_ToneMapping{ c_NeutralEV100, Tonemapper::None };
         bool m_SceneCopy = true;
         bool m_VSync = true;

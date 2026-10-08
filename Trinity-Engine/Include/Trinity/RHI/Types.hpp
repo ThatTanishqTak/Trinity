@@ -74,6 +74,12 @@ namespace Trinity
             return format >= Format::BC1Unorm && format <= Format::BC7Srgb;
         }
 
+        // Read and written as whole numbers, which are never filtered or blended
+        [[nodiscard]] constexpr bool IsIntegerFormat(Format format)
+        {
+            return format == Format::R32Uint;
+        }
+
         // Texels across and down one block: 4 for a compressed format, and 1 otherwise
         [[nodiscard]] constexpr std::uint32_t GetFormatBlockDimension(Format format)
         {

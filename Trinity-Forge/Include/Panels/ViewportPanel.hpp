@@ -12,7 +12,9 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string_view>
+#include <vector>
 
 struct ImDrawList;
 struct ImGuiTextBuffer;
@@ -52,7 +54,10 @@ private:
     void HandleGizmoKeys();
     void FrameSelection(glm::vec2 viewportSize);
     void FrameSelection3D(glm::vec2 viewportSize);
-    [[nodiscard]] Trinity::Entity Pick3D(glm::vec2 mouse, glm::vec2 viewportSize);
+    [[nodiscard]] Trinity::Entity PickLight(glm::vec2 mouse, glm::vec2 viewportSize);
+    void RequestPick(glm::vec2 mouse, glm::vec2 viewportSize);
+    void ApplyPick();
+    [[nodiscard]] std::vector<std::uint32_t> GetOutlined();
     void AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize);
     void DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize);
     void DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize);
@@ -84,6 +89,9 @@ private:
     bool m_Mode3D = false;
     bool m_Flying = false;
     bool m_Orbiting = false;
+    // A click's pixel, picked through the entity IDs the next frame draws, and how many picks are on their way back
+    std::optional<glm::uvec2> m_PickPixel;
+    std::uint32_t m_PicksPending = 0;
     // Through the scene's primary camera, as the game shows it, rather than the editor's, which editing needs
     bool m_SceneCameraView = false;
     bool m_HasSceneCamera = false;
