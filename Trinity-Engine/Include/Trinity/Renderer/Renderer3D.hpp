@@ -85,7 +85,7 @@ namespace Trinity
     // The box in world space that holds the local box under the transform, by its centre and half extents
     TRINITY_API void GetWorldBounds(const MeshBounds& local, const glm::mat4& world, glm::vec3& center, glm::vec3& extents);
 
-    // One submesh to draw, with the pipeline and the material table record it is drawn with, and whether its MeshRenderer casts shadows
+    // One submesh to draw, with the pipeline and the material table record it is drawn with, its material's alpha mode, and whether its MeshRenderer casts shadows
     struct MeshDraw
     {
         UUID Entity;
@@ -95,6 +95,7 @@ namespace Trinity
         std::uint32_t Pipeline = 0;
         glm::mat4 World{ 1.0f };
         std::uint64_t Key = 0;
+        MaterialAlphaMode AlphaMode = MaterialAlphaMode::Opaque;
         bool CastShadows = true;
 
         [[nodiscard]] bool operator==(const MeshDraw&) const = default;
@@ -163,7 +164,7 @@ namespace Trinity
 
     static_assert(sizeof(PunctualLight) == 64);
 
-    // What a view of a scene draws, in the order it draws it, and the lights it is lit by
+    // What a view of a scene draws, in the order it draws it, and the lights it is lit by: opaque and alpha-masked submeshes sorted by state, then alpha-blended ones from the farthest to the nearest
     struct TRINITY_API SceneDrawList
     {
         static constexpr std::uint32_t c_MaxDirectionalLights = 4;
@@ -171,6 +172,7 @@ namespace Trinity
 
         RenderView View;
         std::vector<MeshDraw, TaggedAllocator<MeshDraw, MemoryTag::Renderer>> Draws;
+        std::vector<MeshDraw, TaggedAllocator<MeshDraw, MemoryTag::Renderer>> Transparent;
         std::array<DirectionalLight, c_MaxDirectionalLights> Directional{};
         std::uint32_t DirectionalCount = 0;
         // Point and spot lights in hierarchy order, and for each the sphere in view space that holds all it lights, which is what clusters test
@@ -209,9 +211,11 @@ namespace Trinity
         bool ShadeAllLights = false;
         // Each pixel shows how many lights its cluster holds, from blue for none to red at the cap and magenta past it
         bool LightHeatmap = false;
+        // Samples per pixel in the forward passes, 1 or Renderer3D::c_SampleCount, resolved into the target before anything else draws on it
+        std::uint32_t SampleCount = 1;
     };
 
-    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in. The sun and spot lights cast shadows from maps in one atlas, filtered with PCF
+    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in. Alpha-masked submeshes are cut out in the pre-pass, and alpha-blended ones drawn after, from back to front. The sun and spot lights cast shadows from maps in one atlas, filtered with PCF. The forward passes can be multisampled, and resolve into the target
     class TRINITY_API Renderer3D
     {
     public:
@@ -229,12 +233,16 @@ namespace Trinity
         // Reversed depth: the pre-pass keeps the nearest surface, and the opaque pass then draws only where it matches it exactly
         static constexpr RHI::CompareOp c_PrePassCompare = RHI::CompareOp::GreaterOrEqual;
         static constexpr RHI::CompareOp c_OpaqueCompare = RHI::CompareOp::Equal;
+        // Blended surfaces are tested against the opaque depth and write none of their own
+        static constexpr RHI::CompareOp c_TransparentCompare = RHI::CompareOp::GreaterOrEqual;
+        // The multisampling SceneOptions asks for, which every backend supports for the scene's colour and depth formats
+        static constexpr std::uint32_t c_SampleCount = 4;
         // The light a scene with no lights at all is lit by, so a model dropped into a new scene shows, which is white at an illuminance that lights a white surface facing it to 1
         static constexpr float c_DefaultSunIntensity = 3.14159265f;
         // In a scene with no environment, every surface also takes this fraction of the directional lights' light from all around
         static constexpr float c_AmbientFraction = 0.03f;
 
-        // What AddPasses leaves in the graph: the depth, each cluster's light count then its lights, c_MaxLights to a cluster, and the shadow atlas. The buffers are invalid when no clusters were built, and the atlas when nothing casts a shadow
+        // What AddPasses leaves in the graph: the depth, multisampled when the passes are, each cluster's light count then its lights, c_MaxLights to a cluster, and the shadow atlas. The buffers are invalid when no clusters were built, and the atlas when nothing casts a shadow
         struct Passes
         {
             FrameGraphTexture Depth;
@@ -250,6 +258,7 @@ namespace Trinity
             std::uint32_t Pending = 0;
             std::uint32_t PrePassDraws = 0;
             std::uint32_t OpaqueDraws = 0;
+            std::uint32_t TransparentDraws = 0;
             std::uint32_t PipelineChanges = 0;
             // Shadow maps drawn, and the casters drawn into them
             std::uint32_t ShadowMaps = 0;
@@ -276,7 +285,7 @@ namespace Trinity
         // Each cluster's light count, which may pass c_MaxLights, then its first c_MaxLights lights, as the cluster pass sorts them, for checking it against
         static void BuildClustersReference(const SceneDrawList& list, std::vector<std::uint32_t>& counts, std::vector<std::uint32_t>& lights);
 
-        // When anything casts a shadow, a pass that draws every shadow map into the atlas, then a depth pre-pass into a depth texture the size of the target, then, when there are point or spot lights, a compute pass that sorts them into clusters, then the opaque pass, which clears the target and draws again with an equal depth test. The list must last until the graph has run
+        // When anything casts a shadow, a pass that draws every shadow map into the atlas, then a depth pre-pass into a depth texture the size of the target, then, when there are point or spot lights, a compute pass that sorts them into clusters, then the opaque pass, which clears the target and draws again with an equal depth test, then the blended submeshes over it. Multisampled, they draw into textures of their own, resolved into the target by the last. The list must last until the graph has run
         Passes AddPasses(FrameGraph& graph, const SceneDrawList& list, FrameGraphTexture target, const RHI::TextureDescription& targetDescription, const std::array<float, 4>& clearColor, const SceneOptions& options = {});
 
         [[nodiscard]] const Statistics& GetStatistics() const { return m_Statistics; }
@@ -293,19 +302,23 @@ namespace Trinity
         using MaterialCache = std::unordered_map<UUID, Cached<MaterialAsset>, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Cached<MaterialAsset>>, MemoryTag::Renderer>>;
         using EnvironmentCache = std::unordered_map<UUID, Cached<EnvironmentAsset>, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Cached<EnvironmentAsset>>, MemoryTag::Renderer>>;
 
-        // The pass a pipeline draws in: the depth pre-pass, the opaque pass, or a shadow map, which writes depth alone with a bias and clamps it instead of clipping
+        // The pass a pipeline draws in: the depth pre-pass, the opaque pass, the blended pass, or a shadow map, which writes depth alone with a bias and clamps it instead of clipping
         enum class MeshPass : std::uint8_t
         {
             PrePass,
             Opaque,
+            Transparent,
             Shadow
         };
 
+        // An alpha-masked submesh writes depth through a pixel shader that cuts it out, in the pre-pass and shadow maps
         struct PipelineEntry
         {
             RHI::Format Format = RHI::Format::Unknown;
             PipelineKind Kind = PipelineKind::Front;
             MeshPass Pass = MeshPass::Opaque;
+            bool Masked = false;
+            std::uint32_t SampleCount = 1;
             RHI::PipelineHandle Pipeline;
         };
 
@@ -327,11 +340,11 @@ namespace Trinity
 
         // Every caster against every shadow view on the job system, then each view's casters in draw order
         void CollectShadowCasters(SceneDrawList& list);
-        [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format colorFormat, PipelineKind kind, MeshPass pass);
-        void RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool depthOnly, std::uint32_t width, std::uint32_t height, const LightInputs& lights);
+        [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format colorFormat, PipelineKind kind, MeshPass pass, bool masked, std::uint32_t sampleCount);
+        void RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, std::span<const MeshDraw> draws, RHI::Format colorFormat, MeshPass pass, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height, const LightInputs& lights);
         void RecordShadowDraws(RHI::CommandList& commands, const SceneDrawList& list);
         // Each draw's record into the upload ring, then the draws with the pipeline each needs, which reports false when the mesh shaders are missing
-        [[nodiscard]] bool DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass);
+        [[nodiscard]] bool DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass, std::uint32_t sampleCount);
         void ReadClusterStatistics();
 
         RHI::Device& m_Device;
@@ -339,6 +352,7 @@ namespace Trinity
         FileBuffer m_VertexShader;
         FileBuffer m_PixelShader;
         FileBuffer m_DepthPixelShader;
+        FileBuffer m_MaskPixelShader;
         RHI::PipelineHandle m_ClusterPipeline;
         std::array<RHI::BufferHandle, RHI::c_FramesInFlight> m_ClusterReadbacks{};
         std::array<bool, RHI::c_FramesInFlight> m_ClusterReadbackWritten{};

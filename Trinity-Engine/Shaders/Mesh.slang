@@ -344,7 +344,27 @@ float4 SampleMaterial(Material material, uint slot, float4 texCoords, FrameConst
     return l_Image.Sample(l_Sampler, material.GetTexCoord(slot) == 1 ? texCoords.zw : texCoords.xy);
 }
 
-// glTF's metallic-roughness material lit by the directional lights, then by the point and spot lights of the pixel's cluster, or by every one of them when asked, in light order either way, then by the environment, or with no environment a little ambient light, which alone is occluded. The sun and spot lights with shadow maps are shadowed, compared with the triangle's own plane rather than a normal map's. The environment's radiance is prefiltered for roughness m / (levels - 1) at mip m
+// The depth of an alpha-masked submesh, in the pre-pass and in shadow maps, cut away where its alpha falls below the material's cutoff, as glTF's MASK mode has it. The opaque pass then finds no depth of its own there, so its equal test leaves what is behind
+[shader("fragment")]
+void MaskPixelMain(VertexOutput input)
+{
+    const FrameConstants l_Frame = LoadFrame();
+    const DrawData l_Draw = LoadDraw();
+    const Material l_Material = LoadMaterial(DescriptorHandle<ByteAddressBuffer>(l_Frame.MaterialTable), l_Draw.Material);
+
+    float l_Alpha = l_Material.BaseColorFactor.a * input.Color.a;
+    if (l_Material.HasTexture(c_BaseColorSlot))
+    {
+        l_Alpha *= SampleMaterial(l_Material, c_BaseColorSlot, input.TexCoords, l_Frame).a;
+    }
+
+    if (l_Alpha < l_Material.AlphaCutoff)
+    {
+        discard;
+    }
+}
+
+// glTF's metallic-roughness material lit by the directional lights, then by the point and spot lights of the pixel's cluster, or by every one of them when asked, in light order either way, then by the environment, or with no environment a little ambient light, which alone is occluded. Only a blended material keeps its alpha, which the pipeline blends with. The sun and spot lights with shadow maps are shadowed, compared with the triangle's own plane rather than a normal map's. The environment's radiance is prefiltered for roughness m / (levels - 1) at mip m
 [shader("fragment")]
 float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Target
 {
@@ -486,5 +506,5 @@ float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Targ
         l_Color = lerp(l_Color * 0.25, GetHeatColor(l_ClusterCount), 0.75);
     }
 
-    return float4(l_Color, l_BaseColor.a);
+    return float4(l_Color, l_Material.GetAlphaMode() == c_AlphaModeBlend ? l_BaseColor.a : 1.0);
 }

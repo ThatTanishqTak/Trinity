@@ -250,6 +250,7 @@ void ViewportPanel::PrepareScene()
 
     Trinity::SceneOptions l_Options;
     l_Options.LightHeatmap = m_LightHeatmap;
+    l_Options.SampleCount = Trinity::Renderer3D::c_SampleCount;
     Trinity::Application::Get().GetRenderer().SubmitScene(l_Scene, l_View, l_Options);
 }
 
@@ -627,7 +628,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
         TextLine(std::format("Scene {}x{}, {} sprite(s) in {} draw call(s)", l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight(), l_Sprites.Sprites, l_Sprites.DrawCalls));
         const Trinity::Renderer3D::Statistics& l_Meshes = l_Renderer.GetRenderer3D().GetStatistics();
         const Trinity::SceneDrawList& l_Draws = l_Renderer.GetSceneDraws();
-        TextLine(std::format("{} of {} submesh(es) drawn, {} mesh(es) loading", l_Meshes.Visible, l_Meshes.Submeshes, l_Meshes.Pending));
+        TextLine(std::format("{} of {} submesh(es) drawn, {} of them blended, {} mesh(es) loading", l_Meshes.Visible, l_Meshes.Submeshes, l_Draws.Transparent.size(), l_Meshes.Pending));
         if (l_Draws.DefaultSun)
         {
             TextLine("Lit by the default sun");

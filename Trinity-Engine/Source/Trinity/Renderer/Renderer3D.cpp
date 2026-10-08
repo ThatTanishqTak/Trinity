@@ -150,24 +150,26 @@ namespace Trinity
             return device.CreateSampler(l_Description);
         }
 
-        // Back-face culled for counter-clockwise fronts, the same with clockwise fronts, or not culled. A shadow map keeps the depth nearest the light, as the pre-pass keeps the nearest to the eye, biased away from the light and clamped, so casters between the light and the map's near plane still cast
-        RHI::PipelineHandle CreatePipeline(RHI::Device& device, std::span<const std::byte> vertexShader, std::span<const std::byte> pixelShader, RHI::Format colorFormat, Renderer3D::PipelineKind kind, bool depthOnly, bool shadow)
+        // Back-face culled for counter-clockwise fronts, the same with clockwise fronts, or not culled. A depth-only pass writes depth through the pixel shader it is given, which an alpha-masked submesh cuts itself out with. A shadow map keeps the depth nearest the light, as the pre-pass keeps the nearest to the eye, biased away from the light and clamped, so casters between the light and the map's near plane still cast. A blended submesh is tested against the opaque depth, writes none, and blends over what is behind it by its alpha
+        RHI::PipelineHandle CreatePipeline(RHI::Device& device, std::span<const std::byte> vertexShader, std::span<const std::byte> pixelShader, std::string_view pixelEntry, RHI::Format colorFormat, Renderer3D::PipelineKind kind, bool depthOnly, bool shadow, bool blend, std::uint32_t sampleCount)
         {
             const std::array<RHI::Format, 1> l_ColorFormats{ colorFormat };
 
             RHI::GraphicsPipelineDescription l_Description;
             l_Description.VertexShader = { vertexShader, "VertexMain" };
-            l_Description.PixelShader = { pixelShader, depthOnly ? "DepthPixelMain" : "PixelMain" };
+            l_Description.PixelShader = { pixelShader, pixelEntry };
             l_Description.ColorFormats = depthOnly ? std::span<const RHI::Format>() : std::span<const RHI::Format>(l_ColorFormats);
             l_Description.DepthFormat = shadow ? ShadowAtlas::c_Format : Renderer3D::c_DepthFormat;
+            l_Description.SampleCount = sampleCount;
             l_Description.Cull = kind == Renderer3D::PipelineKind::DoubleSided ? RHI::CullMode::None : RHI::CullMode::Back;
             l_Description.FrontCounterClockwise = kind != Renderer3D::PipelineKind::Mirrored;
             l_Description.DepthTest = true;
             l_Description.DepthWrite = depthOnly;
-            l_Description.DepthCompare = depthOnly ? Renderer3D::c_PrePassCompare : Renderer3D::c_OpaqueCompare;
+            l_Description.DepthCompare = depthOnly ? Renderer3D::c_PrePassCompare : (blend ? Renderer3D::c_TransparentCompare : Renderer3D::c_OpaqueCompare);
             l_Description.DepthBiasSlope = shadow ? ShadowAtlas::c_SlopeBias : 0.0f;
             l_Description.DepthClamp = shadow;
-            l_Description.DebugName = shadow ? "Mesh shadow" : (depthOnly ? "Mesh depth pre-pass" : "Mesh opaque");
+            l_Description.AlphaBlend = blend;
+            l_Description.DebugName = shadow ? "Mesh shadow" : (depthOnly ? "Mesh depth pre-pass" : (blend ? "Mesh transparent" : "Mesh opaque"));
 
             return device.CreateGraphicsPipeline(l_Description);
         }
@@ -189,12 +191,29 @@ namespace Trinity
             matrix[3][row] = offset;
         }
 
-        // The pipeline a submesh needs, and its sort key: pipeline, then material, then mesh, so draws sharing state follow each other
-        void Finish(MeshDraw& draw, bool doubleSided)
+        // The pipeline a submesh needs, its material's alpha mode, opaque without a material, and its sort key: pipeline, then masked or not, then material, then mesh, so draws sharing state follow each other
+        void Finish(MeshDraw& draw, const MaterialData* material)
         {
+            const bool l_DoubleSided = material != nullptr && material->DoubleSided;
             const glm::mat3 l_Basis(draw.World);
-            draw.Pipeline = static_cast<std::uint32_t>(doubleSided ? Renderer3D::PipelineKind::DoubleSided : (glm::determinant(l_Basis) < 0.0f ? Renderer3D::PipelineKind::Mirrored : Renderer3D::PipelineKind::Front));
-            draw.Key = (std::uint64_t{ draw.Pipeline } << 62) | (std::uint64_t{ draw.Material & 0x3FFFFFFFu } << 32) | std::uint64_t{ draw.Mesh->GetShaderResourceIndex() };
+            draw.AlphaMode = material != nullptr ? material->AlphaMode : MaterialAlphaMode::Opaque;
+            draw.Pipeline = static_cast<std::uint32_t>(l_DoubleSided ? Renderer3D::PipelineKind::DoubleSided : (glm::determinant(l_Basis) < 0.0f ? Renderer3D::PipelineKind::Mirrored : Renderer3D::PipelineKind::Front));
+            const std::uint64_t l_Masked = draw.AlphaMode == MaterialAlphaMode::Mask ? 1 : 0;
+            draw.Key = (std::uint64_t{ draw.Pipeline } << 62) | (l_Masked << 61) | (std::uint64_t{ draw.Material & 0x1FFFFFFFu } << 32) | std::uint64_t{ draw.Mesh->GetShaderResourceIndex() };
+        }
+
+        // From the farthest to the nearest by the view depth of each submesh's bounds' centre, keeping hierarchy order between equals, so each blends over what is behind it
+        void SortBackToFront(SceneDrawList& list)
+        {
+            const glm::vec4 l_Depth = -glm::vec4(list.View.View[0][2], list.View.View[1][2], list.View.View[2][2], list.View.View[3][2]);
+            std::ranges::stable_sort(list.Transparent, std::ranges::greater{}, [&l_Depth](const MeshDraw& draw)
+            {
+                glm::vec3 l_Center;
+                glm::vec3 l_Extents;
+                GetWorldBounds(draw.Mesh->GetSubmeshes()[draw.Submesh].Bounds, draw.World, l_Center, l_Extents);
+
+                return glm::dot(l_Depth, glm::vec4(l_Center, 1.0f));
+            });
         }
 
         // The cone a spot light lights out to its range lies in this sphere, which is the smallest that holds it
@@ -584,6 +603,7 @@ namespace Trinity
     void SceneDrawList::Clear()
     {
         Draws.clear();
+        Transparent.clear();
         Directional = {};
         DirectionalCount = 0;
         Lights.clear();
@@ -616,11 +636,13 @@ namespace Trinity
         Expected<FileBuffer, FileError> l_Vertex = FileSystem::ReadFile(std::format("/engine/shaders/Mesh.VertexMain.{}", l_Extension));
         Expected<FileBuffer, FileError> l_Pixel = FileSystem::ReadFile(std::format("/engine/shaders/Mesh.PixelMain.{}", l_Extension));
         Expected<FileBuffer, FileError> l_DepthPixel = FileSystem::ReadFile(std::format("/engine/shaders/Mesh.DepthPixelMain.{}", l_Extension));
-        if (l_Vertex && l_Pixel && l_DepthPixel)
+        Expected<FileBuffer, FileError> l_MaskPixel = FileSystem::ReadFile(std::format("/engine/shaders/Mesh.MaskPixelMain.{}", l_Extension));
+        if (l_Vertex && l_Pixel && l_DepthPixel && l_MaskPixel)
         {
             m_VertexShader = std::move(*l_Vertex);
             m_PixelShader = std::move(*l_Pixel);
             m_DepthPixelShader = std::move(*l_DepthPixel);
+            m_MaskPixelShader = std::move(*l_MaskPixel);
         }
 
         // Without the cluster shader every pixel shades every light, which is right but slow
@@ -686,6 +708,7 @@ namespace Trinity
 
         m_Statistics.PrePassDraws = 0;
         m_Statistics.OpaqueDraws = 0;
+        m_Statistics.TransparentDraws = 0;
         m_Statistics.PipelineChanges = 0;
         m_Statistics.ShadowMaps = 0;
         m_Statistics.ShadowDraws = 0;
@@ -823,7 +846,7 @@ namespace Trinity
                 l_Draw.Material = l_Material != nullptr ? l_Material->GetTableIndex() : MaterialLoader::c_DefaultIndex;
                 l_Draw.World = l_World;
                 l_Draw.CastShadows = l_Renderer->CastShadows;
-                Finish(l_Draw, l_Material != nullptr && l_Material->GetData().DoubleSided);
+                Finish(l_Draw, l_Material != nullptr ? &l_Material->GetData() : nullptr);
             }
         }
 
@@ -845,20 +868,22 @@ namespace Trinity
         {
             if (m_Visible[it_Index] != 0)
             {
-                list.Draws.push_back(m_Candidates[it_Index]);
+                (m_Candidates[it_Index].AlphaMode == MaterialAlphaMode::Blend ? list.Transparent : list.Draws).push_back(m_Candidates[it_Index]);
             }
         }
 
-        std::ranges::stable_sort(list.Draws, {}, & MeshDraw::Key);
+        std::ranges::stable_sort(list.Draws, {}, &MeshDraw::Key);
+        SortBackToFront(list);
         CollectShadowCasters(list);
+        const std::uint32_t l_Visible = static_cast<std::uint32_t>(list.Draws.size() + list.Transparent.size());
         list.Submeshes = static_cast<std::uint32_t>(m_Candidates.size());
-        list.Culled = list.Submeshes - static_cast<std::uint32_t>(list.Draws.size());
+        list.Culled = list.Submeshes - l_Visible;
         m_Statistics.Submeshes = list.Submeshes;
-        m_Statistics.Visible = static_cast<std::uint32_t>(list.Draws.size());
+        m_Statistics.Visible = l_Visible;
         m_Statistics.Pending = list.Pending;
     }
 
-    // A caster can be out of view and still cast into it, so every candidate that casts shadows is tested against each shadow view: against all six planes of a spot light's, and all but the near plane of a cascade's, since anything between a cascade and the sun casts into it and depth clamping keeps it in the map
+    // A caster can be out of view and still cast into it, so every candidate that casts shadows, and is not blended, which casts none, is tested against each shadow view: against all six planes of a spot light's, and all but the near plane of a cascade's, since anything between a cascade and the sun casts into it and depth clamping keeps it in the map
     void Renderer3D::CollectShadowCasters(SceneDrawList& list)
     {
         std::array<Frustum, ShadowAtlas::c_MaxViews> l_Frusta{};
@@ -895,7 +920,7 @@ namespace Trinity
             for (std::size_t it_Index = begin; it_Index < end; ++it_Index)
             {
                 const MeshDraw& l_Draw = m_Candidates[it_Index];
-                if (!l_Draw.CastShadows)
+                if (!l_Draw.CastShadows || l_Draw.AlphaMode == MaterialAlphaMode::Blend)
                 {
                     continue;
                 }
@@ -983,13 +1008,21 @@ namespace Trinity
                 l_Draw.Material = GetMaterialIndex(l_Material);
                 l_Draw.World = l_World;
                 l_Draw.CastShadows = l_Renderer->CastShadows;
-                Finish(l_Draw, l_Material != nullptr && l_Material->GetAssetType() == MaterialAsset::c_AssetType && static_cast<const MaterialAsset*>(l_Material)->GetData().DoubleSided);
+                Finish(l_Draw, l_Material != nullptr && l_Material->GetAssetType() == MaterialAsset::c_AssetType ? &static_cast<const MaterialAsset*>(l_Material)->GetData() : nullptr);
+                if (l_Draw.AlphaMode == MaterialAlphaMode::Blend)
+                {
+                    list.Transparent.push_back(l_Draw);
+
+                    continue;
+                }
 
                 // Insertion keeps equal keys in hierarchy order, as the stable sort does
                 const auto a_Place = std::ranges::upper_bound(list.Draws, l_Draw.Key, {}, &MeshDraw::Key);
                 list.Draws.insert(a_Place, l_Draw);
             }
         }
+
+        SortBackToFront(list);
     }
 
     // Each cluster's box against each light's sphere, in light order, as the cluster pass does it a cluster to a thread
@@ -1027,12 +1060,14 @@ namespace Trinity
         }
     }
 
-    // The shadow pass draws every caster into each shadow map it falls in, the pre-pass writes the nearest depth of every opaque submesh, the cluster pass sorts the point and spot lights into clusters, and the opaque pass then shades only the surface that depth belongs to, with the lights of the cluster each pixel lies in. The lights and their spheres go into the upload ring now, for both passes to read
+    // The shadow pass draws every caster into each shadow map it falls in, the pre-pass writes the nearest depth of every opaque and masked submesh, the cluster pass sorts the point and spot lights into clusters, the opaque pass then shades only the surface that depth belongs to, with the lights of the cluster each pixel lies in, and the blended submeshes go over it from back to front. Multisampled, the forward passes draw into a colour texture of their own, which the last of them resolves into the target. The lights and their spheres go into the upload ring now, for the shading passes to read
     Renderer3D::Passes Renderer3D::AddPasses(FrameGraph& graph, const SceneDrawList& list, FrameGraphTexture target, const RHI::TextureDescription& targetDescription, const std::array<float, 4>& clearColor, const SceneOptions& options)
     {
+        const std::uint32_t l_Samples = options.SampleCount > 1 ? c_SampleCount : 1;
         RHI::TextureDescription l_DepthDescription;
         l_DepthDescription.Width = targetDescription.Width;
         l_DepthDescription.Height = targetDescription.Height;
+        l_DepthDescription.SampleCount = l_Samples;
         l_DepthDescription.TextureFormat = c_DepthFormat;
         l_DepthDescription.ClearDepth = 0.0f;
         l_DepthDescription.DebugName = "Scene depth";
@@ -1044,6 +1079,19 @@ namespace Trinity
         const std::uint32_t l_Width = targetDescription.Width;
         const std::uint32_t l_Height = targetDescription.Height;
         const SceneDrawList* l_List = &list;
+
+        FrameGraphTexture l_Color = target;
+        if (l_Samples > 1)
+        {
+            RHI::TextureDescription l_ColorDescription;
+            l_ColorDescription.Width = l_Width;
+            l_ColorDescription.Height = l_Height;
+            l_ColorDescription.SampleCount = l_Samples;
+            l_ColorDescription.TextureFormat = l_Format;
+            l_ColorDescription.ClearColor = clearColor;
+            l_ColorDescription.DebugName = "Scene colour multisampled";
+            l_Color = graph.CreateTexture("Scene colour multisampled", l_ColorDescription);
+        }
 
         // Every shadow map goes into its tile of one atlas, which nothing needs when nothing casts a shadow. The shadow data goes into the upload ring now, for the opaque pass
         LightInputs l_Inputs;
@@ -1104,9 +1152,9 @@ namespace Trinity
         graph.AddPass("Depth pre-pass", FrameGraphPassType::Raster, [l_Depth](FrameGraphPassBuilder& builder)
         {
             builder.SetDepthAttachment({ l_Depth, RHI::LoadOp::Clear, 0.0f });
-        }, [this, l_List, l_Format, l_Width, l_Height](const FrameGraphContext& context)
+        }, [this, l_List, l_Format, l_Samples, l_Width, l_Height](const FrameGraphContext& context)
         {
-            RecordDraws(context.GetCommands(), *l_List, l_Format, true, l_Width, l_Height, {});
+            RecordDraws(context.GetCommands(), *l_List, l_List->Draws, l_Format, MeshPass::PrePass, l_Samples, l_Width, l_Height, {});
         });
 
         l_Inputs.Flags = options.LightHeatmap ? c_LightHeatmapFlag : 0;
@@ -1191,13 +1239,12 @@ namespace Trinity
             }
         }
 
+        // Both shading passes read the clusters and the shadow atlas, whose bindless indices are known once the graph runs
         const FrameGraphBuffer l_Counts = l_Passes.ClusterCounts;
         const FrameGraphBuffer l_Lights = l_Passes.ClusterLights;
         const FrameGraphTexture l_Atlas = l_Passes.ShadowAtlas;
-        graph.AddPass("Opaque", FrameGraphPassType::Raster, [target, l_Depth, clearColor, l_Counts, l_Lights, l_Atlas](FrameGraphPassBuilder& builder)
+        const auto a_Read = [l_Counts, l_Lights, l_Atlas](FrameGraphPassBuilder& builder)
         {
-            builder.AddColorAttachment({ target, RHI::LoadOp::Clear, clearColor });
-            builder.SetDepthAttachment({ l_Depth, RHI::LoadOp::Load, 0.0f });
             if (l_Counts)
             {
                 builder.Read(l_Counts, RHI::ResourceState::ShaderResource);
@@ -1208,7 +1255,9 @@ namespace Trinity
             {
                 builder.Read(l_Atlas, RHI::ResourceState::ShaderResource);
             }
-        }, [this, l_List, l_Format, l_Width, l_Height, l_Inputs, l_Counts, l_Lights, l_Atlas](const FrameGraphContext& context)
+        };
+
+        const auto a_Shading = [l_Inputs, l_Counts, l_Lights, l_Atlas](const FrameGraphContext& context)
         {
             LightInputs l_Shading = l_Inputs;
             if (l_Counts)
@@ -1222,21 +1271,51 @@ namespace Trinity
                 l_Shading.ShadowAtlas = context.GetDevice().GetShaderResourceIndex(context.GetTexture(l_Atlas));
             }
 
-            RecordDraws(context.GetCommands(), *l_List, l_Format, false, l_Width, l_Height, l_Shading);
+            return l_Shading;
+        };
+
+        const bool l_Blended = !list.Transparent.empty();
+        const FrameGraphTexture l_OpaqueResolve = l_Samples > 1 && !l_Blended ? target : FrameGraphTexture{};
+        graph.AddPass("Opaque", FrameGraphPassType::Raster, [l_Color, l_OpaqueResolve, l_Depth, clearColor, a_Read](FrameGraphPassBuilder& builder)
+        {
+            builder.AddColorAttachment({ l_Color, RHI::LoadOp::Clear, clearColor, 0, 0, l_OpaqueResolve });
+            builder.SetDepthAttachment({ l_Depth, RHI::LoadOp::Load, 0.0f });
+            a_Read(builder);
+        }, [this, l_List, l_Format, l_Samples, l_Width, l_Height, a_Shading](const FrameGraphContext& context)
+        {
+            RecordDraws(context.GetCommands(), *l_List, l_List->Draws, l_Format, MeshPass::Opaque, l_Samples, l_Width, l_Height, a_Shading(context));
         });
+
+        if (l_Blended)
+        {
+            const FrameGraphTexture l_Resolve = l_Samples > 1 ? target : FrameGraphTexture{};
+            graph.AddPass("Transparent", FrameGraphPassType::Raster, [l_Color, l_Resolve, l_Depth, clearColor, a_Read](FrameGraphPassBuilder& builder)
+            {
+                builder.AddColorAttachment({ l_Color, RHI::LoadOp::Load, clearColor, 0, 0, l_Resolve });
+                builder.SetDepthAttachment({ l_Depth, RHI::LoadOp::Load, 0.0f });
+                a_Read(builder);
+            }, [this, l_List, l_Format, l_Samples, l_Width, l_Height, a_Shading](const FrameGraphContext& context)
+            {
+                RecordDraws(context.GetCommands(), *l_List, l_List->Transparent, l_Format, MeshPass::Transparent, l_Samples, l_Width, l_Height, a_Shading(context));
+            });
+        }
 
         return l_Passes;
     }
 
-    RHI::PipelineHandle Renderer3D::GetPipeline(RHI::Format colorFormat, PipelineKind kind, MeshPass pass)
+    // A masked submesh only needs a pipeline of its own where it writes depth, and a depth-only pass none for colour
+    RHI::PipelineHandle Renderer3D::GetPipeline(RHI::Format colorFormat, PipelineKind kind, MeshPass pass, bool masked, std::uint32_t sampleCount)
     {
-        const auto a_Found = std::ranges::find_if(m_Pipelines, [&](const PipelineEntry& entry) { return entry.Kind == kind && entry.Pass == pass && (pass != MeshPass::Opaque || entry.Format == colorFormat); });
+        const bool l_DepthOnly = pass == MeshPass::PrePass || pass == MeshPass::Shadow;
+        const bool l_Masked = masked && l_DepthOnly;
+        const RHI::Format l_Format = l_DepthOnly ? RHI::Format::Unknown : colorFormat;
+        const auto a_Found = std::ranges::find_if(m_Pipelines, [&](const PipelineEntry& entry) { return entry.Kind == kind && entry.Pass == pass && entry.Masked == l_Masked && entry.SampleCount == sampleCount && entry.Format == l_Format; });
         if (a_Found != m_Pipelines.end())
         {
             return a_Found->Pipeline;
         }
 
-        if (m_VertexShader.empty() || m_PixelShader.empty() || m_DepthPixelShader.empty())
+        if (m_VertexShader.empty() || m_PixelShader.empty() || m_DepthPixelShader.empty() || m_MaskPixelShader.empty())
         {
             if (!m_ReportedNoShaders)
             {
@@ -1247,19 +1326,20 @@ namespace Trinity
             return {};
         }
 
-        const bool l_DepthOnly = pass != MeshPass::Opaque;
-        const RHI::PipelineHandle l_Pipeline = CreatePipeline(m_Device, m_VertexShader, l_DepthOnly ? std::span<const std::byte>(m_DepthPixelShader) : std::span<const std::byte>(m_PixelShader), colorFormat, kind, l_DepthOnly, pass == MeshPass::Shadow);
-        m_Pipelines.push_back({ colorFormat, kind, pass, l_Pipeline });
+        const std::span<const std::byte> l_PixelShader = !l_DepthOnly ? std::span<const std::byte>(m_PixelShader) : (l_Masked ? std::span<const std::byte>(m_MaskPixelShader) : std::span<const std::byte>(m_DepthPixelShader));
+        const std::string_view l_Entry = !l_DepthOnly ? "PixelMain" : (l_Masked ? "MaskPixelMain" : "DepthPixelMain");
+        const RHI::PipelineHandle l_Pipeline = CreatePipeline(m_Device, m_VertexShader, l_PixelShader, l_Entry, l_Format, kind, l_DepthOnly, pass == MeshPass::Shadow, pass == MeshPass::Transparent, sampleCount);
+        m_Pipelines.push_back({ l_Format, kind, pass, l_Masked, sampleCount, l_Pipeline });
 
         return l_Pipeline;
     }
 
     // The frame's constants go into the upload ring once for each pass, then the draws
-    void Renderer3D::RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool depthOnly, std::uint32_t width, std::uint32_t height, const LightInputs& lights)
+    void Renderer3D::RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, std::span<const MeshDraw> draws, RHI::Format colorFormat, MeshPass pass, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height, const LightInputs& lights)
     {
         TR_PROFILE_FUNCTION();
 
-        if (list.Draws.empty() || width == 0 || height == 0)
+        if (draws.empty() || width == 0 || height == 0)
         {
             return;
         }
@@ -1267,7 +1347,7 @@ namespace Trinity
         const RHI::UploadAllocation l_Frame = m_Device.AllocateUpload(sizeof(FrameData), c_UploadAlignment);
         if (l_Frame.Data.empty() || l_Frame.ShaderResourceIndex == RHI::c_NoBindlessIndex)
         {
-            TR_CORE_ERROR("Renderer3D: no upload memory for {} draws, so they are not drawn this frame", list.Draws.size());
+            TR_CORE_ERROR("Renderer3D: no upload memory for {} draws, so they are not drawn this frame", draws.size());
 
             return;
         }
@@ -1315,15 +1395,16 @@ namespace Trinity
         l_FrameData.Shadows = { lights.ShadowAtlas, lights.Shadows, lights.ShadowsOffset, 0 };
         std::memcpy(l_Frame.Data.data(), &l_FrameData, sizeof(l_FrameData));
 
+
         commands.SetViewport({ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f });
         commands.SetScissor({ 0, 0, width, height });
-        if (DrawMeshes(commands, list.Draws, l_Frame.ShaderResourceIndex, static_cast<std::uint32_t>(l_Frame.Offset), colorFormat, depthOnly ? MeshPass::PrePass : MeshPass::Opaque))
+        if (DrawMeshes(commands, draws, l_Frame.ShaderResourceIndex, static_cast<std::uint32_t>(l_Frame.Offset), colorFormat, pass, sampleCount))
         {
-            (depthOnly ? m_Statistics.PrePassDraws : m_Statistics.OpaqueDraws) += static_cast<std::uint32_t>(list.Draws.size());
+            (pass == MeshPass::PrePass ? m_Statistics.PrePassDraws : (pass == MeshPass::Opaque ? m_Statistics.OpaqueDraws : m_Statistics.TransparentDraws)) += static_cast<std::uint32_t>(draws.size());
         }
     }
 
-    // Each view's casters into its tile, through its view-projection, which is all of the frame's constants the vertex shader reads
+    // Each view's casters into its tile, through its view-projection, with the material table and samplers a masked caster cuts itself out with, which is all of the frame's constants the shaders read here
     void Renderer3D::RecordShadowDraws(RHI::CommandList& commands, const SceneDrawList& list)
     {
         TR_PROFILE_FUNCTION();
@@ -1335,7 +1416,7 @@ namespace Trinity
                 continue;
             }
 
-            const RHI::UploadAllocation l_Frame = m_Device.AllocateUpload(sizeof(glm::mat4), c_UploadAlignment);
+            const RHI::UploadAllocation l_Frame = m_Device.AllocateUpload(sizeof(FrameData), c_UploadAlignment);
             if (l_Frame.Data.empty() || l_Frame.ShaderResourceIndex == RHI::c_NoBindlessIndex)
             {
                 TR_CORE_ERROR("Renderer3D: no upload memory for a shadow map, so its casters are not drawn this frame");
@@ -1343,10 +1424,19 @@ namespace Trinity
                 return;
             }
 
-            std::memcpy(l_Frame.Data.data(), &it_View.ViewProjection, sizeof(glm::mat4));
+            FrameData l_FrameData;
+            for (glm::length_t it_Column = 0; it_Column < 4; ++it_Column)
+            {
+                l_FrameData.ViewProjection[static_cast<std::size_t>(it_Column)] = it_View.ViewProjection[it_Column];
+            }
+
+            l_FrameData.MaterialTable = { m_Materials.GetTableShaderResourceIndex(), 0 };
+            l_FrameData.LinearSampler = { m_Device.GetSamplerIndex(m_LinearSampler), 0 };
+            l_FrameData.NearestSampler = { m_Device.GetSamplerIndex(m_NearestSampler), 0 };
+            std::memcpy(l_Frame.Data.data(), &l_FrameData, sizeof(l_FrameData));
             commands.SetViewport({ static_cast<float>(it_View.Origin.x), static_cast<float>(it_View.Origin.y), static_cast<float>(ShadowAtlas::c_TileSize), static_cast<float>(ShadowAtlas::c_TileSize), 0.0f, 1.0f });
             commands.SetScissor({ static_cast<std::int32_t>(it_View.Origin.x), static_cast<std::int32_t>(it_View.Origin.y), ShadowAtlas::c_TileSize, ShadowAtlas::c_TileSize });
-            if (!DrawMeshes(commands, std::span(list.ShadowDraws).subspan(it_View.FirstDraw, it_View.DrawCount), l_Frame.ShaderResourceIndex, static_cast<std::uint32_t>(l_Frame.Offset), RHI::Format::Unknown, MeshPass::Shadow))
+            if (!DrawMeshes(commands, std::span(list.ShadowDraws).subspan(it_View.FirstDraw, it_View.DrawCount), l_Frame.ShaderResourceIndex, static_cast<std::uint32_t>(l_Frame.Offset), RHI::Format::Unknown, MeshPass::Shadow, 1))
             {
                 return;
             }
@@ -1356,8 +1446,8 @@ namespace Trinity
         }
     }
 
-    // Every draw's record goes into the upload ring, and each draw names its record by index
-    bool Renderer3D::DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass)
+    // Every draw's record goes into the upload ring, and each draw names its record by index. The pipeline changes with the way a submesh faces, and in a depth-only pass with whether it is masked
+    bool Renderer3D::DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass, std::uint32_t sampleCount)
     {
         const RHI::UploadAllocation l_Draws = m_Device.AllocateUpload(std::uint64_t{ draws.size() } * sizeof(DrawData), c_UploadAlignment);
         if (l_Draws.Data.empty() || l_Draws.ShaderResourceIndex == RHI::c_NoBindlessIndex)
@@ -1395,21 +1485,24 @@ namespace Trinity
         l_Push.FrameOffset = frameOffset;
         l_Push.DrawOffset = static_cast<std::uint32_t>(l_Draws.Offset);
 
-        std::uint32_t l_Pipeline = static_cast<std::uint32_t>(PipelineKind::Count);
+        const bool l_DepthOnly = pass == MeshPass::PrePass || pass == MeshPass::Shadow;
+        std::uint32_t l_Pipeline = UINT32_MAX;
         const MeshAsset* l_Mesh = nullptr;
         for (std::size_t it_Draw = 0; it_Draw < draws.size(); ++it_Draw)
         {
             const MeshDraw& l_Draw = draws[it_Draw];
-            if (l_Draw.Pipeline != l_Pipeline)
+            const bool l_Masked = l_DepthOnly && l_Draw.AlphaMode == MaterialAlphaMode::Mask;
+            const std::uint32_t l_Variant = l_Draw.Pipeline + (l_Masked ? static_cast<std::uint32_t>(PipelineKind::Count) : 0u);
+            if (l_Variant != l_Pipeline)
             {
-                const RHI::PipelineHandle l_Handle = GetPipeline(colorFormat, static_cast<PipelineKind>(l_Draw.Pipeline), pass);
+                const RHI::PipelineHandle l_Handle = GetPipeline(colorFormat, static_cast<PipelineKind>(l_Draw.Pipeline), pass, l_Masked, sampleCount);
                 if (!l_Handle)
                 {
                     return false;
                 }
 
                 commands.SetPipeline(l_Handle);
-                l_Pipeline = l_Draw.Pipeline;
+                l_Pipeline = l_Variant;
                 l_Mesh = nullptr;
                 ++m_Statistics.PipelineChanges;
             }
