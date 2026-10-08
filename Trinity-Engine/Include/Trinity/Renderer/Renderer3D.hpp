@@ -23,9 +23,11 @@ namespace Trinity
     class Scene;
     struct CameraComponent;
 
-    // Where a scene is seen from: the view-projection, with reversed depth, and the eye, which lighting needs
+    // Where a scene is seen from: the view and the projection, with reversed depth, and the eye, which lighting needs
     struct TRINITY_API RenderView
     {
+        glm::mat4 View{ 1.0f };
+        glm::mat4 Projection{ 1.0f };
         glm::mat4 ViewProjection{ 1.0f };
         glm::vec3 Position{ 0.0f };
         // The way the view looks, which is the way every eye ray goes for an orthographic view
@@ -34,7 +36,39 @@ namespace Trinity
 
         // Through a camera on an entity with this world transform, for a target of this aspect ratio
         [[nodiscard]] static RenderView FromCamera(const CameraComponent& camera, const glm::mat4& world, float aspectRatio);
+        // The eye and the way it looks are those of the view's inverse
+        [[nodiscard]] static RenderView FromMatrices(const glm::mat4& view, const glm::mat4& projection, bool orthographic);
     };
+
+    // The clusters point and spot lights are sorted into: a fixed grid of screen tiles, each cut into slices of view depth, logarithmically spaced for a perspective view and evenly for an orthographic one, between depths that hold every light's reach. Lighting.slang holds the same sizes
+    struct TRINITY_API ClusterGrid
+    {
+        static constexpr std::uint32_t c_TilesX = 16;
+        static constexpr std::uint32_t c_TilesY = 9;
+        static constexpr std::uint32_t c_Slices = 24;
+        static constexpr std::uint32_t c_Count = c_TilesX * c_TilesY * c_Slices;
+        // A cluster keeps the first lights it is reached by up to this many, in light order, and counts the rest
+        static constexpr std::uint32_t c_MaxLights = 128;
+
+        // View depths, the distance in front of the eye, between which the slices lie
+        float Near = 0.1f;
+        float Far = 1.0f;
+        // Perspective, sliced logarithmically, or orthographic, sliced evenly
+        bool Perspective = true;
+        // The projection's x and y scale, and for an orthographic one its x and y offset, which is all a symmetric perspective or an orthographic projection needs to map a tile back into view space
+        glm::vec2 Scale{ 1.0f };
+        glm::vec2 Offset{ 0.0f };
+
+        [[nodiscard]] static constexpr std::uint32_t GetIndex(std::uint32_t x, std::uint32_t y, std::uint32_t slice) { return x + c_TilesX * (y + c_TilesY * slice); }
+
+        // Where a slice begins, slice c_Slices being where the last ends
+        [[nodiscard]] float GetSliceDepth(std::uint32_t slice) const;
+        // A cluster's box in view space, where the view looks down -Z
+        void GetBounds(std::uint32_t x, std::uint32_t y, std::uint32_t slice, glm::vec3& minimum, glm::vec3& maximum) const;
+    };
+
+    // From a point to a box, 0 inside it, which against a light's squared radius decides whether the light reaches a cluster, in the cluster pass and its reference alike
+    [[nodiscard]] TRINITY_API float GetSquaredDistance(const glm::vec3& point, const glm::vec3& minimum, const glm::vec3& maximum);
 
     // A view's six planes, a point p being inside one where dot(plane.xyz, p) + plane.w >= 0. A view without a far plane gets one every point is inside
     struct TRINITY_API Frustum
@@ -63,15 +97,44 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MeshDraw&) const = default;
     };
 
-    // What a view of a scene draws, in the order it draws it, and the light it is lit by
+    // Towards the light, and its colour times its illuminance in lux
+    struct DirectionalLight
+    {
+        glm::vec3 Direction{ 0.0f, 1.0f, 0.0f };
+        glm::vec3 Radiance{ 0.0f };
+    };
+
+    // A point or spot light as the shaders read it, in world space: where it is and its range, the way it shines and its colour times its intensity in candela, with the cone terms glTF gives, which leave a point light at full strength every way
+    struct PunctualLight
+    {
+        glm::vec3 Position{ 0.0f };
+        float Range = 0.0f;
+        glm::vec3 Direction{ 0.0f, 0.0f, -1.0f };
+        float ConeScale = 0.0f;
+        glm::vec3 Radiance{ 0.0f };
+        float ConeOffset = 1.0f;
+    };
+
+    static_assert(sizeof(PunctualLight) == 48);
+
+    // What a view of a scene draws, in the order it draws it, and the lights it is lit by
     struct TRINITY_API SceneDrawList
     {
+        static constexpr std::uint32_t c_MaxDirectionalLights = 4;
+        static constexpr std::uint32_t c_MaxPunctualLights = 4096;
+
         RenderView View;
         std::vector<MeshDraw, TaggedAllocator<MeshDraw, MemoryTag::Renderer>> Draws;
-        // Towards the light, and its colour times its illuminance in lux
-        glm::vec3 SunDirection{ 0.0f, 1.0f, 0.0f };
-        glm::vec3 SunRadiance{ 0.0f };
+        std::array<DirectionalLight, c_MaxDirectionalLights> Directional{};
+        std::uint32_t DirectionalCount = 0;
+        // Point and spot lights in hierarchy order, and for each the sphere in view space that holds all it lights, which is what clusters test
+        std::vector<PunctualLight, TaggedAllocator<PunctualLight, MemoryTag::Renderer>> Lights;
+        std::vector<glm::vec4, TaggedAllocator<glm::vec4, MemoryTag::Renderer>> LightBounds;
+        ClusterGrid Clusters;
+        // Lit by the default sun, as a scene with no lights at all is
         bool DefaultSun = false;
+        // Lights past c_MaxDirectionalLights or c_MaxPunctualLights, which light nothing
+        std::uint32_t DroppedLights = 0;
         std::uint32_t Submeshes = 0;
         std::uint32_t Culled = 0;
         // Mesh renderers whose mesh is still loading, which draw nothing until it is ready
@@ -80,7 +143,16 @@ namespace Trinity
         void Clear();
     };
 
-    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with the GGX BRDF lit by one directional light
+    // How one view of a scene is shaded
+    struct SceneOptions
+    {
+        // Every pixel loops over every point and spot light instead of its cluster's, which clustering is checked against
+        bool ShadeAllLights = false;
+        // Each pixel shows how many lights its cluster holds, from blue for none to red at the cap and magenta past it
+        bool LightHeatmap = false;
+    };
+
+    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with the GGX BRDF lit by up to four directional lights and the point and spot lights of the cluster the pixel lies in
     class TRINITY_API Renderer3D
     {
     public:
@@ -98,10 +170,18 @@ namespace Trinity
         // Reversed depth: the pre-pass keeps the nearest surface, and the opaque pass then draws only where it matches it exactly
         static constexpr RHI::CompareOp c_PrePassCompare = RHI::CompareOp::GreaterOrEqual;
         static constexpr RHI::CompareOp c_OpaqueCompare = RHI::CompareOp::Equal;
-        // The light a scene with no directional light is lit by, so a model dropped into a new scene shows, which is white at an illuminance that lights a white surface facing it to 1
+        // The light a scene with no lights at all is lit by, so a model dropped into a new scene shows, which is white at an illuminance that lights a white surface facing it to 1
         static constexpr float c_DefaultSunIntensity = 3.14159265f;
-        // Until image-based lighting arrives, every surface also takes this fraction of the sun's light from all around
+        // Until image-based lighting arrives, every surface also takes this fraction of the directional lights' light from all around
         static constexpr float c_AmbientFraction = 0.03f;
+
+        // What AddPasses leaves in the graph: the depth, and each cluster's light count then its lights, c_MaxLights to a cluster. The buffers are invalid when no clusters were built
+        struct Passes
+        {
+            FrameGraphTexture Depth;
+            FrameGraphBuffer ClusterCounts;
+            FrameGraphBuffer ClusterLights;
+        };
 
         struct Statistics
         {
@@ -111,6 +191,10 @@ namespace Trinity
             std::uint32_t PrePassDraws = 0;
             std::uint32_t OpaqueDraws = 0;
             std::uint32_t PipelineChanges = 0;
+            // From the first view drawn in a frame, read back c_FramesInFlight frames later
+            std::uint32_t Lights = 0;
+            std::uint32_t MostLightsInCluster = 0;
+            std::uint32_t OverfullClusters = 0;
         };
 
         Renderer3D(RHI::Device& device, const MaterialLoader& materials);
@@ -126,9 +210,11 @@ namespace Trinity
         void Collect(Scene& scene, const RenderView& view, SceneDrawList& list);
         // Every submesh tested in turn on this thread, for checking Collect against. It reads only meshes Collect has already loaded
         static void CollectReference(Scene& scene, const RenderView& view, SceneDrawList& list);
+        // Each cluster's light count, which may pass c_MaxLights, then its first c_MaxLights lights, as the cluster pass sorts them, for checking it against
+        static void BuildClustersReference(const SceneDrawList& list, std::vector<std::uint32_t>& counts, std::vector<std::uint32_t>& lights);
 
-        // A depth pre-pass into a depth texture the size of the target, then the opaque pass, which clears the target and draws again with an equal depth test. The list must last until the graph has run. Returns the depth texture
-        FrameGraphTexture AddPasses(FrameGraph& graph, const SceneDrawList& list, FrameGraphTexture target, const RHI::TextureDescription& targetDescription, const std::array<float, 4>& clearColor);
+        // A depth pre-pass into a depth texture the size of the target, then, when there are point or spot lights, a compute pass that sorts them into clusters, then the opaque pass, which clears the target and draws again with an equal depth test. The list must last until the graph has run
+        Passes AddPasses(FrameGraph& graph, const SceneDrawList& list, FrameGraphTexture target, const RHI::TextureDescription& targetDescription, const std::array<float, 4>& clearColor, const SceneOptions& options = {});
 
         [[nodiscard]] const Statistics& GetStatistics() const { return m_Statistics; }
 
@@ -153,14 +239,29 @@ namespace Trinity
 
         [[nodiscard]] const MeshAsset* ResolveMesh(UUID id);
         [[nodiscard]] const MaterialAsset* ResolveMaterial(UUID id);
+        // Where this view's lights and clusters are for the opaque pass, and how it shades
+        struct LightInputs
+        {
+            std::uint32_t Lights = RHI::c_NoBindlessIndex;
+            std::uint32_t LightsOffset = 0;
+            std::uint32_t ClusterCounts = RHI::c_NoBindlessIndex;
+            std::uint32_t ClusterLights = RHI::c_NoBindlessIndex;
+            std::uint32_t Flags = 0;
+        };
+
         [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format colorFormat, PipelineKind kind, bool depthOnly);
-        void RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool depthOnly, std::uint32_t width, std::uint32_t height);
+        void RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool depthOnly, std::uint32_t width, std::uint32_t height, const LightInputs& lights);
+        void ReadClusterStatistics();
 
         RHI::Device& m_Device;
         const MaterialLoader& m_Materials;
         FileBuffer m_VertexShader;
         FileBuffer m_PixelShader;
         FileBuffer m_DepthPixelShader;
+        RHI::PipelineHandle m_ClusterPipeline;
+        std::array<RHI::BufferHandle, RHI::c_FramesInFlight> m_ClusterReadbacks{};
+        std::array<bool, RHI::c_FramesInFlight> m_ClusterReadbackWritten{};
+        std::uint64_t m_ClusterReadbackFrame = 0;
         RHI::SamplerHandle m_LinearSampler;
         RHI::SamplerHandle m_NearestSampler;
         std::vector<PipelineEntry, TaggedAllocator<PipelineEntry, MemoryTag::Renderer>> m_Pipelines;

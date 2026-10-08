@@ -73,6 +73,7 @@ private:
     bool m_SceneCameraView = false;
     bool m_HasSceneCamera = false;
     glm::mat4 m_SceneViewProjection{ 1.0f };
+    bool m_LightHeatmap = false;
     bool m_ShowStats = true;
 
     GizmoOperation m_GizmoOperation = GizmoOperation::Translate;

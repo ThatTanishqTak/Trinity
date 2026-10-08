@@ -11,6 +11,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <string_view>
@@ -177,17 +178,39 @@ namespace Trinity
 
     enum class LightType : std::uint8_t
     {
-        Directional
+        Directional,
+        Point,
+        Spot
     };
 
-    // A light in physical units, as glTF's KHR_lights_punctual has them. A directional light shines along its entity's -Z, with its intensity in lux. Colour is linear
+    // A light in physical units, as glTF's KHR_lights_punctual has them: lux for a directional light, candela for a point or spot light. Directional and spot lights shine along their entity's -Z. Colour is linear
     struct LightComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.Light";
+        // The illuminance in lux below which a point or spot light with no range of its own stops, on a surface facing it
+        static constexpr float c_AutomaticRangeCutoff = 0.01f;
 
         LightType Type = LightType::Directional;
         glm::vec3 Color{ 1.0f };
         float Intensity = 3.14159265f;
+        // Point and spot: the distance at which the light has faded to nothing, or 0 to work it out from the intensity
+        float Range = 0.0f;
+        // Spot: from the -Z axis to where the light starts to fade and to where it ends, in degrees, as glTF's cone angles are in radians
+        float InnerConeAngle = 0.0f;
+        float OuterConeAngle = 45.0f;
+
+        // The range lighting and clustering use: the range set, or the distance at which the brightest channel falls to c_AutomaticRangeCutoff
+        [[nodiscard]] float GetRange() const
+        {
+            if (Range > 0.0f)
+            {
+                return Range;
+            }
+
+            const float l_Brightest = std::max(Intensity * std::max({ Color.r, Color.g, Color.b }), 0.0f);
+
+            return std::sqrt(l_Brightest / c_AutomaticRangeCutoff);
+        }
 
         [[nodiscard]] bool operator==(const LightComponent&) const = default;
     };

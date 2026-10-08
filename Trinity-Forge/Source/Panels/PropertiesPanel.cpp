@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <format>
 #include <iterator>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -291,7 +292,7 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
     }
 }
 
-// Directional only until point and spot lights arrive. It shines along the entity's -Z, so turning the entity aims it. Colour is edited as it looks, in sRGB, and kept linear
+// Directional, point or spot, in glTF's units: lux for a directional light, candela for the others. Directional and spot lights shine along the entity's -Z, so turning the entity aims them. Colour is edited as it looks, in sRGB, and kept linear. A range of 0 is worked out from the intensity, and the cone's inner angle stays inside its outer one
 void PropertiesPanel::DrawLight(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::LightComponent>() || !BeginComponent(Trinity::LightComponent::c_TypeName, Trinity::Icons::c_Globe, true))
@@ -302,10 +303,14 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     CommandStack& l_History = m_Session.GetHistory();
 
     Label("Type");
-    ImGui::BeginDisabled();
-    int l_Type = 0;
-    ImGui::Combo("##Type", &l_Type, "Directional\0");
-    ImGui::EndDisabled();
+    EditField<Trinity::LightComponent>(l_History, entity, "Type", [](Trinity::LightComponent& light)
+    {
+        int l_Type = static_cast<int>(light.Type);
+        const bool l_Changed = ImGui::Combo("##Type", &l_Type, "Directional\0Point\0Spot\0");
+        light.Type = static_cast<Trinity::LightType>(l_Type);
+
+        return l_Changed;
+    });
 
     Label("Color");
     EditField<Trinity::LightComponent>(l_History, entity, "Color", [](Trinity::LightComponent& light)
@@ -317,8 +322,44 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
         return l_Changed;
     });
 
+    const Trinity::LightComponent& l_Light = entity.Get<Trinity::LightComponent>();
+    const bool l_Directional = l_Light.Type == Trinity::LightType::Directional;
     Label("Intensity");
-    EditField<Trinity::LightComponent>(l_History, entity, "Intensity", [](Trinity::LightComponent& light) { return ImGui::DragFloat("##Intensity", &light.Intensity, 0.05f, 0.0f, 200000.0f, "%.3f lux", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Trinity::LightComponent>(l_History, entity, "Intensity", [l_Directional](Trinity::LightComponent& light) { return ImGui::DragFloat("##Intensity", &light.Intensity, 0.05f, 0.0f, 200000.0f, l_Directional ? "%.3f lux" : "%.3f cd", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    if (l_Directional)
+    {
+        return;
+    }
+
+    Label("Range");
+    EditField<Trinity::LightComponent>(l_History, entity, "Range", [](Trinity::LightComponent& light)
+    {
+        const std::string l_Format = light.Range > 0.0f ? std::string("%.3f m") : std::format("Automatic, {:.2f} m", light.GetRange());
+
+        return ImGui::DragFloat("##Range", &light.Range, 0.05f, 0.0f, 100000.0f, l_Format.c_str(), ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+    });
+
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Where the light has faded to nothing. At 0 it is where the light falls to %g lux on a surface facing it", Trinity::LightComponent::c_AutomaticRangeCutoff);
+    }
+
+    if (l_Light.Type != Trinity::LightType::Spot)
+    {
+        return;
+    }
+
+    Label("Inner Angle");
+    EditField<Trinity::LightComponent>(l_History, entity, "InnerConeAngle", [](Trinity::LightComponent& light) { return ImGui::DragFloat("##InnerConeAngle", &light.InnerConeAngle, 0.25f, 0.0f, light.OuterConeAngle, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Outer Angle");
+    EditField<Trinity::LightComponent>(l_History, entity, "OuterConeAngle", [](Trinity::LightComponent& light)
+    {
+        const bool l_Changed = ImGui::DragFloat("##OuterConeAngle", &light.OuterConeAngle, 0.25f, 0.1f, 90.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+        light.InnerConeAngle = std::min(light.InnerConeAngle, light.OuterConeAngle);
+
+        return l_Changed;
+    });
 }
 
 void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)

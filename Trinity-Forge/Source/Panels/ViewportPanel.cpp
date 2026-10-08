@@ -181,6 +181,10 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
     {
         m_SceneCameraView = value == "Scene";
     }
+    else if (key == "LightHeatmap")
+    {
+        m_LightHeatmap = value != "0";
+    }
     else
     {
         return false;
@@ -191,7 +195,7 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 
 void ViewportPanel::WriteSettings(ImGuiTextBuffer& buffer) const
 {
-    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\nViewCamera={}\n", m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z, m_SceneCameraView ? "Scene" : "Editor");
+    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\nViewCamera={}\nLightHeatmap={}\n", m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z, m_SceneCameraView ? "Scene" : "Editor", m_LightHeatmap ? 1 : 0);
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
@@ -239,13 +243,14 @@ void ViewportPanel::PrepareScene()
     }
     else
     {
-        l_View.ViewProjection = m_Camera.GetViewProjection(l_ViewportSize);
+        // The editor camera's projection holds its place, so its view is the world's own axes
+        l_View = Trinity::RenderView::FromMatrices(glm::mat4(1.0f), m_Camera.GetViewProjection(l_ViewportSize), true);
         l_View.Position = glm::vec3(m_Camera.GetPosition(), 0.0f);
-        l_View.Forward = glm::vec3(0.0f, 0.0f, -1.0f);
-        l_View.Orthographic = true;
     }
 
-    Trinity::Application::Get().GetRenderer().SubmitScene(l_Scene, l_View);
+    Trinity::SceneOptions l_Options;
+    l_Options.LightHeatmap = m_LightHeatmap;
+    Trinity::Application::Get().GetRenderer().SubmitScene(l_Scene, l_View, l_Options);
 }
 
 // Into the scene target, which the Viewport shows, over the scene's meshes: through the editor camera the grid, then the scene's sprites, and through the scene's camera its sprites alone
@@ -622,7 +627,18 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
         TextLine(std::format("Scene {}x{}, {} sprite(s) in {} draw call(s)", l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight(), l_Sprites.Sprites, l_Sprites.DrawCalls));
         const Trinity::Renderer3D::Statistics& l_Meshes = l_Renderer.GetRenderer3D().GetStatistics();
         const Trinity::SceneDrawList& l_Draws = l_Renderer.GetSceneDraws();
-        TextLine(std::format("{} of {} submesh(es) drawn, {} mesh(es) loading, lit by {}", l_Meshes.Visible, l_Meshes.Submeshes, l_Meshes.Pending, l_Draws.DefaultSun ? "the default sun" : "the scene's light"));
+        TextLine(std::format("{} of {} submesh(es) drawn, {} mesh(es) loading", l_Meshes.Visible, l_Meshes.Submeshes, l_Meshes.Pending));
+        if (l_Draws.DefaultSun)
+        {
+            TextLine("Lit by the default sun");
+        }
+        else
+        {
+            // The cluster counts are read back a couple of frames late
+            const std::string l_Overfull = l_Meshes.OverfullClusters > 0 ? std::format(", {} cluster(s) over the cap of {}", l_Meshes.OverfullClusters, Trinity::ClusterGrid::c_MaxLights) : std::string();
+            const std::string l_Dropped = l_Draws.DroppedLights > 0 ? std::format(", {} past the limit unlit", l_Draws.DroppedLights) : std::string();
+            TextLine(std::format("{} directional and {} point or spot light(s), up to {} in a cluster{}{}", l_Draws.DirectionalCount, l_Meshes.Lights, l_Meshes.MostLightsInCluster, l_Overfull, l_Dropped));
+        }
 
         // Averaged over 30 frames by the graph, so the lines change twice a second at 60 fps
         const Trinity::FrameGraph& l_Graph = l_Renderer.GetFrameGraph();
@@ -795,6 +811,26 @@ void ViewportPanel::DrawToolbar()
         }
 
         ImGui::SetItemTooltip("Through the editor's camera, which editing works in, or through the scene's primary camera, as the game shows it");
+        ImGui::SameLine();
+
+        const bool l_Heatmap = m_LightHeatmap;
+        if (l_Heatmap)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        }
+
+        if (ImGui::Button(std::format("{}###LightHeatmap", Trinity::Icons::c_PaintBrush).c_str()))
+        {
+            m_LightHeatmap = !m_LightHeatmap;
+            ImGui::MarkIniSettingsDirty();
+        }
+
+        if (l_Heatmap)
+        {
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::SetItemTooltip("Light heatmap: how many point and spot lights each cluster holds, from blue for none to red at the cap of %u and magenta past it", Trinity::ClusterGrid::c_MaxLights);
         ImGui::SameLine();
         ImGui::BeginDisabled(m_SceneCameraView);
 

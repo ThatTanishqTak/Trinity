@@ -42,7 +42,7 @@ namespace Trinity
 
         void SetClearColor(const std::array<float, 4>& color) { m_ClearColor = color; }
         // Draws the scene's meshes into the scene target this frame, before layers draw over them. On the main thread, after the transform pass and before the frame graph is built, as in OnPrepareRender
-        void SubmitScene(Scene& scene, const RenderView& view);
+        void SubmitScene(Scene& scene, const RenderView& view, const SceneOptions& options = {});
         void SetTitle(std::string_view title);
         void SetSceneCopy(bool enabled) { m_SceneCopy = enabled; }
         void SetSceneSize(std::uint32_t width, std::uint32_t height);
@@ -111,6 +111,7 @@ namespace Trinity
         Scope<Renderer2D> m_Renderer2D;
         Scope<Renderer3D> m_Renderer3D;
         SceneDrawList m_SceneDraws;
+        SceneOptions m_SceneOptions;
         bool m_SceneSubmitted = false;
         Scope<FrameGraph> m_FrameGraph;
 

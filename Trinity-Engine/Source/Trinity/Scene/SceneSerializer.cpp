@@ -229,17 +229,13 @@ namespace Trinity
             return projection == CameraProjection::Perspective ? "Perspective" : "Orthographic";
         }
 
+        constexpr std::array<std::pair<LightType, std::string_view>, 3> c_LightTypeNames{ { { LightType::Directional, "Directional" }, { LightType::Point, "Point" }, { LightType::Spot, "Spot" } } };
+
         std::string_view GetLightTypeName(LightType type)
         {
-            switch (type)
-            {
-                case LightType::Directional:
-                {
-                    return "Directional";
-                }
-            }
+            const auto a_Found = std::ranges::find(c_LightTypeNames, type, &std::pair<LightType, std::string_view>::first);
 
-            return "Directional";
+            return a_Found != c_LightTypeNames.end() ? a_Found->second : "Directional";
         }
 
         void SaveCamera(const CameraComponent& component, ComponentWriter& writer)
@@ -314,14 +310,23 @@ namespace Trinity
             writer.Write("Type", GetLightTypeName(component.Type));
             writer.Write("Color", component.Color);
             writer.Write("Intensity", component.Intensity);
+            writer.Write("Range", component.Range);
+            writer.Write("InnerConeAngle", component.InnerConeAngle);
+            writer.Write("OuterConeAngle", component.OuterConeAngle);
         }
 
-        // Only directional lights exist yet, so any type reads as one
+        // A light saved before there were other types, or naming one this build lacks, loads as a directional light
         void LoadLight(LightComponent& component, const ComponentReader& reader)
         {
-            component.Type = LightType::Directional;
+            std::string l_Type;
+            const bool l_HasType = reader.Read("Type", l_Type);
+            const auto a_Found = std::ranges::find(c_LightTypeNames, std::string_view(l_Type), &std::pair<LightType, std::string_view>::second);
+            component.Type = l_HasType && a_Found != c_LightTypeNames.end() ? a_Found->first : LightType::Directional;
             reader.Read("Color", component.Color);
             reader.Read("Intensity", component.Intensity);
+            reader.Read("Range", component.Range);
+            reader.Read("InnerConeAngle", component.InnerConeAngle);
+            reader.Read("OuterConeAngle", component.OuterConeAngle);
         }
 
         struct FileEntity

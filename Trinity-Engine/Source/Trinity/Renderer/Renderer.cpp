@@ -199,7 +199,7 @@ namespace Trinity
             l_Scene = l_Graph.ImportTexture("Scene", m_SceneTarget, m_SceneDescription, m_SceneState, RHI::ResourceState::ShaderResource);
             if (m_SceneSubmitted)
             {
-                static_cast<void>(m_Renderer3D->AddPasses(l_Graph, m_SceneDraws, l_Scene, m_SceneDescription, l_Clear));
+                static_cast<void>(m_Renderer3D->AddPasses(l_Graph, m_SceneDraws, l_Scene, m_SceneDescription, l_Clear, m_SceneOptions));
             }
 
             const RHI::LoadOp l_Load = m_SceneSubmitted ? RHI::LoadOp::Load : RHI::LoadOp::Clear;
@@ -237,9 +237,10 @@ namespace Trinity
         AddAddedOutputPasses(l_Display);
     }
 
-    void Renderer::SubmitScene(Scene& scene, const RenderView& view)
+    void Renderer::SubmitScene(Scene& scene, const RenderView& view, const SceneOptions& options)
     {
         m_Renderer3D->Collect(scene, view, m_SceneDraws);
+        m_SceneOptions = options;
         m_SceneSubmitted = true;
     }
 

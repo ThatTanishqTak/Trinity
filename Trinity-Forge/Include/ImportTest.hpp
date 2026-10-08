@@ -75,9 +75,12 @@ private:
 
     void BeginRendering();
     void UpdateRendering();
+    void AddTestLights(const glm::vec3& minimum, const glm::vec3& maximum, float radius);
     [[nodiscard]] bool CheckCulling();
     void AddRenderPasses(Trinity::FrameGraph& graph);
     void FinishRendering();
+    [[nodiscard]] bool CheckClusters();
+    [[nodiscard]] bool CompareShading();
     void Finish(bool passed);
 
     EditorSession& m_Session;
@@ -105,7 +108,7 @@ private:
     Trinity::MaterialData m_StandaloneData;
     bool m_MaterialsPassed = true;
 
-    // MetalRoughSpheres seen through a perspective camera and drawn offscreen, and its meshes scattered at random for the culling check
+    // MetalRoughSpheres among 1,024 point and spot lights, seen through a perspective camera and drawn offscreen by clusters and by every light, and its meshes scattered at random for the culling check
     std::unique_ptr<Trinity::Scene> m_RenderScene;
     std::unique_ptr<Trinity::Scene> m_CullScene;
     Trinity::RenderView m_RenderView;
@@ -115,8 +118,13 @@ private:
     Trinity::RHI::TextureHandle m_RenderTarget;
     Trinity::RHI::BufferHandle m_ColorReadback;
     Trinity::RHI::BufferHandle m_DepthReadback;
+    Trinity::RHI::TextureHandle m_AllLightsTarget;
+    Trinity::RHI::BufferHandle m_AllLightsReadback;
+    Trinity::RHI::BufferHandle m_ClusterCountsReadback;
+    Trinity::RHI::BufferHandle m_ClusterLightsReadback;
     bool m_RenderWanted = false;
     bool m_RenderAdded = false;
+    bool m_ClustersBuilt = false;
 
     // The material table copied into a readback buffer by a pass of the frame after one is asked for, and read once that frame has finished
     Trinity::RHI::BufferHandle m_TableReadback;

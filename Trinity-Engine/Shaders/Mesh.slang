@@ -1,12 +1,15 @@
 // Meshes drawn one submesh at a time. Each draw's record, in the upload ring, names its mesh buffer, where each vertex stream starts in it, and its material, and the vertices are read from the buffer by the indices the index buffer holds
 #include "Bindless.slang"
+#include "Lighting.slang"
 #include "Material.slang"
 
-static const float c_Pi = 3.14159265;
 static const uint c_Absent = 0xFFFFFFFF;
 static const uint c_DrawStride = 80;
+static const uint c_MaxDirectionalLights = 4;
+static const uint c_ShadeAllLightsFlag = 1;
+static const uint c_LightHeatmapFlag = 2;
 
-// Laid out as Renderer3D.cpp writes them. A frame: the view-projection's columns, the eye and whether the view is orthographic, the way it looks, the direction towards the sun, its radiance, the ambient light, then the material table and the two samplers
+// Laid out as Renderer3D.cpp writes them. The frame is FrameData there, and each draw a DrawData
 struct PushData
 {
     DescriptorHandle<ByteAddressBuffer> Frame;
@@ -27,6 +30,8 @@ struct VertexOutput
     float4 Tangent : TANGENT0;
     float4 TexCoords : TEXCOORD0;
     float4 Color : COLOR0;
+    // The clip-space position again, whose division the pixel shader does to find its cluster's tile
+    float4 Clip : TEXCOORD1;
 };
 
 // The rows of a 3x4 world matrix, then the mesh buffer's bindless index, the material's record, and where the positions, normals and tangents, both UV sets and the colours start, or c_Absent
@@ -64,6 +69,68 @@ DrawData LoadDraw()
     return l_Draw;
 }
 
+// The parts of the frame's constants the pixel shader needs: the eye, with w set for an orthographic view, the way it looks, the row a point's view depth comes from, the ambient light, the directional lights, the light counts and flags, how depth maps to slices, and the bindless indices of the material table, the samplers, the lights and the clusters
+struct FrameConstants
+{
+    float4 Eye;
+    float3 Forward;
+    float4 ViewDepth;
+    float3 Ambient;
+    uint DirectionalCount;
+    uint LightCount;
+    uint Flags;
+    bool Perspective;
+    float2 Slicing;
+    uint2 MaterialTable;
+    uint2 LinearSampler;
+    uint2 NearestSampler;
+    uint2 Lights;
+    uint2 ClusterCounts;
+    uint2 ClusterLights;
+    uint LightsOffset;
+};
+
+FrameConstants LoadFrame()
+{
+    ByteAddressBuffer l_Frame = g_Push.Frame;
+    const uint l_Base = g_Push.FrameOffset;
+    const uint4 l_Counts = l_Frame.Load<uint4>(l_Base + 256);
+    const uint4 l_Table = l_Frame.Load<uint4>(l_Base + 288);
+    const uint4 l_Nearest = l_Frame.Load<uint4>(l_Base + 304);
+    const uint4 l_Clusters = l_Frame.Load<uint4>(l_Base + 320);
+
+    FrameConstants l_Constants;
+    l_Constants.Eye = l_Frame.Load<float4>(l_Base + 64);
+    l_Constants.Forward = l_Frame.Load<float4>(l_Base + 80).xyz;
+    l_Constants.ViewDepth = l_Frame.Load<float4>(l_Base + 96);
+    l_Constants.Ambient = l_Frame.Load<float4>(l_Base + 112).xyz;
+    l_Constants.DirectionalCount = min(l_Counts.x, c_MaxDirectionalLights);
+    l_Constants.LightCount = l_Counts.y;
+    l_Constants.Flags = l_Counts.z;
+    l_Constants.Perspective = l_Counts.w != 0;
+    l_Constants.Slicing = l_Frame.Load<float4>(l_Base + 272).xy;
+    l_Constants.MaterialTable = l_Table.xy;
+    l_Constants.LinearSampler = l_Table.zw;
+    l_Constants.NearestSampler = l_Nearest.xy;
+    l_Constants.Lights = l_Nearest.zw;
+    l_Constants.ClusterCounts = l_Clusters.xy;
+    l_Constants.ClusterLights = l_Clusters.zw;
+    l_Constants.LightsOffset = l_Frame.Load(l_Base + 336);
+
+    return l_Constants;
+}
+
+// The tile from where the pixel lies on screen, and the slice from its view depth: its logarithm for a perspective view, as the slices are spaced
+uint GetClusterIndex(FrameConstants frame, float4 clip, float viewDepth)
+{
+    const float2 l_Tiles = float2(float(c_ClusterTilesX), float(c_ClusterTilesY));
+    const float2 l_Tile = clamp(floor((clip.xy / clip.w * 0.5 + 0.5) * l_Tiles), 0.0, l_Tiles - 1.0);
+    const float l_Depth = frame.Perspective ? log2(max(viewDepth, 1e-6)) : viewDepth;
+    const float l_Slice = clamp(floor(l_Depth * frame.Slicing.x + frame.Slicing.y), 0.0, float(c_ClusterSlices - 1));
+
+    return uint(l_Tile.x) + c_ClusterTilesX * (uint(l_Tile.y) + c_ClusterTilesY * uint(l_Slice));
+}
+
 // A unit direction unfolded from the octahedron, as MeshAsset.cpp's DecodeOctahedral does
 float3 DecodeOctahedral(int2 encoded)
 {
@@ -95,6 +162,7 @@ VertexOutput VertexMain(uint vertexIndex: SV_VertexID)
 
     VertexOutput l_Output;
     l_Output.Position = l_Frame.Load<float4>(g_Push.FrameOffset) * l_World.x + l_Frame.Load<float4>(g_Push.FrameOffset + 16) * l_World.y + l_Frame.Load<float4>(g_Push.FrameOffset + 32) * l_World.z + l_Frame.Load<float4>(g_Push.FrameOffset + 48);
+    l_Output.Clip = l_Output.Position;
     l_Output.WorldPosition = l_World;
 
     const float3 l_Column0 = float3(l_Draw.Rows[0].x, l_Draw.Rows[1].x, l_Draw.Rows[2].x);
@@ -139,51 +207,22 @@ void DepthPixelMain()
 }
 
 // The record's texture, sampled with its filter, through the UV set its slot names. A whole draw names one material, so no index here varies across a wave
-float4 SampleMaterial(Material material, uint slot, float4 texCoords, ByteAddressBuffer frame)
+float4 SampleMaterial(Material material, uint slot, float4 texCoords, FrameConstants frame)
 {
     const uint l_Texture = material.Textures[slot];
-    const uint2 l_Samplers = frame.Load<uint4>(g_Push.FrameOffset + 144).zw;
-    const uint2 l_Nearest = frame.Load<uint2>(g_Push.FrameOffset + 160);
     Texture2D l_Image = DescriptorHandle<Texture2D>(uint2(l_Texture & ~c_MaterialNearestBit, 0));
-    SamplerState l_Sampler = DescriptorHandle<SamplerState>((l_Texture & c_MaterialNearestBit) != 0 ? l_Nearest : l_Samplers);
+    SamplerState l_Sampler = DescriptorHandle<SamplerState>((l_Texture & c_MaterialNearestBit) != 0 ? frame.NearestSampler : frame.LinearSampler);
 
     return l_Image.Sample(l_Sampler, material.GetTexCoord(slot) == 1 ? texCoords.zw : texCoords.xy);
 }
 
-// Trowbridge-Reitz, with alpha the square of perceptual roughness
-float DistributionGGX(float normalDotHalf, float alpha)
-{
-    const float l_Alpha2 = alpha * alpha;
-    const float l_Denominator = (normalDotHalf * l_Alpha2 - normalDotHalf) * normalDotHalf + 1.0;
-
-    return l_Alpha2 / (c_Pi * l_Denominator * l_Denominator);
-}
-
-// Smith's height-correlated masking and shadowing, with the BRDF's 4 N.L N.V folded in
-float VisibilitySmithGGXCorrelated(float normalDotView, float normalDotLight, float alpha)
-{
-    const float l_Alpha2 = alpha * alpha;
-    const float l_View = normalDotLight * sqrt((normalDotView - normalDotView * l_Alpha2) * normalDotView + l_Alpha2);
-    const float l_Light = normalDotView * sqrt((normalDotLight - normalDotLight * l_Alpha2) * normalDotLight + l_Alpha2);
-
-    return 0.5 / max(l_View + l_Light, 1e-7);
-}
-
-float3 FresnelSchlick(float3 reflectance, float viewDotHalf)
-{
-    const float l_Factor = pow(1.0 - viewDotHalf, 5.0);
-
-    return reflectance + (1.0 - reflectance) * l_Factor;
-}
-
-// glTF's metallic-roughness BRDF: Lambert diffuse taking what Fresnel leaves, and GGX specular, lit by the sun. Ambient light stands in for image-based lighting until it arrives, and only it is occluded
+// glTF's metallic-roughness material lit by the directional lights, then by the point and spot lights of the pixel's cluster, or by every one of them when asked, in light order either way. Ambient light stands in for image-based lighting until it arrives, and only it is occluded
 [shader("fragment")]
 float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Target
 {
-    ByteAddressBuffer l_Frame = g_Push.Frame;
+    const FrameConstants l_Frame = LoadFrame();
     const DrawData l_Draw = LoadDraw();
-    const uint2 l_Table = l_Frame.Load<uint4>(g_Push.FrameOffset + 144).xy;
-    const Material l_Material = LoadMaterial(DescriptorHandle<ByteAddressBuffer>(l_Table), l_Draw.Material);
+    const Material l_Material = LoadMaterial(DescriptorHandle<ByteAddressBuffer>(l_Frame.MaterialTable), l_Draw.Material);
 
     float4 l_BaseColor = l_Material.BaseColorFactor * input.Color;
     if (l_Material.HasTexture(c_BaseColorSlot))
@@ -224,27 +263,54 @@ float4 PixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Targ
         l_Emissive *= SampleMaterial(l_Material, c_EmissiveSlot, input.TexCoords, l_Frame).rgb;
     }
 
-    const float4 l_Eye = l_Frame.Load<float4>(g_Push.FrameOffset + 64);
-    const float3 l_Forward = l_Frame.Load<float4>(g_Push.FrameOffset + 80).xyz;
-    const float3 l_ToSun = normalize(l_Frame.Load<float4>(g_Push.FrameOffset + 96).xyz);
-    const float3 l_SunRadiance = l_Frame.Load<float4>(g_Push.FrameOffset + 112).xyz;
-    const float3 l_Ambient = l_Frame.Load<float4>(g_Push.FrameOffset + 128).xyz;
+    Surface l_Surface;
+    l_Surface.Position = input.WorldPosition;
+    l_Surface.Normal = l_Normal;
+    l_Surface.View = l_Frame.Eye.w != 0.0 ? -normalize(l_Frame.Forward) : normalize(l_Frame.Eye.xyz - input.WorldPosition);
+    l_Surface.NormalDotView = max(dot(l_Normal, l_Surface.View), 1e-4);
+    l_Surface.Alpha = max(l_Roughness * l_Roughness, 0.002);
+    l_Surface.Diffuse = l_BaseColor.rgb * (1.0 - l_Metallic);
+    l_Surface.Reflectance = lerp(float3(0.04, 0.04, 0.04), l_BaseColor.rgb, l_Metallic);
 
-    const float3 l_View = l_Eye.w != 0.0 ? -normalize(l_Forward) : normalize(l_Eye.xyz - input.WorldPosition);
-    const float3 l_Half = normalize(l_View + l_ToSun);
-    const float l_NormalDotView = max(dot(l_Normal, l_View), 1e-4);
-    const float l_NormalDotLight = saturate(dot(l_Normal, l_ToSun));
-    const float l_NormalDotHalf = saturate(dot(l_Normal, l_Half));
-    const float l_ViewDotHalf = saturate(dot(l_View, l_Half));
+    ByteAddressBuffer l_FrameBuffer = g_Push.Frame;
+    float3 l_Color = float3(0.0, 0.0, 0.0);
+    for (uint it_Light = 0; it_Light < l_Frame.DirectionalCount; ++it_Light)
+    {
+        const uint l_Address = g_Push.FrameOffset + 128 + it_Light * 32;
+        l_Color += ShadeLight(l_Surface, normalize(l_FrameBuffer.Load<float4>(l_Address).xyz), l_FrameBuffer.Load<float4>(l_Address + 16).xyz);
+    }
 
-    const float l_Alpha = max(l_Roughness * l_Roughness, 0.002);
-    const float3 l_Diffuse = l_BaseColor.rgb * (1.0 - l_Metallic);
-    const float3 l_Reflectance = lerp(float3(0.04, 0.04, 0.04), l_BaseColor.rgb, l_Metallic);
-    const float3 l_Fresnel = FresnelSchlick(l_Reflectance, l_ViewDotHalf);
-    const float3 l_Specular = l_Fresnel * (DistributionGGX(l_NormalDotHalf, l_Alpha) * VisibilitySmithGGXCorrelated(l_NormalDotView, l_NormalDotLight, l_Alpha));
-    const float3 l_DiffuseTerm = (1.0 - l_Fresnel) * l_Diffuse / c_Pi;
+    uint l_ClusterCount = 0;
+    if (l_Frame.LightCount != 0)
+    {
+        ByteAddressBuffer l_Lights = DescriptorHandle<ByteAddressBuffer>(l_Frame.Lights);
+        if ((l_Frame.Flags & c_ShadeAllLightsFlag) != 0)
+        {
+            for (uint it_Light = 0; it_Light < l_Frame.LightCount; ++it_Light)
+            {
+                l_Color += ShadePunctualLight(l_Surface, LoadPunctualLight(l_Lights, l_Frame.LightsOffset + it_Light * c_PunctualLightStride));
+            }
+        }
+        else
+        {
+            ByteAddressBuffer l_Counts = DescriptorHandle<ByteAddressBuffer>(l_Frame.ClusterCounts);
+            ByteAddressBuffer l_ClusterLights = DescriptorHandle<ByteAddressBuffer>(l_Frame.ClusterLights);
+            const uint l_Cluster = GetClusterIndex(l_Frame, input.Clip, dot(l_Frame.ViewDepth, float4(input.WorldPosition, 1.0)));
+            l_ClusterCount = l_Counts.Load(l_Cluster * 4);
+            const uint l_Shaded = min(l_ClusterCount, c_MaxClusterLights);
+            for (uint it_Entry = 0; it_Entry < l_Shaded; ++it_Entry)
+            {
+                const uint l_Light = l_ClusterLights.Load((l_Cluster * c_MaxClusterLights + it_Entry) * 4);
+                l_Color += ShadePunctualLight(l_Surface, LoadPunctualLight(l_Lights, l_Frame.LightsOffset + l_Light * c_PunctualLightStride));
+            }
+        }
+    }
 
-    const float3 l_Color = (l_DiffuseTerm + l_Specular) * l_SunRadiance * l_NormalDotLight + l_Ambient * (l_Diffuse + l_Reflectance) * l_Occlusion + l_Emissive;
+    l_Color += l_Frame.Ambient * (l_Surface.Diffuse + l_Surface.Reflectance) * l_Occlusion + l_Emissive;
+    if ((l_Frame.Flags & c_LightHeatmapFlag) != 0)
+    {
+        l_Color = lerp(l_Color * 0.25, GetHeatColor(l_ClusterCount), 0.75);
+    }
 
     return float4(l_Color, l_BaseColor.a);
 }

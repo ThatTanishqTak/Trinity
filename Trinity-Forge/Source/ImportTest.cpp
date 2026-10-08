@@ -57,6 +57,10 @@ namespace
     constexpr std::uint32_t c_RenderSize = 256;
     constexpr std::uint32_t c_CullPoses = 1000;
     constexpr std::uint32_t c_CullEntities = 400;
+    // Point and spot lights scattered through MetalRoughSpheres for the cluster checks, and the size of the clusters' counts and lights read back
+    constexpr std::uint32_t c_TestLights = 1024;
+    constexpr std::uint64_t c_ClusterCountsSize = std::uint64_t{ Trinity::ClusterGrid::c_Count } * sizeof(std::uint32_t);
+    constexpr std::uint64_t c_ClusterListsSize = c_ClusterCountsSize * Trinity::ClusterGrid::c_MaxLights;
     constexpr std::array<float, 4> c_RenderClear{ 0.0f, 0.0f, 0.0f, 0.0f };
 
     // Khronos glTF sample models, as Scripts/FetchSamples checks them out under TR_FORGE_TEST_MODELS: two with images beside them and two that embed theirs
@@ -958,7 +962,11 @@ ImportTest::~ImportTest()
     l_Device.DestroyBuffer(m_TableReadback);
     l_Device.DestroyBuffer(m_ColorReadback);
     l_Device.DestroyBuffer(m_DepthReadback);
+    l_Device.DestroyBuffer(m_AllLightsReadback);
+    l_Device.DestroyBuffer(m_ClusterCountsReadback);
+    l_Device.DestroyBuffer(m_ClusterLightsReadback);
     l_Device.DestroyTexture(m_RenderTarget);
+    l_Device.DestroyTexture(m_AllLightsTarget);
 }
 
 // The material table copied whole, on a frame a check asks for it, and MetalRoughSpheres drawn offscreen on the frame the render check asks for it
@@ -1731,11 +1739,47 @@ void ImportTest::UpdateRendering()
     Trinity::Entity l_Light = m_RenderScene->CreateEntity("Sun");
     l_Light.Add<Trinity::LightComponent>();
     l_Light.Get<Trinity::TransformComponent>().Rotation = glm::rotation(glm::vec3(0.0f, 0.0f, 1.0f), glm::normalize(glm::vec3(0.3f, 0.6f, 1.0f)));
+    AddTestLights(l_Minimum, l_Maximum, l_Radius);
     m_RenderScene->UpdateWorldTransforms();
-    m_RenderView = Trinity::RenderView::FromCamera(l_CameraComponent, l_Camera.Get<Trinity::WorldTransformComponent>().Matrix, 1.0f);
+    m_RenderView = Trinity::RenderView::FromCamera(l_Camera.Get<Trinity::CameraComponent>(), l_Camera.Get<Trinity::WorldTransformComponent>().Matrix, 1.0f);
 
     m_RenderWanted = true;
     m_Phase = Phase::Rendering;
+}
+
+// Point and spot lights scattered through and around the model, each reaching a small part of it. Half have a range of their own and half work it out from an intensity chosen to give the same range, and spot lights point every way with cones from narrow to wide
+void ImportTest::AddTestLights(const glm::vec3& minimum, const glm::vec3& maximum, float radius)
+{
+    std::mt19937 l_Random(23);
+    std::uniform_real_distribution<float> l_Unit(-1.0f, 1.0f);
+    std::uniform_real_distribution<float> l_Fraction(0.0f, 1.0f);
+    const glm::vec3 l_Center = (minimum + maximum) * 0.5f;
+    const glm::vec3 l_HalfSize = (maximum - minimum) * 0.6f + glm::vec3(radius * 0.05f);
+    for (std::uint32_t it_Light = 0; it_Light < c_TestLights; ++it_Light)
+    {
+        Trinity::Entity l_Entity = m_RenderScene->CreateEntity(std::format("Light {}", it_Light));
+        Trinity::TransformComponent& l_Transform = l_Entity.Get<Trinity::TransformComponent>();
+        l_Transform.Position = l_Center + glm::vec3(l_Unit(l_Random), l_Unit(l_Random), l_Unit(l_Random)) * l_HalfSize;
+        l_Transform.Rotation = glm::normalize(glm::quat(l_Unit(l_Random), l_Unit(l_Random), l_Unit(l_Random), l_Unit(l_Random)) + glm::quat(0.001f, 0.0f, 0.0f, 0.0f));
+
+        Trinity::LightComponent& l_Light = l_Entity.Add<Trinity::LightComponent>();
+        l_Light.Type = l_Fraction(l_Random) < 0.4f ? Trinity::LightType::Spot : Trinity::LightType::Point;
+        l_Light.Color = glm::vec3(0.25f + l_Fraction(l_Random) * 0.75f, 0.25f + l_Fraction(l_Random) * 0.75f, 0.25f + l_Fraction(l_Random) * 0.75f);
+        l_Light.OuterConeAngle = 10.0f + l_Fraction(l_Random) * 70.0f;
+        l_Light.InnerConeAngle = l_Light.OuterConeAngle * l_Fraction(l_Random) * 0.9f;
+
+        const float l_Range = radius * (0.03f + l_Fraction(l_Random) * 0.17f);
+        if (it_Light % 2 == 0)
+        {
+            l_Light.Range = l_Range;
+            l_Light.Intensity = (0.5f + l_Fraction(l_Random)) * l_Range * l_Range * 0.25f;
+        }
+        else
+        {
+            l_Light.Range = 0.0f;
+            l_Light.Intensity = Trinity::LightComponent::c_AutomaticRangeCutoff * l_Range * l_Range / std::max({ l_Light.Color.r, l_Light.Color.g, l_Light.Color.b });
+        }
+    }
 }
 
 // Over random poses, perspective and orthographic, the culled and sorted list must equal the one tested a submesh at a time, and nothing culled may reach into the view: every corner of each culled submesh's box lies outside one side of the frustum
@@ -1829,43 +1873,90 @@ void ImportTest::AddRenderPasses(Trinity::FrameGraph& graph)
     l_Description.Usage = Trinity::RHI::TextureUsage::RenderTarget | Trinity::RHI::TextureUsage::ShaderResource | Trinity::RHI::TextureUsage::CopySource;
     l_Description.ClearColor = c_RenderClear;
     l_Description.DebugName = "Import test render target";
+    const std::uint64_t l_ColorSize = Trinity::RHI::GetTextureCopyRowPitch(Trinity::RHI::Format::RGBA16Float, c_RenderSize) * c_RenderSize;
+    const std::uint64_t l_DepthSize = Trinity::RHI::GetTextureCopyRowPitch(Trinity::Renderer3D::c_DepthFormat, c_RenderSize) * c_RenderSize;
     if (!m_RenderTarget)
     {
         m_RenderTarget = l_Device.CreateTexture(l_Description);
+        l_Description.DebugName = "Import test render target, every light";
+        m_AllLightsTarget = l_Device.CreateTexture(l_Description);
+        l_Description.DebugName = "Import test render target";
 
-        Trinity::RHI::BufferDescription l_Readback;
-        l_Readback.Usage = Trinity::RHI::BufferUsage::CopyDestination;
-        l_Readback.Memory = Trinity::RHI::MemoryType::Readback;
-        l_Readback.Size = Trinity::RHI::GetTextureCopyRowPitch(Trinity::RHI::Format::RGBA16Float, c_RenderSize) * c_RenderSize;
-        l_Readback.DebugName = "Import test color readback";
-        m_ColorReadback = l_Device.CreateBuffer(l_Readback);
-        l_Readback.Size = Trinity::RHI::GetTextureCopyRowPitch(Trinity::Renderer3D::c_DepthFormat, c_RenderSize) * c_RenderSize;
-        l_Readback.DebugName = "Import test depth readback";
-        m_DepthReadback = l_Device.CreateBuffer(l_Readback);
+        const auto a_Readback = [&l_Device](std::uint64_t size, std::string_view name)
+        {
+            Trinity::RHI::BufferDescription l_Readback;
+            l_Readback.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+            l_Readback.Memory = Trinity::RHI::MemoryType::Readback;
+            l_Readback.Size = size;
+            l_Readback.DebugName = name;
+
+            return l_Device.CreateBuffer(l_Readback);
+        };
+
+        m_ColorReadback = a_Readback(l_ColorSize, "Import test color readback");
+        m_DepthReadback = a_Readback(l_DepthSize, "Import test depth readback");
+        m_AllLightsReadback = a_Readback(l_ColorSize, "Import test every-light color readback");
+        m_ClusterCountsReadback = a_Readback(c_ClusterCountsSize, "Import test cluster counts readback");
+        m_ClusterLightsReadback = a_Readback(c_ClusterListsSize, "Import test cluster lights readback");
     }
 
     m_RenderAdded = true;
-    if (!m_RenderTarget || !m_ColorReadback || !m_DepthReadback)
+    m_ClustersBuilt = false;
+    if (!m_RenderTarget || !m_AllLightsTarget || !m_ColorReadback || !m_DepthReadback || !m_AllLightsReadback || !m_ClusterCountsReadback || !m_ClusterLightsReadback)
     {
         return;
     }
 
+    // The same draws twice: by each pixel's cluster, then by every light
     Trinity::Renderer3D& l_Renderer = Trinity::Application::Get().GetRenderer().GetRenderer3D();
     l_Renderer.Collect(*m_RenderScene, m_RenderView, m_RenderDraws);
     const Trinity::FrameGraphTexture l_Target = graph.ImportTexture("Import test render target", m_RenderTarget, l_Description, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::CopySource);
-    const Trinity::FrameGraphTexture l_Depth = l_Renderer.AddPasses(graph, m_RenderDraws, l_Target, l_Description, c_RenderClear);
-    const Trinity::FrameGraphBuffer l_Color = graph.ImportBuffer("Import test color readback", m_ColorReadback, Trinity::RHI::GetTextureCopyRowPitch(Trinity::RHI::Format::RGBA16Float, c_RenderSize) * c_RenderSize, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination);
-    const Trinity::FrameGraphBuffer l_DepthCopy = graph.ImportBuffer("Import test depth readback", m_DepthReadback, Trinity::RHI::GetTextureCopyRowPitch(Trinity::Renderer3D::c_DepthFormat, c_RenderSize) * c_RenderSize, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination);
-    graph.AddPass("Import test render readback", Trinity::FrameGraphPassType::Copy, [l_Target, l_Depth, l_Color, l_DepthCopy](Trinity::FrameGraphPassBuilder& builder)
+    const Trinity::FrameGraphTexture l_AllLightsTarget = graph.ImportTexture("Import test render target, every light", m_AllLightsTarget, l_Description, Trinity::RHI::ResourceState::Undefined, Trinity::RHI::ResourceState::CopySource);
+    const Trinity::Renderer3D::Passes l_Clustered = l_Renderer.AddPasses(graph, m_RenderDraws, l_Target, l_Description, c_RenderClear);
+    Trinity::SceneOptions l_EveryLight;
+    l_EveryLight.ShadeAllLights = true;
+    static_cast<void>(l_Renderer.AddPasses(graph, m_RenderDraws, l_AllLightsTarget, l_Description, c_RenderClear, l_EveryLight));
+    m_ClustersBuilt = l_Clustered.ClusterCounts.IsValid();
+
+    const auto a_Import = [&graph](std::string_view name, Trinity::RHI::BufferHandle buffer, std::uint64_t size) { return graph.ImportBuffer(name, buffer, size, Trinity::RHI::ResourceState::CopyDestination, Trinity::RHI::ResourceState::CopyDestination); };
+    const Trinity::FrameGraphBuffer l_Color = a_Import("Import test color readback", m_ColorReadback, l_ColorSize);
+    const Trinity::FrameGraphBuffer l_DepthCopy = a_Import("Import test depth readback", m_DepthReadback, l_DepthSize);
+    const Trinity::FrameGraphBuffer l_AllLightsColor = a_Import("Import test every-light color readback", m_AllLightsReadback, l_ColorSize);
+    const Trinity::FrameGraphTexture l_Depth = l_Clustered.Depth;
+    graph.AddPass("Import test render readback", Trinity::FrameGraphPassType::Copy, [l_Target, l_Depth, l_AllLightsTarget, l_Color, l_DepthCopy, l_AllLightsColor](Trinity::FrameGraphPassBuilder& builder)
     {
         builder.Read(l_Target, Trinity::RHI::ResourceState::CopySource);
         builder.Read(l_Depth, Trinity::RHI::ResourceState::CopySource);
+        builder.Read(l_AllLightsTarget, Trinity::RHI::ResourceState::CopySource);
         builder.Write(l_Color, Trinity::RHI::ResourceState::CopyDestination);
         builder.Write(l_DepthCopy, Trinity::RHI::ResourceState::CopyDestination);
-    }, [l_Target, l_Depth, l_Color, l_DepthCopy](const Trinity::FrameGraphContext& context)
+        builder.Write(l_AllLightsColor, Trinity::RHI::ResourceState::CopyDestination);
+    }, [l_Target, l_Depth, l_AllLightsTarget, l_Color, l_DepthCopy, l_AllLightsColor](const Trinity::FrameGraphContext& context)
     {
         context.GetCommands().CopyTextureToBuffer(context.GetTexture(l_Target), 0, 0, context.GetBuffer(l_Color), 0);
         context.GetCommands().CopyTextureToBuffer(context.GetTexture(l_Depth), 0, 0, context.GetBuffer(l_DepthCopy), 0);
+        context.GetCommands().CopyTextureToBuffer(context.GetTexture(l_AllLightsTarget), 0, 0, context.GetBuffer(l_AllLightsColor), 0);
+    });
+
+    if (!m_ClustersBuilt)
+    {
+        return;
+    }
+
+    const Trinity::FrameGraphBuffer l_Counts = l_Clustered.ClusterCounts;
+    const Trinity::FrameGraphBuffer l_Lists = l_Clustered.ClusterLights;
+    const Trinity::FrameGraphBuffer l_CountsCopy = a_Import("Import test cluster counts readback", m_ClusterCountsReadback, c_ClusterCountsSize);
+    const Trinity::FrameGraphBuffer l_ListsCopy = a_Import("Import test cluster lights readback", m_ClusterLightsReadback, c_ClusterListsSize);
+    graph.AddPass("Import test cluster readback", Trinity::FrameGraphPassType::Copy, [l_Counts, l_Lists, l_CountsCopy, l_ListsCopy](Trinity::FrameGraphPassBuilder& builder)
+    {
+        builder.Read(l_Counts, Trinity::RHI::ResourceState::CopySource);
+        builder.Read(l_Lists, Trinity::RHI::ResourceState::CopySource);
+        builder.Write(l_CountsCopy, Trinity::RHI::ResourceState::CopyDestination);
+        builder.Write(l_ListsCopy, Trinity::RHI::ResourceState::CopyDestination);
+    }, [l_Counts, l_Lists, l_CountsCopy, l_ListsCopy](const Trinity::FrameGraphContext& context)
+    {
+        context.GetCommands().CopyBuffer(context.GetBuffer(l_Counts), 0, context.GetBuffer(l_CountsCopy), 0, c_ClusterCountsSize);
+        context.GetCommands().CopyBuffer(context.GetBuffer(l_Lists), 0, context.GetBuffer(l_ListsCopy), 0, c_ClusterListsSize);
     });
 }
 
@@ -1928,5 +2019,158 @@ void ImportTest::FinishRendering()
     }
 
     TR_INFO("Import test: MetalRoughSpheres drew through a perspective camera in {} draws, covering {} of {} pixels, every one the pre-pass reached shaded by the opaque pass's equal depth test and the brightest at {:.3f}", m_RenderDraws.Draws.size(), l_Covered, l_Pixels, l_Brightest);
-    Finish(true);
+    const bool l_Clusters = CheckClusters();
+    const bool l_Shading = CompareShading();
+    Finish(l_Clusters && l_Shading);
+}
+
+// Every cluster's count and lights read back must equal the CPU's. The GPU's floating point may differ from the CPU's in the last bits, so a light whose sphere just touches a cluster's box, within a hair of its radius, may be in one list and not the other. A cluster past the cap is checked by its count, since which lights it keeps then depends on every light before them
+bool ImportTest::CheckClusters()
+{
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    if (!m_ClustersBuilt)
+    {
+        TR_ERROR("Import test: no light clusters were built for {} point and spot lights", m_RenderDraws.Lights.size());
+
+        return false;
+    }
+
+    const std::span<const std::byte> l_GpuCounts = l_Device.GetMappedData(m_ClusterCountsReadback);
+    const std::span<const std::byte> l_GpuLists = l_Device.GetMappedData(m_ClusterLightsReadback);
+    std::vector<std::uint32_t> l_Counts;
+    std::vector<std::uint32_t> l_Lists;
+    Trinity::Renderer3D::BuildClustersReference(m_RenderDraws, l_Counts, l_Lists);
+    if (l_GpuCounts.size() < l_Counts.size() * sizeof(std::uint32_t) || l_GpuLists.size() < l_Lists.size() * sizeof(std::uint32_t))
+    {
+        TR_ERROR("Import test: the cluster readbacks are smaller than the clusters");
+
+        return false;
+    }
+
+    const Trinity::ClusterGrid& l_Grid = m_RenderDraws.Clusters;
+    std::uint32_t l_Exact = 0;
+    std::uint32_t l_Grazing = 0;
+    std::uint32_t l_Mismatched = 0;
+    std::uint32_t l_Overfull = 0;
+    std::uint32_t l_Most = 0;
+    std::uint64_t l_Entries = 0;
+    std::vector<std::uint32_t> l_GpuList;
+    std::vector<std::uint32_t> l_Difference;
+    for (std::uint32_t it_Cluster = 0; it_Cluster < Trinity::ClusterGrid::c_Count; ++it_Cluster)
+    {
+        std::uint32_t l_GpuCount = 0;
+        std::memcpy(&l_GpuCount, l_GpuCounts.data() + std::size_t{ it_Cluster } * sizeof(std::uint32_t), sizeof(l_GpuCount));
+        const std::uint32_t l_Count = l_Counts[it_Cluster];
+        l_Most = std::max(l_Most, l_Count);
+        l_Entries += l_Count;
+
+        const std::size_t l_First = std::size_t{ it_Cluster } * Trinity::ClusterGrid::c_MaxLights;
+        l_GpuList.resize(std::min(l_GpuCount, Trinity::ClusterGrid::c_MaxLights));
+        std::memcpy(l_GpuList.data(), l_GpuLists.data() + l_First * sizeof(std::uint32_t), l_GpuList.size() * sizeof(std::uint32_t));
+        const std::span<const std::uint32_t> l_List(l_Lists.data() + l_First, std::min(l_Count, Trinity::ClusterGrid::c_MaxLights));
+        if (l_GpuCount == l_Count && std::ranges::equal(l_GpuList, l_List))
+        {
+            ++l_Exact;
+
+            continue;
+        }
+
+        glm::vec3 l_Minimum;
+        glm::vec3 l_Maximum;
+        l_Grid.GetBounds(it_Cluster % Trinity::ClusterGrid::c_TilesX, (it_Cluster / Trinity::ClusterGrid::c_TilesX) % Trinity::ClusterGrid::c_TilesY, it_Cluster / (Trinity::ClusterGrid::c_TilesX * Trinity::ClusterGrid::c_TilesY), l_Minimum, l_Maximum);
+        const auto a_Grazes = [&](std::uint32_t light)
+        {
+            if (light >= m_RenderDraws.LightBounds.size())
+            {
+                return false;
+            }
+
+            const glm::vec4& l_Sphere = m_RenderDraws.LightBounds[light];
+            const float l_Distance = std::sqrt(Trinity::GetSquaredDistance(glm::vec3(l_Sphere), l_Minimum, l_Maximum));
+
+            return std::abs(l_Distance - l_Sphere.w) <= 1e-4f * std::max({ 1.0f, l_Sphere.w, l_Grid.Far });
+        };
+
+        bool l_Explained = false;
+        if (l_GpuCount > Trinity::ClusterGrid::c_MaxLights || l_Count > Trinity::ClusterGrid::c_MaxLights)
+        {
+            ++l_Overfull;
+            std::uint32_t l_Grazers = 0;
+            for (std::uint32_t it_Light = 0; it_Light < m_RenderDraws.LightBounds.size(); ++it_Light)
+            {
+                l_Grazers += a_Grazes(it_Light) ? 1 : 0;
+            }
+
+            l_Explained = (l_GpuCount > l_Count ? l_GpuCount - l_Count : l_Count - l_GpuCount) <= l_Grazers;
+        }
+        else
+        {
+            l_Difference.clear();
+            std::ranges::set_symmetric_difference(l_GpuList, l_List, std::back_inserter(l_Difference));
+            l_Explained = std::ranges::is_sorted(l_GpuList) && std::ranges::all_of(l_Difference, a_Grazes);
+        }
+
+        ++(l_Explained ? l_Grazing : l_Mismatched);
+    }
+
+    if (l_Mismatched != 0)
+    {
+        TR_ERROR("Import test: {} of {} clusters' light lists differed from the CPU's beyond lights grazing their edges, with {} point and spot lights", l_Mismatched, Trinity::ClusterGrid::c_Count, m_RenderDraws.Lights.size());
+
+        return false;
+    }
+
+    TR_INFO("Import test: all {} clusters' light lists equalled the CPU's for {} point and spot lights, {} exactly and {} but for lights grazing their edges, with {} entries, at most {} lights in a cluster and {} cluster(s) over the cap of {}", Trinity::ClusterGrid::c_Count, m_RenderDraws.Lights.size(), l_Exact, l_Grazing, l_Entries, l_Most, l_Overfull, Trinity::ClusterGrid::c_MaxLights);
+
+    return true;
+}
+
+// Each pixel shaded by its cluster's lights against the same pixel shaded by every light: within 1/255 of the brighter of the two, or 1/255 itself below 1
+bool ImportTest::CompareShading()
+{
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    const std::uint64_t l_Pitch = Trinity::RHI::GetTextureCopyRowPitch(Trinity::RHI::Format::RGBA16Float, c_RenderSize);
+    const std::span<const std::byte> l_Clustered = l_Device.GetMappedData(m_ColorReadback);
+    const std::span<const std::byte> l_EveryLight = l_Device.GetMappedData(m_AllLightsReadback);
+    if (l_Clustered.size() < l_Pitch * c_RenderSize || l_EveryLight.size() < l_Pitch * c_RenderSize)
+    {
+        TR_ERROR("Import test: the colour readbacks are smaller than the render target");
+
+        return false;
+    }
+
+    std::uint32_t l_Different = 0;
+    float l_Largest = 0.0f;
+    for (std::uint32_t it_Y = 0; it_Y < c_RenderSize; ++it_Y)
+    {
+        for (std::uint32_t it_X = 0; it_X < c_RenderSize; ++it_X)
+        {
+            std::array<std::uint16_t, 4> l_Ours{};
+            std::array<std::uint16_t, 4> l_Theirs{};
+            std::memcpy(l_Ours.data(), l_Clustered.data() + it_Y * l_Pitch + it_X * 8, 8);
+            std::memcpy(l_Theirs.data(), l_EveryLight.data() + it_Y * l_Pitch + it_X * 8, 8);
+            bool l_Same = true;
+            for (std::size_t it_Channel = 0; it_Channel < 4; ++it_Channel)
+            {
+                const float l_A = glm::unpackHalf1x16(l_Ours[it_Channel]);
+                const float l_B = glm::unpackHalf1x16(l_Theirs[it_Channel]);
+                const float l_Difference = std::abs(l_A - l_B);
+                l_Largest = std::isfinite(l_Difference) ? std::max(l_Largest, l_Difference) : l_Largest;
+                l_Same = l_Same && std::isfinite(l_Difference) && l_Difference <= std::max({ 1.0f, std::abs(l_A), std::abs(l_B) }) / 255.0f;
+            }
+
+            l_Different += l_Same ? 0 : 1;
+        }
+    }
+
+    if (l_Different != 0)
+    {
+        TR_ERROR("Import test: {} pixel(s) shaded by their clusters' lights differed from shading by every light by more than 1/255, the largest by {}", l_Different, l_Largest);
+
+        return false;
+    }
+
+    TR_INFO("Import test: every pixel shaded by its cluster's lights matched shading by all {} point and spot lights within 1/255, the largest difference {}", m_RenderDraws.Lights.size(), l_Largest);
+
+    return true;
 }
