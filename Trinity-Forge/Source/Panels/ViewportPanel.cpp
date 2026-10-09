@@ -326,7 +326,7 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
-// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline. After the transform pass
+// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image. After the transform pass
 void ViewportPanel::PrepareScene()
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -354,6 +354,7 @@ void ViewportPanel::PrepareScene()
     l_Options.EntityIDs = true;
     l_Options.PickPixel = std::exchange(m_PickPixel, std::nullopt);
     l_Options.Outlined = GetOutlined();
+    l_Options.DebugLines = true;
     if (m_Mode3D)
     {
         l_Options.Overlay = [this](Trinity::RHI::CommandList& commands, const Trinity::RenderView& view, Trinity::RHI::Format colorFormat, std::uint32_t sampleCount) { m_Grid3D.Draw(commands, view, colorFormat, sampleCount); };

@@ -11,6 +11,7 @@
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Core/Window.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
+#include "Trinity/Renderer/DebugDrawBuffer.hpp"
 #include "Trinity/Renderer/GraphicsAPI.hpp"
 
 #include <algorithm>
@@ -70,6 +71,20 @@ namespace Trinity
 
         static_assert(sizeof(OutlinePushData) == 64);
 
+#if TR_DEBUG_DRAW
+        // Laid out as DebugLines.slang reads it
+        struct DebugLinePushData
+        {
+            std::array<glm::vec4, 4> ViewProjection{};
+            std::array<std::uint32_t, 2> Vertices{};
+            std::uint32_t VertexOffset = 0;
+            std::uint32_t Depth = 0;
+            std::uint32_t DepthSamples = 0;
+        };
+
+        static_assert(sizeof(DebugLinePushData) == 84);
+#endif
+
         // One entity ID, in a buffer of the size a copy is safe with on every backend
         constexpr std::uint64_t c_PickSize = 16;
         // The orange an editor marks its selection with, sRGB-encoded as the display target is
@@ -120,6 +135,11 @@ namespace Trinity
         m_CopyPipeline = CreateFullscreenPipeline("SceneCopy", GetOutputFormat(), "Renderer scene copy", "the output only shows the clear colour");
         m_TonemapPipeline = CreateFullscreenPipeline("Tonemap", c_DisplayFormat, "Renderer tonemap", "the scene is shown as black");
         CreatePicking();
+#if TR_DEBUG_DRAW
+        m_DebugLinePipeline = CreateFullscreenPipeline("DebugLines", c_DisplayFormat, "Debug lines", "no debug lines are drawn", true, RHI::PrimitiveTopology::LineList);
+        const RHI::TextureUsage l_ReadableDepth = RHI::TextureUsage::DepthStencil | RHI::TextureUsage::ShaderResource;
+        m_DebugDepthSupport = { m_Device.IsFormatSupported(Renderer3D::c_DepthFormat, l_ReadableDepth, 1), m_Device.IsFormatSupported(Renderer3D::c_DepthFormat, l_ReadableDepth, Renderer3D::c_SampleCount) };
+#endif
 
         // Textures, materials, meshes and environments need this device, so their loaders live exactly as long as the renderer. Materials keep textures loaded, so they go before textures do
         m_TextureLoader = CreateScope<TextureLoader>(m_Device);
@@ -175,6 +195,10 @@ namespace Trinity
         m_Device.DestroyPipeline(m_TonemapPipeline);
         m_Device.DestroyPipeline(m_PickPipeline);
         m_Device.DestroyPipeline(m_OutlinePipeline);
+#if TR_DEBUG_DRAW
+        m_Device.DestroyPipeline(m_DebugLinePipeline);
+        DebugDrawBuffer::Release();
+#endif
         for (const Scope<View>& it_View : m_Views)
         {
             DestroyViewResources(*it_View);
@@ -192,6 +216,10 @@ namespace Trinity
 
         if (m_Window.GetWidth() == 0 || m_Window.GetHeight() == 0)
         {
+#if TR_DEBUG_DRAW
+            DebugDrawBuffer::Clear();
+#endif
+
             return;
         }
 
@@ -219,6 +247,9 @@ namespace Trinity
         }
 
         BuildFrameGraph(layers);
+#if TR_DEBUG_DRAW
+        DebugDrawBuffer::Clear();
+#endif
         m_FrameGraph->Execute(l_Commands);
         for (const Scope<View>& it_View : m_Views)
         {
@@ -260,6 +291,9 @@ namespace Trinity
         FrameGraph& l_Graph = *m_FrameGraph;
         l_Graph.Reset();
         m_Displays.clear();
+#if TR_DEBUG_DRAW
+        PrepareDebugLines();
+#endif
 
         FrameGraphTexture l_MainDisplay;
         for (const Scope<View>& it_View : m_Views)
@@ -345,6 +379,13 @@ namespace Trinity
             {
                 AddOutlinePass(graph, view, l_Entities, l_Display);
             }
+
+#if TR_DEBUG_DRAW
+            if (l_Submitted && view.Options.DebugLines)
+            {
+                AddDebugLinePass(graph, view, l_Display, l_Passes);
+            }
+#endif
         }
 
         return l_Display;
@@ -493,6 +534,96 @@ namespace Trinity
             context.GetCommands().Draw(3, 1, 0, 0);
         });
     }
+
+#if TR_DEBUG_DRAW
+    // The frame's debug lines go into the upload ring once, for every view that draws them, depth-tested lines first. With no view to draw them, they are only cleared
+    void Renderer::PrepareDebugLines()
+    {
+        m_DebugLines = {};
+        const std::span<const DebugVertex> l_Test = DebugDrawBuffer::GetVertices(DebugDepth::Test);
+        const std::span<const DebugVertex> l_OnTop = DebugDrawBuffer::GetVertices(DebugDepth::OnTop);
+        const bool l_Wanted = std::ranges::any_of(m_Views, [](const Scope<View>& entry) { return entry->Submitted != nullptr && entry->Options.DebugLines; });
+        if ((l_Test.empty() && l_OnTop.empty()) || !l_Wanted || !m_DebugLinePipeline)
+        {
+            return;
+        }
+
+        const std::uint64_t l_Size = (l_Test.size() + l_OnTop.size()) * sizeof(DebugVertex);
+        const RHI::UploadAllocation l_Upload = m_Device.AllocateUpload(l_Size, 16);
+        if (l_Upload.Data.empty() || l_Upload.ShaderResourceIndex == RHI::c_NoBindlessIndex)
+        {
+            TR_CORE_ERROR("Renderer: no upload memory for {} debug lines, so none are drawn this frame", (l_Test.size() + l_OnTop.size()) / 2);
+
+            return;
+        }
+
+        std::memcpy(l_Upload.Data.data(), l_Test.data(), l_Test.size_bytes());
+        std::memcpy(l_Upload.Data.data() + l_Test.size_bytes(), l_OnTop.data(), l_OnTop.size_bytes());
+        m_DebugLines.Buffer = l_Upload.ShaderResourceIndex;
+        m_DebugLines.TestOffset = static_cast<std::uint32_t>(l_Upload.Offset);
+        m_DebugLines.TestVertices = static_cast<std::uint32_t>(l_Test.size());
+        m_DebugLines.OnTopOffset = static_cast<std::uint32_t>(l_Upload.Offset + l_Test.size_bytes());
+        m_DebugLines.OnTopVertices = static_cast<std::uint32_t>(l_OnTop.size());
+    }
+
+    // Over the view's tonemapped image and outline: the depth-tested lines against the scene's depth, then the lines on top. A device that cannot read the depth draws every line on top, as it does in a view whose depth was not drawn
+    void Renderer::AddDebugLinePass(FrameGraph& graph, const View& view, FrameGraphTexture display, const Renderer3D::Passes& passes)
+    {
+        if (m_DebugLines.Buffer == RHI::c_NoBindlessIndex)
+        {
+            return;
+        }
+
+        const bool l_Readable = passes.Depth && m_DebugDepthSupport[passes.SampleCount > 1 ? 1 : 0];
+        if (passes.Depth && !l_Readable && !std::exchange(m_ReportedNoDebugDepth, true))
+        {
+            TR_CORE_WARN("Renderer: {} cannot read {} depth with {} sample(s), so depth-tested debug lines are drawn on top", ToString(m_Device.GetInfo().API), RHI::ToString(Renderer3D::c_DepthFormat), passes.SampleCount);
+        }
+
+        DebugLinePushData l_Push;
+        for (glm::length_t it_Column = 0; it_Column < 4; ++it_Column)
+        {
+            l_Push.ViewProjection[static_cast<std::size_t>(it_Column)] = view.Draws.View.ViewProjection[it_Column];
+        }
+
+        l_Push.Vertices = { m_DebugLines.Buffer, 0 };
+        const FrameGraphTexture l_Depth = l_Readable ? passes.Depth : FrameGraphTexture{};
+        const std::uint32_t l_Samples = l_Readable ? passes.SampleCount : 0;
+        const DebugLines l_Lines = m_DebugLines;
+        const RHI::PipelineHandle l_Pipeline = m_DebugLinePipeline;
+        graph.AddPass("Debug lines", FrameGraphPassType::Raster, [display, l_Depth](FrameGraphPassBuilder& builder)
+        {
+            builder.AddColorAttachment({ display, RHI::LoadOp::Load });
+            if (l_Depth)
+            {
+                builder.Read(l_Depth, RHI::ResourceState::ShaderResource);
+            }
+        }, [l_Push, l_Depth, l_Samples, l_Lines, l_Pipeline](const FrameGraphContext& context)
+        {
+            RHI::CommandList& l_Commands = context.GetCommands();
+            l_Commands.SetPipeline(l_Pipeline);
+
+            DebugLinePushData l_Data = l_Push;
+            if (l_Lines.TestVertices > 0)
+            {
+                l_Data.VertexOffset = l_Lines.TestOffset;
+                l_Data.Depth = l_Depth ? context.GetDevice().GetShaderResourceIndex(context.GetTexture(l_Depth)) : 0;
+                l_Data.DepthSamples = l_Samples;
+                l_Commands.PushConstants(std::as_bytes(std::span(&l_Data, 1)));
+                l_Commands.Draw(l_Lines.TestVertices, 1, 0, 0);
+            }
+
+            if (l_Lines.OnTopVertices > 0)
+            {
+                l_Data.VertexOffset = l_Lines.OnTopOffset;
+                l_Data.Depth = 0;
+                l_Data.DepthSamples = 0;
+                l_Commands.PushConstants(std::as_bytes(std::span(&l_Data, 1)));
+                l_Commands.Draw(l_Lines.OnTopVertices, 1, 0, 0);
+            }
+        });
+    }
+#endif
 
     // What the frame that last used the view's slot asked about. That frame is c_FramesInFlight behind, and BeginFrame has waited for it, so its copy is done and reading it never stalls
     void Renderer::ReadPick(View& view)
@@ -990,8 +1121,8 @@ namespace Trinity
         view.DisplayState = RHI::ResourceState::Undefined;
     }
 
-    // One triangle over the whole target from a shader's VertexMain and PixelMain, as the scene copy and the tonemap are drawn
-    RHI::PipelineHandle Renderer::CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence, bool alphaBlend)
+    // From a shader's VertexMain and PixelMain with no vertex input: one triangle over the whole target, as the scene copy and the tonemap are drawn, or lines, as debug lines are
+    RHI::PipelineHandle Renderer::CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence, bool alphaBlend, RHI::PrimitiveTopology topology)
     {
         const std::string_view l_Extension = m_Device.GetInfo().API == GraphicsAPI::D3D12 ? "dxil" : "spv";
         const Expected<FileBuffer, FileError> l_VertexShader = FileSystem::ReadFile(std::format("/engine/shaders/{}.VertexMain.{}", shader, l_Extension));
@@ -1009,6 +1140,7 @@ namespace Trinity
         l_Description.VertexShader = { *l_VertexShader, "VertexMain" };
         l_Description.PixelShader = { *l_PixelShader, "PixelMain" };
         l_Description.ColorFormats = l_ColorFormats;
+        l_Description.Topology = topology;
         l_Description.Cull = RHI::CullMode::None;
         l_Description.AlphaBlend = alphaBlend;
         l_Description.DebugName = debugName;

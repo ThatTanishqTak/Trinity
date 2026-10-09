@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Memory.hpp"
+#include "Trinity/Renderer/DebugDraw.hpp"
 #include "Trinity/Renderer/FrameGraph.hpp"
 #include "Trinity/Renderer/Renderer2D.hpp"
 #include "Trinity/Renderer/Renderer3D.hpp"
@@ -150,12 +151,16 @@ namespace Trinity
         void CreateViewTargets(View& view);
         void DestroyViewResources(View& view);
         [[nodiscard]] View* FindView(ViewID view) const;
-        [[nodiscard]] RHI::PipelineHandle CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence, bool alphaBlend = false);
+        [[nodiscard]] RHI::PipelineHandle CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence, bool alphaBlend = false, RHI::PrimitiveTopology topology = RHI::PrimitiveTopology::TriangleList);
         void CreatePicking();
         void BuildFrameGraph(LayerStack& layers);
         [[nodiscard]] FrameGraphTexture AddViewPasses(FrameGraph& graph, View& view, LayerStack* layers);
         [[nodiscard]] EntityTargets AddEntityPasses(FrameGraph& graph, View& view, const Renderer3D::Passes& passes);
         void AddOutlinePass(FrameGraph& graph, const View& view, const EntityTargets& targets, FrameGraphTexture display);
+#if TR_DEBUG_DRAW
+        void PrepareDebugLines();
+        void AddDebugLinePass(FrameGraph& graph, const View& view, FrameGraphTexture display, const Renderer3D::Passes& passes);
+#endif
         void ReadPick(View& view);
         void AddOutputPass(FrameGraphTexture display, RHI::TextureHandle output, LayerStack& layers);
         void AddAddedOutputPasses();
@@ -197,6 +202,22 @@ namespace Trinity
         RHI::PipelineHandle m_TonemapPipeline;
         RHI::PipelineHandle m_PickPipeline;
         RHI::PipelineHandle m_OutlinePipeline;
+#if TR_DEBUG_DRAW
+        // Where this frame's debug lines are in the upload ring, depth-tested then on top, and whether the scene's depth can be read to test them, single-sampled then with Renderer3D::c_SampleCount samples
+        struct DebugLines
+        {
+            std::uint32_t Buffer = RHI::c_NoBindlessIndex;
+            std::uint32_t TestOffset = 0;
+            std::uint32_t TestVertices = 0;
+            std::uint32_t OnTopOffset = 0;
+            std::uint32_t OnTopVertices = 0;
+        };
+
+        RHI::PipelineHandle m_DebugLinePipeline;
+        DebugLines m_DebugLines;
+        std::array<bool, 2> m_DebugDepthSupport{};
+        bool m_ReportedNoDebugDepth = false;
+#endif
         bool m_SceneCopy = true;
         bool m_VSync = true;
         std::array<float, 4> m_ClearColor{ 0.1f, 0.1f, 0.12f, 1.0f };
