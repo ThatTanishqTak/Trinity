@@ -28,7 +28,7 @@ namespace
     constexpr const char* c_AddComponentPopup = "##AddComponent";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 7> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName };
+    constexpr std::array<std::string_view, 12> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName };
 
     // A label on the left and the widget filling the rest of the row
     void Label(const char* label)
@@ -53,6 +53,73 @@ namespace
     std::string GetAssetName(const Trinity::AssetRecord& record)
     {
         return std::filesystem::path(record.Path).filename().string();
+    }
+
+    // Three boxes on one row, one for each axis
+    bool AxisCheckboxes(const char* id, glm::bvec3& axes)
+    {
+        ImGui::PushID(id);
+        bool l_Changed = ImGui::Checkbox("X", &axes.x);
+        ImGui::SameLine();
+        l_Changed |= ImGui::Checkbox("Y", &axes.y);
+        ImGui::SameLine();
+        l_Changed |= ImGui::Checkbox("Z", &axes.z);
+        ImGui::PopID();
+
+        return l_Changed;
+    }
+
+    // What every collider has, above its own shape. The offset's turn shows as X, Y and Z degrees worked out afresh each frame, which is enough for the small turns a collider takes
+    template<typename T>
+    void DrawColliderSettings(CommandStack& history, Trinity::Entity entity)
+    {
+        Label("Offset");
+        EditField<T>(history, entity, "Offset", [](T& collider) { return ImGui::DragFloat3("##Offset", &collider.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+
+        Label("Offset Rotation");
+        EditField<T>(history, entity, "OffsetRotation", [](T& collider)
+        {
+            glm::vec3 l_Degrees = glm::degrees(glm::eulerAngles(collider.OffsetRotation));
+            if (!ImGui::DragFloat3("##OffsetRotation", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
+            {
+                return false;
+            }
+
+            collider.OffsetRotation = glm::quat(glm::radians(l_Degrees));
+
+            return true;
+        });
+
+        Label("Friction");
+        EditField<T>(history, entity, "Friction", [](T& collider) { return ImGui::DragFloat("##Friction", &collider.Friction, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+        Label("Restitution");
+        EditField<T>(history, entity, "Restitution", [](T& collider) { return ImGui::DragFloat("##Restitution", &collider.Restitution, 0.01f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("How much of its speed a body keeps as it bounces off: 0 stops dead, 1 bounces back as fast");
+        }
+
+        Label("Trigger");
+        EditField<T>(history, entity, "Trigger", [](T& collider) { return ImGui::Checkbox("##Trigger", &collider.Trigger); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Reports what enters and leaves it without pushing anything");
+        }
+
+        Label("Layer");
+        EditField<T>(history, entity, "Layer", [](T& collider)
+        {
+            int l_Layer = static_cast<int>(collider.Layer);
+            if (!ImGui::SliderInt("##Layer", &l_Layer, 0, static_cast<int>(Trinity::c_MaxCollisionLayers) - 1, "%d", ImGuiSliderFlags_AlwaysClamp))
+            {
+                return false;
+            }
+
+            collider.Layer = static_cast<std::uint32_t>(l_Layer);
+
+            return true;
+        });
     }
 }
 
@@ -122,6 +189,8 @@ void PropertiesPanel::OnImGuiRender()
     DrawMeshRenderer(l_Entity);
     DrawLight(l_Entity);
     DrawEnvironment(l_Entity);
+    DrawRigidBody(l_Entity);
+    DrawColliders(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawAddComponent(l_Entity);
     ImGui::PopID();
@@ -736,6 +805,122 @@ void PropertiesPanel::DrawOtherComponents(Trinity::Entity entity)
         {
             ImGui::TextDisabled("Kept as it was read, since no loaded code knows this component");
         }
+    }
+}
+
+// Static bodies never move, kinematic ones go where their transform is moved, and dynamic ones fall and collide. Mass, damping, gravity, continuous collision, locks and sleep only matter to a dynamic body, so they show for one alone. Initial velocities are in metres per second, and in degrees per second about each world axis, kept as radians
+void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::RigidBodyComponent>() || !BeginComponent(Trinity::RigidBodyComponent::c_TypeName, Trinity::Icons::c_Arrows, true))
+    {
+        return;
+    }
+
+    CommandStack& l_History = m_Session.GetHistory();
+
+    Label("Motion");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "Motion", [](Trinity::RigidBodyComponent& body)
+    {
+        int l_Motion = static_cast<int>(body.Motion);
+        const bool l_Changed = ImGui::Combo("##Motion", &l_Motion, "Static\0Kinematic\0Dynamic\0");
+        body.Motion = static_cast<Trinity::BodyMotion>(l_Motion);
+
+        return l_Changed;
+    });
+
+    if (entity.Get<Trinity::RigidBodyComponent>().Motion != Trinity::BodyMotion::Dynamic)
+    {
+        return;
+    }
+
+    Label("Mass");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "Mass", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat("##Mass", &body.Mass, 0.05f, 0.0f, 1.0e6f, body.Mass > 0.0f ? "%.3f kg" : "From colliders", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("0 takes the mass from the colliders, at the density of water");
+    }
+
+    Label("Linear Damping");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "LinearDamping", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat("##LinearDamping", &body.LinearDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Angular Damping");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "AngularDamping", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat("##AngularDamping", &body.AngularDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Gravity Factor");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "GravityFactor", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat("##GravityFactor", &body.GravityFactor, 0.01f, -100.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Continuous");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "ContinuousCollision", [](Trinity::RigidBodyComponent& body) { return ImGui::Checkbox("##ContinuousCollision", &body.ContinuousCollision); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Sweeps the body along its motion each step, so a fast one cannot pass through a thin one");
+    }
+
+    Label("Lock Position");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "LockPosition", [](Trinity::RigidBodyComponent& body) { return AxisCheckboxes("##LockPosition", body.LockPosition); });
+
+    Label("Lock Rotation");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "LockRotation", [](Trinity::RigidBodyComponent& body) { return AxisCheckboxes("##LockRotation", body.LockRotation); });
+
+    Label("Velocity");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "InitialLinearVelocity", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat3("##InitialLinearVelocity", &body.InitialLinearVelocity.x, 0.05f, 0.0f, 0.0f, "%.3f m/s"); });
+
+    Label("Spin");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "InitialAngularVelocity", [](Trinity::RigidBodyComponent& body)
+    {
+        glm::vec3 l_Degrees = glm::degrees(body.InitialAngularVelocity);
+        if (!ImGui::DragFloat3("##InitialAngularVelocity", &l_Degrees.x, 1.0f, 0.0f, 0.0f, "%.1f\xC2\xB0/s"))
+        {
+            return false;
+        }
+
+        body.InitialAngularVelocity = glm::radians(l_Degrees);
+
+        return true;
+    });
+
+    Label("Start Asleep");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "StartAsleep", [](Trinity::RigidBodyComponent& body) { return ImGui::Checkbox("##StartAsleep", &body.StartAsleep); });
+}
+
+// Each collider's settings, then its shape, in metres before its entity's scale
+void PropertiesPanel::DrawColliders(Trinity::Entity entity)
+{
+    CommandStack& l_History = m_Session.GetHistory();
+
+    if (entity.Has<Trinity::BoxColliderComponent>() && BeginComponent(Trinity::BoxColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    {
+        DrawColliderSettings<Trinity::BoxColliderComponent>(l_History, entity);
+        Label("Half Extents");
+        EditField<Trinity::BoxColliderComponent>(l_History, entity, "HalfExtents", [](Trinity::BoxColliderComponent& box) { return ImGui::DragFloat3("##HalfExtents", &box.HalfExtents.x, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    }
+
+    if (entity.Has<Trinity::SphereColliderComponent>() && BeginComponent(Trinity::SphereColliderComponent::c_TypeName, Trinity::Icons::c_Globe, true))
+    {
+        DrawColliderSettings<Trinity::SphereColliderComponent>(l_History, entity);
+        Label("Radius");
+        EditField<Trinity::SphereColliderComponent>(l_History, entity, "Radius", [](Trinity::SphereColliderComponent& sphere) { return ImGui::DragFloat("##Radius", &sphere.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    }
+
+    if (entity.Has<Trinity::CapsuleColliderComponent>() && BeginComponent(Trinity::CapsuleColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    {
+        DrawColliderSettings<Trinity::CapsuleColliderComponent>(l_History, entity);
+        Label("Radius");
+        EditField<Trinity::CapsuleColliderComponent>(l_History, entity, "Radius", [](Trinity::CapsuleColliderComponent& capsule) { return ImGui::DragFloat("##Radius", &capsule.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+
+        // Never less than the two end caps
+        Label("Height");
+        EditField<Trinity::CapsuleColliderComponent>(l_History, entity, "Height", [](Trinity::CapsuleColliderComponent& capsule) { return ImGui::DragFloat("##Height", &capsule.Height, 0.01f, capsule.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    }
+
+    if (entity.Has<Trinity::CylinderColliderComponent>() && BeginComponent(Trinity::CylinderColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    {
+        DrawColliderSettings<Trinity::CylinderColliderComponent>(l_History, entity);
+        Label("Radius");
+        EditField<Trinity::CylinderColliderComponent>(l_History, entity, "Radius", [](Trinity::CylinderColliderComponent& cylinder) { return ImGui::DragFloat("##Radius", &cylinder.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+
+        Label("Height");
+        EditField<Trinity::CylinderColliderComponent>(l_History, entity, "Height", [](Trinity::CylinderColliderComponent& cylinder) { return ImGui::DragFloat("##Height", &cylinder.Height, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 }
 

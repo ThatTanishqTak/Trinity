@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Timestep.hpp"
+#include "Trinity/Physics/PhysicsTypes.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -10,15 +11,7 @@
 
 namespace Trinity
 {
-    // How a body moves: never, only where it is moved to, or under gravity, forces and collisions
-    enum class BodyMotion : std::uint8_t
-    {
-        Static,
-        Kinematic,
-        Dynamic
-    };
-
-    // The shapes a body can have until collider components come in Step 6
+    // The shapes a body can have until collider components come
     enum class BodyShape3D : std::uint8_t
     {
         Sphere,

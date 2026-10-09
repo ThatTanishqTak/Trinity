@@ -1,5 +1,6 @@
 #include "Panels/ViewportPanel.hpp"
 
+#include "ColliderDrawing.hpp"
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 #include "ImGuizmoInclude.hpp"
@@ -326,7 +327,7 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
-// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image. After the transform pass
+// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image, among them the selection's colliders. After the transform pass
 void ViewportPanel::PrepareScene()
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -334,6 +335,11 @@ void ViewportPanel::PrepareScene()
     if (l_ViewportSize.x <= 0.0f || l_ViewportSize.y <= 0.0f)
     {
         return;
+    }
+
+    if (const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection()))
+    {
+        DrawColliders(l_Scene, l_Selected);
     }
 
     Trinity::RenderView l_View;

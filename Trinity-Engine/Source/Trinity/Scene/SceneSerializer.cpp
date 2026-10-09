@@ -345,6 +345,133 @@ namespace Trinity
             reader.Read("Rotation", component.Rotation);
         }
 
+        constexpr std::array<std::pair<BodyMotion, std::string_view>, 3> c_BodyMotionNames{ { { BodyMotion::Static, "Static" }, { BodyMotion::Kinematic, "Kinematic" }, { BodyMotion::Dynamic, "Dynamic" } } };
+
+        // Each locked axis is a line of its own, so a diff shows which one changed
+        void WriteAxes(ComponentWriter& writer, std::string_view key, const glm::bvec3& axes)
+        {
+            writer.Write(std::format("{}X", key), axes.x);
+            writer.Write(std::format("{}Y", key), axes.y);
+            writer.Write(std::format("{}Z", key), axes.z);
+        }
+
+        void ReadAxes(const ComponentReader& reader, std::string_view key, glm::bvec3& axes)
+        {
+            reader.Read(std::format("{}X", key), axes.x);
+            reader.Read(std::format("{}Y", key), axes.y);
+            reader.Read(std::format("{}Z", key), axes.z);
+        }
+
+        void SaveRigidBody(const RigidBodyComponent& component, ComponentWriter& writer)
+        {
+            const auto a_Found = std::ranges::find(c_BodyMotionNames, component.Motion, &std::pair<BodyMotion, std::string_view>::first);
+            writer.Write("Motion", a_Found != c_BodyMotionNames.end() ? a_Found->second : std::string_view("Dynamic"));
+            writer.Write("Mass", component.Mass);
+            writer.Write("LinearDamping", component.LinearDamping);
+            writer.Write("AngularDamping", component.AngularDamping);
+            writer.Write("GravityFactor", component.GravityFactor);
+            writer.Write("ContinuousCollision", component.ContinuousCollision);
+            WriteAxes(writer, "LockPosition", component.LockPosition);
+            WriteAxes(writer, "LockRotation", component.LockRotation);
+            writer.Write("InitialLinearVelocity", component.InitialLinearVelocity);
+            writer.Write("InitialAngularVelocity", component.InitialAngularVelocity);
+            writer.Write("StartAsleep", component.StartAsleep);
+        }
+
+        // A motion this build lacks loads as dynamic
+        void LoadRigidBody(RigidBodyComponent& component, const ComponentReader& reader)
+        {
+            std::string l_Motion;
+            reader.Read("Motion", l_Motion);
+            const auto a_Found = std::ranges::find(c_BodyMotionNames, std::string_view(l_Motion), &std::pair<BodyMotion, std::string_view>::second);
+            component.Motion = a_Found != c_BodyMotionNames.end() ? a_Found->first : BodyMotion::Dynamic;
+            reader.Read("Mass", component.Mass);
+            reader.Read("LinearDamping", component.LinearDamping);
+            reader.Read("AngularDamping", component.AngularDamping);
+            reader.Read("GravityFactor", component.GravityFactor);
+            reader.Read("ContinuousCollision", component.ContinuousCollision);
+            ReadAxes(reader, "LockPosition", component.LockPosition);
+            ReadAxes(reader, "LockRotation", component.LockRotation);
+            reader.Read("InitialLinearVelocity", component.InitialLinearVelocity);
+            reader.Read("InitialAngularVelocity", component.InitialAngularVelocity);
+            reader.Read("StartAsleep", component.StartAsleep);
+        }
+
+        // Written before each collider's own fields
+        void SaveColliderSettings(const ColliderSettings& collider, ComponentWriter& writer)
+        {
+            writer.Write("Offset", collider.Offset);
+            writer.Write("OffsetRotation", collider.OffsetRotation);
+            writer.Write("Friction", collider.Friction);
+            writer.Write("Restitution", collider.Restitution);
+            writer.Write("Trigger", collider.Trigger);
+            writer.Write("Layer", collider.Layer);
+        }
+
+        // A layer past the last there can be is taken as the first
+        void LoadColliderSettings(ColliderSettings& collider, const ComponentReader& reader)
+        {
+            reader.Read("Offset", collider.Offset);
+            reader.Read("OffsetRotation", collider.OffsetRotation);
+            reader.Read("Friction", collider.Friction);
+            reader.Read("Restitution", collider.Restitution);
+            reader.Read("Trigger", collider.Trigger);
+            reader.Read("Layer", collider.Layer);
+            collider.Layer = collider.Layer < c_MaxCollisionLayers ? collider.Layer : 0;
+        }
+
+        void SaveBoxCollider(const BoxColliderComponent& component, ComponentWriter& writer)
+        {
+            SaveColliderSettings(component, writer);
+            writer.Write("HalfExtents", component.HalfExtents);
+        }
+
+        void LoadBoxCollider(BoxColliderComponent& component, const ComponentReader& reader)
+        {
+            LoadColliderSettings(component, reader);
+            reader.Read("HalfExtents", component.HalfExtents);
+        }
+
+        void SaveSphereCollider(const SphereColliderComponent& component, ComponentWriter& writer)
+        {
+            SaveColliderSettings(component, writer);
+            writer.Write("Radius", component.Radius);
+        }
+
+        void LoadSphereCollider(SphereColliderComponent& component, const ComponentReader& reader)
+        {
+            LoadColliderSettings(component, reader);
+            reader.Read("Radius", component.Radius);
+        }
+
+        void SaveCapsuleCollider(const CapsuleColliderComponent& component, ComponentWriter& writer)
+        {
+            SaveColliderSettings(component, writer);
+            writer.Write("Radius", component.Radius);
+            writer.Write("Height", component.Height);
+        }
+
+        void LoadCapsuleCollider(CapsuleColliderComponent& component, const ComponentReader& reader)
+        {
+            LoadColliderSettings(component, reader);
+            reader.Read("Radius", component.Radius);
+            reader.Read("Height", component.Height);
+        }
+
+        void SaveCylinderCollider(const CylinderColliderComponent& component, ComponentWriter& writer)
+        {
+            SaveColliderSettings(component, writer);
+            writer.Write("Radius", component.Radius);
+            writer.Write("Height", component.Height);
+        }
+
+        void LoadCylinderCollider(CylinderColliderComponent& component, const ComponentReader& reader)
+        {
+            LoadColliderSettings(component, reader);
+            reader.Read("Radius", component.Radius);
+            reader.Read("Height", component.Height);
+        }
+
         struct FileEntity
         {
             UUID ID;
@@ -868,6 +995,11 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<MeshRendererComponent, SaveMeshRenderer, LoadMeshRenderer>());
             RegisterComponent(MakeComponentSerializer<LightComponent, SaveLight, LoadLight>());
             RegisterComponent(MakeComponentSerializer<EnvironmentComponent, SaveEnvironment, LoadEnvironment>());
+            RegisterComponent(MakeComponentSerializer<RigidBodyComponent, SaveRigidBody, LoadRigidBody>());
+            RegisterComponent(MakeComponentSerializer<BoxColliderComponent, SaveBoxCollider, LoadBoxCollider>());
+            RegisterComponent(MakeComponentSerializer<SphereColliderComponent, SaveSphereCollider, LoadSphereCollider>());
+            RegisterComponent(MakeComponentSerializer<CapsuleColliderComponent, SaveCapsuleCollider, LoadCapsuleCollider>());
+            RegisterComponent(MakeComponentSerializer<CylinderColliderComponent, SaveCylinderCollider, LoadCylinderCollider>());
         }
 
         void Shutdown()

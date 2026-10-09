@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
+#include "Trinity/Physics/PhysicsTypes.hpp"
 #include "Trinity/Renderer/ToneMapping.hpp"
 #include "Trinity/Scene/ComponentType.hpp"
 
@@ -227,6 +228,84 @@ namespace Trinity
         float Rotation = 90.0f;
 
         [[nodiscard]] bool operator==(const EnvironmentComponent&) const = default;
+    };
+
+    // How an entity's body moves once its scene runs, in metres, kilograms and seconds. The body's shape is the entity's colliders, and an entity with colliders but no rigid body is static. Damping is the fraction of velocity lost each second, and locked axes are in world space
+    struct RigidBodyComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.RigidBody";
+
+        BodyMotion Motion = BodyMotion::Dynamic;
+        // In kilograms. 0 takes it from the colliders, at the density of water
+        float Mass = 1.0f;
+        float LinearDamping = 0.0f;
+        float AngularDamping = 0.05f;
+        float GravityFactor = 1.0f;
+        // Sweeps the body along its motion each step, so a fast one cannot pass through a thin one, at some cost
+        bool ContinuousCollision = false;
+        glm::bvec3 LockPosition{ false };
+        glm::bvec3 LockRotation{ false };
+        // As the scene starts running: metres per second, and radians per second about each world axis
+        glm::vec3 InitialLinearVelocity{ 0.0f };
+        glm::vec3 InitialAngularVelocity{ 0.0f };
+        bool StartAsleep = false;
+
+        [[nodiscard]] bool operator==(const RigidBodyComponent&) const = default;
+    };
+
+    // What every collider has: where it sits on its entity, relative to the entity's transform, how it rubs and bounces, whether it is a trigger, which reports overlaps without pushing, and its collision layer. A collider takes its entity's world scale
+    struct ColliderSettings
+    {
+        glm::vec3 Offset{ 0.0f };
+        glm::quat OffsetRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+        float Friction = 0.5f;
+        float Restitution = 0.0f;
+        bool Trigger = false;
+        // Below c_MaxCollisionLayers
+        std::uint32_t Layer = 0;
+
+        [[nodiscard]] bool operator==(const ColliderSettings&) const = default;
+    };
+
+    struct BoxColliderComponent : ColliderSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.BoxCollider";
+
+        glm::vec3 HalfExtents{ 0.5f };
+
+        [[nodiscard]] bool operator==(const BoxColliderComponent&) const = default;
+    };
+
+    struct SphereColliderComponent : ColliderSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.SphereCollider";
+
+        float Radius = 0.5f;
+
+        [[nodiscard]] bool operator==(const SphereColliderComponent&) const = default;
+    };
+
+    // Along the collider's Y axis. The height is the whole capsule's, end caps included
+    struct CapsuleColliderComponent : ColliderSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.CapsuleCollider";
+
+        float Radius = 0.5f;
+        float Height = 2.0f;
+
+        [[nodiscard]] float GetHalfSegment() const { return std::max(Height * 0.5f - Radius, 0.0f); }
+        [[nodiscard]] bool operator==(const CapsuleColliderComponent&) const = default;
+    };
+
+    // Along the collider's Y axis
+    struct CylinderColliderComponent : ColliderSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.CylinderCollider";
+
+        float Radius = 0.5f;
+        float Height = 1.0f;
+
+        [[nodiscard]] bool operator==(const CylinderColliderComponent&) const = default;
     };
 
     // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save
