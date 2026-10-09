@@ -392,7 +392,7 @@ namespace Trinity
         }
 
         const auto l_Now = std::chrono::steady_clock::now();
-        const Timestep l_Timestep = std::chrono::duration<float>(l_Now - m_LastFrameTime).count();
+        const Timestep l_Timestep(std::chrono::duration_cast<std::chrono::nanoseconds>(l_Now - m_LastFrameTime));
         m_LastFrameTime = l_Now;
 
         {
