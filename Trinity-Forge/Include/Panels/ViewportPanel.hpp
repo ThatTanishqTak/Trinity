@@ -92,10 +92,6 @@ private:
     // A click's pixel, picked through the entity IDs the next frame draws, and how many picks are on their way back
     std::optional<glm::uvec2> m_PickPixel;
     std::uint32_t m_PicksPending = 0;
-    // Through the scene's primary camera, as the game shows it, rather than the editor's, which editing needs
-    bool m_SceneCameraView = false;
-    bool m_HasSceneCamera = false;
-    glm::mat4 m_SceneViewProjection{ 1.0f };
     bool m_LightHeatmap = false;
     bool m_ShowStats = true;
 

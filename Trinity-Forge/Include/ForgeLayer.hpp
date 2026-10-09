@@ -3,6 +3,7 @@
 #include "EditorSession.hpp"
 #include "ImportTest.hpp"
 #include "Panels/ContentBrowserPanel.hpp"
+#include "Panels/GamePanel.hpp"
 #include "Panels/Panel.hpp"
 #include "Panels/ViewportPanel.hpp"
 
@@ -49,6 +50,7 @@ private:
     ImportTest m_ImportTest{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
+    GamePanel* m_GamePanel = nullptr;
     ContentBrowserPanel* m_ContentBrowser = nullptr;
     std::string m_AboutTitle;
     bool m_ShowDemoWindow = false;

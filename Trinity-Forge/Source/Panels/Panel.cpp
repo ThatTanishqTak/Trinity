@@ -4,8 +4,9 @@
 #include <imgui_internal.h>
 
 #include <format>
+#include <utility>
 
-Panel::Panel(std::string_view title, std::string_view icon, DockSlot slot) : m_Title(title), m_WindowName(std::format("{} {}###{}", icon, title, title)), m_MenuLabel(std::format("{} {}", icon, title)), m_Slot(slot)
+Panel::Panel(std::string_view title, std::string_view icon, DockSlot slot, std::string_view id) : m_Title(title), m_SettingsID(id.empty() ? title : id), m_WindowName(std::format("{} {}###{}", icon, title, m_SettingsID)), m_MenuLabel(std::format("{} {}", icon, title)), m_Slot(slot)
 {
 
 }
@@ -31,6 +32,11 @@ void Panel::Draw()
     if (m_Borderless)
     {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    }
+
+    if (std::exchange(m_FocusRequested, false))
+    {
+        ImGui::SetNextWindowFocus();
     }
 
     bool l_Open = true;

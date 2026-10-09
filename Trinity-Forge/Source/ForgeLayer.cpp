@@ -66,12 +66,16 @@ void ForgeLayer::OnAttach()
         m_Session.Start(l_Args);
     }
 
-    // The scene is shown in the Viewport panel, so the window gets no copy of it under the UI
+    // The scene is shown in the Scene and Game panels, so the window gets no copy of it under the UI
     Trinity::Application::Get().GetRenderer().SetSceneCopy(false);
 
+    // The Scene and Game panels share the centre as tabs, the Scene panel in front
     Trinity::Scope<ViewportPanel> l_Viewport = Trinity::CreateScope<ViewportPanel>(m_ImGui, m_Session);
     m_ViewportPanel = l_Viewport.get();
     m_Panels.push_back(std::move(l_Viewport));
+    Trinity::Scope<GamePanel> l_Game = Trinity::CreateScope<GamePanel>(m_Session);
+    m_GamePanel = l_Game.get();
+    m_Panels.push_back(std::move(l_Game));
     m_Panels.push_back(Trinity::CreateScope<HierarchyPanel>(m_Session));
     m_Panels.push_back(Trinity::CreateScope<PropertiesPanel>(m_Session));
     m_Panels.push_back(Trinity::CreateScope<ConsolePanel>());
@@ -109,14 +113,16 @@ void ForgeLayer::OnEvent(Trinity::Event& event)
     }
 }
 
-// After the UI has had its say this frame and before the Renderer builds its graph, so an exposure dragged in the Properties panel shows in the same frame
+// After the UI has had its say this frame and before the Renderer builds its graph, so an exposure dragged in the Properties panel shows in the same frame. Transforms are brought up to date first, since the UI may have changed them. The Scene panel's view is the main one, collected first
 void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& commands)
 {
+    m_Session.GetScene().UpdateWorldTransforms();
     Trinity::Application::Get().GetRenderer().SetToneMapping(GetSceneToneMapping(m_Session.GetScene()));
     m_ViewportPanel->PrepareScene();
+    m_GamePanel->PrepareScene();
 }
 
-// Drawn whether or not the Viewport panel is open, so the scene target holds the scene when the panel opens again. Transforms are brought up to date again, since the UI may have changed the scene since OnUpdate
+// Drawn whether or not the Scene panel is open, so the scene target holds the scene when the panel opens again. Transforms are brought up to date again, since the UI may have changed the scene since OnUpdate
 void ForgeLayer::OnRender(Trinity::RHI::CommandList& commands)
 {
     m_Session.GetScene().UpdateWorldTransforms();
@@ -132,7 +138,7 @@ void ForgeLayer::OnBuildFrameGraph(Trinity::FrameGraph& graph, [[maybe_unused]] 
 // The menu bar comes first, so the dock space fits in the space below it. Shortcuts are read from ImGui, since layer events are the scene's while the Viewport has them
 void ForgeLayer::OnImGuiRender()
 {
-    // The Viewport panel gives the scene its input back while it is hovered or focused, and a closed panel leaves it with none
+    // The Scene panel gives the scene its input back while it is hovered or focused, and a closed panel leaves it with none
     m_ImGui.SetSceneInput(false, false);
 
     // F1 shows and hides the demo window, though not while a text field takes the keyboard
@@ -277,7 +283,7 @@ void ForgeLayer::DrawMenuBar()
         ImGui::Separator();
 
         bool l_ShowStats = m_ViewportPanel->IsShowingStats();
-        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Eye, "Viewport Stats").c_str(), nullptr, &l_ShowStats))
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Eye, "Scene Stats").c_str(), nullptr, &l_ShowStats))
         {
             m_ViewportPanel->SetShowingStats(l_ShowStats);
         }
@@ -424,7 +430,7 @@ void ForgeLayer::DrawDockSpace()
     ImGui::DockSpaceOverViewport(l_DockSpace, ImGui::GetMainViewport());
 }
 
-// A panel added to Forge after the user's imgui.ini was saved has no place in it, so it joins the node of a panel with the same slot rather than floating
+// A panel added to Forge after the user's imgui.ini was saved has no place in it, so it joins the node of a panel with the same slot rather than floating. A new tab would be selected as it appears, so the Scene panel is brought back in front of any that joins it
 void ForgeLayer::DockNewPanels()
 {
     for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
@@ -433,6 +439,8 @@ void ForgeLayer::DockNewPanels()
         {
             continue;
         }
+
+        m_ViewportPanel->RequestFocus();
 
         for (const Trinity::Scope<Panel>& it_Other : m_Panels)
         {
@@ -448,7 +456,7 @@ void ForgeLayer::DockNewPanels()
     }
 }
 
-// Hierarchy on the left, Properties on the right, Console below the Viewport. Every panel opens again, including any floating in windows of their own
+// Hierarchy on the left, Properties on the right, the Scene and Game panels as tabs in the centre with the Scene panel in front, and the Console below them. Every panel opens again, including any floating in windows of their own
 void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
 {
     ImGui::DockBuilderRemoveNode(dockSpace);
@@ -469,6 +477,7 @@ void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
     }
 
     ImGui::DockBuilderFinish(dockSpace);
+    m_ViewportPanel->RequestFocus();
     TR_INFO("Forge: default layout built");
 }
 
@@ -501,7 +510,7 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::End();
 }
 
-// imgui.ini holds one [ForgePanels][Open] section, with a Title=1 or Title=0 line for each panel, and the Viewport's own settings: its overlay, gizmo and snap steps
+// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, and the Game panel's aspect choice
 void* ForgeLayer::OpenPanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, [[maybe_unused]] const char* name)
 {
     return handler->UserData;
@@ -516,17 +525,18 @@ void ForgeLayer::ReadPanelSetting([[maybe_unused]] ImGuiContext* context, [[mayb
         return;
     }
 
-    const std::string_view l_Title = l_Line.substr(0, l_Equals);
-    const bool l_On = l_Line.substr(l_Equals + 1) != "0";
+    const std::string_view l_Key = l_Line.substr(0, l_Equals);
+    const std::string_view l_Value = l_Line.substr(l_Equals + 1);
     ForgeLayer& l_Layer = *static_cast<ForgeLayer*>(entry);
-    if (l_Layer.m_ViewportPanel->ReadSetting(l_Title, l_Line.substr(l_Equals + 1)))
+    if (l_Layer.m_ViewportPanel->ReadSetting(l_Key, l_Value) || l_Layer.m_GamePanel->ReadSetting(l_Key, l_Value))
     {
         return;
     }
 
+    const bool l_On = l_Value != "0";
     for (const Trinity::Scope<Panel>& it_Panel : l_Layer.m_Panels)
     {
-        if (it_Panel->GetTitle() == l_Title)
+        if (it_Panel->GetSettingsID() == l_Key)
         {
             it_Panel->SetOpen(l_On);
         }
@@ -540,10 +550,11 @@ void ForgeLayer::WritePanelSettings([[maybe_unused]] ImGuiContext* context, ImGu
     buffer->appendf("[%s][Open]\n", handler->TypeName);
     for (const Trinity::Scope<Panel>& it_Panel : l_Layer.m_Panels)
     {
-        buffer->appendf("%s=%d\n", it_Panel->GetTitle().c_str(), it_Panel->IsOpen() ? 1 : 0);
+        buffer->appendf("%s=%d\n", it_Panel->GetSettingsID().c_str(), it_Panel->IsOpen() ? 1 : 0);
     }
 
     l_Layer.m_ViewportPanel->WriteSettings(*buffer);
+    l_Layer.m_GamePanel->WriteSettings(*buffer);
 
     buffer->append("\n");
 }
