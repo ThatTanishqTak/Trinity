@@ -116,7 +116,7 @@ namespace Trinity
             CreateOffscreenTarget();
         }
 
-        CreateSceneTarget();
+        static_cast<void>(AddView(c_MainView, 0, 0));
         m_CopyPipeline = CreateFullscreenPipeline("SceneCopy", GetOutputFormat(), "Renderer scene copy", "the output only shows the clear colour");
         m_TonemapPipeline = CreateFullscreenPipeline("Tonemap", c_DisplayFormat, "Renderer tonemap", "the scene is shown as black");
         CreatePicking();
@@ -154,7 +154,11 @@ namespace Trinity
         }
 
         m_FrameGraph.reset();
-        m_SceneDraws.Clear();
+        for (const Scope<View>& it_View : m_Views)
+        {
+            it_View->Draws.Clear();
+        }
+
         m_Renderer3D.reset();
         m_Renderer2D.reset();
         AssetManager::UnregisterLoader(EnvironmentAsset::c_AssetType);
@@ -171,14 +175,13 @@ namespace Trinity
         m_Device.DestroyPipeline(m_TonemapPipeline);
         m_Device.DestroyPipeline(m_PickPipeline);
         m_Device.DestroyPipeline(m_OutlinePipeline);
-        for (const RHI::BufferHandle it_Readback : m_PickReadbacks)
+        for (const Scope<View>& it_View : m_Views)
         {
-            m_Device.DestroyBuffer(it_Readback);
+            DestroyViewResources(*it_View);
         }
 
+        m_Views.clear();
         m_Device.DestroyPipeline(m_CopyPipeline);
-        m_Device.DestroyTexture(m_DisplayTarget);
-        m_Device.DestroyTexture(m_SceneTarget);
         m_Device.DestroyTexture(m_OffscreenTarget);
         m_Device.WaitIdle();
     }
@@ -195,7 +198,11 @@ namespace Trinity
         FollowWindow();
 
         RHI::CommandList& l_Commands = m_Device.BeginFrame();
-        ReadPick();
+        for (const Scope<View>& it_View : m_Views)
+        {
+            ReadPick(*it_View);
+        }
+
         m_TextureLoader->RecordUploads(l_Commands);
         m_MaterialLoader->RecordUploads(l_Commands);
         m_MeshLoader->RecordUploads(l_Commands);
@@ -213,10 +220,17 @@ namespace Trinity
 
         BuildFrameGraph(layers);
         m_FrameGraph->Execute(l_Commands);
-        m_SceneSubmitted = false;
-        m_SubmittedScene = nullptr;
-        m_SceneState = m_SceneTarget ? RHI::ResourceState::ShaderResource : RHI::ResourceState::Undefined;
-        m_DisplayState = m_SceneTarget && m_DisplayTarget ? RHI::ResourceState::ShaderResource : m_DisplayState;
+        for (const Scope<View>& it_View : m_Views)
+        {
+            View& l_View = *it_View;
+            if (std::exchange(l_View.Imported, false))
+            {
+                l_View.SceneState = RHI::ResourceState::ShaderResource;
+                l_View.DisplayState = l_View.DisplayTarget ? RHI::ResourceState::ShaderResource : l_View.DisplayState;
+            }
+
+            l_View.Submitted = nullptr;
+        }
 
         m_Device.EndFrame();
 
@@ -238,79 +252,122 @@ namespace Trinity
         ReportFrameRate();
     }
 
-    // The scene and display targets are imported in whatever state the last frame left them, and both end as shader resources. The scene is cleared to the linear clear colour, by the opaque pass when a scene was submitted, and every pass that can show the display target, the UI's included, reads it
+    // Every view in turn, the main view first, then the output pass and each added output, which read every display target drawn this frame
     void Renderer::BuildFrameGraph(LayerStack& layers)
     {
         TR_PROFILE_FUNCTION();
 
         FrameGraph& l_Graph = *m_FrameGraph;
         l_Graph.Reset();
+        m_Displays.clear();
 
-        FrameGraphTexture l_Scene;
-        Renderer3D::Passes l_Passes;
-        if (m_SceneTarget)
+        FrameGraphTexture l_MainDisplay;
+        for (const Scope<View>& it_View : m_Views)
         {
-            const std::array<float, 4> l_Clear{ SrgbToLinear(m_ClearColor[0]), SrgbToLinear(m_ClearColor[1]), SrgbToLinear(m_ClearColor[2]), m_ClearColor[3] };
-            l_Scene = l_Graph.ImportTexture("Scene", m_SceneTarget, m_SceneDescription, m_SceneState, RHI::ResourceState::ShaderResource);
-            if (m_SceneSubmitted)
+            const bool l_Main = it_View->Id == c_MainView;
+            const FrameGraphTexture l_Display = AddViewPasses(l_Graph, *it_View, l_Main ? &layers : nullptr);
+            l_MainDisplay = l_Main ? l_Display : l_MainDisplay;
+            if (l_Display)
             {
-                l_Passes = m_Renderer3D->AddPasses(l_Graph, m_SceneDraws, l_Scene, m_SceneDescription, l_Clear, m_SceneOptions);
-            }
-
-            const RHI::LoadOp l_Load = m_SceneSubmitted ? RHI::LoadOp::Load : RHI::LoadOp::Clear;
-            l_Graph.AddPass("Scene", FrameGraphPassType::Raster, [l_Scene, l_Clear, l_Load](FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Scene, l_Load, l_Clear }); }, [&layers](const FrameGraphContext& context)
-            {
-                TR_PROFILE_SCOPE("LayerStack::OnRender");
-                for (const Scope<Layer>& it_Layer : layers)
-                {
-                    it_Layer->OnRender(context.GetCommands());
-                }
-            });
-        }
-
-        const EntityTargets l_Entities = l_Scene && m_SceneSubmitted && m_SceneOptions.EntityIDs && m_SubmittedScene != nullptr ? AddEntityPasses(l_Graph, l_Passes) : EntityTargets{};
-
-        {
-            TR_PROFILE_SCOPE("LayerStack::OnBuildFrameGraph");
-            for (const Scope<Layer>& it_Layer : layers)
-            {
-                it_Layer->OnBuildFrameGraph(l_Graph, l_Scene);
-            }
-        }
-
-        FrameGraphTexture l_Display;
-        if (l_Scene && m_DisplayTarget)
-        {
-            l_Display = l_Graph.ImportTexture("Display", m_DisplayTarget, m_DisplayDescription, m_DisplayState, RHI::ResourceState::ShaderResource);
-            AddTonemapPass(l_Graph, l_Scene, l_Display, m_ToneMapping);
-            if (l_Entities.Sprites)
-            {
-                AddOutlinePass(l_Graph, l_Entities, l_Display);
+                m_Displays.push_back(l_Display);
             }
         }
 
         const RHI::TextureHandle l_Output = m_SwapChain ? m_SwapChain->AcquireNextTexture() : m_OffscreenTarget;
         if (l_Output)
         {
-            AddOutputPass(l_Display, l_Output, layers);
+            AddOutputPass(l_MainDisplay, l_Output, layers);
         }
 
-        AddAddedOutputPasses(l_Display);
+        AddAddedOutputPasses();
     }
 
-    void Renderer::SubmitScene(Scene& scene, const RenderView& view, const SceneOptions& options)
+    // The targets are imported in whatever state the last frame left them, and both end as shader resources. The scene is cleared to the linear clear colour, by the opaque pass when a scene was submitted. Layers draw into the main view alone, which is drawn every frame. Another view is drawn when a scene was submitted to it, or cleared while its targets have never been drawn, and otherwise keeps what it last showed
+    FrameGraphTexture Renderer::AddViewPasses(FrameGraph& graph, View& view, LayerStack* layers)
     {
-        m_Renderer3D->Collect(scene, view, m_SceneDraws);
-        m_SceneOptions = options;
-        m_SubmittedScene = &scene;
-        m_SceneSubmitted = true;
+        const bool l_Submitted = view.Submitted != nullptr;
+        const bool l_Draw = view.SceneTarget && (layers != nullptr || l_Submitted || view.DisplayState == RHI::ResourceState::Undefined);
+
+        FrameGraphTexture l_Scene;
+        Renderer3D::Passes l_Passes;
+        if (l_Draw)
+        {
+            const std::array<float, 4> l_Clear{ SrgbToLinear(m_ClearColor[0]), SrgbToLinear(m_ClearColor[1]), SrgbToLinear(m_ClearColor[2]), m_ClearColor[3] };
+            l_Scene = graph.ImportTexture("Scene", view.SceneTarget, view.SceneDescription, view.SceneState, RHI::ResourceState::ShaderResource);
+            view.Imported = true;
+            if (l_Submitted)
+            {
+                l_Passes = m_Renderer3D->AddPasses(graph, view.Draws, l_Scene, view.SceneDescription, l_Clear, view.Options);
+            }
+
+            // The opaque pass has already cleared a submitted scene, which then needs this pass only for its sprites or the layers
+            const bool l_Sprites = l_Submitted && view.Options.Sprites;
+            if (layers != nullptr || l_Sprites || !l_Submitted)
+            {
+                const RHI::LoadOp l_Load = l_Submitted ? RHI::LoadOp::Load : RHI::LoadOp::Clear;
+                View* l_View = &view;
+                graph.AddPass("Scene", FrameGraphPassType::Raster, [l_Scene, l_Clear, l_Load](FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Scene, l_Load, l_Clear }); }, [this, l_View, l_Sprites, layers](const FrameGraphContext& context)
+                {
+                    if (l_Sprites)
+                    {
+                        m_Renderer2D->DrawScene(context.GetCommands(), *l_View->Submitted, l_View->Draws.View.ViewProjection, l_View->SceneDescription.TextureFormat, l_View->SceneDescription.Width, l_View->SceneDescription.Height);
+                    }
+
+                    if (layers != nullptr)
+                    {
+                        TR_PROFILE_SCOPE("LayerStack::OnRender");
+                        for (const Scope<Layer>& it_Layer : *layers)
+                        {
+                            it_Layer->OnRender(context.GetCommands());
+                        }
+                    }
+                });
+            }
+        }
+
+        const EntityTargets l_Entities = l_Scene && l_Submitted && view.Options.EntityIDs ? AddEntityPasses(graph, view, l_Passes) : EntityTargets{};
+
+        if (layers != nullptr)
+        {
+            TR_PROFILE_SCOPE("LayerStack::OnBuildFrameGraph");
+            for (const Scope<Layer>& it_Layer : *layers)
+            {
+                it_Layer->OnBuildFrameGraph(graph, l_Scene);
+            }
+        }
+
+        FrameGraphTexture l_Display;
+        if (l_Scene && view.DisplayTarget)
+        {
+            l_Display = graph.ImportTexture("Display", view.DisplayTarget, view.DisplayDescription, view.DisplayState, RHI::ResourceState::ShaderResource);
+            AddTonemapPass(graph, l_Scene, l_Display, view.Mapping);
+            if (l_Entities.Sprites)
+            {
+                AddOutlinePass(graph, view, l_Entities, l_Display);
+            }
+        }
+
+        return l_Display;
     }
 
-    // The sprites' entities, through the view the scene was submitted with, into a target of their own, since they are drawn into the single-sampled scene after the meshes. Then, when a pixel is asked about, its entity is copied into this frame's readback slot. Nothing reads the sprites' target when nothing is picked or outlined, so the graph culls its pass
-    Renderer::EntityTargets Renderer::AddEntityPasses(FrameGraph& graph, const Renderer3D::Passes& passes)
+    void Renderer::SubmitScene(Scene& scene, const RenderView& camera, const SceneOptions& options, ViewID view)
     {
-        const std::uint32_t l_Width = m_SceneDescription.Width;
-        const std::uint32_t l_Height = m_SceneDescription.Height;
+        View* l_View = FindView(view);
+        if (l_View == nullptr)
+        {
+            return;
+        }
+
+        m_Renderer3D->Collect(scene, camera, l_View->Draws);
+        l_View->Options = options;
+        l_View->Submitted = &scene;
+    }
+
+    // The sprites' entities, through the view the scene was submitted with, into a target of their own, since they are drawn into the single-sampled scene after the meshes. Then, when a pixel is asked about, its entity is copied into this frame's readback slot of the view. Nothing reads the sprites' target when nothing is picked or outlined, so the graph culls its pass
+    Renderer::EntityTargets Renderer::AddEntityPasses(FrameGraph& graph, View& view, const Renderer3D::Passes& passes)
+    {
+        const std::uint32_t l_Width = view.SceneDescription.Width;
+        const std::uint32_t l_Height = view.SceneDescription.Height;
 
         EntityTargets l_Targets;
         l_Targets.Meshes = passes.EntityIDs;
@@ -325,8 +382,8 @@ namespace Trinity
         l_Targets.Sprites = graph.CreateTexture("Sprite entity IDs", l_Description);
 
         const FrameGraphTexture l_Sprites = l_Targets.Sprites;
-        Scene* l_Scene = m_SubmittedScene;
-        const glm::mat4 l_ViewProjection = m_SceneDraws.View.ViewProjection;
+        Scene* l_Scene = view.Submitted;
+        const glm::mat4 l_ViewProjection = view.Draws.View.ViewProjection;
         graph.AddPass("Sprite entity IDs", FrameGraphPassType::Raster, [l_Sprites](FrameGraphPassBuilder& builder)
         {
             builder.AddColorAttachment({ l_Sprites, RHI::LoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } });
@@ -336,17 +393,17 @@ namespace Trinity
         });
 
         const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
-        const std::optional<glm::uvec2> l_Pixel = m_SceneOptions.PickPixel;
-        if (!l_Pixel || l_Pixel->x >= l_Width || l_Pixel->y >= l_Height || !m_PickPipeline || !m_PickReadbacks[l_Slot])
+        const std::optional<glm::uvec2> l_Pixel = view.Options.PickPixel;
+        if (!l_Pixel || l_Pixel->x >= l_Width || l_Pixel->y >= l_Height || !m_PickPipeline || !view.PickReadbacks[l_Slot])
         {
             return l_Targets;
         }
 
-        m_PickPixels[l_Slot] = *l_Pixel;
+        view.PickPixels[l_Slot] = *l_Pixel;
         const FrameGraphTexture l_Meshes = l_Targets.Meshes;
         const std::uint32_t l_MeshSamples = l_Targets.MeshSamples;
         const FrameGraphBuffer l_Picked = graph.CreateBuffer("Picked entity", c_PickSize);
-        const FrameGraphBuffer l_Readback = graph.ImportBuffer("Picked entity readback", m_PickReadbacks[l_Slot], c_PickSize, RHI::ResourceState::CopyDestination, RHI::ResourceState::CopyDestination);
+        const FrameGraphBuffer l_Readback = graph.ImportBuffer("Picked entity readback", view.PickReadbacks[l_Slot], c_PickSize, RHI::ResourceState::CopyDestination, RHI::ResourceState::CopyDestination);
         const RHI::PipelineHandle l_Pipeline = m_PickPipeline;
         graph.AddPass("Entity pick", FrameGraphPassType::Compute, [l_Sprites, l_Meshes, l_Picked](FrameGraphPassBuilder& builder)
         {
@@ -384,10 +441,10 @@ namespace Trinity
         return l_Targets;
     }
 
-    // Around the entities the scene asked to outline, over the tonemapped image and under the UI. Their IDs go into the upload ring sorted, for the shader's binary search
-    void Renderer::AddOutlinePass(FrameGraph& graph, const EntityTargets& targets, FrameGraphTexture display)
+    // Around the entities the view's scene asked to outline, over the tonemapped image and under the UI. Their IDs go into the upload ring sorted, for the shader's binary search
+    void Renderer::AddOutlinePass(FrameGraph& graph, const View& view, const EntityTargets& targets, FrameGraphTexture display)
     {
-        std::vector<std::uint32_t> l_Outlined(m_SceneOptions.Outlined.begin(), m_SceneOptions.Outlined.end());
+        std::vector<std::uint32_t> l_Outlined(view.Options.Outlined.begin(), view.Options.Outlined.end());
         std::erase(l_Outlined, ToPickID(entt::null));
         std::ranges::sort(l_Outlined);
         l_Outlined.erase(std::ranges::unique(l_Outlined).begin(), l_Outlined.end());
@@ -411,7 +468,7 @@ namespace Trinity
         l_Push.SelectedCount = static_cast<std::uint32_t>(l_Outlined.size());
         l_Push.Selected = { l_Upload.ShaderResourceIndex, 0 };
         l_Push.SelectedOffset = static_cast<std::uint32_t>(l_Upload.Offset);
-        l_Push.Size = { static_cast<std::int32_t>(m_SceneDescription.Width), static_cast<std::int32_t>(m_SceneDescription.Height) };
+        l_Push.Size = { static_cast<std::int32_t>(view.SceneDescription.Width), static_cast<std::int32_t>(view.SceneDescription.Height) };
         l_Push.Color = c_OutlineColor;
 
         const FrameGraphTexture l_Sprites = targets.Sprites;
@@ -437,17 +494,17 @@ namespace Trinity
         });
     }
 
-    // What the frame that last used this slot asked about. That frame is c_FramesInFlight behind, and BeginFrame has waited for it, so its copy is done and reading it never stalls
-    void Renderer::ReadPick()
+    // What the frame that last used the view's slot asked about. That frame is c_FramesInFlight behind, and BeginFrame has waited for it, so its copy is done and reading it never stalls
+    void Renderer::ReadPick(View& view)
     {
         const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
-        const std::optional<glm::uvec2> l_Pixel = std::exchange(m_PickPixels[l_Slot], std::nullopt);
+        const std::optional<glm::uvec2> l_Pixel = std::exchange(view.PickPixels[l_Slot], std::nullopt);
         if (!l_Pixel)
         {
             return;
         }
 
-        const std::span<const std::byte> l_Data = m_Device.GetMappedData(m_PickReadbacks[l_Slot]);
+        const std::span<const std::byte> l_Data = m_Device.GetMappedData(view.PickReadbacks[l_Slot]);
         if (l_Data.size() < sizeof(std::uint32_t))
         {
             return;
@@ -455,7 +512,14 @@ namespace Trinity
 
         std::uint32_t l_ID = 0;
         std::memcpy(&l_ID, l_Data.data(), sizeof(l_ID));
-        m_PickResult = PickResult{ *l_Pixel, FromPickID(l_ID) };
+        view.Pick = PickResult{ *l_Pixel, FromPickID(l_ID) };
+    }
+
+    std::optional<PickResult> Renderer::TakePickResult(ViewID view)
+    {
+        View* l_View = FindView(view);
+
+        return l_View != nullptr ? std::exchange(l_View->Pick, std::nullopt) : std::nullopt;
     }
 
     void Renderer::AddTonemapPass(FrameGraph& graph, FrameGraphTexture scene, FrameGraphTexture target, const ToneMapping& toneMapping) const
@@ -485,23 +549,24 @@ namespace Trinity
         });
     }
 
-    // The copy reads one display texel per output pixel, so the tone mapped scene reaches the output exactly as written, and the UI goes over it
+    // The copy reads one main view display texel per output pixel, so the tone mapped scene reaches the output exactly as written, and the UI goes over it, showing any view's display target
     void Renderer::AddOutputPass(FrameGraphTexture display, RHI::TextureHandle output, LayerStack& layers)
     {
         const std::uint32_t l_Width = GetOutputWidth();
         const std::uint32_t l_Height = GetOutputHeight();
 
         // A swap chain recreated while acquiring can differ from the display target for one frame, which then shows the clear colour
-        const bool l_Copy = m_SceneCopy && m_CopyPipeline && display && m_SceneWidth == l_Width && m_SceneHeight == l_Height;
+        const View& l_Main = *m_Views.front();
+        const bool l_Copy = m_SceneCopy && m_CopyPipeline && display && l_Main.Width == l_Width && l_Main.Height == l_Height;
 
         FrameGraph& l_Graph = *m_FrameGraph;
         const FrameGraphTexture l_Output = l_Graph.ImportTexture("Output", output, GetOutputDescription(l_Width, l_Height, GetOutputFormat()), RHI::ResourceState::Undefined, m_SwapChain ? RHI::ResourceState::Present : RHI::ResourceState::RenderTarget);
-        l_Graph.AddPass("Output", FrameGraphPassType::Raster, [this, display, l_Output, l_Copy](FrameGraphPassBuilder& builder)
+        l_Graph.AddPass("Output", FrameGraphPassType::Raster, [this, l_Output, l_Copy](FrameGraphPassBuilder& builder)
         {
             builder.AddColorAttachment({ l_Output, l_Copy ? RHI::LoadOp::DontCare : RHI::LoadOp::Clear, m_ClearColor });
-            if (display)
+            for (const FrameGraphTexture it_Display : m_Displays)
             {
-                builder.Read(display, RHI::ResourceState::ShaderResource);
+                builder.Read(it_Display, RHI::ResourceState::ShaderResource);
             }
         }, [this, display, l_Copy, &layers](const FrameGraphContext& context)
         {
@@ -523,8 +588,8 @@ namespace Trinity
         });
     }
 
-    // Each added output is cleared, then drawn by its callback, which may show the display target. Minimized and zero-sized windows are skipped, and a swap chain left unacquired ignores Present
-    void Renderer::AddAddedOutputPasses(FrameGraphTexture display)
+    // Each added output is cleared, then drawn by its callback, which may show any view's display target. Minimized and zero-sized windows are skipped, and a swap chain left unacquired ignores Present
+    void Renderer::AddAddedOutputPasses()
     {
         FrameGraph& l_Graph = *m_FrameGraph;
         for (Output& it_Output : m_Outputs)
@@ -545,12 +610,12 @@ namespace Trinity
 
             const FrameGraphTexture l_Output = l_Graph.ImportTexture("Added output", l_Texture, GetOutputDescription(l_Width, l_Height, GetOutputFormat()), RHI::ResourceState::Undefined, it_Output.SwapChain ? RHI::ResourceState::Present : RHI::ResourceState::RenderTarget);
             const Output* l_Added = &it_Output;
-            l_Graph.AddPass("Added output", FrameGraphPassType::Raster, [display, l_Output, l_Added](FrameGraphPassBuilder& builder)
+            l_Graph.AddPass("Added output", FrameGraphPassType::Raster, [this, l_Output, l_Added](FrameGraphPassBuilder& builder)
             {
                 builder.AddColorAttachment({ l_Output, RHI::LoadOp::Clear, l_Added->ClearColor });
-                if (display)
+                for (const FrameGraphTexture it_Display : m_Displays)
                 {
-                    builder.Read(display, RHI::ResourceState::ShaderResource);
+                    builder.Read(it_Display, RHI::ResourceState::ShaderResource);
                 }
             }, [l_Added](const FrameGraphContext& context)
             {
@@ -628,6 +693,133 @@ namespace Trinity
         output.Offscreen = {};
     }
 
+    ViewID Renderer::CreateView(std::uint32_t width, std::uint32_t height)
+    {
+        return AddView(m_NextViewId++, width, height);
+    }
+
+    void Renderer::DestroyView(ViewID view)
+    {
+        if (view == c_MainView)
+        {
+            TR_CORE_ERROR("Renderer: the main view cannot be destroyed");
+
+            return;
+        }
+
+        const auto a_View = std::ranges::find(m_Views, view, [](const Scope<View>& entry) { return entry->Id; });
+        TR_CORE_ASSERT(a_View != m_Views.end(), "Renderer view {} is destroyed but does not exist.", view);
+        if (a_View == m_Views.end())
+        {
+            return;
+        }
+
+        DestroyViewResources(**a_View);
+        m_Views.erase(a_View);
+    }
+
+    bool Renderer::HasView(ViewID view) const
+    {
+        return std::ranges::any_of(m_Views, [view](const Scope<View>& entry) { return entry->Id == view; });
+    }
+
+    // A view's targets, and a pick readback for each frame in flight, which lasts as long as the view does
+    ViewID Renderer::AddView(ViewID id, std::uint32_t width, std::uint32_t height)
+    {
+        Scope<View> l_View = CreateScope<View>();
+        l_View->Id = id;
+        l_View->RequestedWidth = width;
+        l_View->RequestedHeight = height;
+        CreateViewTargets(*l_View);
+
+        RHI::BufferDescription l_Readback;
+        l_Readback.Size = c_PickSize;
+        l_Readback.Usage = RHI::BufferUsage::CopyDestination;
+        l_Readback.Memory = RHI::MemoryType::Readback;
+        l_Readback.DebugName = "Picked entity readback";
+        for (RHI::BufferHandle& it_Readback : l_View->PickReadbacks)
+        {
+            it_Readback = m_Device.CreateBuffer(l_Readback);
+        }
+
+        m_Views.push_back(std::move(l_View));
+
+        return id;
+    }
+
+    // Through the release queue, so a frame in flight never loses what it draws with
+    void Renderer::DestroyViewResources(View& view)
+    {
+        view.Draws.Clear();
+        m_Device.DestroyTexture(view.SceneTarget);
+        m_Device.DestroyTexture(view.DisplayTarget);
+        view.SceneTarget = {};
+        view.DisplayTarget = {};
+        for (RHI::BufferHandle& it_Readback : view.PickReadbacks)
+        {
+            m_Device.DestroyBuffer(it_Readback);
+            it_Readback = {};
+        }
+    }
+
+    Renderer::View* Renderer::FindView(ViewID view) const
+    {
+        const auto a_View = std::ranges::find(m_Views, view, [](const Scope<View>& entry) { return entry->Id; });
+        TR_CORE_ASSERT(a_View != m_Views.end(), "Renderer view {} does not exist.", view);
+
+        return a_View != m_Views.end() ? a_View->get() : nullptr;
+    }
+
+    const SceneDrawList& Renderer::GetSceneDraws(ViewID view) const
+    {
+        const View* l_View = FindView(view);
+
+        return (l_View != nullptr ? *l_View : *m_Views.front()).Draws;
+    }
+
+    void Renderer::SetToneMapping(const ToneMapping& toneMapping, ViewID view)
+    {
+        if (View* l_View = FindView(view))
+        {
+            l_View->Mapping = toneMapping;
+        }
+    }
+
+    const ToneMapping& Renderer::GetToneMapping(ViewID view) const
+    {
+        const View* l_View = FindView(view);
+
+        return (l_View != nullptr ? *l_View : *m_Views.front()).Mapping;
+    }
+
+    RHI::TextureHandle Renderer::GetSceneTarget(ViewID view) const
+    {
+        const View* l_View = FindView(view);
+
+        return l_View != nullptr ? l_View->SceneTarget : RHI::TextureHandle{};
+    }
+
+    RHI::TextureHandle Renderer::GetDisplayTarget(ViewID view) const
+    {
+        const View* l_View = FindView(view);
+
+        return l_View != nullptr ? l_View->DisplayTarget : RHI::TextureHandle{};
+    }
+
+    std::uint32_t Renderer::GetSceneWidth(ViewID view) const
+    {
+        const View* l_View = FindView(view);
+
+        return l_View != nullptr ? l_View->Width : 0;
+    }
+
+    std::uint32_t Renderer::GetSceneHeight(ViewID view) const
+    {
+        const View* l_View = FindView(view);
+
+        return l_View != nullptr ? l_View->Height : 0;
+    }
+
     RHI::Format Renderer::GetSceneFormat() const
     {
         return c_SceneFormat;
@@ -643,21 +835,24 @@ namespace Trinity
         return m_SwapChain ? m_SwapChain->GetFormat() : RHI::Format::BGRA8Unorm;
     }
 
-    // Taken between frames. Width and height of 0 make the scene follow the output again, as it does until this is called
-    void Renderer::SetSceneSize(std::uint32_t width, std::uint32_t height)
+    // Taken between frames. Width and height of 0 make the view follow the output again, as the main view does until this is called
+    void Renderer::SetSceneSize(std::uint32_t width, std::uint32_t height, ViewID view)
     {
-        m_RequestedSceneWidth = width;
-        m_RequestedSceneHeight = height;
+        if (View* l_View = FindView(view))
+        {
+            l_View->RequestedWidth = width;
+            l_View->RequestedHeight = height;
+        }
     }
 
-    std::uint32_t Renderer::GetWantedSceneWidth() const
+    std::uint32_t Renderer::GetWantedWidth(const View& view) const
     {
-        return m_RequestedSceneWidth > 0 && m_RequestedSceneHeight > 0 ? m_RequestedSceneWidth : GetOutputWidth();
+        return view.RequestedWidth > 0 && view.RequestedHeight > 0 ? view.RequestedWidth : GetOutputWidth();
     }
 
-    std::uint32_t Renderer::GetWantedSceneHeight() const
+    std::uint32_t Renderer::GetWantedHeight(const View& view) const
     {
-        return m_RequestedSceneWidth > 0 && m_RequestedSceneHeight > 0 ? m_RequestedSceneHeight : GetOutputHeight();
+        return view.RequestedWidth > 0 && view.RequestedHeight > 0 ? view.RequestedHeight : GetOutputHeight();
     }
 
     std::uint32_t Renderer::GetOutputWidth() const
@@ -713,12 +908,16 @@ namespace Trinity
 
         FollowOutputs();
 
-        // Also catches a swap chain that changed size on its own while acquiring. The old target is released only once no frame in flight can still show it
-        if (m_SceneWidth != GetWantedSceneWidth() || m_SceneHeight != GetWantedSceneHeight())
+        // Also catches a swap chain that changed size on its own while acquiring, for every view that follows it. The old targets are released only once no frame in flight can still show them
+        for (const Scope<View>& it_View : m_Views)
         {
-            m_Device.DestroyTexture(m_SceneTarget);
-            m_Device.DestroyTexture(m_DisplayTarget);
-            CreateSceneTarget();
+            View& l_View = *it_View;
+            if (l_View.Width != GetWantedWidth(l_View) || l_View.Height != GetWantedHeight(l_View))
+            {
+                m_Device.DestroyTexture(l_View.SceneTarget);
+                m_Device.DestroyTexture(l_View.DisplayTarget);
+                CreateViewTargets(l_View);
+            }
         }
     }
 
@@ -767,28 +966,28 @@ namespace Trinity
         return m_Device.CreateTexture(l_Description);
     }
 
-    // Layers can change the clear colour every frame, so the scene target asks for no optimized clear value. The display target is the scene's size, and the tonemap pass writes all of it
-    void Renderer::CreateSceneTarget()
+    // Layers can change the clear colour every frame, so a scene target asks for no optimized clear value. The display target is the scene's size, and the tonemap pass writes all of it
+    void Renderer::CreateViewTargets(View& view)
     {
         RHI::TextureDescription l_Description;
-        l_Description.Width = GetWantedSceneWidth();
-        l_Description.Height = GetWantedSceneHeight();
+        l_Description.Width = GetWantedWidth(view);
+        l_Description.Height = GetWantedHeight(view);
         l_Description.TextureFormat = c_SceneFormat;
         l_Description.Usage = RHI::TextureUsage::RenderTarget | RHI::TextureUsage::ShaderResource | RHI::TextureUsage::CopySource;
         l_Description.OptimizedClear = false;
-        l_Description.DebugName = "Renderer scene target";
+        l_Description.DebugName = view.Id == c_MainView ? "Renderer scene target" : "Renderer view scene target";
 
-        m_SceneTarget = m_Device.CreateTexture(l_Description);
-        m_SceneDescription = l_Description;
-        m_SceneState = RHI::ResourceState::Undefined;
-        m_SceneWidth = l_Description.Width;
-        m_SceneHeight = l_Description.Height;
+        view.SceneTarget = m_Device.CreateTexture(l_Description);
+        view.SceneDescription = l_Description;
+        view.SceneState = RHI::ResourceState::Undefined;
+        view.Width = l_Description.Width;
+        view.Height = l_Description.Height;
 
         l_Description.TextureFormat = c_DisplayFormat;
-        l_Description.DebugName = "Renderer display target";
-        m_DisplayTarget = m_Device.CreateTexture(l_Description);
-        m_DisplayDescription = l_Description;
-        m_DisplayState = RHI::ResourceState::Undefined;
+        l_Description.DebugName = view.Id == c_MainView ? "Renderer display target" : "Renderer view display target";
+        view.DisplayTarget = m_Device.CreateTexture(l_Description);
+        view.DisplayDescription = l_Description;
+        view.DisplayState = RHI::ResourceState::Undefined;
     }
 
     // One triangle over the whole target from a shader's VertexMain and PixelMain, as the scene copy and the tonemap are drawn
@@ -823,7 +1022,7 @@ namespace Trinity
         return l_Pipeline;
     }
 
-    // The pick's compute pipeline, the outline's, and a readback buffer for each frame in flight
+    // The pick's compute pipeline and the outline's, which every view shares
     void Renderer::CreatePicking()
     {
         const std::string_view l_Extension = m_Device.GetInfo().API == GraphicsAPI::D3D12 ? "dxil" : "spv";
@@ -842,16 +1041,6 @@ namespace Trinity
         }
 
         m_OutlinePipeline = CreateFullscreenPipeline("SelectionOutline", c_DisplayFormat, "Selection outline", "the selection is not outlined", true);
-
-        RHI::BufferDescription l_Readback;
-        l_Readback.Size = c_PickSize;
-        l_Readback.Usage = RHI::BufferUsage::CopyDestination;
-        l_Readback.Memory = RHI::MemoryType::Readback;
-        l_Readback.DebugName = "Picked entity readback";
-        for (RHI::BufferHandle& it_Readback : m_PickReadbacks)
-        {
-            it_Readback = m_Device.CreateBuffer(l_Readback);
-        }
     }
 
     // The frame rate is added again at the next report

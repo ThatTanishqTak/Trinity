@@ -1184,7 +1184,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
                 // A ring with rays along the light, sized by its distance so it reads the same at any zoom
                 const float l_Size = std::max(glm::distance(l_Position, m_Camera3D.GetPosition()) * 0.15f, 0.01f);
                 a_Circle(l_Position, l_Side, l_Up, l_Size * 0.25f, l_Color);
-                for (int it_Ray = 0; it_Ray < 8; ++it_Ray)
+                for (int it_Ray = 0; it_Ray < 8; ++it_Ray)  
                 {
                     const float l_Angle = glm::two_pi<float>() * static_cast<float>(it_Ray) / 8.0f;
                     const glm::vec3 l_Start = l_Position + (l_Side * std::cos(l_Angle) + l_Up * std::sin(l_Angle)) * (l_Size * 0.25f);

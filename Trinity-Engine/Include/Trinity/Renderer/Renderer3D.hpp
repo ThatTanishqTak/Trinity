@@ -226,6 +226,8 @@ namespace Trinity
         std::optional<glm::uvec2> PickPixel;
         // With EntityIDs, entities to outline over the tonemapped image, as ToPickID gives them, in any order
         std::vector<std::uint32_t> Outlined;
+        // The scene's sprites, drawn by the Renderer through the view after its meshes and before layers draw, for a view no layer draws sprites into, such as a game's. The main view's layers draw their own, so it leaves this off
+        bool Sprites = false;
     };
 
     // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in. Alpha-masked submeshes are cut out in the pre-pass, and alpha-blended ones drawn after, from back to front. The sun and spot lights cast shadows from maps in one atlas, filtered with PCF. The forward passes can be multisampled, and resolve into the target
