@@ -156,6 +156,12 @@ namespace Trinity
             return nullptr;
         }
 
+        // No windows until the Linux platform layer exists, so the log holds the message alone
+        void ShowErrorMessage(std::string_view, std::string_view)
+        {
+
+        }
+
         // No dialogs until the Linux platform layer exists, so Forge asks for paths itself
         bool HasFileDialogs()
         {

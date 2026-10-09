@@ -369,6 +369,11 @@ namespace Trinity
             return ::GetForegroundWindow();
         }
 
+        void ShowErrorMessage(std::string_view title, std::string_view message)
+        {
+            ::MessageBoxW(nullptr, ToWide(message).c_str(), ToWide(title).c_str(), MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+        }
+
         bool HasFileDialogs()
         {
             return true;

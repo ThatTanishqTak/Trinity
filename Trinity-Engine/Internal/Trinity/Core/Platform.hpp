@@ -86,6 +86,9 @@ namespace Trinity
         [[nodiscard]] void* GetWindowAt(ScreenPoint point);
         [[nodiscard]] void* GetFocusedWindow();
 
+        // A modal error box, for a failure the application cannot start past. Nothing where the platform has no windows, so the caller logs the message too
+        void ShowErrorMessage(std::string_view title, std::string_view message);
+
         // Blocks until the person chooses or cancels. Empty when cancelled, or where the platform has no dialogs
         [[nodiscard]] bool HasFileDialogs();
         [[nodiscard]] std::optional<std::filesystem::path> ShowFileDialog(const FileDialogRequest& request);

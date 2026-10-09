@@ -69,6 +69,10 @@ set_source_files_properties(${TRINITY_IMGUI_SOURCES} PROPERTIES SKIP_PRECOMPILE_
 set_source_files_properties("${TRINITY_IMGUI_DIRECTORY}/misc/freetype/imgui_freetype.cpp" PROPERTIES COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/wd4244;/wd4267,-Wno-conversion;-Wno-sign-conversion>")
 list(APPEND TRINITY_ENGINE_COMPILED ${TRINITY_IMGUI_SOURCES})
 
+# Sources that include Jolt are built for the instructions Jolt is, and without the precompiled header, which is not. No other engine source is, so the CPU check in Main runs before any code that needs them
+file(GLOB TRINITY_ENGINE_PHYSICS_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Trinity/Physics/*.cpp")
+set_source_files_properties(${TRINITY_ENGINE_PHYSICS_SOURCES} PROPERTIES COMPILE_OPTIONS "${TRINITY_PHYSICS_COMPILE_OPTIONS}" SKIP_PRECOMPILE_HEADERS ON)
+
 # CMake builds every library an executable links in any configuration, in every configuration so each engine target compiles the engine only in the configurations that use it, and a placeholder in the others, written outside bin.
 set(TRINITY_ENGINE_STATIC_CONFIG "$<NOT:${TRINITY_ENGINE_SHARED_CONFIG}>")
 set(TRINITY_ENGINE_PLACEHOLDER_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Placeholder/$<CONFIG>")
@@ -109,6 +113,7 @@ function(trinity_add_engine_library target type active_config)
         PRIVATE
             TR_VERSION_STRING="${PROJECT_VERSION}"
             $<$<BOOL:${TRINITY_TRACK_GLOBAL_ALLOCATIONS}>:TR_TRACK_GLOBAL_ALLOCATIONS>
+            TR_PHYSICS_AVX2=$<BOOL:${TRINITY_PHYSICS_AVX2}>
         PUBLIC
             GLM_FORCE_DEPTH_ZERO_TO_ONE
             GLM_FORCE_RADIANS
@@ -125,6 +130,7 @@ function(trinity_add_engine_library target type active_config)
             spdlog::spdlog
             Freetype::Freetype
             yaml-cpp::yaml-cpp
+            Jolt
     )
 
     # The engine only reads and transcodes KTX2. An executable that sets TRINITY_TEXTURE_ENCODER links the whole of libktx in its place, as the static engine and both libraries would otherwise define the same symbols

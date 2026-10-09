@@ -3,6 +3,7 @@
 #include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
+#include "Trinity/Core/CpuFeatures.hpp"
 #include "Trinity/Core/JobSystem.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/MainThread.hpp"
@@ -17,7 +18,9 @@
 #include <charconv>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <ranges>
+#include <string>
 #include <vector>
 
 namespace Trinity
@@ -467,6 +470,23 @@ namespace Trinity
         }
 
         Log::Initialize(l_LogFile);
+
+        // The physics libraries are built for instructions some processors lack. Nothing built for them has run yet, so a processor without them stops here with the reason, rather than crashing once a scene starts running
+        if (const std::string l_Missing = CpuFeatures::GetMissingPhysicsInstructions(); !l_Missing.empty())
+        {
+            const std::string l_Message = std::format("This processor does not support {}, which Trinity's physics is built for, so it cannot run here.", l_Missing);
+            TR_CORE_CRITICAL("{}", l_Message);
+            if (!ApplicationCommandLineArgs{ argc, argv }.HasOption("headless"))
+            {
+                Platform::ShowErrorMessage("Trinity", l_Message);
+            }
+
+            Log::Shutdown();
+            Platform::Shutdown();
+
+            return 1;
+        }
+
         Memory::Initialize();
         LogHistory::Initialize();
         Profiler::Initialize(GetProfilerSpecification({ argc, argv }, l_CaptureFile));

@@ -74,7 +74,21 @@ trinity_vendor_set(CPP_EXCEPTIONS_ENABLED ON)
 trinity_vendor_set(JPH_USE_DX12 OFF)
 trinity_vendor_set(JPH_USE_VK OFF)
 trinity_vendor_set(JPH_USE_MTL OFF)
+trinity_vendor_set(JPH_USE_CPU_COMPUTE OFF)
+trinity_vendor_set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF)
+trinity_vendor_set(PROFILER_IN_DEBUG_AND_RELEASE OFF)
+foreach(option USE_AVX USE_AVX2 USE_LZCNT USE_TZCNT USE_F16C USE_FMADD)
+    trinity_vendor_set(${option} ${TRINITY_PHYSICS_AVX2})
+endforeach()
 trinity_vendor_directory(JoltPhysics SUBDIRECTORY Build)
+
+# Jolt asks every target that links it to be built for its instructions. Only Jolt and the engine's physics sources are, so everything else, the engine's CPU check included, runs on any x64 processor
+get_target_property(_jolt_options Jolt INTERFACE_COMPILE_OPTIONS)
+if(NOT _jolt_options)
+    set(_jolt_options "")
+endif()
+trinity_vendor_set(TRINITY_PHYSICS_COMPILE_OPTIONS "${_jolt_options}")
+set_property(TARGET Jolt PROPERTY INTERFACE_COMPILE_OPTIONS "")
 list(APPEND TRINITY_VENDOR_TARGETS Jolt)
 
 # Box2D v3
