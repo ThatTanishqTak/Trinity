@@ -41,6 +41,7 @@
 #include "Trinity/Input/KeyCodes.hpp"
 #include "Trinity/Input/MouseCodes.hpp"
 
+#include "Trinity/Physics/CollisionShape.hpp"
 #include "Trinity/Physics/PhysicsTypes.hpp"
 #include "Trinity/Physics/PhysicsWorld3D.hpp"
 

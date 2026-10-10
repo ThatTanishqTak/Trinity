@@ -73,6 +73,10 @@ namespace
         {
             l_Paths = { Trinity::GetCookedMeshPath(record.ID) };
         }
+        else if (record.Importer == Trinity::ConvexHullAsset::c_AssetType || record.Importer == Trinity::CollisionMeshAsset::c_AssetType)
+        {
+            l_Paths = { Trinity::GetCookedCollisionShapePath(record.ID) };
+        }
         else if (record.Importer == ModelImporter::c_MaterialImporter && record.Parent.IsValid())
         {
             l_Paths = { Trinity::GetCookedMaterialPath(record.ID), ModelImporter::GetImportedMaterialPath(record.ID) };

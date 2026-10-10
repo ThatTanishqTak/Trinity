@@ -17,6 +17,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <mutex>
 #include <utility>
 
 namespace Trinity
@@ -146,13 +147,15 @@ namespace Trinity
 
         std::uint32_t s_Users = 0;
         JobSystemAdapter* s_JobSystem = nullptr;
+        // Counted apart from the worlds, since a shape is cooked or loaded on a worker, with or without one
+        std::mutex s_TypesMutex;
+        std::uint32_t s_TypeUsers = 0;
         // Said the first time a world is made, rather than with every first world, which Play and Stop make many of
         bool s_Reported = false;
     }
 
     namespace JoltContext
     {
-        // The hooks go in before anything of Jolt's allocates, and stay, since they hold no state
         void Acquire()
         {
             TR_CORE_ASSERT(MainThread::IsMainThread(), "Physics worlds are made on the main thread.");
@@ -161,16 +164,7 @@ namespace Trinity
                 return;
             }
 
-            JPH::Allocate = &AllocateJolt;
-            JPH::Reallocate = &ReallocateJolt;
-            JPH::Free = &FreeJolt;
-            JPH::AlignedAllocate = &AlignedAllocateJolt;
-            JPH::AlignedFree = &FreeJolt;
-            JPH::Trace = &TraceJolt;
-            JPH_IF_ENABLE_ASSERTS(JPH::AssertFailed = &AssertJolt;)
-
-                JPH::Factory::sInstance = new JPH::Factory();
-            JPH::RegisterTypes();
+            AcquireTypes();
             s_JobSystem = Memory::New<JobSystemAdapter>(MemoryTag::Physics);
             if (!std::exchange(s_Reported, true))
             {
@@ -188,6 +182,39 @@ namespace Trinity
 
             Memory::Delete(s_JobSystem);
             s_JobSystem = nullptr;
+            ReleaseTypes();
+        }
+
+        // The hooks go in before anything of Jolt's allocates, and stay, since they hold no state
+        void AcquireTypes()
+        {
+            const std::scoped_lock l_Lock(s_TypesMutex);
+            if (s_TypeUsers++ > 0)
+            {
+                return;
+            }
+
+            JPH::Allocate = &AllocateJolt;
+            JPH::Reallocate = &ReallocateJolt;
+            JPH::Free = &FreeJolt;
+            JPH::AlignedAllocate = &AlignedAllocateJolt;
+            JPH::AlignedFree = &FreeJolt;
+            JPH::Trace = &TraceJolt;
+            JPH_IF_ENABLE_ASSERTS(JPH::AssertFailed = &AssertJolt;)
+
+                JPH::Factory::sInstance = new JPH::Factory();
+            JPH::RegisterTypes();
+        }
+
+        void ReleaseTypes()
+        {
+            const std::scoped_lock l_Lock(s_TypesMutex);
+            TR_CORE_ASSERT(s_TypeUsers > 0, "Jolt's types are released once for each time they are acquired.");
+            if (s_TypeUsers == 0 || --s_TypeUsers > 0)
+            {
+                return;
+            }
+
             JPH::UnregisterTypes();
             delete JPH::Factory::sInstance;
             JPH::Factory::sInstance = nullptr;

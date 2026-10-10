@@ -472,6 +472,30 @@ namespace Trinity
             reader.Read("Height", component.Height);
         }
 
+        void SaveConvexHullCollider(const ConvexHullColliderComponent& component, ComponentWriter& writer)
+        {
+            SaveColliderSettings(component, writer);
+            writer.Write("Shape", component.Shape);
+        }
+
+        void LoadConvexHullCollider(ConvexHullColliderComponent& component, const ComponentReader& reader)
+        {
+            LoadColliderSettings(component, reader);
+            reader.Read("Shape", component.Shape);
+        }
+
+        void SaveMeshCollider(const MeshColliderComponent& component, ComponentWriter& writer)
+        {
+            SaveColliderSettings(component, writer);
+            writer.Write("Shape", component.Shape);
+        }
+
+        void LoadMeshCollider(MeshColliderComponent& component, const ComponentReader& reader)
+        {
+            LoadColliderSettings(component, reader);
+            reader.Read("Shape", component.Shape);
+        }
+
         struct FileEntity
         {
             UUID ID;
@@ -1000,6 +1024,8 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<SphereColliderComponent, SaveSphereCollider, LoadSphereCollider>());
             RegisterComponent(MakeComponentSerializer<CapsuleColliderComponent, SaveCapsuleCollider, LoadCapsuleCollider>());
             RegisterComponent(MakeComponentSerializer<CylinderColliderComponent, SaveCylinderCollider, LoadCylinderCollider>());
+            RegisterComponent(MakeComponentSerializer<ConvexHullColliderComponent, SaveConvexHullCollider, LoadConvexHullCollider>());
+            RegisterComponent(MakeComponentSerializer<MeshColliderComponent, SaveMeshCollider, LoadMeshCollider>());
         }
 
         void Shutdown()

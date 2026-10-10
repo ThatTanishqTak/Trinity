@@ -21,11 +21,21 @@ enum class ModelUpAxis : std::uint8_t
     Z
 };
 
-// What the file says of its units and axes, unless these say otherwise. A unit scale is metres in one of the file's units, and Z up is turned to Y up as a right-handed Z-up tool exports it
+// The collision shapes cooked for each mesh: none, a convex hull, its triangles as a collision mesh, or both
+enum class ModelCollision : std::uint8_t
+{
+    None,
+    ConvexHulls,
+    TriangleMeshes,
+    Both
+};
+
+// What the file says of its units and axes, unless these say otherwise, and the collision shapes cooked beside its meshes. A unit scale is metres in one of the file's units, and Z up is turned to Y up as a right-handed Z-up tool exports it
 struct ModelImportSettings
 {
     std::optional<float> UnitScale;
     ModelUpAxis UpAxis = ModelUpAxis::Auto;
+    ModelCollision Collision = ModelCollision::Both;
 
     [[nodiscard]] bool operator==(const ModelImportSettings&) const = default;
 };
@@ -41,7 +51,7 @@ struct ModelImportReport
     std::size_t TexturesCached = 0;
 };
 
-// A .gltf, .glb, .fbx, .obj or .dae becomes sub-assets of its file: a mesh for each mesh, a material for each material, and a texture for each image it embeds and each way a material uses it. An image beside the model is its own texture asset, which the model sets to be encoded as it uses it. The node hierarchy is cooked beside them, in Trinity's metres with Y up. glTF is read with fastgltf and the rest with assimp
+// A .gltf, .glb, .fbx, .obj or .dae becomes sub-assets of its file: a mesh for each mesh, with the convex hull and collision mesh its settings ask for, a material for each material, and a texture for each image it embeds and each way a material uses it. An image beside the model is its own texture asset, which the model sets to be encoded as it uses it. The node hierarchy is cooked beside them, in Trinity's metres with Y up. glTF is read with fastgltf and the rest with assimp
 class ModelImporter
 {
 public:
@@ -63,7 +73,7 @@ public:
 
     static constexpr std::string_view c_Importer = "Model";
     static constexpr std::string_view c_MaterialImporter = "Material";
-    static constexpr std::uint32_t c_Version = 4;
+    static constexpr std::uint32_t c_Version = 5;
     // Between a material's key and a field's name in the key of a .meta setting that overrides it, such as Material.0.blinn3/RoughnessFactor
     static constexpr char c_OverrideSeparator = '/';
 
@@ -116,6 +126,8 @@ public:
     [[nodiscard]] static std::string GetCacheKey(const Trinity::AssetRecord& record, const Plan& plan, std::span<const Trinity::UUID> externalTextures);
     [[nodiscard]] static std::string_view ToString(TextureUsage usage);
     [[nodiscard]] static std::string GetCookedPath(const Trinity::SubAsset& subAsset);
+    // A mesh's key with the shape's asset type in place of its kind, so Mesh.2.Crate has ConvexHull.2.Crate and CollisionMesh.2.Crate, kept from one import to the next as the mesh's is
+    [[nodiscard]] static std::string GetCollisionKey(std::string_view meshKey, Trinity::CollisionShapeKind kind);
 
     [[nodiscard]] static Plan PlanImport(const Trinity::AssetRecord& record);
     [[nodiscard]] static Cooked Cook(const Trinity::AssetRecord& record, const Plan& plan, std::span<const Trinity::UUID> externalTextures, const std::atomic<bool>& stop);

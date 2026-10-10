@@ -15,8 +15,10 @@ namespace
 {
     constexpr std::string_view c_UnitScaleSetting = "UnitScale";
     constexpr std::string_view c_UpAxisSetting = "UpAxis";
+    constexpr std::string_view c_CollisionSetting = "Collision";
     constexpr std::string_view c_Auto = "Auto";
     constexpr std::array c_UpAxes{ ModelUpAxis::Auto, ModelUpAxis::Y, ModelUpAxis::Z };
+    constexpr std::array c_Collisions{ ModelCollision::None, ModelCollision::ConvexHulls, ModelCollision::TriangleMeshes, ModelCollision::Both };
 
     std::string_view ToString(ModelUpAxis axis)
     {
@@ -35,6 +37,39 @@ namespace
                 return c_Auto;
             }
         }
+    }
+
+    std::string_view ToString(ModelCollision collision)
+    {
+        switch (collision)
+        {
+            case ModelCollision::None:
+            {
+                return "None";
+            }
+            case ModelCollision::ConvexHulls:
+            {
+                return "ConvexHulls";
+            }
+            case ModelCollision::TriangleMeshes:
+            {
+                return "TriangleMeshes";
+            }
+            default:
+            {
+                return "Both";
+            }
+        }
+    }
+
+    bool HasCollision(ModelCollision collision, Trinity::CollisionShapeKind kind)
+    {
+        return collision == ModelCollision::Both || collision == (kind == Trinity::CollisionShapeKind::ConvexHull ? ModelCollision::ConvexHulls : ModelCollision::TriangleMeshes);
+    }
+
+    bool IsCollisionShape(std::string_view importer)
+    {
+        return importer == Trinity::ConvexHullAsset::c_AssetType || importer == Trinity::CollisionMeshAsset::c_AssetType;
     }
 
     std::string FormatUnitScale(const std::optional<float>& scale)
@@ -77,7 +112,7 @@ Trinity::AssetSettings ModelImporter::GetDefaultSettings()
 
 Trinity::AssetSettings ModelImporter::MakeSettings(const ModelImportSettings& settings)
 {
-    return { { std::string(c_UnitScaleSetting), FormatUnitScale(settings.UnitScale) }, { std::string(c_UpAxisSetting), std::string(::ToString(settings.UpAxis)) } };
+    return { { std::string(c_UnitScaleSetting), FormatUnitScale(settings.UnitScale) }, { std::string(c_UpAxisSetting), std::string(::ToString(settings.UpAxis)) }, { std::string(c_CollisionSetting), std::string(::ToString(settings.Collision)) } };
 }
 
 Trinity::AssetSettings ModelImporter::MakeSettings(const ModelImportSettings& settings, const Trinity::AssetRecord& record)
@@ -116,6 +151,19 @@ ModelImportSettings ModelImporter::ReadSettings(const Trinity::AssetRecord& reco
         else
         {
             l_Settings.UpAxis = *a_Axis;
+        }
+    }
+
+    if (const std::string* l_Collision = record.FindSetting(c_CollisionSetting))
+    {
+        const auto a_Collision = std::ranges::find_if(c_Collisions, [l_Collision](ModelCollision collision) { return ::ToString(collision) == *l_Collision; });
+        if (a_Collision == c_Collisions.end())
+        {
+            TR_WARN("Models: {} has {}: {}, which is not None, ConvexHulls, TriangleMeshes or Both, so both are cooked", record.Path, c_CollisionSetting, *l_Collision);
+        }
+        else
+        {
+            l_Settings.Collision = *a_Collision;
         }
     }
 
@@ -244,7 +292,7 @@ std::string ModelImporter::GetCacheKeyPath(Trinity::UUID id)
     return std::format("{}/Models/{}.key", Trinity::Project::c_CacheMount, id);
 }
 
-// The model's files, its settings, its sub-assets' keys and UUIDs, the textures beside it, and both importers' versions, since a texture it embeds is encoded as the texture importer encodes
+// The model's files, its settings, its sub-assets' keys and UUIDs, the textures beside it, both importers' versions, since a texture it embeds is encoded as the texture importer encodes, and the collision shapes', which Jolt's version is in
 std::string ModelImporter::GetCacheKey(const Trinity::AssetRecord& record, const Plan& plan, std::span<const Trinity::UUID> externalTextures)
 {
     std::uint64_t l_SubAssets = ModelReading::c_HashSeed;
@@ -261,7 +309,7 @@ std::string ModelImporter::GetCacheKey(const Trinity::AssetRecord& record, const
 
     const ModelImportSettings l_Settings = ReadSettings(record);
 
-    return std::format("content {:016x}, unit scale {}, up axis {}, sub-assets {:016x}, textures {:016x}, importer {}, texture importer {}", plan.ContentHash, FormatUnitScale(l_Settings.UnitScale), ::ToString(l_Settings.UpAxis), l_SubAssets, l_Textures, c_Version, TextureImporter::c_Version);
+    return std::format("content {:016x}, unit scale {}, up axis {}, collision {}, sub-assets {:016x}, textures {:016x}, importer {}, texture importer {}, collision shapes {:08x}", plan.ContentHash, FormatUnitScale(l_Settings.UnitScale), ::ToString(l_Settings.UpAxis), ::ToString(l_Settings.Collision), l_SubAssets, l_Textures, c_Version, TextureImporter::c_Version, Trinity::GetCollisionShapeVersion());
 }
 
 std::string_view ModelImporter::ToString(TextureUsage usage)
@@ -297,10 +345,20 @@ std::string ModelImporter::GetCookedPath(const Trinity::SubAsset& subAsset)
         return Trinity::GetCookedMaterialPath(subAsset.ID);
     }
 
+    if (IsCollisionShape(subAsset.Importer))
+    {
+        return Trinity::GetCookedCollisionShapePath(subAsset.ID);
+    }
+
     return subAsset.Importer == Trinity::TextureAsset::c_AssetType ? Trinity::GetCookedTexturePath(subAsset.ID) : std::string();
 }
 
-// glTF through fastgltf and everything else through assimp. The sub-assets come in one order for every format: meshes, materials, then the textures the file holds
+std::string ModelImporter::GetCollisionKey(std::string_view meshKey, Trinity::CollisionShapeKind kind)
+{
+    return std::format("{}{}", Trinity::GetCollisionShapeAssetType(kind), meshKey.substr(std::min(meshKey.find('.'), meshKey.size())));
+}
+
+// glTF through fastgltf and everything else through assimp. The sub-assets come in one order for every format: meshes, the convex hulls and collision meshes the settings ask for, materials, then the textures the file holds
 ModelImporter::Plan ModelImporter::PlanImport(const Trinity::AssetRecord& record)
 {
     TR_PROFILE_FUNCTION();
@@ -317,6 +375,18 @@ ModelImporter::Plan ModelImporter::PlanImport(const Trinity::AssetRecord& record
         if (!it_Key.empty())
         {
             l_Plan.SubAssets.push_back({ it_Key, std::string(Trinity::MeshAsset::c_AssetType), {} });
+        }
+    }
+
+    const ModelCollision l_Collision = ReadSettings(record).Collision;
+    for (const Trinity::CollisionShapeKind it_Kind : { Trinity::CollisionShapeKind::ConvexHull, Trinity::CollisionShapeKind::Mesh })
+    {
+        for (const std::string& it_Key : l_Source->MeshKeys)
+        {
+            if (!it_Key.empty() && HasCollision(l_Collision, it_Kind))
+            {
+                l_Plan.SubAssets.push_back({ GetCollisionKey(it_Key, it_Kind), std::string(Trinity::GetCollisionShapeAssetType(it_Kind)), {} });
+            }
         }
     }
 
@@ -345,7 +415,7 @@ ModelImporter::Plan ModelImporter::PlanImport(const Trinity::AssetRecord& record
     return l_Plan;
 }
 
-// Embedded textures first, since they take the time, each skipped when its own key says the cache already holds it. The key is written last, so a cook cut short is cooked again
+// Embedded textures first, since they take the time, each skipped when its own key says the cache already holds it. Each mesh's collision shapes are cooked from the mesh as it is built. One Jolt cannot make, such as the hull of points all in a line, still gets a file, which fails to load with the reason, so the model is not imported again for it. The key is written last, so a cook cut short is cooked again
 ModelImporter::Cooked ModelImporter::Cook(const Trinity::AssetRecord& record, const Plan& plan, std::span<const Trinity::UUID> externalTextures, const std::atomic<bool>& stop)
 {
     TR_PROFILE_FUNCTION();
@@ -424,6 +494,7 @@ ModelImporter::Cooked ModelImporter::Cook(const Trinity::AssetRecord& record, co
 
     std::vector<Trinity::UUID> l_Meshes(l_Source.MeshKeys.size());
     std::vector<std::vector<Trinity::UUID>> l_MeshMaterials(l_Source.MeshKeys.size());
+    std::array<std::size_t, 2> l_Shapes{};
     for (std::size_t it_Mesh = 0; it_Mesh < l_Source.MeshKeys.size(); ++it_Mesh)
     {
         const Trinity::UUID l_ID = a_Find(l_Source.MeshKeys[it_Mesh]);
@@ -448,6 +519,27 @@ ModelImporter::Cooked ModelImporter::Cook(const Trinity::AssetRecord& record, co
             for (const std::optional<std::size_t>& it_Material : l_Mesh->SlotMaterials)
             {
                 l_MeshMaterials[it_Mesh].push_back(it_Material && *it_Material < l_Materials.size() ? l_Materials[*it_Material] : Trinity::UUID());
+            }
+        }
+
+        for (const Trinity::CollisionShapeKind it_Kind : { Trinity::CollisionShapeKind::ConvexHull, Trinity::CollisionShapeKind::Mesh })
+        {
+            const std::string l_ShapeKey = GetCollisionKey(l_Source.MeshKeys[it_Mesh], it_Kind);
+            const Trinity::UUID l_ShapeID = a_Find(l_ShapeKey);
+            if (!l_ShapeID.IsValid())
+            {
+                continue;
+            }
+
+            const Trinity::CookedCollisionShape l_Shape = Trinity::CookCollisionShape(it_Kind, l_Mesh->Data);
+            if (!l_Shape.Error.empty())
+            {
+                TR_WARN("Models: {} of {} has no shape, since {}, so colliders using it collide with nothing", l_ShapeKey, record.Path, l_Shape.Error);
+            }
+
+            if (a_Write(l_ShapeID, Trinity::GetCookedCollisionShapePath(l_ShapeID), l_Shape.File) && l_Shape.Error.empty())
+            {
+                ++l_Shapes[static_cast<std::size_t>(it_Kind)];
             }
         }
     }
@@ -480,7 +572,7 @@ ModelImporter::Cooked ModelImporter::Cook(const Trinity::AssetRecord& record, co
     l_Cooked.Outcome = a_Write({}, GetCacheKeyPath(record.ID), std::as_bytes(std::span(l_Key))) ? Result::Imported : Result::Failed;
 
     const auto l_Milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - l_Start).count();
-    TR_INFO("Models: imported {} into {} mesh(es), {} material(s) and {} node(s), with {} texture(s) encoded, {} from the cache and {} beside it, in {} ms", record.Path, std::ranges::count_if(l_Meshes, [](Trinity::UUID id) { return id.IsValid(); }), l_Materials.size(), l_Model.Nodes.size(), l_Cooked.TexturesEncoded, l_Cooked.TexturesCached, externalTextures.size(), l_Milliseconds);
+    TR_INFO("Models: imported {} into {} mesh(es), {} convex hull(s), {} collision mesh(es), {} material(s) and {} node(s), with {} texture(s) encoded, {} from the cache and {} beside it, in {} ms", record.Path, std::ranges::count_if(l_Meshes, [](Trinity::UUID id) { return id.IsValid(); }), l_Shapes[static_cast<std::size_t>(Trinity::CollisionShapeKind::ConvexHull)], l_Shapes[static_cast<std::size_t>(Trinity::CollisionShapeKind::Mesh)], l_Materials.size(), l_Model.Nodes.size(), l_Cooked.TexturesEncoded, l_Cooked.TexturesCached, externalTextures.size(), l_Milliseconds);
 
     return l_Cooked;
 }

@@ -308,6 +308,26 @@ namespace Trinity
         [[nodiscard]] bool operator==(const CylinderColliderComponent&) const = default;
     };
 
+    // The convex hull a model's import cooked around one of its meshes, a ConvexHullAsset's UUID. In the mesh's own space, so on the entity drawing that mesh it fits it. Any body can have one. An invalid UUID collides with nothing
+    struct ConvexHullColliderComponent : ColliderSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.ConvexHullCollider";
+
+        UUID Shape;
+
+        [[nodiscard]] bool operator==(const ConvexHullColliderComponent&) const = default;
+    };
+
+    // A model's mesh as its triangles, a CollisionMeshAsset's UUID, in the mesh's own space. Triangles have no inside, so it is for static bodies alone, and moving ones take a convex hull
+    struct MeshColliderComponent : ColliderSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.MeshCollider";
+
+        UUID Shape;
+
+        [[nodiscard]] bool operator==(const MeshColliderComponent&) const = default;
+    };
+
     // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save
     struct UnknownComponentsComponent
     {

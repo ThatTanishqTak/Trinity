@@ -524,6 +524,8 @@ bool ImportTest::CheckModels()
         std::uint64_t l_Vertices = 0;
         std::size_t l_Materials = 0;
         std::size_t l_Embedded = 0;
+        std::size_t l_Hulls = 0;
+        std::size_t l_CollisionMeshes = 0;
         for (const Trinity::SubAsset& it_SubAsset : l_Record->SubAssets)
         {
             if (it_SubAsset.Importer == Trinity::MeshAsset::c_AssetType)
@@ -575,6 +577,23 @@ bool ImportTest::CheckModels()
                     a_Fail(std::format("has texture {} with nothing cooked", it_SubAsset.Key));
                 }
             }
+            else if (it_SubAsset.Importer == Trinity::ConvexHullAsset::c_AssetType || it_SubAsset.Importer == Trinity::CollisionMeshAsset::c_AssetType)
+            {
+                ++(it_SubAsset.Importer == Trinity::ConvexHullAsset::c_AssetType ? l_Hulls : l_CollisionMeshes);
+                if (!Trinity::FileSystem::Exists(Trinity::GetCookedCollisionShapePath(it_SubAsset.ID)))
+                {
+                    a_Fail(std::format("has collision shape {} with nothing cooked", it_SubAsset.Key));
+                }
+            }
+        }
+
+        // Every mesh gets each kind of shape its settings ask for, both by default
+        const ModelCollision l_Collision = ModelImporter::ReadSettings(*l_Record).Collision;
+        const bool l_WantsHulls = l_Collision == ModelCollision::Both || l_Collision == ModelCollision::ConvexHulls;
+        const bool l_WantsCollisionMeshes = l_Collision == ModelCollision::Both || l_Collision == ModelCollision::TriangleMeshes;
+        if (l_Hulls != (l_WantsHulls ? l_Meshes : 0) || l_CollisionMeshes != (l_WantsCollisionMeshes ? l_Meshes : 0))
+        {
+            a_Fail(std::format("has {} convex hull(s) and {} collision mesh(es) for {} mesh(es)", l_Hulls, l_CollisionMeshes, l_Meshes));
         }
 
         const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(Trinity::GetCookedModelPath(l_Record->ID));
@@ -603,7 +622,7 @@ bool ImportTest::CheckModels()
             a_Fail("has no meshes, no materials or no node drawing a mesh");
         }
 
-        TR_INFO("Import test: {} has {} mesh(es) with {} submesh(es) and {} vertices, {} material(s), {} embedded texture(s), and {} node(s), {} with a mesh", l_Record->Path, l_Meshes, l_Submeshes, l_Vertices, l_Materials, l_Embedded, l_Model->Nodes.size(), l_MeshNodes);
+        TR_INFO("Import test: {} has {} mesh(es) with {} submesh(es) and {} vertices, {} convex hull(s), {} collision mesh(es), {} material(s), {} embedded texture(s), and {} node(s), {} with a mesh", l_Record->Path, l_Meshes, l_Submeshes, l_Vertices, l_Hulls, l_CollisionMeshes, l_Materials, l_Embedded, l_Model->Nodes.size(), l_MeshNodes);
     }
 
     return l_Passed;

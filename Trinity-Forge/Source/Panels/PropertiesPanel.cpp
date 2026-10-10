@@ -25,10 +25,12 @@ namespace
     constexpr const char* c_EnvironmentPickerPopup = "##EnvironmentPicker";
     constexpr const char* c_MeshPickerPopup = "##MeshPicker";
     constexpr const char* c_MaterialPickerPopup = "##MaterialPicker";
+    constexpr const char* c_ConvexHullPickerPopup = "##ConvexHullPicker";
+    constexpr const char* c_CollisionMeshPickerPopup = "##CollisionMeshPicker";
     constexpr const char* c_AddComponentPopup = "##AddComponent";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 12> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName };
+    constexpr std::array<std::string_view, 14> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName };
 
     // A label on the left and the widget filling the rest of the row
     void Label(const char* label)
@@ -53,6 +55,27 @@ namespace
     std::string GetAssetName(const Trinity::AssetRecord& record)
     {
         return std::filesystem::path(record.Path).filename().string();
+    }
+
+    // The shape of that kind the mesh's model cooked for it, found through the model's sub-asset keys, or none when the mesh is not a model's or the model's settings left it out
+    Trinity::UUID FindCollisionShape(const Trinity::AssetRegistry* registry, Trinity::UUID mesh, Trinity::CollisionShapeKind kind)
+    {
+        const Trinity::AssetRecord* l_Mesh = registry != nullptr && mesh ? registry->Find(mesh) : nullptr;
+        const Trinity::AssetRecord* l_Model = l_Mesh != nullptr ? registry->Find(l_Mesh->Parent) : nullptr;
+        if (l_Model == nullptr)
+        {
+            return {};
+        }
+
+        const auto a_Mesh = std::ranges::find(l_Model->SubAssets, mesh, &Trinity::SubAsset::ID);
+        if (a_Mesh == l_Model->SubAssets.end())
+        {
+            return {};
+        }
+
+        const auto a_Shape = std::ranges::find(l_Model->SubAssets, ModelImporter::GetCollisionKey(a_Mesh->Key, kind), &Trinity::SubAsset::Key);
+
+        return a_Shape != l_Model->SubAssets.end() && a_Shape->Importer == Trinity::GetCollisionShapeAssetType(kind) ? a_Shape->ID : Trinity::UUID();
     }
 
     // Three boxes on one row, one for each axis
@@ -922,6 +945,59 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
         Label("Height");
         EditField<Trinity::CylinderColliderComponent>(l_History, entity, "Height", [](Trinity::CylinderColliderComponent& cylinder) { return ImGui::DragFloat("##Height", &cylinder.Height, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
+
+    if (entity.Has<Trinity::ConvexHullColliderComponent>() && BeginComponent(Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    {
+        DrawColliderSettings<Trinity::ConvexHullColliderComponent>(l_History, entity);
+        DrawShapeSlot<Trinity::ConvexHullColliderComponent>(entity, Trinity::CollisionShapeKind::ConvexHull, c_ConvexHullPickerPopup, "A convex hull a model cooked around one of its meshes. Without one it collides with nothing");
+    }
+
+    if (entity.Has<Trinity::MeshColliderComponent>() && BeginComponent(Trinity::MeshColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    {
+        DrawColliderSettings<Trinity::MeshColliderComponent>(l_History, entity);
+        DrawShapeSlot<Trinity::MeshColliderComponent>(entity, Trinity::CollisionShapeKind::Mesh, c_CollisionMeshPickerPopup, "A model's mesh as triangles, cooked at import. Without one it collides with nothing");
+        if (entity.Has<Trinity::RigidBodyComponent>() && entity.Get<Trinity::RigidBodyComponent>().Motion != Trinity::BodyMotion::Static)
+        {
+            ImGui::TextWrapped("%s", std::format("{} Triangle meshes are for static bodies. A moving body takes a convex hull", Trinity::Icons::c_Warning).c_str());
+        }
+    }
+}
+
+// A slot for the cooked shape a hull or mesh collider takes, and once the shape is loaded, as the Scene panel's drawing of the selection loads it, why it failed if it did. When the model of the entity's Mesh Renderer cooked a shape of this kind for its mesh, and the collider has another, a button takes that one
+template<typename T>
+void PropertiesPanel::DrawShapeSlot(Trinity::Entity entity, Trinity::CollisionShapeKind kind, const char* popup, const char* hint)
+{
+    CommandStack& l_History = m_Session.GetHistory();
+    const auto a_Set = [&l_History, entity](Trinity::UUID shape)
+    {
+        T l_Value = entity.Get<T>();
+        l_Value.Shape = shape;
+        l_History.Execute(Trinity::CreateScope<SetComponentCommand<T>>(entity.GetUUID(), std::move(l_Value), "Shape"));
+        l_History.EndMerge();
+    };
+
+    const Trinity::UUID l_Shape = entity.Get<T>().Shape;
+    DrawAssetSlot("Shape", popup, Trinity::GetCollisionShapeAssetType(kind), l_Shape, a_Set, hint);
+    if (l_Shape && Trinity::AssetManager::GetState(l_Shape) == Trinity::AssetState::Failed)
+    {
+        Label("");
+        ImGui::TextDisabled("%s", std::format("{} Could not be loaded, as the Console says", Trinity::Icons::c_Warning).c_str());
+    }
+
+    const Trinity::UUID l_Matching = entity.Has<Trinity::MeshRendererComponent>() ? FindCollisionShape(m_Session.GetRegistry(), entity.Get<Trinity::MeshRendererComponent>().Mesh, kind) : Trinity::UUID();
+    if (l_Matching && l_Matching != l_Shape)
+    {
+        Label("");
+        if (ImGui::Button(std::format("{} Match Mesh Renderer", Trinity::Icons::c_Cube).c_str(), ImVec2(-FLT_MIN, 0.0f)))
+        {
+            a_Set(l_Matching);
+        }
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Takes the %s its model cooked for the Mesh Renderer's mesh", kind == Trinity::CollisionShapeKind::ConvexHull ? "convex hull" : "triangle mesh");
+        }
+    }
 }
 
 // Every registered component the entity is without, except Transform, which it always has
@@ -1116,7 +1192,7 @@ void PropertiesPanel::DrawTextureSettings(const Trinity::AssetRecord& record)
     }
 }
 
-// Units and axes as the file gives them unless set here. Apply writes them to the .meta and imports the model again, which entities already created from it do not follow
+// Units and axes as the file gives them unless set here, and the collision shapes cooked for its meshes. Apply writes them to the .meta and imports the model again, which entities already created from it do not follow
 void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
 {
     const ModelImportSettings l_Saved = ModelImporter::ReadSettings(record);
@@ -1149,6 +1225,18 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
     if (ImGui::Combo("##UpAxis", &l_Axis, "Auto\0Y\0Z\0"))
     {
         m_ModelSettings.UpAxis = static_cast<ModelUpAxis>(l_Axis);
+    }
+
+    Label("Collision");
+    int l_Collision = static_cast<int>(m_ModelSettings.Collision);
+    if (ImGui::Combo("##Collision", &l_Collision, "None\0Convex Hulls\0Triangle Meshes\0Both\0"))
+    {
+        m_ModelSettings.Collision = static_cast<ModelCollision>(l_Collision);
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("The shapes cooked beside each mesh for colliders: a convex hull, which any body can have, and its triangles, for static bodies");
     }
 
     ImGui::Spacing();

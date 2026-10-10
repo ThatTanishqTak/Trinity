@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ColliderDrawing.hpp"
 #include "EditorCamera.hpp"
 #include "EditorCamera3D.hpp"
 #include "EditorGrid.hpp"
@@ -74,6 +75,8 @@ private:
 
     Trinity::ImGuiLayer& m_ImGui;
     EditorSession& m_Session;
+    std::uint64_t m_CloseListener = 0;
+    ColliderDrawing m_Colliders;
     EditorCamera m_Camera;
     EditorGrid m_Grid;
     EditorCamera3D m_Camera3D;

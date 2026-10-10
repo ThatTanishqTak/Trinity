@@ -13,6 +13,7 @@
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Input/Input.hpp"
+#include "Trinity/Physics/CollisionShapeLoaders.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
 
 #include <charconv>
@@ -498,6 +499,7 @@ namespace Trinity
         JobSystem::Initialize();
         SceneSerializer::Initialize();
         AssetManager::Initialize();
+        CollisionShapeLoaders::Register();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
@@ -510,6 +512,7 @@ namespace Trinity
 
         l_Application.reset();
 
+        CollisionShapeLoaders::Unregister();
         AssetManager::Shutdown();
         SceneSerializer::Shutdown();
         JobSystem::Shutdown();

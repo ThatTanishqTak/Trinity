@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <span>
+#include <utility>
 
 namespace
 {
@@ -47,7 +49,33 @@ namespace
         return l_Round;
     }
 
-    void DrawEntityColliders(Trinity::Entity entity)
+    // Each edge of the shape as it sits on its entity, or its bounds when it has too many edges to keep. Nothing until it has loaded
+    template<typename T>
+    void DrawShape(const glm::mat4& frame, Trinity::UUID shape, const glm::vec4& color)
+    {
+        const Trinity::Asset* l_Asset = shape ? Trinity::AssetManager::GetAsset(shape) : nullptr;
+        if (l_Asset == nullptr || l_Asset->GetAssetType() != T::c_AssetType)
+        {
+            return;
+        }
+
+        const T& l_Shape = static_cast<const T&>(*l_Asset);
+        const std::span<const glm::vec3> l_Wireframe = l_Shape.GetWireframe();
+        if (l_Wireframe.empty())
+        {
+            const Trinity::MeshBounds& l_Bounds = l_Shape.GetBounds();
+            Trinity::DebugDraw::Box(glm::scale(glm::translate(frame, (l_Bounds.Min + l_Bounds.Max) * 0.5f), (l_Bounds.Max - l_Bounds.Min) * 0.5f), color);
+
+            return;
+        }
+
+        for (std::size_t it_Point = 0; it_Point + 1 < l_Wireframe.size(); it_Point += 2)
+        {
+            Trinity::DebugDraw::Line(glm::vec3(frame * glm::vec4(l_Wireframe[it_Point], 1.0f)), glm::vec3(frame * glm::vec4(l_Wireframe[it_Point + 1], 1.0f)), color);
+        }
+    }
+
+    void DrawEntityColliders(Trinity::Entity entity, std::vector<Trinity::UUID>& shapes)
     {
         const glm::mat4& l_World = entity.Get<Trinity::WorldTransformComponent>().Matrix;
 
@@ -87,13 +115,65 @@ namespace
                 Trinity::DebugDraw::Line(l_Round.Center - l_HalfHeight + it_Side * l_Radius, l_Round.Center + l_HalfHeight + it_Side * l_Radius, l_Color);
             }
         }
+
+        if (entity.Has<Trinity::ConvexHullColliderComponent>())
+        {
+            const Trinity::ConvexHullColliderComponent& l_Hull = entity.Get<Trinity::ConvexHullColliderComponent>();
+            shapes.push_back(l_Hull.Shape);
+            DrawShape<Trinity::ConvexHullAsset>(GetColliderMatrix(l_World, l_Hull), l_Hull.Shape, GetColor(l_Hull));
+        }
+
+        if (entity.Has<Trinity::MeshColliderComponent>())
+        {
+            const Trinity::MeshColliderComponent& l_Mesh = entity.Get<Trinity::MeshColliderComponent>();
+            shapes.push_back(l_Mesh.Shape);
+            DrawShape<Trinity::CollisionMeshAsset>(GetColliderMatrix(l_World, l_Mesh), l_Mesh.Shape, GetColor(l_Mesh));
+        }
     }
 }
 
-void DrawColliders(Trinity::Scene& scene, Trinity::Entity root)
+ColliderDrawing::~ColliderDrawing()
 {
+    Release();
+}
+
+// The shapes drawn this time are acquired before those drawn last time are released, so one still in use is never unloaded between the two
+void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root)
+{
+    m_Drawn.clear();
     for (Trinity::Entity it_Entity = root; it_Entity; it_Entity = scene.GetNextInSubtree(it_Entity, root))
     {
-        DrawEntityColliders(it_Entity);
+        DrawEntityColliders(it_Entity, m_Drawn);
     }
+
+    std::erase(m_Drawn, Trinity::UUID());
+    std::ranges::sort(m_Drawn);
+    const auto [a_First, a_Last] = std::ranges::unique(m_Drawn);
+    m_Drawn.erase(a_First, a_Last);
+    if (m_Drawn == m_Held)
+    {
+        return;
+    }
+
+    for (const Trinity::UUID it_Shape : m_Drawn)
+    {
+        Trinity::AssetManager::Acquire(it_Shape);
+    }
+
+    for (const Trinity::UUID it_Shape : m_Held)
+    {
+        Trinity::AssetManager::Release(it_Shape);
+    }
+
+    std::swap(m_Held, m_Drawn);
+}
+
+void ColliderDrawing::Release()
+{
+    for (const Trinity::UUID it_Shape : m_Held)
+    {
+        Trinity::AssetManager::Release(it_Shape);
+    }
+
+    m_Held.clear();
 }

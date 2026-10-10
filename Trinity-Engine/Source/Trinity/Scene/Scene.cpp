@@ -22,7 +22,7 @@ namespace Trinity
 
     Scene::Scene()
     {
-        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, UnknownComponentsComponent>(m_Registry);
+        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, UnknownComponentsComponent>(m_Registry);
     }
 
     Scene::~Scene() = default;

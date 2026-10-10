@@ -1,6 +1,5 @@
 #include "Panels/ViewportPanel.hpp"
 
-#include "ColliderDrawing.hpp"
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 #include "ImGuizmoInclude.hpp"
@@ -240,6 +239,7 @@ namespace
 ViewportPanel::ViewportPanel(Trinity::ImGuiLayer& imGui, EditorSession& session) : Panel("Scene", Trinity::Icons::c_Monitor, DockSlot::Centre, "Viewport"), m_ImGui(imGui), m_Session(session)
 {
     SetBorderless(true);
+    m_CloseListener = m_Session.AddCloseListener([this] { m_Colliders.Release(); });
 }
 
 // The session is still open here, so a camera moved in the last moments is saved. The Viewport is ImGuizmo's only user, so it lets go of ImGuizmo's memory too
@@ -251,6 +251,7 @@ ViewportPanel::~ViewportPanel()
     }
 
     ReleaseImGuizmo();
+    m_Session.RemoveCloseListener(m_CloseListener);
 }
 
 // The Viewport's own lines in imgui.ini: the stats overlay, the gizmo's operation and axes, and the snap steps
@@ -339,7 +340,11 @@ void ViewportPanel::PrepareScene()
 
     if (const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection()))
     {
-        DrawColliders(l_Scene, l_Selected);
+        m_Colliders.Draw(l_Scene, l_Selected);
+    }
+    else
+    {
+        m_Colliders.Release();
     }
 
     Trinity::RenderView l_View;
