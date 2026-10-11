@@ -50,7 +50,7 @@ namespace Trinity
         // Scales this close are taken as one, and axes this far from square as sheared
         constexpr float c_ScaleTolerance = 1e-4f;
         constexpr float c_ShearTolerance = 1e-3f;
-        // A body whose shapes weigh less than this, such as one flat hull, is given a box's inertia and this mass unless its RigidBody gives one
+        // A body whose shapes weigh less than this, such as one flat hull or a triangle mesh, is given a box's inertia and this mass, unless a dynamic body's RigidBody gives one. Jolt asks a kinematic body for one too, though nothing pushes it
         constexpr float c_MinimumMass = 1e-6f;
         constexpr float c_FallbackMass = 1.0f;
         // Set in a body's user data, beside the pointer to its record, when it is a record's sensor
@@ -294,6 +294,18 @@ namespace Trinity
         bool IsCooked(ColliderKind kind)
         {
             return kind == ColliderKind::ConvexHull || kind == ColliderKind::Mesh;
+        }
+
+        void GiveBoxMass(JPH::BodyCreationSettings& settings, const JPH::Shape& shape, float mass)
+        {
+            settings.mOverrideMassProperties = JPH::EOverrideMassProperties::MassAndInertiaProvided;
+            settings.mMassPropertiesOverride.SetMassAndInertiaOfSolidBox(JPH::Vec3::sMax(shape.GetLocalBounds().GetSize(), JPH::Vec3::sReplicate(c_MinimumSize)), 1000.0f);
+            settings.mMassPropertiesOverride.ScaleToMass(mass);
+        }
+
+        bool IsWeightless(const JPH::Shape& shape)
+        {
+            return shape.GetMassProperties().mMass < c_MinimumMass;
         }
 
         // A part of a body's shape: where it sits on the body, and which solid it came from
@@ -741,12 +753,18 @@ namespace Trinity
                 case ColliderKind::ConvexHull:
                 case ColliderKind::Mesh:
                 {
+                    // Triangles have no volume to weigh and Jolt cannot collide two meshes, so a dynamic body takes a hull. Nothing pushes a kinematic body, so its mesh only has to be met
                     const bool l_Hull = collider.Kind == ColliderKind::ConvexHull;
-                    if (!l_Hull && l_Motion != BodyMotion::Static)
+                    if (!l_Hull && l_Motion == BodyMotion::Dynamic)
                     {
-                        TR_CORE_WARN("Physics: {}'s MeshCollider is left out of its {} body, since triangle meshes are for static bodies alone", l_Name, l_Motion == BodyMotion::Dynamic ? "dynamic" : "kinematic");
+                        TR_CORE_WARN("Physics: {}'s MeshCollider is left out of its dynamic body, since triangle meshes are for static and kinematic bodies, and a dynamic one takes a convex hull", l_Name);
 
                         return nullptr;
+                    }
+
+                    if (!l_Hull && collider.Settings.Trigger)
+                    {
+                        TR_CORE_WARN("Physics: {}'s MeshCollider is a trigger, and triangles have no inside, so it reports only what crosses its surface. A ConvexHullCollider trigger reports all it holds", l_Name);
                     }
 
                     const Asset* l_Asset = collider.Shape ? AssetManager::GetAsset(collider.Shape) : nullptr;
@@ -867,18 +885,20 @@ namespace Trinity
                 l_Settings.mAngularVelocity = ToJolt(l_RigidBody.InitialAngularVelocity);
 
                 // A shape with no volume to weigh, such as a flat hull, gets the inertia of a box around it
-                if (l_Shape->GetMassProperties().mMass < c_MinimumMass)
+                if (IsWeightless(*l_Shape))
                 {
                     TR_CORE_WARN("Physics: {}'s colliders have no volume to weigh, so it takes the inertia of a box around them and {} kg", GetName(l_Scene, l_Record.Entity), l_RigidBody.Mass > 0.0f ? l_RigidBody.Mass : c_FallbackMass);
-                    l_Settings.mOverrideMassProperties = JPH::EOverrideMassProperties::MassAndInertiaProvided;
-                    l_Settings.mMassPropertiesOverride.SetMassAndInertiaOfSolidBox(JPH::Vec3::sMax(l_Shape->GetLocalBounds().GetSize(), JPH::Vec3::sReplicate(c_MinimumSize)), 1000.0f);
-                    l_Settings.mMassPropertiesOverride.ScaleToMass(l_RigidBody.Mass > 0.0f ? l_RigidBody.Mass : c_FallbackMass);
+                    GiveBoxMass(l_Settings, *l_Shape, l_RigidBody.Mass > 0.0f ? l_RigidBody.Mass : c_FallbackMass);
                 }
                 else if (l_RigidBody.Mass > 0.0f)
                 {
                     l_Settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
                     l_Settings.mMassPropertiesOverride.mMass = l_RigidBody.Mass;
                 }
+            }
+            else if (l_Motion == BodyMotion::Kinematic && IsWeightless(*l_Shape))
+            {
+                GiveBoxMass(l_Settings, *l_Shape, c_FallbackMass);
             }
 
             const JPH::EActivation l_Activation = l_Motion == BodyMotion::Dynamic && !l_Record.Settings.StartAsleep ? JPH::EActivation::Activate : JPH::EActivation::DontActivate;
@@ -898,6 +918,10 @@ namespace Trinity
             JPH::BodyCreationSettings l_Settings(l_Shape, l_Position, l_Rotation, ToJolt(l_SensorMotion), PhysicsLayers3D::Get(l_SensorMotion));
             l_Settings.mUserData = l_UserData | c_SensorBit;
             l_Settings.mIsSensor = true;
+            if (l_SensorMotion == BodyMotion::Kinematic && IsWeightless(*l_Shape))
+            {
+                GiveBoxMass(l_Settings, *l_Shape, c_FallbackMass);
+            }
             l_Record.Sensor = l_Bodies.CreateAndAddBody(l_Settings, JPH::EActivation::DontActivate);
             if (l_Record.Sensor.IsInvalid())
             {

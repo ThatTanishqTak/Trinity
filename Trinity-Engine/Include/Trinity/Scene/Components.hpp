@@ -327,7 +327,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ConvexHullColliderComponent&) const = default;
     };
 
-    // A model's mesh as its triangles, a CollisionMeshAsset's UUID, in the mesh's own space. Triangles have no inside, so it is for static bodies alone, and moving ones take a convex hull
+    // A model's mesh as its triangles, a CollisionMeshAsset's UUID, in the mesh's own space. Triangles have no inside, so it is for static and kinematic bodies, and a dynamic one takes a convex hull
     struct MeshColliderComponent : ColliderSettings
     {
         static constexpr std::string_view c_TypeName = "Trinity.MeshCollider";

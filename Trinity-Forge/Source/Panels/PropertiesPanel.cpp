@@ -965,9 +965,9 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
     {
         DrawColliderSettings<Trinity::MeshColliderComponent>(l_History, entity);
         DrawShapeSlot<Trinity::MeshColliderComponent>(entity, Trinity::CollisionShapeKind::Mesh, c_CollisionMeshPickerPopup, "A model's mesh as triangles, cooked at import. Without one it collides with nothing");
-        if (entity.Has<Trinity::RigidBodyComponent>() && entity.Get<Trinity::RigidBodyComponent>().Motion != Trinity::BodyMotion::Static)
+        if (entity.Has<Trinity::RigidBodyComponent>() && entity.Get<Trinity::RigidBodyComponent>().Motion == Trinity::BodyMotion::Dynamic)
         {
-            ImGui::TextWrapped("%s", std::format("{} Triangle meshes are for static bodies. A moving body takes a convex hull", Trinity::Icons::c_Warning).c_str());
+            ImGui::TextWrapped("%s", std::format("{} Triangle meshes are for static and kinematic bodies. A dynamic body takes a convex hull", Trinity::Icons::c_Warning).c_str());
         }
     }
 }
@@ -1245,7 +1245,7 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("The shapes cooked beside each mesh for colliders: a convex hull, which any body can have, and its triangles, for static bodies");
+        ImGui::SetTooltip("The shapes cooked beside each mesh for colliders: a convex hull, which any body can have, and its triangles, for static and kinematic bodies");
     }
 
     ImGui::Spacing();

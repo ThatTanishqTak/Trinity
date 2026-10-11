@@ -22,7 +22,7 @@ namespace JPH
 
 namespace Trinity
 {
-    // A model's mesh as a physics shape, cooked at import: the convex hull around its vertices, which any body can have, or its triangles, which only a static body can
+    // A model's mesh as a physics shape, cooked at import: the convex hull around its vertices, which any body can have, or its triangles, which a static or kinematic body can
     enum class CollisionShapeKind : std::uint8_t
     {
         ConvexHull,
