@@ -82,7 +82,14 @@ void ForgeLayer::OnAttach()
     m_GamePanel = l_Game.get();
     m_Panels.push_back(std::move(l_Game));
     m_Panels.push_back(Trinity::CreateScope<HierarchyPanel>(m_Session));
-    m_Panels.push_back(Trinity::CreateScope<PropertiesPanel>(m_Session));
+    Trinity::Scope<PropertiesPanel> l_Properties = Trinity::CreateScope<PropertiesPanel>(m_Session);
+    m_PropertiesPanel = l_Properties.get();
+    m_Panels.push_back(std::move(l_Properties));
+
+    // Docked as a tab behind Properties
+    Trinity::Scope<ProjectSettingsPanel> l_ProjectSettings = Trinity::CreateScope<ProjectSettingsPanel>(m_Session);
+    m_ProjectSettings = l_ProjectSettings.get();
+    m_Panels.push_back(std::move(l_ProjectSettings));
     m_Panels.push_back(Trinity::CreateScope<ConsolePanel>());
 
     // Docked after the Console, so it is the tab the default layout shows
@@ -178,7 +185,6 @@ void ForgeLayer::OnImGuiRender()
     }
 
     m_ContentBrowser->EndFrame();
-    m_ProjectSettings.Draw();
 
     if (m_ShowAbout)
     {
@@ -482,7 +488,8 @@ void ForgeLayer::DrawEditMenu()
 
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Gear, "Project Settings...").c_str(), nullptr, false, m_Session.HasProject()))
     {
-        m_ProjectSettings.Open();
+        m_ProjectSettings->SetOpen(true);
+        m_ProjectSettings->RequestFocus();
     }
 }
 
@@ -554,7 +561,7 @@ void ForgeLayer::DrawDockSpace()
     ImGui::DockSpaceOverViewport(l_DockSpace, ImGui::GetMainViewport());
 }
 
-// A panel added to Forge after the user's imgui.ini was saved has no place in it, so it joins the node of a panel with the same slot rather than floating. A new tab would be selected as it appears, so the Scene panel is brought back in front of any that joins it
+// A panel added to Forge after the user's imgui.ini was saved has no place in it, so it joins the node of a panel with the same slot rather than floating. A new tab would be selected as it appears, so the Scene and Properties panels are brought back in front of any that joins them
 void ForgeLayer::DockNewPanels()
 {
     for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
@@ -565,6 +572,7 @@ void ForgeLayer::DockNewPanels()
         }
 
         m_ViewportPanel->RequestFocus();
+        m_PropertiesPanel->RequestFocus();
 
         for (const Trinity::Scope<Panel>& it_Other : m_Panels)
         {
@@ -580,7 +588,7 @@ void ForgeLayer::DockNewPanels()
     }
 }
 
-// Hierarchy on the left, Properties on the right, the Scene and Game panels as tabs in the centre with the Scene panel in front, and the Console below them. Every panel opens again, including any floating in windows of their own
+// Hierarchy on the left, Properties on the right in front of Project Settings, the Scene and Game panels as tabs in the centre with the Scene panel in front, and the Console below them. Every panel opens again, including any floating in windows of their own
 void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
 {
     ImGui::DockBuilderRemoveNode(dockSpace);
@@ -602,6 +610,7 @@ void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
 
     ImGui::DockBuilderFinish(dockSpace);
     m_ViewportPanel->RequestFocus();
+    m_PropertiesPanel->RequestFocus();
     TR_INFO("Forge: default layout built");
 }
 

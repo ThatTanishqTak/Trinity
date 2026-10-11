@@ -5,11 +5,14 @@
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Physics/PhysicsScene2D.hpp"
 #include "Trinity/Physics/PhysicsScene3D.hpp"
+#include "Trinity/Physics/PhysicsWorld2D.hpp"
+#include "Trinity/Physics/PhysicsWorld3D.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <string>
 #include <utility>
@@ -18,7 +21,6 @@ namespace Trinity
 {
     namespace
     {
-        ConsoleVariable<std::int32_t> s_PhysicsRateVariable("physics.rate", static_cast<std::int32_t>(SimulationClock::c_DefaultRate), "Fixed simulation steps per second for a running scene, from 1 to 1000, taken when the scene starts running");
         // Here rather than with the physics, whose sources are built for instructions this processor may lack and must run no code before the CPU check
         ConsoleVariable<std::int32_t> s_PhysicsEventsVariable("physics.events", 0, "Logs a running scene's physics events to the Console: 0 none, 1 contacts beginning and ending, triggers entered and left and joints breaking, 2 contacts staying too");
 
@@ -36,16 +38,18 @@ namespace Trinity
         }
     }
 
-    SceneRuntime::SceneRuntime(Scene& scene, const CollisionLayers& layers) : m_Scene(scene), m_Clock(static_cast<std::uint32_t>(std::max(s_PhysicsRateVariable.Get(), 1)))
+    SceneRuntime::SceneRuntime(Scene& scene, const PhysicsSettings& settings) : m_Scene(scene), m_Clock(settings.StepRate)
     {
         if (PhysicsScene3D::IsNeeded(scene))
         {
-            m_Physics = CreateScope<PhysicsScene3D>(scene, layers);
+            m_Physics = CreateScope<PhysicsScene3D>(scene, settings.Layers);
+            m_Physics->GetWorld().SetGravity(settings.Gravity3D);
         }
 
         if (PhysicsScene2D::IsNeeded(scene))
         {
-            m_Physics2D = CreateScope<PhysicsScene2D>(scene, layers);
+            m_Physics2D = CreateScope<PhysicsScene2D>(scene, settings.Layers);
+            m_Physics2D->GetWorld().SetGravity(settings.Gravity2D);
         }
     }
 
@@ -75,6 +79,7 @@ namespace Trinity
     // Each step's systems then physics, then the transform pass with moving bodies placed by the interpolation given, then rendering, which the caller does
     void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation)
     {
+        const auto l_Start = std::chrono::steady_clock::now();
         m_StepsThisFrame = steps;
         const Timestep l_Step(m_Clock.GetStep());
         if (m_Physics)
@@ -116,9 +121,42 @@ namespace Trinity
             m_Physics2D->EndFrame(interpolation);
         }
 
+        m_StepMilliseconds = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - l_Start).count();
+
         LogPhysicsEvents();
 
         m_Scene.UpdateWorldTransforms();
+    }
+
+    SceneRuntime::Statistics SceneRuntime::GetStatistics() const
+    {
+        Statistics l_Statistics;
+        l_Statistics.Steps = m_StepsThisFrame;
+        l_Statistics.StepMilliseconds = m_StepMilliseconds;
+        if (m_Physics)
+        {
+            l_Statistics.Bodies3D = m_Physics->GetBodyCounts();
+        }
+
+        if (m_Physics2D)
+        {
+            l_Statistics.Bodies2D = m_Physics2D->GetBodyCounts();
+        }
+
+        return l_Statistics;
+    }
+
+    void SceneRuntime::SetGatherContacts(bool gather)
+    {
+        if (m_Physics)
+        {
+            m_Physics->SetGatherContacts(gather);
+        }
+
+        if (m_Physics2D)
+        {
+            m_Physics2D->SetGatherContacts(gather);
+        }
     }
 
     // Numbered by the step they came from since the scene started, the 3D world's then the 2D world's

@@ -83,8 +83,8 @@ public:
     [[nodiscard]] const Trinity::Project* GetProject() const { return m_Project.get(); }
     [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
-    // Saved with the project at once, outside the history. A scene playing keeps the layers it started with
-    void SetCollisionLayers(const Trinity::CollisionLayers& layers);
+    // Through the history, so it undoes in one step, and saved with the project as it runs and as it is undone. A scene playing keeps the settings it started with, and the next Play takes the new ones
+    bool EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field);
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
     [[nodiscard]] Trinity::UUID GetSceneID() const;
 
@@ -159,6 +159,7 @@ private:
     void FinishModelImports(const ModelImportReport& report);
     void FinishEnvironmentImports(const EnvironmentImportReport& report);
     void SaveProject();
+    bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
     void StartPlay();
     void StopPlay();
     void NewScene();

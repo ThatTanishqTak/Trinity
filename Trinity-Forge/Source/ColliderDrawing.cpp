@@ -12,10 +12,13 @@ namespace
     constexpr glm::vec4 c_SolidColor{ 0.45f, 0.95f, 0.45f, 1.0f };
     constexpr glm::vec4 c_TriggerColor{ 0.4f, 0.75f, 1.0f, 1.0f };
     constexpr glm::vec4 c_JointColor{ 1.0f, 0.65f, 0.2f, 1.0f };
+    constexpr glm::vec4 c_ContactColor{ 1.0f, 0.3f, 0.35f, 1.0f };
     // In metres, whatever the scene's scale
     constexpr float c_JointMarkSize = 0.1f;
     constexpr float c_JointAxisLength = 0.5f;
     constexpr float c_HingeCircleRadius = 0.2f;
+    constexpr float c_ContactMarkSize = 0.06f;
+    constexpr float c_ContactNormalLength = 0.25f;
     // The most a rounded corner of a 2D collider turns in one segment
     constexpr float c_ArcStep = std::numbers::pi_v<float> / 12.0f;
 
@@ -60,42 +63,45 @@ namespace
         return (first.x - origin.x) * (second.y - origin.y) - (first.y - origin.y) * (second.x - origin.x);
     }
 
-    // The convex hull of the points, counter-clockwise, without points in line with their neighbours
-    std::vector<glm::vec2> GetHull(std::vector<glm::vec2> points)
+    // Room for a polygon's most points, and the hull's two chains over them
+    using Points2D = std::array<glm::vec2, Trinity::PolygonCollider2DComponent::c_MaxPoints>;
+    using HullPoints = std::array<glm::vec2, Trinity::PolygonCollider2DComponent::c_MaxPoints * 2>;
+
+    // The convex hull of the first points, counter-clockwise, without points in line with their neighbours, in place of nothing, so drawing every collider each frame allocates nothing
+    std::span<const glm::vec2> GetHull(Points2D& points, std::size_t count, HullPoints& hull)
     {
-        std::ranges::sort(points, [](const glm::vec2& left, const glm::vec2& right) { return left.x < right.x || (left.x == right.x && left.y < right.y); });
-        const auto [a_First, a_Last] = std::ranges::unique(points);
-        points.erase(a_First, a_Last);
-        if (points.size() < 3)
+        const std::span<glm::vec2> l_Points(points.data(), count);
+        std::ranges::sort(l_Points, [](const glm::vec2& left, const glm::vec2& right) { return left.x < right.x || (left.x == right.x && left.y < right.y); });
+        const std::size_t l_Unique = static_cast<std::size_t>(std::ranges::unique(l_Points).begin() - l_Points.begin());
+        if (l_Unique < 3)
         {
-            return points;
+            std::ranges::copy(l_Points.first(l_Unique), hull.begin());
+
+            return std::span<const glm::vec2>(hull.data(), l_Unique);
         }
 
-        std::vector<glm::vec2> l_Hull(points.size() * 2);
         std::size_t l_Count = 0;
-        for (std::size_t it_Point = 0; it_Point < points.size(); ++it_Point)
+        for (std::size_t it_Point = 0; it_Point < l_Unique; ++it_Point)
         {
-            while (l_Count >= 2 && Cross2D(l_Hull[l_Count - 2], l_Hull[l_Count - 1], points[it_Point]) <= 0.0f)
+            while (l_Count >= 2 && Cross2D(hull[l_Count - 2], hull[l_Count - 1], l_Points[it_Point]) <= 0.0f)
             {
                 --l_Count;
             }
 
-            l_Hull[l_Count++] = points[it_Point];
+            hull[l_Count++] = l_Points[it_Point];
         }
 
-        for (std::size_t it_Point = points.size() - 1, l_Lower = l_Count + 1; it_Point-- > 0;)
+        for (std::size_t it_Point = l_Unique - 1, l_Lower = l_Count + 1; it_Point-- > 0;)
         {
-            while (l_Count >= l_Lower && Cross2D(l_Hull[l_Count - 2], l_Hull[l_Count - 1], points[it_Point]) <= 0.0f)
+            while (l_Count >= l_Lower && Cross2D(hull[l_Count - 2], hull[l_Count - 1], l_Points[it_Point]) <= 0.0f)
             {
                 --l_Count;
             }
 
-            l_Hull[l_Count++] = points[it_Point];
+            hull[l_Count++] = l_Points[it_Point];
         }
 
-        l_Hull.resize(l_Count - 1);
-
-        return l_Hull;
+        return std::span<const glm::vec2>(hull.data(), l_Count - 1);
     }
 
     // A counter-clockwise outline grown outward by the radius: each edge moved out along its normal, and an arc round each corner. One point with a radius is a circle, and two a capsule
@@ -148,14 +154,15 @@ namespace
     // A box or polygon by the hull of its points in the world, with a polygon's corners rounded by its radius at the larger scale. Nothing for points that make no area, which the 2D world leaves out
     void DrawPolygon2D(const Frame2D& frame, std::span<const glm::vec2> points, float radius, const glm::vec4& color)
     {
-        std::vector<glm::vec2> l_World;
-        l_World.reserve(points.size());
-        for (std::size_t it_Point = 0; it_Point < std::min(points.size(), Trinity::PolygonCollider2DComponent::c_MaxPoints); ++it_Point)
+        Points2D l_World{};
+        const std::size_t l_Count = std::min(points.size(), l_World.size());
+        for (std::size_t it_Point = 0; it_Point < l_Count; ++it_Point)
         {
-            l_World.push_back(frame.ToWorld(points[it_Point]));
+            l_World[it_Point] = frame.ToWorld(points[it_Point]);
         }
 
-        const std::vector<glm::vec2> l_Hull = GetHull(std::move(l_World));
+        HullPoints l_HullPoints{};
+        const std::span<const glm::vec2> l_Hull = GetHull(l_World, l_Count, l_HullPoints);
         if (l_Hull.size() >= 3)
         {
             DrawOutline2D(l_Hull, std::max(radius, 0.0f) * std::max(frame.ScaleX, frame.ScaleY), frame.Depth, color);
@@ -400,7 +407,8 @@ ColliderDrawing::~ColliderDrawing()
 void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root)
 {
     m_Drawn.clear();
-    for (Trinity::Entity it_Entity = root; it_Entity; it_Entity = scene.GetNextInSubtree(it_Entity, root))
+    const auto a_Next = [&scene, root](Trinity::Entity entity) { return root ? scene.GetNextInSubtree(entity, root) : scene.GetNextInHierarchyOrder(entity); };
+    for (Trinity::Entity it_Entity = root ? root : scene.GetFirstRoot(); it_Entity; it_Entity = a_Next(it_Entity))
     {
         DrawEntityColliders(it_Entity, m_Drawn);
         DrawEntityColliders2D(it_Entity);
@@ -428,6 +436,16 @@ void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root)
     }
 
     std::swap(m_Held, m_Drawn);
+}
+
+// A cross at each point and a short arrow along its normal, over everything
+void ColliderDrawing::DrawContacts(std::span<const Trinity::PhysicsContactPoint> points)
+{
+    for (const Trinity::PhysicsContactPoint& it_Point : points)
+    {
+        Trinity::DebugDraw::Cross(it_Point.Position, c_ContactMarkSize, c_ContactColor, Trinity::DebugDepth::OnTop);
+        Trinity::DebugDraw::Arrow(it_Point.Position, it_Point.Position + it_Point.Normal * c_ContactNormalLength, c_ContactColor, Trinity::DebugDepth::OnTop);
+    }
 }
 
 void ColliderDrawing::Release()

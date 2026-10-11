@@ -96,6 +96,10 @@ namespace Trinity
         // Joints made and not broken
         [[nodiscard]] std::uint32_t GetJointCount() const;
         [[nodiscard]] const CollisionLayers& GetLayers() const;
+        [[nodiscard]] PhysicsBodyCounts GetBodyCounts() const;
+        // Whether each step keeps where its bodies touch, triggers left out, for drawing. Off until asked for, since it costs each contact a lock. Jolt reports the contacts of bodies awake, so a sleeping pile shows none
+        void SetGatherContacts(bool gather);
+        [[nodiscard]] std::span<const PhysicsContactPoint> GetContactPoints() const;
 
         // The nearest collider along the ray, within the distance, and every collider it meets, nearest first, each once. The direction need not be of unit length
         [[nodiscard]] std::optional<PhysicsHit3D> Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter = {}) const;

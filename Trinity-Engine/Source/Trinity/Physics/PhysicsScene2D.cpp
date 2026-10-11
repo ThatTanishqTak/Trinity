@@ -44,6 +44,8 @@ namespace Trinity
         constexpr std::size_t c_Owned3D = SIZE_MAX - 1;
         // A joint's other body when it joins the world
         constexpr std::size_t c_World = SIZE_MAX - 2;
+        // Box2D's linear slop, within which a contact point counts as touching
+        constexpr float c_TouchingSlop = 0.005f;
         // Box2D's own bounds on a revolute joint's limits
         constexpr float c_MaxLimitAngle = 0.99f * std::numbers::pi_v<float>;
 
@@ -489,6 +491,7 @@ namespace Trinity
         void MakeJoint(JointRecord2D& joint);
         void PairEvents(std::uint32_t index);
         void BreakJoints(std::uint32_t index);
+        void GatherContactPoints();
 
         // A static body with no shapes at the origin, made the first time a joint joins the world, since a Box2D joint is always between two bodies
         [[nodiscard]] b2BodyId GetGround()
@@ -524,6 +527,10 @@ namespace Trinity
         PhysicsVector<RawContact2D> Raw;
         PhysicsVector<PhysicsEvent2D> Events;
         PhysicsVector<PhysicsEvent2D> StepEvents;
+        // The last step's contact points, kept only while asked for, and the buffer a body's contacts are read into
+        PhysicsVector<PhysicsContactPoint> ContactPoints;
+        PhysicsVector<b2ContactData> ContactData;
+        bool GatherContacts = false;
         std::uint32_t Steps = 1;
         std::uint64_t StepCount = 0;
         bool WarnedTilt = false;
@@ -713,6 +720,7 @@ namespace Trinity
         ++l_State.StepCount;
         l_State.PairEvents(index);
         l_State.BreakJoints(index);
+        l_State.GatherContactPoints();
 
         SceneRegistry& l_Registry = l_State.Owner.GetRegistry();
         for (BodyRecord2D& it_Record : l_State.Records)
@@ -783,6 +791,29 @@ namespace Trinity
     const CollisionLayers& PhysicsScene2D::GetLayers() const
     {
         return m_State->Layers;
+    }
+
+    // Box2D counts the bodies awake, which are never static, and the scene knows which of its bodies can move
+    PhysicsBodyCounts PhysicsScene2D::GetBodyCounts() const
+    {
+        const std::uint32_t l_Moving = static_cast<std::uint32_t>(std::ranges::count_if(m_State->Records, [](const BodyRecord2D& record) { return record.Motion != BodyMotion::Static && B2_IS_NON_NULL(record.Body); }));
+        const std::uint32_t l_Awake = m_State->World.GetActiveBodyCount();
+
+        return { GetBodyCount(), l_Awake, l_Moving - std::min(l_Awake, l_Moving) };
+    }
+
+    void PhysicsScene2D::SetGatherContacts(bool gather)
+    {
+        m_State->GatherContacts = gather;
+        if (!gather)
+        {
+            m_State->ContactPoints.clear();
+        }
+    }
+
+    std::span<const PhysicsContactPoint> PhysicsScene2D::GetContactPoints() const
+    {
+        return m_State->ContactPoints;
     }
 
     std::optional<PhysicsHit2D> PhysicsScene2D::Raycast(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter) const
@@ -1171,6 +1202,47 @@ namespace Trinity
             b2DestroyJoint(it_Joint.Joint);
             it_Joint.Joint = b2_nullJointId;
             Events.push_back({ PhysicsEventType::JointBreak, it_Joint.ID, it_Joint.Other, glm::vec2(0.0f), glm::vec2(0.0f), index });
+        }
+    }
+
+    // Each moving body's touching contacts, read once: a pair of moving bodies by the one made first. Box2D keeps speculative points a little apart, which are left out
+    void PhysicsScene2D::State::GatherContactPoints()
+    {
+        ContactPoints.clear();
+        if (!GatherContacts)
+        {
+            return;
+        }
+
+        for (const BodyRecord2D& it_Record : Records)
+        {
+            if (it_Record.Motion == BodyMotion::Static || B2_IS_NULL(it_Record.Body))
+            {
+                continue;
+            }
+
+            ContactData.resize(static_cast<std::size_t>(b2Body_GetContactCapacity(it_Record.Body)));
+            const int l_Count = b2Body_GetContactData(it_Record.Body, ContactData.data(), static_cast<int>(ContactData.size()));
+            for (int it_Contact = 0; it_Contact < l_Count; ++it_Contact)
+            {
+                const b2ContactData& l_Data = ContactData[static_cast<std::size_t>(it_Contact)];
+                const BodyRecord2D* l_First = GetRecord(b2Shape_GetBody(l_Data.shapeIdA));
+                const BodyRecord2D* l_Second = GetRecord(b2Shape_GetBody(l_Data.shapeIdB));
+                const BodyRecord2D* l_Other = l_First == &it_Record ? l_Second : l_First;
+                if (l_Other != nullptr && l_Other->Motion != BodyMotion::Static && l_Other < &it_Record)
+                {
+                    continue;
+                }
+
+                for (int it_Point = 0; it_Point < l_Data.manifold.pointCount; ++it_Point)
+                {
+                    const b2ManifoldPoint& l_Point = l_Data.manifold.points[it_Point];
+                    if (l_Point.separation <= c_TouchingSlop)
+                    {
+                        ContactPoints.push_back({ glm::vec3(FromBox2D(l_Point.point), it_Record.Depth), glm::vec3(FromBox2D(l_Data.manifold.normal), 0.0f) });
+                    }
+                }
+            }
         }
     }
 

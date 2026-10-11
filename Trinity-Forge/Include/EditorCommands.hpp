@@ -271,7 +271,31 @@ private:
 };
 
 
-// An edit of a material, which the writer puts where the material lives, its own file or its model's .meta, as it runs and as it is undone. Edits of one field in a row become one, as a drag does
+// An edit of the project's physics settings, which the writer saves with the project as it runs and as it is undone. Edits of one field in a row become one, as a drag does
+class SetPhysicsSettingsCommand final : public EditorCommand
+{
+public:
+    using Writer = std::function<bool(const Trinity::PhysicsSettings&)>;
+
+    SetPhysicsSettingsCommand(Writer writer, Trinity::PhysicsSettings before, Trinity::PhysicsSettings after, std::string field);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
+    [[nodiscard]] bool ChangesScene() const override { return false; }
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return {}; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Writer m_Writer;
+    Trinity::PhysicsSettings m_Before;
+    Trinity::PhysicsSettings m_After;
+    std::string m_Field;
+    std::string m_Label;
+};
+
 class SetMaterialCommand final : public EditorCommand
 {
 public:

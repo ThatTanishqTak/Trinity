@@ -2,6 +2,8 @@
 
 #include "Trinity/Core/Export.hpp"
 
+#include <glm/glm.hpp>
+
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -81,5 +83,35 @@ namespace Trinity
         }
 
         [[nodiscard]] bool operator==(const CollisionLayers&) const = default;
+    };
+
+    // A project's physics, which a scene takes as it starts running: each world's gravity in metres per second squared, the fixed steps a second, which the simulation clock keeps between 1 and 1000, and the collision layers both worlds share
+    struct PhysicsSettings
+    {
+        static constexpr std::uint32_t c_DefaultStepRate = 60;
+
+        glm::vec3 Gravity3D{ 0.0f, -9.81f, 0.0f };
+        glm::vec2 Gravity2D{ 0.0f, -9.81f };
+        std::uint32_t StepRate = c_DefaultStepRate;
+        CollisionLayers Layers;
+
+        [[nodiscard]] bool operator==(const PhysicsSettings&) const = default;
+    };
+
+    // A world's bodies as it reports them after its last step: all of them, static ones included, and of those that can move, the ones awake and the ones asleep
+    struct PhysicsBodyCounts
+    {
+        std::uint32_t Bodies = 0;
+        std::uint32_t Awake = 0;
+        std::uint32_t Sleeping = 0;
+
+        [[nodiscard]] bool operator==(const PhysicsBodyCounts&) const = default;
+    };
+
+    // Where two bodies touched after the last step, in world space, with the normal from the first body to the second, for drawing
+    struct PhysicsContactPoint
+    {
+        glm::vec3 Position{ 0.0f };
+        glm::vec3 Normal{ 0.0f };
     };
 }

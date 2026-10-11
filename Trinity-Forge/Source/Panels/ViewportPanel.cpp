@@ -254,7 +254,7 @@ ViewportPanel::~ViewportPanel()
     m_Session.RemoveCloseListener(m_CloseListener);
 }
 
-// The Viewport's own lines in imgui.ini: the stats overlay, the gizmo's operation and axes, and the snap steps
+// The Viewport's own lines in imgui.ini: the stats overlay, the gizmo's operation and axes, the snap steps, the light heatmap and the physics drawing
 bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 {
     const auto a_ReadStep = [value](float& step)
@@ -303,6 +303,10 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
     {
         m_LightHeatmap = value != "0";
     }
+    else if (key == "PhysicsDebug")
+    {
+        m_PhysicsDebug = value != "0";
+    }
     else
     {
         return false;
@@ -313,8 +317,8 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 
 void ViewportPanel::WriteSettings(ImGuiTextBuffer& buffer) const
 {
-    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\nLightHeatmap={}\n", 
-        m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z, m_LightHeatmap ? 1 : 0);
+    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\nLightHeatmap={}\nPhysicsDebug={}\n",
+        m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z, m_LightHeatmap ? 1 : 0, m_PhysicsDebug ? 1 : 0);
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
@@ -328,7 +332,7 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
-// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image, among them the selection's colliders. After the transform pass
+// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image, among them the selection's colliders, or with Physics on every collider and joint, and where a playing copy's bodies touch, which the copy is asked to keep only then. After the transform pass
 void ViewportPanel::PrepareScene()
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -338,7 +342,25 @@ void ViewportPanel::PrepareScene()
         return;
     }
 
-    if (const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection()))
+    if (Trinity::SceneRuntime* l_Runtime = m_Session.GetRuntime())
+    {
+        l_Runtime->SetGatherContacts(m_PhysicsDebug);
+        if (m_PhysicsDebug && l_Runtime->GetPhysics() != nullptr)
+        {
+            ColliderDrawing::DrawContacts(l_Runtime->GetPhysics()->GetContactPoints());
+        }
+
+        if (m_PhysicsDebug && l_Runtime->GetPhysics2D() != nullptr)
+        {
+            ColliderDrawing::DrawContacts(l_Runtime->GetPhysics2D()->GetContactPoints());
+        }
+    }
+
+    if (m_PhysicsDebug)
+    {
+        m_Colliders.Draw(l_Scene, {});
+    }
+    else if (const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection()))
     {
         m_Colliders.Draw(l_Scene, l_Selected);
     }
@@ -1225,6 +1247,22 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
             TextLine(std::format("Camera at ({:.2f}, {:.2f}), {:.3g} units high, grid every {:g}", l_Position.x, l_Position.y, m_Camera.GetHeight(), EditorGrid::GetSpacing(m_Camera, viewportSize)));
         }
 
+        // While a copy plays: the last frame's fixed steps and their time, and each world's bodies as it counts them
+        if (Trinity::SceneRuntime* l_Runtime = m_Session.GetRuntime())
+        {
+            const Trinity::SceneRuntime::Statistics l_Physics = l_Runtime->GetStatistics();
+            TextLine(std::format("Physics: {} step(s) in {:.2f} ms{}", l_Physics.Steps, l_Physics.StepMilliseconds, m_Session.IsPaused() ? ", paused" : ""));
+            if (l_Runtime->GetPhysics() != nullptr)
+            {
+                TextLine(std::format("  3D: {} bodies, {} awake, {} asleep", l_Physics.Bodies3D.Bodies, l_Physics.Bodies3D.Awake, l_Physics.Bodies3D.Sleeping));
+            }
+
+            if (l_Runtime->GetPhysics2D() != nullptr)
+            {
+                TextLine(std::format("  2D: {} bodies, {} awake, {} asleep", l_Physics.Bodies2D.Bodies, l_Physics.Bodies2D.Awake, l_Physics.Bodies2D.Sleeping));
+            }
+        }
+
         TextLine(l_Selected ? std::format("Selected: {}", std::string_view(l_Selected.Get<Trinity::TagComponent>().Tag)) : std::string("Nothing selected"));
     }
 
@@ -1471,6 +1509,27 @@ void ViewportPanel::DrawToolbar()
         }
 
         ImGui::SetItemTooltip("Light heatmap: how many point and spot lights each cluster holds, from blue for none to red at the cap of %u and magenta past it", Trinity::ClusterGrid::c_MaxLights);
+        ImGui::SameLine();
+
+        const bool l_PhysicsDebug = m_PhysicsDebug;
+        if (l_PhysicsDebug)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        }
+
+        if (ImGui::Button(std::format("{}###PhysicsDebug", Trinity::Icons::c_CubeOutline).c_str()))
+        {
+            m_PhysicsDebug = !m_PhysicsDebug;
+            ImGui::MarkIniSettingsDirty();
+        }
+
+        if (l_PhysicsDebug)
+        {
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::SetItemTooltip("Physics: every collider and joint in the scene, not only the selection's, and while it plays, where bodies touch, each with its normal");
+        ImGui::SameLine();
         ImGui::SameLine();
 
         constexpr std::array<const char*, 3> c_Icons{ Trinity::Icons::c_Arrows, Trinity::Icons::c_RotateRight, Trinity::Icons::c_Expand };

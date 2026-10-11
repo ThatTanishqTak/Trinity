@@ -97,6 +97,8 @@ namespace Trinity
         [[nodiscard]] glm::vec3 GetGravity() const;
         [[nodiscard]] std::uint32_t GetBodyCount() const;
         [[nodiscard]] std::uint32_t GetActiveBodyCount() const;
+        // Every body, and of the dynamic and kinematic ones those awake and asleep, which walks every body
+        [[nodiscard]] PhysicsBodyCounts GetBodyCounts() const;
 
     private:
         friend class PhysicsScene3D;

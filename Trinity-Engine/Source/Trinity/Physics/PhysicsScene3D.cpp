@@ -633,6 +633,30 @@ namespace Trinity
 
             l_Contact.Point /= static_cast<float>(std::max<std::size_t>(manifold.mRelativeContactPointsOn1.size(), 1));
             Queue(l_Contact);
+            Gather(first, second, manifold);
+        }
+
+        void OnContactPersisted(const JPH::Body& first, const JPH::Body& second, const JPH::ContactManifold& manifold, [[maybe_unused]] JPH::ContactSettings& settings) override
+        {
+            Gather(first, second, manifold);
+        }
+
+        // Each point halfway between the two surfaces
+        void Gather(const JPH::Body& first, const JPH::Body& second, const JPH::ContactManifold& manifold)
+        {
+            if (!GatherContacts || first.IsSensor() || second.IsSensor())
+            {
+                return;
+            }
+
+            const glm::vec3 l_Normal = FromJolt(manifold.mWorldSpaceNormal);
+            const std::scoped_lock l_Lock(RawMutex);
+            for (JPH::uint it_Point = 0; it_Point < manifold.mRelativeContactPointsOn1.size(); ++it_Point)
+            {
+                const glm::vec3 l_First = FromJolt(JPH::Vec3(manifold.GetWorldSpaceContactPointOn1(it_Point)));
+                const glm::vec3 l_Second = FromJolt(JPH::Vec3(manifold.GetWorldSpaceContactPointOn2(it_Point)));
+                Contacts.push_back({ (l_First + l_Second) * 0.5f, l_Normal });
+            }
         }
 
         void OnContactRemoved(const JPH::SubShapeIDPair& pair) override
@@ -679,6 +703,9 @@ namespace Trinity
         PhysicsVector<UUID> Shapes;
         std::mutex RawMutex;
         PhysicsVector<RawContact> Raw;
+        // The last step's contact points, kept only while asked for
+        PhysicsVector<PhysicsContactPoint> Contacts;
+        bool GatherContacts = false;
         PhysicsVector<RawContact> Sorting;
         std::map<std::uint64_t, ContactPair, std::less<>, TaggedAllocator<std::pair<const std::uint64_t, ContactPair>, MemoryTag::Physics>> Pairs;
         PhysicsVector<PhysicsEvent3D> Events;
@@ -939,6 +966,7 @@ namespace Trinity
             }
         }
 
+        l_State.Contacts.clear();
         l_State.World.Step(step);
         ++l_State.StepCount;
         l_State.PairContacts(index);
@@ -1024,6 +1052,26 @@ namespace Trinity
     const CollisionLayers& PhysicsScene3D::GetLayers() const
     {
         return m_State->Layers;
+    }
+
+    PhysicsBodyCounts PhysicsScene3D::GetBodyCounts() const
+    {
+        return m_State->World.GetBodyCounts();
+    }
+
+    // Between steps, so no worker is gathering
+    void PhysicsScene3D::SetGatherContacts(bool gather)
+    {
+        m_State->GatherContacts = gather;
+        if (!gather)
+        {
+            m_State->Contacts.clear();
+        }
+    }
+
+    std::span<const PhysicsContactPoint> PhysicsScene3D::GetContactPoints() const
+    {
+        return m_State->Contacts;
     }
 
     std::optional<PhysicsHit3D> PhysicsScene3D::Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const

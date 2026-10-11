@@ -440,6 +440,50 @@ std::size_t RemoveComponentCommand::GetMemorySize() const
 }
 
 
+SetPhysicsSettingsCommand::SetPhysicsSettingsCommand(Writer writer, Trinity::PhysicsSettings before, Trinity::PhysicsSettings after, std::string field) : m_Writer(std::move(writer)), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::format("Edit project {}", m_Field))
+{
+
+}
+
+// An edit that changes nothing is no command
+bool SetPhysicsSettingsCommand::Execute([[maybe_unused]] Trinity::Scene& scene)
+{
+    return m_Before != m_After && m_Writer(m_After);
+}
+
+void SetPhysicsSettingsCommand::Undo([[maybe_unused]] Trinity::Scene& scene)
+{
+    static_cast<void>(m_Writer(m_Before));
+}
+
+bool SetPhysicsSettingsCommand::MergeWith(const EditorCommand& next)
+{
+    const SetPhysicsSettingsCommand* l_Next = dynamic_cast<const SetPhysicsSettingsCommand*>(&next);
+    if (l_Next == nullptr || l_Next->m_Field != m_Field)
+    {
+        return false;
+    }
+
+    m_After = l_Next->m_After;
+
+    return true;
+}
+
+// The layers' names are the only part that grows
+std::size_t SetPhysicsSettingsCommand::GetMemorySize() const
+{
+    std::size_t l_Size = sizeof(*this) + m_Field.capacity() + m_Label.capacity();
+    for (const Trinity::PhysicsSettings* it_Settings : { &m_Before, &m_After })
+    {
+        for (const std::string& it_Name : it_Settings->Layers.Names)
+        {
+            l_Size += it_Name.capacity();
+        }
+    }
+
+    return l_Size;
+}
+
 SetMaterialCommand::SetMaterialCommand(Writer writer, Trinity::UUID material, Trinity::MaterialData before, Trinity::MaterialData after, std::string field, std::string name) : m_Writer(std::move(writer)), m_Material(material), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::format("Edit {} of {}", m_Field, name))
 {
 

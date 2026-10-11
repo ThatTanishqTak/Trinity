@@ -96,6 +96,8 @@ private:
     std::optional<glm::uvec2> m_PickPixel;
     std::uint32_t m_PicksPending = 0;
     bool m_LightHeatmap = false;
+    // Every collider and joint in the scene, and while it plays, where its bodies touch, rather than the selection's alone
+    bool m_PhysicsDebug = false;
     bool m_ShowStats = true;
 
     GizmoOperation m_GizmoOperation = GizmoOperation::Translate;

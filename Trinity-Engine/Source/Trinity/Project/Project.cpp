@@ -8,8 +8,11 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <array>
 #include <charconv>
+#include <cmath>
 #include <format>
+#include <optional>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -100,6 +103,68 @@ namespace Trinity
             }
 
             return l_Layers;
+        }
+
+        // Each number of the sequence, as many as there are, or nothing when it is not that long a sequence of numbers
+        template<std::size_t Count>
+        std::optional<std::array<float, Count>> ReadFloats(const YAML::Node& node)
+        {
+            if (!node || !node.IsSequence() || node.size() != Count)
+            {
+                return std::nullopt;
+            }
+
+            std::array<float, Count> l_Values{};
+            for (std::size_t it_Index = 0; it_Index < Count; ++it_Index)
+            {
+                const std::string l_Text = node[it_Index].IsScalar() ? node[it_Index].Scalar() : std::string();
+                const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Values[it_Index]);
+                if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_Text.data() + l_Text.size() || !std::isfinite(l_Values[it_Index]))
+                {
+                    return std::nullopt;
+                }
+            }
+
+            return l_Values;
+        }
+
+        // Each world's gravity and the step rate, any missing kept at its default, and any that cannot be read reported and kept at its default
+        void ReadWorldSettings(const YAML::Node& physics, std::string_view project, PhysicsSettings& settings)
+        {
+            if (!physics || !physics.IsMap())
+            {
+                return;
+            }
+
+            bool l_Unread = false;
+            if (const YAML::Node l_Node = physics["Gravity3D"])
+            {
+                const std::optional<std::array<float, 3>> l_Gravity = ReadFloats<3>(l_Node);
+                l_Unread |= !l_Gravity;
+                settings.Gravity3D = l_Gravity ? glm::vec3((*l_Gravity)[0], (*l_Gravity)[1], (*l_Gravity)[2]) : settings.Gravity3D;
+            }
+
+            if (const YAML::Node l_Node = physics["Gravity2D"])
+            {
+                const std::optional<std::array<float, 2>> l_Gravity = ReadFloats<2>(l_Node);
+                l_Unread |= !l_Gravity;
+                settings.Gravity2D = l_Gravity ? glm::vec2((*l_Gravity)[0], (*l_Gravity)[1]) : settings.Gravity2D;
+            }
+
+            if (const YAML::Node l_Node = physics["StepRate"])
+            {
+                std::uint32_t l_Rate = 0;
+                const std::string l_Text = l_Node.IsScalar() ? l_Node.Scalar() : std::string();
+                const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Rate);
+                const bool l_Read = l_Parsed.ec == std::errc() && l_Parsed.ptr == l_Text.data() + l_Text.size() && l_Rate > 0;
+                l_Unread |= !l_Read;
+                settings.StepRate = l_Read ? l_Rate : settings.StepRate;
+            }
+
+            if (l_Unread)
+            {
+                TR_CORE_WARN("Project: {} has a gravity or step rate that cannot be read, which keeps its default", project);
+            }
         }
 
         std::string_view WithoutAssetsMount(std::string_view assetPath)
@@ -265,7 +330,11 @@ namespace Trinity
             l_Project->m_StartScene = *l_Scene;
         }
 
-        l_Project->m_CollisionLayers = l_Format >= 3 ? ReadCollisionLayers(l_Root["Physics"], l_Project->m_Name) : CollisionLayers();
+        l_Project->m_Physics.Layers = l_Format >= 3 ? ReadCollisionLayers(l_Root["Physics"], l_Project->m_Name) : CollisionLayers();
+        if (l_Format >= 4)
+        {
+            ReadWorldSettings(l_Root["Physics"], l_Project->m_Name, l_Project->m_Physics);
+        }
 
         if (!l_Project->IsCurrentEngineVersion())
         {
@@ -287,13 +356,19 @@ namespace Trinity
         l_Emitter << YAML::Key << "StartScene" << YAML::Value << YAML::DoubleQuoted << (m_StartScene ? m_StartScene.ToString() : std::string());
 
         // Only the names that are not empty, and the pairs that do not collide, so a new project's are short
+        const CollisionLayers& l_Layers = m_Physics.Layers;
         l_Emitter << YAML::Key << "Physics" << YAML::Value << YAML::BeginMap;
+        // Each number as short as reads back the same, as the scene files write them
+        const auto a_Number = [](float value) { return std::format("{}", value); };
+        l_Emitter << YAML::Key << "Gravity3D" << YAML::Value << YAML::Flow << YAML::BeginSeq << a_Number(m_Physics.Gravity3D.x) << a_Number(m_Physics.Gravity3D.y) << a_Number(m_Physics.Gravity3D.z) << YAML::EndSeq;
+        l_Emitter << YAML::Key << "Gravity2D" << YAML::Value << YAML::Flow << YAML::BeginSeq << a_Number(m_Physics.Gravity2D.x) << a_Number(m_Physics.Gravity2D.y) << YAML::EndSeq;
+        l_Emitter << YAML::Key << "StepRate" << YAML::Value << m_Physics.StepRate;
         l_Emitter << YAML::Key << "LayerNames" << YAML::Value << YAML::BeginMap;
         for (std::uint32_t it_Layer = 0; it_Layer < c_MaxCollisionLayers; ++it_Layer)
         {
-            if (!m_CollisionLayers.Names[it_Layer].empty())
+            if (!l_Layers.Names[it_Layer].empty())
             {
-                l_Emitter << YAML::Key << it_Layer << YAML::Value << YAML::DoubleQuoted << m_CollisionLayers.Names[it_Layer];
+                l_Emitter << YAML::Key << it_Layer << YAML::Value << YAML::DoubleQuoted << l_Layers.Names[it_Layer];
             }
         }
 
@@ -303,7 +378,7 @@ namespace Trinity
         {
             for (std::uint32_t it_Second = it_First; it_Second < c_MaxCollisionLayers; ++it_Second)
             {
-                if (!m_CollisionLayers.Collides(it_First, it_Second))
+                if (!l_Layers.Collides(it_First, it_Second))
                 {
                     l_Emitter << YAML::Flow << YAML::BeginSeq << it_First << it_Second << YAML::EndSeq;
                 }

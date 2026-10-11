@@ -17,14 +17,22 @@ namespace Trinity
     class PhysicsScene3D;
     class Scene;
 
-    // Runs a scene over time, on the main thread. Each frame takes the fixed steps its clock asks for, each running every fixed-step system in the order they were added and then physics, 3D then 2D, then the transform pass, after which the scene is drawn with its moving bodies between their last two steps. Scripts add their systems, ahead of physics, in M7. The rate is physics.rate, and the scene's 3D and 2D physics are made from its components with the project's collision layers, when the runtime is made. A runtime does not own its scene, which must outlive it
     class TRINITY_API SceneRuntime
     {
     public:
         // Called once a step, with the step's length
         using FixedStepSystem = std::function<void(Timestep step)>;
 
-        explicit SceneRuntime(Scene& scene, const CollisionLayers& layers = {});
+        // The last frame's steps and the time they took, systems and physics together, and each world's bodies as it reports them
+        struct Statistics
+        {
+            std::uint32_t Steps = 0;
+            float StepMilliseconds = 0.0f;
+            PhysicsBodyCounts Bodies3D;
+            PhysicsBodyCounts Bodies2D;
+        };
+
+        explicit SceneRuntime(Scene& scene, const PhysicsSettings& settings = {});
         ~SceneRuntime();
 
         SceneRuntime(const SceneRuntime&) = delete;
@@ -42,6 +50,10 @@ namespace Trinity
         [[nodiscard]] const SimulationClock& GetClock() const { return m_Clock; }
         [[nodiscard]] float GetInterpolation() const { return m_Clock.GetInterpolation(); }
         [[nodiscard]] std::uint32_t GetStepsThisFrame() const { return m_StepsThisFrame; }
+        // The bodies are counted as asked, which in 3D walks every body
+        [[nodiscard]] Statistics GetStatistics() const;
+        // Whether both worlds keep where their bodies touch each step, for drawing
+        void SetGatherContacts(bool gather);
         // Nothing when the scene had no RigidBody and no collider as it started
         [[nodiscard]] PhysicsScene3D* GetPhysics() { return m_Physics.get(); }
         // Nothing when the scene had no RigidBody2D and no 2D collider as it started
@@ -57,5 +69,6 @@ namespace Trinity
         Scope<PhysicsScene2D> m_Physics2D;
         std::vector<FixedStepSystem, TaggedAllocator<FixedStepSystem, MemoryTag::Scene>> m_Systems;
         std::uint32_t m_StepsThisFrame = 0;
+        float m_StepMilliseconds = 0.0f;
     };
 }

@@ -19,8 +19,8 @@ namespace Trinity
     class TRINITY_API Project
     {
     public:
-        // Format 3 added the collision layers, which an older project opens without, every pair colliding
-        static constexpr std::uint32_t c_FormatVersion = 3;
+        // Format 3 added the collision layers, which an older project opens without, every pair colliding, and format 4 each world's gravity and the step rate, which an older project opens with their defaults
+        static constexpr std::uint32_t c_FormatVersion = 4;
         static constexpr std::string_view c_Extension = ".trproj";
         static constexpr std::string_view c_ProjectMount = "/project";
         static constexpr std::string_view c_AssetsMount = "/assets";
@@ -46,8 +46,9 @@ namespace Trinity
         [[nodiscard]] bool ResolveStartScenePath(const AssetRegistry& registry);
 
         // Saved with the project, which the caller does
-        [[nodiscard]] const CollisionLayers& GetCollisionLayers() const { return m_CollisionLayers; }
-        void SetCollisionLayers(const CollisionLayers& layers) { m_CollisionLayers = layers; }
+        [[nodiscard]] const PhysicsSettings& GetPhysicsSettings() const { return m_Physics; }
+        void SetPhysicsSettings(const PhysicsSettings& settings) { m_Physics = settings; }
+        [[nodiscard]] const CollisionLayers& GetCollisionLayers() const { return m_Physics.Layers; }
 
         [[nodiscard]] const std::filesystem::path& GetDirectory() const { return m_Directory; }
         [[nodiscard]] const std::filesystem::path& GetFilePath() const { return m_FilePath; }
@@ -67,7 +68,7 @@ namespace Trinity
         std::string m_EngineVersion;
         UUID m_StartScene;
         std::string m_StartScenePath;
-        CollisionLayers m_CollisionLayers;
+        PhysicsSettings m_Physics;
         bool m_Mounted = false;
     };
 }

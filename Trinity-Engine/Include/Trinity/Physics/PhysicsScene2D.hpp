@@ -91,6 +91,10 @@ namespace Trinity
         [[nodiscard]] PhysicsWorld2D& GetWorld();
         [[nodiscard]] std::uint32_t GetBodyCount() const;
         [[nodiscard]] const CollisionLayers& GetLayers() const;
+        [[nodiscard]] PhysicsBodyCounts GetBodyCounts() const;
+        // Whether each step keeps where its bodies touch, at the depth of the body whose contact it is, for drawing. Off until asked for
+        void SetGatherContacts(bool gather);
+        [[nodiscard]] std::span<const PhysicsContactPoint> GetContactPoints() const;
 
         // The nearest collider along the ray, within the distance, and every collider it meets, nearest first, each once. The direction need not be of unit length
         [[nodiscard]] std::optional<PhysicsHit2D> Raycast(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter = {}) const;

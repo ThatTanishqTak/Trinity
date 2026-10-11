@@ -743,7 +743,7 @@ void EditorSession::StartPlay()
     m_Paused = false;
     m_StepRequested = false;
     m_PlayScene->UpdateWorldTransforms();
-    m_Runtime = Trinity::CreateScope<Trinity::SceneRuntime>(*m_PlayScene, m_Project->GetCollisionLayers());
+    m_Runtime = Trinity::CreateScope<Trinity::SceneRuntime>(*m_PlayScene, m_Project->GetPhysicsSettings());
     TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), m_PlayScene->GetEntityCount(), l_Milliseconds);
 }
 
@@ -1087,15 +1087,28 @@ bool EditorSession::CreateModel(Trinity::UUID model, Trinity::UUID parent, Trini
     return m_History.Execute(Trinity::CreateScope<CreateModelCommand>(model, ToUtf8(FromUtf8(l_Record->Path).stem()), parent, before, position));
 }
 
-void EditorSession::SetCollisionLayers(const Trinity::CollisionLayers& layers)
+bool EditorSession::EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field)
 {
-    if (!m_Project || m_Project->GetCollisionLayers() == layers)
+    if (!m_Project)
     {
-        return;
+        return false;
     }
 
-    m_Project->SetCollisionLayers(layers);
+    return m_History.Execute(Trinity::CreateScope<SetPhysicsSettingsCommand>([this](const Trinity::PhysicsSettings& written) { return WritePhysicsSettings(written); }, m_Project->GetPhysicsSettings(), settings, std::move(field)));
+}
+
+// A command kept after its project closed has no project to write to
+bool EditorSession::WritePhysicsSettings(const Trinity::PhysicsSettings& settings)
+{
+    if (!m_Project)
+    {
+        return false;
+    }
+
+    m_Project->SetPhysicsSettings(settings);
     SaveProject();
+
+    return true;
 }
 
 void EditorSession::SaveProject()

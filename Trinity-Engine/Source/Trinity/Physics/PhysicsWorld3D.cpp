@@ -156,4 +156,13 @@ namespace Trinity
     {
         return m_State->System.GetNumActiveBodies(JPH::EBodyType::RigidBody);
     }
+
+    PhysicsBodyCounts PhysicsWorld3D::GetBodyCounts() const
+    {
+        const JPH::BodyManager::BodyStats l_Stats = m_State->System.GetBodyStats();
+        const std::uint32_t l_Moving = l_Stats.mNumBodiesDynamic + l_Stats.mNumBodiesKinematic;
+        const std::uint32_t l_Awake = l_Stats.mNumActiveBodiesDynamic + l_Stats.mNumActiveBodiesKinematic;
+
+        return { l_Stats.mNumBodies, l_Awake, l_Moving - l_Awake };
+    }
 }
