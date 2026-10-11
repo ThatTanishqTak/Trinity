@@ -544,7 +544,7 @@ namespace Trinity
         const SceneRegistry& l_Registry = scene.GetRegistry();
         std::unordered_map<entt::entity, std::size_t> l_Owners;
         std::vector<std::pair<entt::entity, std::size_t>> l_Joined;
-        for (Entity it_Entity = scene.GetFirstRoot();it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+        for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
             const entt::entity l_Handle = it_Entity.GetHandle();
             const entt::entity l_Parent = l_Registry.get<RelationshipComponent>(l_Handle).Parent;

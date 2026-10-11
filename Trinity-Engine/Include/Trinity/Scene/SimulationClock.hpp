@@ -26,6 +26,8 @@ namespace Trinity
 
         // Adds a frame's time, and returns how many steps to take for it
         [[nodiscard]] std::uint32_t Advance(std::chrono::nanoseconds frameTime);
+        // Counts one step taken whatever time has been added, as a paused simulation's single step is, which leaves the time added as it was
+        void TakeStep() { ++m_StepCount; }
 
         [[nodiscard]] std::uint32_t GetRate() const { return m_Rate; }
         [[nodiscard]] std::chrono::nanoseconds GetStep() const { return m_Step; }

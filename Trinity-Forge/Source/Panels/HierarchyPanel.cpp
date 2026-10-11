@@ -52,7 +52,7 @@ HierarchyPanel::HierarchyPanel(EditorSession& session) : Panel("Hierarchy", Trin
 
 }
 
-// The scene's tree in hierarchy order. A selection made elsewhere, such as in the Viewport, opens its ancestors and scrolls into view. Edits wait until the tree is drawn, since they can destroy the entities it is walking
+// The scene's tree in hierarchy order. A selection made elsewhere, such as in the Viewport, opens its ancestors and scrolls into view. Edits wait until the tree is drawn, since they can destroy the entities it is walking. While a copy plays, the tree is the copy's, to select in and look at but not to change
 void HierarchyPanel::OnImGuiRender()
 {
     if (!m_Session.HasProject())
@@ -60,6 +60,13 @@ void HierarchyPanel::OnImGuiRender()
         ImGui::TextDisabled("Open or create a project to edit its scenes");
 
         return;
+    }
+
+    m_ReadOnly = m_Session.IsPlaying();
+    if (m_ReadOnly)
+    {
+        m_Renaming = {};
+        ImGui::TextDisabled("Playing a copy, which cannot be changed");
     }
 
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -139,13 +146,13 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         BeginRename(entity);
     }
 
-    if (ImGui::BeginPopupContextItem())
+    if (!m_ReadOnly && ImGui::BeginPopupContextItem())
     {
         DrawContextMenu(entity);
         ImGui::EndPopup();
     }
 
-    if (ImGui::BeginDragDropSource())
+    if (!m_ReadOnly && ImGui::BeginDragDropSource())
     {
         const std::uint64_t l_Value = l_ID.GetValue();
         ImGui::SetDragDropPayload(c_EntityPayload, &l_Value, sizeof(l_Value));
@@ -153,7 +160,10 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         ImGui::EndDragDropSource();
     }
 
-    AcceptDrop(entity);
+    if (!m_ReadOnly)
+    {
+        AcceptDrop(entity);
+    }
 
     if (l_Renaming)
     {
@@ -227,7 +237,7 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
     }
 }
 
-// The space below the tree: a click clears the selection, a drop makes the entity the last root, and its menu creates a root
+// The space below the tree: a click clears the selection, a drop makes the entity the last root, and its menu creates a root, the last two not while a copy plays
 void HierarchyPanel::DrawBackground()
 {
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
@@ -235,6 +245,11 @@ void HierarchyPanel::DrawBackground()
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
     {
         Select({});
+    }
+
+    if (m_ReadOnly)
+    {
+        return;
     }
 
     if (ImGui::BeginPopupContextItem("##BackgroundMenu"))
@@ -338,7 +353,7 @@ void HierarchyPanel::Select(Trinity::UUID entity)
 
 void HierarchyPanel::BeginRename(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::TagComponent>())
+    if (m_ReadOnly || !entity.Has<Trinity::TagComponent>())
     {
         return;
     }

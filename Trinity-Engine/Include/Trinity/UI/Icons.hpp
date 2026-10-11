@@ -38,6 +38,8 @@ namespace Trinity
         constexpr const char* c_Gamepad = "\uF11B";
         constexpr const char* c_Play = "\uF04B";
         constexpr const char* c_Stop = "\uF04D";
+        constexpr const char* c_Pause = "\uF04C";
+        constexpr const char* c_StepForward = "\uF051";
         constexpr const char* c_Monitor = "\U000F0379";
         constexpr const char* c_CubeOutline = "\U000F01A7";
     }

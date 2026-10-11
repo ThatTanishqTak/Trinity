@@ -21,6 +21,11 @@ namespace
     constexpr std::string_view c_DockSpaceName = "Forge dock space";
     constexpr const char* c_PanelSettingsName = "ForgePanels";
     constexpr std::size_t c_HistoryMenuEntries = 30;
+    // The backgrounds lean this far towards the tint while a copy plays, and further while it is paused
+    constexpr ImVec4 c_PlayTint{ 0.2f, 0.35f, 0.65f, 1.0f };
+    constexpr float c_PlayingTint = 0.18f;
+    constexpr float c_PausedTint = 0.3f;
+    constexpr std::array<ImGuiCol, 7> c_TintedColors{ ImGuiCol_WindowBg, ImGuiCol_PopupBg, ImGuiCol_MenuBarBg, ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg };
 
     std::string WithIcon(const char* icon, std::string_view text)
     {
@@ -96,12 +101,12 @@ void ForgeLayer::OnAttach()
     ImGui::AddSettingsHandler(&l_Handler);
 }
 
-// Before ImGui's frame begins, so a native file dialog never blocks with a frame open. A simulating scene steps after the session's work, and world transforms are brought up to date last, for the Viewport to draw and pick with
+// Before ImGui's frame begins, so a native file dialog never blocks with a frame open. A playing copy steps after the session's work, and world transforms are brought up to date last, for the Viewport to draw and pick with
 void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
 {
     m_Session.Update();
     m_ImportTest.Update();
-    m_Session.UpdateSimulation(timestep);
+    m_Session.UpdatePlay(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
 }
 
@@ -136,9 +141,23 @@ void ForgeLayer::OnBuildFrameGraph(Trinity::FrameGraph& graph, [[maybe_unused]] 
     m_ImportTest.OnBuildFrameGraph(graph);
 }
 
-// The menu bar comes first, so the dock space fits in the space below it. Shortcuts are read from ImGui, since layer events are the scene's while the Viewport has them
+// The menu bar comes first, so the dock space fits in the space below it. Shortcuts are read from ImGui, since layer events are the scene's while the Viewport has them. The Game panel comes to the front as a copy starts playing, and the Scene panel as it stops
 void ForgeLayer::OnImGuiRender()
 {
+    const bool l_Playing = m_Session.IsPlaying();
+    if (l_Playing != std::exchange(m_WasPlaying, l_Playing))
+    {
+        if (l_Playing)
+        {
+            m_GamePanel->RequestFocus();
+        }
+        else
+        {
+            m_ViewportPanel->RequestFocus();
+        }
+    }
+
+    PushPlayTint();
     // The Scene panel gives the scene its input back while it is hovered or focused, and a closed panel leaves it with none
     m_ImGui.SetSceneInput(false, false);
 
@@ -173,6 +192,24 @@ void ForgeLayer::OnImGuiRender()
 
     m_Session.DrawPopups();
     m_Session.UpdateTitle();
+    ImGui::PopStyleColor(std::exchange(m_TintedColors, 0));
+}
+
+// While a copy plays, the backgrounds lean towards blue, further while it is paused, so it is plain at a glance that nothing done now stays
+void ForgeLayer::PushPlayTint()
+{
+    if (!m_Session.IsPlaying())
+    {
+        return;
+    }
+
+    const float l_Amount = m_Session.IsPaused() ? c_PausedTint : c_PlayingTint;
+    for (const ImGuiCol it_Color : c_TintedColors)
+    {
+        const ImVec4 l_Base = ImGui::GetStyleColorVec4(it_Color);
+        ImGui::PushStyleColor(it_Color, ImVec4(l_Base.x + (c_PlayTint.x - l_Base.x) * l_Amount, l_Base.y + (c_PlayTint.y - l_Base.y) * l_Amount, l_Base.z + (c_PlayTint.z - l_Base.z) * l_Amount, l_Base.w));
+        ++m_TintedColors;
+    }
 }
 
 // Unsaved changes keep Forge open until the person has answered
@@ -181,7 +218,7 @@ bool ForgeLayer::OnCloseRequested()
     return m_Session.RequestClose();
 }
 
-// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open, nor while a popup is up, such as the texture import's
+// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open, nor while a popup is up, such as the texture import's. Ctrl+P plays and stops, and while a copy plays, nothing edits the scene
 void ForgeLayer::ReadShortcuts()
 {
     if (ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
@@ -189,7 +226,27 @@ void ForgeLayer::ReadShortcuts()
         return;
     }
 
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N))
+    const bool l_Playing = m_Session.IsPlaying();
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_P))
+    {
+        m_Session.RequestStep();
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P))
+    {
+        m_Session.RequestPause();
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_P) && m_Session.HasProject())
+    {
+        if (l_Playing)
+        {
+            m_Session.RequestStop();
+        }
+        else
+        {
+            m_Session.RequestPlay();
+        }
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N))
     {
         m_Session.Request(EditorSession::Command::NewScene);
     }
@@ -208,6 +265,10 @@ void ForgeLayer::ReadShortcuts()
     else if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
     {
         m_Session.Request(EditorSession::Command::Refresh);
+    }
+    else if (l_Playing)
+    {
+        // Undo, Redo, Duplicate and Delete would edit the scene, and the history is locked while a copy plays
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, ImGuiInputFlags_Repeat) || ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_Repeat))
     {
@@ -316,15 +377,69 @@ void ForgeLayer::DrawMenuBar()
         ImGui::EndMenu();
     }
 
+    DrawPlayControls();
+
     ImGui::EndMainMenuBar();
 }
 
-// Undo and Redo name the command they act on. Every edit to the scene goes through the history, so it can be undone, and the project's settings are saved as they change
+// Centred in the menu bar: Play, which resumes a paused copy, Pause, held down while paused, Step, which pauses and takes one fixed step, and Stop
+void ForgeLayer::DrawPlayControls()
+{
+    const bool l_Playing = m_Session.IsPlaying();
+    const bool l_Paused = m_Session.IsPaused();
+    const float l_Button = ImGui::GetFrameHeight();
+    const float l_Width = l_Button * 4.0f + ImGui::GetStyle().ItemSpacing.x * 3.0f;
+    ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), (ImGui::GetWindowWidth() - l_Width) * 0.5f));
+
+    const auto a_Button = [l_Button](const char* icon, const char* id, bool enabled, bool held, const char* tooltip)
+    {
+        if (held)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        }
+
+        ImGui::BeginDisabled(!enabled);
+        const bool l_Pressed = ImGui::Button(std::format("{}###{}", icon, id).c_str(), ImVec2(l_Button, 0.0f));
+        ImGui::EndDisabled();
+        if (held)
+        {
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::SetItemTooltip("%s", tooltip);
+        ImGui::SameLine();
+
+        return l_Pressed;
+    };
+
+    if (a_Button(Trinity::Icons::c_Play, "Play", m_Session.HasProject() && (!l_Playing || l_Paused), l_Playing && !l_Paused, l_Paused ? "Resume (Ctrl+Shift+P)" : "Play: runs a copy of the scene in the Game panel, which Stop throws away (Ctrl+P)"))
+    {
+        m_Session.RequestPlay();
+    }
+
+    if (a_Button(Trinity::Icons::c_Pause, "Pause", l_Playing, l_Paused, "Pause: holds the copy where it is (Ctrl+Shift+P)"))
+    {
+        m_Session.RequestPause();
+    }
+
+    if (a_Button(Trinity::Icons::c_StepForward, "Step", l_Playing, false, "Step: pauses, and takes one fixed step (Ctrl+Alt+P)"))
+    {
+        m_Session.RequestStep();
+    }
+
+    if (a_Button(Trinity::Icons::c_Stop, "Stop", l_Playing, false, "Stop: throws the copy away, leaving the scene as it was before Play (Ctrl+P)"))
+    {
+        m_Session.RequestStop();
+    }
+}
+
+// Undo and Redo name the command they act on. Every edit to the scene goes through the history, so it can be undone, and the project's settings are saved as they change. While a copy plays, nothing here edits the scene
 void ForgeLayer::DrawEditMenu()
 {
     CommandStack& l_History = m_Session.GetHistory();
-    const bool l_CanUndo = l_History.CanUndo();
-    const bool l_CanRedo = l_History.CanRedo();
+    const bool l_Playing = m_Session.IsPlaying();
+    const bool l_CanUndo = !l_Playing && l_History.CanUndo();
+    const bool l_CanRedo = !l_Playing && l_History.CanRedo();
 
     const std::string l_Undo = l_CanUndo ? std::format("Undo {}###Undo", l_History.GetCommand(l_History.GetPosition() - 1).GetName()) : std::string("Undo###Undo");
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Undo, l_Undo).c_str(), "Ctrl+Z", false, l_CanUndo))
@@ -338,7 +453,7 @@ void ForgeLayer::DrawEditMenu()
         l_History.Redo();
     }
 
-    if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_History, "History").c_str(), l_History.GetCount() > 0))
+    if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_History, "History").c_str(), !l_Playing && l_History.GetCount() > 0))
     {
         DrawHistoryMenu();
 
@@ -347,12 +462,12 @@ void ForgeLayer::DrawEditMenu()
 
     ImGui::Separator();
 
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty Entity").c_str(), nullptr, false, m_Session.HasProject()))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty Entity").c_str(), nullptr, false, m_Session.HasProject() && !l_Playing))
     {
         l_History.Execute(Trinity::CreateScope<CreateEntityCommand>("Empty Entity", Trinity::UUID(), Trinity::UUID()));
     }
 
-    const bool l_HasSelection = static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
+    const bool l_HasSelection = !l_Playing && static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Duplicate").c_str(), "Ctrl+D", false, l_HasSelection))
     {
         l_History.Execute(Trinity::CreateScope<DuplicateEntityCommand>(m_Session.GetSelection()));

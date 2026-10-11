@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <format>
 #include <optional>
@@ -183,7 +184,7 @@ void EditorSession::UpdateTitle()
 
 bool EditorSession::RequestClose()
 {
-    StopSimulation();
+    StopPlay();
     if (!IsDirty())
     {
         return true;
@@ -194,12 +195,12 @@ bool EditorSession::RequestClose()
     return false;
 }
 
-// Refresh comes whenever Forge regains focus, which leaves a simulation running
+// Refresh comes whenever Forge regains focus, which leaves a playing scene running
 void EditorSession::Run(Command command)
 {
     if (command != Command::Refresh)
     {
-        StopSimulation();
+        StopPlay();
     }
 
     const bool l_HasProject = m_Project != nullptr;
@@ -418,7 +419,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 // The registry goes before the project unmounts /assets, and the asset manager lets go of it first
 void EditorSession::CloseProject()
 {
-    StopSimulation();
+    StopPlay();
 
     // The texture being encoded and the environment being filtered are finished, since neither can be left halfway, and the rest wait for the project to open again
     m_ImportAgain = false;
@@ -657,41 +658,97 @@ void EditorSession::RequestOpenScene(std::string assetPath)
 {
     m_Pending.push_back([this, l_Path = std::move(assetPath)]() mutable
     {
-        StopSimulation();
+        StopPlay();
         ConfirmDiscard([this, l_Path = std::move(l_Path)] { OpenScene(l_Path); });
     });
 }
 
-void EditorSession::RequestSimulation(bool simulate)
+void EditorSession::RequestPlay()
 {
-    m_Pending.push_back([this, simulate] { simulate ? StartSimulation() : StopSimulation(); });
-}
-
-// After the session's own work, before the transform pass the frame draws with
-void EditorSession::UpdateSimulation(Trinity::Timestep timestep)
-{
-    if (m_Runtime)
+    m_Pending.push_back([this]
     {
-        m_Runtime->Update(timestep);
-    }
+        if (m_Runtime)
+        {
+            m_Paused = false;
+
+            return;
+        }
+
+        StartPlay();
+    });
 }
 
-void EditorSession::StartSimulation()
+void EditorSession::RequestPause()
 {
-    if (m_Runtime)
+    m_Pending.push_back([this] { m_Paused = m_Runtime != nullptr && !m_Paused; });
+}
+
+// A running scene pauses first, so the step is the only one it takes
+void EditorSession::RequestStep()
+{
+    m_Pending.push_back([this]
+    {
+        if (m_Runtime)
+        {
+            m_Paused = true;
+            m_StepRequested = true;
+        }
+    });
+}
+
+void EditorSession::RequestStop()
+{
+    m_Pending.push_back([this] { StopPlay(); });
+}
+
+// After the session's own work, before the transform pass the frame draws with. A paused scene takes only the step asked for
+void EditorSession::UpdatePlay(Trinity::Timestep timestep)
+{
+    if (!m_Runtime)
     {
         return;
     }
 
-    m_SimulationSnapshot = Trinity::SceneSerializer::SaveToText(m_Scene);
-    m_History.EndMerge();
-    m_History.SetLocked(true);
-    m_Runtime = Trinity::CreateScope<Trinity::SceneRuntime>(m_Scene, m_Project ? m_Project->GetCollisionLayers() : Trinity::CollisionLayers());
-    TR_INFO("Forge: simulating {}, which Stop puts back as it was", GetSceneName());
+    if (!m_Paused)
+    {
+        m_Runtime->Update(timestep);
+    }
+    else if (std::exchange(m_StepRequested, false))
+    {
+        m_Runtime->Step();
+    }
 }
 
-// The selection is kept when its entity comes back, which it does unless the text could not be read
-void EditorSession::StopSimulation()
+// The copy is the edited scene saved to text and loaded into a scene of its own, as a game loads it, so it keeps every UUID and the selection carries over. A scene the serializer cannot read back is not played
+void EditorSession::StartPlay()
+{
+    if (m_Runtime || !m_Project)
+    {
+        return;
+    }
+
+    const auto l_Start = std::chrono::steady_clock::now();
+    m_PlayScene = Trinity::CreateScope<Trinity::Scene>();
+    if (const Trinity::Expected<void, std::string> l_Copied = Trinity::SceneSerializer::LoadFromText(*m_PlayScene, Trinity::SceneSerializer::SaveToText(m_Scene)); !l_Copied)
+    {
+        TR_ERROR("Forge: {} could not be copied to play: {}", GetSceneName(), l_Copied.GetError());
+        m_PlayScene.reset();
+
+        return;
+    }
+
+    const double l_Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - l_Start).count();
+    m_History.EndMerge();
+    m_History.SetLocked(true);
+    m_Paused = false;
+    m_StepRequested = false;
+    m_PlayScene->UpdateWorldTransforms();
+    m_Runtime = Trinity::CreateScope<Trinity::SceneRuntime>(*m_PlayScene, m_Project->GetCollisionLayers());
+    TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), m_PlayScene->GetEntityCount(), l_Milliseconds);
+}
+
+// The runtime goes before the copy it runs. The selection is kept when its entity is in the edited scene
+void EditorSession::StopPlay()
 {
     if (!m_Runtime)
     {
@@ -699,19 +756,16 @@ void EditorSession::StopSimulation()
     }
 
     m_Runtime.reset();
-    if (const Trinity::Expected<void, std::string> l_Restored = Trinity::SceneSerializer::LoadFromText(m_Scene, m_SimulationSnapshot); !l_Restored)
-    {
-        TR_ERROR("Forge: the scene could not be put back as it was before simulating: {}", l_Restored.GetError());
-    }
-
-    std::string().swap(m_SimulationSnapshot);
+    m_PlayScene.reset();
+    m_Paused = false;
+    m_StepRequested = false;
     m_History.SetLocked(false);
     if (!m_Scene.FindEntityByUUID(m_Selection))
     {
         m_Selection = {};
     }
 
-    TR_INFO("Forge: stopped simulating, and {} is as it was", GetSceneName());
+    TR_INFO("Forge: stopped playing {}, which is as it was", GetSceneName());
 }
 
 // Named New Folder, or New Folder 1 and on when that is taken. An empty folder has no assets, so the registry need not scan

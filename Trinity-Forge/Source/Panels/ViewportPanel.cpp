@@ -924,10 +924,10 @@ glm::vec3 ViewportPanel::GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize
     return l_Origin + l_Direction * (l_Distance > 0.0f && l_Distance <= c_MaximumDropDistance ? l_Distance : c_DropDistance);
 }
 
-// Dropped from the Content Browser, a texture becomes a sprite where it lands, at its pixel size, and a model becomes its hierarchy under one root there, each in one command
+// Dropped from the Content Browser, a texture becomes a sprite where it lands, at its pixel size, and a model becomes its hierarchy under one root there, each in one command. Nothing is taken while a copy plays
 void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
 {
-    if (!ImGui::BeginDragDropTarget())
+    if (m_Session.IsPlaying() || !ImGui::BeginDragDropTarget())
     {
         return;
     }
@@ -1241,13 +1241,13 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
 
     Trinity::Scene& l_Scene = m_Session.GetScene();
     const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(m_Session.GetSelection());
-    if (m_GizmoDragging && (!l_Entity || l_Entity.GetUUID() != m_GizmoEntity || m_Session.IsSimulating()))
+    if (m_GizmoDragging && (!l_Entity || l_Entity.GetUUID() != m_GizmoEntity || m_Session.IsPlaying()))
     {
         EndGizmoDrag();
     }
 
-    // A simulating scene cannot be edited, so it shows no gizmo
-    if (!l_Entity || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f || m_Session.IsSimulating())
+    // A playing copy cannot be edited, so it shows no gizmo
+    if (!l_Entity || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f || m_Session.IsPlaying())
     {
         return;
     }
@@ -1442,25 +1442,6 @@ void ViewportPanel::DrawToolbar()
     const ImGuiChildFlags l_ChildFlags = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding;
     if (ImGui::BeginChild("##Toolbar", ImVec2(0.0f, 0.0f), l_ChildFlags, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
     {
-        const bool l_Simulating = m_Session.IsSimulating();
-        if (l_Simulating)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        }
-
-        if (ImGui::Button(std::format("{}###Simulate", l_Simulating ? Trinity::Icons::c_Stop : Trinity::Icons::c_Play).c_str()))
-        {
-            m_Session.RequestSimulation(!l_Simulating);
-        }
-
-        if (l_Simulating)
-        {
-            ImGui::PopStyleColor();
-        }
-
-        ImGui::SetItemTooltip("%s", l_Simulating ? "Stop: the scene goes back as it was before simulating" : "Simulate: runs the scene's physics here until stopped, then puts the scene back as it was. Nothing can be edited meanwhile");
-        ImGui::SameLine();
-
         if (ImGui::Button(std::format("{}###ViewMode", m_Mode3D ? "3D" : "2D").c_str()))
         {
             m_Mode3D = !m_Mode3D;

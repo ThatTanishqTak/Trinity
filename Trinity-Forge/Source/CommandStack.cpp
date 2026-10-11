@@ -151,7 +151,7 @@ bool CommandStack::RefuseLocked()
 
     if (!std::exchange(m_WarnedLocked, true))
     {
-        TR_WARN("Forge: the scene cannot be edited while it simulates. Stop it first, and it goes back as it was");
+        TR_WARN("Forge: the scene cannot be edited while it plays. Stop it first, and the edited scene is as it was");
     }
 
     return true;

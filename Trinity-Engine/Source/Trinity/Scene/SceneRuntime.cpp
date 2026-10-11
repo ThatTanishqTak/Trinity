@@ -56,12 +56,26 @@ namespace Trinity
         m_Systems.push_back(std::move(system));
     }
 
-    // Each step's systems then physics, then the transform pass with moving bodies placed by the interpolation the clock leaves, then rendering, which the caller does
     void SceneRuntime::Update(Timestep timestep)
     {
         TR_PROFILE_FUNCTION();
 
-        m_StepsThisFrame = m_Clock.Advance(timestep.GetDuration());
+        const std::uint32_t l_Steps = m_Clock.Advance(timestep.GetDuration());
+        RunSteps(l_Steps, m_Clock.GetInterpolation());
+    }
+
+    void SceneRuntime::Step()
+    {
+        TR_PROFILE_FUNCTION();
+
+        m_Clock.TakeStep();
+        RunSteps(1, 1.0f);
+    }
+
+    // Each step's systems then physics, then the transform pass with moving bodies placed by the interpolation given, then rendering, which the caller does
+    void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation)
+    {
+        m_StepsThisFrame = steps;
         const Timestep l_Step(m_Clock.GetStep());
         if (m_Physics)
         {
@@ -94,12 +108,12 @@ namespace Trinity
 
         if (m_Physics)
         {
-            m_Physics->EndFrame(m_Clock.GetInterpolation());
+            m_Physics->EndFrame(interpolation);
         }
 
         if (m_Physics2D)
         {
-            m_Physics2D->EndFrame(m_Clock.GetInterpolation());
+            m_Physics2D->EndFrame(interpolation);
         }
 
         LogPhysicsEvents();

@@ -38,5 +38,7 @@ private:
     Trinity::UUID m_Renaming;
     std::string m_RenameText;
     bool m_FocusRename = false;
+    // While a copy of the scene plays, which nothing may change
+    bool m_ReadOnly = false;
     bool m_ScrollToSelection = false;
 };

@@ -35,6 +35,8 @@ public:
 private:
     void ReadShortcuts();
     void DrawMenuBar();
+    void DrawPlayControls();
+    void PushPlayTint();
     void DrawEditMenu();
     void DrawHistoryMenu();
     void DrawDockSpace();
@@ -59,4 +61,7 @@ private:
     bool m_ShowAbout = false;
     bool m_ResetLayout = false;
     bool m_DockedNewPanels = false;
+    // Whether a copy played last frame, so the Game panel comes to the front as one starts and the Scene panel as it stops
+    bool m_WasPlaying = false;
+    int m_TintedColors = 0;
 };

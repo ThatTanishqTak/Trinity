@@ -43,7 +43,7 @@ public:
     void Clear();
     void MarkSaved();
 
-    // While the scene simulates, an edit would be lost when it stops, so none is taken, and the first refused says why
+    // While a copy of the scene plays, the panels show the copy and an edit would not reach the scene, so none is taken, and the first refused says why
     void SetLocked(bool locked)
     {
         m_Locked = locked;

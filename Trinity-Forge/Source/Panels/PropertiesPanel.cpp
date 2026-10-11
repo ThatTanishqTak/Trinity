@@ -347,13 +347,13 @@ void PropertiesPanel::OnImGuiRender()
     }
 
     // Shown as it moves, and editable again once it stops
-    const bool l_Simulating = m_Session.IsSimulating();
-    if (l_Simulating)
+    const bool l_Playing = m_Session.IsPlaying();
+    if (l_Playing)
     {
-        ImGui::TextDisabled("Simulating, so nothing can be edited until it stops");
+        ImGui::TextDisabled("Playing a copy of the scene, so nothing can be edited until it stops");
     }
 
-    ImGui::BeginDisabled(l_Simulating);
+    ImGui::BeginDisabled(l_Playing);
     ImGui::PushID(l_Entity.GetUUID().ToString().c_str());
     DrawName(l_Entity);
     DrawTransform(l_Entity);

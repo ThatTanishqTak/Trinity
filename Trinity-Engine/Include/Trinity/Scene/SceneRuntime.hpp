@@ -34,6 +34,8 @@ namespace Trinity
 
         // With the frame's time, as Application hands it to each layer
         void Update(Timestep timestep);
+        // One fixed step whatever the frame's time, as a paused scene's Step button takes, with moving bodies drawn where it left them
+        void Step();
 
         [[nodiscard]] Scene& GetScene() { return m_Scene; }
         [[nodiscard]] SimulationClock& GetClock() { return m_Clock; }
@@ -46,6 +48,7 @@ namespace Trinity
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() { return m_Physics2D.get(); }
 
     private:
+        void RunSteps(std::uint32_t steps, float interpolation);
         void LogPhysicsEvents() const;
 
         Scene& m_Scene;

@@ -63,19 +63,27 @@ public:
 
     [[nodiscard]] bool RequestClose();
 
-    // Until Play mode comes, the Scene panel's Simulate runs the edited scene's physics where it is. The scene is kept as text and the history locked while it runs, and Stop loads the text back, so nothing it did stays. Asked for mid-frame and done at the next Update, and stopped by any command but Refresh
-    void RequestSimulation(bool simulate);
-    void UpdateSimulation(Trinity::Timestep timestep);
-    [[nodiscard]] bool IsSimulating() const { return m_Runtime != nullptr; }
+    // Play runs a copy of the edited scene, made through the serializer, and Stop throws the copy away, so the edited scene, its history and whether it is saved are as they were. Pause holds the copy where it is, and Step takes one fixed step and holds it there. The history is locked while playing. Each is asked for mid-frame and done at the next Update, and any command but Refresh stops playing first
+    void RequestPlay();
+    void RequestPause();
+    void RequestStep();
+    void RequestStop();
+    // With the frame's time, after the session's own work
+    void UpdatePlay(Trinity::Timestep timestep);
+    [[nodiscard]] bool IsPlaying() const { return m_Runtime != nullptr; }
+    [[nodiscard]] bool IsPaused() const { return m_Runtime != nullptr && m_Paused; }
     [[nodiscard]] Trinity::SceneRuntime* GetRuntime() { return m_Runtime.get(); }
     [[nodiscard]] bool IsDirty() const { return !m_History.IsSaved(); }
 
-    [[nodiscard]] Trinity::Scene& GetScene() { return m_Scene; }
+    // The scene the panels show: the running copy while playing, and otherwise the edited scene
+    [[nodiscard]] Trinity::Scene& GetScene() { return m_PlayScene ? *m_PlayScene : m_Scene; }
+    // What the history edits and the scene file holds, whether or not a copy plays
+    [[nodiscard]] Trinity::Scene& GetEditedScene() { return m_Scene; }
     [[nodiscard]] CommandStack& GetHistory() { return m_History; }
     [[nodiscard]] const Trinity::Project* GetProject() const { return m_Project.get(); }
     [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
-    // Saved with the project at once, outside the history. A scene simulating keeps the layers it started with
+    // Saved with the project at once, outside the history. A scene playing keeps the layers it started with
     void SetCollisionLayers(const Trinity::CollisionLayers& layers);
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
     [[nodiscard]] Trinity::UUID GetSceneID() const;
@@ -151,8 +159,8 @@ private:
     void FinishModelImports(const ModelImportReport& report);
     void FinishEnvironmentImports(const EnvironmentImportReport& report);
     void SaveProject();
-    void StartSimulation();
-    void StopSimulation();
+    void StartPlay();
+    void StopPlay();
     void NewScene();
     void OpenScene(const std::string& assetPath);
     void SaveScene(Action then);
@@ -167,8 +175,10 @@ private:
     Trinity::Scope<Trinity::Project> m_Project;
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
     Trinity::Scene m_Scene;
+    Trinity::Scope<Trinity::Scene> m_PlayScene;
     Trinity::Scope<Trinity::SceneRuntime> m_Runtime;
-    std::string m_SimulationSnapshot;
+    bool m_Paused = false;
+    bool m_StepRequested = false;
     std::string m_ScenePath;
     Trinity::UUID m_Selection;
     CommandStack m_History{ m_Scene, m_Selection };
