@@ -339,6 +339,87 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MeshColliderComponent&) const = default;
     };
 
+    // How an entity's 2D body moves once its scene runs, in the XY plane: it takes the entity's world X and Y and its turn about Z, and writes them back keeping the entity's depth in Z. Its shape is the entity's 2D colliders and those below it, and an entity with 2D colliders and no 2D rigid body above them is static. 2D and 3D bodies live in worlds of their own, so an entity with a RigidBody keeps that and not this. In metres, kilograms and seconds, damping the fraction of velocity lost each second
+    struct RigidBody2DComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.RigidBody2D";
+
+        BodyMotion Motion = BodyMotion::Dynamic;
+        // In kilograms. 0 takes it from the colliders, at 1 kg per square metre
+        float Mass = 1.0f;
+        float LinearDamping = 0.0f;
+        float AngularDamping = 0.0f;
+        float GravityFactor = 1.0f;
+        // Sweeps the body along its motion against every other dynamic body too, not only static ones, so a fast one cannot pass through, at some cost
+        bool ContinuousCollision = false;
+        // Box2D locks the turn alone, not the slide along X or Y
+        bool LockRotation = false;
+        // As the scene starts running: metres per second, and radians per second counter-clockwise
+        glm::vec2 InitialLinearVelocity{ 0.0f };
+        float InitialAngularVelocity = 0.0f;
+        bool StartAsleep = false;
+        bool CanSleep = true;
+
+        [[nodiscard]] bool operator==(const RigidBody2DComponent&) const = default;
+    };
+
+    // What every 2D collider has, as a 3D one does: where it sits on its entity in its XY plane, its turn there counter-clockwise in radians, how it rubs and bounces, whether it is a trigger, and its collision layer from the project's. A 2D collider takes its entity's world scale in X and Y
+    struct Collider2DSettings
+    {
+        glm::vec2 Offset{ 0.0f };
+        float OffsetAngle = 0.0f;
+        float Friction = 0.5f;
+        float Restitution = 0.0f;
+        bool Trigger = false;
+        // Below c_MaxCollisionLayers
+        std::uint32_t Layer = 0;
+
+        [[nodiscard]] bool operator==(const Collider2DSettings&) const = default;
+    };
+
+    struct BoxCollider2DComponent : Collider2DSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.BoxCollider2D";
+
+        glm::vec2 HalfExtents{ 0.5f };
+
+        [[nodiscard]] bool operator==(const BoxCollider2DComponent&) const = default;
+    };
+
+    struct CircleCollider2DComponent : Collider2DSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.CircleCollider2D";
+
+        float Radius = 0.5f;
+
+        [[nodiscard]] bool operator==(const CircleCollider2DComponent&) const = default;
+    };
+
+    // Along the collider's Y axis. The height is the whole capsule's, end caps included
+    struct CapsuleCollider2DComponent : Collider2DSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.CapsuleCollider2D";
+
+        float Radius = 0.5f;
+        float Height = 2.0f;
+
+        [[nodiscard]] float GetHalfSegment() const { return std::max(Height * 0.5f - Radius, 0.0f); }
+        [[nodiscard]] bool operator==(const CapsuleCollider2DComponent&) const = default;
+    };
+
+    // The convex hull of its points, from 3 to c_MaxPoints, in the collider's own space, with its corners rounded by the radius
+    struct PolygonCollider2DComponent : Collider2DSettings
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.PolygonCollider2D";
+        // Box2D's most
+        static constexpr std::size_t c_MaxPoints = 8;
+
+        std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>> Points{ glm::vec2(0.0f, 0.5f), glm::vec2(-0.5f, -0.5f), glm::vec2(0.5f, -0.5f) };
+        float Radius = 0.0f;
+
+        [[nodiscard]] bool operator==(const PolygonCollider2DComponent&) const = default;
+    };
+
     // What a joint holds: its bodies welded fast, turning about its axis, sliding along it, kept within a range of distances, or turning every way about a point
     enum class JointType : std::uint8_t
     {

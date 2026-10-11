@@ -498,6 +498,121 @@ namespace Trinity
             reader.Read("Shape", component.Shape);
         }
 
+        void SaveRigidBody2D(const RigidBody2DComponent& component, ComponentWriter& writer)
+        {
+            const auto a_Found = std::ranges::find(c_BodyMotionNames, component.Motion, &std::pair<BodyMotion, std::string_view>::first);
+            writer.Write("Motion", a_Found != c_BodyMotionNames.end() ? a_Found->second : std::string_view("Dynamic"));
+            writer.Write("Mass", component.Mass);
+            writer.Write("LinearDamping", component.LinearDamping);
+            writer.Write("AngularDamping", component.AngularDamping);
+            writer.Write("GravityFactor", component.GravityFactor);
+            writer.Write("ContinuousCollision", component.ContinuousCollision);
+            writer.Write("LockRotation", component.LockRotation);
+            writer.Write("InitialLinearVelocity", component.InitialLinearVelocity);
+            writer.Write("InitialAngularVelocity", component.InitialAngularVelocity);
+            writer.Write("StartAsleep", component.StartAsleep);
+            writer.Write("CanSleep", component.CanSleep);
+        }
+
+        // A motion this build lacks loads as dynamic
+        void LoadRigidBody2D(RigidBody2DComponent& component, const ComponentReader& reader)
+        {
+            std::string l_Motion;
+            reader.Read("Motion", l_Motion);
+            const auto a_Found = std::ranges::find(c_BodyMotionNames, std::string_view(l_Motion), &std::pair<BodyMotion, std::string_view>::second);
+            component.Motion = a_Found != c_BodyMotionNames.end() ? a_Found->first : BodyMotion::Dynamic;
+            reader.Read("Mass", component.Mass);
+            reader.Read("LinearDamping", component.LinearDamping);
+            reader.Read("AngularDamping", component.AngularDamping);
+            reader.Read("GravityFactor", component.GravityFactor);
+            reader.Read("ContinuousCollision", component.ContinuousCollision);
+            reader.Read("LockRotation", component.LockRotation);
+            reader.Read("InitialLinearVelocity", component.InitialLinearVelocity);
+            reader.Read("InitialAngularVelocity", component.InitialAngularVelocity);
+            reader.Read("StartAsleep", component.StartAsleep);
+            reader.Read("CanSleep", component.CanSleep);
+        }
+
+        // Written before each 2D collider's own fields
+        void SaveCollider2DSettings(const Collider2DSettings& collider, ComponentWriter& writer)
+        {
+            writer.Write("Offset", collider.Offset);
+            writer.Write("OffsetAngle", collider.OffsetAngle);
+            writer.Write("Friction", collider.Friction);
+            writer.Write("Restitution", collider.Restitution);
+            writer.Write("Trigger", collider.Trigger);
+            writer.Write("Layer", collider.Layer);
+        }
+
+        // A layer past the last there can be is taken as the first
+        void LoadCollider2DSettings(Collider2DSettings& collider, const ComponentReader& reader)
+        {
+            reader.Read("Offset", collider.Offset);
+            reader.Read("OffsetAngle", collider.OffsetAngle);
+            reader.Read("Friction", collider.Friction);
+            reader.Read("Restitution", collider.Restitution);
+            reader.Read("Trigger", collider.Trigger);
+            reader.Read("Layer", collider.Layer);
+            collider.Layer = collider.Layer < c_MaxCollisionLayers ? collider.Layer : 0;
+        }
+
+        void SaveBoxCollider2D(const BoxCollider2DComponent& component, ComponentWriter& writer)
+        {
+            SaveCollider2DSettings(component, writer);
+            writer.Write("HalfExtents", component.HalfExtents);
+        }
+
+        void LoadBoxCollider2D(BoxCollider2DComponent& component, const ComponentReader& reader)
+        {
+            LoadCollider2DSettings(component, reader);
+            reader.Read("HalfExtents", component.HalfExtents);
+        }
+
+        void SaveCircleCollider2D(const CircleCollider2DComponent& component, ComponentWriter& writer)
+        {
+            SaveCollider2DSettings(component, writer);
+            writer.Write("Radius", component.Radius);
+        }
+
+        void LoadCircleCollider2D(CircleCollider2DComponent& component, const ComponentReader& reader)
+        {
+            LoadCollider2DSettings(component, reader);
+            reader.Read("Radius", component.Radius);
+        }
+
+        void SaveCapsuleCollider2D(const CapsuleCollider2DComponent& component, ComponentWriter& writer)
+        {
+            SaveCollider2DSettings(component, writer);
+            writer.Write("Radius", component.Radius);
+            writer.Write("Height", component.Height);
+        }
+
+        void LoadCapsuleCollider2D(CapsuleCollider2DComponent& component, const ComponentReader& reader)
+        {
+            LoadCollider2DSettings(component, reader);
+            reader.Read("Radius", component.Radius);
+            reader.Read("Height", component.Height);
+        }
+
+        void SavePolygonCollider2D(const PolygonCollider2DComponent& component, ComponentWriter& writer)
+        {
+            SaveCollider2DSettings(component, writer);
+            writer.Write("Points", std::span<const glm::vec2>(component.Points));
+            writer.Write("Radius", component.Radius);
+        }
+
+        // Points past Box2D's most are dropped
+        void LoadPolygonCollider2D(PolygonCollider2DComponent& component, const ComponentReader& reader)
+        {
+            LoadCollider2DSettings(component, reader);
+            reader.Read("Points", component.Points);
+            reader.Read("Radius", component.Radius);
+            if (component.Points.size() > PolygonCollider2DComponent::c_MaxPoints)
+            {
+                component.Points.resize(PolygonCollider2DComponent::c_MaxPoints);
+            }
+        }
+
         constexpr std::array<std::pair<JointType, std::string_view>, 5> c_JointTypeNames{ { { JointType::Fixed, "Fixed" }, { JointType::Hinge, "Hinge" }, { JointType::Slider, "Slider" }, { JointType::Distance, "Distance" }, { JointType::Point, "Point" } } };
 
         // Every field, whichever the type uses, so changing a joint's type and back keeps its settings
@@ -830,6 +945,20 @@ namespace Trinity
         *m_Output += ']';
     }
 
+    // One flow sequence of pairs, such as [[0, 0.5], [-0.5, -0.5]]
+    void ComponentWriter::Write(std::string_view key, std::span<const glm::vec2> values)
+    {
+        WriteKey(key);
+        *m_Output += '[';
+        for (std::size_t it_Index = 0; it_Index < values.size(); ++it_Index)
+        {
+            *m_Output += it_Index == 0 ? "" : ", ";
+            *m_Output += FormatFloats(std::array{ values[it_Index].x, values[it_Index].y });
+        }
+
+        *m_Output += ']';
+    }
+
     void ComponentWriter::Write(std::string_view key, const glm::vec2& value)
     {
         WriteKey(key);
@@ -1016,6 +1145,37 @@ namespace Trinity
         return true;
     }
 
+    bool ComponentReader::Read(std::string_view key, std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>>& values) const
+    {
+        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
+        if (!l_Value)
+        {
+            return false;
+        }
+
+        if (!l_Value->IsSequence())
+        {
+            return Malformed(m_ComponentName, key);
+        }
+
+        std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>> l_Values;
+        l_Values.reserve(l_Value->size());
+        for (const YAML::Node it_Element : *l_Value)
+        {
+            glm::vec2 l_Point{ 0.0f };
+            if (!ParseFloatSequence(it_Element, std::span<float>(&l_Point.x, 2)))
+            {
+                return Malformed(m_ComponentName, key);
+            }
+
+            l_Values.push_back(l_Point);
+        }
+
+        values = std::move(l_Values);
+
+        return true;
+    }
+
     bool ComponentReader::Read(std::string_view key, glm::vec2& value) const
     {
         return ReadFloats(*m_Node, m_ComponentName, key, std::span<float, 2>(&value.x, 2));
@@ -1081,6 +1241,11 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<ConvexHullColliderComponent, SaveConvexHullCollider, LoadConvexHullCollider>());
             RegisterComponent(MakeComponentSerializer<MeshColliderComponent, SaveMeshCollider, LoadMeshCollider>());
             RegisterComponent(MakeComponentSerializer<JointComponent, SaveJoint, LoadJoint>());
+            RegisterComponent(MakeComponentSerializer<RigidBody2DComponent, SaveRigidBody2D, LoadRigidBody2D>());
+            RegisterComponent(MakeComponentSerializer<BoxCollider2DComponent, SaveBoxCollider2D, LoadBoxCollider2D>());
+            RegisterComponent(MakeComponentSerializer<CircleCollider2DComponent, SaveCircleCollider2D, LoadCircleCollider2D>());
+            RegisterComponent(MakeComponentSerializer<CapsuleCollider2DComponent, SaveCapsuleCollider2D, LoadCapsuleCollider2D>());
+            RegisterComponent(MakeComponentSerializer<PolygonCollider2DComponent, SavePolygonCollider2D, LoadPolygonCollider2D>());
         }
 
         void Shutdown()

@@ -30,7 +30,7 @@ namespace
     constexpr const char* c_AddComponentPopup = "##AddComponent";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 15> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::JointComponent::c_TypeName };
+    constexpr std::array<std::string_view, 20> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName };
 
     // A label on the left and the widget filling the rest of the row
     void Label(const char* label)
@@ -92,6 +92,38 @@ namespace
         return l_Changed;
     }
 
+    // The project's layers by their names
+    bool LayerCombo(std::uint32_t& layer, const Trinity::CollisionLayers& layers)
+    {
+        const auto a_Name = [&layers](std::uint32_t index) { return std::format("{}: {}", index, layers.GetName(index)); };
+
+        bool l_Changed = false;
+        if (ImGui::BeginCombo("##Layer", a_Name(layer).c_str()))
+        {
+            for (std::uint32_t it_Layer = 0; it_Layer < Trinity::c_MaxCollisionLayers; ++it_Layer)
+            {
+                const bool l_Selected = it_Layer == layer;
+                ImGui::PushID(static_cast<int>(it_Layer));
+                if (ImGui::Selectable(a_Name(it_Layer).c_str(), l_Selected) && !l_Selected)
+                {
+                    layer = it_Layer;
+                    l_Changed = true;
+                }
+
+                if (l_Selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+
+                ImGui::PopID();
+            }
+
+            ImGui::EndCombo();
+        }
+
+        return l_Changed;
+    }
+
     // What every collider has, above its own shape. The offset's turn shows as X, Y and Z degrees worked out afresh each frame, which is enough for the small turns a collider takes. Layers show by the project's names for them
     template<typename T>
     void DrawColliderSettings(CommandStack& history, Trinity::Entity entity, const Trinity::CollisionLayers& layers)
@@ -131,39 +163,56 @@ namespace
         }
 
         Label("Layer");
-        EditField<T>(history, entity, "Layer", [&layers](T& collider)
-        {
-            const auto a_Name = [&layers](std::uint32_t layer) { return std::format("{}: {}", layer, layers.GetName(layer)); };
-
-            bool l_Changed = false;
-            if (ImGui::BeginCombo("##Layer", a_Name(collider.Layer).c_str()))
-            {
-                for (std::uint32_t it_Layer = 0; it_Layer < Trinity::c_MaxCollisionLayers; ++it_Layer)
-                {
-                    const bool l_Selected = it_Layer == collider.Layer;
-                    ImGui::PushID(static_cast<int>(it_Layer));
-                    if (ImGui::Selectable(a_Name(it_Layer).c_str(), l_Selected) && !l_Selected)
-                    {
-                        collider.Layer = it_Layer;
-                        l_Changed = true;
-                    }
-
-                    if (l_Selected)
-                    {
-                        ImGui::SetItemDefaultFocus();
-                    }
-
-                    ImGui::PopID();
-                }
-
-                ImGui::EndCombo();
-            }
-
-            return l_Changed;
-        });
+        EditField<T>(history, entity, "Layer", [&layers](T& collider) { return LayerCombo(collider.Layer, layers); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("Edit > Project Settings names the layers and sets which collide");
+        }
+    }
+
+    // As a 3D collider's, in its entity's XY plane, with its turn there in degrees counter-clockwise, kept as radians. 2D and 3D colliders share the project's layers
+    template<typename T>
+    void DrawCollider2DSettings(CommandStack& history, Trinity::Entity entity, const Trinity::CollisionLayers& layers)
+    {
+        Label("Offset");
+        EditField<T>(history, entity, "Offset", [](T& collider) { return ImGui::DragFloat2("##Offset", &collider.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+
+        Label("Offset Angle");
+        EditField<T>(history, entity, "OffsetAngle", [](T& collider)
+        {
+            float l_Degrees = glm::degrees(collider.OffsetAngle);
+            if (!ImGui::DragFloat("##OffsetAngle", &l_Degrees, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
+            {
+                return false;
+            }
+
+            collider.OffsetAngle = glm::radians(l_Degrees);
+
+            return true;
+        });
+
+        Label("Friction");
+        EditField<T>(history, entity, "Friction", [](T& collider) { return ImGui::DragFloat("##Friction", &collider.Friction, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+        Label("Restitution");
+        EditField<T>(history, entity, "Restitution", [](T& collider) { return ImGui::DragFloat("##Restitution", &collider.Restitution, 0.01f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("How much of its speed a body keeps as it bounces off: 0 stops dead, 1 bounces back as fast");
+        }
+
+        Label("Trigger");
+        EditField<T>(history, entity, "Trigger", [](T& collider) { return ImGui::Checkbox("##Trigger", &collider.Trigger); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Reports what enters and leaves it without pushing anything");
+        }
+
+        Label("Layer");
+        EditField<T>(history, entity, "Layer", [&layers](T& collider) { return LayerCombo(collider.Layer, layers); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Edit > Project Settings names the layers and sets which collide, for 2D and 3D alike");
         }
     }
 }
@@ -245,6 +294,8 @@ void PropertiesPanel::OnImGuiRender()
     DrawRigidBody(l_Entity);
     DrawColliders(l_Entity);
     DrawJoint(l_Entity);
+    DrawRigidBody2D(l_Entity);
+    DrawColliders2D(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawAddComponent(l_Entity);
     ImGui::PopID();
@@ -1228,6 +1279,201 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     {
         Label("Break Torque");
         EditField<Joint>(l_History, entity, "BreakTorque", [](Joint& joint) { return ImGui::DragFloat("##BreakTorque", &joint.BreakTorque, 1.0f, 0.0f, 1.0e9f, joint.BreakTorque > 0.0f ? "%.1f N m" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    }
+}
+
+// As a 3D body's, in the XY plane: the settings past the motion show for a dynamic body alone, and the initial spin is in degrees per second counter-clockwise, kept as radians. An entity with a RigidBody as well keeps its 3D body, which it says
+void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::RigidBody2DComponent>() || !BeginComponent(Trinity::RigidBody2DComponent::c_TypeName, Trinity::Icons::c_Arrows, true))
+    {
+        return;
+    }
+
+    using Body = Trinity::RigidBody2DComponent;
+    CommandStack& l_History = m_Session.GetHistory();
+
+    if (entity.Has<Trinity::RigidBodyComponent>())
+    {
+        ImGui::TextWrapped("%s", std::format("{} The entity has a RigidBody too, so it keeps its 3D body and this is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
+    }
+
+    Label("Motion");
+    EditField<Body>(l_History, entity, "Motion", [](Body& body)
+    {
+        int l_Motion = static_cast<int>(body.Motion);
+        const bool l_Changed = ImGui::Combo("##Motion", &l_Motion, "Static\0Kinematic\0Dynamic\0");
+        body.Motion = static_cast<Trinity::BodyMotion>(l_Motion);
+
+        return l_Changed;
+    });
+
+    if (entity.Get<Body>().Motion != Trinity::BodyMotion::Dynamic)
+    {
+        return;
+    }
+
+    Label("Mass");
+    EditField<Body>(l_History, entity, "Mass", [](Body& body) { return ImGui::DragFloat("##Mass", &body.Mass, 0.05f, 0.0f, 1.0e6f, body.Mass > 0.0f ? "%.3f kg" : "From colliders", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("0 takes the mass from the colliders, at 1 kg per square metre");
+    }
+
+    Label("Linear Damping");
+    EditField<Body>(l_History, entity, "LinearDamping", [](Body& body) { return ImGui::DragFloat("##LinearDamping", &body.LinearDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Angular Damping");
+    EditField<Body>(l_History, entity, "AngularDamping", [](Body& body) { return ImGui::DragFloat("##AngularDamping", &body.AngularDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Gravity Factor");
+    EditField<Body>(l_History, entity, "GravityFactor", [](Body& body) { return ImGui::DragFloat("##GravityFactor", &body.GravityFactor, 0.01f, -100.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Continuous");
+    EditField<Body>(l_History, entity, "ContinuousCollision", [](Body& body) { return ImGui::Checkbox("##ContinuousCollision", &body.ContinuousCollision); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Static bodies always stop a fast one. This sweeps it against other moving bodies too, at some cost");
+    }
+
+    Label("Lock Rotation");
+    EditField<Body>(l_History, entity, "LockRotation", [](Body& body) { return ImGui::Checkbox("##LockRotation", &body.LockRotation); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Keeps it from turning. A 2D body cannot be locked along X or Y");
+    }
+
+    Label("Velocity");
+    EditField<Body>(l_History, entity, "InitialLinearVelocity", [](Body& body) { return ImGui::DragFloat2("##InitialLinearVelocity", &body.InitialLinearVelocity.x, 0.05f, 0.0f, 0.0f, "%.3f m/s"); });
+
+    Label("Spin");
+    EditField<Body>(l_History, entity, "InitialAngularVelocity", [](Body& body)
+    {
+        float l_Degrees = glm::degrees(body.InitialAngularVelocity);
+        if (!ImGui::DragFloat("##InitialAngularVelocity", &l_Degrees, 1.0f, 0.0f, 0.0f, "%.1f\xC2\xB0/s"))
+        {
+            return false;
+        }
+
+        body.InitialAngularVelocity = glm::radians(l_Degrees);
+
+        return true;
+    });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Counter-clockwise, looking down Z");
+    }
+
+    Label("Start Asleep");
+    EditField<Body>(l_History, entity, "StartAsleep", [](Body& body) { return ImGui::Checkbox("##StartAsleep", &body.StartAsleep); });
+
+    Label("Can Sleep");
+    EditField<Body>(l_History, entity, "CanSleep", [](Body& body) { return ImGui::Checkbox("##CanSleep", &body.CanSleep); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Whether it may fall asleep once it has stayed nearly still for half a second. Untick it for something that must never stop, such as a slow swing");
+    }
+}
+
+// Each 2D collider's settings, then its shape, in metres before its entity's scale. A polygon's points are listed one to a row, from 3 to 8, each removable while more than 3 are left
+void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
+{
+    CommandStack& l_History = m_Session.GetHistory();
+    const Trinity::CollisionLayers l_Layers = m_Session.GetProject() != nullptr ? m_Session.GetProject()->GetCollisionLayers() : Trinity::CollisionLayers();
+
+    if (entity.Has<Trinity::BoxCollider2DComponent>() && BeginComponent(Trinity::BoxCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    {
+        DrawCollider2DSettings<Trinity::BoxCollider2DComponent>(l_History, entity, l_Layers);
+        Label("Half Extents");
+        EditField<Trinity::BoxCollider2DComponent>(l_History, entity, "HalfExtents", [](Trinity::BoxCollider2DComponent& box) { return ImGui::DragFloat2("##HalfExtents", &box.HalfExtents.x, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    }
+
+    if (entity.Has<Trinity::CircleCollider2DComponent>() && BeginComponent(Trinity::CircleCollider2DComponent::c_TypeName, Trinity::Icons::c_Globe, true))
+    {
+        DrawCollider2DSettings<Trinity::CircleCollider2DComponent>(l_History, entity, l_Layers);
+        Label("Radius");
+        EditField<Trinity::CircleCollider2DComponent>(l_History, entity, "Radius", [](Trinity::CircleCollider2DComponent& circle) { return ImGui::DragFloat("##Radius", &circle.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    }
+
+    if (entity.Has<Trinity::CapsuleCollider2DComponent>() && BeginComponent(Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    {
+        DrawCollider2DSettings<Trinity::CapsuleCollider2DComponent>(l_History, entity, l_Layers);
+        Label("Radius");
+        EditField<Trinity::CapsuleCollider2DComponent>(l_History, entity, "Radius", [](Trinity::CapsuleCollider2DComponent& capsule) { return ImGui::DragFloat("##Radius", &capsule.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+
+        // Never less than the two end caps
+        Label("Height");
+        EditField<Trinity::CapsuleCollider2DComponent>(l_History, entity, "Height", [](Trinity::CapsuleCollider2DComponent& capsule) { return ImGui::DragFloat("##Height", &capsule.Height, 0.01f, capsule.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    }
+
+    if (!entity.Has<Trinity::PolygonCollider2DComponent>() || !BeginComponent(Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    {
+        return;
+    }
+
+    using Polygon = Trinity::PolygonCollider2DComponent;
+    DrawCollider2DSettings<Polygon>(l_History, entity, l_Layers);
+
+    const std::size_t l_Count = entity.Get<Polygon>().Points.size();
+    const float l_Button = ImGui::GetFrameHeight();
+    bool l_Removed = false;
+    for (std::size_t it_Point = 0; it_Point < l_Count && !l_Removed; ++it_Point)
+    {
+        // Each point's edits are named for it, so a drag of one never merges with another's or with a point added or removed
+        const std::string l_Name = std::format("Point {}", it_Point + 1);
+        ImGui::PushID(static_cast<int>(it_Point));
+        Label(l_Name.c_str());
+        ImGui::SetNextItemWidth(l_Count > 3 ? -(l_Button + ImGui::GetStyle().ItemSpacing.x) : -FLT_MIN);
+        EditField<Polygon>(l_History, entity, l_Name, [it_Point](Polygon& polygon) { return ImGui::DragFloat2("##Point", &polygon.Points[it_Point].x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+
+        if (l_Count > 3)
+        {
+            ImGui::SameLine();
+            EditField<Polygon>(l_History, entity, "Points", [it_Point, l_Button, &l_Removed](Polygon& polygon)
+            {
+                if (!ImGui::Button(Trinity::Icons::c_Trash, ImVec2(l_Button, l_Button)))
+                {
+                    return false;
+                }
+
+                polygon.Points.erase(polygon.Points.begin() + static_cast<std::ptrdiff_t>(it_Point));
+                l_Removed = true;
+
+                return true;
+            });
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            {
+                ImGui::SetTooltip("Remove this point");
+            }
+        }
+
+        ImGui::PopID();
+    }
+
+    // A new point goes halfway between the last and the first, so the shape keeps its outline until it is dragged
+    ImGui::BeginDisabled(l_Count >= Polygon::c_MaxPoints);
+    EditField<Polygon>(l_History, entity, "Points", [](Polygon& polygon)
+    {
+        if (!ImGui::Button("Add Point", ImVec2(-FLT_MIN, 0.0f)) || polygon.Points.empty())
+        {
+            return false;
+        }
+
+        polygon.Points.push_back((polygon.Points.back() + polygon.Points.front()) * 0.5f);
+
+        return true;
+    });
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("The collider is the convex hull of its points, in its own space, so a point inside it or in line with two others is left out. 8 at most");
+    }
+
+    Label("Radius");
+    EditField<Polygon>(l_History, entity, "Radius", [](Polygon& polygon) { return ImGui::DragFloat("##Radius", &polygon.Radius, 0.005f, 0.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Rounds the corners, and grows the shape outward by as much");
     }
 }
 

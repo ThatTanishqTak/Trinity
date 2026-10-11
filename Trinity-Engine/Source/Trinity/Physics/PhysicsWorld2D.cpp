@@ -1,4 +1,4 @@
-#include "Trinity/Physics/PhysicsWorld2D.hpp"
+#include "Trinity/Physics/PhysicsWorld2DState.hpp"
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/JobSystem.hpp"
@@ -7,11 +7,7 @@
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Profiler.hpp"
 
-#include <box2d/box2d.h>
-
 #include <algorithm>
-#include <array>
-#include <atomic>
 #include <cstddef>
 #include <utility>
 
@@ -21,8 +17,6 @@ namespace Trinity
     {
         // Box2D keeps scratch for each of its workers, and has room for this many
         constexpr std::uint32_t c_MaxWorkers = 64;
-        // Tasks one step can have running at once: a few for each stage of the step, and one for each worker while the solver runs
-        constexpr std::size_t c_MaxTasks = 128;
         // Shapes smaller than this are taken as this, since Box2D refuses empty ones
         constexpr float c_MinimumSize = 1e-3f;
 
@@ -99,19 +93,12 @@ namespace Trinity
             return b2_dynamicBody;
         }
 
-        // A task Box2D hands over is split into ranges each run as a Trinity job, and waited on when Box2D finishes it. Every task a step starts it finishes, so the records are used again from the first each step
-        struct TaskQueue
-        {
-            std::array<JobCounter, c_MaxTasks> Tasks;
-            std::atomic<std::size_t> Count{ 0 };
-        };
-
         // In as many ranges as there are threads, none shorter than Box2D asks, and at least one job, since the solver's tasks each hold a worker that the others wait on. Each range is told the index of the thread it runs on, which is unique among the threads running at once. A step that wants more tasks than there are records runs the rest where it is
         void* EnqueueTask(b2TaskCallback* task, int itemCount, int minRange, void* taskContext, void* userContext)
         {
-            TaskQueue& l_Queue = *static_cast<TaskQueue*>(userContext);
+            Box2DTaskQueue& l_Queue = *static_cast<Box2DTaskQueue*>(userContext);
             const std::size_t l_Index = l_Queue.Count.fetch_add(1, std::memory_order_relaxed);
-            if (l_Index >= c_MaxTasks || itemCount <= 0)
+            if (l_Index >= Box2DTaskQueue::c_MaxTasks || itemCount <= 0)
             {
                 task(0, itemCount, JobSystem::GetThreadIndex(), taskContext);
 
@@ -139,14 +126,6 @@ namespace Trinity
             JobSystem::Wait(*static_cast<JobCounter*>(userTask));
         }
     }
-
-    struct PhysicsWorld2D::State
-    {
-        b2WorldId World = b2_nullWorldId;
-        std::uint32_t SubSteps = 4;
-        CollisionLayers Layers;
-        TaskQueue Tasks;
-    };
 
     // Box2D's tasks run in parallel when every thread's index fits its workers, which all but a machine with Trinity's most workers do. On that one they run on the main thread
     PhysicsWorld2D::PhysicsWorld2D(const PhysicsWorldSettings2D& settings)
@@ -185,7 +164,7 @@ namespace Trinity
         b2BodyDef l_Body = b2DefaultBodyDef();
         l_Body.type = ToBox2D(description.Motion);
         l_Body.position = ToBox2D(description.Position);
-        l_Body.rotation = b2MakeRot(description.Angle);
+        l_Body.rotation = Box2DConvert::ToRotation(description.Angle);
         l_Body.linearVelocity = ToBox2D(description.LinearVelocity);
         l_Body.angularVelocity = description.AngularVelocity;
         l_Body.linearDamping = description.LinearDamping;
@@ -199,7 +178,7 @@ namespace Trinity
         l_Shape.material.friction = description.Friction;
         l_Shape.material.restitution = description.Restitution;
         l_Shape.filter.categoryBits = 1ull << l_Layer;
-        l_Shape.filter.maskBits = m_State->Layers.Rows[l_Layer];
+        l_Shape.filter.maskBits = m_State->Layers.Rows[l_Layer] | Box2DLayers::c_QueryBit;
         if (description.Shape == BodyShape2D::Circle)
         {
             const b2Circle l_Circle{ { 0.0f, 0.0f }, std::max(description.Radius, c_MinimumSize) };
@@ -239,7 +218,7 @@ namespace Trinity
 
     float PhysicsWorld2D::GetBodyAngle(PhysicsBodyID2D body) const
     {
-        return b2Rot_GetAngle(b2Body_GetRotation(ToBox2D(body)));
+        return Box2DConvert::ToAngle(b2Body_GetRotation(ToBox2D(body)));
     }
 
     glm::vec2 PhysicsWorld2D::GetBodyLinearVelocity(PhysicsBodyID2D body) const

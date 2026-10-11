@@ -708,6 +708,8 @@ namespace Trinity
         std::unordered_map<entt::entity, std::size_t> l_Owners;
         std::vector<std::pair<entt::entity, std::size_t>> l_Joined;
         constexpr std::size_t c_NoOwner = SIZE_MAX;
+        // An entity with a RigidBody2D and no RigidBody, and everything below it, belongs to the 2D world
+        constexpr std::size_t c_Owned2D = SIZE_MAX - 1;
         for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
             const entt::entity l_Handle = it_Entity.GetHandle();
@@ -716,7 +718,11 @@ namespace Trinity
 
             std::size_t l_Owner = l_Inherited;
             const RigidBodyComponent* l_RigidBody = l_Registry.try_get<RigidBodyComponent>(l_Handle);
-            if (l_RigidBody != nullptr || (l_Inherited == c_NoOwner && HasCollider(l_Registry, l_Handle)))
+            if (l_RigidBody == nullptr && l_Registry.all_of<RigidBody2DComponent>(l_Handle))
+            {
+                l_Owner = c_Owned2D;
+            }
+            else if (l_RigidBody != nullptr || (l_Inherited == c_NoOwner && HasCollider(l_Registry, l_Handle)))
             {
                 BodyRecord& l_Record = l_State.Records.emplace_back();
                 l_Record.Entity = l_Handle;
@@ -728,7 +734,11 @@ namespace Trinity
             }
 
             l_Owners[l_Handle] = l_Owner;
-            if (l_Owner != c_NoOwner)
+            if (l_Owner == c_Owned2D && HasCollider(l_Registry, l_Handle))
+            {
+                TR_CORE_WARN("Physics: {}'s 3D colliders are part of a 2D body, so they are left out", GetName(scene, l_Handle));
+            }
+            else if (l_Owner != c_NoOwner && l_Owner != c_Owned2D)
             {
                 AddColliders(l_Registry, l_Handle, l_State.Records[l_Owner]);
             }
@@ -772,9 +782,9 @@ namespace Trinity
         {
             const JointComponent& l_Joint = l_Registry.get<JointComponent>(it_Entity);
             const std::string l_Name = GetName(scene, it_Entity);
-            if (it_Owner == c_NoOwner)
+            if (it_Owner == c_NoOwner || it_Owner == c_Owned2D)
             {
-                TR_CORE_WARN("Physics: {}'s Joint is on no body, since neither it nor anything above it has a RigidBody or a collider, so it is left out", l_Name);
+                TR_CORE_WARN("Physics: {}'s Joint is on no 3D body, since nothing on it or above it has a RigidBody or a 3D collider first, so it is left out", l_Name);
 
                 continue;
             }
@@ -792,7 +802,7 @@ namespace Trinity
                 }
 
                 const auto a_Owner = l_Owners.find(l_Connected.GetHandle());
-                if (a_Owner == l_Owners.end() || a_Owner->second == c_NoOwner || a_Owner->second == it_Owner)
+                if (a_Owner == l_Owners.end() || a_Owner->second == c_NoOwner || a_Owner->second == c_Owned2D || a_Owner->second == it_Owner)
                 {
                     TR_CORE_WARN("Physics: {}'s Joint names {}, which is {}, so it is left out", l_Name, GetName(scene, l_Connected.GetHandle()), a_Owner != l_Owners.end() && a_Owner->second == it_Owner ? "part of its own body" : "part of no body");
 

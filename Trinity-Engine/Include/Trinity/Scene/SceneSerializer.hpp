@@ -42,6 +42,7 @@ namespace Trinity
         void Write(std::string_view key, const glm::vec4& value);
         void Write(std::string_view key, const glm::quat& value);
         void Write(std::string_view key, std::span<const UUID> values);
+        void Write(std::string_view key, std::span<const glm::vec2> values);
 
         void WriteValue(std::string_view value);
 
@@ -68,6 +69,7 @@ namespace Trinity
         bool Read(std::string_view key, glm::vec4& value) const;
         bool Read(std::string_view key, glm::quat& value) const;
         bool Read(std::string_view key, std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>>& values) const;
+        bool Read(std::string_view key, std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>>& values) const;
 
         bool ReadValue(std::string& value) const;
 

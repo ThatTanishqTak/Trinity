@@ -37,6 +37,8 @@ private:
     void DrawRigidBody(Trinity::Entity entity);
     void DrawColliders(Trinity::Entity entity);
     void DrawJoint(Trinity::Entity entity);
+    void DrawRigidBody2D(Trinity::Entity entity);
+    void DrawColliders2D(Trinity::Entity entity);
     template<typename T>
     void DrawShapeSlot(Trinity::Entity entity, Trinity::CollisionShapeKind kind, const char* popup, const char* hint);
     void DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);

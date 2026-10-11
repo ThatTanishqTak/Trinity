@@ -1,11 +1,14 @@
 #pragma once
 
+#include "Trinity/Core/Export.hpp"
+
 #include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <format>
 #include <string>
+#include <string_view>
 
 namespace Trinity
 {
@@ -16,6 +19,19 @@ namespace Trinity
         Kinematic,
         Dynamic
     };
+
+    // What a 3D or a 2D scene's physics hands out after each step
+    enum class PhysicsEventType : std::uint8_t
+    {
+        ContactBegin,
+        ContactStay,
+        ContactEnd,
+        TriggerEnter,
+        TriggerExit,
+        JointBreak
+    };
+
+    [[nodiscard]] TRINITY_API std::string_view ToString(PhysicsEventType type);
 
     // The collision layers a project can have, which colliders name by index
     constexpr std::uint32_t c_MaxCollisionLayers = 16;

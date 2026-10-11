@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <numbers>
 #include <span>
 #include <utility>
 
@@ -14,6 +16,8 @@ namespace
     constexpr float c_JointMarkSize = 0.1f;
     constexpr float c_JointAxisLength = 0.5f;
     constexpr float c_HingeCircleRadius = 0.2f;
+    // The most a rounded corner of a 2D collider turns in one segment
+    constexpr float c_ArcStep = std::numbers::pi_v<float> / 12.0f;
 
     // The collider's own frame: the entity's world transform, then the collider's offset and turn
     glm::mat4 GetColliderMatrix(const glm::mat4& world, const Trinity::ColliderSettings& collider)
@@ -24,6 +28,176 @@ namespace
     glm::vec4 GetColor(const Trinity::ColliderSettings& collider)
     {
         return collider.Trigger ? c_TriggerColor : c_SolidColor;
+    }
+
+    glm::vec4 GetColor(const Trinity::Collider2DSettings& collider)
+    {
+        return collider.Trigger ? c_TriggerColor : c_SolidColor;
+    }
+
+    // A 2D collider's own frame in the XY plane, as the 2D world takes it: the entity's world transform, then the collider's offset and turn about Z, with each axis's scale, at the collider's depth in Z
+    struct Frame2D
+    {
+        glm::vec2 Origin{ 0.0f };
+        glm::vec2 AxisX{ 1.0f, 0.0f };
+        glm::vec2 AxisY{ 0.0f, 1.0f };
+        float ScaleX = 1.0f;
+        float ScaleY = 1.0f;
+        float Depth = 0.0f;
+
+        [[nodiscard]] glm::vec2 ToWorld(const glm::vec2& point) const { return Origin + AxisX * point.x + AxisY * point.y; }
+    };
+
+    Frame2D GetFrame2D(const glm::mat4& world, const Trinity::Collider2DSettings& collider)
+    {
+        const glm::mat4 l_Placed = world * glm::translate(glm::mat4(1.0f), glm::vec3(collider.Offset, 0.0f)) * glm::mat4_cast(glm::angleAxis(collider.OffsetAngle, glm::vec3(0.0f, 0.0f, 1.0f)));
+
+        return { glm::vec2(l_Placed[3]), glm::vec2(l_Placed[0]), glm::vec2(l_Placed[1]), glm::length(glm::vec3(l_Placed[0])), glm::length(glm::vec3(l_Placed[1])), l_Placed[3].z };
+    }
+
+    float Cross2D(const glm::vec2& origin, const glm::vec2& first, const glm::vec2& second)
+    {
+        return (first.x - origin.x) * (second.y - origin.y) - (first.y - origin.y) * (second.x - origin.x);
+    }
+
+    // The convex hull of the points, counter-clockwise, without points in line with their neighbours
+    std::vector<glm::vec2> GetHull(std::vector<glm::vec2> points)
+    {
+        std::ranges::sort(points, [](const glm::vec2& left, const glm::vec2& right) { return left.x < right.x || (left.x == right.x && left.y < right.y); });
+        const auto [a_First, a_Last] = std::ranges::unique(points);
+        points.erase(a_First, a_Last);
+        if (points.size() < 3)
+        {
+            return points;
+        }
+
+        std::vector<glm::vec2> l_Hull(points.size() * 2);
+        std::size_t l_Count = 0;
+        for (std::size_t it_Point = 0; it_Point < points.size(); ++it_Point)
+        {
+            while (l_Count >= 2 && Cross2D(l_Hull[l_Count - 2], l_Hull[l_Count - 1], points[it_Point]) <= 0.0f)
+            {
+                --l_Count;
+            }
+
+            l_Hull[l_Count++] = points[it_Point];
+        }
+
+        for (std::size_t it_Point = points.size() - 1, l_Lower = l_Count + 1; it_Point-- > 0;)
+        {
+            while (l_Count >= l_Lower && Cross2D(l_Hull[l_Count - 2], l_Hull[l_Count - 1], points[it_Point]) <= 0.0f)
+            {
+                --l_Count;
+            }
+
+            l_Hull[l_Count++] = points[it_Point];
+        }
+
+        l_Hull.resize(l_Count - 1);
+
+        return l_Hull;
+    }
+
+    // A counter-clockwise outline grown outward by the radius: each edge moved out along its normal, and an arc round each corner. One point with a radius is a circle, and two a capsule
+    void DrawOutline2D(std::span<const glm::vec2> outline, float radius, float depth, const glm::vec4& color)
+    {
+        const auto a_At = [depth](const glm::vec2& point) { return glm::vec3(point, depth); };
+        if (outline.size() == 1)
+        {
+            Trinity::DebugDraw::Circle(a_At(outline[0]), glm::vec3(0.0f, 0.0f, 1.0f), radius, color);
+
+            return;
+        }
+
+        const std::size_t l_Count = outline.size();
+        const auto a_Normal = [&](std::size_t edge)
+        {
+            const glm::vec2 l_Edge = outline[(edge + 1) % l_Count] - outline[edge];
+            const float l_Length = glm::length(l_Edge);
+
+            return l_Length > 0.0f ? glm::vec2(l_Edge.y, -l_Edge.x) / l_Length : glm::vec2(0.0f);
+        };
+
+        for (std::size_t it_Edge = 0; it_Edge < l_Count; ++it_Edge)
+        {
+            const glm::vec2 l_Out = a_Normal(it_Edge) * radius;
+            Trinity::DebugDraw::Line(a_At(outline[it_Edge] + l_Out), a_At(outline[(it_Edge + 1) % l_Count] + l_Out), color);
+            if (radius <= 0.0f)
+            {
+                continue;
+            }
+
+            // Round the corner at the edge's end, from this edge's normal to the next one's
+            const glm::vec2 l_Corner = outline[(it_Edge + 1) % l_Count];
+            const glm::vec2 l_From = a_Normal(it_Edge);
+            const glm::vec2 l_To = a_Normal((it_Edge + 1) % l_Count);
+            const float l_Start = std::atan2(l_From.y, l_From.x);
+            const float l_Sweep = std::fmod(std::atan2(l_To.y, l_To.x) - l_Start + 2.0f * std::numbers::pi_v<float>, 2.0f * std::numbers::pi_v<float>);
+            const int l_Steps = std::max(static_cast<int>(std::ceil(l_Sweep / c_ArcStep)), 1);
+            glm::vec2 l_Previous = l_Corner + l_From * radius;
+            for (int it_Step = 1; it_Step <= l_Steps; ++it_Step)
+            {
+                const float l_Angle = l_Start + l_Sweep * static_cast<float>(it_Step) / static_cast<float>(l_Steps);
+                const glm::vec2 l_Next = l_Corner + glm::vec2(std::cos(l_Angle), std::sin(l_Angle)) * radius;
+                Trinity::DebugDraw::Line(a_At(l_Previous), a_At(l_Next), color);
+                l_Previous = l_Next;
+            }
+        }
+    }
+
+    // A box or polygon by the hull of its points in the world, with a polygon's corners rounded by its radius at the larger scale. Nothing for points that make no area, which the 2D world leaves out
+    void DrawPolygon2D(const Frame2D& frame, std::span<const glm::vec2> points, float radius, const glm::vec4& color)
+    {
+        std::vector<glm::vec2> l_World;
+        l_World.reserve(points.size());
+        for (std::size_t it_Point = 0; it_Point < std::min(points.size(), Trinity::PolygonCollider2DComponent::c_MaxPoints); ++it_Point)
+        {
+            l_World.push_back(frame.ToWorld(points[it_Point]));
+        }
+
+        const std::vector<glm::vec2> l_Hull = GetHull(std::move(l_World));
+        if (l_Hull.size() >= 3)
+        {
+            DrawOutline2D(l_Hull, std::max(radius, 0.0f) * std::max(frame.ScaleX, frame.ScaleY), frame.Depth, color);
+        }
+    }
+
+    // As the 2D world takes them: a circle by the larger of its X and Y scales, and a capsule by its Y scale along its length and its X scale around it
+    void DrawEntityColliders2D(Trinity::Entity entity)
+    {
+        const glm::mat4& l_World = entity.Get<Trinity::WorldTransformComponent>().Matrix;
+
+        if (entity.Has<Trinity::BoxCollider2DComponent>())
+        {
+            const Trinity::BoxCollider2DComponent& l_Box = entity.Get<Trinity::BoxCollider2DComponent>();
+            const glm::vec2 l_Half = glm::max(l_Box.HalfExtents, glm::vec2(1e-3f));
+            const std::array<glm::vec2, 4> l_Corners{ { { -l_Half.x, -l_Half.y }, { l_Half.x, -l_Half.y }, { l_Half.x, l_Half.y }, { -l_Half.x, l_Half.y } } };
+            DrawPolygon2D(GetFrame2D(l_World, l_Box), l_Corners, 0.0f, GetColor(l_Box));
+        }
+
+        if (entity.Has<Trinity::CircleCollider2DComponent>())
+        {
+            const Trinity::CircleCollider2DComponent& l_Circle = entity.Get<Trinity::CircleCollider2DComponent>();
+            const Frame2D l_Frame = GetFrame2D(l_World, l_Circle);
+            const glm::vec2 l_Centre = l_Frame.Origin;
+            DrawOutline2D(std::span(&l_Centre, 1), l_Circle.Radius * std::max(l_Frame.ScaleX, l_Frame.ScaleY), l_Frame.Depth, GetColor(l_Circle));
+        }
+
+        if (entity.Has<Trinity::CapsuleCollider2DComponent>())
+        {
+            const Trinity::CapsuleCollider2DComponent& l_Capsule = entity.Get<Trinity::CapsuleCollider2DComponent>();
+            const Frame2D l_Frame = GetFrame2D(l_World, l_Capsule);
+            const float l_HalfSegment = l_Capsule.GetHalfSegment();
+            const std::array<glm::vec2, 2> l_Ends{ { l_Frame.ToWorld({ 0.0f, -l_HalfSegment }), l_Frame.ToWorld({ 0.0f, l_HalfSegment }) } };
+            const bool l_Round = l_HalfSegment * l_Frame.ScaleY < 1e-3f;
+            DrawOutline2D(std::span(l_Ends).first(l_Round ? 1 : 2), l_Capsule.Radius * l_Frame.ScaleX, l_Frame.Depth, GetColor(l_Capsule));
+        }
+
+        if (entity.Has<Trinity::PolygonCollider2DComponent>())
+        {
+            const Trinity::PolygonCollider2DComponent& l_Polygon = entity.Get<Trinity::PolygonCollider2DComponent>();
+            DrawPolygon2D(GetFrame2D(l_World, l_Polygon), l_Polygon.Points, l_Polygon.Radius, GetColor(l_Polygon));
+        }
     }
 
     // A round shape along the frame's Y: its centre, its unit axis and the scale along it, and the larger scale across it
@@ -188,6 +362,7 @@ void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root)
     for (Trinity::Entity it_Entity = root; it_Entity; it_Entity = scene.GetNextInSubtree(it_Entity, root))
     {
         DrawEntityColliders(it_Entity, m_Drawn);
+        DrawEntityColliders2D(it_Entity);
         DrawEntityJoint(scene, it_Entity);
     }
 

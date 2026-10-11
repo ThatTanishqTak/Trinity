@@ -3,6 +3,7 @@
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Profiler.hpp"
+#include "Trinity/Physics/PhysicsScene2D.hpp"
 #include "Trinity/Physics/PhysicsScene3D.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
@@ -41,6 +42,11 @@ namespace Trinity
         {
             m_Physics = CreateScope<PhysicsScene3D>(scene, layers);
         }
+
+        if (PhysicsScene2D::IsNeeded(scene))
+        {
+            m_Physics2D = CreateScope<PhysicsScene2D>(scene, layers);
+        }
     }
 
     SceneRuntime::~SceneRuntime() = default;
@@ -62,6 +68,11 @@ namespace Trinity
             m_Physics->BeginFrame(m_StepsThisFrame);
         }
 
+        if (m_Physics2D)
+        {
+            m_Physics2D->BeginFrame(m_StepsThisFrame);
+        }
+
         for (std::uint32_t it_Step = 0; it_Step < m_StepsThisFrame; ++it_Step)
         {
             TR_PROFILE_SCOPE("SceneRuntime::Step");
@@ -74,18 +85,29 @@ namespace Trinity
             {
                 m_Physics->Step(l_Step, it_Step);
             }
+
+            if (m_Physics2D)
+            {
+                m_Physics2D->Step(l_Step, it_Step);
+            }
         }
 
         if (m_Physics)
         {
             m_Physics->EndFrame(m_Clock.GetInterpolation());
-            LogPhysicsEvents();
         }
+
+        if (m_Physics2D)
+        {
+            m_Physics2D->EndFrame(m_Clock.GetInterpolation());
+        }
+
+        LogPhysicsEvents();
 
         m_Scene.UpdateWorldTransforms();
     }
 
-    // Numbered by the step they came from since the scene started
+    // Numbered by the step they came from since the scene started, the 3D world's then the 2D world's
     void SceneRuntime::LogPhysicsEvents() const
     {
         const std::int32_t l_Level = s_PhysicsEventsVariable.Get();
@@ -95,15 +117,32 @@ namespace Trinity
         }
 
         const std::uint64_t l_FirstStep = m_Clock.GetStepCount() - m_StepsThisFrame + 1;
-        for (const PhysicsEvent3D& it_Event : m_Physics->GetEvents())
+        if (m_Physics)
         {
-            if (it_Event.Type == PhysicsEventType::ContactStay && l_Level < 2)
+            for (const PhysicsEvent3D& it_Event : m_Physics->GetEvents())
             {
-                continue;
-            }
+                if (it_Event.Type == PhysicsEventType::ContactStay && l_Level < 2)
+                {
+                    continue;
+                }
 
-            const std::string l_Where = it_Event.Type == PhysicsEventType::ContactBegin ? std::format(" at ({:.3f}, {:.3f}, {:.3f}) along ({:.3f}, {:.3f}, {:.3f})", it_Event.Point.x, it_Event.Point.y, it_Event.Point.z, it_Event.Normal.x, it_Event.Normal.y, it_Event.Normal.z) : std::string();
-            TR_CORE_INFO("Physics: step {}, {}: {} and {}{}", l_FirstStep + it_Event.Step, ToString(it_Event.Type), GetEntityName(m_Scene, it_Event.First), GetEntityName(m_Scene, it_Event.Second), l_Where);
+                const std::string l_Where = it_Event.Type == PhysicsEventType::ContactBegin ? std::format(" at ({:.3f}, {:.3f}, {:.3f}) along ({:.3f}, {:.3f}, {:.3f})", it_Event.Point.x, it_Event.Point.y, it_Event.Point.z, it_Event.Normal.x, it_Event.Normal.y, it_Event.Normal.z) : std::string();
+                TR_CORE_INFO("Physics: step {}, {}: {} and {}{}", l_FirstStep + it_Event.Step, ToString(it_Event.Type), GetEntityName(m_Scene, it_Event.First), GetEntityName(m_Scene, it_Event.Second), l_Where);
+            }
+        }
+
+        if (m_Physics2D)
+        {
+            for (const PhysicsEvent2D& it_Event : m_Physics2D->GetEvents())
+            {
+                if (it_Event.Type == PhysicsEventType::ContactStay && l_Level < 2)
+                {
+                    continue;
+                }
+
+                const std::string l_Where = it_Event.Type == PhysicsEventType::ContactBegin ? std::format(" at ({:.3f}, {:.3f}) along ({:.3f}, {:.3f})", it_Event.Point.x, it_Event.Point.y, it_Event.Normal.x, it_Event.Normal.y) : std::string();
+                TR_CORE_INFO("Physics: step {}, 2D {}: {} and {}{}", l_FirstStep + it_Event.Step, ToString(it_Event.Type), GetEntityName(m_Scene, it_Event.First), GetEntityName(m_Scene, it_Event.Second), l_Where);
+            }
         }
     }
 }

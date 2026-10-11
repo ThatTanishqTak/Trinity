@@ -253,6 +253,10 @@ public:
         {
             l_Size += m_Old.Tag.capacity() + m_New.Tag.capacity();
         }
+        else if constexpr (std::is_same_v<T, Trinity::PolygonCollider2DComponent>)
+        {
+            l_Size += (m_Old.Points.capacity() + m_New.Points.capacity()) * sizeof(glm::vec2);
+        }
 
         return l_Size;
     }

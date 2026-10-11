@@ -19,18 +19,6 @@ namespace Trinity
     class PhysicsWorld3D;
     class Scene;
 
-    enum class PhysicsEventType : std::uint8_t
-    {
-        ContactBegin,
-        ContactStay,
-        ContactEnd,
-        TriggerEnter,
-        TriggerExit,
-        JointBreak
-    };
-
-    [[nodiscard]] TRINITY_API std::string_view ToString(PhysicsEventType type);
-
     // Between two bodies, named by the entities that own them. A contact's are in UUID order and a trigger's first is the trigger's. A joint's break names the joint's entity and the entity it was joined to, none for the world. A contact's beginning has where the bodies first touched and the normal from the first to the second, in world space, and every other event has zeros
     struct PhysicsEvent3D
     {
