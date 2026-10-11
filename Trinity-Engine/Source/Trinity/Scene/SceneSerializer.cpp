@@ -376,6 +376,7 @@ namespace Trinity
             writer.Write("InitialLinearVelocity", component.InitialLinearVelocity);
             writer.Write("InitialAngularVelocity", component.InitialAngularVelocity);
             writer.Write("StartAsleep", component.StartAsleep);
+            writer.Write("CanSleep", component.CanSleep);
         }
 
         // A motion this build lacks loads as dynamic
@@ -395,6 +396,7 @@ namespace Trinity
             reader.Read("InitialLinearVelocity", component.InitialLinearVelocity);
             reader.Read("InitialAngularVelocity", component.InitialAngularVelocity);
             reader.Read("StartAsleep", component.StartAsleep);
+            reader.Read("CanSleep", component.CanSleep);
         }
 
         // Written before each collider's own fields
@@ -494,6 +496,58 @@ namespace Trinity
         {
             LoadColliderSettings(component, reader);
             reader.Read("Shape", component.Shape);
+        }
+
+        constexpr std::array<std::pair<JointType, std::string_view>, 5> c_JointTypeNames{ { { JointType::Fixed, "Fixed" }, { JointType::Hinge, "Hinge" }, { JointType::Slider, "Slider" }, { JointType::Distance, "Distance" }, { JointType::Point, "Point" } } };
+
+        // Every field, whichever the type uses, so changing a joint's type and back keeps its settings
+        void SaveJoint(const JointComponent& component, ComponentWriter& writer)
+        {
+            const auto a_Found = std::ranges::find(c_JointTypeNames, component.Type, &std::pair<JointType, std::string_view>::first);
+            writer.Write("Type", a_Found != c_JointTypeNames.end() ? a_Found->second : std::string_view("Hinge"));
+            writer.Write("ConnectedBody", component.ConnectedBody);
+            writer.Write("Anchor", component.Anchor);
+            writer.Write("Axis", component.Axis);
+            writer.Write("ConnectedAnchor", component.ConnectedAnchor);
+            writer.Write("CollideConnected", component.CollideConnected);
+            writer.Write("BreakForce", component.BreakForce);
+            writer.Write("BreakTorque", component.BreakTorque);
+            writer.Write("UseLimits", component.UseLimits);
+            writer.Write("LowerLimit", component.LowerLimit);
+            writer.Write("UpperLimit", component.UpperLimit);
+            writer.Write("UseMotor", component.UseMotor);
+            writer.Write("MotorSpeed", component.MotorSpeed);
+            writer.Write("MotorMaxForce", component.MotorMaxForce);
+            writer.Write("MinDistance", component.MinDistance);
+            writer.Write("MaxDistance", component.MaxDistance);
+            writer.Write("SpringFrequency", component.SpringFrequency);
+            writer.Write("SpringDamping", component.SpringDamping);
+        }
+
+        // A type this build lacks loads as a hinge
+        void LoadJoint(JointComponent& component, const ComponentReader& reader)
+        {
+            std::string l_Type;
+            reader.Read("Type", l_Type);
+            const auto a_Found = std::ranges::find(c_JointTypeNames, std::string_view(l_Type), &std::pair<JointType, std::string_view>::second);
+            component.Type = a_Found != c_JointTypeNames.end() ? a_Found->first : JointType::Hinge;
+            reader.Read("ConnectedBody", component.ConnectedBody);
+            reader.Read("Anchor", component.Anchor);
+            reader.Read("Axis", component.Axis);
+            reader.Read("ConnectedAnchor", component.ConnectedAnchor);
+            reader.Read("CollideConnected", component.CollideConnected);
+            reader.Read("BreakForce", component.BreakForce);
+            reader.Read("BreakTorque", component.BreakTorque);
+            reader.Read("UseLimits", component.UseLimits);
+            reader.Read("LowerLimit", component.LowerLimit);
+            reader.Read("UpperLimit", component.UpperLimit);
+            reader.Read("UseMotor", component.UseMotor);
+            reader.Read("MotorSpeed", component.MotorSpeed);
+            reader.Read("MotorMaxForce", component.MotorMaxForce);
+            reader.Read("MinDistance", component.MinDistance);
+            reader.Read("MaxDistance", component.MaxDistance);
+            reader.Read("SpringFrequency", component.SpringFrequency);
+            reader.Read("SpringDamping", component.SpringDamping);
         }
 
         struct FileEntity
@@ -1026,6 +1080,7 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<CylinderColliderComponent, SaveCylinderCollider, LoadCylinderCollider>());
             RegisterComponent(MakeComponentSerializer<ConvexHullColliderComponent, SaveConvexHullCollider, LoadConvexHullCollider>());
             RegisterComponent(MakeComponentSerializer<MeshColliderComponent, SaveMeshCollider, LoadMeshCollider>());
+            RegisterComponent(MakeComponentSerializer<JointComponent, SaveJoint, LoadJoint>());
         }
 
         void Shutdown()

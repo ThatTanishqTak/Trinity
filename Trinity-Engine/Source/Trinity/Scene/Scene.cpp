@@ -6,6 +6,8 @@
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 
+#include <algorithm>
+#include <utility>
 #include <vector>
 
 namespace Trinity
@@ -35,7 +37,7 @@ namespace Trinity
 
     Scene::Scene()
     {
-        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, PhysicsPoseComponent, UnknownComponentsComponent>(m_Registry);
+        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, JointComponent, PhysicsPoseComponent, UnknownComponentsComponent>(m_Registry);
     }
 
     Scene::~Scene() = default;
@@ -107,13 +109,32 @@ namespace Trinity
         m_Registry.destroy(l_Subtree.begin(), l_Subtree.end());
     }
 
+    // A joint in the copy that names an entity of the copied subtree names that entity's copy instead, so a duplicated door hangs on its own frame. The two subtrees have the same shape, so they are walked side by side
     Entity Scene::DuplicateEntity(Entity entity)
     {
         TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: DuplicateEntity was given an entity of another scene, or one already destroyed");
 
         const RelationshipComponent& l_Relationship = m_Registry.get<RelationshipComponent>(entity.GetHandle());
+        const entt::entity l_Source = entity.GetHandle();
+        const entt::entity l_Copy = Duplicate(l_Source, l_Relationship.Parent, l_Relationship.NextSibling);
 
-        return Entity(Duplicate(entity.GetHandle(), l_Relationship.Parent, l_Relationship.NextSibling), this);
+        std::vector<std::pair<UUID, UUID>> l_Copies;
+        for (entt::entity it_Source = l_Source, it_Copy = l_Copy; it_Source != entt::null && it_Copy != entt::null; it_Source = GetNext(it_Source, l_Source), it_Copy = GetNext(it_Copy, l_Copy))
+        {
+            l_Copies.emplace_back(m_Registry.get<IDComponent>(it_Source).ID, m_Registry.get<IDComponent>(it_Copy).ID);
+        }
+
+        for (entt::entity it_Copy = l_Copy; it_Copy != entt::null; it_Copy = GetNext(it_Copy, l_Copy))
+        {
+            JointComponent* l_Joint = m_Registry.try_get<JointComponent>(it_Copy);
+            const auto a_Copied = l_Joint != nullptr ? std::ranges::find(l_Copies, l_Joint->ConnectedBody, &std::pair<UUID, UUID>::first) : l_Copies.end();
+            if (a_Copied != l_Copies.end())
+            {
+                l_Joint->ConnectedBody = a_Copied->second;
+            }
+        }
+
+        return Entity(l_Copy, this);
     }
 
     void Scene::Clear()

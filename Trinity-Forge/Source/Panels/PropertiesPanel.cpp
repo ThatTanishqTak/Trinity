@@ -30,7 +30,7 @@ namespace
     constexpr const char* c_AddComponentPopup = "##AddComponent";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 14> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName };
+    constexpr std::array<std::string_view, 15> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::JointComponent::c_TypeName };
 
     // A label on the left and the widget filling the rest of the row
     void Label(const char* label)
@@ -244,6 +244,7 @@ void PropertiesPanel::OnImGuiRender()
     DrawEnvironment(l_Entity);
     DrawRigidBody(l_Entity);
     DrawColliders(l_Entity);
+    DrawJoint(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawAddComponent(l_Entity);
     ImGui::PopID();
@@ -935,6 +936,13 @@ void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
 
     Label("Start Asleep");
     EditField<Trinity::RigidBodyComponent>(l_History, entity, "StartAsleep", [](Trinity::RigidBodyComponent& body) { return ImGui::Checkbox("##StartAsleep", &body.StartAsleep); });
+
+    Label("Can Sleep");
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "CanSleep", [](Trinity::RigidBodyComponent& body) { return ImGui::Checkbox("##CanSleep", &body.CanSleep); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Whether it may fall asleep once it has stayed within a few centimetres for half a second. A slow, small swing does that at each end, so untick it for a swinging lamp or a bobbing buoy");
+    }
 }
 
 // Each collider's settings, then its shape, in metres before its entity's scale
@@ -992,6 +1000,234 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
         {
             ImGui::TextWrapped("%s", std::format("{} Triangle meshes are for static and kinematic bodies. A dynamic body takes a convex hull", Trinity::Icons::c_Warning).c_str());
         }
+    }
+}
+
+// The type, the body it joins, picked from the entities with a body or a collider or dropped from the Hierarchy, its frame, and its type's own settings, with a hinge's angles in degrees, kept as radians. A joint naming an entity no longer in the scene says so, and is left out when the scene runs
+void PropertiesPanel::DrawJoint(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::JointComponent>() || !BeginComponent(Trinity::JointComponent::c_TypeName, Trinity::Icons::c_Link, true))
+    {
+        return;
+    }
+
+    using Joint = Trinity::JointComponent;
+    CommandStack& l_History = m_Session.GetHistory();
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    const Joint l_Joint = entity.Get<Joint>();
+    const bool l_Hinge = l_Joint.Type == Trinity::JointType::Hinge;
+    const bool l_Slider = l_Joint.Type == Trinity::JointType::Slider;
+    const bool l_Distance = l_Joint.Type == Trinity::JointType::Distance;
+
+    Label("Type");
+    EditField<Joint>(l_History, entity, "Type", [](Joint& joint)
+    {
+        int l_Type = static_cast<int>(joint.Type);
+        const bool l_Changed = ImGui::Combo("##Type", &l_Type, "Fixed\0Hinge\0Slider\0Distance\0Point\0");
+        joint.Type = static_cast<Trinity::JointType>(l_Type);
+
+        return l_Changed;
+    });
+
+    const Trinity::Entity l_Connected = l_Joint.ConnectedBody ? l_Scene.FindEntityByUUID(l_Joint.ConnectedBody) : Trinity::Entity();
+    const std::string l_Preview = !l_Joint.ConnectedBody ? std::string("World") : (l_Connected ? GetEntityLabel(l_Connected) : std::format("{} Missing {}", Trinity::Icons::c_Warning, l_Joint.ConnectedBody));
+    Label("Connected Body");
+    EditField<Joint>(l_History, entity, "ConnectedBody", [&](Joint& joint)
+    {
+        bool l_Changed = false;
+        const bool l_Open = ImGui::BeginCombo("##ConnectedBody", l_Preview.c_str());
+        if (!l_Open && ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload))
+            {
+                std::uint64_t l_Value = 0;
+                std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+                if (l_Value != entity.GetUUID().GetValue() && l_Value != joint.ConnectedBody.GetValue())
+                {
+                    joint.ConnectedBody = Trinity::UUID(l_Value);
+                    l_Changed = true;
+                }
+            }
+
+            ImGui::EndDragDropTarget();
+        }
+
+        if (!l_Open)
+        {
+            return l_Changed;
+        }
+
+        if (ImGui::Selectable("World", !joint.ConnectedBody) && joint.ConnectedBody)
+        {
+            joint.ConnectedBody = {};
+            l_Changed = true;
+        }
+
+        for (Trinity::Entity it_Entity = l_Scene.GetFirstRoot(); it_Entity; it_Entity = l_Scene.GetNextInHierarchyOrder(it_Entity))
+        {
+            const bool l_Body = it_Entity.Has<Trinity::RigidBodyComponent>() || it_Entity.Has<Trinity::BoxColliderComponent>() || it_Entity.Has<Trinity::SphereColliderComponent>() || it_Entity.Has<Trinity::CapsuleColliderComponent>() || it_Entity.Has<Trinity::CylinderColliderComponent>() || it_Entity.Has<Trinity::ConvexHullColliderComponent>() || it_Entity.Has<Trinity::MeshColliderComponent>();
+            if (it_Entity == entity || !l_Body)
+            {
+                continue;
+            }
+
+            const bool l_Selected = joint.ConnectedBody == it_Entity.GetUUID();
+            ImGui::PushID(it_Entity.GetUUID().ToString().c_str());
+            if (ImGui::Selectable(GetEntityLabel(it_Entity).c_str(), l_Selected) && !l_Selected)
+            {
+                joint.ConnectedBody = it_Entity.GetUUID();
+                l_Changed = true;
+            }
+
+            if (l_Selected)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+
+            ImGui::PopID();
+        }
+
+        ImGui::EndCombo();
+
+        return l_Changed;
+    });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("The body it joins, through that body's entity or one of its collider entities, or the world. An entity can be dropped here from the Hierarchy");
+    }
+
+    if (l_Joint.ConnectedBody && !l_Connected)
+    {
+        ImGui::TextWrapped("%s", std::format("{} The entity it joins is no longer in the scene, so the joint is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
+    }
+
+    Label("Anchor");
+    EditField<Joint>(l_History, entity, "Anchor", [](Joint& joint) { return ImGui::DragFloat3("##Anchor", &joint.Anchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Where the joint is, from the entity, in its own space");
+    }
+
+    if (l_Hinge || l_Slider)
+    {
+        Label("Axis");
+        EditField<Joint>(l_History, entity, "Axis", [](Joint& joint) { return ImGui::DragFloat3("##Axis", &joint.Axis.x, 0.01f, -1.0f, 1.0f, "%.3f"); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("%s", l_Hinge ? "What it turns about, in the entity's own space" : "What it slides along, in the entity's own space");
+        }
+    }
+
+    if (l_Distance)
+    {
+        Label("Connected Anchor");
+        EditField<Joint>(l_History, entity, "ConnectedAnchor", [](Joint& joint) { return ImGui::DragFloat3("##ConnectedAnchor", &joint.ConnectedAnchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("The other end, on the connected entity in its own space, or in the world for a joint to the world");
+        }
+    }
+
+    Label("Collide Connected");
+    EditField<Joint>(l_History, entity, "CollideConnected", [](Joint& joint) { return ImGui::Checkbox("##CollideConnected", &joint.CollideConnected); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Whether the two bodies still collide with each other");
+    }
+
+    if (l_Hinge || l_Slider)
+    {
+        Label("Limits");
+        EditField<Joint>(l_History, entity, "UseLimits", [](Joint& joint) { return ImGui::Checkbox("##UseLimits", &joint.UseLimits); });
+        if (l_Joint.UseLimits && l_Hinge)
+        {
+            Label("Lower");
+            EditField<Joint>(l_History, entity, "LowerLimit", [](Joint& joint)
+            {
+                float l_Degrees = glm::degrees(joint.LowerLimit);
+                const bool l_Changed = ImGui::DragFloat("##LowerLimit", &l_Degrees, 0.5f, -180.0f, 0.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+                joint.LowerLimit = glm::radians(l_Degrees);
+
+                return l_Changed;
+            });
+
+            Label("Upper");
+            EditField<Joint>(l_History, entity, "UpperLimit", [](Joint& joint)
+            {
+                float l_Degrees = glm::degrees(joint.UpperLimit);
+                const bool l_Changed = ImGui::DragFloat("##UpperLimit", &l_Degrees, 0.5f, 0.0f, 180.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+                joint.UpperLimit = glm::radians(l_Degrees);
+
+                return l_Changed;
+            });
+        }
+        else if (l_Joint.UseLimits)
+        {
+            Label("Lower");
+            EditField<Joint>(l_History, entity, "LowerLimit", [](Joint& joint) { return ImGui::DragFloat("##LowerLimit", &joint.LowerLimit, 0.01f, -1.0e4f, 0.0f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+
+            Label("Upper");
+            EditField<Joint>(l_History, entity, "UpperLimit", [](Joint& joint) { return ImGui::DragFloat("##UpperLimit", &joint.UpperLimit, 0.01f, 0.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        }
+
+        Label("Motor");
+        EditField<Joint>(l_History, entity, "UseMotor", [](Joint& joint) { return ImGui::Checkbox("##UseMotor", &joint.UseMotor); });
+        if (l_Joint.UseMotor)
+        {
+            Label("Speed");
+            EditField<Joint>(l_History, entity, "MotorSpeed", [l_Hinge](Joint& joint)
+            {
+                if (!l_Hinge)
+                {
+                    return ImGui::DragFloat("##MotorSpeed", &joint.MotorSpeed, 0.01f, -1.0e4f, 1.0e4f, "%.3f m/s", ImGuiSliderFlags_AlwaysClamp);
+                }
+
+                float l_Degrees = glm::degrees(joint.MotorSpeed);
+                const bool l_Changed = ImGui::DragFloat("##MotorSpeed", &l_Degrees, 1.0f, -1.0e5f, 1.0e5f, "%.1f\xC2\xB0/s", ImGuiSliderFlags_AlwaysClamp);
+                joint.MotorSpeed = glm::radians(l_Degrees);
+
+                return l_Changed;
+            });
+
+            Label(l_Hinge ? "Max Torque" : "Max Force");
+            EditField<Joint>(l_History, entity, "MotorMaxForce", [l_Hinge](Joint& joint) { return ImGui::DragFloat("##MotorMaxForce", &joint.MotorMaxForce, 1.0f, 0.0f, 1.0e9f, l_Hinge ? "%.1f N m" : "%.1f N", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+        }
+    }
+
+    if (l_Distance)
+    {
+        Label("Min Distance");
+        EditField<Joint>(l_History, entity, "MinDistance", [](Joint& joint) { return ImGui::DragFloat("##MinDistance", &joint.MinDistance, 0.01f, -1.0f, 1.0e4f, joint.MinDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
+
+        Label("Max Distance");
+        EditField<Joint>(l_History, entity, "MaxDistance", [](Joint& joint) { return ImGui::DragFloat("##MaxDistance", &joint.MaxDistance, 0.01f, -1.0f, 1.0e4f, joint.MaxDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Below 0, the distance between the two ends as the scene starts");
+        }
+
+        Label("Spring");
+        EditField<Joint>(l_History, entity, "SpringFrequency", [](Joint& joint) { return ImGui::DragFloat("##SpringFrequency", &joint.SpringFrequency, 0.01f, 0.0f, 1000.0f, joint.SpringFrequency > 0.0f ? "%.2f Hz" : "Rigid", ImGuiSliderFlags_AlwaysClamp); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("How many times a second a body on the spring bounces, 0 for a rigid range");
+        }
+
+        Label("Damping");
+        EditField<Joint>(l_History, entity, "SpringDamping", [](Joint& joint) { return ImGui::DragFloat("##SpringDamping", &joint.SpringDamping, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("0 bounces for ever, 1 settles as fast as it can without overshooting");
+        }
+    }
+
+    Label("Break Force");
+    EditField<Joint>(l_History, entity, "BreakForce", [](Joint& joint) { return ImGui::DragFloat("##BreakForce", &joint.BreakForce, 1.0f, 0.0f, 1.0e9f, joint.BreakForce > 0.0f ? "%.1f N" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+
+    if (l_Joint.Type == Trinity::JointType::Fixed || l_Hinge || l_Slider)
+    {
+        Label("Break Torque");
+        EditField<Joint>(l_History, entity, "BreakTorque", [](Joint& joint) { return ImGui::DragFloat("##BreakTorque", &joint.BreakTorque, 1.0f, 0.0f, 1.0e9f, joint.BreakTorque > 0.0f ? "%.1f N m" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     }
 }
 

@@ -9,6 +9,11 @@ namespace
 {
     constexpr glm::vec4 c_SolidColor{ 0.45f, 0.95f, 0.45f, 1.0f };
     constexpr glm::vec4 c_TriggerColor{ 0.4f, 0.75f, 1.0f, 1.0f };
+    constexpr glm::vec4 c_JointColor{ 1.0f, 0.65f, 0.2f, 1.0f };
+    // In metres, whatever the scene's scale
+    constexpr float c_JointMarkSize = 0.1f;
+    constexpr float c_JointAxisLength = 0.5f;
+    constexpr float c_HingeCircleRadius = 0.2f;
 
     // The collider's own frame: the entity's world transform, then the collider's offset and turn
     glm::mat4 GetColliderMatrix(const glm::mat4& world, const Trinity::ColliderSettings& collider)
@@ -130,6 +135,45 @@ namespace
             DrawShape<Trinity::CollisionMeshAsset>(GetColliderMatrix(l_World, l_Mesh), l_Mesh.Shape, GetColor(l_Mesh));
         }
     }
+
+    // The anchor in the entity's frame, the axis turned with it, and a line to the other end: the connected entity's anchor for a distance joint, or its origin, or for a distance joint to the world its anchor there. A joint naming an entity no longer in the scene draws no line
+    void DrawEntityJoint(Trinity::Scene& scene, Trinity::Entity entity)
+    {
+        if (!entity.Has<Trinity::JointComponent>())
+        {
+            return;
+        }
+
+        const Trinity::JointComponent& l_Joint = entity.Get<Trinity::JointComponent>();
+        const glm::mat4& l_World = entity.Get<Trinity::WorldTransformComponent>().Matrix;
+        const glm::vec3 l_Anchor(l_World * glm::vec4(l_Joint.Anchor, 1.0f));
+        Trinity::DebugDraw::Cross(l_Anchor, c_JointMarkSize, c_JointColor, Trinity::DebugDepth::OnTop);
+
+        if (l_Joint.Type == Trinity::JointType::Hinge || l_Joint.Type == Trinity::JointType::Slider)
+        {
+            const glm::vec3 l_Local = glm::length(l_Joint.Axis) > 1e-6f ? glm::normalize(l_Joint.Axis) : glm::vec3(0.0f, 1.0f, 0.0f);
+            const glm::vec3 l_Turned = glm::mat3(l_World) * l_Local;
+            const glm::vec3 l_Axis = glm::length(l_Turned) > 1e-6f ? glm::normalize(l_Turned) : l_Local;
+            Trinity::DebugDraw::Arrow(l_Anchor, l_Anchor + l_Axis * c_JointAxisLength, c_JointColor, Trinity::DebugDepth::OnTop);
+            if (l_Joint.Type == Trinity::JointType::Hinge)
+            {
+                Trinity::DebugDraw::Circle(l_Anchor, l_Axis, c_HingeCircleRadius, c_JointColor, Trinity::DebugDepth::OnTop);
+            }
+        }
+
+        const Trinity::Entity l_Connected = l_Joint.ConnectedBody ? scene.FindEntityByUUID(l_Joint.ConnectedBody) : Trinity::Entity();
+        const bool l_Distance = l_Joint.Type == Trinity::JointType::Distance;
+        if (l_Connected)
+        {
+            const glm::mat4& l_Other = l_Connected.Get<Trinity::WorldTransformComponent>().Matrix;
+            Trinity::DebugDraw::Line(l_Anchor, glm::vec3(l_Other * glm::vec4(l_Distance ? l_Joint.ConnectedAnchor : glm::vec3(0.0f), 1.0f)), c_JointColor, Trinity::DebugDepth::OnTop);
+        }
+        else if (l_Distance && !l_Joint.ConnectedBody)
+        {
+            Trinity::DebugDraw::Line(l_Anchor, l_Joint.ConnectedAnchor, c_JointColor, Trinity::DebugDepth::OnTop);
+            Trinity::DebugDraw::Cross(l_Joint.ConnectedAnchor, c_JointMarkSize, c_JointColor, Trinity::DebugDepth::OnTop);
+        }
+    }
 }
 
 ColliderDrawing::~ColliderDrawing()
@@ -144,6 +188,7 @@ void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root)
     for (Trinity::Entity it_Entity = root; it_Entity; it_Entity = scene.GetNextInSubtree(it_Entity, root))
     {
         DrawEntityColliders(it_Entity, m_Drawn);
+        DrawEntityJoint(scene, it_Entity);
     }
 
     std::erase(m_Drawn, Trinity::UUID());

@@ -33,6 +33,11 @@
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/ShapeFilter.h>
 #include <Jolt/Physics/Collision/SimShapeFilter.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/SliderConstraint.h>
 
 #include <algorithm>
 #include <bit>
@@ -68,6 +73,8 @@ namespace Trinity
         constexpr std::uint64_t c_SensorBit = 1;
         // A ray's hit is found again from this fraction of its distance, and a metre's, before it
         constexpr float c_RefineMargin = 1e-3f;
+        // A joint's second body when it is joined to the world
+        constexpr std::size_t c_World = SIZE_MAX;
 
         enum class ColliderKind : std::uint8_t
         {
@@ -136,6 +143,42 @@ namespace Trinity
             BodyPose TargetFrom;
             BodyPose TargetTo;
         };
+
+        // A joint as it was read when the scene started: its entity, the entity it names and the records of its two bodies, the second none for the world, and its constraint once made. A joint that cannot be made is dropped, and one that breaks is let go
+        struct JointRecord
+        {
+            entt::entity Entity = entt::null;
+            UUID ID;
+            entt::entity OtherEntity = entt::null;
+            UUID Other;
+            JointComponent Settings;
+            std::size_t First = 0;
+            std::size_t Second = c_World;
+            JPH::Ref<JPH::TwoBodyConstraint> Constraint;
+            // Its bodies' pair, kept from colliding while it holds
+            std::uint64_t Pair = 0;
+            bool KeptApart = false;
+            bool Waiting = true;
+        };
+
+        std::string_view GetJointTypeName(JointType type)
+        {
+            switch (type)
+            {
+                case JointType::Fixed:
+                    return "fixed";
+                case JointType::Hinge:
+                    return "hinge";
+                case JointType::Slider:
+                    return "slider";
+                case JointType::Distance:
+                    return "distance";
+                case JointType::Point:
+                    return "point";
+            }
+
+            return "unknown";
+        }
 
         // A contact Jolt added or removed on a worker, with its bodies in ID order
         struct RawContact
@@ -512,15 +555,29 @@ namespace Trinity
         switch (type)
         {
             case PhysicsEventType::ContactBegin:
+            {
                 return "contact begin";
+            }
             case PhysicsEventType::ContactStay:
+            {
                 return "contact stay";
+            }
             case PhysicsEventType::ContactEnd:
+            {
                 return "contact end";
+            }
             case PhysicsEventType::TriggerEnter:
+            {
                 return "trigger enter";
+            }
             case PhysicsEventType::TriggerExit:
+            {
                 return "trigger exit";
+            }
+            case PhysicsEventType::JointBreak:
+            {
+                return "joint break";
+            }
         }
 
         return "unknown";
@@ -542,10 +599,22 @@ namespace Trinity
             return l_Settings;
         }
 
-        // A body's own sensor never reports touching the body
+        // A body's own sensor never reports touching the body, and two bodies a joint keeps apart never touch. The joints' pairs change only on the main thread between steps
         [[nodiscard]] JPH::ValidateResult OnContactValidate(const JPH::Body& first, const JPH::Body& second, [[maybe_unused]] JPH::RVec3Arg baseOffset, [[maybe_unused]] const JPH::CollideShapeResult& result) override
         {
-            return GetRecord(first) != nullptr && GetRecord(first) == GetRecord(second) ? JPH::ValidateResult::RejectAllContactsForThisBodyPair : JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+            if (GetRecord(first) != nullptr && GetRecord(first) == GetRecord(second))
+            {
+                return JPH::ValidateResult::RejectAllContactsForThisBodyPair;
+            }
+
+            const std::uint32_t l_First = first.GetID().GetIndexAndSequenceNumber();
+            const std::uint32_t l_Second = second.GetID().GetIndexAndSequenceNumber();
+            if (!KeptApart.empty() && std::ranges::binary_search(KeptApart, GetPairKey(std::min(l_First, l_Second), std::max(l_First, l_Second))))
+            {
+                return JPH::ValidateResult::RejectAllContactsForThisBodyPair;
+            }
+
+            return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
         }
 
         void OnContactAdded(const JPH::Body& first, const JPH::Body& second, const JPH::ContactManifold& manifold, [[maybe_unused]] JPH::ContactSettings& settings) override
@@ -590,7 +659,9 @@ namespace Trinity
         }
 
         [[nodiscard]] bool MakeBody(BodyRecord& record);
+        [[nodiscard]] bool MakeJoint(JointRecord& joint);
         void PairContacts(std::uint32_t index);
+        void BreakJoints(float seconds, std::uint32_t index);
         [[nodiscard]] PhysicsHit3D MakeHit(JPH::BodyID body, const JPH::SubShapeID& part) const;
         [[nodiscard]] std::vector<PhysicsHit3D> CastRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, bool all) const;
         [[nodiscard]] std::vector<PhysicsHit3D> CastShape(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, bool all) const;
@@ -601,6 +672,10 @@ namespace Trinity
         LayerShapeFilter Parts;
         JPH::PhysicsSystem* System = nullptr;
         PhysicsVector<BodyRecord> Records;
+        PhysicsVector<JointRecord> Joints;
+        // The body pairs of joints that keep them from colliding, sorted, once for each joint
+        PhysicsVector<std::uint64_t> KeptApart;
+        std::uint32_t WaitingJoints = 0;
         PhysicsVector<UUID> Shapes;
         std::mutex RawMutex;
         PhysicsVector<RawContact> Raw;
@@ -631,6 +706,7 @@ namespace Trinity
 
         const SceneRegistry& l_Registry = scene.GetRegistry();
         std::unordered_map<entt::entity, std::size_t> l_Owners;
+        std::vector<std::pair<entt::entity, std::size_t>> l_Joined;
         constexpr std::size_t c_NoOwner = SIZE_MAX;
         for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
@@ -655,6 +731,11 @@ namespace Trinity
             if (l_Owner != c_NoOwner)
             {
                 AddColliders(l_Registry, l_Handle, l_State.Records[l_Owner]);
+            }
+
+            if (l_Registry.all_of<JointComponent>(l_Handle))
+            {
+                l_Joined.emplace_back(l_Handle, l_Owner);
             }
         }
 
@@ -685,6 +766,59 @@ namespace Trinity
         }
 
         l_State.Waiting = static_cast<std::uint32_t>(l_State.Records.size()) - l_Made;
+
+        // A joint is on the body its entity is part of, and names the body of the entity it joins. One that names an entity no longer in the scene, or one on no body, is reported and left out
+        for (const auto& [it_Entity, it_Owner] : l_Joined)
+        {
+            const JointComponent& l_Joint = l_Registry.get<JointComponent>(it_Entity);
+            const std::string l_Name = GetName(scene, it_Entity);
+            if (it_Owner == c_NoOwner)
+            {
+                TR_CORE_WARN("Physics: {}'s Joint is on no body, since neither it nor anything above it has a RigidBody or a collider, so it is left out", l_Name);
+
+                continue;
+            }
+
+            std::size_t l_Second = c_World;
+            entt::entity l_OtherEntity = entt::null;
+            if (l_Joint.ConnectedBody)
+            {
+                const Entity l_Connected = scene.FindEntityByUUID(l_Joint.ConnectedBody);
+                if (!l_Connected)
+                {
+                    TR_CORE_WARN("Physics: {}'s Joint names entity {}, which is not in the scene, so it is left out", l_Name, l_Joint.ConnectedBody);
+
+                    continue;
+                }
+
+                const auto a_Owner = l_Owners.find(l_Connected.GetHandle());
+                if (a_Owner == l_Owners.end() || a_Owner->second == c_NoOwner || a_Owner->second == it_Owner)
+                {
+                    TR_CORE_WARN("Physics: {}'s Joint names {}, which is {}, so it is left out", l_Name, GetName(scene, l_Connected.GetHandle()), a_Owner != l_Owners.end() && a_Owner->second == it_Owner ? "part of its own body" : "part of no body");
+
+                    continue;
+                }
+
+                l_Second = a_Owner->second;
+                l_OtherEntity = l_Connected.GetHandle();
+            }
+
+            JointRecord& l_Record = l_State.Joints.emplace_back();
+            l_Record.Entity = it_Entity;
+            l_Record.ID = l_Registry.get<IDComponent>(it_Entity).ID;
+            l_Record.OtherEntity = l_OtherEntity;
+            l_Record.Other = l_Second != c_World ? l_Joint.ConnectedBody : UUID();
+            l_Record.Settings = l_Joint;
+            l_Record.First = it_Owner;
+            l_Record.Second = l_Second;
+        }
+
+        for (JointRecord& it_Joint : l_State.Joints)
+        {
+            l_State.WaitingJoints += l_State.MakeJoint(it_Joint) ? 0u : 1u;
+        }
+
+        TR_CORE_INFO("Physics: the scene starts with {} bod(ies){}{}", GetBodyCount(), !l_State.Joints.empty() ? std::format(" and {} joint(s)", GetJointCount()) : std::string(), l_State.Waiting > 0 ? std::format(", and {} waiting for their collision shapes to load", l_State.Waiting) : std::string());
         TR_CORE_INFO("Physics: the scene starts with {} bod(ies){}", GetBodyCount(), l_State.Waiting > 0 ? std::format(", and {} waiting for their collision shapes to load", l_State.Waiting) : std::string());
     }
 
@@ -722,6 +856,17 @@ namespace Trinity
                 if (it_Record.Waiting && l_State.MakeBody(it_Record))
                 {
                     --l_State.Waiting;
+                }
+            }
+        }
+
+        if (l_State.WaitingJoints > 0)
+        {
+            for (JointRecord& it_Joint : l_State.Joints)
+            {
+                if (it_Joint.Waiting && l_State.MakeJoint(it_Joint))
+                {
+                    --l_State.WaitingJoints;
                 }
             }
         }
@@ -788,6 +933,7 @@ namespace Trinity
         l_State.World.Step(step);
         ++l_State.StepCount;
         l_State.PairContacts(index);
+        l_State.BreakJoints(l_Seconds, index);
 
         SceneRegistry& l_Registry = l_State.Owner.GetRegistry();
         for (BodyRecord& it_Record : l_State.Records)
@@ -859,6 +1005,11 @@ namespace Trinity
     std::uint32_t PhysicsScene3D::GetWaitingCount() const
     {
         return m_State->Waiting;
+    }
+
+    std::uint32_t PhysicsScene3D::GetJointCount() const
+    {
+        return static_cast<std::uint32_t>(std::ranges::count_if(m_State->Joints, [](const JointRecord& joint) { return joint.Constraint != nullptr; }));
     }
 
     const CollisionLayers& PhysicsScene3D::GetLayers() const
@@ -1152,6 +1303,7 @@ namespace Trinity
                 l_Settings.mAllowedDOFs = l_Allowed;
                 l_Settings.mLinearVelocity = ToJolt(l_RigidBody.InitialLinearVelocity);
                 l_Settings.mAngularVelocity = ToJolt(l_RigidBody.InitialAngularVelocity);
+                l_Settings.mAllowSleeping = l_RigidBody.CanSleep;
 
                 // A shape with no volume to weigh, such as a flat hull, gets the inertia of a box around it
                 if (IsWeightless(*l_Shape))
@@ -1209,6 +1361,237 @@ namespace Trinity
         l_Record.TargetTo = l_Body.Pose;
 
         return true;
+    }
+
+    // Once both its bodies are made, false until then. Its frame is its entity's world transform as it is then, which a body waiting for its shapes has not moved from, with the anchor as an offset and the axis turned with it. Given to Jolt in world space, so where it meets each body is taken from where the bodies are. Jolt measures a hinge's turn and a slider's travel as its second body's against its first, so the joint's own body goes second, and both count its own body's motion along or about the axis. A joint that holds no dynamic body, or joins a body with only triggers, is reported and left out
+    bool PhysicsScene3D::State::MakeJoint(JointRecord& joint)
+    {
+        const BodyRecord& l_First = Records[joint.First];
+        const BodyRecord* l_Second = joint.Second != c_World ? &Records[joint.Second] : nullptr;
+        if (l_First.Waiting || (l_Second != nullptr && l_Second->Waiting))
+        {
+            return false;
+        }
+
+        joint.Waiting = false;
+        Scene& l_Scene = Owner;
+        SceneRegistry& l_Registry = l_Scene.GetRegistry();
+        if (!l_Registry.valid(joint.Entity))
+        {
+            return true;
+        }
+
+        const std::string l_Name = GetName(l_Scene, joint.Entity);
+        if (l_First.Body.IsInvalid() || (l_Second != nullptr && l_Second->Body.IsInvalid()))
+        {
+            TR_CORE_WARN("Physics: {}'s Joint joins a body with no solid colliders, so it is left out", l_Name);
+
+            return true;
+        }
+
+        if (l_First.Motion != BodyMotion::Dynamic && (l_Second == nullptr || l_Second->Motion != BodyMotion::Dynamic))
+        {
+            TR_CORE_WARN("Physics: {}'s Joint joins no dynamic body, so it would hold nothing and is left out", l_Name);
+
+            return true;
+        }
+
+        const JPH::BodyLockInterface& l_Bodies = System->GetBodyLockInterfaceNoLock();
+        JPH::Body* l_Own = l_Bodies.TryGetBody(l_First.Body);
+        JPH::Body* l_Other = l_Second != nullptr ? l_Bodies.TryGetBody(l_Second->Body) : &JPH::Body::sFixedToWorld;
+        if (l_Own == nullptr || l_Other == nullptr)
+        {
+            return true;
+        }
+
+        const JointComponent& l_Joint = joint.Settings;
+        const glm::mat4 l_World = l_Scene.ComputeWorldMatrix(Entity(joint.Entity, &l_Scene));
+        const glm::quat l_Rotation = Decompose(l_World).Pose.Rotation;
+        const JPH::RVec3 l_Anchor(ToJolt(glm::vec3(l_World * glm::vec4(l_Joint.Anchor, 1.0f))));
+        const JPH::Vec3 l_Axis = ToJolt(l_Rotation * (glm::length(l_Joint.Axis) > 1e-6f ? glm::normalize(l_Joint.Axis) : glm::vec3(0.0f, 1.0f, 0.0f))).Normalized();
+        const JPH::Vec3 l_Normal = l_Axis.GetNormalizedPerpendicular();
+
+        JPH::Ref<JPH::TwoBodyConstraintSettings> l_Settings;
+        switch (l_Joint.Type)
+        {
+            case JointType::Fixed:
+            {
+                JPH::FixedConstraintSettings* l_Fixed = new JPH::FixedConstraintSettings();
+                l_Fixed->mPoint1 = l_Fixed->mPoint2 = l_Anchor;
+                l_Fixed->mAxisX1 = l_Fixed->mAxisX2 = ToJolt(l_Rotation * glm::vec3(1.0f, 0.0f, 0.0f));
+                l_Fixed->mAxisY1 = l_Fixed->mAxisY2 = ToJolt(l_Rotation * glm::vec3(0.0f, 1.0f, 0.0f));
+                l_Settings = l_Fixed;
+
+                break;
+            }
+            case JointType::Hinge:
+            {
+                JPH::HingeConstraintSettings* l_Hinge = new JPH::HingeConstraintSettings();
+                l_Hinge->mPoint1 = l_Hinge->mPoint2 = l_Anchor;
+                l_Hinge->mHingeAxis1 = l_Hinge->mHingeAxis2 = l_Axis;
+                l_Hinge->mNormalAxis1 = l_Hinge->mNormalAxis2 = l_Normal;
+                if (l_Joint.UseLimits)
+                {
+                    l_Hinge->mLimitsMin = std::clamp(l_Joint.LowerLimit, -JPH::JPH_PI, 0.0f);
+                    l_Hinge->mLimitsMax = std::clamp(l_Joint.UpperLimit, 0.0f, JPH::JPH_PI);
+                }
+
+                l_Hinge->mMotorSettings.SetTorqueLimit(std::max(l_Joint.MotorMaxForce, 0.0f));
+                l_Settings = l_Hinge;
+
+                break;
+            }
+            case JointType::Slider:
+            {
+                JPH::SliderConstraintSettings* l_Slider = new JPH::SliderConstraintSettings();
+                l_Slider->mPoint1 = l_Slider->mPoint2 = l_Anchor;
+                l_Slider->mSliderAxis1 = l_Slider->mSliderAxis2 = l_Axis;
+                l_Slider->mNormalAxis1 = l_Slider->mNormalAxis2 = l_Normal;
+                if (l_Joint.UseLimits)
+                {
+                    l_Slider->mLimitsMin = std::min(l_Joint.LowerLimit, 0.0f);
+                    l_Slider->mLimitsMax = std::max(l_Joint.UpperLimit, 0.0f);
+                }
+
+                l_Slider->mMotorSettings.SetForceLimit(std::max(l_Joint.MotorMaxForce, 0.0f));
+                l_Settings = l_Slider;
+
+                break;
+            }
+            case JointType::Distance:
+            {
+                // The other end is on the entity the joint names, or in the world
+                const bool l_OnEntity = l_Second != nullptr && l_Registry.valid(joint.OtherEntity);
+                const glm::vec3 l_OtherEnd = l_OnEntity ? glm::vec3(l_Scene.ComputeWorldMatrix(Entity(joint.OtherEntity, &l_Scene)) * glm::vec4(l_Joint.ConnectedAnchor, 1.0f)) : l_Joint.ConnectedAnchor;
+                const float l_Start = glm::distance(FromJolt(JPH::Vec3(l_Anchor)), l_OtherEnd);
+                const float l_Min = l_Joint.MinDistance < 0.0f ? l_Start : l_Joint.MinDistance;
+
+                JPH::DistanceConstraintSettings* l_Distance = new JPH::DistanceConstraintSettings();
+                l_Distance->mPoint1 = JPH::RVec3(ToJolt(l_OtherEnd));
+                l_Distance->mPoint2 = l_Anchor;
+                l_Distance->mMinDistance = l_Min;
+                l_Distance->mMaxDistance = std::max(l_Joint.MaxDistance < 0.0f ? l_Start : l_Joint.MaxDistance, l_Min);
+                l_Distance->mLimitsSpringSettings.mFrequency = std::max(l_Joint.SpringFrequency, 0.0f);
+                l_Distance->mLimitsSpringSettings.mDamping = std::max(l_Joint.SpringDamping, 0.0f);
+                l_Settings = l_Distance;
+
+                break;
+            }
+            case JointType::Point:
+            {
+                JPH::PointConstraintSettings* l_Point = new JPH::PointConstraintSettings();
+                l_Point->mPoint1 = l_Point->mPoint2 = l_Anchor;
+                l_Settings = l_Point;
+
+                break;
+            }
+        }
+
+        joint.Constraint = static_cast<JPH::TwoBodyConstraint*>(l_Settings->Create(*l_Other, *l_Own));
+        if (l_Joint.UseMotor && l_Joint.Type == JointType::Hinge)
+        {
+            JPH::HingeConstraint& l_Hinge = static_cast<JPH::HingeConstraint&>(*joint.Constraint);
+            l_Hinge.SetMotorState(JPH::EMotorState::Velocity);
+            l_Hinge.SetTargetAngularVelocity(l_Joint.MotorSpeed);
+        }
+        else if (l_Joint.UseMotor && l_Joint.Type == JointType::Slider)
+        {
+            JPH::SliderConstraint& l_Slider = static_cast<JPH::SliderConstraint&>(*joint.Constraint);
+            l_Slider.SetMotorState(JPH::EMotorState::Velocity);
+            l_Slider.SetTargetVelocity(l_Joint.MotorSpeed);
+        }
+
+        System->AddConstraint(joint.Constraint);
+        if (!l_Joint.CollideConnected && l_Second != nullptr)
+        {
+            const std::uint32_t l_FirstID = l_First.Body.GetIndexAndSequenceNumber();
+            const std::uint32_t l_SecondID = l_Second->Body.GetIndexAndSequenceNumber();
+            joint.Pair = GetPairKey(std::min(l_FirstID, l_SecondID), std::max(l_FirstID, l_SecondID));
+            joint.KeptApart = true;
+            KeptApart.insert(std::ranges::upper_bound(KeptApart, joint.Pair), joint.Pair);
+        }
+
+        return true;
+    }
+
+    // The force and the torque on each joint that can break, averaged over the step from the impulses its constraint's parts gave, its limits' included and its motor's not. One past its break force or torque is taken out of the world, and its bodies collide again, after it is logged and handed out as an event, in the joints' order
+    void PhysicsScene3D::State::BreakJoints(float seconds, std::uint32_t index)
+    {
+        if (seconds <= 0.0f)
+        {
+            return;
+        }
+
+        for (JointRecord& it_Joint : Joints)
+        {
+            const JointComponent& l_Joint = it_Joint.Settings;
+            if (it_Joint.Constraint == nullptr || (l_Joint.BreakForce <= 0.0f && l_Joint.BreakTorque <= 0.0f))
+            {
+                continue;
+            }
+
+            float l_Force = 0.0f;
+            float l_Torque = 0.0f;
+            JPH::TwoBodyConstraint& l_Constraint = *it_Joint.Constraint;
+            switch (l_Joint.Type)
+            {
+                case JointType::Fixed:
+                {
+                    const JPH::FixedConstraint& l_Fixed = static_cast<const JPH::FixedConstraint&>(l_Constraint);
+                    l_Force = l_Fixed.GetTotalLambdaPosition().Length();
+                    l_Torque = l_Fixed.GetTotalLambdaRotation().Length();
+
+                    break;
+                }
+                case JointType::Hinge:
+                {
+                    const JPH::HingeConstraint& l_Hinge = static_cast<const JPH::HingeConstraint&>(l_Constraint);
+                    l_Force = l_Hinge.GetTotalLambdaPosition().Length();
+                    l_Torque = std::hypot(l_Hinge.GetTotalLambdaRotation().Length(), l_Hinge.GetTotalLambdaRotationLimits());
+
+                    break;
+                }
+                case JointType::Slider:
+                {
+                    const JPH::SliderConstraint& l_Slider = static_cast<const JPH::SliderConstraint&>(l_Constraint);
+                    l_Force = std::hypot(l_Slider.GetTotalLambdaPosition().Length(), l_Slider.GetTotalLambdaPositionLimits());
+                    l_Torque = l_Slider.GetTotalLambdaRotation().Length();
+
+                    break;
+                }
+                case JointType::Distance:
+                {
+                    l_Force = std::abs(static_cast<const JPH::DistanceConstraint&>(l_Constraint).GetTotalLambdaPosition());
+
+                    break;
+                }
+                case JointType::Point:
+                {
+                    l_Force = static_cast<const JPH::PointConstraint&>(l_Constraint).GetTotalLambdaPosition().Length();
+
+                    break;
+                }
+            }
+
+            l_Force /= seconds;
+            l_Torque /= seconds;
+            const bool l_ByForce = l_Joint.BreakForce > 0.0f && l_Force > l_Joint.BreakForce;
+            const bool l_ByTorque = !l_ByForce && l_Joint.BreakTorque > 0.0f && l_Torque > l_Joint.BreakTorque;
+            if (!l_ByForce && !l_ByTorque)
+            {
+                continue;
+            }
+
+            TR_CORE_INFO("Physics: {}'s {} joint broke under {}, past its break {}", GetName(Owner, it_Joint.Entity), GetJointTypeName(l_Joint.Type), l_ByForce ? std::format("{:.1f} N", l_Force) : std::format("{:.1f} N m", l_Torque), l_ByForce ? std::format("force of {:.1f} N", l_Joint.BreakForce) : std::format("torque of {:.1f} N m", l_Joint.BreakTorque));
+            System->RemoveConstraint(it_Joint.Constraint);
+            it_Joint.Constraint = nullptr;
+            if (std::exchange(it_Joint.KeptApart, false))
+            {
+                KeptApart.erase(std::ranges::lower_bound(KeptApart, it_Joint.Pair));
+            }
+
+            Events.push_back({ PhysicsEventType::JointBreak, it_Joint.ID, it_Joint.Other, glm::vec3(0.0f), glm::vec3(0.0f), index });
+        }
     }
 
     // Jolt's adds and removes, in an order that does not depend on its workers, are counted by body pair. A pair's first part begins it and its last ends it, unless both bodies fell asleep, and a contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities

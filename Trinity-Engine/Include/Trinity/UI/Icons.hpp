@@ -34,6 +34,7 @@ namespace Trinity
         constexpr const char* c_Cube = "\uF1B2";
         constexpr const char* c_PaintBrush = "\uF1FC";
         constexpr const char* c_Magnet = "\uF076";
+        constexpr const char* c_Link = "\uF0C1";
         constexpr const char* c_Gamepad = "\uF11B";
         constexpr const char* c_Play = "\uF04B";
         constexpr const char* c_Stop = "\uF04D";

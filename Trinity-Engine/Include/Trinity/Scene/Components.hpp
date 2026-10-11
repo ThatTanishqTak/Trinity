@@ -258,6 +258,8 @@ namespace Trinity
         glm::vec3 InitialLinearVelocity{ 0.0f };
         glm::vec3 InitialAngularVelocity{ 0.0f };
         bool StartAsleep = false;
+        // Whether it may fall asleep once it has stayed within a few centimetres for half a second, which a slow, small swing does at each end, so a swinging lamp or a bobbing buoy should not
+        bool CanSleep = true;
 
         [[nodiscard]] bool operator==(const RigidBodyComponent&) const = default;
     };
@@ -335,6 +337,50 @@ namespace Trinity
         UUID Shape;
 
         [[nodiscard]] bool operator==(const MeshColliderComponent&) const = default;
+    };
+
+    // What a joint holds: its bodies welded fast, turning about its axis, sliding along it, kept within a range of distances, or turning every way about a point
+    enum class JointType : std::uint8_t
+    {
+        Fixed,
+        Hinge,
+        Slider,
+        Distance,
+        Point
+    };
+
+    // Joins the body its entity is part of to another body, or to the world, once the scene runs. Its frame is its entity's transform with the anchor as an offset, and the axis a hinge turns about or a slider slides along is in that frame. Where it meets the other body is taken from where both are as the scene starts, so it holds the pose it was built in, and a hinge's turn and a slider's travel count from there. More joints on one body go on entities below it. In metres, radians, newtons and seconds
+    struct JointComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.Joint";
+
+        JointType Type = JointType::Hinge;
+        // The entity whose body it joins, which may be one of that body's collider entities, or none for the world
+        UUID ConnectedBody;
+        glm::vec3 Anchor{ 0.0f };
+        glm::vec3 Axis{ 0.0f, 1.0f, 0.0f };
+        // A distance joint's other end, in the connected entity's own space, or in the world for a joint to the world
+        glm::vec3 ConnectedAnchor{ 0.0f };
+        // Whether the two bodies still collide with each other
+        bool CollideConnected = false;
+        // What it takes to break it, the force on it and the torque on it averaged over a step. 0 never breaks it
+        float BreakForce = 0.0f;
+        float BreakTorque = 0.0f;
+        // A hinge's turn in radians, from -pi to 0 and 0 to pi, or a slider's travel in metres, either side of where it started
+        bool UseLimits = false;
+        float LowerLimit = -0.5f;
+        float UpperLimit = 0.5f;
+        // A hinge's speed in radians per second, driven by up to the torque, or a slider's in metres per second, by up to the force
+        bool UseMotor = false;
+        float MotorSpeed = 0.0f;
+        float MotorMaxForce = 1000.0f;
+        // A distance joint's range, either negative for the distance as the scene starts, and a spring that holds it to the range, by its frequency in hertz, 0 for none, and its damping ratio
+        float MinDistance = -1.0f;
+        float MaxDistance = -1.0f;
+        float SpringFrequency = 0.0f;
+        float SpringDamping = 0.0f;
+
+        [[nodiscard]] bool operator==(const JointComponent&) const = default;
     };
 
     // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save

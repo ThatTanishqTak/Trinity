@@ -4,7 +4,7 @@
 
 #include <vector>
 
-// The colliders of an entity and everything under it, drawn through DebugDraw in world space, with their entity's world scale as the physics world will take it: a box, convex hull or mesh exactly, a sphere by its largest axis, and a capsule or cylinder by its Y axis along its length and its larger other axis around it. Solid colliders are green and triggers blue. After the transform pass, before the frame graph is built
+// The colliders and joints of an entity and everything under it, drawn through DebugDraw in world space, with their entity's world scale as the physics world will take it: a box, convex hull or mesh exactly, a sphere by its largest axis, and a capsule or cylinder by its Y axis along its length and its larger other axis around it. Solid colliders are green and triggers blue. A joint is orange: a cross at its anchor, its axis for a hinge or slider, with a circle around a hinge's, and a line to what it joins. After the transform pass, before the frame graph is built
 class ColliderDrawing
 {
 public:

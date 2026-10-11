@@ -19,10 +19,16 @@ namespace Trinity
     {
         ConsoleVariable<std::int32_t> s_PhysicsRateVariable("physics.rate", static_cast<std::int32_t>(SimulationClock::c_DefaultRate), "Fixed simulation steps per second for a running scene, from 1 to 1000, taken when the scene starts running");
         // Here rather than with the physics, whose sources are built for instructions this processor may lack and must run no code before the CPU check
-        ConsoleVariable<std::int32_t> s_PhysicsEventsVariable("physics.events", 0, "Logs a running scene's physics events to the Console: 0 none, 1 contacts beginning and ending and triggers entered and left, 2 contacts staying too");
+        ConsoleVariable<std::int32_t> s_PhysicsEventsVariable("physics.events", 0, "Logs a running scene's physics events to the Console: 0 none, 1 contacts beginning and ending, triggers entered and left and joints breaking, 2 contacts staying too");
 
+        // A joint to the world names no entity
         std::string GetEntityName(Scene& scene, UUID id)
         {
+            if (!id)
+            {
+                return "the world";
+            }
+
             const Entity l_Entity = scene.FindEntityByUUID(id);
 
             return l_Entity ? std::string(l_Entity.Get<TagComponent>().Tag) : std::format("entity {}", id);
