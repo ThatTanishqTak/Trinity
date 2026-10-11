@@ -44,6 +44,7 @@
 #include "Trinity/Physics/CollisionShape.hpp"
 #include "Trinity/Physics/PhysicsScene3D.hpp"
 #include "Trinity/Physics/PhysicsTypes.hpp"
+#include "Trinity/Physics/PhysicsWorld2D.hpp"
 #include "Trinity/Physics/PhysicsWorld3D.hpp"
 
 #include "Trinity/Renderer/DebugDraw.hpp"

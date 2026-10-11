@@ -819,7 +819,6 @@ namespace Trinity
         }
 
         TR_CORE_INFO("Physics: the scene starts with {} bod(ies){}{}", GetBodyCount(), !l_State.Joints.empty() ? std::format(" and {} joint(s)", GetJointCount()) : std::string(), l_State.Waiting > 0 ? std::format(", and {} waiting for their collision shapes to load", l_State.Waiting) : std::string());
-        TR_CORE_INFO("Physics: the scene starts with {} bod(ies){}", GetBodyCount(), l_State.Waiting > 0 ? std::format(", and {} waiting for their collision shapes to load", l_State.Waiting) : std::string());
     }
 
     // The world goes first, and the shapes its bodies held with it, and the drawn poses with them, so the scene draws from its transforms again

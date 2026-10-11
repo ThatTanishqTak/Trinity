@@ -69,7 +69,7 @@ set_source_files_properties(${TRINITY_IMGUI_SOURCES} PROPERTIES SKIP_PRECOMPILE_
 set_source_files_properties("${TRINITY_IMGUI_DIRECTORY}/misc/freetype/imgui_freetype.cpp" PROPERTIES COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/wd4244;/wd4267,-Wno-conversion;-Wno-sign-conversion>")
 list(APPEND TRINITY_ENGINE_COMPILED ${TRINITY_IMGUI_SOURCES})
 
-# Sources that include Jolt are built for the instructions Jolt is, and without the precompiled header, which is not. No other engine source is, so the CPU check in Main runs before any code that needs them
+# The physics sources, which include Jolt or Box2D, are built for the instructions Jolt is, and without the precompiled header, which is not. No other engine source is, so the CPU check in Main runs before any code that needs them
 file(GLOB TRINITY_ENGINE_PHYSICS_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Trinity/Physics/*.cpp")
 set_source_files_properties(${TRINITY_ENGINE_PHYSICS_SOURCES} PROPERTIES COMPILE_OPTIONS "${TRINITY_PHYSICS_COMPILE_OPTIONS}" SKIP_PRECOMPILE_HEADERS ON)
 
@@ -131,6 +131,7 @@ function(trinity_add_engine_library target type active_config)
             Freetype::Freetype
             yaml-cpp::yaml-cpp
             Jolt
+            box2d
     )
 
     # The engine only reads and transcodes KTX2. An executable that sets TRINITY_TEXTURE_ENCODER links the whole of libktx in its place, as the static engine and both libraries would otherwise define the same symbols

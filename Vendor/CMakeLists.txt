@@ -97,7 +97,9 @@ trinity_vendor_set(TRINITY_PHYSICS_COMPILE_OPTIONS "${_jolt_options}")
 set_property(TARGET Jolt PROPERTY INTERFACE_COMPILE_OPTIONS "")
 list(APPEND TRINITY_VENDOR_TARGETS Jolt)
 
-# Box2D v3
+# Box2D 3.1
+trinity_vendor_set(BOX2D_DISABLE_SIMD OFF)
+trinity_vendor_set(BOX2D_AVX2 ${TRINITY_PHYSICS_AVX2})
 trinity_vendor_directory(box2d)
 list(APPEND TRINITY_VENDOR_TARGETS box2d)
 
