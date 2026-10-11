@@ -42,6 +42,10 @@ namespace Trinity
         // A body's index among the records, for the pair a contact or trigger is counted by
         constexpr std::size_t c_NoOwner = SIZE_MAX;
         constexpr std::size_t c_Owned3D = SIZE_MAX - 1;
+        // A joint's other body when it joins the world
+        constexpr std::size_t c_World = SIZE_MAX - 2;
+        // Box2D's own bounds on a revolute joint's limits
+        constexpr float c_MaxLimitAngle = 0.99f * std::numbers::pi_v<float>;
 
         enum class ColliderKind2D : std::uint8_t
         {
@@ -87,6 +91,40 @@ namespace Trinity
             Pose2D TargetFrom;
             Pose2D TargetTo;
         };
+
+        // A joint as it was read when the scene started: its entity, the entity it names and the records of its two bodies, the second none for the world, and its Box2D joint once made. A joint that cannot be made is dropped, and one that breaks is let go
+        struct JointRecord2D
+        {
+            entt::entity Entity = entt::null;
+            UUID ID;
+            entt::entity OtherEntity = entt::null;
+            UUID Other;
+            Joint2DComponent Settings;
+            std::size_t First = 0;
+            std::size_t Second = c_World;
+            b2JointId Joint = b2_nullJointId;
+            // A prismatic joint's axis on its first Box2D body, which the motor's force is along
+            b2Vec2 LocalAxis{ 0.0f, 1.0f };
+        };
+
+        std::string_view GetJointTypeName(Joint2DType type)
+        {
+            switch (type)
+            {
+                case Joint2DType::Revolute:
+                    return "revolute";
+                case Joint2DType::Prismatic:
+                    return "prismatic";
+                case Joint2DType::Distance:
+                    return "distance";
+                case Joint2DType::Weld:
+                    return "weld";
+                case Joint2DType::Wheel:
+                    return "wheel";
+            }
+
+            return "2D";
+        }
 
         // Two bodies touching by as many shape pairs as Count says, since the step Begun counts to. Box2D keeps the contacts of bodies that fall asleep, so a pair ends only when its last shape pair does
         struct ContactPair2D
@@ -448,7 +486,23 @@ namespace Trinity
         }
 
         void MakeBody(BodyRecord2D& record);
+        void MakeJoint(JointRecord2D& joint);
         void PairEvents(std::uint32_t index);
+        void BreakJoints(std::uint32_t index);
+
+        // A static body with no shapes at the origin, made the first time a joint joins the world, since a Box2D joint is always between two bodies
+        [[nodiscard]] b2BodyId GetGround()
+        {
+            if (B2_IS_NULL(Ground))
+            {
+                b2BodyDef l_Ground = b2DefaultBodyDef();
+                l_Ground.type = b2_staticBody;
+                Ground = b2CreateBody(WorldID, &l_Ground);
+            }
+
+            return Ground;
+        }
+
         [[nodiscard]] std::vector<PhysicsHit2D> CastRay(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter, bool all) const;
         [[nodiscard]] std::vector<PhysicsHit2D> CastShape(const PhysicsQueryShape2D& shape, const glm::vec2& position, float angle, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter, bool all) const;
 
@@ -463,6 +517,8 @@ namespace Trinity
         b2WorldId WorldID = b2_nullWorldId;
         CollisionLayers Layers;
         PhysicsVector<BodyRecord2D> Records;
+        PhysicsVector<JointRecord2D> Joints;
+        b2BodyId Ground = b2_nullBodyId;
         std::map<std::uint64_t, ContactPair2D, std::less<>, TaggedAllocator<std::pair<const std::uint64_t, ContactPair2D>, MemoryTag::Physics>> Contacts;
         std::map<std::uint64_t, ContactPair2D, std::less<>, TaggedAllocator<std::pair<const std::uint64_t, ContactPair2D>, MemoryTag::Physics>> Triggers;
         PhysicsVector<RawContact2D> Raw;
@@ -487,7 +543,8 @@ namespace Trinity
 
         const SceneRegistry& l_Registry = scene.GetRegistry();
         std::unordered_map<entt::entity, std::size_t> l_Owners;
-        for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+        std::vector<std::pair<entt::entity, std::size_t>> l_Joined;
+        for (Entity it_Entity = scene.GetFirstRoot();it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
             const entt::entity l_Handle = it_Entity.GetHandle();
             const entt::entity l_Parent = l_Registry.get<RelationshipComponent>(l_Handle).Parent;
@@ -525,6 +582,11 @@ namespace Trinity
             {
                 AddColliders(l_Registry, l_Handle, l_State.Records[l_Owner]);
             }
+
+            if (l_Registry.all_of<Joint2DComponent>(l_Handle))
+            {
+                l_Joined.emplace_back(l_Handle, l_Owner);
+            }
         }
 
         for (BodyRecord2D& it_Record : l_State.Records)
@@ -537,6 +599,57 @@ namespace Trinity
             }
 
             l_State.MakeBody(it_Record);
+        }
+
+        // A joint is on the body its entity is part of, and names the body of the entity it joins. One on no 2D body, or naming an entity that is not in the scene or is part of no other 2D body, is reported and left out
+        for (const auto& [it_Entity, it_Owner] : l_Joined)
+        {
+            const Joint2DComponent& l_Joint = l_Registry.get<Joint2DComponent>(it_Entity);
+            const std::string l_Name = GetName(scene, it_Entity);
+            if (it_Owner == c_NoOwner || it_Owner == c_Owned3D)
+            {
+                TR_CORE_WARN("Physics: {}'s Joint2D is on no 2D body, since nothing on it or above it has a RigidBody2D or a 2D collider first, so it is left out", l_Name);
+
+                continue;
+            }
+
+            std::size_t l_Second = c_World;
+            entt::entity l_OtherEntity = entt::null;
+            if (l_Joint.ConnectedBody)
+            {
+                const Entity l_Connected = scene.FindEntityByUUID(l_Joint.ConnectedBody);
+                if (!l_Connected)
+                {
+                    TR_CORE_WARN("Physics: {}'s Joint2D names entity {}, which is not in the scene, so it is left out", l_Name, l_Joint.ConnectedBody);
+
+                    continue;
+                }
+
+                const auto a_Owner = l_Owners.find(l_Connected.GetHandle());
+                if (a_Owner == l_Owners.end() || a_Owner->second == c_NoOwner || a_Owner->second == c_Owned3D || a_Owner->second == it_Owner)
+                {
+                    TR_CORE_WARN("Physics: {}'s Joint2D names {}, which is {}, so it is left out", l_Name, GetName(scene, l_Connected.GetHandle()), a_Owner != l_Owners.end() && a_Owner->second == it_Owner ? "part of its own body" : "part of no 2D body");
+
+                    continue;
+                }
+
+                l_Second = a_Owner->second;
+                l_OtherEntity = l_Connected.GetHandle();
+            }
+
+            JointRecord2D& l_Record = l_State.Joints.emplace_back();
+            l_Record.Entity = it_Entity;
+            l_Record.ID = l_Registry.get<IDComponent>(it_Entity).ID;
+            l_Record.OtherEntity = l_OtherEntity;
+            l_Record.Other = l_Second != c_World ? l_Joint.ConnectedBody : UUID();
+            l_Record.Settings = l_Joint;
+            l_Record.First = it_Owner;
+            l_Record.Second = l_Second;
+        }
+
+        for (JointRecord2D& it_Joint : l_State.Joints)
+        {
+            l_State.MakeJoint(it_Joint);
         }
 
         TR_CORE_INFO("Physics: the 2D scene starts with {} bod(ies)", GetBodyCount());
@@ -599,6 +712,7 @@ namespace Trinity
         l_State.World.Step(step);
         ++l_State.StepCount;
         l_State.PairEvents(index);
+        l_State.BreakJoints(index);
 
         SceneRegistry& l_Registry = l_State.Owner.GetRegistry();
         for (BodyRecord2D& it_Record : l_State.Records)
@@ -660,9 +774,10 @@ namespace Trinity
         return m_State->World;
     }
 
+    // The ground joints to the world hang from is not one of the scene's
     std::uint32_t PhysicsScene2D::GetBodyCount() const
     {
-        return m_State->World.GetBodyCount();
+        return m_State->World.GetBodyCount() - (B2_IS_NON_NULL(m_State->Ground) ? 1u : 0u);
     }
 
     const CollisionLayers& PhysicsScene2D::GetLayers() const
@@ -851,6 +966,212 @@ namespace Trinity
         record.Current = l_Pose;
         record.TargetFrom = l_Pose;
         record.TargetTo = l_Pose;
+    }
+
+    // Its frame is its entity's world transform in the XY plane as the scene starts, with the anchor as an offset and the axis turned with it, and where it meets each body is taken from where the bodies are then. The joint's own body is Box2D's second, and the body it joins, or the ground, its first, so a revolute joint's turn, a prismatic joint's travel and a motor's drive count as its own body's against the other's. A joint that holds no dynamic body, or joins a body with no 2D colliders, is reported and left out
+    void PhysicsScene2D::State::MakeJoint(JointRecord2D& joint)
+    {
+        Scene& l_Scene = Owner;
+        SceneRegistry& l_Registry = l_Scene.GetRegistry();
+        if (!l_Registry.valid(joint.Entity))
+        {
+            return;
+        }
+
+        const std::string l_Name = GetName(l_Scene, joint.Entity);
+        const BodyRecord2D& l_Own = Records[joint.First];
+        const BodyRecord2D* l_Other = joint.Second != c_World ? &Records[joint.Second] : nullptr;
+        if (B2_IS_NULL(l_Own.Body) || (l_Other != nullptr && B2_IS_NULL(l_Other->Body)))
+        {
+            TR_CORE_WARN("Physics: {}'s Joint2D joins a body with no 2D colliders, so it is left out", l_Name);
+
+            return;
+        }
+
+        if (l_Own.Motion != BodyMotion::Dynamic && (l_Other == nullptr || l_Other->Motion != BodyMotion::Dynamic))
+        {
+            TR_CORE_WARN("Physics: {}'s Joint2D joins no dynamic body, so it would hold nothing and is left out", l_Name);
+
+            return;
+        }
+
+        const Joint2DComponent& l_Joint = joint.Settings;
+        const b2BodyId l_BodyA = l_Other != nullptr ? l_Other->Body : GetGround();
+        const b2BodyId l_BodyB = l_Own.Body;
+        const b2Transform l_A = b2Body_GetTransform(l_BodyA);
+        const b2Transform l_B = b2Body_GetTransform(l_BodyB);
+        const glm::mat4 l_World = l_Scene.ComputeWorldMatrix(Entity(joint.Entity, &l_Scene));
+        const b2Vec2 l_Anchor = ToBox2D(glm::vec2(l_World * glm::vec4(l_Joint.Anchor, 0.0f, 1.0f)));
+        const glm::vec2 l_Turned = glm::mat2(l_World) * (glm::length(l_Joint.Axis) > 1e-6f ? glm::normalize(l_Joint.Axis) : glm::vec2(0.0f, 1.0f));
+        const b2Vec2 l_Axis = ToBox2D(glm::length(l_Turned) > 1e-6f ? glm::normalize(l_Turned) : glm::vec2(0.0f, 1.0f));
+        const b2Vec2 l_LocalA = b2InvTransformPoint(l_A, l_Anchor);
+        const b2Vec2 l_LocalB = b2InvTransformPoint(l_B, l_Anchor);
+        const float l_Reference = Box2DConvert::ToAngle(b2InvMulRot(l_A.q, l_B.q));
+        const float l_MotorMax = std::max(l_Joint.MotorMaxForce, 0.0f);
+
+        switch (l_Joint.Type)
+        {
+            case Joint2DType::Revolute:
+            {
+                b2RevoluteJointDef l_Revolute = b2DefaultRevoluteJointDef();
+                l_Revolute.bodyIdA = l_BodyA;
+                l_Revolute.bodyIdB = l_BodyB;
+                l_Revolute.localAnchorA = l_LocalA;
+                l_Revolute.localAnchorB = l_LocalB;
+                l_Revolute.referenceAngle = l_Reference;
+                l_Revolute.enableLimit = l_Joint.UseLimits;
+                l_Revolute.lowerAngle = std::clamp(l_Joint.LowerLimit, -c_MaxLimitAngle, 0.0f);
+                l_Revolute.upperAngle = std::clamp(l_Joint.UpperLimit, 0.0f, c_MaxLimitAngle);
+                l_Revolute.enableMotor = l_Joint.UseMotor;
+                l_Revolute.maxMotorTorque = l_MotorMax;
+                l_Revolute.motorSpeed = l_Joint.MotorSpeed;
+                l_Revolute.collideConnected = l_Joint.CollideConnected;
+                joint.Joint = b2CreateRevoluteJoint(WorldID, &l_Revolute);
+
+                break;
+            }
+            case Joint2DType::Prismatic:
+            {
+                b2PrismaticJointDef l_Prismatic = b2DefaultPrismaticJointDef();
+                l_Prismatic.bodyIdA = l_BodyA;
+                l_Prismatic.bodyIdB = l_BodyB;
+                l_Prismatic.localAnchorA = l_LocalA;
+                l_Prismatic.localAnchorB = l_LocalB;
+                l_Prismatic.localAxisA = b2InvRotateVector(l_A.q, l_Axis);
+                l_Prismatic.referenceAngle = l_Reference;
+                l_Prismatic.enableLimit = l_Joint.UseLimits;
+                l_Prismatic.lowerTranslation = std::min(l_Joint.LowerLimit, 0.0f);
+                l_Prismatic.upperTranslation = std::max(l_Joint.UpperLimit, 0.0f);
+                l_Prismatic.enableMotor = l_Joint.UseMotor;
+                l_Prismatic.maxMotorForce = l_MotorMax;
+                l_Prismatic.motorSpeed = l_Joint.MotorSpeed;
+                l_Prismatic.collideConnected = l_Joint.CollideConnected;
+                joint.LocalAxis = l_Prismatic.localAxisA;
+                joint.Joint = b2CreatePrismaticJoint(WorldID, &l_Prismatic);
+
+                break;
+            }
+            case Joint2DType::Distance:
+            {
+                // The other end is on the entity the joint names, or in the world. With a spring it is pulled towards the middle of the range and stops at its ends, and without one it moves freely within the range, held rigid when the range has no width
+                const b2Vec2 l_OtherEnd = ToBox2D(l_Other != nullptr && l_Registry.valid(joint.OtherEntity) ? glm::vec2(l_Scene.ComputeWorldMatrix(Entity(joint.OtherEntity, &l_Scene)) * glm::vec4(l_Joint.ConnectedAnchor, 0.0f, 1.0f)) : l_Joint.ConnectedAnchor);
+                const float l_Start = b2Distance(l_OtherEnd, l_Anchor);
+                const float l_Min = std::max(l_Joint.MinDistance < 0.0f ? l_Start : l_Joint.MinDistance, c_MinimumSize);
+                const float l_Max = std::max(l_Joint.MaxDistance < 0.0f ? l_Start : l_Joint.MaxDistance, l_Min);
+                const bool l_Spring = l_Joint.SpringFrequency > 0.0f;
+
+                b2DistanceJointDef l_Distance = b2DefaultDistanceJointDef();
+                l_Distance.bodyIdA = l_BodyA;
+                l_Distance.bodyIdB = l_BodyB;
+                l_Distance.localAnchorA = b2InvTransformPoint(l_A, l_OtherEnd);
+                l_Distance.localAnchorB = l_LocalB;
+                l_Distance.length = l_Spring ? (l_Min + l_Max) * 0.5f : std::clamp(l_Start, l_Min, l_Max);
+                l_Distance.minLength = l_Min;
+                l_Distance.maxLength = l_Max;
+                l_Distance.enableLimit = l_Max > l_Min;
+                l_Distance.enableSpring = l_Spring || l_Max > l_Min;
+                l_Distance.hertz = std::max(l_Joint.SpringFrequency, 0.0f);
+                l_Distance.dampingRatio = std::max(l_Joint.SpringDamping, 0.0f);
+                l_Distance.collideConnected = l_Joint.CollideConnected;
+                joint.Joint = b2CreateDistanceJoint(WorldID, &l_Distance);
+
+                break;
+            }
+            case Joint2DType::Weld:
+            {
+                b2WeldJointDef l_Weld = b2DefaultWeldJointDef();
+                l_Weld.bodyIdA = l_BodyA;
+                l_Weld.bodyIdB = l_BodyB;
+                l_Weld.localAnchorA = l_LocalA;
+                l_Weld.localAnchorB = l_LocalB;
+                l_Weld.referenceAngle = l_Reference;
+                l_Weld.linearHertz = 0.0f;
+                l_Weld.angularHertz = 0.0f;
+                l_Weld.collideConnected = l_Joint.CollideConnected;
+                joint.Joint = b2CreateWeldJoint(WorldID, &l_Weld);
+
+                break;
+            }
+            case Joint2DType::Wheel:
+            {
+                b2WheelJointDef l_Wheel = b2DefaultWheelJointDef();
+                l_Wheel.bodyIdA = l_BodyA;
+                l_Wheel.bodyIdB = l_BodyB;
+                l_Wheel.localAnchorA = l_LocalA;
+                l_Wheel.localAnchorB = l_LocalB;
+                l_Wheel.localAxisA = b2InvRotateVector(l_A.q, l_Axis);
+                l_Wheel.enableSpring = l_Joint.SpringFrequency > 0.0f;
+                l_Wheel.hertz = std::max(l_Joint.SpringFrequency, 0.0f);
+                l_Wheel.dampingRatio = std::max(l_Joint.SpringDamping, 0.0f);
+                l_Wheel.enableLimit = l_Joint.UseLimits;
+                l_Wheel.lowerTranslation = std::min(l_Joint.LowerLimit, 0.0f);
+                l_Wheel.upperTranslation = std::max(l_Joint.UpperLimit, 0.0f);
+                l_Wheel.enableMotor = l_Joint.UseMotor;
+                l_Wheel.maxMotorTorque = l_MotorMax;
+                l_Wheel.motorSpeed = l_Joint.MotorSpeed;
+                l_Wheel.collideConnected = l_Joint.CollideConnected;
+                joint.Joint = b2CreateWheelJoint(WorldID, &l_Wheel);
+
+                break;
+            }
+        }
+    }
+
+    // The force and the torque Box2D's last step put on each joint that can break, its motor's left out. One past its break force or torque is taken out of the world, and its bodies collide again, after it is logged and handed out as an event, in the joints' order
+    void PhysicsScene2D::State::BreakJoints(std::uint32_t index)
+    {
+        for (JointRecord2D& it_Joint : Joints)
+        {
+            const Joint2DComponent& l_Joint = it_Joint.Settings;
+            if (B2_IS_NULL(it_Joint.Joint) || (l_Joint.BreakForce <= 0.0f && l_Joint.BreakTorque <= 0.0f))
+            {
+                continue;
+            }
+
+            glm::vec2 l_Force = FromBox2D(b2Joint_GetConstraintForce(it_Joint.Joint));
+            float l_Torque = b2Joint_GetConstraintTorque(it_Joint.Joint);
+            switch (l_Joint.Type)
+            {
+                case Joint2DType::Revolute:
+                {
+                    l_Torque -= b2RevoluteJoint_GetMotorTorque(it_Joint.Joint);
+
+                    break;
+                }
+                case Joint2DType::Prismatic:
+                {
+                    const b2Vec2 l_Axis = b2RotateVector(b2Body_GetRotation(b2Joint_GetBodyA(it_Joint.Joint)), it_Joint.LocalAxis);
+                    l_Force -= FromBox2D(l_Axis) * b2PrismaticJoint_GetMotorForce(it_Joint.Joint);
+
+                    break;
+                }
+                case Joint2DType::Wheel:
+                {
+                    l_Torque -= b2WheelJoint_GetMotorTorque(it_Joint.Joint);
+
+                    break;
+                }
+                case Joint2DType::Distance:
+                case Joint2DType::Weld:
+                {
+                    break;
+                }
+            }
+
+            const float l_ForceSize = glm::length(l_Force);
+            const float l_TorqueSize = std::abs(l_Torque);
+            const bool l_ByForce = l_Joint.BreakForce > 0.0f && l_ForceSize > l_Joint.BreakForce;
+            const bool l_ByTorque = !l_ByForce && l_Joint.BreakTorque > 0.0f && l_TorqueSize > l_Joint.BreakTorque;
+            if (!l_ByForce && !l_ByTorque)
+            {
+                continue;
+            }
+
+            TR_CORE_INFO("Physics: {}'s {} joint broke under {}, past its break {}", GetName(Owner, it_Joint.Entity), GetJointTypeName(l_Joint.Type), l_ByForce ? std::format("{:.1f} N", l_ForceSize) : std::format("{:.1f} N m", l_TorqueSize), l_ByForce ? std::format("force of {:.1f} N", l_Joint.BreakForce) : std::format("torque of {:.1f} N m", l_Joint.BreakTorque));
+            b2DestroyJoint(it_Joint.Joint);
+            it_Joint.Joint = b2_nullJointId;
+            Events.push_back({ PhysicsEventType::JointBreak, it_Joint.ID, it_Joint.Other, glm::vec2(0.0f), glm::vec2(0.0f), index });
+        }
     }
 
     // Box2D's begin and end events, for contacts and for triggers, are counted by body pair. A pair's first shape pair begins it and its last ends it. A contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities

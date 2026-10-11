@@ -464,6 +464,52 @@ namespace Trinity
         [[nodiscard]] bool operator==(const JointComponent&) const = default;
     };
 
+    // What a 2D joint holds: its bodies turning about its anchor, sliding along its axis, kept within a range of distances, welded fast, or a wheel turning freely about its anchor on a suspension along its axis
+    enum class Joint2DType : std::uint8_t
+    {
+        Revolute,
+        Prismatic,
+        Distance,
+        Weld,
+        Wheel
+    };
+
+    // Joins the 2D body its entity is part of to another 2D body, or to the world, once the scene runs, as a 3D Joint does: its frame is its entity's transform in the XY plane with the anchor as an offset, the axis is in that frame, and a revolute joint's turn and a prismatic or wheel joint's travel count from where the bodies are as the scene starts. In metres, radians, newtons and seconds
+    struct Joint2DComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.Joint2D";
+
+        Joint2DType Type = Joint2DType::Revolute;
+        // The entity whose 2D body it joins, which may be one of that body's collider entities, or none for the world
+        UUID ConnectedBody;
+        glm::vec2 Anchor{ 0.0f };
+        // What a prismatic joint slides along and a wheel's suspension travels along
+        glm::vec2 Axis{ 0.0f, 1.0f };
+        // A distance joint's other end, in the connected entity's own space, or in the world for a joint to the world
+        glm::vec2 ConnectedAnchor{ 0.0f };
+        // Whether the two bodies still collide with each other
+        bool CollideConnected = false;
+        // What it takes to break it, the force on it and the torque on it, its motor's left out. 0 never breaks it
+        float BreakForce = 0.0f;
+        float BreakTorque = 0.0f;
+        // A revolute joint's turn in radians, from -pi to 0 and 0 to pi, or a prismatic or wheel joint's travel in metres, either side of where it started
+        bool UseLimits = false;
+        float LowerLimit = -0.5f;
+        float UpperLimit = 0.5f;
+        // A revolute or wheel joint's turning speed in radians per second, driven by up to the torque, or a prismatic joint's in metres per second, by up to the force
+        bool UseMotor = false;
+        float MotorSpeed = 0.0f;
+        float MotorMaxForce = 1000.0f;
+        // A distance joint's range, either negative for the distance as the scene starts
+        float MinDistance = -1.0f;
+        float MaxDistance = -1.0f;
+        // A spring by its frequency in hertz, 0 for none, and its damping ratio. A distance joint's pulls it towards the middle of its range, and a wheel's holds the wheel along its axis
+        float SpringFrequency = 0.0f;
+        float SpringDamping = 0.0f;
+
+        [[nodiscard]] bool operator==(const Joint2DComponent&) const = default;
+    };
+
     // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save
     struct UnknownComponentsComponent
     {

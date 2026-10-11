@@ -348,6 +348,47 @@ namespace
             Trinity::DebugDraw::Cross(l_Joint.ConnectedAnchor, c_JointMarkSize, c_JointColor, Trinity::DebugDepth::OnTop);
         }
     }
+
+    // As a 3D joint's, flat at its entity's depth: a cross at the anchor, a circle about it for a joint that turns, the axis for one that slides, and a line to the other end. A joint naming an entity no longer in the scene draws no line
+    void DrawEntityJoint2D(Trinity::Scene& scene, Trinity::Entity entity)
+    {
+        if (!entity.Has<Trinity::Joint2DComponent>())
+        {
+            return;
+        }
+
+        const Trinity::Joint2DComponent& l_Joint = entity.Get<Trinity::Joint2DComponent>();
+        const glm::mat4& l_World = entity.Get<Trinity::WorldTransformComponent>().Matrix;
+        const glm::vec3 l_Anchor(glm::vec2(l_World * glm::vec4(l_Joint.Anchor, 0.0f, 1.0f)), l_World[3].z);
+        Trinity::DebugDraw::Cross(l_Anchor, c_JointMarkSize, c_JointColor, Trinity::DebugDepth::OnTop);
+
+        if (l_Joint.Type == Trinity::Joint2DType::Revolute || l_Joint.Type == Trinity::Joint2DType::Wheel)
+        {
+            Trinity::DebugDraw::Circle(l_Anchor, glm::vec3(0.0f, 0.0f, 1.0f), c_HingeCircleRadius, c_JointColor, Trinity::DebugDepth::OnTop);
+        }
+
+        if (l_Joint.Type == Trinity::Joint2DType::Prismatic || l_Joint.Type == Trinity::Joint2DType::Wheel)
+        {
+            const glm::vec2 l_Turned = glm::mat2(l_World) * (glm::length(l_Joint.Axis) > 1e-6f ? glm::normalize(l_Joint.Axis) : glm::vec2(0.0f, 1.0f));
+            const glm::vec2 l_Axis = glm::length(l_Turned) > 1e-6f ? glm::normalize(l_Turned) : glm::vec2(0.0f, 1.0f);
+            Trinity::DebugDraw::Arrow(l_Anchor, l_Anchor + glm::vec3(l_Axis * c_JointAxisLength, 0.0f), c_JointColor, Trinity::DebugDepth::OnTop);
+        }
+
+        const Trinity::Entity l_Connected = l_Joint.ConnectedBody ? scene.FindEntityByUUID(l_Joint.ConnectedBody) : Trinity::Entity();
+        const bool l_Distance = l_Joint.Type == Trinity::Joint2DType::Distance;
+        if (l_Connected)
+        {
+            const glm::mat4& l_Other = l_Connected.Get<Trinity::WorldTransformComponent>().Matrix;
+            const glm::vec2 l_End(l_Other * glm::vec4(l_Distance ? l_Joint.ConnectedAnchor : glm::vec2(0.0f), 0.0f, 1.0f));
+            Trinity::DebugDraw::Line(l_Anchor, glm::vec3(l_End, l_Other[3].z), c_JointColor, Trinity::DebugDepth::OnTop);
+        }
+        else if (l_Distance && !l_Joint.ConnectedBody)
+        {
+            const glm::vec3 l_End(l_Joint.ConnectedAnchor, l_Anchor.z);
+            Trinity::DebugDraw::Line(l_Anchor, l_End, c_JointColor, Trinity::DebugDepth::OnTop);
+            Trinity::DebugDraw::Cross(l_End, c_JointMarkSize, c_JointColor, Trinity::DebugDepth::OnTop);
+        }
+    }
 }
 
 ColliderDrawing::~ColliderDrawing()
@@ -364,6 +405,7 @@ void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root)
         DrawEntityColliders(it_Entity, m_Drawn);
         DrawEntityColliders2D(it_Entity);
         DrawEntityJoint(scene, it_Entity);
+        DrawEntityJoint2D(scene, it_Entity);
     }
 
     std::erase(m_Drawn, Trinity::UUID());

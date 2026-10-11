@@ -17,7 +17,7 @@ namespace Trinity
     class PhysicsWorld2D;
     class Scene;
 
-    // Between two 2D bodies, as a 3D event is: named by the entities that own them, a contact's in UUID order and a trigger's with the trigger's first. A contact's beginning has where the bodies first touched and the normal from the first to the second, in the XY plane, and every other event has zeros
+    // Between two 2D bodies, as a 3D event is: named by the entities that own them, a contact's in UUID order and a trigger's with the trigger's first. A joint's break names the joint's entity and the entity it was joined to, none for the world. A contact's beginning has where the bodies first touched and the normal from the first to the second, in the XY plane, and every other event has zeros
     struct PhysicsEvent2D
     {
         PhysicsEventType Type = PhysicsEventType::ContactBegin;
@@ -68,7 +68,7 @@ namespace Trinity
         [[nodiscard]] static PhysicsQueryShape2D MakeCapsule(float radius, float height) { return { PhysicsQueryShapeType2D::Capsule, radius, glm::vec2(radius), height }; }
     };
 
-    // A scene's 2D bodies in a PhysicsWorld2D, made when the scene starts running from its RigidBody2D and 2D collider components, as the 3D bodies are from theirs, and with the same project layers. An entity with a RigidBody2D is a body, and one with 2D colliders and no RigidBody2D above it a static body. 2D colliders on entities below a body, without a RigidBody2D of their own, are shapes of it, triggers included. A body takes its entity's world X and Y and turn about Z, and dynamic bodies write those back after each step, local to any parent and keeping the entity's depth in Z. Kinematic bodies are moved to their transforms over each frame's steps, and both are drawn between their last two steps. 3D and 2D bodies are kept apart: an entity with both a RigidBody and a RigidBody2D keeps its 3D body, and 2D colliders under a 3D body are left out, each reported. Contacts and triggers come out after each step in the same order on every run. Queries look at the bodies as the last step left them, on the main thread between steps
+    // A scene's 2D bodies in a PhysicsWorld2D, made when the scene starts running from its RigidBody2D and 2D collider components, as the 3D bodies are from theirs, and with the same project layers. An entity with a RigidBody2D is a body, and one with 2D colliders and no RigidBody2D above it a static body. 2D colliders on entities below a body, without a RigidBody2D of their own, are shapes of it, triggers included. A body takes its entity's world X and Y and turn about Z, and dynamic bodies write those back after each step, local to any parent and keeping the entity's depth in Z. Kinematic bodies are moved to their transforms over each frame's steps, and both are drawn between their last two steps. A Joint2D joins the body its entity is part of to the body of the entity it names, or to the world, and one that breaks is let go with a JointBreak event. 3D and 2D bodies are kept apart: an entity with both a RigidBody and a RigidBody2D keeps its 3D body, and 2D colliders under a 3D body are left out, each reported. Contacts and triggers come out after each step in the same order on every run. Queries look at the bodies as the last step left them, on the main thread between steps
     class TRINITY_API PhysicsScene2D
     {
     public:

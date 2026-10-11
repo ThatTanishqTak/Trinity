@@ -37,7 +37,7 @@ namespace Trinity
 
     Scene::Scene()
     {
-        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, JointComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent, PhysicsPoseComponent, UnknownComponentsComponent>(m_Registry);
+        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, JointComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent, Joint2DComponent, PhysicsPoseComponent, UnknownComponentsComponent>(m_Registry);
     }
 
     Scene::~Scene() = default;
@@ -109,7 +109,7 @@ namespace Trinity
         m_Registry.destroy(l_Subtree.begin(), l_Subtree.end());
     }
 
-    // A joint in the copy that names an entity of the copied subtree names that entity's copy instead, so a duplicated door hangs on its own frame. The two subtrees have the same shape, so they are walked side by side
+    // A joint in the copy, 3D or 2D, that names an entity of the copied subtree names that entity's copy instead, so a duplicated door hangs on its own frame. The two subtrees have the same shape, so they are walked side by side
     Entity Scene::DuplicateEntity(Entity entity)
     {
         TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: DuplicateEntity was given an entity of another scene, or one already destroyed");
@@ -124,13 +124,25 @@ namespace Trinity
             l_Copies.emplace_back(m_Registry.get<IDComponent>(it_Source).ID, m_Registry.get<IDComponent>(it_Copy).ID);
         }
 
-        for (entt::entity it_Copy = l_Copy; it_Copy != entt::null; it_Copy = GetNext(it_Copy, l_Copy))
+        const auto a_Remap = [&l_Copies](UUID& connected)
         {
-            JointComponent* l_Joint = m_Registry.try_get<JointComponent>(it_Copy);
-            const auto a_Copied = l_Joint != nullptr ? std::ranges::find(l_Copies, l_Joint->ConnectedBody, &std::pair<UUID, UUID>::first) : l_Copies.end();
+            const auto a_Copied = std::ranges::find(l_Copies, connected, &std::pair<UUID, UUID>::first);
             if (a_Copied != l_Copies.end())
             {
-                l_Joint->ConnectedBody = a_Copied->second;
+                connected = a_Copied->second;
+            }
+        };
+
+        for (entt::entity it_Copy = l_Copy; it_Copy != entt::null; it_Copy = GetNext(it_Copy, l_Copy))
+        {
+            if (JointComponent* l_Joint = m_Registry.try_get<JointComponent>(it_Copy))
+            {
+                a_Remap(l_Joint->ConnectedBody);
+            }
+
+            if (Joint2DComponent* l_Joint = m_Registry.try_get<Joint2DComponent>(it_Copy))
+            {
+                a_Remap(l_Joint->ConnectedBody);
             }
         }
 
