@@ -18,11 +18,24 @@ namespace Trinity
         {
             (static_cast<void>(registry.storage<T>()), ...);
         }
+
+        // At the body's pose, with the scale its entity's transforms give it
+        glm::mat4 PlaceAtPose(const glm::mat4& world, const PhysicsPoseComponent& pose)
+        {
+            const glm::mat3 l_Basis(world);
+            glm::vec3 l_Scale(glm::length(l_Basis[0]), glm::length(l_Basis[1]), glm::length(l_Basis[2]));
+            if (glm::determinant(l_Basis) < 0.0f)
+            {
+                l_Scale.x = -l_Scale.x;
+            }
+
+            return glm::translate(glm::mat4(1.0f), pose.Position) * glm::mat4_cast(pose.Rotation) * glm::scale(glm::mat4(1.0f), l_Scale);
+        }
     }
 
     Scene::Scene()
     {
-        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, UnknownComponentsComponent>(m_Registry);
+        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, PhysicsPoseComponent, UnknownComponentsComponent>(m_Registry);
     }
 
     Scene::~Scene() = default;
@@ -131,16 +144,24 @@ namespace Trinity
         return Move(entity, m_Registry.get<RelationshipComponent>(sibling.GetHandle()).Parent, sibling.GetHandle(), keepWorldTransform);
     }
 
+    // A running body's entity is placed at its physics pose, and its children under that
     void Scene::UpdateWorldTransforms()
     {
         TR_PROFILE_FUNCTION();
 
+        const auto& l_Poses = m_Registry.storage<PhysicsPoseComponent>();
+        const bool l_Posed = !l_Poses.empty();
         for (entt::entity it_Entity = m_FirstRoot; it_Entity != entt::null; it_Entity = GetNext(it_Entity, entt::null))
         {
             const entt::entity l_Parent = m_Registry.get<RelationshipComponent>(it_Entity).Parent;
             const glm::mat4 l_Local = m_Registry.get<TransformComponent>(it_Entity).GetMatrix();
 
-            m_Registry.get<WorldTransformComponent>(it_Entity).Matrix = l_Parent == entt::null ? l_Local : m_Registry.get<WorldTransformComponent>(l_Parent).Matrix * l_Local;
+            glm::mat4& l_World = m_Registry.get<WorldTransformComponent>(it_Entity).Matrix;
+            l_World = l_Parent == entt::null ? l_Local : m_Registry.get<WorldTransformComponent>(l_Parent).Matrix * l_Local;
+            if (l_Posed && l_Poses.contains(it_Entity))
+            {
+                l_World = PlaceAtPose(l_World, l_Poses.get(it_Entity));
+            }
         }
     }
 

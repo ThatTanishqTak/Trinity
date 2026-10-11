@@ -11,7 +11,7 @@
 
 namespace Trinity
 {
-    // The shapes a body can have until collider components come
+    // The shapes the small body API below makes, for tools and checks. A running scene's bodies take their shapes from its colliders, through PhysicsScene3D
     enum class BodyShape3D : std::uint8_t
     {
         Sphere,
@@ -61,9 +61,13 @@ namespace Trinity
         std::uint32_t MaxContactConstraints = 10240;
         // Scratch memory a step works in, under Physics, as Jolt's own samples size it
         std::uint32_t StepMemoryBytes = 10u << 20;
+        // The solver's passes each step, and the speed every point of a body must stay under for half a second for it to sleep. Twice Jolt's velocity passes, twice its position passes and a little more speed than its own let a stack of ten boxes dropped askew settle and sleep within two seconds, where Jolt's own leave most swaying, for about an eighth more time a step
+        std::uint32_t VelocitySteps = 20;
+        std::uint32_t PositionSteps = 4;
+        float SleepVelocity = 0.05f;
     };
 
-    // A 3D physics world: Jolt's physics system, with its body interface and broadphase, stepped on Trinity's job system and allocating under Physics. Jolt stays inside the engine, so nothing here names its types. A running scene has one, made only when it has bodies, and SceneRuntime steps it at the fixed rate. On the main thread
+    // A 3D physics world: Jolt's physics system, with its body interface and broadphase, stepped on Trinity's job system and allocating under Physics. Jolt stays inside the engine, so nothing here names its types. A running scene's PhysicsScene3D owns one, made only when the scene has bodies or colliders, and steps it at the fixed rate. On the main thread
     class TRINITY_API PhysicsWorld3D
     {
     public:
@@ -91,6 +95,8 @@ namespace Trinity
         [[nodiscard]] std::uint32_t GetActiveBodyCount() const;
 
     private:
+        friend class PhysicsScene3D;
+
         struct State;
 
         State* m_State = nullptr;

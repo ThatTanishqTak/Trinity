@@ -183,6 +183,7 @@ void EditorSession::UpdateTitle()
 
 bool EditorSession::RequestClose()
 {
+    StopSimulation();
     if (!IsDirty())
     {
         return true;
@@ -193,8 +194,14 @@ bool EditorSession::RequestClose()
     return false;
 }
 
+// Refresh comes whenever Forge regains focus, which leaves a simulation running
 void EditorSession::Run(Command command)
 {
+    if (command != Command::Refresh)
+    {
+        StopSimulation();
+    }
+
     const bool l_HasProject = m_Project != nullptr;
     switch (command)
     {
@@ -411,6 +418,8 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 // The registry goes before the project unmounts /assets, and the asset manager lets go of it first
 void EditorSession::CloseProject()
 {
+    StopSimulation();
+
     // The texture being encoded and the environment being filtered are finished, since neither can be left halfway, and the rest wait for the project to open again
     m_ImportAgain = false;
     m_TexturesAfterModels = false;
@@ -646,7 +655,63 @@ void EditorSession::RemoveCloseListener(std::uint64_t id)
 
 void EditorSession::RequestOpenScene(std::string assetPath)
 {
-    m_Pending.push_back([this, l_Path = std::move(assetPath)]() mutable { ConfirmDiscard([this, l_Path = std::move(l_Path)] { OpenScene(l_Path); }); });
+    m_Pending.push_back([this, l_Path = std::move(assetPath)]() mutable
+    {
+        StopSimulation();
+        ConfirmDiscard([this, l_Path = std::move(l_Path)] { OpenScene(l_Path); });
+    });
+}
+
+void EditorSession::RequestSimulation(bool simulate)
+{
+    m_Pending.push_back([this, simulate] { simulate ? StartSimulation() : StopSimulation(); });
+}
+
+// After the session's own work, before the transform pass the frame draws with
+void EditorSession::UpdateSimulation(Trinity::Timestep timestep)
+{
+    if (m_Runtime)
+    {
+        m_Runtime->Update(timestep);
+    }
+}
+
+void EditorSession::StartSimulation()
+{
+    if (m_Runtime)
+    {
+        return;
+    }
+
+    m_SimulationSnapshot = Trinity::SceneSerializer::SaveToText(m_Scene);
+    m_History.EndMerge();
+    m_History.SetLocked(true);
+    m_Runtime = Trinity::CreateScope<Trinity::SceneRuntime>(m_Scene);
+    TR_INFO("Forge: simulating {}, which Stop puts back as it was", GetSceneName());
+}
+
+// The selection is kept when its entity comes back, which it does unless the text could not be read
+void EditorSession::StopSimulation()
+{
+    if (!m_Runtime)
+    {
+        return;
+    }
+
+    m_Runtime.reset();
+    if (const Trinity::Expected<void, std::string> l_Restored = Trinity::SceneSerializer::LoadFromText(m_Scene, m_SimulationSnapshot); !l_Restored)
+    {
+        TR_ERROR("Forge: the scene could not be put back as it was before simulating: {}", l_Restored.GetError());
+    }
+
+    std::string().swap(m_SimulationSnapshot);
+    m_History.SetLocked(false);
+    if (!m_Scene.FindEntityByUUID(m_Selection))
+    {
+        m_Selection = {};
+    }
+
+    TR_INFO("Forge: stopped simulating, and {} is as it was", GetSceneName());
 }
 
 // Named New Folder, or New Folder 1 and on when that is taken. An empty folder has no assets, so the registry need not scan

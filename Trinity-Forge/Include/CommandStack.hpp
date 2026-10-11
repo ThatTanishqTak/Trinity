@@ -43,6 +43,15 @@ public:
     void Clear();
     void MarkSaved();
 
+    // While the scene simulates, an edit would be lost when it stops, so none is taken, and the first refused says why
+    void SetLocked(bool locked)
+    {
+        m_Locked = locked;
+        m_WarnedLocked = false;
+    }
+
+    [[nodiscard]] bool IsLocked() const { return m_Locked; }
+
     [[nodiscard]] bool CanUndo() const { return m_Position > 0; }
     [[nodiscard]] bool CanRedo() const { return m_Position < m_Commands.size(); }
     [[nodiscard]] bool IsSaved() const;
@@ -55,6 +64,7 @@ public:
     [[nodiscard]] std::size_t GetCapacity() const { return m_Capacity; }
 
 private:
+    [[nodiscard]] bool RefuseLocked();
     void Select(const EditorCommand& command);
     void DropRedo();
     void Trim();
@@ -68,4 +78,6 @@ private:
     std::size_t m_MemorySize = 0;
     std::size_t m_Capacity = 0;
     bool m_MergeOpen = false;
+    bool m_Locked = false;
+    bool m_WarnedLocked = false;
 };

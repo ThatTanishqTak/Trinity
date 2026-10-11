@@ -96,11 +96,12 @@ void ForgeLayer::OnAttach()
     ImGui::AddSettingsHandler(&l_Handler);
 }
 
-// Before ImGui's frame begins, so a native file dialog never blocks with a frame open. World transforms are brought up to date last, for the Viewport to draw and pick with
-void ForgeLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
+// Before ImGui's frame begins, so a native file dialog never blocks with a frame open. A simulating scene steps after the session's work, and world transforms are brought up to date last, for the Viewport to draw and pick with
+void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
 {
     m_Session.Update();
     m_ImportTest.Update();
+    m_Session.UpdateSimulation(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
 }
 

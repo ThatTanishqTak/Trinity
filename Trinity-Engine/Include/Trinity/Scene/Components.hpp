@@ -84,6 +84,15 @@ namespace Trinity
         glm::mat4 Matrix{ 1.0f };
     };
 
+    // While a scene runs, a moving body's world position and turn between its last two physics steps, which the transform pass places its entity at in place of its own transform, keeping the entity's world scale. Never saved
+    struct PhysicsPoseComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.PhysicsPose";
+
+        glm::vec3 Position{ 0.0f };
+        glm::quat Rotation = glm::identity<glm::quat>();
+    };
+
     // Parent and ordered siblings as a linked list. Every entity has one, and only the Scene changes it
     struct RelationshipComponent
     {

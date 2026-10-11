@@ -1,17 +1,14 @@
-#include "Trinity/Physics/JoltContext.hpp"
-#include "Trinity/Physics/PhysicsWorld3D.hpp"
+#include "Trinity/Physics/PhysicsWorld3DState.hpp"
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Profiler.hpp"
 
-#include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
-#include <Jolt/Physics/PhysicsSystem.h>
 
 #include <algorithm>
 #include <utility>
@@ -20,89 +17,11 @@ namespace Trinity
 {
     namespace
     {
-        // Until collision layers come in Step 8: static bodies, which never meet each other, and every body that moves, in a broadphase layer each
-        constexpr JPH::ObjectLayer c_StaticLayer = 0;
-        constexpr JPH::ObjectLayer c_MovingLayer = 1;
-        constexpr JPH::BroadPhaseLayer c_StaticBroadPhase{ 0 };
-        constexpr JPH::BroadPhaseLayer c_MovingBroadPhase{ 1 };
-        constexpr JPH::uint c_BroadPhaseLayerCount = 2;
+        using JoltConvert::FromJolt;
+        using JoltConvert::ToJolt;
 
         // Shapes smaller than this are taken as this, since Jolt refuses empty ones
         constexpr float c_MinimumSize = 1e-3f;
-
-        class BroadPhaseLayers final : public JPH::BroadPhaseLayerInterface
-        {
-        public:
-            [[nodiscard]] JPH::uint GetNumBroadPhaseLayers() const override
-            {
-                return c_BroadPhaseLayerCount;
-            }
-
-            [[nodiscard]] JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override
-            {
-                return layer == c_StaticLayer ? c_StaticBroadPhase : c_MovingBroadPhase;
-            }
-
-#if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
-            [[nodiscard]] const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer layer) const override
-            {
-                return layer == c_StaticBroadPhase ? "Static" : "Moving";
-            }
-#endif
-        };
-
-        class ObjectVsBroadPhaseFilter final : public JPH::ObjectVsBroadPhaseLayerFilter
-        {
-        public:
-            [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer layer, JPH::BroadPhaseLayer broadPhase) const override
-            {
-                return layer == c_MovingLayer || broadPhase == c_MovingBroadPhase;
-            }
-        };
-
-        class ObjectLayerFilter final : public JPH::ObjectLayerPairFilter
-        {
-        public:
-            [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer first, JPH::ObjectLayer second) const override
-            {
-                return first == c_MovingLayer || second == c_MovingLayer;
-            }
-        };
-
-        JPH::Vec3 ToJolt(const glm::vec3& vector)
-        {
-            return JPH::Vec3(vector.x, vector.y, vector.z);
-        }
-
-        JPH::Quat ToJolt(const glm::quat& rotation)
-        {
-            return JPH::Quat(rotation.x, rotation.y, rotation.z, rotation.w).Normalized();
-        }
-
-        glm::vec3 FromJolt(JPH::Vec3Arg vector)
-        {
-            return { vector.GetX(), vector.GetY(), vector.GetZ() };
-        }
-
-        glm::quat FromJolt(JPH::QuatArg rotation)
-        {
-            return { rotation.GetW(), rotation.GetX(), rotation.GetY(), rotation.GetZ() };
-        }
-
-        JPH::EMotionType ToJolt(BodyMotion motion)
-        {
-            switch (motion)
-            {
-                case BodyMotion::Static:
-                    return JPH::EMotionType::Static;
-                case BodyMotion::Kinematic:
-                    return JPH::EMotionType::Kinematic;
-                case BodyMotion::Dynamic:
-                    break;
-            }
-
-            return JPH::EMotionType::Dynamic;
-        }
 
         JPH::BodyID ToJolt(PhysicsBodyID body)
         {
@@ -124,22 +43,6 @@ namespace Trinity
         }
     }
 
-    // The filters and the scratch memory must outlive the system, so they come before it
-    struct PhysicsWorld3D::State
-    {
-        explicit State(std::uint32_t stepMemoryBytes) : StepMemory(stepMemoryBytes)
-        {
-
-        }
-
-        BroadPhaseLayers BroadPhase;
-        ObjectVsBroadPhaseFilter ObjectVsBroadPhase;
-        ObjectLayerFilter ObjectVsObject;
-        JPH::TempAllocatorImpl StepMemory;
-        JPH::PhysicsSystem System;
-        bool ReportedFull = false;
-    };
-
     PhysicsWorld3D::PhysicsWorld3D(const PhysicsWorldSettings3D& settings)
     {
         JoltContext::Acquire();
@@ -147,6 +50,12 @@ namespace Trinity
         m_State = Memory::New<State>(MemoryTag::Physics, settings.StepMemoryBytes);
         m_State->System.Init(settings.MaxBodies, 0, settings.MaxBodyPairs, settings.MaxContactConstraints, m_State->BroadPhase, m_State->ObjectVsBroadPhase, m_State->ObjectVsObject);
         m_State->System.SetGravity(ToJolt(settings.Gravity));
+
+        JPH::PhysicsSettings l_Physics = m_State->System.GetPhysicsSettings();
+        l_Physics.mNumVelocitySteps = std::max(settings.VelocitySteps, 1u);
+        l_Physics.mNumPositionSteps = std::max(settings.PositionSteps, 1u);
+        l_Physics.mPointVelocitySleepThreshold = settings.SleepVelocity;
+        m_State->System.SetPhysicsSettings(l_Physics);
     }
 
     // The system frees every body still in it
@@ -158,8 +67,7 @@ namespace Trinity
 
     PhysicsBodyID PhysicsWorld3D::CreateBody(const BodyDescription3D& description)
     {
-        const bool l_Moving = description.Motion != BodyMotion::Static;
-        JPH::BodyCreationSettings l_Settings(CreateShape(description), JPH::RVec3(ToJolt(description.Position)), ToJolt(description.Rotation), ToJolt(description.Motion), l_Moving ? c_MovingLayer : c_StaticLayer);
+        JPH::BodyCreationSettings l_Settings(CreateShape(description), JPH::RVec3(ToJolt(description.Position)), ToJolt(description.Rotation), ToJolt(description.Motion), PhysicsLayers3D::Get(description.Motion));
         l_Settings.mLinearVelocity = ToJolt(description.LinearVelocity);
         l_Settings.mAngularVelocity = ToJolt(description.AngularVelocity);
         l_Settings.mFriction = description.Friction;

@@ -34,7 +34,8 @@ namespace Trinity
     {
         // A 24-byte header, then the shape as Jolt saves it, or the reason it could not be made, all little-endian
         constexpr std::array<char, 4> c_Magic{ 'T', 'R', 'C', 'S' };
-        constexpr std::uint32_t c_FormatVersion = 1;
+        // 2 since Jolt is built for cross-platform determinism, which shapes cooked before it may not match
+        constexpr std::uint32_t c_FormatVersion = 2;
         constexpr std::size_t c_HeaderSize = 24;
 
         struct FileHeader

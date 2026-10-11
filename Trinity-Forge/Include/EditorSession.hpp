@@ -62,6 +62,12 @@ public:
     void UpdateTitle();
 
     [[nodiscard]] bool RequestClose();
+
+    // Until Play mode comes, the Scene panel's Simulate runs the edited scene's physics where it is. The scene is kept as text and the history locked while it runs, and Stop loads the text back, so nothing it did stays. Asked for mid-frame and done at the next Update, and stopped by any command but Refresh
+    void RequestSimulation(bool simulate);
+    void UpdateSimulation(Trinity::Timestep timestep);
+    [[nodiscard]] bool IsSimulating() const { return m_Runtime != nullptr; }
+    [[nodiscard]] Trinity::SceneRuntime* GetRuntime() { return m_Runtime.get(); }
     [[nodiscard]] bool IsDirty() const { return !m_History.IsSaved(); }
 
     [[nodiscard]] Trinity::Scene& GetScene() { return m_Scene; }
@@ -143,6 +149,8 @@ private:
     void FinishModelImports(const ModelImportReport& report);
     void FinishEnvironmentImports(const EnvironmentImportReport& report);
     void SaveProject();
+    void StartSimulation();
+    void StopSimulation();
     void NewScene();
     void OpenScene(const std::string& assetPath);
     void SaveScene(Action then);
@@ -157,6 +165,8 @@ private:
     Trinity::Scope<Trinity::Project> m_Project;
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
     Trinity::Scene m_Scene;
+    Trinity::Scope<Trinity::SceneRuntime> m_Runtime;
+    std::string m_SimulationSnapshot;
     std::string m_ScenePath;
     Trinity::UUID m_Selection;
     CommandStack m_History{ m_Scene, m_Selection };

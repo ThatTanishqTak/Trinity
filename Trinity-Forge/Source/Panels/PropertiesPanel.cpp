@@ -204,6 +204,14 @@ void PropertiesPanel::OnImGuiRender()
         return;
     }
 
+    // Shown as it moves, and editable again once it stops
+    const bool l_Simulating = m_Session.IsSimulating();
+    if (l_Simulating)
+    {
+        ImGui::TextDisabled("Simulating, so nothing can be edited until it stops");
+    }
+
+    ImGui::BeginDisabled(l_Simulating);
     ImGui::PushID(l_Entity.GetUUID().ToString().c_str());
     DrawName(l_Entity);
     DrawTransform(l_Entity);
@@ -217,6 +225,7 @@ void PropertiesPanel::OnImGuiRender()
     DrawOtherComponents(l_Entity);
     DrawAddComponent(l_Entity);
     ImGui::PopID();
+    ImGui::EndDisabled();
 
     if (!m_PendingRemoval.empty())
     {
