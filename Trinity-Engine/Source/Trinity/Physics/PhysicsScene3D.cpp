@@ -14,8 +14,15 @@
 
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
@@ -23,8 +30,12 @@
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/ShapeFilter.h>
+#include <Jolt/Physics/Collision/SimShapeFilter.h>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <format>
 #include <map>
@@ -55,6 +66,8 @@ namespace Trinity
         constexpr float c_FallbackMass = 1.0f;
         // Set in a body's user data, beside the pointer to its record, when it is a record's sensor
         constexpr std::uint64_t c_SensorBit = 1;
+        // A ray's hit is found again from this fraction of its distance, and a metre's, before it
+        constexpr float c_RefineMargin = 1e-3f;
 
         enum class ColliderKind : std::uint8_t
         {
@@ -66,7 +79,7 @@ namespace Trinity
             Mesh
         };
 
-        // A collider as it was read when the scene started: a box's half extents, or a round shape's radius and height
+        // A collider as it was read when the scene started: a box's half extents, or a round shape's radius and height, and its entity's UUID, which queries report
         struct ColliderSource
         {
             entt::entity Entity = entt::null;
@@ -74,6 +87,7 @@ namespace Trinity
             ColliderSettings Settings;
             glm::vec3 Size{ 0.0f };
             UUID Shape;
+            UUID ID;
         };
 
         struct BodyPose
@@ -108,9 +122,11 @@ namespace Trinity
             PhysicsVector<ColliderSource> Solids;
             PhysicsVector<ColliderSource> Triggers;
             PhysicsVector<ColliderMaterial> Materials;
-            // A compound's parts carry their solid's index, and a single shape is the solid here
+            // A compound's parts carry their collider's index, and a single shape is the collider here, for the solids and the sensor's triggers
             bool Compound = false;
             std::uint32_t SingleSolid = 0;
+            bool SensorCompound = false;
+            std::uint32_t SensorSingle = 0;
             JPH::BodyID Body;
             JPH::BodyID Sensor;
             bool Waiting = true;
@@ -231,6 +247,176 @@ namespace Trinity
             return &l_Record->Materials[std::min<std::size_t>(l_Index, l_Record->Materials.size() - 1)];
         }
 
+        // The collider a part of a body came from, found from the part's sub-shape ID, which Jolt gives for the shape that part is or, in a query's hit, for a triangle or other piece of it. A compound as a whole, which Jolt asks about before its parts, is no one collider
+        const ColliderSource* FindCollider(const JPH::Body& body, const JPH::Shape* shape, const JPH::SubShapeID& part)
+        {
+            const BodyRecord* l_Record = GetRecord(body);
+            if (l_Record == nullptr)
+            {
+                return nullptr;
+            }
+
+            const bool l_Sensor = (body.GetUserData() & c_SensorBit) != 0;
+            const PhysicsVector<ColliderSource>& l_Colliders = l_Sensor ? l_Record->Triggers : l_Record->Solids;
+            std::uint32_t l_Index = l_Sensor ? l_Record->SensorSingle : l_Record->SingleSolid;
+            if (l_Sensor ? l_Record->SensorCompound : l_Record->Compound)
+            {
+                if (shape == body.GetShape())
+                {
+                    return nullptr;
+                }
+
+                const JPH::CompoundShape& l_Compound = static_cast<const JPH::CompoundShape&>(*body.GetShape());
+                JPH::SubShapeID l_Remainder;
+                l_Index = l_Compound.GetCompoundUserData(l_Compound.GetSubShapeIndexFromID(part, l_Remainder));
+            }
+
+            return l_Index < l_Colliders.size() ? &l_Colliders[l_Index] : nullptr;
+        }
+
+        // A body whose colliders are all on one layer was let through by its object layer alone. One with colliders on several has each of its parts held to the matrix, and a compound as a whole by all its layers, until Jolt reaches its parts
+        class LayerShapeFilter final : public JPH::SimShapeFilter
+        {
+        public:
+            explicit LayerShapeFilter(const CollisionLayers& layers) : m_Layers(layers)
+            {
+
+            }
+
+            [[nodiscard]] bool ShouldCollide(const JPH::Body& first, const JPH::Shape* firstShape, const JPH::SubShapeID& firstPart, const JPH::Body& second, const JPH::Shape* secondShape, const JPH::SubShapeID& secondPart) const override
+            {
+                return (m_Layers.GetCollidingLayers(GetPartLayers(first, firstShape, firstPart)) & GetPartLayers(second, secondShape, secondPart)) != 0;
+            }
+
+        private:
+            [[nodiscard]] static std::uint32_t GetPartLayers(const JPH::Body& body, const JPH::Shape* shape, const JPH::SubShapeID& part)
+            {
+                const std::uint32_t l_Layers = PhysicsLayers3D::GetLayers(body.GetObjectLayer());
+                if (std::has_single_bit(l_Layers))
+                {
+                    return l_Layers;
+                }
+
+                const ColliderSource* l_Collider = FindCollider(body, shape, part);
+
+                return l_Collider != nullptr ? 1u << l_Collider->Settings.Layer : l_Layers;
+            }
+
+            const CollisionLayers& m_Layers;
+        };
+
+        // A query's filters, from the broadphase down: bodies on none of its layers are passed over, then the ignored entity's body and sensors it did not ask for, then the ignored entity's colliders and those on other layers
+        class QueryLayerFilter final : public JPH::ObjectLayerFilter
+        {
+        public:
+            explicit QueryLayerFilter(std::uint32_t layers) : m_Layers(layers)
+            {
+
+            }
+
+            [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer layer) const override
+            {
+                return (PhysicsLayers3D::GetLayers(layer) & m_Layers) != 0;
+            }
+
+        private:
+            std::uint32_t m_Layers;
+        };
+
+        class QueryBodyFilter final : public JPH::BodyFilter
+        {
+        public:
+            explicit QueryBodyFilter(const PhysicsQueryFilter3D& filter) : m_Filter(filter)
+            {
+
+            }
+
+            [[nodiscard]] bool ShouldCollideLocked(const JPH::Body& body) const override
+            {
+                const BodyRecord* l_Record = GetRecord(body);
+
+                return l_Record != nullptr && l_Record->ID != m_Filter.Ignore && (m_Filter.HitTriggers || (body.GetUserData() & c_SensorBit) == 0);
+            }
+
+        private:
+            const PhysicsQueryFilter3D& m_Filter;
+        };
+
+        class QueryShapeFilter final : public JPH::ShapeFilter
+        {
+        public:
+            QueryShapeFilter(const JPH::BodyLockInterface& bodies, const PhysicsQueryFilter3D& filter) : m_Bodies(bodies), m_Filter(filter)
+            {
+
+            }
+
+            [[nodiscard]] bool ShouldCollide(const JPH::Shape* shape, const JPH::SubShapeID& part) const override
+            {
+                const JPH::Body* l_Body = m_Bodies.TryGetBody(mBodyID2);
+                const ColliderSource* l_Collider = l_Body != nullptr ? FindCollider(*l_Body, shape, part) : nullptr;
+
+                return l_Collider == nullptr || ((m_Filter.Layers & (1u << l_Collider->Settings.Layer)) != 0 && l_Collider->ID != m_Filter.Ignore);
+            }
+
+            // A shape cast or overlap names its own shape first
+            [[nodiscard]] bool ShouldCollide([[maybe_unused]] const JPH::Shape* queryShape, [[maybe_unused]] const JPH::SubShapeID& queryPart, const JPH::Shape* shape, const JPH::SubShapeID& part) const override
+            {
+                return ShouldCollide(shape, part);
+            }
+
+        private:
+            const JPH::BodyLockInterface& m_Bodies;
+            const PhysicsQueryFilter3D& m_Filter;
+        };
+
+        // Sized as the colliders are made
+        JPH::RefConst<JPH::Shape> MakeQueryShape(const PhysicsQueryShape3D& shape)
+        {
+            switch (shape.Type)
+            {
+                case PhysicsQueryShapeType3D::Box:
+                {
+                    const glm::vec3 l_HalfExtents = glm::max(glm::abs(shape.HalfExtents), glm::vec3(c_MinimumSize));
+                    const float l_ConvexRadius = std::min(JPH::cDefaultConvexRadius, std::min({ l_HalfExtents.x, l_HalfExtents.y, l_HalfExtents.z }) * 0.5f);
+
+                    return new JPH::BoxShape(ToJolt(l_HalfExtents), l_ConvexRadius);
+                }
+                case PhysicsQueryShapeType3D::Capsule:
+                {
+                    const float l_Radius = std::max(shape.Radius, c_MinimumSize);
+                    const float l_HalfSegment = std::max(shape.Height * 0.5f - shape.Radius, 0.0f);
+                    if (l_HalfSegment < c_MinimumSize)
+                    {
+                        return new JPH::SphereShape(l_Radius);
+                    }
+
+                    return new JPH::CapsuleShape(l_HalfSegment, l_Radius);
+                }
+                case PhysicsQueryShapeType3D::Sphere:
+                    break;
+            }
+
+            return new JPH::SphereShape(std::max(shape.Radius, c_MinimumSize));
+        }
+
+        // Nearest first, then by UUID, with only the nearest hit of each entity kept
+        void SortHits(std::vector<PhysicsHit3D>& hits)
+        {
+            std::ranges::sort(hits, [](const PhysicsHit3D& left, const PhysicsHit3D& right) { return std::tie(left.Distance, left.Entity) < std::tie(right.Distance, right.Entity); });
+
+            std::vector<PhysicsHit3D> l_Kept;
+            l_Kept.reserve(hits.size());
+            for (const PhysicsHit3D& it_Hit : hits)
+            {
+                if (std::ranges::find(l_Kept, it_Hit.Entity, &PhysicsHit3D::Entity) == l_Kept.end())
+                {
+                    l_Kept.push_back(it_Hit);
+                }
+            }
+
+            hits = std::move(l_Kept);
+        }
+
         // As Jolt combines them by default, with each part's own values: friction as the geometric mean, and restitution as the larger
         float CombineFriction(const JPH::Body& first, const JPH::SubShapeID& firstPart, const JPH::Body& second, const JPH::SubShapeID& secondPart)
         {
@@ -253,41 +439,44 @@ namespace Trinity
             return registry.any_of<BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent>(entity);
         }
 
+        // A layer past the last there can be is taken as the first, as the scene's file reads it
         void AddCollider(BodyRecord& record, ColliderSource collider)
         {
+            collider.Settings.Layer = collider.Settings.Layer < c_MaxCollisionLayers ? collider.Settings.Layer : 0;
             (collider.Settings.Trigger ? record.Triggers : record.Solids).push_back(std::move(collider));
         }
 
         void AddColliders(const SceneRegistry& registry, entt::entity entity, BodyRecord& record)
         {
+            const UUID l_ID = registry.get<IDComponent>(entity).ID;
             if (const BoxColliderComponent* l_Box = registry.try_get<BoxColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::Box, *l_Box, l_Box->HalfExtents, {} });
+                AddCollider(record, { entity, ColliderKind::Box, *l_Box, l_Box->HalfExtents, {}, l_ID });
             }
 
             if (const SphereColliderComponent* l_Sphere = registry.try_get<SphereColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::Sphere, *l_Sphere, glm::vec3(l_Sphere->Radius, 0.0f, 0.0f), {} });
+                AddCollider(record, { entity, ColliderKind::Sphere, *l_Sphere, glm::vec3(l_Sphere->Radius, 0.0f, 0.0f), {}, l_ID });
             }
 
             if (const CapsuleColliderComponent* l_Capsule = registry.try_get<CapsuleColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::Capsule, *l_Capsule, glm::vec3(l_Capsule->Radius, l_Capsule->Height, 0.0f), {} });
+                AddCollider(record, { entity, ColliderKind::Capsule, *l_Capsule, glm::vec3(l_Capsule->Radius, l_Capsule->Height, 0.0f), {}, l_ID });
             }
 
             if (const CylinderColliderComponent* l_Cylinder = registry.try_get<CylinderColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::Cylinder, *l_Cylinder, glm::vec3(l_Cylinder->Radius, l_Cylinder->Height, 0.0f), {} });
+                AddCollider(record, { entity, ColliderKind::Cylinder, *l_Cylinder, glm::vec3(l_Cylinder->Radius, l_Cylinder->Height, 0.0f), {}, l_ID });
             }
 
             if (const ConvexHullColliderComponent* l_Hull = registry.try_get<ConvexHullColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::ConvexHull, *l_Hull, glm::vec3(0.0f), l_Hull->Shape });
+                AddCollider(record, { entity, ColliderKind::ConvexHull, *l_Hull, glm::vec3(0.0f), l_Hull->Shape, l_ID });
             }
 
             if (const MeshColliderComponent* l_Mesh = registry.try_get<MeshColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::Mesh, *l_Mesh, glm::vec3(0.0f), l_Mesh->Shape });
+                AddCollider(record, { entity, ColliderKind::Mesh, *l_Mesh, glm::vec3(0.0f), l_Mesh->Shape, l_ID });
             }
         }
 
@@ -340,9 +529,17 @@ namespace Trinity
     // Jolt calls the listener on its workers during a step, so what it hears is only queued, under a lock, for the main thread to sort and pair after the step
     struct PhysicsScene3D::State final : public JPH::ContactListener
     {
-        explicit State(Scene& scene) : Owner(scene)
+        State(Scene& scene, const CollisionLayers& layers) : Owner(scene), Layers(layers), World(GetWorldSettings(layers)), Parts(Layers)
         {
 
+        }
+
+        [[nodiscard]] static PhysicsWorldSettings3D GetWorldSettings(const CollisionLayers& layers)
+        {
+            PhysicsWorldSettings3D l_Settings;
+            l_Settings.Layers = layers;
+
+            return l_Settings;
         }
 
         // A body's own sensor never reports touching the body
@@ -394,9 +591,14 @@ namespace Trinity
 
         [[nodiscard]] bool MakeBody(BodyRecord& record);
         void PairContacts(std::uint32_t index);
+        [[nodiscard]] PhysicsHit3D MakeHit(JPH::BodyID body, const JPH::SubShapeID& part) const;
+        [[nodiscard]] std::vector<PhysicsHit3D> CastRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, bool all) const;
+        [[nodiscard]] std::vector<PhysicsHit3D> CastShape(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, bool all) const;
 
         Scene& Owner;
+        CollisionLayers Layers;
         PhysicsWorld3D World;
+        LayerShapeFilter Parts;
         JPH::PhysicsSystem* System = nullptr;
         PhysicsVector<BodyRecord> Records;
         PhysicsVector<UUID> Shapes;
@@ -415,12 +617,12 @@ namespace Trinity
     };
 
     // Bodies are found in hierarchy order, so a parent's record comes before its children's, and the same scene makes the same bodies in the same order every time
-    PhysicsScene3D::PhysicsScene3D(Scene& scene)
+    PhysicsScene3D::PhysicsScene3D(Scene& scene, const CollisionLayers& layers)
     {
         TR_PROFILE_FUNCTION();
         TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's physics is made on the main thread.");
 
-        m_State = Memory::New<State>(MemoryTag::Physics, scene);
+        m_State = Memory::New<State>(MemoryTag::Physics, scene, layers);
         State& l_State = *m_State;
         l_State.System = &l_State.World.m_State->System;
         l_State.System->SetContactListener(&l_State);
@@ -659,6 +861,61 @@ namespace Trinity
         return m_State->Waiting;
     }
 
+    const CollisionLayers& PhysicsScene3D::GetLayers() const
+    {
+        return m_State->Layers;
+    }
+
+    std::optional<PhysicsHit3D> PhysicsScene3D::Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const
+    {
+        const std::vector<PhysicsHit3D> l_Hits = m_State->CastRay(origin, direction, maxDistance, filter, false);
+
+        return l_Hits.empty() ? std::nullopt : std::optional<PhysicsHit3D>(l_Hits.front());
+    }
+
+    std::vector<PhysicsHit3D> PhysicsScene3D::RaycastAll(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const
+    {
+        return m_State->CastRay(origin, direction, maxDistance, filter, true);
+    }
+
+    std::optional<PhysicsHit3D> PhysicsScene3D::ShapeCast(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const
+    {
+        const std::vector<PhysicsHit3D> l_Hits = m_State->CastShape(shape, position, rotation, direction, maxDistance, filter, false);
+
+        return l_Hits.empty() ? std::nullopt : std::optional<PhysicsHit3D>(l_Hits.front());
+    }
+
+    std::vector<PhysicsHit3D> PhysicsScene3D::ShapeCastAll(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const
+    {
+        return m_State->CastShape(shape, position, rotation, direction, maxDistance, filter, true);
+    }
+
+    std::vector<PhysicsHit3D> PhysicsScene3D::Overlap(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const PhysicsQueryFilter3D& filter) const
+    {
+        TR_PROFILE_FUNCTION();
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's physics is queried on the main thread.");
+
+        const State& l_State = *m_State;
+        const JPH::RefConst<JPH::Shape> l_Shape = MakeQueryShape(shape);
+        const QueryLayerFilter l_Layers(filter.Layers);
+        const QueryBodyFilter l_Bodies(filter);
+        const QueryShapeFilter l_Shapes(l_State.System->GetBodyLockInterfaceNoLock(), filter);
+        JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> l_Collector;
+        l_State.System->GetNarrowPhaseQueryNoLock().CollideShape(l_Shape, JPH::Vec3::sOne(), JPH::RMat44::sRotationTranslation(ToJolt(rotation), JPH::RVec3(ToJolt(position))), JPH::CollideShapeSettings(), JPH::RVec3::sZero(), l_Collector, {}, l_Layers, l_Bodies, l_Shapes);
+
+        std::vector<PhysicsHit3D> l_Hits;
+        l_Hits.reserve(l_Collector.mHits.size());
+        for (const JPH::CollideShapeResult& it_Result : l_Collector.mHits)
+        {
+            l_Hits.push_back(l_State.MakeHit(it_Result.mBodyID2, it_Result.mSubShapeID2));
+        }
+
+        std::erase_if(l_Hits, [](const PhysicsHit3D& hit) { return !hit.Entity; });
+        SortHits(l_Hits);
+
+        return l_Hits;
+    }
+
     // Once every cooked shape it uses has loaded or failed. Each collider is placed relative to the body's pose, its entity's world scale taken into its shape, and the solids made one shape and the triggers another. False while it waits
     bool PhysicsScene3D::State::MakeBody(BodyRecord& record)
     {
@@ -796,8 +1053,8 @@ namespace Trinity
             return nullptr;
         };
 
-        // The parts placed on the body, then made one shape. A single part needs no compound, and one with no offset nothing around it
-        const auto a_Combine = [&](const PhysicsVector<ColliderSource>& colliders, bool& compound, std::uint32_t& single) -> JPH::RefConst<JPH::Shape>
+        // The parts placed on the body, then made one shape, with the layers of the parts made. A single part needs no compound, and one with no offset nothing around it
+        const auto a_Combine = [&](const PhysicsVector<ColliderSource>& colliders, bool& compound, std::uint32_t& single, std::uint32_t& layers) -> JPH::RefConst<JPH::Shape>
         {
             PhysicsVector<ShapePart> l_Parts;
             for (std::size_t it_Collider = 0; it_Collider < colliders.size(); ++it_Collider)
@@ -813,6 +1070,7 @@ namespace Trinity
                 if (JPH::RefConst<JPH::Shape> l_Shape = a_MakeShape(l_Collider, l_Placed.Scale))
                 {
                     l_Parts.push_back({ ToJolt(l_Placed.Pose.Position), ToJolt(l_Placed.Pose.Rotation), std::move(l_Shape), static_cast<std::uint32_t>(it_Collider) });
+                    layers |= 1u << l_Collider.Settings.Layer;
                 }
             }
 
@@ -864,14 +1122,25 @@ namespace Trinity
             l_Record.Materials.push_back({ it_Solid.Settings.Friction, it_Solid.Settings.Restitution });
         }
 
+        // Jolt asks the filter on the shapes about every pair of bodies once it has one, so it is given one only when a body has colliders on more than one layer
+        const auto a_UseLayers = [&l_State](std::uint32_t layers)
+        {
+            if (!std::has_single_bit(layers))
+            {
+                l_State.System->SetSimShapeFilter(&l_State.Parts);
+            }
+        };
+
         bool l_Compound = false;
         std::uint32_t l_Single = 0;
-        if (const JPH::RefConst<JPH::Shape> l_Shape = a_Combine(l_Record.Solids, l_Compound, l_Single))
+        std::uint32_t l_Layers = 0;
+        if (const JPH::RefConst<JPH::Shape> l_Shape = a_Combine(l_Record.Solids, l_Compound, l_Single, l_Layers))
         {
             l_Record.Compound = l_Compound;
             l_Record.SingleSolid = l_Single;
+            a_UseLayers(l_Layers);
 
-            JPH::BodyCreationSettings l_Settings(l_Shape, l_Position, l_Rotation, ToJolt(l_Motion), PhysicsLayers3D::Get(l_Motion));
+            JPH::BodyCreationSettings l_Settings(l_Shape, l_Position, l_Rotation, ToJolt(l_Motion), PhysicsLayers3D::Get(l_Motion, l_Layers));
             l_Settings.mUserData = l_UserData;
             if (l_Motion == BodyMotion::Dynamic)
             {
@@ -912,10 +1181,15 @@ namespace Trinity
         // Triggers on a static body stay with it, and the rest follow it as a kinematic sensor
         bool l_SensorCompound = false;
         std::uint32_t l_SensorSingle = 0;
-        if (const JPH::RefConst<JPH::Shape> l_Shape = a_Combine(l_Record.Triggers, l_SensorCompound, l_SensorSingle))
+        std::uint32_t l_SensorLayers = 0;
+        if (const JPH::RefConst<JPH::Shape> l_Shape = a_Combine(l_Record.Triggers, l_SensorCompound, l_SensorSingle, l_SensorLayers))
         {
+            l_Record.SensorCompound = l_SensorCompound;
+            l_Record.SensorSingle = l_SensorSingle;
+            a_UseLayers(l_SensorLayers);
+
             const BodyMotion l_SensorMotion = l_Motion == BodyMotion::Static ? BodyMotion::Static : BodyMotion::Kinematic;
-            JPH::BodyCreationSettings l_Settings(l_Shape, l_Position, l_Rotation, ToJolt(l_SensorMotion), PhysicsLayers3D::Get(l_SensorMotion));
+            JPH::BodyCreationSettings l_Settings(l_Shape, l_Position, l_Rotation, ToJolt(l_SensorMotion), PhysicsLayers3D::Get(l_SensorMotion, l_SensorLayers));
             l_Settings.mUserData = l_UserData | c_SensorBit;
             l_Settings.mIsSensor = true;
             if (l_SensorMotion == BodyMotion::Kinematic && IsWeightless(*l_Shape))
@@ -1067,5 +1341,170 @@ namespace Trinity
 
         std::ranges::stable_sort(l_Events, [](const PhysicsEvent3D& left, const PhysicsEvent3D& right) { return std::tie(left.First, left.Second, left.Type) < std::tie(right.First, right.Second, right.Type); });
         l_State.Events.insert(l_State.Events.end(), l_Events.begin(), l_Events.end());
+    }
+
+    // The entities of the collider a query met and of its body. None for a body that is not the scene's
+    PhysicsHit3D PhysicsScene3D::State::MakeHit(JPH::BodyID body, const JPH::SubShapeID& part) const
+    {
+        PhysicsHit3D l_Hit;
+        const JPH::BodyLockRead l_Lock(System->GetBodyLockInterfaceNoLock(), body);
+        if (!l_Lock.Succeeded())
+        {
+            return l_Hit;
+        }
+
+        const JPH::Body& l_Body = l_Lock.GetBody();
+        const BodyRecord* l_Record = GetRecord(l_Body);
+        const ColliderSource* l_Collider = FindCollider(l_Body, nullptr, part);
+        if (l_Record == nullptr || l_Collider == nullptr)
+        {
+            return l_Hit;
+        }
+
+        l_Hit.Entity = l_Collider->ID;
+        l_Hit.Body = l_Record->ID;
+        l_Hit.Trigger = (l_Body.GetUserData() & c_SensorBit) != 0;
+
+        return l_Hit;
+    }
+
+    // A ray of no length, or with no direction, meets nothing. Jolt treats convex shapes as solid, and passes the back faces of triangles. It finds a round shape along the whole ray in single precision, which tens of metres away can be out by a few tenths of a millimetre, so each hit is found again along a short piece of the ray around it, against the part it is on
+    std::vector<PhysicsHit3D> PhysicsScene3D::State::CastRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, bool all) const
+    {
+        TR_PROFILE_FUNCTION();
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's physics is queried on the main thread.");
+
+        std::vector<PhysicsHit3D> l_Hits;
+        const float l_Length = glm::length(direction);
+        if (!(l_Length > 0.0f) || !(maxDistance > 0.0f) || !std::isfinite(l_Length) || !std::isfinite(maxDistance))
+        {
+            return l_Hits;
+        }
+
+        const glm::vec3 l_Direction = direction / l_Length;
+        const JPH::RRayCast l_Ray(JPH::RVec3(ToJolt(origin)), ToJolt(l_Direction * maxDistance));
+        const QueryLayerFilter l_Layers(filter.Layers);
+        const QueryBodyFilter l_Bodies(filter);
+        const QueryShapeFilter l_Shapes(System->GetBodyLockInterfaceNoLock(), filter);
+        const JPH::NarrowPhaseQuery& l_Query = System->GetNarrowPhaseQueryNoLock();
+
+        const auto a_Add = [&](const JPH::RayCastResult& result)
+        {
+            PhysicsHit3D l_Hit = MakeHit(result.mBodyID, result.mSubShapeID2);
+            if (!l_Hit.Entity)
+            {
+                return;
+            }
+
+            l_Hit.Distance = result.mFraction * maxDistance;
+            l_Hit.Normal = -l_Direction;
+            if (result.mFraction > 0.0f)
+            {
+                const JPH::BodyLockRead l_Lock(System->GetBodyLockInterfaceNoLock(), result.mBodyID);
+                const JPH::Body& l_Body = l_Lock.GetBody();
+                const float l_Margin = c_RefineMargin * (l_Hit.Distance + 1.0f);
+                const float l_Start = std::max(l_Hit.Distance - l_Margin, 0.0f);
+                JPH::SubShapeID l_Remainder;
+                JPH::RayCastResult l_Near;
+                if (l_Body.GetTransformedShape().GetSubShapeTransformedShape(result.mSubShapeID2, l_Remainder).CastRay(JPH::RRayCast(JPH::RVec3(ToJolt(origin + l_Direction * l_Start)), ToJolt(l_Direction * (l_Margin * 2.0f))), l_Near))
+                {
+                    l_Hit.Distance = l_Start + l_Near.mFraction * l_Margin * 2.0f;
+                }
+
+                l_Hit.Normal = FromJolt(l_Body.GetWorldSpaceSurfaceNormal(result.mSubShapeID2, JPH::RVec3(ToJolt(origin + l_Direction * l_Hit.Distance))));
+            }
+
+            l_Hit.Point = origin + l_Direction * l_Hit.Distance;
+
+            l_Hits.push_back(l_Hit);
+        };
+
+        if (all)
+        {
+            JPH::AllHitCollisionCollector<JPH::CastRayCollector> l_Collector;
+            l_Query.CastRay(l_Ray, JPH::RayCastSettings(), l_Collector, {}, l_Layers, l_Bodies, l_Shapes);
+            for (const JPH::RayCastResult& it_Result : l_Collector.mHits)
+            {
+                a_Add(it_Result);
+            }
+        }
+        else
+        {
+            JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> l_Collector;
+            l_Query.CastRay(l_Ray, JPH::RayCastSettings(), l_Collector, {}, l_Layers, l_Bodies, l_Shapes);
+            if (l_Collector.HadHit())
+            {
+                a_Add(l_Collector.mHit);
+            }
+        }
+
+        SortHits(l_Hits);
+
+        return l_Hits;
+    }
+
+    // As a ray, with a hit's point and normal where the shape first touched the collider
+    std::vector<PhysicsHit3D> PhysicsScene3D::State::CastShape(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, bool all) const
+    {
+        TR_PROFILE_FUNCTION();
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's physics is queried on the main thread.");
+
+        std::vector<PhysicsHit3D> l_Hits;
+        const float l_Length = glm::length(direction);
+        if (!(l_Length > 0.0f) || !(maxDistance > 0.0f) || !std::isfinite(l_Length) || !std::isfinite(maxDistance))
+        {
+            return l_Hits;
+        }
+
+        const glm::vec3 l_Direction = direction / l_Length;
+        const JPH::RefConst<JPH::Shape> l_Shape = MakeQueryShape(shape);
+        const JPH::RShapeCast l_Cast = JPH::RShapeCast::sFromWorldTransform(l_Shape, JPH::Vec3::sOne(), JPH::RMat44::sRotationTranslation(ToJolt(rotation), JPH::RVec3(ToJolt(position))), ToJolt(l_Direction * maxDistance));
+        const QueryLayerFilter l_Layers(filter.Layers);
+        const QueryBodyFilter l_Bodies(filter);
+        const QueryShapeFilter l_Shapes(System->GetBodyLockInterfaceNoLock(), filter);
+        const JPH::NarrowPhaseQuery& l_Query = System->GetNarrowPhaseQueryNoLock();
+
+        const auto a_Add = [&](const JPH::ShapeCastResult& result)
+        {
+            PhysicsHit3D l_Hit = MakeHit(result.mBodyID2, result.mSubShapeID2);
+            if (!l_Hit.Entity)
+            {
+                return;
+            }
+
+            l_Hit.Distance = result.mFraction * maxDistance;
+            l_Hit.Point = position;
+            l_Hit.Normal = -l_Direction;
+            if (result.mFraction > 0.0f)
+            {
+                l_Hit.Point = FromJolt(JPH::Vec3(result.mContactPointOn2));
+                l_Hit.Normal = FromJolt(-result.mPenetrationAxis.NormalizedOr(-ToJolt(l_Direction)));
+            }
+
+            l_Hits.push_back(l_Hit);
+        };
+
+        if (all)
+        {
+            JPH::AllHitCollisionCollector<JPH::CastShapeCollector> l_Collector;
+            l_Query.CastShape(l_Cast, JPH::ShapeCastSettings(), JPH::RVec3::sZero(), l_Collector, {}, l_Layers, l_Bodies, l_Shapes);
+            for (const JPH::ShapeCastResult& it_Result : l_Collector.mHits)
+            {
+                a_Add(it_Result);
+            }
+        }
+        else
+        {
+            JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> l_Collector;
+            l_Query.CastShape(l_Cast, JPH::ShapeCastSettings(), JPH::RVec3::sZero(), l_Collector, {}, l_Layers, l_Bodies, l_Shapes);
+            if (l_Collector.HadHit())
+            {
+                a_Add(l_Collector.mHit);
+            }
+        }
+
+        SortHits(l_Hits);
+
+        return l_Hits;
     }
 }

@@ -686,7 +686,7 @@ void EditorSession::StartSimulation()
     m_SimulationSnapshot = Trinity::SceneSerializer::SaveToText(m_Scene);
     m_History.EndMerge();
     m_History.SetLocked(true);
-    m_Runtime = Trinity::CreateScope<Trinity::SceneRuntime>(m_Scene);
+    m_Runtime = Trinity::CreateScope<Trinity::SceneRuntime>(m_Scene, m_Project ? m_Project->GetCollisionLayers() : Trinity::CollisionLayers());
     TR_INFO("Forge: simulating {}, which Stop puts back as it was", GetSceneName());
 }
 
@@ -1031,6 +1031,17 @@ bool EditorSession::CreateModel(Trinity::UUID model, Trinity::UUID parent, Trini
     }
 
     return m_History.Execute(Trinity::CreateScope<CreateModelCommand>(model, ToUtf8(FromUtf8(l_Record->Path).stem()), parent, before, position));
+}
+
+void EditorSession::SetCollisionLayers(const Trinity::CollisionLayers& layers)
+{
+    if (!m_Project || m_Project->GetCollisionLayers() == layers)
+    {
+        return;
+    }
+
+    m_Project->SetCollisionLayers(layers);
+    SaveProject();
 }
 
 void EditorSession::SaveProject()

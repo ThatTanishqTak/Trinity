@@ -6,6 +6,7 @@
 #include "Panels/GamePanel.hpp"
 #include "Panels/Panel.hpp"
 #include "Panels/ViewportPanel.hpp"
+#include "ProjectSettingsWindow.hpp"
 
 #include <Trinity.hpp>
 
@@ -48,6 +49,7 @@ private:
     Trinity::ImGuiLayer& m_ImGui;
     EditorSession m_Session;
     ImportTest m_ImportTest{ m_Session };
+    ProjectSettingsWindow m_ProjectSettings{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
     GamePanel* m_GamePanel = nullptr;

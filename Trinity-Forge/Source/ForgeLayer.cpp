@@ -159,6 +159,7 @@ void ForgeLayer::OnImGuiRender()
     }
 
     m_ContentBrowser->EndFrame();
+    m_ProjectSettings.Draw();
 
     if (m_ShowAbout)
     {
@@ -318,7 +319,7 @@ void ForgeLayer::DrawMenuBar()
     ImGui::EndMainMenuBar();
 }
 
-// Undo and Redo name the command they act on. Every edit goes through the history, so it can be undone
+// Undo and Redo name the command they act on. Every edit to the scene goes through the history, so it can be undone, and the project's settings are saved as they change
 void ForgeLayer::DrawEditMenu()
 {
     CommandStack& l_History = m_Session.GetHistory();
@@ -360,6 +361,13 @@ void ForgeLayer::DrawEditMenu()
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Trash, "Delete").c_str(), "Delete", false, l_HasSelection))
     {
         l_History.Execute(Trinity::CreateScope<DeleteEntityCommand>(m_Session.GetSelection()));
+    }
+
+    ImGui::Separator();
+
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Gear, "Project Settings...").c_str(), nullptr, false, m_Session.HasProject()))
+    {
+        m_ProjectSettings.Open();
     }
 }
 

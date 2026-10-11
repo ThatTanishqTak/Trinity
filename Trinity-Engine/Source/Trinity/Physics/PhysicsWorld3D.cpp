@@ -47,7 +47,7 @@ namespace Trinity
     {
         JoltContext::Acquire();
 
-        m_State = Memory::New<State>(MemoryTag::Physics, settings.StepMemoryBytes);
+        m_State = Memory::New<State>(MemoryTag::Physics, settings);
         m_State->System.Init(settings.MaxBodies, 0, settings.MaxBodyPairs, settings.MaxContactConstraints, m_State->BroadPhase, m_State->ObjectVsBroadPhase, m_State->ObjectVsObject);
         m_State->System.SetGravity(ToJolt(settings.Gravity));
 
@@ -67,7 +67,7 @@ namespace Trinity
 
     PhysicsBodyID PhysicsWorld3D::CreateBody(const BodyDescription3D& description)
     {
-        JPH::BodyCreationSettings l_Settings(CreateShape(description), JPH::RVec3(ToJolt(description.Position)), ToJolt(description.Rotation), ToJolt(description.Motion), PhysicsLayers3D::Get(description.Motion));
+        JPH::BodyCreationSettings l_Settings(CreateShape(description), JPH::RVec3(ToJolt(description.Position)), ToJolt(description.Rotation), ToJolt(description.Motion), PhysicsLayers3D::Get(description.Motion, 1u << (description.Layer < c_MaxCollisionLayers ? description.Layer : 0)));
         l_Settings.mLinearVelocity = ToJolt(description.LinearVelocity);
         l_Settings.mAngularVelocity = ToJolt(description.AngularVelocity);
         l_Settings.mFriction = description.Friction;

@@ -75,6 +75,8 @@ public:
     [[nodiscard]] const Trinity::Project* GetProject() const { return m_Project.get(); }
     [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
+    // Saved with the project at once, outside the history. A scene simulating keeps the layers it started with
+    void SetCollisionLayers(const Trinity::CollisionLayers& layers);
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
     [[nodiscard]] Trinity::UUID GetSceneID() const;
 

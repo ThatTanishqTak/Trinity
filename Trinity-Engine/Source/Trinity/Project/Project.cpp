@@ -36,6 +36,72 @@ namespace Trinity
             return l_Value && l_Value.IsScalar() ? l_Value.Scalar() : std::string(fallback);
         }
 
+        // A whole number below the layer count, or nothing
+        std::optional<std::uint32_t> ReadLayer(const YAML::Node& node)
+        {
+            std::uint32_t l_Layer = 0;
+            const std::string l_Text = node && node.IsScalar() ? node.Scalar() : std::string();
+            const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Layer);
+            if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_Text.data() + l_Text.size() || l_Layer >= c_MaxCollisionLayers)
+            {
+                return std::nullopt;
+            }
+
+            return l_Layer;
+        }
+
+        // The names given, by layer, which are all a layer has when there are any, so a name taken away stays away, and the pairs that do not collide, each lower layer first. A layer's name or pair that cannot be read is left out, and reported
+        CollisionLayers ReadCollisionLayers(const YAML::Node& physics, std::string_view project)
+        {
+            CollisionLayers l_Layers;
+            if (!physics || !physics.IsMap())
+            {
+                return l_Layers;
+            }
+
+            bool l_Unread = false;
+            if (const YAML::Node l_Names = physics["LayerNames"]; l_Names && l_Names.IsMap())
+            {
+                l_Layers.Names.fill(std::string());
+                for (const auto& it_Name : l_Names)
+                {
+                    const std::optional<std::uint32_t> l_Layer = ReadLayer(it_Name.first);
+                    if (!l_Layer || !it_Name.second.IsScalar())
+                    {
+                        l_Unread = true;
+
+                        continue;
+                    }
+
+                    l_Layers.Names[*l_Layer] = it_Name.second.Scalar();
+                }
+            }
+
+            if (const YAML::Node l_Pairs = physics["IgnoredPairs"]; l_Pairs && l_Pairs.IsSequence())
+            {
+                for (const YAML::Node& it_Pair : l_Pairs)
+                {
+                    const std::optional<std::uint32_t> l_First = it_Pair.IsSequence() && it_Pair.size() == 2 ? ReadLayer(it_Pair[0]) : std::nullopt;
+                    const std::optional<std::uint32_t> l_Second = it_Pair.IsSequence() && it_Pair.size() == 2 ? ReadLayer(it_Pair[1]) : std::nullopt;
+                    if (!l_First || !l_Second)
+                    {
+                        l_Unread = true;
+
+                        continue;
+                    }
+
+                    l_Layers.SetCollides(*l_First, *l_Second, false);
+                }
+            }
+
+            if (l_Unread)
+            {
+                TR_CORE_WARN("Project: {} names a collision layer past the last, or one that is not a number, which is left out", project);
+            }
+
+            return l_Layers;
+        }
+
         std::string_view WithoutAssetsMount(std::string_view assetPath)
         {
             const std::string l_Prefix = std::format("{}/", Project::c_AssetsMount);
@@ -199,6 +265,8 @@ namespace Trinity
             l_Project->m_StartScene = *l_Scene;
         }
 
+        l_Project->m_CollisionLayers = l_Format >= 3 ? ReadCollisionLayers(l_Root["Physics"], l_Project->m_Name) : CollisionLayers();
+
         if (!l_Project->IsCurrentEngineVersion())
         {
             TR_CORE_WARN("Project: {} was made with Trinity {}, and this is Trinity {}. It is opened as it is", l_Project->m_Name, l_Project->m_EngineVersion.empty() ? "of an unknown version" : l_Project->m_EngineVersion, GetVersionString());
@@ -217,6 +285,33 @@ namespace Trinity
         l_Emitter << YAML::Key << "Name" << YAML::Value << YAML::DoubleQuoted << m_Name;
         l_Emitter << YAML::Key << "EngineVersion" << YAML::Value << YAML::DoubleQuoted << m_EngineVersion;
         l_Emitter << YAML::Key << "StartScene" << YAML::Value << YAML::DoubleQuoted << (m_StartScene ? m_StartScene.ToString() : std::string());
+
+        // Only the names that are not empty, and the pairs that do not collide, so a new project's are short
+        l_Emitter << YAML::Key << "Physics" << YAML::Value << YAML::BeginMap;
+        l_Emitter << YAML::Key << "LayerNames" << YAML::Value << YAML::BeginMap;
+        for (std::uint32_t it_Layer = 0; it_Layer < c_MaxCollisionLayers; ++it_Layer)
+        {
+            if (!m_CollisionLayers.Names[it_Layer].empty())
+            {
+                l_Emitter << YAML::Key << it_Layer << YAML::Value << YAML::DoubleQuoted << m_CollisionLayers.Names[it_Layer];
+            }
+        }
+
+        l_Emitter << YAML::EndMap;
+        l_Emitter << YAML::Key << "IgnoredPairs" << YAML::Value << YAML::BeginSeq;
+        for (std::uint32_t it_First = 0; it_First < c_MaxCollisionLayers; ++it_First)
+        {
+            for (std::uint32_t it_Second = it_First; it_Second < c_MaxCollisionLayers; ++it_Second)
+            {
+                if (!m_CollisionLayers.Collides(it_First, it_Second))
+                {
+                    l_Emitter << YAML::Flow << YAML::BeginSeq << it_First << it_Second << YAML::EndSeq;
+                }
+            }
+        }
+
+        l_Emitter << YAML::EndSeq;
+        l_Emitter << YAML::EndMap;
         l_Emitter << YAML::EndMap;
 
         const Expected<void, FileError> l_Written = FileSystem::WriteText(GetProjectFilePath(m_FilePath), std::string(l_Emitter.c_str()) + "\n");

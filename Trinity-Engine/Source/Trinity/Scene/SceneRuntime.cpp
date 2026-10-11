@@ -29,11 +29,11 @@ namespace Trinity
         }
     }
 
-    SceneRuntime::SceneRuntime(Scene& scene) : m_Scene(scene), m_Clock(static_cast<std::uint32_t>(std::max(s_PhysicsRateVariable.Get(), 1)))
+    SceneRuntime::SceneRuntime(Scene& scene, const CollisionLayers& layers) : m_Scene(scene), m_Clock(static_cast<std::uint32_t>(std::max(s_PhysicsRateVariable.Get(), 1)))
     {
         if (PhysicsScene3D::IsNeeded(scene))
         {
-            m_Physics = CreateScope<PhysicsScene3D>(scene);
+            m_Physics = CreateScope<PhysicsScene3D>(scene, layers);
         }
     }
 

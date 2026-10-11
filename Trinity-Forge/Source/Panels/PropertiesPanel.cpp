@@ -92,9 +92,9 @@ namespace
         return l_Changed;
     }
 
-    // What every collider has, above its own shape. The offset's turn shows as X, Y and Z degrees worked out afresh each frame, which is enough for the small turns a collider takes
+    // What every collider has, above its own shape. The offset's turn shows as X, Y and Z degrees worked out afresh each frame, which is enough for the small turns a collider takes. Layers show by the project's names for them
     template<typename T>
-    void DrawColliderSettings(CommandStack& history, Trinity::Entity entity)
+    void DrawColliderSettings(CommandStack& history, Trinity::Entity entity, const Trinity::CollisionLayers& layers)
     {
         Label("Offset");
         EditField<T>(history, entity, "Offset", [](T& collider) { return ImGui::DragFloat3("##Offset", &collider.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
@@ -131,18 +131,40 @@ namespace
         }
 
         Label("Layer");
-        EditField<T>(history, entity, "Layer", [](T& collider)
+        EditField<T>(history, entity, "Layer", [&layers](T& collider)
         {
-            int l_Layer = static_cast<int>(collider.Layer);
-            if (!ImGui::SliderInt("##Layer", &l_Layer, 0, static_cast<int>(Trinity::c_MaxCollisionLayers) - 1, "%d", ImGuiSliderFlags_AlwaysClamp))
+            const auto a_Name = [&layers](std::uint32_t layer) { return std::format("{}: {}", layer, layers.GetName(layer)); };
+
+            bool l_Changed = false;
+            if (ImGui::BeginCombo("##Layer", a_Name(collider.Layer).c_str()))
             {
-                return false;
+                for (std::uint32_t it_Layer = 0; it_Layer < Trinity::c_MaxCollisionLayers; ++it_Layer)
+                {
+                    const bool l_Selected = it_Layer == collider.Layer;
+                    ImGui::PushID(static_cast<int>(it_Layer));
+                    if (ImGui::Selectable(a_Name(it_Layer).c_str(), l_Selected) && !l_Selected)
+                    {
+                        collider.Layer = it_Layer;
+                        l_Changed = true;
+                    }
+
+                    if (l_Selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+
+                    ImGui::PopID();
+                }
+
+                ImGui::EndCombo();
             }
 
-            collider.Layer = static_cast<std::uint32_t>(l_Layer);
-
-            return true;
+            return l_Changed;
         });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Edit > Project Settings names the layers and sets which collide");
+        }
     }
 }
 
@@ -919,24 +941,25 @@ void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
 void PropertiesPanel::DrawColliders(Trinity::Entity entity)
 {
     CommandStack& l_History = m_Session.GetHistory();
+    const Trinity::CollisionLayers l_Layers = m_Session.GetProject() != nullptr ? m_Session.GetProject()->GetCollisionLayers() : Trinity::CollisionLayers();
 
     if (entity.Has<Trinity::BoxColliderComponent>() && BeginComponent(Trinity::BoxColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
     {
-        DrawColliderSettings<Trinity::BoxColliderComponent>(l_History, entity);
+        DrawColliderSettings<Trinity::BoxColliderComponent>(l_History, entity, l_Layers);
         Label("Half Extents");
         EditField<Trinity::BoxColliderComponent>(l_History, entity, "HalfExtents", [](Trinity::BoxColliderComponent& box) { return ImGui::DragFloat3("##HalfExtents", &box.HalfExtents.x, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
     if (entity.Has<Trinity::SphereColliderComponent>() && BeginComponent(Trinity::SphereColliderComponent::c_TypeName, Trinity::Icons::c_Globe, true))
     {
-        DrawColliderSettings<Trinity::SphereColliderComponent>(l_History, entity);
+        DrawColliderSettings<Trinity::SphereColliderComponent>(l_History, entity, l_Layers);
         Label("Radius");
         EditField<Trinity::SphereColliderComponent>(l_History, entity, "Radius", [](Trinity::SphereColliderComponent& sphere) { return ImGui::DragFloat("##Radius", &sphere.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
     if (entity.Has<Trinity::CapsuleColliderComponent>() && BeginComponent(Trinity::CapsuleColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
     {
-        DrawColliderSettings<Trinity::CapsuleColliderComponent>(l_History, entity);
+        DrawColliderSettings<Trinity::CapsuleColliderComponent>(l_History, entity, l_Layers);
         Label("Radius");
         EditField<Trinity::CapsuleColliderComponent>(l_History, entity, "Radius", [](Trinity::CapsuleColliderComponent& capsule) { return ImGui::DragFloat("##Radius", &capsule.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
 
@@ -947,7 +970,7 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
 
     if (entity.Has<Trinity::CylinderColliderComponent>() && BeginComponent(Trinity::CylinderColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
     {
-        DrawColliderSettings<Trinity::CylinderColliderComponent>(l_History, entity);
+        DrawColliderSettings<Trinity::CylinderColliderComponent>(l_History, entity, l_Layers);
         Label("Radius");
         EditField<Trinity::CylinderColliderComponent>(l_History, entity, "Radius", [](Trinity::CylinderColliderComponent& cylinder) { return ImGui::DragFloat("##Radius", &cylinder.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
 
@@ -957,13 +980,13 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
 
     if (entity.Has<Trinity::ConvexHullColliderComponent>() && BeginComponent(Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
     {
-        DrawColliderSettings<Trinity::ConvexHullColliderComponent>(l_History, entity);
+        DrawColliderSettings<Trinity::ConvexHullColliderComponent>(l_History, entity, l_Layers);
         DrawShapeSlot<Trinity::ConvexHullColliderComponent>(entity, Trinity::CollisionShapeKind::ConvexHull, c_ConvexHullPickerPopup, "A convex hull a model cooked around one of its meshes. Without one it collides with nothing");
     }
 
     if (entity.Has<Trinity::MeshColliderComponent>() && BeginComponent(Trinity::MeshColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
     {
-        DrawColliderSettings<Trinity::MeshColliderComponent>(l_History, entity);
+        DrawColliderSettings<Trinity::MeshColliderComponent>(l_History, entity, l_Layers);
         DrawShapeSlot<Trinity::MeshColliderComponent>(entity, Trinity::CollisionShapeKind::Mesh, c_CollisionMeshPickerPopup, "A model's mesh as triangles, cooked at import. Without one it collides with nothing");
         if (entity.Has<Trinity::RigidBodyComponent>() && entity.Get<Trinity::RigidBodyComponent>().Motion == Trinity::BodyMotion::Dynamic)
         {

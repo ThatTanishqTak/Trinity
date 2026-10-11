@@ -4,6 +4,7 @@
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Timestep.hpp"
+#include "Trinity/Physics/PhysicsTypes.hpp"
 #include "Trinity/Scene/SimulationClock.hpp"
 
 #include <cstdint>
@@ -15,14 +16,14 @@ namespace Trinity
     class PhysicsScene3D;
     class Scene;
 
-    // Runs a scene over time, on the main thread. Each frame takes the fixed steps its clock asks for, each running every fixed-step system in the order they were added and then physics, then the transform pass, after which the scene is drawn with its moving bodies between their last two steps. Scripts add their systems, ahead of physics, in M7. The rate is physics.rate, and the scene's physics is made from its components, when the runtime is made. A runtime does not own its scene, which must outlive it
+    // Runs a scene over time, on the main thread. Each frame takes the fixed steps its clock asks for, each running every fixed-step system in the order they were added and then physics, then the transform pass, after which the scene is drawn with its moving bodies between their last two steps. Scripts add their systems, ahead of physics, in M7. The rate is physics.rate, and the scene's physics is made from its components with the project's collision layers, when the runtime is made. A runtime does not own its scene, which must outlive it
     class TRINITY_API SceneRuntime
     {
     public:
         // Called once a step, with the step's length
         using FixedStepSystem = std::function<void(Timestep step)>;
 
-        explicit SceneRuntime(Scene& scene);
+        explicit SceneRuntime(Scene& scene, const CollisionLayers& layers = {});
         ~SceneRuntime();
 
         SceneRuntime(const SceneRuntime&) = delete;

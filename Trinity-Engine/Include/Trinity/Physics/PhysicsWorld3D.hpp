@@ -37,6 +37,8 @@ namespace Trinity
         float LinearDamping = 0.0f;
         float AngularDamping = 0.05f;
         float GravityFactor = 1.0f;
+        // As the world's CollisionLayers name it, with one past the last taken as the first
+        std::uint32_t Layer = 0;
         // Kept with the body for whoever made it, such as an entity's UUID
         std::uint64_t UserData = 0;
     };
@@ -65,6 +67,8 @@ namespace Trinity
         std::uint32_t VelocitySteps = 20;
         std::uint32_t PositionSteps = 4;
         float SleepVelocity = 0.05f;
+        // Which layers' bodies meet, fixed for the world's life
+        CollisionLayers Layers;
     };
 
     // A 3D physics world: Jolt's physics system, with its body interface and broadphase, stepped on Trinity's job system and allocating under Physics. Jolt stays inside the engine, so nothing here names its types. A running scene's PhysicsScene3D owns one, made only when the scene has bodies or colliders, and steps it at the fixed rate. On the main thread

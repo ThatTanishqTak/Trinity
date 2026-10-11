@@ -79,6 +79,8 @@ trinity_vendor_set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF)
 trinity_vendor_set(PROFILER_IN_DEBUG_AND_RELEASE OFF)
 # The same scene steps the same on every platform and compiler, for networking in M11, at some cost in speed. Jolt is then built with precise floating point and no fused multiply-add
 trinity_vendor_set(CROSS_PLATFORM_DETERMINISTIC ON)
+# A body's object layer holds the collision layers of all its colliders as a mask, with a bit beside them for whether it moves, which takes more than Jolt's default 16 bits
+trinity_vendor_set(OBJECT_LAYER_BITS 32)
 foreach(option USE_AVX USE_AVX2 USE_LZCNT USE_TZCNT USE_F16C USE_FMADD)
     trinity_vendor_set(${option} ${TRINITY_PHYSICS_AVX2})
 endforeach()
