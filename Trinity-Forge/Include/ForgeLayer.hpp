@@ -38,6 +38,7 @@ private:
     void DrawPlayControls();
     void PushPlayTint();
     void DrawEditMenu();
+    void DrawScriptsMenu();
     void DrawHistoryMenu();
     void DrawDockSpace();
     void BuildDefaultLayout(std::uint32_t dockSpace);

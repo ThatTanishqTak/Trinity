@@ -338,6 +338,13 @@ void ForgeLayer::DrawMenuBar()
         ImGui::EndMenu();
     }
 
+    if (ImGui::BeginMenu("Scripts"))
+    {
+        DrawScriptsMenu();
+
+        ImGui::EndMenu();
+    }
+
     if (ImGui::BeginMenu("View"))
     {
         for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
@@ -506,7 +513,40 @@ void ForgeLayer::DrawEditMenu()
     }
 }
 
-// The commands around the current position, oldest at the top, with those that would be redone greyed. Picking one undoes or redoes to just after it, and Start undoes everything the history holds
+// A Forge with a static engine cannot build or load a module, and says why when its items are hovered
+void ForgeLayer::DrawScriptsMenu()
+{
+    const Trinity::Project* l_Project = m_Session.GetProject();
+    const ModuleHost& l_Module = m_Session.GetModule();
+    const bool l_Supported = ModuleHost::IsSupported();
+    const bool l_HasModule = l_Project != nullptr && l_Project->HasModule();
+    const auto a_Explain = [l_Supported]
+    {
+        if (!l_Supported)
+        {
+            ImGui::SetItemTooltip("This Forge's engine is linked statically, so it cannot build or load C++ modules. Use a Debug or Release Forge");
+        }
+    };
+
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_File, "Create C++ Module").c_str(), nullptr, false, l_Supported && l_Project != nullptr && !l_HasModule))
+    {
+        m_Session.Request(EditorSession::Command::CreateModule);
+    }
+
+    a_Explain();
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Refresh, l_Module.IsBuilding() ? "Building C++ Module..." : "Build C++ Module").c_str(), nullptr, false, l_Supported && l_HasModule && !l_Module.IsBuilding()))
+    {
+        m_Session.Request(EditorSession::Command::BuildModule);
+    }
+
+    a_Explain();
+    if (l_HasModule)
+    {
+        ImGui::Separator();
+        ImGui::TextDisabled("%s: %s", l_Project->GetModuleName().c_str(), l_Module.IsBuilding() ? "building" : l_Module.IsLoaded() ? "loaded" : "not loaded");
+    }
+}
+
 void ForgeLayer::DrawHistoryMenu()
 {
     CommandStack& l_History = m_Session.GetHistory();

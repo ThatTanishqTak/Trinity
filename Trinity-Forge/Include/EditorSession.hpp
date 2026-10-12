@@ -8,6 +8,7 @@
 #include "Importers/TextureImportBatch.hpp"
 #include "Importers/TextureImporter.hpp"
 #include "Importers/TextureReimporter.hpp"
+#include "Modules/ModuleHost.hpp"
 
 #include "Trinity.hpp"
 
@@ -33,6 +34,8 @@ public:
         SaveSceneAs,
         SetStartScene,
         Refresh,
+        CreateModule,
+        BuildModule,
         Exit
     };
 
@@ -83,6 +86,7 @@ public:
     [[nodiscard]] const Trinity::Project* GetProject() const { return m_Project.get(); }
     [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
+    [[nodiscard]] const ModuleHost& GetModule() const { return m_Module; }
     // Through the history, so it undoes in one step, and saved with the project as it runs and as it is undone. A scene playing keeps the settings it started with, and the next Play takes the new ones
     bool EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field);
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
@@ -194,6 +198,7 @@ private:
     TextureImportBatch m_Imports;
     ModelImportBatch m_ModelImports;
     EnvironmentImportBatch m_EnvironmentImports;
+    ModuleHost m_Module;
     bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;

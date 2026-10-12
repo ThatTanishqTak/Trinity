@@ -76,6 +76,11 @@ namespace Trinity
             return Platform::GetEnvironment();
         }
 
+        std::filesystem::path GetExecutableDirectory()
+        {
+            return Platform::GetExecutableDirectory();
+        }
+
         std::optional<std::string> FindVariable(const Environment& environment, std::string_view name)
         {
             const auto a_Found = std::ranges::find_if(environment, [name](const auto& variable) { return IsSameName(variable.first, name); });

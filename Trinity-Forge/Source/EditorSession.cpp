@@ -130,6 +130,7 @@ void EditorSession::Request(Command command)
 
 void EditorSession::Update()
 {
+    m_Module.Update();
     m_Reimporter.Update();
     if (const std::optional<ModelImportReport> l_Report = m_ModelImports.Update())
     {
@@ -195,10 +196,10 @@ bool EditorSession::RequestClose()
     return false;
 }
 
-// Refresh comes whenever Forge regains focus, which leaves a playing scene running
+// Refresh comes whenever Forge regains focus, which leaves a playing scene running, as a build does
 void EditorSession::Run(Command command)
 {
-    if (command != Command::Refresh)
+    if (command != Command::Refresh && command != Command::BuildModule)
     {
         StopPlay();
     }
@@ -290,6 +291,21 @@ void EditorSession::Run(Command command)
 
             break;
         }
+        case Command::CreateModule:
+        {
+            if (l_HasProject && m_Module.Create(*m_Project))
+            {
+                SaveProject();
+            }
+
+            break;
+        }
+        case Command::BuildModule:
+        {
+            m_Module.RequestBuild();
+
+            break;
+        }
         case Command::Exit:
         {
             Trinity::Application::Get().RequestClose();
@@ -366,6 +382,7 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
 
     m_Project = std::move(*l_Project);
     AttachRegistry();
+    m_Module.Open(*m_Project);
 
     const std::string l_StartScene = std::format("{}/{}", Trinity::Project::c_AssetsMount, Trinity::Project::c_DefaultStartScene);
     if (!WriteScene(l_StartScene))
@@ -397,6 +414,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 
     m_Project = std::move(*l_Project);
     AttachRegistry();
+    m_Module.Open(*m_Project);
 
     if (m_Project->ResolveStartScenePath(*m_Registry))
     {
@@ -420,6 +438,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 void EditorSession::CloseProject()
 {
     StopPlay();
+    m_Module.Close();
 
     // The texture being encoded and the environment being filtered are finished, since neither can be left halfway, and the rest wait for the project to open again
     m_ImportAgain = false;

@@ -70,6 +70,7 @@
 #include "Trinity/Scene/SceneSerializer.hpp"
 #include "Trinity/Scene/SimulationClock.hpp"
 
+#include "Trinity/Scripting/GameModule.hpp"
 #include "Trinity/Scripting/NativeScripts.hpp"
 #include "Trinity/Scripting/Script.hpp"
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"

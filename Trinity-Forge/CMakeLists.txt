@@ -31,6 +31,9 @@ trinity_check_editor_libraries(${TARGET_NAME} present)
 # ImGuizmo's own code keeps its own warnings, and reads ImGui before any precompiled header could
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/ImGuizmoUnit.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/W0,-w>")
 
+# Forge builds a project's C++ module with its own compiler, and on Windows finds that compiler's Visual Studio from its path
+target_compile_definitions(${TARGET_NAME} PRIVATE TR_FORGE_CXX_COMPILER="${CMAKE_CXX_COMPILER}")
+
 # The texture importer encodes, so Forge takes the whole of libktx, and a static engine links it instead of ktx_read
 set_target_properties(${TARGET_NAME} PROPERTIES TRINITY_TEXTURE_ENCODER ON)
 

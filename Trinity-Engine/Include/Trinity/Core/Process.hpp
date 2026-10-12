@@ -43,5 +43,7 @@ namespace Trinity
         TRINITY_API void SetVariable(Environment& environment, std::string_view name, std::string_view value);
         // A program by its name in the folders of the environment's PATH, or this process's with none, trying the extensions Windows runs when the name has none, or a path to one as it is. Empty when there is none
         [[nodiscard]] TRINITY_API std::filesystem::path FindExecutable(std::string_view name, const Environment* environment = nullptr);
+        // The folder this process's executable is in, where Trinity's build puts the engine and what is built beside it
+        [[nodiscard]] TRINITY_API std::filesystem::path GetExecutableDirectory();
     }
 }
