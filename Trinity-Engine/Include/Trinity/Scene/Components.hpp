@@ -5,6 +5,7 @@
 #include "Trinity/Physics/PhysicsTypes.hpp"
 #include "Trinity/Renderer/ToneMapping.hpp"
 #include "Trinity/Scene/ComponentType.hpp"
+#include "Trinity/Scripting/ScriptField.hpp"
 
 #include <entt/entity/entity.hpp>
 
@@ -16,6 +17,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Trinity
@@ -508,6 +510,61 @@ namespace Trinity
         float SpringDamping = 0.0f;
 
         [[nodiscard]] bool operator==(const Joint2DComponent&) const = default;
+    };
+
+    // One script on an entity: the class it is an instance of, by its full name in its language, whether it runs, and its fields' values. The values belong to the scene, not to the instance, so they save, undo and outlive a reload, and a class no loaded code has keeps every one of them
+    struct ScriptEntry
+    {
+        struct Field
+        {
+            TaggedString<MemoryTag::Scene> Name;
+            ScriptFieldValue Value;
+
+            [[nodiscard]] bool operator==(const Field&) const = default;
+        };
+
+        TaggedString<MemoryTag::Scene> ClassName;
+        ScriptLanguage Language = ScriptLanguage::CSharp;
+        bool Enabled = true;
+        // In the order the class declares them, or the file had them. Never dropped for a field the class lacks, so a field taken out of a class and put back keeps its value
+        std::vector<Field, TaggedAllocator<Field, MemoryTag::Scene>> Fields;
+
+        [[nodiscard]] const Field* FindField(std::string_view name) const
+        {
+            const auto a_Found = std::ranges::find_if(Fields, [name](const Field& field) { return std::string_view(field.Name) == name; });
+
+            return a_Found != Fields.end() ? &*a_Found : nullptr;
+        }
+
+        [[nodiscard]] Field* FindField(std::string_view name)
+        {
+            return const_cast<Field*>(std::as_const(*this).FindField(name));
+        }
+
+        // Replaces the field's value, type and all, or adds it last
+        void SetField(std::string_view name, ScriptFieldValue value)
+        {
+            if (Field* l_Field = FindField(name))
+            {
+                l_Field->Value = std::move(value);
+
+                return;
+            }
+
+            Fields.push_back({ TaggedString<MemoryTag::Scene>(name), std::move(value) });
+        }
+
+        [[nodiscard]] bool operator==(const ScriptEntry&) const = default;
+    };
+
+    // The scripts on an entity, run in list order, each in C++ or C#. One class can be on an entity more than once
+    struct ScriptComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.Script";
+
+        std::vector<ScriptEntry, TaggedAllocator<ScriptEntry, MemoryTag::Scene>> Scripts;
+
+        [[nodiscard]] bool operator==(const ScriptComponent&) const = default;
     };
 
     // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save

@@ -9,7 +9,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <array>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -33,7 +35,10 @@ namespace Trinity
         void Write(std::string_view key, bool value);
         void Write(std::string_view key, std::int32_t value);
         void Write(std::string_view key, std::uint32_t value);
+        void Write(std::string_view key, std::int64_t value);
+        void Write(std::string_view key, std::uint64_t value);
         void Write(std::string_view key, float value);
+        void Write(std::string_view key, double value);
         void Write(std::string_view key, const char* value);
         void Write(std::string_view key, std::string_view value);
         void Write(std::string_view key, UUID value);
@@ -46,11 +51,41 @@ namespace Trinity
 
         void WriteValue(std::string_view value);
 
+        // A key whose value is a block sequence, written as [] when no item follows. Each BeginItem starts an item whose keys follow, until End closes the sequence
+        void BeginList(std::string_view key);
+        void BeginItem();
+        // A key whose value is a block map of the keys that follow, written as {} when none does, until End
+        void BeginMap(std::string_view key);
+        // A key whose value is a map on one line, such as {Type: Float, Value: 5}, of the keys that follow until End
+        void BeginInlineMap(std::string_view key);
+        void End();
+
     private:
+        enum class BlockKind : std::uint8_t
+        {
+            List,
+            Map,
+            InlineMap
+        };
+
+        struct Block
+        {
+            BlockKind Kind = BlockKind::Map;
+            std::uint32_t Indent = 0;
+            bool Empty = true;
+        };
+
+        static constexpr std::size_t c_MaxDepth = 8;
+
         void WriteKey(std::string_view key);
+        void WriteKeyName(std::string_view key);
+        void Push(BlockKind kind);
 
         std::string* m_Output = nullptr;
         std::uint32_t m_Indent = 0;
+        std::array<Block, c_MaxDepth> m_Blocks{};
+        std::uint32_t m_Depth = 0;
+        bool m_ItemPending = false;
     };
 
     class TRINITY_API ComponentReader
@@ -61,7 +96,10 @@ namespace Trinity
         bool Read(std::string_view key, bool& value) const;
         bool Read(std::string_view key, std::int32_t& value) const;
         bool Read(std::string_view key, std::uint32_t& value) const;
+        bool Read(std::string_view key, std::int64_t& value) const;
+        bool Read(std::string_view key, std::uint64_t& value) const;
         bool Read(std::string_view key, float& value) const;
+        bool Read(std::string_view key, double& value) const;
         bool Read(std::string_view key, std::string& value) const;
         bool Read(std::string_view key, UUID& value) const;
         bool Read(std::string_view key, glm::vec2& value) const;
@@ -72,6 +110,11 @@ namespace Trinity
         bool Read(std::string_view key, std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>>& values) const;
 
         bool ReadValue(std::string& value) const;
+
+        // Each item of the sequence under the key, in order, read as a component is. False when the key is missing or not a sequence
+        bool ReadList(std::string_view key, const std::function<void(const ComponentReader& item)>& read) const;
+        // Each key of the map under the key, in file order, with a reader of its value. False when the key is missing or not a map
+        bool ReadMap(std::string_view key, const std::function<void(std::string_view name, const ComponentReader& value)>& read) const;
 
     private:
         const YAML::Node* m_Node = nullptr;

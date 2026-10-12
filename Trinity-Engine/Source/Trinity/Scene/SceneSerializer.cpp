@@ -18,8 +18,10 @@
 #include <span>
 #include <string>
 #include <system_error>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace Trinity
@@ -41,7 +43,8 @@ namespace Trinity
 
         State* s_State = nullptr;
 
-        std::string FormatFloat(float value)
+        template<typename T>
+        std::string FormatFloat(T value)
         {
             std::array<char, 32> l_Buffer{};
             const std::to_chars_result l_Result = std::to_chars(l_Buffer.data(), l_Buffer.data() + l_Buffer.size(), value);
@@ -717,6 +720,108 @@ namespace Trinity
             reader.Read("SpringDamping", component.SpringDamping);
         }
 
+        void WriteScriptFieldValue(ComponentWriter& writer, const ScriptFieldValue& value)
+        {
+            std::visit([&writer](const auto& data)
+            {
+                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptString>)
+                {
+                    writer.Write("Value", std::string_view(data));
+                }
+                else
+                {
+                    writer.Write("Value", data);
+                }
+            }, value.GetStorage());
+        }
+
+        // A missing or malformed value leaves the one given, which is the type's zero
+        void ReadScriptFieldValue(const ComponentReader& reader, ScriptFieldValue& value)
+        {
+            std::visit([&reader](auto& data)
+            {
+                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptString>)
+                {
+                    std::string l_Text;
+                    if (reader.Read("Value", l_Text))
+                    {
+                        data = l_Text;
+                    }
+                }
+                else
+                {
+                    reader.Read("Value", data);
+                }
+            }, value.GetStorage());
+        }
+
+        // Each field on one line with its type, so a class no loaded code has still saves and loads every value exactly
+        void SaveScript(const ScriptComponent& component, ComponentWriter& writer)
+        {
+            writer.BeginList("Scripts");
+            for (const ScriptEntry& it_Entry : component.Scripts)
+            {
+                writer.BeginItem();
+                writer.Write("Class", std::string_view(it_Entry.ClassName));
+                writer.Write("Language", ToString(it_Entry.Language));
+                writer.Write("Enabled", it_Entry.Enabled);
+                writer.BeginMap("Fields");
+                for (const ScriptEntry::Field& it_Field : it_Entry.Fields)
+                {
+                    writer.BeginInlineMap(it_Field.Name);
+                    writer.Write("Type", ToString(it_Field.Value.GetType()));
+                    WriteScriptFieldValue(writer, it_Field.Value);
+                    writer.End();
+                }
+
+                writer.End();
+            }
+
+            writer.End();
+        }
+
+        // An entry with no class or a language this build lacks is left out, and so is a field with a type this build lacks or a name already read, each with a warning
+        void LoadScript(ScriptComponent& component, const ComponentReader& reader)
+        {
+            component.Scripts.clear();
+            reader.ReadList("Scripts", [&component](const ComponentReader& item)
+            {
+                std::string l_Class;
+                std::string l_Language;
+                item.Read("Class", l_Class);
+                item.Read("Language", l_Language);
+                const std::optional<ScriptLanguage> l_ParsedLanguage = ParseScriptLanguage(l_Language);
+                if (l_Class.empty() || !l_ParsedLanguage)
+                {
+                    TR_CORE_WARN("Scene: a script {} has no class, or a language this build lacks, and is left out", l_Class);
+
+                    return;
+                }
+
+                ScriptEntry l_Entry;
+                l_Entry.ClassName = l_Class;
+                l_Entry.Language = *l_ParsedLanguage;
+                item.Read("Enabled", l_Entry.Enabled);
+                item.ReadMap("Fields", [&l_Entry](std::string_view name, const ComponentReader& field)
+                {
+                    std::string l_Type;
+                    const std::optional<ScriptFieldType> l_FieldType = field.Read("Type", l_Type) ? ParseScriptFieldType(l_Type) : std::nullopt;
+                    if (!l_FieldType || l_Entry.FindField(name) != nullptr)
+                    {
+                        TR_CORE_WARN("Scene: field {} of script {} has a type this build lacks, or repeats, and is left out", name, std::string_view(l_Entry.ClassName));
+
+                        return;
+                    }
+
+                    ScriptFieldValue l_Value(*l_FieldType);
+                    ReadScriptFieldValue(field, l_Value);
+                    l_Entry.Fields.push_back({ TaggedString<MemoryTag::Scene>(name), std::move(l_Value) });
+                });
+
+                component.Scripts.push_back(std::move(l_Entry));
+            });
+        }
+
         struct FileEntity
         {
             UUID ID;
@@ -936,10 +1041,112 @@ namespace Trinity
 
     void ComponentWriter::WriteKey(std::string_view key)
     {
-        *m_Output += '\n';
-        m_Output->append(m_Indent, ' ');
+        WriteKeyName(key);
+        *m_Output += ' ';
+    }
+
+    // Inside an inline map after a comma, else on a line of its own, after the dash when it is an item's first key
+    void ComponentWriter::WriteKeyName(std::string_view key)
+    {
+        Block* l_Block = m_Depth != 0 ? &m_Blocks[m_Depth - 1] : nullptr;
+        if (l_Block != nullptr && l_Block->Kind == BlockKind::InlineMap)
+        {
+            *m_Output += l_Block->Empty ? "" : ", ";
+        }
+        else if (m_ItemPending)
+        {
+            *m_Output += '\n';
+            m_Output->append(m_Indent - 2, ' ');
+            *m_Output += "- ";
+            m_ItemPending = false;
+        }
+        else
+        {
+            *m_Output += '\n';
+            m_Output->append(m_Indent, ' ');
+        }
+
+        if (l_Block != nullptr)
+        {
+            l_Block->Empty = false;
+        }
+
         *m_Output += FormatString(key);
-        *m_Output += ": ";
+        *m_Output += ':';
+    }
+
+    void ComponentWriter::Push(BlockKind kind)
+    {
+        TR_CORE_ASSERT(m_Depth < c_MaxDepth, "ComponentWriter: blocks are nested deeper than {}", c_MaxDepth);
+
+        m_Blocks[m_Depth++] = { kind, m_Indent, true };
+    }
+
+    // Items' dashes one level in and their keys two, as Fields under Scripts are
+    void ComponentWriter::BeginList(std::string_view key)
+    {
+        WriteKeyName(key);
+        Push(BlockKind::List);
+        m_Indent += 4;
+    }
+
+    // An item left without keys is written as an empty map, so the dash is never lost
+    void ComponentWriter::BeginItem()
+    {
+        TR_CORE_ASSERT(m_Depth != 0 && m_Blocks[m_Depth - 1].Kind == BlockKind::List, "ComponentWriter: BeginItem outside a list");
+
+        if (m_ItemPending)
+        {
+            *m_Output += '\n';
+            m_Output->append(m_Indent - 2, ' ');
+            *m_Output += "- {}";
+        }
+
+        m_Blocks[m_Depth - 1].Empty = false;
+        m_ItemPending = true;
+    }
+
+    void ComponentWriter::BeginMap(std::string_view key)
+    {
+        WriteKeyName(key);
+        Push(BlockKind::Map);
+        m_Indent += 2;
+    }
+
+    void ComponentWriter::BeginInlineMap(std::string_view key)
+    {
+        WriteKey(key);
+        *m_Output += '{';
+        Push(BlockKind::InlineMap);
+    }
+
+    void ComponentWriter::End()
+    {
+        TR_CORE_ASSERT(m_Depth != 0, "ComponentWriter: End without a block to end");
+
+        const Block l_Block = m_Blocks[--m_Depth];
+        switch (l_Block.Kind)
+        {
+            case BlockKind::List:
+                if (m_ItemPending)
+                {
+                    *m_Output += '\n';
+                    m_Output->append(m_Indent - 2, ' ');
+                    *m_Output += "- {}";
+                    m_ItemPending = false;
+                }
+
+                *m_Output += l_Block.Empty ? " []" : "";
+                break;
+            case BlockKind::Map:
+                *m_Output += l_Block.Empty ? " {}" : "";
+                break;
+            case BlockKind::InlineMap:
+                *m_Output += '}';
+                break;
+        }
+
+        m_Indent = l_Block.Indent;
     }
 
     void ComponentWriter::Write(std::string_view key, bool value)
@@ -960,7 +1167,25 @@ namespace Trinity
         *m_Output += std::to_string(value);
     }
 
+    void ComponentWriter::Write(std::string_view key, std::int64_t value)
+    {
+        WriteKey(key);
+        *m_Output += std::to_string(value);
+    }
+
+    void ComponentWriter::Write(std::string_view key, std::uint64_t value)
+    {
+        WriteKey(key);
+        *m_Output += std::to_string(value);
+    }
+
     void ComponentWriter::Write(std::string_view key, float value)
+    {
+        WriteKey(key);
+        *m_Output += FormatFloat(value);
+    }
+
+    void ComponentWriter::Write(std::string_view key, double value)
     {
         WriteKey(key);
         *m_Output += FormatFloat(value);
@@ -1124,7 +1349,22 @@ namespace Trinity
         return ReadNumber(*m_Node, m_ComponentName, key, value);
     }
 
+    bool ComponentReader::Read(std::string_view key, std::int64_t& value) const
+    {
+        return ReadNumber(*m_Node, m_ComponentName, key, value);
+    }
+
+    bool ComponentReader::Read(std::string_view key, std::uint64_t& value) const
+    {
+        return ReadNumber(*m_Node, m_ComponentName, key, value);
+    }
+
     bool ComponentReader::Read(std::string_view key, float& value) const
+    {
+        return ReadNumber(*m_Node, m_ComponentName, key, value);
+    }
+
+    bool ComponentReader::Read(std::string_view key, double& value) const
     {
         return ReadNumber(*m_Node, m_ComponentName, key, value);
     }
@@ -1270,6 +1510,57 @@ namespace Trinity
         return true;
     }
 
+    bool ComponentReader::ReadList(std::string_view key, const std::function<void(const ComponentReader& item)>& read) const
+    {
+        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
+        if (!l_Value)
+        {
+            return false;
+        }
+
+        if (!l_Value->IsSequence())
+        {
+            return Malformed(m_ComponentName, key);
+        }
+
+        for (const YAML::Node it_Item : *l_Value)
+        {
+            read(ComponentReader(it_Item, m_ComponentName));
+        }
+
+        return true;
+    }
+
+    // A key that is not a single value is skipped as malformed
+    bool ComponentReader::ReadMap(std::string_view key, const std::function<void(std::string_view name, const ComponentReader& value)>& read) const
+    {
+        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
+        if (!l_Value)
+        {
+            return false;
+        }
+
+        if (!l_Value->IsMap())
+        {
+            return Malformed(m_ComponentName, key);
+        }
+
+        for (const auto& it_Pair : *l_Value)
+        {
+            if (!it_Pair.first.IsScalar())
+            {
+                static_cast<void>(Malformed(m_ComponentName, key));
+
+                continue;
+            }
+
+            const YAML::Node l_Entry = it_Pair.second;
+            read(it_Pair.first.Scalar(), ComponentReader(l_Entry, m_ComponentName));
+        }
+
+        return true;
+    }
+
     namespace SceneSerializer
     {
         void Initialize()
@@ -1299,6 +1590,7 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<CapsuleCollider2DComponent, SaveCapsuleCollider2D, LoadCapsuleCollider2D>());
             RegisterComponent(MakeComponentSerializer<PolygonCollider2DComponent, SavePolygonCollider2D, LoadPolygonCollider2D>());
             RegisterComponent(MakeComponentSerializer<Joint2DComponent, SaveJoint2D, LoadJoint2D>());
+            RegisterComponent(MakeComponentSerializer<ScriptComponent, SaveScript, LoadScript>());
         }
 
         void Shutdown()
