@@ -54,13 +54,6 @@ namespace Trinity
         }
     }
 
-    const ScriptFieldDescription* ScriptClassDescription::FindField(std::string_view name) const
-    {
-        const auto a_Found = std::ranges::find_if(Fields, [name](const ScriptFieldDescription& field) { return std::string_view(field.Name) == name; });
-
-        return a_Found != Fields.end() ? &*a_Found : nullptr;
-    }
-
     namespace ScriptClassRegistry
     {
         void Initialize()

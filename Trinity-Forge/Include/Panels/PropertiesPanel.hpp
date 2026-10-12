@@ -40,6 +40,10 @@ private:
     void DrawRigidBody2D(Trinity::Entity entity);
     void DrawColliders2D(Trinity::Entity entity);
     void DrawJoint2D(Trinity::Entity entity);
+    void DrawScripts(Trinity::Entity entity);
+    void DrawScriptFields(Trinity::ScriptEntry& entry, std::string& change);
+    [[nodiscard]] bool DrawScriptValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value);
+    void DrawAddScript(Trinity::Entity entity);
     template<typename T>
     void DrawShapeSlot(Trinity::Entity entity, Trinity::CollisionShapeKind kind, const char* popup, const char* hint);
     void DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);
@@ -74,6 +78,7 @@ private:
     Trinity::UUID m_NameEntity;
     bool m_NameActive = false;
     std::string m_AssetFilter;
+    std::string m_ScriptFilter;
     Trinity::UUID m_EulerEntity;
     glm::quat m_EulerRotation = glm::identity<glm::quat>();
     glm::vec3 m_EulerDegrees{ 0.0f };

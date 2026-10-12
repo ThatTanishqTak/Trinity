@@ -4,6 +4,7 @@
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <string_view>
 #include <vector>
@@ -37,7 +38,12 @@ namespace Trinity
         ScriptLanguage Language = ScriptLanguage::CSharp;
         std::vector<ScriptFieldDescription, TaggedAllocator<ScriptFieldDescription, MemoryTag::Scripting>> Fields;
 
-        [[nodiscard]] const ScriptFieldDescription* FindField(std::string_view name) const;
+        [[nodiscard]] const ScriptFieldDescription* FindField(std::string_view name) const
+        {
+            const auto a_Found = std::ranges::find_if(Fields, [name](const ScriptFieldDescription& field) { return std::string_view(field.Name) == name; });
+
+            return a_Found != Fields.end() ? &*a_Found : nullptr;
+        }
     };
 
     // The script classes the loaded C++ modules and C# assemblies have, which each language's backend registers as its code loads and unregisters before it unloads. A Script component's entries name classes by language and name, and an entry whose class is not here is unknown and kept as it is. Main thread only

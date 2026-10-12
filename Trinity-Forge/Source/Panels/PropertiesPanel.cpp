@@ -16,7 +16,9 @@
 #include <iterator>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace
@@ -29,9 +31,11 @@ namespace
     constexpr const char* c_ConvexHullPickerPopup = "##ConvexHullPicker";
     constexpr const char* c_CollisionMeshPickerPopup = "##CollisionMeshPicker";
     constexpr const char* c_AddComponentPopup = "##AddComponent";
+    constexpr const char* c_AddScriptPopup = "##AddScript";
+    constexpr const char* c_ScriptAssetPickerPopup = "##ScriptAssetPicker";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 21> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName };
+    constexpr std::array<std::string_view, 22> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
 
     // A label on the left and the widget filling the rest of the row
     void Label(const char* label)
@@ -194,6 +198,129 @@ namespace
         ImGui::EndCombo();
 
         return l_Changed;
+    }
+
+    // Whether the text holds the pattern, whatever the case of either
+    bool ContainsIgnoringCase(std::string_view text, std::string_view pattern)
+    {
+        return pattern.empty() || std::ranges::search(text, pattern, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).begin() != text.end();
+    }
+
+    // An entity of the scene, or none, picked from the list in hierarchy order or dropped from the Hierarchy
+    bool EntityCombo(Trinity::Scene& scene, Trinity::UUID& value)
+    {
+        const Trinity::Entity l_Current = value ? scene.FindEntityByUUID(value) : Trinity::Entity();
+        const std::string l_Preview = !value ? std::string("None") : l_Current ? GetEntityLabel(l_Current) : std::format("Missing {}", value);
+
+        bool l_Changed = false;
+        const bool l_Open = ImGui::BeginCombo("##Value", l_Preview.c_str());
+        if (!l_Open && ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload))
+            {
+                std::uint64_t l_Value = 0;
+                std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+                if (l_Value != value.GetValue())
+                {
+                    value = Trinity::UUID(l_Value);
+                    l_Changed = true;
+                }
+            }
+
+            ImGui::EndDragDropTarget();
+        }
+
+        if (!l_Open)
+        {
+            return l_Changed;
+        }
+
+        if (ImGui::Selectable("None", !value) && value)
+        {
+            value = {};
+            l_Changed = true;
+        }
+
+        for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+        {
+            const bool l_Selected = value == it_Entity.GetUUID();
+            ImGui::PushID(it_Entity.GetUUID().ToString().c_str());
+            if (ImGui::Selectable(GetEntityLabel(it_Entity).c_str(), l_Selected) && !l_Selected)
+            {
+                value = it_Entity.GetUUID();
+                l_Changed = true;
+            }
+
+            if (l_Selected)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+
+            ImGui::PopID();
+        }
+
+        ImGui::EndCombo();
+
+        return l_Changed;
+    }
+
+    // A value as text, for a field that is shown and not edited. An entity shows by its name
+    std::string FormatScriptValue(Trinity::Scene& scene, const Trinity::ScriptFieldValue& value)
+    {
+        switch (value.GetType())
+        {
+            case Trinity::ScriptFieldType::Entity:
+            {
+                const Trinity::UUID l_ID = value.Get<Trinity::UUID>();
+                const Trinity::Entity l_Entity = l_ID ? scene.FindEntityByUUID(l_ID) : Trinity::Entity();
+
+                return !l_ID ? std::string("None") : l_Entity ? GetEntityLabel(l_Entity) : std::format("Missing {}", l_ID);
+            }
+            case Trinity::ScriptFieldType::Asset:
+            {
+                return value.Get<Trinity::UUID>() ? value.Get<Trinity::UUID>().ToString() : std::string("None");
+            }
+            case Trinity::ScriptFieldType::String:
+            {
+                return std::format("\"{}\"", std::string_view(value.Get<Trinity::ScriptString>()));
+            }
+            default:
+            {
+                break;
+            }
+        }
+
+        return std::visit([](const auto& data) -> std::string
+        {
+            using T = std::decay_t<decltype(data)>;
+            if constexpr (std::is_same_v<T, glm::vec2>)
+            {
+                return std::format("{}, {}", data.x, data.y);
+            }
+            else if constexpr (std::is_same_v<T, glm::vec3>)
+            {
+                return std::format("{}, {}, {}", data.x, data.y, data.z);
+            }
+            else if constexpr (std::is_same_v<T, glm::vec4> || std::is_same_v<T, glm::quat>)
+            {
+                return std::format("{}, {}, {}, {}", data.x, data.y, data.z, data.w);
+            }
+            else if constexpr (std::is_same_v<T, Trinity::ScriptString> || std::is_same_v<T, Trinity::UUID>)
+            {
+                return {};
+            }
+            else
+            {
+                return std::format("{}", data);
+            }
+        }, value.GetStorage());
+    }
+
+    // Greyed, with its type, since nothing here may change it
+    void DrawReadOnlyField(Trinity::Scene& scene, const char* name, const Trinity::ScriptFieldValue& value)
+    {
+        Label(name);
+        ImGui::TextDisabled("%s", std::format("{}  ({})", FormatScriptValue(scene, value), Trinity::ToString(value.GetType())).c_str());
     }
 
     // What every collider has, above its own shape. The offset's turn shows as X, Y and Z degrees worked out afresh each frame, which is enough for the small turns a collider takes. Layers show by the project's names for them
@@ -369,8 +496,10 @@ void PropertiesPanel::OnImGuiRender()
     DrawRigidBody2D(l_Entity);
     DrawColliders2D(l_Entity);
     DrawJoint2D(l_Entity);
+    DrawScripts(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawAddComponent(l_Entity);
+    DrawAddScript(l_Entity);
     ImGui::PopID();
     ImGui::EndDisabled();
 
@@ -828,7 +957,7 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
             std::uint64_t l_Value = 0;
             std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
             const Trinity::AssetRecord* l_Dropped = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
-            if (l_Dropped != nullptr && l_Dropped->Importer == assetType)
+            if (l_Dropped != nullptr && (assetType.empty() || l_Dropped->Importer == assetType))
             {
                 set(l_Dropped->ID);
             }
@@ -907,7 +1036,7 @@ void PropertiesPanel::DrawTextureSlot(Trinity::Entity entity)
     DrawAssetPicker(c_TexturePickerPopup, Trinity::TextureAsset::c_AssetType, l_Texture, [this, entity](Trinity::UUID texture) { SetTexture(entity, texture); });
 }
 
-// The project's assets of one type by path, after the built-in meshes for a mesh, narrowed by what is typed
+// The project's assets of one type, or of every type when none is given, by path, after the built-in meshes for a mesh, narrowed by what is typed
 void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick)
 {
     if (!ImGui::BeginPopup(popup))
@@ -921,7 +1050,7 @@ void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetT
     }
 
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
-    ImGui::InputTextWithHint("##Filter", std::format("Search {} assets", assetType).c_str(), &m_AssetFilter);
+    ImGui::InputTextWithHint("##Filter", assetType.empty() ? "Search assets" : std::format("Search {} assets", assetType).c_str(), &m_AssetFilter);
 
     if (ImGui::Selectable("None"))
     {
@@ -962,7 +1091,7 @@ void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetT
     {
         for (const Trinity::AssetRecord* it_Record : l_Registry->GetRecords())
         {
-            if (it_Record->Importer == assetType && a_Matches(it_Record->Path))
+            if ((assetType.empty() || it_Record->Importer == assetType) && a_Matches(it_Record->Path))
             {
                 l_Assets.push_back(it_Record);
             }
@@ -980,7 +1109,7 @@ void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetT
 
     if (l_Assets.empty())
     {
-        ImGui::TextDisabled("%s", std::format("No {} assets in the project match", assetType).c_str());
+        ImGui::TextDisabled("%s", assetType.empty() ? "No assets in the project match" : std::format("No {} assets in the project match", assetType).c_str());
     }
 
     ImGui::EndPopup();
@@ -1767,7 +1896,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
     bool l_Any = false;
     for (const std::string_view it_Name : Trinity::SceneSerializer::GetComponentNames())
     {
-        if (it_Name == Trinity::TransformComponent::c_TypeName || Trinity::SceneSerializer::HasComponent(entity, it_Name))
+        if (it_Name == Trinity::TransformComponent::c_TypeName || it_Name == Trinity::ScriptComponent::c_TypeName || Trinity::SceneSerializer::HasComponent(entity, it_Name))
         {
             continue;
         }
@@ -1785,6 +1914,387 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
     }
 
     ImGui::EndPopup();
+}
+
+// The script classes loaded code has, by language, narrowed by what is typed. Picking one adds it last with its fields at their defaults, and adds the Script component too when the entity is without it
+void PropertiesPanel::DrawAddScript(Trinity::Entity entity)
+{
+    const float l_Width = ImGui::GetFontSize() * 12.0f;
+    ImGui::SetCursorPosX(std::max((ImGui::GetContentRegionAvail().x - l_Width) * 0.5f, 0.0f) + ImGui::GetCursorPosX());
+    if (ImGui::Button("Add Script", ImVec2(l_Width, 0.0f)))
+    {
+        m_ScriptFilter.clear();
+        ImGui::OpenPopup(c_AddScriptPopup);
+    }
+
+    if (!ImGui::BeginPopup(c_AddScriptPopup))
+    {
+        return;
+    }
+
+    if (ImGui::IsWindowAppearing())
+    {
+        ImGui::SetKeyboardFocusHere();
+    }
+
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
+    ImGui::InputTextWithHint("##Filter", "Search script classes", &m_ScriptFilter);
+
+    const std::vector<const Trinity::ScriptClassDescription*> l_Classes = Trinity::ScriptClassRegistry::GetClasses();
+    std::optional<Trinity::ScriptLanguage> l_Language;
+    for (const Trinity::ScriptClassDescription* it_Class : l_Classes)
+    {
+        if (!ContainsIgnoringCase(it_Class->Name, m_ScriptFilter))
+        {
+            continue;
+        }
+
+        if (l_Language != it_Class->Language)
+        {
+            l_Language = it_Class->Language;
+            ImGui::SeparatorText(std::string(GetScriptLanguageLabel(it_Class->Language)).c_str());
+        }
+
+        if (ImGui::Selectable(std::format("{}###{}{}", std::string_view(it_Class->Name), Trinity::ToString(it_Class->Language), std::string_view(it_Class->Name)).c_str()))
+        {
+            m_Session.GetHistory().Execute(Trinity::CreateScope<AddScriptCommand>(entity.GetUUID(), Trinity::ScriptClassRegistry::CreateEntry(*it_Class)));
+        }
+    }
+
+    if (!l_Language)
+    {
+        ImGui::TextDisabled("%s", l_Classes.empty() ? "No script classes are loaded. C++ modules and C# assemblies add theirs as they load" : "No script class matches");
+    }
+
+    ImGui::EndPopup();
+}
+
+// Each script by its class, with a box that turns it on and off and its fields below. Right-clicking a script moves or removes it. A class no loaded code has is marked, and its values are shown as they were read. Every change goes to a copy of the component and becomes one command once the section is drawn, since the section reads the component
+void PropertiesPanel::DrawScripts(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::ScriptComponent>() || !BeginComponent(Trinity::ScriptComponent::c_TypeName, Trinity::Icons::c_Terminal, true))
+    {
+        return;
+    }
+
+    enum class Action : std::uint8_t
+    {
+        None,
+        MoveUp,
+        MoveDown,
+        Remove
+    };
+
+    Trinity::ScriptComponent l_Value = entity.Get<Trinity::ScriptComponent>();
+    std::string l_Change;
+    Action l_Action = Action::None;
+    std::size_t l_ActionIndex = 0;
+
+    if (l_Value.Scripts.empty())
+    {
+        ImGui::TextDisabled("No scripts yet. Add Script below adds one");
+    }
+
+    for (std::size_t it_Index = 0; it_Index < l_Value.Scripts.size(); ++it_Index)
+    {
+        Trinity::ScriptEntry& l_Entry = l_Value.Scripts[it_Index];
+        const std::string l_Label = GetScriptLabel(l_Entry);
+        const bool l_Known = Trinity::ScriptClassRegistry::Find(l_Entry.Language, l_Entry.ClassName) != nullptr;
+
+        ImGui::PushID(static_cast<int>(it_Index));
+        if (ImGui::Checkbox("##Enabled", &l_Entry.Enabled))
+        {
+            l_Change = std::format("{} Enabled", l_Label);
+        }
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Whether it runs while the scene plays");
+        }
+
+        ImGui::SameLine();
+        const bool l_Open = ImGui::TreeNodeEx("##Script", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s", (l_Known ? l_Label : std::format("{} {}", Trinity::Icons::c_Warning, l_Label)).c_str());
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            const std::string_view l_Name(l_Entry.ClassName);
+            ImGui::SetTooltip("%s", (l_Known ? std::format("{}, in {}", l_Name, GetScriptLanguageLabel(l_Entry.Language)) : std::format("{}, in {}. No loaded code has this class, so its values are kept as they were read", l_Name, GetScriptLanguageLabel(l_Entry.Language))).c_str());
+        }
+
+        if (ImGui::BeginPopupContextItem())
+        {
+            if (ImGui::MenuItem(std::format("{} Move Up", Trinity::Icons::c_ArrowUp).c_str(), nullptr, false, it_Index > 0))
+            {
+                l_Action = Action::MoveUp;
+                l_ActionIndex = it_Index;
+            }
+
+            if (ImGui::MenuItem("Move Down", nullptr, false, it_Index + 1 < l_Value.Scripts.size()))
+            {
+                l_Action = Action::MoveDown;
+                l_ActionIndex = it_Index;
+            }
+
+            ImGui::Separator();
+            if (ImGui::MenuItem(std::format("{} Remove Script", Trinity::Icons::c_Trash).c_str()))
+            {
+                l_Action = Action::Remove;
+                l_ActionIndex = it_Index;
+            }
+
+            ImGui::EndPopup();
+        }
+
+        if (l_Open)
+        {
+            DrawScriptFields(l_Entry, l_Change);
+            ImGui::TreePop();
+        }
+
+        ImGui::PopID();
+    }
+
+    std::string l_CommandLabel;
+    if (l_Action != Action::None)
+    {
+        const std::string l_Label = GetScriptLabel(l_Value.Scripts[l_ActionIndex]);
+        const std::string l_EntityLabel = GetEntityLabel(entity);
+        l_Change = "Order";
+        switch (l_Action)
+        {
+            case Action::MoveUp:
+                l_CommandLabel = std::format("Move Script {} up on {}", l_Label, l_EntityLabel);
+                std::swap(l_Value.Scripts[l_ActionIndex], l_Value.Scripts[l_ActionIndex - 1]);
+                break;
+            case Action::MoveDown:
+                l_CommandLabel = std::format("Move Script {} down on {}", l_Label, l_EntityLabel);
+                std::swap(l_Value.Scripts[l_ActionIndex], l_Value.Scripts[l_ActionIndex + 1]);
+                break;
+            case Action::Remove:
+                l_CommandLabel = std::format("Remove Script {} from {}", l_Label, l_EntityLabel);
+                l_Value.Scripts.erase(l_Value.Scripts.begin() + static_cast<std::ptrdiff_t>(l_ActionIndex));
+                break;
+            case Action::None:
+                break;
+        }
+    }
+
+    if (!l_Change.empty())
+    {
+        m_Session.GetHistory().Execute(Trinity::CreateScope<SetComponentCommand<Trinity::ScriptComponent>>(entity.GetUUID(), std::move(l_Value), std::move(l_Change), std::move(l_CommandLabel)));
+    }
+}
+
+// A known class's fields in its order, each with its type's editor, then those the entry keeps that the class lacks or now types otherwise, greyed, with a button that drops them. An unknown class's fields are greyed as they were read
+void PropertiesPanel::DrawScriptFields(Trinity::ScriptEntry& entry, std::string& change)
+{
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    const Trinity::ScriptClassDescription* l_Class = Trinity::ScriptClassRegistry::Find(entry.Language, entry.ClassName);
+    if (l_Class == nullptr)
+    {
+        ImGui::TextDisabled("Not loaded, so its values are kept as they were read");
+        for (const Trinity::ScriptEntry::Field& it_Field : entry.Fields)
+        {
+            DrawReadOnlyField(l_Scene, it_Field.Name.c_str(), it_Field.Value);
+        }
+
+        return;
+    }
+
+    if (l_Class->Fields.empty() && entry.Fields.empty())
+    {
+        ImGui::TextDisabled("No fields");
+    }
+
+    for (const Trinity::ScriptFieldDescription& it_Field : l_Class->Fields)
+    {
+        Trinity::ScriptFieldValue l_Value = Trinity::ScriptClassRegistry::GetFieldValue(entry, it_Field);
+        ImGui::PushID(it_Field.Name.c_str());
+        if (DrawScriptValue(it_Field, l_Value))
+        {
+            change = std::format("{}.{}", GetScriptLabel(entry), std::string_view(it_Field.Name));
+            entry.SetField(it_Field.Name, std::move(l_Value));
+        }
+
+        ImGui::PopID();
+    }
+
+    const auto a_IsStale = [l_Class](const Trinity::ScriptEntry::Field& field)
+    {
+        const Trinity::ScriptFieldDescription* l_Field = l_Class->FindField(field.Name);
+
+        return l_Field == nullptr || l_Field->GetType() != field.Value.GetType();
+    };
+
+    if (std::ranges::none_of(entry.Fields, a_IsStale))
+    {
+        return;
+    }
+
+    ImGui::SeparatorText("Not in class");
+    for (const Trinity::ScriptEntry::Field& it_Field : entry.Fields)
+    {
+        if (a_IsStale(it_Field))
+        {
+            DrawReadOnlyField(l_Scene, it_Field.Name.c_str(), it_Field.Value);
+        }
+    }
+
+    if (ImGui::Button("Remove Fields Not in Class"))
+    {
+        std::erase_if(entry.Fields, a_IsStale);
+        change = std::format("{} Fields Not in Class", GetScriptLabel(entry));
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Values the class no longer has, or now holds as another type. They are kept until removed here, so a field put back gets its value again");
+    }
+}
+
+// The field's editor by its type, its name on the left. A colour is edited in sRGB and kept linear, a rotation in degrees about X, Y and Z worked out afresh each frame, an enum by its values' names, and an asset reference takes the asset type the field asks for, or any
+bool PropertiesPanel::DrawScriptValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value)
+{
+    if (value.GetType() == Trinity::ScriptFieldType::Asset)
+    {
+        bool l_Changed = false;
+        const Trinity::UUID l_Current = value.Get<Trinity::UUID>();
+        DrawAssetSlot(field.Name.c_str(), c_ScriptAssetPickerPopup, field.AssetType, l_Current, [&value, &l_Changed, l_Current](Trinity::UUID asset)
+        {
+            if (asset != l_Current)
+            {
+                value = Trinity::ScriptFieldValue::Asset(asset);
+                l_Changed = true;
+            }
+        }, "Drop an asset here, or pick one");
+
+        return l_Changed;
+    }
+
+    Label(field.Name.c_str());
+    switch (value.GetType())
+    {
+        case Trinity::ScriptFieldType::Bool:
+        {
+            return ImGui::Checkbox("##Value", &value.Get<bool>());
+        }
+        case Trinity::ScriptFieldType::Int32:
+        {
+            return ImGui::DragScalar("##Value", ImGuiDataType_S32, &value.Get<std::int32_t>(), 0.25f);
+        }
+        case Trinity::ScriptFieldType::Int64:
+        {
+            return ImGui::DragScalar("##Value", ImGuiDataType_S64, &value.Get<std::int64_t>(), 0.25f);
+        }
+        case Trinity::ScriptFieldType::UInt32:
+        {
+            return ImGui::DragScalar("##Value", ImGuiDataType_U32, &value.Get<std::uint32_t>(), 0.25f);
+        }
+        case Trinity::ScriptFieldType::UInt64:
+        {
+            return ImGui::DragScalar("##Value", ImGuiDataType_U64, &value.Get<std::uint64_t>(), 0.25f);
+        }
+        case Trinity::ScriptFieldType::Float:
+        {
+            return ImGui::DragFloat("##Value", &value.Get<float>(), 0.01f, 0.0f, 0.0f, "%.3f");
+        }
+        case Trinity::ScriptFieldType::Double:
+        {
+            return ImGui::DragScalar("##Value", ImGuiDataType_Double, &value.Get<double>(), 0.01f, nullptr, nullptr, "%.6f");
+        }
+        case Trinity::ScriptFieldType::Vector2:
+        {
+            return ImGui::DragFloat2("##Value", &value.Get<glm::vec2>().x, 0.01f, 0.0f, 0.0f, "%.3f");
+        }
+        case Trinity::ScriptFieldType::Vector3:
+        {
+            return ImGui::DragFloat3("##Value", &value.Get<glm::vec3>().x, 0.01f, 0.0f, 0.0f, "%.3f");
+        }
+        case Trinity::ScriptFieldType::Vector4:
+        {
+            return ImGui::DragFloat4("##Value", &value.Get<glm::vec4>().x, 0.01f, 0.0f, 0.0f, "%.3f");
+        }
+        case Trinity::ScriptFieldType::Quaternion:
+        {
+            glm::quat& l_Rotation = value.Get<glm::quat>();
+            glm::vec3 l_Degrees = glm::degrees(glm::eulerAngles(l_Rotation));
+            if (!ImGui::DragFloat3("##Value", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
+            {
+                return false;
+            }
+
+            l_Rotation = glm::quat(glm::radians(l_Degrees));
+
+            return true;
+        }
+        case Trinity::ScriptFieldType::Color:
+        {
+            glm::vec4& l_Color = value.Get<glm::vec4>();
+            glm::vec4 l_Srgb(Trinity::LinearToSrgb(l_Color.r), Trinity::LinearToSrgb(l_Color.g), Trinity::LinearToSrgb(l_Color.b), l_Color.a);
+            if (!ImGui::ColorEdit4("##Value", &l_Srgb.x, ImGuiColorEditFlags_AlphaPreviewHalf | ImGuiColorEditFlags_AlphaBar))
+            {
+                return false;
+            }
+
+            l_Color = glm::vec4(Trinity::SrgbToLinear(l_Srgb.r), Trinity::SrgbToLinear(l_Srgb.g), Trinity::SrgbToLinear(l_Srgb.b), l_Srgb.a);
+
+            return true;
+        }
+        case Trinity::ScriptFieldType::String:
+        {
+            std::string l_Text(std::string_view(value.Get<Trinity::ScriptString>()));
+            if (!ImGui::InputText("##Value", &l_Text))
+            {
+                return false;
+            }
+
+            value.Get<Trinity::ScriptString>() = l_Text;
+
+            return true;
+        }
+        case Trinity::ScriptFieldType::Enum:
+        {
+            std::int64_t& l_Current = value.Get<std::int64_t>();
+            const auto a_Found = std::ranges::find(field.EnumValues, l_Current, &Trinity::ScriptEnumValue::Value);
+            const std::string l_Preview = a_Found != field.EnumValues.end() ? std::string(std::string_view(a_Found->Name)) : std::format("{}", l_Current);
+
+            bool l_Changed = false;
+            if (ImGui::BeginCombo("##Value", l_Preview.c_str()))
+            {
+                for (std::size_t it_Index = 0; it_Index < field.EnumValues.size(); ++it_Index)
+                {
+                    const Trinity::ScriptEnumValue& l_Option = field.EnumValues[it_Index];
+                    const bool l_Selected = l_Option.Value == l_Current;
+                    ImGui::PushID(static_cast<int>(it_Index));
+                    if (ImGui::Selectable(l_Option.Name.c_str(), l_Selected) && !l_Selected)
+                    {
+                        l_Current = l_Option.Value;
+                        l_Changed = true;
+                    }
+
+                    if (l_Selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+
+                    ImGui::PopID();
+                }
+
+                ImGui::EndCombo();
+            }
+
+            return l_Changed;
+        }
+        case Trinity::ScriptFieldType::Entity:
+        {
+            return EntityCombo(m_Session.GetScene(), value.Get<Trinity::UUID>());
+        }
+        case Trinity::ScriptFieldType::Asset:
+        {
+            break;
+        }
+    }
+
+    return false;
 }
 
 // An asset picked in the Content Browser: where it is, for a texture a preview and its import settings, for a model its import settings and materials, and for a material its editor

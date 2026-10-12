@@ -14,6 +14,10 @@
 
 [[nodiscard]] std::string GetEntityLabel(Trinity::Entity entity);
 [[nodiscard]] std::string_view GetComponentLabel(std::string_view name);
+[[nodiscard]] std::string_view GetScriptLanguageLabel(Trinity::ScriptLanguage language);
+// The script's class name after its namespace, with its language, such as Player (C#)
+[[nodiscard]] std::string GetScriptLabel(const Trinity::ScriptEntry& entry);
+[[nodiscard]] std::size_t GetScriptMemorySize(const Trinity::ScriptComponent& component);
 
 // The model's nodes under one root with the given name, each with its transform, and a MeshRenderer where it has a mesh. The root's subtree holds the nodes in the model's order
 Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelData& model, std::string_view name, Trinity::Entity parent);
@@ -209,11 +213,32 @@ private:
     std::string m_Label;
 };
 
+// Adds a Script component first when the entity is without one, so adding the first script and undoing it are one step each
+class AddScriptCommand final : public EditorCommand
+{
+public:
+    AddScriptCommand(Trinity::UUID entity, Trinity::ScriptEntry entry);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::UUID m_Entity;
+    Trinity::ScriptEntry m_Entry;
+    std::string m_Label;
+    bool m_AddedComponent = false;
+};
+
+// The field names what was edited, and edits of one field in a row become one. A label, when given, names the command in place of one made from the field
 template<Trinity::Component T>
 class SetComponentCommand final : public EditorCommand
 {
 public:
-    SetComponentCommand(Trinity::UUID entity, T value, std::string field) : m_Entity(entity), m_New(std::move(value)), m_Field(std::move(field))
+    SetComponentCommand(Trinity::UUID entity, T value, std::string field, std::string label = {}) : m_Entity(entity), m_New(std::move(value)), m_Field(std::move(field)), m_Label(std::move(label))
     {
 
     }
@@ -238,7 +263,11 @@ public:
             }
 
             m_Old = l_Component;
-            m_Label = m_Field.empty() ? std::format("Edit {} of {}", GetComponentLabel(T::c_TypeName), GetEntityLabel(l_Entity)) : std::format("Edit {} {} of {}", GetComponentLabel(T::c_TypeName), m_Field, GetEntityLabel(l_Entity));
+            if (m_Label.empty())
+            {
+                m_Label = m_Field.empty() ? std::format("Edit {} of {}", GetComponentLabel(T::c_TypeName), GetEntityLabel(l_Entity)) : std::format("Edit {} {} of {}", GetComponentLabel(T::c_TypeName), m_Field, GetEntityLabel(l_Entity));
+            }
+
             m_Executed = true;
         }
 
@@ -278,6 +307,10 @@ public:
         else if constexpr (std::is_same_v<T, Trinity::PolygonCollider2DComponent>)
         {
             l_Size += (m_Old.Points.capacity() + m_New.Points.capacity()) * sizeof(glm::vec2);
+        }
+        else if constexpr (std::is_same_v<T, Trinity::ScriptComponent>)
+        {
+            l_Size += GetScriptMemorySize(m_Old) + GetScriptMemorySize(m_New);
         }
 
         return l_Size;

@@ -95,6 +95,22 @@ namespace
 
         return true;
     }
+
+    // What an entry holds beyond its own size
+    std::size_t GetScriptEntryMemorySize(const Trinity::ScriptEntry& entry)
+    {
+        std::size_t l_Size = entry.ClassName.capacity() + entry.Fields.capacity() * sizeof(Trinity::ScriptEntry::Field);
+        for (const Trinity::ScriptEntry::Field& it_Field : entry.Fields)
+        {
+            l_Size += it_Field.Name.capacity();
+            if (it_Field.Value.GetType() == Trinity::ScriptFieldType::String)
+            {
+                l_Size += it_Field.Value.Get<Trinity::ScriptString>().capacity();
+            }
+        }
+
+        return l_Size;
+    }
 }
 
 std::string GetEntityLabel(Trinity::Entity entity)
@@ -113,6 +129,30 @@ std::string_view GetComponentLabel(std::string_view name)
     const std::size_t l_Dot = name.rfind('.');
 
     return l_Dot == std::string_view::npos ? name : name.substr(l_Dot + 1);
+}
+
+std::string_view GetScriptLanguageLabel(Trinity::ScriptLanguage language)
+{
+    return language == Trinity::ScriptLanguage::Cpp ? "C++" : "C#";
+}
+
+std::string GetScriptLabel(const Trinity::ScriptEntry& entry)
+{
+    const std::string_view l_Name(entry.ClassName);
+    const std::size_t l_Separator = l_Name.find_last_of(".:");
+
+    return std::format("{} ({})", l_Separator == std::string_view::npos ? l_Name : l_Name.substr(l_Separator + 1), GetScriptLanguageLabel(entry.Language));
+}
+
+std::size_t GetScriptMemorySize(const Trinity::ScriptComponent& component)
+{
+    std::size_t l_Size = component.Scripts.capacity() * sizeof(Trinity::ScriptEntry);
+    for (const Trinity::ScriptEntry& it_Entry : component.Scripts)
+    {
+        l_Size += GetScriptEntryMemorySize(it_Entry);
+    }
+
+    return l_Size;
 }
 
 // Parents come before their children in the model, so each node's parent entity already exists, and children are added last, in the model's order
@@ -481,6 +521,53 @@ void AddComponentCommand::Undo(Trinity::Scene& scene)
 std::size_t AddComponentCommand::GetMemorySize() const
 {
     return sizeof(*this) + m_Component.capacity() + m_Label.capacity();
+}
+
+AddScriptCommand::AddScriptCommand(Trinity::UUID entity, Trinity::ScriptEntry entry) : m_Entity(entity), m_Entry(std::move(entry))
+{
+
+}
+
+bool AddScriptCommand::Execute(Trinity::Scene& scene)
+{
+    Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
+    if (!l_Entity)
+    {
+        return false;
+    }
+
+    m_AddedComponent = !l_Entity.Has<Trinity::ScriptComponent>();
+    if (m_AddedComponent)
+    {
+        l_Entity.Add<Trinity::ScriptComponent>();
+    }
+
+    l_Entity.Get<Trinity::ScriptComponent>().Scripts.push_back(m_Entry);
+    if (m_Label.empty())
+    {
+        m_Label = std::format("Add Script {} to {}", GetScriptLabel(m_Entry), GetEntityLabel(l_Entity));
+    }
+
+    return true;
+}
+
+// The script went last, and every command after this one has been undone, so it is still last
+void AddScriptCommand::Undo(Trinity::Scene& scene)
+{
+    Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
+    if (m_AddedComponent)
+    {
+        l_Entity.Remove<Trinity::ScriptComponent>();
+
+        return;
+    }
+
+    l_Entity.Get<Trinity::ScriptComponent>().Scripts.pop_back();
+}
+
+std::size_t AddScriptCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Label.capacity() + GetScriptEntryMemorySize(m_Entry);
 }
 
 RemoveComponentCommand::RemoveComponentCommand(Trinity::UUID entity, std::string component) : m_Entity(entity), m_Component(std::move(component))
