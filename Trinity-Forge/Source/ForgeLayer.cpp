@@ -473,6 +473,19 @@ void ForgeLayer::DrawEditMenu()
         l_History.Execute(Trinity::CreateScope<CreateEntityCommand>("Empty Entity", Trinity::UUID(), Trinity::UUID()));
     }
 
+    if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_Cube, "Create 3D Object").c_str(), m_Session.HasProject() && !l_Playing))
+    {
+        for (const Trinity::BuiltInMesh it_Mesh : Trinity::c_BuiltInMeshes)
+        {
+            if (ImGui::MenuItem(std::string(Trinity::ToString(it_Mesh)).c_str()))
+            {
+                static_cast<void>(m_Session.CreatePrimitive(it_Mesh, {}));
+            }
+        }
+
+        ImGui::EndMenu();
+    }
+
     const bool l_HasSelection = !l_Playing && static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Duplicate").c_str(), "Ctrl+D", false, l_HasSelection))
     {

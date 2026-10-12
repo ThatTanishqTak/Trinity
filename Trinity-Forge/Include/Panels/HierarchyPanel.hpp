@@ -23,6 +23,7 @@ private:
     void DrawRenameField(Trinity::Entity entity);
     void DrawContextMenu(Trinity::Entity entity);
     void DrawBackground();
+    void DrawPrimitiveMenu(Trinity::UUID parent);
     void AcceptDrop(Trinity::Entity target);
     void ReadShortcuts();
 

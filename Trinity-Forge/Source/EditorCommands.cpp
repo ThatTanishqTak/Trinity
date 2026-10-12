@@ -34,6 +34,54 @@ namespace
         return scene.SetParent(entity, scene.FindEntityByUUID(parent), false);
     }
 
+    // The defaults of the box, sphere, capsule and cylinder colliders fit the shapes of the same name exactly, and the flat shapes get a box 10 cm thick behind their face, so what lands on one rests on its surface
+    void AddFittingCollider(Trinity::Entity entity, Trinity::BuiltInMesh mesh)
+    {
+        switch (mesh)
+        {
+            case Trinity::BuiltInMesh::Cube:
+            {
+                entity.Add<Trinity::BoxColliderComponent>();
+
+                break;
+            }
+            case Trinity::BuiltInMesh::Sphere:
+            {
+                entity.Add<Trinity::SphereColliderComponent>();
+
+                break;
+            }
+            case Trinity::BuiltInMesh::Capsule:
+            {
+                entity.Add<Trinity::CapsuleColliderComponent>();
+
+                break;
+            }
+            case Trinity::BuiltInMesh::Cylinder:
+            {
+                entity.Add<Trinity::CylinderColliderComponent>();
+
+                break;
+            }
+            case Trinity::BuiltInMesh::Plane:
+            {
+                Trinity::BoxColliderComponent& l_Box = entity.Add<Trinity::BoxColliderComponent>();
+                l_Box.HalfExtents = glm::vec3(5.0f, 0.05f, 5.0f);
+                l_Box.Offset = glm::vec3(0.0f, -0.05f, 0.0f);
+
+                break;
+            }
+            case Trinity::BuiltInMesh::Quad:
+            {
+                Trinity::BoxColliderComponent& l_Box = entity.Add<Trinity::BoxColliderComponent>();
+                l_Box.HalfExtents = glm::vec3(0.5f, 0.5f, 0.05f);
+                l_Box.Offset = glm::vec3(0.0f, 0.0f, -0.05f);
+
+                break;
+            }
+        }
+    }
+
     // The text came from this scene in the same state, so this only fails when the history no longer matches the scene
     bool Restore(Trinity::Scene& scene, std::string_view text, Trinity::UUID parent, Trinity::UUID before, std::string_view label)
     {
@@ -219,6 +267,46 @@ void CreateModelCommand::Undo(Trinity::Scene& scene)
 std::size_t CreateModelCommand::GetMemorySize() const
 {
     return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
+}
+
+CreatePrimitiveCommand::CreatePrimitiveCommand(Trinity::BuiltInMesh mesh, Trinity::UUID parent, glm::vec3 position) : m_Mesh(mesh), m_Parent(parent), m_Position(position)
+{
+
+}
+
+// Last under the parent or among the roots, at the position in the parent's space. Kept as text after the first run, as CreateEntityCommand does
+bool CreatePrimitiveCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_Text.empty())
+    {
+        return Restore(scene, m_Text, m_Parent, {}, m_Label);
+    }
+
+    if (!IsPlaceValid(scene, m_Parent, {}))
+    {
+        return false;
+    }
+
+    Trinity::Entity l_Entity = scene.CreateEntity(Trinity::ToString(m_Mesh), scene.FindEntityByUUID(m_Parent));
+    l_Entity.Get<Trinity::TransformComponent>().Position = m_Position;
+    l_Entity.Add<Trinity::MeshRendererComponent>().Mesh = Trinity::GetBuiltInMeshID(m_Mesh);
+    AddFittingCollider(l_Entity, m_Mesh);
+
+    m_Entity = l_Entity.GetUUID();
+    m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Entity);
+    m_Label = std::format("Create {}", GetEntityLabel(l_Entity));
+
+    return true;
+}
+
+void CreatePrimitiveCommand::Undo(Trinity::Scene& scene)
+{
+    scene.DestroyEntity(scene.FindEntityByUUID(m_Entity));
+}
+
+std::size_t CreatePrimitiveCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Text.capacity() + m_Label.capacity();
 }
 
 DeleteEntityCommand::DeleteEntityCommand(Trinity::UUID entity) : m_Entity(entity)

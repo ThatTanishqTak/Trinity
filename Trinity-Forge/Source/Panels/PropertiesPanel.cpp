@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -755,7 +756,7 @@ void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
     };
 
     const Trinity::UUID l_MeshID = entity.Get<Trinity::MeshRendererComponent>().Mesh;
-    DrawAssetSlot("Mesh", c_MeshPickerPopup, Trinity::MeshAsset::c_AssetType, l_MeshID, [&a_Set](Trinity::UUID mesh) { a_Set([mesh](Trinity::MeshRendererComponent& value) { value.Mesh = mesh; }, "Mesh"); }, "A mesh of a model in the project. Without one nothing is drawn");
+    DrawAssetSlot("Mesh", c_MeshPickerPopup, Trinity::MeshAsset::c_AssetType, l_MeshID, [&a_Set](Trinity::UUID mesh) { a_Set([mesh](Trinity::MeshRendererComponent& value) { value.Mesh = mesh; }, "Mesh"); }, "A mesh of a model in the project, or a built-in shape. Without one nothing is drawn");
 
     std::size_t l_Slots = entity.Get<Trinity::MeshRendererComponent>().Materials.size();
     const bool l_Loaded = l_MeshID && Trinity::AssetManager::GetState(l_MeshID) == Trinity::AssetState::Ready;
@@ -798,12 +799,13 @@ void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
     EditField<Trinity::MeshRendererComponent>(l_History, entity, "CastShadows", [](Trinity::MeshRendererComponent& meshRenderer) { return ImGui::Checkbox("##CastShadows", &meshRenderer.CastShadows); });
 }
 
-// A slot for one asset of a type: a button naming it that opens a picker of the project's assets of that type, which also takes one dropped from elsewhere in Forge, and a cross that clears it
+// A slot for one asset of a type: a button naming it that opens a picker of the project's assets of that type, and the built-in meshes for a mesh, which also takes one dropped from elsewhere in Forge, and a cross that clears it
 void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
     const Trinity::AssetRecord* l_Record = l_Registry != nullptr && current ? l_Registry->Find(current) : nullptr;
-    const std::string l_Name = !current ? std::string("None") : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", current);
+    const std::optional<Trinity::BuiltInMesh> l_BuiltIn = assetType == Trinity::MeshAsset::c_AssetType ? Trinity::FindBuiltInMesh(current) : std::nullopt;
+    const std::string l_Name = !current ? std::string("None") : l_BuiltIn ? std::format("{} (Built-in)", Trinity::ToString(*l_BuiltIn)) : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", current);
 
     Label(label);
     const float l_ClearWidth = ImGui::GetFrameHeight();
@@ -816,7 +818,7 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
 
     if (ImGui::IsItemHovered())
     {
-        ImGui::SetTooltip("%s", l_Record != nullptr ? l_Record->Path.c_str() : hint);
+        ImGui::SetTooltip("%s", l_BuiltIn ? "Built into the engine, so every project has it" : l_Record != nullptr ? l_Record->Path.c_str() : hint);
     }
 
     if (ImGui::BeginDragDropTarget())
@@ -905,7 +907,7 @@ void PropertiesPanel::DrawTextureSlot(Trinity::Entity entity)
     DrawAssetPicker(c_TexturePickerPopup, Trinity::TextureAsset::c_AssetType, l_Texture, [this, entity](Trinity::UUID texture) { SetTexture(entity, texture); });
 }
 
-// The project's assets of one type by path, narrowed by what is typed
+// The project's assets of one type by path, after the built-in meshes for a mesh, narrowed by what is typed
 void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick)
 {
     if (!ImGui::BeginPopup(popup))
@@ -926,12 +928,40 @@ void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetT
         pick({});
     }
 
+    const auto a_Matches = [this](std::string_view text) { return m_AssetFilter.empty() || std::ranges::search(text, m_AssetFilter, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).begin() != text.end(); };
+    if (assetType == Trinity::MeshAsset::c_AssetType)
+    {
+        bool l_Header = false;
+        for (const Trinity::BuiltInMesh it_Mesh : Trinity::c_BuiltInMeshes)
+        {
+            const Trinity::UUID l_ID = Trinity::GetBuiltInMeshID(it_Mesh);
+            if (!a_Matches(Trinity::ToString(it_Mesh)))
+            {
+                continue;
+            }
+
+            if (!std::exchange(l_Header, true))
+            {
+                ImGui::SeparatorText("Built-in");
+            }
+
+            if (ImGui::Selectable(std::format("{}###{}", Trinity::ToString(it_Mesh), l_ID).c_str(), l_ID == current))
+            {
+                pick(l_ID);
+            }
+        }
+
+        if (l_Header)
+        {
+            ImGui::SeparatorText("Project");
+        }
+    }
+
     std::vector<const Trinity::AssetRecord*> l_Assets;
     if (const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry())
     {
         for (const Trinity::AssetRecord* it_Record : l_Registry->GetRecords())
         {
-            const auto a_Matches = [this](const std::string& path) { return m_AssetFilter.empty() || std::ranges::search(path, m_AssetFilter, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).begin() != path.end(); };
             if (it_Record->Importer == assetType && a_Matches(it_Record->Path))
             {
                 l_Assets.push_back(it_Record);

@@ -1087,6 +1087,11 @@ bool EditorSession::CreateModel(Trinity::UUID model, Trinity::UUID parent, Trini
     return m_History.Execute(Trinity::CreateScope<CreateModelCommand>(model, ToUtf8(FromUtf8(l_Record->Path).stem()), parent, before, position));
 }
 
+bool EditorSession::CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent)
+{
+    return m_History.Execute(Trinity::CreateScope<CreatePrimitiveCommand>(mesh, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
+}
+
 bool EditorSession::EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field)
 {
     if (!m_Project)

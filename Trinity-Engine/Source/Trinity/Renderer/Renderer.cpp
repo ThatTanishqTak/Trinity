@@ -1,6 +1,7 @@
 #include "Trinity/Renderer/Renderer.hpp"
 
 #include "Trinity/Asset/AssetManager.hpp"
+#include "Trinity/Asset/BuiltInMeshes.hpp"
 #include "Trinity/Asset/EnvironmentLoader.hpp"
 #include "Trinity/Asset/MaterialLoader.hpp"
 #include "Trinity/Asset/MeshLoader.hpp"
@@ -141,13 +142,18 @@ namespace Trinity
         m_DebugDepthSupport = { m_Device.IsFormatSupported(Renderer3D::c_DepthFormat, l_ReadableDepth, 1), m_Device.IsFormatSupported(Renderer3D::c_DepthFormat, l_ReadableDepth, Renderer3D::c_SampleCount) };
 #endif
 
-        // Textures, materials, meshes and environments need this device, so their loaders live exactly as long as the renderer. Materials keep textures loaded, so they go before textures do
+        // Textures, materials, meshes and environments need this device, so their loaders, and the built-in meshes, live exactly as long as the renderer. Materials keep textures loaded, so they go before textures do
         m_TextureLoader = CreateScope<TextureLoader>(m_Device);
         AssetManager::RegisterLoader(*m_TextureLoader);
         m_MaterialLoader = CreateScope<MaterialLoader>(m_Device);
         AssetManager::RegisterLoader(*m_MaterialLoader);
         m_MeshLoader = CreateScope<MeshLoader>(m_Device);
         AssetManager::RegisterLoader(*m_MeshLoader);
+        for (const BuiltInMesh it_Mesh : c_BuiltInMeshes)
+        {
+            AssetManager::RegisterBuiltIn(GetBuiltInMeshID(it_Mesh), MeshAsset::c_AssetType, &CookBuiltInMesh);
+        }
+
         m_EnvironmentLoader = CreateScope<EnvironmentLoader>(m_Device);
         AssetManager::RegisterLoader(*m_EnvironmentLoader);
 
@@ -183,6 +189,11 @@ namespace Trinity
         m_Renderer2D.reset();
         AssetManager::UnregisterLoader(EnvironmentAsset::c_AssetType);
         m_EnvironmentLoader.reset();
+        for (const BuiltInMesh it_Mesh : c_BuiltInMeshes)
+        {
+            AssetManager::UnregisterBuiltIn(GetBuiltInMeshID(it_Mesh));
+        }
+
         AssetManager::UnregisterLoader(MeshAsset::c_AssetType);
         m_MeshLoader.reset();
         AssetManager::UnregisterLoader(MaterialAsset::c_AssetType);

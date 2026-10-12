@@ -118,6 +118,11 @@ public:
     // A model's material's key, or nothing for a material of its own
     [[nodiscard]] std::optional<std::string> GetMaterialKey(Trinity::UUID material) const;
     bool CreateModel(Trinity::UUID model, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
+    // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point
+    bool CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent);
+    // Where the Scene panel's camera looks, which the panel sets each frame: the 3D camera's focus, or the 2D camera's centre at Z 0
+    [[nodiscard]] glm::vec3 GetSpawnPoint() const { return m_SpawnPoint; }
+    void SetSpawnPoint(glm::vec3 point) { m_SpawnPoint = point; }
     [[nodiscard]] bool IsImporting(Trinity::UUID id) const { return m_Reimporter.IsBusy(id); }
     [[nodiscard]] bool IsImportingModels() const { return m_ModelImports.IsRunning() || m_ImportAgain; }
     [[nodiscard]] std::uint64_t GetScanCount() const { return m_ScanCount; }
@@ -184,6 +189,7 @@ private:
     Trinity::UUID m_Selection;
     CommandStack m_History{ m_Scene, m_Selection };
     Trinity::UUID m_InspectedAsset;
+    glm::vec3 m_SpawnPoint{ 0.0f };
     TextureReimporter m_Reimporter;
     TextureImportBatch m_Imports;
     ModelImportBatch m_ModelImports;

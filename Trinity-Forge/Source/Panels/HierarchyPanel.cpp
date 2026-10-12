@@ -219,6 +219,8 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
         m_Deferred.push_back([this, l_ID] { Create(l_ID); });
     }
 
+    DrawPrimitiveMenu(l_ID);
+
     if (ImGui::MenuItem("Rename", "F2", false, entity.Has<Trinity::TagComponent>()))
     {
         BeginRename(entity);
@@ -258,6 +260,8 @@ void HierarchyPanel::DrawBackground()
         {
             m_Deferred.push_back([this] { Create({}); });
         }
+
+        DrawPrimitiveMenu({});
 
         ImGui::EndPopup();
     }
@@ -362,6 +366,31 @@ void HierarchyPanel::BeginRename(Trinity::Entity entity)
     m_Renaming = entity.GetUUID();
     m_RenameText = std::string(std::string_view(entity.Get<Trinity::TagComponent>().Tag));
     m_FocusRename = true;
+}
+
+// A built-in shape with its collider, under the parent or as a root, made once the tree is drawn and shown selected
+void HierarchyPanel::DrawPrimitiveMenu(Trinity::UUID parent)
+{
+    if (!ImGui::BeginMenu(std::format("{} Create 3D Object", Trinity::Icons::c_Cube).c_str()))
+    {
+        return;
+    }
+
+    for (const Trinity::BuiltInMesh it_Mesh : Trinity::c_BuiltInMeshes)
+    {
+        if (ImGui::MenuItem(std::string(Trinity::ToString(it_Mesh)).c_str()))
+        {
+            m_Deferred.push_back([this, it_Mesh, parent]
+            {
+                if (m_Session.CreatePrimitive(it_Mesh, parent))
+                {
+                    m_Revealed = {};
+                }
+            });
+        }
+    }
+
+    ImGui::EndMenu();
 }
 
 // A new entity is selected and named at once

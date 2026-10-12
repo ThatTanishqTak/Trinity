@@ -57,8 +57,15 @@ namespace Trinity
             FileRequest Request;
         };
 
+        struct BuiltIn
+        {
+            std::string_view AssetType;
+            AssetManager::BuiltInSource Source = nullptr;
+        };
+
         using EntryMap = std::unordered_map<UUID, Entry, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Entry>, MemoryTag::Assets>>;
         using HeldSet = std::unordered_set<UUID, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<UUID, MemoryTag::Engine>>;
+        using BuiltInMap = std::unordered_map<UUID, BuiltIn, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, BuiltIn>, MemoryTag::Engine>>;
 
         struct State
         {
@@ -66,6 +73,7 @@ namespace Trinity
             std::vector<const AssetLoader*, TaggedAllocator<const AssetLoader*, MemoryTag::Engine>> Loaders;
             const AssetRegistry* Registry = nullptr;
             HeldSet Held;
+            BuiltInMap BuiltIns;
             std::uint64_t NextGeneration = 1;
             JobCounter Jobs;
             std::mutex CompletedMutex;
@@ -89,23 +97,43 @@ namespace Trinity
             return a_Found != s_State->Entries.end() && a_Found->second.Generation == generation ? &a_Found->second : nullptr;
         }
 
+        // On a worker, handing the loader's result to Update
+        void Complete(LoadTask* task, Expected<Asset*, std::string> result)
+        {
+            if (result)
+            {
+                task->Result = *result;
+            }
+            else
+            {
+                task->Error = result.GetError();
+            }
+
+            std::scoped_lock l_Lock(s_State->CompletedMutex);
+            s_State->Completed.push_back(task);
+        }
+
         // On a worker. Loaders must not throw, as no job may
         void Decode(LoadTask* task)
         {
             Expected<Asset*, std::string> l_Result = task->Loader->Load(task->Data);
-            if (l_Result)
-            {
-                task->Result = *l_Result;
-            }
-            else
-            {
-                task->Error = l_Result.GetError();
-            }
-
             task->Data = FileBuffer();
+            Complete(task, std::move(l_Result));
+        }
 
-            std::scoped_lock l_Lock(s_State->CompletedMutex);
-            s_State->Completed.push_back(task);
+        // A built-in asset's bytes are made on a worker and loaded there as a file's would be, so it is ready a frame or two later, as a read one is
+        void Make(UUID id, const Entry& entry, AssetManager::BuiltInSource source)
+        {
+            LoadTask* l_Task = Memory::New<LoadTask>(MemoryTag::Assets);
+            l_Task->ID = id;
+            l_Task->Generation = entry.Generation;
+            l_Task->Loader = entry.Loader;
+
+            JobSystem::Submit([l_Task, source]
+            {
+                const Expected<std::vector<std::byte>, std::string> l_Bytes = source(l_Task->ID);
+                Complete(l_Task, l_Bytes ? l_Task->Loader->Load(*l_Bytes) : Expected<Asset*, std::string>(Unexpected{ l_Bytes.GetError() }));
+            }, &s_State->Jobs);
         }
 
         // Read requests are cancelled when the last reference goes, so this only runs for an entry still wanted
@@ -281,6 +309,26 @@ namespace Trinity
             s_State->Loaders.push_back(&loader);
         }
 
+        void RegisterBuiltIn(UUID id, std::string_view assetType, BuiltInSource source)
+        {
+            TR_CORE_ASSERT(id && source != nullptr, "A built-in asset needs a UUID and a source.");
+
+            if (!s_State->BuiltIns.try_emplace(id, BuiltIn{ assetType, source }).second)
+            {
+                TR_CORE_ERROR("Assets: {} is already a built-in asset", id);
+            }
+        }
+
+        void UnregisterBuiltIn(UUID id)
+        {
+            s_State->BuiltIns.erase(id);
+        }
+
+        bool IsBuiltIn(UUID id)
+        {
+            return s_State->BuiltIns.contains(id);
+        }
+
         // Its decodes may still be running, and its assets may need it to be destroyed, so both end before it goes. Assets still referenced read as failed from then on
         void UnregisterLoader(std::string_view assetType)
         {
@@ -351,6 +399,23 @@ namespace Trinity
 
             l_Entry.Generation = s_State->NextGeneration++;
 
+            // Found before the registry, so a project can never hide one
+            if (const auto a_BuiltIn = s_State->BuiltIns.find(id); a_BuiltIn != s_State->BuiltIns.end())
+            {
+                l_Entry.Loader = FindLoader(a_BuiltIn->second.AssetType);
+                if (l_Entry.Loader == nullptr)
+                {
+                    l_Entry.State = AssetState::Failed;
+                    TR_CORE_ERROR("Assets: the built-in {} cannot load, since no loader takes {} assets", id, a_BuiltIn->second.AssetType);
+
+                    return;
+                }
+
+                Make(id, l_Entry, a_BuiltIn->second.Source);
+
+                return;
+            }
+
             const AssetRecord* l_Record = s_State->Registry != nullptr ? s_State->Registry->Find(id) : nullptr;
             if (l_Record == nullptr)
             {
@@ -404,13 +469,13 @@ namespace Trinity
             }
         }
 
-        // As after a reimport. The version already loaded stays in use until the new one is ready, and a load still running is dropped. An asset gone from the registry fails, so it reads as its loader's placeholder. A held asset waits for Resume
+        // As after a reimport. The version already loaded stays in use until the new one is ready, and a load still running is dropped. An asset gone from the registry fails, so it reads as its loader's placeholder. A held asset waits for Resume. A built-in asset never changes, so it stays as it is
         void Reload(UUID id)
         {
             TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are reloaded on the main thread.");
 
             const auto a_Found = s_State->Entries.find(id);
-            if (a_Found == s_State->Entries.end())
+            if (a_Found == s_State->Entries.end() || s_State->BuiltIns.contains(id))
             {
                 return;
             }
@@ -441,12 +506,12 @@ namespace Trinity
             l_Entry.Request = FileSystem::ReadFileAsync(l_Loader->GetLoadPath(*l_Record), [id, l_Generation = l_Entry.Generation](Expected<FileBuffer, FileError> result) { OnRead(id, l_Generation, std::move(result)); });
         }
 
-        // For a file still being made, such as a texture an editor is importing. A held asset reads as loading, with its loader's placeholder, and is not read until Resume. A registry set for another project lets go of every hold
+        // For a file still being made, such as a texture an editor is importing. A held asset reads as loading, with its loader's placeholder, and is not read until Resume. A registry set for another project lets go of every hold. A built-in asset has no file, so it is never held
         void Hold(UUID id)
         {
             TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are held on the main thread.");
 
-            if (!id || !s_State->Held.insert(id).second)
+            if (!id || s_State->BuiltIns.contains(id) || !s_State->Held.insert(id).second)
             {
                 return;
             }
