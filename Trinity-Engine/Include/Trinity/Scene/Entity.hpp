@@ -48,6 +48,24 @@ namespace Trinity
             return std::as_const(m_Scene->m_Registry).get<T>(m_Handle);
         }
 
+        // Changes the component through the function and tells whoever listens, such as a running scene's physics, that it changed. A change made through Get goes unnoticed
+        template<Component T, typename F>
+        T& Patch(F&& function)
+        {
+            TR_CORE_ASSERT(Has<T>(), "Entity has no {}", T::c_TypeName);
+
+            return m_Scene->m_Registry.patch<T>(m_Handle, std::forward<F>(function));
+        }
+
+        // Puts a new value in place, telling listeners as Patch does
+        template<Component T>
+        T& Replace(T value)
+        {
+            TR_CORE_ASSERT(Has<T>(), "Entity has no {}", T::c_TypeName);
+
+            return m_Scene->m_Registry.replace<T>(m_Handle, std::move(value));
+        }
+
         // Reads through the const registry, so asking never creates a pool
         template<Component T>
         [[nodiscard]] bool Has() const

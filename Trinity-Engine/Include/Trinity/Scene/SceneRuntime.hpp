@@ -55,7 +55,7 @@ namespace Trinity
         [[nodiscard]] Statistics GetStatistics() const;
         // Whether both worlds keep where their bodies touch each step, for drawing
         void SetGatherContacts(bool gather);
-        // Nothing when the scene had no RigidBody and no collider as it started
+        // Nothing until the scene has a RigidBody or a collider, as it starts or later while it runs
         [[nodiscard]] PhysicsScene3D* GetPhysics() { return m_Physics.get(); }
         // Nothing when the scene had no RigidBody2D and no 2D collider as it started
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() { return m_Physics2D.get(); }
@@ -66,6 +66,7 @@ namespace Trinity
         void LogPhysicsEvents() const;
 
         Scene& m_Scene;
+        PhysicsSettings m_Settings;
         SimulationClock m_Clock;
         Scope<PhysicsScene3D> m_Physics;
         Scope<PhysicsScene2D> m_Physics2D;
@@ -74,5 +75,6 @@ namespace Trinity
         Scope<ScriptRuntime> m_Scripts;
         std::uint32_t m_StepsThisFrame = 0;
         float m_StepMilliseconds = 0.0f;
+        bool m_GatherContacts = false;
     };
 }

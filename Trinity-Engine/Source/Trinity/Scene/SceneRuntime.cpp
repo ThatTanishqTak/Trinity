@@ -39,7 +39,7 @@ namespace Trinity
         }
     }
 
-    SceneRuntime::SceneRuntime(Scene& scene, const PhysicsSettings& settings) : m_Scene(scene), m_Clock(settings.StepRate)
+    SceneRuntime::SceneRuntime(Scene& scene, const PhysicsSettings& settings) : m_Scene(scene), m_Settings(settings), m_Clock(settings.StepRate)
     {
         if (PhysicsScene3D::IsNeeded(scene))
         {
@@ -90,6 +90,14 @@ namespace Trinity
     {
         m_Scripts->CreatePending();
 
+        // A scene that had no 3D body as it started gets its world once it has one
+        if (!m_Physics && PhysicsScene3D::IsNeeded(m_Scene))
+        {
+            m_Physics = CreateScope<PhysicsScene3D>(m_Scene, m_Settings.Layers);
+            m_Physics->GetWorld().SetGravity(m_Settings.Gravity3D);
+            m_Physics->SetGatherContacts(m_GatherContacts);
+        }
+
         const auto l_Start = std::chrono::steady_clock::now();
         m_StepsThisFrame = steps;
         const Timestep l_Step(m_Clock.GetStep());
@@ -103,6 +111,9 @@ namespace Trinity
             m_Physics2D->BeginFrame(m_StepsThisFrame);
         }
 
+        // Events raised as a frame begins, such as the contacts of a body taken out ending, go to the scripts with the first step's
+        std::size_t l_Delivered3D = 0;
+        std::size_t l_Delivered2D = 0;
         for (std::uint32_t it_Step = 0; it_Step < m_StepsThisFrame; ++it_Step)
         {
             TR_PROFILE_SCOPE("SceneRuntime::Step");
@@ -113,16 +124,16 @@ namespace Trinity
 
             if (m_Physics)
             {
-                const std::size_t l_Delivered = m_Physics->GetEvents().size();
                 m_Physics->Step(l_Step, it_Step);
-                m_Scripts->DeliverEvents(m_Physics->GetEvents().subspan(l_Delivered));
+                m_Scripts->DeliverEvents(m_Physics->GetEvents().subspan(l_Delivered3D));
+                l_Delivered3D = m_Physics->GetEvents().size();
             }
 
             if (m_Physics2D)
             {
-                const std::size_t l_Delivered = m_Physics2D->GetEvents().size();
                 m_Physics2D->Step(l_Step, it_Step);
-                m_Scripts->DeliverEvents(m_Physics2D->GetEvents().subspan(l_Delivered));
+                m_Scripts->DeliverEvents(m_Physics2D->GetEvents().subspan(l_Delivered2D));
+                l_Delivered2D = m_Physics2D->GetEvents().size();
             }
         }
 
@@ -170,6 +181,7 @@ namespace Trinity
 
     void SceneRuntime::SetGatherContacts(bool gather)
     {
+        m_GatherContacts = gather;
         if (m_Physics)
         {
             m_Physics->SetGatherContacts(gather);
