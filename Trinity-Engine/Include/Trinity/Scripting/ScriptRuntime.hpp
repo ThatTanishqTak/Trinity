@@ -41,7 +41,7 @@ namespace Trinity
         // Whether any script had OnLateUpdate, so the transform pass runs again
         bool LateUpdate(Timestep timestep);
 
-        // The entity and its subtree go at DestroyPending, after their scripts' OnDestroy. One that 2D physics holds, through a body, a collider or a joint, is kept with a warning, since 2D physics cannot yet follow an entity taken out while the scene runs. 3D physics takes its bodies out at the next step
+        // The entity and its subtree go at DestroyPending, after their scripts' OnDestroy. Physics takes their bodies, colliders and joints out at the next step
         void DestroyEntity(Entity entity);
         // At the end of the frame. An entity destroyed meanwhile is destroyed in the same call
         void DestroyPending();

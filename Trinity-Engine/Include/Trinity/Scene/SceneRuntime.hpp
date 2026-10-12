@@ -57,7 +57,7 @@ namespace Trinity
         void SetGatherContacts(bool gather);
         // Nothing until the scene has a RigidBody or a collider, as it starts or later while it runs
         [[nodiscard]] PhysicsScene3D* GetPhysics() { return m_Physics.get(); }
-        // Nothing when the scene had no RigidBody2D and no 2D collider as it started
+        // Nothing until the scene has a RigidBody2D or a 2D collider, as it starts or later while it runs
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() { return m_Physics2D.get(); }
         [[nodiscard]] ScriptRuntime& GetScripts() { return *m_Scripts; }
 

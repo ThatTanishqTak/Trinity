@@ -39,11 +39,6 @@ namespace Trinity
         constexpr float c_TiltTolerance = 1e-3f;
         // A ray's hit is found again from this fraction of its distance, and a metre's, before it
         constexpr float c_RefineMargin = 1e-3f;
-        // A body's index among the records, for the pair a contact or trigger is counted by
-        constexpr std::size_t c_NoOwner = SIZE_MAX;
-        constexpr std::size_t c_Owned3D = SIZE_MAX - 1;
-        // A joint's other body when it joins the world
-        constexpr std::size_t c_World = SIZE_MAX - 2;
         // Box2D's linear slop, within which a contact point counts as touching
         constexpr float c_TouchingSlop = 0.005f;
         // Box2D's own bounds on a revolute joint's limits
@@ -57,7 +52,7 @@ namespace Trinity
             Polygon
         };
 
-        // A 2D collider as it was read when the scene started: a box's half extents, a circle's radius, a capsule's radius and height, or a polygon's points and rounding, and its entity's UUID, which events and queries report
+        // A 2D collider as it was last read: a box's half extents, a circle's radius, a capsule's radius and height, or a polygon's points and rounding, and its entity's UUID, which events and queries report
         struct ColliderSource2D
         {
             entt::entity Entity = entt::null;
@@ -66,6 +61,8 @@ namespace Trinity
             Collider2DSettings Settings;
             glm::vec2 Size{ 0.0f };
             PhysicsVector<glm::vec2> Points;
+
+            [[nodiscard]] bool operator==(const ColliderSource2D&) const = default;
         };
 
         // A place in the XY plane and a turn about Z, counter-clockwise in radians
@@ -75,11 +72,13 @@ namespace Trinity
             float Angle = 0.0f;
         };
 
-        // A body's owner and what it was made from. Records and their colliders are all made before any body, and never move after, since bodies and shapes point at them
+        // A body's owner and what it was made from. Each record is an allocation of its own, which never moves, since its body points at it, and records come and go as the scene changes while it runs. Its shapes point at its colliders, so they are made again whenever the colliders change
         struct BodyRecord2D
         {
             entt::entity Entity = entt::null;
             UUID ID;
+            // Its place in the order records were made, which as the scene starts is hierarchy order, and which pairs of bodies are counted and sorted by
+            std::uint32_t Serial = 0;
             BodyMotion Motion = BodyMotion::Static;
             bool HasRigidBody = false;
             RigidBody2DComponent Settings;
@@ -92,9 +91,12 @@ namespace Trinity
             // Where its entity's transform puts it, last frame and this one, which a kinematic body moves between over the frame's steps
             Pose2D TargetFrom;
             Pose2D TargetTo;
+            // The entity's local position and rotation as the body was made or last wrote them, so a transform set from code is seen and the body teleported there
+            glm::vec3 WrittenPosition{ 0.0f };
+            glm::quat WrittenRotation = glm::identity<glm::quat>();
         };
 
-        // A joint as it was read when the scene started: its entity, the entity it names and the records of its two bodies, the second none for the world, and its Box2D joint once made. A joint that cannot be made is dropped, and one that breaks is let go
+        // A joint as it was last read: its entity, the entity it names and the records of its two bodies, the second none for the world, and its Box2D joint once made. A joint that cannot be made is dropped, one whose body went with its last collider waits for it to come back, and one that breaks is let go
         struct JointRecord2D
         {
             entt::entity Entity = entt::null;
@@ -102,11 +104,13 @@ namespace Trinity
             entt::entity OtherEntity = entt::null;
             UUID Other;
             Joint2DComponent Settings;
-            std::size_t First = 0;
-            std::size_t Second = c_World;
+            BodyRecord2D* First = nullptr;
+            BodyRecord2D* Second = nullptr;
             b2JointId Joint = b2_nullJointId;
             // A prismatic joint's axis on its first Box2D body, which the motor's force is along
             b2Vec2 LocalAxis{ 0.0f, 1.0f };
+            bool NeedsBody = false;
+            bool Broken = false;
         };
 
         std::string_view GetJointTypeName(Joint2DType type)
@@ -135,23 +139,40 @@ namespace Trinity
             std::uint64_t Begun = 0;
             UUID First;
             UUID Second;
-            std::size_t FirstRecord = 0;
-            std::size_t SecondRecord = 0;
+            const BodyRecord2D* FirstRecord = nullptr;
+            const BodyRecord2D* SecondRecord = nullptr;
         };
 
-        // A shape pair Box2D began or ended touching in a step, by the records of their bodies, with a contact's first point and normal from the first record to the second
+        using ContactPairs2D = std::map<std::uint64_t, ContactPair2D, std::less<>, TaggedAllocator<std::pair<const std::uint64_t, ContactPair2D>, MemoryTag::Physics>>;
+
+        // A shape pair Box2D began or ended touching in a step, by the serials of their bodies' records, with a contact's first point and normal from the first record to the second. A beginning has the records too, since its shapes are there
         struct RawContact2D
         {
-            std::size_t First = 0;
-            std::size_t Second = 0;
+            std::uint32_t First = 0;
+            std::uint32_t Second = 0;
             bool Added = false;
             glm::vec2 Point{ 0.0f };
             glm::vec2 Normal{ 0.0f };
+            const BodyRecord2D* FirstRecord = nullptr;
+            const BodyRecord2D* SecondRecord = nullptr;
         };
 
-        std::uint64_t GetPairKey(std::size_t first, std::size_t second)
+        // A shape's record: its serial, and the record itself until the shape is taken out
+        struct ShapeOwner2D
+        {
+            std::uint32_t Serial = 0;
+            const BodyRecord2D* Record = nullptr;
+        };
+
+        std::uint64_t GetPairKey(std::uint32_t first, std::uint32_t second)
         {
             return (static_cast<std::uint64_t>(first) << 32) | static_cast<std::uint64_t>(second);
+        }
+
+        // A shape's slot, generation and world, which no other shape has while it is known, since a slot used again has a new generation
+        std::uint64_t GetShapeKey(b2ShapeId shape)
+        {
+            return static_cast<std::uint64_t>(static_cast<std::uint32_t>(shape.index1)) | (static_cast<std::uint64_t>(shape.generation) << 32) | (static_cast<std::uint64_t>(shape.world0) << 48);
         }
 
         std::string GetName(const Scene& scene, entt::entity entity)
@@ -267,6 +288,39 @@ namespace Trinity
             {
                 AddCollider(record, { entity, l_ID, ColliderKind2D::Polygon, *l_Polygon, glm::vec2(l_Polygon->Radius, 0.0f), PhysicsVector<glm::vec2>(l_Polygon->Points.begin(), l_Polygon->Points.end()) });
             }
+        }
+
+        // The entity whose body an entity's 2D colliders join: the nearest at or above it with a RigidBody2D, none when a RigidBody without one comes first, since that is the 3D world's, and otherwise the highest at or above it with a 2D collider, which is a static body. As the scene starts it finds them walking down, and this walks up to the same answer
+        entt::entity FindOwner(const SceneRegistry& registry, entt::entity entity)
+        {
+            entt::entity l_Highest = entt::null;
+            for (entt::entity it_Entity = entity; it_Entity != entt::null; it_Entity = registry.get<RelationshipComponent>(it_Entity).Parent)
+            {
+                if (registry.all_of<RigidBodyComponent>(it_Entity))
+                {
+                    return entt::null;
+                }
+
+                if (registry.all_of<RigidBody2DComponent>(it_Entity))
+                {
+                    return it_Entity;
+                }
+
+                if (Has2DCollider(registry, it_Entity))
+                {
+                    l_Highest = it_Entity;
+                }
+            }
+
+            return l_Highest;
+        }
+
+        // Each shape's body, gathered while a query runs and woken once it is done
+        bool GatherBody(b2ShapeId shape, void* context)
+        {
+            static_cast<PhysicsVector<b2BodyId>*>(context)->push_back(b2Shape_GetBody(shape));
+
+            return true;
         }
 
         const BodyRecord2D* GetRecord(b2BodyId body)
@@ -479,6 +533,29 @@ namespace Trinity
 
         }
 
+        // The records the bodies point at go while the world still holds the bodies, which goes last
+        ~State()
+        {
+            for (BodyRecord2D* it_Record : Records)
+            {
+                Memory::Delete(it_Record);
+            }
+        }
+
+        State(const State&) = delete;
+        State& operator=(const State&) = delete;
+
+        // Signal listeners, which only note what changed, since nothing may be made or taken out while the registry is in the middle of a change
+        void OnBodyChanged([[maybe_unused]] SceneRegistry& registry, entt::entity entity)
+        {
+            Dirty.push_back(entity);
+        }
+
+        void OnJointChanged([[maybe_unused]] SceneRegistry& registry, entt::entity entity)
+        {
+            DirtyJoints.push_back(entity);
+        }
+
         [[nodiscard]] static PhysicsWorldSettings2D GetWorldSettings(const CollisionLayers& layers)
         {
             PhysicsWorldSettings2D l_Settings;
@@ -488,7 +565,23 @@ namespace Trinity
         }
 
         void MakeBody(BodyRecord2D& record);
+        void MakeShapes(BodyRecord2D& record);
+        void ApplyMass(const BodyRecord2D& record) const;
         void MakeJoint(JointRecord2D& joint);
+        void CreateJointRecord(entt::entity entity);
+        void DestroyShapes(b2BodyId body, bool destroy);
+        void DestroyBody(BodyRecord2D& record);
+        void WakeAround(b2BodyId body);
+        void EndPairs(const BodyRecord2D& record);
+        void Gather(entt::entity owner, BodyRecord2D& record) const;
+        void Index(BodyRecord2D& record);
+        void Unindex(const BodyRecord2D& record);
+        [[nodiscard]] BodyRecord2D* FindRecord(entt::entity owner) const;
+        void RemoveRecord(BodyRecord2D& record);
+        [[nodiscard]] bool UpdateRecord(BodyRecord2D& record, BodyRecord2D& gathered);
+        void Sync();
+        void ResolveJoints(bool bodiesChanged, const PhysicsVector<entt::entity>& dirtyJoints);
+        void FollowTransforms();
         void PairEvents(std::uint32_t index);
         void BreakJoints(std::uint32_t index);
         void GatherContactPoints();
@@ -509,9 +602,11 @@ namespace Trinity
         [[nodiscard]] std::vector<PhysicsHit2D> CastRay(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter, bool all) const;
         [[nodiscard]] std::vector<PhysicsHit2D> CastShape(const PhysicsQueryShape2D& shape, const glm::vec2& position, float angle, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter, bool all) const;
 
-        [[nodiscard]] std::size_t GetIndex(b2ShapeId shape) const
+        [[nodiscard]] const ShapeOwner2D* FindShape(b2ShapeId shape) const
         {
-            return static_cast<std::size_t>(GetRecord(b2Shape_GetBody(shape)) - Records.data());
+            const auto a_Found = ShapeOwners.find(GetShapeKey(shape));
+
+            return a_Found != ShapeOwners.end() ? &a_Found->second : nullptr;
         }
 
         Scene& Owner;
@@ -519,11 +614,25 @@ namespace Trinity
         // The world's Box2D world and layers, which the scene, a friend of the world, takes when it is made
         b2WorldId WorldID = b2_nullWorldId;
         CollisionLayers Layers;
-        PhysicsVector<BodyRecord2D> Records;
+        // In the order they were made, which as the scene starts is hierarchy order
+        PhysicsVector<BodyRecord2D*> Records;
         PhysicsVector<JointRecord2D> Joints;
+        std::uint32_t NextSerial = 0;
+        // Each entity whose colliders a record holds, its owner's included, and the record
+        std::unordered_map<entt::entity, BodyRecord2D*, std::hash<entt::entity>, std::equal_to<entt::entity>, TaggedAllocator<std::pair<const entt::entity, BodyRecord2D*>, MemoryTag::Physics>> Members;
+        // Entities whose RigidBody2D, 2D colliders or Joint2D were added, changed through Patch or Replace, or removed since the last frame with steps, and RigidBody ones, which take entities from the 2D world
+        PhysicsVector<entt::entity> Dirty;
+        PhysicsVector<entt::entity> DirtyJoints;
+        // Joints let go with a body that went, to be found again once the scene's changes are all taken in
+        PhysicsVector<entt::entity> RetryJoints;
+        // Every shape made, by its key. Box2D tells of a shape taken out between steps ending its touches with the next step, so a shape taken out is known until then, as Retired lists
+        std::unordered_map<std::uint64_t, ShapeOwner2D, std::hash<std::uint64_t>, std::equal_to<std::uint64_t>, TaggedAllocator<std::pair<const std::uint64_t, ShapeOwner2D>, MemoryTag::Physics>> ShapeOwners;
+        PhysicsVector<std::uint64_t> Retired;
+        PhysicsVector<b2ShapeId> ShapeIDs;
+        PhysicsVector<b2BodyId> Woken;
         b2BodyId Ground = b2_nullBodyId;
-        std::map<std::uint64_t, ContactPair2D, std::less<>, TaggedAllocator<std::pair<const std::uint64_t, ContactPair2D>, MemoryTag::Physics>> Contacts;
-        std::map<std::uint64_t, ContactPair2D, std::less<>, TaggedAllocator<std::pair<const std::uint64_t, ContactPair2D>, MemoryTag::Physics>> Triggers;
+        ContactPairs2D Contacts;
+        ContactPairs2D Triggers;
         PhysicsVector<RawContact2D> Raw;
         PhysicsVector<PhysicsEvent2D> Events;
         PhysicsVector<PhysicsEvent2D> StepEvents;
@@ -548,9 +657,12 @@ namespace Trinity
         l_State.WorldID = l_State.World.m_State->World;
         l_State.Layers = layers;
 
-        const SceneRegistry& l_Registry = scene.GetRegistry();
+        SceneRegistry& l_Registry = scene.GetRegistry();
         std::unordered_map<entt::entity, std::size_t> l_Owners;
-        std::vector<std::pair<entt::entity, std::size_t>> l_Joined;
+        std::vector<entt::entity> l_Joined;
+        constexpr std::size_t c_NoOwner = SIZE_MAX;
+        // An entity with a RigidBody, and everything below it, belongs to the 3D world
+        constexpr std::size_t c_Owned3D = SIZE_MAX - 1;
         for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
             const entt::entity l_Handle = it_Entity.GetHandle();
@@ -571,9 +683,10 @@ namespace Trinity
             }
             else if (l_RigidBody != nullptr || (l_Inherited == c_NoOwner && Has2DCollider(l_Registry, l_Handle)))
             {
-                BodyRecord2D& l_Record = l_State.Records.emplace_back();
+                BodyRecord2D& l_Record = *l_State.Records.emplace_back(Memory::New<BodyRecord2D>(MemoryTag::Physics));
                 l_Record.Entity = l_Handle;
                 l_Record.ID = l_Registry.get<IDComponent>(l_Handle).ID;
+                l_Record.Serial = l_State.NextSerial++;
                 l_Record.HasRigidBody = l_RigidBody != nullptr;
                 l_Record.Motion = l_RigidBody != nullptr ? l_RigidBody->Motion : BodyMotion::Static;
                 l_Record.Settings = l_RigidBody != nullptr ? *l_RigidBody : RigidBody2DComponent{};
@@ -587,77 +700,55 @@ namespace Trinity
             }
             else if (l_Owner != c_NoOwner && l_Owner != c_Owned3D)
             {
-                AddColliders(l_Registry, l_Handle, l_State.Records[l_Owner]);
+                AddColliders(l_Registry, l_Handle, *l_State.Records[l_Owner]);
             }
 
             if (l_Registry.all_of<Joint2DComponent>(l_Handle))
             {
-                l_Joined.emplace_back(l_Handle, l_Owner);
+                l_Joined.push_back(l_Handle);
             }
         }
 
-        for (BodyRecord2D& it_Record : l_State.Records)
+        for (BodyRecord2D* it_Record : l_State.Records)
         {
-            if (it_Record.HasRigidBody && it_Record.Colliders.empty())
+            l_State.Index(*it_Record);
+            if (it_Record->HasRigidBody && it_Record->Colliders.empty())
             {
-                TR_CORE_WARN("Physics: {} has a RigidBody2D and no 2D colliders on it or below it, so it has no body", GetName(scene, it_Record.Entity));
+                TR_CORE_WARN("Physics: {} has a RigidBody2D and no 2D colliders on it or below it, so it has no body", GetName(scene, it_Record->Entity));
 
                 continue;
             }
 
-            l_State.MakeBody(it_Record);
+            l_State.MakeBody(*it_Record);
         }
 
-        // A joint is on the body its entity is part of, and names the body of the entity it joins. One on no 2D body, or naming an entity that is not in the scene or is part of no other 2D body, is reported and left out
-        for (const auto& [it_Entity, it_Owner] : l_Joined)
+        for (const entt::entity it_Entity : l_Joined)
         {
-            const Joint2DComponent& l_Joint = l_Registry.get<Joint2DComponent>(it_Entity);
-            const std::string l_Name = GetName(scene, it_Entity);
-            if (it_Owner == c_NoOwner || it_Owner == c_Owned3D)
-            {
-                TR_CORE_WARN("Physics: {}'s Joint2D is on no 2D body, since nothing on it or above it has a RigidBody2D or a 2D collider first, so it is left out", l_Name);
-
-                continue;
-            }
-
-            std::size_t l_Second = c_World;
-            entt::entity l_OtherEntity = entt::null;
-            if (l_Joint.ConnectedBody)
-            {
-                const Entity l_Connected = scene.FindEntityByUUID(l_Joint.ConnectedBody);
-                if (!l_Connected)
-                {
-                    TR_CORE_WARN("Physics: {}'s Joint2D names entity {}, which is not in the scene, so it is left out", l_Name, l_Joint.ConnectedBody);
-
-                    continue;
-                }
-
-                const auto a_Owner = l_Owners.find(l_Connected.GetHandle());
-                if (a_Owner == l_Owners.end() || a_Owner->second == c_NoOwner || a_Owner->second == c_Owned3D || a_Owner->second == it_Owner)
-                {
-                    TR_CORE_WARN("Physics: {}'s Joint2D names {}, which is {}, so it is left out", l_Name, GetName(scene, l_Connected.GetHandle()), a_Owner != l_Owners.end() && a_Owner->second == it_Owner ? "part of its own body" : "part of no 2D body");
-
-                    continue;
-                }
-
-                l_Second = a_Owner->second;
-                l_OtherEntity = l_Connected.GetHandle();
-            }
-
-            JointRecord2D& l_Record = l_State.Joints.emplace_back();
-            l_Record.Entity = it_Entity;
-            l_Record.ID = l_Registry.get<IDComponent>(it_Entity).ID;
-            l_Record.OtherEntity = l_OtherEntity;
-            l_Record.Other = l_Second != c_World ? l_Joint.ConnectedBody : UUID();
-            l_Record.Settings = l_Joint;
-            l_Record.First = it_Owner;
-            l_Record.Second = l_Second;
+            l_State.CreateJointRecord(it_Entity);
         }
 
         for (JointRecord2D& it_Joint : l_State.Joints)
         {
             l_State.MakeJoint(it_Joint);
         }
+
+        // From here on, 2D bodies, colliders and joints added, changed through Patch or Replace, or removed are taken in at the next frame with steps, and so are RigidBodies, which take entities from the 2D world or give them back
+        const auto a_Watch = [&l_Registry, &l_State]<Component T>()
+        {
+            l_Registry.on_construct<T>().template connect<&State::OnBodyChanged>(l_State);
+            l_Registry.on_update<T>().template connect<&State::OnBodyChanged>(l_State);
+            l_Registry.on_destroy<T>().template connect<&State::OnBodyChanged>(l_State);
+        };
+
+        a_Watch.template operator() < RigidBody2DComponent > ();
+        a_Watch.template operator() < RigidBodyComponent > ();
+        a_Watch.template operator() < BoxCollider2DComponent > ();
+        a_Watch.template operator() < CircleCollider2DComponent > ();
+        a_Watch.template operator() < CapsuleCollider2DComponent > ();
+        a_Watch.template operator() < PolygonCollider2DComponent > ();
+        l_Registry.on_construct<Joint2DComponent>().connect<&State::OnJointChanged>(l_State);
+        l_Registry.on_update<Joint2DComponent>().connect<&State::OnJointChanged>(l_State);
+        l_Registry.on_destroy<Joint2DComponent>().connect<&State::OnJointChanged>(l_State);
 
         TR_CORE_INFO("Physics: the 2D scene starts with {} bod(ies)", GetBodyCount());
     }
@@ -666,6 +757,22 @@ namespace Trinity
     PhysicsScene2D::~PhysicsScene2D()
     {
         Scene& l_Scene = m_State->Owner;
+        SceneRegistry& l_Registry = l_Scene.GetRegistry();
+        const auto a_Unwatch = [&l_Registry, this]<Component T>()
+        {
+            l_Registry.on_construct<T>().disconnect(m_State);
+            l_Registry.on_update<T>().disconnect(m_State);
+            l_Registry.on_destroy<T>().disconnect(m_State);
+        };
+
+        a_Unwatch.template operator() < RigidBody2DComponent > ();
+        a_Unwatch.template operator() < RigidBodyComponent > ();
+        a_Unwatch.template operator() < BoxCollider2DComponent > ();
+        a_Unwatch.template operator() < CircleCollider2DComponent > ();
+        a_Unwatch.template operator() < CapsuleCollider2DComponent > ();
+        a_Unwatch.template operator() < PolygonCollider2DComponent > ();
+        a_Unwatch.template operator() < Joint2DComponent > ();
+
         Memory::Delete(m_State);
         l_Scene.GetRegistry().clear<PhysicsPoseComponent>();
     }
@@ -677,9 +784,11 @@ namespace Trinity
         return !l_Registry.storage<RigidBody2DComponent>().empty() || !l_Registry.storage<BoxCollider2DComponent>().empty() || !l_Registry.storage<CircleCollider2DComponent>().empty() || !l_Registry.storage<CapsuleCollider2DComponent>().empty() || !l_Registry.storage<PolygonCollider2DComponent>().empty();
     }
 
-    // A frame without steps leaves the kinematic targets where they were, so the next frame with steps moves from there
+    // What changed in the scene since the last frame with steps is taken in, so a frame without steps changes nothing and the next one with steps takes it all. A frame without steps leaves the kinematic targets where they were, so the next frame with steps moves from there. A kinematic body takes its entity's depth as it goes
     void PhysicsScene2D::BeginFrame(std::uint32_t steps)
     {
+        TR_PROFILE_FUNCTION();
+
         State& l_State = *m_State;
         l_State.Events.clear();
         if (steps == 0)
@@ -687,17 +796,22 @@ namespace Trinity
             return;
         }
 
+        l_State.Sync();
+        l_State.FollowTransforms();
+
         l_State.Steps = steps;
         SceneRegistry& l_Registry = l_State.Owner.GetRegistry();
-        for (BodyRecord2D& it_Record : l_State.Records)
+        for (BodyRecord2D* it_Record : l_State.Records)
         {
-            if (it_Record.Motion != BodyMotion::Kinematic || B2_IS_NULL(it_Record.Body) || !l_Registry.valid(it_Record.Entity))
+            if (it_Record->Motion != BodyMotion::Kinematic || B2_IS_NULL(it_Record->Body) || !l_Registry.valid(it_Record->Entity))
             {
                 continue;
             }
 
-            it_Record.TargetFrom = it_Record.TargetTo;
-            it_Record.TargetTo = GetPose(l_State.Owner.ComputeWorldMatrix(Entity(it_Record.Entity, &l_State.Owner)));
+            const glm::mat4 l_World = l_State.Owner.ComputeWorldMatrix(Entity(it_Record->Entity, &l_State.Owner));
+            it_Record->TargetFrom = it_Record->TargetTo;
+            it_Record->TargetTo = GetPose(l_World);
+            it_Record->Depth = l_World[3][2];
         }
     }
 
@@ -708,11 +822,11 @@ namespace Trinity
 
         State& l_State = *m_State;
         const float l_Factor = static_cast<float>(std::min(index + 1, l_State.Steps)) / static_cast<float>(l_State.Steps);
-        for (BodyRecord2D& it_Record : l_State.Records)
+        for (BodyRecord2D* it_Record : l_State.Records)
         {
-            if (it_Record.Motion == BodyMotion::Kinematic && B2_IS_NON_NULL(it_Record.Body))
+            if (it_Record->Motion == BodyMotion::Kinematic && B2_IS_NON_NULL(it_Record->Body))
             {
-                b2Body_SetTargetTransform(it_Record.Body, ToBox2D(Interpolate(it_Record.TargetFrom, it_Record.TargetTo, l_Factor)), step.GetSeconds());
+                b2Body_SetTargetTransform(it_Record->Body, ToBox2D(Interpolate(it_Record->TargetFrom, it_Record->TargetTo, l_Factor)), step.GetSeconds());
             }
         }
 
@@ -723,35 +837,38 @@ namespace Trinity
         l_State.GatherContactPoints();
 
         SceneRegistry& l_Registry = l_State.Owner.GetRegistry();
-        for (BodyRecord2D& it_Record : l_State.Records)
+        for (BodyRecord2D* it_Record : l_State.Records)
         {
-            if (it_Record.Motion == BodyMotion::Static || B2_IS_NULL(it_Record.Body))
+            if (it_Record->Motion == BodyMotion::Static || B2_IS_NULL(it_Record->Body))
             {
                 continue;
             }
 
-            it_Record.Previous = it_Record.Current;
-            it_Record.Current = ReadPose(it_Record.Body);
-            if (it_Record.Motion != BodyMotion::Dynamic || !l_Registry.valid(it_Record.Entity) || (it_Record.Previous.Position == it_Record.Current.Position && it_Record.Previous.Angle == it_Record.Current.Angle))
+            it_Record->Previous = it_Record->Current;
+            it_Record->Current = ReadPose(it_Record->Body);
+            if (it_Record->Motion != BodyMotion::Dynamic || !l_Registry.valid(it_Record->Entity) || (it_Record->Previous.Position == it_Record->Current.Position && it_Record->Previous.Angle == it_Record->Current.Angle))
             {
                 continue;
             }
 
-            TransformComponent& l_Transform = l_Registry.get<TransformComponent>(it_Record.Entity);
-            const glm::vec3 l_Position(it_Record.Current.Position, it_Record.Depth);
-            const glm::quat l_Rotation = glm::angleAxis(it_Record.Current.Angle, glm::vec3(0.0f, 0.0f, 1.0f));
-            const entt::entity l_Parent = l_Registry.get<RelationshipComponent>(it_Record.Entity).Parent;
+            TransformComponent& l_Transform = l_Registry.get<TransformComponent>(it_Record->Entity);
+            const glm::vec3 l_Position(it_Record->Current.Position, it_Record->Depth);
+            const glm::quat l_Rotation = glm::angleAxis(it_Record->Current.Angle, glm::vec3(0.0f, 0.0f, 1.0f));
+            const entt::entity l_Parent = l_Registry.get<RelationshipComponent>(it_Record->Entity).Parent;
             if (l_Parent == entt::null)
             {
                 l_Transform.Position = l_Position;
                 l_Transform.Rotation = l_Rotation;
-
-                continue;
+            }
+            else
+            {
+                const glm::mat4 l_ParentWorld = l_State.Owner.ComputeWorldMatrix(Entity(l_Parent, &l_State.Owner));
+                l_Transform.Position = glm::vec3(glm::inverse(l_ParentWorld) * glm::vec4(l_Position, 1.0f));
+                l_Transform.Rotation = glm::normalize(glm::inverse(GetRotation(l_ParentWorld)) * l_Rotation);
             }
 
-            const glm::mat4 l_ParentWorld = l_State.Owner.ComputeWorldMatrix(Entity(l_Parent, &l_State.Owner));
-            l_Transform.Position = glm::vec3(glm::inverse(l_ParentWorld) * glm::vec4(l_Position, 1.0f));
-            l_Transform.Rotation = glm::normalize(glm::inverse(GetRotation(l_ParentWorld)) * l_Rotation);
+            it_Record->WrittenPosition = l_Transform.Position;
+            it_Record->WrittenRotation = l_Transform.Rotation;
         }
     }
 
@@ -760,15 +877,15 @@ namespace Trinity
     {
         State& l_State = *m_State;
         SceneRegistry& l_Registry = l_State.Owner.GetRegistry();
-        for (const BodyRecord2D& it_Record : l_State.Records)
+        for (const BodyRecord2D* it_Record : l_State.Records)
         {
-            if (it_Record.Motion == BodyMotion::Static || B2_IS_NULL(it_Record.Body) || !l_Registry.valid(it_Record.Entity))
+            if (it_Record->Motion == BodyMotion::Static || B2_IS_NULL(it_Record->Body) || !l_Registry.valid(it_Record->Entity))
             {
                 continue;
             }
 
-            const Pose2D l_Pose = Interpolate(it_Record.Previous, it_Record.Current, interpolation);
-            l_Registry.emplace_or_replace<PhysicsPoseComponent>(it_Record.Entity, glm::vec3(l_Pose.Position, it_Record.Depth), glm::angleAxis(l_Pose.Angle, glm::vec3(0.0f, 0.0f, 1.0f)));
+            const Pose2D l_Pose = Interpolate(it_Record->Previous, it_Record->Current, interpolation);
+            l_Registry.emplace_or_replace<PhysicsPoseComponent>(it_Record->Entity, glm::vec3(l_Pose.Position, it_Record->Depth), glm::angleAxis(l_Pose.Angle, glm::vec3(0.0f, 0.0f, 1.0f)));
         }
     }
 
@@ -796,7 +913,7 @@ namespace Trinity
     // Box2D counts the bodies awake, which are never static, and the scene knows which of its bodies can move
     PhysicsBodyCounts PhysicsScene2D::GetBodyCounts() const
     {
-        const std::uint32_t l_Moving = static_cast<std::uint32_t>(std::ranges::count_if(m_State->Records, [](const BodyRecord2D& record) { return record.Motion != BodyMotion::Static && B2_IS_NON_NULL(record.Body); }));
+        const std::uint32_t l_Moving = static_cast<std::uint32_t>(std::ranges::count_if(m_State->Records, [](const BodyRecord2D* record) { return record->Motion != BodyMotion::Static && B2_IS_NON_NULL(record->Body); }));
         const std::uint32_t l_Awake = m_State->World.GetActiveBodyCount();
 
         return { GetBodyCount(), l_Awake, l_Moving - std::min(l_Awake, l_Moving) };
@@ -856,11 +973,11 @@ namespace Trinity
         return std::move(l_Context.Hits);
     }
 
-    // Each collider placed on the body from its entity's world transform with the offset and turn, by the whole of the matrix in X and Y, so a box or polygon takes any scale, mirror or skew exactly, a circle the larger of its scales and a capsule its scale across for its radius. The body sits at its entity's place and turn about Z, and keeps its depth in Z for write-back. Every shape reports contacts and triggers, and a trigger weighs nothing
+    // The body sits at its entity's place and turn about Z, and keeps its depth in Z for write-back, with its colliders. A record with no colliders has no body
     void PhysicsScene2D::State::MakeBody(BodyRecord2D& record)
     {
         Scene& l_Scene = Owner;
-        if (!l_Scene.GetRegistry().valid(record.Entity))
+        if (!l_Scene.GetRegistry().valid(record.Entity) || record.Colliders.empty())
         {
             return;
         }
@@ -894,7 +1011,25 @@ namespace Trinity
         }
 
         record.Body = b2CreateBody(WorldID, &l_Body);
+        MakeShapes(record);
+        ApplyMass(record);
+
+        const TransformComponent& l_Transform = l_Scene.GetRegistry().get<TransformComponent>(record.Entity);
+        record.Previous = l_Pose;
+        record.Current = l_Pose;
+        record.TargetFrom = l_Pose;
+        record.TargetTo = l_Pose;
+        record.WrittenPosition = l_Transform.Position;
+        record.WrittenRotation = l_Transform.Rotation;
+    }
+
+    // Each collider placed on the body from its entity's world transform with the offset and turn, by the whole of the matrix in X and Y, so a box or polygon takes any scale, mirror or skew exactly, a circle the larger of its scales and a capsule its scale across for its radius. Placed against the body's entity as it is now, which is where the body is or is going. Every shape reports contacts and triggers, and a trigger weighs nothing
+    void PhysicsScene2D::State::MakeShapes(BodyRecord2D& record)
+    {
+        Scene& l_Scene = Owner;
+        const Pose2D l_Pose = GetPose(l_Scene.ComputeWorldMatrix(Entity(record.Entity, &l_Scene)));
         const CollisionLayers& l_Layers = Layers;
+        const auto a_Known = [this, &record](b2ShapeId shape) { ShapeOwners[GetShapeKey(shape)] = { record.Serial, &record }; };
         for (ColliderSource2D& it_Collider : record.Colliders)
         {
             const std::string l_Name = GetName(l_Scene, it_Collider.Entity);
@@ -947,7 +1082,7 @@ namespace Trinity
 
                     const float l_Rounding = it_Collider.Kind == ColliderKind2D::Polygon ? std::max(it_Collider.Size.x, 0.0f) * std::max(l_ScaleX, l_ScaleY) : 0.0f;
                     const b2Polygon l_Polygon = b2MakePolygon(&l_Hull, l_Rounding);
-                    b2CreatePolygonShape(record.Body, &l_Shape, &l_Polygon);
+                    a_Known(b2CreatePolygonShape(record.Body, &l_Shape, &l_Polygon));
 
                     break;
                 }
@@ -959,7 +1094,7 @@ namespace Trinity
                     }
 
                     const b2Circle l_Circle{ a_ToBody(glm::vec2(0.0f)), std::max(it_Collider.Size.x * std::max(l_ScaleX, l_ScaleY), c_MinimumSize) };
-                    b2CreateCircleShape(record.Body, &l_Shape, &l_Circle);
+                    a_Known(b2CreateCircleShape(record.Body, &l_Shape, &l_Circle));
 
                     break;
                 }
@@ -970,36 +1105,40 @@ namespace Trinity
                     if (l_HalfSegment * l_ScaleY < c_MinimumSize)
                     {
                         const b2Circle l_Circle{ a_ToBody(glm::vec2(0.0f)), l_Radius };
-                        b2CreateCircleShape(record.Body, &l_Shape, &l_Circle);
+                        a_Known(b2CreateCircleShape(record.Body, &l_Shape, &l_Circle));
 
                         break;
                     }
 
                     const b2Capsule l_Capsule{ a_ToBody(glm::vec2(0.0f, -l_HalfSegment)), a_ToBody(glm::vec2(0.0f, l_HalfSegment)), l_Radius };
-                    b2CreateCapsuleShape(record.Body, &l_Shape, &l_Capsule);
+                    a_Known(b2CreateCapsuleShape(record.Body, &l_Shape, &l_Capsule));
 
                     break;
                 }
             }
         }
+    }
 
-        // The colliders' mass and inertia scaled to the mass asked for
-        if (l_Motion == BodyMotion::Dynamic && l_RigidBody.Mass > 0.0f)
+    // A dynamic body's mass and inertia from its colliders, scaled to the mass asked for
+    void PhysicsScene2D::State::ApplyMass(const BodyRecord2D& record) const
+    {
+        if (record.Motion != BodyMotion::Dynamic || B2_IS_NULL(record.Body))
+        {
+            return;
+        }
+
+        b2Body_ApplyMassFromShapes(record.Body);
+        if (record.Settings.Mass > 0.0f)
         {
             b2MassData l_Mass = b2Body_GetMassData(record.Body);
-            const float l_Scale = l_Mass.mass > 0.0f ? l_RigidBody.Mass / l_Mass.mass : 1.0f;
-            l_Mass.mass = l_RigidBody.Mass;
+            const float l_Scale = l_Mass.mass > 0.0f ? record.Settings.Mass / l_Mass.mass : 1.0f;
+            l_Mass.mass = record.Settings.Mass;
             l_Mass.rotationalInertia *= l_Scale;
             b2Body_SetMassData(record.Body, l_Mass);
         }
-
-        record.Previous = l_Pose;
-        record.Current = l_Pose;
-        record.TargetFrom = l_Pose;
-        record.TargetTo = l_Pose;
     }
 
-    // Its frame is its entity's world transform in the XY plane as the scene starts, with the anchor as an offset and the axis turned with it, and where it meets each body is taken from where the bodies are then. The joint's own body is Box2D's second, and the body it joins, or the ground, its first, so a revolute joint's turn, a prismatic joint's travel and a motor's drive count as its own body's against the other's. A joint that holds no dynamic body, or joins a body with no 2D colliders, is reported and left out
+    // Its frame is its entity's world transform in the XY plane as it is made, with the anchor as an offset and the axis turned with it, and where it meets each body is taken from where the bodies are then. Box2D holds it on its bodies' own frames, which a change of their colliders, mass or motion leaves where they are, so it keeps the pose it was made in. The joint's own body is Box2D's second, and the body it joins, or the ground, its first, so a revolute joint's turn, a prismatic joint's travel and a motor's drive count as its own body's against the other's. A joint that holds no dynamic body is reported and left out, and one that joins a body with no 2D colliders is reported once and made when the body has some again
     void PhysicsScene2D::State::MakeJoint(JointRecord2D& joint)
     {
         Scene& l_Scene = Owner;
@@ -1010,14 +1149,19 @@ namespace Trinity
         }
 
         const std::string l_Name = GetName(l_Scene, joint.Entity);
-        const BodyRecord2D& l_Own = Records[joint.First];
-        const BodyRecord2D* l_Other = joint.Second != c_World ? &Records[joint.Second] : nullptr;
+        const BodyRecord2D& l_Own = *joint.First;
+        const BodyRecord2D* l_Other = joint.Second;
         if (B2_IS_NULL(l_Own.Body) || (l_Other != nullptr && B2_IS_NULL(l_Other->Body)))
         {
-            TR_CORE_WARN("Physics: {}'s Joint2D joins a body with no 2D colliders, so it is left out", l_Name);
+            if (!std::exchange(joint.NeedsBody, true))
+            {
+                TR_CORE_WARN("Physics: {}'s Joint2D joins a body with no 2D colliders, so it waits until the body has some", l_Name);
+            }
 
             return;
         }
+
+        joint.NeedsBody = false;
 
         if (l_Own.Motion != BodyMotion::Dynamic && (l_Other == nullptr || l_Other->Motion != BodyMotion::Dynamic))
         {
@@ -1201,6 +1345,7 @@ namespace Trinity
             TR_CORE_INFO("Physics: {}'s {} joint broke under {}, past its break {}", GetName(Owner, it_Joint.Entity), GetJointTypeName(l_Joint.Type), l_ByForce ? std::format("{:.1f} N", l_ForceSize) : std::format("{:.1f} N m", l_TorqueSize), l_ByForce ? std::format("force of {:.1f} N", l_Joint.BreakForce) : std::format("torque of {:.1f} N m", l_Joint.BreakTorque));
             b2DestroyJoint(it_Joint.Joint);
             it_Joint.Joint = b2_nullJointId;
+            it_Joint.Broken = true;
             Events.push_back({ PhysicsEventType::JointBreak, it_Joint.ID, it_Joint.Other, glm::vec2(0.0f), glm::vec2(0.0f), index });
         }
     }
@@ -1214,22 +1359,22 @@ namespace Trinity
             return;
         }
 
-        for (const BodyRecord2D& it_Record : Records)
+        for (const BodyRecord2D* it_Record : Records)
         {
-            if (it_Record.Motion == BodyMotion::Static || B2_IS_NULL(it_Record.Body))
+            if (it_Record->Motion == BodyMotion::Static || B2_IS_NULL(it_Record->Body))
             {
                 continue;
             }
 
-            ContactData.resize(static_cast<std::size_t>(b2Body_GetContactCapacity(it_Record.Body)));
-            const int l_Count = b2Body_GetContactData(it_Record.Body, ContactData.data(), static_cast<int>(ContactData.size()));
+            ContactData.resize(static_cast<std::size_t>(b2Body_GetContactCapacity(it_Record->Body)));
+            const int l_Count = b2Body_GetContactData(it_Record->Body, ContactData.data(), static_cast<int>(ContactData.size()));
             for (int it_Contact = 0; it_Contact < l_Count; ++it_Contact)
             {
                 const b2ContactData& l_Data = ContactData[static_cast<std::size_t>(it_Contact)];
                 const BodyRecord2D* l_First = GetRecord(b2Shape_GetBody(l_Data.shapeIdA));
                 const BodyRecord2D* l_Second = GetRecord(b2Shape_GetBody(l_Data.shapeIdB));
-                const BodyRecord2D* l_Other = l_First == &it_Record ? l_Second : l_First;
-                if (l_Other != nullptr && l_Other->Motion != BodyMotion::Static && l_Other < &it_Record)
+                const BodyRecord2D* l_Other = l_First == it_Record ? l_Second : l_First;
+                if (l_Other != nullptr && l_Other->Motion != BodyMotion::Static && l_Other->Serial < it_Record->Serial)
                 {
                     continue;
                 }
@@ -1239,14 +1384,14 @@ namespace Trinity
                     const b2ManifoldPoint& l_Point = l_Data.manifold.points[it_Point];
                     if (l_Point.separation <= c_TouchingSlop)
                     {
-                        ContactPoints.push_back({ glm::vec3(FromBox2D(l_Point.point), it_Record.Depth), glm::vec3(FromBox2D(l_Data.manifold.normal), 0.0f) });
+                        ContactPoints.push_back({ glm::vec3(FromBox2D(l_Point.point), it_Record->Depth), glm::vec3(FromBox2D(l_Data.manifold.normal), 0.0f) });
                     }
                 }
             }
         }
     }
 
-    // Box2D's begin and end events, for contacts and for triggers, are counted by body pair. A pair's first shape pair begins it and its last ends it. A contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities
+    // Box2D's begin and end events, for contacts and for triggers, are counted by body pair. A pair's first shape pair begins it and its last ends it, so a body whose colliders were made again keeps the pairs it still touches. A contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities. Shapes taken out before the step are forgotten after it, their last touches counted
     void PhysicsScene2D::State::PairEvents(std::uint32_t index)
     {
         StepEvents.clear();
@@ -1273,8 +1418,9 @@ namespace Trinity
                 const std::uint32_t l_After = static_cast<std::uint32_t>(std::max<std::int64_t>(static_cast<std::int64_t>(l_Before) + l_Delta, 0));
                 if (l_Before == 0 && l_After > 0)
                 {
-                    const BodyRecord2D& l_FirstRecord = Records[l_First.First];
-                    const BodyRecord2D& l_SecondRecord = Records[l_First.Second];
+                    // Only a beginning adds, so there is one, and its shapes and records are there
+                    const BodyRecord2D& l_FirstRecord = *l_Added->FirstRecord;
+                    const BodyRecord2D& l_SecondRecord = *l_Added->SecondRecord;
                     // A trigger's own body comes first, and a contact's bodies in UUID order
                     const bool l_Swapped = !trigger && l_SecondRecord.ID < l_FirstRecord.ID;
                     ContactPair2D l_Pair;
@@ -1282,8 +1428,8 @@ namespace Trinity
                     l_Pair.Begun = StepCount;
                     l_Pair.First = l_Swapped ? l_SecondRecord.ID : l_FirstRecord.ID;
                     l_Pair.Second = l_Swapped ? l_FirstRecord.ID : l_SecondRecord.ID;
-                    l_Pair.FirstRecord = l_First.First;
-                    l_Pair.SecondRecord = l_First.Second;
+                    l_Pair.FirstRecord = &l_FirstRecord;
+                    l_Pair.SecondRecord = &l_SecondRecord;
                     pairs.insert_or_assign(l_Key, l_Pair);
 
                     PhysicsEvent2D l_Event{ trigger ? PhysicsEventType::TriggerEnter : PhysicsEventType::ContactBegin, l_Pair.First, l_Pair.Second, glm::vec2(0.0f), glm::vec2(0.0f), index };
@@ -1309,13 +1455,18 @@ namespace Trinity
             Raw.clear();
         };
 
-        // Contacts by their bodies' records in index order, with the normal turned to match
+        // Contacts by their bodies' records in serial order, with the normal turned to match
         const b2ContactEvents l_Contacts = b2World_GetContactEvents(l_World);
         for (int it_Event = 0; it_Event < l_Contacts.beginCount; ++it_Event)
         {
             const b2ContactBeginTouchEvent& l_Begin = l_Contacts.beginEvents[it_Event];
-            std::size_t l_A = GetIndex(l_Begin.shapeIdA);
-            std::size_t l_B = GetIndex(l_Begin.shapeIdB);
+            const ShapeOwner2D* l_A = FindShape(l_Begin.shapeIdA);
+            const ShapeOwner2D* l_B = FindShape(l_Begin.shapeIdB);
+            if (l_A == nullptr || l_B == nullptr)
+            {
+                continue;
+            }
+
             glm::vec2 l_Point{ 0.0f };
             for (int it_Point = 0; it_Point < l_Begin.manifold.pointCount; ++it_Point)
             {
@@ -1324,26 +1475,24 @@ namespace Trinity
 
             l_Point /= static_cast<float>(std::max(l_Begin.manifold.pointCount, 1));
             glm::vec2 l_Normal = FromBox2D(l_Begin.manifold.normal);
-            if (l_A > l_B)
+            if (l_A->Serial > l_B->Serial)
             {
                 std::swap(l_A, l_B);
                 l_Normal = -l_Normal;
             }
 
-            Raw.push_back({ l_A, l_B, true, l_Point, l_Normal });
+            Raw.push_back({ l_A->Serial, l_B->Serial, true, l_Point, l_Normal, l_A->Record, l_B->Record });
         }
 
         for (int it_Event = 0; it_Event < l_Contacts.endCount; ++it_Event)
         {
             const b2ContactEndTouchEvent& l_End = l_Contacts.endEvents[it_Event];
-            if (!b2Shape_IsValid(l_End.shapeIdA) || !b2Shape_IsValid(l_End.shapeIdB))
+            const ShapeOwner2D* l_A = FindShape(l_End.shapeIdA);
+            const ShapeOwner2D* l_B = FindShape(l_End.shapeIdB);
+            if (l_A != nullptr && l_B != nullptr)
             {
-                continue;
+                Raw.push_back({ std::min(l_A->Serial, l_B->Serial), std::max(l_A->Serial, l_B->Serial), false, glm::vec2(0.0f), glm::vec2(0.0f), nullptr, nullptr });
             }
-
-            const std::size_t l_A = GetIndex(l_End.shapeIdA);
-            const std::size_t l_B = GetIndex(l_End.shapeIdB);
-            Raw.push_back({ std::min(l_A, l_B), std::max(l_A, l_B), false, glm::vec2(0.0f), glm::vec2(0.0f) });
         }
 
         a_Count(Contacts, false);
@@ -1352,35 +1501,35 @@ namespace Trinity
         const b2SensorEvents l_Sensors = b2World_GetSensorEvents(l_World);
         for (int it_Event = 0; it_Event < l_Sensors.beginCount; ++it_Event)
         {
-            const std::size_t l_Sensor = GetIndex(l_Sensors.beginEvents[it_Event].sensorShapeId);
-            const std::size_t l_Visitor = GetIndex(l_Sensors.beginEvents[it_Event].visitorShapeId);
-            if (l_Sensor != l_Visitor)
+            const ShapeOwner2D* l_Sensor = FindShape(l_Sensors.beginEvents[it_Event].sensorShapeId);
+            const ShapeOwner2D* l_Visitor = FindShape(l_Sensors.beginEvents[it_Event].visitorShapeId);
+            if (l_Sensor != nullptr && l_Visitor != nullptr && l_Sensor->Serial != l_Visitor->Serial)
             {
-                Raw.push_back({ l_Sensor, l_Visitor, true, glm::vec2(0.0f), glm::vec2(0.0f) });
+                Raw.push_back({ l_Sensor->Serial, l_Visitor->Serial, true, glm::vec2(0.0f), glm::vec2(0.0f), l_Sensor->Record, l_Visitor->Record });
             }
         }
 
         for (int it_Event = 0; it_Event < l_Sensors.endCount; ++it_Event)
         {
-            const b2SensorEndTouchEvent& l_End = l_Sensors.endEvents[it_Event];
-            if (!b2Shape_IsValid(l_End.sensorShapeId) || !b2Shape_IsValid(l_End.visitorShapeId))
+            const ShapeOwner2D* l_Sensor = FindShape(l_Sensors.endEvents[it_Event].sensorShapeId);
+            const ShapeOwner2D* l_Visitor = FindShape(l_Sensors.endEvents[it_Event].visitorShapeId);
+            if (l_Sensor != nullptr && l_Visitor != nullptr && l_Sensor->Serial != l_Visitor->Serial)
             {
-                continue;
-            }
-
-            const std::size_t l_Sensor = GetIndex(l_End.sensorShapeId);
-            const std::size_t l_Visitor = GetIndex(l_End.visitorShapeId);
-            if (l_Sensor != l_Visitor)
-            {
-                Raw.push_back({ l_Sensor, l_Visitor, false, glm::vec2(0.0f), glm::vec2(0.0f) });
+                Raw.push_back({ l_Sensor->Serial, l_Visitor->Serial, false, glm::vec2(0.0f), glm::vec2(0.0f), nullptr, nullptr });
             }
         }
 
         a_Count(Triggers, true);
 
+        for (const std::uint64_t it_Key : Retired)
+        {
+            ShapeOwners.erase(it_Key);
+        }
+
+        Retired.clear();
         for (const auto& [it_Key, it_Pair] : Contacts)
         {
-            if (it_Pair.Begun != StepCount && (b2Body_IsAwake(Records[it_Pair.FirstRecord].Body) || b2Body_IsAwake(Records[it_Pair.SecondRecord].Body)))
+            if (it_Pair.Begun != StepCount && (b2Body_IsAwake(it_Pair.FirstRecord->Body) || b2Body_IsAwake(it_Pair.SecondRecord->Body)))
             {
                 StepEvents.push_back({ PhysicsEventType::ContactStay, it_Pair.First, it_Pair.Second, glm::vec2(0.0f), glm::vec2(0.0f), index });
             }
@@ -1505,5 +1654,533 @@ namespace Trinity
         SortHits(l_Hits);
 
         return l_Hits;
+    }
+
+    // A joint is on the body its entity is part of, and names the body of the entity it joins. One on no 2D body, or naming an entity that is not in the scene, or one that is part of no 2D body or of its own, is reported and left out
+    void PhysicsScene2D::State::CreateJointRecord(entt::entity entity)
+    {
+        Scene& l_Scene = Owner;
+        const SceneRegistry& l_Registry = l_Scene.GetRegistry();
+        const Joint2DComponent& l_Joint = l_Registry.get<Joint2DComponent>(entity);
+        const std::string l_Name = GetName(l_Scene, entity);
+        BodyRecord2D* l_First = FindRecord(FindOwner(l_Registry, entity));
+        if (l_First == nullptr)
+        {
+            TR_CORE_WARN("Physics: {}'s Joint2D is on no 2D body, since nothing on it or above it has a RigidBody2D or a 2D collider first, so it is left out", l_Name);
+
+            return;
+        }
+
+        BodyRecord2D* l_Second = nullptr;
+        entt::entity l_OtherEntity = entt::null;
+        if (l_Joint.ConnectedBody)
+        {
+            const Entity l_Connected = l_Scene.FindEntityByUUID(l_Joint.ConnectedBody);
+            if (!l_Connected)
+            {
+                TR_CORE_WARN("Physics: {}'s Joint2D names entity {}, which is not in the scene, so it is left out", l_Name, l_Joint.ConnectedBody);
+
+                return;
+            }
+
+            l_Second = FindRecord(FindOwner(l_Registry, l_Connected.GetHandle()));
+            if (l_Second == nullptr || l_Second == l_First)
+            {
+                TR_CORE_WARN("Physics: {}'s Joint2D names {}, which is {}, so it is left out", l_Name, GetName(l_Scene, l_Connected.GetHandle()), l_Second == l_First ? "part of its own body" : "part of no 2D body");
+
+                return;
+            }
+
+            l_OtherEntity = l_Connected.GetHandle();
+        }
+
+        JointRecord2D& l_Record = Joints.emplace_back();
+        l_Record.Entity = entity;
+        l_Record.ID = l_Registry.get<IDComponent>(entity).ID;
+        l_Record.OtherEntity = l_OtherEntity;
+        l_Record.Other = l_Second != nullptr ? l_Joint.ConnectedBody : UUID();
+        l_Record.Settings = l_Joint;
+        l_Record.First = l_First;
+        l_Record.Second = l_Second;
+    }
+
+    // Each of the body's shapes is retired, so the touches Box2D ends with the next step are still counted by its record, and taken out unless its body goes with it
+    void PhysicsScene2D::State::DestroyShapes(b2BodyId body, bool destroy)
+    {
+        ShapeIDs.resize(static_cast<std::size_t>(b2Body_GetShapeCount(body)));
+        const int l_Count = b2Body_GetShapes(body, ShapeIDs.data(), static_cast<int>(ShapeIDs.size()));
+        for (int it_Shape = 0; it_Shape < l_Count; ++it_Shape)
+        {
+            const b2ShapeId l_Shape = ShapeIDs[static_cast<std::size_t>(it_Shape)];
+            const std::uint64_t l_Key = GetShapeKey(l_Shape);
+            if (const auto a_Found = ShapeOwners.find(l_Key); a_Found != ShapeOwners.end())
+            {
+                a_Found->second.Record = nullptr;
+                Retired.push_back(l_Key);
+            }
+
+            if (destroy)
+            {
+                b2DestroyShape(l_Shape, false);
+            }
+        }
+    }
+
+    // Out of the world, its joints let go first to wait for a body again. Box2D wakes the bodies it touched
+    void PhysicsScene2D::State::DestroyBody(BodyRecord2D& record)
+    {
+        if (B2_IS_NULL(record.Body))
+        {
+            return;
+        }
+
+        for (JointRecord2D& it_Joint : Joints)
+        {
+            if ((it_Joint.First == &record || it_Joint.Second == &record) && B2_IS_NON_NULL(it_Joint.Joint))
+            {
+                b2DestroyJoint(it_Joint.Joint);
+                it_Joint.Joint = b2_nullJointId;
+                it_Joint.NeedsBody = true;
+            }
+        }
+
+        WakeAround(record.Body);
+        DestroyShapes(record.Body, false);
+        b2DestroyBody(record.Body);
+        record.Body = b2_nullBodyId;
+    }
+
+    // Box2D leaves bodies asleep when one near them is moved, or a shape near them made smaller, so everything within its bounds is woken to find out
+    void PhysicsScene2D::State::WakeAround(b2BodyId body)
+    {
+        if (B2_IS_NULL(body) || b2Body_GetShapeCount(body) == 0)
+        {
+            return;
+        }
+
+        Woken.clear();
+        b2World_OverlapAABB(WorldID, b2Body_ComputeAABB(body), { Box2DLayers::c_QueryBit, c_AllCollisionLayers }, &GatherBody, &Woken);
+        for (const b2BodyId it_Body : Woken)
+        {
+            b2Body_SetAwake(it_Body, true);
+        }
+    }
+
+    // Each pair the record is part of ends with the frame's first step, contacts first, each in the order of its pairs' bodies. Box2D's own word of their shapes parting comes with that step and finds them gone
+    void PhysicsScene2D::State::EndPairs(const BodyRecord2D& record)
+    {
+        for (ContactPairs2D* it_Pairs : { &Contacts, &Triggers })
+        {
+            for (auto a_Pair = it_Pairs->begin(); a_Pair != it_Pairs->end();)
+            {
+                const ContactPair2D& l_Pair = a_Pair->second;
+                if (l_Pair.FirstRecord != &record && l_Pair.SecondRecord != &record)
+                {
+                    ++a_Pair;
+
+                    continue;
+                }
+
+                Events.push_back({ it_Pairs == &Triggers ? PhysicsEventType::TriggerExit : PhysicsEventType::ContactEnd, l_Pair.First, l_Pair.Second, glm::vec2(0.0f), glm::vec2(0.0f), 0 });
+                a_Pair = it_Pairs->erase(a_Pair);
+            }
+        }
+    }
+
+    // An owner's record as the scene has it now: its RigidBody2D, or none for a static body, and the 2D colliders on it and below it, in hierarchy order, that no RigidBody2D below takes, nor a 3D body
+    void PhysicsScene2D::State::Gather(entt::entity owner, BodyRecord2D& record) const
+    {
+        const SceneRegistry& l_Registry = Owner.GetRegistry();
+        const RigidBody2DComponent* l_RigidBody = l_Registry.try_get<RigidBody2DComponent>(owner);
+        record.Entity = owner;
+        record.ID = l_Registry.get<IDComponent>(owner).ID;
+        record.HasRigidBody = l_RigidBody != nullptr;
+        record.Motion = l_RigidBody != nullptr ? l_RigidBody->Motion : BodyMotion::Static;
+        record.Settings = l_RigidBody != nullptr ? *l_RigidBody : RigidBody2DComponent{};
+        record.Colliders.clear();
+
+        const auto a_Visit = [&l_Registry, &record](const auto& self, entt::entity entity) -> void
+        {
+            AddColliders(l_Registry, entity, record);
+            for (entt::entity it_Child = l_Registry.get<RelationshipComponent>(entity).FirstChild; it_Child != entt::null; it_Child = l_Registry.get<RelationshipComponent>(it_Child).NextSibling)
+            {
+                if (!l_Registry.any_of<RigidBody2DComponent, RigidBodyComponent>(it_Child))
+                {
+                    self(self, it_Child);
+                }
+            }
+        };
+
+        a_Visit(a_Visit, owner);
+    }
+
+    void PhysicsScene2D::State::Index(BodyRecord2D& record)
+    {
+        Members[record.Entity] = &record;
+        for (const ColliderSource2D& it_Collider : record.Colliders)
+        {
+            Members[it_Collider.Entity] = &record;
+        }
+    }
+
+    // Only the entries that are still this record's, since another may have taken an entity over
+    void PhysicsScene2D::State::Unindex(const BodyRecord2D& record)
+    {
+        const auto a_Erase = [this, &record](entt::entity entity)
+        {
+            const auto a_Found = Members.find(entity);
+            if (a_Found != Members.end() && a_Found->second == &record)
+            {
+                Members.erase(a_Found);
+            }
+        };
+
+        a_Erase(record.Entity);
+        for (const ColliderSource2D& it_Collider : record.Colliders)
+        {
+            a_Erase(it_Collider.Entity);
+        }
+    }
+
+    // The record an owner entity has, none for an entity that owns no record
+    BodyRecord2D* PhysicsScene2D::State::FindRecord(entt::entity owner) const
+    {
+        const auto a_Found = owner != entt::null ? Members.find(owner) : Members.end();
+
+        return a_Found != Members.end() && a_Found->second->Entity == owner ? a_Found->second : nullptr;
+    }
+
+    // Its joints go with it, to be found again later, then its pairs and its body, and the pose it was drawn at, so its entity, when it stays, draws from its transform again
+    void PhysicsScene2D::State::RemoveRecord(BodyRecord2D& record)
+    {
+        SceneRegistry& l_Registry = Owner.GetRegistry();
+        for (std::size_t it_Joint = 0; it_Joint < Joints.size();)
+        {
+            JointRecord2D& l_Joint = Joints[it_Joint];
+            if (l_Joint.First != &record && l_Joint.Second != &record)
+            {
+                ++it_Joint;
+
+                continue;
+            }
+
+            if (B2_IS_NON_NULL(l_Joint.Joint))
+            {
+                b2DestroyJoint(l_Joint.Joint);
+            }
+
+            if (!l_Joint.Broken && l_Registry.valid(l_Joint.Entity))
+            {
+                RetryJoints.push_back(l_Joint.Entity);
+            }
+
+            Joints.erase(Joints.begin() + static_cast<std::ptrdiff_t>(it_Joint));
+        }
+
+        EndPairs(record);
+        DestroyBody(record);
+        if (l_Registry.valid(record.Entity))
+        {
+            l_Registry.remove<PhysicsPoseComponent>(record.Entity);
+        }
+
+        Unindex(record);
+        std::erase(Records, &record);
+        Memory::Delete(&record);
+    }
+
+    // A record gathered again is left alone when it is as it was. Otherwise its body is changed where it is, so its velocity, its contacts and its joints carry over: its motion, its RigidBody2D's settings, and, when its colliders changed, its shapes, all made again. One that becomes dynamic takes its RigidBody2D's starting velocities, as in 3D. A record that had no body gets one, and one left with no colliders loses its body, its pairs ending and its joints waiting for it. True when a body came or went
+    bool PhysicsScene2D::State::UpdateRecord(BodyRecord2D& record, BodyRecord2D& gathered)
+    {
+        if (record.HasRigidBody == gathered.HasRigidBody && record.Settings == gathered.Settings && record.Colliders == gathered.Colliders)
+        {
+            return false;
+        }
+
+        const bool l_Reshape = record.Colliders != gathered.Colliders;
+        const BodyMotion l_WasMotion = record.Motion;
+        const RigidBody2DComponent l_Was = record.Settings;
+        Unindex(record);
+        record.HasRigidBody = gathered.HasRigidBody;
+        record.Settings = gathered.Settings;
+        record.Motion = gathered.Motion;
+        record.Colliders = std::move(gathered.Colliders);
+        Index(record);
+
+        SceneRegistry& l_Registry = Owner.GetRegistry();
+        if (B2_IS_NULL(record.Body))
+        {
+            MakeBody(record);
+
+            return B2_IS_NON_NULL(record.Body);
+        }
+
+        if (record.Colliders.empty())
+        {
+            EndPairs(record);
+            DestroyBody(record);
+            l_Registry.remove<PhysicsPoseComponent>(record.Entity);
+
+            return true;
+        }
+
+        const b2BodyId l_Body = record.Body;
+        const RigidBody2DComponent& l_RigidBody = record.Settings;
+        if (record.Motion != l_WasMotion)
+        {
+            b2Body_SetType(l_Body, record.Motion == BodyMotion::Static ? b2_staticBody : (record.Motion == BodyMotion::Kinematic ? b2_kinematicBody : b2_dynamicBody));
+            if (record.Motion == BodyMotion::Dynamic)
+            {
+                b2Body_SetLinearVelocity(l_Body, ToBox2D(l_RigidBody.InitialLinearVelocity));
+                b2Body_SetAngularVelocity(l_Body, l_RigidBody.InitialAngularVelocity);
+            }
+
+            // It moves on from where it is, and a static body is drawn from its transform again
+            const Pose2D l_Pose = ReadPose(l_Body);
+            record.Previous = l_Pose;
+            record.Current = l_Pose;
+            record.TargetFrom = l_Pose;
+            record.TargetTo = l_Pose;
+            if (record.Motion == BodyMotion::Static)
+            {
+                l_Registry.remove<PhysicsPoseComponent>(record.Entity);
+            }
+        }
+
+        if (record.Motion == BodyMotion::Dynamic)
+        {
+            b2Body_SetLinearDamping(l_Body, l_RigidBody.LinearDamping);
+            b2Body_SetAngularDamping(l_Body, l_RigidBody.AngularDamping);
+            b2Body_SetGravityScale(l_Body, l_RigidBody.GravityFactor);
+            b2Body_EnableSleep(l_Body, l_RigidBody.CanSleep);
+            if (l_RigidBody.ContinuousCollision != l_Was.ContinuousCollision || l_WasMotion != BodyMotion::Dynamic)
+            {
+                b2Body_SetBullet(l_Body, l_RigidBody.ContinuousCollision);
+            }
+
+            if (l_RigidBody.LockRotation != l_Was.LockRotation || l_WasMotion != BodyMotion::Dynamic)
+            {
+                b2Body_SetFixedRotation(l_Body, l_RigidBody.LockRotation);
+            }
+        }
+
+        WakeAround(l_Body);
+        if (l_Reshape)
+        {
+            DestroyShapes(l_Body, true);
+            MakeShapes(record);
+        }
+
+        ApplyMass(record);
+        if (record.Motion == BodyMotion::Dynamic)
+        {
+            b2Body_SetAwake(l_Body, true);
+        }
+
+        WakeAround(l_Body);
+
+        return false;
+    }
+
+    // Everything changed since the last frame with steps is taken in. The owners whose records may differ are those of each changed entity as they were and as it, and everything below it, has them now. Each is gathered again: a record no longer owned goes, one newly owned is made, and the rest are updated. Then the joints follow
+    void PhysicsScene2D::State::Sync()
+    {
+        if (Dirty.empty() && DirtyJoints.empty())
+        {
+            return;
+        }
+
+        TR_PROFILE_SCOPE("PhysicsScene2D::Sync");
+        const SceneRegistry& l_Registry = Owner.GetRegistry();
+        PhysicsVector<entt::entity> l_Dirty;
+        PhysicsVector<entt::entity> l_DirtyJoints;
+        l_Dirty.swap(Dirty);
+        l_DirtyJoints.swap(DirtyJoints);
+
+        PhysicsVector<entt::entity> l_Owners;
+        const auto a_Note = [this, &l_Owners](entt::entity entity)
+        {
+            if (const auto a_Found = Members.find(entity); a_Found != Members.end())
+            {
+                l_Owners.push_back(a_Found->second->Entity);
+            }
+        };
+
+        const auto a_Visit = [&l_Registry, &l_Owners, &a_Note](const auto& self, entt::entity entity) -> void
+        {
+            a_Note(entity);
+            if (l_Registry.all_of<RigidBody2DComponent>(entity) || Has2DCollider(l_Registry, entity))
+            {
+                if (const entt::entity l_Owner = FindOwner(l_Registry, entity); l_Owner != entt::null)
+                {
+                    l_Owners.push_back(l_Owner);
+                }
+            }
+
+            for (entt::entity it_Child = l_Registry.get<RelationshipComponent>(entity).FirstChild; it_Child != entt::null; it_Child = l_Registry.get<RelationshipComponent>(it_Child).NextSibling)
+            {
+                self(self, it_Child);
+            }
+        };
+
+        for (const entt::entity it_Entity : l_Dirty)
+        {
+            a_Note(it_Entity);
+            if (l_Registry.valid(it_Entity))
+            {
+                a_Visit(a_Visit, it_Entity);
+            }
+        }
+
+        std::ranges::sort(l_Owners);
+        l_Owners.erase(std::ranges::unique(l_Owners).begin(), l_Owners.end());
+
+        bool l_BodiesChanged = false;
+        for (const entt::entity it_Owner : l_Owners)
+        {
+            BodyRecord2D* l_Record = FindRecord(it_Owner);
+            if (!l_Registry.valid(it_Owner) || FindOwner(l_Registry, it_Owner) != it_Owner)
+            {
+                if (l_Record != nullptr)
+                {
+                    RemoveRecord(*l_Record);
+                    l_BodiesChanged = true;
+                }
+
+                continue;
+            }
+
+            if (l_Record == nullptr)
+            {
+                BodyRecord2D& l_New = *Records.emplace_back(Memory::New<BodyRecord2D>(MemoryTag::Physics));
+                Gather(it_Owner, l_New);
+                l_New.Serial = NextSerial++;
+                Index(l_New);
+                MakeBody(l_New);
+                l_BodiesChanged = true;
+
+                continue;
+            }
+
+            BodyRecord2D l_Gathered;
+            Gather(it_Owner, l_Gathered);
+            l_BodiesChanged = UpdateRecord(*l_Record, l_Gathered) || l_BodiesChanged;
+        }
+
+        ResolveJoints(l_BodiesChanged, l_DirtyJoints);
+    }
+
+    // A joint whose entity changed is made again from where its bodies are now, and so is one whose bodies are other records now, or one let go with a body that went. One waiting for a body is made once its bodies have theirs. One whose entity or Joint2D went goes with them. A broken joint stays broken until its Joint2D changes
+    void PhysicsScene2D::State::ResolveJoints(bool bodiesChanged, const PhysicsVector<entt::entity>& dirtyJoints)
+    {
+        const SceneRegistry& l_Registry = Owner.GetRegistry();
+        PhysicsVector<entt::entity> l_Make;
+        const auto a_Make = [&l_Make, &l_Registry](entt::entity entity)
+        {
+            if (l_Registry.valid(entity) && l_Registry.all_of<Joint2DComponent>(entity) && std::ranges::find(l_Make, entity) == l_Make.end())
+            {
+                l_Make.push_back(entity);
+            }
+        };
+
+        for (std::size_t it_Joint = 0; it_Joint < Joints.size();)
+        {
+            JointRecord2D& l_Joint = Joints[it_Joint];
+            const bool l_Dirty = std::ranges::find(dirtyJoints, l_Joint.Entity) != dirtyJoints.end();
+            if (!l_Dirty && (!bodiesChanged || l_Joint.Broken))
+            {
+                ++it_Joint;
+
+                continue;
+            }
+
+            if (!l_Dirty && l_Registry.valid(l_Joint.Entity))
+            {
+                const BodyRecord2D* l_First = FindRecord(FindOwner(l_Registry, l_Joint.Entity));
+                const BodyRecord2D* l_Second = l_Registry.valid(l_Joint.OtherEntity) ? FindRecord(FindOwner(l_Registry, l_Joint.OtherEntity)) : nullptr;
+                if (l_First == l_Joint.First && l_Second == l_Joint.Second)
+                {
+                    if (l_Joint.NeedsBody)
+                    {
+                        MakeJoint(l_Joint);
+                    }
+
+                    ++it_Joint;
+
+                    continue;
+                }
+            }
+
+            if (B2_IS_NON_NULL(l_Joint.Joint))
+            {
+                b2DestroyJoint(l_Joint.Joint);
+            }
+
+            a_Make(l_Joint.Entity);
+            Joints.erase(Joints.begin() + static_cast<std::ptrdiff_t>(it_Joint));
+        }
+
+        for (const entt::entity it_Entity : dirtyJoints)
+        {
+            if (std::ranges::find(Joints, it_Entity, &JointRecord2D::Entity) == Joints.end())
+            {
+                a_Make(it_Entity);
+            }
+        }
+
+        for (const entt::entity it_Entity : std::exchange(RetryJoints, {}))
+        {
+            if (std::ranges::find(Joints, it_Entity, &JointRecord2D::Entity) == Joints.end())
+            {
+                a_Make(it_Entity);
+            }
+        }
+
+        for (const entt::entity it_Entity : l_Make)
+        {
+            const std::size_t l_Count = Joints.size();
+            CreateJointRecord(it_Entity);
+            if (Joints.size() > l_Count)
+            {
+                MakeJoint(Joints.back());
+            }
+        }
+    }
+
+    // A body whose entity's transform was set from code since the body made or last wrote it is taken there at once, with the entity's depth, and drawn there with nothing between. Kinematic bodies follow their transforms already
+    void PhysicsScene2D::State::FollowTransforms()
+    {
+        SceneRegistry& l_Registry = Owner.GetRegistry();
+        for (BodyRecord2D* it_Record : Records)
+        {
+            if (it_Record->Motion == BodyMotion::Kinematic || B2_IS_NULL(it_Record->Body) || !l_Registry.valid(it_Record->Entity))
+            {
+                continue;
+            }
+
+            const TransformComponent& l_Transform = l_Registry.get<TransformComponent>(it_Record->Entity);
+            if (l_Transform.Position == it_Record->WrittenPosition && l_Transform.Rotation == it_Record->WrittenRotation)
+            {
+                continue;
+            }
+
+            it_Record->WrittenPosition = l_Transform.Position;
+            it_Record->WrittenRotation = l_Transform.Rotation;
+            const glm::mat4 l_World = Owner.ComputeWorldMatrix(Entity(it_Record->Entity, &Owner));
+            const Pose2D l_Pose = GetPose(l_World);
+            it_Record->Depth = l_World[3][2];
+            WakeAround(it_Record->Body);
+            b2Body_SetTransform(it_Record->Body, ToBox2D(l_Pose.Position), Box2DConvert::ToRotation(l_Pose.Angle));
+            WakeAround(it_Record->Body);
+            if (it_Record->Motion == BodyMotion::Dynamic)
+            {
+                b2Body_SetAwake(it_Record->Body, true);
+            }
+
+            it_Record->Previous = l_Pose;
+            it_Record->Current = l_Pose;
+            it_Record->TargetFrom = l_Pose;
+            it_Record->TargetTo = l_Pose;
+        }
     }
 }

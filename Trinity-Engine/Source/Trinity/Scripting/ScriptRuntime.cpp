@@ -42,12 +42,6 @@ namespace Trinity
 
             [[nodiscard]] bool IsLive() const { return !Dead && !Orphaned; }
         };
-
-        // Whether physics took the entity in as the scene started, as a body, a collider or a joint
-        bool IsHeldByPhysics(const SceneRegistry& registry, entt::entity entity)
-        {
-            return registry.any_of<RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, JointComponent>(entity) || registry.any_of<RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent, Joint2DComponent>(entity);
-        }
     }
 
     struct ScriptRuntime::State
@@ -358,19 +352,6 @@ namespace Trinity
         if (!entity || entity.GetScene() != &m_State->TargetScene)
         {
             return;
-        }
-
-        const SceneRegistry& l_Registry = m_State->TargetScene.GetRegistry();
-        for (Entity it_Entity = entity; it_Entity; it_Entity = m_State->TargetScene.GetNextInSubtree(it_Entity, entity))
-        {
-            if (IsHeldByPhysics(l_Registry, it_Entity.GetHandle()))
-            {
-                const auto a_Name = [](Entity named) { return named.Has<TagComponent>() && !named.Get<TagComponent>().Tag.empty() ? std::string(std::string_view(named.Get<TagComponent>().Tag)) : std::format("entity {}", named.GetUUID()); };
-                const std::string l_Held = it_Entity == entity ? std::string("it") : a_Name(it_Entity);
-                TR_CORE_WARN("Scripting: {} is kept, since {} is part of the physics, which cannot yet follow an entity taken out while the scene runs", a_Name(entity), l_Held);
-
-                return;
-            }
         }
 
         m_State->PendingDestroy.push_back(entity.GetUUID());

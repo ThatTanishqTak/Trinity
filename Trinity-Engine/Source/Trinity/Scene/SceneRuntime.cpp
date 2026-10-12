@@ -90,12 +90,19 @@ namespace Trinity
     {
         m_Scripts->CreatePending();
 
-        // A scene that had no 3D body as it started gets its world once it has one
+        // A scene that had no 3D or no 2D body as it started gets that world once it has one
         if (!m_Physics && PhysicsScene3D::IsNeeded(m_Scene))
         {
             m_Physics = CreateScope<PhysicsScene3D>(m_Scene, m_Settings.Layers);
             m_Physics->GetWorld().SetGravity(m_Settings.Gravity3D);
             m_Physics->SetGatherContacts(m_GatherContacts);
+        }
+
+        if (!m_Physics2D && PhysicsScene2D::IsNeeded(m_Scene))
+        {
+            m_Physics2D = CreateScope<PhysicsScene2D>(m_Scene, m_Settings.Layers);
+            m_Physics2D->GetWorld().SetGravity(m_Settings.Gravity2D);
+            m_Physics2D->SetGatherContacts(m_GatherContacts);
         }
 
         const auto l_Start = std::chrono::steady_clock::now();
