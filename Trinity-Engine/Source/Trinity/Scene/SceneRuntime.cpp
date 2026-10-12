@@ -10,6 +10,7 @@
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
+#include "Trinity/Scripting/ScriptRuntime.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -51,9 +52,17 @@ namespace Trinity
             m_Physics2D = CreateScope<PhysicsScene2D>(scene, settings.Layers);
             m_Physics2D->GetWorld().SetGravity(settings.Gravity2D);
         }
+
+        // The scripts' fixed step is the first system, ahead of physics
+        m_Scripts = CreateScope<ScriptRuntime>(scene);
+        AddFixedStepSystem([this](Timestep step) { m_Scripts->FixedUpdate(step); });
     }
 
-    SceneRuntime::~SceneRuntime() = default;
+    // The scripts go first, with OnDestroy, while the physics and the scene are whole
+    SceneRuntime::~SceneRuntime()
+    {
+        m_Scripts.reset();
+    }
 
     void SceneRuntime::AddFixedStepSystem(FixedStepSystem system)
     {
@@ -65,7 +74,7 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         const std::uint32_t l_Steps = m_Clock.Advance(timestep.GetDuration());
-        RunSteps(l_Steps, m_Clock.GetInterpolation());
+        RunSteps(l_Steps, m_Clock.GetInterpolation(), timestep);
     }
 
     void SceneRuntime::Step()
@@ -73,12 +82,14 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         m_Clock.TakeStep();
-        RunSteps(1, 1.0f);
+        RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()));
     }
 
-    // Each step's systems then physics, then the transform pass with moving bodies placed by the interpolation given, then rendering, which the caller does
-    void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation)
+    // Scripts added since the last frame are made, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Entities destroyed meanwhile go last, then rendering, which the caller does
+    void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep timestep)
     {
+        m_Scripts->CreatePending();
+
         const auto l_Start = std::chrono::steady_clock::now();
         m_StepsThisFrame = steps;
         const Timestep l_Step(m_Clock.GetStep());
@@ -102,12 +113,16 @@ namespace Trinity
 
             if (m_Physics)
             {
+                const std::size_t l_Delivered = m_Physics->GetEvents().size();
                 m_Physics->Step(l_Step, it_Step);
+                m_Scripts->DeliverEvents(m_Physics->GetEvents().subspan(l_Delivered));
             }
 
             if (m_Physics2D)
             {
+                const std::size_t l_Delivered = m_Physics2D->GetEvents().size();
                 m_Physics2D->Step(l_Step, it_Step);
+                m_Scripts->DeliverEvents(m_Physics2D->GetEvents().subspan(l_Delivered));
             }
         }
 
@@ -125,7 +140,14 @@ namespace Trinity
 
         LogPhysicsEvents();
 
+        m_Scripts->Update(timestep);
         m_Scene.UpdateWorldTransforms();
+        if (m_Scripts->LateUpdate(timestep))
+        {
+            m_Scene.UpdateWorldTransforms();
+        }
+
+        m_Scripts->DestroyPending();
     }
 
     SceneRuntime::Statistics SceneRuntime::GetStatistics() const

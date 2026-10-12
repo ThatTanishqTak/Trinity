@@ -15,6 +15,7 @@
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Physics/CollisionShapeLoaders.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
+#include "Trinity/Scripting/ScriptBackend.hpp"
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"
 
 #include <charconv>
@@ -500,6 +501,7 @@ namespace Trinity
         JobSystem::Initialize();
         SceneSerializer::Initialize();
         ScriptClassRegistry::Initialize();
+        ScriptBackends::Initialize();
         AssetManager::Initialize();
         CollisionShapeLoaders::Register();
 
@@ -516,6 +518,7 @@ namespace Trinity
 
         CollisionShapeLoaders::Unregister();
         AssetManager::Shutdown();
+        ScriptBackends::Shutdown();
         ScriptClassRegistry::Shutdown();
         SceneSerializer::Shutdown();
         JobSystem::Shutdown();

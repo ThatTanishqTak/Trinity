@@ -13,6 +13,19 @@ namespace Trinity
 {
     struct ScriptEntry;
 
+    // Which callbacks a class has, so the runtime calls only those, which matters most where a call crosses into managed code
+    namespace ScriptCallbacks
+    {
+        constexpr std::uint32_t Create = 1u << 0;
+        constexpr std::uint32_t FixedUpdate = 1u << 1;
+        constexpr std::uint32_t Update = 1u << 2;
+        constexpr std::uint32_t LateUpdate = 1u << 3;
+        constexpr std::uint32_t Destroy = 1u << 4;
+        // Any of the contact, trigger and joint callbacks
+        constexpr std::uint32_t Physics = 1u << 5;
+        constexpr std::uint32_t All = Create | FixedUpdate | Update | LateUpdate | Destroy | Physics;
+    }
+
     // One named value of an enum field, in the order the enum declares them
     struct ScriptEnumValue
     {
@@ -31,11 +44,12 @@ namespace Trinity
         [[nodiscard]] ScriptFieldType GetType() const { return Default.GetType(); }
     };
 
-    // A script class some loaded code has, by its full name, such as Game.PlayerController, with its fields in declaration order
+    // A script class some loaded code has, by its full name, such as Game.PlayerController, with its fields in declaration order and the callbacks it has
     struct ScriptClassDescription
     {
         TaggedString<MemoryTag::Scripting> Name;
         ScriptLanguage Language = ScriptLanguage::CSharp;
+        std::uint32_t Callbacks = ScriptCallbacks::All;
         std::vector<ScriptFieldDescription, TaggedAllocator<ScriptFieldDescription, MemoryTag::Scripting>> Fields;
 
         [[nodiscard]] const ScriptFieldDescription* FindField(std::string_view name) const

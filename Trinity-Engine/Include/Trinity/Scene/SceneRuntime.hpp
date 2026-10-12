@@ -16,6 +16,7 @@ namespace Trinity
     class PhysicsScene2D;
     class PhysicsScene3D;
     class Scene;
+    class ScriptRuntime;
 
     class TRINITY_API SceneRuntime
     {
@@ -23,7 +24,7 @@ namespace Trinity
         // Called once a step, with the step's length
         using FixedStepSystem = std::function<void(Timestep step)>;
 
-        // The last frame's steps and the time they took, systems and physics together, and each world's bodies as it reports them
+        // The last frame's steps and the time they took, systems, scripts' fixed steps and physics together, and each world's bodies as it reports them
         struct Statistics
         {
             std::uint32_t Steps = 0;
@@ -58,9 +59,10 @@ namespace Trinity
         [[nodiscard]] PhysicsScene3D* GetPhysics() { return m_Physics.get(); }
         // Nothing when the scene had no RigidBody2D and no 2D collider as it started
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() { return m_Physics2D.get(); }
+        [[nodiscard]] ScriptRuntime& GetScripts() { return *m_Scripts; }
 
     private:
-        void RunSteps(std::uint32_t steps, float interpolation);
+        void RunSteps(std::uint32_t steps, float interpolation, Timestep timestep);
         void LogPhysicsEvents() const;
 
         Scene& m_Scene;
@@ -68,6 +70,8 @@ namespace Trinity
         Scope<PhysicsScene3D> m_Physics;
         Scope<PhysicsScene2D> m_Physics2D;
         std::vector<FixedStepSystem, TaggedAllocator<FixedStepSystem, MemoryTag::Scene>> m_Systems;
+        // After the physics, so the scripts' OnDestroy runs while the bodies still exist
+        Scope<ScriptRuntime> m_Scripts;
         std::uint32_t m_StepsThisFrame = 0;
         float m_StepMilliseconds = 0.0f;
     };
