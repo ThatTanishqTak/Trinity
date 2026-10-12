@@ -194,3 +194,8 @@ add_dependencies(Trinity-Engine-Static Trinity-Fonts)
 trinity_add_agility_sdk(Trinity-AgilitySDK)
 add_dependencies(Trinity-Engine Trinity-AgilitySDK)
 add_dependencies(Trinity-Engine-Static Trinity-AgilitySDK)
+
+# TrinityConfig.cmake and TrinityToolchain.cmake beside the shared engine, which a game module builds against
+include(TrinityPackage)
+set(TRINITY_PACKAGE_MSVC_RUNTIME "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+trinity_write_engine_package(Trinity-Engine)

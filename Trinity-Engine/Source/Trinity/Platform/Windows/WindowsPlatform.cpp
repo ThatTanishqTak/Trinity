@@ -1,5 +1,6 @@
 #include "Trinity/Core/Platform.hpp"
 
+#include "Trinity/Core/Memory.hpp"
 #include "Trinity/Platform/Windows/WindowsHeaders.hpp"
 
 #include <shellscalingapi.h>
@@ -9,7 +10,9 @@
 #include <malloc.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
+#include <cwchar>
 #include <format>
 #include <optional>
 #include <string>
@@ -81,6 +84,156 @@ namespace Trinity
                     object->Release();
                     object = nullptr;
                 }
+            }
+
+            void CloseValidHandle(HANDLE& handle)
+            {
+                if (handle != nullptr && handle != INVALID_HANDLE_VALUE)
+                {
+                    ::CloseHandle(handle);
+                }
+
+                handle = nullptr;
+            }
+
+            // Quoted so the C runtime and CommandLineToArgvW read it back as it was: whole within quotes when it holds a space, a tab or a quote, each quote escaped, and the backslashes before a quote doubled
+            std::wstring QuoteArgument(std::wstring_view argument)
+            {
+                if (!argument.empty() && argument.find_first_of(L" \t\n\v\"") == std::wstring_view::npos)
+                {
+                    return std::wstring(argument);
+                }
+
+                std::wstring l_Quoted = L"\"";
+                std::size_t l_Backslashes = 0;
+                for (const wchar_t it_Character : argument)
+                {
+                    if (it_Character == L'\\')
+                    {
+                        ++l_Backslashes;
+
+                        continue;
+                    }
+
+                    l_Quoted.append(it_Character == L'"' ? l_Backslashes * 2 + 1 : l_Backslashes, L'\\');
+                    l_Quoted.push_back(it_Character);
+                    l_Backslashes = 0;
+                }
+
+                l_Quoted.append(l_Backslashes * 2, L'\\');
+                l_Quoted.push_back(L'"');
+
+                return l_Quoted;
+            }
+
+            // A block of name=value entries sorted by name without regard to case, as CreateProcessW expects one
+            std::wstring MakeEnvironmentBlock(const EnvironmentVariables& variables)
+            {
+                std::vector<std::pair<std::wstring, std::wstring>> l_Variables;
+                l_Variables.reserve(variables.size());
+                for (const auto& [it_Name, it_Value] : variables)
+                {
+                    l_Variables.emplace_back(ToWide(it_Name), ToWide(it_Value));
+                }
+
+                std::ranges::stable_sort(l_Variables, [](const auto& left, const auto& right) { return ::CompareStringOrdinal(left.first.data(), static_cast<int>(left.first.size()), right.first.data(), static_cast<int>(right.first.size()), TRUE) == CSTR_LESS_THAN; });
+
+                std::wstring l_Block;
+                for (const auto& [it_Name, it_Value] : l_Variables)
+                {
+                    l_Block += it_Name;
+                    l_Block += L'=';
+                    l_Block += it_Value;
+                    l_Block += L'\0';
+                }
+
+                l_Block += L'\0';
+
+                return l_Block;
+            }
+
+            // A line as a program wrote it: UTF-8 when it is valid UTF-8, and otherwise in the console's code page, which compilers write in when their output is not a console
+            std::string DecodeOutputLine(std::string_view line)
+            {
+                if (line.empty() || ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, line.data(), static_cast<int>(line.size()), nullptr, 0) != 0)
+                {
+                    return std::string(line);
+                }
+
+                const int l_Size = ::MultiByteToWideChar(CP_OEMCP, 0, line.data(), static_cast<int>(line.size()), nullptr, 0);
+                std::wstring l_Wide(static_cast<std::size_t>(l_Size), L'\0');
+                ::MultiByteToWideChar(CP_OEMCP, 0, line.data(), static_cast<int>(line.size()), l_Wide.data(), l_Size);
+
+                return ToUtf8(l_Wide);
+            }
+
+            // Bytes from a process gathered into lines, each handed on without its line end once it is whole
+            class LineReader
+            {
+            public:
+                explicit LineReader(const std::function<void(std::string_view)>& onLine) : m_OnLine(onLine)
+                {
+
+                }
+
+                void Add(std::string_view bytes)
+                {
+                    for (const char it_Byte : bytes)
+                    {
+                        if (it_Byte == '\n')
+                        {
+                            Flush();
+                        }
+                        else
+                        {
+                            m_Line.push_back(it_Byte);
+                        }
+                    }
+                }
+
+                void Flush()
+                {
+                    if (!m_Line.empty() && m_Line.back() == '\r')
+                    {
+                        m_Line.pop_back();
+                    }
+
+                    if (m_OnLine)
+                    {
+                        m_OnLine(DecodeOutputLine(m_Line));
+                    }
+
+                    m_Line.clear();
+                }
+
+                void Finish()
+                {
+                    if (!m_Line.empty())
+                    {
+                        Flush();
+                    }
+                }
+
+            private:
+                const std::function<void(std::string_view)>& m_OnLine;
+                std::string m_Line;
+            };
+
+            // A watched folder and the read Windows fills in the background, whose buffer must stay where it is until the read ends
+            struct DirectoryWatch
+            {
+                HANDLE Directory = INVALID_HANDLE_VALUE;
+                OVERLAPPED Overlapped{};
+                bool Pending = false;
+                alignas(DWORD) std::array<std::byte, 64 * 1024> Buffer{};
+            };
+
+            constexpr DWORD c_WatchFilter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE;
+
+            void StartWatchRead(DirectoryWatch& watch)
+            {
+                watch.Overlapped = {};
+                watch.Pending = ::ReadDirectoryChangesW(watch.Directory, watch.Buffer.data(), static_cast<DWORD>(watch.Buffer.size()), TRUE, c_WatchFilter, nullptr, &watch.Overlapped, nullptr) != FALSE;
             }
 
             std::optional<std::filesystem::path> ShowFileDialogWithCom(const FileDialogRequest& request)
@@ -285,6 +438,244 @@ namespace Trinity
         void UnloadSharedLibrary(void* library)
         {
             ::FreeLibrary(static_cast<HMODULE>(library));
+        }
+
+        EnvironmentVariables GetEnvironment()
+        {
+            EnvironmentVariables l_Variables;
+            LPWCH l_Block = ::GetEnvironmentStringsW();
+            if (l_Block == nullptr)
+            {
+                return l_Variables;
+            }
+
+            for (const wchar_t* it_Entry = l_Block; *it_Entry != L'\0'; it_Entry += std::wcslen(it_Entry) + 1)
+            {
+                // Entries such as =C:=C:\Folder keep each drive's current folder, and are not variables
+                const std::wstring_view l_Entry(it_Entry);
+                const std::size_t l_Equals = l_Entry.find(L'=', 1);
+                if (l_Entry.front() != L'=' && l_Equals != std::wstring_view::npos)
+                {
+                    l_Variables.emplace_back(ToUtf8(l_Entry.substr(0, l_Equals)), ToUtf8(l_Entry.substr(l_Equals + 1)));
+                }
+            }
+
+            ::FreeEnvironmentStringsW(l_Block);
+
+            return l_Variables;
+        }
+
+        // Started suspended in a job of its own, so cancelling ends everything it started, and handed only its output pipe and NUL for its input, so no other handle Forge has open leaks into it. Without a console window, which also keeps a compiler from opening one
+        std::optional<int> RunProcess(const ProcessRequest& request, const std::function<void(std::string_view line)>& onLine, std::string& error)
+        {
+            std::wstring l_CommandLine = QuoteArgument(request.Executable.wstring());
+            for (const std::string& it_Argument : request.Arguments)
+            {
+                l_CommandLine += L' ';
+                l_CommandLine += QuoteArgument(ToWide(it_Argument));
+            }
+
+            const std::wstring l_Environment = request.Environment != nullptr ? MakeEnvironmentBlock(*request.Environment) : std::wstring();
+
+            SECURITY_ATTRIBUTES l_Inherited{ sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE };
+            HANDLE l_Read = nullptr;
+            HANDLE l_Write = nullptr;
+            if (!::CreatePipe(&l_Read, &l_Write, &l_Inherited, 0))
+            {
+                error = std::format("no pipe for its output: {}", GetErrorMessage(::GetLastError()));
+
+                return std::nullopt;
+            }
+
+            ::SetHandleInformation(l_Read, HANDLE_FLAG_INHERIT, 0);
+            HANDLE l_Null = ::CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &l_Inherited, OPEN_EXISTING, 0, nullptr);
+
+            std::array<HANDLE, 2> l_Handles{ l_Write, l_Null };
+            const DWORD l_HandleCount = l_Null != INVALID_HANDLE_VALUE ? 2 : 1;
+            SIZE_T l_AttributeSize = 0;
+            ::InitializeProcThreadAttributeList(nullptr, 1, 0, &l_AttributeSize);
+            std::vector<std::byte> l_AttributeStorage(l_AttributeSize);
+            LPPROC_THREAD_ATTRIBUTE_LIST l_Attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(l_AttributeStorage.data());
+            const bool l_HasAttributes = ::InitializeProcThreadAttributeList(l_Attributes, 1, 0, &l_AttributeSize) != FALSE;
+            if (l_HasAttributes)
+            {
+                ::UpdateProcThreadAttribute(l_Attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, l_Handles.data(), sizeof(HANDLE) * l_HandleCount, nullptr, nullptr);
+            }
+
+            STARTUPINFOEXW l_Startup{};
+            l_Startup.StartupInfo.cb = sizeof(STARTUPINFOEXW);
+            l_Startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            l_Startup.StartupInfo.hStdInput = l_Null != INVALID_HANDLE_VALUE ? l_Null : nullptr;
+            l_Startup.StartupInfo.hStdOutput = l_Write;
+            l_Startup.StartupInfo.hStdError = l_Write;
+            l_Startup.lpAttributeList = l_HasAttributes ? l_Attributes : nullptr;
+
+            const std::wstring l_Directory = request.WorkingDirectory.wstring();
+            PROCESS_INFORMATION l_Process{};
+            const DWORD l_Flags = CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | (l_HasAttributes ? EXTENDED_STARTUPINFO_PRESENT : 0);
+            const BOOL l_Started = ::CreateProcessW(request.Executable.c_str(), l_CommandLine.data(), nullptr, nullptr, TRUE, l_Flags, request.Environment != nullptr ? const_cast<wchar_t*>(l_Environment.c_str()) : nullptr, l_Directory.empty() ? nullptr : l_Directory.c_str(), &l_Startup.StartupInfo, &l_Process);
+            const DWORD l_StartError = ::GetLastError();
+
+            if (l_HasAttributes)
+            {
+                ::DeleteProcThreadAttributeList(l_Attributes);
+            }
+
+            // Only the child holds the pipe's writing end now, so the pipe ends with it
+            CloseValidHandle(l_Write);
+            CloseValidHandle(l_Null);
+            if (!l_Started)
+            {
+                CloseValidHandle(l_Read);
+                error = GetErrorMessage(l_StartError);
+
+                return std::nullopt;
+            }
+
+            HANDLE l_Job = ::CreateJobObjectW(nullptr, nullptr);
+            if (l_Job != nullptr && !::AssignProcessToJobObject(l_Job, l_Process.hProcess))
+            {
+                CloseValidHandle(l_Job);
+            }
+
+            ::ResumeThread(l_Process.hThread);
+            CloseValidHandle(l_Process.hThread);
+
+            LineReader l_Lines(onLine);
+            std::array<char, 4096> l_Buffer{};
+            const auto a_Drain = [&]()
+            {
+                DWORD l_Available = 0;
+                while (::PeekNamedPipe(l_Read, nullptr, 0, nullptr, &l_Available, nullptr) && l_Available > 0)
+                {
+                    DWORD l_Count = 0;
+                    if (!::ReadFile(l_Read, l_Buffer.data(), std::min<DWORD>(l_Available, static_cast<DWORD>(l_Buffer.size())), &l_Count, nullptr) || l_Count == 0)
+                    {
+                        break;
+                    }
+
+                    l_Lines.Add(std::string_view(l_Buffer.data(), l_Count));
+                }
+            };
+
+            // It counts as ended when the program does, with what it wrote before then read, since a server a compiler starts may hold the pipe for minutes
+            bool l_Cancelled = false;
+            while (true)
+            {
+                if (!l_Cancelled && request.Cancel != nullptr && request.Cancel->load(std::memory_order_relaxed))
+                {
+                    if (l_Job != nullptr)
+                    {
+                        ::TerminateJobObject(l_Job, 1);
+                    }
+                    else
+                    {
+                        ::TerminateProcess(l_Process.hProcess, 1);
+                    }
+
+                    l_Cancelled = true;
+                }
+
+                a_Drain();
+                if (::WaitForSingleObject(l_Process.hProcess, 20) != WAIT_TIMEOUT)
+                {
+                    a_Drain();
+
+                    break;
+                }
+            }
+
+            l_Lines.Finish();
+
+            DWORD l_ExitCode = 1;
+            ::GetExitCodeProcess(l_Process.hProcess, &l_ExitCode);
+            CloseValidHandle(l_Process.hProcess);
+            CloseValidHandle(l_Read);
+            CloseValidHandle(l_Job);
+
+            return static_cast<int>(l_ExitCode);
+        }
+
+        // Watched through the folder's handle, opened so the files in it can still be changed, renamed and deleted
+        void* OpenDirectoryWatch(const std::filesystem::path& directory, std::string& error)
+        {
+            const HANDLE l_Directory = ::CreateFileW(directory.c_str(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
+            if (l_Directory == INVALID_HANDLE_VALUE)
+            {
+                error = GetErrorMessage(::GetLastError());
+
+                return nullptr;
+            }
+
+            DirectoryWatch* l_Watch = Memory::New<DirectoryWatch>(MemoryTag::FileSystem);
+            l_Watch->Directory = l_Directory;
+            StartWatchRead(*l_Watch);
+            if (!l_Watch->Pending)
+            {
+                error = GetErrorMessage(::GetLastError());
+                ::CloseHandle(l_Directory);
+                Memory::Delete(l_Watch);
+
+                return nullptr;
+            }
+
+            return l_Watch;
+        }
+
+        // A read that finished is taken and the next started. Windows tells of an overflow by a read with nothing in it, or by failing the read, and a read that could not be started loses what happens until the next, so each counts as one
+        bool ReadDirectoryWatch(void* watch, std::vector<std::filesystem::path>& changed)
+        {
+            DirectoryWatch& l_Watch = *static_cast<DirectoryWatch*>(watch);
+            if (!l_Watch.Pending)
+            {
+                StartWatchRead(l_Watch);
+
+                return l_Watch.Pending;
+            }
+
+            DWORD l_Bytes = 0;
+            if (!::GetOverlappedResult(l_Watch.Directory, &l_Watch.Overlapped, &l_Bytes, FALSE))
+            {
+                if (::GetLastError() == ERROR_IO_INCOMPLETE)
+                {
+                    return false;
+                }
+
+                StartWatchRead(l_Watch);
+
+                return true;
+            }
+
+            const bool l_Overflowed = l_Bytes == 0;
+            for (DWORD it_Offset = 0; !l_Overflowed;)
+            {
+                const FILE_NOTIFY_INFORMATION& l_Information = *reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(l_Watch.Buffer.data() + it_Offset);
+                changed.emplace_back(std::wstring_view(l_Information.FileName, l_Information.FileNameLength / sizeof(WCHAR)));
+                if (l_Information.NextEntryOffset == 0)
+                {
+                    break;
+                }
+
+                it_Offset += l_Information.NextEntryOffset;
+            }
+
+            StartWatchRead(l_Watch);
+
+            return l_Overflowed;
+        }
+
+        // A read still running is cancelled and waited for, since Windows writes into the buffer until it ends
+        void CloseDirectoryWatch(void* watch)
+        {
+            DirectoryWatch* l_Watch = static_cast<DirectoryWatch*>(watch);
+            if (l_Watch->Pending && ::CancelIoEx(l_Watch->Directory, &l_Watch->Overlapped))
+            {
+                DWORD l_Bytes = 0;
+                ::GetOverlappedResult(l_Watch->Directory, &l_Watch->Overlapped, &l_Bytes, TRUE);
+            }
+
+            ::CloseHandle(l_Watch->Directory);
+            Memory::Delete(l_Watch);
         }
 
         std::string GetClipboardText()

@@ -1,6 +1,7 @@
 #include "Trinity/Project/Project.hpp"
 
 #include "Trinity/Asset/AssetRegistry.hpp"
+#include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
@@ -8,6 +9,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
@@ -336,6 +338,21 @@ namespace Trinity
             ReadWorldSettings(l_Root["Physics"], l_Project->m_Name, l_Project->m_Physics);
         }
 
+        // A module name that cannot be one is reported and left out, so the project opens with no module
+        if (l_Format >= 5)
+        {
+            const YAML::Node l_Scripting = l_Root["Scripting"];
+            const std::string l_Module = l_Scripting && l_Scripting.IsMap() ? ReadString(l_Scripting, "Module", "") : std::string();
+            if (IsValidModuleName(l_Module))
+            {
+                l_Project->m_ModuleName = l_Module;
+            }
+            else if (!l_Module.empty())
+            {
+                TR_CORE_WARN("Project: {} names its C++ module '{}', which is not a name a module can have, so it opens with none", l_Project->m_Name, l_Module);
+            }
+        }
+
         if (!l_Project->IsCurrentEngineVersion())
         {
             TR_CORE_WARN("Project: {} was made with Trinity {}, and this is Trinity {}. It is opened as it is", l_Project->m_Name, l_Project->m_EngineVersion.empty() ? "of an unknown version" : l_Project->m_EngineVersion, GetVersionString());
@@ -387,6 +404,9 @@ namespace Trinity
 
         l_Emitter << YAML::EndSeq;
         l_Emitter << YAML::EndMap;
+        l_Emitter << YAML::Key << "Scripting" << YAML::Value << YAML::BeginMap;
+        l_Emitter << YAML::Key << "Module" << YAML::Value << YAML::DoubleQuoted << m_ModuleName;
+        l_Emitter << YAML::EndMap;
         l_Emitter << YAML::EndMap;
 
         const Expected<void, FileError> l_Written = FileSystem::WriteText(GetProjectFilePath(m_FilePath), std::string(l_Emitter.c_str()) + "\n");
@@ -429,6 +449,55 @@ namespace Trinity
     std::filesystem::path Project::GetAssetsDirectory() const
     {
         return m_Directory / "Assets";
+    }
+
+    std::filesystem::path Project::GetSourceDirectory() const
+    {
+        return m_Directory / "Source";
+    }
+
+    std::filesystem::path Project::GetBuildDirectory() const
+    {
+        return m_Directory / "Build";
+    }
+
+    void Project::SetModuleName(std::string name)
+    {
+        TR_CORE_ASSERT(name.empty() || IsValidModuleName(name), "'{}' is not a name a module can have", name);
+
+        m_ModuleName = std::move(name);
+    }
+
+    bool Project::IsValidModuleName(std::string_view name)
+    {
+        constexpr std::size_t c_MaxLength = 64;
+        const auto a_IsLetter = [](char character) { return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'); };
+        const auto a_IsDigit = [](char character) { return character >= '0' && character <= '9'; };
+        if (name.empty() || name.size() > c_MaxLength || !a_IsLetter(name.front()))
+        {
+            return false;
+        }
+
+        return std::ranges::all_of(name, [&](char character) { return a_IsLetter(character) || a_IsDigit(character) || character == '_'; });
+    }
+
+    std::string Project::MakeModuleName(std::string_view projectName)
+    {
+        // A digit or an underscore is kept once a letter has started the name
+        std::string l_Name;
+        for (const char it_Character : projectName)
+        {
+            const bool l_Letter = (it_Character >= 'A' && it_Character <= 'Z') || (it_Character >= 'a' && it_Character <= 'z');
+            const bool l_Other = (it_Character >= '0' && it_Character <= '9') || it_Character == '_';
+            if (l_Letter || (l_Other && !l_Name.empty()))
+            {
+                l_Name.push_back(it_Character);
+            }
+        }
+
+        l_Name.resize(std::min<std::size_t>(l_Name.size(), 64));
+
+        return IsValidModuleName(l_Name) ? l_Name : std::string("Game");
     }
 
     // Empty for a path outside Assets

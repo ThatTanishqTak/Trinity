@@ -1,0 +1,73 @@
+# Trinity's engine, for a game module. Trinity's build writes this beside the shared engine of one configuration. A module's CMakeLists.txt finds it with find_package(Trinity CONFIG REQUIRED), given Trinity_DIR, and makes its library with trinity_add_game_module. Forge's own builds also hand it TrinityToolchain.cmake from this folder, so the module is compiled as the engine was
+include_guard(GLOBAL)
+
+set(TRINITY_VERSION "@PROJECT_VERSION@")
+set(TRINITY_CONFIGURATION "$<CONFIG>")
+set(TRINITY_PLATFORM "@TRINITY_PLATFORM@")
+set(TRINITY_CXX_STANDARD @TRINITY_CXX_STANDARD@)
+set(TRINITY_CXX_COMPILER_ID "@CMAKE_CXX_COMPILER_ID@")
+set(TRINITY_CXX_COMPILER_VERSION "@CMAKE_CXX_COMPILER_VERSION@")
+set(TRINITY_TRACK_GLOBAL_ALLOCATIONS @TRINITY_TRACK_GLOBAL_ALLOCATIONS@)
+set(TRINITY_GLOBAL_ALLOCATIONS_SOURCE [==[@TRINITY_ENGINE_GLOBAL_ALLOCATIONS@]==])
+
+# A module shares the engine's C++ runtime and standard library, so its compiler must be the engine's kind, at the same major version
+string(REGEX MATCH "^[0-9]+" _trinity_engine_major "${TRINITY_CXX_COMPILER_VERSION}")
+string(REGEX MATCH "^[0-9]+" _trinity_module_major "${CMAKE_CXX_COMPILER_VERSION}")
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL TRINITY_CXX_COMPILER_ID OR NOT _trinity_engine_major STREQUAL _trinity_module_major)
+    set(Trinity_FOUND FALSE)
+    set(Trinity_NOT_FOUND_MESSAGE "Trinity ${TRINITY_VERSION} was built with ${TRINITY_CXX_COMPILER_ID} ${TRINITY_CXX_COMPILER_VERSION}, and this module would be built with ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}. Configure it with -DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_LIST_DIR}/TrinityToolchain.cmake")
+    return()
+endif()
+
+if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL TRINITY_CXX_COMPILER_VERSION)
+    message(STATUS "Trinity: the engine was built with ${TRINITY_CXX_COMPILER_ID} ${TRINITY_CXX_COMPILER_VERSION}, and this module is built with ${CMAKE_CXX_COMPILER_VERSION}")
+endif()
+
+# The engine's headers, definitions and options, with those of the libraries its headers use, and its import library on Windows
+if(NOT TARGET Trinity::Engine)
+    add_library(Trinity::Engine SHARED IMPORTED)
+    set_target_properties(Trinity::Engine PROPERTIES
+        IMPORTED_LOCATION [==[$<TARGET_FILE:Trinity-Engine>]==]
+        IMPORTED_IMPLIB [==[$<TARGET_LINKER_FILE:Trinity-Engine>]==]
+        INTERFACE_INCLUDE_DIRECTORIES [==[$<TARGET_PROPERTY:Trinity-Engine,INTERFACE_INCLUDE_DIRECTORIES>]==]
+        INTERFACE_COMPILE_DEFINITIONS [==[$<TARGET_PROPERTY:Trinity-Engine,INTERFACE_COMPILE_DEFINITIONS>]==]
+        INTERFACE_COMPILE_OPTIONS [==[$<TARGET_PROPERTY:Trinity-Engine,INTERFACE_COMPILE_OPTIONS>]==]
+    )
+endif()
+
+# A game module: a library Forge loads, built against this engine at its language level, with its warnings and its C++ runtime, its symbols hidden but those it exports. With global allocations tracked, the module's own new and delete count what its code allocates under Game, so it shows whether the module frees all it took
+function(trinity_add_game_module target)
+    add_library(${target} MODULE ${ARGN})
+    target_link_libraries(${target} PRIVATE Trinity::Engine)
+
+    set_target_properties(${target} PROPERTIES
+        PREFIX ""
+        CXX_STANDARD ${TRINITY_CXX_STANDARD}
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        CXX_SCAN_FOR_MODULES OFF
+        C_VISIBILITY_PRESET hidden
+        CXX_VISIBILITY_PRESET hidden
+        MSVC_RUNTIME_LIBRARY "@TRINITY_PACKAGE_MSVC_RUNTIME@"
+        MSVC_DEBUG_INFORMATION_FORMAT ProgramDatabase
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Modules"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Modules"
+    )
+
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /Zc:preprocessor /Zc:__cplusplus /utf-8)
+        target_link_options(${target} PRIVATE /DEBUG)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual -Wconversion -Wsign-conversion -g)
+    endif()
+
+    # GCC marks some template statics as unique symbols, which stops a module from ever unloading
+    target_compile_options(${target} PRIVATE $<$<CXX_COMPILER_ID:GNU>:-fno-gnu-unique>)
+
+    if(TRINITY_TRACK_GLOBAL_ALLOCATIONS)
+        target_sources(${target} PRIVATE "${TRINITY_GLOBAL_ALLOCATIONS_SOURCE}")
+        target_compile_definitions(${target} PRIVATE TR_GLOBAL_ALLOCATION_TAG=Game)
+        # On Linux the process's first new and delete would take the module's calls too, so the module binds its calls to its own
+        target_link_options(${target} PRIVATE $<$<PLATFORM_ID:Linux>:LINKER:-Bsymbolic-functions>)
+    endif()
+endfunction()

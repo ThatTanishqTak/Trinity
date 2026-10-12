@@ -24,12 +24,14 @@
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/MainThread.hpp"
 #include "Trinity/Core/Memory.hpp"
+#include "Trinity/Core/Process.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Core/SharedLibrary.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Core/Window.hpp"
 
+#include "Trinity/FileSystem/DirectoryWatcher.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/FileSystem/MemorySource.hpp"
 

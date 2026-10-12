@@ -2,13 +2,16 @@
 
 #include "Trinity/Core/FileDialog.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Trinity
@@ -56,6 +59,19 @@ namespace Trinity
             void* Owner = nullptr;
         };
 
+        using EnvironmentVariables = std::vector<std::pair<std::string, std::string>>;
+
+        // A program to run: its full path, its arguments, the folder it starts in, empty for this process's, and the environment it gets, this process's when there is none. A script is not a program, so a batch file runs through cmd.exe
+        struct ProcessRequest
+        {
+            std::filesystem::path Executable;
+            std::span<const std::string> Arguments;
+            std::filesystem::path WorkingDirectory;
+            const EnvironmentVariables* Environment = nullptr;
+            // Read now and then while it runs, and true ends it and every process it started
+            const std::atomic<bool>* Cancel = nullptr;
+        };
+
         void Initialize();
         void Shutdown();
 
@@ -71,6 +87,17 @@ namespace Trinity
         [[nodiscard]] void* LoadSharedLibrary(const std::filesystem::path& path, std::string& error);
         [[nodiscard]] void* GetSharedLibrarySymbol(void* library, const char* name);
         void UnloadSharedLibrary(void* library);
+
+        // This process's environment, names and values in UTF-8
+        [[nodiscard]] EnvironmentVariables GetEnvironment();
+
+        // Runs the program to its end, blocking, and hands each line of its output and errors, in the order written, to onLine as UTF-8 without its line end. Its exit code, or none with the reason in error when it could not start. It counts as ended when the program itself ends, so a server it left running, such as MSVC's PDB server, cannot hold the call open
+        [[nodiscard]] std::optional<int> RunProcess(const ProcessRequest& request, const std::function<void(std::string_view line)>& onLine, std::string& error);
+
+        // A folder and everything below it, watched without blocking. Null on failure, with the reason in error. Each read appends the paths that changed since the last one, relative to the folder, and returns true when more changed than it could tell, so everything should be looked at again
+        [[nodiscard]] void* OpenDirectoryWatch(const std::filesystem::path& directory, std::string& error);
+        [[nodiscard]] bool ReadDirectoryWatch(void* watch, std::vector<std::filesystem::path>& changed);
+        void CloseDirectoryWatch(void* watch);
 
         // UTF-8, and empty when the clipboard holds no text
         [[nodiscard]] std::string GetClipboardText();

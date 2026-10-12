@@ -1,0 +1,8 @@
+# The compilers Trinity was built with, which Forge hands a game module's build. One no longer at its path is left for CMake to find, and TrinityConfig.cmake then checks that it is the same kind and major version
+if(NOT DEFINED CMAKE_C_COMPILER AND EXISTS [==[@CMAKE_C_COMPILER@]==])
+    set(CMAKE_C_COMPILER [==[@CMAKE_C_COMPILER@]==])
+endif()
+
+if(NOT DEFINED CMAKE_CXX_COMPILER AND EXISTS [==[@CMAKE_CXX_COMPILER@]==])
+    set(CMAKE_CXX_COMPILER [==[@CMAKE_CXX_COMPILER@]==])
+endif()

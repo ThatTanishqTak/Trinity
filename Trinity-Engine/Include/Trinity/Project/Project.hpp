@@ -19,8 +19,8 @@ namespace Trinity
     class TRINITY_API Project
     {
     public:
-        // Format 3 added the collision layers, which an older project opens without, every pair colliding, and format 4 each world's gravity and the step rate, which an older project opens with their defaults
-        static constexpr std::uint32_t c_FormatVersion = 4;
+        // Format 3 added the collision layers, which an older project opens without, every pair colliding, format 4 each world's gravity and the step rate, which an older project opens with their defaults, and format 5 the C++ game module, which an older project has none of
+        static constexpr std::uint32_t c_FormatVersion = 5;
         static constexpr std::string_view c_Extension = ".trproj";
         static constexpr std::string_view c_ProjectMount = "/project";
         static constexpr std::string_view c_AssetsMount = "/assets";
@@ -50,9 +50,22 @@ namespace Trinity
         void SetPhysicsSettings(const PhysicsSettings& settings) { m_Physics = settings; }
         [[nodiscard]] const CollisionLayers& GetCollisionLayers() const { return m_Physics.Layers; }
 
+        // The C++ game module built from Source, by its target and library name, or empty for none. Saved with the project, which the caller does
+        [[nodiscard]] const std::string& GetModuleName() const { return m_ModuleName; }
+        void SetModuleName(std::string name);
+        [[nodiscard]] bool HasModule() const { return !m_ModuleName.empty(); }
+
+        // A name a module's target, library and C++ identifiers can all take: a letter, then letters, digits and underscores, up to 64 of them
+        [[nodiscard]] static bool IsValidModuleName(std::string_view name);
+        // The project's name made into one, with what it cannot hold left out, or Game when nothing is left
+        [[nodiscard]] static std::string MakeModuleName(std::string_view projectName);
+
         [[nodiscard]] const std::filesystem::path& GetDirectory() const { return m_Directory; }
         [[nodiscard]] const std::filesystem::path& GetFilePath() const { return m_FilePath; }
         [[nodiscard]] std::filesystem::path GetAssetsDirectory() const;
+        // The module's sources and CMakeLists.txt, and its build trees, one for each configuration, which .gitignore leaves out
+        [[nodiscard]] std::filesystem::path GetSourceDirectory() const;
+        [[nodiscard]] std::filesystem::path GetBuildDirectory() const;
 
         [[nodiscard]] std::optional<std::string> ToAssetPath(const std::filesystem::path& nativePath) const;
         [[nodiscard]] std::filesystem::path ToNativePath(std::string_view assetPath) const;
@@ -69,6 +82,7 @@ namespace Trinity
         UUID m_StartScene;
         std::string m_StartScenePath;
         PhysicsSettings m_Physics;
+        std::string m_ModuleName;
         bool m_Mounted = false;
     };
 }
