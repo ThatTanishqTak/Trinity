@@ -31,7 +31,7 @@ namespace Trinity
         ScriptRuntime(const ScriptRuntime&) = delete;
         ScriptRuntime& operator=(const ScriptRuntime&) = delete;
 
-        // Makes the instances of every Script component added since the last call, the scene's own on the first, and calls OnCreate on each enabled one. A script that a call makes is made in the same call
+        // Makes the instances of every Script component added since the last call, the scene's own on the first, gives each the values of its fields, and calls OnCreate on each enabled one. A script that a call makes is made in the same call
         void CreatePending();
         void FixedUpdate(Timestep step);
         // A step's events, in the order they happened, to every script on both entities

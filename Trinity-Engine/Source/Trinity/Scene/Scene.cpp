@@ -1,5 +1,8 @@
 #include "Trinity/Scene/Scene.hpp"
 
+#include "Trinity/Scene/LiveScenes.hpp"
+#include "Trinity/Scripting/NativeComponentRegistry.hpp"
+
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Profiler.hpp"
@@ -38,9 +41,15 @@ namespace Trinity
     Scene::Scene()
     {
         CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, JointComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent, Joint2DComponent, ScriptComponent, PhysicsPoseComponent, UnknownComponentsComponent>(m_Registry);
+
+        // A module's components get their pools from the module's code, here for those registered now and as each is registered later, and lose them before the module unloads
+        SceneSerializer::AttachScene(*this);
     }
 
-    Scene::~Scene() = default;
+    Scene::~Scene()
+    {
+        SceneSerializer::DetachScene(*this);
+    }
 
     Entity Scene::CreateEntity(std::string_view name)
     {
@@ -109,7 +118,7 @@ namespace Trinity
         m_Registry.destroy(l_Subtree.begin(), l_Subtree.end());
     }
 
-    // A joint in the copy, 3D or 2D, or a script's entity field, that names an entity of the copied subtree names that entity's copy instead, so a duplicated door hangs on its own frame and a duplicated turret aims with its own barrel. The two subtrees have the same shape, so they are walked side by side
+    // A joint in the copy, 3D or 2D, a script's entity field, or a module component's, that names an entity of the copied subtree names that entity's copy instead, so a duplicated door hangs on its own frame and a duplicated turret aims with its own barrel. The two subtrees have the same shape, so they are walked side by side
     Entity Scene::DuplicateEntity(Entity entity)
     {
         TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: DuplicateEntity was given an entity of another scene, or one already destroyed");
@@ -158,6 +167,8 @@ namespace Trinity
                     }
                 }
             }
+
+            NativeComponents::RemapEntityFields(Entity(it_Copy, this), a_Remap);
         }
 
         return Entity(l_Copy, this);

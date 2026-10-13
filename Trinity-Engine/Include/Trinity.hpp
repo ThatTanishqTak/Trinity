@@ -71,11 +71,13 @@
 #include "Trinity/Scene/SimulationClock.hpp"
 
 #include "Trinity/Scripting/GameModule.hpp"
+#include "Trinity/Scripting/NativeComponents.hpp"
 #include "Trinity/Scripting/NativeScripts.hpp"
 #include "Trinity/Scripting/Script.hpp"
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
 #include "Trinity/Scripting/ScriptRuntime.hpp"
+#include "Trinity/Scripting/ScriptTypes.hpp"
 
 #include "Trinity/UI/Icons.hpp"
 #include "Trinity/UI/ImGuiLayer.hpp"

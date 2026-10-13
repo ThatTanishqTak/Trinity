@@ -6,7 +6,9 @@
 
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <optional>
+#include <utility>
 
 // The open project's C++ game module: its Source folder watched, built on a job once the project opens and once its files stop changing, and loaded after each good build. Each build unloads the module first, since the library it writes is the one loaded, which Windows keeps from being written
 class ModuleHost
@@ -30,6 +32,9 @@ public:
     // Built at the next Update, or once the build running ends
     void RequestBuild();
 
+    // Called while the module is still loaded, before anything of it is unregistered, so whatever runs its code can stop first
+    void SetBeforeUnload(std::function<void()> callback) { m_BeforeUnload = std::move(callback); }
+
     [[nodiscard]] static bool IsSupported() { return ModuleBuild::IsSupported(); }
     [[nodiscard]] bool IsBuilding() const { return m_Build.IsRunning(); }
     [[nodiscard]] bool IsLoaded() const { return m_Library.IsLoaded(); }
@@ -47,6 +52,7 @@ private:
     ModuleBuild m_Build;
     Trinity::SharedLibrary m_Library;
     Trinity::GameModule::UnloadFunction m_Unload = nullptr;
+    std::function<void()> m_BeforeUnload;
     // When a source last changed, which a build waits to settle
     std::optional<Clock::time_point> m_ChangedAt;
     bool m_BuildRequested = false;

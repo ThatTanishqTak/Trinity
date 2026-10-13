@@ -96,17 +96,19 @@ namespace
         return true;
     }
 
+    // A string's text, the one part of a value held outside it
+    std::size_t GetScriptValueMemorySize(const Trinity::ScriptFieldValue& value)
+    {
+        return value.GetType() == Trinity::ScriptFieldType::String ? value.Get<Trinity::ScriptString>().capacity() : 0;
+    }
+
     // What an entry holds beyond its own size
     std::size_t GetScriptEntryMemorySize(const Trinity::ScriptEntry& entry)
     {
         std::size_t l_Size = entry.ClassName.capacity() + entry.Fields.capacity() * sizeof(Trinity::ScriptEntry::Field);
         for (const Trinity::ScriptEntry::Field& it_Field : entry.Fields)
         {
-            l_Size += it_Field.Name.capacity();
-            if (it_Field.Value.GetType() == Trinity::ScriptFieldType::String)
-            {
-                l_Size += it_Field.Value.Get<Trinity::ScriptString>().capacity();
-            }
+            l_Size += it_Field.Name.capacity() + GetScriptValueMemorySize(it_Field.Value);
         }
 
         return l_Size;
@@ -614,6 +616,61 @@ std::size_t RemoveComponentCommand::GetMemorySize() const
     return sizeof(*this) + m_Component.capacity() + m_Text.capacity() + m_Label.capacity();
 }
 
+SetNativeFieldCommand::SetNativeFieldCommand(Trinity::UUID entity, std::string component, std::string field, Trinity::ScriptFieldValue value) : m_Entity(entity), m_Component(std::move(component)), m_Field(std::move(field)), m_New(std::move(value))
+{
+
+}
+
+// Refused, so nothing is recorded, when the value is the one the field has, and on a redo once no loaded code knows the component
+bool SetNativeFieldCommand::Execute(Trinity::Scene& scene)
+{
+    const Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
+    if (!l_Entity)
+    {
+        return false;
+    }
+
+    if (!m_Executed)
+    {
+        const std::optional<Trinity::ScriptFieldValue> l_Old = Trinity::NativeComponents::GetField(l_Entity, m_Component, m_Field);
+        if (!l_Old || *l_Old == m_New)
+        {
+            return false;
+        }
+
+        m_Old = *l_Old;
+        m_Label = std::format("Edit {} {} of {}", GetComponentLabel(m_Component), m_Field, GetEntityLabel(l_Entity));
+        m_Executed = true;
+    }
+
+    return Trinity::NativeComponents::SetField(l_Entity, m_Component, m_Field, m_New);
+}
+
+void SetNativeFieldCommand::Undo(Trinity::Scene& scene)
+{
+    if (!Trinity::NativeComponents::SetField(scene.FindEntityByUUID(m_Entity), m_Component, m_Field, m_Old))
+    {
+        TR_ERROR("Forge: {} could not be undone, since no loaded code has {} with that field", m_Label, m_Component);
+    }
+}
+
+bool SetNativeFieldCommand::MergeWith(const EditorCommand& next)
+{
+    const SetNativeFieldCommand* l_Next = dynamic_cast<const SetNativeFieldCommand*>(&next);
+    if (l_Next == nullptr || l_Next->m_Entity != m_Entity || l_Next->m_Component != m_Component || l_Next->m_Field != m_Field)
+    {
+        return false;
+    }
+
+    m_New = l_Next->m_New;
+
+    return true;
+}
+
+std::size_t SetNativeFieldCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Component.capacity() + m_Field.capacity() + m_Label.capacity() + GetScriptValueMemorySize(m_Old) + GetScriptValueMemorySize(m_New);
+}
 
 SetPhysicsSettingsCommand::SetPhysicsSettingsCommand(Writer writer, Trinity::PhysicsSettings before, Trinity::PhysicsSettings after, std::string field) : m_Writer(std::move(writer)), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::format("Edit project {}", m_Field))
 {

@@ -1,5 +1,7 @@
 #include "Trinity/Scene/SceneSerializer.hpp"
 
+#include "Trinity/Scene/LiveScenes.hpp"
+
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
@@ -39,6 +41,7 @@ namespace Trinity
         struct State
         {
             std::vector<ComponentSerializer, TaggedAllocator<ComponentSerializer, MemoryTag::Engine>> Serializers;
+            std::vector<Scene*, TaggedAllocator<Scene*, MemoryTag::Engine>> Scenes;
         };
 
         State* s_State = nullptr;
@@ -720,41 +723,6 @@ namespace Trinity
             reader.Read("SpringDamping", component.SpringDamping);
         }
 
-        void WriteScriptFieldValue(ComponentWriter& writer, const ScriptFieldValue& value)
-        {
-            std::visit([&writer](const auto& data)
-            {
-                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptString>)
-                {
-                    writer.Write("Value", std::string_view(data));
-                }
-                else
-                {
-                    writer.Write("Value", data);
-                }
-            }, value.GetStorage());
-        }
-
-        // A missing or malformed value leaves the one given, which is the type's zero
-        void ReadScriptFieldValue(const ComponentReader& reader, ScriptFieldValue& value)
-        {
-            std::visit([&reader](auto& data)
-            {
-                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptString>)
-                {
-                    std::string l_Text;
-                    if (reader.Read("Value", l_Text))
-                    {
-                        data = l_Text;
-                    }
-                }
-                else
-                {
-                    reader.Read("Value", data);
-                }
-            }, value.GetStorage());
-        }
-
         // Each field on one line with its type, so a class no loaded code has still saves and loads every value exactly
         void SaveScript(const ScriptComponent& component, ComponentWriter& writer)
         {
@@ -768,10 +736,7 @@ namespace Trinity
                 writer.BeginMap("Fields");
                 for (const ScriptEntry::Field& it_Field : it_Entry.Fields)
                 {
-                    writer.BeginInlineMap(it_Field.Name);
-                    writer.Write("Type", ToString(it_Field.Value.GetType()));
-                    WriteScriptFieldValue(writer, it_Field.Value);
-                    writer.End();
+                    writer.Write(it_Field.Name, it_Field.Value);
                 }
 
                 writer.End();
@@ -804,17 +769,14 @@ namespace Trinity
                 item.Read("Enabled", l_Entry.Enabled);
                 item.ReadMap("Fields", [&l_Entry](std::string_view name, const ComponentReader& field)
                 {
-                    std::string l_Type;
-                    const std::optional<ScriptFieldType> l_FieldType = field.Read("Type", l_Type) ? ParseScriptFieldType(l_Type) : std::nullopt;
-                    if (!l_FieldType || l_Entry.FindField(name) != nullptr)
+                    ScriptFieldValue l_Value;
+                    if (!field.ReadValue(l_Value) || l_Entry.FindField(name) != nullptr)
                     {
                         TR_CORE_WARN("Scene: field {} of script {} has a type this build lacks, or repeats, and is left out", name, std::string_view(l_Entry.ClassName));
 
                         return;
                     }
 
-                    ScriptFieldValue l_Value(*l_FieldType);
-                    ReadScriptFieldValue(field, l_Value);
                     l_Entry.Fields.push_back({ TaggedString<MemoryTag::Scene>(name), std::move(l_Value) });
                 });
 
@@ -1031,6 +993,105 @@ namespace Trinity
         SceneRegistry::common_type* FindStorage(Entity entity, std::string_view name)
         {
             return FindSerializer(name) != nullptr ? entity.GetScene()->GetRegistry().storage(GetPoolId(name)) : nullptr;
+        }
+
+        // The YAML a scene file read without the component's code keeps for it, so a component kept this way saves as one kept from a file does
+        std::string ToKeptYaml(const ComponentSerializer & serializer, const void* component)
+        {
+            std::string l_Text;
+            ComponentWriter l_Writer(l_Text, 0);
+            serializer.Save(component, l_Writer);
+            try
+            {
+                return YAML::Dump(YAML::Load(l_Text));
+            }
+            catch (const YAML::Exception& exception)
+            {
+                TR_CORE_ERROR("Scene: {} wrote text that is not valid YAML, kept as it is: {}", serializer.Name, exception.what());
+
+                return l_Text;
+            }
+        }
+
+        // Each of the component in the scene, as YAML in the entity's unknown components, and then the pool, whose code may be about to unload. It goes first among them, where a known component saves, so a module unloading in reverse of how it registered leaves the text as it was
+        std::size_t KeepAsYaml(Scene & scene, const ComponentSerializer & serializer)
+        {
+            SceneRegistry& l_Registry = scene.GetRegistry();
+            const entt::id_type l_PoolId = GetPoolId(serializer.Name);
+            const SceneRegistry::common_type* l_Storage = l_Registry.storage(l_PoolId);
+            if (l_Storage == nullptr)
+            {
+                return 0;
+            }
+
+            const std::vector<entt::entity> l_Entities(l_Storage->begin(), l_Storage->end());
+            for (const entt::entity it_Handle : l_Entities)
+            {
+                Entity l_Entity(it_Handle, &scene);
+                std::string l_Yaml = ToKeptYaml(serializer, l_Storage->value(it_Handle));
+                if (!l_Entity.Has<UnknownComponentsComponent>())
+                {
+                    l_Entity.Add<UnknownComponentsComponent>();
+                }
+
+                auto& l_Entries = l_Entity.Get<UnknownComponentsComponent>().Entries;
+                l_Entries.insert(l_Entries.begin(), { TaggedString<MemoryTag::Scene>(serializer.Name), TaggedString<MemoryTag::Scene>(l_Yaml) });
+            }
+
+            static_cast<void>(l_Registry.reset(l_PoolId));
+
+            return l_Entities.size();
+        }
+
+        // The pool, then each of the component the scene keeps as YAML, loaded into it and no longer kept. YAML that cannot be read stays kept
+        std::size_t LoadKept(Scene & scene, const ComponentSerializer & serializer)
+        {
+            SceneRegistry& l_Registry = scene.GetRegistry();
+            serializer.CreateStorage(l_Registry);
+            SceneRegistry::common_type* l_Storage = l_Registry.storage(GetPoolId(serializer.Name));
+            if (l_Storage == nullptr)
+            {
+                TR_CORE_ERROR("Scene: {} made no pool under its own name", serializer.Name);
+
+                return 0;
+            }
+
+            const auto l_View = l_Registry.view<UnknownComponentsComponent>();
+            const std::vector<entt::entity> l_Entities(l_View.begin(), l_View.end());
+            std::size_t l_Loaded = 0;
+            for (const entt::entity it_Handle : l_Entities)
+            {
+                Entity l_Entity(it_Handle, &scene);
+                auto& l_Entries = l_Entity.Get<UnknownComponentsComponent>().Entries;
+                const auto a_Kept = std::ranges::find_if(l_Entries, [&serializer](const UnknownComponentsComponent::Entry& entry) { return std::string_view(entry.Name) == serializer.Name; });
+                if (a_Kept == l_Entries.end())
+                {
+                    continue;
+                }
+
+                YAML::Node l_Node;
+                try
+                {
+                    l_Node = YAML::Load(std::string(std::string_view(a_Kept->Yaml)));
+                }
+                catch (const YAML::Exception& exception)
+                {
+                    TR_CORE_ERROR("Scene: {} on entity {} is kept as YAML that cannot be read, and stays kept: {}", serializer.Name, l_Entity.GetUUID(), exception.what());
+
+                    continue;
+                }
+
+                LoadComponent(l_Entity, serializer, *l_Storage, l_Node);
+                l_Entries.erase(a_Kept);
+                if (l_Entries.empty())
+                {
+                    l_Entity.Remove<UnknownComponentsComponent>();
+                }
+
+                ++l_Loaded;
+            }
+
+            return l_Loaded;
         }
     }
 
@@ -1258,6 +1319,24 @@ namespace Trinity
     {
         WriteKey(key);
         *m_Output += FormatFloats(std::array{ value.x, value.y, value.z, value.w });
+    }
+
+    void ComponentWriter::Write(std::string_view key, const ScriptFieldValue & value)
+    {
+        BeginInlineMap(key);
+        Write("Type", ToString(value.GetType()));
+        std::visit([this](const auto& data)
+        {
+            if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptString>)
+            {
+                Write("Value", std::string_view(data));
+            }
+            else
+            {
+                Write("Value", data);
+            }
+        }, value.GetStorage());
+        End();
     }
 
     void ComponentWriter::WriteValue(std::string_view value)
@@ -1510,6 +1589,48 @@ namespace Trinity
         return true;
     }
 
+    bool ComponentReader::Read(std::string_view key, ScriptFieldValue& value) const
+    {
+        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
+        if (!l_Value)
+        {
+            return false;
+        }
+
+        return ComponentReader(*l_Value, m_ComponentName).ReadValue(value);
+    }
+
+    bool ComponentReader::ReadValue(ScriptFieldValue& value) const
+    {
+        std::string l_TypeName;
+        const std::optional<ScriptFieldType> l_Type = m_Node->IsMap() && Read("Type", l_TypeName) ? ParseScriptFieldType(l_TypeName) : std::nullopt;
+        if (!l_Type)
+        {
+            return false;
+        }
+
+        ScriptFieldValue l_Read(*l_Type);
+        std::visit([this](auto& data)
+        {
+            if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptString>)
+            {
+                std::string l_Text;
+                if (Read("Value", l_Text))
+                {
+                    data = l_Text;
+                }
+            }
+            else
+            {
+                Read("Value", data);
+            }
+        }, l_Read.GetStorage());
+
+        value = std::move(l_Read);
+
+        return true;
+    }
+
     bool ComponentReader::ReadList(std::string_view key, const std::function<void(const ComponentReader& item)>& read) const
     {
         const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
@@ -1601,6 +1722,32 @@ namespace Trinity
             s_State = nullptr;
         }
 
+        // A serializer registered before the scene was made gives it its pool here, as one registered after gives it at RegisterComponent
+        void AttachScene(Scene& scene)
+        {
+            if (s_State == nullptr)
+            {
+                return;
+            }
+
+            s_State->Scenes.push_back(&scene);
+            for (const ComponentSerializer& it_Serializer : s_State->Serializers)
+            {
+                if (it_Serializer.CreateStorage != nullptr)
+                {
+                    it_Serializer.CreateStorage(scene.GetRegistry());
+                }
+            }
+        }
+
+        void DetachScene(Scene& scene)
+        {
+            if (s_State != nullptr)
+            {
+                std::erase(s_State->Scenes, &scene);
+            }
+        }
+
         bool RegisterComponent(const ComponentSerializer& serializer)
         {
             TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
@@ -1620,6 +1767,21 @@ namespace Trinity
             }
 
             s_State->Serializers.push_back(serializer);
+            if (serializer.CreateStorage == nullptr)
+            {
+                return true;
+            }
+
+            std::size_t l_Loaded = 0;
+            for (Scene* it_Scene : s_State->Scenes)
+            {
+                l_Loaded += LoadKept(*it_Scene, serializer);
+            }
+
+            if (l_Loaded != 0)
+            {
+                TR_CORE_INFO("Scene: loaded {} {} component(s) kept as YAML while no loaded code knew that component", l_Loaded, serializer.Name);
+            }
 
             return true;
         }
@@ -1627,6 +1789,23 @@ namespace Trinity
         void UnregisterComponent(std::string_view name)
         {
             TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            const ComponentSerializer* l_Serializer = FindSerializer(name);
+            if (l_Serializer == nullptr)
+            {
+                return;
+            }
+
+            std::size_t l_Kept = 0;
+            for (Scene* it_Scene : s_State->Scenes)
+            {
+                l_Kept += KeepAsYaml(*it_Scene, *l_Serializer);
+            }
+
+            if (l_Kept != 0)
+            {
+                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since the code that knows that component is unloading", l_Kept, name);
+            }
 
             std::erase_if(s_State->Serializers, [name](const ComponentSerializer& serializer) { return serializer.Name == name; });
         }

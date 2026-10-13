@@ -8,7 +8,9 @@
 
 namespace Trinity
 {
+    class Scene;
     class ScriptRuntime;
+    struct ScriptEntry;
 
     // One language's side of scripting: it makes and frees instances of the classes its code registered and calls their lifecycle. An instance is opaque to the runtime, a pointer for C++ and a GC handle for C#. The runtime calls only the callbacks the class has, and only on the main thread
     class ScriptBackend
@@ -21,6 +23,8 @@ namespace Trinity
         // An instance of the class for the script on the entity, or null, logged, when none can be made
         [[nodiscard]] virtual void* CreateInstance(const ScriptClassDescription& description, Entity entity, ScriptRuntime& runtime) = 0;
         virtual void DestroyInstance(void* instance) = 0;
+        // Each field of the class, with the value the entry gives it, into the instance. The scene is the one it runs in, where an entity field finds its entity
+        virtual void ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) = 0;
 
         virtual void OnCreate(void* instance) = 0;
         virtual void OnFixedUpdate(void* instance, Timestep step) = 0;

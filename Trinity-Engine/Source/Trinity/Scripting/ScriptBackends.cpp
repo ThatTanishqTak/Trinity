@@ -6,6 +6,7 @@
 #include "Trinity/Scripting/NativeScripts.hpp"
 
 #include <algorithm>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -21,21 +22,22 @@ namespace Trinity
             TaggedString<MemoryTag::Scripting> Name;
             NativeScripts::CreateFunction Create = nullptr;
             NativeScripts::DestroyFunction Destroy = nullptr;
+            std::vector<NativeScripts::SetFieldFunction, TaggedAllocator<NativeScripts::SetFieldFunction, MemoryTag::Scripting>> Fields;
         };
 
         [[nodiscard]] ScriptLanguage GetLanguage() const override { return ScriptLanguage::Cpp; }
 
         [[nodiscard]] void* CreateInstance(const ScriptClassDescription& description, Entity entity, ScriptRuntime& runtime) override
         {
-            const auto a_Found = std::ranges::find_if(m_Factories, [&description](const Factory& factory) { return factory.Name == description.Name; });
-            if (a_Found == m_Factories.end())
+            const Factory* l_Factory = Find(description.Name);
+            if (l_Factory == nullptr)
             {
                 TR_CORE_ERROR("Scripting: C++ class {} is registered without a way to make it", std::string_view(description.Name));
 
                 return nullptr;
             }
 
-            Script* l_Script = a_Found->Create();
+            Script* l_Script = l_Factory->Create();
             if (l_Script == nullptr)
             {
                 TR_CORE_ERROR("Scripting: C++ class {} made no instance", std::string_view(description.Name));
@@ -45,7 +47,7 @@ namespace Trinity
 
             l_Script->m_Entity = entity;
             l_Script->m_Runtime = &runtime;
-            l_Script->m_Release = a_Found->Destroy;
+            l_Script->m_Release = l_Factory->Destroy;
 
             return l_Script;
         }
@@ -55,6 +57,23 @@ namespace Trinity
             Script* l_Script = static_cast<Script*>(instance);
             l_Script->m_Release(l_Script);
         }
+
+        // The class was registered with a setter for each of its fields, in the same order
+        void ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) override
+        {
+            const Factory* l_Factory = Find(description.Name);
+            if (l_Factory == nullptr || l_Factory->Fields.size() != description.Fields.size())
+            {
+                return;
+            }
+
+            Script* l_Script = static_cast<Script*>(instance);
+            for (std::size_t it_Index = 0; it_Index < description.Fields.size(); ++it_Index)
+            {
+                l_Factory->Fields[it_Index](l_Script, ScriptClassRegistry::GetFieldValue(entry, description.Fields[it_Index]), scene);
+            }
+        }
+
 
         void OnCreate(void* instance) override { static_cast<Script*>(instance)->OnCreate(); }
         void OnFixedUpdate(void* instance, Timestep step) override { static_cast<Script*>(instance)->OnFixedUpdate(step); }
@@ -91,6 +110,13 @@ namespace Trinity
         [[nodiscard]] bool IsEmpty() const { return m_Factories.empty(); }
 
     private:
+        [[nodiscard]] const Factory* Find(std::string_view name) const
+        {
+            const auto a_Found = std::ranges::find_if(m_Factories, [name](const Factory& factory) { return std::string_view(factory.Name) == name; });
+
+            return a_Found != m_Factories.end() ? &*a_Found : nullptr;
+        }
+
         std::vector<Factory, TaggedAllocator<Factory, MemoryTag::Scripting>> m_Factories;
     };
 
@@ -129,7 +155,7 @@ namespace Trinity
 
     namespace NativeScripts
     {
-        bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy)
+        bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy, std::span<const SetFieldFunction> fields)
         {
             TR_CORE_ASSERT(s_Native != nullptr, "The script backends are not initialized.");
 
@@ -140,13 +166,23 @@ namespace Trinity
                 return false;
             }
 
+            if (fields.size() != description.Fields.size() || std::ranges::find(fields, nullptr) != fields.end())
+            {
+                TR_CORE_ERROR("Scripting: C++ class {} has {} field(s) and {} setter(s), and needs one setter a field", std::string_view(description.Name), description.Fields.size(), fields.size());
+
+                return false;
+            }
+
             description.Language = ScriptLanguage::Cpp;
             if (!ScriptClassRegistry::Register(description))
             {
                 return false;
             }
 
-            return s_Native->Add({ TaggedString<MemoryTag::Scripting>(std::string_view(description.Name)), create, destroy });
+            NativeScriptBackend::Factory l_Factory{ TaggedString<MemoryTag::Scripting>(std::string_view(description.Name)), create, destroy, {} };
+            l_Factory.Fields.assign(fields.begin(), fields.end());
+
+            return s_Native->Add(std::move(l_Factory));
         }
 
         // Instances of the class still alive keep their own way to be freed, but no more are made

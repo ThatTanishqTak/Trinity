@@ -1115,7 +1115,7 @@ void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetT
     ImGui::EndPopup();
 }
 
-// Components the engine or a module registered without an editor here, and those no loaded code knows, which are kept as they were read
+// A module's components, each field with the editor a script's field of its type has, then components registered without fields to edit, and those no loaded code knows, which are kept as they were read
 void PropertiesPanel::DrawOtherComponents(Trinity::Entity entity)
 {
     for (const std::string_view it_Name : Trinity::SceneSerializer::GetComponentNames())
@@ -1125,10 +1125,38 @@ void PropertiesPanel::DrawOtherComponents(Trinity::Entity entity)
             continue;
         }
 
-        if (BeginComponent(it_Name, Trinity::Icons::c_Gear, true))
+        if (!BeginComponent(it_Name, Trinity::Icons::c_Gear, true))
+        {
+            continue;
+        }
+
+        const Trinity::NativeComponentDescription* l_Component = Trinity::NativeComponents::Find(it_Name);
+        if (l_Component == nullptr)
         {
             ImGui::TextDisabled("No editor for this component yet");
+
+            continue;
         }
+
+        if (l_Component->Fields.empty())
+        {
+            ImGui::TextDisabled("No fields");
+        }
+
+        ImGui::PushID(it_Name.data(), it_Name.data() + it_Name.size());
+        for (const Trinity::ScriptFieldDescription& it_Field : l_Component->Fields)
+        {
+            std::optional<Trinity::ScriptFieldValue> l_Value = Trinity::NativeComponents::GetField(entity, it_Name, it_Field.Name);
+            ImGui::PushID(it_Field.Name.c_str());
+            if (l_Value && DrawScriptValue(it_Field, *l_Value))
+            {
+                m_Session.GetHistory().Execute(Trinity::CreateScope<SetNativeFieldCommand>(entity.GetUUID(), std::string(it_Name), std::string(std::string_view(it_Field.Name)), std::move(*l_Value)));
+            }
+
+            ImGui::PopID();
+        }
+
+        ImGui::PopID();
     }
 
     if (!entity.Has<Trinity::UnknownComponentsComponent>())

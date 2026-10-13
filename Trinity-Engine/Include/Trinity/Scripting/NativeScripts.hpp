@@ -7,6 +7,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <span>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -18,9 +19,11 @@ namespace Trinity
     {
         using CreateFunction = Script * (*)();
         using DestroyFunction = void (*)(Script* script);
+        // Gives one field's value to an instance, before its OnCreate. The scene is the one the instance runs in, where an entity field finds its entity
+        using SetFieldFunction = void (*)(Script* script, const ScriptFieldValue& value, Scene& scene);
 
-        // Registers the class with the script class registry as a C++ class, its language set to C++. Refused as the registry refuses it, or without both functions
-        TRINITY_API bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy);
+        // Registers the class with the script class registry as a C++ class, its language set to C++, with a setter for each of its fields in their order. Refused as the registry refuses it, without both functions, or without a setter for every field
+        TRINITY_API bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy, std::span<const SetFieldFunction> fields = {});
         TRINITY_API void Unregister(std::string_view name);
 
         // The callbacks T overrides, found from the type of each one through T, which names Script while T and its bases leave it alone
@@ -64,11 +67,11 @@ namespace Trinity
         // T's instances are made and freed here, in the code that registers it, under the Game tag, and only the callbacks it overrides are called
         template<std::derived_from<Script> T>
             requires std::default_initializable<T>
-        bool Register(ScriptClassDescription description)
+        bool Register(ScriptClassDescription description, std::span<const SetFieldFunction> fields = {})
         {
             description.Callbacks = GetCallbacks<T>();
 
-            return Register(std::move(description), []() -> Script* { return Memory::New<T>(MemoryTag::Game); }, [](Script* script) { Memory::Delete(static_cast<T*>(script)); });
+            return Register(std::move(description), []() -> Script* { return Memory::New<T>(MemoryTag::Game); }, [](Script* script) { Memory::Delete(static_cast<T*>(script)); }, fields);
         }
     }
 }

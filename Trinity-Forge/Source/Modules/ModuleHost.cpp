@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <format>
 #include <string>
 #include <string_view>
@@ -24,20 +25,50 @@ file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/
 trinity_add_game_module(@NAME@ ${MODULE_SOURCES})
 )";
 
-    constexpr std::string_view c_SourceTemplate = R"(#include <Trinity/Core/Log.hpp>
-#include <Trinity/Scripting/GameModule.hpp>
+    constexpr std::string_view c_SourceTemplate = R"(#include <Trinity.hpp>
 
-// Forge calls this after it loads the module, which it does after each good build
-TR_GAME_MODULE_EXPORT void TrinityModuleLoad()
-{
-    TR_INFO("@NAME@: loaded");
-}
+// The module's exports, which register every TR_SCRIPT and TR_COMPONENT of the module as Forge loads it, after each good build, and unregister them before Forge unloads it, before each build and as the project closes
+TR_GAME_MODULE();
 
-// And this before it unloads the module, which it does before each build and as the project closes
-TR_GAME_MODULE_EXPORT void TrinityModuleUnload()
-{
-    TR_INFO("@NAME@: unloaded");
-}
+// A script class: its fields are public members, listed in a TR_SCRIPT block at global scope, and their defaults are the values a new instance has. Add Script in Properties lists it once the module is built
+//
+// namespace @NAME@
+// {
+//     class Mover : public Trinity::Script
+//     {
+//     public:
+//         float Speed = 1.0f;
+//
+//         void OnUpdate(Trinity::Timestep timestep) override
+//         {
+//             GetEntity().Patch<Trinity::TransformComponent>([&](Trinity::TransformComponent& transform) { transform.Position.y += Speed * timestep; });
+//         }
+//     };
+// }
+//
+// TR_SCRIPT(@NAME@::Mover)
+// {
+//     TR_FIELD(Speed);
+// }
+//
+// A component, which names itself, saves and loads through the fields its TR_COMPONENT block lists, and is kept in the scene while the module is not loaded. Add Component in Properties lists it
+//
+// namespace @NAME@
+// {
+//     struct Health
+//     {
+//         static constexpr std::string_view c_TypeName = "@NAME@.Health";
+//
+//         float Current = 100.0f;
+//         float Max = 100.0f;
+//     };
+// }
+//
+// TR_COMPONENT(@NAME@::Health)
+// {
+//     TR_FIELD(Current);
+//     TR_FIELD(Max);
+// }
 )";
 
     std::string FillTemplate(std::string_view text, std::string_view name, std::string_view project)
@@ -232,6 +263,17 @@ void ModuleHost::Load(const std::filesystem::path& library)
         return;
     }
 
+    // A module that says which version of the module API it was built against must have this one, or what it registers could not be read the way it was written
+    if (const Trinity::GameModule::ApiVersionFunction l_Version = l_Library->GetFunction<Trinity::GameModule::ApiVersionFunction>(Trinity::GameModule::c_ApiVersionFunction))
+    {
+        if (const std::uint32_t l_Built = l_Version(); l_Built != Trinity::GameModule::c_ApiVersion)
+        {
+            TR_ERROR("Forge: {} was built for version {} of the module API, and this Forge has version {}, so it is not loaded. Building it again builds it for this one", m_Project->GetModuleName(), l_Built, Trinity::GameModule::c_ApiVersion);
+
+            return;
+        }
+    }
+
     m_Library = std::move(*l_Library);
     m_Unload = m_Library.GetFunction<Trinity::GameModule::UnloadFunction>(Trinity::GameModule::c_UnloadFunction);
     TR_INFO("Forge: loaded the C++ module {}", m_Project->GetModuleName());
@@ -251,6 +293,11 @@ void ModuleHost::Unload()
     if (!m_Library.IsLoaded())
     {
         return;
+    }
+
+    if (m_BeforeUnload)
+    {
+        m_BeforeUnload();
     }
 
     if (m_Unload != nullptr)

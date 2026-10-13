@@ -106,6 +106,16 @@ EditorSession::~EditorSession()
 
 void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
 {
+    // The running copy has instances of the module's classes and its components, so play stops before the module unloads for a build
+    m_Module.SetBeforeUnload([this]
+    {
+        if (IsPlaying())
+        {
+            TR_INFO("Forge: the C++ module is unloading, so play stops");
+            StopPlay();
+        }
+    });
+
     if (const auto it_Directory = args.GetOption("new-project"))
     {
         CreateProject(FromUtf8(*it_Directory));
@@ -196,7 +206,7 @@ bool EditorSession::RequestClose()
     return false;
 }
 
-// Refresh comes whenever Forge regains focus, which leaves a playing scene running, as a build does
+// Refresh comes whenever Forge regains focus, which leaves a playing scene running. A build stops it as it unloads the module, and not when there is none to unload
 void EditorSession::Run(Command command)
 {
     if (command != Command::Refresh && command != Command::BuildModule)

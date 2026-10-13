@@ -233,6 +233,30 @@ private:
     bool m_AddedComponent = false;
 };
 
+// One field of a module's component, named by the component's name and the field's, so the edit still undoes once the module is built and loaded again. Edits of one field in a row become one
+class SetNativeFieldCommand final : public EditorCommand
+{
+public:
+    SetNativeFieldCommand(Trinity::UUID entity, std::string component, std::string field, Trinity::ScriptFieldValue value);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::UUID m_Entity;
+    std::string m_Component;
+    std::string m_Field;
+    Trinity::ScriptFieldValue m_Old;
+    Trinity::ScriptFieldValue m_New;
+    std::string m_Label;
+    bool m_Executed = false;
+};
+
 // The field names what was edited, and edits of one field in a row become one. A label, when given, names the command in place of one made from the field
 template<Trinity::Component T>
 class SetComponentCommand final : public EditorCommand

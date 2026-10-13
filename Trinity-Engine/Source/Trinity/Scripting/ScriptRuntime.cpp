@@ -280,6 +280,10 @@ namespace Trinity
                     l_Instance.Handle = l_Backend->CreateInstance(*l_Class, l_Entity, *this);
                     l_Instance.Backend = l_Instance.Handle != nullptr ? l_Backend : nullptr;
                     l_Instance.Callbacks = l_Class->Callbacks;
+                    if (l_Instance.Handle != nullptr)
+                    {
+                        l_Backend->ApplyFields(l_Instance.Handle, *l_Class, l_Entry, l_State.TargetScene);
+                    }
                 }
                 else
                 {

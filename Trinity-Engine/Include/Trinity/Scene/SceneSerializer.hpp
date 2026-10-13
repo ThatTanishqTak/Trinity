@@ -5,6 +5,8 @@
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Scene/ComponentType.hpp"
+#include "Trinity/Scene/Scene.hpp"
+#include "Trinity/Scripting/ScriptField.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -25,7 +27,6 @@ namespace YAML
 namespace Trinity
 {
     class Entity;
-    class Scene;
 
     class TRINITY_API ComponentWriter
     {
@@ -48,6 +49,8 @@ namespace Trinity
         void Write(std::string_view key, const glm::quat& value);
         void Write(std::string_view key, std::span<const UUID> values);
         void Write(std::string_view key, std::span<const glm::vec2> values);
+        // A field with its type, on one line, such as Speed: {Type: Float, Value: 5}
+        void Write(std::string_view key, const ScriptFieldValue& value);
 
         void WriteValue(std::string_view value);
 
@@ -109,7 +112,12 @@ namespace Trinity
         bool Read(std::string_view key, std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>>& values) const;
         bool Read(std::string_view key, std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>>& values) const;
 
+        // A field written with its type, read as the type the text gives, which replaces the value's own. False, leaving the value, when the key is missing or the type is not one this build has
+        bool Read(std::string_view key, ScriptFieldValue& value) const;
+
         bool ReadValue(std::string& value) const;
+        // This node as a field written with its type, as Read reads the value of a key. A malformed value reads as its type's zero
+        bool ReadValue(ScriptFieldValue& value) const;
 
         // Each item of the sequence under the key, in order, read as a component is. False when the key is missing or not a sequence
         bool ReadList(std::string_view key, const std::function<void(const ComponentReader& item)>& read) const;
@@ -121,17 +129,20 @@ namespace Trinity
         std::string_view m_ComponentName;
     };
 
+    // How a component saves and loads, and how a scene makes its pool, which for a module's component is the module's code. The name, and every function, must stay valid until the component is unregistered
     struct ComponentSerializer
     {
         std::string_view Name;
         void (*Save)(const void* component, ComponentWriter& writer) = nullptr;
         void (*Load)(void* component, const ComponentReader& reader) = nullptr;
+        void (*CreateStorage)(SceneRegistry& registry) = nullptr;
     };
+
 
     template<Component T, auto SaveFunction, auto LoadFunction>
     [[nodiscard]] ComponentSerializer MakeComponentSerializer()
     {
-        return { T::c_TypeName, [](const void* component, ComponentWriter& writer) { SaveFunction(*static_cast<const T*>(component), writer); }, [](void* component, const ComponentReader& reader) { LoadFunction(*static_cast<T*>(component), reader); } };
+        return { T::c_TypeName, [](const void* component, ComponentWriter& writer) { SaveFunction(*static_cast<const T*>(component), writer); }, [](void* component, const ComponentReader& reader) { LoadFunction(*static_cast<T*>(component), reader); }, [](SceneRegistry& registry) { static_cast<void>(registry.storage<T>()); } };
     }
 
     namespace SceneSerializer
@@ -141,7 +152,9 @@ namespace Trinity
         TRINITY_API void Initialize();
         TRINITY_API void Shutdown();
 
+        // Gives every scene there is the component's pool, and loads again each of the component kept as YAML while no loaded code knew it
         TRINITY_API bool RegisterComponent(const ComponentSerializer& serializer);
+        // Keeps each of the component in every scene there is as YAML, as a scene file read without its code would, and drops its pool, which a module's code destroys, so unregister before that code unloads
         TRINITY_API void UnregisterComponent(std::string_view name);
         [[nodiscard]] TRINITY_API std::vector<std::string_view> GetComponentNames();
 
