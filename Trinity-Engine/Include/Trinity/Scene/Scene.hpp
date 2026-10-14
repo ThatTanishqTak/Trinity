@@ -18,6 +18,7 @@
 namespace Trinity
 {
     class Entity;
+    struct TransformComponent;
 
     using SceneRegistry = entt::basic_registry<entt::entity, TaggedAllocator<entt::entity, MemoryTag::Scene>>;
 
@@ -45,6 +46,10 @@ namespace Trinity
 
         void UpdateWorldTransforms();
         [[nodiscard]] glm::mat4 ComputeWorldMatrix(Entity entity) const;
+        // The entity's place in the world, from its transform and its parents', with any shear dropped
+        [[nodiscard]] TransformComponent ComputeWorldTransform(Entity entity) const;
+        // Puts the entity at a place in the world by setting its transform relative to its parent, as Entity::Replace does, so a running scene's physics teleports its body
+        void SetWorldTransform(Entity entity, const TransformComponent& world);
 
         [[nodiscard]] Entity GetFirstRoot();
         [[nodiscard]] Entity GetNextInHierarchyOrder(Entity entity);

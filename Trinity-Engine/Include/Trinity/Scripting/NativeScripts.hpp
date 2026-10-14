@@ -30,9 +30,11 @@ namespace Trinity
             SetFieldFunction Set = nullptr;
         };
 
-        // Registers the class with the script class registry as a C++ class, its language set to C++, with a getter and a setter for each of its fields in their order. Refused as the registry refuses it, without both functions, or without both for every field
-        TRINITY_API bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy, std::span<const FieldAccess> fields = {});
+        // Registers the class with the script class registry as a C++ class, its language set to C++, with a getter and a setter for each of its fields in their order, and the address Script::GetScript finds its instances by, Detail::s_ScriptType of the class. Refused as the registry refuses it, without both functions, or without both for every field
+        TRINITY_API bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy, std::span<const FieldAccess> fields = {}, const void* type = nullptr);
         TRINITY_API void Unregister(std::string_view name);
+        // The name a class was registered under by its type, or empty
+        [[nodiscard]] TRINITY_API std::string_view FindClassName(const void* type);
 
         // The callbacks T overrides, found from the type of each one through T, which names Script while T and its bases leave it alone
         template<std::derived_from<Script> T>
@@ -77,14 +79,14 @@ namespace Trinity
             return l_Callbacks;
         }
 
-        // T's instances are made and freed here, in the code that registers it, under the Game tag, and only the callbacks it overrides are called
+        // T's instances are made and freed here, in the code that registers it, under the Game tag, only the callbacks it overrides are called, and Script::GetScript finds them as T
         template<std::derived_from<Script> T>
             requires std::default_initializable<T>
         bool Register(ScriptClassDescription description, std::span<const FieldAccess> fields = {})
         {
             description.Callbacks = GetCallbacks<T>();
 
-            return Register(std::move(description), []() -> Script* { return Memory::New<T>(MemoryTag::Game); }, [](Script* script) { Memory::Delete(static_cast<T*>(script)); }, fields);
+            return Register(std::move(description), []() -> Script* { return Memory::New<T>(MemoryTag::Game); }, [](Script* script) { Memory::Delete(static_cast<T*>(script)); }, fields, &Detail::s_ScriptType<T>);
         }
     }
 }

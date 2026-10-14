@@ -425,22 +425,22 @@ void ForgeLayer::DrawPlayControls()
         return l_Pressed;
     };
 
-    if (a_Button(Trinity::Icons::c_Play, "Play", m_Session.HasProject() && (!l_Playing || l_Paused), l_Playing && !l_Paused, l_Paused ? "Resume (Ctrl+Shift+P)" : "Play: runs a copy of the scene in the Game panel, which Stop throws away (Ctrl+P)"))
+    if (a_Button(Trinity::Icons::c_Play, "Play", m_Session.HasProject() && (!l_Playing || l_Paused), l_Playing && !l_Paused, l_Paused ? "Resume (Ctrl+Shift+P)" : "Play (Ctrl+P)"))
     {
         m_Session.RequestPlay();
     }
 
-    if (a_Button(Trinity::Icons::c_Pause, "Pause", l_Playing, l_Paused, "Pause: holds the copy where it is (Ctrl+Shift+P)"))
+    if (a_Button(Trinity::Icons::c_Pause, "Pause", l_Playing, l_Paused, "Pause (Ctrl+Shift+P)"))
     {
         m_Session.RequestPause();
     }
 
-    if (a_Button(Trinity::Icons::c_StepForward, "Step", l_Playing, false, "Step: pauses, and takes one fixed step (Ctrl+Alt+P)"))
+    if (a_Button(Trinity::Icons::c_StepForward, "Step", l_Playing, false, "Step (Ctrl+Alt+P)"))
     {
         m_Session.RequestStep();
     }
 
-    if (a_Button(Trinity::Icons::c_Stop, "Stop", l_Playing, false, "Stop: throws the copy away, leaving the scene as it was before Play (Ctrl+P)"))
+    if (a_Button(Trinity::Icons::c_Stop, "Stop", l_Playing, false, "Stop (Ctrl+P)"))
     {
         m_Session.RequestStop();
     }

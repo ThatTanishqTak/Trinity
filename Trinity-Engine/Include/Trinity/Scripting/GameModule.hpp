@@ -67,7 +67,7 @@ namespace Trinity::GameModule
     inline constexpr const char* c_ApiVersionFunction = "TrinityModuleGetApiVersion";
 
     // Raised whenever what TR_GAME_MODULE exports, or how it registers, changes, so Forge refuses a module built against other engine headers rather than calling into it
-    inline constexpr std::uint32_t c_ApiVersion = 2;
+    inline constexpr std::uint32_t c_ApiVersion = 3;
 
     // What a TR_SCRIPT or TR_COMPONENT block describes through TR_FIELD: each field's name, its type from the member's, and its default from a default-made T, with how its value reaches an instance, or a component's is read and written
     template<typename T>
