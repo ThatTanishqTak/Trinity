@@ -6,7 +6,7 @@
 #if defined(TR_DOTNET)
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Platform.hpp"
-#include "Trinity/Scripting/Interop.hpp"
+#include "Trinity/Scripting/ManagedScripts.hpp"
 
 #include <coreclr_delegates.h>
 #include <hostfxr.h>
@@ -35,14 +35,29 @@ namespace Trinity
 #endif
 
         constexpr const char_t* c_HostType = TR_DOTNET_TEXT("Trinity.Interop.Host, Trinity-ScriptCore");
+        constexpr const char_t* c_ScriptHostType = TR_DOTNET_TEXT("Trinity.Interop.ScriptHost, Trinity-ScriptCore");
+
+        // ScriptCore's entry points the engine keeps, all set once the runtime has started
+        struct EntryPoints
+        {
+            void (CORECLR_DELEGATE_CALLTYPE* Shutdown)() = nullptr;
+            std::int64_t(CORECLR_DELEGATE_CALLTYPE* MeasureInterop)(std::int32_t calls) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* LoadAssembly)(const char* path, std::int32_t length) = nullptr;
+            void (CORECLR_DELEGATE_CALLTYPE* UnloadAssembly)() = nullptr;
+            std::intptr_t(CORECLR_DELEGATE_CALLTYPE* CreateInstance)(std::int32_t classIndex, std::uint64_t entity) = nullptr;
+            void (CORECLR_DELEGATE_CALLTYPE* DestroyInstance)(std::intptr_t instance) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* SetField)(std::intptr_t instance, std::int32_t field, const Interop::FieldValue* value) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* GetField)(std::intptr_t instance, std::int32_t field, Interop::FieldValue* value) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* Invoke)(std::intptr_t instance, std::int32_t callback, float timestep) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* InvokePhysics)(std::intptr_t instance, std::int32_t type, const Interop::Collision* collision) = nullptr;
+        };
 
         // What the runtime was started with and the entry points of ScriptCore. None of it is allocated, since .NET outlives every memory tag
         struct State
         {
             void* HostFxr = nullptr;
             bool Started = false;
-            void (CORECLR_DELEGATE_CALLTYPE* Shutdown)() = nullptr;
-            std::int64_t(CORECLR_DELEGATE_CALLTYPE* MeasureInterop)(std::int32_t calls) = nullptr;
+            EntryPoints Entry;
             std::array<char, 64> Description{};
             std::size_t DescriptionLength = 0;
         };
@@ -94,14 +109,14 @@ namespace Trinity
         struct SharedType
         {
             std::string_view Name;
-            std::array<std::string_view, 4> FieldNames{};
+            std::array<std::string_view, 6> FieldNames{};
             Interop::TypeLayout Layout{};
         };
 
         template<typename T, typename... TFields>
-        SharedType Describe(std::string_view name, std::array<std::string_view, 4> fieldNames, const T& value, const TFields&... fields)
+        SharedType Describe(std::string_view name, std::array<std::string_view, 6> fieldNames, const T& value, const TFields&... fields)
         {
-            static_assert(sizeof...(TFields) <= 4, "A shared type has at most four fields here.");
+            static_assert(sizeof...(TFields) <= 6, "A shared type has at most six fields here.");
 
             SharedType l_Type{ name, fieldNames,{} };
             l_Type.Layout.Size = static_cast<std::int32_t>(sizeof(T));
@@ -113,7 +128,7 @@ namespace Trinity
         }
 
         // In the order of Host.DescribeLayouts
-        std::array<SharedType, 7> DescribeSharedTypes()
+        std::array<SharedType, 9> DescribeSharedTypes()
         {
             const Interop::Vector2 l_Vector2{};
             const Interop::Vector3 l_Vector3{};
@@ -122,6 +137,8 @@ namespace Trinity
             const Interop::Color l_Color{};
             const Interop::Matrix4x4 l_Matrix{};
             const Interop::Utf8 l_Text{};
+            const Interop::FieldValue l_Value{};
+            const Interop::Collision l_Collision{};
 
             return
             {
@@ -131,15 +148,17 @@ namespace Trinity
                 Describe("Quaternion",{ "X", "Y", "Z", "W" }, l_Quaternion, l_Quaternion.x, l_Quaternion.y, l_Quaternion.z, l_Quaternion.w),
                 Describe("Color",{ "R", "G", "B", "A" }, l_Color, l_Color.r, l_Color.g, l_Color.b, l_Color.a),
                 Describe("Matrix4x4",{ "Column0", "Column1", "Column2", "Column3" }, l_Matrix, l_Matrix[0], l_Matrix[1], l_Matrix[2], l_Matrix[3]),
-                Describe("Utf8",{ "Data", "Length" }, l_Text, l_Text.Data, l_Text.Length)
+                Describe("Utf8",{ "Data", "Length" }, l_Text, l_Text.Data, l_Text.Length),
+                Describe("FieldValue",{ "Type", "Reserved", "Integer", "Real", "Floats", "Text" }, l_Value, l_Value.Type, l_Value.Reserved, l_Value.Integer, l_Value.Real, l_Value.Floats, l_Value.Text),
+                Describe("Collision",{ "Other", "Point", "Normal", "Is2D" }, l_Collision, l_Collision.Other, l_Collision.Point, l_Collision.Normal, l_Collision.Is2D)
             };
         }
 
         // Each shared type as C# lays it out against the engine's layout, so a C# struct that drifts from glm turns C# off with the type and field named, rather than corrupting what crosses
         bool CheckLayouts(std::int32_t(CORECLR_DELEGATE_CALLTYPE* describeLayouts)(Interop::TypeLayout* layouts, std::int32_t capacity, std::int32_t layoutSize), std::string& error)
         {
-            const std::array<SharedType, 7> l_Native = DescribeSharedTypes();
-            std::array<Interop::TypeLayout, 7> l_Managed{};
+            const std::array<SharedType, 9> l_Native = DescribeSharedTypes();
+            std::array<Interop::TypeLayout, 9> l_Managed{};
             if (describeLayouts(l_Managed.data(), static_cast<std::int32_t>(l_Managed.size()), static_cast<std::int32_t>(sizeof(Interop::TypeLayout))) != static_cast<std::int32_t>(l_Managed.size()))
             {
                 error = "Trinity-ScriptCore was built for another engine, and describes other shared types";
@@ -210,12 +229,13 @@ namespace Trinity
         }
 
         template<typename T>
-        bool GetEntryPoint(get_function_pointer_fn getFunction, const char_t* method, T& function, std::string& error)
+        bool GetEntryPoint(get_function_pointer_fn getFunction, const char_t* type, const char_t* method, T& function, std::string& error)
         {
             void* l_Function = nullptr;
-            if (getFunction(c_HostType, method, UNMANAGEDCALLERSONLY_METHOD, nullptr, nullptr, &l_Function) != 0 || l_Function == nullptr)
+            if (getFunction(type, method, UNMANAGEDCALLERSONLY_METHOD, nullptr, nullptr, &l_Function) != 0 || l_Function == nullptr)
             {
-                error = std::format("Trinity-ScriptCore has no entry point {}", ToUtf8(method));
+                const std::string l_Type = ToUtf8(type);
+                error = std::format("Trinity-ScriptCore has no entry point {}.{}", std::string_view(l_Type).substr(0, l_Type.find(',')), ToUtf8(method));
 
                 return false;
             }
@@ -300,7 +320,15 @@ namespace Trinity
             std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_GetDescription)(char* buffer, std::int32_t capacity) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_Handshake)(std::int32_t value) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_DescribeLayouts)(Interop::TypeLayout * layouts, std::int32_t capacity, std::int32_t layoutSize) = nullptr;
-            if (!GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("Initialize"), l_HostInitialize, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("Shutdown"), s_State.Shutdown, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("GetRuntimeDescription"), l_GetDescription, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("Handshake"), l_Handshake, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("DescribeLayouts"), l_DescribeLayouts, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("MeasureInterop"), s_State.MeasureInterop, error))
+            EntryPoints& l_Entry = s_State.Entry;
+            const bool l_Found = GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Initialize"), l_HostInitialize, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Shutdown"), l_Entry.Shutdown, error) 
+                && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("GetRuntimeDescription"), l_GetDescription, error)&& GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Handshake"), l_Handshake, error) 
+                && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("DescribeLayouts"), l_DescribeLayouts, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("MeasureInterop"), l_Entry.MeasureInterop, error) 
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("LoadAssembly"), l_Entry.LoadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("UnloadAssembly"), l_Entry.UnloadAssembly, error)
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CreateInstance"), l_Entry.CreateInstance, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("DestroyInstance"), l_Entry.DestroyInstance, error)
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("SetField"), l_Entry.SetField, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetField"), l_Entry.GetField, error)
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("Invoke"), l_Entry.Invoke, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("InvokePhysics"), l_Entry.InvokePhysics, error);
+            if (!l_Found)
             {
                 return false;
             }
@@ -357,7 +385,7 @@ namespace Trinity
                 return;
             }
 
-            static_cast<void>(s_State.MeasureInterop(l_Calls));
+            static_cast<void>(s_State.Entry.MeasureInterop(l_Calls));
         }
 
         ConsoleCommand s_MeasureInterop("scripting.measure_interop", "Times calls from C# into the engine and logs the cost of each and what they allocated. Takes the number of calls, a million by default", &MeasureInteropCommand);
@@ -374,8 +402,7 @@ namespace Trinity
             std::string l_Error;
             if (!StartRuntime(scriptingDirectory, l_Error))
             {
-                s_State.Shutdown = nullptr;
-                s_State.MeasureInterop = nullptr;
+                s_State.Entry = {};
                 TR_CORE_ERROR("Scripting: C# is off, since {}", l_Error);
 
                 return false;
@@ -395,9 +422,9 @@ namespace Trinity
                 return;
             }
 
-            s_State.Shutdown();
-            s_State.Shutdown = nullptr;
-            s_State.MeasureInterop = nullptr;
+            ManagedScripts::UnloadAssembly();
+            s_State.Entry.Shutdown();
+            s_State.Entry = {};
             s_State.Started = false;
             s_State.DescriptionLength = 0;
         }
@@ -410,6 +437,59 @@ namespace Trinity
         std::string_view GetRuntimeDescription()
         {
             return std::string_view(s_State.Description.data(), s_State.DescriptionLength);
+        }
+
+        std::int32_t LoadAssembly(const std::filesystem::path& path)
+        {
+            if (!s_State.Started)
+            {
+                return -1;
+            }
+
+            const std::u8string l_Path = path.u8string();
+
+            return s_State.Entry.LoadAssembly(reinterpret_cast<const char*>(l_Path.data()), static_cast<std::int32_t>(l_Path.size()));
+        }
+
+        void UnloadAssembly()
+        {
+            if (s_State.Started)
+            {
+                s_State.Entry.UnloadAssembly();
+            }
+        }
+
+        std::intptr_t CreateInstance(std::int32_t classIndex, UUID entity)
+        {
+            return s_State.Started ? s_State.Entry.CreateInstance(classIndex, entity.GetValue()) : 0;
+        }
+
+        void DestroyInstance(std::intptr_t instance)
+        {
+            if (s_State.Started && instance != 0)
+            {
+                s_State.Entry.DestroyInstance(instance);
+            }
+        }
+
+        bool SetField(std::intptr_t instance, std::int32_t field, const Interop::FieldValue& value)
+        {
+            return s_State.Started && s_State.Entry.SetField(instance, field, &value) == 0;
+        }
+
+        bool GetField(std::intptr_t instance, std::int32_t field, Interop::FieldValue& value)
+        {
+            return s_State.Started && s_State.Entry.GetField(instance, field, &value) == 0;
+        }
+
+        bool Invoke(std::intptr_t instance, ManagedCallback callback, float timestep)
+        {
+            return s_State.Started && s_State.Entry.Invoke(instance, static_cast<std::int32_t>(callback), timestep) == 0;
+        }
+
+        bool InvokePhysics(std::intptr_t instance, PhysicsEventType type, const Interop::Collision& collision)
+        {
+            return s_State.Started && s_State.Entry.InvokePhysics(instance, static_cast<std::int32_t>(type), &collision) == 0;
         }
     }
 #else
@@ -435,6 +515,46 @@ namespace Trinity
         std::string_view GetRuntimeDescription()
         {
             return {};
+        }
+
+        std::int32_t LoadAssembly([[maybe_unused]] const std::filesystem::path& path)
+        {
+            return -1;
+        }
+
+        void UnloadAssembly()
+        {
+
+        }
+
+        std::intptr_t CreateInstance([[maybe_unused]] std::int32_t classIndex, [[maybe_unused]] UUID entity)
+        {
+            return 0;
+        }
+
+        void DestroyInstance([[maybe_unused]] std::intptr_t instance)
+        {
+
+        }
+
+        bool SetField([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] std::int32_t field, [[maybe_unused]] const Interop::FieldValue& value)
+        {
+            return false;
+        }
+
+        bool GetField([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] std::int32_t field, [[maybe_unused]] Interop::FieldValue& value)
+        {
+            return false;
+        }
+
+        bool Invoke([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] ManagedCallback callback, [[maybe_unused]] float timestep)
+        {
+            return false;
+        }
+
+        bool InvokePhysics([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] PhysicsEventType type, [[maybe_unused]] const Interop::Collision& collision)
+        {
+            return false;
         }
     }
 #endif

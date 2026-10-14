@@ -1,8 +1,9 @@
 #include "Modules/ModuleBuild.hpp"
 
+#include "Modules/BuildOutput.hpp"
+
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <chrono>
 #include <format>
 #include <fstream>
@@ -39,169 +40,6 @@ namespace
 
         return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
     }
-
-    std::uint32_t ToNumber(const std::ssub_match& match)
-    {
-        const std::string l_Text = match.str();
-        std::uint32_t l_Number = 0;
-        std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Number);
-
-        return l_Number;
-    }
-
-    // A warning or an error a tool reported, with where it is when it said
-    struct Diagnostic
-    {
-        std::string File;
-        std::uint32_t Line = 0;
-        std::uint32_t Column = 0;
-        bool Error = false;
-        std::string Code;
-        std::string Message;
-    };
-
-    // Build output read a line at a time. A compiler's or linker's warning or error, as MSVC, Clang and GCC write them, is logged with its file and line, as is CMake's, with the indented lines below it that say what it means. Every other line goes to the log at trace, and those that still say they are an error at error
-    class OutputReader
-    {
-    public:
-        OutputReader(std::filesystem::path projectDirectory, std::filesystem::path sourceDirectory, std::filesystem::path buildDirectory) : m_Project(std::move(projectDirectory)), m_Source(std::move(sourceDirectory)), m_Build(std::move(buildDirectory))
-        {
-
-        }
-
-        void Read(std::string_view text)
-        {
-            const std::string l_Line(text);
-            if (m_CMake)
-            {
-                // CMake indents its message below its first line, with blank lines around it, and ends it with a line that is not indented
-                if (l_Line.empty())
-                {
-                    return;
-                }
-
-                if (l_Line.starts_with("  "))
-                {
-                    const std::size_t l_Start = l_Line.find_first_not_of(' ');
-                    m_CMake->Message += m_CMake->Message.empty() ? "" : " ";
-                    m_CMake->Message += l_Line.substr(l_Start);
-
-                    return;
-                }
-
-                Finish();
-            }
-
-            static const std::regex c_CMake(R"(^CMake (Error|Warning)(?: \(dev\))?(?: at (.+?):(\d+)(?: \([^)]*\))?)?:\s*(.*)$)");
-            static const std::regex c_Msvc(R"(^\s*(.+?)\((\d+)(?:,(\d+))?\)\s*:\s*(fatal error|error|warning)\s*([A-Za-z]+\d+)?\s*:\s*(.*)$)");
-            static const std::regex c_MsvcLinker(R"(^(.+?)\s*:\s*(fatal error|error|warning)\s+(LNK\d+)\s*:\s*(.*)$)");
-            static const std::regex c_Gnu(R"(^(.+?):(\d+):(?:(\d+):)?\s*(fatal error|error|warning):\s*(.*)$)");
-
-            std::smatch l_Match;
-            if (std::regex_match(l_Line, l_Match, c_CMake))
-            {
-                // CMake names a file in the sources by its path from the source folder
-                const std::filesystem::path l_File = FromUtf8(l_Match[2].str());
-                m_CMake = Diagnostic{ l_Match[2].matched && l_File.is_relative() ? ToUtf8(m_Source / l_File) : l_Match[2].str(), ToNumber(l_Match[3]), 0, l_Match[1].str() == "Error", {}, l_Match[4].str() };
-            }
-            else if (std::regex_match(l_Line, l_Match, c_Msvc))
-            {
-                Report({ l_Match[1].str(), ToNumber(l_Match[2]), ToNumber(l_Match[3]), l_Match[4].str() != "warning", l_Match[5].str(), l_Match[6].str() });
-            }
-            else if (std::regex_match(l_Line, l_Match, c_MsvcLinker))
-            {
-                Report({ l_Match[1].str(), 0, 0, l_Match[2].str() != "warning", l_Match[3].str(), l_Match[4].str() });
-            }
-            else if (std::regex_match(l_Line, l_Match, c_Gnu))
-            {
-                Report({ l_Match[1].str(), ToNumber(l_Match[2]), ToNumber(l_Match[3]), l_Match[4].str() != "warning", {}, l_Match[5].str() });
-            }
-            else if (l_Line.find("error:") != std::string::npos || l_Line.find("undefined reference") != std::string::npos)
-            {
-                ++m_Errors;
-                TR_ERROR("Build: {}", l_Line);
-            }
-            else if (!l_Line.empty())
-            {
-                TR_TRACE("Build: {}", l_Line);
-            }
-        }
-
-        // A CMake message still open is logged
-        void Finish()
-        {
-            if (std::optional<Diagnostic> l_Message = std::exchange(m_CMake, std::nullopt))
-            {
-                Report(*l_Message);
-            }
-        }
-
-        [[nodiscard]] std::uint32_t GetErrors() const { return m_Errors; }
-        [[nodiscard]] std::uint32_t GetWarnings() const { return m_Warnings; }
-
-    private:
-        // As Build: Source/Player.cpp(12,5): error C2065: message, the file relative to the project when it is in it
-        void Report(const Diagnostic& diagnostic)
-        {
-            std::string l_Text = "Build: ";
-            if (!diagnostic.File.empty())
-            {
-                l_Text += ShowPath(diagnostic.File);
-                if (diagnostic.Line != 0)
-                {
-                    l_Text += diagnostic.Column != 0 ? std::format("({},{})", diagnostic.Line, diagnostic.Column) : std::format("({})", diagnostic.Line);
-                }
-
-                l_Text += ": ";
-            }
-
-            l_Text += diagnostic.Error ? "error" : "warning";
-            if (!diagnostic.Code.empty())
-            {
-                l_Text += ' ';
-                l_Text += diagnostic.Code;
-            }
-
-            l_Text += ": ";
-            l_Text += diagnostic.Message;
-            if (diagnostic.Error)
-            {
-                ++m_Errors;
-                TR_ERROR("{}", l_Text);
-            }
-            else
-            {
-                ++m_Warnings;
-                TR_WARN("{}", l_Text);
-            }
-        }
-
-        // A relative path is the build tree's, where the compilers run
-        [[nodiscard]] std::string ShowPath(std::string_view text) const
-        {
-            std::filesystem::path l_Path = FromUtf8(text);
-            if (l_Path.is_relative())
-            {
-                l_Path = m_Build / l_Path;
-            }
-
-            l_Path = l_Path.lexically_normal();
-            const std::filesystem::path l_Relative = l_Path.lexically_relative(m_Project);
-            if (!l_Relative.empty() && *l_Relative.begin() != "..")
-            {
-                return ToGenericUtf8(l_Relative);
-            }
-
-            return ToUtf8(l_Path);
-        }
-
-        std::filesystem::path m_Project;
-        std::filesystem::path m_Source;
-        std::filesystem::path m_Build;
-        std::optional<Diagnostic> m_CMake;
-        std::uint32_t m_Errors = 0;
-        std::uint32_t m_Warnings = 0;
-    };
 
 #if defined(TR_PLATFORM_WINDOWS)
     // The Visual Studio Forge was built with, found from its compiler's path, at the toolset it was built with. Otherwise the latest with the C++ tools, which vswhere finds. Its environment is what vcvars64.bat leaves, read from a batch file that runs it then lists every variable
@@ -386,7 +224,7 @@ namespace
     }
 
     // The tools, then configuring when the tree needs it, then the build. False at the first step that fails, which has said why
-    bool BuildModule(const ModuleBuild::Request& request, const std::atomic<bool>& cancel, OutputReader& output)
+    bool BuildModule(const ModuleBuild::Request& request, const std::atomic<bool>& cancel, BuildOutput& output)
     {
         const Trinity::Expected<Trinity::Process::Environment, std::string> l_Environment = GetBuildEnvironment(&cancel);
         if (!l_Environment)
@@ -555,7 +393,7 @@ void ModuleBuild::Run(Running& running)
 {
     const Clock::time_point l_Start = Clock::now();
     const Request& l_Request = running.Work;
-    OutputReader l_Output(l_Request.ProjectDirectory, l_Request.SourceDirectory, l_Request.BuildDirectory);
+    BuildOutput l_Output(l_Request.ProjectDirectory, l_Request.SourceDirectory, l_Request.BuildDirectory);
 
     std::error_code l_Error;
     std::filesystem::create_directories(l_Request.BuildDirectory, l_Error);

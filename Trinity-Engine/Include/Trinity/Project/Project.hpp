@@ -19,8 +19,8 @@ namespace Trinity
     class TRINITY_API Project
     {
     public:
-        // Format 3 added the collision layers, which an older project opens without, every pair colliding, format 4 each world's gravity and the step rate, which an older project opens with their defaults, and format 5 the C++ game module, which an older project has none of
-        static constexpr std::uint32_t c_FormatVersion = 5;
+        // Format 3 added the collision layers, which an older project opens without, every pair colliding, format 4 each world's gravity and the step rate, which an older project opens with their defaults, format 5 the C++ game module, and format 6 the C# assembly, which an older project has none of
+        static constexpr std::uint32_t c_FormatVersion = 6;
         static constexpr std::string_view c_Extension = ".trproj";
         static constexpr std::string_view c_ProjectMount = "/project";
         static constexpr std::string_view c_AssetsMount = "/assets";
@@ -55,7 +55,12 @@ namespace Trinity
         void SetModuleName(std::string name);
         [[nodiscard]] bool HasModule() const { return !m_ModuleName.empty(); }
 
-        // A name a module's target, library and C++ identifiers can all take: a letter, then letters, digits and underscores, up to 64 of them
+        // The C# assembly built from Scripts, by its project, assembly and root namespace name, or empty for none. Saved with the project, which the caller does
+        [[nodiscard]] const std::string& GetAssemblyName() const { return m_AssemblyName; }
+        void SetAssemblyName(std::string name);
+        [[nodiscard]] bool HasAssembly() const { return !m_AssemblyName.empty(); }
+
+        // A name a module's target, library and C++ identifiers can all take: a letter, then letters, digits and underscores, up to 64 of them. A C# assembly's name is one too, so it is a namespace as well
         [[nodiscard]] static bool IsValidModuleName(std::string_view name);
         // The project's name made into one, with what it cannot hold left out, or Game when nothing is left
         [[nodiscard]] static std::string MakeModuleName(std::string_view projectName);
@@ -66,6 +71,8 @@ namespace Trinity
         // The module's sources and CMakeLists.txt, and its build trees, one for each configuration, which .gitignore leaves out
         [[nodiscard]] std::filesystem::path GetSourceDirectory() const;
         [[nodiscard]] std::filesystem::path GetBuildDirectory() const;
+        // The C# project and its sources, which build into Build/Scripts
+        [[nodiscard]] std::filesystem::path GetScriptsDirectory() const;
 
         [[nodiscard]] std::optional<std::string> ToAssetPath(const std::filesystem::path& nativePath) const;
         [[nodiscard]] std::filesystem::path ToNativePath(std::string_view assetPath) const;
@@ -83,6 +90,7 @@ namespace Trinity
         std::string m_StartScenePath;
         PhysicsSettings m_Physics;
         std::string m_ModuleName;
+        std::string m_AssemblyName;
         bool m_Mounted = false;
     };
 }

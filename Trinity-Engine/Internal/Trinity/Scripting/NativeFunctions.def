@@ -1,6 +1,12 @@
 // Every engine function C# can call, one line each, in the order the table holds them: TR_NATIVE(Name, Return, (Parameters)). The engine's table comes from these lines through Interop.hpp, and Trinity-InteropGen writes the matching C# from them as ScriptCore builds, so the two cannot drift. Each function is defined in Trinity::Interop, in the source of its area
 //
-// The types are those of Interop.hpp: Void, Bool, Int32, UInt32, Int64, UInt64, Float, Double, EntityId, LogLevel and Utf8 by value, and the vectors, Quaternion, Color and Matrix4x4 only through pointers, since MSVC passes a glm type with constructors differently from a C struct
+// The types are those of Interop.hpp: Void, Bool, Int32, UInt32, Int64, UInt64, Float, Double, EntityId, LogLevel and Utf8 by value, and the vectors, Quaternion, Color, Matrix4x4, FieldValue and Collision only through pointers, since MSVC passes a glm type with constructors differently from a C struct
 
 TR_NATIVE(Log_Write, Void, (LogLevel level, Utf8 text))
 TR_NATIVE(Interop_Echo, Int32, (Int32 value))
+
+// A C# assembly's script classes, which ScriptCore describes one at a time as the assembly loads: its name and callbacks, then each field with its default, and an enum field's values after it, then the end, which registers the class and says whether it was taken
+TR_NATIVE(Scripting_BeginClass, Void, (Utf8 name, UInt32 callbacks))
+TR_NATIVE(Scripting_AddField, Void, (Utf8 name, const FieldValue* value, Utf8 assetType))
+TR_NATIVE(Scripting_AddEnumValue, Void, (Utf8 name, Int64 value))
+TR_NATIVE(Scripting_EndClass, Bool, ())

@@ -22,13 +22,14 @@ namespace Trinity
 {
     namespace
     {
-        // A script's instance in its backend, or no backend when its class has no loaded code. Created stays when a reload frees the instance, so the one made again knows OnCreate has run
+        // A script's instance in its backend, or no backend when its class has no loaded code. Created stays when a reload frees the instance, so the one made again knows OnCreate has run. Faulted once a call into it failed, such as a C# script throwing, after which it is not called again, OnDestroy included, until a reload makes it again
         struct Instance
         {
             ScriptBackend* Backend = nullptr;
             void* Handle = nullptr;
             std::uint32_t Callbacks = 0;
             bool Created = false;
+            bool Faulted = false;
         };
 
         // An entity's instances, one for each script in its component, in list order. Dead once its instances are freed, and orphaned once its component went without the runtime, so its instances wait to be freed without OnDestroy
@@ -95,12 +96,19 @@ namespace Trinity
             }
 
             Instance& l_Instance = Records[record].Instances[index];
+            if (l_Instance.Faulted)
+            {
+                return nullptr;
+            }
+
             if (!l_Instance.Created)
             {
                 l_Instance.Created = true;
-                if ((l_Instance.Callbacks & ScriptCallbacks::Create) != 0)
+                if ((l_Instance.Callbacks & ScriptCallbacks::Create) != 0 && !l_Instance.Backend->OnCreate(l_Instance.Handle))
                 {
-                    l_Instance.Backend->OnCreate(l_Instance.Handle);
+                    Records[record].Instances[index].Faulted = true;
+
+                    return nullptr;
                 }
 
                 // OnCreate may have taken the component away
@@ -113,7 +121,7 @@ namespace Trinity
             return &Records[record].Instances[index];
         }
 
-        // Calls the callback on every instance that has it, in order. Callbacks never add records, so indices hold across them
+        // Calls the callback on every instance that has it, in order, and stops calling one whose call failed. Callbacks never add records, so indices hold across them
         template<typename F>
         bool ForEach(std::uint32_t callback, F call)
         {
@@ -126,7 +134,10 @@ namespace Trinity
                     if (l_Instance != nullptr && (l_Instance->Callbacks & callback) != 0)
                     {
                         l_Any = true;
-                        call(*l_Instance);
+                        if (!call(*l_Instance))
+                        {
+                            Records[it_Record].Instances[it_Index].Faulted = true;
+                        }
                     }
                 }
             }
@@ -146,9 +157,9 @@ namespace Trinity
             for (std::size_t it_Index = 0; it_Index < Records[l_Record].Instances.size(); ++it_Index)
             {
                 Instance* l_Instance = Prepare(l_Record, it_Index);
-                if (l_Instance != nullptr && (l_Instance->Callbacks & ScriptCallbacks::Physics) != 0)
+                if (l_Instance != nullptr && (l_Instance->Callbacks & ScriptCallbacks::Physics) != 0 && !l_Instance->Backend->OnPhysicsEvent(l_Instance->Handle, type, collision))
                 {
-                    l_Instance->Backend->OnPhysicsEvent(l_Instance->Handle, type, collision);
+                    Records[l_Record].Instances[it_Index].Faulted = true;
                 }
             }
         }
@@ -164,9 +175,9 @@ namespace Trinity
                     continue;
                 }
 
-                if (callOnDestroy && l_Instance.Created && (l_Instance.Callbacks & ScriptCallbacks::Destroy) != 0)
+                if (callOnDestroy && l_Instance.Created && !l_Instance.Faulted && (l_Instance.Callbacks & ScriptCallbacks::Destroy) != 0)
                 {
-                    l_Instance.Backend->OnDestroy(l_Instance.Handle);
+                    static_cast<void>(l_Instance.Backend->OnDestroy(l_Instance.Handle));
                 }
 
                 l_Instance.Backend->DestroyInstance(l_Instance.Handle);
@@ -282,7 +293,7 @@ namespace Trinity
                     l_Instance.Callbacks = l_Class->Callbacks;
                     if (l_Instance.Handle != nullptr)
                     {
-                        l_Backend->ApplyFields(l_Instance.Handle, *l_Class, l_Entry, l_State.TargetScene);
+                        l_Instance.Faulted = !l_Backend->ApplyFields(l_Instance.Handle, *l_Class, l_Entry, l_State.TargetScene);
                     }
                 }
                 else
@@ -309,7 +320,7 @@ namespace Trinity
     {
         TR_PROFILE_FUNCTION();
 
-        m_State->ForEach(ScriptCallbacks::FixedUpdate, [step](Instance& instance) { instance.Backend->OnFixedUpdate(instance.Handle, step); });
+        m_State->ForEach(ScriptCallbacks::FixedUpdate, [step](Instance& instance) { return instance.Backend->OnFixedUpdate(instance.Handle, step); });
     }
 
     // Each to the first entity's scripts, then the second's, with the normal turned to point away from whichever is told
@@ -341,14 +352,14 @@ namespace Trinity
     {
         TR_PROFILE_FUNCTION();
 
-        m_State->ForEach(ScriptCallbacks::Update, [timestep](Instance& instance) { instance.Backend->OnUpdate(instance.Handle, timestep); });
+        m_State->ForEach(ScriptCallbacks::Update, [timestep](Instance& instance) { return instance.Backend->OnUpdate(instance.Handle, timestep); });
     }
 
     bool ScriptRuntime::LateUpdate(Timestep timestep)
     {
         TR_PROFILE_FUNCTION();
 
-        return m_State->ForEach(ScriptCallbacks::LateUpdate, [timestep](Instance& instance) { instance.Backend->OnLateUpdate(instance.Handle, timestep); });
+        return m_State->ForEach(ScriptCallbacks::LateUpdate, [timestep](Instance& instance) { return instance.Backend->OnLateUpdate(instance.Handle, timestep); });
     }
 
     std::uint32_t ScriptRuntime::ReleaseInstances(ScriptLanguage language)
@@ -436,17 +447,22 @@ namespace Trinity
                     continue;
                 }
 
-                l_Backend->ApplyFields(l_Handle, *l_Class, l_Entry, l_State.TargetScene);
+                // The new code gets its chance, so an instance that faulted before is called again
                 Instance& l_Instance = l_State.Records[it_Record].Instances[it_Index];
                 l_Instance.Handle = l_Handle;
                 l_Instance.Backend = l_Backend;
                 l_Instance.Callbacks = l_Class->Callbacks;
+                l_Instance.Faulted = !l_Backend->ApplyFields(l_Handle, *l_Class, l_Entry, l_State.TargetScene);
                 ++l_Made;
 
                 // At once, enabled or not, since its OnCreate does not run again
-                if (l_Instance.Created && (l_Instance.Callbacks & ScriptCallbacks::Reloaded) != 0)
+                if (l_Instance.Created && !l_Instance.Faulted && (l_Instance.Callbacks & ScriptCallbacks::Reloaded) != 0)
                 {
-                    l_Backend->OnReloaded(l_Handle);
+                    if (!l_Backend->OnReloaded(l_Handle))
+                    {
+                        l_State.Records[it_Record].Instances[it_Index].Faulted = true;
+                    }
+
                     if (!l_State.Records[it_Record].IsLive())
                     {
                         break;
@@ -521,6 +537,7 @@ namespace Trinity
             for (const Instance& it_Instance : it_Record.Instances)
             {
                 ++(it_Instance.Backend != nullptr ? l_Statistics.Instances : l_Statistics.Unknown);
+                l_Statistics.Faulted += it_Instance.Backend != nullptr && it_Instance.Faulted ? 1u : 0u;
             }
         }
 

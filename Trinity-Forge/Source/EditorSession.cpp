@@ -123,6 +123,16 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
         }
     });
 
+    // C# scripts that load while a scene plays get their instances then, as a C++ module's do
+    m_Assembly.SetLoadCallback([this]
+    {
+        if (m_Runtime)
+        {
+            const std::uint32_t l_Made = m_Runtime->GetScripts().RecreateInstances(Trinity::ScriptLanguage::CSharp);
+            TR_INFO("Forge: {} C# script instance(s) were made as the scripts loaded, and play goes on", l_Made);
+        }
+    });
+
     if (const auto it_Directory = args.GetOption("new-project"))
     {
         CreateProject(FromUtf8(*it_Directory));
@@ -148,6 +158,7 @@ void EditorSession::Request(Command command)
 void EditorSession::Update()
 {
     m_Module.Update();
+    m_Assembly.Update();
     m_Reimporter.Update();
     if (const std::optional<ModelImportReport> l_Report = m_ModelImports.Update())
     {
@@ -213,10 +224,10 @@ bool EditorSession::RequestClose()
     return false;
 }
 
-// Refresh comes whenever Forge regains focus, and a build reloads the module, and both leave a playing scene running
+// Refresh comes whenever Forge regains focus, and a build reloads the module or loads the scripts, and each leaves a playing scene running
 void EditorSession::Run(Command command)
 {
-    if (command != Command::Refresh && command != Command::BuildModule)
+    if (command != Command::Refresh && command != Command::BuildModule && command != Command::BuildAssembly)
     {
         StopPlay();
     }
@@ -323,6 +334,21 @@ void EditorSession::Run(Command command)
 
             break;
         }
+        case Command::CreateAssembly:
+        {
+            if (l_HasProject && m_Assembly.Create(*m_Project))
+            {
+                SaveProject();
+            }
+
+            break;
+        }
+        case Command::BuildAssembly:
+        {
+            m_Assembly.RequestBuild();
+
+            break;
+        }
         case Command::Exit:
         {
             Trinity::Application::Get().RequestClose();
@@ -400,6 +426,7 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
     m_Project = std::move(*l_Project);
     AttachRegistry();
     m_Module.Open(*m_Project);
+    m_Assembly.Open(*m_Project);
 
     const std::string l_StartScene = std::format("{}/{}", Trinity::Project::c_AssetsMount, Trinity::Project::c_DefaultStartScene);
     if (!WriteScene(l_StartScene))
@@ -456,6 +483,7 @@ void EditorSession::CloseProject()
 {
     StopPlay();
     m_Module.Close();
+    m_Assembly.Close();
 
     // The texture being encoded and the environment being filtered are finished, since neither can be left halfway, and the rest wait for the project to open again
     m_ImportAgain = false;

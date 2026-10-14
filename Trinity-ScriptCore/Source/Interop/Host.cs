@@ -49,11 +49,11 @@ namespace Trinity.Interop
             return Native.Interop_Echo(value) * 2;
         }
 
-        // The size and field offsets of each type the engine shares with C#, in the order of the engine's check: Vector2, Vector3, Vector4, Quaternion, Color, Matrix4x4 and Utf8. How many were written, or -1 when the engine's TypeLayout is not this one or the buffer is too small
+        // The size and field offsets of each type the engine shares with C#, in the order of the engine's check: Vector2, Vector3, Vector4, Quaternion, Color, Matrix4x4, Utf8, FieldValue and Collision. How many were written, or -1 when the engine's TypeLayout is not this one or the buffer is too small
         [UnmanagedCallersOnly]
         public static int DescribeLayouts(TypeLayout* layouts, int capacity, int layoutSize)
         {
-            const int c_Count = 7;
+            const int c_Count = 9;
             if (layouts == null || layoutSize != sizeof(TypeLayout) || capacity < c_Count)
             {
                 return -1;
@@ -66,6 +66,8 @@ namespace Trinity.Interop
             Color l_Color = default;
             Matrix4x4 l_Matrix = default;
             Utf8 l_Text = default;
+            FieldValue l_Value = default;
+            Collision l_Collision = default;
 
             Describe(ref layouts[0], sizeof(Vector2), At(&l_Vector2, &l_Vector2.X), At(&l_Vector2, &l_Vector2.Y));
             Describe(ref layouts[1], sizeof(Vector3), At(&l_Vector3, &l_Vector3.X), At(&l_Vector3, &l_Vector3.Y), At(&l_Vector3, &l_Vector3.Z));
@@ -74,6 +76,8 @@ namespace Trinity.Interop
             Describe(ref layouts[4], sizeof(Color), At(&l_Color, &l_Color.R), At(&l_Color, &l_Color.G), At(&l_Color, &l_Color.B), At(&l_Color, &l_Color.A));
             Describe(ref layouts[5], sizeof(Matrix4x4), At(&l_Matrix, &l_Matrix.Column0), At(&l_Matrix, &l_Matrix.Column1), At(&l_Matrix, &l_Matrix.Column2), At(&l_Matrix, &l_Matrix.Column3));
             Describe(ref layouts[6], sizeof(Utf8), At(&l_Text, &l_Text.Data), At(&l_Text, &l_Text.Length));
+            Describe(ref layouts[7], sizeof(FieldValue), At(&l_Value, &l_Value.Type), At(&l_Value, &l_Value.Reserved), At(&l_Value, &l_Value.Integer), At(&l_Value, &l_Value.Real), At(&l_Value, &l_Value.X), At(&l_Value, &l_Value.Text));
+            Describe(ref layouts[8], sizeof(Collision), At(&l_Collision, &l_Collision.Other), At(&l_Collision, &l_Collision.Point), At(&l_Collision, &l_Collision.Normal), At(&l_Collision, &l_Collision.Is2D));
 
             return c_Count;
         }

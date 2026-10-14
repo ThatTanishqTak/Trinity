@@ -513,7 +513,7 @@ void ForgeLayer::DrawEditMenu()
     }
 }
 
-// A Forge with a static engine cannot build or load a module, and says why when its items are hovered
+// A Forge with a static engine cannot build or load a module, and one without .NET has no C#, and each says why when its items are hovered
 void ForgeLayer::DrawScriptsMenu()
 {
     const Trinity::Project* l_Project = m_Session.GetProject();
@@ -542,8 +542,37 @@ void ForgeLayer::DrawScriptsMenu()
     a_Explain();
     if (l_HasModule)
     {
-        ImGui::Separator();
         ImGui::TextDisabled("%s: %s", l_Project->GetModuleName().c_str(), l_Module.IsBuilding() ? "building" : l_Module.IsLoaded() ? "loaded" : "not loaded");
+    }
+
+    // C# works in every configuration, unless .NET did not start
+    ImGui::Separator();
+    const AssemblyHost& l_Assembly = m_Session.GetAssembly();
+    const bool l_DotNet = AssemblyHost::IsSupported();
+    const bool l_HasAssembly = l_Project != nullptr && l_Project->HasAssembly();
+    const auto a_ExplainDotNet = [l_DotNet]
+    {
+        if (!l_DotNet)
+        {
+            ImGui::SetItemTooltip("C# is off, since .NET did not start. The log says why");
+        }
+    };
+
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_File, "Create C# Project").c_str(), nullptr, false, l_DotNet && l_Project != nullptr && !l_HasAssembly))
+    {
+        m_Session.Request(EditorSession::Command::CreateAssembly);
+    }
+
+    a_ExplainDotNet();
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Refresh, l_Assembly.IsBuilding() ? "Building C# Project..." : "Build C# Project").c_str(), nullptr, false, l_DotNet && l_HasAssembly && !l_Assembly.IsBuilding()))
+    {
+        m_Session.Request(EditorSession::Command::BuildAssembly);
+    }
+
+    a_ExplainDotNet();
+    if (l_HasAssembly)
+    {
+        ImGui::TextDisabled("%s: %s", l_Project->GetAssemblyName().c_str(), l_Assembly.IsBuilding() ? "building" : l_Assembly.IsLoaded() ? "loaded" : "not loaded");
     }
 }
 

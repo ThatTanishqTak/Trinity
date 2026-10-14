@@ -71,6 +71,7 @@
 #include "Trinity/Scene/SimulationClock.hpp"
 
 #include "Trinity/Scripting/GameModule.hpp"
+#include "Trinity/Scripting/ManagedScripts.hpp"
 #include "Trinity/Scripting/NativeComponents.hpp"
 #include "Trinity/Scripting/NativeScripts.hpp"
 #include "Trinity/Scripting/Script.hpp"

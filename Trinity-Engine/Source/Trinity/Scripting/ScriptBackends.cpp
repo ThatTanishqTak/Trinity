@@ -58,13 +58,13 @@ namespace Trinity
             l_Script->m_Release(l_Script);
         }
 
-        // The class was registered with a setter for each of its fields, in the same order
-        void ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) override
+        // The class was registered with a setter for each of its fields, in the same order. A C++ script cannot report a failure, since a module is not exception-safe, so every call here is true
+        bool ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) override
         {
             const Factory* l_Factory = Find(description.Name);
             if (l_Factory == nullptr || l_Factory->Fields.size() != description.Fields.size())
             {
-                return;
+                return true;
             }
 
             Script* l_Script = static_cast<Script*>(instance);
@@ -72,6 +72,8 @@ namespace Trinity
             {
                 l_Factory->Fields[it_Index].Set(l_Script, ScriptClassRegistry::GetFieldValue(entry, description.Fields[it_Index]), scene);
             }
+
+            return true;
         }
 
         void ReadFields(const void* instance, const ScriptClassDescription& description, ScriptEntry& entry) override
@@ -89,14 +91,14 @@ namespace Trinity
             }
         }
 
-        void OnCreate(void* instance) override { static_cast<Script*>(instance)->OnCreate(); }
-        void OnFixedUpdate(void* instance, Timestep step) override { static_cast<Script*>(instance)->OnFixedUpdate(step); }
-        void OnUpdate(void* instance, Timestep timestep) override { static_cast<Script*>(instance)->OnUpdate(timestep); }
-        void OnLateUpdate(void* instance, Timestep timestep) override { static_cast<Script*>(instance)->OnLateUpdate(timestep); }
-        void OnDestroy(void* instance) override { static_cast<Script*>(instance)->OnDestroy(); }
-        void OnReloaded(void* instance) override { static_cast<Script*>(instance)->OnReloaded(); }
+        bool OnCreate(void* instance) override { static_cast<Script*>(instance)->OnCreate(); return true; }
+        bool OnFixedUpdate(void* instance, Timestep step) override { static_cast<Script*>(instance)->OnFixedUpdate(step); return true; }
+        bool OnUpdate(void* instance, Timestep timestep) override { static_cast<Script*>(instance)->OnUpdate(timestep); return true; }
+        bool OnLateUpdate(void* instance, Timestep timestep) override { static_cast<Script*>(instance)->OnLateUpdate(timestep); return true; }
+        bool OnDestroy(void* instance) override { static_cast<Script*>(instance)->OnDestroy(); return true; }
+        bool OnReloaded(void* instance) override { static_cast<Script*>(instance)->OnReloaded(); return true; }
 
-        void OnPhysicsEvent(void* instance, PhysicsEventType type, const ScriptCollision& collision) override
+        bool OnPhysicsEvent(void* instance, PhysicsEventType type, const ScriptCollision& collision) override
         {
             Script* l_Script = static_cast<Script*>(instance);
             switch (type)
@@ -104,19 +106,19 @@ namespace Trinity
                 case PhysicsEventType::ContactBegin:
                 {
                     l_Script->OnContactBegin(collision);
-                    
+
                     break;
                 }
                 case PhysicsEventType::ContactStay:
                 {
                     l_Script->OnContactStay(collision);
-                    
+
                     break;
                 }
                 case PhysicsEventType::ContactEnd:
                 {
                     l_Script->OnContactEnd(collision);
-                    
+
                     break;
                 }
                 case PhysicsEventType::TriggerEnter:
@@ -134,10 +136,12 @@ namespace Trinity
                 case PhysicsEventType::JointBreak:
                 {
                     l_Script->OnJointBreak(collision);
-
+                    
                     break;
                 }
             }
+
+            return true;
         }
 
         bool Add(Factory factory)
@@ -177,6 +181,7 @@ namespace Trinity
             TR_CORE_ASSERT(s_Native == nullptr, "The script backends are already initialized.");
 
             s_Native = Memory::New<NativeScriptBackend>(MemoryTag::Scripting);
+            ManagedScriptBackend::Initialize();
         }
 
         void Shutdown()
@@ -188,13 +193,26 @@ namespace Trinity
                 TR_CORE_WARN("Scripting: C++ script classes were still registered at shutdown");
             }
 
+            ManagedScriptBackend::Shutdown();
             Memory::Delete(s_Native);
             s_Native = nullptr;
         }
 
         ScriptBackend* Find(ScriptLanguage language)
         {
-            return language == ScriptLanguage::Cpp ? s_Native : nullptr;
+            switch (language)
+            {
+                case ScriptLanguage::Cpp:
+                {
+                    return s_Native;
+                }
+                case ScriptLanguage::CSharp:
+                {
+                    return ManagedScriptBackend::Get();
+                }
+            }
+
+            return nullptr;
         }
     }
 

@@ -5,10 +5,12 @@
 # Compiled binaries: bin/<config>-<system>-<arch>/Trinity/
 /bin/
 
-# What an IDE's own build of Trinity-ScriptCore writes beside it, and the props CMake writes for it. CMake builds it into the build tree
+# What an IDE's own build of Trinity-ScriptCore or Trinity-ScriptGenerator writes beside it, and the props CMake writes for ScriptCore. CMake builds them into the build tree
 /Trinity-ScriptCore/bin/
 /Trinity-ScriptCore/obj/
 /Trinity-ScriptCore/Trinity-ScriptCore.Local.props
+/Trinity-ScriptGenerator/bin/
+/Trinity-ScriptGenerator/obj/
 
 # Test models fetched by Scripts/FetchSamples
 /Trinity-Forge/Tests/Models/

@@ -23,21 +23,30 @@ namespace Trinity
         // An instance of the class for the script on the entity, or null, logged, when none can be made
         [[nodiscard]] virtual void* CreateInstance(const ScriptClassDescription& description, Entity entity, ScriptRuntime& runtime) = 0;
         virtual void DestroyInstance(void* instance) = 0;
-        // Each field of the class, with the value the entry gives it, into the instance. The scene is the one it runs in, where an entity field finds its entity
-        virtual void ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) = 0;
+        // Each field of the class, with the value the entry gives it, into the instance. The scene is the one it runs in, where an entity field finds its entity. This and each callback below are false when the script failed, which the backend has logged, and the runtime then calls that instance no more
+        [[nodiscard]] virtual bool ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) = 0;
         // Each field of the class as the instance has it now, into the entry, before a reload frees the instance
         virtual void ReadFields(const void* instance, const ScriptClassDescription& description, ScriptEntry& entry) = 0;
 
-        virtual void OnCreate(void* instance) = 0;
-        virtual void OnFixedUpdate(void* instance, Timestep step) = 0;
-        virtual void OnUpdate(void* instance, Timestep timestep) = 0;
-        virtual void OnLateUpdate(void* instance, Timestep timestep) = 0;
-        virtual void OnDestroy(void* instance) = 0;
-        virtual void OnReloaded(void* instance) = 0;
-        virtual void OnPhysicsEvent(void* instance, PhysicsEventType type, const ScriptCollision& collision) = 0;
+        [[nodiscard]] virtual bool OnCreate(void* instance) = 0;
+        [[nodiscard]] virtual bool OnFixedUpdate(void* instance, Timestep step) = 0;
+        [[nodiscard]] virtual bool OnUpdate(void* instance, Timestep timestep) = 0;
+        [[nodiscard]] virtual bool OnLateUpdate(void* instance, Timestep timestep) = 0;
+        [[nodiscard]] virtual bool OnDestroy(void* instance) = 0;
+        [[nodiscard]] virtual bool OnReloaded(void* instance) = 0;
+        [[nodiscard]] virtual bool OnPhysicsEvent(void* instance, PhysicsEventType type, const ScriptCollision& collision) = 0;
     };
 
-    // The backend of each language the engine has, made after the script class registry and destroyed before it. C# joins in M7 step 7
+    // The C# backend, made and destroyed with the others, which has classes while a game assembly is loaded
+    namespace ManagedScriptBackend
+    {
+        void Initialize();
+        void Shutdown();
+
+        [[nodiscard]] ScriptBackend* Get();
+    }
+
+    // The backend of each language the engine has, made after the script class registry and destroyed before it
     namespace ScriptBackends
     {
         void Initialize();

@@ -338,7 +338,7 @@ namespace Trinity
             ReadWorldSettings(l_Root["Physics"], l_Project->m_Name, l_Project->m_Physics);
         }
 
-        // A module name that cannot be one is reported and left out, so the project opens with no module
+        // A module or assembly name that cannot be one is reported and left out, so the project opens with none
         if (l_Format >= 5)
         {
             const YAML::Node l_Scripting = l_Root["Scripting"];
@@ -350,6 +350,16 @@ namespace Trinity
             else if (!l_Module.empty())
             {
                 TR_CORE_WARN("Project: {} names its C++ module '{}', which is not a name a module can have, so it opens with none", l_Project->m_Name, l_Module);
+            }
+
+            const std::string l_Assembly = l_Format >= 6 && l_Scripting && l_Scripting.IsMap() ? ReadString(l_Scripting, "Assembly", "") : std::string();
+            if (IsValidModuleName(l_Assembly))
+            {
+                l_Project->m_AssemblyName = l_Assembly;
+            }
+            else if (!l_Assembly.empty())
+            {
+                TR_CORE_WARN("Project: {} names its C# assembly '{}', which is not a name an assembly can have here, so it opens with none", l_Project->m_Name, l_Assembly);
             }
         }
 
@@ -406,6 +416,7 @@ namespace Trinity
         l_Emitter << YAML::EndMap;
         l_Emitter << YAML::Key << "Scripting" << YAML::Value << YAML::BeginMap;
         l_Emitter << YAML::Key << "Module" << YAML::Value << YAML::DoubleQuoted << m_ModuleName;
+        l_Emitter << YAML::Key << "Assembly" << YAML::Value << YAML::DoubleQuoted << m_AssemblyName;
         l_Emitter << YAML::EndMap;
         l_Emitter << YAML::EndMap;
 
@@ -461,11 +472,23 @@ namespace Trinity
         return m_Directory / "Build";
     }
 
+    std::filesystem::path Project::GetScriptsDirectory() const
+    {
+        return m_Directory / "Scripts";
+    }
+
     void Project::SetModuleName(std::string name)
     {
         TR_CORE_ASSERT(name.empty() || IsValidModuleName(name), "'{}' is not a name a module can have", name);
 
         m_ModuleName = std::move(name);
+    }
+
+    void Project::SetAssemblyName(std::string name)
+    {
+        TR_CORE_ASSERT(name.empty() || IsValidModuleName(name), "'{}' is not a name an assembly can have here", name);
+
+        m_AssemblyName = std::move(name);
     }
 
     bool Project::IsValidModuleName(std::string_view name)

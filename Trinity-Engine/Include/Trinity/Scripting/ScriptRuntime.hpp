@@ -14,7 +14,7 @@ namespace Trinity
     class Entity;
     class Scene;
 
-    // Every script instance of a running scene, made from its Script components through each language's backend and called in a fixed order: by when each script was added, which for the scene's own is hierarchy order, and in list order on each entity. A script whose class no loaded code has is kept in its component and does not run, with one warning a class. SceneRuntime owns one and drives it. Main thread only
+    // Every script instance of a running scene, made from its Script components through each language's backend and called in a fixed order: by when each script was added, which for the scene's own is hierarchy order, and in list order on each entity. A script whose class no loaded code has is kept in its component and does not run, with one warning a class, and one whose call failed, such as a C# script that threw, is called no more while play goes on. SceneRuntime owns one and drives it. Main thread only
     class TRINITY_API ScriptRuntime
     {
     public:
@@ -23,6 +23,8 @@ namespace Trinity
             std::uint32_t Instances = 0;
             // Scripts that do not run, since no loaded code has their class
             std::uint32_t Unknown = 0;
+            // Of the instances, those stopped since a call into them failed, such as a C# script that threw
+            std::uint32_t Faulted = 0;
         };
 
         explicit ScriptRuntime(Scene& scene);

@@ -41,6 +41,31 @@ namespace Trinity::Interop
         return text.Data != nullptr && text.Length > 0 ? std::string_view(text.Data, static_cast<std::size_t>(text.Length)) : std::string_view();
     }
 
+    [[nodiscard]] inline Utf8 ToUtf8(std::string_view text)
+    {
+        return { text.data(), static_cast<Int32>(text.size()) };
+    }
+
+    // A script field's value as it crosses, with its type as a ScriptFieldType. A bool, the integers, an enum and the UUID of an entity or an asset are in Integer, a float and a double in Real, the vectors, a quaternion and a colour in Floats, and a string in Text, which is valid for the call it crosses in
+    struct FieldValue
+    {
+        Int32 Type;
+        Int32 Reserved;
+        Int64 Integer;
+        Double Real;
+        std::array<Float, 4> Floats;
+        Utf8 Text;
+    };
+
+    // What a script's physics callback is told, as ScriptCollision has it
+    struct Collision
+    {
+        EntityId Other;
+        Vector3 Point;
+        Vector3 Normal;
+        Bool Is2D;
+    };
+
 #define TR_NATIVE(Name, Return, Parameters) Return Name Parameters;
 #include "Trinity/Scripting/NativeFunctions.def"
 #undef TR_NATIVE

@@ -8,6 +8,7 @@
 #include "Importers/TextureImportBatch.hpp"
 #include "Importers/TextureImporter.hpp"
 #include "Importers/TextureReimporter.hpp"
+#include "Modules/AssemblyHost.hpp"
 #include "Modules/ModuleHost.hpp"
 
 #include "Trinity.hpp"
@@ -36,6 +37,8 @@ public:
         Refresh,
         CreateModule,
         BuildModule,
+        CreateAssembly,
+        BuildAssembly,
         Exit
     };
 
@@ -66,7 +69,7 @@ public:
 
     [[nodiscard]] bool RequestClose();
 
-    // Play runs a copy of the edited scene, made through the serializer, and Stop throws the copy away, so the edited scene, its history and whether it is saved are as they were. Pause holds the copy where it is, and Step takes one fixed step and holds it there. The history is locked while playing. Each is asked for mid-frame and done at the next Update, and any command but Refresh and Build C++ Module stops playing first, since a build reloads the module while the scene plays on
+    // Play runs a copy of the edited scene, made through the serializer, and Stop throws the copy away, so the edited scene, its history and whether it is saved are as they were. Pause holds the copy where it is, and Step takes one fixed step and holds it there. The history is locked while playing. Each is asked for mid-frame and done at the next Update, and any command but Refresh and the builds stops playing first, since a build reloads the module while the scene plays on
     void RequestPlay();
     void RequestPause();
     void RequestStep();
@@ -87,6 +90,7 @@ public:
     [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
     [[nodiscard]] const ModuleHost& GetModule() const { return m_Module; }
+    [[nodiscard]] const AssemblyHost& GetAssembly() const { return m_Assembly; }
     // Through the history, so it undoes in one step, and saved with the project as it runs and as it is undone. A scene playing keeps the settings it started with, and the next Play takes the new ones
     bool EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field);
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
@@ -199,6 +203,7 @@ private:
     ModelImportBatch m_ModelImports;
     EnvironmentImportBatch m_EnvironmentImports;
     ModuleHost m_Module;
+    AssemblyHost m_Assembly;
     bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;

@@ -17,7 +17,7 @@
 
 namespace
 {
-    // An interop type's C# spelling, and whether it may cross by value. The vectors and matrices cross only through pointers, since MSVC passes and returns a glm type with constructors differently from the C# struct of the same layout
+    // An interop type's C# spelling, and whether it may cross by value. The vectors and matrices cross only through pointers, since MSVC passes and returns a glm type with constructors differently from the C# struct of the same layout, as do the larger structs that hold them
     struct InteropType
     {
         std::string_view Name;
@@ -42,7 +42,9 @@ namespace
         { "Vector4", "Vector4", false },
         { "Quaternion", "Quaternion", false },
         { "Color", "Color", false },
-        { "Matrix4x4", "Matrix4x4", false }
+        { "Matrix4x4", "Matrix4x4", false },
+        { "FieldValue", "FieldValue", false },
+        { "Collision", "Collision", false }
     };
 
     struct Parameter
