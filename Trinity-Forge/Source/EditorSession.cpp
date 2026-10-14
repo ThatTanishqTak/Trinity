@@ -106,13 +106,20 @@ EditorSession::~EditorSession()
 
 void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
 {
-    // The running copy has instances of the module's classes and its components, so play stops before the module unloads for a build
-    m_Module.SetBeforeUnload([this]
+    // A running scene plays on through a reload: its C++ instances write their fields back and go before the module does, and are made again from those fields once the new module has registered. Its components are kept as YAML meanwhile, as the edited scene's are
+    m_Module.SetReloadCallbacks([this]
     {
-        if (IsPlaying())
+        if (m_Runtime)
         {
-            TR_INFO("Forge: the C++ module is unloading, so play stops");
-            StopPlay();
+            const std::uint32_t l_Released = m_Runtime->GetScripts().ReleaseInstances(Trinity::ScriptLanguage::Cpp);
+            TR_INFO("Forge: {} C++ script instance(s) wrote their fields back for the reload", l_Released);
+        }
+    }, [this]
+    {
+        if (m_Runtime)
+        {
+            const std::uint32_t l_Made = m_Runtime->GetScripts().RecreateInstances(Trinity::ScriptLanguage::Cpp);
+            TR_INFO("Forge: {} C++ script instance(s) were made again, and play goes on", l_Made);
         }
     });
 
@@ -206,7 +213,7 @@ bool EditorSession::RequestClose()
     return false;
 }
 
-// Refresh comes whenever Forge regains focus, which leaves a playing scene running. A build stops it as it unloads the module, and not when there is none to unload
+// Refresh comes whenever Forge regains focus, and a build reloads the module, and both leave a playing scene running
 void EditorSession::Run(Command command)
 {
     if (command != Command::Refresh && command != Command::BuildModule)

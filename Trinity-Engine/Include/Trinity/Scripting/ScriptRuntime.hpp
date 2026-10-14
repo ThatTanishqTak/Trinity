@@ -4,6 +4,7 @@
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Physics/PhysicsScene2D.hpp"
 #include "Trinity/Physics/PhysicsScene3D.hpp"
+#include "Trinity/Scripting/ScriptField.hpp"
 
 #include <cstdint>
 #include <span>
@@ -40,6 +41,11 @@ namespace Trinity
         void Update(Timestep timestep);
         // Whether any script had OnLateUpdate, so the transform pass runs again
         bool LateUpdate(Timestep timestep);
+
+        // Before one language's code unloads for a reload: each of its instances writes its fields back into its script, so what it changed while running is kept, and is freed without OnDestroy. The scripts wait without instances, as scripts of an unknown class do. The number freed
+        std::uint32_t ReleaseInstances(ScriptLanguage language);
+        // Once the language's code is loaded again: each of its scripts without an instance whose class is loaded now gets one, with its fields. One that had OnCreate gets OnReloaded instead, and one that never ran has OnCreate before its first call. The number made
+        std::uint32_t RecreateInstances(ScriptLanguage language);
 
         // The entity and its subtree go at DestroyPending, after their scripts' OnDestroy. Physics takes their bodies, colliders and joints out at the next step
         void DestroyEntity(Entity entity);

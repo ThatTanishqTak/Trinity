@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-// What a game module exports for Forge to call, each optional: TrinityModuleLoad once Forge has loaded the module, which it does after each good build, and TrinityModuleUnload before it unloads it, which it does before each build and as the project closes. A module's symbols are hidden but those it marks with TR_GAME_MODULE_EXPORT
+// What a game module exports for Forge to call, each optional: TrinityModuleLoad once Forge has loaded the module, which it does after each good build, and TrinityModuleUnload before it unloads it, which it does as a new build takes its place and as the project closes. A module's symbols are hidden but those it marks with TR_GAME_MODULE_EXPORT
 #if defined(_WIN32)
 #define TR_GAME_MODULE_EXPORT extern "C" __declspec(dllexport)
 #else
@@ -67,7 +67,7 @@ namespace Trinity::GameModule
     inline constexpr const char* c_ApiVersionFunction = "TrinityModuleGetApiVersion";
 
     // Raised whenever what TR_GAME_MODULE exports, or how it registers, changes, so Forge refuses a module built against other engine headers rather than calling into it
-    inline constexpr std::uint32_t c_ApiVersion = 1;
+    inline constexpr std::uint32_t c_ApiVersion = 2;
 
     // What a TR_SCRIPT or TR_COMPONENT block describes through TR_FIELD: each field's name, its type from the member's, and its default from a default-made T, with how its value reaches an instance, or a component's is read and written
     template<typename T>
@@ -96,7 +96,7 @@ namespace Trinity::GameModule
 
                 if constexpr (std::derived_from<T, Script>)
                 {
-                    m_ScriptFields.push_back([](Script* script, const ScriptFieldValue& value, Scene& scene) { ScriptFieldTraits<FieldType>::FromValue(static_cast<T*>(script)->*Member, value, &scene); });
+                    m_ScriptFields.push_back({ [](const Script* script) { return ScriptFieldTraits<FieldType>::ToValue(static_cast<const T*>(script)->*Member); }, [](Script* script, const ScriptFieldValue& value, Scene& scene) { ScriptFieldTraits<FieldType>::FromValue(static_cast<T*>(script)->*Member, value, &scene); } });
                 }
                 else
                 {
@@ -113,7 +113,7 @@ namespace Trinity::GameModule
     private:
         T m_Default{};
         std::vector<ScriptFieldDescription, TaggedAllocator<ScriptFieldDescription, MemoryTag::Scripting>> m_Fields;
-        std::vector<NativeScripts::SetFieldFunction, TaggedAllocator<NativeScripts::SetFieldFunction, MemoryTag::Scripting>> m_ScriptFields;
+        std::vector<NativeScripts::FieldAccess, TaggedAllocator<NativeScripts::FieldAccess, MemoryTag::Scripting>> m_ScriptFields;
         std::vector<NativeComponents::FieldAccess, TaggedAllocator<NativeComponents::FieldAccess, MemoryTag::Scripting>> m_ComponentFields;
     };
 

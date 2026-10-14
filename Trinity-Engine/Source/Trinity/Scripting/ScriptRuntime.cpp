@@ -22,7 +22,7 @@ namespace Trinity
 {
     namespace
     {
-        // A script's instance in its backend, or no backend when its class has no loaded code
+        // A script's instance in its backend, or no backend when its class has no loaded code. Created stays when a reload frees the instance, so the one made again knows OnCreate has run
         struct Instance
         {
             ScriptBackend* Backend = nullptr;
@@ -349,6 +349,113 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         return m_State->ForEach(ScriptCallbacks::LateUpdate, [timestep](Instance& instance) { instance.Backend->OnLateUpdate(instance.Handle, timestep); });
+    }
+
+    std::uint32_t ScriptRuntime::ReleaseInstances(ScriptLanguage language)
+    {
+        TR_PROFILE_FUNCTION();
+
+        std::uint32_t l_Released = 0;
+        for (Record& it_Record : m_State->Records)
+        {
+            ScriptComponent* l_Component = it_Record.IsLive() ? m_State->TargetScene.GetRegistry().try_get<ScriptComponent>(it_Record.Handle) : nullptr;
+            for (std::size_t it_Index = 0; it_Index < it_Record.Instances.size(); ++it_Index)
+            {
+                Instance& l_Instance = it_Record.Instances[it_Index];
+                if (l_Instance.Backend == nullptr || l_Instance.Backend->GetLanguage() != language)
+                {
+                    continue;
+                }
+
+                if (l_Component != nullptr && it_Index < l_Component->Scripts.size())
+                {
+                    ScriptEntry& l_Entry = l_Component->Scripts[it_Index];
+                    if (const ScriptClassDescription* l_Class = ScriptClassRegistry::Find(l_Entry.Language, l_Entry.ClassName))
+                    {
+                        l_Instance.Backend->ReadFields(l_Instance.Handle, *l_Class, l_Entry);
+                    }
+                }
+
+                l_Instance.Backend->DestroyInstance(l_Instance.Handle);
+                l_Instance.Backend = nullptr;
+                l_Instance.Handle = nullptr;
+                l_Instance.Callbacks = 0;
+                ++l_Released;
+            }
+        }
+
+        return l_Released;
+    }
+
+    // Records stay where they are, so the order scripts are called in is the order they had before
+    std::uint32_t ScriptRuntime::RecreateInstances(ScriptLanguage language)
+    {
+        TR_PROFILE_FUNCTION();
+
+        State& l_State = *m_State;
+        ScriptBackend* l_Backend = ScriptBackends::Find(language);
+        if (l_Backend == nullptr)
+        {
+            return 0;
+        }
+
+        std::uint32_t l_Made = 0;
+        for (std::size_t it_Record = 0; it_Record < l_State.Records.size(); ++it_Record)
+        {
+            if (!l_State.Records[it_Record].IsLive())
+            {
+                continue;
+            }
+
+            const Entity l_Entity(l_State.Records[it_Record].Handle, &l_State.TargetScene);
+            for (std::size_t it_Index = 0; it_Index < l_State.Records[it_Record].Instances.size(); ++it_Index)
+            {
+                const ScriptComponent* l_Component = l_State.TargetScene.GetRegistry().try_get<ScriptComponent>(l_State.Records[it_Record].Handle);
+                if (l_Component == nullptr || it_Index >= l_Component->Scripts.size())
+                {
+                    break;
+                }
+
+                const ScriptEntry& l_Entry = l_Component->Scripts[it_Index];
+                if (l_State.Records[it_Record].Instances[it_Index].Backend != nullptr || l_Entry.Language != language)
+                {
+                    continue;
+                }
+
+                const ScriptClassDescription* l_Class = ScriptClassRegistry::Find(l_Entry.Language, l_Entry.ClassName);
+                if (l_Class == nullptr)
+                {
+                    l_State.WarnUnknown(l_Entry);
+
+                    continue;
+                }
+
+                void* l_Handle = l_Backend->CreateInstance(*l_Class, l_Entity, *this);
+                if (l_Handle == nullptr)
+                {
+                    continue;
+                }
+
+                l_Backend->ApplyFields(l_Handle, *l_Class, l_Entry, l_State.TargetScene);
+                Instance& l_Instance = l_State.Records[it_Record].Instances[it_Index];
+                l_Instance.Handle = l_Handle;
+                l_Instance.Backend = l_Backend;
+                l_Instance.Callbacks = l_Class->Callbacks;
+                ++l_Made;
+
+                // At once, enabled or not, since its OnCreate does not run again
+                if (l_Instance.Created && (l_Instance.Callbacks & ScriptCallbacks::Reloaded) != 0)
+                {
+                    l_Backend->OnReloaded(l_Handle);
+                    if (!l_State.Records[it_Record].IsLive())
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        return l_Made;
     }
 
     void ScriptRuntime::DestroyEntity(Entity entity)

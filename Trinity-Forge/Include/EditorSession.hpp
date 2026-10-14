@@ -66,7 +66,7 @@ public:
 
     [[nodiscard]] bool RequestClose();
 
-    // Play runs a copy of the edited scene, made through the serializer, and Stop throws the copy away, so the edited scene, its history and whether it is saved are as they were. Pause holds the copy where it is, and Step takes one fixed step and holds it there. The history is locked while playing. Each is asked for mid-frame and done at the next Update, and any command but Refresh stops playing first
+    // Play runs a copy of the edited scene, made through the serializer, and Stop throws the copy away, so the edited scene, its history and whether it is saved are as they were. Pause holds the copy where it is, and Step takes one fixed step and holds it there. The history is locked while playing. Each is asked for mid-frame and done at the next Update, and any command but Refresh and Build C++ Module stops playing first, since a build reloads the module while the scene plays on
     void RequestPlay();
     void RequestPause();
     void RequestStep();

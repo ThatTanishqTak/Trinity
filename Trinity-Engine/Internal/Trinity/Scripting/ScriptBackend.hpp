@@ -25,12 +25,15 @@ namespace Trinity
         virtual void DestroyInstance(void* instance) = 0;
         // Each field of the class, with the value the entry gives it, into the instance. The scene is the one it runs in, where an entity field finds its entity
         virtual void ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) = 0;
+        // Each field of the class as the instance has it now, into the entry, before a reload frees the instance
+        virtual void ReadFields(const void* instance, const ScriptClassDescription& description, ScriptEntry& entry) = 0;
 
         virtual void OnCreate(void* instance) = 0;
         virtual void OnFixedUpdate(void* instance, Timestep step) = 0;
         virtual void OnUpdate(void* instance, Timestep timestep) = 0;
         virtual void OnLateUpdate(void* instance, Timestep timestep) = 0;
         virtual void OnDestroy(void* instance) = 0;
+        virtual void OnReloaded(void* instance) = 0;
         virtual void OnPhysicsEvent(void* instance, PhysicsEventType type, const ScriptCollision& collision) = 0;
     };
 

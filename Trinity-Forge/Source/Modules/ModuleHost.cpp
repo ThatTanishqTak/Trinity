@@ -4,9 +4,14 @@
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <unordered_set>
 #include <utility>
 
 namespace
@@ -27,7 +32,7 @@ trinity_add_game_module(@NAME@ ${MODULE_SOURCES})
 
     constexpr std::string_view c_SourceTemplate = R"(#include <Trinity.hpp>
 
-// The module's exports, which register every TR_SCRIPT and TR_COMPONENT of the module as Forge loads it, after each good build, and unregister them before Forge unloads it, before each build and as the project closes
+// The module's exports, which register every TR_SCRIPT and TR_COMPONENT of the module as Forge loads it, after each good build, and unregister them before Forge unloads it, as a new build takes its place and as the project closes
 TR_GAME_MODULE();
 
 // A script class: its fields are public members, listed in a TR_SCRIPT block at global scope, and their defaults are the values a new instance has. Add Script in Properties lists it once the module is built
@@ -74,7 +79,7 @@ TR_GAME_MODULE();
     std::string FillTemplate(std::string_view text, std::string_view name, std::string_view project)
     {
         std::string l_Text(text);
-        for (const auto& [it_Key, it_Value] : { std::pair<std::string_view, std::string_view>{ "@NAME@", name }, { "@PROJECT@", project } })
+        for (const auto& [it_Key, it_Value] : { std::pair<std::string_view, std::string_view>{ "@NAME@", name },{ "@PROJECT@", project } })
         {
             for (std::size_t l_At = l_Text.find(it_Key); l_At != std::string::npos; l_At = l_Text.find(it_Key, l_At + it_Value.size()))
             {
@@ -106,6 +111,163 @@ TR_GAME_MODULE();
 
         return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
     }
+
+    template<typename T>
+    std::optional<T> ReadAt(const std::vector<char>& image, std::size_t offset)
+    {
+        if (offset > image.size() || image.size() - offset < sizeof(T))
+        {
+            return std::nullopt;
+        }
+
+        T l_Value{};
+        std::memcpy(&l_Value, image.data() + offset, sizeof(T));
+
+        return l_Value;
+    }
+
+    // Where an address the image has once loaded is in its file, through the section that holds it
+    std::optional<std::size_t> ToFileOffset(const std::vector<char>& image, std::size_t sections, std::uint16_t sectionCount, std::uint32_t address)
+    {
+        constexpr std::size_t c_SectionSize = 40;
+        for (std::size_t it_Section = 0; it_Section < sectionCount; ++it_Section)
+        {
+            const std::size_t l_Header = sections + it_Section * c_SectionSize;
+            const std::optional<std::uint32_t> l_VirtualSize = ReadAt<std::uint32_t>(image, l_Header + 8);
+            const std::optional<std::uint32_t> l_VirtualAddress = ReadAt<std::uint32_t>(image, l_Header + 12);
+            const std::optional<std::uint32_t> l_RawSize = ReadAt<std::uint32_t>(image, l_Header + 16);
+            const std::optional<std::uint32_t> l_RawOffset = ReadAt<std::uint32_t>(image, l_Header + 20);
+            if (!l_VirtualSize || !l_VirtualAddress || !l_RawSize || !l_RawOffset)
+            {
+                return std::nullopt;
+            }
+
+            if (address >= *l_VirtualAddress && address - *l_VirtualAddress < std::max(*l_VirtualSize, *l_RawSize))
+            {
+                return static_cast<std::size_t>(address - *l_VirtualAddress) + *l_RawOffset;
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    // The PDB path a Windows image records for its debugger, which is the path the linker wrote it to, set to a file name, which the debugger then looks for beside the image. False when the image records none, or the name does not fit where the path was
+    bool SetPdbName(std::vector<char>& image, std::string_view name)
+    {
+        constexpr std::uint32_t c_DebugDirectory = 6;
+        constexpr std::uint32_t c_CodeView = 2;
+        constexpr std::size_t c_DebugEntrySize = 28;
+        constexpr std::size_t c_RecordHeaderSize = 24;
+
+        const std::optional<std::uint32_t> l_Header = ReadAt<std::uint32_t>(image, 0x3C);
+        if (image.size() < 2 || image[0] != 'M' || image[1] != 'Z' || !l_Header || ReadAt<std::uint32_t>(image, *l_Header) != 0x00004550u)
+        {
+            return false;
+        }
+
+        const std::size_t l_File = static_cast<std::size_t>(*l_Header) + 4;
+        const std::optional<std::uint16_t> l_SectionCount = ReadAt<std::uint16_t>(image, l_File + 2);
+        const std::optional<std::uint16_t> l_OptionalSize = ReadAt<std::uint16_t>(image, l_File + 16);
+        const std::size_t l_Optional = l_File + 20;
+        const std::optional<std::uint16_t> l_Magic = ReadAt<std::uint16_t>(image, l_Optional);
+        if (!l_SectionCount || !l_OptionalSize || !l_Magic || (*l_Magic != 0x10B && *l_Magic != 0x20B))
+        {
+            return false;
+        }
+
+        // PE32+ has wider fields ahead of the data directories than PE32
+        const std::size_t l_Directories = l_Optional + (*l_Magic == 0x20B ? 112 : 96);
+        const std::optional<std::uint32_t> l_DirectoryCount = ReadAt<std::uint32_t>(image, l_Directories - 4);
+        const std::optional<std::uint32_t> l_DebugAddress = ReadAt<std::uint32_t>(image, l_Directories + c_DebugDirectory * 8);
+        const std::optional<std::uint32_t> l_DebugSize = ReadAt<std::uint32_t>(image, l_Directories + c_DebugDirectory * 8 + 4);
+        if (!l_DirectoryCount || *l_DirectoryCount <= c_DebugDirectory || !l_DebugAddress || !l_DebugSize || *l_DebugAddress == 0)
+        {
+            return false;
+        }
+
+        const std::size_t l_Sections = l_Optional + *l_OptionalSize;
+        const std::optional<std::size_t> l_Entries = ToFileOffset(image, l_Sections, *l_SectionCount, *l_DebugAddress);
+        if (!l_Entries)
+        {
+            return false;
+        }
+
+        for (std::size_t it_Entry = 0; it_Entry < *l_DebugSize / c_DebugEntrySize; ++it_Entry)
+        {
+            const std::size_t l_Entry = *l_Entries + it_Entry * c_DebugEntrySize;
+            const std::optional<std::uint32_t> l_Type = ReadAt<std::uint32_t>(image, l_Entry + 12);
+            const std::optional<std::uint32_t> l_DataSize = ReadAt<std::uint32_t>(image, l_Entry + 16);
+            const std::optional<std::uint32_t> l_DataOffset = ReadAt<std::uint32_t>(image, l_Entry + 24);
+            if (!l_Type || !l_DataSize || !l_DataOffset || *l_Type != c_CodeView || *l_DataSize <= c_RecordHeaderSize || *l_DataOffset > image.size() || image.size() - *l_DataOffset < *l_DataSize)
+            {
+                continue;
+            }
+
+            // RSDS, then the PDB's GUID and age, then its path ending in a zero
+            char* l_Record = image.data() + *l_DataOffset;
+            if (std::memcmp(l_Record, "RSDS", 4) != 0 || name.size() + 1 > *l_DataSize - c_RecordHeaderSize)
+            {
+                continue;
+            }
+
+            std::memset(l_Record + c_RecordHeaderSize, 0, *l_DataSize - c_RecordHeaderSize);
+            std::memcpy(l_Record + c_RecordHeaderSize, name.data(), name.size());
+
+            return true;
+        }
+
+        return false;
+    }
+
+    std::optional<std::vector<char>> ReadFile(const std::filesystem::path& path)
+    {
+        std::ifstream l_File(path, std::ios::binary);
+        if (!l_File)
+        {
+            return std::nullopt;
+        }
+
+        std::vector<char> l_Bytes{ std::istreambuf_iterator<char>(l_File), std::istreambuf_iterator<char>() };
+        if (l_File.bad())
+        {
+            return std::nullopt;
+        }
+
+        return l_Bytes;
+    }
+
+    bool WriteFile(const std::filesystem::path& path, const std::vector<char>& bytes)
+    {
+        std::ofstream l_File(path, std::ios::binary | std::ios::trunc);
+        l_File.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        l_File.close();
+
+        return !l_File.fail();
+    }
+
+    // The copy and its PDB. Windows keeps a PDB a debugger holds, which goes with a later project open
+    void RemoveCopy(const std::filesystem::path& copy)
+    {
+        if (copy.empty())
+        {
+            return;
+        }
+
+        std::error_code l_Error;
+        std::filesystem::remove(copy, l_Error);
+        std::filesystem::remove(std::filesystem::path(copy).replace_extension(".pdb"), l_Error);
+    }
+
+    std::vector<std::string> GetVariableNames()
+    {
+        std::vector<std::string> l_Names;
+        for (const Trinity::ConsoleVariableBase* it_Variable = Trinity::ConsoleVariableBase::GetFirst(); it_Variable != nullptr; it_Variable = it_Variable->GetNext())
+        {
+            l_Names.emplace_back(it_Variable->GetName());
+        }
+
+        return l_Names;
+    }
 }
 
 ModuleHost::~ModuleHost()
@@ -113,7 +275,7 @@ ModuleHost::~ModuleHost()
     Close();
 }
 
-// A project with a module builds it once as it opens, which does nothing but load it when nothing changed since the last build
+// A project with a module builds it once as it opens, which does nothing but load it when nothing changed since the last build. Copies an earlier Forge left are removed first
 void ModuleHost::Open(Trinity::Project& project)
 {
     Close();
@@ -122,6 +284,8 @@ void ModuleHost::Open(Trinity::Project& project)
     {
         return;
     }
+
+    RemoveStaleCopies();
 
     if (!IsSupported())
     {
@@ -138,6 +302,8 @@ void ModuleHost::Close()
 {
     m_Build.Cancel();
     Unload();
+    RemoveCopy(std::exchange(m_LoadedCopy, {}));
+    m_KeptValues.clear();
     m_Watcher.Stop();
     m_Project = nullptr;
     m_ChangedAt.reset();
@@ -191,7 +357,7 @@ bool ModuleHost::Create(Trinity::Project& project)
     }
 
     const std::string l_Name = Trinity::Project::MakeModuleName(project.GetName());
-    const std::array<std::pair<std::string, std::string_view>, 2> l_Files{ { { "CMakeLists.txt", c_CMakeListsTemplate }, { l_Name + ".cpp", c_SourceTemplate } } };
+    const std::array<std::pair<std::string, std::string_view>, 2> l_Files{ { { "CMakeLists.txt", c_CMakeListsTemplate },{ l_Name + ".cpp", c_SourceTemplate } } };
     for (const auto& [it_File, it_Template] : l_Files)
     {
         const std::string l_Path = std::format("{}/Source/{}", Trinity::Project::c_ProjectMount, it_File);
@@ -241,8 +407,6 @@ void ModuleHost::Watch()
 
 void ModuleHost::StartBuild()
 {
-    Unload();
-
     ModuleBuild::Request l_Request;
     l_Request.Name = m_Project->GetModuleName();
     l_Request.ProjectDirectory = m_Project->GetDirectory();
@@ -251,16 +415,89 @@ void ModuleHost::StartBuild()
     m_Build.Start(std::move(l_Request));
 }
 
-void ModuleHost::Load(const std::filesystem::path& library)
+// The module running now goes only once the build is copied, and is loaded again when the build cannot load in its place
+void ModuleHost::Load(const std::filesystem::path& built)
 {
-    Unload();
+    const std::optional<std::filesystem::path> l_Copy = CopyBuild(built);
+    if (!l_Copy)
+    {
+        return;
+    }
 
-    Trinity::Expected<Trinity::SharedLibrary, std::string> l_Library = Trinity::SharedLibrary::Load(library);
+    const std::filesystem::path l_Previous = std::exchange(m_LoadedCopy, {});
+    Unload();
+    if (LoadCopy(*l_Copy))
+    {
+        RemoveCopy(l_Previous);
+
+        return;
+    }
+
+    RemoveCopy(*l_Copy);
+    if (!l_Previous.empty() && LoadCopy(l_Previous))
+    {
+        TR_WARN("Forge: the new build of {} could not be loaded, so the one before it runs again", m_Project->GetModuleName());
+
+        return;
+    }
+
+    RemoveCopy(l_Previous);
+}
+
+// Under the next number no file there has, since a debugger may still hold an older copy's PDB. The copy's record of its PDB names the PDB copied beside it, which the debugger finds there
+std::optional<std::filesystem::path> ModuleHost::CopyBuild(const std::filesystem::path& built)
+{
+    const std::filesystem::path l_Directory = GetCopyDirectory();
+    std::error_code l_Error;
+    std::filesystem::create_directories(l_Directory, l_Error);
+
+    std::filesystem::path l_Copy;
+    std::filesystem::path l_Pdb;
+    do
+    {
+        const std::string l_Stem = std::format("{}-{}", m_Project->GetModuleName(), m_NextCopy++);
+        l_Copy = l_Directory / (l_Stem + built.extension().string());
+        l_Pdb = l_Directory / (l_Stem + ".pdb");
+    } while (std::filesystem::exists(l_Copy, l_Error) || std::filesystem::exists(l_Pdb, l_Error));
+
+    std::optional<std::vector<char>> l_Image = ReadFile(built);
+    if (!l_Image)
+    {
+        TR_ERROR("Forge: {} could not be read to copy it to {}", ToUtf8(built), ToUtf8(l_Directory));
+
+        return std::nullopt;
+    }
+
+    const std::filesystem::path l_BuiltPdb = std::filesystem::path(built).replace_extension(".pdb");
+    if (built.extension() == ".dll" && std::filesystem::exists(l_BuiltPdb, l_Error))
+    {
+        if (!SetPdbName(*l_Image, ToUtf8(l_Pdb.filename())) || !std::filesystem::copy_file(l_BuiltPdb, l_Pdb, l_Error))
+        {
+            TR_WARN("Forge: the PDB of {} could not be copied beside the module, so a debugger finds no symbols for this build", m_Project->GetModuleName());
+        }
+    }
+
+    if (!WriteFile(l_Copy, *l_Image))
+    {
+        TR_ERROR("Forge: {} could not be written, so the build is not loaded", ToUtf8(l_Copy));
+        RemoveCopy(l_Copy);
+
+        return std::nullopt;
+    }
+
+    return l_Copy;
+}
+
+// The variables the module made are those there are now and were not before it loaded. The module's own load function runs before whatever runs its code is told it is back
+bool ModuleHost::LoadCopy(const std::filesystem::path& copy)
+{
+    const std::vector<std::string> l_Before = GetVariableNames();
+    Trinity::Expected<Trinity::SharedLibrary, std::string> l_Library = Trinity::SharedLibrary::Load(copy);
     if (!l_Library)
     {
         TR_ERROR("Forge: {}", l_Library.GetError());
 
-        return;
+        return false;
     }
 
     // A module that says which version of the module API it was built against must have this one, or what it registers could not be read the way it was written
@@ -270,13 +507,19 @@ void ModuleHost::Load(const std::filesystem::path& library)
         {
             TR_ERROR("Forge: {} was built for version {} of the module API, and this Forge has version {}, so it is not loaded. Building it again builds it for this one", m_Project->GetModuleName(), l_Built, Trinity::GameModule::c_ApiVersion);
 
-            return;
+            return false;
         }
     }
 
     m_Library = std::move(*l_Library);
+    m_LoadedCopy = copy;
+    const std::unordered_set<std::string> l_Engine(l_Before.begin(), l_Before.end());
+    m_ModuleVariables = GetVariableNames();
+    std::erase_if(m_ModuleVariables, [&l_Engine](const std::string& name) { return l_Engine.contains(name); });
+    RestoreVariables();
+
     m_Unload = m_Library.GetFunction<Trinity::GameModule::UnloadFunction>(Trinity::GameModule::c_UnloadFunction);
-    TR_INFO("Forge: loaded the C++ module {}", m_Project->GetModuleName());
+    TR_INFO("Forge: loaded the C++ module {} from Cache/Modules/{}", m_Project->GetModuleName(), ToUtf8(copy.filename()));
     if (const Trinity::GameModule::LoadFunction l_Load = m_Library.GetFunction<Trinity::GameModule::LoadFunction>(Trinity::GameModule::c_LoadFunction))
     {
         l_Load();
@@ -285,6 +528,13 @@ void ModuleHost::Load(const std::filesystem::path& library)
     {
         TR_WARN("Forge: {} exports no {}, so nothing in it runs", m_Project->GetModuleName(), Trinity::GameModule::c_LoadFunction);
     }
+
+    if (m_AfterLoad)
+    {
+        m_AfterLoad();
+    }
+
+    return true;
 }
 
 // What the module's own code allocated is counted under Game, so a module that frees all it took leaves nothing there once it is gone
@@ -300,6 +550,7 @@ void ModuleHost::Unload()
         m_BeforeUnload();
     }
 
+    KeepVariables();
     if (m_Unload != nullptr)
     {
         m_Unload();
@@ -307,10 +558,73 @@ void ModuleHost::Unload()
 
     m_Unload = nullptr;
     m_Library.Unload();
+    m_ModuleVariables.clear();
 
     const Trinity::MemoryTagStats l_Game = Trinity::Memory::GetStats(Trinity::MemoryTag::Game);
     if (l_Game.LiveAllocations != 0)
     {
         TR_WARN("Forge: the C++ module left {} in {} allocation(s) under Game as it unloaded", Trinity::Memory::FormatBytes(l_Game.CurrentBytes), l_Game.LiveAllocations);
     }
+}
+
+// Read-only variables take their values from the command line as they are made, so only the others are kept
+void ModuleHost::KeepVariables()
+{
+    m_KeptValues.clear();
+    for (const std::string& it_Name : m_ModuleVariables)
+    {
+        const Trinity::ConsoleVariableBase* l_Variable = Trinity::ConsoleVariables::Find(it_Name);
+        if (l_Variable != nullptr && !Trinity::HasFlag(l_Variable->GetFlags(), Trinity::ConsoleVariableFlags::ReadOnly) && l_Variable->ToString() != l_Variable->DefaultToString())
+        {
+            m_KeptValues.emplace_back(it_Name, l_Variable->ToString());
+        }
+    }
+}
+
+// A kept value goes to the new module's variable of the same name, unless it no longer reads as that variable's type
+void ModuleHost::RestoreVariables()
+{
+    std::size_t l_Restored = 0;
+    for (const auto& [it_Name, it_Value] : std::exchange(m_KeptValues, {}))
+    {
+        Trinity::ConsoleVariableBase* l_Variable = std::ranges::find(m_ModuleVariables, it_Name) != m_ModuleVariables.end() ? Trinity::ConsoleVariables::Find(it_Name) : nullptr;
+        if (l_Variable == nullptr || Trinity::HasFlag(l_Variable->GetFlags(), Trinity::ConsoleVariableFlags::ReadOnly))
+        {
+            continue;
+        }
+
+        if (!l_Variable->SetFromString(it_Value))
+        {
+            TR_WARN("Forge: {} was {}, which it can no longer hold, so it starts at {}", it_Name, it_Value, l_Variable->DefaultToString());
+
+            continue;
+        }
+
+        ++l_Restored;
+    }
+
+    if (l_Restored != 0)
+    {
+        TR_INFO("Forge: {} console variable(s) of {} kept their values through the reload", l_Restored, m_Project->GetModuleName());
+    }
+}
+
+// Every copy of this module there, which a debugger may still hold, so those that cannot be removed stay until a later open
+void ModuleHost::RemoveStaleCopies() const
+{
+    std::error_code l_Error;
+    const std::string l_Prefix = m_Project->GetModuleName() + "-";
+    for (std::filesystem::directory_iterator it_Entry(GetCopyDirectory(), l_Error); !l_Error && it_Entry != std::filesystem::directory_iterator(); it_Entry.increment(l_Error))
+    {
+        std::error_code l_RemoveError;
+        if (it_Entry->is_regular_file(l_RemoveError) && ToUtf8(it_Entry->path().filename()).starts_with(l_Prefix))
+        {
+            std::filesystem::remove(it_Entry->path(), l_RemoveError);
+        }
+    }
+}
+
+std::filesystem::path ModuleHost::GetCopyDirectory() const
+{
+    return m_Project->GetDirectory() / "Cache" / "Modules";
 }

@@ -5,12 +5,15 @@
 #include <Trinity.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
-// The open project's C++ game module: its Source folder watched, built on a job once the project opens and once its files stop changing, and loaded after each good build. Each build unloads the module first, since the library it writes is the one loaded, which Windows keeps from being written
+// The open project's C++ game module: its Source folder watched, built on a job once the project opens and once its files stop changing, and reloaded after each good build. A good build is copied to Cache/Modules under a number of its own, with its PDB under the same number, and the copy is what loads, so a build never waits for the module to unload, a failed one leaves it running, and a debugger holding one copy's PDB keeps nothing from the next build
 class ModuleHost
 {
 public:
@@ -32,8 +35,12 @@ public:
     // Built at the next Update, or once the build running ends
     void RequestBuild();
 
-    // Called while the module is still loaded, before anything of it is unregistered, so whatever runs its code can stop first
-    void SetBeforeUnload(std::function<void()> callback) { m_BeforeUnload = std::move(callback); }
+    // The first is called while the module is still loaded, before anything of it is unregistered, and the second once a module loaded in its place has registered, so whatever runs the module's code can let go of it and take up the new one
+    void SetReloadCallbacks(std::function<void()> beforeUnload, std::function<void()> afterLoad)
+    {
+        m_BeforeUnload = std::move(beforeUnload);
+        m_AfterLoad = std::move(afterLoad);
+    }
 
     [[nodiscard]] static bool IsSupported() { return ModuleBuild::IsSupported(); }
     [[nodiscard]] bool IsBuilding() const { return m_Build.IsRunning(); }
@@ -44,15 +51,27 @@ private:
 
     void Watch();
     void StartBuild();
-    void Load(const std::filesystem::path& library);
+    void Load(const std::filesystem::path& built);
+    [[nodiscard]] std::optional<std::filesystem::path> CopyBuild(const std::filesystem::path& built);
+    [[nodiscard]] bool LoadCopy(const std::filesystem::path& copy);
     void Unload();
+    void KeepVariables();
+    void RestoreVariables();
+    void RemoveStaleCopies() const;
+    [[nodiscard]] std::filesystem::path GetCopyDirectory() const;
 
     Trinity::Project* m_Project = nullptr;
     Trinity::DirectoryWatcher m_Watcher;
     ModuleBuild m_Build;
     Trinity::SharedLibrary m_Library;
     Trinity::GameModule::UnloadFunction m_Unload = nullptr;
+    std::filesystem::path m_LoadedCopy;
+    std::uint32_t m_NextCopy = 1;
     std::function<void()> m_BeforeUnload;
+    std::function<void()> m_AfterLoad;
+    // The console variables the loaded module made, by name, and the values set on them as it unloaded, which the module loaded next gets
+    std::vector<std::string> m_ModuleVariables;
+    std::vector<std::pair<std::string, std::string>> m_KeptValues;
     // When a source last changed, which a build waits to settle
     std::optional<Clock::time_point> m_ChangedAt;
     bool m_BuildRequested = false;

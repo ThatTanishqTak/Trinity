@@ -22,7 +22,7 @@ namespace Trinity
             TaggedString<MemoryTag::Scripting> Name;
             NativeScripts::CreateFunction Create = nullptr;
             NativeScripts::DestroyFunction Destroy = nullptr;
-            std::vector<NativeScripts::SetFieldFunction, TaggedAllocator<NativeScripts::SetFieldFunction, MemoryTag::Scripting>> Fields;
+            std::vector<NativeScripts::FieldAccess, TaggedAllocator<NativeScripts::FieldAccess, MemoryTag::Scripting>> Fields;
         };
 
         [[nodiscard]] ScriptLanguage GetLanguage() const override { return ScriptLanguage::Cpp; }
@@ -70,28 +70,73 @@ namespace Trinity
             Script* l_Script = static_cast<Script*>(instance);
             for (std::size_t it_Index = 0; it_Index < description.Fields.size(); ++it_Index)
             {
-                l_Factory->Fields[it_Index](l_Script, ScriptClassRegistry::GetFieldValue(entry, description.Fields[it_Index]), scene);
+                l_Factory->Fields[it_Index].Set(l_Script, ScriptClassRegistry::GetFieldValue(entry, description.Fields[it_Index]), scene);
             }
         }
 
+        void ReadFields(const void* instance, const ScriptClassDescription& description, ScriptEntry& entry) override
+        {
+            const Factory* l_Factory = Find(description.Name);
+            if (l_Factory == nullptr || l_Factory->Fields.size() != description.Fields.size())
+            {
+                return;
+            }
+
+            const Script* l_Script = static_cast<const Script*>(instance);
+            for (std::size_t it_Index = 0; it_Index < description.Fields.size(); ++it_Index)
+            {
+                entry.SetField(description.Fields[it_Index].Name, l_Factory->Fields[it_Index].Get(l_Script));
+            }
+        }
 
         void OnCreate(void* instance) override { static_cast<Script*>(instance)->OnCreate(); }
         void OnFixedUpdate(void* instance, Timestep step) override { static_cast<Script*>(instance)->OnFixedUpdate(step); }
         void OnUpdate(void* instance, Timestep timestep) override { static_cast<Script*>(instance)->OnUpdate(timestep); }
         void OnLateUpdate(void* instance, Timestep timestep) override { static_cast<Script*>(instance)->OnLateUpdate(timestep); }
         void OnDestroy(void* instance) override { static_cast<Script*>(instance)->OnDestroy(); }
+        void OnReloaded(void* instance) override { static_cast<Script*>(instance)->OnReloaded(); }
 
         void OnPhysicsEvent(void* instance, PhysicsEventType type, const ScriptCollision& collision) override
         {
             Script* l_Script = static_cast<Script*>(instance);
             switch (type)
             {
-                case PhysicsEventType::ContactBegin: l_Script->OnContactBegin(collision); break;
-                case PhysicsEventType::ContactStay: l_Script->OnContactStay(collision); break;
-                case PhysicsEventType::ContactEnd: l_Script->OnContactEnd(collision); break;
-                case PhysicsEventType::TriggerEnter: l_Script->OnTriggerEnter(collision); break;
-                case PhysicsEventType::TriggerExit: l_Script->OnTriggerExit(collision); break;
-                case PhysicsEventType::JointBreak: l_Script->OnJointBreak(collision); break;
+                case PhysicsEventType::ContactBegin:
+                {
+                    l_Script->OnContactBegin(collision);
+                    
+                    break;
+                }
+                case PhysicsEventType::ContactStay:
+                {
+                    l_Script->OnContactStay(collision);
+                    
+                    break;
+                }
+                case PhysicsEventType::ContactEnd:
+                {
+                    l_Script->OnContactEnd(collision);
+                    
+                    break;
+                }
+                case PhysicsEventType::TriggerEnter:
+                {
+                    l_Script->OnTriggerEnter(collision);
+
+                    break;
+                }
+                case PhysicsEventType::TriggerExit:
+                {
+                    l_Script->OnTriggerExit(collision);
+
+                    break;
+                }
+                case PhysicsEventType::JointBreak:
+                {
+                    l_Script->OnJointBreak(collision);
+
+                    break;
+                }
             }
         }
 
@@ -155,7 +200,7 @@ namespace Trinity
 
     namespace NativeScripts
     {
-        bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy, std::span<const SetFieldFunction> fields)
+        bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy, std::span<const FieldAccess> fields)
         {
             TR_CORE_ASSERT(s_Native != nullptr, "The script backends are not initialized.");
 
@@ -166,9 +211,9 @@ namespace Trinity
                 return false;
             }
 
-            if (fields.size() != description.Fields.size() || std::ranges::find(fields, nullptr) != fields.end())
+            if (fields.size() != description.Fields.size() || std::ranges::any_of(fields, [](const FieldAccess& field) { return field.Get == nullptr || field.Set == nullptr; }))
             {
-                TR_CORE_ERROR("Scripting: C++ class {} has {} field(s) and {} setter(s), and needs one setter a field", std::string_view(description.Name), description.Fields.size(), fields.size());
+                TR_CORE_ERROR("Scripting: C++ class {} has {} field(s), and needs a getter and a setter for each", std::string_view(description.Name), description.Fields.size());
 
                 return false;
             }
