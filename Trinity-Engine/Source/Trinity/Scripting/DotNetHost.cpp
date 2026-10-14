@@ -4,13 +4,16 @@
 #include "Trinity/Core/Log.hpp"
 
 #if defined(TR_DOTNET)
+#include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Platform.hpp"
+#include "Trinity/Scripting/Interop.hpp"
 
 #include <coreclr_delegates.h>
 #include <hostfxr.h>
 #include <nethost.h>
 
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <format>
 #include <string>
@@ -39,6 +42,7 @@ namespace Trinity
             void* HostFxr = nullptr;
             bool Started = false;
             void (CORECLR_DELEGATE_CALLTYPE* Shutdown)() = nullptr;
+            std::int64_t(CORECLR_DELEGATE_CALLTYPE* MeasureInterop)(std::int32_t calls) = nullptr;
             std::array<char, 64> Description{};
             std::size_t DescriptionLength = 0;
         };
@@ -86,10 +90,89 @@ namespace Trinity
             }
         }
 
-        std::int32_t Echo(std::int32_t value)
+        // A type the engine shares with C#, as the engine lays it out
+        struct SharedType
         {
-            return value + 1;
+            std::string_view Name;
+            std::array<std::string_view, 4> FieldNames{};
+            Interop::TypeLayout Layout{};
+        };
+
+        template<typename T, typename... TFields>
+        SharedType Describe(std::string_view name, std::array<std::string_view, 4> fieldNames, const T& value, const TFields&... fields)
+        {
+            static_assert(sizeof...(TFields) <= 4, "A shared type has at most four fields here.");
+
+            SharedType l_Type{ name, fieldNames,{} };
+            l_Type.Layout.Size = static_cast<std::int32_t>(sizeof(T));
+            l_Type.Layout.FieldCount = static_cast<std::int32_t>(sizeof...(TFields));
+            std::size_t l_Index = 0;
+            ((l_Type.Layout.Offsets[l_Index++] = static_cast<std::int32_t>(reinterpret_cast<const std::byte*>(&fields) - reinterpret_cast<const std::byte*>(&value))), ...);
+
+            return l_Type;
         }
+
+        // In the order of Host.DescribeLayouts
+        std::array<SharedType, 7> DescribeSharedTypes()
+        {
+            const Interop::Vector2 l_Vector2{};
+            const Interop::Vector3 l_Vector3{};
+            const Interop::Vector4 l_Vector4{};
+            const Interop::Quaternion l_Quaternion{};
+            const Interop::Color l_Color{};
+            const Interop::Matrix4x4 l_Matrix{};
+            const Interop::Utf8 l_Text{};
+
+            return
+            {
+                Describe("Vector2",{ "X", "Y" }, l_Vector2, l_Vector2.x, l_Vector2.y),
+                Describe("Vector3",{ "X", "Y", "Z" }, l_Vector3, l_Vector3.x, l_Vector3.y, l_Vector3.z),
+                Describe("Vector4",{ "X", "Y", "Z", "W" }, l_Vector4, l_Vector4.x, l_Vector4.y, l_Vector4.z, l_Vector4.w),
+                Describe("Quaternion",{ "X", "Y", "Z", "W" }, l_Quaternion, l_Quaternion.x, l_Quaternion.y, l_Quaternion.z, l_Quaternion.w),
+                Describe("Color",{ "R", "G", "B", "A" }, l_Color, l_Color.r, l_Color.g, l_Color.b, l_Color.a),
+                Describe("Matrix4x4",{ "Column0", "Column1", "Column2", "Column3" }, l_Matrix, l_Matrix[0], l_Matrix[1], l_Matrix[2], l_Matrix[3]),
+                Describe("Utf8",{ "Data", "Length" }, l_Text, l_Text.Data, l_Text.Length)
+            };
+        }
+
+        // Each shared type as C# lays it out against the engine's layout, so a C# struct that drifts from glm turns C# off with the type and field named, rather than corrupting what crosses
+        bool CheckLayouts(std::int32_t(CORECLR_DELEGATE_CALLTYPE* describeLayouts)(Interop::TypeLayout* layouts, std::int32_t capacity, std::int32_t layoutSize), std::string& error)
+        {
+            const std::array<SharedType, 7> l_Native = DescribeSharedTypes();
+            std::array<Interop::TypeLayout, 7> l_Managed{};
+            if (describeLayouts(l_Managed.data(), static_cast<std::int32_t>(l_Managed.size()), static_cast<std::int32_t>(sizeof(Interop::TypeLayout))) != static_cast<std::int32_t>(l_Managed.size()))
+            {
+                error = "Trinity-ScriptCore was built for another engine, and describes other shared types";
+
+                return false;
+            }
+
+            for (std::size_t it_Type = 0; it_Type < l_Native.size(); ++it_Type)
+            {
+                const SharedType& l_Type = l_Native[it_Type];
+                const Interop::TypeLayout& l_Layout = l_Managed[it_Type];
+                if (l_Layout.Size != l_Type.Layout.Size || l_Layout.FieldCount != l_Type.Layout.FieldCount)
+                {
+                    error = std::format("{} is {} bytes with {} fields in C#, and {} bytes with {} fields in the engine", l_Type.Name, l_Layout.Size, l_Layout.FieldCount, l_Type.Layout.Size, l_Type.Layout.FieldCount);
+                    error = std::format("{} is {} bytes with {} fields in C#, and {} bytes with {} fields in the engine", l_Type.Name, l_Layout.Size, l_Layout.FieldCount, l_Type.Layout.Size, l_Type.Layout.FieldCount);
+
+                    return false;
+                }
+
+                for (std::size_t it_Field = 0; it_Field < static_cast<std::size_t>(l_Type.Layout.FieldCount); ++it_Field)
+                {
+                    if (l_Layout.Offsets[it_Field] != l_Type.Layout.Offsets[it_Field])
+                    {
+                        error = std::format("{}.{} is at offset {} in C#, and {} in the engine", l_Type.Name, l_Type.FieldNames[it_Field], l_Layout.Offsets[it_Field], l_Type.Layout.Offsets[it_Field]);
+
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
 
         template<typename T>
         T GetHostFxrFunction(const char* name)
@@ -213,23 +296,30 @@ namespace Trinity
                 return false;
             }
 
-            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_HostInitialize)(const DotNetHost::NativeFunctions * functions, std::int32_t size) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_HostInitialize)(const Interop::NativeFunctions * functions, std::int32_t size) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_GetDescription)(char* buffer, std::int32_t capacity) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_Handshake)(std::int32_t value) = nullptr;
-            if (!GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("Initialize"), l_HostInitialize, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("Shutdown"), s_State.Shutdown, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("GetRuntimeDescription"), l_GetDescription, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("Handshake"), l_Handshake, error))
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_DescribeLayouts)(Interop::TypeLayout * layouts, std::int32_t capacity, std::int32_t layoutSize) = nullptr;
+            if (!GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("Initialize"), l_HostInitialize, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("Shutdown"), s_State.Shutdown, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("GetRuntimeDescription"), l_GetDescription, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("Handshake"), l_Handshake, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("DescribeLayouts"), l_DescribeLayouts, error) || !GetEntryPoint(l_GetFunction, TR_DOTNET_TEXT("MeasureInterop"), s_State.MeasureInterop, error))
             {
                 return false;
             }
 
-            static constexpr DotNetHost::NativeFunctions c_Functions{ &Echo };
-            if (l_HostInitialize(&c_Functions, static_cast<std::int32_t>(sizeof(c_Functions))) != 0)
+            // Checked before ScriptCore takes any function, since one that takes a shared type would read it wrong
+            if (!CheckLayouts(l_DescribeLayouts, error))
+            {
+                return false;
+            }
+
+            static const Interop::NativeFunctions s_Functions{};
+            if (l_HostInitialize(&s_Functions, static_cast<std::int32_t>(sizeof(s_Functions))) != 0)
             {
                 error = "Trinity-ScriptCore was built for another engine, and took none of its functions";
 
                 return false;
             }
 
-            // Into C# and back: ScriptCore doubles the engine's Echo of the value
+            // Into C# and back: ScriptCore doubles the engine's echo of the value
             constexpr std::int32_t c_Value = 20;
             if (const std::int32_t l_Answer = l_Handshake(c_Value); l_Answer != (c_Value + 1) * 2)
             {
@@ -243,6 +333,35 @@ namespace Trinity
 
             return true;
         }
+
+#if !defined(TR_DISTRIBUTION)
+        // What a call from C# into the engine costs, which should stay under 50 ns, with the number of calls to time, a million by default
+        void MeasureInteropCommand(std::string_view arguments)
+        {
+            std::int32_t l_Calls = 1000000;
+            if (!arguments.empty())
+            {
+                const auto [a_End, a_Error] = std::from_chars(arguments.data(), arguments.data() + arguments.size(), l_Calls);
+                if (a_Error != std::errc{} || a_End != arguments.data() + arguments.size() || l_Calls <= 0)
+                {
+                    TR_CORE_WARN("scripting.measure_interop takes a number of calls above 0, not '{}'", arguments);
+
+                    return;
+                }
+            }
+
+            if (!s_State.Started)
+            {
+                TR_CORE_WARN("Scripting: C# is off, so there is nothing to measure");
+
+                return;
+            }
+
+            static_cast<void>(s_State.MeasureInterop(l_Calls));
+        }
+
+        ConsoleCommand s_MeasureInterop("scripting.measure_interop", "Times calls from C# into the engine and logs the cost of each and what they allocated. Takes the number of calls, a million by default", &MeasureInteropCommand);
+#endif
     }
 
     namespace DotNetHost
@@ -256,6 +375,7 @@ namespace Trinity
             if (!StartRuntime(scriptingDirectory, l_Error))
             {
                 s_State.Shutdown = nullptr;
+                s_State.MeasureInterop = nullptr;
                 TR_CORE_ERROR("Scripting: C# is off, since {}", l_Error);
 
                 return false;
@@ -277,6 +397,7 @@ namespace Trinity
 
             s_State.Shutdown();
             s_State.Shutdown = nullptr;
+            s_State.MeasureInterop = nullptr;
             s_State.Started = false;
             s_State.DescriptionLength = 0;
         }

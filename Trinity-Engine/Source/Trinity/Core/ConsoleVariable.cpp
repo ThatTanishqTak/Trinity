@@ -72,6 +72,27 @@ namespace Trinity
             return text.substr(l_First, text.find_last_not_of(" \t") - l_First + 1);
         }
 
+        void LogCommands()
+        {
+            if (ConsoleCommand::GetFirst() == nullptr)
+            {
+                return;
+            }
+
+            // By name, as the variables are listed
+            std::map<std::string_view, const ConsoleCommand*> l_Commands;
+            for (const ConsoleCommand* it_Command = ConsoleCommand::GetFirst(); it_Command != nullptr; it_Command = it_Command->GetNext())
+            {
+                l_Commands.emplace(it_Command->GetName(), it_Command);
+            }
+
+            TR_CORE_INFO("Console commands:");
+            for (const auto& [a_Name, a_Command] : l_Commands)
+            {
+                TR_CORE_INFO("  {} - {}", a_Name, a_Command->GetDescription());
+            }
+        }
+
         void Describe(const ConsoleVariableBase& variable)
         {
             TR_CORE_INFO("{} = {} ({}, default {}{}) - {}", variable.GetName(), variable.ToString(), ToString(variable.GetType()), variable.DefaultToString(), HasFlag(variable.GetFlags(), ConsoleVariableFlags::ReadOnly) ? ", read-only" : "", variable.GetDescription());
@@ -79,6 +100,7 @@ namespace Trinity
     }
 
     constinit ConsoleVariableBase* ConsoleVariableBase::s_First = nullptr;
+    constinit ConsoleCommand* ConsoleCommand::s_First = nullptr;
 
     std::string_view ToString(ConsoleVariableType type)
     {
@@ -136,6 +158,40 @@ namespace Trinity
                 break;
             }
         }
+    }
+
+    ConsoleCommand::ConsoleCommand(std::string_view name, std::string_view description, Function function) : m_Name(name), m_Description(description), m_Function(function), m_Next(s_First)
+    {
+        TR_CORE_ASSERT(m_Function != nullptr, "A console command needs a function.");
+
+        s_First = this;
+    }
+
+    ConsoleCommand::~ConsoleCommand()
+    {
+        for (ConsoleCommand** it_Link = &s_First; *it_Link != nullptr; it_Link = &(*it_Link)->m_Next)
+        {
+            if (*it_Link == this)
+            {
+                *it_Link = m_Next;
+
+                break;
+            }
+        }
+    }
+
+    // The newest first, so a module's command of an engine command's name is the one that runs
+    ConsoleCommand* ConsoleCommand::Find(std::string_view name)
+    {
+        for (ConsoleCommand* it_Command = s_First; it_Command != nullptr; it_Command = it_Command->m_Next)
+        {
+            if (it_Command->m_Name == name)
+            {
+                return it_Command;
+            }
+        }
+
+        return nullptr;
     }
 
     std::optional<bool> ConsoleVariableBase::ParseBool(std::string_view text)
@@ -278,8 +334,16 @@ namespace Trinity
             {
                 if (l_Argument.empty())
                 {
-                    TR_CORE_INFO("Type a name to see a variable, a name and a value to set it, or help and a name to describe it");
+                    TR_CORE_INFO("Type a command and what it takes to run it, a name to see a variable, a name and a value to set it, or help and a name to describe either");
+                    LogCommands();
                     LogAll();
+
+                    return true;
+                }
+
+                if (const ConsoleCommand* l_Command = ConsoleCommand::Find(l_Argument); l_Command != nullptr)
+                {
+                    TR_CORE_INFO("{} - {}", l_Command->GetName(), l_Command->GetDescription());
 
                     return true;
                 }
@@ -287,7 +351,7 @@ namespace Trinity
                 const ConsoleVariableBase* l_Variable = Find(l_Argument);
                 if (l_Variable == nullptr)
                 {
-                    TR_CORE_WARN("Unknown console variable '{}'; help lists them all", l_Argument);
+                    TR_CORE_WARN("Unknown command or console variable '{}'; help lists them all", l_Argument);
 
                     return false;
                 }
@@ -297,12 +361,19 @@ namespace Trinity
                 return true;
             }
 
+            if (const ConsoleCommand* l_Command = ConsoleCommand::Find(l_Name); l_Command != nullptr)
+            {
+                l_Command->Run(l_Argument);
+
+                return true;
+            }
+
             if (l_Argument.empty())
             {
                 const ConsoleVariableBase* l_Variable = Find(l_Name);
                 if (l_Variable == nullptr)
                 {
-                    TR_CORE_WARN("Unknown console variable '{}'; help lists them all", l_Name);
+                    TR_CORE_WARN("Unknown command or console variable '{}'; help lists them all", l_Name);
 
                     return false;
                 }

@@ -212,6 +212,36 @@ namespace Trinity
         ChangedCallback m_OnChanged;
     };
 
+    // A console command, which runs a function with whatever follows its name on the line. Defined as a static, like a variable, and reachable by name as soon as it exists
+    class TRINITY_API ConsoleCommand
+    {
+    public:
+        using Function = void (*)(std::string_view arguments);
+
+        ConsoleCommand(std::string_view name, std::string_view description, Function function);
+        ~ConsoleCommand();
+
+        ConsoleCommand(const ConsoleCommand&) = delete;
+        ConsoleCommand& operator=(const ConsoleCommand&) = delete;
+
+        [[nodiscard]] std::string_view GetName() const { return m_Name; }
+        [[nodiscard]] std::string_view GetDescription() const { return m_Description; }
+
+        void Run(std::string_view arguments) const { m_Function(arguments); }
+
+        [[nodiscard]] static ConsoleCommand* GetFirst() { return s_First; }
+        [[nodiscard]] ConsoleCommand* GetNext() const { return m_Next; }
+        [[nodiscard]] static ConsoleCommand* Find(std::string_view name);
+
+    private:
+        std::string_view m_Name;
+        std::string_view m_Description;
+        Function m_Function;
+        ConsoleCommand* m_Next = nullptr;
+
+        static ConsoleCommand* s_First;
+    };
+
     namespace ConsoleVariables
     {
         // Applies every --set=name=value on the command line; read-only variables may be set here and nowhere else.
@@ -225,7 +255,7 @@ namespace Trinity
 
         TRINITY_API void LogAll();
 
-        // A console's command line: "name" shows a variable, "name value" sets it through Set, "help" lists every variable and "help name" describes one
+        // A console's command line: a command's name runs it with the rest of the line, "name" shows a variable, "name value" sets it through Set, "help" lists every command and variable and "help name" describes one
         TRINITY_API bool Execute(std::string_view line);
     }
 }

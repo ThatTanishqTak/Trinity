@@ -15,4 +15,11 @@
 		<GenerateDocumentationFile>false</GenerateDocumentationFile>
 	</PropertyGroup>
 
+	<!-- The bindings Trinity-InteropGen writes from NativeFunctions.def. CMake's builds pass their folder, and an IDE finds the Debug one through the props CMake writes beside the project -->
+	<Import Project="Trinity-ScriptCore.Local.props" Condition="Exists('Trinity-ScriptCore.Local.props')" />
+
+	<ItemGroup Condition="'$(TrinityGeneratedDirectory)' != ''">
+		<Compile Include="$(TrinityGeneratedDirectory)/*.cs" />
+	</ItemGroup>
+
 </Project>

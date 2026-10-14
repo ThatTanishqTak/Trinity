@@ -1,0 +1,6 @@
+// Every engine function C# can call, one line each, in the order the table holds them: TR_NATIVE(Name, Return, (Parameters)). The engine's table comes from these lines through Interop.hpp, and Trinity-InteropGen writes the matching C# from them as ScriptCore builds, so the two cannot drift. Each function is defined in Trinity::Interop, in the source of its area
+//
+// The types are those of Interop.hpp: Void, Bool, Int32, UInt32, Int64, UInt64, Float, Double, EntityId, LogLevel and Utf8 by value, and the vectors, Quaternion, Color and Matrix4x4 only through pointers, since MSVC passes a glm type with constructors differently from a C struct
+
+TR_NATIVE(Log_Write, Void, (LogLevel level, Utf8 text))
+TR_NATIVE(Interop_Echo, Int32, (Int32 value))

@@ -1,0 +1,2 @@
+// Every call between C# and the engine passes blittable types as they are, so no marshalling stub runs or allocates, and a bool is one byte, as in C++
+[assembly: System.Runtime.CompilerServices.DisableRuntimeMarshalling]
