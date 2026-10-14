@@ -85,9 +85,10 @@ namespace Trinity
         RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()));
     }
 
-    // Scripts added since the last frame are made, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Entities destroyed meanwhile go last, then rendering, which the caller does
+    // The scripts' clock moves on and scripts added since the last frame are made, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Entities destroyed meanwhile go last, then rendering, which the caller does
     void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep timestep)
     {
+        m_Scripts->BeginFrame(timestep, Timestep(m_Clock.GetStep()));
         m_Scripts->CreatePending();
 
         // A scene that had no 3D or no 2D body as it started gets that world once it has one

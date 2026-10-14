@@ -2,7 +2,7 @@
 
 set(TARGET_NAME Trinity-InteropGen)
 
-# A build tool, which writes the C# side of NativeFunctions.def as Trinity-ScriptCore builds. It goes in the build tree rather than bin, so it is never shipped beside the executables
+# A build tool, which writes the C# side of NativeFunctions.def, ScriptComponents.def and the input codes as Trinity-ScriptCore builds. It goes in the build tree rather than bin, so it is never shipped beside the executables
 add_executable(${TARGET_NAME} "${CMAKE_CURRENT_SOURCE_DIR}/Source/Main.cpp")
 
 trinity_configure_target(${TARGET_NAME})

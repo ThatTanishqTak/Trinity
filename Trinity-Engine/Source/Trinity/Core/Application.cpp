@@ -427,6 +427,7 @@ namespace Trinity
             m_Renderer->RenderFrame(m_LayerStack);
         }
 
+        Input::EndFrame();
         ++m_FrameCount;
         if (m_Specification.MaxFrames != 0 && m_FrameCount >= m_Specification.MaxFrames)
         {

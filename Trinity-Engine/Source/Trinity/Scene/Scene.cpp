@@ -230,6 +230,37 @@ namespace Trinity
         return ComputeWorld(entity.GetHandle());
     }
 
+    TransformComponent Scene::ComputeWorldTransform(Entity entity) const
+    {
+        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: ComputeWorldTransform was given an entity of another scene, or one already destroyed");
+
+        // A root's transform is its place in the world, exactly
+        if (m_Registry.get<RelationshipComponent>(entity.GetHandle()).Parent == entt::null)
+        {
+            return m_Registry.get<TransformComponent>(entity.GetHandle());
+        }
+
+        TransformComponent l_World;
+        l_World.SetMatrix(ComputeWorld(entity.GetHandle()));
+
+        return l_World;
+    }
+
+    void Scene::SetWorldTransform(Entity entity, const TransformComponent& world)
+    {
+        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: SetWorldTransform was given an entity of another scene, or one already destroyed");
+
+        // A root's transform is its place in the world already, kept exactly
+        const entt::entity l_Parent = m_Registry.get<RelationshipComponent>(entity.GetHandle()).Parent;
+        TransformComponent l_Local = world;
+        if (l_Parent != entt::null)
+        {
+            l_Local.SetMatrix(glm::inverse(ComputeWorld(l_Parent)) * world.GetMatrix());
+        }
+
+        m_Registry.replace<TransformComponent>(entity.GetHandle(), l_Local);
+    }
+
     Entity Scene::GetFirstRoot()
     {
         return Entity(m_FirstRoot, this);

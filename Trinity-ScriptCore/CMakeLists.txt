@@ -6,16 +6,20 @@ set(TRINITY_SCRIPTCORE_PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/Trinity-ScriptCore.c
 set(TRINITY_SCRIPTCORE_DIRECTORY "${OUTPUT_BASE}/Scripting")
 set(TRINITY_SCRIPTCORE_ASSEMBLY "${TRINITY_SCRIPTCORE_DIRECTORY}/Trinity-ScriptCore.dll")
 
-# The C# side of the engine's functions, written from NativeFunctions.def into the build tree. The generator leaves a file that would not change as it was, so ScriptCore builds again only when the list does
+# The C# side of what the engine shares, written into the build tree: its functions from NativeFunctions.def, its components and enums from ScriptComponents.def, and its key and mouse button codes. The generator leaves a file that would not change as it was, so ScriptCore builds again only when one of these does
 set(TRINITY_SCRIPTCORE_FUNCTIONS "${CMAKE_SOURCE_DIR}/Trinity-Engine/Internal/Trinity/Scripting/NativeFunctions.def")
+set(TRINITY_SCRIPTCORE_COMPONENTS "${CMAKE_SOURCE_DIR}/Trinity-Engine/Internal/Trinity/Scripting/ScriptComponents.def")
+set(TRINITY_SCRIPTCORE_KEYS "${CMAKE_SOURCE_DIR}/Trinity-Engine/Include/Trinity/Input/KeyCodes.hpp")
+set(TRINITY_SCRIPTCORE_MOUSE "${CMAKE_SOURCE_DIR}/Trinity-Engine/Include/Trinity/Input/MouseCodes.hpp")
 set(TRINITY_SCRIPTCORE_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/Generated/$<CONFIG>")
+set(TRINITY_SCRIPTCORE_GENERATED_FILES "${TRINITY_SCRIPTCORE_GENERATED}/NativeFunctions.g.cs" "${TRINITY_SCRIPTCORE_GENERATED}/Components.g.cs" "${TRINITY_SCRIPTCORE_GENERATED}/Input.g.cs")
 
 add_custom_command(OUTPUT "${TRINITY_SCRIPTCORE_GENERATED}/Generated.stamp"
-    BYPRODUCTS "${TRINITY_SCRIPTCORE_GENERATED}/NativeFunctions.g.cs"
-    COMMAND Trinity-InteropGen "${TRINITY_SCRIPTCORE_FUNCTIONS}" "${TRINITY_SCRIPTCORE_GENERATED}/NativeFunctions.g.cs"
+    BYPRODUCTS ${TRINITY_SCRIPTCORE_GENERATED_FILES}
+    COMMAND Trinity-InteropGen "${TRINITY_SCRIPTCORE_FUNCTIONS}" "${TRINITY_SCRIPTCORE_COMPONENTS}" "${TRINITY_SCRIPTCORE_KEYS}" "${TRINITY_SCRIPTCORE_MOUSE}" "${TRINITY_SCRIPTCORE_GENERATED}"
     COMMAND "${CMAKE_COMMAND}" -E touch "${TRINITY_SCRIPTCORE_GENERATED}/Generated.stamp"
-    DEPENDS Trinity-InteropGen "${TRINITY_SCRIPTCORE_FUNCTIONS}"
-    COMMENT "Generating the C# bindings of NativeFunctions.def"
+    DEPENDS Trinity-InteropGen "${TRINITY_SCRIPTCORE_FUNCTIONS}" "${TRINITY_SCRIPTCORE_COMPONENTS}" "${TRINITY_SCRIPTCORE_KEYS}" "${TRINITY_SCRIPTCORE_MOUSE}"
+    COMMENT "Generating the C# bindings of the engine's functions, components and input codes"
     VERBATIM
 )
 
@@ -32,10 +36,10 @@ add_custom_command(OUTPUT "${TRINITY_SCRIPTCORE_ASSEMBLY}"
         "-p:TreatWarningsAsErrors=$<IF:$<BOOL:${TRINITY_WARNINGS_AS_ERRORS}>,true,false>"
         "-p:TrinityGeneratedDirectory=${TRINITY_SCRIPTCORE_GENERATED}"
     COMMAND "${CMAKE_COMMAND}" -E touch "${TRINITY_SCRIPTCORE_ASSEMBLY}"
-    DEPENDS ${TRINITY_SCRIPTCORE_SOURCES} "${TRINITY_SCRIPTCORE_PROJECT}" "${CMAKE_SOURCE_DIR}/global.json" "${TRINITY_SCRIPTCORE_GENERATED}/Generated.stamp" "${TRINITY_SCRIPTCORE_GENERATED}/NativeFunctions.g.cs"
+    DEPENDS ${TRINITY_SCRIPTCORE_SOURCES} "${TRINITY_SCRIPTCORE_PROJECT}" "${CMAKE_SOURCE_DIR}/global.json" "${TRINITY_SCRIPTCORE_GENERATED}/Generated.stamp" ${TRINITY_SCRIPTCORE_GENERATED_FILES}
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     COMMENT "Building Trinity-ScriptCore"
     VERBATIM
 )
 
-add_custom_target(Trinity-ScriptCore ALL DEPENDS "${TRINITY_SCRIPTCORE_ASSEMBLY}" SOURCES ${TRINITY_SCRIPTCORE_SOURCES} "${TRINITY_SCRIPTCORE_PROJECT}" "${TRINITY_SCRIPTCORE_FUNCTIONS}")
+add_custom_target(Trinity-ScriptCore ALL DEPENDS "${TRINITY_SCRIPTCORE_ASSEMBLY}" SOURCES ${TRINITY_SCRIPTCORE_SOURCES} "${TRINITY_SCRIPTCORE_PROJECT}" "${TRINITY_SCRIPTCORE_FUNCTIONS}" "${TRINITY_SCRIPTCORE_COMPONENTS}")

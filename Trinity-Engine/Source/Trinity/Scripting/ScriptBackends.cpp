@@ -22,6 +22,7 @@ namespace Trinity
             TaggedString<MemoryTag::Scripting> Name;
             NativeScripts::CreateFunction Create = nullptr;
             NativeScripts::DestroyFunction Destroy = nullptr;
+            const void* Type = nullptr;
             std::vector<NativeScripts::FieldAccess, TaggedAllocator<NativeScripts::FieldAccess, MemoryTag::Scripting>> Fields;
         };
 
@@ -48,6 +49,7 @@ namespace Trinity
             l_Script->m_Entity = entity;
             l_Script->m_Runtime = &runtime;
             l_Script->m_Release = l_Factory->Destroy;
+            l_Script->m_Type = l_Factory->Type;
 
             return l_Script;
         }
@@ -158,6 +160,13 @@ namespace Trinity
 
         [[nodiscard]] bool IsEmpty() const { return m_Factories.empty(); }
 
+        [[nodiscard]] std::string_view FindName(const void* type) const
+        {
+            const auto a_Found = type != nullptr ? std::ranges::find(m_Factories, type, &Factory::Type) : m_Factories.end();
+
+            return a_Found != m_Factories.end() ? std::string_view(a_Found->Name) : std::string_view();
+        }
+
     private:
         [[nodiscard]] const Factory* Find(std::string_view name) const
         {
@@ -218,7 +227,7 @@ namespace Trinity
 
     namespace NativeScripts
     {
-        bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy, std::span<const FieldAccess> fields)
+        bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy, std::span<const FieldAccess> fields, const void* type)
         {
             TR_CORE_ASSERT(s_Native != nullptr, "The script backends are not initialized.");
 
@@ -242,7 +251,7 @@ namespace Trinity
                 return false;
             }
 
-            NativeScriptBackend::Factory l_Factory{ TaggedString<MemoryTag::Scripting>(std::string_view(description.Name)), create, destroy, {} };
+            NativeScriptBackend::Factory l_Factory{ TaggedString<MemoryTag::Scripting>(std::string_view(description.Name)), create, destroy, type,{} };
             l_Factory.Fields.assign(fields.begin(), fields.end());
 
             return s_Native->Add(std::move(l_Factory));
@@ -255,6 +264,11 @@ namespace Trinity
 
             ScriptClassRegistry::Unregister(ScriptLanguage::Cpp, name);
             s_Native->Remove(name);
+        }
+
+        std::string_view FindClassName(const void* type)
+        {
+            return s_Native != nullptr ? s_Native->FindName(type) : std::string_view();
         }
     }
 }
