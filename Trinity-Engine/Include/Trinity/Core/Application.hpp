@@ -43,6 +43,9 @@ namespace Trinity
         std::uint64_t MaxFrames = 0;
         std::size_t FrameAllocatorCapacity = 4 * 1024 * 1024;
 
+        // .NET starts as the application does, for C# scripts, from Scripting beside the executable. An application with no scripts, such as Hub, never starts it
+        bool StartDotNet = true;
+
         ApplicationCommandLineArgs CommandLineArgs;
     };
 

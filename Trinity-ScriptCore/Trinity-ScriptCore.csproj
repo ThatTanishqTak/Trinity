@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!-- The managed API C# scripts build against. The engine starts .NET from its runtime config, loads it into the default load context and calls its [UnmanagedCallersOnly] entry points through function pointers. CMake builds it with dotnet into bin/<configuration>/Trinity/Scripting -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>Trinity-ScriptCore</AssemblyName>
+		<RootNamespace>Trinity</RootNamespace>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<EnableDynamicLoading>true</EnableDynamicLoading>
+		<IsAotCompatible>true</IsAotCompatible>
+		<Deterministic>true</Deterministic>
+		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+		<GenerateDocumentationFile>false</GenerateDocumentationFile>
+	</PropertyGroup>
+
+</Project>

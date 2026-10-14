@@ -5,6 +5,10 @@
 # Compiled binaries: bin/<config>-<system>-<arch>/Trinity/
 /bin/
 
+# What an IDE's own build of Trinity-ScriptCore writes beside it. CMake builds it into the build tree
+/Trinity-ScriptCore/bin/
+/Trinity-ScriptCore/obj/
+
 # Test models fetched by Scripts/FetchSamples
 /Trinity-Forge/Tests/Models/
 

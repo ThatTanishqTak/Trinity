@@ -30,6 +30,7 @@ include(TrinityShaders)
 include(TrinityAgilitySDK)
 include(TrinityAssets)
 include(TrinityEditorLibraries)
+include(TrinityDotNet)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -62,6 +63,13 @@ add_subdirectory(Trinity-Engine)
 add_subdirectory(Trinity-Forge)
 add_subdirectory(Trinity-Hub)
 add_subdirectory(Trinity-Sandbox)
+
+# The applications that start .NET build the managed side they load. Hub never starts it
+if(TRINITY_DOTNET_FOUND)
+    add_subdirectory(Trinity-ScriptCore)
+    add_dependencies(Trinity-Forge Trinity-ScriptCore)
+    add_dependencies(Trinity-Sandbox Trinity-ScriptCore)
+endif()
 
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT Trinity-Sandbox)
 

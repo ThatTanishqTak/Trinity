@@ -149,6 +149,8 @@ function(trinity_add_engine_library target type active_config)
     if(TRINITY_RHI_VULKAN)
         target_link_libraries(${target} PRIVATE volk::volk GPUOpen::VulkanMemoryAllocator)
     endif()
+
+    trinity_link_dotnet_host(${target})
 endfunction()
 
 trinity_add_engine_library(Trinity-Engine SHARED "${TRINITY_ENGINE_SHARED_CONFIG}")
@@ -194,6 +196,11 @@ add_dependencies(Trinity-Engine-Static Trinity-Fonts)
 trinity_add_agility_sdk(Trinity-AgilitySDK)
 add_dependencies(Trinity-Engine Trinity-AgilitySDK)
 add_dependencies(Trinity-Engine-Static Trinity-AgilitySDK)
+
+# nethost.dll beside every executable on Windows, which the engine finds the installed .NET runtime through
+trinity_add_dotnet_host_runtime(Trinity-NetHost)
+add_dependencies(Trinity-Engine Trinity-NetHost)
+add_dependencies(Trinity-Engine-Static Trinity-NetHost)
 
 # TrinityConfig.cmake and TrinityToolchain.cmake beside the shared engine, which a game module builds against
 include(TrinityPackage)

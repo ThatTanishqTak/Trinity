@@ -15,6 +15,7 @@
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Physics/CollisionShapeLoaders.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
+#include "Trinity/Scripting/DotNetHost.hpp"
 #include "Trinity/Scripting/NativeComponentRegistry.hpp"
 #include "Trinity/Scripting/ScriptBackend.hpp"
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"
@@ -287,6 +288,11 @@ namespace Trinity
 
         MountSaveDirectory(l_Args, m_Specification.Name);
 
+        if (m_Specification.StartDotNet)
+        {
+            static_cast<void>(DotNetHost::Start(Platform::GetExecutableDirectory() / "Scripting"));
+        }
+
         if (!m_Specification.Window.Headless)
         {
             LogMonitors();
@@ -304,6 +310,7 @@ namespace Trinity
     {
         m_LayerStack.Clear();
         JobSystem::Wait(m_FrameJobs);
+        DotNetHost::Stop();
         m_Renderer.reset();
         m_Device.reset();
         m_Window.reset();
