@@ -12,6 +12,7 @@
 #include <hostfxr.h>
 #include <nethost.h>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <chrono>
@@ -42,8 +43,9 @@ namespace Trinity
         {
             void (CORECLR_DELEGATE_CALLTYPE* Shutdown)() = nullptr;
             std::int64_t(CORECLR_DELEGATE_CALLTYPE* MeasureInterop)(std::int32_t calls) = nullptr;
-            std::int32_t(CORECLR_DELEGATE_CALLTYPE* LoadAssembly)(const char* path, std::int32_t length) = nullptr;
-            void (CORECLR_DELEGATE_CALLTYPE* UnloadAssembly)() = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* LoadAssembly)(const char* path, std::int32_t length, const char* buildPath, std::int32_t buildLength) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* UnloadAssembly)() = nullptr;
+            void (CORECLR_DELEGATE_CALLTYPE* GetHeapStatistics)(std::int64_t* bytes, std::int32_t* collections) = nullptr;
             std::intptr_t(CORECLR_DELEGATE_CALLTYPE* CreateInstance)(std::int32_t classIndex, std::uint64_t entity) = nullptr;
             void (CORECLR_DELEGATE_CALLTYPE* DestroyInstance)(std::intptr_t instance) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* SetField)(std::intptr_t instance, std::int32_t field, const Interop::FieldValue* value) = nullptr;
@@ -321,10 +323,9 @@ namespace Trinity
             std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_Handshake)(std::int32_t value) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_DescribeLayouts)(Interop::TypeLayout * layouts, std::int32_t capacity, std::int32_t layoutSize) = nullptr;
             EntryPoints& l_Entry = s_State.Entry;
-            const bool l_Found = GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Initialize"), l_HostInitialize, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Shutdown"), l_Entry.Shutdown, error) 
-                && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("GetRuntimeDescription"), l_GetDescription, error)&& GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Handshake"), l_Handshake, error) 
-                && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("DescribeLayouts"), l_DescribeLayouts, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("MeasureInterop"), l_Entry.MeasureInterop, error) 
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("LoadAssembly"), l_Entry.LoadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("UnloadAssembly"), l_Entry.UnloadAssembly, error)
+            const bool l_Found = GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Initialize"), l_HostInitialize, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Shutdown"), l_Entry.Shutdown, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("GetRuntimeDescription"), l_GetDescription, error)
+                && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Handshake"), l_Handshake, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("DescribeLayouts"), l_DescribeLayouts, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("MeasureInterop"), l_Entry.MeasureInterop, error)
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("LoadAssembly"), l_Entry.LoadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("UnloadAssembly"), l_Entry.UnloadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetHeapStatistics"), l_Entry.GetHeapStatistics, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CreateInstance"), l_Entry.CreateInstance, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("DestroyInstance"), l_Entry.DestroyInstance, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("SetField"), l_Entry.SetField, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetField"), l_Entry.GetField, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("Invoke"), l_Entry.Invoke, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("InvokePhysics"), l_Entry.InvokePhysics, error);
@@ -422,7 +423,7 @@ namespace Trinity
                 return;
             }
 
-            ManagedScripts::UnloadAssembly();
+            static_cast<void>(ManagedScripts::UnloadAssembly());
             s_State.Entry.Shutdown();
             s_State.Entry = {};
             s_State.Started = false;
@@ -439,25 +440,40 @@ namespace Trinity
             return std::string_view(s_State.Description.data(), s_State.DescriptionLength);
         }
 
-        std::int32_t LoadAssembly(const std::filesystem::path& path)
+        std::int32_t LoadAssembly(const std::filesystem::path& path, const std::filesystem::path& buildPath)
         {
             if (!s_State.Started)
             {
                 return -1;
             }
 
-            const std::u8string l_Path = path.u8string();
 
-            return s_State.Entry.LoadAssembly(reinterpret_cast<const char*>(l_Path.data()), static_cast<std::int32_t>(l_Path.size()));
+            const std::u8string l_Path = path.u8string();
+            const std::u8string l_BuildPath = buildPath.u8string();
+
+            return s_State.Entry.LoadAssembly(reinterpret_cast<const char*>(l_Path.data()), static_cast<std::int32_t>(l_Path.size()), reinterpret_cast<const char*>(l_BuildPath.data()), static_cast<std::int32_t>(l_BuildPath.size()));
         }
 
-        void UnloadAssembly()
+        bool UnloadAssembly()
         {
+            return !s_State.Started || s_State.Entry.UnloadAssembly() != 0;
+        }
+
+        HeapStatistics GetHeapStatistics()
+        {
+            HeapStatistics l_Statistics;
             if (s_State.Started)
             {
-                s_State.Entry.UnloadAssembly();
+                std::int64_t l_Bytes = 0;
+                std::int32_t l_Collections = 0;
+                s_State.Entry.GetHeapStatistics(&l_Bytes, &l_Collections);
+                l_Statistics.Bytes = static_cast<std::uint64_t>(std::max<std::int64_t>(l_Bytes, 0));
+                l_Statistics.Collections = static_cast<std::uint32_t>(std::max<std::int32_t>(l_Collections, 0));
             }
+
+            return l_Statistics;
         }
+
 
         std::intptr_t CreateInstance(std::int32_t classIndex, UUID entity)
         {
@@ -517,15 +533,21 @@ namespace Trinity
             return {};
         }
 
-        std::int32_t LoadAssembly([[maybe_unused]] const std::filesystem::path& path)
+        std::int32_t LoadAssembly([[maybe_unused]] const std::filesystem::path& path, [[maybe_unused]] const std::filesystem::path& buildPath)
         {
             return -1;
         }
 
-        void UnloadAssembly()
+        bool UnloadAssembly()
         {
-
+            return true;
         }
+
+        HeapStatistics GetHeapStatistics()
+        {
+            return {};
+        }
+
 
         std::intptr_t CreateInstance([[maybe_unused]] std::int32_t classIndex, [[maybe_unused]] UUID entity)
         {

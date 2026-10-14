@@ -3,6 +3,7 @@
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Physics/PhysicsTypes.hpp"
 #include "Trinity/Scripting/Interop.hpp"
+#include "Trinity/Scripting/ManagedScripts.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -33,10 +34,12 @@ namespace Trinity
         // Such as .NET 10.0.0, or empty while not running
         [[nodiscard]] std::string_view GetRuntimeDescription();
 
-        // A game assembly, read into a collectible load context so its file stays free, whose script classes ScriptCore describes through Scripting_BeginClass and the rest of them as it loads. The number of classes it described, or -1, which ScriptCore has logged, when it could not be loaded
-        [[nodiscard]] std::int32_t LoadAssembly(const std::filesystem::path& path);
-        // Frees every instance still held and unloads the assembly's context
-        void UnloadAssembly();
+        // A copy of a game assembly, loaded into a collectible load context, whose script classes ScriptCore describes through Scripting_BeginClass and the rest of them as it loads. What it depends on is found beside the build it was copied from. The number of classes it described, or -1, which ScriptCore has logged, when it could not be loaded
+        [[nodiscard]] std::int32_t LoadAssembly(const std::filesystem::path& path, const std::filesystem::path& buildPath);
+        // Frees every instance still held and unloads the assembly's context. False when the context was not collected, which ScriptCore has logged with what still holds it
+        [[nodiscard]] bool UnloadAssembly();
+
+        [[nodiscard]] HeapStatistics GetHeapStatistics();
 
         // An instance of the class ScriptCore described at that index, for the entity, held by a GC handle, or 0 when its constructor threw, which ScriptCore has logged
         [[nodiscard]] std::intptr_t CreateInstance(std::int32_t classIndex, UUID entity);

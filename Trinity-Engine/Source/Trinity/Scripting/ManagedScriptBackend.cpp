@@ -364,7 +364,7 @@ namespace Trinity
             return DotNetHost::IsRunning();
         }
 
-        bool LoadAssembly(const std::filesystem::path& path)
+        bool LoadAssembly(const std::filesystem::path& path, const std::filesystem::path& buildPath)
         {
             TR_CORE_ASSERT(s_Managed != nullptr, "The C# script backend is not initialized.");
 
@@ -385,7 +385,7 @@ namespace Trinity
             }
 
             s_Managed->BeginLoad();
-            const std::int32_t l_Described = DotNetHost::LoadAssembly(path);
+            const std::int32_t l_Described = DotNetHost::LoadAssembly(path, buildPath);
             s_Managed->EndLoad();
             if (l_Described < 0)
             {
@@ -401,22 +401,28 @@ namespace Trinity
             return true;
         }
 
-        void UnloadAssembly()
+        bool UnloadAssembly()
         {
             if (s_Managed == nullptr || !s_Managed->IsLoaded())
             {
-                return;
+                return true;
             }
 
             ScriptClassRegistry::UnregisterAll(ScriptLanguage::CSharp);
             s_Managed->Clear();
-            DotNetHost::UnloadAssembly();
             s_Managed->SetLoaded(false);
+
+            return DotNetHost::UnloadAssembly();
         }
 
         bool IsAssemblyLoaded()
         {
             return s_Managed != nullptr && s_Managed->IsLoaded();
+        }
+
+        HeapStatistics GetHeapStatistics()
+        {
+            return DotNetHost::GetHeapStatistics();
         }
     }
 }

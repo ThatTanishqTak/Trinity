@@ -25,18 +25,21 @@ namespace Trinity.Interop
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static unsafe class ScriptHost
     {
+        // How many times a full collection is asked for before an unloaded context counts as kept alive
+        private const int c_CollectAttempts = 10;
+
         private static GameLoadContext? s_Context;
         private static string s_AssemblyName = string.Empty;
         private static readonly List<ScriptClass> s_Classes = new();
-        private static int s_Instances;
+        private static readonly HashSet<nint> s_Instances = new();
 
-        // The number of classes described, numbered from 0 in the order the engine was told of them, or -1 when the assembly could not be loaded
+        // The copy to load, and the build it was copied from, beside which what it depends on is found. The number of classes described, numbered from 0 in the order the engine was told of them, or -1 when the assembly could not be loaded
         [UnmanagedCallersOnly]
-        public static int LoadAssembly(byte* path, int length)
+        public static int LoadAssembly(byte* path, int length, byte* buildPath, int buildLength)
         {
             try
             {
-                return Load(Encoding.UTF8.GetString(path, length));
+                return Load(Encoding.UTF8.GetString(path, length), Encoding.UTF8.GetString(buildPath, buildLength));
             }
             catch (Exception exception)
             {
@@ -46,17 +49,28 @@ namespace Trinity.Interop
             }
         }
 
+        // 1 once the context was collected, and 0 when something still holds it, which is logged by name
         [UnmanagedCallersOnly]
-        public static void UnloadAssembly()
+        public static int UnloadAssembly()
         {
             try
             {
-                Unload();
+                return Unload() ? 1 : 0;
             }
             catch (Exception exception)
             {
                 NativeLog.Write(LogLevel.Error, $"Scripting: {s_AssemblyName} could not be unloaded: {exception}");
+
+                return 0;
             }
+        }
+
+        // The managed heap's size as of the last collection, and how many collections there have been
+        [UnmanagedCallersOnly]
+        public static void GetHeapStatistics(long* bytes, int* collections)
+        {
+            *bytes = GC.GetTotalMemory(false);
+            *collections = GC.CollectionCount(0);
         }
 
         // 0 when the class has no instance to give, logged when its constructor threw
@@ -73,9 +87,10 @@ namespace Trinity.Interop
             {
                 Script l_Script = l_Class.Create();
                 l_Script.Bind(new Entity(entity), l_Class);
-                ++s_Instances;
+                nint l_Handle = GCHandle.ToIntPtr(GCHandle.Alloc(l_Script));
+                s_Instances.Add(l_Handle);
 
-                return GCHandle.ToIntPtr(GCHandle.Alloc(l_Script));
+                return l_Handle;
             }
             catch (Exception exception)
             {
@@ -88,8 +103,10 @@ namespace Trinity.Interop
         [UnmanagedCallersOnly]
         public static void DestroyInstance(nint instance)
         {
-            GCHandle.FromIntPtr(instance).Free();
-            --s_Instances;
+            if (s_Instances.Remove(instance))
+            {
+                GCHandle.FromIntPtr(instance).Free();
+            }
         }
 
         [UnmanagedCallersOnly]
@@ -194,7 +211,7 @@ namespace Trinity.Interop
         }
 
         // The assembly's module initializer, which its source generator wrote, adds its classes as it runs
-        private static int Load(string path)
+        private static int Load(string path, string buildPath)
         {
             string l_Name = Path.GetFileName(path);
             if (s_Context != null)
@@ -204,11 +221,11 @@ namespace Trinity.Interop
                 return -1;
             }
 
-            GameLoadContext l_Context = new(path);
+            GameLoadContext l_Context = new(buildPath.Length != 0 ? buildPath : path);
             List<ScriptClass> l_Found;
             try
             {
-                Assembly l_Assembly = l_Context.LoadFile(path);
+                Assembly l_Assembly = l_Context.LoadMain(path);
                 ScriptRegistry.Take();
                 RuntimeHelpers.RunModuleConstructor(l_Assembly.ManifestModule.ModuleHandle);
                 l_Found = ScriptRegistry.Take();
@@ -291,23 +308,55 @@ namespace Trinity.Interop
             }
         }
 
-        // Instances still held are reported, since the context cannot unload while they live
-        private static void Unload()
+        // Every instance still held is freed and reported, since the context cannot be collected while one lives. Then collections are asked for until the context goes, and one that stays is reported with what still holds it
+        private static bool Unload()
         {
             if (s_Context == null)
             {
-                return;
+                return true;
             }
 
-            if (s_Instances != 0)
+            string l_Name = s_AssemblyName;
+            if (s_Instances.Count != 0)
             {
-                NativeLog.Write(LogLevel.Warn, $"Scripting: {s_Instances} C# script instance(s) were still held as {s_AssemblyName} unloaded");
+                NativeLog.Write(LogLevel.Warn, $"Scripting: {s_Instances.Count} C# script instance(s) were still held as {l_Name} unloaded, and were freed");
+                foreach (nint it_Instance in s_Instances)
+                {
+                    GCHandle.FromIntPtr(it_Instance).Free();
+                }
+
+                s_Instances.Clear();
             }
 
             s_Classes.Clear();
-            s_Context.Unload();
-            s_Context = null;
+            ScriptRegistry.Take();
             s_AssemblyName = string.Empty;
+            WeakReference l_Context = Release();
+            for (int it_Attempt = 0; it_Attempt < c_CollectAttempts && l_Context.IsAlive; ++it_Attempt)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+
+            if (!l_Context.IsAlive)
+            {
+                return true;
+            }
+
+            NativeLog.Write(LogLevel.Warn, $"Scripting: {l_Name} was not collected after it unloaded, so its memory stays until Forge closes. {LeakFinder.Describe(l_Context)}");
+
+            return false;
+        }
+
+        // In a method of its own, so no local of the caller's still holds the context once it is let go
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static WeakReference Release()
+        {
+            WeakReference l_Context = new(s_Context);
+            s_Context!.Unload();
+            s_Context = null;
+
+            return l_Context;
         }
     }
 }

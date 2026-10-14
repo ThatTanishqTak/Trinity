@@ -123,13 +123,21 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
         }
     });
 
-    // C# scripts that load while a scene plays get their instances then, as a C++ module's do
-    m_Assembly.SetLoadCallback([this]
+    // C# scripts reload as a C++ module does, and their instances made as they first load while a scene plays
+    m_Assembly.SetReloadCallbacks([this]
+    {
+        if (m_Runtime)
+        {
+            const std::uint32_t l_Released = m_Runtime->GetScripts().ReleaseInstances(Trinity::ScriptLanguage::CSharp);
+            TR_INFO("Forge: {} C# script instance(s) wrote their fields back for the reload", l_Released);
+        }
+    },
+    [this]
     {
         if (m_Runtime)
         {
             const std::uint32_t l_Made = m_Runtime->GetScripts().RecreateInstances(Trinity::ScriptLanguage::CSharp);
-            TR_INFO("Forge: {} C# script instance(s) were made as the scripts loaded, and play goes on", l_Made);
+            TR_INFO("Forge: {} C# script instance(s) were made, and play goes on", l_Made);
         }
     });
 
