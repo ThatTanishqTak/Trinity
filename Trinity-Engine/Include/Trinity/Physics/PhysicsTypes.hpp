@@ -35,6 +35,14 @@ namespace Trinity
 
     [[nodiscard]] TRINITY_API std::string_view ToString(PhysicsEventType type);
 
+    // What a call a script makes on a body did: done, refused since the entity is part of no body made, such as one still waiting for its shapes, or refused since its body cannot do it, such as a force on a body that is not dynamic
+    enum class PhysicsBodyResult : std::uint8_t
+    {
+        Done,
+        NoBody,
+        WrongMotion
+    };
+
     // The collision layers a project can have, which colliders name by index
     constexpr std::uint32_t c_MaxCollisionLayers = 16;
     // A mask with every layer in it, bit N for layer N

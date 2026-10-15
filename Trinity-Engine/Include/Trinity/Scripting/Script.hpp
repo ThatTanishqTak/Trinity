@@ -14,6 +14,8 @@
 
 namespace Trinity
 {
+    class PhysicsScene2D;
+    class PhysicsScene3D;
     class Scene;
     class ScriptRuntime;
 
@@ -43,9 +45,6 @@ namespace Trinity
         inline char s_ScriptType = 0;
     }
 
-    // The base of a C++ script class, of which the C++ backend makes one instance for each script on an entity once its scene runs. OnCreate runs before any other callback, after the physics bodies exist, and only once the script is enabled. OnFixedUpdate runs each fixed step ahead of physics, the physics callbacks after the step that raised them, OnUpdate once a frame after the steps, and OnLateUpdate after the transform pass. OnDestroy runs when the entity or the scene goes, for a script that had OnCreate. A reload while the scene runs makes the instance again from its fields, and the new one has OnReloaded in place of OnCreate, to rebuild what it keeps outside its fields
-    //
-    // What a script reaches beyond its entity's components, which it changes through Entity: the running scene's entities, made, copied and destroyed through the runtime so their scripts run, the scene's clock, and the other scripts on an entity. Input and DebugDraw are the engine's own. Main thread only
     class TRINITY_API Script
     {
     public:
@@ -72,6 +71,9 @@ namespace Trinity
         [[nodiscard]] Entity GetEntity() const { return m_Entity; }
         [[nodiscard]] Scene& GetScene() const;
         [[nodiscard]] const ScriptTime& GetTime() const;
+        // The running scene's physics, whose bodies a script pushes and queries, by its entities' UUIDs. Null while the scene has no body of that kind
+        [[nodiscard]] PhysicsScene3D* GetPhysics() const;
+        [[nodiscard]] PhysicsScene2D* GetPhysics2D() const;
 
         // Invalid when the scene has no such entity
         [[nodiscard]] Entity FindEntity(UUID id) const;

@@ -1,6 +1,6 @@
 // Every engine function C# can call, one line each, in the order the table holds them: TR_NATIVE(Name, Return, (Parameters)). The engine's table comes from these lines through Interop.hpp, and Trinity-InteropGen writes the matching C# from them as ScriptCore builds, so the two cannot drift. Each function is defined in Trinity::Interop, in the source of its area
 //
-// The types are those of Interop.hpp: Void, Bool, Int32, UInt32, Int64, UInt64, Float, Double, EntityId, LogLevel and Utf8 by value, and the vectors, Quaternion, Color, Matrix4x4, FieldValue and Collision only through pointers, since MSVC passes a glm type with constructors differently from a C struct
+// The types are those of Interop.hpp: Void, Bool, Int32, UInt32, Int64, UInt64, Float, Double, EntityId, LogLevel and Utf8 by value, and the vectors, Quaternion, Color, Matrix4x4, FieldValue, Collision and the physics query types only through pointers, since MSVC passes a glm type with constructors differently from a C struct
 
 TR_NATIVE(Log_Write, Void, (LogLevel level, Utf8 text))
 TR_NATIVE(Interop_Echo, Int32, (Int32 value))
@@ -64,6 +64,40 @@ TR_NATIVE(Input_WasMouseButtonReleased, Bool, (Int32 button))
 TR_NATIVE(Input_GetMousePosition, Void, (Vector2* position))
 TR_NATIVE(Input_GetMouseDelta, Void, (Vector2* delta))
 TR_NATIVE(Input_GetMouseScroll, Void, (Vector2* scroll))
+
+// What a script does to the body an entity is part of, named by the entity that owns it or by one of its colliders' entities, in world space, as PhysicsScene3D and 2D do it. Each Int32 result is an Interop::AccessResult: NoComponent for an entity that is not part of a body the running scene's physics has made, and BadValue for a body whose motion does not take it. A null point pushes at the body's centre of mass. A 2D body's turns are counter-clockwise radians about Z
+TR_NATIVE(Body_GetVelocity, Int32, (EntityId entity, Vector3* linear, Vector3* angular))
+TR_NATIVE(Body_SetLinearVelocity, Int32, (EntityId entity, const Vector3* velocity))
+TR_NATIVE(Body_SetAngularVelocity, Int32, (EntityId entity, const Vector3* velocity))
+TR_NATIVE(Body_AddForce, Int32, (EntityId entity, const Vector3* force, const Vector3* point))
+TR_NATIVE(Body_AddTorque, Int32, (EntityId entity, const Vector3* torque))
+TR_NATIVE(Body_AddImpulse, Int32, (EntityId entity, const Vector3* impulse, const Vector3* point))
+TR_NATIVE(Body_AddAngularImpulse, Int32, (EntityId entity, const Vector3* impulse))
+TR_NATIVE(Body_Teleport, Int32, (EntityId entity, const Vector3* position, const Quaternion* rotation))
+TR_NATIVE(Body_MoveKinematic, Int32, (EntityId entity, const Vector3* position, const Quaternion* rotation))
+TR_NATIVE(Body_SetAwake, Int32, (EntityId entity, Bool awake))
+TR_NATIVE(Body_IsAwake, Int32, (EntityId entity, Bool* awake))
+TR_NATIVE(Joint_IsBroken, Int32, (EntityId entity, Bool* broken))
+TR_NATIVE(Body2D_GetVelocity, Int32, (EntityId entity, Vector2* linear, Float* angular))
+TR_NATIVE(Body2D_SetLinearVelocity, Int32, (EntityId entity, const Vector2* velocity))
+TR_NATIVE(Body2D_SetAngularVelocity, Int32, (EntityId entity, Float velocity))
+TR_NATIVE(Body2D_AddForce, Int32, (EntityId entity, const Vector2* force, const Vector2* point))
+TR_NATIVE(Body2D_AddTorque, Int32, (EntityId entity, Float torque))
+TR_NATIVE(Body2D_AddImpulse, Int32, (EntityId entity, const Vector2* impulse, const Vector2* point))
+TR_NATIVE(Body2D_AddAngularImpulse, Int32, (EntityId entity, Float impulse))
+TR_NATIVE(Body2D_Teleport, Int32, (EntityId entity, const Vector2* position, Float angle))
+TR_NATIVE(Body2D_MoveKinematic, Int32, (EntityId entity, const Vector2* position, Float angle))
+TR_NATIVE(Body2D_SetAwake, Int32, (EntityId entity, Bool awake))
+TR_NATIVE(Body2D_IsAwake, Int32, (EntityId entity, Bool* awake))
+TR_NATIVE(Joint2D_IsBroken, Int32, (EntityId entity, Bool* broken))
+
+// The running scene's queries, as PhysicsScene3D and 2D answer them, into the caller's hits: the nearest alone, or with all every one met, nearest first, as many as there is room for. Each returns how many it wrote, 0 when the scene has no physics, or -1 for a shape type the engine does not know
+TR_NATIVE(Physics_Raycast, Int32, (const Vector3* origin, const Vector3* direction, Float maxDistance, const QueryFilter* filter, Bool all, PhysicsHit* hits, Int32 capacity))
+TR_NATIVE(Physics_ShapeCast, Int32, (const QueryShape* shape, const Vector3* position, const Quaternion* rotation, const Vector3* direction, Float maxDistance, const QueryFilter* filter, Bool all, PhysicsHit* hits, Int32 capacity))
+TR_NATIVE(Physics_Overlap, Int32, (const QueryShape* shape, const Vector3* position, const Quaternion* rotation, const QueryFilter* filter, PhysicsHit* hits, Int32 capacity))
+TR_NATIVE(Physics2D_Raycast, Int32, (const Vector2* origin, const Vector2* direction, Float maxDistance, const QueryFilter* filter, Bool all, PhysicsHit2D* hits, Int32 capacity))
+TR_NATIVE(Physics2D_ShapeCast, Int32, (const QueryShape2D* shape, const Vector2* position, Float angle, const Vector2* direction, Float maxDistance, const QueryFilter* filter, Bool all, PhysicsHit2D* hits, Int32 capacity))
+TR_NATIVE(Physics2D_Overlap, Int32, (const QueryShape2D* shape, const Vector2* position, Float angle, const QueryFilter* filter, PhysicsHit2D* hits, Int32 capacity))
 
 // Lines for this frame, as DebugDraw draws them, none in Distribution
 TR_NATIVE(DebugDraw_Line, Void, (const Vector3* from, const Vector3* to, const Color* color, Bool onTop))

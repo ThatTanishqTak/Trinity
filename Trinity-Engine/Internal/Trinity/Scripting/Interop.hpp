@@ -66,6 +66,52 @@ namespace Trinity::Interop
         Bool Is2D;
     };
 
+    // What a script's query may hit, as PhysicsQueryFilter3D and 2D have it, the entity it passes over by its UUID
+    struct QueryFilter
+    {
+        UInt32 Layers;
+        Bool HitTriggers;
+        EntityId Ignore;
+    };
+
+    // A shape a script's 3D or 2D query casts or overlaps, its type as PhysicsQueryShapeType3D or 2D numbers it, as PhysicsQueryShape3D and 2D have it
+    struct QueryShape
+    {
+        Int32 Type;
+        Float Radius;
+        Vector3 HalfExtents;
+        Float Height;
+    };
+
+    struct QueryShape2D
+    {
+        Int32 Type;
+        Float Radius;
+        Vector2 HalfExtents;
+        Float Height;
+    };
+
+    // A collider a script's query met, as PhysicsHit3D and 2D have it, its entities by their UUIDs
+    struct PhysicsHit
+    {
+        EntityId Entity;
+        EntityId Body;
+        Vector3 Point;
+        Vector3 Normal;
+        Float Distance;
+        Bool Trigger;
+    };
+
+    struct PhysicsHit2D
+    {
+        EntityId Entity;
+        EntityId Body;
+        Vector2 Point;
+        Vector2 Normal;
+        Float Distance;
+        Bool Trigger;
+    };
+
 #define TR_NATIVE(Name, Return, Parameters) Return Name Parameters;
 #include "Trinity/Scripting/NativeFunctions.def"
 #undef TR_NATIVE

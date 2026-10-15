@@ -581,7 +581,10 @@ namespace Trinity
         [[nodiscard]] bool UpdateRecord(BodyRecord2D& record, BodyRecord2D& gathered);
         void Sync();
         void ResolveJoints(bool bodiesChanged, const PhysicsVector<entt::entity>& dirtyJoints);
+        [[nodiscard]] bool Tune(JointRecord2D& joint);
         void FollowTransforms();
+        void PlaceAtTransform(BodyRecord2D& record);
+        [[nodiscard]] BodyRecord2D* FindBody(UUID entity);
         void PairEvents(std::uint32_t index);
         void BreakJoints(std::uint32_t index);
         void GatherContactPoints();
@@ -815,12 +818,13 @@ namespace Trinity
         }
     }
 
-    // Kinematic bodies are moved for the step, the world steps, events are paired, and dynamic bodies that moved are written back in hierarchy order, each at its depth and turned about Z alone
+    // What the scene's scripts changed since the frame began is taken in, kinematic bodies are moved for the step, the world steps, events are paired, and dynamic bodies that moved are written back in hierarchy order, each at its depth and turned about Z alone
     void PhysicsScene2D::Step(Timestep step, std::uint32_t index)
     {
         TR_PROFILE_FUNCTION();
 
         State& l_State = *m_State;
+        l_State.Sync();
         const float l_Factor = static_cast<float>(std::min(index + 1, l_State.Steps)) / static_cast<float>(l_State.Steps);
         for (BodyRecord2D* it_Record : l_State.Records)
         {
@@ -971,6 +975,175 @@ namespace Trinity
         l_Context.Hits.erase(a_First, a_Last);
 
         return std::move(l_Context.Hits);
+    }
+
+    // A static body is still, and reads so
+    PhysicsBodyResult PhysicsScene2D::GetVelocity(UUID entity, glm::vec2& linear, float& angular)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's bodies are reached on the main thread.");
+
+        const BodyRecord2D* l_Record = m_State->FindBody(entity);
+        if (l_Record == nullptr)
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        linear = l_Record->Motion != BodyMotion::Static ? FromBox2D(b2Body_GetLinearVelocity(l_Record->Body)) : glm::vec2(0.0f);
+        angular = l_Record->Motion != BodyMotion::Static ? b2Body_GetAngularVelocity(l_Record->Body) : 0.0f;
+
+        return PhysicsBodyResult::Done;
+    }
+
+    namespace
+    {
+        // A dynamic 2D body, or why there is none, for each call that pushes or sets a velocity
+        template<typename F>
+        PhysicsBodyResult OnDynamic(const BodyRecord2D* record, F call)
+        {
+            if (record == nullptr)
+            {
+                return PhysicsBodyResult::NoBody;
+            }
+
+            if (record->Motion != BodyMotion::Dynamic)
+            {
+                return PhysicsBodyResult::WrongMotion;
+            }
+
+            call(record->Body);
+
+            return PhysicsBodyResult::Done;
+        }
+    }
+
+    PhysicsBodyResult PhysicsScene2D::SetLinearVelocity(UUID entity, const glm::vec2& velocity)
+    {
+        return OnDynamic(m_State->FindBody(entity), [&](b2BodyId body) { b2Body_SetLinearVelocity(body, ToBox2D(velocity)); b2Body_SetAwake(body, true); });
+    }
+
+    PhysicsBodyResult PhysicsScene2D::SetAngularVelocity(UUID entity, float velocity)
+    {
+        return OnDynamic(m_State->FindBody(entity), [&](b2BodyId body) { b2Body_SetAngularVelocity(body, velocity); b2Body_SetAwake(body, true); });
+    }
+
+    PhysicsBodyResult PhysicsScene2D::AddForce(UUID entity, const glm::vec2& force)
+    {
+        return OnDynamic(m_State->FindBody(entity), [&](b2BodyId body) { b2Body_ApplyForceToCenter(body, ToBox2D(force), true); });
+    }
+
+    PhysicsBodyResult PhysicsScene2D::AddForceAtPoint(UUID entity, const glm::vec2& force, const glm::vec2& point)
+    {
+        return OnDynamic(m_State->FindBody(entity), [&](b2BodyId body) { b2Body_ApplyForce(body, ToBox2D(force), ToBox2D(point), true); });
+    }
+
+    PhysicsBodyResult PhysicsScene2D::AddTorque(UUID entity, float torque)
+    {
+        return OnDynamic(m_State->FindBody(entity), [&](b2BodyId body) { b2Body_ApplyTorque(body, torque, true); });
+    }
+
+    PhysicsBodyResult PhysicsScene2D::AddImpulse(UUID entity, const glm::vec2& impulse)
+    {
+        return OnDynamic(m_State->FindBody(entity), [&](b2BodyId body) { b2Body_ApplyLinearImpulseToCenter(body, ToBox2D(impulse), true); });
+    }
+
+    PhysicsBodyResult PhysicsScene2D::AddImpulseAtPoint(UUID entity, const glm::vec2& impulse, const glm::vec2& point)
+    {
+        return OnDynamic(m_State->FindBody(entity), [&](b2BodyId body) { b2Body_ApplyLinearImpulse(body, ToBox2D(impulse), ToBox2D(point), true); });
+    }
+
+    PhysicsBodyResult PhysicsScene2D::AddAngularImpulse(UUID entity, float impulse)
+    {
+        return OnDynamic(m_State->FindBody(entity), [&](b2BodyId body) { b2Body_ApplyAngularImpulse(body, impulse, true); });
+    }
+
+    // The entity's transform is set first, at its depth and turned about Z alone, so the body is placed where the transform puts it, and the next frame does not move it again
+    PhysicsBodyResult PhysicsScene2D::Teleport(UUID entity, const glm::vec2& position, float angle)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's bodies are reached on the main thread.");
+
+        State& l_State = *m_State;
+        BodyRecord2D* l_Record = l_State.FindBody(entity);
+        if (l_Record == nullptr)
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        const Entity l_Owner(l_Record->Entity, &l_State.Owner);
+        TransformComponent l_World = l_State.Owner.ComputeWorldTransform(l_Owner);
+        l_World.Position = glm::vec3(position, l_World.Position.z);
+        l_World.Rotation = glm::angleAxis(angle, glm::vec3(0.0f, 0.0f, 1.0f));
+        l_State.Owner.SetWorldTransform(l_Owner, l_World);
+        l_State.PlaceAtTransform(*l_Record);
+
+        return PhysicsBodyResult::Done;
+    }
+
+    PhysicsBodyResult PhysicsScene2D::MoveKinematic(UUID entity, const glm::vec2& position, float angle)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's bodies are reached on the main thread.");
+
+        State& l_State = *m_State;
+        const BodyRecord2D* l_Record = l_State.FindBody(entity);
+        if (l_Record == nullptr)
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        if (l_Record->Motion != BodyMotion::Kinematic)
+        {
+            return PhysicsBodyResult::WrongMotion;
+        }
+
+        const Entity l_Owner(l_Record->Entity, &l_State.Owner);
+        TransformComponent l_World = l_State.Owner.ComputeWorldTransform(l_Owner);
+        l_World.Position = glm::vec3(position, l_World.Position.z);
+        l_World.Rotation = glm::angleAxis(angle, glm::vec3(0.0f, 0.0f, 1.0f));
+        l_State.Owner.SetWorldTransform(l_Owner, l_World);
+
+        return PhysicsBodyResult::Done;
+    }
+
+    PhysicsBodyResult PhysicsScene2D::SetAwake(UUID entity, bool awake)
+    {
+        const BodyRecord2D* l_Record = m_State->FindBody(entity);
+        if (l_Record == nullptr)
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        if (l_Record->Motion == BodyMotion::Static)
+        {
+            return PhysicsBodyResult::WrongMotion;
+        }
+
+        b2Body_SetAwake(l_Record->Body, awake);
+
+        return PhysicsBodyResult::Done;
+    }
+
+    PhysicsBodyResult PhysicsScene2D::IsAwake(UUID entity, bool& awake)
+    {
+        const BodyRecord2D* l_Record = m_State->FindBody(entity);
+        if (l_Record == nullptr)
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        if (l_Record->Motion == BodyMotion::Static)
+        {
+            return PhysicsBodyResult::WrongMotion;
+        }
+
+        awake = b2Body_IsAwake(l_Record->Body);
+
+        return PhysicsBodyResult::Done;
+    }
+
+    std::optional<bool> PhysicsScene2D::IsJointBroken(UUID entity) const
+    {
+        const auto a_Found = std::ranges::find(m_State->Joints, entity, &JointRecord2D::ID);
+
+        return a_Found != m_State->Joints.end() ? std::optional(a_Found->Broken) : std::nullopt;
     }
 
     // The body sits at its entity's place and turn about Z, and keeps its depth in Z for write-back, with its colliders. A record with no colliders has no body
@@ -2087,7 +2260,7 @@ namespace Trinity
         {
             JointRecord2D& l_Joint = Joints[it_Joint];
             const bool l_Dirty = std::ranges::find(dirtyJoints, l_Joint.Entity) != dirtyJoints.end();
-            if (!l_Dirty && (!bodiesChanged || l_Joint.Broken))
+            if ((!l_Dirty && (!bodiesChanged || l_Joint.Broken)) || (l_Dirty && Tune(l_Joint)))
             {
                 ++it_Joint;
 
@@ -2147,6 +2320,75 @@ namespace Trinity
         }
     }
 
+    // A joint whose motor or break limits alone changed, or nothing at all, takes them on in place and holds where it is, and a broken one stays broken. False when anything else changed, or its bodies are other records now, so it is made again
+    bool PhysicsScene2D::State::Tune(JointRecord2D& joint)
+    {
+        const SceneRegistry& l_Registry = Owner.GetRegistry();
+        if (!l_Registry.valid(joint.Entity) || !l_Registry.all_of<Joint2DComponent>(joint.Entity))
+        {
+            return false;
+        }
+
+        const Joint2DComponent& l_Now = l_Registry.get<Joint2DComponent>(joint.Entity);
+        Joint2DComponent l_Kept = l_Now;
+        l_Kept.UseMotor = joint.Settings.UseMotor;
+        l_Kept.MotorSpeed = joint.Settings.MotorSpeed;
+        l_Kept.MotorMaxForce = joint.Settings.MotorMaxForce;
+        l_Kept.BreakForce = joint.Settings.BreakForce;
+        l_Kept.BreakTorque = joint.Settings.BreakTorque;
+        const BodyRecord2D* l_First = FindRecord(FindOwner(l_Registry, joint.Entity));
+        const BodyRecord2D* l_Second = l_Registry.valid(joint.OtherEntity) ? FindRecord(FindOwner(l_Registry, joint.OtherEntity)) : nullptr;
+        if (!(l_Kept == joint.Settings) || l_First != joint.First || l_Second != joint.Second)
+        {
+            return false;
+        }
+
+        joint.Settings = l_Now;
+        if (B2_IS_NULL(joint.Joint))
+        {
+            return true;
+        }
+
+        const float l_MotorMax = std::max(l_Now.MotorMaxForce, 0.0f);
+        switch (l_Now.Type)
+        {
+            case Joint2DType::Revolute:
+            {
+                b2RevoluteJoint_EnableMotor(joint.Joint, l_Now.UseMotor);
+                b2RevoluteJoint_SetMotorSpeed(joint.Joint, l_Now.MotorSpeed);
+                b2RevoluteJoint_SetMaxMotorTorque(joint.Joint, l_MotorMax);
+
+                break;
+            }
+            case Joint2DType::Prismatic:
+            {
+                b2PrismaticJoint_EnableMotor(joint.Joint, l_Now.UseMotor);
+                b2PrismaticJoint_SetMotorSpeed(joint.Joint, l_Now.MotorSpeed);
+                b2PrismaticJoint_SetMaxMotorForce(joint.Joint, l_MotorMax);
+
+                break;
+            }
+            case Joint2DType::Wheel:
+            {
+                b2WheelJoint_EnableMotor(joint.Joint, l_Now.UseMotor);
+                b2WheelJoint_SetMotorSpeed(joint.Joint, l_Now.MotorSpeed);
+                b2WheelJoint_SetMaxMotorTorque(joint.Joint, l_MotorMax);
+
+                break;
+            }
+            case Joint2DType::Distance:
+            case Joint2DType::Weld:
+            {
+                break;
+            }
+        }
+
+        // A motor turned on or sped up moves bodies that had fallen asleep
+        b2Joint_WakeBodies(joint.Joint);
+
+        return true;
+    }
+
     // A body whose entity's transform was set from code since the body made or last wrote it is taken there at once, with the entity's depth, and drawn there with nothing between. Kinematic bodies follow their transforms already
     void PhysicsScene2D::State::FollowTransforms()
     {
@@ -2159,28 +2401,47 @@ namespace Trinity
             }
 
             const TransformComponent& l_Transform = l_Registry.get<TransformComponent>(it_Record->Entity);
-            if (l_Transform.Position == it_Record->WrittenPosition && l_Transform.Rotation == it_Record->WrittenRotation)
+            if (l_Transform.Position != it_Record->WrittenPosition || l_Transform.Rotation != it_Record->WrittenRotation)
             {
-                continue;
+                PlaceAtTransform(*it_Record);
             }
-
-            it_Record->WrittenPosition = l_Transform.Position;
-            it_Record->WrittenRotation = l_Transform.Rotation;
-            const glm::mat4 l_World = Owner.ComputeWorldMatrix(Entity(it_Record->Entity, &Owner));
-            const Pose2D l_Pose = GetPose(l_World);
-            it_Record->Depth = l_World[3][2];
-            WakeAround(it_Record->Body);
-            b2Body_SetTransform(it_Record->Body, ToBox2D(l_Pose.Position), Box2DConvert::ToRotation(l_Pose.Angle));
-            WakeAround(it_Record->Body);
-            if (it_Record->Motion == BodyMotion::Dynamic)
-            {
-                b2Body_SetAwake(it_Record->Body, true);
-            }
-
-            it_Record->Previous = l_Pose;
-            it_Record->Current = l_Pose;
-            it_Record->TargetFrom = l_Pose;
-            it_Record->TargetTo = l_Pose;
         }
+    }
+
+    // The body where its entity's transform puts it, with the entity's depth and nothing between to draw, and a kinematic one's targets there too, so it stays until its transform moves again
+    void PhysicsScene2D::State::PlaceAtTransform(BodyRecord2D& record)
+    {
+        const TransformComponent& l_Transform = Owner.GetRegistry().get<TransformComponent>(record.Entity);
+        record.WrittenPosition = l_Transform.Position;
+        record.WrittenRotation = l_Transform.Rotation;
+        const glm::mat4 l_World = Owner.ComputeWorldMatrix(Entity(record.Entity, &Owner));
+        const Pose2D l_Pose = GetPose(l_World);
+        record.Depth = l_World[3][2];
+        WakeAround(record.Body);
+        b2Body_SetTransform(record.Body, ToBox2D(l_Pose.Position), Box2DConvert::ToRotation(l_Pose.Angle));
+        WakeAround(record.Body);
+        if (record.Motion == BodyMotion::Dynamic)
+        {
+            b2Body_SetAwake(record.Body, true);
+        }
+
+        record.Previous = l_Pose;
+        record.Current = l_Pose;
+        record.TargetFrom = l_Pose;
+        record.TargetTo = l_Pose;
+    }
+
+    // The record of the 2D body made for the entity, or for the body one of its colliders is part of, with the scene's changes taken in
+    BodyRecord2D* PhysicsScene2D::State::FindBody(UUID entity)
+    {
+        Sync();
+        const Entity l_Entity = Owner.FindEntityByUUID(entity);
+        const auto a_Found = l_Entity ? Members.find(l_Entity.GetHandle()) : Members.end();
+        if (a_Found == Members.end() || B2_IS_NULL(a_Found->second->Body) || !Owner.GetRegistry().valid(a_Found->second->Entity))
+        {
+            return nullptr;
+        }
+
+        return a_Found->second;
     }
 }

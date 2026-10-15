@@ -46,6 +46,11 @@ namespace Trinity
         // As a frame begins, before CreatePending: its time, and the length of its fixed steps
         void BeginFrame(Timestep timestep, Timestep step);
 
+        // The scene's physics worlds, which SceneRuntime hands over as it makes each, and null for one the scene has none for yet
+        void SetPhysics(PhysicsScene3D* physics, PhysicsScene2D* physics2D);
+        [[nodiscard]] PhysicsScene3D* GetPhysics() const { return m_Physics; }
+        [[nodiscard]] PhysicsScene2D* GetPhysics2D() const { return m_Physics2D; }
+
         // Makes the instances of every Script component added since the last call, the scene's own on the first, gives each the values of its fields, and calls OnCreate on each enabled one. A script that a call makes is made in the same call
         void CreatePending();
         void FixedUpdate(Timestep step);
@@ -85,5 +90,7 @@ namespace Trinity
 
         State* m_State = nullptr;
         ScriptTime m_Time;
+        PhysicsScene3D* m_Physics = nullptr;
+        PhysicsScene2D* m_Physics2D = nullptr;
     };
 }

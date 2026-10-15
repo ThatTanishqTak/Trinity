@@ -24,6 +24,16 @@ namespace Trinity
         return m_Runtime != nullptr ? m_Runtime->GetTime() : c_NoTime;
     }
 
+    PhysicsScene3D* Script::GetPhysics() const
+    {
+        return m_Runtime != nullptr ? m_Runtime->GetPhysics() : nullptr;
+    }
+
+    PhysicsScene2D* Script::GetPhysics2D() const
+    {
+        return m_Runtime != nullptr ? m_Runtime->GetPhysics2D() : nullptr;
+    }
+
     Entity Script::FindEntity(UUID id) const
     {
         return m_Runtime != nullptr && id ? m_Runtime->GetScene().FindEntityByUUID(id) : Entity();

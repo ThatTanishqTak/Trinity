@@ -55,6 +55,7 @@ namespace Trinity
 
         // The scripts' fixed step is the first system, ahead of physics
         m_Scripts = CreateScope<ScriptRuntime>(scene);
+        m_Scripts->SetPhysics(m_Physics.get(), m_Physics2D.get());
         AddFixedStepSystem([this](Timestep step) { m_Scripts->FixedUpdate(step); });
     }
 
@@ -105,6 +106,8 @@ namespace Trinity
             m_Physics2D->GetWorld().SetGravity(m_Settings.Gravity2D);
             m_Physics2D->SetGatherContacts(m_GatherContacts);
         }
+
+        m_Scripts->SetPhysics(m_Physics.get(), m_Physics2D.get());
 
         const auto l_Start = std::chrono::steady_clock::now();
         m_StepsThisFrame = steps;

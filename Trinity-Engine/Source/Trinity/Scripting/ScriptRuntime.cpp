@@ -363,6 +363,12 @@ namespace Trinity
         ++m_Time.FrameCount;
     }
 
+    void ScriptRuntime::SetPhysics(PhysicsScene3D* physics, PhysicsScene2D* physics2D)
+    {
+        m_Physics = physics;
+        m_Physics2D = physics2D;
+    }
+
     void ScriptRuntime::CreatePending()
     {
         TR_PROFILE_FUNCTION();

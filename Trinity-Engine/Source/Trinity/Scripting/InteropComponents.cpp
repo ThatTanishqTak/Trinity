@@ -1,5 +1,7 @@
 #include "Trinity/Scripting/Interop.hpp"
 
+#include "Trinity/Physics/PhysicsScene2D.hpp"
+#include "Trinity/Physics/PhysicsScene3D.hpp"
 #include "Trinity/Physics/PhysicsTypes.hpp"
 #include "Trinity/Renderer/ToneMapping.hpp"
 #include "Trinity/Scene/Components.hpp"

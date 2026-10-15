@@ -46,7 +46,12 @@ namespace
         { "Color", "Color", false },
         { "Matrix4x4", "Matrix4x4", false },
         { "FieldValue", "FieldValue", false },
-        { "Collision", "Collision", false }
+        { "Collision", "Collision", false },
+        { "QueryFilter", "QueryFilter", false },
+        { "QueryShape", "QueryShape", false },
+        { "QueryShape2D", "QueryShape2D", false },
+        { "PhysicsHit", "PhysicsHit", false },
+        { "PhysicsHit2D", "PhysicsHit2D", false }
     };
 
     struct Parameter

@@ -49,11 +49,11 @@ namespace Trinity.Interop
             return Native.Interop_Echo(value) * 2;
         }
 
-        // The size and field offsets of each type the engine shares with C#, in the order of the engine's check: Vector2, Vector3, Vector4, Quaternion, Color, Matrix4x4, Utf8, FieldValue and Collision. How many were written, or -1 when the engine's TypeLayout is not this one or the buffer is too small
+        // The size and field offsets of each type the engine shares with C#, in the order of the engine's check: Vector2, Vector3, Vector4, Quaternion, Color, Matrix4x4, Utf8, FieldValue, Collision, QueryFilter, QueryShape, QueryShape2D, PhysicsHit and PhysicsHit2D. How many were written, or -1 when the engine's TypeLayout is not this one or the buffer is too small
         [UnmanagedCallersOnly]
         public static int DescribeLayouts(TypeLayout* layouts, int capacity, int layoutSize)
         {
-            const int c_Count = 9;
+            const int c_Count = 14;
             if (layouts == null || layoutSize != sizeof(TypeLayout) || capacity < c_Count)
             {
                 return -1;
@@ -68,6 +68,11 @@ namespace Trinity.Interop
             Utf8 l_Text = default;
             FieldValue l_Value = default;
             Collision l_Collision = default;
+            QueryFilter l_Filter = default;
+            QueryShape l_Shape = default;
+            QueryShape2D l_Shape2D = default;
+            PhysicsHit l_Hit = default;
+            PhysicsHit2D l_Hit2D = default;
 
             Describe(ref layouts[0], sizeof(Vector2), At(&l_Vector2, &l_Vector2.X), At(&l_Vector2, &l_Vector2.Y));
             Describe(ref layouts[1], sizeof(Vector3), At(&l_Vector3, &l_Vector3.X), At(&l_Vector3, &l_Vector3.Y), At(&l_Vector3, &l_Vector3.Z));
@@ -78,6 +83,11 @@ namespace Trinity.Interop
             Describe(ref layouts[6], sizeof(Utf8), At(&l_Text, &l_Text.Data), At(&l_Text, &l_Text.Length));
             Describe(ref layouts[7], sizeof(FieldValue), At(&l_Value, &l_Value.Type), At(&l_Value, &l_Value.Reserved), At(&l_Value, &l_Value.Integer), At(&l_Value, &l_Value.Real), At(&l_Value, &l_Value.X), At(&l_Value, &l_Value.Text));
             Describe(ref layouts[8], sizeof(Collision), At(&l_Collision, &l_Collision.Other), At(&l_Collision, &l_Collision.Point), At(&l_Collision, &l_Collision.Normal), At(&l_Collision, &l_Collision.Is2D));
+            Describe(ref layouts[9], sizeof(QueryFilter), At(&l_Filter, &l_Filter.Layers), At(&l_Filter, &l_Filter.HitTriggers), At(&l_Filter, &l_Filter.Ignore));
+            Describe(ref layouts[10], sizeof(QueryShape), At(&l_Shape, &l_Shape.Type), At(&l_Shape, &l_Shape.Radius), At(&l_Shape, &l_Shape.HalfExtents), At(&l_Shape, &l_Shape.Height));
+            Describe(ref layouts[11], sizeof(QueryShape2D), At(&l_Shape2D, &l_Shape2D.Type), At(&l_Shape2D, &l_Shape2D.Radius), At(&l_Shape2D, &l_Shape2D.HalfExtents), At(&l_Shape2D, &l_Shape2D.Height));
+            Describe(ref layouts[12], sizeof(PhysicsHit), At(&l_Hit, &l_Hit.Entity), At(&l_Hit, &l_Hit.Body), At(&l_Hit, &l_Hit.Point), At(&l_Hit, &l_Hit.Normal), At(&l_Hit, &l_Hit.Distance), At(&l_Hit, &l_Hit.Trigger));
+            Describe(ref layouts[13], sizeof(PhysicsHit2D), At(&l_Hit2D, &l_Hit2D.Entity), At(&l_Hit2D, &l_Hit2D.Body), At(&l_Hit2D, &l_Hit2D.Point), At(&l_Hit2D, &l_Hit2D.Normal), At(&l_Hit2D, &l_Hit2D.Distance), At(&l_Hit2D, &l_Hit2D.Trigger));
 
             return c_Count;
         }

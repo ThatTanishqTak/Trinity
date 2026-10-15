@@ -130,7 +130,7 @@ namespace Trinity
         }
 
         // In the order of Host.DescribeLayouts
-        std::array<SharedType, 9> DescribeSharedTypes()
+        std::array<SharedType, 14> DescribeSharedTypes()
         {
             const Interop::Vector2 l_Vector2{};
             const Interop::Vector3 l_Vector3{};
@@ -141,6 +141,11 @@ namespace Trinity
             const Interop::Utf8 l_Text{};
             const Interop::FieldValue l_Value{};
             const Interop::Collision l_Collision{};
+            const Interop::QueryFilter l_Filter{};
+            const Interop::QueryShape l_Shape{};
+            const Interop::QueryShape2D l_Shape2D{};
+            const Interop::PhysicsHit l_Hit{};
+            const Interop::PhysicsHit2D l_Hit2D{};
 
             return
             {
@@ -152,15 +157,20 @@ namespace Trinity
                 Describe("Matrix4x4",{ "Column0", "Column1", "Column2", "Column3" }, l_Matrix, l_Matrix[0], l_Matrix[1], l_Matrix[2], l_Matrix[3]),
                 Describe("Utf8",{ "Data", "Length" }, l_Text, l_Text.Data, l_Text.Length),
                 Describe("FieldValue",{ "Type", "Reserved", "Integer", "Real", "Floats", "Text" }, l_Value, l_Value.Type, l_Value.Reserved, l_Value.Integer, l_Value.Real, l_Value.Floats, l_Value.Text),
-                Describe("Collision",{ "Other", "Point", "Normal", "Is2D" }, l_Collision, l_Collision.Other, l_Collision.Point, l_Collision.Normal, l_Collision.Is2D)
+                Describe("Collision",{ "Other", "Point", "Normal", "Is2D" }, l_Collision, l_Collision.Other, l_Collision.Point, l_Collision.Normal, l_Collision.Is2D),
+                Describe("QueryFilter",{ "Layers", "HitTriggers", "Ignore" }, l_Filter, l_Filter.Layers, l_Filter.HitTriggers, l_Filter.Ignore),
+                Describe("QueryShape",{ "Type", "Radius", "HalfExtents", "Height" }, l_Shape, l_Shape.Type, l_Shape.Radius, l_Shape.HalfExtents, l_Shape.Height),
+                Describe("QueryShape2D",{ "Type", "Radius", "HalfExtents", "Height" }, l_Shape2D, l_Shape2D.Type, l_Shape2D.Radius, l_Shape2D.HalfExtents, l_Shape2D.Height),
+                Describe("PhysicsHit",{ "Entity", "Body", "Point", "Normal", "Distance", "Trigger" }, l_Hit, l_Hit.Entity, l_Hit.Body, l_Hit.Point, l_Hit.Normal, l_Hit.Distance, l_Hit.Trigger),
+                Describe("PhysicsHit2D",{ "Entity", "Body", "Point", "Normal", "Distance", "Trigger" }, l_Hit2D, l_Hit2D.Entity, l_Hit2D.Body, l_Hit2D.Point, l_Hit2D.Normal, l_Hit2D.Distance, l_Hit2D.Trigger)
             };
         }
 
         // Each shared type as C# lays it out against the engine's layout, so a C# struct that drifts from glm turns C# off with the type and field named, rather than corrupting what crosses
         bool CheckLayouts(std::int32_t(CORECLR_DELEGATE_CALLTYPE* describeLayouts)(Interop::TypeLayout* layouts, std::int32_t capacity, std::int32_t layoutSize), std::string& error)
         {
-            const std::array<SharedType, 9> l_Native = DescribeSharedTypes();
-            std::array<Interop::TypeLayout, 9> l_Managed{};
+            const std::array<SharedType, 14> l_Native = DescribeSharedTypes();
+            std::array<Interop::TypeLayout, 14> l_Managed{};
             if (describeLayouts(l_Managed.data(), static_cast<std::int32_t>(l_Managed.size()), static_cast<std::int32_t>(sizeof(Interop::TypeLayout))) != static_cast<std::int32_t>(l_Managed.size()))
             {
                 error = "Trinity-ScriptCore was built for another engine, and describes other shared types";

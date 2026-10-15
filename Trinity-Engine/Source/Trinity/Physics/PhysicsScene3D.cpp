@@ -793,7 +793,10 @@ namespace Trinity
         void UpdateRecord(BodyRecord& record, BodyRecord& gathered);
         void Sync();
         void ResolveJoints(bool bodiesChanged, const PhysicsVector<entt::entity>& dirtyJoints);
+        [[nodiscard]] bool Tune(JointRecord& joint);
         void FollowTransforms();
+        void PlaceAtTransform(BodyRecord& record);
+        [[nodiscard]] BodyRecord* FindBody(UUID entity);
         void PairContacts(std::uint32_t index);
         void BreakJoints(float seconds, std::uint32_t index);
         [[nodiscard]] PhysicsHit3D MakeHit(JPH::BodyID body, const JPH::SubShapeID& part) const;
@@ -1046,12 +1049,13 @@ namespace Trinity
         }
     }
 
-    // Kinematic bodies and sensors are moved for the step, the world steps, events are paired, and dynamic bodies that moved are written back in hierarchy order, so each parent is placed before its children are made local to it
+    // What the scene's scripts changed since the frame began is taken in, kinematic bodies and sensors are moved for the step, the world steps, events are paired, and dynamic bodies that moved are written back in hierarchy order, so each parent is placed before its children are made local to it
     void PhysicsScene3D::Step(Timestep step, std::uint32_t index)
     {
         TR_PROFILE_FUNCTION();
 
         State& l_State = *m_State;
+        l_State.Sync();
         JPH::BodyInterface& l_Bodies = l_State.System->GetBodyInterface();
         const float l_Seconds = step.GetSeconds();
         const float l_Factor = static_cast<float>(std::min(index + 1, l_State.Steps)) / static_cast<float>(l_State.Steps);
@@ -1244,6 +1248,193 @@ namespace Trinity
         SortHits(l_Hits);
 
         return l_Hits;
+    }
+
+    // A static body is still, and reads so
+    PhysicsBodyResult PhysicsScene3D::GetVelocity(UUID entity, glm::vec3& linear, glm::vec3& angular)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's bodies are reached on the main thread.");
+
+        const BodyRecord* l_Record = m_State->FindBody(entity);
+        if (l_Record == nullptr || l_Record->Body.IsInvalid())
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        const JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+        linear = l_Record->Motion != BodyMotion::Static ? FromJolt(l_Bodies.GetLinearVelocity(l_Record->Body)) : glm::vec3(0.0f);
+        angular = l_Record->Motion != BodyMotion::Static ? FromJolt(l_Bodies.GetAngularVelocity(l_Record->Body)) : glm::vec3(0.0f);
+
+        return PhysicsBodyResult::Done;
+    }
+
+    namespace
+    {
+        // A dynamic body's record, or why there is none, for each call that pushes or sets a velocity
+        template<typename F>
+        PhysicsBodyResult OnDynamic(BodyRecord* record, F call)
+        {
+            if (record == nullptr || record->Body.IsInvalid())
+            {
+                return PhysicsBodyResult::NoBody;
+            }
+
+            if (record->Motion != BodyMotion::Dynamic)
+            {
+                return PhysicsBodyResult::WrongMotion;
+            }
+
+            call(record->Body);
+
+            return PhysicsBodyResult::Done;
+        }
+    }
+
+    PhysicsBodyResult PhysicsScene3D::SetLinearVelocity(UUID entity, const glm::vec3& velocity)
+    {
+        JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+
+        return OnDynamic(m_State->FindBody(entity), [&](JPH::BodyID body) { l_Bodies.SetLinearVelocity(body, ToJolt(velocity)); l_Bodies.ActivateBody(body); });
+    }
+
+    PhysicsBodyResult PhysicsScene3D::SetAngularVelocity(UUID entity, const glm::vec3& velocity)
+    {
+        JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+
+        return OnDynamic(m_State->FindBody(entity), [&](JPH::BodyID body) { l_Bodies.SetAngularVelocity(body, ToJolt(velocity)); l_Bodies.ActivateBody(body); });
+    }
+
+    PhysicsBodyResult PhysicsScene3D::AddForce(UUID entity, const glm::vec3& force)
+    {
+        JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+
+        return OnDynamic(m_State->FindBody(entity), [&](JPH::BodyID body) { l_Bodies.AddForce(body, ToJolt(force)); });
+    }
+
+    PhysicsBodyResult PhysicsScene3D::AddForceAtPoint(UUID entity, const glm::vec3& force, const glm::vec3& point)
+    {
+        JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+
+        return OnDynamic(m_State->FindBody(entity), [&](JPH::BodyID body) { l_Bodies.AddForce(body, ToJolt(force), JPH::RVec3(ToJolt(point))); });
+    }
+
+    PhysicsBodyResult PhysicsScene3D::AddTorque(UUID entity, const glm::vec3& torque)
+    {
+        JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+
+        return OnDynamic(m_State->FindBody(entity), [&](JPH::BodyID body) { l_Bodies.AddTorque(body, ToJolt(torque)); });
+    }
+
+    PhysicsBodyResult PhysicsScene3D::AddImpulse(UUID entity, const glm::vec3& impulse)
+    {
+        JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+
+        return OnDynamic(m_State->FindBody(entity), [&](JPH::BodyID body) { l_Bodies.AddImpulse(body, ToJolt(impulse)); });
+    }
+
+    PhysicsBodyResult PhysicsScene3D::AddImpulseAtPoint(UUID entity, const glm::vec3& impulse, const glm::vec3& point)
+    {
+        JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+
+        return OnDynamic(m_State->FindBody(entity), [&](JPH::BodyID body) { l_Bodies.AddImpulse(body, ToJolt(impulse), JPH::RVec3(ToJolt(point))); });
+    }
+
+    PhysicsBodyResult PhysicsScene3D::AddAngularImpulse(UUID entity, const glm::vec3& impulse)
+    {
+        JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+
+        return OnDynamic(m_State->FindBody(entity), [&](JPH::BodyID body) { l_Bodies.AddAngularImpulse(body, ToJolt(impulse)); });
+    }
+
+    // The entity's transform is set first, so the body is placed where the transform puts it, and the next frame does not move it again
+    PhysicsBodyResult PhysicsScene3D::Teleport(UUID entity, const glm::vec3& position, const glm::quat& rotation)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's bodies are reached on the main thread.");
+
+        State& l_State = *m_State;
+        BodyRecord* l_Record = l_State.FindBody(entity);
+        if (l_Record == nullptr || (l_Record->Body.IsInvalid() && l_Record->Sensor.IsInvalid()))
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        const Entity l_Owner(l_Record->Entity, &l_State.Owner);
+        TransformComponent l_World = l_State.Owner.ComputeWorldTransform(l_Owner);
+        l_World.Position = position;
+        l_World.Rotation = glm::normalize(rotation);
+        l_State.Owner.SetWorldTransform(l_Owner, l_World);
+        l_State.PlaceAtTransform(*l_Record);
+
+        return PhysicsBodyResult::Done;
+    }
+
+    PhysicsBodyResult PhysicsScene3D::MoveKinematic(UUID entity, const glm::vec3& position, const glm::quat& rotation)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's bodies are reached on the main thread.");
+
+        State& l_State = *m_State;
+        const BodyRecord* l_Record = l_State.FindBody(entity);
+        if (l_Record == nullptr)
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        if (l_Record->Motion != BodyMotion::Kinematic)
+        {
+            return PhysicsBodyResult::WrongMotion;
+        }
+
+        const Entity l_Owner(l_Record->Entity, &l_State.Owner);
+        TransformComponent l_World = l_State.Owner.ComputeWorldTransform(l_Owner);
+        l_World.Position = position;
+        l_World.Rotation = glm::normalize(rotation);
+        l_State.Owner.SetWorldTransform(l_Owner, l_World);
+
+        return PhysicsBodyResult::Done;
+    }
+
+    PhysicsBodyResult PhysicsScene3D::SetAwake(UUID entity, bool awake)
+    {
+        const BodyRecord* l_Record = m_State->FindBody(entity);
+        if (l_Record == nullptr || l_Record->Body.IsInvalid())
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        if (l_Record->Motion == BodyMotion::Static)
+        {
+            return PhysicsBodyResult::WrongMotion;
+        }
+
+        JPH::BodyInterface& l_Bodies = m_State->System->GetBodyInterface();
+        awake ? l_Bodies.ActivateBody(l_Record->Body) : l_Bodies.DeactivateBody(l_Record->Body);
+
+        return PhysicsBodyResult::Done;
+    }
+
+    PhysicsBodyResult PhysicsScene3D::IsAwake(UUID entity, bool& awake)
+    {
+        const BodyRecord* l_Record = m_State->FindBody(entity);
+        if (l_Record == nullptr || l_Record->Body.IsInvalid())
+        {
+            return PhysicsBodyResult::NoBody;
+        }
+
+        if (l_Record->Motion == BodyMotion::Static)
+        {
+            return PhysicsBodyResult::WrongMotion;
+        }
+
+        awake = m_State->System->GetBodyInterface().IsActive(l_Record->Body);
+
+        return PhysicsBodyResult::Done;
+    }
+
+    std::optional<bool> PhysicsScene3D::IsJointBroken(UUID entity) const
+    {
+        const auto a_Found = std::ranges::find(m_State->Joints, entity, &JointRecord::ID);
+
+        return a_Found != m_State->Joints.end() ? std::optional(a_Found->Broken) : std::nullopt;
     }
 
     // Once every cooked shape it uses has loaded or failed. Each collider is placed relative to the body's pose, its entity's world scale taken into its shape, and the solids made one shape and the triggers another. False while it waits. A body made again carries the velocities given in place of its RigidBody's starting ones. Keeping its bodies, it is changed where it is: each body still needed takes its new shape, layers, mass and RigidBody settings, so its velocity and contacts carry over, and one no longer needed goes
@@ -2303,7 +2494,7 @@ namespace Trinity
         {
             JointRecord& l_Joint = Joints[it_Joint];
             const bool l_Dirty = std::ranges::find(dirtyJoints, l_Joint.Entity) != dirtyJoints.end();
-            if (!l_Dirty && (!bodiesChanged || l_Joint.Broken))
+            if ((!l_Dirty && (!bodiesChanged || l_Joint.Broken)) || (l_Dirty && Tune(l_Joint)))
             {
                 ++it_Joint;
 
@@ -2354,11 +2545,67 @@ namespace Trinity
         }
     }
 
+    // A joint whose motor or break limits alone changed, or nothing at all, takes them on in place and holds where it is, and a broken one stays broken. False when anything else changed, or its bodies are other records now, so it is made again
+    bool PhysicsScene3D::State::Tune(JointRecord& joint)
+    {
+        const SceneRegistry& l_Registry = Owner.GetRegistry();
+        if (!l_Registry.valid(joint.Entity) || !l_Registry.all_of<JointComponent>(joint.Entity))
+        {
+            return false;
+        }
+
+        const JointComponent& l_Now = l_Registry.get<JointComponent>(joint.Entity);
+        JointComponent l_Kept = l_Now;
+        l_Kept.UseMotor = joint.Settings.UseMotor;
+        l_Kept.MotorSpeed = joint.Settings.MotorSpeed;
+        l_Kept.MotorMaxForce = joint.Settings.MotorMaxForce;
+        l_Kept.BreakForce = joint.Settings.BreakForce;
+        l_Kept.BreakTorque = joint.Settings.BreakTorque;
+        const BodyRecord* l_First = FindRecord(FindOwner(l_Registry, joint.Entity));
+        const BodyRecord* l_Second = l_Registry.valid(joint.OtherEntity) ? FindRecord(FindOwner(l_Registry, joint.OtherEntity)) : nullptr;
+        if (!(l_Kept == joint.Settings) || l_First != joint.First || l_Second != joint.Second)
+        {
+            return false;
+        }
+
+        joint.Settings = l_Now;
+        if (joint.Constraint == nullptr)
+        {
+            return true;
+        }
+
+        if (l_Now.Type == JointType::Hinge)
+        {
+            JPH::HingeConstraint& l_Hinge = static_cast<JPH::HingeConstraint&>(*joint.Constraint);
+            l_Hinge.GetMotorSettings().SetTorqueLimit(std::max(l_Now.MotorMaxForce, 0.0f));
+            l_Hinge.SetMotorState(l_Now.UseMotor ? JPH::EMotorState::Velocity : JPH::EMotorState::Off);
+            l_Hinge.SetTargetAngularVelocity(l_Now.MotorSpeed);
+        }
+        else if (l_Now.Type == JointType::Slider)
+        {
+            JPH::SliderConstraint& l_Slider = static_cast<JPH::SliderConstraint&>(*joint.Constraint);
+            l_Slider.GetMotorSettings().SetForceLimit(std::max(l_Now.MotorMaxForce, 0.0f));
+            l_Slider.SetMotorState(l_Now.UseMotor ? JPH::EMotorState::Velocity : JPH::EMotorState::Off);
+            l_Slider.SetTargetVelocity(l_Now.MotorSpeed);
+        }
+
+        // A motor turned on or sped up moves bodies that had fallen asleep
+        JPH::BodyInterface& l_Bodies = System->GetBodyInterface();
+        for (const BodyRecord* it_Record : { joint.First, joint.Second })
+        {
+            if (it_Record != nullptr && it_Record->Motion == BodyMotion::Dynamic && !it_Record->Body.IsInvalid())
+            {
+                l_Bodies.ActivateBody(it_Record->Body);
+            }
+        }
+
+        return true;
+    }
+
     // A body whose entity's transform was set from code since the body made or last wrote it is taken there at once, and drawn there with nothing between. Kinematic bodies follow their transforms already
     void PhysicsScene3D::State::FollowTransforms()
     {
         SceneRegistry& l_Registry = Owner.GetRegistry();
-        JPH::BodyInterface& l_Bodies = System->GetBodyInterface();
         for (BodyRecord* it_Record : Records)
         {
             if (it_Record->Waiting || it_Record->Motion == BodyMotion::Kinematic || !l_Registry.valid(it_Record->Entity) || (it_Record->Body.IsInvalid() && it_Record->Sensor.IsInvalid()))
@@ -2367,33 +2614,53 @@ namespace Trinity
             }
 
             const TransformComponent& l_Transform = l_Registry.get<TransformComponent>(it_Record->Entity);
-            if (l_Transform.Position == it_Record->WrittenPosition && l_Transform.Rotation == it_Record->WrittenRotation)
+            if (l_Transform.Position != it_Record->WrittenPosition || l_Transform.Rotation != it_Record->WrittenRotation)
             {
-                continue;
+                PlaceAtTransform(*it_Record);
             }
-
-            it_Record->WrittenPosition = l_Transform.Position;
-            it_Record->WrittenRotation = l_Transform.Rotation;
-            const BodyPose l_Pose = Decompose(Owner.ComputeWorldMatrix(Entity(it_Record->Entity, &Owner))).Pose;
-            const JPH::RVec3 l_Position(ToJolt(l_Pose.Position));
-            const JPH::Quat l_Rotation = ToJolt(l_Pose.Rotation);
-            if (!it_Record->Body.IsInvalid())
-            {
-                WakeAround(it_Record->Body);
-                l_Bodies.SetPositionAndRotation(it_Record->Body, l_Position, l_Rotation, it_Record->Motion == BodyMotion::Dynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
-                WakeAround(it_Record->Body);
-            }
-
-            if (!it_Record->Sensor.IsInvalid())
-            {
-                l_Bodies.SetPositionAndRotation(it_Record->Sensor, l_Position, l_Rotation, JPH::EActivation::DontActivate);
-            }
-
-            it_Record->Previous = l_Pose;
-            it_Record->Current = l_Pose;
-            it_Record->TargetFrom = l_Pose;
-            it_Record->TargetTo = l_Pose;
         }
+    }
+
+    // The body and its sensor where its entity's transform puts it, with nothing between to draw, and a kinematic one's targets there too, so it stays until its transform moves again
+    void PhysicsScene3D::State::PlaceAtTransform(BodyRecord& record)
+    {
+        const TransformComponent& l_Transform = Owner.GetRegistry().get<TransformComponent>(record.Entity);
+        record.WrittenPosition = l_Transform.Position;
+        record.WrittenRotation = l_Transform.Rotation;
+        const BodyPose l_Pose = Decompose(Owner.ComputeWorldMatrix(Entity(record.Entity, &Owner))).Pose;
+        const JPH::RVec3 l_Position(ToJolt(l_Pose.Position));
+        const JPH::Quat l_Rotation = ToJolt(l_Pose.Rotation);
+        JPH::BodyInterface& l_Bodies = System->GetBodyInterface();
+        if (!record.Body.IsInvalid())
+        {
+            WakeAround(record.Body);
+            l_Bodies.SetPositionAndRotation(record.Body, l_Position, l_Rotation, record.Motion == BodyMotion::Dynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+            WakeAround(record.Body);
+        }
+
+        if (!record.Sensor.IsInvalid())
+        {
+            l_Bodies.SetPositionAndRotation(record.Sensor, l_Position, l_Rotation, JPH::EActivation::DontActivate);
+        }
+
+        record.Previous = l_Pose;
+        record.Current = l_Pose;
+        record.TargetFrom = l_Pose;
+        record.TargetTo = l_Pose;
+    }
+
+    // The record of the body made for the entity, or for the body one of its colliders is part of, with the scene's changes taken in
+    BodyRecord* PhysicsScene3D::State::FindBody(UUID entity)
+    {
+        Sync();
+        const Entity l_Entity = Owner.FindEntityByUUID(entity);
+        const auto a_Found = l_Entity ? Members.find(l_Entity.GetHandle()) : Members.end();
+        if (a_Found == Members.end() || a_Found->second->Waiting || !Owner.GetRegistry().valid(a_Found->second->Entity))
+        {
+            return nullptr;
+        }
+
+        return a_Found->second;
     }
 
     // Jolt's adds and removes, in an order that does not depend on its workers, are counted by body pair. A pair's first part begins it and its last ends it, unless both bodies fell asleep, and a contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities

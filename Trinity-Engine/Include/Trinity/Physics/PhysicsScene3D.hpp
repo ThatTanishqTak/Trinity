@@ -70,7 +70,7 @@ namespace Trinity
         [[nodiscard]] static PhysicsQueryShape3D MakeCapsule(float radius, float height) { return { PhysicsQueryShapeType3D::Capsule, radius, glm::vec3(radius), height }; }
     };
 
-    // A scene's bodies in a PhysicsWorld3D, made when the scene starts running from its RigidBody and collider components, which are read once then, with the project's collision layers. An entity with a RigidBody is a body, and one with colliders and no RigidBody above it a static body. Colliders on entities below a body, without a RigidBody of their own, join it as one compound shape. A body's trigger colliders become a sensor of their own beside it, which follows it. Dynamic bodies write their poses back to their entities' transforms after each step, local to any parent, and kinematic ones are moved to theirs over the steps of each frame. Both are drawn at their poses between their last two steps. Hull and mesh colliders wait for their shapes to load, and their body is made once all have. Joints are made once both their bodies are, and one past its break force or torque is taken out after the step that broke it, and reported once. Contacts and triggers are gathered on Jolt's workers and handed out on the main thread after each step, in the same order on every run. physics.events logs them to the Console. Queries look at the bodies as the last step left them, on the main thread between steps, as M7's scripts will
+    // A scene's bodies in a PhysicsWorld3D, made when the scene starts running from its RigidBody and collider components, which are read once then, with the project's collision layers. An entity with a RigidBody is a body, and one with colliders and no RigidBody above it a static body. Colliders on entities below a body, without a RigidBody of their own, join it as one compound shape. A body's trigger colliders become a sensor of their own beside it, which follows it. Dynamic bodies write their poses back to their entities' transforms after each step, local to any parent, and kinematic ones are moved to theirs over the steps of each frame. Both are drawn at their poses between their last two steps. Hull and mesh colliders wait for their shapes to load, and their body is made once all have. Joints are made once both their bodies are, and one past its break force or torque is taken out after the step that broke it, and reported once. A joint whose motor or break limits alone change takes them on in place, and any other change makes it again from where its bodies are. Contacts and triggers are gathered on Jolt's workers and handed out on the main thread after each step, in the same order on every run. physics.events logs them to the Console. The scene's changes are taken in as each frame with steps begins, as each step begins and as a script reaches a body. Queries look at the bodies as the last step left them, on the main thread between steps, as scripts do
     class TRINITY_API PhysicsScene3D
     {
     public:
@@ -109,6 +109,25 @@ namespace Trinity
         [[nodiscard]] std::vector<PhysicsHit3D> ShapeCastAll(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter = {}) const;
         // Every collider the shape overlaps where it is placed, each once, in UUID order
         [[nodiscard]] std::vector<PhysicsHit3D> Overlap(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const PhysicsQueryFilter3D& filter = {}) const;
+
+        // What a script does to a body, named by the entity that owns it or by one of its colliders' entities, on the main thread between steps, with the scene's changes taken in first, so a body added this frame answers. In world space, in metres, kilograms, seconds and radians. Only a dynamic body takes velocities, forces and impulses, and a static one neither sleeps nor wakes. A force or torque lasts for the next step, so a script adds it in OnFixedUpdate, and an impulse changes the velocity at once. A body pushed is woken
+        PhysicsBodyResult GetVelocity(UUID entity, glm::vec3& linear, glm::vec3& angular);
+        PhysicsBodyResult SetLinearVelocity(UUID entity, const glm::vec3& velocity);
+        PhysicsBodyResult SetAngularVelocity(UUID entity, const glm::vec3& velocity);
+        PhysicsBodyResult AddForce(UUID entity, const glm::vec3& force);
+        PhysicsBodyResult AddForceAtPoint(UUID entity, const glm::vec3& force, const glm::vec3& point);
+        PhysicsBodyResult AddTorque(UUID entity, const glm::vec3& torque);
+        PhysicsBodyResult AddImpulse(UUID entity, const glm::vec3& impulse);
+        PhysicsBodyResult AddImpulseAtPoint(UUID entity, const glm::vec3& impulse, const glm::vec3& point);
+        PhysicsBodyResult AddAngularImpulse(UUID entity, const glm::vec3& impulse);
+        // The body and its entity there at once, its velocities kept, drawn there with nothing between
+        PhysicsBodyResult Teleport(UUID entity, const glm::vec3& position, const glm::quat& rotation);
+        // Where a kinematic body goes over the next frame's steps, pushing what is in its way, as its entity's transform set from code takes it
+        PhysicsBodyResult MoveKinematic(UUID entity, const glm::vec3& position, const glm::quat& rotation);
+        PhysicsBodyResult SetAwake(UUID entity, bool awake);
+        PhysicsBodyResult IsAwake(UUID entity, bool& awake);
+        // Whether the entity's joint has broken, or none for an entity with no joint the scene took in
+        [[nodiscard]] std::optional<bool> IsJointBroken(UUID entity) const;
 
     private:
         struct State;

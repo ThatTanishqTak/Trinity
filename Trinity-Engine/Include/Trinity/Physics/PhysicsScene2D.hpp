@@ -68,7 +68,7 @@ namespace Trinity
         [[nodiscard]] static PhysicsQueryShape2D MakeCapsule(float radius, float height) { return { PhysicsQueryShapeType2D::Capsule, radius, glm::vec2(radius), height }; }
     };
 
-    // A scene's 2D bodies in a PhysicsWorld2D, made when the scene starts running from its RigidBody2D and 2D collider components, as the 3D bodies are from theirs, and with the same project layers. An entity with a RigidBody2D is a body, and one with 2D colliders and no RigidBody2D above it a static body. 2D colliders on entities below a body, without a RigidBody2D of their own, are shapes of it, triggers included. A body takes its entity's world X and Y and turn about Z, and dynamic bodies write those back after each step, local to any parent and keeping the entity's depth in Z. Kinematic bodies are moved to their transforms over each frame's steps, and both are drawn between their last two steps. A Joint2D joins the body its entity is part of to the body of the entity it names, or to the world, and one that breaks is let go with a JointBreak event. 3D and 2D bodies are kept apart: an entity with both a RigidBody and a RigidBody2D keeps its 3D body, and 2D colliders under a 3D body are left out, each reported. Contacts and triggers come out after each step in the same order on every run. Queries look at the bodies as the last step left them, on the main thread between steps
+    // A scene's 2D bodies in a PhysicsWorld2D, made when the scene starts running from its RigidBody2D and 2D collider components, as the 3D bodies are from theirs, and with the same project layers. An entity with a RigidBody2D is a body, and one with 2D colliders and no RigidBody2D above it a static body. 2D colliders on entities below a body, without a RigidBody2D of their own, are shapes of it, triggers included. A body takes its entity's world X and Y and turn about Z, and dynamic bodies write those back after each step, local to any parent and keeping the entity's depth in Z. Kinematic bodies are moved to their transforms over each frame's steps, and both are drawn between their last two steps. A Joint2D joins the body its entity is part of to the body of the entity it names, or to the world, and one that breaks is let go with a JointBreak event. 3D and 2D bodies are kept apart: an entity with both a RigidBody and a RigidBody2D keeps its 3D body, and 2D colliders under a 3D body are left out, each reported. A joint whose motor or break limits alone change takes them on in place. Contacts and triggers come out after each step in the same order on every run. The scene's changes are taken in as each frame with steps begins, as each step begins and as a script reaches a body. Queries look at the bodies as the last step left them, on the main thread between steps
     class TRINITY_API PhysicsScene2D
     {
     public:
@@ -104,6 +104,25 @@ namespace Trinity
         [[nodiscard]] std::vector<PhysicsHit2D> ShapeCastAll(const PhysicsQueryShape2D& shape, const glm::vec2& position, float angle, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter = {}) const;
         // Every collider the shape overlaps where it is placed, each once, in UUID order
         [[nodiscard]] std::vector<PhysicsHit2D> Overlap(const PhysicsQueryShape2D& shape, const glm::vec2& position, float angle, const PhysicsQueryFilter2D& filter = {}) const;
+
+        // What a script does to a 2D body, as to a 3D one: named by the entity that owns it or one of its colliders' entities, with the scene's changes taken in first, in the XY plane, with turns counter-clockwise in radians. Only a dynamic body takes velocities, forces and impulses, a force or torque lasts for the next step, and an impulse changes the velocity at once
+        PhysicsBodyResult GetVelocity(UUID entity, glm::vec2& linear, float& angular);
+        PhysicsBodyResult SetLinearVelocity(UUID entity, const glm::vec2& velocity);
+        PhysicsBodyResult SetAngularVelocity(UUID entity, float velocity);
+        PhysicsBodyResult AddForce(UUID entity, const glm::vec2& force);
+        PhysicsBodyResult AddForceAtPoint(UUID entity, const glm::vec2& force, const glm::vec2& point);
+        PhysicsBodyResult AddTorque(UUID entity, float torque);
+        PhysicsBodyResult AddImpulse(UUID entity, const glm::vec2& impulse);
+        PhysicsBodyResult AddImpulseAtPoint(UUID entity, const glm::vec2& impulse, const glm::vec2& point);
+        PhysicsBodyResult AddAngularImpulse(UUID entity, float impulse);
+        // The body and its entity there at once, at the entity's depth and turned about Z alone, its velocities kept
+        PhysicsBodyResult Teleport(UUID entity, const glm::vec2& position, float angle);
+        // Where a kinematic body goes over the next frame's steps, as its entity's transform set from code takes it
+        PhysicsBodyResult MoveKinematic(UUID entity, const glm::vec2& position, float angle);
+        PhysicsBodyResult SetAwake(UUID entity, bool awake);
+        PhysicsBodyResult IsAwake(UUID entity, bool& awake);
+        // Whether the entity's 2D joint has broken, or none for an entity with no 2D joint the scene took in
+        [[nodiscard]] std::optional<bool> IsJointBroken(UUID entity) const;
 
     private:
         struct State;
