@@ -49,5 +49,10 @@ namespace Trinity
         [[nodiscard]] bool GetField(std::intptr_t instance, std::int32_t field, Interop::FieldValue& value);
         [[nodiscard]] bool Invoke(std::intptr_t instance, ManagedCallback callback, float timestep);
         [[nodiscard]] bool InvokePhysics(std::intptr_t instance, PhysicsEventType type, const Interop::Collision& collision);
+
+        // A C# timer or coroutine, held by a GC handle: resumed until it next waits, with the wait's type as a ScriptWaitType and its seconds or frames, its condition asked, and freed. Each is false when it threw, which ScriptCore has logged
+        [[nodiscard]] bool ResumeTask(std::intptr_t task, std::int32_t& waitType, float& seconds, std::int32_t& frames);
+        [[nodiscard]] bool CheckTask(std::intptr_t task, bool& met);
+        void FreeTask(std::intptr_t task);
     }
 }

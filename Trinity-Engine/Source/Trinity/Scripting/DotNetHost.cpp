@@ -52,6 +52,9 @@ namespace Trinity
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* GetField)(std::intptr_t instance, std::int32_t field, Interop::FieldValue* value) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* Invoke)(std::intptr_t instance, std::int32_t callback, float timestep) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* InvokePhysics)(std::intptr_t instance, std::int32_t type, const Interop::Collision* collision) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* ResumeTask)(std::intptr_t task, std::int32_t* waitType, float* seconds, std::int32_t* frames) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* CheckTask)(std::intptr_t task, std::int32_t* met) = nullptr;
+            void (CORECLR_DELEGATE_CALLTYPE* FreeTask)(std::intptr_t task) = nullptr;
         };
 
         // What the runtime was started with and the entry points of ScriptCore. None of it is allocated, since .NET outlives every memory tag
@@ -338,7 +341,8 @@ namespace Trinity
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("LoadAssembly"), l_Entry.LoadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("UnloadAssembly"), l_Entry.UnloadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetHeapStatistics"), l_Entry.GetHeapStatistics, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CreateInstance"), l_Entry.CreateInstance, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("DestroyInstance"), l_Entry.DestroyInstance, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("SetField"), l_Entry.SetField, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetField"), l_Entry.GetField, error)
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("Invoke"), l_Entry.Invoke, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("InvokePhysics"), l_Entry.InvokePhysics, error);
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("Invoke"), l_Entry.Invoke, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("InvokePhysics"), l_Entry.InvokePhysics, error)
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("ResumeTask"), l_Entry.ResumeTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CheckTask"), l_Entry.CheckTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("FreeTask"), l_Entry.FreeTask, error);
             if (!l_Found)
             {
                 return false;
@@ -517,6 +521,28 @@ namespace Trinity
         {
             return s_State.Started && s_State.Entry.InvokePhysics(instance, static_cast<std::int32_t>(type), &collision) == 0;
         }
+
+        bool ResumeTask(std::intptr_t task, std::int32_t& waitType, float& seconds, std::int32_t& frames)
+        {
+            return s_State.Started && s_State.Entry.ResumeTask(task, &waitType, &seconds, &frames) == 0;
+        }
+
+        bool CheckTask(std::intptr_t task, bool& met)
+        {
+            std::int32_t l_Met = 0;
+            const bool l_Asked = s_State.Started && s_State.Entry.CheckTask(task, &l_Met) == 0;
+            met = l_Met != 0;
+
+            return l_Asked;
+        }
+
+        void FreeTask(std::intptr_t task)
+        {
+            if (s_State.Started && task != 0)
+            {
+                s_State.Entry.FreeTask(task);
+            }
+        }
     }
 #else
     namespace DotNetHost
@@ -587,6 +613,23 @@ namespace Trinity
         bool InvokePhysics([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] PhysicsEventType type, [[maybe_unused]] const Interop::Collision& collision)
         {
             return false;
+        }
+
+        bool ResumeTask([[maybe_unused]] std::intptr_t task, [[maybe_unused]] std::int32_t& waitType, [[maybe_unused]] float& seconds, [[maybe_unused]] std::int32_t& frames)
+        {
+            return false;
+        }
+
+        bool CheckTask([[maybe_unused]] std::intptr_t task, bool& met)
+        {
+            met = false;
+
+            return false;
+        }
+
+        void FreeTask([[maybe_unused]] std::intptr_t task)
+        {
+
         }
     }
 #endif

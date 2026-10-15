@@ -47,6 +47,12 @@ TR_NATIVE(Scripting_FindScript, Int32, (EntityId entity, Int32 language, Utf8 cl
 TR_NATIVE(Scripting_AddScript, Int32, (EntityId entity, Int32 language, Utf8 className))
 TR_NATIVE(Scripting_RemoveScript, Bool, (EntityId entity, Int32 index))
 
+// A C# script's timers and coroutines, kept by the running scene's runtime, as ScriptRuntime::StartTask has them: the owner is the script's instance, the task a GC handle to what ScriptCore runs it through, its kind a ScriptTaskKind, and its first wait a ScriptWaitType with its seconds or frames. A timer's interval is in seconds, 0 for one that runs once. 0 when no scene runs, with the task freed
+TR_NATIVE(Scripting_StartTask, UInt64, (Int64 owner, Int64 task, Int32 kind, Int32 waitType, Float seconds, Int32 frames, Float interval))
+TR_NATIVE(Scripting_StopTask, Bool, (UInt64 task))
+TR_NATIVE(Scripting_StopTasks, Int32, (Int64 owner, Int32 kind))
+TR_NATIVE(Scripting_IsTaskRunning, Bool, (UInt64 task))
+
 // The running scene's clock, as ScriptTime has it
 TR_NATIVE(Time_GetDeltaTime, Float, ())
 TR_NATIVE(Time_GetFixedDeltaTime, Float, ())

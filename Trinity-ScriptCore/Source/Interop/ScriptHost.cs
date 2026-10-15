@@ -32,6 +32,7 @@ namespace Trinity.Interop
         private static string s_AssemblyName = string.Empty;
         private static readonly List<ScriptClass> s_Classes = new();
         private static readonly HashSet<nint> s_Instances = new();
+        private static readonly HashSet<nint> s_Tasks = new();
 
         // The copy to load, and the build it was copied from, beside which what it depends on is found. The number of classes described, numbered from 0 in the order the engine was told of them, or -1 when the assembly could not be loaded
         [UnmanagedCallersOnly]
@@ -88,6 +89,7 @@ namespace Trinity.Interop
                 Script l_Script = l_Class.Create();
                 l_Script.Bind(new Entity(entity), l_Class);
                 nint l_Handle = GCHandle.ToIntPtr(GCHandle.Alloc(l_Script));
+                l_Script.Handle = l_Handle;
                 s_Instances.Add(l_Handle);
 
                 return l_Handle;
@@ -197,6 +199,75 @@ namespace Trinity.Interop
                 Report(l_Script, "threw in a physics callback", exception);
 
                 return 1;
+            }
+        }
+
+        // The wait it gives next is numbered as the engine's ScriptWaitType. 0 once it has run, and 1 when it threw, which stops its script
+        [UnmanagedCallersOnly]
+        public static int ResumeTask(nint task, int* waitType, float* seconds, int* frames)
+        {
+            ScriptTask l_Task = (ScriptTask)GCHandle.FromIntPtr(task).Target!;
+            try
+            {
+                TaskWait l_Wait = l_Task.Resume();
+                *waitType = (int)l_Wait.Type;
+                *seconds = l_Wait.Seconds;
+                *frames = l_Wait.Frames;
+
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                Report(l_Task.Owner, l_Task.IsTimer ? "threw in a timer" : "threw in a coroutine", exception);
+
+                return 1;
+            }
+        }
+
+        [UnmanagedCallersOnly]
+        public static int CheckTask(nint task, int* met)
+        {
+            ScriptTask l_Task = (ScriptTask)GCHandle.FromIntPtr(task).Target!;
+            try
+            {
+                *met = l_Task.IsMet() ? 1 : 0;
+
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                Report(l_Task.Owner, "threw in a coroutine's condition", exception);
+
+                return 1;
+            }
+        }
+
+        [UnmanagedCallersOnly]
+        public static void FreeTask(nint task)
+        {
+            Free(task);
+        }
+
+        // Held by a GC handle the engine keeps until it frees it, which it does at once when no scene runs the script
+        internal static ulong StartTask(ScriptTask task, TaskKind kind, TaskWait wait, float interval)
+        {
+            if (task.Owner.Handle == 0)
+            {
+                throw new InvalidOperationException($"A {(kind == TaskKind.Timer ? "timer" : "coroutine")} was not started, since the engine has not made the script that started it");
+            }
+
+            nint l_Handle = GCHandle.ToIntPtr(GCHandle.Alloc(task));
+            s_Tasks.Add(l_Handle);
+            ulong l_ID = Native.Scripting_StartTask(task.Owner.Handle, l_Handle, (int)kind, (int)wait.Type, wait.Seconds, wait.Frames, interval);
+
+            return l_ID != 0 ? l_ID : throw new InvalidOperationException($"{task.Owner.Class!.Name} on entity {task.Owner.Entity} started a {(kind == TaskKind.Timer ? "timer" : "coroutine")} while no scene runs it");
+        }
+
+        private static void Free(nint task)
+        {
+            if (s_Tasks.Remove(task))
+            {
+                GCHandle.FromIntPtr(task).Free();
             }
         }
 
@@ -326,6 +397,17 @@ namespace Trinity.Interop
                 }
 
                 s_Instances.Clear();
+            }
+
+            if (s_Tasks.Count != 0)
+            {
+                NativeLog.Write(LogLevel.Warn, $"Scripting: {s_Tasks.Count} C# timer(s) and coroutine(s) were still held as {l_Name} unloaded, and were freed");
+                foreach (nint it_Task in s_Tasks)
+                {
+                    GCHandle.FromIntPtr(it_Task).Free();
+                }
+
+                s_Tasks.Clear();
             }
 
             s_Classes.Clear();

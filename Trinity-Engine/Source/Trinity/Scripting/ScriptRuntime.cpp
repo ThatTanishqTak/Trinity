@@ -11,6 +11,7 @@
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <functional>
 #include <optional>
@@ -39,6 +40,23 @@ namespace Trinity
         {
             UUID Entity;
             std::uint64_t Serial = 0;
+        };
+
+        // A timer or a coroutine, by its owner's instance handle. Due counts the fixed steps a wait in seconds or a timer ends at, and the frame a wait in frames does, and Armed the step and frame it began waiting in, so none runs again in the step or frame it waited in. Interval is a repeating timer's, in steps, 0 for one that runs once. Running while its resume is under way, and Dead once it has finished or been stopped, freed then unless still running
+        struct Task
+        {
+            std::uint64_t ID = 0;
+            const void* Owner = nullptr;
+            void* Object = nullptr;
+            ScriptTaskCalls Calls;
+            ScriptWait Wait;
+            std::uint64_t Due = 0;
+            std::uint64_t ArmedStep = 0;
+            std::uint64_t ArmedFrame = 0;
+            std::uint64_t Interval = 0;
+            ScriptTaskKind Kind = ScriptTaskKind::Coroutine;
+            bool Running = false;
+            bool Dead = false;
         };
 
         ScriptRuntime* s_Active = nullptr;
@@ -185,7 +203,7 @@ namespace Trinity
                 l_Instance.Created = true;
                 if ((l_Instance.Callbacks & ScriptCallbacks::Create) != 0 && !l_Instance.Backend->OnCreate(l_Instance.Handle))
                 {
-                    Records[record].Instances[index].Faulted = true;
+                    Fault(Records[record].Instances[index]);
 
                     return nullptr;
                 }
@@ -215,7 +233,7 @@ namespace Trinity
                         l_Any = true;
                         if (!call(*l_Instance))
                         {
-                            Records[it_Record].Instances[it_Index].Faulted = true;
+                            Fault(Records[it_Record].Instances[it_Index]);
                         }
                     }
                 }
@@ -238,7 +256,7 @@ namespace Trinity
                 Instance* l_Instance = Prepare(l_Record, it_Index);
                 if (l_Instance != nullptr && (l_Instance->Callbacks & ScriptCallbacks::Physics) != 0 && !l_Instance->Backend->OnPhysicsEvent(l_Instance->Handle, type, collision))
                 {
-                    Records[l_Record].Instances[it_Index].Faulted = true;
+                    Fault(Records[l_Record].Instances[it_Index]);
                 }
             }
         }
@@ -259,12 +277,268 @@ namespace Trinity
                     static_cast<void>(l_Instance.Backend->OnDestroy(l_Instance.Handle));
                 }
 
+                static_cast<void>(StopOwner(l_Instance.Handle));
                 l_Instance.Backend->DestroyInstance(l_Instance.Handle);
                 Records[record].Instances[it_Index].Backend = nullptr;
             }
 
             Records[record].Dead = true;
             Changed = true;
+        }
+
+        // A failed instance is called no more, and its timers and coroutines stop
+        void Fault(Instance& instance)
+        {
+            instance.Faulted = true;
+            static_cast<void>(StopOwner(instance.Handle));
+        }
+
+        // The steps a wait of that many seconds takes, rounded up, so it ends on the first step at or past its time, with a little slack for a time a whole number of steps long
+        [[nodiscard]] std::uint64_t StepsFor(float seconds) const
+        {
+            const float l_Step = Runtime.GetTime().FixedDeltaTime;
+            if (!(seconds > 0.0f) || !(l_Step > 0.0f))
+            {
+                return 0;
+            }
+
+            return static_cast<std::uint64_t>(std::max(std::ceil(static_cast<double>(seconds) / static_cast<double>(l_Step) - 1e-3), 0.0));
+        }
+
+        void Arm(Task& task, const ScriptWait& wait) const
+        {
+            const ScriptTime& l_Time = Runtime.GetTime();
+            task.Wait = wait;
+            task.ArmedStep = l_Time.StepCount;
+            task.ArmedFrame = l_Time.FrameCount;
+            if (wait.Type == ScriptWaitType::Seconds)
+            {
+                task.Due = l_Time.StepCount + StepsFor(wait.Seconds);
+            }
+            else if (wait.Type == ScriptWaitType::Frames)
+            {
+                task.Due = l_Time.FrameCount + std::max<std::uint64_t>(wait.Frames, 1);
+            }
+        }
+
+        // Freed now, or once its resume returns when it is running
+        void Finish(Task& task)
+        {
+            if (task.Dead)
+            {
+                return;
+            }
+
+            task.Dead = true;
+            TasksChanged = true;
+            if (!task.Running)
+            {
+                task.Calls.Free(task.Object);
+                task.Object = nullptr;
+            }
+        }
+
+        // Every task of the instance, of either kind or of the one asked for, the number stopped
+        std::uint32_t StopOwner(const void* owner, std::optional<ScriptTaskKind> kind = std::nullopt)
+        {
+            std::uint32_t l_Stopped = 0;
+            for (Task& it_Task : Tasks)
+            {
+                if (!it_Task.Dead && it_Task.Owner == owner && (!kind || it_Task.Kind == *kind))
+                {
+                    Finish(it_Task);
+                    ++l_Stopped;
+                }
+            }
+
+            CompactTasks();
+
+            return l_Stopped;
+        }
+
+        // The instance a failed task belonged to, which then fails as a script whose callback failed does
+        void FaultOwner(const void* owner)
+        {
+            for (Record& it_Record : Records)
+            {
+                for (Instance& it_Instance : it_Record.Instances)
+                {
+                    if (it_Instance.Backend != nullptr && it_Instance.Handle == owner)
+                    {
+                        Fault(it_Instance);
+
+                        return;
+                    }
+                }
+            }
+
+            static_cast<void>(StopOwner(owner));
+        }
+
+        // The task at that index runs until it next waits, finishes, or fails. What it starts meanwhile goes on the end of the list, which may move, so it is found again by its index
+        void Run(std::size_t index)
+        {
+            const ScriptTaskCalls l_Calls = Tasks[index].Calls;
+            void* l_Object = Tasks[index].Object;
+            Tasks[index].Running = true;
+            ++TaskDepth;
+            ScriptWait l_Next;
+            const bool l_Resumed = l_Calls.Resume(l_Object, l_Next);
+            --TaskDepth;
+
+            Task& l_Task = Tasks[index];
+            l_Task.Running = false;
+            if (l_Task.Dead)
+            {
+                l_Calls.Free(l_Object);
+                l_Task.Object = nullptr;
+            }
+            else if (!l_Resumed)
+            {
+                const void* l_Owner = l_Task.Owner;
+                Finish(l_Task);
+                FaultOwner(l_Owner);
+            }
+            else if (l_Task.Kind == ScriptTaskKind::Timer)
+            {
+                if (l_Task.Interval == 0)
+                {
+                    Finish(l_Task);
+                }
+                else
+                {
+                    l_Task.Due += l_Task.Interval;
+                }
+            }
+            else if (l_Next.Type == ScriptWaitType::Done)
+            {
+                Finish(l_Task);
+            }
+            else
+            {
+                Arm(l_Task, l_Next);
+            }
+        }
+
+        // Asked as the task would run, since a condition of C#'s may start or stop tasks, or throw
+        [[nodiscard]] bool IsMet(std::size_t index)
+        {
+            const Task l_Task = Tasks[index];
+            if (l_Task.Wait.Condition != nullptr)
+            {
+                return l_Task.Wait.Condition(l_Task.Wait.Context);
+            }
+
+            if (l_Task.Calls.Check == nullptr)
+            {
+                return true;
+            }
+
+            Tasks[index].Running = true;
+            ++TaskDepth;
+            bool l_Met = false;
+            const bool l_Asked = l_Task.Calls.Check(l_Task.Object, l_Met);
+            --TaskDepth;
+            Tasks[index].Running = false;
+            if (Tasks[index].Dead)
+            {
+                l_Task.Calls.Free(l_Task.Object);
+                Tasks[index].Object = nullptr;
+
+                return false;
+            }
+
+            if (!l_Asked)
+            {
+                Finish(Tasks[index]);
+                FaultOwner(l_Task.Owner);
+
+                return false;
+            }
+
+            return l_Met;
+        }
+
+        // In each fixed step, after the scripts' OnFixedUpdate: due timers, and coroutines waiting for the step. Those started meanwhile wait for the next
+        void RunStepTasks()
+        {
+            const std::uint64_t l_Step = Runtime.GetTime().StepCount;
+            const std::size_t l_Count = Tasks.size();
+            for (std::size_t it_Task = 0; it_Task < l_Count; ++it_Task)
+            {
+                const Task& l_Task = Tasks[it_Task];
+                if (l_Task.Dead || l_Task.Running)
+                {
+                    continue;
+                }
+
+                const bool l_Due = l_Task.Kind == ScriptTaskKind::Timer ? l_Task.Due <= l_Step : l_Task.Wait.Type == ScriptWaitType::FixedStep && l_Task.ArmedStep < l_Step;
+                if (l_Due)
+                {
+                    Run(it_Task);
+                }
+            }
+
+            CompactTasks();
+        }
+
+        // After the scripts' OnUpdate: coroutines whose seconds the frame's steps reached, whose frames have passed, or whose condition holds, none in the frame it waited in
+        void RunFrameTasks()
+        {
+            const ScriptTime& l_Time = Runtime.GetTime();
+            const std::size_t l_Count = Tasks.size();
+            for (std::size_t it_Task = 0; it_Task < l_Count; ++it_Task)
+            {
+                const Task& l_Task = Tasks[it_Task];
+                if (l_Task.Dead || l_Task.Running || l_Task.Kind != ScriptTaskKind::Coroutine || l_Task.ArmedFrame >= l_Time.FrameCount)
+                {
+                    continue;
+                }
+
+                bool l_Due = false;
+                switch (l_Task.Wait.Type)
+                {
+                    case ScriptWaitType::Seconds:
+                    {
+                        l_Due = l_Task.Due <= l_Time.StepCount;
+                        
+                        break;
+                    }
+                    case ScriptWaitType::Frames:
+                    {
+                        l_Due = l_Task.Due <= l_Time.FrameCount;
+                        
+                        break;
+                    }
+                    case ScriptWaitType::Condition:
+                    {
+                        l_Due = IsMet(it_Task);
+                        
+                        break;
+                    }
+                    case ScriptWaitType::Done:
+                    case ScriptWaitType::FixedStep:
+                    {
+                        break;
+                    }
+                }
+
+                if (l_Due && !Tasks[it_Task].Dead)
+                {
+                    Run(it_Task);
+                }
+            }
+
+            CompactTasks();
+        }
+
+        // Drops finished tasks once none runs, which frees nothing, since each was freed as it finished
+        void CompactTasks()
+        {
+            if (TaskDepth == 0 && std::exchange(TasksChanged, false))
+            {
+                std::erase_if(Tasks, [](const Task& task) { return task.Dead; });
+            }
         }
 
         // Frees orphans without OnDestroy, since their entities are gone, then drops every dead record
@@ -302,8 +576,12 @@ namespace Trinity
         std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scripting>> PendingDestroy;
         std::vector<Removal, TaggedAllocator<Removal, MemoryTag::Scripting>> PendingRemove;
         std::vector<TaggedString<MemoryTag::Scripting>, TaggedAllocator<TaggedString<MemoryTag::Scripting>, MemoryTag::Scripting>> Warned;
+        std::vector<Task, TaggedAllocator<Task, MemoryTag::Scripting>> Tasks;
         std::uint64_t NextSerial = 0;
+        std::uint64_t NextTask = 0;
+        std::uint32_t TaskDepth = 0;
         bool Changed = false;
+        bool TasksChanged = false;
     };
 
     // The scene's scripts wait in hierarchy order for the first CreatePending, and any added later follow them as they are added
@@ -335,6 +613,12 @@ namespace Trinity
             {
                 m_State->End(it_Record, !m_State->Records[it_Record].Orphaned);
             }
+        }
+
+        // Each went with its script, so none should be left
+        for (Task& it_Task : m_State->Tasks)
+        {
+            m_State->Finish(it_Task);
         }
 
         if (s_Active == this)
@@ -392,6 +676,7 @@ namespace Trinity
 
         ++m_Time.StepCount;
         m_State->ForEach(ScriptCallbacks::FixedUpdate, [step](Instance& instance) { return instance.Backend->OnFixedUpdate(instance.Handle, step); });
+        m_State->RunStepTasks();
     }
 
     // Each to the first entity's scripts, then the second's, with the normal turned to point away from whichever is told
@@ -424,6 +709,7 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         m_State->ForEach(ScriptCallbacks::Update, [timestep](Instance& instance) { return instance.Backend->OnUpdate(instance.Handle, timestep); });
+        m_State->RunFrameTasks();
     }
 
     bool ScriptRuntime::LateUpdate(Timestep timestep)
@@ -438,6 +724,7 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         std::uint32_t l_Released = 0;
+        std::uint32_t l_Cancelled = 0;
         for (Record& it_Record : m_State->Records)
         {
             ScriptComponent* l_Component = it_Record.IsLive() ? m_State->TargetScene.GetRegistry().try_get<ScriptComponent>(it_Record.Handle) : nullptr;
@@ -458,12 +745,18 @@ namespace Trinity
                     }
                 }
 
+                l_Cancelled += m_State->StopOwner(l_Instance.Handle);
                 l_Instance.Backend->DestroyInstance(l_Instance.Handle);
                 l_Instance.Backend = nullptr;
                 l_Instance.Handle = nullptr;
                 l_Instance.Callbacks = 0;
                 ++l_Released;
             }
+        }
+
+        if (l_Cancelled != 0)
+        {
+            TR_CORE_INFO("Scripting: the reload cancelled {} waiting {} timer(s) and coroutine(s)", l_Cancelled, ToString(language));
         }
 
         return l_Released;
@@ -531,7 +824,7 @@ namespace Trinity
                 {
                     if (!l_Backend->OnReloaded(l_Handle))
                     {
-                        l_State.Records[it_Record].Instances[it_Index].Faulted = true;
+                        l_State.Fault(l_State.Records[it_Record].Instances[it_Index]);
                     }
 
                     if (!l_State.Records[it_Record].IsLive())
@@ -543,6 +836,58 @@ namespace Trinity
         }
 
         return l_Made;
+    }
+
+    std::uint64_t ScriptRuntime::StartTask(const void* owner, ScriptTaskKind kind, const ScriptTaskCalls& calls, void* task, const ScriptWait& wait, float interval)
+    {
+        TR_CORE_ASSERT(calls.Resume != nullptr && calls.Free != nullptr, "Scripting: a task needs a way to resume it and one to free it");
+
+        State& l_State = *m_State;
+        Task l_Task;
+        l_Task.ID = ++l_State.NextTask;
+        l_Task.Owner = owner;
+        l_Task.Object = task;
+        l_Task.Calls = calls;
+        l_Task.Kind = kind;
+        if (kind == ScriptTaskKind::Timer)
+        {
+            l_State.Arm(l_Task, { .Type = ScriptWaitType::Seconds, .Seconds = wait.Seconds });
+            l_Task.Interval = interval > 0.0f ? std::max<std::uint64_t>(l_State.StepsFor(interval), 1) : 0;
+        }
+        else
+        {
+            l_State.Arm(l_Task, wait.Type == ScriptWaitType::Done ? ScriptWait{ .Type = ScriptWaitType::Frames, .Frames = 1 } : wait);
+        }
+
+        l_State.Tasks.push_back(l_Task);
+
+        return l_Task.ID;
+    }
+
+    bool ScriptRuntime::StopTask(std::uint64_t id)
+    {
+        const auto a_Found = std::ranges::find(m_State->Tasks, id, &Task::ID);
+        if (a_Found == m_State->Tasks.end() || a_Found->Dead)
+        {
+            return false;
+        }
+
+        m_State->Finish(*a_Found);
+        m_State->CompactTasks();
+
+        return true;
+    }
+
+    std::uint32_t ScriptRuntime::StopTasks(const void* owner, ScriptTaskKind kind)
+    {
+        return m_State->StopOwner(owner, kind);
+    }
+
+    bool ScriptRuntime::IsTaskRunning(std::uint64_t id) const
+    {
+        const auto a_Found = std::ranges::find(m_State->Tasks, id, &Task::ID);
+
+        return a_Found != m_State->Tasks.end() && !a_Found->Dead;
     }
 
     Entity ScriptRuntime::DuplicateEntity(Entity entity)
@@ -700,6 +1045,7 @@ namespace Trinity
             const Instance l_Current = l_Record.Instances[l_Found->second];
             if (l_Current.Backend != nullptr)
             {
+                static_cast<void>(l_State.StopOwner(l_Current.Handle));
                 l_Current.Backend->DestroyInstance(l_Current.Handle);
             }
 
@@ -762,6 +1108,8 @@ namespace Trinity
                 l_Statistics.Faulted += it_Instance.Backend != nullptr && it_Instance.Faulted ? 1u : 0u;
             }
         }
+
+        l_Statistics.Tasks = static_cast<std::uint32_t>(std::ranges::count(m_State->Tasks, false, &Task::Dead));
 
         return l_Statistics;
     }

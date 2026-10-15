@@ -7,6 +7,7 @@
 #include "Trinity/Scripting/DotNetHost.hpp"
 #include "Trinity/Scripting/Interop.hpp"
 #include "Trinity/Scripting/ScriptBackend.hpp"
+#include "Trinity/Scripting/ScriptRuntime.hpp"
 
 #include <algorithm>
 #include <array>
@@ -294,6 +295,40 @@ namespace Trinity
         };
 
         ManagedBackend* s_Managed = nullptr;
+
+        // A C# timer or coroutine, which ScriptCore runs and reports what it waits for next as plain numbers. A wait type it should not give finishes the task
+        bool ResumeManagedTask(void* task, ScriptWait& next)
+        {
+            std::int32_t l_Type = 0;
+            float l_Seconds = 0.0f;
+            std::int32_t l_Frames = 0;
+            if (!DotNetHost::ResumeTask(ToHandle(task), l_Type, l_Seconds, l_Frames))
+            {
+                return false;
+            }
+
+            next = {};
+            if (l_Type > 0 && l_Type <= static_cast<std::int32_t>(ScriptWaitType::Condition))
+            {
+                next.Type = static_cast<ScriptWaitType>(l_Type);
+                next.Seconds = l_Seconds;
+                next.Frames = static_cast<std::uint32_t>(std::max(l_Frames, 1));
+            }
+
+            return true;
+        }
+
+        bool CheckManagedTask(void* task, bool& met)
+        {
+            return DotNetHost::CheckTask(ToHandle(task), met);
+        }
+
+        void FreeManagedTask(void* task)
+        {
+            DotNetHost::FreeTask(ToHandle(task));
+        }
+
+        constexpr ScriptTaskCalls c_ManagedTaskCalls{ &ResumeManagedTask, &CheckManagedTask, &FreeManagedTask };
     }
 
     namespace ManagedScriptBackend
@@ -354,6 +389,53 @@ namespace Trinity
         Bool Scripting_EndClass()
         {
             return s_Managed != nullptr && s_Managed->EndClass();
+        }
+
+        // The task is ScriptCore's to free while no runtime takes it
+        UInt64 Scripting_StartTask(Int64 owner, Int64 task, Int32 kind, Int32 waitType, Float seconds, Int32 frames, Float interval)
+        {
+            ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+            if (l_Runtime == nullptr || owner == 0 || (kind != std::to_underlying(ScriptTaskKind::Timer) && kind != std::to_underlying(ScriptTaskKind::Coroutine)))
+            {
+                FreeManagedTask(reinterpret_cast<void*>(static_cast<std::intptr_t>(task)));
+
+                return 0;
+            }
+
+            ScriptWait l_Wait;
+            if (waitType > 0 && waitType <= static_cast<Int32>(ScriptWaitType::Condition))
+            {
+                l_Wait.Type = static_cast<ScriptWaitType>(waitType);
+                l_Wait.Seconds = seconds;
+                l_Wait.Frames = static_cast<std::uint32_t>(std::max(frames, 1));
+            }
+
+            return l_Runtime->StartTask(reinterpret_cast<const void*>(static_cast<std::intptr_t>(owner)), static_cast<ScriptTaskKind>(kind), c_ManagedTaskCalls, reinterpret_cast<void*>(static_cast<std::intptr_t>(task)), l_Wait, interval);
+        }
+
+        Bool Scripting_StopTask(UInt64 task)
+        {
+            ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+
+            return l_Runtime != nullptr && l_Runtime->StopTask(task);
+        }
+
+        Int32 Scripting_StopTasks(Int64 owner, Int32 kind)
+        {
+            ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+            if (l_Runtime == nullptr || (kind != std::to_underlying(ScriptTaskKind::Timer) && kind != std::to_underlying(ScriptTaskKind::Coroutine)))
+            {
+                return 0;
+            }
+
+            return static_cast<Int32>(l_Runtime->StopTasks(reinterpret_cast<const void*>(static_cast<std::intptr_t>(owner)), static_cast<ScriptTaskKind>(kind)));
+        }
+
+        Bool Scripting_IsTaskRunning(UInt64 task)
+        {
+            ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+
+            return l_Runtime != nullptr && l_Runtime->IsTaskRunning(task);
         }
     }
 

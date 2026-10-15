@@ -4,6 +4,7 @@
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Scene/Entity.hpp"
+#include "Trinity/Scripting/Coroutine.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
 
 #include <glm/glm.hpp>
@@ -11,6 +12,8 @@
 #include <concepts>
 #include <cstdint>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace Trinity
 {
@@ -121,12 +124,44 @@ namespace Trinity
 
         bool RemoveScript(Entity entity, ScriptLanguage language, std::string_view className);
 
+        // The callback after the delay in seconds of the scene's fixed steps, in the first step that reaches it, after the scripts' OnFixedUpdate and ahead of physics, so it holds while the scene is paused and moves on with Step. A repeating one runs again every interval after that, which must be more than 0. The callback is kept under the Scripting tag until it has run for the last time or is cancelled, and goes with the script, as do all its timers and coroutines. Empty, logged, while no scene runs it
+        template<typename F>
+            requires std::is_invocable_v<std::decay_t<F>&>
+        TimerHandle Invoke(F&& callback, float delay)
+        {
+            using Callback = Detail::TimerCallback<std::decay_t<F>>;
+
+            return StartTimer(Callback::c_Calls, Memory::New<Callback>(MemoryTag::Scripting, std::forward<F>(callback)), delay, 0.0f, false);
+        }
+
+        template<typename F>
+            requires std::is_invocable_v<std::decay_t<F>&>
+        TimerHandle InvokeRepeating(F&& callback, float delay, float interval)
+        {
+            using Callback = Detail::TimerCallback<std::decay_t<F>>;
+
+            return StartTimer(Callback::c_Calls, Memory::New<Callback>(MemoryTag::Scripting, std::forward<F>(callback)), delay, interval, true);
+        }
+
+        // False when it had already run for the last time or been cancelled
+        bool CancelInvoke(TimerHandle timer);
+        void CancelInvokes();
+        [[nodiscard]] bool IsPending(TimerHandle timer) const;
+
+        // Runs the coroutine at once until it first waits, then as each of its waits is met, as Coroutine says. Empty for one that finished without waiting, or, logged, while no scene runs it
+        CoroutineHandle StartCoroutine(Coroutine coroutine);
+        // False when it had already finished or been stopped. One that stops itself goes once it next waits
+        bool StopCoroutine(CoroutineHandle coroutine);
+        void StopAllCoroutines();
+        [[nodiscard]] bool IsRunning(CoroutineHandle coroutine) const;
+
     private:
         friend class NativeScriptBackend;
 
         [[nodiscard]] Script* FindNativeScript(Entity entity, const void* type) const;
         Script* AddNativeScript(Entity entity, const void* type);
         bool RemoveNativeScript(Entity entity, const void* type);
+        TimerHandle StartTimer(const ScriptTaskCalls& calls, void* callback, float delay, float interval, bool repeating);
 
         Entity m_Entity;
         ScriptRuntime* m_Runtime = nullptr;

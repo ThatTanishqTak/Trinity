@@ -1,6 +1,7 @@
 #include "Trinity/Scripting/Script.hpp"
 
 #include "Trinity/Core/Assert.hpp"
+#include "Trinity/Core/Log.hpp"
 #include "Trinity/Scene/Scene.hpp"
 #include "Trinity/Scripting/NativeScripts.hpp"
 #include "Trinity/Scripting/ScriptRuntime.hpp"
@@ -10,6 +11,45 @@ namespace Trinity
     namespace
     {
         const ScriptTime c_NoTime;
+
+        using CoroutineFrame = std::coroutine_handle<Coroutine::promise_type>;
+
+        // A coroutine that suspended on an awaiter of its own, which tells the promise nothing, waits for the next frame
+        [[nodiscard]] ScriptWait TakeWait(CoroutineFrame frame)
+        {
+            if (frame.done())
+            {
+                return {};
+            }
+
+            const ScriptWait l_Wait = std::exchange(frame.promise().Wait, ScriptWait{});
+
+            return l_Wait.Type != ScriptWaitType::Done ? l_Wait : ScriptWait{ .Type = ScriptWaitType::Frames, .Frames = 1 };
+        }
+
+        bool ResumeCoroutine(void* task, ScriptWait& next)
+        {
+            const CoroutineFrame l_Frame = CoroutineFrame::from_address(task);
+            l_Frame.resume();
+            next = TakeWait(l_Frame);
+
+            return true;
+        }
+
+        void FreeCoroutine(void* task)
+        {
+            CoroutineFrame::from_address(task).destroy();
+        }
+
+        constexpr ScriptTaskCalls c_CoroutineCalls{ &ResumeCoroutine, nullptr, &FreeCoroutine };
+    }
+
+    namespace Detail
+    {
+        const ScriptTaskCalls& GetCoroutineCalls()
+        {
+            return c_CoroutineCalls;
+        }
     }
 
     Scene& Script::GetScene() const
@@ -143,5 +183,83 @@ namespace Trinity
         }
 
         return false;
+    }
+
+    TimerHandle Script::StartTimer(const ScriptTaskCalls& calls, void* callback, float delay, float interval, bool repeating)
+    {
+        if (m_Runtime == nullptr || (repeating && !(interval > 0.0f)))
+        {
+            TR_CORE_ERROR("Scripting: a timer was not started, since {}", m_Runtime == nullptr ? "no scene runs its script" : "a repeating one needs an interval of more than 0 seconds");
+            calls.Free(callback);
+
+            return {};
+        }
+
+        return { m_Runtime->StartTask(this, ScriptTaskKind::Timer, calls, callback,{ .Type = ScriptWaitType::Seconds, .Seconds = delay }, repeating ? interval : 0.0f) };
+    }
+
+    bool Script::CancelInvoke(TimerHandle timer)
+    {
+        return m_Runtime != nullptr && timer && m_Runtime->StopTask(timer.ID);
+    }
+
+    void Script::CancelInvokes()
+    {
+        if (m_Runtime != nullptr)
+        {
+            static_cast<void>(m_Runtime->StopTasks(this, ScriptTaskKind::Timer));
+        }
+    }
+
+    bool Script::IsPending(TimerHandle timer) const
+    {
+        return m_Runtime != nullptr && timer && m_Runtime->IsTaskRunning(timer.ID);
+    }
+
+    // Its first part runs before the runtime holds it, so one that finishes there is never a task
+    CoroutineHandle Script::StartCoroutine(Coroutine coroutine)
+    {
+        const CoroutineFrame l_Frame = coroutine.Release();
+        if (!l_Frame)
+        {
+            return {};
+        }
+
+        if (m_Runtime == nullptr)
+        {
+            TR_CORE_ERROR("Scripting: a coroutine was not started, since no scene runs its script");
+            l_Frame.destroy();
+
+            return {};
+        }
+
+        l_Frame.resume();
+        const ScriptWait l_First = TakeWait(l_Frame);
+        if (l_First.Type == ScriptWaitType::Done)
+        {
+            l_Frame.destroy();
+
+            return {};
+        }
+
+        return { m_Runtime->StartTask(this, ScriptTaskKind::Coroutine, c_CoroutineCalls, l_Frame.address(), l_First) };
+    }
+
+    bool Script::StopCoroutine(CoroutineHandle coroutine)
+    {
+        return m_Runtime != nullptr && coroutine && m_Runtime->StopTask(coroutine.ID);
+    }
+
+    void Script::StopAllCoroutines()
+    {
+        if (m_Runtime != nullptr)
+        {
+            static_cast<void>(m_Runtime->StopTasks(this, ScriptTaskKind::Coroutine));
+        }
+    }
+
+    bool Script::IsRunning(CoroutineHandle coroutine) const
+    {
+        return m_Runtime != nullptr && coroutine && m_Runtime->IsTaskRunning(coroutine.ID);
     }
 }

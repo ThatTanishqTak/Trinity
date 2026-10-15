@@ -4,6 +4,7 @@
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Physics/PhysicsScene2D.hpp"
 #include "Trinity/Physics/PhysicsScene3D.hpp"
+#include "Trinity/Scripting/Coroutine.hpp"
 #include "Trinity/Scripting/Script.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
 
@@ -28,6 +29,8 @@ namespace Trinity
             std::uint32_t Unknown = 0;
             // Of the instances, those stopped since a call into them failed, such as a C# script that threw
             std::uint32_t Faulted = 0;
+            // Timers and coroutines waiting
+            std::uint32_t Tasks = 0;
         };
 
         explicit ScriptRuntime(Scene& scene);
@@ -61,10 +64,18 @@ namespace Trinity
         // Whether any script had OnLateUpdate, so the transform pass runs again
         bool LateUpdate(Timestep timestep);
 
-        // Before one language's code unloads for a reload: each of its instances writes its fields back into its script, so what it changed while running is kept, and is freed without OnDestroy. The scripts wait without instances, as scripts of an unknown class do. The number freed
+        // Before one language's code unloads for a reload: each of its instances writes its fields back into its script, so what it changed while running is kept, and is freed without OnDestroy. Their waiting timers and coroutines are cancelled, with one line saying how many. The scripts wait without instances, as scripts of an unknown class do. The number freed
         std::uint32_t ReleaseInstances(ScriptLanguage language);
         // Once the language's code is loaded again: each of its scripts without an instance whose class is loaded now gets one, with its fields. One that had OnCreate gets OnReloaded instead, and one that never ran has OnCreate before its first call. The number made
         std::uint32_t RecreateInstances(ScriptLanguage language);
+
+        // A timer or a coroutine of the instance, a C++ Script or a C# GC handle, waiting for its first wait, and for a timer that repeats every interval after it, in seconds, 0 for one that runs once. A timer's wait is in seconds. Due timers run in each fixed step after the scripts' OnFixedUpdate, as do coroutines waiting for it, and every other coroutine after the scripts' OnUpdate, each in the order they were started. A script's timers and coroutines go when it does, and when a reload frees its instance, and stop once it has failed. The task is freed through its calls once it finishes or is stopped. Its ID, never 0
+        std::uint64_t StartTask(const void* owner, ScriptTaskKind kind, const ScriptTaskCalls& calls, void* task, const ScriptWait& wait, float interval = 0.0f);
+        // False when it was not running, having finished or been stopped. One stopped as it runs is freed once it returns
+        bool StopTask(std::uint64_t id);
+        // The instance's timers or its coroutines, the number stopped
+        std::uint32_t StopTasks(const void* owner, ScriptTaskKind kind);
+        [[nodiscard]] bool IsTaskRunning(std::uint64_t id) const;
 
         // The entity and its subtree copied at once, as Scene::DuplicateEntity copies them, with the copy's scripts made at once and given their fields. They have OnCreate before their first call, or at the next CreatePending
         Entity DuplicateEntity(Entity entity);
