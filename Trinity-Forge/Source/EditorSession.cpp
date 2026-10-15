@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <format>
@@ -140,6 +141,30 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return !name.empty() && a_Letter(name.front()) && std::ranges::all_of(name, [&a_Letter](char character) { return a_Letter(character) || (character >= '0' && character <= '9'); });
     }
 
+    // The first of Name, Name 1, Name 2 and on, before the extension, that names nothing in the folder yet. A copy starts at 1, or after the number its original's name ends in, as Unity numbers duplicates
+    std::string GetFreePath(const Trinity::Project& project, std::string_view folder, std::string_view stem, std::string_view extension, bool copy)
+    {
+        std::string_view l_Base = stem;
+        std::uint32_t l_Number = copy ? 1 : 0;
+        const std::size_t l_Space = stem.find_last_of(' ');
+        std::uint32_t l_Ending = 0;
+        if (copy && l_Space != std::string_view::npos && l_Space + 1 < stem.size() && std::from_chars(stem.data() + l_Space + 1, stem.data() + stem.size(), l_Ending).ptr == stem.data() + stem.size())
+        {
+            l_Base = stem.substr(0, l_Space);
+            l_Number = l_Ending + 1;
+        }
+
+        for (;; ++l_Number)
+        {
+            const std::string l_Path = l_Number == 0 ? std::format("{}/{}{}", folder, l_Base, extension) : std::format("{}/{} {}{}", folder, l_Base, l_Number, extension);
+            std::error_code l_Error;
+            if (!std::filesystem::exists(project.ToNativePath(l_Path), l_Error))
+            {
+                return l_Path;
+            }
+        }
+    }
+
     // Everything an importer cooked for the asset into /cache
     void RemoveCooked(const Trinity::AssetRecord & record)
     {
@@ -173,6 +198,33 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         {
             static_cast<void>(Trinity::FileSystem::RemoveFile(it_Path));
         }
+    }
+
+    // The key an importer checks its cache against, so the next import cooks the asset again. A model's embedded textures have keys of their own. Whether the asset is one an importer cooks
+    bool RemoveCacheKey(const Trinity::AssetRecord& record)
+    {
+        std::string l_Path;
+        if (record.Importer == TextureImporter::c_Importer)
+        {
+            l_Path = TextureImporter::GetCacheKeyPath(record.ID);
+        }
+        else if (record.Importer == ModelImporter::c_Importer)
+        {
+            l_Path = ModelImporter::GetCacheKeyPath(record.ID);
+        }
+        else if (record.Importer == EnvironmentImporter::c_Importer)
+        {
+            l_Path = EnvironmentImporter::GetCacheKeyPath(record.ID);
+        }
+
+        if (l_Path.empty())
+        {
+            return false;
+        }
+
+        static_cast<void>(Trinity::FileSystem::RemoveFile(l_Path));
+
+        return true;
     }
 }
 
@@ -984,12 +1036,7 @@ std::optional<std::string> EditorSession::CreateFolder(std::string_view parent)
         return std::nullopt;
     }
 
-    std::string l_Path;
-    for (std::uint32_t it_Index = 0; l_Path.empty() || std::filesystem::exists(m_Project->ToNativePath(l_Path)); ++it_Index)
-    {
-        l_Path = it_Index == 0 ? std::format("{}/New Folder", parent) : std::format("{}/New Folder {}", parent, it_Index);
-    }
-
+    const std::string l_Path = GetFreePath(*m_Project, parent, "New Folder", {}, false);
     std::error_code l_Error;
     if (!std::filesystem::create_directory(m_Project->ToNativePath(l_Path), l_Error))
     {
@@ -1138,12 +1185,7 @@ std::optional<std::string> EditorSession::CreateMaterial(std::string_view folder
         return std::nullopt;
     }
 
-    std::string l_Path;
-    for (std::uint32_t it_Index = 0; l_Path.empty() || std::filesystem::exists(m_Project->ToNativePath(l_Path)); ++it_Index)
-    {
-        l_Path = it_Index == 0 ? std::format("{}/New Material.trmat", folder) : std::format("{}/New Material {}.trmat", folder, it_Index);
-    }
-
+    const std::string l_Path = GetFreePath(*m_Project, folder, "New Material", ".trmat", false);
     Trinity::MaterialData l_Material;
     l_Material.MetallicFactor = 0.0f;
     l_Material.RoughnessFactor = 0.5f;
@@ -1210,6 +1252,171 @@ std::optional<std::string> EditorSession::CreateScript(std::string_view folder, 
     TR_INFO("Forge: created the {} script {}.{} in {}, which builds as its folder settles", l_Language, l_Namespace, className, l_Path);
 
     return l_Path;
+}
+
+std::optional<std::string> EditorSession::CreateScene(std::string_view folder)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return std::nullopt;
+    }
+
+    const std::string l_Path = GetFreePath(*m_Project, folder, "New Scene", c_SceneExtension, false);
+    Trinity::Scene l_Scene;
+    if (const Trinity::Expected<void, std::string> l_Saved = Trinity::SceneSerializer::Save(l_Scene, l_Path); !l_Saved)
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, l_Saved.GetError());
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created scene {}", l_Path);
+    ScanAssets();
+
+    return l_Path;
+}
+
+// Files are copied without their .meta, since the registry would let whichever path sorts first keep the UUID, and "Name 1" sorts before "Name". The first scan gives the copies UUIDs of their own, their originals' settings follow, and only then does the second scan import them, so each cooks once and as its original does
+std::optional<std::string> EditorSession::DuplicateAsset(std::string_view path)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return std::nullopt;
+    }
+
+    const std::filesystem::path l_Source = m_Project->ToNativePath(path);
+    std::error_code l_Error;
+    const bool l_Folder = std::filesystem::is_directory(l_Source, l_Error);
+    const std::string_view l_Name = path.substr(path.find_last_of('/') + 1);
+    const std::size_t l_Dot = l_Folder ? std::string_view::npos : l_Name.find_last_of('.');
+    const std::string_view l_Stem = l_Dot == std::string_view::npos || l_Dot == 0 ? l_Name : l_Name.substr(0, l_Dot);
+    const std::string l_Path = GetFreePath(*m_Project, path.substr(0, path.find_last_of('/')), l_Stem, l_Name.substr(l_Stem.size()), true);
+    const std::filesystem::path l_Destination = m_Project->ToNativePath(l_Path);
+
+    if (l_Folder)
+    {
+        std::filesystem::create_directory(l_Destination, l_Error);
+        for (std::filesystem::recursive_directory_iterator it_Entry(l_Source, l_Error), l_End; !l_Error && it_Entry != l_End; it_Entry.increment(l_Error))
+        {
+            const std::filesystem::path l_Target = l_Destination / it_Entry->path().lexically_relative(l_Source);
+            if (it_Entry->is_directory(l_Error))
+            {
+                std::filesystem::create_directory(l_Target, l_Error);
+            }
+            else if (!l_Error && it_Entry->path().extension() != std::filesystem::path(Trinity::AssetRegistry::c_MetaExtension))
+            {
+                std::filesystem::copy_file(it_Entry->path(), l_Target, l_Error);
+            }
+        }
+    }
+    else
+    {
+        std::filesystem::copy_file(l_Source, l_Destination, l_Error);
+    }
+
+    if (l_Error)
+    {
+        TR_ERROR("Forge: {} could not be copied to {}: {}", path, l_Path, l_Error.message());
+        std::filesystem::remove_all(l_Destination, l_Error);
+
+        return std::nullopt;
+    }
+
+    std::vector<std::pair<std::string, Trinity::AssetSettings>> l_Settings;
+    for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
+    {
+        if (!it_Record->Parent.IsValid() && !it_Record->Settings.empty() && IsSameOrInside(it_Record->Path, path))
+        {
+            l_Settings.emplace_back(l_Path + it_Record->Path.substr(path.size()), it_Record->Settings);
+        }
+    }
+
+    static_cast<void>(m_Registry->Scan());
+    for (auto& [it_Path, it_RecordSettings] : l_Settings)
+    {
+        if (const Trinity::AssetRecord* l_Copy = m_Registry->FindByPath(it_Path))
+        {
+            static_cast<void>(m_Registry->SetSettings(l_Copy->ID, std::move(it_RecordSettings)));
+        }
+    }
+
+    TR_INFO("Forge: duplicated {} as {}", path, l_Path);
+    ScanAssets();
+
+    return l_Path;
+}
+
+void EditorSession::RequestImportAsset(std::string folder)
+{
+    m_Pending.push_back([this, l_Folder = std::move(folder)]
+    {
+        if (m_Project)
+        {
+            AskPath({ PathKind::OpenFile, "Import New Asset",{},{},{}, [this, l_Folder](const std::filesystem::path& path) { ImportAsset(path, l_Folder); } });
+        }
+    });
+}
+
+// Unity copies too, leaving the file where it was
+void EditorSession::ImportAsset(const std::filesystem::path& file, const std::string& folder)
+{
+    std::error_code l_Error;
+    if (!m_Project || !std::filesystem::is_regular_file(file, l_Error))
+    {
+        TR_ERROR("Forge: {} is not a file, so nothing was imported", ToUtf8(file));
+
+        return;
+    }
+
+    if (!std::filesystem::is_directory(m_Project->ToNativePath(folder), l_Error))
+    {
+        TR_ERROR("Forge: {} is no longer there, so {} was not imported", folder, ToUtf8(file));
+
+        return;
+    }
+
+    const std::string l_Path = GetFreePath(*m_Project, folder, ToUtf8(file.stem()), ToUtf8(file.extension()), false);
+    std::filesystem::copy_file(file, m_Project->ToNativePath(l_Path), l_Error);
+    if (l_Error)
+    {
+        TR_ERROR("Forge: {} could not be copied to {}: {}", ToUtf8(file), l_Path, l_Error.message());
+
+        return;
+    }
+
+    TR_INFO("Forge: imported {} as {}", ToUtf8(file), l_Path);
+    ScanAssets();
+}
+
+// Refused while imports run, since a batch writes the keys of what it cooks as it ends and would undo the reimport
+bool EditorSession::ReimportAssets(std::string_view path)
+{
+    if (!m_Registry)
+    {
+        return false;
+    }
+
+    if (IsImportingAssets())
+    {
+        TR_WARN("Forge: {} was not reimported, since assets are importing. Reimport it once they are done", path);
+
+        return false;
+    }
+
+    std::size_t l_Files = 0;
+    for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
+    {
+        const Trinity::AssetRecord* l_File = it_Record->Parent.IsValid() ? m_Registry->Find(it_Record->Parent) : it_Record;
+        if (l_File != nullptr && IsSameOrInside(l_File->Path, path) && RemoveCacheKey(*it_Record) && !it_Record->Parent.IsValid())
+        {
+            ++l_Files;
+        }
+    }
+
+    TR_INFO("Forge: reimporting {} asset(s) in {}", l_Files, path);
+    ScanAssets();
+
+    return true;
 }
 
 // A project path names one of its mounts, and any other path not rooted is where build output puts it, relative to the project's folder

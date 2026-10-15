@@ -907,7 +907,7 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::End();
 }
 
-// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, the Game panel's aspect choice, the script editor, and whether Play waits for a debugger
+// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, the Game panel's aspect choice and whether it shows Stats, the Content Browser's thumbnail size or list, the script editor, and whether Play waits for a debugger
 void* ForgeLayer::OpenPanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, [[maybe_unused]] const char* name)
 {
     return handler->UserData;
@@ -925,7 +925,7 @@ void ForgeLayer::ReadPanelSetting([[maybe_unused]] ImGuiContext* context, [[mayb
     const std::string_view l_Key = l_Line.substr(0, l_Equals);
     const std::string_view l_Value = l_Line.substr(l_Equals + 1);
     ForgeLayer& l_Layer = *static_cast<ForgeLayer*>(entry);
-    if (l_Layer.m_ViewportPanel->ReadSetting(l_Key, l_Value) || l_Layer.m_GamePanel->ReadSetting(l_Key, l_Value))
+    if (l_Layer.m_ViewportPanel->ReadSetting(l_Key, l_Value) || l_Layer.m_GamePanel->ReadSetting(l_Key, l_Value) || l_Layer.m_ContentBrowser->ReadSetting(l_Key, l_Value))
     {
         return;
     }
@@ -966,6 +966,7 @@ void ForgeLayer::WritePanelSettings([[maybe_unused]] ImGuiContext* context, ImGu
 
     l_Layer.m_ViewportPanel->WriteSettings(*buffer);
     l_Layer.m_GamePanel->WriteSettings(*buffer);
+    l_Layer.m_ContentBrowser->WriteSettings(*buffer);
     const std::string_view l_Editor = IdeLauncher::ToKey(l_Layer.m_Session.GetScriptEditor());
     buffer->appendf("ScriptEditor=%.*s\n", static_cast<int>(l_Editor.size()), l_Editor.data());
     buffer->appendf("WaitForDebugger=%d\n", l_Layer.m_Session.GetWaitForDebugger() ? 1 : 0);

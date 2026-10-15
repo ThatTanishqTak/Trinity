@@ -123,6 +123,15 @@ public:
     [[nodiscard]] std::optional<std::string> CreateMaterial(std::string_view folder);
     // A script of the language from its template, its class and file named as given, in Scripts or a folder in it for C#, and Source or a folder in it for C++, which its build picks up as the folder's watcher sees it. Its project path, or nothing, logged, for a name that cannot name a class, a file there already, a folder outside the language's, or a project without that language's scripts
     [[nodiscard]] std::optional<std::string> CreateScript(std::string_view folder, Trinity::ScriptLanguage language, std::string_view className);
+    // Empty, as New Scene makes one, named New Scene, or New Scene 1 and on when that is taken. Its project path, or nothing, logged
+    [[nodiscard]] std::optional<std::string> CreateScene(std::string_view folder);
+    // A copy beside the file or folder, named as Unity names one: Name 1, or one more than the number its name ends in. Each file copied gets a UUID of its own and keeps its original's import settings. Its project path, or nothing, logged
+    [[nodiscard]] std::optional<std::string> DuplicateAsset(std::string_view path);
+    // A file from anywhere, chosen in a dialog at the next Update so it never blocks with a frame open, copied into the folder and numbered when its name is taken there
+    void RequestImportAsset(std::string folder);
+    // Everything cooked from the file, or from every file in the folder, cooked again, since the importers forget what they cooked it from. Assets in use load again as their imports end. Refused, logged, while imports run
+    bool ReimportAssets(std::string_view path);
+    [[nodiscard]] bool IsImportingAssets() const { return IsImportRunning() || m_ImportAgain; }
 
     // What scripts open in, which imgui.ini keeps for each person
     [[nodiscard]] ScriptEditor GetScriptEditor() const { return m_ScriptEditor; }
@@ -201,6 +210,7 @@ private:
     void FinishModelImports(const ModelImportReport& report);
     void FinishEnvironmentImports(const EnvironmentImportReport& report);
     void SaveProject();
+    void ImportAsset(const std::filesystem::path& file, const std::string& folder);
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
     void StartPlay();
     void StopPlay();
