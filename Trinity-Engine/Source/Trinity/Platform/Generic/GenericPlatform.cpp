@@ -26,6 +26,8 @@
 #if defined(TR_PLATFORM_MACOS)
 #include <crt_externs.h>
 #include <mach-o/dyld.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
 
 #include <cstdint>
 #else
@@ -296,6 +298,11 @@ namespace Trinity
 
         std::filesystem::path GetExecutableDirectory()
         {
+            return GetExecutablePath().parent_path();
+        }
+
+        std::filesystem::path GetExecutablePath()
+        {
             std::error_code l_Error;
 #if defined(TR_PLATFORM_MACOS)
             std::uint32_t l_Size = 0;
@@ -308,9 +315,58 @@ namespace Trinity
             }
             l_Path.resize(std::strlen(l_Path.c_str()));
 
-            return std::filesystem::canonical(l_Path, l_Error).parent_path();
+            return std::filesystem::canonical(l_Path, l_Error);
 #else
-            return std::filesystem::read_symlink("/proc/self/exe", l_Error).parent_path();
+            return std::filesystem::read_symlink("/proc/self/exe", l_Error);
+#endif
+        }
+
+        std::uint32_t GetProcessID()
+        {
+            return static_cast<std::uint32_t>(::getpid());
+        }
+
+        // On Linux the status file is read whole, since /proc makes it as it is read, and its TracerPid line names the process tracing this one, or 0
+        bool IsDebuggerAttached()
+        {
+#if defined(TR_PLATFORM_MACOS)
+            std::array<int, 4> l_Name{ CTL_KERN, KERN_PROC, KERN_PROC_PID, ::getpid() };
+            kinfo_proc l_Info{};
+            std::size_t l_Size = sizeof(l_Info);
+
+            return ::sysctl(l_Name.data(), static_cast<u_int>(l_Name.size()), &l_Info, &l_Size, nullptr, 0) == 0 && (l_Info.kp_proc.p_flag & P_TRACED) != 0;
+#else
+            const int l_File = ::open("/proc/self/status", O_RDONLY | O_CLOEXEC);
+            if (l_File < 0)
+            {
+                return false;
+            }
+
+            std::array<char, 4096> l_Buffer{};
+            std::size_t l_Length = 0;
+            while (l_Length < l_Buffer.size())
+            {
+                const ssize_t l_Read = ::read(l_File, l_Buffer.data() + l_Length, l_Buffer.size() - l_Length);
+                if (l_Read <= 0)
+                {
+                    break;
+                }
+
+                l_Length += static_cast<std::size_t>(l_Read);
+            }
+
+            ::close(l_File);
+            constexpr std::string_view c_Tracer = "\nTracerPid:";
+            const std::string_view l_Status(l_Buffer.data(), l_Length);
+            const std::size_t l_At = l_Status.find(c_Tracer);
+            if (l_At == std::string_view::npos)
+            {
+                return false;
+            }
+
+            const std::size_t l_Digit = l_Status.find_first_not_of(" \t", l_At + c_Tracer.size());
+
+            return l_Digit != std::string_view::npos && l_Status[l_Digit] >= '1' && l_Status[l_Digit] <= '9';
 #endif
         }
 

@@ -49,6 +49,13 @@ namespace Trinity.Interop
             return Native.Interop_Echo(value) * 2;
         }
 
+        // 1 while a debugger of managed code is attached, which a native debugger alone is not
+        [UnmanagedCallersOnly]
+        public static int IsDebuggerAttached()
+        {
+            return Debugger.IsAttached ? 1 : 0;
+        }
+
         // The size and field offsets of each type the engine shares with C#, in the order of the engine's check: Vector2, Vector3, Vector4, Quaternion, Color, Matrix4x4, Utf8, FieldValue, Collision, QueryFilter, QueryShape, QueryShape2D, PhysicsHit and PhysicsHit2D. How many were written, or -1 when the engine's TypeLayout is not this one or the buffer is too small
         [UnmanagedCallersOnly]
         public static int DescribeLayouts(TypeLayout* layouts, int capacity, int layoutSize)

@@ -18,6 +18,7 @@ namespace Trinity
         constexpr const char* c_CheckCircle = "\uF058";
         constexpr const char* c_Spinner = "\uF110";
         constexpr const char* c_FileCode = "\uF1C9";
+        constexpr const char* c_Bug = "\uF188";
         constexpr const char* c_Sitemap = "\uF0E8";
         constexpr const char* c_Sliders = "\uF1DE";
         constexpr const char* c_Book = "\uF02D";

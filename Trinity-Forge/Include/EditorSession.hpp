@@ -14,6 +14,7 @@
 
 #include "Trinity.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -131,6 +132,12 @@ public:
     // The C# solution beside the project file, or the C++ module's Source folder, in the script editor
     bool OpenSolution();
     bool OpenModuleFolder();
+    // The script editor's debugger on this Forge, with the C# solution open, or the module's folder without one
+    bool AttachDebugger();
+    // Whether Play waits for a debugger first, which imgui.ini keeps for each person. While it waits, a popup shows Forge's process ID and what is attached, and the scene plays once a native or a managed debugger is, or at Play Now
+    [[nodiscard]] bool GetWaitForDebugger() const { return m_WaitForDebugger; }
+    void SetWaitForDebugger(bool wait) { m_WaitForDebugger = wait; }
+    [[nodiscard]] bool IsWaitingForDebugger() const { return m_DebuggerWait.has_value(); }
     // Where the material lives: its own file, or for a model's material the fields that differ from the import, in the model's .meta, and its cooked file. A loaded material shows it the same frame
     bool WriteMaterial(Trinity::UUID material, const Trinity::MaterialData& data);
     // Through the history, so it undoes in one step
@@ -156,6 +163,12 @@ public:
 private:
     using Action = std::move_only_function<void()>;
     using PathAction = std::move_only_function<void(const std::filesystem::path&)>;
+
+    // A Play that waits for a debugger, and when one was first seen attached
+    struct DebuggerWait
+    {
+        std::optional<std::chrono::steady_clock::time_point> AttachedAt;
+    };
 
     enum class PathKind : std::uint8_t
     {
@@ -191,6 +204,7 @@ private:
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
     void StartPlay();
     void StopPlay();
+    void UpdateDebuggerWait();
     void NewScene();
     void OpenScene(const std::string& assetPath);
     void SaveScene(Action then);
@@ -201,6 +215,7 @@ private:
     void DrawUnsavedPopup();
     void DrawPathPopup();
     void DrawImportPopup();
+    void DrawDebuggerPopup();
 
     Trinity::Scope<Trinity::Project> m_Project;
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
@@ -220,6 +235,9 @@ private:
     ModuleHost m_Module;
     AssemblyHost m_Assembly;
     ScriptEditor m_ScriptEditor = ScriptEditor::System;
+    bool m_WaitForDebugger = false;
+    std::optional<DebuggerWait> m_DebuggerWait;
+    bool m_OpenDebuggerPopup = false;
     bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;

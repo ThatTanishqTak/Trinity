@@ -1,6 +1,7 @@
 #include "EditorSession.hpp"
 
 #include "EditorCommands.hpp"
+#include "Modules/DebuggerSettings.hpp"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -21,6 +22,7 @@ namespace
     constexpr const char* c_UnsavedPopup = "Unsaved Changes###ForgeUnsaved";
     constexpr const char* c_PathPopup = "Choose a Path###ForgePath";
     constexpr const char* c_ImportPopup = "Importing Textures###ForgeImport";
+    constexpr const char* c_DebuggerPopup = "Waiting for a Debugger###ForgeDebugger";
     constexpr std::string_view c_SceneExtension = ".trscene";
 
     constexpr std::array<Trinity::FileDialogFilter, 1> c_ProjectFilters{ { { "Trinity project", "trproj" } } };
@@ -31,6 +33,9 @@ namespace
 
     // An estimate for the texture being encoded stops short of it, since the encoder reports nothing until it is done
     constexpr double c_MaximumEstimate = 0.95;
+
+    // How long Play waits after one debugger is seen attached, for the other half of one that debugs native and managed code at once to attach too
+    constexpr std::chrono::milliseconds c_DebuggerSettle{ 1000 };
 
     std::string FormatDuration(double seconds)
     {
@@ -273,6 +278,8 @@ void EditorSession::Update()
             it_Action();
         }
     }
+
+    UpdateDebuggerWait();
 }
 
 void EditorSession::DrawPopups()
@@ -280,6 +287,7 @@ void EditorSession::DrawPopups()
     DrawUnsavedPopup();
     DrawPathPopup();
     DrawImportPopup();
+    DrawDebuggerPopup();
 }
 
 // The project, the scene and an asterisk while unsaved. The renderer adds the backend and frame rate
@@ -406,6 +414,7 @@ void EditorSession::Run(Command command)
             if (l_HasProject && m_Module.Create(*m_Project))
             {
                 SaveProject();
+                DebuggerSettings::Write(*m_Project);
             }
 
             break;
@@ -421,6 +430,7 @@ void EditorSession::Run(Command command)
             if (l_HasProject && m_Assembly.Create(*m_Project))
             {
                 SaveProject();
+                DebuggerSettings::Write(*m_Project);
             }
 
             break;
@@ -540,7 +550,8 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 
     m_Project = std::move(*l_Project);
     AttachRegistry();
-    m_Module.Open(*m_Project);
+    m_Assembly.Open(*m_Project);
+    DebuggerSettings::Write(*m_Project);
 
     if (m_Project->ResolveStartScenePath(*m_Registry))
     {
@@ -809,6 +820,7 @@ void EditorSession::RequestOpenScene(std::string assetPath)
     });
 }
 
+// A debugger attached already plays at once, and a Play asked for while one is awaited changes nothing
 void EditorSession::RequestPlay()
 {
     m_Pending.push_back([this]
@@ -816,6 +828,20 @@ void EditorSession::RequestPlay()
         if (m_Play)
         {
             m_Paused = false;
+
+            return;
+        }
+
+        if (m_DebuggerWait)
+        {
+            return;
+        }
+
+        if (m_WaitForDebugger && m_Project && !Trinity::Process::IsDebuggerAttached() && !Trinity::ManagedScripts::IsDebuggerAttached())
+        {
+            m_DebuggerWait.emplace();
+            m_OpenDebuggerPopup = true;
+            TR_INFO("Forge: Play waits for a debugger to attach to Forge, process {}", Trinity::Process::GetCurrentID());
 
             return;
         }
@@ -898,9 +924,41 @@ void EditorSession::StartPlay()
     TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), l_Entities, l_Milliseconds);
 }
 
+// An IDE sets its breakpoints as it attaches, and one that debugs native and managed code at once attaches each in turn, so with only one seen the scene plays a moment later, and with both at once
+void EditorSession::UpdateDebuggerWait()
+{
+    if (!m_DebuggerWait)
+    {
+        return;
+    }
+
+    const bool l_Native = Trinity::Process::IsDebuggerAttached();
+    const bool l_Managed = Trinity::ManagedScripts::IsDebuggerAttached();
+    if (!l_Native && !l_Managed)
+    {
+        m_DebuggerWait->AttachedAt.reset();
+
+        return;
+    }
+
+    const std::chrono::steady_clock::time_point l_Now = std::chrono::steady_clock::now();
+    if (!m_DebuggerWait->AttachedAt)
+    {
+        m_DebuggerWait->AttachedAt = l_Now;
+    }
+
+    if ((l_Native && l_Managed) || l_Now - *m_DebuggerWait->AttachedAt >= c_DebuggerSettle)
+    {
+        m_DebuggerWait.reset();
+        TR_INFO("Forge: a {} debugger is attached, so the scene plays", l_Native && l_Managed ? "native and a managed" : l_Native ? "native" : "managed");
+        StartPlay();
+    }
+}
+
 // The runtime goes before the scene it runs, and whichever scene plays goes, the copy or one a script switched to. The selection is kept when its entity is in the edited scene
 void EditorSession::StopPlay()
 {
+    m_DebuggerWait.reset();
     if (!m_Play)
     {
         return;
@@ -1215,6 +1273,25 @@ bool EditorSession::OpenModuleFolder()
     }
 
     return IdeLauncher::OpenWorkspace(m_ScriptEditor, m_Project->GetSourceDirectory());
+}
+
+// Rider and Visual Studio debug with the solution open, and VS Code opens the folder of whichever it is, where Forge wrote its launch.json
+bool EditorSession::AttachDebugger()
+{
+    if (!m_Project)
+    {
+        return false;
+    }
+
+    const std::filesystem::path l_Solution = m_Project->GetDirectory() / FromUtf8(m_Project->GetAssemblyName() + ".slnx");
+    std::error_code l_Error;
+    std::filesystem::path l_Workspace = m_Project->HasModule() ? m_Project->GetSourceDirectory() : m_Project->GetDirectory();
+    if (m_Project->HasAssembly() && std::filesystem::is_regular_file(l_Solution, l_Error))
+    {
+        l_Workspace = l_Solution;
+    }
+
+    return IdeLauncher::AttachDebugger(m_ScriptEditor, Trinity::Process::GetCurrentID(), l_Workspace);
 }
 
 std::optional<std::string> EditorSession::GetMaterialKey(Trinity::UUID material) const
@@ -1669,6 +1746,96 @@ void EditorSession::DrawImportPopup()
     {
         ImGui::SameLine();
         ImGui::TextDisabled("The rest wait for the next refresh");
+    }
+
+    ImGui::EndPopup();
+}
+
+// Over everything while Play waits for a debugger, with what is attached so far. Attach starts the script editor's debugger, Play Now plays without one, and Cancel or Escape plays nothing. It closes by itself once the scene plays
+void EditorSession::DrawDebuggerPopup()
+{
+    if (std::exchange(m_OpenDebuggerPopup, false))
+    {
+        ImGui::OpenPopup(c_DebuggerPopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_DebuggerPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    if (!m_DebuggerWait)
+    {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    const std::string l_ID = std::to_string(Trinity::Process::GetCurrentID());
+    const std::string l_Message = std::format("{} The scene plays once a debugger is attached to Forge, process {}", Trinity::Icons::c_Bug, l_ID);
+    ImGui::TextUnformatted(l_Message.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy"))
+    {
+        ImGui::SetClipboardText(l_ID.c_str());
+    }
+
+    const auto a_Status = [](std::string_view language, std::string_view status, bool attached)
+    {
+        const std::string l_Line = std::format("{} {}: {}", attached ? Trinity::Icons::c_CheckCircle : Trinity::Icons::c_Spinner, language, status);
+        if (attached)
+        {
+            ImGui::TextUnformatted(l_Line.c_str());
+        }
+        else
+        {
+            ImGui::TextDisabled("%s", l_Line.c_str());
+        }
+    };
+
+    const bool l_Native = Trinity::Process::IsDebuggerAttached();
+    const bool l_Managed = Trinity::ManagedScripts::IsDebuggerAttached();
+    ImGui::Spacing();
+    a_Status("Native, for C++", l_Native ? "attached" : "not attached", l_Native);
+    a_Status("Managed, for C#", AssemblyHost::IsSupported() ? (l_Managed ? "attached" : "not attached") : "C# is off", l_Managed);
+    if (m_DebuggerWait->AttachedAt)
+    {
+        const double l_Left = std::chrono::duration<double>(c_DebuggerSettle - (std::chrono::steady_clock::now() - *m_DebuggerWait->AttachedAt)).count();
+        ImGui::TextDisabled("Playing in %.1f s, once the other half of a debugger of both languages has had time to attach", std::max(l_Left, 0.0));
+    }
+
+    ImGui::TextDisabled("Visual Studio debugs both languages when it attaches with Native and Managed (.NET Core, .NET 5+) code");
+    ImGui::Spacing();
+
+    ImGui::BeginDisabled(m_ScriptEditor == ScriptEditor::System);
+    const std::string l_Attach = std::format("{} Attach {}", Trinity::Icons::c_Bug, IdeLauncher::ToString(m_ScriptEditor));
+    if (ImGui::Button(l_Attach.c_str()))
+    {
+        static_cast<void>(AttachDebugger());
+    }
+
+    ImGui::EndDisabled();
+    if (m_ScriptEditor == ScriptEditor::System)
+    {
+        ImGui::SetItemTooltip("Pick Visual Studio, Rider or VS Code under Scripts > Script Editor to attach it from here");
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Play Now"))
+    {
+        m_DebuggerWait.reset();
+        m_Pending.push_back([this] { StartPlay(); });
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    {
+        m_DebuggerWait.reset();
+        TR_INFO("Forge: Play was cancelled while it waited for a debugger");
+        ImGui::CloseCurrentPopup();
     }
 
     ImGui::EndPopup();

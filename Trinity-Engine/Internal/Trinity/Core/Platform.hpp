@@ -82,6 +82,11 @@ namespace Trinity
 
         [[nodiscard]] std::filesystem::path GetUserDataDirectory();
         [[nodiscard]] std::filesystem::path GetExecutableDirectory();
+        [[nodiscard]] std::filesystem::path GetExecutablePath();
+
+        [[nodiscard]] std::uint32_t GetProcessID();
+        // A native debugger: the one Windows reports, the tracer Linux names in /proc, or the flag macOS sets on a traced process
+        [[nodiscard]] bool IsDebuggerAttached();
 
         // Null on failure, with the reason in error
         [[nodiscard]] void* LoadSharedLibrary(const std::filesystem::path& path, std::string& error);

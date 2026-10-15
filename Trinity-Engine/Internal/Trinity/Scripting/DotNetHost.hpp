@@ -40,6 +40,8 @@ namespace Trinity
         [[nodiscard]] bool UnloadAssembly();
 
         [[nodiscard]] HeapStatistics GetHeapStatistics();
+        // Whether a debugger of managed code is attached, as .NET sees it
+        [[nodiscard]] bool IsDebuggerAttached();
 
         // An instance of the class ScriptCore described at that index, for the entity, held by a GC handle, or 0 when its constructor threw, which ScriptCore has logged
         [[nodiscard]] std::intptr_t CreateInstance(std::int32_t classIndex, UUID entity);

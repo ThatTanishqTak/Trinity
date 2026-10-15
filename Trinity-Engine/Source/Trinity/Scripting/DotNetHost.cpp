@@ -43,6 +43,7 @@ namespace Trinity
         {
             void (CORECLR_DELEGATE_CALLTYPE* Shutdown)() = nullptr;
             std::int64_t(CORECLR_DELEGATE_CALLTYPE* MeasureInterop)(std::int32_t calls) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* IsDebuggerAttached)() = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* LoadAssembly)(const char* path, std::int32_t length, const char* buildPath, std::int32_t buildLength) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* UnloadAssembly)() = nullptr;
             void (CORECLR_DELEGATE_CALLTYPE* GetHeapStatistics)(std::int64_t* bytes, std::int32_t* collections) = nullptr;
@@ -337,7 +338,7 @@ namespace Trinity
             std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_DescribeLayouts)(Interop::TypeLayout * layouts, std::int32_t capacity, std::int32_t layoutSize) = nullptr;
             EntryPoints& l_Entry = s_State.Entry;
             const bool l_Found = GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Initialize"), l_HostInitialize, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Shutdown"), l_Entry.Shutdown, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("GetRuntimeDescription"), l_GetDescription, error)
-                && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Handshake"), l_Handshake, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("DescribeLayouts"), l_DescribeLayouts, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("MeasureInterop"), l_Entry.MeasureInterop, error)
+                && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Handshake"), l_Handshake, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("DescribeLayouts"), l_DescribeLayouts, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("MeasureInterop"), l_Entry.MeasureInterop, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("IsDebuggerAttached"), l_Entry.IsDebuggerAttached, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("LoadAssembly"), l_Entry.LoadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("UnloadAssembly"), l_Entry.UnloadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetHeapStatistics"), l_Entry.GetHeapStatistics, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CreateInstance"), l_Entry.CreateInstance, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("DestroyInstance"), l_Entry.DestroyInstance, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("SetField"), l_Entry.SetField, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetField"), l_Entry.GetField, error)
@@ -473,6 +474,11 @@ namespace Trinity
             return !s_State.Started || s_State.Entry.UnloadAssembly() != 0;
         }
 
+        bool IsDebuggerAttached()
+        {
+            return s_State.Started && s_State.Entry.IsDebuggerAttached() != 0;
+        }
+
         HeapStatistics GetHeapStatistics()
         {
             HeapStatistics l_Statistics;
@@ -579,11 +585,15 @@ namespace Trinity
             return true;
         }
 
+        bool IsDebuggerAttached()
+        {
+            return false;
+        }
+
         HeapStatistics GetHeapStatistics()
         {
             return {};
         }
-
 
         std::intptr_t CreateInstance([[maybe_unused]] std::int32_t classIndex, [[maybe_unused]] UUID entity)
         {

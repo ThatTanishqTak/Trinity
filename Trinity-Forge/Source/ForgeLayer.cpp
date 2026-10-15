@@ -727,6 +727,34 @@ void ForgeLayer::DrawScriptsMenu()
 
         ImGui::EndMenu();
     }
+
+    // The script editor's debugger, attached to this Forge, whose process ID is shown for attaching one by hand
+    ImGui::Separator();
+    const std::string l_ProcessID = std::to_string(Trinity::Process::GetCurrentID());
+    const bool l_CanAttach = l_Project != nullptr && m_Session.GetScriptEditor() != ScriptEditor::System;
+    const std::string l_Attach = m_Session.GetScriptEditor() == ScriptEditor::System ? std::string("Attach Debugger") : std::format("Attach {} Debugger", IdeLauncher::ToString(m_Session.GetScriptEditor()));
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Bug, l_Attach).c_str(), nullptr, false, l_CanAttach))
+    {
+        static_cast<void>(m_Session.AttachDebugger());
+    }
+
+    if (!l_CanAttach && l_Project != nullptr)
+    {
+        ImGui::SetItemTooltip("Pick Visual Studio, Rider or VS Code under Script Editor to attach its debugger, or attach one to process %s by hand", l_ProcessID.c_str());
+    }
+
+    bool l_Wait = m_Session.GetWaitForDebugger();
+    if (ImGui::MenuItem("Wait for Debugger at Play", nullptr, &l_Wait))
+    {
+        m_Session.SetWaitForDebugger(l_Wait);
+        ImGui::MarkIniSettingsDirty();
+    }
+
+    ImGui::SetItemTooltip("Play waits until a native or a managed debugger is attached, so breakpoints in OnCreate are hit");
+    if (ImGui::MenuItem(std::format("Copy Process ID ({})", l_ProcessID).c_str()))
+    {
+        ImGui::SetClipboardText(l_ProcessID.c_str());
+    }
 }
 
 // The commands around the current position, oldest at the top, with those that would be redone greyed. Picking one undoes or redoes to just after it, and Start undoes everything the history holds
@@ -879,7 +907,7 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::End();
 }
 
-// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, the Game panel's aspect choice, and the script editor
+// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, the Game panel's aspect choice, the script editor, and whether Play waits for a debugger
 void* ForgeLayer::OpenPanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, [[maybe_unused]] const char* name)
 {
     return handler->UserData;
@@ -909,6 +937,13 @@ void ForgeLayer::ReadPanelSetting([[maybe_unused]] ImGuiContext* context, [[mayb
         return;
     }
 
+    if (l_Key == "WaitForDebugger")
+    {
+        l_Layer.m_Session.SetWaitForDebugger(l_Value == "1");
+
+        return;
+    }
+
     const bool l_On = l_Value != "0";
     for (const Trinity::Scope<Panel>& it_Panel : l_Layer.m_Panels)
     {
@@ -933,6 +968,7 @@ void ForgeLayer::WritePanelSettings([[maybe_unused]] ImGuiContext* context, ImGu
     l_Layer.m_GamePanel->WriteSettings(*buffer);
     const std::string_view l_Editor = IdeLauncher::ToKey(l_Layer.m_Session.GetScriptEditor());
     buffer->appendf("ScriptEditor=%.*s\n", static_cast<int>(l_Editor.size()), l_Editor.data());
+    buffer->appendf("WaitForDebugger=%d\n", l_Layer.m_Session.GetWaitForDebugger() ? 1 : 0);
 
     buffer->append("\n");
 }

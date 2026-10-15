@@ -394,4 +394,81 @@ namespace IdeLauncher
 
         return Launch(editor, l_Arguments, workspace);
     }
+
+    // Visual Studio's picker is the just-in-time debugger it installs in System32, which attaches the instance chosen in it
+    bool AttachDebugger(ScriptEditor editor, std::uint32_t processID, const std::filesystem::path& workspace)
+    {
+        const std::string l_Process = std::format("Forge (process {})", processID);
+        switch (editor)
+        {
+            case ScriptEditor::System:
+            {
+                TR_ERROR("Forge: the system's program has no debugger, so none was attached. Pick Visual Studio, Rider or VS Code under Scripts > Script Editor, or attach a debugger to process {}", processID);
+
+                return false;
+            }
+            case ScriptEditor::VisualStudio:
+            {
+                std::filesystem::path l_Picker;
+#if defined(TR_PLATFORM_WINDOWS)
+                const Trinity::Process::Environment l_Environment = Trinity::Process::GetEnvironment();
+                l_Picker = FirstFile({ GetFolder(l_Environment, "SystemRoot") / "System32" / "vsjitdebugger.exe", Trinity::Process::FindExecutable("vsjitdebugger.exe", &l_Environment) });
+#endif
+                if (l_Picker.empty() || !IsAvailable(editor))
+                {
+                    TR_ERROR("Forge: Visual Studio's debugger is not installed here, so none was attached. In Visual Studio, use Debug > Attach to Process with Native and Managed (.NET Core, .NET 5+) code, and pick process {}", processID);
+
+                    return false;
+                }
+
+                const std::array<std::string, 2> l_Arguments{ "-p", std::to_string(processID) };
+                if (const Trinity::Expected<void, std::string> l_Started = Trinity::Process::Start(l_Picker, l_Arguments); !l_Started)
+                {
+                    TR_ERROR("Forge: Visual Studio's debugger was not attached to {}, since {}", l_Process, l_Started.GetError());
+
+                    return false;
+                }
+
+                TR_INFO("Forge: Visual Studio's debugger picker is attaching to {}. Choose the instance with the scripts open, and to debug both languages, Manually choose the debugging engines with Native and Managed (.NET Core, .NET 5+)", l_Process);
+
+                return true;
+            }
+            case ScriptEditor::Rider:
+            {
+                const std::filesystem::path& l_Program = Find(editor);
+                if (l_Program.empty())
+                {
+                    TR_ERROR("Forge: Rider is not installed here, so no debugger was attached to {}. Pick another editor under Scripts > Script Editor", l_Process);
+
+                    return false;
+                }
+
+                // Rider picks the .NET or the native debugger by what the process has loaded
+                const std::array<std::string, 3> l_Arguments{ "attach-to-process", std::to_string(processID), ToUtf8(workspace) };
+                if (const Trinity::Expected<void, std::string> l_Started = Trinity::Process::Start(l_Program, l_Arguments); !l_Started)
+                {
+                    TR_ERROR("Forge: Rider's debugger was not attached to {}, since {}", l_Process, l_Started.GetError());
+
+                    return false;
+                }
+
+                TR_INFO("Forge: Rider is attaching its debugger to {}, with {} open", l_Process, ToUtf8(workspace));
+
+                return true;
+            }
+            case ScriptEditor::VSCode:
+            {
+                if (!OpenWorkspace(editor, workspace))
+                {
+                    return false;
+                }
+
+                TR_INFO("Forge: VS Code cannot be asked to attach, so in Run and Debug pick Attach to Forge: C# or Attach to Forge: C++, then process {}", processID);
+
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

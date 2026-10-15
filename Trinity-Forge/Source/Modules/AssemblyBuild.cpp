@@ -142,14 +142,10 @@ void AssemblyBuild::Cancel()
     m_Running.reset();
 }
 
-// C# works in every configuration, and Distribution Forge builds the scripts as Release does
+// C# works in every configuration, and every Forge builds the scripts in Debug, which a debugger steps through line by line and shows every field and local of, and which an IDE builds by default, so Forge loads its builds too
 std::string_view AssemblyBuild::GetConfiguration()
 {
-#if defined(TR_DEBUG)
     return "Debug";
-#else
-    return "Release";
-#endif
 }
 
 std::filesystem::path AssemblyBuild::GetScriptingDirectory()

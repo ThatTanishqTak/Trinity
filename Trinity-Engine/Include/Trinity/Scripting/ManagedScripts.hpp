@@ -27,5 +27,7 @@ namespace Trinity
 
         [[nodiscard]] TRINITY_API bool IsAssemblyLoaded();
         [[nodiscard]] TRINITY_API HeapStatistics GetHeapStatistics();
+        // Whether a debugger of managed code is attached, which Process::IsDebuggerAttached does not see, such as one that debugs C# alone. False while .NET is not running
+        [[nodiscard]] TRINITY_API bool IsDebuggerAttached();
     }
 }

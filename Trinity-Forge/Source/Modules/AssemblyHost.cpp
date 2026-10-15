@@ -1,5 +1,7 @@
 #include "Modules/AssemblyHost.hpp"
 
+#include "Modules/PortableExecutable.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -25,6 +27,12 @@ namespace
     <IsAotCompatible>true</IsAotCompatible>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- A portable PDB beside every build, in every configuration, which Forge copies with the assembly it loads, so a debugger attached to Forge stops at breakpoints in the scripts and stack traces have lines -->
+  <PropertyGroup>
+    <DebugType>portable</DebugType>
+    <DebugSymbols>true</DebugSymbols>
   </PropertyGroup>
 
   <!-- The engine's API, which the engine gives the game as it runs, so it is not copied beside it, and the source generator that describes each script class to the engine -->
@@ -429,7 +437,7 @@ void AssemblyHost::Load(const std::filesystem::path& built)
     RemoveCopy(l_Previous);
 }
 
-// Under the next number no file there has, since a context that was not collected, or a debugger, may still hold an older copy
+// Under the next number no file there has, since a context that was not collected, or a debugger, may still hold an older copy. The copy's record of its PDB names the PDB copied beside it, so a debugger finds the symbols of the build that runs there, and never holds the build's own PDB, which the next build writes
 std::optional<std::filesystem::path> AssemblyHost::CopyBuild(const std::filesystem::path& built)
 {
     const std::filesystem::path l_Directory = GetCopyDirectory();
@@ -445,17 +453,26 @@ std::optional<std::filesystem::path> AssemblyHost::CopyBuild(const std::filesyst
         l_Pdb = l_Directory / (l_Stem + ".pdb");
     } while (std::filesystem::exists(l_Copy, l_Error) || std::filesystem::exists(l_Pdb, l_Error));
 
-    if (!std::filesystem::copy_file(built, l_Copy, l_Error))
+    std::optional<std::vector<char>> l_Image = PortableExecutable::ReadImage(built);
+    if (!l_Image)
     {
-        TR_ERROR("Forge: {} could not be copied to {}: {}", ToUtf8(built), ToUtf8(l_Directory), l_Error.message());
+        TR_ERROR("Forge: {} could not be read to copy it to {}", ToUtf8(built), ToUtf8(l_Directory));
 
         return std::nullopt;
     }
 
     const std::filesystem::path l_BuiltPdb = std::filesystem::path(built).replace_extension(".pdb");
-    if (std::filesystem::exists(l_BuiltPdb, l_Error) && !std::filesystem::copy_file(l_BuiltPdb, l_Pdb, l_Error))
+    if (std::filesystem::exists(l_BuiltPdb, l_Error) && (!PortableExecutable::SetPdbName(*l_Image, ToUtf8(l_Pdb.filename())) || !std::filesystem::copy_file(l_BuiltPdb, l_Pdb, l_Error)))
     {
-        TR_WARN("Forge: the PDB of {} could not be copied beside the scripts, so their stack traces have no lines", m_Project->GetAssemblyName());
+        TR_WARN("Forge: the PDB of {} could not be copied beside the scripts, so a debugger finds no symbols for them and their stack traces have no lines", m_Project->GetAssemblyName());
+    }
+
+    if (!PortableExecutable::WriteImage(l_Copy, *l_Image))
+    {
+        TR_ERROR("Forge: {} could not be written, so the build is not loaded", ToUtf8(l_Copy));
+        RemoveCopy(l_Copy);
+
+        return std::nullopt;
     }
 
     return l_Copy;

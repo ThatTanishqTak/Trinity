@@ -399,6 +399,11 @@ namespace Trinity
 
         std::filesystem::path GetExecutableDirectory()
         {
+            return GetExecutablePath().parent_path();
+        }
+
+        std::filesystem::path GetExecutablePath()
+        {
             std::wstring l_Path(MAX_PATH, L'\0');
             while (true)
             {
@@ -412,11 +417,21 @@ namespace Trinity
                 {
                     l_Path.resize(l_Length);
 
-                    return std::filesystem::path(l_Path).parent_path();
+                    return std::filesystem::path(l_Path);
                 }
 
                 l_Path.resize(l_Path.size() * 2);
             }
+        }
+
+        std::uint32_t GetProcessID()
+        {
+            return static_cast<std::uint32_t>(::GetCurrentProcessId());
+        }
+
+        bool IsDebuggerAttached()
+        {
+            return ::IsDebuggerPresent() != FALSE;
         }
 
         void* LoadSharedLibrary(const std::filesystem::path& path, std::string& error)

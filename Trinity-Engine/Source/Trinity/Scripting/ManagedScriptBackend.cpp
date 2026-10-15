@@ -512,5 +512,10 @@ namespace Trinity
         {
             return DotNetHost::GetHeapStatistics();
         }
+
+        bool IsDebuggerAttached()
+        {
+            return DotNetHost::IsDebuggerAttached();
+        }
     }
 }

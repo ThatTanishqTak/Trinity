@@ -4,6 +4,7 @@
 #include "Trinity/Core/Export.hpp"
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -49,5 +50,11 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::filesystem::path FindExecutable(std::string_view name, const Environment* environment = nullptr);
         // The folder this process's executable is in, where Trinity's build puts the engine and what is built beside it
         [[nodiscard]] TRINITY_API std::filesystem::path GetExecutableDirectory();
+        // This process's executable itself, which a debugger launches or attaches to
+        [[nodiscard]] TRINITY_API std::filesystem::path GetExecutablePath();
+        // The ID a debugger attaches to this process by
+        [[nodiscard]] TRINITY_API std::uint32_t GetCurrentID();
+        // Whether a native debugger is attached: the one Windows reports, or one tracing this process elsewhere. A debugger of managed code alone is not, which ManagedScripts::IsDebuggerAttached tells of
+        [[nodiscard]] TRINITY_API bool IsDebuggerAttached();
     }
 }
