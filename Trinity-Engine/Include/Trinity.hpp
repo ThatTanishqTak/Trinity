@@ -66,6 +66,7 @@
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
+#include "Trinity/Scene/SceneManager.hpp"
 #include "Trinity/Scene/SceneRuntime.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
 #include "Trinity/Scene/SimulationClock.hpp"

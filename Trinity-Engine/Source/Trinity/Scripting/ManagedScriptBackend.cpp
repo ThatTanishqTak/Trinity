@@ -134,8 +134,14 @@ namespace Trinity
                 DotNetHost::DestroyInstance(ToHandle(instance));
             }
 
+            // A C# instance knows its entity by its UUID, which it keeps, and reaches whichever runtime is active
+            void Rebind([[maybe_unused]] void* instance, [[maybe_unused]] Entity entity, [[maybe_unused]] ScriptRuntime & runtime) override
+            {
+
+            }
+
             // ScriptCore described the fields in the order the description has them
-            bool ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, [[maybe_unused]] Scene& scene) override
+            bool ApplyFields(void* instance, const ScriptClassDescription & description, const ScriptEntry & entry, [[maybe_unused]] Scene & scene) override
             {
                 for (std::size_t it_Index = 0; it_Index < description.Fields.size(); ++it_Index)
                 {

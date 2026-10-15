@@ -69,20 +69,20 @@ public:
 
     [[nodiscard]] bool RequestClose();
 
-    // Play runs a copy of the edited scene, made through the serializer, and Stop throws the copy away, so the edited scene, its history and whether it is saved are as they were. Pause holds the copy where it is, and Step takes one fixed step and holds it there. The history is locked while playing. Each is asked for mid-frame and done at the next Update, and any command but Refresh and the builds stops playing first, since a build reloads the module while the scene plays on
+    // Play runs a copy of the edited scene, made through the serializer, in a SceneManager, so its scripts may switch it to other scenes, and Stop throws whichever scene runs away, so the edited scene, its history and whether it is saved are as they were. Pause holds the copy where it is, and Step takes one fixed step and holds it there. The history is locked while playing. Each is asked for mid-frame and done at the next Update, and any command but Refresh and the builds stops playing first, since a build reloads the module while the scene plays on
     void RequestPlay();
     void RequestPause();
     void RequestStep();
     void RequestStop();
     // With the frame's time, after the session's own work
     void UpdatePlay(Trinity::Timestep timestep);
-    [[nodiscard]] bool IsPlaying() const { return m_Runtime != nullptr; }
-    [[nodiscard]] bool IsPaused() const { return m_Runtime != nullptr && m_Paused; }
-    [[nodiscard]] Trinity::SceneRuntime* GetRuntime() { return m_Runtime.get(); }
+    [[nodiscard]] bool IsPlaying() const { return m_Play != nullptr; }
+    [[nodiscard]] bool IsPaused() const { return m_Play != nullptr && m_Paused; }
+    [[nodiscard]] Trinity::SceneRuntime* GetRuntime() { return m_Play ? m_Play->GetRuntime() : nullptr; }
     [[nodiscard]] bool IsDirty() const { return !m_History.IsSaved(); }
 
-    // The scene the panels show: the running copy while playing, and otherwise the edited scene
-    [[nodiscard]] Trinity::Scene& GetScene() { return m_PlayScene ? *m_PlayScene : m_Scene; }
+    // The scene the panels show: the scene playing, the copy or one a script switched to, and otherwise the edited scene
+    [[nodiscard]] Trinity::Scene& GetScene() { return m_Play && m_Play->GetScene() ? *m_Play->GetScene() : m_Scene; }
     // What the history edits and the scene file holds, whether or not a copy plays
     [[nodiscard]] Trinity::Scene& GetEditedScene() { return m_Scene; }
     [[nodiscard]] CommandStack& GetHistory() { return m_History; }
@@ -189,8 +189,7 @@ private:
     Trinity::Scope<Trinity::Project> m_Project;
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
     Trinity::Scene m_Scene;
-    Trinity::Scope<Trinity::Scene> m_PlayScene;
-    Trinity::Scope<Trinity::SceneRuntime> m_Runtime;
+    Trinity::Scope<Trinity::SceneManager> m_Play;
     bool m_Paused = false;
     bool m_StepRequested = false;
     std::string m_ScenePath;

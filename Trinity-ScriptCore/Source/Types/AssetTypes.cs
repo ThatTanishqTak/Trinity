@@ -43,6 +43,13 @@ namespace Trinity
         public static string AssetType => "CollisionMesh";
     }
 
+    public sealed class SceneAsset : IAsset
+    {
+        private SceneAsset() { }
+
+        public static string AssetType => "Scene";
+    }
+
     public sealed class BinaryAsset : IAsset
     {
         private BinaryAsset() { }

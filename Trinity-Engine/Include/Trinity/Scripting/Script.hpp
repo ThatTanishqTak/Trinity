@@ -124,6 +124,10 @@ namespace Trinity
 
         bool RemoveScript(Entity entity, ScriptLanguage language, std::string_view className);
 
+        // Switches the running scene to the scene asset, by its UUID or its path in the project such as Scenes/Level.trscene, at the end of the frame once it and its assets have loaded, as SceneManager does. False, logged, for a scene there is not, or a scene SceneManager does not run, and this scene goes on
+        bool LoadScene(UUID scene);
+        bool LoadScene(std::string_view path);
+
         // The callback after the delay in seconds of the scene's fixed steps, in the first step that reaches it, after the scripts' OnFixedUpdate and ahead of physics, so it holds while the scene is paused and moves on with Step. A repeating one runs again every interval after that, which must be more than 0. The callback is kept under the Scripting tag until it has run for the last time or is cancelled, and goes with the script, as do all its timers and coroutines. Empty, logged, while no scene runs it
         template<typename F>
             requires std::is_invocable_v<std::decay_t<F>&>

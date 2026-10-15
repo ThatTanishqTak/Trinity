@@ -23,6 +23,8 @@ namespace Trinity
         // An instance of the class for the script on the entity, or null, logged, when none can be made
         [[nodiscard]] virtual void* CreateInstance(const ScriptClassDescription& description, Entity entity, ScriptRuntime& runtime) = 0;
         virtual void DestroyInstance(void* instance) = 0;
+        // An instance that moved into another runtime with its entity, which SceneManager carried into the scene it switched to under the same UUID
+        virtual void Rebind(void* instance, Entity entity, ScriptRuntime& runtime) = 0;
         // Each field of the class, with the value the entry gives it, into the instance. The scene is the one it runs in, where an entity field finds its entity. This and each callback below are false when the script failed, which the backend has logged, and the runtime then calls that instance no more
         [[nodiscard]] virtual bool ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) = 0;
         // Each field of the class as the instance has it now, into the entry, before a reload frees the instance

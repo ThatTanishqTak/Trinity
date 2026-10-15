@@ -53,6 +53,12 @@ TR_NATIVE(Scripting_StopTask, Bool, (UInt64 task))
 TR_NATIVE(Scripting_StopTasks, Int32, (Int64 owner, Int32 kind))
 TR_NATIVE(Scripting_IsTaskRunning, Bool, (UInt64 task))
 
+// Scenes as SceneManager loads and switches them, by a scene asset's UUID or its path in the project. Each Load is false, logged, for a scene there is not or when no SceneManager runs
+TR_NATIVE(SceneManager_Load, Bool, (UInt64 scene))
+TR_NATIVE(SceneManager_LoadPath, Bool, (Utf8 path))
+TR_NATIVE(SceneManager_IsLoading, Bool, ())
+TR_NATIVE(SceneManager_GetScene, UInt64, ())
+
 // The running scene's clock, as ScriptTime has it
 TR_NATIVE(Time_GetDeltaTime, Float, ())
 TR_NATIVE(Time_GetFixedDeltaTime, Float, ())

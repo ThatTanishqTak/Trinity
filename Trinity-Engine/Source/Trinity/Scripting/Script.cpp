@@ -3,6 +3,7 @@
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Scene/Scene.hpp"
+#include "Trinity/Scene/SceneManager.hpp"
 #include "Trinity/Scripting/NativeScripts.hpp"
 #include "Trinity/Scripting/ScriptRuntime.hpp"
 
@@ -183,6 +184,32 @@ namespace Trinity
         }
 
         return false;
+    }
+
+    bool Script::LoadScene(UUID scene)
+    {
+        SceneManager* l_Manager = SceneManager::GetActive();
+        if (l_Manager == nullptr)
+        {
+            TR_CORE_ERROR("Scripting: scene {} was not loaded, since no SceneManager runs this scene", scene);
+
+            return false;
+        }
+
+        return l_Manager->Load(scene);
+    }
+
+    bool Script::LoadScene(std::string_view path)
+    {
+        SceneManager* l_Manager = SceneManager::GetActive();
+        if (l_Manager == nullptr)
+        {
+            TR_CORE_ERROR("Scripting: scene {} was not loaded, since no SceneManager runs this scene", path);
+
+            return false;
+        }
+
+        return l_Manager->Load(path);
     }
 
     TimerHandle Script::StartTimer(const ScriptTaskCalls& calls, void* callback, float delay, float interval, bool repeating)

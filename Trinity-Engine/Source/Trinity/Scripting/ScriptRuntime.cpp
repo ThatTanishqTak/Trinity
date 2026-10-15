@@ -60,6 +60,8 @@ namespace Trinity
         };
 
         ScriptRuntime* s_Active = nullptr;
+        // Across every runtime, so a task carried into another keeps the ID its script holds
+        std::uint64_t s_NextTask = 0;
 
         // An entity's instances, one for each script in its component, in list order. Dead once its instances are freed, and orphaned once its component went without the runtime, so its instances wait to be freed without OnDestroy
         struct Record
@@ -578,11 +580,89 @@ namespace Trinity
         std::vector<TaggedString<MemoryTag::Scripting>, TaggedAllocator<TaggedString<MemoryTag::Scripting>, MemoryTag::Scripting>> Warned;
         std::vector<Task, TaggedAllocator<Task, MemoryTag::Scripting>> Tasks;
         std::uint64_t NextSerial = 0;
-        std::uint64_t NextTask = 0;
         std::uint32_t TaskDepth = 0;
         bool Changed = false;
         bool TasksChanged = false;
     };
+
+    // The step and frame the carry left its runtime at, so each wait goes on with what was left of it
+    struct ScriptCarry::Data
+    {
+        std::vector<Record, TaggedAllocator<Record, MemoryTag::Scripting>> Records;
+        std::vector<Task, TaggedAllocator<Task, MemoryTag::Scripting>> Tasks;
+        std::uint64_t StepCount = 0;
+        std::uint64_t FrameCount = 0;
+    };
+
+    ScriptCarry::~ScriptCarry()
+    {
+        Free();
+    }
+
+    ScriptCarry::ScriptCarry(ScriptCarry&& other) noexcept : m_Data(std::exchange(other.m_Data, nullptr))
+    {
+
+    }
+
+    ScriptCarry& ScriptCarry::operator=(ScriptCarry&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Free();
+            m_Data = std::exchange(other.m_Data, nullptr);
+        }
+
+        return *this;
+    }
+
+    std::size_t ScriptCarry::GetInstanceCount() const
+    {
+        std::size_t l_Count = 0;
+        if (m_Data == nullptr)
+        {
+            return 0;
+        }
+
+        for (const Record& it_Record : m_Data->Records)
+        {
+            l_Count += static_cast<std::size_t>(std::ranges::count_if(it_Record.Instances, [](const Instance& instance) { return instance.Backend != nullptr; }));
+        }
+
+        return l_Count;
+    }
+
+    std::size_t ScriptCarry::GetTaskCount() const
+    {
+        return m_Data != nullptr ? m_Data->Tasks.size() : 0;
+    }
+
+    // Tasks first, since a C# task holds its script
+    void ScriptCarry::Free()
+    {
+        if (m_Data == nullptr)
+        {
+            return;
+        }
+
+        for (Task& it_Task : m_Data->Tasks)
+        {
+            it_Task.Calls.Free(it_Task.Object);
+        }
+
+        for (Record& it_Record : m_Data->Records)
+        {
+            for (const Instance& it_Instance : it_Record.Instances)
+            {
+                if (it_Instance.Backend != nullptr)
+                {
+                    it_Instance.Backend->DestroyInstance(it_Instance.Handle);
+                }
+            }
+        }
+
+        Memory::Delete(m_Data);
+        m_Data = nullptr;
+    }
 
     // The scene's scripts wait in hierarchy order for the first CreatePending, and any added later follow them as they are added
     ScriptRuntime::ScriptRuntime(Scene& scene) : m_State(Memory::New<State>(MemoryTag::Scripting, scene, *this, s_Active))
@@ -844,7 +924,7 @@ namespace Trinity
 
         State& l_State = *m_State;
         Task l_Task;
-        l_Task.ID = ++l_State.NextTask;
+        l_Task.ID = ++s_NextTask;
         l_Task.Owner = owner;
         l_Task.Object = task;
         l_Task.Calls = calls;
@@ -888,6 +968,118 @@ namespace Trinity
         const auto a_Found = std::ranges::find(m_State->Tasks, id, &Task::ID);
 
         return a_Found != m_State->Tasks.end() && !a_Found->Dead;
+    }
+
+    // Each record leaves its place dead and empty, which the next Compact drops, and each of its instances' tasks goes with it
+    ScriptCarry ScriptRuntime::Extract(std::span<const UUID> entities)
+    {
+        State& l_State = *m_State;
+        ScriptCarry l_Carry;
+        l_Carry.m_Data = Memory::New<ScriptCarry::Data>(MemoryTag::Scripting);
+        l_Carry.m_Data->StepCount = m_Time.StepCount;
+        l_Carry.m_Data->FrameCount = m_Time.FrameCount;
+        for (const UUID it_Entity : entities)
+        {
+            const std::optional<std::size_t> l_Found = l_State.FindRecord(it_Entity);
+            if (!l_Found)
+            {
+                continue;
+            }
+
+            Record& l_Record = l_State.Records[*l_Found];
+            Record l_Moved;
+            l_Moved.ID = l_Record.ID;
+            l_Moved.Instances = std::move(l_Record.Instances);
+            l_Record.Instances.clear();
+            l_Record.Dead = true;
+            l_State.Changed = true;
+            for (const Instance& it_Instance : l_Moved.Instances)
+            {
+                for (Task& it_Task : l_State.Tasks)
+                {
+                    if (!it_Task.Dead && it_Instance.Backend != nullptr && it_Task.Owner == it_Instance.Handle)
+                    {
+                        l_Carry.m_Data->Tasks.push_back(it_Task);
+                        it_Task.Dead = true;
+                        it_Task.Object = nullptr;
+                        l_State.TasksChanged = true;
+                    }
+                }
+            }
+
+            l_Carry.m_Data->Records.push_back(std::move(l_Moved));
+        }
+
+        l_State.CompactTasks();
+        l_State.Compact();
+
+        return l_Carry;
+    }
+
+    void ScriptRuntime::Adopt(ScriptCarry& carry)
+    {
+        if (carry.m_Data == nullptr)
+        {
+            return;
+        }
+
+        State& l_State = *m_State;
+        ScriptCarry::Data& l_Data = *carry.m_Data;
+        std::vector<const void*, TaggedAllocator<const void*, MemoryTag::Scripting>> l_Owners;
+        for (Record& it_Record : l_Data.Records)
+        {
+            const Entity l_Entity = l_State.TargetScene.FindEntityByUUID(it_Record.ID);
+            if (!l_Entity || !l_Entity.Has<ScriptComponent>() || l_State.FindRecord(it_Record.ID))
+            {
+                continue;
+            }
+
+            Record l_Record;
+            l_Record.ID = it_Record.ID;
+            l_Record.Handle = l_Entity.GetHandle();
+            l_Record.Instances = std::move(it_Record.Instances);
+            it_Record.Instances.clear();
+            for (Instance& it_Instance : l_Record.Instances)
+            {
+                if (it_Instance.Backend != nullptr)
+                {
+                    it_Instance.Backend->Rebind(it_Instance.Handle, l_Entity, *this);
+                    l_Owners.push_back(it_Instance.Handle);
+                }
+
+                it_Instance.Serial = ++l_State.NextSerial;
+            }
+
+            l_State.Records.push_back(std::move(l_Record));
+            l_State.Index[it_Record.ID] = l_State.Records.size() - 1;
+        }
+
+        // What was left of each wait, from this runtime's step and frame
+        const auto a_Rebase = [](std::uint64_t due, std::uint64_t then, std::uint64_t now) { return now + (due > then ? due - then : 0); };
+        for (auto it_Task = l_Data.Tasks.begin(); it_Task != l_Data.Tasks.end();)
+        {
+            if (std::ranges::find(l_Owners, it_Task->Owner) == l_Owners.end())
+            {
+                ++it_Task;
+
+                continue;
+            }
+
+            Task l_Task = *it_Task;
+            if (l_Task.Kind == ScriptTaskKind::Timer || l_Task.Wait.Type == ScriptWaitType::Seconds)
+            {
+                l_Task.Due = a_Rebase(l_Task.Due, l_Data.StepCount, m_Time.StepCount);
+            }
+            else if (l_Task.Wait.Type == ScriptWaitType::Frames)
+            {
+                l_Task.Due = a_Rebase(l_Task.Due, l_Data.FrameCount, m_Time.FrameCount);
+            }
+
+            l_Task.ArmedStep = m_Time.StepCount;
+            l_Task.ArmedFrame = m_Time.FrameCount;
+            l_State.Tasks.push_back(l_Task);
+            it_Task = l_Data.Tasks.erase(it_Task);
+        }
     }
 
     Entity ScriptRuntime::DuplicateEntity(Entity entity)

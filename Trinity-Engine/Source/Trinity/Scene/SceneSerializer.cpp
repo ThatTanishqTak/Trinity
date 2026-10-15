@@ -1711,6 +1711,8 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<CapsuleCollider2DComponent, SaveCapsuleCollider2D, LoadCapsuleCollider2D>());
             RegisterComponent(MakeComponentSerializer<PolygonCollider2DComponent, SavePolygonCollider2D, LoadPolygonCollider2D>());
             RegisterComponent(MakeComponentSerializer<Joint2DComponent, SaveJoint2D, LoadJoint2D>());
+            // It holds nothing, so its functions write and read nothing
+            RegisterComponent({ KeepAcrossScenesComponent::c_TypeName, [](const void*, ComponentWriter&) {}, [](void*, const ComponentReader&) {}, [](SceneRegistry& registry) { static_cast<void>(registry.storage<KeepAcrossScenesComponent>()); } });
             RegisterComponent(MakeComponentSerializer<ScriptComponent, SaveScript, LoadScript>());
         }
 

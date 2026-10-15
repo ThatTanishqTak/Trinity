@@ -60,6 +60,13 @@ namespace Trinity
             l_Script->m_Release(l_Script);
         }
 
+        void Rebind(void* instance, Entity entity, ScriptRuntime& runtime) override
+        {
+            Script* l_Script = static_cast<Script*>(instance);
+            l_Script->m_Entity = entity;
+            l_Script->m_Runtime = &runtime;
+        }
+
         // The class was registered with a setter for each of its fields, in the same order. A C++ script cannot report a failure, since a module is not exception-safe, so every call here is true
         bool ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) override
         {

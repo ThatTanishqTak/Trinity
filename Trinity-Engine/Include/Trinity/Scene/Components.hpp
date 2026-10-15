@@ -512,6 +512,16 @@ namespace Trinity
         [[nodiscard]] bool operator==(const Joint2DComponent&) const = default;
     };
 
+    // Marks an entity that moves, with its subtree, into each scene SceneManager switches to as the scene runs, its scripts keeping their instances, fields and waiting timers and coroutines. A scene that has an entity of the same UUID, as the scene it came from does, gives way to it. It holds nothing
+    struct KeepAcrossScenesComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.KeepAcrossScenes";
+        // Stored as any other component, a byte an entity, where EnTT would keep nothing for an empty type, so Add and Get return it, a copied entity keeps it and its pool hands out a value
+        static constexpr std::size_t page_size = ENTT_PACKED_PAGE;
+
+        [[nodiscard]] bool operator==(const KeepAcrossScenesComponent&) const = default;
+    };
+
     // One script on an entity: the class it is an instance of, by its full name in its language, whether it runs, and its fields' values. The values belong to the scene, not to the instance, so they save, undo and outlive a reload, and a class no loaded code has keeps every one of them
     struct ScriptEntry
     {

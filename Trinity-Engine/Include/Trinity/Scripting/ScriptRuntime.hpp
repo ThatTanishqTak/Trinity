@@ -18,6 +18,31 @@ namespace Trinity
     class Entity;
     class Scene;
 
+    // Script instances taken out of one runtime with their entities, with their waiting timers and coroutines, to go on in another, as SceneManager carries the entities kept across scenes. Those never taken in are freed with it, without OnDestroy
+    class TRINITY_API ScriptCarry
+    {
+    public:
+        ScriptCarry() = default;
+        ~ScriptCarry();
+
+        ScriptCarry(ScriptCarry&& other) noexcept;
+        ScriptCarry& operator=(ScriptCarry&& other) noexcept;
+        ScriptCarry(const ScriptCarry&) = delete;
+        ScriptCarry& operator=(const ScriptCarry&) = delete;
+
+        [[nodiscard]] std::size_t GetInstanceCount() const;
+        [[nodiscard]] std::size_t GetTaskCount() const;
+
+    private:
+        friend class ScriptRuntime;
+
+        struct Data;
+
+        void Free();
+
+        Data* m_Data = nullptr;
+    };
+
     // Every script instance of a running scene, made from its Script components through each language's backend and called in a fixed order: by when each script was added, which for the scene's own is hierarchy order, and in list order on each entity. A script whose class no loaded code has is kept in its component and does not run, with one warning a class, and one whose call failed, such as a C# script that threw, is called no more while play goes on. SceneRuntime owns one and drives it, and C# reaches the scene of the one made last that still lives. Main thread only
     class TRINITY_API ScriptRuntime
     {
@@ -76,6 +101,11 @@ namespace Trinity
         // The instance's timers or its coroutines, the number stopped
         std::uint32_t StopTasks(const void* owner, ScriptTaskKind kind);
         [[nodiscard]] bool IsTaskRunning(std::uint64_t id) const;
+
+        // The instances of the entities' scripts taken out, without OnDestroy, to go on in another runtime, with their timers and coroutines. An entity whose scripts have no instances yet is left out
+        [[nodiscard]] ScriptCarry Extract(std::span<const UUID> entities);
+        // Takes carried instances in, each entity now in this runtime's scene under the same UUID, before the first CreatePending, so none is made again or has OnCreate. A C++ script's GetEntity is its entity here, and an Entity it kept elsewhere is of the scene it left. Their timers and coroutines go on with what was left of their waits, on this runtime's clock. Those whose entity is not here are freed with the carry
+        void Adopt(ScriptCarry& carry);
 
         // The entity and its subtree copied at once, as Scene::DuplicateEntity copies them, with the copy's scripts made at once and given their fields. They have OnCreate before their first call, or at the next CreatePending
         Entity DuplicateEntity(Entity entity);

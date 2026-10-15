@@ -40,7 +40,7 @@ namespace Trinity
 
     Scene::Scene()
     {
-        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, JointComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent, Joint2DComponent, ScriptComponent, PhysicsPoseComponent, UnknownComponentsComponent>(m_Registry);
+        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, JointComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent, Joint2DComponent, KeepAcrossScenesComponent, ScriptComponent, PhysicsPoseComponent, UnknownComponentsComponent>(m_Registry);
 
         // A module's components get their pools from the module's code, here for those registered now and as each is registered later, and lose them before the module unloads
         SceneSerializer::AttachScene(*this);

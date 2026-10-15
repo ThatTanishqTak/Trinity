@@ -109,16 +109,17 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     // A running scene plays on through a reload: its C++ instances write their fields back and go before the module does, and are made again from those fields once the new module has registered. Its components are kept as YAML meanwhile, as the edited scene's are
     m_Module.SetReloadCallbacks([this]
     {
-        if (m_Runtime)
+        if (Trinity::SceneRuntime* l_Runtime = GetRuntime())
         {
-            const std::uint32_t l_Released = m_Runtime->GetScripts().ReleaseInstances(Trinity::ScriptLanguage::Cpp);
+            const std::uint32_t l_Released = l_Runtime->GetScripts().ReleaseInstances(Trinity::ScriptLanguage::Cpp);
             TR_INFO("Forge: {} C++ script instance(s) wrote their fields back for the reload", l_Released);
         }
-    }, [this]
+    },
+        [this]
     {
-        if (m_Runtime)
+        if (Trinity::SceneRuntime* l_Runtime = GetRuntime())
         {
-            const std::uint32_t l_Made = m_Runtime->GetScripts().RecreateInstances(Trinity::ScriptLanguage::Cpp);
+            const std::uint32_t l_Made = l_Runtime->GetScripts().RecreateInstances(Trinity::ScriptLanguage::Cpp);
             TR_INFO("Forge: {} C++ script instance(s) were made again, and play goes on", l_Made);
         }
     });
@@ -126,17 +127,17 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     // C# scripts reload as a C++ module does, and their instances made as they first load while a scene plays
     m_Assembly.SetReloadCallbacks([this]
     {
-        if (m_Runtime)
+        if (Trinity::SceneRuntime* l_Runtime = GetRuntime())
         {
-            const std::uint32_t l_Released = m_Runtime->GetScripts().ReleaseInstances(Trinity::ScriptLanguage::CSharp);
+            const std::uint32_t l_Released = l_Runtime->GetScripts().ReleaseInstances(Trinity::ScriptLanguage::CSharp);
             TR_INFO("Forge: {} C# script instance(s) wrote their fields back for the reload", l_Released);
         }
     },
-    [this]
+        [this]
     {
-        if (m_Runtime)
+        if (Trinity::SceneRuntime* l_Runtime = GetRuntime())
         {
-            const std::uint32_t l_Made = m_Runtime->GetScripts().RecreateInstances(Trinity::ScriptLanguage::CSharp);
+            const std::uint32_t l_Made = l_Runtime->GetScripts().RecreateInstances(Trinity::ScriptLanguage::CSharp);
             TR_INFO("Forge: {} C# script instance(s) were made, and play goes on", l_Made);
         }
     });
@@ -739,7 +740,7 @@ void EditorSession::RequestPlay()
 {
     m_Pending.push_back([this]
     {
-        if (m_Runtime)
+        if (m_Play)
         {
             m_Paused = false;
 
@@ -752,7 +753,7 @@ void EditorSession::RequestPlay()
 
 void EditorSession::RequestPause()
 {
-    m_Pending.push_back([this] { m_Paused = m_Runtime != nullptr && !m_Paused; });
+    m_Pending.push_back([this] { m_Paused = m_Play != nullptr && !m_Paused; });
 }
 
 // A running scene pauses first, so the step is the only one it takes
@@ -760,7 +761,7 @@ void EditorSession::RequestStep()
 {
     m_Pending.push_back([this]
     {
-        if (m_Runtime)
+        if (m_Play)
         {
             m_Paused = true;
             m_StepRequested = true;
@@ -773,38 +774,42 @@ void EditorSession::RequestStop()
     m_Pending.push_back([this] { StopPlay(); });
 }
 
-// After the session's own work, before the transform pass the frame draws with. A paused scene takes only the step asked for
+// After the session's own work, before the transform pass the frame draws with. A paused scene takes only the step asked for. A selection the scene switched to does not have is let go
 void EditorSession::UpdatePlay(Trinity::Timestep timestep)
 {
-    if (!m_Runtime)
+    if (!m_Play)
     {
         return;
     }
 
     if (!m_Paused)
     {
-        m_Runtime->Update(timestep);
+        m_Play->Update(timestep);
     }
     else if (std::exchange(m_StepRequested, false))
     {
-        m_Runtime->Step();
+        m_Play->Step();
+    }
+
+    if (m_Selection && !GetScene().FindEntityByUUID(m_Selection))
+    {
+        m_Selection = {};
     }
 }
 
 // The copy is the edited scene saved to text and loaded into a scene of its own, as a game loads it, so it keeps every UUID and the selection carries over. A scene the serializer cannot read back is not played
 void EditorSession::StartPlay()
 {
-    if (m_Runtime || !m_Project)
+    if (m_Play || !m_Project)
     {
         return;
     }
 
     const auto l_Start = std::chrono::steady_clock::now();
-    m_PlayScene = Trinity::CreateScope<Trinity::Scene>();
-    if (const Trinity::Expected<void, std::string> l_Copied = Trinity::SceneSerializer::LoadFromText(*m_PlayScene, Trinity::SceneSerializer::SaveToText(m_Scene)); !l_Copied)
+    Trinity::Scope<Trinity::Scene> l_Copy = Trinity::CreateScope<Trinity::Scene>();
+    if (const Trinity::Expected<void, std::string> l_Copied = Trinity::SceneSerializer::LoadFromText(*l_Copy, Trinity::SceneSerializer::SaveToText(m_Scene)); !l_Copied)
     {
         TR_ERROR("Forge: {} could not be copied to play: {}", GetSceneName(), l_Copied.GetError());
-        m_PlayScene.reset();
 
         return;
     }
@@ -814,21 +819,21 @@ void EditorSession::StartPlay()
     m_History.SetLocked(true);
     m_Paused = false;
     m_StepRequested = false;
-    m_PlayScene->UpdateWorldTransforms();
-    m_Runtime = Trinity::CreateScope<Trinity::SceneRuntime>(*m_PlayScene, m_Project->GetPhysicsSettings());
-    TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), m_PlayScene->GetEntityCount(), l_Milliseconds);
+    const std::size_t l_Entities = l_Copy->GetEntityCount();
+    m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get());
+    m_Play->Run(std::move(l_Copy), GetSceneID());
+    TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), l_Entities, l_Milliseconds);
 }
 
-// The runtime goes before the copy it runs. The selection is kept when its entity is in the edited scene
+// The runtime goes before the scene it runs, and whichever scene plays goes, the copy or one a script switched to. The selection is kept when its entity is in the edited scene
 void EditorSession::StopPlay()
 {
-    if (!m_Runtime)
+    if (!m_Play)
     {
         return;
     }
 
-    m_Runtime.reset();
-    m_PlayScene.reset();
+    m_Play.reset();
     m_Paused = false;
     m_StepRequested = false;
     m_History.SetLocked(false);

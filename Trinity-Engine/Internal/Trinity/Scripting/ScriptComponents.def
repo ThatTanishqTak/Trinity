@@ -250,3 +250,5 @@ TR_PROPERTY(Joint2D, MinDistance, Float, MinDistance)
 TR_PROPERTY(Joint2D, MaxDistance, Float, MaxDistance)
 TR_PROPERTY(Joint2D, SpringFrequency, Float, SpringFrequency)
 TR_PROPERTY(Joint2D, SpringDamping, Float, SpringDamping)
+
+TR_COMPONENT(KeepAcrossScenes, KeepAcrossScenesComponent)
