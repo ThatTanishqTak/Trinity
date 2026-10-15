@@ -334,7 +334,7 @@ namespace Trinity
             DotNetHost::FreeTask(ToHandle(task));
         }
 
-        constexpr ScriptTaskCalls c_ManagedTaskCalls{ &ResumeManagedTask, &CheckManagedTask, &FreeManagedTask };
+        constexpr ScriptTaskCalls c_ManagedTaskCalls{ &ResumeManagedTask, &CheckManagedTask, &FreeManagedTask, ScriptLanguage::CSharp };
     }
 
     namespace ManagedScriptBackend

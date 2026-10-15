@@ -42,7 +42,7 @@ namespace Trinity
             CoroutineFrame::from_address(task).destroy();
         }
 
-        constexpr ScriptTaskCalls c_CoroutineCalls{ &ResumeCoroutine, nullptr, &FreeCoroutine };
+        constexpr ScriptTaskCalls c_CoroutineCalls{ &ResumeCoroutine, nullptr, &FreeCoroutine, ScriptLanguage::Cpp };
     }
 
     namespace Detail

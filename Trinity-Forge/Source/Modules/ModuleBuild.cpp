@@ -229,7 +229,7 @@ namespace
         const Trinity::Expected<Trinity::Process::Environment, std::string> l_Environment = GetBuildEnvironment(&cancel);
         if (!l_Environment)
         {
-            TR_ERROR("Build: {}", l_Environment.GetError());
+            output.LogError(std::format("Build: {}", l_Environment.GetError()));
 
             return false;
         }
@@ -238,7 +238,7 @@ namespace
         const std::optional<std::array<int, 2>> l_Version = l_CMake.empty() ? std::nullopt : ReadCMakeVersion(l_CMake, *l_Environment);
         if (!l_Version || *l_Version < c_MinimumCMake)
         {
-            TR_ERROR("Build: CMake {}.{} or newer must be on the PATH to build C++ modules, and {}", c_MinimumCMake[0], c_MinimumCMake[1], l_CMake.empty() ? std::string("none was found") : l_Version ? std::format("{} is {}.{}", ToUtf8(l_CMake), (*l_Version)[0], (*l_Version)[1]) : std::format("{} did not say its version", ToUtf8(l_CMake)));
+            output.LogError(std::format("Build: CMake {}.{} or newer must be on the PATH to build C++ modules, and {}", c_MinimumCMake[0], c_MinimumCMake[1], l_CMake.empty() ? std::string("none was found") : l_Version ? std::format("{} is {}.{}", ToUtf8(l_CMake), (*l_Version)[0], (*l_Version)[1]) : std::format("{} did not say its version", ToUtf8(l_CMake))));
 
             return false;
         }
@@ -248,7 +248,7 @@ namespace
 #if defined(TR_PLATFORM_WINDOWS)
         if (l_Ninja.empty())
         {
-            TR_ERROR("Build: Ninja was not found on the PATH Visual Studio's environment gives, which its C++ CMake tools put there. Install them, or put ninja.exe on the PATH");
+            output.LogError(std::format("Build: Ninja was not found on the PATH Visual Studio's environment gives, which its C++ CMake tools put there. Install them, or put ninja.exe on the PATH"));
 
             return false;
         }
@@ -259,7 +259,7 @@ namespace
         std::error_code l_Error;
         if (!std::filesystem::exists(l_Engine / "TrinityConfig.cmake", l_Error))
         {
-            TR_ERROR("Build: {} has no TrinityConfig.cmake beside the engine, so nothing can be built against it. Configure Trinity again, which writes it", ToUtf8(l_Engine));
+            output.LogError(std::format("Build: {} has no TrinityConfig.cmake beside the engine, so nothing can be built against it. Configure Trinity again, which writes it", ToUtf8(l_Engine)));
 
             return false;
         }
@@ -275,7 +275,7 @@ namespace
             output.Finish();
             if (!l_ExitCode)
             {
-                TR_ERROR("Build: {}", l_ExitCode.GetError());
+                output.LogError(std::format("Build: {}", l_ExitCode.GetError()));
             }
 
             return l_ExitCode && *l_ExitCode == 0 && !cancel.load(std::memory_order_relaxed);
@@ -417,8 +417,10 @@ void ModuleBuild::Run(Running& running)
     }
     else
     {
-        TR_ERROR("Build: {} failed after {:.1f} s, with {} error(s) and {} warning(s)", l_Request.Name, l_Result.Seconds, l_Result.Errors, l_Result.Warnings);
+        l_Output.LogError(std::format("Build: {} failed after {:.1f} s, with {} error(s) and {} warning(s)", l_Request.Name, l_Result.Seconds, l_Result.Errors, l_Result.Warnings));
     }
+
+    l_Result.ErrorLines = l_Output.GetErrorLines();
 
     running.Done.store(true, std::memory_order_release);
 }

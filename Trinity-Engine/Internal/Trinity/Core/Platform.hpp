@@ -93,6 +93,10 @@ namespace Trinity
 
         // Runs the program to its end, blocking, and hands each line of its output and errors, in the order written, to onLine as UTF-8 without its line end. Its exit code, or none with the reason in error when it could not start. It counts as ended when the program itself ends, so a server it left running, such as MSVC's PDB server, cannot hold the call open
         [[nodiscard]] std::optional<int> RunProcess(const ProcessRequest& request, const std::function<void(std::string_view line)>& onLine, std::string& error);
+        // Starts the program to run on its own, neither waited for nor ended with this process, with its output going nowhere, such as an IDE opened at a file. Cancel is not read. False with the reason in error when it could not start
+        [[nodiscard]] bool StartProcess(const ProcessRequest& request, std::string& error);
+        // The file or folder opened as the desktop would open it, with the program it has for that kind of file, or a folder in its file manager. False with the reason in error
+        [[nodiscard]] bool OpenWithSystem(const std::filesystem::path& path, std::string& error);
 
         // A folder and everything below it, watched without blocking. Null on failure, with the reason in error. Each read appends the paths that changed since the last one, relative to the folder, and returns true when more changed than it could tell, so everything should be looked at again
         [[nodiscard]] void* OpenDirectoryWatch(const std::filesystem::path& directory, std::string& error);

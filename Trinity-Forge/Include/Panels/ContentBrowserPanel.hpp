@@ -7,12 +7,15 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 struct ImVec2;
 
+// The project's Assets, and beside them its Scripts and Source folders once it has C# scripts or a C++ module, where New C# Script and New C++ Script make scripts from templates and a script opens in the script editor. Each root keeps what is in it: nothing moves from one to another
 class ContentBrowserPanel final : public Panel
 {
 public:
@@ -49,6 +52,7 @@ private:
     void DrawRenameField(const Item& item, ImVec2 position, float width);
     void DrawBackground();
     void DrawDeletePopup();
+    void DrawNewScriptPopup();
     void AcceptMove(const std::string& folder);
     void ReadShortcuts();
 
@@ -69,6 +73,9 @@ private:
     std::string m_Renaming;
     std::string m_RenameText;
     std::string m_PendingDelete;
+    // The language of the script New Script asks a name for, and the name typed so far
+    std::optional<Trinity::ScriptLanguage> m_NewScript;
+    std::string m_NewScriptName;
     std::unordered_map<std::string, std::vector<Trinity::DirectoryEntry>> m_Listings;
     std::uint64_t m_ListedScan = 0;
     std::unordered_map<Trinity::UUID, Thumbnail> m_Thumbnails;
@@ -77,5 +84,6 @@ private:
     int m_DrawnFrame = -1;
     bool m_FocusRename = false;
     bool m_OpenDeletePopup = false;
+    bool m_OpenNewScriptPopup = false;
     bool m_Focused = false;
 };

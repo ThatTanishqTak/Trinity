@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Modules/BuildOutput.hpp"
 #include "Modules/ModuleBuild.hpp"
 
 #include <Trinity.hpp>
@@ -44,6 +45,10 @@ public:
 
     [[nodiscard]] static bool IsSupported() { return ModuleBuild::IsSupported(); }
     [[nodiscard]] bool IsBuilding() const { return m_Build.IsRunning(); }
+    // The build running or waiting to, or else the last that ran to its end. A cancelled one leaves the one before it
+    [[nodiscard]] BuildStatus GetStatus() const;
+    // The lines the last build that ran to its end logged at error
+    [[nodiscard]] const std::vector<std::string>& GetErrorLines() const { return m_LastErrorLines; }
     [[nodiscard]] bool IsLoaded() const { return m_Library.IsLoaded(); }
 
 private:
@@ -75,4 +80,7 @@ private:
     // When a source last changed, which a build waits to settle
     std::optional<Clock::time_point> m_ChangedAt;
     bool m_BuildRequested = false;
+    BuildStatus m_LastBuild;
+    std::vector<std::string> m_LastErrorLines;
+    std::uint64_t m_RunningFirstLine = 0;
 };

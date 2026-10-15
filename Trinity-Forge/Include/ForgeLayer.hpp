@@ -2,6 +2,7 @@
 
 #include "EditorSession.hpp"
 #include "ImportTest.hpp"
+#include "Panels/ConsolePanel.hpp"
 #include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/GamePanel.hpp"
 #include "Panels/Panel.hpp"
@@ -36,6 +37,7 @@ private:
     void ReadShortcuts();
     void DrawMenuBar();
     void DrawPlayControls();
+    void DrawBuildStatus();
     void PushPlayTint();
     void DrawEditMenu();
     void DrawScriptsMenu();
@@ -58,6 +60,7 @@ private:
     Panel* m_PropertiesPanel = nullptr;
     ProjectSettingsPanel* m_ProjectSettings = nullptr;
     ContentBrowserPanel* m_ContentBrowser = nullptr;
+    ConsolePanel* m_Console = nullptr;
     std::string m_AboutTitle;
     bool m_ShowDemoWindow = false;
     bool m_ShowAbout = false;

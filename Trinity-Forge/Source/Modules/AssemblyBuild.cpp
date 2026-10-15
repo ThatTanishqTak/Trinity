@@ -63,7 +63,7 @@ namespace
         const std::filesystem::path l_DotNet = FindDotNet(l_Environment);
         if (l_DotNet.empty())
         {
-            TR_ERROR("Build: the .NET 10 SDK was not found, so the C# scripts cannot be built. Install it from https://dotnet.microsoft.com/download/dotnet/10.0, or point DOTNET_ROOT at it");
+            output.LogError(std::format("Build: the .NET 10 SDK was not found, so the C# scripts cannot be built. Install it from https://dotnet.microsoft.com/download/dotnet/10.0, or point DOTNET_ROOT at it"));
 
             return false;
         }
@@ -72,7 +72,7 @@ namespace
         std::error_code l_Error;
         if (!std::filesystem::exists(l_Scripting / "Trinity-ScriptCore.dll", l_Error) || !std::filesystem::exists(l_Scripting / "Trinity-ScriptGenerator.dll", l_Error))
         {
-            TR_ERROR("Build: {} has no Trinity-ScriptCore.dll and Trinity-ScriptGenerator.dll, so nothing can be built against them. Build the Trinity-ScriptCore and Trinity-ScriptGenerator targets", ToUtf8(l_Scripting));
+            output.LogError(std::format("Build: {} has no Trinity-ScriptCore.dll and Trinity-ScriptGenerator.dll, so nothing can be built against them. Build the Trinity-ScriptCore and Trinity-ScriptGenerator targets", ToUtf8(l_Scripting)));
 
             return false;
         }
@@ -92,7 +92,7 @@ namespace
         output.Finish();
         if (!l_ExitCode)
         {
-            TR_ERROR("Build: {}", l_ExitCode.GetError());
+            output.LogError(std::format("Build: {}", l_ExitCode.GetError()));
         }
 
         return l_ExitCode && *l_ExitCode == 0 && !cancel.load(std::memory_order_relaxed);
@@ -195,8 +195,10 @@ void AssemblyBuild::Run(Running& running)
     }
     else
     {
-        TR_ERROR("Build: {} failed after {:.1f} s, with {} error(s) and {} warning(s)", l_Request.Name, l_Result.Seconds, l_Result.Errors, l_Result.Warnings);
+        l_Output.LogError(std::format("Build: {} failed after {:.1f} s, with {} error(s) and {} warning(s)", l_Request.Name, l_Result.Seconds, l_Result.Errors, l_Result.Warnings));
     }
+
+    l_Result.ErrorLines = l_Output.GetErrorLines();
 
     running.Done.store(true, std::memory_order_release);
 }

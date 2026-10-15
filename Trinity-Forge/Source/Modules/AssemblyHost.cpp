@@ -192,6 +192,8 @@ void AssemblyHost::Close()
     m_SourcesChangedAt.reset();
     m_OutputChangedAt.reset();
     m_BuildRequested = false;
+    m_LastBuild = {};
+    m_LastErrorLines.clear();
 }
 
 void AssemblyHost::Update()
@@ -213,9 +215,18 @@ void AssemblyHost::Update()
         m_OutputChangedAt = l_Now;
     }
 
-    if (const std::optional<AssemblyBuild::Result> l_Result = m_Build.Update(); l_Result && l_Result->Succeeded)
+    if (const std::optional<AssemblyBuild::Result> l_Result = m_Build.Update())
     {
-        Load(l_Result->Assembly);
+        if (!l_Result->Cancelled)
+        {
+            m_LastBuild = { l_Result->Succeeded ? BuildState::UpToDate : BuildState::Failed, m_RunningFirstLine, Trinity::LogHistory::GetNextSequence(), l_Result->Errors, l_Result->Warnings };
+            m_LastErrorLines = l_Result->ErrorLines;
+        }
+
+        if (l_Result->Succeeded)
+        {
+            Load(l_Result->Assembly);
+        }
     }
 
     if (m_SourcesChangedAt && l_Now - *m_SourcesChangedAt >= c_SettleTime)
@@ -349,12 +360,31 @@ void AssemblyHost::WriteLocalProps() const
     }
 }
 
+BuildStatus AssemblyHost::GetStatus() const
+{
+    if (m_Build.IsRunning())
+    {
+        return { BuildState::Building, m_RunningFirstLine, Trinity::LogHistory::GetNextSequence(), 0, 0 };
+    }
+
+    if (m_Project != nullptr && (m_SourcesChangedAt || m_BuildRequested))
+    {
+        BuildStatus l_Status = m_LastBuild;
+        l_Status.State = BuildState::Pending;
+
+        return l_Status;
+    }
+
+    return m_LastBuild;
+}
+
 void AssemblyHost::StartBuild()
 {
     AssemblyBuild::Request l_Request;
     l_Request.Name = m_Project->GetAssemblyName();
     l_Request.ProjectDirectory = m_Project->GetDirectory();
     l_Request.ScriptsDirectory = m_Project->GetScriptsDirectory();
+    m_RunningFirstLine = Trinity::LogHistory::GetNextSequence();
     m_Build.Start(std::move(l_Request));
 }
 

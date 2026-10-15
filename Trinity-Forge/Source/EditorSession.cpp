@@ -62,8 +62,81 @@ namespace
         return path == folder || (path.starts_with(folder) && path.size() > folder.size() && path[folder.size()] == '/');
     }
 
+    // New scripts, with @NAMESPACE@ the assembly's or the module's name and @CLASS@ the class's
+    constexpr std::string_view c_CSharpScriptTemplate = R"(using Trinity;
+
+namespace @NAMESPACE@
+{
+    // Its fields are its public fields and those marked [Field], with the values a new instance has, which Properties shows once the scripts are built
+    public class @CLASS@ : Script
+    {
+        public float Speed = 1.0f;
+
+        public override void OnCreate()
+        {
+
+        }
+
+        public override void OnUpdate(float timestep)
+        {
+
+        }
+    }
+}
+)";
+
+    constexpr std::string_view c_CppScriptTemplate = R"(#include <Trinity.hpp>
+
+namespace @NAMESPACE@
+{
+    // Its fields are the members its TR_SCRIPT block lists, with the values a new instance has, which Properties shows once the module is built
+    class @CLASS@ : public Trinity::Script
+    {
+    public:
+        float Speed = 1.0f;
+
+        void OnCreate() override
+        {
+
+        }
+
+        void OnUpdate([[maybe_unused]] Trinity::Timestep timestep) override
+        {
+
+        }
+    };
+}
+
+TR_SCRIPT(@NAMESPACE@::@CLASS@)
+{
+    TR_FIELD(Speed);
+}
+)";
+
+    std::string FillScriptTemplate(std::string_view text, std::string_view nameSpace, std::string_view className)
+    {
+        std::string l_Text(text);
+        for (const auto& [it_Key, it_Value] : { std::pair<std::string_view, std::string_view>{ "@NAMESPACE@", nameSpace }, std::pair<std::string_view, std::string_view>{ "@CLASS@", className } })
+        {
+            for (std::size_t l_At = l_Text.find(it_Key); l_At != std::string::npos; l_At = l_Text.find(it_Key, l_At + it_Value.size()))
+            {
+                l_Text.replace(l_At, it_Key.size(), it_Value);
+            }
+        }
+
+        return l_Text;
+    }
+
+    // Letters, digits and underscores, not starting with a digit, which both languages take for a class's name
+    bool IsClassName(std::string_view name)
+    {
+        const auto a_Letter = [](char character) { return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_'; };
+
+        return !name.empty() && a_Letter(name.front()) && std::ranges::all_of(name, [&a_Letter](char character) { return a_Letter(character) || (character >= '0' && character <= '9'); });
+    }
+
     // Everything an importer cooked for the asset into /cache
-    void RemoveCooked(const Trinity::AssetRecord& record)
+    void RemoveCooked(const Trinity::AssetRecord & record)
     {
         std::vector<std::string> l_Paths;
         if (record.Importer == TextureImporter::c_Importer)
@@ -1027,6 +1100,121 @@ std::optional<std::string> EditorSession::CreateMaterial(std::string_view folder
     ScanAssets();
 
     return l_Path;
+}
+
+std::optional<std::string> EditorSession::CreateScript(std::string_view folder, Trinity::ScriptLanguage language, std::string_view className)
+{
+    if (!m_Project)
+    {
+        return std::nullopt;
+    }
+
+    const bool l_CSharp = language == Trinity::ScriptLanguage::CSharp;
+    const std::string_view l_Language = l_CSharp ? "C#" : "C++";
+    const std::string_view l_Root = l_CSharp ? c_ScriptsFolder : c_SourceFolder;
+    if (!IsSameOrInside(folder, l_Root))
+    {
+        TR_ERROR("Forge: a {} script goes in {} or a folder in it, so none was made in {}", l_Language, l_Root, folder);
+
+        return std::nullopt;
+    }
+
+    if (l_CSharp ? !m_Project->HasAssembly() : !m_Project->HasModule())
+    {
+        TR_ERROR("Forge: {} has no {} yet, so no {} script was made. Scripts > {} makes one", m_Project->GetName(), l_CSharp ? "C# project" : "C++ module", l_Language, l_CSharp ? "Create C# Project" : "Create C++ Module");
+
+        return std::nullopt;
+    }
+
+    if (!IsClassName(className))
+    {
+        TR_ERROR("Forge: \"{}\" cannot name a class, which takes letters, digits and _ and does not start with a digit", className);
+
+        return std::nullopt;
+    }
+
+    const std::string l_Path = std::format("{}/{}{}", folder, className, l_CSharp ? ".cs" : ".cpp");
+    if (Trinity::FileSystem::Exists(l_Path))
+    {
+        TR_ERROR("Forge: {} is already there, so it is kept as it is", l_Path);
+
+        return std::nullopt;
+    }
+
+    const std::string& l_Namespace = l_CSharp ? m_Project->GetAssemblyName() : m_Project->GetModuleName();
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, FillScriptTemplate(l_CSharp ? c_CSharpScriptTemplate : c_CppScriptTemplate, l_Namespace, className)); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be written: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created the {} script {}.{} in {}, which builds as its folder settles", l_Language, l_Namespace, className, l_Path);
+
+    return l_Path;
+}
+
+// A project path names one of its mounts, and any other path not rooted is where build output puts it, relative to the project's folder
+bool EditorSession::OpenScript(std::string_view path, std::uint32_t line)
+{
+    if (!m_Project)
+    {
+        return false;
+    }
+
+    const bool l_Mounted = IsSameOrInside(path, Trinity::Project::c_ProjectMount) || IsSameOrInside(path, Trinity::Project::c_AssetsMount) || IsSameOrInside(path, Trinity::Project::c_CacheMount);
+    std::filesystem::path l_File = l_Mounted ? m_Project->ToNativePath(path) : FromUtf8(path);
+    if (l_File.is_relative())
+    {
+        l_File = m_Project->GetDirectory() / l_File;
+    }
+
+    l_File = l_File.lexically_normal();
+    std::error_code l_Error;
+    if (!std::filesystem::is_regular_file(l_File, l_Error))
+    {
+        TR_ERROR("Forge: {} is not there, so it was not opened", ToUtf8(l_File));
+
+        return false;
+    }
+
+    const std::filesystem::path l_Solution = m_Project->GetDirectory() / FromUtf8(m_Project->GetAssemblyName() + ".slnx");
+    std::filesystem::path l_Workspace = m_Project->HasModule() ? m_Project->GetSourceDirectory() : m_Project->GetDirectory();
+    if (l_File.extension() == ".cs")
+    {
+        l_Workspace = m_Project->HasAssembly() && std::filesystem::is_regular_file(l_Solution, l_Error) ? l_Solution : m_Project->GetScriptsDirectory();
+    }
+
+    return IdeLauncher::OpenFile(m_ScriptEditor, l_File, line, l_Workspace);
+}
+
+bool EditorSession::OpenSolution()
+{
+    if (!m_Project || !m_Project->HasAssembly())
+    {
+        return false;
+    }
+
+    const std::filesystem::path l_Solution = m_Project->GetDirectory() / FromUtf8(m_Project->GetAssemblyName() + ".slnx");
+    std::error_code l_Error;
+    if (!std::filesystem::is_regular_file(l_Solution, l_Error))
+    {
+        TR_ERROR("Forge: {} is not there, so the C# scripts were not opened", ToUtf8(l_Solution));
+
+        return false;
+    }
+
+    return IdeLauncher::OpenWorkspace(m_ScriptEditor, l_Solution);
+}
+
+bool EditorSession::OpenModuleFolder()
+{
+    if (!m_Project || !m_Project->HasModule())
+    {
+        return false;
+    }
+
+    return IdeLauncher::OpenWorkspace(m_ScriptEditor, m_Project->GetSourceDirectory());
 }
 
 std::optional<std::string> EditorSession::GetMaterialKey(Trinity::UUID material) const

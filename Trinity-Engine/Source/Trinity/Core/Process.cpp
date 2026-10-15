@@ -71,6 +71,33 @@ namespace Trinity
             return *l_ExitCode;
         }
 
+        Expected<void, std::string> Start(const std::filesystem::path& executable, std::span<const std::string> arguments, const std::filesystem::path& workingDirectory)
+        {
+            Platform::ProcessRequest l_Request;
+            l_Request.Executable = executable;
+            l_Request.Arguments = arguments;
+            l_Request.WorkingDirectory = workingDirectory;
+
+            std::string l_Error;
+            if (!Platform::StartProcess(l_Request, l_Error))
+            {
+                return Unexpected{ std::format("{} could not be started: {}", ToUtf8(executable), l_Error) };
+            }
+
+            return {};
+        }
+
+        Expected<void, std::string> OpenWithSystem(const std::filesystem::path& path)
+        {
+            std::string l_Error;
+            if (!Platform::OpenWithSystem(path, l_Error))
+            {
+                return Unexpected{ std::format("{} could not be opened: {}", ToUtf8(path), l_Error) };
+            }
+
+            return {};
+        }
+
         Environment GetEnvironment()
         {
             return Platform::GetEnvironment();

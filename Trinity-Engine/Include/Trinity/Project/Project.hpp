@@ -75,6 +75,7 @@ namespace Trinity
         [[nodiscard]] std::filesystem::path GetScriptsDirectory() const;
 
         [[nodiscard]] std::optional<std::string> ToAssetPath(const std::filesystem::path& nativePath) const;
+        // A path under /assets, /project or /cache as the files where they lie. One with none of them is relative to Assets
         [[nodiscard]] std::filesystem::path ToNativePath(std::string_view assetPath) const;
 
     private:

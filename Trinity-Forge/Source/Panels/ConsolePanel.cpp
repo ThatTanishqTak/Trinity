@@ -1,6 +1,7 @@
 #include "Panels/ConsolePanel.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cstddef>
 #include <format>
 #include <string_view>
@@ -56,6 +57,55 @@ ConsolePanel::ConsolePanel() : Panel("Console", Trinity::Icons::c_Terminal, Dock
     m_VisibleLines.reserve(Trinity::LogHistory::c_LineCapacity);
 }
 
+std::optional<std::pair<std::string_view, std::uint32_t>> ConsolePanel::FindLocation(std::string_view text)
+{
+    constexpr std::string_view c_Prefix = "Build: ";
+    if (!text.starts_with(c_Prefix))
+    {
+        return std::nullopt;
+    }
+
+    const std::string_view l_Rest = text.substr(c_Prefix.size());
+    for (std::size_t l_Open = l_Rest.find('('); l_Open != std::string_view::npos && l_Open > 0; l_Open = l_Rest.find('(', l_Open + 1))
+    {
+        std::uint32_t l_Line = 0;
+        const char* l_End = l_Rest.data() + l_Rest.size();
+        const std::from_chars_result l_Parsed = std::from_chars(l_Rest.data() + l_Open + 1, l_End, l_Line);
+        if (l_Parsed.ec != std::errc() || l_Line == 0)
+        {
+            continue;
+        }
+
+        const char* l_After = l_Parsed.ptr;
+        if (l_After != l_End && *l_After == ',')
+        {
+            std::uint32_t l_Column = 0;
+            const std::from_chars_result l_ColumnParsed = std::from_chars(l_After + 1, l_End, l_Column);
+            l_After = l_ColumnParsed.ec == std::errc() ? l_ColumnParsed.ptr : l_After;
+        }
+
+        if (std::string_view(l_After, static_cast<std::size_t>(l_End - l_After)).starts_with("):"))
+        {
+            return std::pair(l_Rest.substr(0, l_Open), l_Line);
+        }
+    }
+
+    return std::nullopt;
+}
+
+void ConsolePanel::ShowBuildErrors(std::string label, std::uint64_t firstLine, std::uint64_t endLine, std::vector<std::string> errorLines)
+{
+    std::ranges::sort(errorLines);
+    m_BuildErrors = std::move(errorLines);
+    m_BuildLines = std::pair(firstLine, endLine);
+    m_BuildLabel = std::move(label);
+    m_Rescan = true;
+    m_ScrollToTop = true;
+    m_SelectLog = true;
+    SetOpen(true);
+    RequestFocus();
+}
+
 // The command line stays below whichever tab is open
 void ConsolePanel::OnImGuiRender()
 {
@@ -65,7 +115,7 @@ void ConsolePanel::OnImGuiRender()
 
     if (ImGui::BeginTabBar("##ConsoleTabs"))
     {
-        if (ImGui::BeginTabItem("Log"))
+        if (ImGui::BeginTabItem("Log", nullptr, std::exchange(m_SelectLog, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None))
         {
             DrawLog(l_FooterHeight);
             ImGui::EndTabItem();
@@ -82,6 +132,12 @@ void ConsolePanel::OnImGuiRender()
 
     ImGui::Separator();
     DrawCommandLine();
+
+    // Once the history is no longer held, since opening a file logs
+    if (const std::optional<std::pair<std::string, std::uint32_t>> l_Open = std::exchange(m_PendingOpen, std::nullopt); l_Open && m_OpenLocation)
+    {
+        m_OpenLocation(l_Open->first, l_Open->second);
+    }
 }
 
 // Nothing in here may log: the history stays locked while it is drawn, and this thread would wait on itself
@@ -105,6 +161,20 @@ void ConsolePanel::DrawLog(float footerHeight)
     {
         m_TextFilter.Build();
         m_Rescan = true;
+    }
+
+    // A build's errors, shown alone until this is clicked
+    if (m_BuildLines)
+    {
+        ToolbarSeparator();
+        if (ImGui::Button(std::format("{} {} errors only###BuildErrors", Trinity::Icons::c_TimesCircle, m_BuildLabel).c_str()))
+        {
+            m_BuildLines.reset();
+            m_Rescan = true;
+            m_ScrollToBottom = true;
+        }
+
+        ImGui::SetItemTooltip("Showing only the errors of the last %s build. Click to show the whole log again", m_BuildLabel.c_str());
     }
 
     ToolbarSeparator();
@@ -145,11 +215,27 @@ void ConsolePanel::DrawLog(float footerHeight)
                 ImGui::PushStyleColor(ImGuiCol_Text, GetLevelColor(l_Entry.Level));
                 ImGui::TextUnformatted(l_Entry.Text.data(), l_Entry.Text.data() + l_Entry.Text.size());
                 ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered())
+                {
+                    if (const std::optional<std::pair<std::string_view, std::uint32_t>> l_Location = FindLocation(l_Entry.Text))
+                    {
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                        ImGui::SetItemTooltip("Double-click to open %.*s at line %u in the script editor", static_cast<int>(l_Location->first.size()), l_Location->first.data(), l_Location->second);
+                        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                        {
+                            m_PendingOpen = std::pair(std::string(l_Location->first), l_Location->second);
+                        }
+                    }
+                }
             }
         }
 
-        // Follows new lines only while already at the bottom, so scrolling up to read stays put
-        if (m_ScrollToBottom || (m_AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()))
+        // A build's errors start from the first. Otherwise new lines are followed only while already at the bottom, so scrolling up to read stays put
+        if (std::exchange(m_ScrollToTop, false))
+        {
+            ImGui::SetScrollY(0.0f);
+        }
+        else if (m_ScrollToBottom || (m_AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()))
         {
             ImGui::SetScrollHereY(1.0f);
         }
@@ -185,7 +271,8 @@ void ConsolePanel::UpdateVisibleLines(const Trinity::LogHistory::Reader& history
     for (std::uint64_t it_Sequence = std::max(m_ScannedSequence, l_First); it_Sequence < l_End; ++it_Sequence)
     {
         const Trinity::LogEntry& l_Entry = history[static_cast<std::size_t>(it_Sequence - l_First)];
-        if (m_ShowLevels[std::to_underlying(l_Entry.Level)] && m_TextFilter.PassFilter(l_Entry.Text.data(), l_Entry.Text.data() + l_Entry.Text.size()))
+        const bool l_InBuild = !m_BuildLines || (it_Sequence >= m_BuildLines->first && it_Sequence < m_BuildLines->second && l_Entry.Level >= Trinity::LogLevel::Error && std::ranges::binary_search(m_BuildErrors, l_Entry.Text, std::less<>()));
+        if (l_InBuild && m_ShowLevels[std::to_underlying(l_Entry.Level)] && m_TextFilter.PassFilter(l_Entry.Text.data(), l_Entry.Text.data() + l_Entry.Text.size()))
         {
             m_VisibleLines.push_back(it_Sequence);
         }

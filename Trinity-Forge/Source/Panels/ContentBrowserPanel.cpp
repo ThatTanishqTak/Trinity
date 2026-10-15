@@ -7,16 +7,19 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cfloat>
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <tuple>
 #include <utility>
 
 namespace
 {
     constexpr const char* c_DeletePopup = "Delete###ForgeDeleteAsset";
+    constexpr const char* c_NewScriptPopup = "New Script###ForgeNewScript";
     constexpr float c_MinimumThumbnailSize = 3.0f;
     constexpr float c_MaximumThumbnailSize = 12.0f;
     constexpr float c_IconScale = 0.55f;
@@ -32,6 +35,35 @@ namespace
         return path.substr(path.find_last_of('/') + 1);
     }
 
+    bool IsSameOrInside(std::string_view path, std::string_view folder)
+    {
+        return path == folder || (path.starts_with(folder) && path.size() > folder.size() && path[folder.size()] == '/');
+    }
+
+    struct Root
+    {
+        std::string_view Path;
+        std::string_view Label;
+    };
+
+    constexpr std::array<Root, 3> c_Roots{ { { Trinity::Project::c_AssetsMount, "Assets" },{ EditorSession::c_ScriptsFolder, "Scripts" },{ EditorSession::c_SourceFolder, "Source" } } };
+
+    // The root the path is in, or none
+    const Root* FindRoot(std::string_view path)
+    {
+        const auto a_Found = std::ranges::find_if(c_Roots, [path](const Root& root) { return IsSameOrInside(path, root.Path); });
+
+        return a_Found != c_Roots.end() ? &*a_Found : nullptr;
+    }
+
+    // A file a script editor opens, by its extension, or a module's CMakeLists.txt
+    bool IsScriptFile(std::string_view name)
+    {
+        constexpr std::array<std::string_view, 9> c_Extensions{ ".cs", ".cpp", ".hpp", ".h", ".inl", ".csproj", ".props", ".targets", ".cmake" };
+
+        return name == "CMakeLists.txt" || std::ranges::any_of(c_Extensions, [name](std::string_view extension) { return name.ends_with(extension); });
+    }
+
     bool LessIgnoringCase(std::string_view left, std::string_view right)
     {
         return std::ranges::lexicographical_compare(left, right, [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) < std::tolower(static_cast<unsigned char>(b)); });
@@ -45,11 +77,16 @@ namespace
         return l_Dot == std::string::npos || l_Dot == 0 ? std::string_view(name) : std::string_view(name).substr(0, l_Dot);
     }
 
-    const char* GetIcon(const Trinity::AssetRecord* record, bool folder)
+    const char* GetIcon(const Trinity::AssetRecord* record, bool folder, std::string_view name)
     {
         if (folder)
         {
             return Trinity::Icons::c_Folder;
+        }
+
+        if (record == nullptr && IsScriptFile(name))
+        {
+            return Trinity::Icons::c_FileCode;
         }
 
         if (record != nullptr && record->Importer == Trinity::TextureAsset::c_AssetType)
@@ -133,10 +170,17 @@ void ContentBrowserPanel::OnImGuiRender()
         ImGui::TableSetupColumn("Contents", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableNextRow();
 
+        // Scripts and Source once the project has them
         ImGui::TableSetColumnIndex(0);
         if (ImGui::BeginChild("##Folders"))
         {
-            DrawFolderTree(std::string(Trinity::Project::c_AssetsMount), "Assets");
+            for (const Root& it_Root : c_Roots)
+            {
+                if (it_Root.Path == Trinity::Project::c_AssetsMount || std::filesystem::is_directory(m_Session.GetProject()->ToNativePath(it_Root.Path)))
+                {
+                    DrawFolderTree(std::string(it_Root.Path), std::string(it_Root.Label));
+                }
+            }
         }
 
         ImGui::EndChild();
@@ -153,6 +197,7 @@ void ContentBrowserPanel::OnImGuiRender()
     }
 
     DrawDeletePopup();
+    DrawNewScriptPopup();
 
     for (std::move_only_function<void()>& it_Action : std::exchange(m_Deferred, {}))
     {
@@ -177,7 +222,8 @@ void ContentBrowserPanel::DrawFolderTree(const std::string& path, const std::str
         l_Flags |= ImGuiTreeNodeFlags_Leaf;
     }
 
-    if (path == Trinity::Project::c_AssetsMount)
+    const Root* l_Root = FindRoot(path);
+    if (l_Root != nullptr && l_Root->Path == path)
     {
         l_Flags |= ImGuiTreeNodeFlags_DefaultOpen;
     }
@@ -212,10 +258,11 @@ void ContentBrowserPanel::DrawFolderTree(const std::string& path, const std::str
     }
 }
 
-// Up, then the open folder's path, each part of which opens it and takes a drop
+// Up, then the open folder's path from its root, each part of which opens it and takes a drop
 void ContentBrowserPanel::DrawToolbar()
 {
-    ImGui::BeginDisabled(m_Folder == Trinity::Project::c_AssetsMount);
+    const Root* l_Root = FindRoot(m_Folder);
+    ImGui::BeginDisabled(l_Root == nullptr || m_Folder == l_Root->Path);
     if (ImGui::Button(Trinity::Icons::c_ArrowUp))
     {
         m_Folder = GetParent(m_Folder);
@@ -224,12 +271,12 @@ void ContentBrowserPanel::DrawToolbar()
     ImGui::EndDisabled();
 
     std::string l_Path;
-    std::size_t l_Start = 1;
+    std::size_t l_Start = l_Root != nullptr ? l_Root->Path.size() : 1;
     while (l_Start <= m_Folder.size())
     {
         const std::size_t l_End = std::min(m_Folder.find('/', l_Start), m_Folder.size());
         l_Path = m_Folder.substr(0, l_End);
-        const std::string l_Name = l_Path == Trinity::Project::c_AssetsMount ? std::string("Assets") : std::string(GetName(l_Path));
+        const std::string l_Name = l_Root != nullptr && l_Path == l_Root->Path ? std::string(l_Root->Label) : std::string(GetName(l_Path));
 
         ImGui::SameLine();
         if (ImGui::Button(std::format("{}###Crumb{}", l_Name, l_Path).c_str()))
@@ -314,7 +361,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, float size)
             ImGui::SetDragDropPayload(c_AssetPayload, &l_Value, sizeof(l_Value));
         }
 
-        ImGui::TextUnformatted(std::format("{} {}", GetIcon(item.Record, item.Folder), item.Name).c_str());
+        ImGui::TextUnformatted(std::format("{} {}", GetIcon(item.Record, item.Folder, item.Name), item.Name).c_str());
         ImGui::EndDragDropSource();
     }
 
@@ -346,7 +393,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, float size)
         }
         else
         {
-            const char* l_Icon = GetIcon(item.Record, item.Folder);
+            const char* l_Icon = GetIcon(item.Record, item.Folder, item.Name);
             const float l_IconSize = l_ImageSize * c_IconScale;
             const ImVec2 l_IconExtent = ImGui::GetFont()->CalcTextSizeA(l_IconSize, FLT_MAX, 0.0f, l_Icon);
             l_DrawList.AddText(ImGui::GetFont(), l_IconSize, ImVec2(l_ImageMin.x + (l_ImageSize - l_IconExtent.x) * 0.5f, l_ImageMin.y + (l_ImageSize - l_IconExtent.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), l_Icon);
@@ -376,6 +423,11 @@ void ContentBrowserPanel::DrawItem(const Item& item, float size)
 void ContentBrowserPanel::DrawItemMenu(const Item& item)
 {
     if ((item.Folder || (item.Record != nullptr && item.Record->Importer == "Scene")) && ImGui::MenuItem("Open"))
+    {
+        Open(item);
+    }
+
+    if (!item.Folder && item.Record == nullptr && IsScriptFile(item.Name) && ImGui::MenuItem(std::format("{} Open in {}", Trinity::Icons::c_FileCode, IdeLauncher::ToString(m_Session.GetScriptEditor())).c_str()))
     {
         Open(item);
     }
@@ -428,7 +480,7 @@ void ContentBrowserPanel::DrawRenameField(const Item& item, ImVec2 position, flo
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
 }
 
-// The space after the items: a click clears the selection, its menu makes a folder, and a drop moves into the open folder
+// The space after the items: a click clears the selection, its menu makes a folder, a material among the assets and a script in Scripts or Source, and a drop moves into the open folder
 void ContentBrowserPanel::DrawBackground()
 {
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
@@ -452,7 +504,7 @@ void ContentBrowserPanel::DrawBackground()
             });
         }
 
-        if (ImGui::MenuItem(std::format("{} New Material", Trinity::Icons::c_PaintBrush).c_str()))
+        if (IsSameOrInside(m_Folder, Trinity::Project::c_AssetsMount) && ImGui::MenuItem(std::format("{} New Material", Trinity::Icons::c_PaintBrush).c_str()))
         {
             m_Deferred.push_back([this]
             {
@@ -462,6 +514,17 @@ void ContentBrowserPanel::DrawBackground()
                     BeginRename({ std::string(GetName(*l_Material)), *l_Material, false, m_Session.GetRegistry()->FindByPath(*l_Material) });
                 }
             });
+        }
+
+        // The name is asked for first, since it names the class as well as the file
+        for (const auto& [it_Language, it_Folder, it_Label] : { std::tuple(Trinity::ScriptLanguage::CSharp, EditorSession::c_ScriptsFolder, "New C# Script..."), std::tuple(Trinity::ScriptLanguage::Cpp, EditorSession::c_SourceFolder, "New C++ Script...") })
+        {
+            if (IsSameOrInside(m_Folder, it_Folder) && ImGui::MenuItem(std::format("{} {}", Trinity::Icons::c_FileCode, it_Label).c_str()))
+            {
+                m_NewScript = it_Language;
+                m_NewScriptName = "NewScript";
+                m_OpenNewScriptPopup = true;
+            }
         }
 
         if (ImGui::MenuItem(std::format("{} Refresh", Trinity::Icons::c_Refresh).c_str(), "F5"))
@@ -509,6 +572,57 @@ void ContentBrowserPanel::DrawDeletePopup()
     if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
         m_PendingDelete.clear();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+// The class's name, which names its file too. Enter makes it, and Escape or Cancel makes nothing
+void ContentBrowserPanel::DrawNewScriptPopup()
+{
+    if (std::exchange(m_OpenNewScriptPopup, false))
+    {
+        ImGui::OpenPopup(c_NewScriptPopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_NewScriptPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    const bool l_CSharp = m_NewScript == Trinity::ScriptLanguage::CSharp;
+    ImGui::TextUnformatted(std::format("{} A new {} script in {}", Trinity::Icons::c_FileCode, l_CSharp ? "C#" : "C++", m_Folder).c_str());
+    ImGui::TextDisabled("Its class and its file take this name");
+    if (ImGui::IsWindowAppearing())
+    {
+        ImGui::SetKeyboardFocusHere();
+    }
+
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
+    const bool l_Entered = ImGui::InputText("##ScriptName", &m_NewScriptName, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+    ImGui::Spacing();
+
+    if (ImGui::Button("Create") || l_Entered)
+    {
+        m_Deferred.push_back([this, l_Language = m_NewScript.value_or(Trinity::ScriptLanguage::CSharp), l_Name = m_NewScriptName]
+        {
+            if (const std::optional<std::string> l_Script = m_Session.CreateScript(m_Folder, l_Language, l_Name))
+            {
+                m_Selected = *l_Script;
+            }
+
+            m_Listings.clear();
+        });
+        m_NewScript.reset();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    {
+        m_NewScript.reset();
         ImGui::CloseCurrentPopup();
     }
 
@@ -584,6 +698,10 @@ void ContentBrowserPanel::Open(const Item& item)
     {
         m_Session.RequestOpenScene(item.Path);
     }
+    else if (item.Record == nullptr && IsScriptFile(item.Name))
+    {
+        m_Deferred.push_back([this, l_Path = item.Path] { static_cast<void>(m_Session.OpenScript(l_Path)); });
+    }
 }
 
 void ContentBrowserPanel::BeginRename(const Item& item)
@@ -594,10 +712,18 @@ void ContentBrowserPanel::BeginRename(const Item& item)
     m_FocusRename = true;
 }
 
+// Within its root, since a script among the assets, or an asset among the scripts, would no longer be what it is
 void ContentBrowserPanel::Move(const std::string& path, const std::string& folder)
 {
     if (GetParent(path) == folder)
     {
+        return;
+    }
+
+    if (FindRoot(path) != FindRoot(folder))
+    {
+        TR_ERROR("Forge: {} stays in {}, so it was not moved to {}", path, FindRoot(path) != nullptr ? FindRoot(path)->Label : std::string_view("its folder"), folder);
+
         return;
     }
 

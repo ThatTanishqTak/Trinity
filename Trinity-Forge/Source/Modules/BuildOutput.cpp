@@ -113,13 +113,19 @@ void BuildOutput::Read(std::string_view text)
         if (m_Reported.insert(l_Line).second)
         {
             ++m_Errors;
-            TR_ERROR("Build: {}", l_Line);
+            LogError(std::format("Build: {}", l_Line));
         }
     }
     else if (!l_Line.empty())
     {
         TR_TRACE("Build: {}", l_Line);
     }
+}
+
+void BuildOutput::LogError(std::string text)
+{
+    TR_ERROR("{}", text);
+    m_ErrorLines.push_back(std::move(text));
 }
 
 void BuildOutput::Finish()
@@ -162,7 +168,7 @@ void BuildOutput::Report(const Diagnostic& diagnostic)
     if (diagnostic.Error)
     {
         ++m_Errors;
-        TR_ERROR("{}", l_Text);
+        LogError(std::move(l_Text));
     }
     else
     {

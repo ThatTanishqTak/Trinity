@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Memory.hpp"
+#include "Trinity/Scripting/ScriptField.hpp"
 
 #include <concepts>
 #include <coroutine>
@@ -38,12 +39,13 @@ namespace Trinity
         Coroutine
     };
 
-    // How the runtime runs a timer or a coroutine, which is opaque to it. Resume runs it until it next waits, written into the wait, or Done once it has finished, and is false when it failed, logged by its language, which stops its script. Check asks a condition its language keeps, and Free lets it go, whether it finished or was stopped
+    // How the runtime runs a timer or a coroutine, which is opaque to it. Resume runs it until it next waits, written into the wait, or Done once it has finished, and is false when it failed, logged by its language, which stops its script. Check asks a condition its language keeps, and Free lets it go, whether it finished or was stopped. The language is the one its time and count go to
     struct ScriptTaskCalls
     {
         bool (*Resume)(void* task, ScriptWait& next) = nullptr;
         bool (*Check)(void* task, bool& met) = nullptr;
         void (*Free)(void* task) = nullptr;
+        ScriptLanguage Language = ScriptLanguage::Cpp;
     };
 
     // A timer or a coroutine a script started, which stays valid to stop or ask about after it has gone. Empty for one that was never started, or that finished as it started
@@ -151,7 +153,7 @@ namespace Trinity
                 Memory::Delete(static_cast<TimerCallback*>(task));
             }
 
-            static constexpr ScriptTaskCalls c_Calls{ &Resume, nullptr, &Free };
+            static constexpr ScriptTaskCalls c_Calls{ &Resume, nullptr, &Free, ScriptLanguage::Cpp };
         };
     }
 

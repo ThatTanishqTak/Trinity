@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // One build of a project's C# scripts, on a job, with dotnet build in Debug for a Debug Forge and Release otherwise, against the Trinity-ScriptCore and Trinity-ScriptGenerator beside Forge. The .NET SDK is the one on the PATH, or where DOTNET_ROOT points. Its warnings and errors go to the log with their files and lines as they come, the rest of the output at trace, and a summary at the end
 class AssemblyBuild
@@ -28,6 +29,8 @@ public:
         std::uint32_t Errors = 0;
         std::uint32_t Warnings = 0;
         double Seconds = 0.0;
+        // Each line it logged at error, as BuildOutput keeps them
+        std::vector<std::string> ErrorLines;
         std::filesystem::path Assembly;
     };
 

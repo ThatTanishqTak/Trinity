@@ -3,6 +3,7 @@
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Platform/Windows/WindowsHeaders.hpp"
 
+#include <shellapi.h>
 #include <shellscalingapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -594,6 +595,49 @@ namespace Trinity
             CloseValidHandle(l_Job);
 
             return static_cast<int>(l_ExitCode);
+        }
+
+        // Inheriting no handle of Forge's, without a console window, and in a process group of its own, so it outlives Forge and a Ctrl+C in Forge's console never reaches it
+        bool StartProcess(const ProcessRequest& request, std::string& error)
+        {
+            std::wstring l_CommandLine = QuoteArgument(request.Executable.wstring());
+            for (const std::string& it_Argument : request.Arguments)
+            {
+                l_CommandLine += L' ';
+                l_CommandLine += QuoteArgument(ToWide(it_Argument));
+            }
+
+            const std::wstring l_Environment = request.Environment != nullptr ? MakeEnvironmentBlock(*request.Environment) : std::wstring();
+            const std::wstring l_Directory = request.WorkingDirectory.wstring();
+            STARTUPINFOW l_Startup{};
+            l_Startup.cb = sizeof(STARTUPINFOW);
+            PROCESS_INFORMATION l_Process{};
+            const DWORD l_Flags = CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_PROCESS_GROUP;
+            if (!::CreateProcessW(request.Executable.c_str(), l_CommandLine.data(), nullptr, nullptr, FALSE, l_Flags, request.Environment != nullptr ? const_cast<wchar_t*>(l_Environment.c_str()) : nullptr, l_Directory.empty() ? nullptr : l_Directory.c_str(), &l_Startup, &l_Process))
+            {
+                error = GetErrorMessage(::GetLastError());
+
+                return false;
+            }
+
+            CloseValidHandle(l_Process.hThread);
+            CloseValidHandle(l_Process.hProcess);
+
+            return true;
+        }
+
+        // As Explorer opens it, so a folder opens in Explorer and a file in the program set for its type
+        bool OpenWithSystem(const std::filesystem::path& path, std::string& error)
+        {
+            const HINSTANCE l_Result = ::ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            if (reinterpret_cast<INT_PTR>(l_Result) <= 32)
+            {
+                error = GetErrorMessage(::GetLastError());
+
+                return false;
+            }
+
+            return true;
         }
 
         // Watched through the folder's handle, opened so the files in it can still be changed, renamed and deleted

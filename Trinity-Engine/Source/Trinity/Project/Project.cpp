@@ -168,13 +168,6 @@ namespace Trinity
                 TR_CORE_WARN("Project: {} has a gravity or step rate that cannot be read, which keeps its default", project);
             }
         }
-
-        std::string_view WithoutAssetsMount(std::string_view assetPath)
-        {
-            const std::string l_Prefix = std::format("{}/", Project::c_AssetsMount);
-
-            return assetPath.starts_with(l_Prefix) ? assetPath.substr(l_Prefix.size()) : assetPath;
-        }
     }
 
     Project::Project(std::filesystem::path directory, std::filesystem::path filePath) : m_Directory(std::move(directory)), m_FilePath(std::move(filePath))
@@ -540,9 +533,37 @@ namespace Trinity
         return std::format("{}/{}", c_AssetsMount, std::string_view(reinterpret_cast<const char*>(l_Generic.data()), l_Generic.size()));
     }
 
+    // Under whichever of the project's mounts it names, so the project's own files, such as its scripts, are found as its assets are. A path naming no mount is taken as relative to Assets
     std::filesystem::path Project::ToNativePath(std::string_view assetPath) const
     {
-        return (GetAssetsDirectory() / FromUtf8(WithoutAssetsMount(assetPath))).make_preferred();
+        const auto a_Under = [assetPath](std::string_view mount) -> std::optional<std::string_view>
+        {
+            if (assetPath == mount)
+            {
+                return std::string_view();
+            }
+
+            if (assetPath.size() > mount.size() && assetPath.starts_with(mount) && assetPath[mount.size()] == '/')
+            {
+                return assetPath.substr(mount.size() + 1);
+            }
+
+            return std::nullopt;
+        };
+
+        if (const std::optional<std::string_view> l_Project = a_Under(c_ProjectMount))
+        {
+            return (m_Directory / FromUtf8(*l_Project)).make_preferred();
+        }
+
+        if (const std::optional<std::string_view> l_Cache = a_Under(c_CacheMount))
+        {
+            return (m_Directory / "Cache" / FromUtf8(*l_Cache)).make_preferred();
+        }
+
+        const std::optional<std::string_view> l_Asset = a_Under(c_AssetsMount);
+
+        return (GetAssetsDirectory() / FromUtf8(l_Asset.value_or(assetPath))).make_preferred();
     }
 
     Expected<void, std::string> Project::Mount()

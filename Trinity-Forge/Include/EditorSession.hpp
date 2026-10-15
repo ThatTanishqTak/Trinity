@@ -9,6 +9,7 @@
 #include "Importers/TextureImporter.hpp"
 #include "Importers/TextureReimporter.hpp"
 #include "Modules/AssemblyHost.hpp"
+#include "Modules/IdeLauncher.hpp"
 #include "Modules/ModuleHost.hpp"
 
 #include "Trinity.hpp"
@@ -49,6 +50,10 @@ public:
         ModelImportReport Models;
         EnvironmentImportReport Environments;
     };
+
+    // The project folders scripts live in, which the Content Browser shows beside Assets
+    static constexpr std::string_view c_ScriptsFolder = "/project/Scripts";
+    static constexpr std::string_view c_SourceFolder = "/project/Source";
 
     EditorSession() = default;
     ~EditorSession();
@@ -115,6 +120,17 @@ public:
     bool DeleteAsset(std::string_view path);
     bool ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings settings);
     [[nodiscard]] std::optional<std::string> CreateMaterial(std::string_view folder);
+    // A script of the language from its template, its class and file named as given, in Scripts or a folder in it for C#, and Source or a folder in it for C++, which its build picks up as the folder's watcher sees it. Its project path, or nothing, logged, for a name that cannot name a class, a file there already, a folder outside the language's, or a project without that language's scripts
+    [[nodiscard]] std::optional<std::string> CreateScript(std::string_view folder, Trinity::ScriptLanguage language, std::string_view className);
+
+    // What scripts open in, which imgui.ini keeps for each person
+    [[nodiscard]] ScriptEditor GetScriptEditor() const { return m_ScriptEditor; }
+    void SetScriptEditor(ScriptEditor editor) { m_ScriptEditor = editor; }
+    // A file of the project at its line, counted from 1, or at its top for 0, in the script editor, with the C# solution for a .cs file and the module's folder for any other. The path is a project path, such as /project/Scripts/Player.cs, one relative to the project's folder, as build errors name them, or a native one
+    bool OpenScript(std::string_view path, std::uint32_t line = 0);
+    // The C# solution beside the project file, or the C++ module's Source folder, in the script editor
+    bool OpenSolution();
+    bool OpenModuleFolder();
     // Where the material lives: its own file, or for a model's material the fields that differ from the import, in the model's .meta, and its cooked file. A loaded material shows it the same frame
     bool WriteMaterial(Trinity::UUID material, const Trinity::MaterialData& data);
     // Through the history, so it undoes in one step
@@ -203,6 +219,7 @@ private:
     EnvironmentImportBatch m_EnvironmentImports;
     ModuleHost m_Module;
     AssemblyHost m_Assembly;
+    ScriptEditor m_ScriptEditor = ScriptEditor::System;
     bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;

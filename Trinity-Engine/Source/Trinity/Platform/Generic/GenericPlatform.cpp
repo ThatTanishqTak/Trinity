@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Memory.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -145,6 +146,94 @@ namespace Trinity
                 const std::function<void(std::string_view)>& m_OnLine;
                 std::string m_Line;
             };
+
+            // What execve takes, all made before a fork, since a process with threads may only make the few calls that are safe between the fork and the program running
+            struct Program
+            {
+                std::string Executable;
+                std::string Directory;
+                std::vector<char*> Arguments;
+                std::vector<std::string> EnvironmentEntries;
+                std::vector<char*> EnvironmentBlock;
+                char** Environment = nullptr;
+            };
+
+            // The program checked, so one that cannot start says why rather than failing in the child. Its strings point into the request and into itself, so it is not copied
+            [[nodiscard]] bool PrepareProgram(const ProcessRequest& request, Program& program, std::string& error)
+            {
+                program.Executable = request.Executable.string();
+                program.Directory = request.WorkingDirectory.string();
+                if (::access(program.Executable.c_str(), X_OK) != 0)
+                {
+                    error = std::strerror(errno);
+
+                    return false;
+                }
+
+                std::error_code l_DirectoryError;
+                if (!program.Directory.empty() && !std::filesystem::is_directory(request.WorkingDirectory, l_DirectoryError))
+                {
+                    error = std::format("its folder {} does not exist", program.Directory);
+
+                    return false;
+                }
+
+                program.Arguments.reserve(request.Arguments.size() + 2);
+                program.Arguments.push_back(const_cast<char*>(program.Executable.c_str()));
+                for (const std::string& it_Argument : request.Arguments)
+                {
+                    program.Arguments.push_back(const_cast<char*>(it_Argument.c_str()));
+                }
+
+                program.Arguments.push_back(nullptr);
+                if (request.Environment == nullptr)
+                {
+                    program.Environment = GetEnvironmentBlock();
+
+                    return true;
+                }
+
+                program.EnvironmentEntries.reserve(request.Environment->size());
+                for (const auto& [it_Name, it_Value] : *request.Environment)
+                {
+                    program.EnvironmentEntries.push_back(std::format("{}={}", it_Name, it_Value));
+                }
+
+                for (std::string& it_Entry : program.EnvironmentEntries)
+                {
+                    program.EnvironmentBlock.push_back(it_Entry.data());
+                }
+
+                program.EnvironmentBlock.push_back(nullptr);
+                program.Environment = program.EnvironmentBlock.data();
+
+                return true;
+            }
+
+            // A program by its name in the folders of this process's PATH, or empty
+            [[nodiscard]] std::filesystem::path FindOnPath(std::string_view name)
+            {
+                const char* l_Path = std::getenv("PATH");
+                std::string_view l_Folders = l_Path != nullptr ? std::string_view(l_Path) : std::string_view();
+                while (!l_Folders.empty())
+                {
+                    const std::size_t l_End = std::min(l_Folders.find(':'), l_Folders.size());
+                    const std::string_view l_Folder = l_Folders.substr(0, l_End);
+                    l_Folders.remove_prefix(std::min(l_End + 1, l_Folders.size()));
+                    if (l_Folder.empty())
+                    {
+                        continue;
+                    }
+
+                    const std::filesystem::path l_Candidate = std::filesystem::path(l_Folder) / name;
+                    if (::access(l_Candidate.c_str(), X_OK) == 0)
+                    {
+                        return l_Candidate;
+                    }
+                }
+
+                return {};
+            }
         }
 
         void Initialize()
@@ -263,55 +352,15 @@ namespace Trinity
             return l_Variables;
         }
 
+
         // Everything the child needs is made before it is forked, since a process with threads may only make the few calls that are safe until the child runs the program. The child leads a process group of its own, so cancelling ends everything it started
         std::optional<int> RunProcess(const ProcessRequest& request, const std::function<void(std::string_view line)>& onLine, std::string& error)
         {
-            const std::string l_Executable = request.Executable.string();
-            const std::string l_Directory = request.WorkingDirectory.string();
-            if (::access(l_Executable.c_str(), X_OK) != 0)
+            Program l_Program;
+            if (!PrepareProgram(request, l_Program, error))
             {
-                error = std::strerror(errno);
-
                 return std::nullopt;
             }
-
-            std::error_code l_DirectoryError;
-            if (!l_Directory.empty() && !std::filesystem::is_directory(request.WorkingDirectory, l_DirectoryError))
-            {
-                error = std::format("its folder {} does not exist", l_Directory);
-
-                return std::nullopt;
-            }
-
-            std::vector<char*> l_Arguments;
-            l_Arguments.reserve(request.Arguments.size() + 2);
-            l_Arguments.push_back(const_cast<char*>(l_Executable.c_str()));
-            for (const std::string& it_Argument : request.Arguments)
-            {
-                l_Arguments.push_back(const_cast<char*>(it_Argument.c_str()));
-            }
-
-            l_Arguments.push_back(nullptr);
-
-            std::vector<std::string> l_EnvironmentEntries;
-            std::vector<char*> l_EnvironmentBlock;
-            if (request.Environment != nullptr)
-            {
-                l_EnvironmentEntries.reserve(request.Environment->size());
-                for (const auto& [it_Name, it_Value] : *request.Environment)
-                {
-                    l_EnvironmentEntries.push_back(std::format("{}={}", it_Name, it_Value));
-                }
-
-                for (std::string& it_Entry : l_EnvironmentEntries)
-                {
-                    l_EnvironmentBlock.push_back(it_Entry.data());
-                }
-
-                l_EnvironmentBlock.push_back(nullptr);
-            }
-
-            char** l_Environment = request.Environment != nullptr ? l_EnvironmentBlock.data() : GetEnvironmentBlock();
 
             std::array<int, 2> l_Pipe{ -1, -1 };
             if (::pipe(l_Pipe.data()) != 0)
@@ -346,12 +395,12 @@ namespace Trinity
 
                 ::dup2(l_Pipe[1], STDOUT_FILENO);
                 ::dup2(l_Pipe[1], STDERR_FILENO);
-                if (!l_Directory.empty() && ::chdir(l_Directory.c_str()) != 0)
+                if (!l_Program.Directory.empty() && ::chdir(l_Program.Directory.c_str()) != 0)
                 {
                     ::_exit(127);
                 }
 
-                ::execve(l_Executable.c_str(), l_Arguments.data(), l_Environment);
+                ::execve(l_Program.Executable.c_str(), l_Program.Arguments.data(), l_Program.Environment);
                 ::_exit(127);
             }
 
@@ -420,6 +469,118 @@ namespace Trinity
             }
 
             return WIFSIGNALED(l_Status) ? 128 + WTERMSIG(l_Status) : -1;
+        }
+
+        // Forked twice, so the program is no child of this process and is never waited for, in a session of its own so it outlives it, and with nothing of this process's open but /dev/null. Why it could not run comes back through a pipe that closes as it runs
+        bool StartProcess(const ProcessRequest& request, std::string& error)
+        {
+            Program l_Program;
+            if (!PrepareProgram(request, l_Program, error))
+            {
+                return false;
+            }
+
+            std::array<int, 2> l_Pipe{ -1, -1 };
+            if (::pipe(l_Pipe.data()) != 0)
+            {
+                error = std::format("no pipe to hear from it: {}", std::strerror(errno));
+
+                return false;
+            }
+
+            ::fcntl(l_Pipe[0], F_SETFD, FD_CLOEXEC);
+            ::fcntl(l_Pipe[1], F_SETFD, FD_CLOEXEC);
+
+            const pid_t l_Child = ::fork();
+            if (l_Child < 0)
+            {
+                error = std::strerror(errno);
+                ::close(l_Pipe[0]);
+                ::close(l_Pipe[1]);
+
+                return false;
+            }
+
+            if (l_Child == 0)
+            {
+                ::setsid();
+                const pid_t l_Grandchild = ::fork();
+                if (l_Grandchild != 0)
+                {
+                    ::_exit(l_Grandchild < 0 ? 1 : 0);
+                }
+
+                const int l_Null = ::open("/dev/null", O_RDWR | O_CLOEXEC);
+                if (l_Null >= 0)
+                {
+                    ::dup2(l_Null, STDIN_FILENO);
+                    ::dup2(l_Null, STDOUT_FILENO);
+                    ::dup2(l_Null, STDERR_FILENO);
+                }
+
+                if (l_Program.Directory.empty() || ::chdir(l_Program.Directory.c_str()) == 0)
+                {
+                    ::execve(l_Program.Executable.c_str(), l_Program.Arguments.data(), l_Program.Environment);
+                }
+
+                const int l_Failure = errno;
+                static_cast<void>(::write(l_Pipe[1], &l_Failure, sizeof(l_Failure)));
+                ::_exit(127);
+            }
+
+            ::close(l_Pipe[1]);
+            int l_Status = 0;
+            while (::waitpid(l_Child, &l_Status, 0) < 0 && errno == EINTR)
+            {
+
+            }
+
+            int l_Failure = 0;
+            ssize_t l_Read = 0;
+            do
+            {
+                l_Read = ::read(l_Pipe[0], &l_Failure, sizeof(l_Failure));
+            } while (l_Read < 0 && errno == EINTR);
+
+            ::close(l_Pipe[0]);
+            if (!WIFEXITED(l_Status) || WEXITSTATUS(l_Status) != 0)
+            {
+                error = "it could not be forked";
+
+                return false;
+            }
+
+            if (l_Read == static_cast<ssize_t>(sizeof(l_Failure)))
+            {
+                error = std::strerror(l_Failure);
+
+                return false;
+            }
+
+            return true;
+        }
+
+        // Through the desktop's own opener, open on macOS and xdg-open elsewhere
+        bool OpenWithSystem(const std::filesystem::path& path, std::string& error)
+        {
+#if defined(TR_PLATFORM_MACOS)
+            const std::filesystem::path l_Opener = "/usr/bin/open";
+#else
+            const std::filesystem::path l_Opener = FindOnPath("xdg-open");
+#endif
+            if (l_Opener.empty())
+            {
+                error = "there is no xdg-open on the PATH, which opens files as the desktop does";
+
+                return false;
+            }
+
+            const std::array<std::string, 1> l_Arguments{ path.string() };
+            ProcessRequest l_Request;
+            l_Request.Executable = l_Opener;
+            l_Request.Arguments = l_Arguments;
+
+            return StartProcess(l_Request, error);
         }
 
         void* OpenDirectoryWatch(const std::filesystem::path& directory, std::string& error)

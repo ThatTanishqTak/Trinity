@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Modules/AssemblyBuild.hpp"
+#include "Modules/BuildOutput.hpp"
 
 #include <Trinity.hpp>
 
@@ -9,7 +10,9 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
 // The open project's C# scripts: Scripts is watched, built on a job once the project opens and once its files stop changing, and reloaded after each good build. The build's output is watched as well, so a build from an IDE reloads too, and the build Forge loaded already is not loaded again. Each build that loads is copied to Cache/Scripts under a number of its own, with its PDB under the same number, so the build can write over its files while a copy runs, and a debugger finds the symbols of the copy that runs. A failed build leaves the scripts that run as they are. Scripts/Trinity.Local.props, which names this Forge's Trinity-ScriptCore for an IDE's builds, is written as the project opens
 class AssemblyHost
@@ -43,6 +46,10 @@ public:
     // Whether .NET is running, so C# scripts can build and load
     [[nodiscard]] static bool IsSupported() { return Trinity::ManagedScripts::IsAvailable(); }
     [[nodiscard]] bool IsBuilding() const { return m_Build.IsRunning(); }
+    // The build running or waiting to, or else the last that ran to its end. A cancelled one leaves the one before it
+    [[nodiscard]] BuildStatus GetStatus() const;
+    // The lines the last build that ran to its end logged at error
+    [[nodiscard]] const std::vector<std::string>& GetErrorLines() const { return m_LastErrorLines; }
     [[nodiscard]] bool IsLoaded() const { return Trinity::ManagedScripts::IsAssemblyLoaded(); }
 
 private:
@@ -74,4 +81,7 @@ private:
     std::optional<Clock::time_point> m_SourcesChangedAt;
     std::optional<Clock::time_point> m_OutputChangedAt;
     bool m_BuildRequested = false;
+    BuildStatus m_LastBuild;
+    std::vector<std::string> m_LastErrorLines;
+    std::uint64_t m_RunningFirstLine = 0;
 };

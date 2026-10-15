@@ -1262,6 +1262,26 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
             {
                 TextLine(std::format("  2D: {} bodies, {} awake, {} asleep", l_Physics.Bodies2D.Bodies, l_Physics.Bodies2D.Awake, l_Physics.Bodies2D.Sleeping));
             }
+
+            // The last frame's time in each language's scripts, and what each has running, as the runtime counts them
+            const Trinity::ScriptRuntime::Statistics l_Scripts = l_Runtime->GetScripts().GetStatistics();
+            TextLine(std::format("Scripts: {:.2f} ms in C++, {:.2f} ms in C#", l_Scripts.Cpp.Milliseconds, l_Scripts.CSharp.Milliseconds));
+            for (const auto& [it_Name, it_Language] : { std::pair<const char*, const Trinity::ScriptRuntime::LanguageStatistics*>("C++", &l_Scripts.Cpp), std::pair<const char*, const Trinity::ScriptRuntime::LanguageStatistics*>("C#", &l_Scripts.CSharp) })
+            {
+                TextLine(std::format("  {}: {} instance(s), {} timer(s), {} coroutine(s)", it_Name, it_Language->Instances, it_Language->Timers, it_Language->Coroutines));
+            }
+
+            if (l_Scripts.Unknown > 0 || l_Scripts.Faulted > 0)
+            {
+                TextLine(std::format("  {} without loaded code, {} stopped by a failed call", l_Scripts.Unknown, l_Scripts.Faulted));
+            }
+        }
+
+        // The garbage collector's heap, which no memory tag counts, whether or not a scene plays
+        if (Trinity::ManagedScripts::IsAvailable())
+        {
+            const Trinity::HeapStatistics l_Heap = Trinity::ManagedScripts::GetHeapStatistics();
+            TextLine(std::format("Managed heap: {:.2f} MB, {} collection(s)", static_cast<double>(l_Heap.Bytes) / (1024.0 * 1024.0), l_Heap.Collections));
         }
 
         TextLine(l_Selected ? std::format("Selected: {}", std::string_view(l_Selected.Get<Trinity::TagComponent>().Tag)) : std::string("Nothing selected"));

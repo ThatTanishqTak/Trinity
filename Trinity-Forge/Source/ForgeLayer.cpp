@@ -1,7 +1,6 @@
 #include "ForgeLayer.hpp"
 
 #include "EditorCommands.hpp"
-#include "Panels/ConsolePanel.hpp"
 #include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/HierarchyPanel.hpp"
 #include "Panels/PropertiesPanel.hpp"
@@ -90,7 +89,11 @@ void ForgeLayer::OnAttach()
     Trinity::Scope<ProjectSettingsPanel> l_ProjectSettings = Trinity::CreateScope<ProjectSettingsPanel>(m_Session);
     m_ProjectSettings = l_ProjectSettings.get();
     m_Panels.push_back(std::move(l_ProjectSettings));
-    m_Panels.push_back(Trinity::CreateScope<ConsolePanel>());
+    // A build's error opens where it is, in the script editor, on a double-click
+    Trinity::Scope<ConsolePanel> l_Console = Trinity::CreateScope<ConsolePanel>();
+    m_Console = l_Console.get();
+    m_Console->SetOpenLocation([this](std::string_view path, std::uint32_t line) { static_cast<void>(m_Session.OpenScript(path, line)); });
+    m_Panels.push_back(std::move(l_Console));
 
     // Docked after the Console, so it is the tab the default layout shows
     Trinity::Scope<ContentBrowserPanel> l_ContentBrowser = Trinity::CreateScope<ContentBrowserPanel>(m_Session);
@@ -391,8 +394,126 @@ void ForgeLayer::DrawMenuBar()
     }
 
     DrawPlayControls();
+    DrawBuildStatus();
 
     ImGui::EndMainMenuBar();
+}
+
+// At the right of the menu bar, one for each kind of script the project has: a spinner while it builds or waits to, red with its error count when the last build failed, which shows those errors in the Console when clicked, and green when it is up to date
+void ForgeLayer::DrawBuildStatus()
+{
+    const Trinity::Project* l_Project = m_Session.GetProject();
+    if (l_Project == nullptr)
+    {
+        return;
+    }
+
+    struct Indicator
+    {
+        const char* Label;
+        const char* Name;
+        BuildStatus Status;
+        const std::vector<std::string>* ErrorLines;
+    };
+
+    std::vector<Indicator> l_Indicators;
+    if (l_Project->HasModule() && ModuleHost::IsSupported())
+    {
+        l_Indicators.push_back({ "C++", "C++ module", m_Session.GetModule().GetStatus(), &m_Session.GetModule().GetErrorLines() });
+    }
+
+    if (l_Project->HasAssembly() && AssemblyHost::IsSupported())
+    {
+        l_Indicators.push_back({ "C#", "C# scripts", m_Session.GetAssembly().GetStatus(), &m_Session.GetAssembly().GetErrorLines() });
+    }
+
+    const auto a_Text = [](const Indicator& indicator)
+    {
+        switch (indicator.Status.State)
+        {
+            case BuildState::Pending:
+            case BuildState::Building:
+            {
+                return std::format("{} {}", Trinity::Icons::c_Spinner, indicator.Label);
+            }
+            case BuildState::Failed:
+            {
+                return std::format("{} {} {}", Trinity::Icons::c_TimesCircle, indicator.Label, indicator.Status.Errors);
+            }
+            case BuildState::UpToDate:
+            {
+                return std::format("{} {}", Trinity::Icons::c_CheckCircle, indicator.Label);
+            }
+            case BuildState::None:
+            {
+                break;
+            }
+        }
+
+        return std::format("{} {}", Trinity::Icons::c_FileCode, indicator.Label);
+    };
+
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    float l_Width = 0.0f;
+    for (const Indicator& it_Indicator : l_Indicators)
+    {
+        l_Width += ImGui::CalcTextSize(a_Text(it_Indicator).c_str()).x + l_Style.FramePadding.x * 2.0f + l_Style.ItemSpacing.x;
+    }
+
+    ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - l_Width - l_Style.WindowPadding.x));
+    for (const Indicator& it_Indicator : l_Indicators)
+    {
+        const BuildStatus& l_Status = it_Indicator.Status;
+        ImVec4 l_Color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+        std::string l_Tooltip = std::format("The {} has not been built yet", it_Indicator.Name);
+        switch (l_Status.State)
+        {
+            case BuildState::Pending:
+            {
+                l_Color = ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
+                l_Tooltip = std::format("The {} builds once its changes settle", it_Indicator.Name);
+
+                break;
+            }
+            case BuildState::Building:
+            {
+                l_Color = ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
+                l_Tooltip = std::format("The {} is building", it_Indicator.Name);
+
+                break;
+            }
+            case BuildState::Failed:
+            {
+                l_Color = ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
+                l_Tooltip = std::format("The {} failed to build, with {} error(s) and {} warning(s), and what ran before it runs on. Click to see the errors in the Console", it_Indicator.Name, l_Status.Errors, l_Status.Warnings);
+
+                break;
+            }
+            case BuildState::UpToDate:
+            {
+                l_Color = ImVec4(0.45f, 0.85f, 0.45f, 1.0f);
+                l_Tooltip = std::format("The {} is up to date, built with {} warning(s)", it_Indicator.Name, l_Status.Warnings);
+
+                break;
+            }
+            case BuildState::None:
+            {
+                break;
+            }
+        }
+
+        ImGui::PushStyleColor(ImGuiCol_Text, l_Color);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        const bool l_Clicked = ImGui::Button(std::format("{}###Build{}", a_Text(it_Indicator), it_Indicator.Label).c_str());
+        ImGui::PopStyleColor(2);
+        ImGui::SetItemTooltip("%s", l_Tooltip.c_str());
+        if (l_Clicked && l_Status.State == BuildState::Failed)
+        {
+            m_Console->ShowBuildErrors(it_Indicator.Label, l_Status.FirstLine, l_Status.EndLine, *it_Indicator.ErrorLines);
+        }
+
+        ImGui::SameLine();
+    }
 }
 
 // Centred in the menu bar: Play, which resumes a paused copy, Pause, held down while paused, Step, which pauses and takes one fixed step, and Stop
@@ -540,6 +661,11 @@ void ForgeLayer::DrawScriptsMenu()
     }
 
     a_Explain();
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_FileCode, "Open C++ Module in IDE").c_str(), nullptr, false, l_HasModule))
+    {
+        static_cast<void>(m_Session.OpenModuleFolder());
+    }
+
     if (l_HasModule)
     {
         ImGui::TextDisabled("%s: %s", l_Project->GetModuleName().c_str(), l_Module.IsBuilding() ? "building" : l_Module.IsLoaded() ? "loaded" : "not loaded");
@@ -570,12 +696,40 @@ void ForgeLayer::DrawScriptsMenu()
     }
 
     a_ExplainDotNet();
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_FileCode, "Open C# Solution in IDE").c_str(), nullptr, false, l_HasAssembly))
+    {
+        static_cast<void>(m_Session.OpenSolution());
+    }
+
     if (l_HasAssembly)
     {
         ImGui::TextDisabled("%s: %s", l_Project->GetAssemblyName().c_str(), l_Assembly.IsBuilding() ? "building" : l_Assembly.IsLoaded() ? "loaded" : "not loaded");
     }
+
+    // An IDE not found on this machine is greyed, and saying so is all its item does
+    ImGui::Separator();
+    if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_Gear, "Script Editor").c_str()))
+    {
+        for (const ScriptEditor it_Editor : c_ScriptEditors)
+        {
+            const bool l_Available = IdeLauncher::IsAvailable(it_Editor);
+            if (ImGui::MenuItem(std::string(IdeLauncher::ToString(it_Editor)).c_str(), nullptr, m_Session.GetScriptEditor() == it_Editor, l_Available))
+            {
+                m_Session.SetScriptEditor(it_Editor);
+                ImGui::MarkIniSettingsDirty();
+            }
+
+            if (!l_Available)
+            {
+                ImGui::SetItemTooltip("%s was not found on this machine", std::string(IdeLauncher::ToString(it_Editor)).c_str());
+            }
+        }
+
+        ImGui::EndMenu();
+    }
 }
 
+// The commands around the current position, oldest at the top, with those that would be redone greyed. Picking one undoes or redoes to just after it, and Start undoes everything the history holds
 void ForgeLayer::DrawHistoryMenu()
 {
     CommandStack& l_History = m_Session.GetHistory();
@@ -725,7 +879,7 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::End();
 }
 
-// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, and the Game panel's aspect choice
+// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, the Game panel's aspect choice, and the script editor
 void* ForgeLayer::OpenPanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, [[maybe_unused]] const char* name)
 {
     return handler->UserData;
@@ -745,6 +899,13 @@ void ForgeLayer::ReadPanelSetting([[maybe_unused]] ImGuiContext* context, [[mayb
     ForgeLayer& l_Layer = *static_cast<ForgeLayer*>(entry);
     if (l_Layer.m_ViewportPanel->ReadSetting(l_Key, l_Value) || l_Layer.m_GamePanel->ReadSetting(l_Key, l_Value))
     {
+        return;
+    }
+
+    if (l_Key == "ScriptEditor")
+    {
+        l_Layer.m_Session.SetScriptEditor(IdeLauncher::FromKey(l_Value).value_or(ScriptEditor::System));
+
         return;
     }
 
@@ -770,6 +931,8 @@ void ForgeLayer::WritePanelSettings([[maybe_unused]] ImGuiContext* context, ImGu
 
     l_Layer.m_ViewportPanel->WriteSettings(*buffer);
     l_Layer.m_GamePanel->WriteSettings(*buffer);
+    const std::string_view l_Editor = IdeLauncher::ToKey(l_Layer.m_Session.GetScriptEditor());
+    buffer->appendf("ScriptEditor=%.*s\n", static_cast<int>(l_Editor.size()), l_Editor.data());
 
     buffer->append("\n");
 }

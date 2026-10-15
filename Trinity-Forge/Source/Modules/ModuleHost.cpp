@@ -308,6 +308,8 @@ void ModuleHost::Close()
     m_Project = nullptr;
     m_ChangedAt.reset();
     m_BuildRequested = false;
+    m_LastBuild = {};
+    m_LastErrorLines.clear();
 }
 
 void ModuleHost::Update()
@@ -323,9 +325,18 @@ void ModuleHost::Update()
         m_ChangedAt = Clock::now();
     }
 
-    if (const std::optional<ModuleBuild::Result> l_Result = m_Build.Update(); l_Result && l_Result->Succeeded)
+    if (const std::optional<ModuleBuild::Result> l_Result = m_Build.Update())
     {
-        Load(l_Result->Library);
+        if (!l_Result->Cancelled)
+        {
+            m_LastBuild = { l_Result->Succeeded ? BuildState::UpToDate : BuildState::Failed, m_RunningFirstLine, Trinity::LogHistory::GetNextSequence(), l_Result->Errors, l_Result->Warnings };
+            m_LastErrorLines = l_Result->ErrorLines;
+        }
+
+        if (l_Result->Succeeded)
+        {
+            Load(l_Result->Library);
+        }
     }
 
     if (m_ChangedAt && Clock::now() - *m_ChangedAt >= c_SettleTime)
@@ -383,6 +394,24 @@ bool ModuleHost::Create(Trinity::Project& project)
     return true;
 }
 
+BuildStatus ModuleHost::GetStatus() const
+{
+    if (m_Build.IsRunning())
+    {
+        return { BuildState::Building, m_RunningFirstLine, Trinity::LogHistory::GetNextSequence(), 0, 0 };
+    }
+
+    if (m_Project != nullptr && (m_ChangedAt || m_BuildRequested))
+    {
+        BuildStatus l_Status = m_LastBuild;
+        l_Status.State = BuildState::Pending;
+
+        return l_Status;
+    }
+
+    return m_LastBuild;
+}
+
 void ModuleHost::RequestBuild()
 {
     if (m_Project != nullptr && m_Project->HasModule() && IsSupported())
@@ -412,6 +441,7 @@ void ModuleHost::StartBuild()
     l_Request.ProjectDirectory = m_Project->GetDirectory();
     l_Request.SourceDirectory = m_Project->GetSourceDirectory();
     l_Request.BuildDirectory = ModuleBuild::GetBuildDirectory(m_Project->GetBuildDirectory());
+    m_RunningFirstLine = Trinity::LogHistory::GetNextSequence();
     m_Build.Start(std::move(l_Request));
 }
 

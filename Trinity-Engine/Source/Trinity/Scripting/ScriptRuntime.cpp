@@ -11,6 +11,8 @@
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <format>
 #include <functional>
@@ -57,6 +59,91 @@ namespace Trinity
             ScriptTaskKind Kind = ScriptTaskKind::Coroutine;
             bool Running = false;
             bool Dead = false;
+        };
+
+        // The time each language's scripts take, charged to the language called into last until a call into the other, or until the part of the frame being timed ends. Only a clock read a change of language, so a scene of one language reads it twice for each part
+        class LanguageClock
+        {
+        public:
+            using Clock = std::chrono::steady_clock;
+
+            void Enter(ScriptLanguage language)
+            {
+                if (m_Depth == 0 || m_Current == language)
+                {
+                    return;
+                }
+
+                const Clock::time_point l_Now = Clock::now();
+                Charge(l_Now);
+                m_Current = language;
+                m_Since = l_Now;
+            }
+
+            void Begin()
+            {
+                ++m_Depth;
+            }
+
+            void End()
+            {
+                if (m_Depth > 0 && --m_Depth == 0 && m_Current)
+                {
+                    Charge(Clock::now());
+                    m_Current.reset();
+                }
+            }
+
+            // The frame's time becomes what is reported, and the next frame starts from nothing
+            void EndFrame()
+            {
+                for (std::size_t it_Language = 0; it_Language < m_Frame.size(); ++it_Language)
+                {
+                    m_Last[it_Language] = std::chrono::duration<float, std::milli>(m_Frame[it_Language]).count();
+                    m_Frame[it_Language] = {};
+                }
+            }
+
+            [[nodiscard]] float GetMilliseconds(ScriptLanguage language) const
+            {
+                return m_Last[static_cast<std::size_t>(language)];
+            }
+
+        private:
+            void Charge(Clock::time_point now)
+            {
+                if (m_Current)
+                {
+                    m_Frame[static_cast<std::size_t>(*m_Current)] += now - m_Since;
+                }
+            }
+
+            std::array<Clock::duration, 2> m_Frame{};
+            std::array<float, 2> m_Last{};
+            std::optional<ScriptLanguage> m_Current;
+            Clock::time_point m_Since;
+            std::uint32_t m_Depth = 0;
+        };
+
+        // Times each part of the frame the runtime runs scripts in, nested parts counting as one
+        class TimedPart
+        {
+        public:
+            explicit TimedPart(LanguageClock& clock) : m_Clock(clock)
+            {
+                m_Clock.Begin();
+            }
+
+            ~TimedPart()
+            {
+                m_Clock.End();
+            }
+
+            TimedPart(const TimedPart&) = delete;
+            TimedPart& operator=(const TimedPart&) = delete;
+
+        private:
+            LanguageClock& m_Clock;
         };
 
         ScriptRuntime* s_Active = nullptr;
@@ -160,6 +247,7 @@ namespace Trinity
                 }
 
                 const std::uint32_t l_Callbacks = l_Class->Callbacks;
+                Time.Enter(l_Entry.Language);
                 void* l_Handle = l_Backend->CreateInstance(*l_Class, entity, Runtime);
                 if (l_Handle == nullptr)
                 {
@@ -203,6 +291,7 @@ namespace Trinity
             if (!l_Instance.Created)
             {
                 l_Instance.Created = true;
+                Time.Enter(l_Instance.Backend->GetLanguage());
                 if ((l_Instance.Callbacks & ScriptCallbacks::Create) != 0 && !l_Instance.Backend->OnCreate(l_Instance.Handle))
                 {
                     Fault(Records[record].Instances[index]);
@@ -233,6 +322,7 @@ namespace Trinity
                     if (l_Instance != nullptr && (l_Instance->Callbacks & callback) != 0)
                     {
                         l_Any = true;
+                        Time.Enter(l_Instance->Backend->GetLanguage());
                         if (!call(*l_Instance))
                         {
                             Fault(Records[it_Record].Instances[it_Index]);
@@ -256,7 +346,13 @@ namespace Trinity
             for (std::size_t it_Index = 0; it_Index < Records[l_Record].Instances.size(); ++it_Index)
             {
                 Instance* l_Instance = Prepare(l_Record, it_Index);
-                if (l_Instance != nullptr && (l_Instance->Callbacks & ScriptCallbacks::Physics) != 0 && !l_Instance->Backend->OnPhysicsEvent(l_Instance->Handle, type, collision))
+                if (l_Instance == nullptr || (l_Instance->Callbacks & ScriptCallbacks::Physics) == 0)
+                {
+                    continue;
+                }
+
+                Time.Enter(l_Instance->Backend->GetLanguage());
+                if (!l_Instance->Backend->OnPhysicsEvent(l_Instance->Handle, type, collision))
                 {
                     Fault(Records[l_Record].Instances[it_Index]);
                 }
@@ -276,6 +372,7 @@ namespace Trinity
 
                 if (callOnDestroy && l_Instance.Created && !l_Instance.Faulted && (l_Instance.Callbacks & ScriptCallbacks::Destroy) != 0)
                 {
+                    Time.Enter(l_Instance.Backend->GetLanguage());
                     static_cast<void>(l_Instance.Backend->OnDestroy(l_Instance.Handle));
                 }
 
@@ -385,6 +482,7 @@ namespace Trinity
             Tasks[index].Running = true;
             ++TaskDepth;
             ScriptWait l_Next;
+            Time.Enter(l_Calls.Language);
             const bool l_Resumed = l_Calls.Resume(l_Object, l_Next);
             --TaskDepth;
 
@@ -426,6 +524,7 @@ namespace Trinity
         [[nodiscard]] bool IsMet(std::size_t index)
         {
             const Task l_Task = Tasks[index];
+            Time.Enter(l_Task.Calls.Language);
             if (l_Task.Wait.Condition != nullptr)
             {
                 return l_Task.Wait.Condition(l_Task.Wait.Context);
@@ -581,6 +680,7 @@ namespace Trinity
         std::vector<Task, TaggedAllocator<Task, MemoryTag::Scripting>> Tasks;
         std::uint64_t NextSerial = 0;
         std::uint32_t TaskDepth = 0;
+        LanguageClock Time;
         bool Changed = false;
         bool TasksChanged = false;
     };
@@ -738,6 +838,7 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         State& l_State = *m_State;
+        const TimedPart l_Timed(l_State.Time);
         for (std::size_t it_Pending = 0; it_Pending < l_State.Pending.size(); ++it_Pending)
         {
             const std::optional<std::size_t> l_Record = l_State.MakeRecord(l_State.TargetScene.FindEntityByUUID(l_State.Pending[it_Pending]));
@@ -755,6 +856,7 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         ++m_Time.StepCount;
+        const TimedPart l_Timed(m_State->Time);
         m_State->ForEach(ScriptCallbacks::FixedUpdate, [step](Instance& instance) { return instance.Backend->OnFixedUpdate(instance.Handle, step); });
         m_State->RunStepTasks();
     }
@@ -762,6 +864,7 @@ namespace Trinity
     // Each to the first entity's scripts, then the second's, with the normal turned to point away from whichever is told
     void ScriptRuntime::DeliverEvents(std::span<const PhysicsEvent3D> events)
     {
+        const TimedPart l_Timed(m_State->Time);
         for (const PhysicsEvent3D& it_Event : events)
         {
             m_State->Deliver(it_Event.First, it_Event.Type, { it_Event.Second, it_Event.Point, it_Event.Normal, false });
@@ -774,6 +877,7 @@ namespace Trinity
 
     void ScriptRuntime::DeliverEvents(std::span<const PhysicsEvent2D> events)
     {
+        const TimedPart l_Timed(m_State->Time);
         for (const PhysicsEvent2D& it_Event : events)
         {
             m_State->Deliver(it_Event.First, it_Event.Type, { it_Event.Second, glm::vec3(it_Event.Point, 0.0f), glm::vec3(it_Event.Normal, 0.0f), true });
@@ -788,6 +892,7 @@ namespace Trinity
     {
         TR_PROFILE_FUNCTION();
 
+        const TimedPart l_Timed(m_State->Time);
         m_State->ForEach(ScriptCallbacks::Update, [timestep](Instance& instance) { return instance.Backend->OnUpdate(instance.Handle, timestep); });
         m_State->RunFrameTasks();
     }
@@ -795,6 +900,8 @@ namespace Trinity
     bool ScriptRuntime::LateUpdate(Timestep timestep)
     {
         TR_PROFILE_FUNCTION();
+
+        const TimedPart l_Timed(m_State->Time);
 
         return m_State->ForEach(ScriptCallbacks::LateUpdate, [timestep](Instance& instance) { return instance.Backend->OnLateUpdate(instance.Handle, timestep); });
     }
@@ -1197,6 +1304,7 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         State& l_State = *m_State;
+        std::optional<TimedPart> l_Timed(std::in_place, l_State.Time);
         for (std::size_t it_Pending = 0; it_Pending < l_State.PendingRemove.size(); ++it_Pending)
         {
             const Removal l_Removal = l_State.PendingRemove[it_Pending];
@@ -1223,6 +1331,7 @@ namespace Trinity
             const Instance l_Instance = l_State.Records[l_Found->first].Instances[l_Found->second];
             if (l_Instance.Backend != nullptr && l_Instance.Created && !l_Instance.Faulted && (l_Instance.Callbacks & ScriptCallbacks::Destroy) != 0)
             {
+                l_State.Time.Enter(l_Instance.Backend->GetLanguage());
                 static_cast<void>(l_Instance.Backend->OnDestroy(l_Instance.Handle));
 
                 // OnDestroy may have added or removed scripts
@@ -1282,6 +1391,8 @@ namespace Trinity
 
         l_State.PendingDestroy.clear();
         l_State.Compact();
+        l_Timed.reset();
+        l_State.Time.EndFrame();
     }
 
     ScriptRuntime::Statistics ScriptRuntime::GetStatistics() const
@@ -1298,10 +1409,27 @@ namespace Trinity
             {
                 ++(it_Instance.Backend != nullptr ? l_Statistics.Instances : l_Statistics.Unknown);
                 l_Statistics.Faulted += it_Instance.Backend != nullptr && it_Instance.Faulted ? 1u : 0u;
+                if (it_Instance.Backend != nullptr)
+                {
+                    ++(it_Instance.Backend->GetLanguage() == ScriptLanguage::Cpp ? l_Statistics.Cpp : l_Statistics.CSharp).Instances;
+                }
             }
         }
 
-        l_Statistics.Tasks = static_cast<std::uint32_t>(std::ranges::count(m_State->Tasks, false, &Task::Dead));
+        for (const Task& it_Task : m_State->Tasks)
+        {
+            if (it_Task.Dead)
+            {
+                continue;
+            }
+
+            ++l_Statistics.Tasks;
+            LanguageStatistics& l_Language = it_Task.Calls.Language == ScriptLanguage::Cpp ? l_Statistics.Cpp : l_Statistics.CSharp;
+            ++(it_Task.Kind == ScriptTaskKind::Timer ? l_Language.Timers : l_Language.Coroutines);
+        }
+
+        l_Statistics.Cpp.Milliseconds = m_State->Time.GetMilliseconds(ScriptLanguage::Cpp);
+        l_Statistics.CSharp.Milliseconds = m_State->Time.GetMilliseconds(ScriptLanguage::CSharp);
 
         return l_Statistics;
     }

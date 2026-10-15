@@ -15,7 +15,7 @@
 
 namespace Trinity
 {
-    // Programs run to their end, such as a module's build. Each call blocks until its program ends, so a job runs it
+    // Programs run to their end, such as a module's build, each call blocking until its program ends, so a job runs it, and programs started to run on their own, such as an IDE
     namespace Process
     {
         // Names and values in UTF-8, in no particular order
@@ -35,6 +35,10 @@ namespace Trinity
     {
         // The program's exit code, or why it could not start. It is a program, not a script, so a batch file runs through cmd.exe. Its output and errors reach OnLine in the order written, a line at a time, in UTF-8 and without the line end. It ends when the program does, though a server it left running still holds its output
         [[nodiscard]] TRINITY_API Expected<int, std::string> Run(const std::filesystem::path& executable, std::span<const std::string> arguments, const ProcessOptions& options = {});
+        // Starts the program and returns at once, neither waiting for it nor ending it as this process ends, with its output going nowhere. It is a program, as with Run, so a batch file runs through cmd.exe. Why it could not start, or nothing
+        [[nodiscard]] TRINITY_API Expected<void, std::string> Start(const std::filesystem::path& executable, std::span<const std::string> arguments, const std::filesystem::path& workingDirectory = {});
+        // The file or folder opened as the desktop would open it, by the program it has for that kind of file, or a folder in the file manager, without waiting
+        [[nodiscard]] TRINITY_API Expected<void, std::string> OpenWithSystem(const std::filesystem::path& path);
 
         [[nodiscard]] TRINITY_API Environment GetEnvironment();
         // A variable's value, by its name, which Windows matches without regard to case, or none

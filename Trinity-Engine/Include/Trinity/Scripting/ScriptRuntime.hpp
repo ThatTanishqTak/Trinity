@@ -47,6 +47,15 @@ namespace Trinity
     class TRINITY_API ScriptRuntime
     {
     public:
+        // One language's share: its instances, its timers and coroutines waiting, and the time the last frame spent in its scripts, from the time each call into it began to the next call into the other language or the end of the runtime's work for that part of the frame. A call one language makes into the other's script counts to the language that made it
+        struct LanguageStatistics
+        {
+            std::uint32_t Instances = 0;
+            std::uint32_t Timers = 0;
+            std::uint32_t Coroutines = 0;
+            float Milliseconds = 0.0f;
+        };
+
         struct Statistics
         {
             std::uint32_t Instances = 0;
@@ -56,6 +65,8 @@ namespace Trinity
             std::uint32_t Faulted = 0;
             // Timers and coroutines waiting
             std::uint32_t Tasks = 0;
+            LanguageStatistics Cpp;
+            LanguageStatistics CSharp;
         };
 
         explicit ScriptRuntime(Scene& scene);
@@ -121,7 +132,7 @@ namespace Trinity
         // The script at that index goes at DestroyPending, after its OnDestroy, and stays until then. One the runtime has not made yet goes at once. False when there is none
         bool RemoveScript(Entity entity, std::size_t index);
 
-        // At the end of the frame: the scripts removed meanwhile, then the entities destroyed. One removed or destroyed meanwhile goes in the same call
+        // At the end of the frame: the scripts removed meanwhile, then the entities destroyed. One removed or destroyed meanwhile goes in the same call. The frame's script time is then what GetStatistics gives until the next frame ends
         void DestroyPending();
 
         [[nodiscard]] Statistics GetStatistics() const;
