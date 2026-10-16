@@ -332,6 +332,13 @@ void EditorSession::Update()
     }
 
     UpdateDebuggerWait();
+
+    // The builds Play waited for have ended, each loading what it built first
+    if (m_PlayAfterBuild && !IsBuildingScripts())
+    {
+        m_PlayAfterBuild = false;
+        BeginPlay();
+    }
 }
 
 void EditorSession::DrawPopups()
@@ -873,7 +880,7 @@ void EditorSession::RequestOpenScene(std::string assetPath)
     });
 }
 
-// A debugger attached already plays at once, and a Play asked for while one is awaited changes nothing
+// A debugger attached already plays at once, and a Play asked for while one is awaited changes nothing. A build running or about to is waited for first, and a Play asked for while waiting stops the wait
 void EditorSession::RequestPlay()
 {
     m_Pending.push_back([this]
@@ -890,17 +897,79 @@ void EditorSession::RequestPlay()
             return;
         }
 
-        if (m_WaitForDebugger && m_Project && !Trinity::Process::IsDebuggerAttached() && !Trinity::ManagedScripts::IsDebuggerAttached())
+        if (m_PlayAfterBuild)
         {
-            m_DebuggerWait.emplace();
-            m_OpenDebuggerPopup = true;
-            TR_INFO("Forge: Play waits for a debugger to attach to Forge, process {}", Trinity::Process::GetCurrentID());
+            m_PlayAfterBuild = false;
+            TR_INFO("Forge: Play no longer waits for the scripts to build");
 
             return;
         }
 
-        StartPlay();
+        if (IsBuildingScripts())
+        {
+            m_PlayAfterBuild = true;
+            TR_INFO("Forge: Play waits for the scripts to finish building");
+
+            return;
+        }
+
+        BeginPlay();
     });
+}
+
+// Once no build is running. Refused while a build has failed, as Unity refuses to play with compile errors, since the scripts would run as they were before the change. Then a debugger first, when Play is to wait for one
+void EditorSession::BeginPlay()
+{
+    if (m_Play || !m_Project)
+    {
+        return;
+    }
+
+    if (const std::string l_Failed = GetFailedBuilds(); !l_Failed.empty())
+    {
+        TR_ERROR("Forge: {} failed to build, and every build error has to be fixed before the scene can play. The build indicator in the menu bar shows them", l_Failed);
+        Notify("All build errors have to be fixed before you can enter Play mode");
+
+        return;
+    }
+
+    if (m_WaitForDebugger && !Trinity::Process::IsDebuggerAttached() && !Trinity::ManagedScripts::IsDebuggerAttached())
+    {
+        m_DebuggerWait.emplace();
+        m_OpenDebuggerPopup = true;
+        TR_INFO("Forge: Play waits for a debugger to attach to Forge, process {}", Trinity::Process::GetCurrentID());
+
+        return;
+    }
+
+    StartPlay();
+}
+
+std::string EditorSession::GetFailedBuilds() const
+{
+    if (!m_Project)
+    {
+        return {};
+    }
+
+    const bool l_Module = m_Module.GetStatus().State == BuildState::Failed;
+    const bool l_Assembly = m_Assembly.GetStatus().State == BuildState::Failed;
+    const std::string l_ModuleName = std::format("the C++ module {}", m_Project->GetModuleName());
+    const std::string l_AssemblyName = std::format("the C# project {}", m_Project->GetAssemblyName());
+    if (l_Module && l_Assembly)
+    {
+        return std::format("{} and {}", l_ModuleName, l_AssemblyName);
+    }
+
+    return l_Module ? l_ModuleName : l_Assembly ? l_AssemblyName : std::string();
+}
+
+// A build running, or one to start once its sources settle or the build before it ends
+bool EditorSession::IsBuildingScripts() const
+{
+    const auto a_Busy = [](BuildState state) { return state == BuildState::Pending || state == BuildState::Building; };
+
+    return a_Busy(m_Module.GetStatus().State) || a_Busy(m_Assembly.GetStatus().State);
 }
 
 void EditorSession::RequestPause()
@@ -1012,6 +1081,7 @@ void EditorSession::UpdateDebuggerWait()
 void EditorSession::StopPlay()
 {
     m_DebuggerWait.reset();
+    m_PlayAfterBuild = false;
     if (!m_Play)
     {
         return;

@@ -52,6 +52,13 @@ public:
         EnvironmentImportReport Environments;
     };
 
+    // A line shown over the editor for a moment, as Unity's notifications are, for something asked for that did not happen
+    struct Notice
+    {
+        std::string Text;
+        std::chrono::steady_clock::time_point Shown;
+    };
+
     // The project folders scripts live in, which the Content Browser shows beside Assets
     static constexpr std::string_view c_ScriptsFolder = "/project/Scripts";
     static constexpr std::string_view c_SourceFolder = "/project/Source";
@@ -84,6 +91,13 @@ public:
     void UpdatePlay(Trinity::Timestep timestep);
     [[nodiscard]] bool IsPlaying() const { return m_Play != nullptr; }
     [[nodiscard]] bool IsPaused() const { return m_Play != nullptr && m_Paused; }
+    // Play waits for a C++ or C# build running or about to, as Unity waits for scripts to compile, then plays once every build is good. Play again stops it waiting
+    [[nodiscard]] bool IsWaitingForBuild() const { return m_PlayAfterBuild; }
+    // The builds whose last run failed, such as "the C++ module Game", which Play is refused for until they build. Empty when none has
+    [[nodiscard]] std::string GetFailedBuilds() const;
+
+    void Notify(std::string text) { m_Notice = Notice{ std::move(text), std::chrono::steady_clock::now() }; }
+    [[nodiscard]] const std::optional<Notice>& GetNotice() const { return m_Notice; }
     [[nodiscard]] Trinity::SceneRuntime* GetRuntime() { return m_Play ? m_Play->GetRuntime() : nullptr; }
     [[nodiscard]] bool IsDirty() const { return !m_History.IsSaved(); }
 
@@ -212,9 +226,11 @@ private:
     void SaveProject();
     void ImportAsset(const std::filesystem::path& file, const std::string& folder);
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
+    void BeginPlay();
     void StartPlay();
     void StopPlay();
     void UpdateDebuggerWait();
+    [[nodiscard]] bool IsBuildingScripts() const;
     void NewScene();
     void OpenScene(const std::string& assetPath);
     void SaveScene(Action then);
@@ -248,6 +264,8 @@ private:
     bool m_WaitForDebugger = false;
     std::optional<DebuggerWait> m_DebuggerWait;
     bool m_OpenDebuggerPopup = false;
+    bool m_PlayAfterBuild = false;
+    std::optional<Notice> m_Notice;
     bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;

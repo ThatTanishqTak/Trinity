@@ -10,7 +10,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
+#include <chrono>
+#include <cmath>
 #include <format>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -24,6 +28,10 @@ namespace
     constexpr ImVec4 c_PlayTint{ 0.2f, 0.35f, 0.65f, 1.0f };
     constexpr float c_PlayingTint = 0.18f;
     constexpr float c_PausedTint = 0.3f;
+    // A notice stays this long, fading over the end of it, in text this much larger than the UI's
+    constexpr float c_NoticeSeconds = 2.5f;
+    constexpr float c_NoticeFadeSeconds = 0.5f;
+    constexpr float c_NoticeScale = 1.4f;
     constexpr std::array<ImGuiCol, 7> c_TintedColors{ ImGuiCol_WindowBg, ImGuiCol_PopupBg, ImGuiCol_MenuBarBg, ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg };
 
     std::string WithIcon(const char* icon, std::string_view text)
@@ -201,7 +209,40 @@ void ForgeLayer::OnImGuiRender()
 
     m_Session.DrawPopups();
     m_Session.UpdateTitle();
+    DrawNotice();
     ImGui::PopStyleColor(std::exchange(m_TintedColors, 0));
+}
+
+// Unity's notification: the session's last notice over the middle of the main window for a moment, fading as it goes
+void ForgeLayer::DrawNotice()
+{
+    const std::optional<EditorSession::Notice>& l_Notice = m_Session.GetNotice();
+    if (!l_Notice)
+    {
+        return;
+    }
+
+    const float l_Age = std::chrono::duration<float>(std::chrono::steady_clock::now() - l_Notice->Shown).count();
+    if (l_Age >= c_NoticeSeconds)
+    {
+        return;
+    }
+
+    const float l_Opacity = std::clamp((c_NoticeSeconds - l_Age) / c_NoticeFadeSeconds, 0.0f, 1.0f);
+    ImFont* l_Font = Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold);
+    const float l_Size = ImGui::GetFontSize() * c_NoticeScale;
+    const ImVec2 l_TextSize = l_Font->CalcTextSizeA(l_Size, FLT_MAX, 0.0f, l_Notice->Text.c_str());
+    const ImVec2 l_Padding(l_Size, l_Size * 0.6f);
+    ImGuiViewport* l_Viewport = ImGui::GetMainViewport();
+    const ImVec2 l_Centre = l_Viewport->GetWorkCenter();
+    const ImVec2 l_Min(std::floor(l_Centre.x - l_TextSize.x * 0.5f - l_Padding.x), std::floor(l_Centre.y - l_TextSize.y * 0.5f - l_Padding.y));
+    const ImVec2 l_Max(l_Min.x + l_TextSize.x + l_Padding.x * 2.0f, l_Min.y + l_TextSize.y + l_Padding.y * 2.0f);
+
+    ImDrawList& l_DrawList = *ImGui::GetForegroundDrawList(l_Viewport);
+    const float l_Rounding = ImGui::GetStyle().PopupRounding + l_Padding.y * 0.5f;
+    l_DrawList.AddRectFilled(l_Min, l_Max, ImGui::GetColorU32(ImGuiCol_PopupBg, l_Opacity), l_Rounding);
+    l_DrawList.AddRect(l_Min, l_Max, ImGui::GetColorU32(ImGuiCol_Border, l_Opacity), l_Rounding);
+    l_DrawList.AddText(l_Font, l_Size, ImVec2(l_Min.x + l_Padding.x, l_Min.y + l_Padding.y), ImGui::GetColorU32(ImGuiCol_Text, l_Opacity), l_Notice->Text.c_str());
 }
 
 // While a copy plays, the backgrounds lean towards blue, further while it is paused, so it is plain at a glance that nothing done now stays
@@ -546,7 +587,11 @@ void ForgeLayer::DrawPlayControls()
         return l_Pressed;
     };
 
-    if (a_Button(Trinity::Icons::c_Play, "Play", m_Session.HasProject() && (!l_Playing || l_Paused), l_Playing && !l_Paused, l_Paused ? "Resume (Ctrl+Shift+P)" : "Play (Ctrl+P)"))
+    // Held down while it waits for the scripts to build, as Unity's is while they compile, and saying why it is refused while a build has failed
+    const bool l_Waiting = m_Session.IsWaitingForBuild();
+    const std::string l_Failed = l_Playing ? std::string() : m_Session.GetFailedBuilds();
+    const std::string l_PlayTip = l_Paused ? "Resume (Ctrl+Shift+P)" : l_Waiting ? "Plays once the scripts have built. Click to stop waiting (Ctrl+P)" : !l_Failed.empty() ? std::format("Play (Ctrl+P). Build errors in {} stop it until they are fixed", l_Failed) : "Play (Ctrl+P)";
+    if (a_Button(Trinity::Icons::c_Play, "Play", m_Session.HasProject() && (!l_Playing || l_Paused), (l_Playing && !l_Paused) || l_Waiting, l_PlayTip.c_str()))
     {
         m_Session.RequestPlay();
     }

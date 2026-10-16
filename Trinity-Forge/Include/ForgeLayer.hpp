@@ -46,6 +46,7 @@ private:
     void BuildDefaultLayout(std::uint32_t dockSpace);
     void DockNewPanels();
     void DrawAboutWindow();
+    void DrawNotice();
 
     static void* OpenPanelSettings(ImGuiContext* context, ImGuiSettingsHandler* handler, const char* name);
     static void ReadPanelSetting(ImGuiContext* context, ImGuiSettingsHandler* handler, void* entry, const char* line);
