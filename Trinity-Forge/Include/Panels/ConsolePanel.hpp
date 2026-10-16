@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
@@ -55,6 +56,8 @@ private:
 
     OpenLocation m_OpenLocation;
     std::optional<std::pair<std::string, std::uint32_t>> m_PendingOpen;
+    // A log file Open Log or Open Previous Log asked for, opened once the history is no longer held
+    std::filesystem::path m_PendingLogFile;
     std::optional<std::pair<std::uint64_t, std::uint64_t>> m_BuildLines;
     // Sorted, to be looked up as each line is filtered
     std::vector<std::string> m_BuildErrors;

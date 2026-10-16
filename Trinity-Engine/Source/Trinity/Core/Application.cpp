@@ -116,6 +116,33 @@ namespace Trinity
             FileSystem::MountDirectory("/engine", l_Directory);
         }
 
+        // Every program logs under --log-dir when given, or else in a folder of the user's own, as Unity keeps Editor.log, so its log is in one place however it was started and can be written wherever it is installed. A folder the log library cannot name, as one the system's code page cannot spell, gives way to Logs under the working directory
+        std::filesystem::path GetLogDirectory(const ApplicationCommandLineArgs& args)
+        {
+            if (const std::optional<std::string_view> l_Override = args.GetOption("log-dir"); l_Override && !l_Override->empty())
+            {
+                return std::filesystem::path(*l_Override);
+            }
+
+            const std::filesystem::path l_Base = Platform::GetUserDataDirectory();
+            if (l_Base.empty())
+            {
+                return "Logs";
+            }
+
+            const std::filesystem::path l_Directory = l_Base / "Trinity" / "Logs";
+            try
+            {
+                static_cast<void>(l_Directory.string());
+            }
+            catch (const std::exception&)
+            {
+                return "Logs";
+            }
+
+            return l_Directory;
+        }
+
         void MountSaveDirectory(const ApplicationCommandLineArgs& args, std::string_view applicationName)
         {
             std::filesystem::path l_Directory;
@@ -472,13 +499,14 @@ namespace Trinity
     {
         Platform::Initialize();
 
-        std::filesystem::path l_LogFile = "Logs/Trinity.log";
-        std::filesystem::path l_CaptureFile = "Logs/Trinity.trace.json";
+        const std::filesystem::path l_LogDirectory = GetLogDirectory({ argc, argv });
+        std::filesystem::path l_LogFile = l_LogDirectory / "Trinity.log";
+        std::filesystem::path l_CaptureFile = l_LogDirectory / "Trinity.trace.json";
         if (argc > 0 && argv != nullptr && argv[0] != nullptr)
         {
             const std::filesystem::path l_Stem = std::filesystem::path(argv[0]).stem();
-            l_LogFile = std::filesystem::path("Logs") / std::filesystem::path(l_Stem).concat(".log");
-            l_CaptureFile = std::filesystem::path("Logs") / std::filesystem::path(l_Stem).concat(".trace.json");
+            l_LogFile = l_LogDirectory / std::filesystem::path(l_Stem).concat(".log");
+            l_CaptureFile = l_LogDirectory / std::filesystem::path(l_Stem).concat(".trace.json");
         }
 
         Log::Initialize(l_LogFile);

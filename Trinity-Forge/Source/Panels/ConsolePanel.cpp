@@ -138,6 +138,15 @@ void ConsolePanel::OnImGuiRender()
     {
         m_OpenLocation(l_Open->first, l_Open->second);
     }
+
+    if (const std::filesystem::path l_Log = std::exchange(m_PendingLogFile, {}); !l_Log.empty())
+    {
+        if (const Trinity::Expected<void, std::string> l_Opened = Trinity::Process::OpenWithSystem(l_Log); !l_Opened)
+        {
+            const std::u8string l_Name = l_Log.u8string();
+            TR_ERROR("Forge: {} could not be opened: {}", std::string_view(reinterpret_cast<const char*>(l_Name.data()), l_Name.size()), l_Opened.GetError());
+        }
+    }
 }
 
 // Nothing in here may log: the history stays locked while it is drawn, and this thread would wait on itself
@@ -183,6 +192,33 @@ void ConsolePanel::DrawLog(float footerHeight)
     const bool l_Clear = ImGui::Button("Clear");
     ImGui::SameLine();
     const bool l_Copy = ImGui::Button("Copy");
+
+    // The log files, as Unity's Console menu opens Editor.log: this run's, and the last run's, which is what a crash leaves
+    ImGui::SameLine();
+    if (ImGui::Button(std::format("{} Log Files", Trinity::Icons::c_File).c_str()))
+    {
+        ImGui::OpenPopup("##LogFiles");
+    }
+
+    if (ImGui::BeginPopup("##LogFiles"))
+    {
+        const std::filesystem::path& l_File = Trinity::Log::GetFilePath();
+        const std::filesystem::path& l_Previous = Trinity::Log::GetPreviousFilePath();
+        if (ImGui::MenuItem("Open Log", nullptr, false, !l_File.empty()))
+        {
+            m_PendingLogFile = l_File;
+        }
+
+        if (ImGui::MenuItem("Open Previous Log", nullptr, false, !l_Previous.empty()))
+        {
+            m_PendingLogFile = l_Previous;
+        }
+
+        ImGui::Separator();
+        const std::u8string l_Folder = l_File.parent_path().u8string();
+        ImGui::TextDisabled("%s", l_File.empty() ? "File logging is off, as the log says" : reinterpret_cast<const char*>(l_Folder.c_str()));
+        ImGui::EndPopup();
+    }
 
     if (l_Clear)
     {

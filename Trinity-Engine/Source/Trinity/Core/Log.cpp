@@ -20,7 +20,12 @@ namespace Trinity
 {
     namespace
     {
+        // Lines below warnings reach the file within this long too, so a crash loses little of what led up to it
+        constexpr std::chrono::seconds c_FlushInterval{ 1 };
+
         std::array<std::shared_ptr<spdlog::logger>, 2> s_Loggers;
+        std::filesystem::path s_FilePath;
+        std::filesystem::path s_PreviousFilePath;
 
         spdlog::logger* GetLogger(LogChannel channel)
         {
@@ -184,20 +189,33 @@ namespace Trinity
         a_ConsoleSink->set_pattern("%^[%T.%e] %-7n %-8l%$ %v");
         l_Sinks.push_back(std::move(a_ConsoleSink));
 
+        // The last run's log is kept beside the new one, as Unity keeps Editor-prev.log, so what led up to a crash is still there after the restart
+        std::filesystem::path l_Previous = logFile;
+        l_Previous.replace_filename(std::filesystem::path(logFile.stem()) += "-prev");
+        l_Previous += logFile.extension();
+
         std::string l_FileSinkError;
+        std::error_code l_KeepError;
         try
         {
+            std::error_code l_Ignored;
             if (logFile.has_parent_path())
             {
-                std::error_code l_Ignored;
                 std::filesystem::create_directories(logFile.parent_path(), l_Ignored);
+            }
+
+            if (std::filesystem::exists(logFile, l_Ignored))
+            {
+                std::filesystem::rename(logFile, l_Previous, l_KeepError);
             }
 
             auto fileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logFile.string(), true);
             fileSink->set_pattern("[%Y-%m-%d %T.%e] %-7n %-8l %v");
             l_Sinks.push_back(std::move(fileSink));
+            s_FilePath = logFile;
+            s_PreviousFilePath = std::filesystem::exists(l_Previous, l_Ignored) ? l_Previous : std::filesystem::path();
         }
-        catch (const spdlog::spdlog_ex& exception)
+        catch (const std::exception& exception)
         {
             l_FileSinkError = exception.what();
         }
@@ -217,10 +235,31 @@ namespace Trinity
             spdlog::register_logger(it_Logger);
         }
 
+        spdlog::flush_every(c_FlushInterval);
+
         if (!l_FileSinkError.empty())
         {
             TR_CORE_WARN("File logging is disabled: {}", l_FileSinkError);
         }
+        else
+        {
+            TR_CORE_INFO("Logging to {}", s_FilePath.string());
+        }
+
+        if (l_KeepError && l_FileSinkError.empty())
+        {
+            TR_CORE_WARN("The last run's log could not be kept as {}, so it was written over: {}", l_Previous.string(), l_KeepError.message());
+        }
+    }
+
+    const std::filesystem::path& Log::GetFilePath()
+    {
+        return s_FilePath;
+    }
+
+    const std::filesystem::path& Log::GetPreviousFilePath()
+    {
+        return s_PreviousFilePath;
     }
 
     void Log::Shutdown()

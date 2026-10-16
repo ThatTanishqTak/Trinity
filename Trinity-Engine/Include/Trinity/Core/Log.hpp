@@ -39,6 +39,10 @@ namespace Trinity
         static void Initialize(const std::filesystem::path& logFile);
         static void Shutdown();
 
+        // The file this run logs to, and the last run's kept beside it, as Unity keeps Editor.log and Editor-prev.log. Empty when the file could not be opened, or there was no last run
+        [[nodiscard]] static const std::filesystem::path& GetFilePath();
+        [[nodiscard]] static const std::filesystem::path& GetPreviousFilePath();
+
         [[nodiscard]] static bool ShouldLog(LogChannel channel, LogLevel level);
         static void Write(LogChannel channel, LogLevel level, std::string_view message);
         static void Flush();
