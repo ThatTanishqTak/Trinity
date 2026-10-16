@@ -59,6 +59,13 @@ public:
         std::chrono::steady_clock::time_point Shown;
     };
 
+    // Work going on in the background, for the status bar: what it is, and how far along from 0 to 1 when that can be told
+    struct Activity
+    {
+        std::string Text;
+        std::optional<float> Progress;
+    };
+
     // The project folders scripts live in, which the Content Browser shows beside Assets
     static constexpr std::string_view c_ScriptsFolder = "/project/Scripts";
     static constexpr std::string_view c_SourceFolder = "/project/Source";
@@ -98,6 +105,7 @@ public:
 
     void Notify(std::string text) { m_Notice = Notice{ std::move(text), std::chrono::steady_clock::now() }; }
     [[nodiscard]] const std::optional<Notice>& GetNotice() const { return m_Notice; }
+    [[nodiscard]] std::vector<Activity> GetActivities() const;
     [[nodiscard]] Trinity::SceneRuntime* GetRuntime() { return m_Play ? m_Play->GetRuntime() : nullptr; }
     [[nodiscard]] bool IsDirty() const { return !m_History.IsSaved(); }
 

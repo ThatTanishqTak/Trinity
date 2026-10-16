@@ -31,6 +31,8 @@ public:
 
     // The file and line a build's line names, as BuildOutput writes them, such as "Build: Scripts/Player.cs(12,5): error ...". The first parenthesis holding a line number, and a column or not, ends the path, so a folder such as Program Files (x86) stays in it
     [[nodiscard]] static std::optional<std::pair<std::string_view, std::uint32_t>> FindLocation(std::string_view text);
+    // A level's colour, as the Console and the status bar show its lines
+    [[nodiscard]] static ImVec4 GetLevelColor(Trinity::LogLevel level);
 
 protected:
     void OnImGuiRender() override;

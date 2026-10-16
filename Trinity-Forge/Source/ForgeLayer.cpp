@@ -32,6 +32,9 @@ namespace
     constexpr float c_NoticeSeconds = 2.5f;
     constexpr float c_NoticeFadeSeconds = 0.5f;
     constexpr float c_NoticeScale = 1.4f;
+    // The status bar's progress bar, and how wide its tooltips wrap
+    constexpr float c_StatusProgressWidthInFonts = 8.0f;
+    constexpr float c_StatusTooltipWidthInFonts = 40.0f;
     constexpr std::array<ImGuiCol, 7> c_TintedColors{ ImGuiCol_WindowBg, ImGuiCol_PopupBg, ImGuiCol_MenuBarBg, ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg };
 
     std::string WithIcon(const char* icon, std::string_view text)
@@ -188,6 +191,7 @@ void ForgeLayer::OnImGuiRender()
 
     ReadShortcuts();
     DrawMenuBar();
+    DrawStatusBar();
     DrawDockSpace();
 
     for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
@@ -212,6 +216,110 @@ void ForgeLayer::OnImGuiRender()
     m_Session.UpdateTitle();
     DrawNotice();
     ImGui::PopStyleColor(std::exchange(m_TintedColors, 0));
+}
+
+// Unity's status bar along the main window's foot, before the dock space so the panels fit above it: the last line logged at Info or above in its level's colour, which brings the Console forward when clicked, and at the right end what runs in the background, with how far along it is
+void ForgeLayer::DrawStatusBar()
+{
+    ReadStatusLine();
+    const std::vector<EditorSession::Activity> l_Activities = m_Session.GetActivities();
+
+    const ImGuiWindowFlags l_Flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_MenuBar;
+    if (ImGui::BeginViewportSideBar("##ForgeStatusBar", ImGui::GetMainViewport(), ImGuiDir_Down, ImGui::GetFrameHeight(), l_Flags) && ImGui::BeginMenuBar())
+    {
+        const ImGuiStyle& l_Style = ImGui::GetStyle();
+        const float l_LineHeight = ImGui::GetTextLineHeight();
+
+        // The first activity, with how many more there are, measured first so the line takes what is left
+        std::string l_Activity;
+        if (!l_Activities.empty())
+        {
+            l_Activity = l_Activities.size() > 1 ? std::format("{} (+{} more)", l_Activities.front().Text, l_Activities.size() - 1) : l_Activities.front().Text;
+        }
+
+        const float l_BarWidth = ImGui::GetFontSize() * c_StatusProgressWidthInFonts;
+        const float l_ActivityWidth = l_Activity.empty() ? 0.0f : ImGui::CalcTextSize(l_Activity.c_str()).x + l_BarWidth + l_Style.ItemSpacing.x * 2.0f;
+        const ImVec2 l_Start = ImGui::GetCursorScreenPos();
+        const float l_LineWidth = std::max(ImGui::GetContentRegionAvail().x - l_ActivityWidth, 1.0f);
+
+        ImGui::InvisibleButton("##StatusLine", ImVec2(l_LineWidth, l_LineHeight));
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+        {
+            m_Console->SetOpen(true);
+            m_Console->RequestFocus();
+        }
+
+        if (!m_StatusText.empty())
+        {
+            const char* l_Icon = m_StatusLevel >= Trinity::LogLevel::Error ? Trinity::Icons::c_TimesCircle : m_StatusLevel == Trinity::LogLevel::Warn ? Trinity::Icons::c_Warning : Trinity::Icons::c_InfoCircle;
+            const std::string l_Line = std::format("{} {}", l_Icon, std::string_view(m_StatusText).substr(0, m_StatusText.find('\n')));
+            const float l_MaxX = l_Start.x + l_LineWidth;
+            ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(m_StatusLevel));
+            ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), l_Start, ImVec2(l_MaxX, l_Start.y + l_LineHeight), l_MaxX, l_Line.c_str(), nullptr, nullptr);
+            ImGui::PopStyleColor();
+
+            if (ImGui::BeginItemTooltip())
+            {
+                ImGui::PushTextWrapPos(ImGui::GetFontSize() * c_StatusTooltipWidthInFonts);
+                ImGui::TextUnformatted(m_StatusText.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::TextDisabled("Click to show the Console");
+                ImGui::EndTooltip();
+            }
+        }
+
+        if (!l_Activity.empty())
+        {
+            const std::optional<float> l_Progress = l_Activities.front().Progress;
+            ImGui::SetCursorScreenPos(ImVec2(l_Start.x + l_LineWidth + l_Style.ItemSpacing.x, l_Start.y));
+            ImGui::BeginGroup();
+            ImGui::TextUnformatted(l_Activity.c_str());
+            ImGui::SameLine();
+            const std::string l_Percent = l_Progress ? std::format("{:.0f}%", *l_Progress * 100.0f) : std::string();
+            ImGui::ProgressBar(l_Progress ? *l_Progress : -static_cast<float>(ImGui::GetTime()), ImVec2(l_BarWidth, l_LineHeight), l_Percent.c_str());
+            ImGui::EndGroup();
+
+            if (ImGui::BeginItemTooltip())
+            {
+                for (const EditorSession::Activity& it_Activity : l_Activities)
+                {
+                    ImGui::TextUnformatted(it_Activity.Progress ? std::format("{}, {:.0f}%", it_Activity.Text, *it_Activity.Progress * 100.0f).c_str() : it_Activity.Text.c_str());
+                }
+
+                ImGui::EndTooltip();
+            }
+        }
+
+        ImGui::EndMenuBar();
+    }
+
+    ImGui::End();
+}
+
+// The last line at Info or above, its text copied only when it is not the one already shown. The history is let go of before anything is drawn, since drawing may log, and nothing found, as after the Console's Clear, empties the bar
+void ForgeLayer::ReadStatusLine()
+{
+    const Trinity::LogHistory::Reader l_History = Trinity::LogHistory::Read();
+    for (std::size_t it_Index = l_History.GetCount(); it_Index > 0; --it_Index)
+    {
+        const Trinity::LogEntry& l_Entry = l_History[it_Index - 1];
+        if (l_Entry.Level == Trinity::LogLevel::Trace)
+        {
+            continue;
+        }
+
+        if (l_Entry.Sequence != m_StatusSequence || m_StatusText.empty())
+        {
+            m_StatusSequence = l_Entry.Sequence;
+            m_StatusLevel = l_Entry.Level;
+            m_StatusText.assign(l_Entry.Text);
+        }
+
+        return;
+    }
+
+    m_StatusText.clear();
+    m_StatusSequence = 0;
 }
 
 // Unity's notification: the session's last notice over the middle of the main window for a moment, fading as it goes

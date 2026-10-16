@@ -22,6 +22,8 @@ public:
     void Finish();
 
     [[nodiscard]] bool IsBusy(Trinity::UUID id) const;
+    // A texture reimporting, or more waiting their turn
+    [[nodiscard]] bool IsRunning() const { return m_Running != nullptr || !m_Queued.empty(); }
 
 private:
     struct Running

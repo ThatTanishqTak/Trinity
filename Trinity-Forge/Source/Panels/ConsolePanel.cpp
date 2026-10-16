@@ -12,33 +12,6 @@ namespace
     constexpr std::size_t c_CommandHistoryCapacity = 64;
     constexpr std::array<const char*, 5> c_LevelNames{ "Trace", "Info", "Warn", "Error", "Critical" };
 
-    ImVec4 GetLevelColor(Trinity::LogLevel level)
-    {
-        switch (level)
-        {
-            case Trinity::LogLevel::Trace:
-            {
-                return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
-            }
-            case Trinity::LogLevel::Warn:
-            {
-                return ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
-            }
-            case Trinity::LogLevel::Error:
-            {
-                return ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
-            }
-            case Trinity::LogLevel::Critical:
-            {
-                return ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
-            }
-            default:
-            {
-                return ImGui::GetStyleColorVec4(ImGuiCol_Text);
-            }
-        }
-    }
-
     std::string FormatPrefix(const Trinity::LogEntry& entry)
     {
         return std::format("[{}] {:<7} {:<8} ", Trinity::Log::FormatTime(entry.Time), Trinity::ToString(entry.Channel), Trinity::ToString(entry.Level));
@@ -55,6 +28,33 @@ namespace
 ConsolePanel::ConsolePanel() : Panel("Console", Trinity::Icons::c_Terminal, DockSlot::Bottom)
 {
     m_VisibleLines.reserve(Trinity::LogHistory::c_LineCapacity);
+}
+
+ImVec4 ConsolePanel::GetLevelColor(Trinity::LogLevel level)
+{
+    switch (level)
+    {
+        case Trinity::LogLevel::Trace:
+        {
+            return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+        }
+        case Trinity::LogLevel::Warn:
+        {
+            return ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
+        }
+        case Trinity::LogLevel::Error:
+        {
+            return ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
+        }
+        case Trinity::LogLevel::Critical:
+        {
+            return ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
+        }
+        default:
+        {
+            return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        }
+    }
 }
 
 std::optional<std::pair<std::string_view, std::uint32_t>> ConsolePanel::FindLocation(std::string_view text)

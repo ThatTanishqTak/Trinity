@@ -49,6 +49,8 @@ private:
     void DockNewPanels();
     void DrawAboutWindow();
     void DrawNotice();
+    void DrawStatusBar();
+    void ReadStatusLine();
 
     static void* OpenPanelSettings(ImGuiContext* context, ImGuiSettingsHandler* handler, const char* name);
     static void ReadPanelSetting(ImGuiContext* context, ImGuiSettingsHandler* handler, void* entry, const char* line);
@@ -65,6 +67,10 @@ private:
     ContentBrowserPanel* m_ContentBrowser = nullptr;
     ConsolePanel* m_Console = nullptr;
     std::string m_AboutTitle;
+    // The status bar's line, the last logged at Info or above, copied from the history only when a newer one arrives
+    std::string m_StatusText;
+    Trinity::LogLevel m_StatusLevel = Trinity::LogLevel::Info;
+    std::uint64_t m_StatusSequence = 0;
     bool m_ShowDemoWindow = false;
     bool m_ShowAbout = false;
     bool m_ResetLayout = false;

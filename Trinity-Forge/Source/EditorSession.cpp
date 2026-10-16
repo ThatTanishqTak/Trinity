@@ -73,6 +73,19 @@ namespace
         return std::format("{}/{}", Trinity::Project::c_CacheMount, c_BackupFile);
     }
 
+    // The texels a texture import has done, the one being encoded counted by the rate the encoder has kept so far. Nothing before that can be told
+    std::optional<double> GetImportedTexels(const TextureImportBatch::Progress& progress)
+    {
+        if (!progress.Planned || progress.TotalTexels == 0 || (!progress.TexelsPerSecond && progress.Encoding != 0))
+        {
+            return std::nullopt;
+        }
+
+        const double l_Current = progress.TexelsPerSecond && progress.Encoding != 0 ? std::min(progress.CurrentSeconds * *progress.TexelsPerSecond, static_cast<double>(progress.CurrentTexels) * c_MaximumEstimate) : 0.0;
+
+        return static_cast<double>(progress.DoneTexels) + l_Current;
+    }
+
     std::filesystem::path FromUtf8(std::string_view text)
     {
         return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(text.data()), text.size()));
@@ -1042,6 +1055,47 @@ std::string EditorSession::GetFailedBuilds() const
     }
 
     return l_Module ? l_ModuleName : l_Assembly ? l_AssemblyName : std::string();
+}
+
+// Imports first, which keep assets from showing until they end, then builds
+std::vector<EditorSession::Activity> EditorSession::GetActivities() const
+{
+    std::vector<Activity> l_Activities;
+    if (m_Imports.IsRunning())
+    {
+        const TextureImportBatch::Progress l_Progress = m_Imports.GetProgress();
+        const std::optional<double> l_Done = GetImportedTexels(l_Progress);
+        const std::optional<float> l_Fraction = l_Done ? std::optional<float>(static_cast<float>(std::clamp(*l_Done / static_cast<double>(l_Progress.TotalTexels), 0.0, 1.0))) : std::nullopt;
+        std::string l_Text = !l_Progress.Planned ? std::format("Checking {} texture(s)", l_Progress.Textures) : l_Progress.Encoding != 0 ? std::format("Encoding texture {} of {}", l_Progress.Encoding, l_Progress.ToEncode) : std::string("Finishing the texture import");
+        l_Activities.push_back({ std::move(l_Text), l_Fraction });
+    }
+
+    if (m_ModelImports.IsRunning())
+    {
+        l_Activities.push_back({ "Importing models", std::nullopt });
+    }
+
+    if (m_EnvironmentImports.IsRunning())
+    {
+        l_Activities.push_back({ "Filtering environments", std::nullopt });
+    }
+
+    if (m_Reimporter.IsRunning())
+    {
+        l_Activities.push_back({ "Reimporting textures", std::nullopt });
+    }
+
+    if (m_Project && m_Module.IsBuilding())
+    {
+        l_Activities.push_back({ std::format("Building the C++ module {}", m_Project->GetModuleName()), std::nullopt });
+    }
+
+    if (m_Project && m_Assembly.IsBuilding())
+    {
+        l_Activities.push_back({ std::format("Building the C# project {}", m_Project->GetAssemblyName()), std::nullopt });
+    }
+
+    return l_Activities;
 }
 
 // A build running, or one to start once its sources settle or the build before it ends
@@ -2179,17 +2233,15 @@ void EditorSession::DrawImportPopup()
 
     ImGui::TextUnformatted(l_Status.c_str());
 
-    // The texture being encoded counts by the rate the encoder has kept so far. Before there is one, the bar only shows that work goes on
+    // Before the encoder has kept a rate, the bar only shows that work goes on
     const std::optional<double> l_Rate = l_Progress.TexelsPerSecond;
     const double l_Total = static_cast<double>(l_Progress.TotalTexels);
-    const double l_Current = l_Rate && l_Progress.Encoding != 0 ? std::min(l_Progress.CurrentSeconds * *l_Rate, static_cast<double>(l_Progress.CurrentTexels) * c_MaximumEstimate) : 0.0;
-    const double l_Done = static_cast<double>(l_Progress.DoneTexels) + l_Current;
-    const bool l_Known = l_Progress.Planned && l_Total > 0.0 && (l_Rate || l_Progress.Encoding == 0);
-    const float l_Fraction = l_Known ? static_cast<float>(std::clamp(l_Done / l_Total, 0.0, 1.0)) : -static_cast<float>(ImGui::GetTime());
-    const std::string l_Percent = l_Known ? std::format("{:.0f}%", l_Fraction * 100.0f) : std::string();
-    ImGui::ProgressBar(l_Fraction, ImVec2(ImGui::GetFontSize() * 26.0f, 0.0f), l_Known ? l_Percent.c_str() : "");
+    const std::optional<double> l_Done = GetImportedTexels(l_Progress);
+    const float l_Fraction = l_Done ? static_cast<float>(std::clamp(*l_Done / l_Total, 0.0, 1.0)) : -static_cast<float>(ImGui::GetTime());
+    const std::string l_Percent = l_Done ? std::format("{:.0f}%", l_Fraction * 100.0f) : std::string();
+    ImGui::ProgressBar(l_Fraction, ImVec2(ImGui::GetFontSize() * 26.0f, 0.0f), l_Percent.c_str());
 
-    const std::string l_Time = l_Known && l_Rate ? std::format("{} elapsed, about {} left", FormatDuration(l_Progress.ElapsedSeconds), FormatDuration((l_Total - l_Done) / *l_Rate)) : std::format("{} elapsed, estimating the time left", FormatDuration(l_Progress.ElapsedSeconds));
+    const std::string l_Time = l_Done && l_Rate ? std::format("{} elapsed, about {} left", FormatDuration(l_Progress.ElapsedSeconds), FormatDuration((l_Total - *l_Done) / *l_Rate)) : std::format("{} elapsed, estimating the time left", FormatDuration(l_Progress.ElapsedSeconds));
     ImGui::TextDisabled("%s", l_Time.c_str());
     ImGui::Spacing();
 
