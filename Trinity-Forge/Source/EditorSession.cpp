@@ -360,9 +360,16 @@ void EditorSession::UpdateTitle()
     }
 }
 
+// Import settings not applied are settled first, after which Forge is asked to close again
 bool EditorSession::RequestClose()
 {
     StopPlay();
+    Action l_Close = [] { Trinity::Application::Get().RequestClose(); };
+    if (SettleUnappliedEdits(l_Close))
+    {
+        return false;
+    }
+
     if (!IsDirty())
     {
         return true;
@@ -386,7 +393,7 @@ void EditorSession::Run(Command command)
     {
         case Command::NewProject:
         {
-            ConfirmDiscard([this]
+            ConfirmCloseProject([this]
             {
                 AskPath({ PathKind::Folder, "Choose an empty folder for the new project", {}, {}, {}, [this](const std::filesystem::path& path) { CreateProject(path); } });
             });
@@ -394,7 +401,7 @@ void EditorSession::Run(Command command)
         }
         case Command::OpenProject:
         {
-            ConfirmDiscard([this]
+            ConfirmCloseProject([this]
             {
                 AskPath({ PathKind::OpenFile, "Open Project", c_ProjectFilters, m_Project ? m_Project->GetDirectory().parent_path() : std::filesystem::path(), {}, [this](const std::filesystem::path& path) { OpenProject(path); } });
             });
@@ -560,6 +567,35 @@ void EditorSession::ConfirmDiscard(Action action)
     m_OpenUnsavedPopup = true;
 }
 
+// Before another project opens: edits held outside the scene are settled first, then the scene's unsaved changes are asked about
+void EditorSession::ConfirmCloseProject(Action action)
+{
+    Action l_Then = [this, l_Action = std::move(action)]() mutable { ConfirmDiscard(std::move(l_Action)); };
+    if (!SettleUnappliedEdits(l_Then))
+    {
+        l_Then();
+    }
+}
+
+void EditorSession::SetUnappliedEdits(std::function<bool()> pending, std::function<void(std::move_only_function<void()>)> settle)
+{
+    m_HasUnappliedEdits = std::move(pending);
+    m_SettleUnappliedEdits = std::move(settle);
+}
+
+// Takes what waits only when there is something to settle, and runs it at the next Update once settled, so a file dialog it opens never blocks with a frame open
+bool EditorSession::SettleUnappliedEdits(Action& then)
+{
+    if (!m_HasUnappliedEdits || !m_SettleUnappliedEdits || !m_HasUnappliedEdits())
+    {
+        return false;
+    }
+
+    m_SettleUnappliedEdits([this, l_Then = std::move(then)]() mutable { m_Pending.push_back(std::move(l_Then)); });
+
+    return true;
+}
+
 // A new project opens on its empty start scene, saved and given a UUID at once so the project file never names a missing scene
 void EditorSession::CreateProject(const std::filesystem::path& directory)
 {
@@ -610,6 +646,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 
     m_Project = std::move(*l_Project);
     AttachRegistry();
+    m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
     DebuggerSettings::Write(*m_Project);
 

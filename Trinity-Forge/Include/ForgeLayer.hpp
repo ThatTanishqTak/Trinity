@@ -19,6 +19,8 @@ struct ImGuiContext;
 struct ImGuiSettingsHandler;
 struct ImGuiTextBuffer;
 
+class PropertiesPanel;
+
 class ForgeLayer final : public Trinity::Layer
 {
 public:
@@ -58,7 +60,7 @@ private:
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
     GamePanel* m_GamePanel = nullptr;
-    Panel* m_PropertiesPanel = nullptr;
+    PropertiesPanel* m_PropertiesPanel = nullptr;
     ProjectSettingsPanel* m_ProjectSettings = nullptr;
     ContentBrowserPanel* m_ContentBrowser = nullptr;
     ConsolePanel* m_Console = nullptr;

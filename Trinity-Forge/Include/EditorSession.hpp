@@ -128,6 +128,8 @@ public:
 
     std::uint64_t AddCloseListener(std::move_only_function<void()> listener);
     void RemoveCloseListener(std::uint64_t id);
+    // Edits held outside the scene that nothing has saved yet, as Properties holds import settings not applied: whether there are any, and the question that settles them, applying or reverting, then runs what waited for it. Asked before Forge closes or another project opens
+    void SetUnappliedEdits(std::function<bool()> pending, std::function<void(std::move_only_function<void()>)> settle);
 
     void RequestOpenScene(std::string assetPath);
     [[nodiscard]] std::optional<std::string> CreateFolder(std::string_view parent);
@@ -213,6 +215,8 @@ private:
     void Run(Command command);
     void AskPath(PathRequest request);
     void ConfirmDiscard(Action action);
+    void ConfirmCloseProject(Action action);
+    [[nodiscard]] bool SettleUnappliedEdits(Action& then);
 
     void CloseProject();
     void AttachRegistry();
@@ -270,6 +274,8 @@ private:
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;
     std::vector<std::pair<std::uint64_t, std::move_only_function<void()>>> m_CloseListeners;
+    std::function<bool()> m_HasUnappliedEdits;
+    std::function<void(Action)> m_SettleUnappliedEdits;
     std::uint64_t m_NextCloseListener = 1;
     std::uint64_t m_ScanCount = 0;
     std::uint64_t m_ModelImportCount = 0;

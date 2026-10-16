@@ -21,10 +21,25 @@ public:
     explicit PropertiesPanel(EditorSession& session);
     ~PropertiesPanel() override;
 
+    // The question about import settings not applied, after every panel is drawn, so it is asked whether or not this panel is shown
+    void DrawPopups();
+
 protected:
     void OnImGuiRender() override;
 
 private:
+    // Import settings edited for an asset and not applied, which Unity asks about before its Inspector moves on, and which are asked about here once the asset is no longer shown, and before Forge closes or another project opens
+    struct UnappliedSettings
+    {
+        Trinity::UUID Asset;
+        std::string Path;
+        Trinity::AssetSettings Settings;
+    };
+
+    [[nodiscard]] std::optional<UnappliedSettings> GetUnappliedSettings() const;
+    void KeepUnappliedSettings(Trinity::UUID shown);
+    void AskUnapplied(std::move_only_function<void()> then);
+
     void DrawName(Trinity::Entity entity);
     void CommitName(Trinity::Entity entity);
     void DrawTransform(Trinity::Entity entity);
@@ -69,6 +84,10 @@ private:
     Trinity::UUID m_SettingsAsset;
     TextureImportSettings m_TextureSettings;
     ModelImportSettings m_ModelSettings;
+    std::optional<UnappliedSettings> m_Unapplied;
+    // What waits for the question, such as Forge closing
+    std::move_only_function<void()> m_AfterUnapplied;
+    bool m_OpenUnappliedPopup = false;
     Trinity::AssetRef<Trinity::MaterialAsset> m_Material;
     // A model's material as imported, read again after each model import, which the fields that differ from are marked against
     std::optional<Trinity::MaterialData> m_ImportedMaterial;

@@ -33,6 +33,7 @@ namespace
     constexpr const char* c_AddComponentPopup = "##AddComponent";
     constexpr const char* c_AddScriptPopup = "##AddScript";
     constexpr const char* c_ScriptAssetPickerPopup = "##ScriptAssetPicker";
+    constexpr const char* c_UnappliedPopup = "Unapplied Import Settings###ForgeUnappliedSettings";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
     constexpr std::array<std::string_view, 22> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
@@ -416,6 +417,7 @@ namespace
     }
 }
 
+// Settings not applied are settled before the project closes, so none is left to drop when it does
 PropertiesPanel::PropertiesPanel(EditorSession& session) : Panel("Properties", Trinity::Icons::c_Sliders, DockSlot::Right), m_Session(session)
 {
     m_CloseListener = m_Session.AddCloseListener([this]
@@ -423,12 +425,137 @@ PropertiesPanel::PropertiesPanel(EditorSession& session) : Panel("Properties", T
         m_Preview = {};
         m_Material = {};
         m_SettingsAsset = {};
+        m_Unapplied.reset();
+        m_AfterUnapplied = {};
     });
+
+    m_Session.SetUnappliedEdits([this] { return m_Unapplied.has_value() || GetUnappliedSettings().has_value(); }, [this](std::move_only_function<void()> then) { AskUnapplied(std::move(then)); });
 }
 
 PropertiesPanel::~PropertiesPanel()
 {
+    m_Session.SetUnappliedEdits({}, {});
     m_Session.RemoveCloseListener(m_CloseListener);
+}
+
+// Unity's question: Apply imports the asset again with the settings, and Revert leaves it as it was. Whatever waited for the answer, such as Forge closing, goes on after either
+void PropertiesPanel::DrawPopups()
+{
+    if (std::exchange(m_OpenUnappliedPopup, false))
+    {
+        ImGui::OpenPopup(c_UnappliedPopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_UnappliedPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    if (!m_Unapplied)
+    {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    ImGui::TextUnformatted(std::format("{} Unapplied import settings for {}", Trinity::Icons::c_Warning, m_Unapplied->Path).c_str());
+    ImGui::TextDisabled("Apply imports it again with them, and Revert leaves it as it was");
+    ImGui::Spacing();
+
+    const bool l_Apply = ImGui::Button("Apply");
+    ImGui::SameLine();
+    const bool l_Revert = ImGui::Button("Revert");
+    if (l_Apply || l_Revert)
+    {
+        if (l_Apply)
+        {
+            static_cast<void>(m_Session.ApplyImportSettings(m_Unapplied->Asset, std::move(m_Unapplied->Settings)));
+        }
+        else
+        {
+            TR_INFO("Forge: the import settings edited for {} were reverted", m_Unapplied->Path);
+        }
+
+        m_Unapplied.reset();
+        ImGui::CloseCurrentPopup();
+        if (std::move_only_function<void()> l_Then = std::exchange(m_AfterUnapplied, {}))
+        {
+            l_Then();
+        }
+    }
+
+    ImGui::EndPopup();
+}
+
+// The settings edited, for the asset they were edited for, when they differ from what its .meta holds
+std::optional<PropertiesPanel::UnappliedSettings> PropertiesPanel::GetUnappliedSettings() const
+{
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::AssetRecord* l_Record = m_SettingsAsset && l_Registry != nullptr ? l_Registry->Find(m_SettingsAsset) : nullptr;
+    if (l_Record == nullptr)
+    {
+        return std::nullopt;
+    }
+
+    if (l_Record->Importer == TextureImporter::c_Importer && m_TextureSettings != TextureImporter::ReadSettings(*l_Record))
+    {
+        return UnappliedSettings{ l_Record->ID, l_Record->Path, TextureImporter::MakeSettings(m_TextureSettings) };
+    }
+
+    if (l_Record->Importer == ModelImporter::c_Importer && m_ModelSettings != ModelImporter::ReadSettings(*l_Record))
+    {
+        return UnappliedSettings{ l_Record->ID, l_Record->Path, ModelImporter::MakeSettings(m_ModelSettings, *l_Record) };
+    }
+
+    return std::nullopt;
+}
+
+// The asset shown is no longer the one whose settings were being edited, so edits not applied are asked about rather than dropped. A question already open keeps its own
+void PropertiesPanel::KeepUnappliedSettings(Trinity::UUID shown)
+{
+    if (!m_SettingsAsset || m_SettingsAsset == shown)
+    {
+        return;
+    }
+
+    std::optional<UnappliedSettings> l_Unapplied = GetUnappliedSettings();
+    m_SettingsAsset = {};
+    if (!l_Unapplied)
+    {
+        return;
+    }
+
+    if (m_Unapplied)
+    {
+        TR_WARN("Forge: the import settings edited for {} were dropped, since those for {} are still being asked about", l_Unapplied->Path, m_Unapplied->Path);
+
+        return;
+    }
+
+    m_Unapplied = std::move(l_Unapplied);
+    m_OpenUnappliedPopup = true;
+}
+
+// Before Forge closes or another project opens: the question already open, or one about the settings being edited, and then what waited. With nothing to ask, it goes on at once
+void PropertiesPanel::AskUnapplied(std::move_only_function<void()> then)
+{
+    if (!m_Unapplied)
+    {
+        m_Unapplied = GetUnappliedSettings();
+        m_SettingsAsset = {};
+    }
+
+    if (!m_Unapplied)
+    {
+        then();
+
+        return;
+    }
+
+    m_AfterUnapplied = std::move(then);
+    m_OpenUnappliedPopup = true;
 }
 
 // The selected entity's components, each in its own section, under IDs of that entity's own. A removal waits until every section is drawn, since the sections read the components
@@ -454,6 +581,7 @@ void PropertiesPanel::OnImGuiRender()
         m_NameActive = false;
     }
 
+    KeepUnappliedSettings(m_Session.GetInspectedAsset());
     if (const Trinity::UUID l_Asset = m_Session.GetInspectedAsset())
     {
         ImGui::PushID(l_Asset.ToString().c_str());
@@ -465,7 +593,6 @@ void PropertiesPanel::OnImGuiRender()
 
     m_Preview = {};
     m_Material = {};
-    m_SettingsAsset = {};
 
     if (!l_Entity)
     {

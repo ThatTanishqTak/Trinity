@@ -196,6 +196,7 @@ void ForgeLayer::OnImGuiRender()
     }
 
     m_ContentBrowser->EndFrame();
+    m_PropertiesPanel->DrawPopups();
 
     if (m_ShowAbout)
     {
