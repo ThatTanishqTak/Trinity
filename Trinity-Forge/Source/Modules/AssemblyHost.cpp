@@ -388,6 +388,11 @@ BuildStatus AssemblyHost::GetStatus() const
 
 void AssemblyHost::StartBuild()
 {
+    if (m_BuildStarting)
+    {
+        m_BuildStarting();
+    }
+
     AssemblyBuild::Request l_Request;
     l_Request.Name = m_Project->GetAssemblyName();
     l_Request.ProjectDirectory = m_Project->GetDirectory();

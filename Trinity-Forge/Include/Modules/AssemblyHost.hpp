@@ -43,6 +43,9 @@ public:
         m_AfterLoad = std::move(afterLoad);
     }
 
+    // Called as each build starts, before it logs anything, as the Console's Clear on Build needs
+    void SetBuildStarting(std::function<void()> buildStarting) { m_BuildStarting = std::move(buildStarting); }
+
     // Whether .NET is running, so C# scripts can build and load
     [[nodiscard]] static bool IsSupported() { return Trinity::ManagedScripts::IsAvailable(); }
     [[nodiscard]] bool IsBuilding() const { return m_Build.IsRunning(); }
@@ -77,6 +80,7 @@ private:
     std::uint32_t m_NextCopy = 1;
     std::function<void()> m_BeforeUnload;
     std::function<void()> m_AfterLoad;
+    std::function<void()> m_BuildStarting;
     // When a source or the output last changed, which waits to settle
     std::optional<Clock::time_point> m_SourcesChangedAt;
     std::optional<Clock::time_point> m_OutputChangedAt;

@@ -138,6 +138,9 @@ public:
     void RemoveCloseListener(std::uint64_t id);
     // Edits held outside the scene that nothing has saved yet, as Properties holds import settings not applied: whether there are any, and the question that settles them, applying or reverting, then runs what waited for it. Asked before Forge closes or another project opens
     void SetUnappliedEdits(std::function<bool()> pending, std::function<void(std::move_only_function<void()>)> settle);
+    // Called just before a scene starts playing, and just before a C++ or C# build starts, before either logs, as the Console's Clear on Play and Clear on Build need
+    void SetBeforePlay(std::function<void()> beforePlay) { m_BeforePlay = std::move(beforePlay); }
+    void SetBeforeBuild(std::function<void()> beforeBuild) { m_BeforeBuild = std::move(beforeBuild); }
 
     void RequestOpenScene(std::string assetPath);
     [[nodiscard]] std::optional<std::string> CreateFolder(std::string_view parent);
@@ -301,6 +304,8 @@ private:
     std::vector<std::pair<std::uint64_t, std::move_only_function<void()>>> m_CloseListeners;
     std::function<bool()> m_HasUnappliedEdits;
     std::function<void(Action)> m_SettleUnappliedEdits;
+    std::function<void()> m_BeforePlay;
+    std::function<void()> m_BeforeBuild;
     std::uint64_t m_NextCloseListener = 1;
     std::uint64_t m_ScanCount = 0;
     std::uint64_t m_ModelImportCount = 0;

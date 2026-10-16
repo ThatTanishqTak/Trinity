@@ -277,6 +277,21 @@ EditorSession::~EditorSession()
 
 void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
 {
+    m_Module.SetBuildStarting([this]
+    {
+        if (m_BeforeBuild)
+        {
+            m_BeforeBuild();
+        }
+    });
+    m_Assembly.SetBuildStarting([this]
+    {
+        if (m_BeforeBuild)
+        {
+            m_BeforeBuild();
+        }
+    });
+
     // A running scene plays on through a reload: its C++ instances write their fields back and go before the module does, and are made again from those fields once the new module has registered. Its components are kept as YAML meanwhile, as the edited scene's are
     m_Module.SetReloadCallbacks([this]
     {
@@ -1158,6 +1173,11 @@ void EditorSession::StartPlay()
     if (m_Play || !m_Project)
     {
         return;
+    }
+
+    if (m_BeforePlay)
+    {
+        m_BeforePlay();
     }
 
     const auto l_Start = std::chrono::steady_clock::now();

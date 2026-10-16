@@ -105,6 +105,21 @@ void ForgeLayer::OnAttach()
     m_Console = l_Console.get();
     m_Console->SetOpenLocation([this](std::string_view path, std::uint32_t line) { static_cast<void>(m_Session.OpenScript(path, line)); });
     m_Panels.push_back(std::move(l_Console));
+    // The Console's Clear on Play and Clear on Build. A build starting beside one still running leaves the other's lines be
+    m_Session.SetBeforePlay([this]
+    {
+        if (m_Console->IsClearingOnPlay())
+        {
+            Trinity::LogHistory::Clear();
+        }
+    });
+    m_Session.SetBeforeBuild([this]
+    {
+        if (m_Console->IsClearingOnBuild() && !m_Session.GetModule().IsBuilding() && !m_Session.GetAssembly().IsBuilding())
+        {
+            Trinity::LogHistory::Clear();
+        }
+    });
 
     // Docked after the Console, so it is the tab the default layout shows
     Trinity::Scope<ContentBrowserPanel> l_ContentBrowser = Trinity::CreateScope<ContentBrowserPanel>(m_Session);
@@ -178,6 +193,7 @@ void ForgeLayer::OnImGuiRender()
         }
     }
 
+    PauseOnError();
     PushPlayTint();
     // The Scene panel gives the scene its input back while it is hovered or focused, and a closed panel leaves it with none
     m_ImGui.SetSceneInput(false, false);
@@ -320,6 +336,39 @@ void ForgeLayer::ReadStatusLine()
 
     m_StatusText.clear();
     m_StatusSequence = 0;
+}
+
+// The Console's Error Pause, as in Unity: a playing scene pauses once an error is logged, whether the Console is open or not. Lines are looked at once each, from the newest back to the last looked at, and those logged while nothing plays are passed over, so an old error never pauses the next Play. The pause is asked for once the history is let go of, since it may log
+void ForgeLayer::PauseOnError()
+{
+    if (!m_Console->IsPausingOnError() || !m_Session.IsPlaying() || m_Session.IsPaused())
+    {
+        m_ErrorScanSequence = Trinity::LogHistory::GetNextSequence();
+
+        return;
+    }
+
+    if (Trinity::LogHistory::GetNextSequence() == m_ErrorScanSequence)
+    {
+        return;
+    }
+
+    bool l_Error = false;
+    {
+        const Trinity::LogHistory::Reader l_History = Trinity::LogHistory::Read();
+        for (std::size_t it_Index = l_History.GetCount(); it_Index > 0 && l_History[it_Index - 1].Sequence >= m_ErrorScanSequence && !l_Error; --it_Index)
+        {
+            l_Error = l_History[it_Index - 1].Level >= Trinity::LogLevel::Error;
+        }
+
+        // Read again under the lock, which every line and every clear takes, so nothing logged meanwhile is passed over
+        m_ErrorScanSequence = Trinity::LogHistory::GetNextSequence();
+    }
+
+    if (l_Error)
+    {
+        m_Session.RequestPause();
+    }
 }
 
 // Unity's notification: the session's last notice over the middle of the main window for a moment, fading as it goes
@@ -1061,7 +1110,7 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::End();
 }
 
-// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, the Game panel's aspect choice and whether it shows Stats, the Content Browser's thumbnail size or list, the script editor, and whether Play waits for a debugger
+// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, the Game panel's aspect choice and whether it shows Stats, the Content Browser's thumbnail size or list, the Console's Collapse, Clear options, Error Pause and the height of the pane under its list, the script editor, and whether Play waits for a debugger
 void* ForgeLayer::OpenPanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, [[maybe_unused]] const char* name)
 {
     return handler->UserData;
@@ -1079,7 +1128,7 @@ void ForgeLayer::ReadPanelSetting([[maybe_unused]] ImGuiContext* context, [[mayb
     const std::string_view l_Key = l_Line.substr(0, l_Equals);
     const std::string_view l_Value = l_Line.substr(l_Equals + 1);
     ForgeLayer& l_Layer = *static_cast<ForgeLayer*>(entry);
-    if (l_Layer.m_ViewportPanel->ReadSetting(l_Key, l_Value) || l_Layer.m_GamePanel->ReadSetting(l_Key, l_Value) || l_Layer.m_ContentBrowser->ReadSetting(l_Key, l_Value))
+    if (l_Layer.m_ViewportPanel->ReadSetting(l_Key, l_Value) || l_Layer.m_GamePanel->ReadSetting(l_Key, l_Value) || l_Layer.m_ContentBrowser->ReadSetting(l_Key, l_Value) || l_Layer.m_Console->ReadSetting(l_Key, l_Value))
     {
         return;
     }
@@ -1121,6 +1170,7 @@ void ForgeLayer::WritePanelSettings([[maybe_unused]] ImGuiContext* context, ImGu
     l_Layer.m_ViewportPanel->WriteSettings(*buffer);
     l_Layer.m_GamePanel->WriteSettings(*buffer);
     l_Layer.m_ContentBrowser->WriteSettings(*buffer);
+    l_Layer.m_Console->WriteSettings(*buffer);
     const std::string_view l_Editor = IdeLauncher::ToKey(l_Layer.m_Session.GetScriptEditor());
     buffer->appendf("ScriptEditor=%.*s\n", static_cast<int>(l_Editor.size()), l_Editor.data());
     buffer->appendf("WaitForDebugger=%d\n", l_Layer.m_Session.GetWaitForDebugger() ? 1 : 0);

@@ -302,6 +302,11 @@ void ModuleHost::Watch()
 
 void ModuleHost::StartBuild()
 {
+    if (m_BuildStarting)
+    {
+        m_BuildStarting();
+    }
+
     ModuleBuild::Request l_Request;
     l_Request.Name = m_Project->GetModuleName();
     l_Request.ProjectDirectory = m_Project->GetDirectory();

@@ -51,6 +51,7 @@ private:
     void DrawNotice();
     void DrawStatusBar();
     void ReadStatusLine();
+    void PauseOnError();
 
     static void* OpenPanelSettings(ImGuiContext* context, ImGuiSettingsHandler* handler, const char* name);
     static void ReadPanelSetting(ImGuiContext* context, ImGuiSettingsHandler* handler, void* entry, const char* line);
@@ -71,6 +72,8 @@ private:
     std::string m_StatusText;
     Trinity::LogLevel m_StatusLevel = Trinity::LogLevel::Info;
     std::uint64_t m_StatusSequence = 0;
+    // The sequence after the last line Error Pause looked at
+    std::uint64_t m_ErrorScanSequence = 0;
     bool m_ShowDemoWindow = false;
     bool m_ShowAbout = false;
     bool m_ResetLayout = false;

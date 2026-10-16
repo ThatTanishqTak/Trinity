@@ -43,6 +43,9 @@ public:
         m_AfterLoad = std::move(afterLoad);
     }
 
+    // Called as each build starts, before it logs anything, as the Console's Clear on Build needs
+    void SetBuildStarting(std::function<void()> buildStarting) { m_BuildStarting = std::move(buildStarting); }
+
     [[nodiscard]] static bool IsSupported() { return ModuleBuild::IsSupported(); }
     [[nodiscard]] bool IsBuilding() const { return m_Build.IsRunning(); }
     // The build running or waiting to, or else the last that ran to its end. A cancelled one leaves the one before it
@@ -74,6 +77,7 @@ private:
     std::uint32_t m_NextCopy = 1;
     std::function<void()> m_BeforeUnload;
     std::function<void()> m_AfterLoad;
+    std::function<void()> m_BuildStarting;
     // The console variables the loaded module made, by name, and the values set on them as it unloaded, which the module loaded next gets
     std::vector<std::string> m_ModuleVariables;
     std::vector<std::pair<std::string, std::string>> m_KeptValues;
