@@ -2,6 +2,7 @@
 
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
+#include "Panels/ConsolePanel.hpp"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -61,6 +62,78 @@ namespace
     std::string GetAssetName(const Trinity::AssetRecord& record)
     {
         return std::filesystem::path(record.Path).filename().string();
+    }
+
+    // What a slot shows, as Unity's object fields do: what it names, "None (Material)" while empty, and a warning while what it names is gone or is not the type it takes. The tooltip says where it is, or what is wrong, and is empty for an empty slot
+    struct SlotText
+    {
+        std::string Text;
+        std::string Tooltip;
+        bool Broken = false;
+    };
+
+    // The type is the asset type the slot takes, or Asset for any. A built-in mesh is in every project
+    SlotText DescribeAssetSlot(const Trinity::AssetRegistry* registry, std::string_view assetType, Trinity::UUID current)
+    {
+        const std::string_view l_Type = assetType.empty() ? std::string_view("Asset") : assetType;
+        if (!current)
+        {
+            return { std::format("None ({})", l_Type),{}, false };
+        }
+
+        if (assetType.empty() || assetType == Trinity::MeshAsset::c_AssetType)
+        {
+            if (const std::optional<Trinity::BuiltInMesh> l_BuiltIn = Trinity::FindBuiltInMesh(current))
+            {
+                return { std::format("{} (Built-in)", Trinity::ToString(*l_BuiltIn)), "Built into the engine, so every project has it", false };
+            }
+        }
+
+        const Trinity::AssetRecord* l_Record = registry != nullptr ? registry->Find(current) : nullptr;
+        if (l_Record == nullptr)
+        {
+            return { std::format("{} Missing ({})", Trinity::Icons::c_Warning, l_Type), std::format("{} is not in the project: it was deleted, or moved outside Forge without its .meta file", current), true };
+        }
+
+        if (!assetType.empty() && l_Record->Importer != assetType)
+        {
+            return { std::format("{} Type Mismatch ({})", Trinity::Icons::c_Warning, l_Type), std::format("{} is a {}, and this slot takes a {}", l_Record->Path, l_Record->Importer, l_Type), true };
+        }
+
+        return { GetAssetName(*l_Record), l_Record->Path, false };
+    }
+
+    // An entity slot's text, as an asset slot's: the entity's name, what an empty slot means, and a warning while the entity is no longer in the scene
+    SlotText DescribeEntitySlot(Trinity::Scene& scene, Trinity::UUID value, std::string_view empty)
+    {
+        if (!value)
+        {
+            return { std::string(empty),{}, false };
+        }
+
+        if (const Trinity::Entity l_Entity = scene.FindEntityByUUID(value))
+        {
+            return { GetEntityLabel(l_Entity),{}, false };
+        }
+
+        return { std::format("{} Missing (Entity)", Trinity::Icons::c_Warning), std::format("Entity {} is not in the scene: it was deleted, or is in another scene", value), true };
+    }
+
+    // A broken slot in the Console's warning colour. Pushed just for the button or combo's own text, and popped as soon as it is drawn, before a combo's list
+    void PushSlotColor(const SlotText& slot)
+    {
+        if (slot.Broken)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
+        }
+    }
+
+    void PopSlotColor(const SlotText& slot)
+    {
+        if (slot.Broken)
+        {
+            ImGui::PopStyleColor();
+        }
     }
 
     // The shape of that kind the mesh's model cooked for it, found through the model's sub-asset keys, or none when the mesh is not a model's or the model's settings left it out
@@ -142,10 +215,12 @@ namespace
     }
 
     // What a joint joins: the world, or an entity the test takes as part of a body, other than the joint's own, picked from the list or dropped from the Hierarchy
-    bool ConnectedBodyCombo(Trinity::Scene& scene, Trinity::Entity entity, Trinity::UUID& connected, const std::string& preview, bool (*isBody)(Trinity::Entity))
+    bool ConnectedBodyCombo(Trinity::Scene& scene, Trinity::Entity entity, Trinity::UUID& connected, const SlotText& preview, bool (*isBody)(Trinity::Entity))
     {
         bool l_Changed = false;
-        const bool l_Open = ImGui::BeginCombo("##ConnectedBody", preview.c_str());
+        PushSlotColor(preview);
+        const bool l_Open = ImGui::BeginCombo("##ConnectedBody", preview.Text.c_str());
+        PopSlotColor(preview);
         if (!l_Open && ImGui::BeginDragDropTarget())
         {
             if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload))
@@ -210,11 +285,17 @@ namespace
     // An entity of the scene, or none, picked from the list in hierarchy order or dropped from the Hierarchy
     bool EntityCombo(Trinity::Scene& scene, Trinity::UUID& value)
     {
-        const Trinity::Entity l_Current = value ? scene.FindEntityByUUID(value) : Trinity::Entity();
-        const std::string l_Preview = !value ? std::string("None") : l_Current ? GetEntityLabel(l_Current) : std::format("Missing {}", value);
+        const SlotText l_Preview = DescribeEntitySlot(scene, value, "None (Entity)");
 
         bool l_Changed = false;
-        const bool l_Open = ImGui::BeginCombo("##Value", l_Preview.c_str());
+        PushSlotColor(l_Preview);
+        const bool l_Open = ImGui::BeginCombo("##Value", l_Preview.Text.c_str());
+        PopSlotColor(l_Preview);
+        if (!l_Open && l_Preview.Broken && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("%s", l_Preview.Tooltip.c_str());
+        }
+
         if (!l_Open && ImGui::BeginDragDropTarget())
         {
             if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload))
@@ -265,21 +346,18 @@ namespace
         return l_Changed;
     }
 
-    // A value as text, for a field that is shown and not edited. An entity shows by its name
-    std::string FormatScriptValue(Trinity::Scene& scene, const Trinity::ScriptFieldValue& value)
+    // A value as text, for a field that is shown and not edited. An entity and an asset show by their names, as their slots do
+    std::string FormatScriptValue(Trinity::Scene& scene, const Trinity::AssetRegistry* registry, const Trinity::ScriptFieldValue& value)
     {
         switch (value.GetType())
         {
             case Trinity::ScriptFieldType::Entity:
             {
-                const Trinity::UUID l_ID = value.Get<Trinity::UUID>();
-                const Trinity::Entity l_Entity = l_ID ? scene.FindEntityByUUID(l_ID) : Trinity::Entity();
-
-                return !l_ID ? std::string("None") : l_Entity ? GetEntityLabel(l_Entity) : std::format("Missing {}", l_ID);
+                return DescribeEntitySlot(scene, value.Get<Trinity::UUID>(), "None (Entity)").Text;
             }
             case Trinity::ScriptFieldType::Asset:
             {
-                return value.Get<Trinity::UUID>() ? value.Get<Trinity::UUID>().ToString() : std::string("None");
+                return DescribeAssetSlot(registry, {}, value.Get<Trinity::UUID>()).Text;
             }
             case Trinity::ScriptFieldType::String:
             {
@@ -318,10 +396,10 @@ namespace
     }
 
     // Greyed, with its type, since nothing here may change it
-    void DrawReadOnlyField(Trinity::Scene& scene, const char* name, const Trinity::ScriptFieldValue& value)
+    void DrawReadOnlyField(Trinity::Scene& scene, const Trinity::AssetRegistry* registry, const char* name, const Trinity::ScriptFieldValue& value)
     {
         Label(name);
-        ImGui::TextDisabled("%s", std::format("{}  ({})", FormatScriptValue(scene, value), Trinity::ToString(value.GetType())).c_str());
+        ImGui::TextDisabled("%s", std::format("{}  ({})", FormatScriptValue(scene, registry, value), Trinity::ToString(value.GetType())).c_str());
     }
 
     // What every collider has, above its own shape. The offset's turn shows as X, Y and Z degrees worked out afresh each frame, which is enough for the small turns a collider takes. Layers show by the project's names for them
@@ -774,7 +852,7 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
     Label("Tonemapper");
     EditField<Trinity::CameraComponent>(l_History, entity, "Tonemap", [](Trinity::CameraComponent& camera)
     {
-        constexpr std::array<std::pair<Trinity::Tonemapper, const char*>, 2> c_Tonemappers{ { { Trinity::Tonemapper::None, "None" }, { Trinity::Tonemapper::PBRNeutral, "PBR Neutral" } } };
+        constexpr std::array<std::pair<Trinity::Tonemapper, const char*>, 2> c_Tonemappers{ { { Trinity::Tonemapper::None, "None" },{ Trinity::Tonemapper::PBRNeutral, "PBR Neutral" } } };
 
         bool l_Changed = false;
         const auto a_Current = std::ranges::find(c_Tonemappers, camera.Tonemap, &std::pair<Trinity::Tonemapper, const char*>::first);
@@ -903,55 +981,7 @@ void PropertiesPanel::DrawEnvironment(Trinity::Entity entity)
         l_History.EndMerge();
     };
 
-    const Trinity::UUID l_Environment = entity.Get<Trinity::EnvironmentComponent>().Environment;
-    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
-    const Trinity::AssetRecord* l_Record = l_Registry != nullptr && l_Environment ? l_Registry->Find(l_Environment) : nullptr;
-    const std::string l_Name = !l_Environment ? std::string("None") : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", l_Environment);
-
-    Label("Environment");
-    const float l_ClearWidth = ImGui::GetFrameHeight();
-    const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f);
-    if (ImGui::Button(std::format("{}###Environment", l_Name).c_str(), ImVec2(l_Width, 0.0f)))
-    {
-        m_AssetFilter.clear();
-        ImGui::OpenPopup(c_EnvironmentPickerPopup);
-    }
-
-    if (ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip("%s", l_Record != nullptr ? l_Record->Path.c_str() : "An equirectangular .hdr in the project. Without one the scene keeps its ambient light");
-    }
-
-    if (ImGui::BeginDragDropTarget())
-    {
-        if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_AssetPayload))
-        {
-            std::uint64_t l_Value = 0;
-            std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
-            const Trinity::AssetRecord* l_Dropped = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
-            if (l_Dropped != nullptr && l_Dropped->Importer == Trinity::EnvironmentAsset::c_AssetType)
-            {
-                a_SetEnvironment(l_Dropped->ID);
-            }
-            else
-            {
-                TR_WARN("Forge: only an environment, an .hdr file, can go in an Environment's slot");
-            }
-        }
-
-        ImGui::EndDragDropTarget();
-    }
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!l_Environment);
-    if (ImGui::Button(std::format("{}##ClearEnvironment", Trinity::Icons::c_TimesCircle).c_str(), ImVec2(l_ClearWidth, 0.0f)))
-    {
-        a_SetEnvironment({});
-    }
-
-    ImGui::EndDisabled();
-
-    DrawAssetPicker(c_EnvironmentPickerPopup, Trinity::EnvironmentAsset::c_AssetType, l_Environment, a_SetEnvironment);
+    DrawAssetSlot("Environment", c_EnvironmentPickerPopup, Trinity::EnvironmentAsset::c_AssetType, entity.Get<Trinity::EnvironmentComponent>().Environment, a_SetEnvironment, "An equirectangular .hdr in the project. Without one the scene keeps its ambient light");
 
     Label("Intensity");
     EditField<Trinity::EnvironmentComponent>(l_History, entity, "Intensity", [](Trinity::EnvironmentComponent& environment) { return ImGui::DragFloat("##Intensity", &environment.Intensity, 0.01f, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
@@ -969,7 +999,7 @@ void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
 
     CommandStack& l_History = m_Session.GetHistory();
 
-    DrawTextureSlot(entity);
+    DrawAssetSlot("Texture", c_TexturePickerPopup, Trinity::TextureAsset::c_AssetType, entity.Get<Trinity::SpriteRendererComponent>().Texture, [this, entity](Trinity::UUID texture) { SetTexture(entity, texture); }, "A texture in the project. Without one the sprite draws white, in its tint");
 
     Label("Tint");
     EditField<Trinity::SpriteRendererComponent>(l_History, entity, "Tint", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::ColorEdit4("##Tint", &sprite.Tint.x, ImGuiColorEditFlags_AlphaPreviewHalf); });
@@ -1055,18 +1085,19 @@ void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
     EditField<Trinity::MeshRendererComponent>(l_History, entity, "CastShadows", [](Trinity::MeshRendererComponent& meshRenderer) { return ImGui::Checkbox("##CastShadows", &meshRenderer.CastShadows); });
 }
 
-// A slot for one asset of a type: a button naming it that opens a picker of the project's assets of that type, and the built-in meshes for a mesh, which also takes one dropped from elsewhere in Forge, and a cross that clears it
+// A slot for one asset of a type: a button naming it that opens a picker of the project's assets of that type, and the built-in meshes for a mesh, which also takes one dropped from elsewhere in Forge, and a cross that clears it. As in Unity it reads None (Type) while empty, and in the warning colour Missing (Type) while the asset is gone, or Type Mismatch (Type) while it is another type
 void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
-    const Trinity::AssetRecord* l_Record = l_Registry != nullptr && current ? l_Registry->Find(current) : nullptr;
-    const std::optional<Trinity::BuiltInMesh> l_BuiltIn = assetType == Trinity::MeshAsset::c_AssetType ? Trinity::FindBuiltInMesh(current) : std::nullopt;
-    const std::string l_Name = !current ? std::string("None") : l_BuiltIn ? std::format("{} (Built-in)", Trinity::ToString(*l_BuiltIn)) : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", current);
+    const SlotText l_Slot = DescribeAssetSlot(l_Registry, assetType, current);
 
     Label(label);
     const float l_ClearWidth = ImGui::GetFrameHeight();
     const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f);
-    if (ImGui::Button(std::format("{}###{}", l_Name, label).c_str(), ImVec2(l_Width, 0.0f)))
+    PushSlotColor(l_Slot);
+    const bool l_Clicked = ImGui::Button(std::format("{}###{}", l_Slot.Text, label).c_str(), ImVec2(l_Width, 0.0f));
+    PopSlotColor(l_Slot);
+    if (l_Clicked)
     {
         m_AssetFilter.clear();
         ImGui::OpenPopup(popup);
@@ -1074,7 +1105,7 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
 
     if (ImGui::IsItemHovered())
     {
-        ImGui::SetTooltip("%s", l_BuiltIn ? "Built into the engine, so every project has it" : l_Record != nullptr ? l_Record->Path.c_str() : hint);
+        ImGui::SetTooltip("%s", l_Slot.Tooltip.empty() ? hint : l_Slot.Tooltip.c_str());
     }
 
     if (ImGui::BeginDragDropTarget())
@@ -1090,7 +1121,7 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
             }
             else
             {
-                TR_WARN("Forge: only a {} asset can go in the {} slot", assetType, label);
+                TR_WARN("Forge: the {} slot takes {} assets only", label, assetType.empty() ? std::string_view("project") : assetType);
             }
         }
 
@@ -1107,60 +1138,6 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
     ImGui::EndDisabled();
 
     DrawAssetPicker(popup, assetType, current, set);
-}
-
-// Takes a texture dropped from elsewhere in Forge, or one picked from the project's textures, and the cross clears it
-void PropertiesPanel::DrawTextureSlot(Trinity::Entity entity)
-{
-    const Trinity::UUID l_Texture = entity.Get<Trinity::SpriteRendererComponent>().Texture;
-    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
-    const Trinity::AssetRecord* l_Record = l_Registry != nullptr && l_Texture ? l_Registry->Find(l_Texture) : nullptr;
-    const std::string l_Name = !l_Texture ? std::string("None") : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", l_Texture);
-
-    Label("Texture");
-    const float l_ClearWidth = ImGui::GetFrameHeight();
-    const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f);
-    if (ImGui::Button(std::format("{}###Texture", l_Name).c_str(), ImVec2(l_Width, 0.0f)))
-    {
-        m_AssetFilter.clear();
-        ImGui::OpenPopup(c_TexturePickerPopup);
-    }
-
-    if (l_Record != nullptr && ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip("%s", l_Record->Path.c_str());
-    }
-
-    if (ImGui::BeginDragDropTarget())
-    {
-        if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_AssetPayload))
-        {
-            std::uint64_t l_Value = 0;
-            std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
-            const Trinity::AssetRecord* l_Dropped = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
-            if (l_Dropped != nullptr && l_Dropped->Importer == Trinity::TextureAsset::c_AssetType)
-            {
-                SetTexture(entity, l_Dropped->ID);
-            }
-            else
-            {
-                TR_WARN("Forge: only a texture can go in a SpriteRenderer's Texture slot");
-            }
-        }
-
-        ImGui::EndDragDropTarget();
-    }
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!l_Texture);
-    if (ImGui::Button(std::format("{}##ClearTexture", Trinity::Icons::c_TimesCircle).c_str(), ImVec2(l_ClearWidth, 0.0f)))
-    {
-        SetTexture(entity, {});
-    }
-
-    ImGui::EndDisabled();
-
-    DrawAssetPicker(c_TexturePickerPopup, Trinity::TextureAsset::c_AssetType, l_Texture, [this, entity](Trinity::UUID texture) { SetTexture(entity, texture); });
 }
 
 // The project's assets of one type, or of every type when none is given, by path, after the built-in meshes for a mesh, narrowed by what is typed
@@ -1466,8 +1443,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
         return l_Changed;
     });
 
-    const Trinity::Entity l_Connected = l_Joint.ConnectedBody ? l_Scene.FindEntityByUUID(l_Joint.ConnectedBody) : Trinity::Entity();
-    const std::string l_Preview = !l_Joint.ConnectedBody ? std::string("World") : (l_Connected ? GetEntityLabel(l_Connected) : std::format("{} Missing {}", Trinity::Icons::c_Warning, l_Joint.ConnectedBody));
+    const SlotText l_Preview = DescribeEntitySlot(l_Scene, l_Joint.ConnectedBody, "World");
     Label("Connected Body");
     EditField<Joint>(l_History, entity, "ConnectedBody", [&](Joint& joint) { return ConnectedBodyCombo(l_Scene, entity, joint.ConnectedBody, l_Preview, &Is3DBody); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -1475,7 +1451,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
         ImGui::SetTooltip("The body it joins, through that body's entity or one of its collider entities, or the world. An entity can be dropped here from the Hierarchy");
     }
 
-    if (l_Joint.ConnectedBody && !l_Connected)
+    if (l_Preview.Broken)
     {
         ImGui::TextWrapped("%s", std::format("{} The entity it joins is no longer in the scene, so the joint is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
     }
@@ -1834,8 +1810,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
         return l_Changed;
     });
 
-    const Trinity::Entity l_Connected = l_Joint.ConnectedBody ? l_Scene.FindEntityByUUID(l_Joint.ConnectedBody) : Trinity::Entity();
-    const std::string l_Preview = !l_Joint.ConnectedBody ? std::string("World") : (l_Connected ? GetEntityLabel(l_Connected) : std::format("{} Missing {}", Trinity::Icons::c_Warning, l_Joint.ConnectedBody));
+    const SlotText l_Preview = DescribeEntitySlot(l_Scene, l_Joint.ConnectedBody, "World");
     Label("Connected Body");
     EditField<Joint>(l_History, entity, "ConnectedBody", [&](Joint& joint) { return ConnectedBodyCombo(l_Scene, entity, joint.ConnectedBody, l_Preview, &Is2DBody); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -1843,7 +1818,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
         ImGui::SetTooltip("The 2D body it joins, through that body's entity or one of its 2D collider entities, or the world. An entity can be dropped here from the Hierarchy");
     }
 
-    if (l_Joint.ConnectedBody && !l_Connected)
+    if (l_Preview.Broken)
     {
         ImGui::TextWrapped("%s", std::format("{} The entity it joins is no longer in the scene, so the joint is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
     }
@@ -2249,7 +2224,7 @@ void PropertiesPanel::DrawScriptFields(Trinity::ScriptEntry& entry, std::string&
         ImGui::TextDisabled("Not loaded, so its values are kept as they were read");
         for (const Trinity::ScriptEntry::Field& it_Field : entry.Fields)
         {
-            DrawReadOnlyField(l_Scene, it_Field.Name.c_str(), it_Field.Value);
+            DrawReadOnlyField(l_Scene, m_Session.GetRegistry(), it_Field.Name.c_str(), it_Field.Value);
         }
 
         return;
@@ -2290,7 +2265,7 @@ void PropertiesPanel::DrawScriptFields(Trinity::ScriptEntry& entry, std::string&
     {
         if (a_IsStale(it_Field))
         {
-            DrawReadOnlyField(l_Scene, it_Field.Name.c_str(), it_Field.Value);
+            DrawReadOnlyField(l_Scene, m_Session.GetRegistry(), it_Field.Name.c_str(), it_Field.Value);
         }
     }
 
@@ -2934,20 +2909,22 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
         }
 
         ImGui::SameLine();
-        const Trinity::AssetRecord* l_Record = l_Registry != nullptr && l_Slot.Texture ? l_Registry->Find(l_Slot.Texture) : nullptr;
-        const std::string l_Name = !l_Slot.Texture ? std::string("None") : l_Record != nullptr ? GetAssetName(*l_Record) : std::format("Missing {}", l_Slot.Texture);
+        const SlotText l_Text = DescribeAssetSlot(l_Registry, Trinity::TextureAsset::c_AssetType, l_Slot.Texture);
         const float l_UVWidth = ImGui::GetFontSize() * 3.5f;
         const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_Size - l_UVWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f, 1.0f);
         const std::string l_Popup = std::format("##Pick{}", it_Slot.Texture);
-        if (ImGui::Button(std::format("{}###Texture", l_Name).c_str(), ImVec2(l_Width, 0.0f)))
+        PushSlotColor(l_Text);
+        const bool l_Clicked = ImGui::Button(std::format("{}###Texture", l_Text.Text).c_str(), ImVec2(l_Width, 0.0f));
+        PopSlotColor(l_Text);
+        if (l_Clicked)
         {
             m_AssetFilter.clear();
             ImGui::OpenPopup(l_Popup.c_str());
         }
 
-        if (l_Record != nullptr && ImGui::IsItemHovered())
+        if (!l_Text.Tooltip.empty() && ImGui::IsItemHovered())
         {
-            ImGui::SetTooltip("%s", l_Record->Path.c_str());
+            ImGui::SetTooltip("%s", l_Text.Tooltip.c_str());
         }
 
         if (ImGui::BeginDragDropTarget())

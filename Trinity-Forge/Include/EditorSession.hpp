@@ -260,6 +260,7 @@ private:
     [[nodiscard]] bool IsBuildingScripts() const;
     void NewScene();
     void OpenScene(const std::string& assetPath);
+    void ReportMissingReferences();
     void SaveScene(Action then);
     void SaveSceneAs(Action then);
     [[nodiscard]] bool WriteScene(const std::string& assetPath);

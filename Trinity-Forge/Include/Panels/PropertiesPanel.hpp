@@ -47,7 +47,6 @@ private:
     void DrawSpriteRenderer(Trinity::Entity entity);
     void DrawMeshRenderer(Trinity::Entity entity);
     void DrawLight(Trinity::Entity entity);
-    void DrawTextureSlot(Trinity::Entity entity);
     void DrawEnvironment(Trinity::Entity entity);
     void DrawRigidBody(Trinity::Entity entity);
     void DrawColliders(Trinity::Entity entity);

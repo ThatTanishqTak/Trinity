@@ -43,6 +43,9 @@ namespace
     // How long Play waits after one debugger is seen attached, for the other half of one that debugs native and managed code at once to attach too
     constexpr std::chrono::milliseconds c_DebuggerSettle{ 1000 };
 
+    // The missing references a scene's warning lists, which keeps it within a line of the Console's history
+    constexpr std::size_t c_MissingReferenceLimit = 50;
+
     std::string FormatDuration(double seconds)
     {
         const long long l_Seconds = std::max(0ll, std::llround(seconds));
@@ -266,6 +269,96 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         static_cast<void>(Trinity::FileSystem::RemoveFile(l_Path));
 
         return true;
+    }
+
+    // Each slot of the scene naming an asset the project does not have, or an entity the scene does not have, as a line naming the entity, its component, the slot and what it named. The slots are those Properties edits, so a component with a new one needs it here too. Built-in assets are in every project, and a script's asset field takes its type from its class when that is loaded
+    std::vector<std::string> FindMissingReferences(Trinity::Scene& scene, const Trinity::AssetRegistry& registry)
+    {
+        std::vector<std::string> l_Lines;
+        for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+        {
+            const std::string l_Entity = GetEntityLabel(it_Entity);
+            const auto a_Asset = [&](std::string_view component, std::string_view slot, std::string_view assetType, Trinity::UUID asset)
+            {
+                if (asset && registry.Find(asset) == nullptr && !Trinity::AssetManager::IsBuiltIn(asset))
+                {
+                    l_Lines.push_back(std::format("{} > {} > {}: {} {}", l_Entity, component, slot, assetType.empty() ? std::string_view("Asset") : assetType, asset));
+                }
+            };
+            const auto a_Entity = [&](std::string_view component, std::string_view slot, Trinity::UUID entity)
+            {
+                if (entity && !scene.FindEntityByUUID(entity))
+                {
+                    l_Lines.push_back(std::format("{} > {} > {}: Entity {}", l_Entity, component, slot, entity));
+                }
+            };
+
+            if (it_Entity.Has<Trinity::SpriteRendererComponent>())
+            {
+                a_Asset(GetComponentLabel(Trinity::SpriteRendererComponent::c_TypeName), "Texture", Trinity::TextureAsset::c_AssetType, it_Entity.Get<Trinity::SpriteRendererComponent>().Texture);
+            }
+
+            if (it_Entity.Has<Trinity::MeshRendererComponent>())
+            {
+                const Trinity::MeshRendererComponent& l_Renderer = it_Entity.Get<Trinity::MeshRendererComponent>();
+                const std::string_view l_Component = GetComponentLabel(Trinity::MeshRendererComponent::c_TypeName);
+                a_Asset(l_Component, "Mesh", Trinity::MeshAsset::c_AssetType, l_Renderer.Mesh);
+                for (std::size_t it_Slot = 0; it_Slot < l_Renderer.Materials.size(); ++it_Slot)
+                {
+                    a_Asset(l_Component, std::format("Material {}", it_Slot), Trinity::MaterialAsset::c_AssetType, l_Renderer.Materials[it_Slot]);
+                }
+            }
+
+            if (it_Entity.Has<Trinity::EnvironmentComponent>())
+            {
+                a_Asset(GetComponentLabel(Trinity::EnvironmentComponent::c_TypeName), "Environment", Trinity::EnvironmentAsset::c_AssetType, it_Entity.Get<Trinity::EnvironmentComponent>().Environment);
+            }
+
+            if (it_Entity.Has<Trinity::ConvexHullColliderComponent>())
+            {
+                a_Asset(GetComponentLabel(Trinity::ConvexHullColliderComponent::c_TypeName), "Shape", Trinity::ConvexHullAsset::c_AssetType, it_Entity.Get<Trinity::ConvexHullColliderComponent>().Shape);
+            }
+
+            if (it_Entity.Has<Trinity::MeshColliderComponent>())
+            {
+                a_Asset(GetComponentLabel(Trinity::MeshColliderComponent::c_TypeName), "Shape", Trinity::CollisionMeshAsset::c_AssetType, it_Entity.Get<Trinity::MeshColliderComponent>().Shape);
+            }
+
+            if (it_Entity.Has<Trinity::JointComponent>())
+            {
+                a_Entity(GetComponentLabel(Trinity::JointComponent::c_TypeName), "Connected Body", it_Entity.Get<Trinity::JointComponent>().ConnectedBody);
+            }
+
+            if (it_Entity.Has<Trinity::Joint2DComponent>())
+            {
+                a_Entity(GetComponentLabel(Trinity::Joint2DComponent::c_TypeName), "Connected Body", it_Entity.Get<Trinity::Joint2DComponent>().ConnectedBody);
+            }
+
+            if (!it_Entity.Has<Trinity::ScriptComponent>())
+            {
+                continue;
+            }
+
+            for (const Trinity::ScriptEntry& it_Script : it_Entity.Get<Trinity::ScriptComponent>().Scripts)
+            {
+                const Trinity::ScriptClassDescription* l_Class = Trinity::ScriptClassRegistry::Find(it_Script.Language, it_Script.ClassName);
+                const std::string l_Script = GetScriptLabel(it_Script);
+                for (const Trinity::ScriptEntry::Field& it_Field : it_Script.Fields)
+                {
+                    if (it_Field.Value.GetType() == Trinity::ScriptFieldType::Entity)
+                    {
+                        a_Entity(l_Script, it_Field.Name, it_Field.Value.Get<Trinity::UUID>());
+                    }
+                    else if (it_Field.Value.GetType() == Trinity::ScriptFieldType::Asset)
+                    {
+                        const Trinity::ScriptFieldDescription* l_Field = l_Class != nullptr ? l_Class->FindField(it_Field.Name) : nullptr;
+                        a_Asset(l_Script, it_Field.Name, l_Field != nullptr ? std::string_view(l_Field->AssetType) : std::string_view(), it_Field.Value.Get<Trinity::UUID>());
+                    }
+                }
+            }
+        }
+
+        return l_Lines;
     }
 }
 
@@ -1351,6 +1444,7 @@ void EditorSession::RestoreBackup()
     m_History.MarkUnsaved();
     m_HasBackup = true;
     TR_INFO("Forge: restored {} from its backup, with the changes that were not saved. Saving keeps them", GetSceneName());
+    ReportMissingReferences();
 }
 
 // Named New Folder, or New Folder 1 and on when that is taken. An empty folder has no assets, so the registry need not scan
@@ -2022,6 +2116,36 @@ void EditorSession::OpenScene(const std::string& assetPath)
     m_Selection = {};
     m_History.Clear();
     TR_INFO("Forge: opened scene {} with {} entities", m_ScenePath, m_Scene.GetEntityCount());
+    ReportMissingReferences();
+}
+
+// One warning listing every slot of the open scene that names an asset the project no longer has, or an entity the scene no longer has, as Properties shows each as Missing. The Console shows its first line, and the rest under the list once it is selected
+void EditorSession::ReportMissingReferences()
+{
+    if (!m_Registry)
+    {
+        return;
+    }
+
+    const std::vector<std::string> l_Missing = FindMissingReferences(m_Scene, *m_Registry);
+    if (l_Missing.empty())
+    {
+        return;
+    }
+
+    std::string l_Text = std::format("Forge: {} has {} missing reference{}, to assets deleted or moved outside Forge, or to entities no longer in the scene. Properties shows each as Missing", GetSceneName(), l_Missing.size(), l_Missing.size() == 1 ? "" : "s");
+    for (std::size_t it_Index = 0; it_Index < std::min(l_Missing.size(), c_MissingReferenceLimit); ++it_Index)
+    {
+        l_Text += "\n    ";
+        l_Text += l_Missing[it_Index];
+    }
+
+    if (l_Missing.size() > c_MissingReferenceLimit)
+    {
+        l_Text += std::format("\n    and {} more", l_Missing.size() - c_MissingReferenceLimit);
+    }
+
+    TR_WARN("{}", l_Text);
 }
 
 void EditorSession::SaveScene(Action then)
