@@ -571,6 +571,7 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
     AttachRegistry();
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
+    DebuggerSettings::Write(*m_Project);
 
     const std::string l_StartScene = std::format("{}/{}", Trinity::Project::c_AssetsMount, Trinity::Project::c_DefaultStartScene);
     if (!WriteScene(l_StartScene))
