@@ -24,6 +24,11 @@ namespace
     constexpr const char* c_PathPopup = "Choose a Path###ForgePath";
     constexpr const char* c_ImportPopup = "Importing Textures###ForgeImport";
     constexpr const char* c_DebuggerPopup = "Waiting for a Debugger###ForgeDebugger";
+    constexpr const char* c_RecoveryPopup = "Recover Scene###ForgeRecoverScene";
+    // The open scene's backup, under the project's Cache, which is never committed. Its first lines name the scene and when it was written, as YAML comments the scene's reader passes over
+    constexpr std::string_view c_BackupFile = "Editor/Backup/Scene.trscene";
+    constexpr std::string_view c_BackupScenePrefix = "# Scene: ";
+    constexpr std::string_view c_BackupWrittenPrefix = "# Written: ";
     constexpr std::string_view c_SceneExtension = ".trscene";
 
     constexpr std::array<Trinity::FileDialogFilter, 1> c_ProjectFilters{ { { "Trinity project", "trproj" } } };
@@ -43,6 +48,29 @@ namespace
         const long long l_Seconds = std::max(0ll, std::llround(seconds));
 
         return std::format("{}:{:02}", l_Seconds / 60, l_Seconds % 60);
+    }
+
+    // As a person says how long ago something was, such as "12 minutes ago"
+    std::string FormatAge(std::chrono::system_clock::time_point time)
+    {
+        const std::int64_t l_Seconds = std::max<std::int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - time).count());
+        const auto a_Count = [](std::int64_t count, std::string_view unit) { return std::format("{} {}{} ago", count, unit, count == 1 ? "" : "s"); };
+        if (l_Seconds < 60)
+        {
+            return "less than a minute ago";
+        }
+
+        if (l_Seconds < 3600)
+        {
+            return a_Count(l_Seconds / 60, "minute");
+        }
+
+        return l_Seconds < 86400 ? a_Count(l_Seconds / 3600, "hour") : a_Count(l_Seconds / 86400, "day");
+    }
+
+    std::string GetBackupPath()
+    {
+        return std::format("{}/{}", Trinity::Project::c_CacheMount, c_BackupFile);
     }
 
     std::filesystem::path FromUtf8(std::string_view text)
@@ -339,6 +367,12 @@ void EditorSession::Update()
         m_PlayAfterBuild = false;
         BeginPlay();
     }
+
+    // A backup is kept only while the scene has changes no file holds, so it goes once they are saved, undone, or left behind for another scene
+    if (m_HasBackup && !IsDirty())
+    {
+        RemoveBackup();
+    }
 }
 
 void EditorSession::DrawPopups()
@@ -347,6 +381,7 @@ void EditorSession::DrawPopups()
     DrawPathPopup();
     DrawImportPopup();
     DrawDebuggerPopup();
+    DrawRecoveryPopup();
 }
 
 // The project, the scene and an asterisk while unsaved. The renderer adds the backend and frame rate
@@ -650,6 +685,10 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
     m_Assembly.Open(*m_Project);
     DebuggerSettings::Write(*m_Project);
 
+    // A backup left by a crash is asked about once the start scene is open
+    m_Recovery = ReadBackup();
+    m_OpenRecoveryPopup = m_Recovery.has_value();
+
     if (m_Project->ResolveStartScenePath(*m_Registry))
     {
         SaveProject();
@@ -672,6 +711,10 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 void EditorSession::CloseProject()
 {
     StopPlay();
+    // Closing as it should, so this session's backup goes, while one left by a crash and not yet answered stays to be asked about again
+    RemoveBackup();
+    m_Recovery.reset();
+    m_OpenRecoveryPopup = false;
     m_Module.Close();
     m_Assembly.Close();
 
@@ -1065,7 +1108,8 @@ void EditorSession::StartPlay()
 
     const auto l_Start = std::chrono::steady_clock::now();
     Trinity::Scope<Trinity::Scene> l_Copy = Trinity::CreateScope<Trinity::Scene>();
-    if (const Trinity::Expected<void, std::string> l_Copied = Trinity::SceneSerializer::LoadFromText(*l_Copy, Trinity::SceneSerializer::SaveToText(m_Scene)); !l_Copied)
+    const std::string l_SceneText = Trinity::SceneSerializer::SaveToText(m_Scene);
+    if (const Trinity::Expected<void, std::string> l_Copied = Trinity::SceneSerializer::LoadFromText(*l_Copy, l_SceneText); !l_Copied)
     {
         TR_ERROR("Forge: {} could not be copied to play: {}", GetSceneName(), l_Copied.GetError());
 
@@ -1073,6 +1117,12 @@ void EditorSession::StartPlay()
     }
 
     const double l_Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - l_Start).count();
+    // As Unity backs up the open scene as Play starts, since a crash while playing is the likeliest way to lose what was not saved. The text is the copy's own, so it costs only the file
+    if (IsDirty())
+    {
+        WriteBackup(l_SceneText);
+    }
+
     m_History.EndMerge();
     m_History.SetLocked(true);
     m_Paused = false;
@@ -1134,6 +1184,99 @@ void EditorSession::StopPlay()
     }
 
     TR_INFO("Forge: stopped playing {}, which is as it was", GetSceneName());
+}
+
+// The scene's text under two lines naming the scene it was opened from and when, which the scene's reader takes for comments
+void EditorSession::WriteBackup(std::string_view sceneText)
+{
+    const std::int64_t l_Seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    const std::string l_Text = std::format("# Forge's backup of a scene with unsaved changes, deleted once they are saved or discarded\n{}{}\n{}{}\n{}", c_BackupScenePrefix, m_ScenePath, c_BackupWrittenPrefix, l_Seconds, sceneText);
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(GetBackupPath(), l_Text); !l_Written)
+    {
+        TR_WARN("Forge: {} could not be backed up before playing: {}", GetSceneName(), Trinity::ToString(l_Written.GetError()));
+
+        return;
+    }
+
+    m_HasBackup = true;
+}
+
+// Only the backup this session wrote. One a crash left is removed by Discard alone
+void EditorSession::RemoveBackup()
+{
+    if (std::exchange(m_HasBackup, false) && m_Project)
+    {
+        static_cast<void>(Trinity::FileSystem::RemoveFile(GetBackupPath()));
+    }
+}
+
+// Nothing when there is no backup, which is how a project that closed as it should is left
+std::optional<EditorSession::Recovery> EditorSession::ReadBackup() const
+{
+    Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(GetBackupPath());
+    if (!l_Text)
+    {
+        return std::nullopt;
+    }
+
+    Recovery l_Recovery;
+    std::string_view l_Rest = *l_Text;
+    while (l_Rest.starts_with('#'))
+    {
+        const std::size_t l_End = l_Rest.find('\n');
+        std::string_view l_Line = l_Rest.substr(0, l_End);
+        if (l_Line.ends_with('\r'))
+        {
+            l_Line.remove_suffix(1);
+        }
+
+        std::int64_t l_Seconds = 0;
+        if (l_Line.starts_with(c_BackupScenePrefix))
+        {
+            l_Recovery.ScenePath = std::string(l_Line.substr(c_BackupScenePrefix.size()));
+        }
+        else if (l_Line.starts_with(c_BackupWrittenPrefix) && std::from_chars(l_Line.data() + c_BackupWrittenPrefix.size(), l_Line.data() + l_Line.size(), l_Seconds).ec == std::errc())
+        {
+            l_Recovery.Written = std::chrono::system_clock::time_point(std::chrono::seconds(l_Seconds));
+        }
+
+        if (l_End == std::string_view::npos)
+        {
+            break;
+        }
+
+        l_Rest.remove_prefix(l_End + 1);
+    }
+
+    l_Recovery.Text = std::move(*l_Text);
+
+    return l_Recovery;
+}
+
+// The backup's scene as the open scene, unsaved, with the path it was opened from while that is still a scene, so Save writes it there. Its file stays until the scene is saved or discarded, so a second crash still leaves it
+void EditorSession::RestoreBackup()
+{
+    std::optional<Recovery> l_Recovery = std::exchange(m_Recovery, std::nullopt);
+    if (!l_Recovery || !m_Project)
+    {
+        return;
+    }
+
+    StopPlay();
+    if (const Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::LoadFromText(m_Scene, l_Recovery->Text); !l_Loaded)
+    {
+        TR_ERROR("Forge: the scene backup could not be restored, so it is left in {}: {}", GetBackupPath(), l_Loaded.GetError());
+
+        return;
+    }
+
+    const bool l_HasScene = !l_Recovery->ScenePath.empty() && m_Registry && m_Registry->FindByPath(l_Recovery->ScenePath) != nullptr;
+    m_ScenePath = l_HasScene ? l_Recovery->ScenePath : std::string();
+    m_Selection = {};
+    m_History.Clear();
+    m_History.MarkUnsaved();
+    m_HasBackup = true;
+    TR_INFO("Forge: restored {} from its backup, with the changes that were not saved. Saving keeps them", GetSceneName());
 }
 
 // Named New Folder, or New Folder 1 and on when that is taken. An empty folder has no assets, so the registry need not scan
@@ -2150,6 +2293,61 @@ void EditorSession::DrawDebuggerPopup()
     {
         m_DebuggerWait.reset();
         TR_INFO("Forge: Play was cancelled while it waited for a debugger");
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+// Forge did not close as it should and left a backup of a scene with unsaved changes. Restore and Discard settle it, and closing the popup leaves the backup to be asked about when the project opens again
+void EditorSession::DrawRecoveryPopup()
+{
+    if (std::exchange(m_OpenRecoveryPopup, false))
+    {
+        ImGui::OpenPopup(c_RecoveryPopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    bool l_Open = true;
+    if (!ImGui::BeginPopupModal(c_RecoveryPopup, &l_Open, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        if (!l_Open && m_Recovery)
+        {
+            m_Recovery.reset();
+            TR_INFO("Forge: the scene backup is kept, to be asked about when the project opens again");
+        }
+
+        return;
+    }
+
+    if (!m_Recovery)
+    {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    const std::string l_Scene = m_Recovery->ScenePath.empty() ? std::string("an untitled scene") : m_Recovery->ScenePath;
+    const std::string l_When = m_Recovery->Written ? std::format(", made {}", FormatAge(*m_Recovery->Written)) : std::string();
+    ImGui::TextUnformatted(std::format("{} Forge did not close as it should last time", Trinity::Icons::c_Warning).c_str());
+    ImGui::TextUnformatted(std::format("A backup of {}{} holds changes that were never saved", l_Scene, l_When).c_str());
+    ImGui::TextDisabled("Restore opens it with those changes, still to be saved, and Discard deletes the backup");
+    ImGui::Spacing();
+
+    if (ImGui::Button("Restore"))
+    {
+        m_Pending.push_back([this] { RestoreBackup(); });
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Discard"))
+    {
+        m_Recovery.reset();
+        static_cast<void>(Trinity::FileSystem::RemoveFile(GetBackupPath()));
+        TR_INFO("Forge: discarded the scene backup");
         ImGui::CloseCurrentPopup();
     }
 

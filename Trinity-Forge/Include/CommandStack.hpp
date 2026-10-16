@@ -42,6 +42,12 @@ public:
 
     void Clear();
     void MarkSaved();
+    // No state in the history is the saved one, as for a scene restored from a backup, whose changes are in no file yet
+    void MarkUnsaved()
+    {
+        m_SavedPosition.reset();
+        m_MergeOpen = false;
+    }
 
     // While a copy of the scene plays, the panels show the copy and an edit would not reach the scene, so none is taken, and the first refused says why
     void SetLocked(bool locked)

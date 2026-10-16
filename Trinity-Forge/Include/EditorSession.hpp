@@ -195,6 +195,14 @@ private:
         std::optional<std::chrono::steady_clock::time_point> AttachedAt;
     };
 
+    // A scene backup a crash left, found as the project opened: the scene's text, the asset path it was opened from, empty for an untitled scene, and when it was written
+    struct Recovery
+    {
+        std::string Text;
+        std::string ScenePath;
+        std::optional<std::chrono::system_clock::time_point> Written;
+    };
+
     enum class PathKind : std::uint8_t
     {
         OpenFile,
@@ -233,6 +241,10 @@ private:
     void BeginPlay();
     void StartPlay();
     void StopPlay();
+    void WriteBackup(std::string_view sceneText);
+    void RemoveBackup();
+    [[nodiscard]] std::optional<Recovery> ReadBackup() const;
+    void RestoreBackup();
     void UpdateDebuggerWait();
     [[nodiscard]] bool IsBuildingScripts() const;
     void NewScene();
@@ -246,6 +258,7 @@ private:
     void DrawPathPopup();
     void DrawImportPopup();
     void DrawDebuggerPopup();
+    void DrawRecoveryPopup();
 
     Trinity::Scope<Trinity::Project> m_Project;
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
@@ -270,6 +283,10 @@ private:
     bool m_OpenDebuggerPopup = false;
     bool m_PlayAfterBuild = false;
     std::optional<Notice> m_Notice;
+    // Whether this session wrote the backup in the cache, which it removes once the scene has no unsaved changes or the project closes as it should
+    bool m_HasBackup = false;
+    std::optional<Recovery> m_Recovery;
+    bool m_OpenRecoveryPopup = false;
     bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;
