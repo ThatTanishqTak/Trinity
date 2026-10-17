@@ -382,91 +382,26 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return true;
     }
 
-    // Each slot of the scene naming an asset the project does not have, or an entity the scene does not have, as a line naming the entity, its component, the slot and what it named. The slots are those Properties edits, so a component with a new one needs it here too. Built-in assets are in every project, and a script's asset field takes its type from its class when that is loaded
+    // Each slot of the scene naming an asset the project does not have, or an entity the scene does not have, as a line naming the entity, its component, the slot and what it named. Built-in assets are in every project
     std::vector<std::string> FindMissingReferences(Trinity::Scene& scene, const Trinity::AssetRegistry& registry)
     {
         std::vector<std::string> l_Lines;
         for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
             const std::string l_Entity = GetEntityLabel(it_Entity);
-            const auto a_Asset = [&](std::string_view component, std::string_view slot, std::string_view assetType, Trinity::UUID asset)
+            ForEachSlotReference(it_Entity, [&](const SlotReference& reference)
             {
-                if (asset && registry.Find(asset) == nullptr && !Trinity::AssetManager::IsBuiltIn(asset))
+                const bool l_Missing = reference.IsEntity ? !scene.FindEntityByUUID(reference.Value) : registry.Find(reference.Value) == nullptr && !Trinity::AssetManager::IsBuiltIn(reference.Value);
+                if (!reference.Value || !l_Missing)
                 {
-                    l_Lines.push_back(std::format("{} > {} > {}: {} {}", l_Entity, component, slot, assetType.empty() ? std::string_view("Asset") : assetType, asset));
+                    return;
                 }
-            };
-            const auto a_Entity = [&](std::string_view component, std::string_view slot, Trinity::UUID entity)
-            {
-                if (entity && !scene.FindEntityByUUID(entity))
-                {
-                    l_Lines.push_back(std::format("{} > {} > {}: Entity {}", l_Entity, component, slot, entity));
-                }
-            };
 
-            if (it_Entity.Has<Trinity::SpriteRendererComponent>())
-            {
-                a_Asset(GetComponentLabel(Trinity::SpriteRendererComponent::c_TypeName), "Texture", Trinity::TextureAsset::c_AssetType, it_Entity.Get<Trinity::SpriteRendererComponent>().Texture);
-            }
-
-            if (it_Entity.Has<Trinity::MeshRendererComponent>())
-            {
-                const Trinity::MeshRendererComponent& l_Renderer = it_Entity.Get<Trinity::MeshRendererComponent>();
-                const std::string_view l_Component = GetComponentLabel(Trinity::MeshRendererComponent::c_TypeName);
-                a_Asset(l_Component, "Mesh", Trinity::MeshAsset::c_AssetType, l_Renderer.Mesh);
-                for (std::size_t it_Slot = 0; it_Slot < l_Renderer.Materials.size(); ++it_Slot)
-                {
-                    a_Asset(l_Component, std::format("Material {}", it_Slot), Trinity::MaterialAsset::c_AssetType, l_Renderer.Materials[it_Slot]);
-                }
-            }
-
-            if (it_Entity.Has<Trinity::EnvironmentComponent>())
-            {
-                a_Asset(GetComponentLabel(Trinity::EnvironmentComponent::c_TypeName), "Environment", Trinity::EnvironmentAsset::c_AssetType, it_Entity.Get<Trinity::EnvironmentComponent>().Environment);
-            }
-
-            if (it_Entity.Has<Trinity::ConvexHullColliderComponent>())
-            {
-                a_Asset(GetComponentLabel(Trinity::ConvexHullColliderComponent::c_TypeName), "Shape", Trinity::ConvexHullAsset::c_AssetType, it_Entity.Get<Trinity::ConvexHullColliderComponent>().Shape);
-            }
-
-            if (it_Entity.Has<Trinity::MeshColliderComponent>())
-            {
-                a_Asset(GetComponentLabel(Trinity::MeshColliderComponent::c_TypeName), "Shape", Trinity::CollisionMeshAsset::c_AssetType, it_Entity.Get<Trinity::MeshColliderComponent>().Shape);
-            }
-
-            if (it_Entity.Has<Trinity::JointComponent>())
-            {
-                a_Entity(GetComponentLabel(Trinity::JointComponent::c_TypeName), "Connected Body", it_Entity.Get<Trinity::JointComponent>().ConnectedBody);
-            }
-
-            if (it_Entity.Has<Trinity::Joint2DComponent>())
-            {
-                a_Entity(GetComponentLabel(Trinity::Joint2DComponent::c_TypeName), "Connected Body", it_Entity.Get<Trinity::Joint2DComponent>().ConnectedBody);
-            }
-
-            if (!it_Entity.Has<Trinity::ScriptComponent>())
-            {
-                continue;
-            }
-
-            for (const Trinity::ScriptEntry& it_Script : it_Entity.Get<Trinity::ScriptComponent>().Scripts)
-            {
-                const Trinity::ScriptClassDescription* l_Class = Trinity::ScriptClassRegistry::Find(it_Script.Language, it_Script.ClassName);
-                const std::string l_Script = GetScriptLabel(it_Script);
-                for (const Trinity::ScriptEntry::Field& it_Field : it_Script.Fields)
-                {
-                    if (it_Field.Value.GetType() == Trinity::ScriptFieldType::Entity)
-                    {
-                        a_Entity(l_Script, it_Field.Name, it_Field.Value.Get<Trinity::UUID>());
-                    }
-                    else if (it_Field.Value.GetType() == Trinity::ScriptFieldType::Asset)
-                    {
-                        const Trinity::ScriptFieldDescription* l_Field = l_Class != nullptr ? l_Class->FindField(it_Field.Name) : nullptr;
-                        a_Asset(l_Script, it_Field.Name, l_Field != nullptr ? std::string_view(l_Field->AssetType) : std::string_view(), it_Field.Value.Get<Trinity::UUID>());
-                    }
-                }
-            }
+                const std::string l_Component = reference.Script != nullptr ? GetScriptLabel(*reference.Script) : std::string(GetComponentLabel(reference.Component));
+                const std::string l_Slot = reference.Index ? std::format("{} {}", reference.Slot, *reference.Index) : std::string(reference.Slot);
+                const std::string_view l_Type = reference.IsEntity ? std::string_view("Entity") : reference.AssetType.empty() ? std::string_view("Asset") : reference.AssetType;
+                l_Lines.push_back(std::format("{} > {} > {}: {} {}", l_Entity, l_Component, l_Slot, l_Type, reference.Value));
+            });
         }
 
         return l_Lines;

@@ -811,11 +811,23 @@ void ViewportPanel::ApplyPick()
     m_Session.SetSelection(l_Valid ? Trinity::Entity(l_Result->Entity, &l_Scene).GetUUID() : Trinity::UUID());
 }
 
-// The selected entity and everything under it, so selecting a model's root outlines the whole model
+// The selected entity and everything under it, so selecting a model's root outlines the whole model, and what the Hierarchy's search matches, as Unity's Scene view shows what its search finds
 std::vector<std::uint32_t> ViewportPanel::GetOutlined()
 {
     std::vector<std::uint32_t> l_Outlined;
-    const Trinity::Entity l_Selected = m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection());
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    if (const std::unordered_set<Trinity::UUID>* l_Matches = m_Highlighted ? m_Highlighted() : nullptr)
+    {
+        for (const Trinity::UUID it_Match : *l_Matches)
+        {
+            if (const Trinity::Entity l_Match = l_Scene.FindEntityByUUID(it_Match))
+            {
+                l_Outlined.push_back(Trinity::ToPickID(l_Match.GetHandle()));
+            }
+        }
+    }
+
+    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
     if (!l_Selected)
     {
         return l_Outlined;

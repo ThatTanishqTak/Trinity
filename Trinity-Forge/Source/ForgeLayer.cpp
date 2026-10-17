@@ -91,9 +91,11 @@ void ForgeLayer::OnAttach()
     Trinity::Scope<GamePanel> l_Game = Trinity::CreateScope<GamePanel>(m_Session);
     m_GamePanel = l_Game.get();
     m_Panels.push_back(std::move(l_Game));
-    // A double-click or F in the Hierarchy frames in the Scene panel, as in Unity
+    // A double-click or F in the Hierarchy frames in the Scene panel, as in Unity, and the Scene panel outlines what the Hierarchy's search matches while the Hierarchy is open
     Trinity::Scope<HierarchyPanel> l_Hierarchy = Trinity::CreateScope<HierarchyPanel>(m_Session);
-    l_Hierarchy->SetFrameSelection([this](bool follow) { m_ViewportPanel->RequestFrame(follow); });
+    m_HierarchyPanel = l_Hierarchy.get();
+    m_HierarchyPanel->SetFrameSelection([this](bool follow) { m_ViewportPanel->RequestFrame(follow); });
+    m_ViewportPanel->SetHighlighted([this] { return m_HierarchyPanel->IsOpen() ? m_HierarchyPanel->GetSearchMatches() : nullptr; });
     m_Panels.push_back(std::move(l_Hierarchy));
     Trinity::Scope<PropertiesPanel> l_Properties = Trinity::CreateScope<PropertiesPanel>(m_Session);
     m_PropertiesPanel = l_Properties.get();
@@ -133,6 +135,13 @@ void ForgeLayer::OnAttach()
     // Docked after the Console, so it is the tab the default layout shows
     Trinity::Scope<ContentBrowserPanel> l_ContentBrowser = Trinity::CreateScope<ContentBrowserPanel>(m_Session);
     m_ContentBrowser = l_ContentBrowser.get();
+    // Find References In Scene shows its finds in the Hierarchy's search, bringing the Hierarchy forward
+    m_ContentBrowser->SetFindReferences([this](std::string search)
+    {
+        m_HierarchyPanel->SetSearch(std::move(search));
+        m_HierarchyPanel->SetOpen(true);
+        m_HierarchyPanel->RequestFocus();
+    });
     m_Panels.push_back(std::move(l_ContentBrowser));
 
     // ImGui reads imgui.ini before its first frame, which is after this, so the panels get their saved state

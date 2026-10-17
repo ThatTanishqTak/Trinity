@@ -13,8 +13,10 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 struct ImDrawList;
@@ -31,6 +33,8 @@ public:
 
     // Frames the selection, gliding there once the Scene panel is next drawn, as a double-click or F in the Hierarchy asks, and with follow keeps it framed as it moves
     void RequestFrame(bool follow) { m_FrameRequest = follow; }
+    // The entities outlined beside the selection, as the Hierarchy's search matches, or null for none
+    void SetHighlighted(std::function<const std::unordered_set<Trinity::UUID>*()> highlighted) { m_Highlighted = std::move(highlighted); }
 
     [[nodiscard]] bool IsShowingStats() const { return m_ShowStats; }
     void SetShowingStats(bool show);
@@ -111,6 +115,7 @@ private:
     std::optional<Glide> m_Glide;
     Trinity::UUID m_Followed;
     std::optional<bool> m_FrameRequest;
+    std::function<const std::unordered_set<Trinity::UUID>*()> m_Highlighted;
     // A click's pixel, picked through the entity IDs the next frame draws, and how many picks are on their way back
     std::optional<glm::uvec2> m_PickPixel;
     std::uint32_t m_PicksPending = 0;

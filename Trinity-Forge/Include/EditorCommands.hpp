@@ -7,6 +7,7 @@
 #include <concepts>
 #include <format>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -18,6 +19,21 @@
 // The script's class name after its namespace, with its language, such as Player (C#)
 [[nodiscard]] std::string GetScriptLabel(const Trinity::ScriptEntry& entry);
 [[nodiscard]] std::size_t GetScriptMemorySize(const Trinity::ScriptComponent& component);
+
+// A slot of an entity's component that names an asset or another entity, as Properties edits it: the component's type name, or the script whose field it is, the slot's name with its index among the mesh's materials, the asset type it takes, empty for any or for an entity, and what it holds
+struct SlotReference
+{
+    std::string_view Component;
+    const Trinity::ScriptEntry* Script = nullptr;
+    std::string_view Slot;
+    std::optional<std::size_t> Index;
+    std::string_view AssetType;
+    Trinity::UUID Value;
+    bool IsEntity = false;
+};
+
+// Every such slot of the entity, empty ones too. A script's asset field takes its type from its class while that is loaded. Find References In Scene and the missing references a scene opens with both go through it, so a component with a new slot that names an asset or an entity needs it here
+void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const SlotReference&)>& visit);
 
 // The model's nodes under one root with the given name, each with its transform, and a MeshRenderer where it has a mesh. The root's subtree holds the nodes in the model's order
 Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelData& model, std::string_view name, Trinity::Entity parent);

@@ -5,6 +5,7 @@
 #include "Panels/ConsolePanel.hpp"
 #include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/GamePanel.hpp"
+#include "Panels/HierarchyPanel.hpp"
 #include "Panels/Panel.hpp"
 #include "Panels/ProjectSettingsPanel.hpp"
 #include "Panels/ViewportPanel.hpp"
@@ -62,6 +63,7 @@ private:
     ImportTest m_ImportTest{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
+    HierarchyPanel* m_HierarchyPanel = nullptr;
     GamePanel* m_GamePanel = nullptr;
     PropertiesPanel* m_PropertiesPanel = nullptr;
     ProjectSettingsPanel* m_ProjectSettings = nullptr;

@@ -26,6 +26,8 @@ public:
     void EndFrame();
 
     [[nodiscard]] bool IsFocused() const { return m_Focused; }
+    // Shows what in the open scene uses an asset or a script file, as Find References In Scene asks, through the Hierarchy's search with a ref: term
+    void SetFindReferences(std::function<void(std::string search)> find) { m_FindReferences = std::move(find); }
 
     // The thumbnail size, or the list, which imgui.ini keeps for each person
     [[nodiscard]] bool ReadSetting(std::string_view key, std::string_view value);
@@ -97,6 +99,7 @@ private:
     [[nodiscard]] const Trinity::TextureAsset* GetThumbnail(Trinity::UUID id);
 
     EditorSession& m_Session;
+    std::function<void(std::string search)> m_FindReferences;
     std::uint64_t m_CloseListener = 0;
     std::string m_Folder;
     std::string m_Selected;

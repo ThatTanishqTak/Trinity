@@ -146,6 +146,71 @@ std::string GetScriptLabel(const Trinity::ScriptEntry& entry)
     return std::format("{} ({})", l_Separator == std::string_view::npos ? l_Name : l_Name.substr(l_Separator + 1), GetScriptLanguageLabel(entry.Language));
 }
 
+void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const SlotReference&)>& visit)
+{
+    if (entity.Has<Trinity::SpriteRendererComponent>())
+    {
+        visit({ .Component = Trinity::SpriteRendererComponent::c_TypeName, .Script = nullptr, .Slot = "Texture", .Index = std::nullopt, .AssetType = Trinity::TextureAsset::c_AssetType, .Value = entity.Get<Trinity::SpriteRendererComponent>().Texture, .IsEntity = false });
+    }
+
+    if (entity.Has<Trinity::MeshRendererComponent>())
+    {
+        const Trinity::MeshRendererComponent& l_Renderer = entity.Get<Trinity::MeshRendererComponent>();
+        visit({ .Component = Trinity::MeshRendererComponent::c_TypeName, .Script = nullptr, .Slot = "Mesh", .Index = std::nullopt, .AssetType = Trinity::MeshAsset::c_AssetType, .Value = l_Renderer.Mesh, .IsEntity = false });
+        for (std::size_t it_Slot = 0; it_Slot < l_Renderer.Materials.size(); ++it_Slot)
+        {
+            visit({ .Component = Trinity::MeshRendererComponent::c_TypeName, .Script = nullptr, .Slot = "Material", .Index = it_Slot, .AssetType = Trinity::MaterialAsset::c_AssetType, .Value = l_Renderer.Materials[it_Slot], .IsEntity = false });
+        }
+    }
+
+    if (entity.Has<Trinity::EnvironmentComponent>())
+    {
+        visit({ .Component = Trinity::EnvironmentComponent::c_TypeName, .Script = nullptr, .Slot = "Environment", .Index = std::nullopt, .AssetType = Trinity::EnvironmentAsset::c_AssetType, .Value = entity.Get<Trinity::EnvironmentComponent>().Environment, .IsEntity = false });
+    }
+
+    if (entity.Has<Trinity::ConvexHullColliderComponent>())
+    {
+        visit({ .Component = Trinity::ConvexHullColliderComponent::c_TypeName, .Script = nullptr, .Slot = "Shape", .Index = std::nullopt, .AssetType = Trinity::ConvexHullAsset::c_AssetType, .Value = entity.Get<Trinity::ConvexHullColliderComponent>().Shape, .IsEntity = false });
+    }
+
+    if (entity.Has<Trinity::MeshColliderComponent>())
+    {
+        visit({ .Component = Trinity::MeshColliderComponent::c_TypeName, .Script = nullptr, .Slot = "Shape", .Index = std::nullopt, .AssetType = Trinity::CollisionMeshAsset::c_AssetType, .Value = entity.Get<Trinity::MeshColliderComponent>().Shape, .IsEntity = false });
+    }
+
+    if (entity.Has<Trinity::JointComponent>())
+    {
+        visit({ .Component = Trinity::JointComponent::c_TypeName, .Script = nullptr, .Slot = "Connected Body", .Index = std::nullopt, .AssetType = {}, .Value = entity.Get<Trinity::JointComponent>().ConnectedBody, .IsEntity = true });
+    }
+
+    if (entity.Has<Trinity::Joint2DComponent>())
+    {
+        visit({ .Component = Trinity::Joint2DComponent::c_TypeName, .Script = nullptr, .Slot = "Connected Body", .Index = std::nullopt, .AssetType = {}, .Value = entity.Get<Trinity::Joint2DComponent>().ConnectedBody, .IsEntity = true });
+    }
+
+    if (!entity.Has<Trinity::ScriptComponent>())
+    {
+        return;
+    }
+
+    for (const Trinity::ScriptEntry& it_Script : entity.Get<Trinity::ScriptComponent>().Scripts)
+    {
+        const Trinity::ScriptClassDescription* l_Class = Trinity::ScriptClassRegistry::Find(it_Script.Language, it_Script.ClassName);
+        for (const Trinity::ScriptEntry::Field& it_Field : it_Script.Fields)
+        {
+            const Trinity::ScriptFieldType l_Type = it_Field.Value.GetType();
+            if (l_Type != Trinity::ScriptFieldType::Entity && l_Type != Trinity::ScriptFieldType::Asset)
+            {
+                continue;
+            }
+
+            const Trinity::ScriptFieldDescription* l_Field = l_Class != nullptr ? l_Class->FindField(it_Field.Name) : nullptr;
+            const std::string_view l_AssetType = l_Type == Trinity::ScriptFieldType::Asset && l_Field != nullptr ? std::string_view(l_Field->AssetType) : std::string_view();
+            visit({ .Component = {}, .Script = &it_Script, .Slot = it_Field.Name, .Index = std::nullopt, .AssetType = l_AssetType, .Value = it_Field.Value.Get<Trinity::UUID>(), .IsEntity = l_Type == Trinity::ScriptFieldType::Entity });
+        }
+    }
+}
+
 std::size_t GetScriptMemorySize(const Trinity::ScriptComponent& component)
 {
     std::size_t l_Size = component.Scripts.capacity() * sizeof(Trinity::ScriptEntry);

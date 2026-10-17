@@ -12,7 +12,9 @@
 #include <cfloat>
 #include <cstring>
 #include <format>
+#include <optional>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace
@@ -54,6 +56,28 @@ namespace
     bool ContainsIgnoringCase(std::string_view text, std::string_view part)
     {
         return part.empty() || !std::ranges::search(text, part, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).empty();
+    }
+
+    // Whether the text starts with the prefix, whatever the case of either
+    bool StartsWithIgnoringCase(std::string_view text, std::string_view prefix)
+    {
+        return text.size() >= prefix.size() && std::ranges::equal(text.substr(0, prefix.size()), prefix, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); });
+    }
+
+    // A record named by its path, the end of its path after a /, as Models/Rock.fbx names /assets/Models/Rock.fbx, or its UUID
+    bool NamesRecord(const Trinity::AssetRecord& record, std::string_view term)
+    {
+        const std::string_view l_Path(record.Path);
+
+        return l_Path == term || (l_Path.size() > term.size() && l_Path.ends_with(term) && l_Path[l_Path.size() - term.size() - 1] == '/') || record.ID.ToString() == term;
+    }
+
+    // The class name after its namespace, as Game.Player and Game::Player both read Player
+    std::string_view GetShortClassName(std::string_view name)
+    {
+        const std::size_t l_Separator = name.find_last_of(".:");
+
+        return l_Separator == std::string_view::npos ? name : name.substr(l_Separator + 1);
     }
 }
 
@@ -142,6 +166,12 @@ void HierarchyPanel::OnImGuiRender()
     }
 }
 
+void HierarchyPanel::SetSearch(std::string search)
+{
+    m_Search = std::move(search);
+    m_SearchChanged = true;
+}
+
 // Unity's search field. Ctrl+F comes to it and Escape clears it, and clearing it opens the tree to the selection
 void HierarchyPanel::DrawSearch()
 {
@@ -162,33 +192,69 @@ void HierarchyPanel::DrawSearch()
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Matches names, whatever their case. t: matches a component or a script class an entity has, as t:Light, t:Collider or t:Player do, and both can be given, as in door t:Joint. The parents of what matches show dimmed");
+        ImGui::SetTooltip("Matches names, whatever their case. t: matches a component or a script class an entity has, as t:Light, t:Collider or t:Player do, and ref: an asset or a script file it uses, as Find References In Scene in the Content Browser gives. They can be mixed, as in door t:Joint, and a term in quotes keeps its spaces. The parents of what matches show dimmed, and the Scene panel outlines the matches");
     }
 }
 
-// Each word must be in an entity's name, whatever its case, and with t: terms the entity must have a component or a script class one of them names, so t:Renderer finds MeshRenderer and SpriteRenderer. Each match shows with every parent above it, so the tree keeps its shape
+// Each word must be in an entity's name, whatever its case, with t: terms the entity must have a component or a script class one of them names, so t:Renderer finds MeshRenderer and SpriteRenderer, and with ref: terms it must use an asset or a script one of them names. Each match shows with every parent above it, so the tree keeps its shape
 void HierarchyPanel::UpdateSearch(Trinity::Scene& scene)
 {
+    // Terms are split by spaces, and a term's value in quotes keeps its spaces, as in ref:"Models/Old Rock.fbx"
     std::vector<std::string_view> l_Words;
     std::vector<std::string_view> l_Types;
+    std::vector<std::string_view> l_References;
     const std::string_view l_Search(m_Search);
     for (std::size_t l_Start = l_Search.find_first_not_of(' '); l_Start != std::string_view::npos; l_Start = l_Search.find_first_not_of(' ', l_Start))
     {
-        const std::size_t l_End = std::min(l_Search.find(' ', l_Start), l_Search.size());
-        const std::string_view l_Term = l_Search.substr(l_Start, l_End - l_Start);
-        if (l_Term.size() >= 2 && (l_Term[0] == 't' || l_Term[0] == 'T') && l_Term[1] == ':')
+        std::vector<std::string_view>* l_Terms = &l_Words;
+        std::size_t l_ValueStart = l_Start;
+        if (StartsWithIgnoringCase(l_Search.substr(l_Start), "t:"))
         {
-            if (l_Term.size() > 2)
-            {
-                l_Types.push_back(l_Term.substr(2));
-            }
+            l_Terms = &l_Types;
+            l_ValueStart += 2;
+        }
+        else if (StartsWithIgnoringCase(l_Search.substr(l_Start), "ref:"))
+        {
+            l_Terms = &l_References;
+            l_ValueStart += 4;
+        }
+
+        std::string_view l_Value;
+        std::size_t l_End = 0;
+        if (l_ValueStart < l_Search.size() && l_Search[l_ValueStart] == '"')
+        {
+            const std::size_t l_Close = std::min(l_Search.find('"', l_ValueStart + 1), l_Search.size());
+            l_Value = l_Search.substr(l_ValueStart + 1, l_Close - l_ValueStart - 1);
+            l_End = std::min(l_Close + 1, l_Search.size());
         }
         else
         {
-            l_Words.push_back(l_Term);
+            l_End = std::min(l_Search.find(' ', l_ValueStart), l_Search.size());
+            l_Value = l_Search.substr(l_ValueStart, l_End - l_ValueStart);
+        }
+
+        if (!l_Value.empty())
+        {
+            l_Terms->push_back(l_Value);
         }
 
         l_Start = l_End;
+    }
+
+    if (!l_References.empty())
+    {
+        std::string l_Key = std::format("{} {} {}", m_Session.GetScanCount(), m_Session.GetModelImportCount(), m_Session.GetHistory().GetPosition());
+        for (const std::string_view it_Term : l_References)
+        {
+            l_Key += '\n';
+            l_Key += it_Term;
+        }
+
+        if (l_Key != m_ReferencesKey)
+        {
+            ResolveReferences(l_References);
+            m_ReferencesKey = std::move(l_Key);
+        }
     }
 
     // The components the t: terms name, by their labels, as Trinity.MeshRenderer reads MeshRenderer
@@ -219,7 +285,7 @@ void HierarchyPanel::UpdateSearch(Trinity::Scene& scene)
     for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
     {
         const std::string l_Name = GetEntityLabel(it_Entity);
-        if (!std::ranges::all_of(l_Words, [&l_Name](std::string_view word) { return ContainsIgnoringCase(l_Name, word); }) || (!l_Types.empty() && !a_HasType(it_Entity)))
+        if (!std::ranges::all_of(l_Words, [&l_Name](std::string_view word) { return ContainsIgnoringCase(l_Name, word); }) || (!l_Types.empty() && !a_HasType(it_Entity)) || (!l_References.empty() && !HasReference(it_Entity)))
         {
             continue;
         }
@@ -232,6 +298,128 @@ void HierarchyPanel::UpdateSearch(Trinity::Scene& scene)
             l_Shown = l_Shown.GetParent();
         }
     }
+}
+
+// A term names an asset by its path, the end of its path, as Models/Rock.fbx does, or its UUID, and every asset of that name counts. A model brings what was imported from it, its meshes, materials and collision shapes, and a texture brings each material that samples it, read from its file. A script file, which is no asset, names the class it is named after, as Edit Script finds it
+void HierarchyPanel::ResolveReferences(const std::vector<std::string_view>& terms)
+{
+    m_References = {};
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+
+    std::unordered_map<Trinity::UUID, std::vector<Trinity::UUID>> l_Children;
+    if (l_Registry != nullptr)
+    {
+        for (const Trinity::AssetRecord* it_Record : l_Registry->GetRecords())
+        {
+            if (it_Record->Parent.IsValid())
+            {
+                l_Children[it_Record->Parent].push_back(it_Record->ID);
+            }
+        }
+    }
+
+    std::vector<Trinity::UUID> l_Pending;
+    for (const std::string_view it_Term : terms)
+    {
+        const std::size_t l_Slash = it_Term.find_last_of('/');
+        const std::string_view l_File = l_Slash == std::string_view::npos ? it_Term : it_Term.substr(l_Slash + 1);
+        const std::size_t l_Dot = l_File.rfind('.');
+        std::string l_Extension(l_Dot == std::string_view::npos ? std::string_view() : l_File.substr(l_Dot));
+        std::ranges::transform(l_Extension, l_Extension.begin(), [](char character) { return static_cast<char>(std::tolower(static_cast<unsigned char>(character))); });
+        if (l_Extension == ".cs" || l_Extension == ".cpp" || l_Extension == ".hpp" || l_Extension == ".h")
+        {
+            m_References.Scripts.emplace_back(l_Extension == ".cs" ? Trinity::ScriptLanguage::CSharp : Trinity::ScriptLanguage::Cpp, std::string(l_File.substr(0, l_Dot)));
+
+            continue;
+        }
+
+        if (l_Registry != nullptr)
+        {
+            for (const Trinity::AssetRecord* it_Record : l_Registry->GetRecords())
+            {
+                if (NamesRecord(*it_Record, it_Term))
+                {
+                    l_Pending.push_back(it_Record->ID);
+                }
+            }
+        }
+    }
+
+    while (!l_Pending.empty())
+    {
+        const Trinity::UUID l_Asset = l_Pending.back();
+        l_Pending.pop_back();
+        if (!m_References.Assets.insert(l_Asset).second)
+        {
+            continue;
+        }
+
+        if (const auto a_Found = l_Children.find(l_Asset); a_Found != l_Children.end())
+        {
+            l_Pending.insert(l_Pending.end(), a_Found->second.begin(), a_Found->second.end());
+        }
+    }
+
+    std::unordered_set<Trinity::UUID> l_Textures;
+    for (const Trinity::UUID it_Asset : m_References.Assets)
+    {
+        const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(it_Asset) : nullptr;
+        if (l_Record != nullptr && l_Record->Importer == Trinity::TextureAsset::c_AssetType)
+        {
+            l_Textures.insert(it_Asset);
+        }
+    }
+
+    if (l_Textures.empty())
+    {
+        return;
+    }
+
+    for (const Trinity::AssetRecord* it_Record : l_Registry->GetRecords())
+    {
+        if (it_Record->Importer != ModelImporter::c_MaterialImporter)
+        {
+            continue;
+        }
+
+        const std::optional<Trinity::MaterialData> l_Material = m_Session.ReadMaterial(it_Record->ID);
+        if (!l_Material)
+        {
+            continue;
+        }
+
+        for (const Trinity::MaterialTexture* it_Slot : { &l_Material->BaseColorTexture, &l_Material->MetallicRoughnessTexture, &l_Material->NormalTexture, &l_Material->OcclusionTexture, &l_Material->EmissiveTexture })
+        {
+            if (l_Textures.contains(it_Slot->Texture))
+            {
+                m_References.Assets.insert(it_Record->ID);
+
+                break;
+            }
+        }
+    }
+}
+
+// Whether a slot of the entity holds an asset the ref: terms name, or one of its scripts is of a class named after a script file they name
+bool HierarchyPanel::HasReference(Trinity::Entity entity) const
+{
+    bool l_Found = false;
+    ForEachSlotReference(entity, [this, &l_Found](const SlotReference& reference)
+    {
+        l_Found = l_Found || (!reference.IsEntity && reference.Value.IsValid() && m_References.Assets.contains(reference.Value));
+    });
+
+    if (l_Found || m_References.Scripts.empty() || !entity.Has<Trinity::ScriptComponent>())
+    {
+        return l_Found;
+    }
+
+    return std::ranges::any_of(entity.Get<Trinity::ScriptComponent>().Scripts, [this](const Trinity::ScriptEntry& script)
+    {
+        const std::string_view l_Name = GetShortClassName(std::string_view(script.ClassName));
+
+        return std::ranges::any_of(m_References.Scripts, [&script, l_Name](const std::pair<Trinity::ScriptLanguage, std::string>& reference) { return reference.first == script.Language && reference.second == l_Name; });
+    });
 }
 
 // While searching, only what the search shows: a branch with no match below it is a leaf, every branch opens as the search changes, and a parent shown only for what is below it is dimmed

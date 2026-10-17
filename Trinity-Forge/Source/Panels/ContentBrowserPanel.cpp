@@ -106,6 +106,23 @@ namespace
         return name == "CMakeLists.txt" || std::ranges::any_of(c_Extensions, [name](std::string_view extension) { return name.ends_with(extension); });
     }
 
+    // A script file that holds a class, which Find References In Scene finds by the class it is named after
+    bool IsClassFile(std::string_view name)
+    {
+        constexpr std::array<std::string_view, 4> c_Extensions{ ".cs", ".cpp", ".hpp", ".h" };
+
+        return std::ranges::any_of(c_Extensions, [name](std::string_view extension) { return name.ends_with(extension); });
+    }
+
+    // The ref: term that names a file, by its path inside its root, as Models/Rock.fbx names /assets/Models/Rock.fbx, in quotes when the path has a space
+    std::string GetReferenceSearch(std::string_view path)
+    {
+        const std::size_t l_Root = path.find('/', 1);
+        const std::string_view l_Inside = l_Root == std::string_view::npos ? path : path.substr(l_Root + 1);
+
+        return l_Inside.find(' ') == std::string_view::npos ? std::format("ref:{}", l_Inside) : std::format("ref:\"{}\"", l_Inside);
+    }
+
     // What an importer cooks, and so what Reimport cooks again
     bool IsImported(const Trinity::AssetRecord* record)
     {
@@ -654,6 +671,14 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
     }
 
     ImGui::SetItemTooltip("Copies a file from anywhere into %s", m_Folder.c_str());
+
+    // As in Unity: what in the open scene uses the asset, a model's meshes and materials, or a texture through its materials, or has the class a script file is named after, in the Hierarchy
+    const bool l_Findable = item != nullptr && !item->Folder && (item->Record != nullptr || IsClassFile(item->Name));
+    if (ImGui::MenuItem(std::format("{} Find References In Scene", Trinity::Icons::c_Search).c_str(), nullptr, false, l_Findable && m_FindReferences))
+    {
+        m_FindReferences(GetReferenceSearch(item->Path));
+    }
+
     ImGui::Separator();
     if (ImGui::MenuItem(std::format("{} Refresh", Trinity::Icons::c_Refresh).c_str(), "F5"))
     {

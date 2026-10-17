@@ -8,7 +8,9 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 class HierarchyPanel final : public Panel
@@ -18,12 +20,25 @@ public:
 
     // Frames the selection in the Scene panel, as a double-click and F do here, and with follow keeps it framed as it moves, as Shift+F does
     void SetFrameSelection(std::function<void(bool follow)> frame) { m_FrameSelection = std::move(frame); }
+    // Puts the text in the search field, as Find References In Scene does with a ref: term
+    void SetSearch(std::string search);
+    // The entities the search matches while it holds anything, which the Scene panel outlines, or null
+    [[nodiscard]] const std::unordered_set<Trinity::UUID>* GetSearchMatches() const { return m_Search.empty() ? nullptr : &m_Matched; }
 
 protected:
     void OnImGuiRender() override;
 
 private:
+    // What the search's ref: terms name: the assets a slot may hold, and by language the script classes named after a script file
+    struct References
+    {
+        std::unordered_set<Trinity::UUID> Assets;
+        std::vector<std::pair<Trinity::ScriptLanguage, std::string>> Scripts;
+    };
+
     void DrawSearch();
+    void ResolveReferences(const std::vector<std::string_view>& terms);
+    [[nodiscard]] bool HasReference(Trinity::Entity entity) const;
     void UpdateSearch(Trinity::Scene& scene);
     void DrawEntity(Trinity::Entity entity);
     void DrawRenameField(Trinity::Entity entity);
@@ -57,6 +72,9 @@ private:
     bool m_FocusSearch = false;
     // As the search changes, so the tree opens to every match afresh and is then left to be opened and closed
     bool m_SearchChanged = false;
+    // The ref: terms resolved, worked out again only as the terms, the project's assets or the history change, since a texture's materials are read from their files
+    References m_References;
+    std::string m_ReferencesKey;
     // While a copy of the scene plays, which nothing may change
     bool m_ReadOnly = false;
     bool m_ScrollToSelection = false;
