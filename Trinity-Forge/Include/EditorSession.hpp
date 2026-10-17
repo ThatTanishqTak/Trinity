@@ -193,6 +193,13 @@ public:
     bool CreateModel(Trinity::UUID model, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
     // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point
     bool CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent);
+    // The entity and its subtree as they are now, to paste into this scene or another until the project closes. While a copy plays, as the playing entity is, to paste once it stops
+    void CopyEntity(Trinity::UUID entity);
+    [[nodiscard]] bool HasCopiedEntity() const { return m_CopiedEntity.has_value(); }
+    // As Unity pastes: right after the original while the scene has it, else last under the parent it was copied from, else last among the roots. Not while a copy plays
+    bool PasteEntity();
+    // Last under the parent
+    bool PasteEntityAsChild(Trinity::UUID parent);
     // Where the Scene panel's camera looks, which the panel sets each frame: the 3D camera's focus, or the 2D camera's centre at Z 0
     [[nodiscard]] glm::vec3 GetSpawnPoint() const { return m_SpawnPoint; }
     void SetSpawnPoint(glm::vec3 point) { m_SpawnPoint = point; }
@@ -237,6 +244,15 @@ private:
         PathAction OnChosen;
     };
 
+    // What Copy took, with where the original was and its place in the world, which a paste away from that parent keeps
+    struct CopiedEntity
+    {
+        std::string Text;
+        Trinity::UUID Original;
+        Trinity::UUID Parent;
+        Trinity::TransformComponent World;
+    };
+
     void Run(Command command);
     void AskPath(PathRequest request);
     void ConfirmDiscard(Action action);
@@ -244,6 +260,7 @@ private:
     [[nodiscard]] bool SettleUnappliedEdits(Action& then);
 
     void CloseProject();
+    bool PasteEntityAt(Trinity::UUID parent, Trinity::UUID before);
     void AttachRegistry();
     void StartImports();
     void StartTextureImports();
@@ -288,6 +305,7 @@ private:
     Trinity::UUID m_Selection;
     CommandStack m_History{ m_Scene, m_Selection };
     Trinity::UUID m_InspectedAsset;
+    std::optional<CopiedEntity> m_CopiedEntity;
     glm::vec3 m_SpawnPoint{ 0.0f };
     TextureReimporter m_Reimporter;
     TextureImportBatch m_Imports;

@@ -48,6 +48,7 @@ namespace Trinity
         constexpr const char* c_CubeOutline = "\U000F01A7";
         constexpr const char* c_Search = "\uF002";
         constexpr const char* c_Copy = "\uF0C5";
+        constexpr const char* c_Paste = "\uF0EA";
         constexpr const char* c_Download = "\uF019";
     }
 }

@@ -900,6 +900,8 @@ void EditorSession::CloseProject()
 
     m_Reimporter.Finish();
     m_InspectedAsset = {};
+    // Its components name the project's assets
+    m_CopiedEntity.reset();
 
     // Everything holding the project's assets lets go of them, so none are left loaded from it when another project's registry is set
     for (auto& [it_ID, it_Listener] : m_CloseListeners)
@@ -2138,6 +2140,55 @@ bool EditorSession::CreateModel(Trinity::UUID model, Trinity::UUID parent, Trini
 bool EditorSession::CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent)
 {
     return m_History.Execute(Trinity::CreateScope<CreatePrimitiveCommand>(mesh, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
+}
+
+void EditorSession::CopyEntity(Trinity::UUID entity)
+{
+    Trinity::Scene& l_Scene = GetScene();
+    const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(entity);
+    if (!l_Entity)
+    {
+        return;
+    }
+
+    const Trinity::Entity l_Parent = l_Entity.GetParent();
+    m_CopiedEntity = CopiedEntity{ .Text = Trinity::SceneSerializer::SaveEntityToText(l_Scene, l_Entity), .Original = entity, .Parent = l_Parent ? l_Parent.GetUUID() : Trinity::UUID(), .World = l_Scene.ComputeWorldTransform(l_Entity) };
+}
+
+bool EditorSession::PasteEntity()
+{
+    if (!m_CopiedEntity)
+    {
+        return false;
+    }
+
+    if (const Trinity::Entity l_Original = m_Scene.FindEntityByUUID(m_CopiedEntity->Original))
+    {
+        const Trinity::Entity l_Parent = l_Original.GetParent();
+        const Trinity::Entity l_Next = l_Original.GetNextSibling();
+
+        return PasteEntityAt(l_Parent ? l_Parent.GetUUID() : Trinity::UUID(), l_Next ? l_Next.GetUUID() : Trinity::UUID());
+    }
+
+    return PasteEntityAt(m_Scene.FindEntityByUUID(m_CopiedEntity->Parent) ? m_CopiedEntity->Parent : Trinity::UUID(), {});
+}
+
+bool EditorSession::PasteEntityAsChild(Trinity::UUID parent)
+{
+    return m_CopiedEntity && m_Scene.FindEntityByUUID(parent) && PasteEntityAt(parent, {});
+}
+
+// Under the parent it was copied from, it keeps its transform, as Duplicate does, and under another it keeps its place in the world, as moving it there in the Hierarchy does
+bool EditorSession::PasteEntityAt(Trinity::UUID parent, Trinity::UUID before)
+{
+    if (IsPlaying())
+    {
+        return false;
+    }
+
+    const std::optional<Trinity::TransformComponent> l_World = parent == m_CopiedEntity->Parent ? std::nullopt : std::optional(m_CopiedEntity->World);
+
+    return m_History.Execute(Trinity::CreateScope<PasteEntityCommand>(m_CopiedEntity->Text, parent, before, l_World));
 }
 
 bool EditorSession::EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field)

@@ -492,6 +492,65 @@ std::size_t DuplicateEntityCommand::GetMemorySize() const
     return sizeof(*this) + m_Text.capacity() + m_Label.capacity();
 }
 
+PasteEntityCommand::PasteEntityCommand(std::string text, Trinity::UUID parent, Trinity::UUID before, std::optional<Trinity::TransformComponent> world) : m_Text(std::move(text)), m_Parent(parent), m_Before(before), m_World(world)
+{
+
+}
+
+// The copied text goes into a scene of its own and is duplicated there, so the copy has new UUIDs and its links name it, which is then loaded here with them
+bool PasteEntityCommand::Execute(Trinity::Scene& scene)
+{
+    if (m_Entity.IsValid())
+    {
+        return Restore(scene, m_Text, m_Parent, m_Before, m_Label);
+    }
+
+    if (!IsPlaceValid(scene, m_Parent, m_Before))
+    {
+        return false;
+    }
+
+    Trinity::Scene l_Clipboard;
+    const Trinity::Expected<Trinity::Entity, std::string> l_Copied = Trinity::SceneSerializer::LoadEntityFromText(l_Clipboard, m_Text, {}, {});
+    if (!l_Copied)
+    {
+        TR_ERROR("Forge: the copied entity could not be read to paste: {}", l_Copied.GetError());
+
+        return false;
+    }
+
+    const Trinity::Entity l_Parent = scene.FindEntityByUUID(m_Parent);
+    const std::string l_Text = Trinity::SceneSerializer::SaveEntityToText(l_Clipboard, l_Clipboard.DuplicateEntity(*l_Copied));
+    const Trinity::Expected<Trinity::Entity, std::string> l_Pasted = Trinity::SceneSerializer::LoadEntityFromText(scene, l_Text, l_Parent, scene.FindEntityByUUID(m_Before));
+    if (!l_Pasted)
+    {
+        TR_ERROR("Forge: the copied entity could not be pasted: {}", l_Pasted.GetError());
+
+        return false;
+    }
+
+    if (m_World)
+    {
+        scene.SetWorldTransform(*l_Pasted, *m_World);
+    }
+
+    m_Entity = l_Pasted->GetUUID();
+    m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, *l_Pasted);
+    m_Label = l_Parent ? std::format("Paste {} under {}", GetEntityLabel(*l_Pasted), GetEntityLabel(l_Parent)) : std::format("Paste {}", GetEntityLabel(*l_Pasted));
+
+    return true;
+}
+
+void PasteEntityCommand::Undo(Trinity::Scene& scene)
+{
+    scene.DestroyEntity(scene.FindEntityByUUID(m_Entity));
+}
+
+std::size_t PasteEntityCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Text.capacity() + m_Label.capacity();
+}
+
 MoveEntityCommand::MoveEntityCommand(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before, bool keepWorldTransform) : m_Entity(entity), m_NewParent(parent), m_NewBefore(before), m_KeepWorldTransform(keepWorldTransform)
 {
 

@@ -444,7 +444,7 @@ bool ForgeLayer::OnCloseRequested()
     return m_Session.RequestClose();
 }
 
-// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open, nor while a popup is up, such as the texture import's. Ctrl+P plays and stops, and while a copy plays, nothing edits the scene
+// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open, nor while a popup is up, such as the texture import's. Ctrl+P plays and stops, and while a copy plays, nothing edits the scene, though Ctrl+C copies the playing entity
 void ForgeLayer::ReadShortcuts()
 {
     if (ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
@@ -492,9 +492,13 @@ void ForgeLayer::ReadShortcuts()
     {
         m_Session.Request(EditorSession::Command::Refresh);
     }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C) && !m_ContentBrowser->IsFocused() && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
+    {
+        m_Session.CopyEntity(m_Session.GetSelection());
+    }
     else if (l_Playing)
     {
-        // Undo, Redo, Duplicate and Delete would edit the scene, and the history is locked while a copy plays
+        // Undo, Redo, Paste, Duplicate and Delete would edit the scene, and the history is locked while a copy plays
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, ImGuiInputFlags_Repeat) || ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_Repeat))
     {
@@ -506,7 +510,15 @@ void ForgeLayer::ReadShortcuts()
     }
     else if (m_ContentBrowser->IsFocused())
     {
-        // Duplicate and Delete are the browser's own while it has focus
+        // Duplicate and Delete are the browser's own while it has focus, and Copy and Paste are left to it
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V) && m_Session.HasCopiedEntity() && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
+    {
+        static_cast<void>(m_Session.PasteEntityAsChild(m_Session.GetSelection()));
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V) && m_Session.HasCopiedEntity())
+    {
+        static_cast<void>(m_Session.PasteEntity());
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
     {
@@ -794,7 +806,7 @@ void ForgeLayer::DrawPlayControls()
     }
 }
 
-// Undo and Redo name the command they act on. Every edit to the scene goes through the history, so it can be undone, and the project's settings are saved as they change. While a copy plays, nothing here edits the scene
+// Undo and Redo name the command they act on. Every edit to the scene goes through the history, so it can be undone, and the project's settings are saved as they change. While a copy plays, nothing here edits the scene, and Copy takes the playing entity, to paste once it stops
 void ForgeLayer::DrawEditMenu()
 {
     CommandStack& l_History = m_Session.GetHistory();
@@ -841,7 +853,24 @@ void ForgeLayer::DrawEditMenu()
         ImGui::EndMenu();
     }
 
-    const bool l_HasSelection = !l_Playing && static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
+    const bool l_Selected = static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
+    const bool l_HasSelection = !l_Playing && l_Selected;
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Copy, "Copy").c_str(), "Ctrl+C", false, l_Selected))
+    {
+        m_Session.CopyEntity(m_Session.GetSelection());
+    }
+
+    const bool l_CanPaste = !l_Playing && m_Session.HasCopiedEntity();
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Paste, "Paste").c_str(), "Ctrl+V", false, l_CanPaste))
+    {
+        static_cast<void>(m_Session.PasteEntity());
+    }
+
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Paste, "Paste As Child").c_str(), "Ctrl+Shift+V", false, l_CanPaste && l_HasSelection))
+    {
+        static_cast<void>(m_Session.PasteEntityAsChild(m_Session.GetSelection()));
+    }
+
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Duplicate").c_str(), "Ctrl+D", false, l_HasSelection))
     {
         l_History.Execute(Trinity::CreateScope<DuplicateEntityCommand>(m_Session.GetSelection()));

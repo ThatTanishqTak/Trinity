@@ -167,6 +167,29 @@ private:
     std::string m_Label;
 };
 
+// An entity and its subtree from the text Copy took, with new UUIDs, and the links inside the copy naming the copy, as Duplicate makes them. Last under the parent or among the roots, or before the sibling when one is given, and at the place in the world it was copied at when given one
+class PasteEntityCommand final : public EditorCommand
+{
+public:
+    PasteEntityCommand(std::string text, Trinity::UUID parent, Trinity::UUID before, std::optional<Trinity::TransformComponent> world);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    // What Copy took, and once pasted, the copy as it went in, which a redo puts back with the same UUIDs
+    std::string m_Text;
+    Trinity::UUID m_Parent;
+    Trinity::UUID m_Before;
+    std::optional<Trinity::TransformComponent> m_World;
+    Trinity::UUID m_Entity;
+    std::string m_Label;
+};
+
 class MoveEntityCommand final : public EditorCommand
 {
 public:
