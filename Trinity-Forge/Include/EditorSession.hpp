@@ -165,6 +165,8 @@ public:
     void SetScriptEditor(ScriptEditor editor) { m_ScriptEditor = editor; }
     // A file of the project at its line, counted from 1, or at its top for 0, in the script editor, with the C# solution for a .cs file and the module's folder for any other. The path is a project path, such as /project/Scripts/Player.cs, one relative to the project's folder, as build errors name them, or a native one
     bool OpenScript(std::string_view path, std::uint32_t line = 0);
+    // A script class's file at the class, as Unity's Edit Script opens it: the file named after the class in the project's Scripts folder for C#, or its Source folder for C++, or else the first there that declares it
+    bool EditScript(Trinity::ScriptLanguage language, std::string_view className);
     // The C# solution beside the project file, or the C++ module's Source folder, in the script editor
     bool OpenSolution();
     bool OpenModuleFolder();

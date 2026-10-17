@@ -23,6 +23,8 @@ public:
 
     // The question about import settings not applied, after every panel is drawn, so it is asked whether or not this panel is shown
     void DrawPopups();
+    // Brings the Console forward, as a stopped script's badge does when clicked, to the exception that stopped it
+    void SetShowConsole(std::function<void()> showConsole) { m_ShowConsole = std::move(showConsole); }
 
 protected:
     void OnImGuiRender() override;
@@ -97,6 +99,7 @@ private:
     bool m_NameActive = false;
     std::string m_AssetFilter;
     std::string m_ScriptFilter;
+    std::function<void()> m_ShowConsole;
     Trinity::UUID m_EulerEntity;
     glm::quat m_EulerRotation = glm::identity<glm::quat>();
     glm::vec3 m_EulerDegrees{ 0.0f };

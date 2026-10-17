@@ -8,11 +8,14 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <fstream>
 #include <optional>
+#include <span>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -183,6 +186,114 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         const auto a_Letter = [](char character) { return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_'; };
 
         return !name.empty() && a_Letter(name.front()) && std::ranges::all_of(name, [&a_Letter](char character) { return a_Letter(character) || (character >= '0' && character <= '9'); });
+    }
+
+    // A letter, a digit or _, as a C++ or C# name is made of
+    bool IsNameCharacter(char character)
+    {
+        return std::isalnum(static_cast<unsigned char>(character)) != 0 || character == '_';
+    }
+
+    // The line, counted from 1, of the first "class Name" or "struct Name" in the file, passing over one after // on its line, and one that only declares it ahead of its definition, as "class Name;" does
+    std::optional<std::uint32_t> FindClassLine(const std::filesystem::path& file, std::string_view name)
+    {
+        constexpr std::array<std::string_view, 2> c_Keywords{ "class", "struct" };
+
+        std::ifstream l_Stream(file);
+        std::string l_Line;
+        for (std::uint32_t l_Number = 1; std::getline(l_Stream, l_Line); ++l_Number)
+        {
+            const std::size_t l_Comment = l_Line.find("//");
+            for (const std::string_view it_Keyword : c_Keywords)
+            {
+                for (std::size_t l_At = l_Line.find(it_Keyword); l_At != std::string::npos && l_At < l_Comment; l_At = l_Line.find(it_Keyword, l_At + 1))
+                {
+                    const std::size_t l_KeywordEnd = l_At + it_Keyword.size();
+                    if ((l_At > 0 && IsNameCharacter(l_Line[l_At - 1])) || l_KeywordEnd >= l_Line.size() || IsNameCharacter(l_Line[l_KeywordEnd]))
+                    {
+                        continue;
+                    }
+
+                    const std::size_t l_NameAt = l_Line.find_first_not_of(" \t", l_KeywordEnd);
+                    if (l_NameAt == std::string::npos || std::string_view(l_Line).substr(l_NameAt, name.size()) != name)
+                    {
+                        continue;
+                    }
+
+                    const std::size_t l_NameEnd = l_NameAt + name.size();
+                    const std::size_t l_Next = l_Line.find_first_not_of(" \t\r", l_NameEnd);
+                    if ((l_NameEnd < l_Line.size() && IsNameCharacter(l_Line[l_NameEnd])) || (l_Next != std::string::npos && l_Line[l_Next] == ';'))
+                    {
+                        continue;
+                    }
+
+                    return l_Number;
+                }
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    // A script class's file in the folder or below it, with the line that declares the class, as Edit Script opens it: the file named after the class, as Unity has it, in the order of the extensions given, then any file that declares it, then the named file at its top. Hidden and build output folders are passed over
+    std::optional<std::pair<std::filesystem::path, std::uint32_t>> FindScriptSource(const std::filesystem::path& folder, std::span<const std::string_view> extensions, std::string_view name)
+    {
+        constexpr std::array<std::string_view, 4> c_SkippedFolders{ "bin", "obj", "build", "out" };
+
+        std::vector<std::filesystem::path> l_Files;
+        std::error_code l_Error;
+        for (std::filesystem::recursive_directory_iterator it_Entry(folder, std::filesystem::directory_options::skip_permission_denied, l_Error); !l_Error && it_Entry != std::filesystem::recursive_directory_iterator(); it_Entry.increment(l_Error))
+        {
+            std::error_code l_TypeError;
+            if (it_Entry->is_directory(l_TypeError))
+            {
+                std::string l_Name = ToUtf8(it_Entry->path().filename());
+                std::ranges::transform(l_Name, l_Name.begin(), [](char character) { return static_cast<char>(std::tolower(static_cast<unsigned char>(character))); });
+                if (l_Name.starts_with('.') || std::ranges::find(c_SkippedFolders, l_Name) != c_SkippedFolders.end())
+                {
+                    it_Entry.disable_recursion_pending();
+                }
+
+                continue;
+            }
+
+            if (std::ranges::find(extensions, ToUtf8(it_Entry->path().extension())) != extensions.end())
+            {
+                l_Files.push_back(it_Entry->path());
+            }
+        }
+
+        std::ranges::sort(l_Files);
+
+        std::vector<std::filesystem::path> l_Named;
+        for (const std::string_view it_Extension : extensions)
+        {
+            for (const std::filesystem::path& it_File : l_Files)
+            {
+                if (ToUtf8(it_File.stem()) == name && ToUtf8(it_File.extension()) == it_Extension)
+                {
+                    l_Named.push_back(it_File);
+                }
+            }
+        }
+
+        for (const std::vector<std::filesystem::path>* it_Files : { &l_Named, &l_Files })
+        {
+            for (const std::filesystem::path& it_File : *it_Files)
+            {
+                if (const std::optional<std::uint32_t> l_Line = FindClassLine(it_File, name))
+                {
+                    return std::pair(it_File, *l_Line);
+                }
+            }
+        }
+
+        if (!l_Named.empty())
+        {
+            return std::pair(l_Named.front(), 0u);
+        }
+
+        return std::nullopt;
     }
 
     // The first of Name, Name 1, Name 2 and on, before the extension, that names nothing in the folder yet. A copy starts at 1, or after the number its original's name ends in, as Unity numbers duplicates
@@ -1870,6 +1981,31 @@ bool EditorSession::OpenScript(std::string_view path, std::uint32_t line)
     }
 
     return IdeLauncher::OpenFile(m_ScriptEditor, l_File, line, l_Workspace);
+}
+
+bool EditorSession::EditScript(Trinity::ScriptLanguage language, std::string_view className)
+{
+    if (!m_Project)
+    {
+        return false;
+    }
+
+    constexpr std::array<std::string_view, 1> c_CSharpExtensions{ ".cs" };
+    constexpr std::array<std::string_view, 3> c_CppExtensions{ ".hpp", ".h", ".cpp" };
+
+    const bool l_CSharp = language == Trinity::ScriptLanguage::CSharp;
+    const std::size_t l_Separator = className.find_last_of(".:");
+    const std::string_view l_Name = l_Separator == std::string_view::npos ? className : className.substr(l_Separator + 1);
+    const std::filesystem::path l_Folder = l_CSharp ? m_Project->GetScriptsDirectory() : m_Project->GetSourceDirectory();
+    const std::optional<std::pair<std::filesystem::path, std::uint32_t>> l_Source = FindScriptSource(l_Folder, l_CSharp ? std::span<const std::string_view>(c_CSharpExtensions) : std::span<const std::string_view>(c_CppExtensions), l_Name);
+    if (!l_Source)
+    {
+        TR_ERROR("Forge: no file in {} is named {} or declares it, so {} was not opened", ToUtf8(l_Folder), l_Name, className);
+
+        return false;
+    }
+
+    return OpenScript(ToUtf8(l_Source->first), l_Source->second);
 }
 
 bool EditorSession::OpenSolution()

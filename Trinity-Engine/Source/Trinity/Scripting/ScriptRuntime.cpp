@@ -1233,6 +1233,24 @@ namespace Trinity
         return l_Instance.Backend != nullptr && l_Instance.Backend->GetLanguage() == language ? l_Instance.Handle : nullptr;
     }
 
+    bool ScriptRuntime::IsFaulted(Entity entity, std::size_t index) const
+    {
+        if (!entity || entity.GetScene() != &m_State->TargetScene)
+        {
+            return false;
+        }
+
+        const std::optional<std::size_t> l_Record = m_State->FindRecord(entity.GetUUID());
+        if (!l_Record || index >= m_State->Records[*l_Record].Instances.size())
+        {
+            return false;
+        }
+
+        const Instance& l_Instance = m_State->Records[*l_Record].Instances[index];
+
+        return l_Instance.Backend != nullptr && l_Instance.Faulted;
+    }
+
     std::int32_t ScriptRuntime::FindScript(Entity entity, ScriptLanguage language, std::string_view className) const
     {
         if (!entity || entity.GetScene() != &m_State->TargetScene || !entity.Has<ScriptComponent>())

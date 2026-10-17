@@ -104,6 +104,12 @@ void ForgeLayer::OnAttach()
     Trinity::Scope<ConsolePanel> l_Console = Trinity::CreateScope<ConsolePanel>();
     m_Console = l_Console.get();
     m_Console->SetOpenLocation([this](std::string_view path, std::uint32_t line) { static_cast<void>(m_Session.OpenScript(path, line)); });
+    // A stopped script's badge in Properties brings the Console forward, to the exception that stopped it
+    m_PropertiesPanel->SetShowConsole([this]
+    {
+        m_Console->SetOpen(true);
+        m_Console->RequestFocus();
+    });
     m_Panels.push_back(std::move(l_Console));
     // The Console's Clear on Play and Clear on Build. A build starting beside one still running leaves the other's lines be
     m_Session.SetBeforePlay([this]

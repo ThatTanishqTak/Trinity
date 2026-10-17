@@ -125,6 +125,8 @@ namespace Trinity
 
         // The instance of the script at that index of the entity's Script component, when it has one made in that language: a Script for C++ and a GC handle for C#. Null for one whose class is unknown, or that was added to the component without the runtime and waits for CreatePending
         [[nodiscard]] void* GetInstance(Entity entity, std::size_t index, ScriptLanguage language) const;
+        // Whether the script at that index of the entity's Script component was stopped since a call into it failed, such as a C# script that threw, so it is called no more until its code reloads. False for one not made yet, or of a class no loaded code has
+        [[nodiscard]] bool IsFaulted(Entity entity, std::size_t index) const;
         // The index of the entity's first script of the class, or -1
         [[nodiscard]] std::int32_t FindScript(Entity entity, ScriptLanguage language, std::string_view className) const;
         // A script of the class last on the entity, which gets a Script component if it has none, with its fields at their defaults. Its instance is made at once, and has OnCreate before its first call, or at the next CreatePending. Its index, or -1, logged, when no loaded code has the class

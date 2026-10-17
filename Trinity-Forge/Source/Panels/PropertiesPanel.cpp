@@ -2119,6 +2119,9 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
     std::string l_Change;
     Action l_Action = Action::None;
     std::size_t l_ActionIndex = 0;
+    // The script to open in the script editor, by its language and class, once the component is drawn
+    std::optional<std::pair<Trinity::ScriptLanguage, std::string>> l_Edit;
+    Trinity::SceneRuntime* l_Runtime = m_Session.GetRuntime();
 
     if (l_Value.Scripts.empty())
     {
@@ -2130,6 +2133,8 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
         Trinity::ScriptEntry& l_Entry = l_Value.Scripts[it_Index];
         const std::string l_Label = GetScriptLabel(l_Entry);
         const bool l_Known = Trinity::ScriptClassRegistry::Find(l_Entry.Language, l_Entry.ClassName) != nullptr;
+        const bool l_Stopped = l_Runtime != nullptr && l_Runtime->GetScripts().IsFaulted(entity, it_Index);
+        const float l_RowRight = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
 
         ImGui::PushID(static_cast<int>(it_Index));
         if (ImGui::Checkbox("##Enabled", &l_Entry.Enabled))
@@ -2143,11 +2148,18 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
         }
 
         ImGui::SameLine();
-        const bool l_Open = ImGui::TreeNodeEx("##Script", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s", (l_Known ? l_Label : std::format("{} {}", Trinity::Icons::c_Warning, l_Label)).c_str());
+        // The badge for a stopped script sits over the header's right end
+        const bool l_Open = ImGui::TreeNodeEx("##Script", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap, "%s", (l_Known ? l_Label : std::format("{} {}", Trinity::Icons::c_Warning, l_Label)).c_str());
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             const std::string_view l_Name(l_Entry.ClassName);
-            ImGui::SetTooltip("%s", (l_Known ? std::format("{}, in {}", l_Name, GetScriptLanguageLabel(l_Entry.Language)) : std::format("{}, in {}. No loaded code has this class, so its values are kept as they were read", l_Name, GetScriptLanguageLabel(l_Entry.Language))).c_str());
+            ImGui::SetTooltip("%s", (l_Known ? std::format("{}, in {}. Double-click to edit it", l_Name, GetScriptLanguageLabel(l_Entry.Language)) : std::format("{}, in {}. No loaded code has this class, so its values are kept as they were read. Double-click to edit it", l_Name, GetScriptLanguageLabel(l_Entry.Language))).c_str());
+        }
+
+        // As Unity opens a script from its component, the two clicks leaving the header open or closed as it was
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            l_Edit = std::pair(l_Entry.Language, std::string(std::string_view(l_Entry.ClassName)));
         }
 
         if (ImGui::BeginPopupContextItem())
@@ -2171,7 +2183,37 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
                 l_ActionIndex = it_Index;
             }
 
+            // Last, as in Unity's component menu
+            ImGui::Separator();
+            if (ImGui::MenuItem(std::format("{} Edit Script", Trinity::Icons::c_FileCode).c_str()))
+            {
+                l_Edit = std::pair(l_Entry.Language, std::string(std::string_view(l_Entry.ClassName)));
+            }
+
             ImGui::EndPopup();
+        }
+
+        if (l_Stopped)
+        {
+            const std::string l_Badge = std::format("{} Stopped###Stopped", Trinity::Icons::c_TimesCircle);
+            const float l_Width = ImGui::CalcTextSize(l_Badge.c_str(), nullptr, true).x + 2.0f * ImGui::GetStyle().FramePadding.x;
+            const ImVec4 l_Color = ConsolePanel::GetLevelColor(Trinity::LogLevel::Error);
+            ImGui::SameLine();
+            ImGui::SetCursorPosX(std::max(l_RowRight - l_Width, ImGui::GetCursorPosX()));
+            ImGui::PushStyleColor(ImGuiCol_Text, l_Color);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(l_Color.x, l_Color.y, l_Color.z, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(l_Color.x, l_Color.y, l_Color.z, 0.35f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(l_Color.x, l_Color.y, l_Color.z, 0.5f));
+            if (ImGui::SmallButton(l_Badge.c_str()) && m_ShowConsole)
+            {
+                m_ShowConsole();
+            }
+
+            ImGui::PopStyleColor(4);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            {
+                ImGui::SetTooltip("A call into it failed, as when it throws, so it is called no more while the scene plays. It runs again once its code reloads, or on the next Play. Click to show the Console, which has why");
+            }
         }
 
         if (l_Open)
@@ -2206,6 +2248,11 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
             case Action::None:
                 break;
         }
+    }
+
+    if (l_Edit)
+    {
+        static_cast<void>(m_Session.EditScript(l_Edit->first, l_Edit->second));
     }
 
     if (!l_Change.empty())
