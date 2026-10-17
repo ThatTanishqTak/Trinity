@@ -45,12 +45,14 @@ private:
     void DrawEditMenu();
     void DrawEntityMenu();
     void CreateEmpty(Trinity::UUID parent);
+    void DrawRecentScenesMenu();
     void DrawScriptsMenu();
     void DrawHistoryMenu();
     void DrawDockSpace();
     void BuildDefaultLayout(std::uint32_t dockSpace);
     void DockNewPanels();
     void DrawAboutWindow();
+    void DrawStartScreen();
     void DrawNotice();
     void DrawStatusBar();
     void ReadStatusLine();

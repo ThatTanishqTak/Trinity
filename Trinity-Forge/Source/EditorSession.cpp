@@ -30,6 +30,10 @@ namespace
     constexpr const char* c_RecoveryPopup = "Recover Scene###ForgeRecoverScene";
     // The open scene's backup, under the project's Cache, which is never committed. Its first lines name the scene and when it was written, as YAML comments the scene's reader passes over
     constexpr std::string_view c_BackupFile = "Editor/Backup/Scene.trscene";
+    // The projects opened lately, per user, and the scenes, per project, ten of each
+    constexpr std::string_view c_RecentProjectsPath = "/saves/RecentProjects.txt";
+    constexpr std::string_view c_RecentScenesFile = "Editor/RecentScenes.txt";
+    constexpr std::size_t c_RecentLimit = 10;
     constexpr std::string_view c_BackupScenePrefix = "# Scene: ";
     constexpr std::string_view c_BackupWrittenPrefix = "# Written: ";
     constexpr std::string_view c_SceneExtension = ".trscene";
@@ -56,27 +60,34 @@ namespace
         return std::format("{}:{:02}", l_Seconds / 60, l_Seconds % 60);
     }
 
-    // As a person says how long ago something was, such as "12 minutes ago"
-    std::string FormatAge(std::chrono::system_clock::time_point time)
-    {
-        const std::int64_t l_Seconds = std::max<std::int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - time).count());
-        const auto a_Count = [](std::int64_t count, std::string_view unit) { return std::format("{} {}{} ago", count, unit, count == 1 ? "" : "s"); };
-        if (l_Seconds < 60)
-        {
-            return "less than a minute ago";
-        }
-
-        if (l_Seconds < 3600)
-        {
-            return a_Count(l_Seconds / 60, "minute");
-        }
-
-        return l_Seconds < 86400 ? a_Count(l_Seconds / 3600, "hour") : a_Count(l_Seconds / 86400, "day");
-    }
-
     std::string GetBackupPath()
     {
         return std::format("{}/{}", Trinity::Project::c_CacheMount, c_BackupFile);
+    }
+
+    std::string GetRecentScenesPath()
+    {
+        return std::format("{}/{}", Trinity::Project::c_CacheMount, c_RecentScenesFile);
+    }
+
+    // Each line of the text, without its end
+    std::vector<std::string_view> SplitLines(std::string_view text)
+    {
+        std::vector<std::string_view> l_Lines;
+        while (!text.empty())
+        {
+            const std::size_t l_End = text.find('\n');
+            std::string_view l_Line = text.substr(0, l_End);
+            if (l_Line.ends_with('\r'))
+            {
+                l_Line.remove_suffix(1);
+            }
+
+            l_Lines.push_back(l_Line);
+            text = l_End == std::string_view::npos ? std::string_view() : text.substr(l_End + 1);
+        }
+
+        return l_Lines;
     }
 
     // The texels a texture import has done, the one being encoded counted by the rate the encoder has kept so far. Nothing before that can be told
@@ -459,6 +470,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
         }
     });
 
+    ReadRecentProjects();
     if (const auto it_Directory = args.GetOption("new-project"))
     {
         CreateProject(FromUtf8(*it_Directory));
@@ -809,6 +821,8 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
     DebuggerSettings::Write(*m_Project);
+    RememberProject();
+    ReadRecentScenes();
 
     const std::string l_StartScene = std::format("{}/{}", Trinity::Project::c_AssetsMount, Trinity::Project::c_DefaultStartScene);
     if (!WriteScene(l_StartScene))
@@ -817,6 +831,7 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
     }
 
     m_ScenePath = l_StartScene;
+    RememberScene();
     if (const Trinity::AssetRecord* l_Record = m_Registry->FindByPath(l_StartScene))
     {
         m_Project->SetStartScene(l_Record->ID);
@@ -843,6 +858,8 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
     DebuggerSettings::Write(*m_Project);
+    RememberProject();
+    ReadRecentScenes();
 
     // A backup left by a crash is asked about once the start scene is open
     m_Recovery = ReadBackup();
@@ -902,6 +919,9 @@ void EditorSession::CloseProject()
     m_InspectedAsset = {};
     // Its components name the project's assets
     m_CopiedEntity.reset();
+    m_RecentScenes.clear();
+    // Read again for the start screen, which shows it once no project is open, with whatever has gone since
+    ReadRecentProjects();
 
     // Everything holding the project's assets lets go of them, so none are left loaded from it when another project's registry is set
     for (auto& [it_ID, it_Listener] : m_CloseListeners)
@@ -1119,6 +1139,167 @@ void EditorSession::RequestOpenScene(std::string assetPath)
         StopPlay();
         ConfirmDiscard([this, l_Path = std::move(l_Path)] { OpenScene(l_Path); });
     });
+}
+
+void EditorSession::RequestOpenProject(std::filesystem::path path)
+{
+    m_Pending.push_back([this, l_Path = std::move(path)]() mutable
+    {
+        StopPlay();
+        ConfirmCloseProject([this, l_Path = std::move(l_Path)] { OpenProject(l_Path); });
+    });
+}
+
+void EditorSession::RemoveRecentProject(const std::filesystem::path& path)
+{
+    if (std::erase_if(m_RecentProjects, [&path](const RecentProject& project) { return project.Path == path; }) > 0)
+    {
+        WriteRecentProjects();
+    }
+}
+
+void EditorSession::RemoveRecentScene(Trinity::UUID scene)
+{
+    if (std::erase_if(m_RecentScenes, [scene](const RecentScene& recent) { return recent.ID == scene; }) > 0)
+    {
+        WriteRecentScenes();
+    }
+}
+
+void EditorSession::ClearRecentScenes()
+{
+    m_RecentScenes.clear();
+    WriteRecentScenes();
+}
+
+std::string EditorSession::FormatAge(std::chrono::system_clock::time_point time)
+{
+    const std::int64_t l_Seconds = std::max<std::int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - time).count());
+    const auto a_Count = [](std::int64_t count, std::string_view unit) { return std::format("{} {}{} ago", count, unit, count == 1 ? "" : "s"); };
+    if (l_Seconds < 60)
+    {
+        return "less than a minute ago";
+    }
+
+    if (l_Seconds < 3600)
+    {
+        return a_Count(l_Seconds / 60, "minute");
+    }
+
+    return l_Seconds < 86400 ? a_Count(l_Seconds / 3600, "hour") : a_Count(l_Seconds / 86400, "day");
+}
+
+// A line a project, newest first: when it was opened, in seconds since 1970, its name and its file, apart by tabs. A line that cannot be read is left out
+void EditorSession::ReadRecentProjects()
+{
+    m_RecentProjects.clear();
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(c_RecentProjectsPath);
+    if (!l_Text)
+    {
+        return;
+    }
+
+    for (const std::string_view it_Line : SplitLines(*l_Text))
+    {
+        if (m_RecentProjects.size() == c_RecentLimit)
+        {
+            break;
+        }
+
+        const std::size_t l_NameStart = it_Line.find('\t');
+        const std::size_t l_PathStart = l_NameStart == std::string_view::npos ? std::string_view::npos : it_Line.find('\t', l_NameStart + 1);
+        std::int64_t l_Seconds = 0;
+        if (l_PathStart == std::string_view::npos || std::from_chars(it_Line.data(), it_Line.data() + l_NameStart, l_Seconds).ec != std::errc())
+        {
+            continue;
+        }
+
+        std::filesystem::path l_Path = FromUtf8(it_Line.substr(l_PathStart + 1));
+        std::error_code l_Error;
+        const bool l_Missing = !std::filesystem::is_regular_file(l_Path, l_Error);
+        m_RecentProjects.push_back({ .Path = std::move(l_Path), .Name = std::string(it_Line.substr(l_NameStart + 1, l_PathStart - l_NameStart - 1)), .OpenedAt = std::chrono::system_clock::time_point(std::chrono::seconds(l_Seconds)), .Missing = l_Missing });
+    }
+}
+
+void EditorSession::WriteRecentProjects() const
+{
+    std::string l_Text;
+    for (const RecentProject& it_Project : m_RecentProjects)
+    {
+        l_Text += std::format("{}\t{}\t{}\n", std::chrono::duration_cast<std::chrono::seconds>(it_Project.OpenedAt.time_since_epoch()).count(), it_Project.Name, ToUtf8(it_Project.Path));
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(c_RecentProjectsPath, l_Text); !l_Written)
+    {
+        TR_WARN("Forge: the recent projects could not be saved: {}", Trinity::ToString(l_Written.GetError()));
+    }
+}
+
+// The open project goes first, once, and the eleventh is let go
+void EditorSession::RememberProject()
+{
+    std::erase_if(m_RecentProjects, [this](const RecentProject& project) { return project.Path == m_Project->GetFilePath(); });
+    m_RecentProjects.insert(m_RecentProjects.begin(), { .Path = m_Project->GetFilePath(), .Name = m_Project->GetName(), .OpenedAt = std::chrono::system_clock::now(), .Missing = false });
+    if (m_RecentProjects.size() > c_RecentLimit)
+    {
+        m_RecentProjects.resize(c_RecentLimit);
+    }
+
+    WriteRecentProjects();
+}
+
+// A line a scene, newest first: its UUID and the path it had, apart by a tab, in the project's Cache, per user as Unity keeps its recent scenes
+void EditorSession::ReadRecentScenes()
+{
+    m_RecentScenes.clear();
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(GetRecentScenesPath());
+    if (!l_Text)
+    {
+        return;
+    }
+
+    for (const std::string_view it_Line : SplitLines(*l_Text))
+    {
+        const std::size_t l_Tab = it_Line.find('\t');
+        const std::optional<Trinity::UUID> l_ID = l_Tab != std::string_view::npos ? Trinity::UUID::Parse(it_Line.substr(0, l_Tab)) : std::nullopt;
+        if (l_ID && m_RecentScenes.size() < c_RecentLimit)
+        {
+            m_RecentScenes.push_back({ .ID = *l_ID, .Path = std::string(it_Line.substr(l_Tab + 1)) });
+        }
+    }
+}
+
+void EditorSession::WriteRecentScenes() const
+{
+    std::string l_Text;
+    for (const RecentScene& it_Scene : m_RecentScenes)
+    {
+        l_Text += std::format("{}\t{}\n", it_Scene.ID, it_Scene.Path);
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(GetRecentScenesPath(), l_Text); !l_Written)
+    {
+        TR_WARN("Forge: the recent scenes could not be saved: {}", Trinity::ToString(l_Written.GetError()));
+    }
+}
+
+// The open scene goes first, once it has a file, and the eleventh is let go
+void EditorSession::RememberScene()
+{
+    const Trinity::AssetRecord* l_Record = m_Registry && !m_ScenePath.empty() ? m_Registry->FindByPath(m_ScenePath) : nullptr;
+    if (l_Record == nullptr)
+    {
+        return;
+    }
+
+    std::erase_if(m_RecentScenes, [l_Record](const RecentScene& recent) { return recent.ID == l_Record->ID; });
+    m_RecentScenes.insert(m_RecentScenes.begin(), { .ID = l_Record->ID, .Path = l_Record->Path });
+    if (m_RecentScenes.size() > c_RecentLimit)
+    {
+        m_RecentScenes.resize(c_RecentLimit);
+    }
+
+    WriteRecentScenes();
 }
 
 // A debugger attached already plays at once, and a Play asked for while one is awaited changes nothing. A build running or about to is waited for first, and a Play asked for while waiting stops the wait
@@ -2285,6 +2466,7 @@ void EditorSession::OpenScene(const std::string& assetPath)
     m_ScenePath = assetPath;
     m_Selection = {};
     m_History.Clear();
+    RememberScene();
     TR_INFO("Forge: opened scene {} with {} entities", m_ScenePath, m_Scene.GetEntityCount());
     ReportMissingReferences();
 }
@@ -2356,6 +2538,7 @@ void EditorSession::SaveSceneAs(Action then)
         if (WriteScene(*l_AssetPath))
         {
             m_ScenePath = *l_AssetPath;
+            RememberScene();
             if (l_Then)
             {
                 l_Then();

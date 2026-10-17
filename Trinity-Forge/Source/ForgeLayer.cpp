@@ -13,8 +13,10 @@
 #include <cfloat>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <format>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -45,6 +47,25 @@ namespace
     void TextLine(std::string_view text)
     {
         ImGui::TextUnformatted(text.data(), text.data() + text.size());
+    }
+
+    std::string ToUtf8(const std::filesystem::path& path)
+    {
+        const std::u8string l_Text = path.u8string();
+
+        return std::string(l_Text.begin(), l_Text.end());
+    }
+
+    // A scene's name and the folder it is in, inside its root, from its project path, as Main and Scenes for /assets/Scenes/Main.trscene
+    std::pair<std::string_view, std::string_view> SplitScenePath(std::string_view path)
+    {
+        const std::size_t l_Slash = path.rfind('/');
+        std::string_view l_Name = l_Slash == std::string_view::npos ? path : path.substr(l_Slash + 1);
+        l_Name = l_Name.substr(0, l_Name.rfind('.'));
+        const std::string_view l_Folder = l_Slash == std::string_view::npos ? std::string_view() : path.substr(0, l_Slash);
+        const std::size_t l_Root = l_Folder.find('/', 1);
+
+        return { l_Name, l_Root == std::string_view::npos ? std::string_view() : l_Folder.substr(l_Root + 1) };
     }
 
     // From the first primary camera in hierarchy order, the one Renderer2D shows. A scene without one shows at exposure 1 with no curve
@@ -235,6 +256,7 @@ void ForgeLayer::OnImGuiRender()
 
     m_ContentBrowser->EndFrame();
     m_PropertiesPanel->DrawPopups();
+    DrawStartScreen();
 
     if (m_ShowAbout)
     {
@@ -561,6 +583,13 @@ void ForgeLayer::DrawMenuBar()
         ImGui::Separator();
         a_Item(Trinity::Icons::c_File, "New Scene", "Ctrl+N", l_HasProject, EditorSession::Command::NewScene);
         a_Item(Trinity::Icons::c_FolderOpen, "Open Scene...", "Ctrl+O", l_HasProject, EditorSession::Command::OpenScene);
+        if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_History, "Open Recent Scene").c_str(), l_HasProject))
+        {
+            DrawRecentScenesMenu();
+
+            ImGui::EndMenu();
+        }
+
         a_Item(Trinity::Icons::c_Save, "Save", "Ctrl+S", l_HasProject, EditorSession::Command::SaveScene);
         a_Item(Trinity::Icons::c_Save, "Save As...", "Ctrl+Shift+S", l_HasProject, EditorSession::Command::SaveSceneAs);
         a_Item(Trinity::Icons::c_Gear, "Set as Start Scene", nullptr, l_HasProject && m_Session.HasScenePath(), EditorSession::Command::SetStartScene);
@@ -946,6 +975,58 @@ void ForgeLayer::CreateEmpty(Trinity::UUID parent)
     }
 }
 
+// The project's scenes opened or saved lately, newest first, as Unity's Open Recent Scene lists them: each by name, with its folder beside it, as it is now, the open one ticked. One the project no longer has is greyed and marked, with Remove from List, as Unity Hub keeps a missing project
+void ForgeLayer::DrawRecentScenesMenu()
+{
+    const std::vector<EditorSession::RecentScene>& l_Scenes = m_Session.GetRecentScenes();
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::UUID l_Open = m_Session.GetSceneID();
+    if (l_Scenes.empty())
+    {
+        ImGui::TextDisabled("No scene opened or saved yet");
+    }
+
+    std::optional<Trinity::UUID> l_Removed;
+    for (const EditorSession::RecentScene& it_Scene : l_Scenes)
+    {
+        const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(it_Scene.ID) : nullptr;
+        const auto [l_Name, l_Folder] = SplitScenePath(l_Record != nullptr ? std::string_view(l_Record->Path) : std::string_view(it_Scene.Path));
+        ImGui::PushID(it_Scene.ID.ToString().c_str());
+        if (l_Record == nullptr)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            const bool l_MenuOpen = ImGui::BeginMenu(std::format("{} {} (missing)", Trinity::Icons::c_Warning, l_Name).c_str());
+            ImGui::PopStyleColor();
+            if (l_MenuOpen)
+            {
+                if (ImGui::MenuItem(std::format("{} Remove from List", Trinity::Icons::c_TimesCircle).c_str()))
+                {
+                    l_Removed = it_Scene.ID;
+                }
+
+                ImGui::EndMenu();
+            }
+        }
+        else if (ImGui::MenuItem(std::string(l_Name).c_str(), std::string(l_Folder).c_str(), it_Scene.ID == l_Open, it_Scene.ID != l_Open))
+        {
+            m_Session.RequestOpenScene(l_Record->Path);
+        }
+
+        ImGui::PopID();
+    }
+
+    ImGui::Separator();
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Trash, "Clear Recent").c_str(), nullptr, false, !l_Scenes.empty()))
+    {
+        m_Session.ClearRecentScenes();
+    }
+
+    if (l_Removed)
+    {
+        m_Session.RemoveRecentScene(*l_Removed);
+    }
+}
+
 // A Forge with a static engine cannot build or load a module, and one without .NET has no C#, and each says why when its items are hovered
 void ForgeLayer::DrawScriptsMenu()
 {
@@ -1188,6 +1269,116 @@ void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
     m_ViewportPanel->RequestFocus();
     m_PropertiesPanel->RequestFocus();
     TR_INFO("Forge: default layout built");
+}
+
+// With no project open, the projects opened lately over the empty editor, as Unity Hub and Godot's project manager list them, newest first, under New Project and Open Project: each by name, with its folder and when it was last opened, a click opening it. One whose file is gone is greyed and marked, and a click on it, as a right-click on any, offers Remove from List. As a floating window it stays over the docked panels, which never come in front of one, and under a menu, a dialog or the About window
+void ForgeLayer::DrawStartScreen()
+{
+    if (m_Session.HasProject())
+    {
+        return;
+    }
+
+    const ImGuiViewport* l_Viewport = ImGui::GetMainViewport();
+    const float l_Width = ImGui::GetFontSize() * 36.0f;
+    ImGui::SetNextWindowPos(l_Viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(l_Width, 0.0f), ImVec2(l_Width, FLT_MAX));
+    ImGui::SetNextWindowViewport(l_Viewport->ID);
+    const ImGuiWindowFlags l_Flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize;
+    if (!ImGui::Begin("###StartScreen", nullptr, l_Flags))
+    {
+        ImGui::End();
+
+        return;
+    }
+
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Projects");
+    const float l_NewWidth = ImGui::CalcTextSize(WithIcon(Trinity::Icons::c_File, "New Project...").c_str()).x + l_Style.FramePadding.x * 2.0f;
+    const float l_OpenWidth = ImGui::CalcTextSize(WithIcon(Trinity::Icons::c_FolderOpen, "Open Project...").c_str()).x + l_Style.FramePadding.x * 2.0f;
+    ImGui::SameLine();
+    const float l_RowRight = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+    ImGui::SetCursorPosX(std::max(l_RowRight - l_NewWidth - l_OpenWidth - l_Style.ItemSpacing.x, ImGui::GetCursorPosX()));
+    if (ImGui::Button(WithIcon(Trinity::Icons::c_File, "New Project...").c_str()))
+    {
+        m_Session.Request(EditorSession::Command::NewProject);
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button(WithIcon(Trinity::Icons::c_FolderOpen, "Open Project...").c_str()))
+    {
+        m_Session.Request(EditorSession::Command::OpenProject);
+    }
+
+    ImGui::Separator();
+    const std::vector<EditorSession::RecentProject>& l_Projects = m_Session.GetRecentProjects();
+    if (l_Projects.empty())
+    {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("No project opened yet. New Project makes one in an empty folder, and Open Project opens a .trproj file, or the folder holding one");
+        ImGui::PopTextWrapPos();
+    }
+
+    std::optional<std::filesystem::path> l_Removed;
+    ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+    const float l_Line = ImGui::GetTextLineHeight();
+    for (std::size_t it_Index = 0; it_Index < l_Projects.size(); ++it_Index)
+    {
+        const EditorSession::RecentProject& l_Project = l_Projects[it_Index];
+        ImGui::PushID(static_cast<int>(it_Index));
+        const ImVec2 l_Min = ImGui::GetCursorScreenPos();
+        if (ImGui::Selectable("##Project", false, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Line * 2.0f + l_Style.ItemSpacing.y)))
+        {
+            if (l_Project.Missing)
+            {
+                ImGui::OpenPopup("##ProjectMenu");
+            }
+            else
+            {
+                m_Session.RequestOpenProject(l_Project.Path);
+            }
+        }
+
+        const float l_RowWidth = ImGui::GetItemRectSize().x;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("%s", (l_Project.Missing ? std::format("{} is gone, moved or deleted since it was opened. Click to take it off the list", ToUtf8(l_Project.Path)) : ToUtf8(l_Project.Path)).c_str());
+        }
+
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+        {
+            ImGui::OpenPopup("##ProjectMenu");
+        }
+
+        if (ImGui::BeginPopup("##ProjectMenu"))
+        {
+            if (ImGui::MenuItem(std::format("{} Remove from List", Trinity::Icons::c_TimesCircle).c_str()))
+            {
+                l_Removed = l_Project.Path;
+            }
+
+            ImGui::EndPopup();
+        }
+
+        // The name over its folder, with when it was opened, or that it is missing, at the row's end
+        const ImU32 l_NameColor = ImGui::GetColorU32(l_Project.Missing ? ImGuiCol_TextDisabled : ImGuiCol_Text);
+        const ImU32 l_DimColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+        const std::string l_Name = std::format("{} {}", l_Project.Missing ? Trinity::Icons::c_Warning : Trinity::Icons::c_FolderOpen, l_Project.Name);
+        const std::string l_When = l_Project.Missing ? std::string("Missing") : EditorSession::FormatAge(l_Project.OpenedAt);
+        const float l_WhenWidth = ImGui::CalcTextSize(l_When.c_str()).x;
+        l_DrawList.AddText(l_Min, l_NameColor, l_Name.c_str());
+        l_DrawList.AddText(ImVec2(l_Min.x + l_RowWidth - l_WhenWidth, l_Min.y), l_Project.Missing ? ImGui::GetColorU32(ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn)) : l_DimColor, l_When.c_str());
+        l_DrawList.AddText(ImVec2(l_Min.x + ImGui::GetFontSize() * 1.5f, l_Min.y + l_Line + l_Style.ItemSpacing.y), l_DimColor, ToUtf8(l_Project.Path.parent_path()).c_str());
+        ImGui::PopID();
+    }
+
+    if (l_Removed)
+    {
+        m_Session.RemoveRecentProject(*l_Removed);
+    }
+
+    ImGui::End();
 }
 
 // The version, the graphics backend and adapter, and the fonts and scale the UI is drawn with

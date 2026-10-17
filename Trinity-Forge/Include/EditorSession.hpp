@@ -66,6 +66,22 @@ public:
         std::optional<float> Progress;
     };
 
+    // A project opened or created lately: its file, its name then and when, and whether the file was gone as the list was last read, as Forge starts and as a project closes
+    struct RecentProject
+    {
+        std::filesystem::path Path;
+        std::string Name;
+        std::chrono::system_clock::time_point OpenedAt;
+        bool Missing = false;
+    };
+
+    // A scene of the project opened or saved lately, by its UUID, so it is followed as its file moves, with the path it had then, for one the project no longer has
+    struct RecentScene
+    {
+        Trinity::UUID ID;
+        std::string Path;
+    };
+
     // The project folders scripts live in, which the Content Browser shows beside Assets
     static constexpr std::string_view c_ScriptsFolder = "/project/Scripts";
     static constexpr std::string_view c_SourceFolder = "/project/Source";
@@ -143,6 +159,16 @@ public:
     void SetBeforeBuild(std::function<void()> beforeBuild) { m_BeforeBuild = std::move(beforeBuild); }
 
     void RequestOpenScene(std::string assetPath);
+    // Newest first, the projects kept per user and the scenes per project, ten of each
+    [[nodiscard]] const std::vector<RecentProject>& GetRecentProjects() const { return m_RecentProjects; }
+    [[nodiscard]] const std::vector<RecentScene>& GetRecentScenes() const { return m_RecentScenes; }
+    // As Open Project does, after asking about unsaved changes
+    void RequestOpenProject(std::filesystem::path path);
+    void RemoveRecentProject(const std::filesystem::path& path);
+    void RemoveRecentScene(Trinity::UUID scene);
+    void ClearRecentScenes();
+    // As a person says how long ago something was, such as "12 minutes ago"
+    [[nodiscard]] static std::string FormatAge(std::chrono::system_clock::time_point time);
     [[nodiscard]] std::optional<std::string> CreateFolder(std::string_view parent);
     bool MoveAsset(std::string_view path, std::string_view folder, std::string_view name);
     bool DeleteAsset(std::string_view path);
@@ -272,6 +298,12 @@ private:
     [[nodiscard]] bool SettleUnappliedEdits(Action& then);
 
     void CloseProject();
+    void ReadRecentProjects();
+    void WriteRecentProjects() const;
+    void RememberProject();
+    void ReadRecentScenes();
+    void WriteRecentScenes() const;
+    void RememberScene();
     bool PasteEntityAt(Trinity::UUID parent, Trinity::UUID before);
     void AttachRegistry();
     void StartImports();
@@ -318,6 +350,8 @@ private:
     CommandStack m_History{ m_Scene, m_Selection };
     Trinity::UUID m_InspectedAsset;
     std::optional<CopiedEntity> m_CopiedEntity;
+    std::vector<RecentProject> m_RecentProjects;
+    std::vector<RecentScene> m_RecentScenes;
     glm::vec3 m_SpawnPoint{ 0.0f };
     bool m_SceneView3D = false;
     TextureReimporter m_Reimporter;
