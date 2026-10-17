@@ -144,6 +144,58 @@ namespace
         }
     }
 
+    // What a drag from the Content Browser gives a slot of the type, as Unity's object fields take it: the asset when it is of the type, or for a slot of any type, else the first of the type among those it holds, such as a model's first mesh, material or embedded texture. None for an asset without one, or for another drag
+    Trinity::UUID GetDraggedAsset(const Trinity::AssetRegistry* registry, std::string_view assetType)
+    {
+        const ImGuiPayload* l_Payload = ImGui::GetDragDropPayload();
+        if (registry == nullptr || l_Payload == nullptr || !l_Payload->IsDataType(c_AssetPayload))
+        {
+            return {};
+        }
+
+        std::uint64_t l_Value = 0;
+        std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+        const Trinity::AssetRecord* l_Dragged = registry->Find(Trinity::UUID(l_Value));
+        if (l_Dragged == nullptr)
+        {
+            return {};
+        }
+
+        if (assetType.empty() || l_Dragged->Importer == assetType)
+        {
+            return l_Dragged->ID;
+        }
+
+        const auto a_Held = std::ranges::find_if(l_Dragged->SubAssets, [registry, assetType](const Trinity::SubAsset& subAsset) { return subAsset.Importer == assetType && registry->Find(subAsset.ID) != nullptr; });
+
+        return a_Held != l_Dragged->SubAssets.end() ? a_Held->ID : Trinity::UUID();
+    }
+
+    // The entity a drag from the Hierarchy holds, or none for another drag
+    Trinity::UUID GetDraggedEntity()
+    {
+        const ImGuiPayload* l_Payload = ImGui::GetDragDropPayload();
+        if (l_Payload == nullptr || !l_Payload->IsDataType(c_EntityPayload))
+        {
+            return {};
+        }
+
+        std::uint64_t l_Value = 0;
+        std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+
+        return Trinity::UUID(l_Value);
+    }
+
+    // Over a slot what is dragged does not fit, the no-entry cursor, as Unity's object fields show it, with no highlight. A script is left alone, since Properties takes one dropped anywhere on an entity
+    void RefuseDrag()
+    {
+        const ImGuiPayload* l_Payload = ImGui::GetDragDropPayload();
+        if (l_Payload != nullptr && !l_Payload->IsDataType(c_ScriptPayload))
+        {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_NotAllowed);
+        }
+    }
+
     // The shape of that kind the mesh's model cooked for it, found through the model's sub-asset keys, or none when the mesh is not a model's or the model's settings left it out
     Trinity::UUID FindCollisionShape(const Trinity::AssetRegistry* registry, Trinity::UUID mesh, Trinity::CollisionShapeKind kind)
     {
@@ -229,17 +281,18 @@ namespace
         PushSlotColor(preview);
         const bool l_Open = ImGui::BeginCombo("##ConnectedBody", preview.Text.c_str());
         PopSlotColor(preview);
+        // Only what the list offers lights it up
         if (!l_Open && ImGui::BeginDragDropTarget())
         {
-            if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload))
+            const Trinity::Entity l_Dragged = scene.FindEntityByUUID(GetDraggedEntity());
+            if (!l_Dragged || l_Dragged == entity || !isBody(l_Dragged))
             {
-                std::uint64_t l_Value = 0;
-                std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
-                if (l_Value != entity.GetUUID().GetValue() && l_Value != connected.GetValue())
-                {
-                    connected = Trinity::UUID(l_Value);
-                    l_Changed = true;
-                }
+                RefuseDrag();
+            }
+            else if (ImGui::AcceptDragDropPayload(c_EntityPayload) && l_Dragged.GetUUID() != connected)
+            {
+                connected = l_Dragged.GetUUID();
+                l_Changed = true;
             }
 
             ImGui::EndDragDropTarget();
@@ -440,15 +493,15 @@ namespace
 
         if (!l_Open && ImGui::BeginDragDropTarget())
         {
-            if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload))
+            const Trinity::Entity l_Dragged = scene.FindEntityByUUID(GetDraggedEntity());
+            if (!l_Dragged)
             {
-                std::uint64_t l_Value = 0;
-                std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
-                if (l_Value != value.GetValue())
-                {
-                    value = Trinity::UUID(l_Value);
-                    l_Changed = true;
-                }
+                RefuseDrag();
+            }
+            else if (ImGui::AcceptDragDropPayload(c_EntityPayload) && l_Dragged.GetUUID() != value)
+            {
+                value = l_Dragged.GetUUID();
+                l_Changed = true;
             }
 
             ImGui::EndDragDropTarget();
@@ -851,6 +904,17 @@ void PropertiesPanel::OnImGuiRender()
     ImGui::PopID();
     ImGui::EndDisabled();
 
+    // A script dropped anywhere on the entity's sections is added to it, as on Unity's Inspector
+    if (!l_Playing && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("##AddScriptDrop")))
+    {
+        if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_ScriptPayload))
+        {
+            static_cast<void>(m_Session.AddScript(l_Entity.GetUUID(), static_cast<const char*>(l_Payload->Data)));
+        }
+
+        ImGui::EndDragDropTarget();
+    }
+
     if (m_PendingCommand)
     {
         m_Session.GetHistory().Execute(std::move(m_PendingCommand));
@@ -1228,7 +1292,7 @@ void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
     EditField<Trinity::MeshRendererComponent>(l_History, entity, "CastShadows", [](Trinity::MeshRendererComponent& meshRenderer) { return ImGui::Checkbox("##CastShadows", &meshRenderer.CastShadows); });
 }
 
-// A slot for one asset of a type: a button naming it that opens a picker of the project's assets of that type, and the built-in meshes for a mesh, which also takes one dropped from elsewhere in Forge, and a cross that clears it. As in Unity it reads None (Type) while empty, and in the warning colour Missing (Type) while the asset is gone, or Type Mismatch (Type) while it is another type
+// A slot for one asset of a type: a button naming it that opens a picker of the project's assets of that type, and the built-in meshes for a mesh, which also takes one dragged from the Content Browser, or the first of its type that one holds, and a cross that clears it. Only a drag that fits lights it up, as in Unity. As in Unity it reads None (Type) while empty, and in the warning colour Missing (Type) while the asset is gone, or Type Mismatch (Type) while it is another type
 void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -1253,19 +1317,14 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
 
     if (ImGui::BeginDragDropTarget())
     {
-        if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_AssetPayload))
+        const Trinity::UUID l_Fit = GetDraggedAsset(l_Registry, assetType);
+        if (!l_Fit)
         {
-            std::uint64_t l_Value = 0;
-            std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
-            const Trinity::AssetRecord* l_Dropped = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
-            if (l_Dropped != nullptr && (assetType.empty() || l_Dropped->Importer == assetType))
-            {
-                set(l_Dropped->ID);
-            }
-            else
-            {
-                TR_WARN("Forge: the {} slot takes {} assets only", label, assetType.empty() ? std::string_view("project") : assetType);
-            }
+            RefuseDrag();
+        }
+        else if (ImGui::AcceptDragDropPayload(c_AssetPayload))
+        {
+            set(l_Fit);
         }
 
         ImGui::EndDragDropTarget();
@@ -3215,19 +3274,14 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
 
         if (ImGui::BeginDragDropTarget())
         {
-            if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_AssetPayload))
+            const Trinity::UUID l_Dragged = GetDraggedAsset(l_Registry, Trinity::TextureAsset::c_AssetType);
+            if (!l_Dragged)
             {
-                std::uint64_t l_Value = 0;
-                std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
-                const Trinity::AssetRecord* l_Dropped = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
-                if (l_Dropped != nullptr && l_Dropped->Importer == Trinity::TextureAsset::c_AssetType)
-                {
-                    a_Set({ l_Dropped->ID, l_Slot.TexCoord });
-                }
-                else
-                {
-                    TR_WARN("Forge: only a texture can go in a material's {}", it_Slot.Label);
-                }
+                RefuseDrag();
+            }
+            else if (ImGui::AcceptDragDropPayload(c_AssetPayload))
+            {
+                a_Set({ l_Dragged, l_Slot.TexCoord });
             }
 
             ImGui::EndDragDropTarget();

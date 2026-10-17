@@ -2142,6 +2142,30 @@ bool EditorSession::CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID par
     return m_History.Execute(Trinity::CreateScope<CreatePrimitiveCommand>(mesh, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
 }
 
+bool EditorSession::AddScript(Trinity::UUID entity, std::string_view path)
+{
+    const std::filesystem::path l_File = FromUtf8(path);
+    const Trinity::ScriptLanguage l_Language = l_File.extension() == ".cs" ? Trinity::ScriptLanguage::CSharp : Trinity::ScriptLanguage::Cpp;
+    const std::string l_Name = ToUtf8(l_File.stem());
+    const std::vector<const Trinity::ScriptClassDescription*> l_Classes = Trinity::ScriptClassRegistry::GetClasses();
+    const auto a_Class = std::ranges::find_if(l_Classes, [l_Language, &l_Name](const Trinity::ScriptClassDescription* description)
+    {
+        const std::string_view l_ClassName(description->Name);
+        const std::size_t l_Separator = l_ClassName.find_last_of(".:");
+
+        return description->Language == l_Language && (l_Separator == std::string_view::npos ? l_ClassName : l_ClassName.substr(l_Separator + 1)) == l_Name;
+    });
+
+    if (a_Class == l_Classes.end())
+    {
+        TR_WARN("Forge: {} cannot be added, since no loaded code has a {} class named {}. A script's class is named after its file, and is there once its build loads it", path, GetScriptLanguageLabel(l_Language), l_Name);
+
+        return false;
+    }
+
+    return m_History.Execute(Trinity::CreateScope<AddScriptCommand>(entity, Trinity::ScriptClassRegistry::CreateEntry(**a_Class)));
+}
+
 bool EditorSession::CreateEmpty(Trinity::UUID parent)
 {
     return m_History.Execute(Trinity::CreateScope<CreateEntityCommand>("Entity", parent, Trinity::UUID(), parent ? glm::vec3(0.0f) : m_SpawnPoint));

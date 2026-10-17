@@ -524,7 +524,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
     const bool l_Visible = ImGui::IsItemVisible();
     const bool l_Hovered = ImGui::IsItemHovered();
 
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right) || (ImGui::IsItemDeactivated() && l_Hovered && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left)))
     {
         Select(item);
     }
@@ -550,6 +550,10 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
         {
             const std::uint64_t l_Value = item.Record->ID.GetValue();
             ImGui::SetDragDropPayload(c_AssetPayload, &l_Value, sizeof(l_Value));
+        }
+        else if (IsClassFile(item.Name))
+        {
+            ImGui::SetDragDropPayload(c_ScriptPayload, item.Path.c_str(), item.Path.size() + 1);
         }
 
         ImGui::TextUnformatted(std::format("{} {}", GetIcon(item.Record, item.Folder, item.Name), item.Name).c_str());

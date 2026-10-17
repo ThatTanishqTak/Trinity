@@ -518,7 +518,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleEdgeY);
     }
 
-    // Selecting on press, so a drag starts from the entity it drags, and the arrow opens and closes. As in Unity, a double-click frames the entity in the Scene panel, and a second, slower click on an entity already selected renames it
+    // As in Unity, a press selects once it is released without a drag, so dragging an entity onto a field in Properties leaves Properties on the selection, while the arrow opens and closes and a right-click selects at once. A double-click frames the entity in the Scene panel, and a second, slower click on an entity already selected renames it
     const bool l_LeftClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen();
     if (l_LeftClicked && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
     {
@@ -534,11 +534,21 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         const ImGuiIO& l_IO = ImGui::GetIO();
         m_SlowClick = l_Selected && !l_Renaming && !l_IO.KeyCtrl && !l_IO.KeyShift && !l_IO.KeyAlt ? l_ID : Trinity::UUID();
         m_SlowClickTime = ImGui::GetTime();
-        Select(l_ID);
+        m_Pressed = l_ID;
     }
     else if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !ImGui::IsItemToggledOpen())
     {
         Select(l_ID);
+    }
+
+    if (m_Pressed == l_ID && ImGui::IsItemDeactivated())
+    {
+        if (ImGui::IsItemHovered() && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left))
+        {
+            Select(l_ID);
+        }
+
+        m_Pressed = {};
     }
 
     if (ImGui::BeginPopupContextItem())
@@ -728,12 +738,17 @@ void HierarchyPanel::DrawBackground()
     }
 }
 
-// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, and a model is created there
+// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, and a model is created there. A script goes onto the entity, as in Unity, so the whole row lights up for it
 void HierarchyPanel::AcceptDrop(Trinity::Entity target)
 {
     if (!ImGui::BeginDragDropTarget())
     {
         return;
+    }
+
+    if (const ImGuiPayload* l_Script = ImGui::AcceptDragDropPayload(c_ScriptPayload))
+    {
+        m_Deferred.push_back([this, l_Target = target.GetUUID(), l_Path = std::string(static_cast<const char*>(l_Script->Data))] { static_cast<void>(m_Session.AddScript(l_Target, l_Path)); });
     }
 
     const ImVec2 l_Min = ImGui::GetItemRectMin();

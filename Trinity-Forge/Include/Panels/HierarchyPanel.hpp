@@ -80,6 +80,8 @@ private:
     // The entity a second click landed on while it was already selected, and when, which renames it as Unity does once no other click follows
     Trinity::UUID m_SlowClick;
     double m_SlowClickTime = 0.0;
+    // The row a left press landed on, which it selects once released without a drag
+    Trinity::UUID m_Pressed;
     // What the search field holds, and while it holds anything, the entities it matches and those it shows: the matches and every parent above one
     std::string m_Search;
     std::unordered_set<Trinity::UUID> m_Matched;

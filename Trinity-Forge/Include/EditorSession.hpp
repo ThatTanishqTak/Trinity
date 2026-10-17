@@ -152,6 +152,8 @@ public:
     [[nodiscard]] std::optional<std::string> CreateScript(std::string_view folder, Trinity::ScriptLanguage language, std::string_view className);
     // The full name of the class CreateScript makes, in the assembly's namespace for C#, as Game.Player, or the module's for C++, as Game::Player
     [[nodiscard]] std::string GetScriptClassName(Trinity::ScriptLanguage language, std::string_view className) const;
+    // As Unity adds a script file dropped on its Inspector or Hierarchy: the loaded class of the file's language named after the file, as Player for Player.cs, with its fields at their defaults, in one command. Refused, with why, while no loaded code has that class, as before the script's first build
+    bool AddScript(Trinity::UUID entity, std::string_view path);
     // Letters, digits and underscores, not starting with a digit, which both languages take for a class's name
     [[nodiscard]] static bool IsClassName(std::string_view name);
     // Empty, as New Scene makes one, named New Scene, or New Scene 1 and on when that is taken. Its project path, or nothing, logged
