@@ -2142,6 +2142,21 @@ bool EditorSession::CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID par
     return m_History.Execute(Trinity::CreateScope<CreatePrimitiveCommand>(mesh, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
 }
 
+bool EditorSession::CreateEmpty(Trinity::UUID parent)
+{
+    return m_History.Execute(Trinity::CreateScope<CreateEntityCommand>("Entity", parent, Trinity::UUID(), parent ? glm::vec3(0.0f) : m_SpawnPoint));
+}
+
+bool EditorSession::CreateLight(Trinity::LightType type, Trinity::UUID parent)
+{
+    return m_History.Execute(Trinity::CreateScope<CreateLightCommand>(type, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
+}
+
+bool EditorSession::CreateCamera(Trinity::UUID parent)
+{
+    return m_History.Execute(Trinity::CreateScope<CreateCameraCommand>(m_SceneView3D ? Trinity::CameraProjection::Perspective : Trinity::CameraProjection::Orthographic, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
+}
+
 void EditorSession::CopyEntity(Trinity::UUID entity)
 {
     Trinity::Scene& l_Scene = GetScene();

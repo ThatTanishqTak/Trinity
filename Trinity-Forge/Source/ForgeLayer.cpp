@@ -498,7 +498,7 @@ void ForgeLayer::ReadShortcuts()
     }
     else if (l_Playing)
     {
-        // Undo, Redo, Paste, Duplicate and Delete would edit the scene, and the history is locked while a copy plays
+        // Undo, Redo, Create Empty, Paste, Duplicate and Delete would edit the scene, and the history is locked while a copy plays
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, ImGuiInputFlags_Repeat) || ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_Repeat))
     {
@@ -507,6 +507,14 @@ void ForgeLayer::ReadShortcuts()
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_Repeat))
     {
         m_Session.GetHistory().Undo();
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_N) && m_Session.HasProject())
+    {
+        CreateEmpty({});
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Alt | ImGuiMod_Shift | ImGuiKey_N) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
+    {
+        CreateEmpty(m_Session.GetSelection());
     }
     else if (m_ContentBrowser->IsFocused())
     {
@@ -566,6 +574,13 @@ void ForgeLayer::DrawMenuBar()
     if (ImGui::BeginMenu("Edit"))
     {
         DrawEditMenu();
+
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Entity"))
+    {
+        DrawEntityMenu();
 
         ImGui::EndMenu();
     }
@@ -835,24 +850,6 @@ void ForgeLayer::DrawEditMenu()
 
     ImGui::Separator();
 
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty Entity").c_str(), nullptr, false, m_Session.HasProject() && !l_Playing))
-    {
-        l_History.Execute(Trinity::CreateScope<CreateEntityCommand>("Empty Entity", Trinity::UUID(), Trinity::UUID()));
-    }
-
-    if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_Cube, "Create 3D Object").c_str(), m_Session.HasProject() && !l_Playing))
-    {
-        for (const Trinity::BuiltInMesh it_Mesh : Trinity::c_BuiltInMeshes)
-        {
-            if (ImGui::MenuItem(std::string(Trinity::ToString(it_Mesh)).c_str()))
-            {
-                static_cast<void>(m_Session.CreatePrimitive(it_Mesh, {}));
-            }
-        }
-
-        ImGui::EndMenu();
-    }
-
     const bool l_Selected = static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
     const bool l_HasSelection = !l_Playing && l_Selected;
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Copy, "Copy").c_str(), "Ctrl+C", false, l_Selected))
@@ -887,6 +884,65 @@ void ForgeLayer::DrawEditMenu()
     {
         m_ProjectSettings->SetOpen(true);
         m_ProjectSettings->RequestFocus();
+    }
+}
+
+// Unity's GameObject menu. Each new entity goes among the roots at the spawn point, but Create Empty Child's, which goes under the selection at its origin, and an empty one is renamed in the Hierarchy at once. Not while a copy plays
+void ForgeLayer::DrawEntityMenu()
+{
+    const bool l_Editable = m_Session.HasProject() && !m_Session.IsPlaying();
+    const bool l_HasSelection = l_Editable && static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty").c_str(), "Ctrl+Shift+N", false, l_Editable))
+    {
+        CreateEmpty({});
+    }
+
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty Child").c_str(), "Alt+Shift+N", false, l_HasSelection))
+    {
+        CreateEmpty(m_Session.GetSelection());
+    }
+
+    ImGui::Separator();
+
+    if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_Cube, "3D Object").c_str(), l_Editable))
+    {
+        for (const Trinity::BuiltInMesh it_Mesh : Trinity::c_BuiltInMeshes)
+        {
+            if (ImGui::MenuItem(std::string(Trinity::ToString(it_Mesh)).c_str()))
+            {
+                static_cast<void>(m_Session.CreatePrimitive(it_Mesh, {}));
+            }
+        }
+
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_Globe, "Light").c_str(), l_Editable))
+    {
+        for (const Trinity::LightType it_Type : c_LightTypes)
+        {
+            if (ImGui::MenuItem(std::string(GetLightLabel(it_Type)).c_str()))
+            {
+                static_cast<void>(m_Session.CreateLight(it_Type, {}));
+            }
+        }
+
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Monitor, "Camera").c_str(), nullptr, false, l_Editable))
+    {
+        static_cast<void>(m_Session.CreateCamera({}));
+    }
+}
+
+// As Unity puts a new entity's name up for typing, in the Hierarchy brought forward
+void ForgeLayer::CreateEmpty(Trinity::UUID parent)
+{
+    if (m_Session.CreateEmpty(parent) && m_HierarchyPanel->IsOpen())
+    {
+        m_HierarchyPanel->RequestFocus();
+        m_HierarchyPanel->Rename(m_Session.GetSelection());
     }
 }
 

@@ -420,7 +420,7 @@ void ViewportPanel::OnImGuiRender()
 {
     FollowScene();
     ApplyPick();
-    m_Session.SetSpawnPoint(m_Mode3D ? m_Camera3D.GetFocus() : glm::vec3(m_Camera.GetPosition(), 0.0f));
+    m_Session.SetSpawnPoint(m_Mode3D ? m_Camera3D.GetFocus() : glm::vec3(m_Camera.GetPosition(), 0.0f), m_Mode3D);
 
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
     const std::uint32_t l_Width = static_cast<std::uint32_t>(std::max(std::floor(l_Available.x), 1.0f));

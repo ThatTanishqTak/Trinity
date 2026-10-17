@@ -22,7 +22,6 @@ namespace
     // The top and bottom quarters of a row drop before and after it, and the middle drops inside it
     constexpr float c_EdgeFraction = 0.25f;
     constexpr float c_DropLineThickness = 2.0f;
-    constexpr const char* c_DefaultName = "Entity";
     // How long a second click on a selected entity waits before it renames, at least, so the second click of a double-click never does
     constexpr double c_SlowClickSeconds = 0.5;
 
@@ -507,7 +506,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         Select(l_ID);
     }
 
-    if (!m_ReadOnly && ImGui::BeginPopupContextItem())
+    if (ImGui::BeginPopupContextItem())
     {
         DrawContextMenu(entity);
         ImGui::EndPopup();
@@ -572,15 +571,50 @@ void HierarchyPanel::DrawRenameField(Trinity::Entity entity)
     }
 }
 
+// While a copy plays, Copy alone, which takes the playing entity to paste once it stops
 void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 {
     const Trinity::UUID l_ID = entity.GetUUID();
-    if (ImGui::MenuItem(std::format("{} Create Child Entity", Trinity::Icons::c_CubeOutline).c_str()))
+    ImGui::BeginDisabled(m_ReadOnly);
+    if (ImGui::MenuItem(std::format("{} Create Empty Child", Trinity::Icons::c_CubeOutline).c_str(), "Alt+Shift+N"))
     {
         m_Deferred.push_back([this, l_ID] { Create(l_ID); });
     }
 
-    DrawPrimitiveMenu(l_ID);
+    DrawCreateMenus(l_ID);
+    ImGui::EndDisabled();
+
+    ImGui::Separator();
+
+    if (ImGui::MenuItem(std::format("{} Copy", Trinity::Icons::c_Copy).c_str(), "Ctrl+C"))
+    {
+        m_Session.CopyEntity(l_ID);
+    }
+
+    ImGui::BeginDisabled(m_ReadOnly);
+    if (ImGui::MenuItem(std::format("{} Paste", Trinity::Icons::c_Paste).c_str(), "Ctrl+V", false, m_Session.HasCopiedEntity()))
+    {
+        m_Deferred.push_back([this]
+        {
+            if (m_Session.PasteEntity())
+            {
+                m_Revealed = {};
+            }
+        });
+    }
+
+    if (ImGui::MenuItem(std::format("{} Paste As Child", Trinity::Icons::c_Paste).c_str(), "Ctrl+Shift+V", false, m_Session.HasCopiedEntity()))
+    {
+        m_Deferred.push_back([this, l_ID]
+        {
+            if (m_Session.PasteEntityAsChild(l_ID))
+            {
+                m_Revealed = {};
+            }
+        });
+    }
+
+    ImGui::Separator();
 
     if (ImGui::MenuItem("Rename", "F2", false, entity.Has<Trinity::TagComponent>()))
     {
@@ -598,9 +632,11 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
     {
         m_Deferred.push_back([this, l_ID] { m_Session.GetHistory().Execute(Trinity::CreateScope<DeleteEntityCommand>(l_ID)); });
     }
+
+    ImGui::EndDisabled();
 }
 
-// The space below the tree: a click clears the selection, a drop makes the entity the last root, and its menu creates a root, the last two not while a copy plays
+// The space below the tree: a click clears the selection, a drop makes the entity the last root, and its menu creates a root or pastes, the last two not while a copy plays
 void HierarchyPanel::DrawBackground()
 {
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
@@ -617,12 +653,25 @@ void HierarchyPanel::DrawBackground()
 
     if (ImGui::BeginPopupContextItem("##BackgroundMenu"))
     {
-        if (ImGui::MenuItem(std::format("{} Create Entity", Trinity::Icons::c_CubeOutline).c_str()))
+        if (ImGui::MenuItem(std::format("{} Create Empty", Trinity::Icons::c_CubeOutline).c_str(), "Ctrl+Shift+N"))
         {
             m_Deferred.push_back([this] { Create({}); });
         }
 
-        DrawPrimitiveMenu({});
+        DrawCreateMenus({});
+
+        ImGui::Separator();
+
+        if (ImGui::MenuItem(std::format("{} Paste", Trinity::Icons::c_Paste).c_str(), "Ctrl+V", false, m_Session.HasCopiedEntity()))
+        {
+            m_Deferred.push_back([this]
+            {
+                if (m_Session.PasteEntity())
+                {
+                    m_Revealed = {};
+                }
+            });
+        }
 
         ImGui::EndPopup();
     }
@@ -695,7 +744,7 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
     ImGui::EndDragDropTarget();
 }
 
-// Rename, Ctrl+F to the search, and F to frame the selection in the Scene panel, or Shift+F to follow it there, while the Hierarchy has focus, as in Unity. Duplicate and Delete are Forge's own shortcuts, so they work from any panel
+// Rename, Ctrl+F to the search, and F to frame the selection in the Scene panel, or Shift+F to follow it there, while the Hierarchy has focus, as in Unity. Copy, Paste, Duplicate and Delete are Forge's own shortcuts, so they work from any panel
 void HierarchyPanel::ReadShortcuts()
 {
     if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) || ImGui::GetIO().WantTextInput)
@@ -769,38 +818,67 @@ void HierarchyPanel::BeginRename(Trinity::Entity entity)
     m_FocusRename = true;
 }
 
-// A built-in shape with its collider, under the parent or as a root, made once the tree is drawn and shown selected
-void HierarchyPanel::DrawPrimitiveMenu(Trinity::UUID parent)
+void HierarchyPanel::Rename(Trinity::UUID entity)
 {
-    if (!ImGui::BeginMenu(std::format("{} Create 3D Object", Trinity::Icons::c_Cube).c_str()))
+    if (const Trinity::Entity l_Entity = m_Session.GetScene().FindEntityByUUID(entity))
     {
-        return;
+        BeginRename(l_Entity);
+        m_Revealed = {};
     }
+}
 
-    for (const Trinity::BuiltInMesh it_Mesh : Trinity::c_BuiltInMeshes)
+// As the Entity menu has them: a built-in shape with its collider, a light or a camera, under the parent or as a root, made once the tree is drawn and shown selected
+void HierarchyPanel::DrawCreateMenus(Trinity::UUID parent)
+{
+    const auto a_Create = [this](std::move_only_function<bool()> create)
     {
-        if (ImGui::MenuItem(std::string(Trinity::ToString(it_Mesh)).c_str()))
+        m_Deferred.push_back([this, l_Create = std::move(create)]() mutable
         {
-            m_Deferred.push_back([this, it_Mesh, parent]
+            if (l_Create())
             {
-                if (m_Session.CreatePrimitive(it_Mesh, parent))
-                {
-                    m_Revealed = {};
-                }
-            });
+                m_Revealed = {};
+            }
+        });
+    };
+
+    if (ImGui::BeginMenu(std::format("{} 3D Object", Trinity::Icons::c_Cube).c_str()))
+    {
+        for (const Trinity::BuiltInMesh it_Mesh : Trinity::c_BuiltInMeshes)
+        {
+            if (ImGui::MenuItem(std::string(Trinity::ToString(it_Mesh)).c_str()))
+            {
+                a_Create([this, it_Mesh, parent] { return m_Session.CreatePrimitive(it_Mesh, parent); });
+            }
         }
+
+        ImGui::EndMenu();
     }
 
-    ImGui::EndMenu();
+    if (ImGui::BeginMenu(std::format("{} Light", Trinity::Icons::c_Globe).c_str()))
+    {
+        for (const Trinity::LightType it_Type : c_LightTypes)
+        {
+            if (ImGui::MenuItem(std::string(GetLightLabel(it_Type)).c_str()))
+            {
+                a_Create([this, it_Type, parent] { return m_Session.CreateLight(it_Type, parent); });
+            }
+        }
+
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::MenuItem(std::format("{} Camera", Trinity::Icons::c_Monitor).c_str()))
+    {
+        a_Create([this, parent] { return m_Session.CreateCamera(parent); });
+    }
 }
 
 // A new entity is selected and named at once
 void HierarchyPanel::Create(Trinity::UUID parent)
 {
-    if (m_Session.GetHistory().Execute(Trinity::CreateScope<CreateEntityCommand>(c_DefaultName, parent, Trinity::UUID())))
+    if (m_Session.CreateEmpty(parent))
     {
-        BeginRename(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
-        m_Revealed = {};
+        Rename(m_Session.GetSelection());
     }
 }
 

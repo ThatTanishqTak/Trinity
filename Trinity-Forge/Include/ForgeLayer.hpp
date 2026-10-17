@@ -43,6 +43,8 @@ private:
     void DrawBuildStatus();
     void PushPlayTint();
     void DrawEditMenu();
+    void DrawEntityMenu();
+    void CreateEmpty(Trinity::UUID parent);
     void DrawScriptsMenu();
     void DrawHistoryMenu();
     void DrawDockSpace();

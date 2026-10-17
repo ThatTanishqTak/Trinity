@@ -193,6 +193,11 @@ public:
     bool CreateModel(Trinity::UUID model, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
     // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point
     bool CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent);
+    // As Unity's GameObject menu makes them, each in one command and placed as a built-in shape is
+    bool CreateEmpty(Trinity::UUID parent);
+    bool CreateLight(Trinity::LightType type, Trinity::UUID parent);
+    // Perspective while the Scene panel shows the scene in 3D, and orthographic in 2D
+    bool CreateCamera(Trinity::UUID parent);
     // The entity and its subtree as they are now, to paste into this scene or another until the project closes. While a copy plays, as the playing entity is, to paste once it stops
     void CopyEntity(Trinity::UUID entity);
     [[nodiscard]] bool HasCopiedEntity() const { return m_CopiedEntity.has_value(); }
@@ -200,9 +205,14 @@ public:
     bool PasteEntity();
     // Last under the parent
     bool PasteEntityAsChild(Trinity::UUID parent);
-    // Where the Scene panel's camera looks, which the panel sets each frame: the 3D camera's focus, or the 2D camera's centre at Z 0
+    // Where the Scene panel's camera looks, which the panel sets each frame with whether it shows the scene in 3D: the 3D camera's focus, or the 2D camera's centre at Z 0
     [[nodiscard]] glm::vec3 GetSpawnPoint() const { return m_SpawnPoint; }
-    void SetSpawnPoint(glm::vec3 point) { m_SpawnPoint = point; }
+    [[nodiscard]] bool IsSceneView3D() const { return m_SceneView3D; }
+    void SetSpawnPoint(glm::vec3 point, bool view3D)
+    {
+        m_SpawnPoint = point;
+        m_SceneView3D = view3D;
+    }
     [[nodiscard]] bool IsImporting(Trinity::UUID id) const { return m_Reimporter.IsBusy(id); }
     [[nodiscard]] bool IsImportingModels() const { return m_ModelImports.IsRunning() || m_ImportAgain; }
     [[nodiscard]] std::uint64_t GetScanCount() const { return m_ScanCount; }
@@ -307,6 +317,7 @@ private:
     Trinity::UUID m_InspectedAsset;
     std::optional<CopiedEntity> m_CopiedEntity;
     glm::vec3 m_SpawnPoint{ 0.0f };
+    bool m_SceneView3D = false;
     TextureReimporter m_Reimporter;
     TextureImportBatch m_Imports;
     ModelImportBatch m_ModelImports;

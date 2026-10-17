@@ -4,6 +4,7 @@
 
 #include <Trinity.hpp>
 
+#include <array>
 #include <concepts>
 #include <format>
 #include <functional>
@@ -16,6 +17,9 @@
 [[nodiscard]] std::string GetEntityLabel(Trinity::Entity entity);
 [[nodiscard]] std::string_view GetComponentLabel(std::string_view name);
 [[nodiscard]] std::string_view GetScriptLanguageLabel(Trinity::ScriptLanguage language);
+// Every type of light, in the order of Unity's Light menu, and a new one's name, such as Directional Light
+inline constexpr std::array<Trinity::LightType, 3> c_LightTypes{ Trinity::LightType::Directional, Trinity::LightType::Point, Trinity::LightType::Spot };
+[[nodiscard]] std::string_view GetLightLabel(Trinity::LightType type);
 // The script's class name after its namespace, with its language, such as Player (C#)
 [[nodiscard]] std::string GetScriptLabel(const Trinity::ScriptEntry& entry);
 [[nodiscard]] std::size_t GetScriptMemorySize(const Trinity::ScriptComponent& component);
@@ -41,7 +45,7 @@ Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelD
 class CreateEntityCommand final : public EditorCommand
 {
 public:
-    CreateEntityCommand(std::string name, Trinity::UUID parent, Trinity::UUID before);
+    CreateEntityCommand(std::string name, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
 
     [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
     void Undo(Trinity::Scene& scene) override;
@@ -54,6 +58,7 @@ private:
     std::string m_Name;
     Trinity::UUID m_Parent;
     Trinity::UUID m_Before;
+    glm::vec3 m_Position{ 0.0f };
     Trinity::UUID m_Entity;
     std::string m_Text;
     std::string m_Label;
@@ -119,6 +124,50 @@ public:
 
 private:
     Trinity::BuiltInMesh m_Mesh = Trinity::BuiltInMesh::Cube;
+    Trinity::UUID m_Parent;
+    glm::vec3 m_Position{ 0.0f };
+    Trinity::UUID m_Entity;
+    std::string m_Text;
+    std::string m_Label;
+};
+
+// A light as one entity, named after its type and turned as Unity turns a new one: a directional light tilted down across the scene, and a spot light pointing straight down
+class CreateLightCommand final : public EditorCommand
+{
+public:
+    CreateLightCommand(Trinity::LightType type, Trinity::UUID parent, glm::vec3 position);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::LightType m_Type = Trinity::LightType::Directional;
+    Trinity::UUID m_Parent;
+    glm::vec3 m_Position{ 0.0f };
+    Trinity::UUID m_Entity;
+    std::string m_Text;
+    std::string m_Label;
+};
+
+// A camera as one entity, perspective or orthographic, and the primary camera while the scene has none
+class CreateCameraCommand final : public EditorCommand
+{
+public:
+    CreateCameraCommand(Trinity::CameraProjection projection, Trinity::UUID parent, glm::vec3 position);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::CameraProjection m_Projection = Trinity::CameraProjection::Perspective;
     Trinity::UUID m_Parent;
     glm::vec3 m_Position{ 0.0f };
     Trinity::UUID m_Entity;

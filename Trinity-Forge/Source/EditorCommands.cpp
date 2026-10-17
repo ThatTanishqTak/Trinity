@@ -1,5 +1,6 @@
 #include "EditorCommands.hpp"
 
+#include <array>
 #include <utility>
 #include <vector>
 
@@ -138,6 +139,13 @@ std::string_view GetScriptLanguageLabel(Trinity::ScriptLanguage language)
     return language == Trinity::ScriptLanguage::Cpp ? "C++" : "C#";
 }
 
+std::string_view GetLightLabel(Trinity::LightType type)
+{
+    constexpr std::array<std::string_view, 3> c_Labels{ "Directional Light", "Point Light", "Spot Light" };
+
+    return c_Labels[static_cast<std::size_t>(type)];
+}
+
 std::string GetScriptLabel(const Trinity::ScriptEntry& entry)
 {
     const std::string_view l_Name(entry.ClassName);
@@ -248,12 +256,12 @@ Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelD
     return l_Root;
 }
 
-CreateEntityCommand::CreateEntityCommand(std::string name, Trinity::UUID parent, Trinity::UUID before) : m_Name(std::move(name)), m_Parent(parent), m_Before(before)
+CreateEntityCommand::CreateEntityCommand(std::string name, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position) : m_Name(std::move(name)), m_Parent(parent), m_Before(before), m_Position(position)
 {
 
 }
 
-// The first run creates the entity and keeps it as text, so a redo brings back the same UUID
+// The first run creates the entity at the position in the parent's space and keeps it as text, so a redo brings back the same UUID
 bool CreateEntityCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -266,12 +274,13 @@ bool CreateEntityCommand::Execute(Trinity::Scene& scene)
         return false;
     }
 
-    const Trinity::Entity l_Entity = scene.CreateEntity(m_Name, scene.FindEntityByUUID(m_Parent));
+    Trinity::Entity l_Entity = scene.CreateEntity(m_Name, scene.FindEntityByUUID(m_Parent));
     if (const Trinity::Entity l_Before = scene.FindEntityByUUID(m_Before))
     {
         scene.MoveBefore(l_Entity, l_Before, false);
     }
 
+    l_Entity.Get<Trinity::TransformComponent>().Position = m_Position;
     m_Entity = l_Entity.GetUUID();
     m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Entity);
     m_Label = std::format("Create {}", GetEntityLabel(l_Entity));
@@ -412,6 +421,96 @@ void CreatePrimitiveCommand::Undo(Trinity::Scene& scene)
 }
 
 std::size_t CreatePrimitiveCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Text.capacity() + m_Label.capacity();
+}
+
+CreateLightCommand::CreateLightCommand(Trinity::LightType type, Trinity::UUID parent, glm::vec3 position) : m_Type(type), m_Parent(parent), m_Position(position)
+{
+
+}
+
+// Last under the parent or among the roots, at the position in the parent's space. Unity's (50, -30, 0) and (90, 0, 0) are (-50, 30, 0) and (-90, 0, 0) here, since a light here shines along -Z where Unity's shines along +Z. Kept as text after the first run, as CreateEntityCommand does
+bool CreateLightCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_Text.empty())
+    {
+        return Restore(scene, m_Text, m_Parent, {}, m_Label);
+    }
+
+    if (!IsPlaceValid(scene, m_Parent, {}))
+    {
+        return false;
+    }
+
+    constexpr std::array<glm::vec3, 3> c_Degrees{ glm::vec3(-50.0f, 30.0f, 0.0f), glm::vec3(0.0f), glm::vec3(-90.0f, 0.0f, 0.0f) };
+    Trinity::Entity l_Entity = scene.CreateEntity(GetLightLabel(m_Type), scene.FindEntityByUUID(m_Parent));
+    Trinity::TransformComponent& l_Transform = l_Entity.Get<Trinity::TransformComponent>();
+    l_Transform.Position = m_Position;
+    l_Transform.Rotation = glm::quat(glm::radians(c_Degrees[static_cast<std::size_t>(m_Type)]));
+    l_Entity.Add<Trinity::LightComponent>().Type = m_Type;
+
+    m_Entity = l_Entity.GetUUID();
+    m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Entity);
+    m_Label = std::format("Create {}", GetEntityLabel(l_Entity));
+
+    return true;
+}
+
+void CreateLightCommand::Undo(Trinity::Scene& scene)
+{
+    scene.DestroyEntity(scene.FindEntityByUUID(m_Entity));
+}
+
+std::size_t CreateLightCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Text.capacity() + m_Label.capacity();
+}
+
+CreateCameraCommand::CreateCameraCommand(Trinity::CameraProjection projection, Trinity::UUID parent, glm::vec3 position) : m_Projection(projection), m_Parent(parent), m_Position(position)
+{
+
+}
+
+// Last under the parent or among the roots, at the position in the parent's space, looking along -Z as every camera here does. Kept as text after the first run, as CreateEntityCommand does
+bool CreateCameraCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_Text.empty())
+    {
+        return Restore(scene, m_Text, m_Parent, {}, m_Label);
+    }
+
+    if (!IsPlaceValid(scene, m_Parent, {}))
+    {
+        return false;
+    }
+
+    const auto l_Cameras = scene.GetRegistry().view<Trinity::CameraComponent>();
+    bool l_HasPrimary = false;
+    for (const entt::entity it_Camera : l_Cameras)
+    {
+        l_HasPrimary = l_HasPrimary || l_Cameras.get<Trinity::CameraComponent>(it_Camera).Primary;
+    }
+
+    Trinity::Entity l_Entity = scene.CreateEntity("Camera", scene.FindEntityByUUID(m_Parent));
+    l_Entity.Get<Trinity::TransformComponent>().Position = m_Position;
+    Trinity::CameraComponent& l_Camera = l_Entity.Add<Trinity::CameraComponent>();
+    l_Camera.Projection = m_Projection;
+    l_Camera.Primary = !l_HasPrimary;
+
+    m_Entity = l_Entity.GetUUID();
+    m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Entity);
+    m_Label = std::format("Create {}", GetEntityLabel(l_Entity));
+
+    return true;
+}
+
+void CreateCameraCommand::Undo(Trinity::Scene& scene)
+{
+    scene.DestroyEntity(scene.FindEntityByUUID(m_Entity));
+}
+
+std::size_t CreateCameraCommand::GetMemorySize() const
 {
     return sizeof(*this) + m_Text.capacity() + m_Label.capacity();
 }

@@ -24,6 +24,8 @@ public:
     void SetSearch(std::string search);
     // The entities the search matches while it holds anything, which the Scene panel outlines, or null
     [[nodiscard]] const std::unordered_set<Trinity::UUID>* GetSearchMatches() const { return m_Search.empty() ? nullptr : &m_Matched; }
+    // Starts typing a new name in the entity's row, as F2 does, which the Entity menu's Create Empty does for the entity it made
+    void Rename(Trinity::UUID entity);
 
 protected:
     void OnImGuiRender() override;
@@ -44,7 +46,7 @@ private:
     void DrawRenameField(Trinity::Entity entity);
     void DrawContextMenu(Trinity::Entity entity);
     void DrawBackground();
-    void DrawPrimitiveMenu(Trinity::UUID parent);
+    void DrawCreateMenus(Trinity::UUID parent);
     void AcceptDrop(Trinity::Entity target);
     void ReadShortcuts();
     void UpdateSlowClick(Trinity::Scene& scene);
