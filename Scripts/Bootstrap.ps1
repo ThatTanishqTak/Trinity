@@ -67,36 +67,43 @@ foreach ($line in $lockEntries) {
     git add $path .gitmodules
 }
 
-$agilityFields = (Get-Content 'Scripts/AgilitySDK.lock' | Where-Object { $_ -match '^Microsoft\.Direct3D\.D3D12 ' }) -split '\s+'
-$agilityVersion = $agilityFields[1]
-$agilityHash = $agilityFields[2]
-$agilityPath = Join-Path $root "Vendor/AgilitySDK/$agilityVersion"
+# A NuGet package pinned in a lock file as "<id> <version> <SHA-256>", downloaded with a hash check and unpacked into Vendor/<folder>/<version>, unless the file that shows it is there exists already
+function Get-PinnedPackage([string]$lockFile, [string]$id, [string]$label, [string]$folder, [string]$marker) {
+    $fields = (Get-Content $lockFile | Where-Object { $_ -match "^$([regex]::Escape($id)) " }) -split '\s+'
+    $version = $fields[1]
+    $expected = $fields[2]
+    $path = Join-Path $root "Vendor/$folder/$version"
 
-if (-not (Test-Path "$agilityPath/build/native/bin/x64/D3D12Core.dll")) {
-    Write-Host "==> Agility SDK @ $agilityVersion"
-    $package = Join-Path ([System.IO.Path]::GetTempPath()) "microsoft.direct3d.d3d12.$agilityVersion.nupkg"
+    if (Test-Path (Join-Path $path $marker)) {
+        Write-Host "==> $label @ $version (already downloaded)"
+        return
+    }
+
+    Write-Host "==> $label @ $version"
+    $name = $id.ToLowerInvariant()
+    $package = Join-Path ([System.IO.Path]::GetTempPath()) "$name.$version.nupkg"
     try {
-        Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.d3d12/$agilityVersion/microsoft.direct3d.d3d12.$agilityVersion.nupkg" -OutFile $package
+        Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri "https://api.nuget.org/v3-flatcontainer/$name/$version/$name.$version.nupkg" -OutFile $package
         $hash = (Get-FileHash -Algorithm SHA256 $package).Hash
-        if ($hash -ne $agilityHash) {
-            $failed += "Agility SDK $agilityVersion  SHA-256 is $hash, expected $agilityHash"
+        if ($hash -ne $expected) {
+            $script:failed += "$label $version  SHA-256 is $hash, expected $expected"
         }
         else {
-            if (Test-Path $agilityPath) { Remove-Item -Recurse -Force $agilityPath }
+            if (Test-Path $path) { Remove-Item -Recurse -Force $path }
             Add-Type -AssemblyName System.IO.Compression.FileSystem
-            [System.IO.Compression.ZipFile]::ExtractToDirectory($package, $agilityPath)
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($package, $path)
         }
     }
     catch {
-        $failed += "Agility SDK $agilityVersion  $($_.Exception.Message)"
+        $script:failed += "$label $version  $($_.Exception.Message)"
     }
     finally {
         Remove-Item -ErrorAction SilentlyContinue $package
     }
 }
-else {
-    Write-Host "==> Agility SDK @ $agilityVersion (already downloaded)"
-}
+
+Get-PinnedPackage 'Scripts/AgilitySDK.lock' 'Microsoft.Direct3D.D3D12' 'Agility SDK' 'AgilitySDK' 'build/native/bin/x64/D3D12Core.dll'
+Get-PinnedPackage 'Scripts/GameInput.lock' 'Microsoft.GameInput' 'GameInput' 'GameInput' 'native/include/GameInput.h'
 
 Write-Host ''
 if ($unreachable.Count -gt 0) {

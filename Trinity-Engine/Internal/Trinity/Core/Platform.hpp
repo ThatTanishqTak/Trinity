@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Trinity/Core/FileDialog.hpp"
+#include "Trinity/Input/GamepadCodes.hpp"
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -72,6 +74,24 @@ namespace Trinity
             const std::atomic<bool>* Cancel = nullptr;
         };
 
+        // A gamepad as one reading of the platform's input API left it: the buttons held, bit 1 << GamepadButton for each, and the axes by GamepadAxis, raw
+        struct GamepadReading
+        {
+            std::uint32_t Buttons = 0;
+            std::array<float, std::to_underlying(GamepadAxis::Count)> Axes{};
+        };
+
+        // What PollGamepads reports, each pad by its slot, below Input::c_MaxGamepads. A name is valid during the call
+        class GamepadListener
+        {
+        public:
+            virtual ~GamepadListener() = default;
+
+            virtual void OnGamepadConnected(std::uint32_t slot, std::string_view name) = 0;
+            virtual void OnGamepadDisconnected(std::uint32_t slot) = 0;
+            virtual void OnGamepadReading(std::uint32_t slot, const GamepadReading& reading) = 0;
+        };
+
         void Initialize();
         void Shutdown();
 
@@ -121,6 +141,16 @@ namespace Trinity
         // Native window handles, null for none. GetWindowAt skips windows that let the mouse pass through
         [[nodiscard]] void* GetWindowAt(ScreenPoint point);
         [[nodiscard]] void* GetFocusedWindow();
+        // Whether the focused window is one of this process's, which Input reads gamepads only while it is. False where the platform has no windows
+        [[nodiscard]] bool IsForeground();
+
+        // Gamepads, through the platform's own input API. Each keeps its slot while it is connected, and gets the same one back when it reconnects where the API can tell it is the same pad. Where the platform has none yet, Initialize does nothing, and where its API is missing it logs one line, so every call after it finds no pads
+        void InitializeGamepads();
+        void ShutdownGamepads();
+        // Main thread only. Reports the pads that went, then those that came, then each pad's readings since the last poll, oldest first, so a press and a release between two polls are both seen. With resync, each pad reports only its reading now, as when the application has the focus again
+        void PollGamepads(GamepadListener& listener, bool resync);
+        // Each motor from 0 to 1, held until changed. Nothing for a slot with no pad
+        void SetGamepadRumble(std::uint32_t slot, float lowFrequency, float highFrequency);
 
         // A modal error box, for a failure the application cannot start past. Nothing where the platform has no windows, so the caller logs the message too
         void ShowErrorMessage(std::string_view title, std::string_view message);

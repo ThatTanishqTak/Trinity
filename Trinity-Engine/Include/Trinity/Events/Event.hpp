@@ -14,7 +14,8 @@ namespace Trinity
         None = 0,
         WindowClose, WindowResize, WindowMoved, WindowFocus, WindowLostFocus, WindowDpiChanged, MonitorsChanged,
         KeyPressed, KeyReleased, KeyTyped,
-        MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled, MouseLeft
+        MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled, MouseLeft,
+        GamepadConnected, GamepadDisconnected
     };
 
     enum EventCategory : std::uint32_t
@@ -24,7 +25,8 @@ namespace Trinity
         EventCategoryInput = TR_BIT(1),
         EventCategoryKeyboard = TR_BIT(2),
         EventCategoryMouse = TR_BIT(3),
-        EventCategoryMouseButton = TR_BIT(4)
+        EventCategoryMouseButton = TR_BIT(4),
+        EventCategoryGamepad = TR_BIT(5)
     };
 
 #define TR_EVENT_CLASS_TYPE(type)                                                   \

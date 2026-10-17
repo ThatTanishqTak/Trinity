@@ -329,6 +329,12 @@ namespace Trinity
         m_Window->SetEventCallback(TR_BIND_EVENT_FN(OnEvent));
         m_Window->SetRefreshCallback([this]() { RunFrame(false); });
 
+        // Only an application with a window reads gamepads, so a headless one has none
+        if (!m_Specification.Window.Headless)
+        {
+            Input::InitializeGamepads();
+        }
+
         CreateDevice();
         m_Renderer = CreateScope<Renderer>(*m_Device, *m_Window, m_Specification.Window.Title);
     }
@@ -338,6 +344,7 @@ namespace Trinity
         m_LayerStack.Clear();
         JobSystem::Wait(m_FrameJobs);
         DotNetHost::Stop();
+        Input::ShutdownGamepads();
         m_Renderer.reset();
         m_Device.reset();
         m_Window.reset();
@@ -428,8 +435,13 @@ namespace Trinity
 
         if (pollEvents)
         {
-            TR_PROFILE_SCOPE("Window::PollEvents");
-            m_Window->PollEvents();
+            {
+                TR_PROFILE_SCOPE("Window::PollEvents");
+                m_Window->PollEvents();
+            }
+
+            TR_PROFILE_SCOPE("Input::PollGamepads");
+            Input::PollGamepads([this](Event& event) { OnEvent(event); });
         }
 
         const auto l_Now = std::chrono::steady_clock::now();

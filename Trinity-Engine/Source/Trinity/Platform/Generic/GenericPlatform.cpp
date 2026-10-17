@@ -736,6 +736,11 @@ namespace Trinity
             return nullptr;
         }
 
+        bool IsForeground()
+        {
+            return false;
+        }
+
         // No windows until the Linux platform layer exists, so the log holds the message alone
         void ShowErrorMessage(std::string_view, std::string_view)
         {

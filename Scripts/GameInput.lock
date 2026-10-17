@@ -1,0 +1,2 @@
+# GameInput, for gamepads on Windows. Only its header and its loader library are used: the runtime is the GameInput redistributable installed on the machine
+Microsoft.GameInput 3.5.283 b5988cb8ff9d7009b6ddf6ad4e3ff87e91b00cc17ffcd5d628dabc21c208f100

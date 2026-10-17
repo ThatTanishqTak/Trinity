@@ -819,6 +819,15 @@ namespace Trinity
             return ::GetForegroundWindow();
         }
 
+        // Any of this process's windows, so moving between Forge's floating windows keeps it
+        bool IsForeground()
+        {
+            DWORD l_Process = 0;
+            const HWND l_Window = ::GetForegroundWindow();
+
+            return l_Window != nullptr && ::GetWindowThreadProcessId(l_Window, &l_Process) != 0 && l_Process == ::GetCurrentProcessId();
+        }
+
         void ShowErrorMessage(std::string_view title, std::string_view message)
         {
             ::MessageBoxW(nullptr, ToWide(message).c_str(), ToWide(title).c_str(), MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
