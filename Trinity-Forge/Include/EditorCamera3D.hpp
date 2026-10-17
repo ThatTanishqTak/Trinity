@@ -2,7 +2,7 @@
 
 #include <glm/glm.hpp>
 
-// The Viewport's perspective camera in 3D: an eye looking at a focus point from a distance, turned by yaw about +Y and pitch about its right, both in degrees. At yaw and pitch 0 it looks down -Z as cameras do, positive yaw turns it to the right and positive pitch up
+// The Viewport's camera in 3D: an eye looking at a focus point from a distance, turned by yaw about +Y and pitch about its right, both in degrees. At yaw and pitch 0 it looks down -Z as cameras do, positive yaw turns it to the right and positive pitch up, as far as straight up or down. In perspective, or orthographic as Unity's Iso is, showing as much at the focus either way, so a switch keeps what is there the same size
 class EditorCamera3D
 {
 public:
@@ -22,6 +22,8 @@ public:
     [[nodiscard]] float GetPitch() const { return m_Pitch; }
     [[nodiscard]] float GetDistance() const { return m_Distance; }
     [[nodiscard]] float GetSpeed() const { return m_Speed; }
+    [[nodiscard]] bool IsOrthographic() const { return m_Orthographic; }
+    void SetOrthographic(bool orthographic) { m_Orthographic = orthographic; }
 
     void Set(const glm::vec3& focus, float yaw, float pitch, float distance, float speed);
     void Reset();
@@ -42,6 +44,7 @@ public:
     [[nodiscard]] glm::mat4 GetProjection(glm::vec2 viewportSize) const;
     [[nodiscard]] glm::mat4 GetGizmoProjection(glm::vec2 viewportSize) const;
     [[nodiscard]] glm::vec3 GetRayDirection(glm::vec2 pixel, glm::vec2 viewportSize) const;
+    [[nodiscard]] glm::vec3 GetRayOrigin(glm::vec2 pixel, glm::vec2 viewportSize) const;
 
 private:
     glm::vec3 m_Focus{ 0.0f };
@@ -49,4 +52,5 @@ private:
     float m_Pitch = c_DefaultPitch;
     float m_Distance = c_DefaultDistance;
     float m_Speed = c_DefaultSpeed;
+    bool m_Orthographic = false;
 };

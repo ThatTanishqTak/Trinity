@@ -53,12 +53,13 @@ private:
         Scale
     };
 
-    // Where a glide takes the camera in the mode it began in: the focus and distance in 3D, or the position, in X and Y, and height in 2D
+    // Where a glide takes the camera in the mode it began in: the focus and distance in 3D, or the position, in X and Y, and height in 2D, and in 3D the yaw and pitch it turns to, when it turns
     struct Glide
     {
         glm::vec3 Focus{ 0.0f };
         float Distance = 1.0f;
         bool Mode3D = false;
+        std::optional<glm::vec2> Angles;
     };
 
     void FollowPanelSize(std::uint32_t width, std::uint32_t height);
@@ -71,6 +72,7 @@ private:
     void Frame(glm::vec2 viewportSize, bool follow);
     void UpdateGlide(glm::vec2 viewportSize);
     void StopGlide();
+    void TurnView(float yaw, float pitch, bool orthographic, bool automatic);
     [[nodiscard]] EditorCamera GetFramed(glm::vec2 viewportSize);
     [[nodiscard]] EditorCamera3D GetFramed3D(glm::vec2 viewportSize);
     [[nodiscard]] Glide GetFramedGlide(glm::vec2 viewportSize);
@@ -83,6 +85,8 @@ private:
     void DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize);
     void DrawStats(glm::vec2 viewportSize) const;
     void DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize);
+    void DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize);
+    [[nodiscard]] bool IsSnapping() const;
     void EndGizmoDrag();
     void DrawToolbar();
 
@@ -111,6 +115,9 @@ private:
     bool m_Mode3D = false;
     bool m_Flying = false;
     bool m_Orbiting = false;
+    // Iso chosen by turning to a side view from perspective, which goes back to perspective once the view is turned by hand, as in Unity
+    bool m_AutoOrthographic = false;
+    bool m_OrientationHovered = false;
     // Framing's glide, eased towards each frame and dropped once there, or as the camera is moved by hand. The entity Shift+F follows, until the selection moves on or the camera is moved off it. A frame asked for from another panel, following or not
     std::optional<Glide> m_Glide;
     Trinity::UUID m_Followed;
@@ -127,11 +134,14 @@ private:
     GizmoOperation m_GizmoOperation = GizmoOperation::Translate;
     bool m_GizmoLocal = true;
     glm::vec3 m_SnapSteps{ 0.5f, 15.0f, 0.1f };
+    // Every drag snaps while it is on, and Ctrl flips it for a drag, as in Godot and Blender
+    bool m_Snap = false;
     glm::mat4 m_GizmoMatrix{ 1.0f };
     Trinity::TransformComponent m_GizmoStart;
     Trinity::UUID m_GizmoEntity;
     std::uint32_t m_GizmoID = 0;
     float m_ToolbarWidth = 0.0f;
+    float m_ToolbarHeight = 0.0f;
     bool m_GizmoDragging = false;
     bool m_GizmoHovered = false;
 };

@@ -59,6 +59,45 @@ namespace
     // Framing's glide closes this much of what is left each second, as a rate, so it is there in about a quarter of a second, and it is there once within this fraction of the distance
     constexpr float c_GlideRate = 18.0f;
     constexpr float c_GlideTolerance = 0.001f;
+    // A turn is there once within this many degrees of the yaw and pitch it turns to
+    constexpr float c_GlideAngleTolerance = 0.01f;
+
+    // The orientation gizmo's cones reach this many fonts from its centre, round a cube this share of that across, with a cone's base this share of it from the centre and this share of it wide
+    constexpr float c_OrientationRadiusInFonts = 2.4f;
+    constexpr float c_OrientationCube = 0.2f;
+    constexpr float c_OrientationConeBase = 0.42f;
+    constexpr float c_OrientationConeWidth = 0.23f;
+    // Unity's handle colours for X, Y and Z, its grey for the negative axes, and its yellow for what the mouse is over
+    constexpr std::array<ImU32, 3> c_AxisColors{ IM_COL32(219, 62, 29, 255), IM_COL32(154, 243, 72, 255), IM_COL32(58, 122, 248, 255) };
+    constexpr ImU32 c_NegativeAxisColor = IM_COL32(170, 170, 170, 255);
+    constexpr ImU32 c_HoveredAxisColor = IM_COL32(246, 242, 50, 255);
+
+    // A view down one of the world's axes, as the orientation gizmo's cone towards it and its menu turn to it: looking back along the axis from its side, at a yaw and pitch, with Top keeping -Z up the screen as Front looks down -Z. Forge's front looks down -Z, where Unity's looks down +Z, so Front and Back trade cones with Unity's
+    struct SideView
+    {
+        const char* Name;
+        int Axis;
+        float Sign;
+        float Yaw;
+        float Pitch;
+    };
+
+    constexpr std::array<SideView, 6> c_SideViews{ SideView{ "Top", 1, 1.0f, 0.0f, -90.0f }, SideView{ "Bottom", 1, -1.0f, 0.0f, 90.0f }, SideView{ "Left", 0, -1.0f, 90.0f, 0.0f }, SideView{ "Right", 0, 1.0f, -90.0f, 0.0f }, SideView{ "Front", 2, 1.0f, 0.0f, 0.0f }, SideView{ "Back", 2, -1.0f, 180.0f, 0.0f } };
+
+    ImVec2 ToImVec2(glm::vec2 point)
+    {
+        return { point.x, point.y };
+    }
+
+    // How far the point is from the segment
+    float GetSegmentDistance(glm::vec2 point, glm::vec2 start, glm::vec2 end)
+    {
+        const glm::vec2 l_Segment = end - start;
+        const float l_Length = glm::dot(l_Segment, l_Segment);
+        const float l_Along = l_Length > 0.0f ? std::clamp(glm::dot(point - start, l_Segment) / l_Length, 0.0f, 1.0f) : 0.0f;
+
+        return glm::distance(point, start + l_Segment * l_Along);
+    }
 
     // A whole number of steps, so a snapped value is exactly k times the step
     float Snap(float value, float step)
@@ -175,6 +214,8 @@ namespace
 
         mode3D = l_Mode3D;
         camera.Set(glm::vec3(l_Values[0], l_Values[1], l_Values[2]), l_Values[3], l_Values[4], l_Values[5], l_Values[6]);
+        // Saved before Iso, a camera is in perspective
+        camera.SetOrthographic(l_Line.starts_with(" Iso"));
 
         return true;
     }
@@ -258,7 +299,7 @@ ViewportPanel::~ViewportPanel()
     m_Session.RemoveCloseListener(m_CloseListener);
 }
 
-// The Viewport's own lines in imgui.ini: the stats overlay, the gizmo's operation and axes, the snap steps, the light heatmap and the physics drawing
+// The Viewport's own lines in imgui.ini: the stats overlay, the gizmo's operation and axes, the snap toggle and steps, the light heatmap and the physics drawing
 bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 {
     const auto a_ReadStep = [value](float& step)
@@ -286,6 +327,10 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
     else if (key == "GizmoSpace")
     {
         m_GizmoLocal = value != "World";
+    }
+    else if (key == "Snap")
+    {
+        m_Snap = value != "0";
     }
     else if (key == "SnapTranslate")
     {
@@ -321,8 +366,8 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 
 void ViewportPanel::WriteSettings(ImGuiTextBuffer& buffer) const
 {
-    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\nLightHeatmap={}\nPhysicsDebug={}\n",
-        m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z, m_LightHeatmap ? 1 : 0, m_PhysicsDebug ? 1 : 0);
+    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnap={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\nLightHeatmap={}\nPhysicsDebug={}\n",
+        m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_Snap ? 1 : 0, m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z, m_LightHeatmap ? 1 : 0, m_PhysicsDebug ? 1 : 0);
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
@@ -336,7 +381,7 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
-// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image, among them the selection's colliders, or with Physics on every collider and joint, and where a playing copy's bodies touch, which the copy is asked to keep only then. After the transform pass
+// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective or an orthographic camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image, among them the selection's colliders, or with Physics on every collider and joint, and where a playing copy's bodies touch, which the copy is asked to keep only then. After the transform pass
 void ViewportPanel::PrepareScene()
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -376,7 +421,7 @@ void ViewportPanel::PrepareScene()
     Trinity::RenderView l_View;
     if (m_Mode3D)
     {
-        l_View = Trinity::RenderView::FromMatrices(m_Camera3D.GetView(), m_Camera3D.GetProjection(l_ViewportSize), false);
+        l_View = Trinity::RenderView::FromMatrices(m_Camera3D.GetView(), m_Camera3D.GetProjection(l_ViewportSize), m_Camera3D.IsOrthographic());
     }
     else
     {
@@ -456,6 +501,7 @@ void ViewportPanel::OnImGuiRender()
     }
 
     DrawGizmo(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
+    DrawOrientation(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
     l_DrawList.PopClipRect();
 
     if (m_Mode3D)
@@ -536,6 +582,7 @@ void ViewportPanel::FollowScene()
     const bool l_WasUntitled = !m_SceneID;
     m_SceneID = l_SceneID;
     m_CameraDirty = false;
+    m_AutoOrthographic = false;
     StopGlide();
     m_PickPixel.reset();
     m_PicksPending = 0;
@@ -577,7 +624,7 @@ void ViewportPanel::SaveCamera()
 
     const glm::vec2 l_Position = m_Camera.GetPosition();
     const glm::vec3 l_Focus = m_Camera3D.GetFocus();
-    const std::string l_Text = std::format("{} {} {}\n{} {} {} {} {} {} {} {}\n", l_Position.x, l_Position.y, m_Camera.GetHeight(), m_Mode3D ? "3D" : "2D", l_Focus.x, l_Focus.y, l_Focus.z, m_Camera3D.GetYaw(), m_Camera3D.GetPitch(), m_Camera3D.GetDistance(), m_Camera3D.GetSpeed());
+    const std::string l_Text = std::format("{} {} {}\n{} {} {} {} {} {} {} {} {}\n", l_Position.x, l_Position.y, m_Camera.GetHeight(), m_Mode3D ? "3D" : "2D", l_Focus.x, l_Focus.y, l_Focus.z, m_Camera3D.GetYaw(), m_Camera3D.GetPitch(), m_Camera3D.GetDistance(), m_Camera3D.GetSpeed(), m_Camera3D.IsOrthographic() ? "Iso" : "Persp");
     const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(GetCameraPath(m_SceneID), l_Text);
     if (!l_Written)
     {
@@ -648,17 +695,18 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     const glm::vec2 l_Delta(l_IO.MouseDelta.x, l_IO.MouseDelta.y);
     bool l_Changed = false;
 
-    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+    // The orientation gizmo's clicks are its own
+    if (hovered && !m_OrientationHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
     {
         m_Flying = true;
     }
 
-    if (hovered && l_IO.KeyAlt && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    if (hovered && !m_OrientationHovered && l_IO.KeyAlt && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
         m_Orbiting = true;
     }
 
-    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
+    if (hovered && !m_OrientationHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
     {
         m_Panning = true;
     }
@@ -667,7 +715,20 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     m_Orbiting = m_Orbiting && ImGui::IsMouseDown(ImGuiMouseButton_Left);
     m_Panning = m_Panning && ImGui::IsMouseDown(ImGuiMouseButton_Middle);
 
-    // Looking, panning and flying take the camera off what it follows. Orbiting keeps the focus, so it goes on, and moving in only ends a glide, keeping the distance it is moved to
+    // Looking, panning and flying take the camera off what it follows. Orbiting keeps the focus, so it goes on, but not a turn on its way, and moving in only ends a glide, keeping the distance it is moved to. Looking and orbiting turn an Iso side view back to perspective, as in Unity
+    if ((l_Delta.x != 0.0f || l_Delta.y != 0.0f) && (m_Flying || m_Orbiting))
+    {
+        if (m_Glide)
+        {
+            m_Glide->Angles.reset();
+        }
+
+        if (std::exchange(m_AutoOrthographic, false))
+        {
+            m_Camera3D.SetOrthographic(false);
+        }
+    }
+
     if (l_Delta.x != 0.0f || l_Delta.y != 0.0f)
     {
         if (m_Flying)
@@ -729,7 +790,7 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     }
 
     // A click on the gizmo is the gizmo's, and one with Alt held begins an orbit, so neither is a pick. A light's marker is picked at once, and anything else through the entity IDs
-    if (hovered && !l_IO.KeyAlt && !m_GizmoHovered && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    if (hovered && !l_IO.KeyAlt && !m_GizmoHovered && !m_GizmoDragging && !m_OrientationHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
         if (const Trinity::Entity l_Light = PickLight(l_Mouse, viewportSize))
         {
@@ -742,9 +803,15 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     }
 }
 
-// W, E and R pick the gizmo's operation and X its axes
+// W, E and R pick the gizmo's operation, X its axes, and Ctrl+\ turns snapping on and off, as in Unity
 void ViewportPanel::HandleGizmoKeys()
 {
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash))
+    {
+        m_Snap = !m_Snap;
+        ImGui::MarkIniSettingsDirty();
+    }
+
     constexpr std::array<ImGuiKey, 3> c_OperationKeys{ ImGuiKey_W, ImGuiKey_E, ImGuiKey_R };
     for (std::size_t it_Operation = 0; it_Operation < c_OperationKeys.size(); ++it_Operation)
     {
@@ -1004,12 +1071,12 @@ ViewportPanel::Glide ViewportPanel::GetFramedGlide(glm::vec2 viewportSize)
     {
         const EditorCamera3D l_Framed = GetFramed3D(viewportSize);
 
-        return { l_Framed.GetFocus(), l_Framed.GetDistance(), true };
+        return { .Focus = l_Framed.GetFocus(), .Distance = l_Framed.GetDistance(), .Mode3D = true, .Angles = std::nullopt };
     }
 
     const EditorCamera l_Framed = GetFramed(viewportSize);
 
-    return { glm::vec3(l_Framed.GetPosition(), 0.0f), l_Framed.GetHeight(), false };
+    return { .Focus = glm::vec3(l_Framed.GetPosition(), 0.0f), .Distance = l_Framed.GetHeight(), .Mode3D = false, .Angles = std::nullopt };
 }
 
 // F glides to the selection, or with nothing selected to the whole scene, as Unity's Frame Selected does. Shift+F glides there too and then follows the selection as it moves, as Unity's Lock View to Selected does, until it is pressed again
@@ -1027,7 +1094,7 @@ void ViewportPanel::Frame(glm::vec2 viewportSize, bool follow)
     m_Glide = GetFramedGlide(viewportSize);
 }
 
-// Each frame closes the same share of what is left by the time it took, so the glide slows as it arrives and takes as long at any frame rate. Distances go by their ratio, so a long way in or out moves as evenly as a short one. While following, the focus is the entity's again each frame, at the distance the first glide was going to, or once it is over, the camera's own. The camera holds still while the gizmo drags, so what it drags stays under the mouse
+// Each frame closes the same share of what is left by the time it took, so the glide slows as it arrives and takes as long at any frame rate. Distances go by their ratio, so a long way in or out moves as evenly as a short one, and a turn takes the short way round. While following, the focus is the entity's again each frame, at the distance the first glide was going to, or once it is over, the camera's own. The camera holds still while the gizmo drags, so what it drags stays under the mouse
 void ViewportPanel::UpdateGlide(glm::vec2 viewportSize)
 {
     if (m_GizmoDragging)
@@ -1042,8 +1109,9 @@ void ViewportPanel::UpdateGlide(glm::vec2 viewportSize)
 
     if (m_Followed)
     {
-        const float l_Distance = m_Glide && m_Glide->Mode3D == m_Mode3D ? m_Glide->Distance : (m_Mode3D ? m_Camera3D.GetDistance() : m_Camera.GetHeight());
-        m_Glide = Glide{ GetFramedGlide(viewportSize).Focus, l_Distance, m_Mode3D };
+        const bool l_Gliding = m_Glide && m_Glide->Mode3D == m_Mode3D;
+        const float l_Distance = l_Gliding ? m_Glide->Distance : (m_Mode3D ? m_Camera3D.GetDistance() : m_Camera.GetHeight());
+        m_Glide = Glide{ .Focus = GetFramedGlide(viewportSize).Focus, .Distance = l_Distance, .Mode3D = m_Mode3D, .Angles = l_Gliding ? m_Glide->Angles : std::nullopt };
     }
 
     if (!m_Glide || m_Glide->Mode3D != m_Mode3D)
@@ -1059,18 +1127,32 @@ void ViewportPanel::UpdateGlide(glm::vec2 viewportSize)
     const float l_Blend = 1.0f - std::exp(-ImGui::GetIO().DeltaTime * c_GlideRate);
     glm::vec3 l_Focus = glm::mix(l_From, m_Glide->Focus, l_Blend);
     float l_Distance = std::exp(glm::mix(std::log(l_FromDistance), std::log(l_ToDistance), l_Blend));
-    const bool l_Arrived = glm::distance(l_Focus, m_Glide->Focus) <= l_ToDistance * c_GlideTolerance && std::abs(std::log(l_Distance / l_ToDistance)) <= c_GlideTolerance;
-    if (l_Arrived)
+    const bool l_Placed = glm::distance(l_Focus, m_Glide->Focus) <= l_ToDistance * c_GlideTolerance && std::abs(std::log(l_Distance / l_ToDistance)) <= c_GlideTolerance;
+    if (l_Placed)
     {
         l_Focus = m_Glide->Focus;
         l_Distance = m_Glide->Distance;
     }
 
-    if (l_Focus != l_From || l_Distance != l_FromDistance)
+    const glm::vec2 l_FromAngles(m_Camera3D.GetYaw(), m_Camera3D.GetPitch());
+    glm::vec2 l_Angles = l_FromAngles;
+    bool l_Turned = true;
+    if (m_Glide->Angles)
+    {
+        l_Angles = glm::vec2(l_FromAngles.x + std::remainder(m_Glide->Angles->x - l_FromAngles.x, 360.0f) * l_Blend, glm::mix(l_FromAngles.y, m_Glide->Angles->y, l_Blend));
+        l_Turned = std::abs(std::remainder(m_Glide->Angles->x - l_Angles.x, 360.0f)) <= c_GlideAngleTolerance && std::abs(m_Glide->Angles->y - l_Angles.y) <= c_GlideAngleTolerance;
+        if (l_Turned)
+        {
+            l_Angles = *m_Glide->Angles;
+        }
+    }
+
+    const bool l_Arrived = l_Placed && l_Turned;
+    if (l_Focus != l_From || l_Distance != l_FromDistance || l_Angles != l_FromAngles)
     {
         if (m_Mode3D)
         {
-            m_Camera3D.Set(l_Focus, m_Camera3D.GetYaw(), m_Camera3D.GetPitch(), l_Distance, m_Camera3D.GetSpeed());
+            m_Camera3D.Set(l_Focus, l_Angles.x, l_Angles.y, l_Distance, m_Camera3D.GetSpeed());
         }
         else
         {
@@ -1093,6 +1175,30 @@ void ViewportPanel::StopGlide()
     m_Followed = {};
 }
 
+// A glide about the focus to the yaw and pitch, keeping the focus and distance any glide on its way has, so a frame or a follow goes on. Iso turned to on the way is automatic, as a side view's is, and goes back to perspective once the view is turned by hand
+void ViewportPanel::TurnView(float yaw, float pitch, bool orthographic, bool automatic)
+{
+    const bool l_Gliding = m_Glide && m_Glide->Mode3D;
+    m_Glide = Glide{ .Focus = l_Gliding ? m_Glide->Focus : m_Camera3D.GetFocus(), .Distance = l_Gliding ? m_Glide->Distance : m_Camera3D.GetDistance(), .Mode3D = true, .Angles = glm::vec2(yaw, pitch) };
+    if (orthographic != m_Camera3D.IsOrthographic())
+    {
+        m_Camera3D.SetOrthographic(orthographic);
+        m_AutoOrthographic = orthographic && automatic;
+    }
+    else if (!orthographic)
+    {
+        m_AutoOrthographic = false;
+    }
+
+    MarkCameraChanged();
+}
+
+// Ctrl flips the toggle for as long as it is held
+bool ViewportPanel::IsSnapping() const
+{
+    return m_Snap != ImGui::GetIO().KeyCtrl;
+}
+
 // Where a dropped asset lands: under the mouse on Z = 0 in 2D, and in 3D where the mouse's ray meets the ground, Y = 0, or a little way ahead of the camera when it meets the ground nowhere near
 glm::vec3 ViewportPanel::GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize) const
 {
@@ -1103,7 +1209,7 @@ glm::vec3 ViewportPanel::GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize
         return glm::vec3(m_Camera.ScreenToWorld(l_Pixel, viewportSize), 0.0f);
     }
 
-    const glm::vec3 l_Origin = m_Camera3D.GetPosition();
+    const glm::vec3 l_Origin = m_Camera3D.GetRayOrigin(l_Pixel, viewportSize);
     const glm::vec3 l_Direction = m_Camera3D.GetRayDirection(l_Pixel, viewportSize);
     const float l_Distance = std::abs(l_Direction.y) > 1e-6f ? -l_Origin.y / l_Direction.y : -1.0f;
 
@@ -1487,7 +1593,7 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
     ImGuizmo::SetRect(imageMin.x, imageMin.y, viewportSize.x, viewportSize.y);
     if (m_Mode3D)
     {
-        // A full 3D gizmo, which Ctrl snaps as it drags: along the axis dragged, by the angle turned, and by the ratio scaled. It lets go of the mouse while the camera is being moved, or Alt is held to start orbiting
+        // A full 3D gizmo, which snaps as it drags while snapping is on, or off with Ctrl held: along the axis dragged, by the angle turned, and by the ratio scaled. It lets go of the mouse while the camera is being moved, or Alt is held to start orbiting, or the mouse is over the orientation gizmo
         const std::array<ImGuizmo::OPERATION, 3> l_Operations{ ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE };
         l_Operation = l_Operations[static_cast<std::size_t>(m_GizmoOperation)];
         const float l_Step = m_SnapSteps[static_cast<glm::length_t>(m_GizmoOperation)];
@@ -1495,10 +1601,10 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
         const glm::mat4 l_View = m_Camera3D.GetView();
         const glm::mat4 l_Projection = m_Camera3D.GetGizmoProjection(viewportSize);
 
-        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::SetOrthographic(m_Camera3D.IsOrthographic());
         ImGuizmo::AllowAxisFlip(true);
-        ImGuizmo::Enable(m_GizmoDragging || !(ImGui::GetIO().KeyAlt || m_Orbiting || m_Flying || m_Panning));
-        l_Changed = ImGuizmo::Manipulate(glm::value_ptr(l_View), glm::value_ptr(l_Projection), l_Operation, m_GizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD, glm::value_ptr(m_GizmoMatrix), nullptr, ImGui::GetIO().KeyCtrl ? l_Snap.data() : nullptr);
+        ImGuizmo::Enable(m_GizmoDragging || !(ImGui::GetIO().KeyAlt || m_Orbiting || m_Flying || m_Panning || m_OrientationHovered));
+        l_Changed = ImGuizmo::Manipulate(glm::value_ptr(l_View), glm::value_ptr(l_Projection), l_Operation, m_GizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD, glm::value_ptr(m_GizmoMatrix), nullptr, IsSnapping() ? l_Snap.data() : nullptr);
     }
     else
     {
@@ -1545,7 +1651,7 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
 
     if (l_Changed)
     {
-        Trinity::TransformComponent l_Value = m_Mode3D ? ApplyGizmo3D(l_ParentWorld) : ApplyGizmo(l_ParentWorld, ImGui::GetIO().KeyCtrl);
+        Trinity::TransformComponent l_Value = m_Mode3D ? ApplyGizmo3D(l_ParentWorld) : ApplyGizmo(l_ParentWorld, IsSnapping());
         m_Session.GetHistory().Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(m_GizmoEntity, std::move(l_Value), c_GizmoFields[static_cast<std::size_t>(m_GizmoOperation)]));
     }
 }
@@ -1558,6 +1664,211 @@ void ViewportPanel::EndGizmoDrag()
     if (ImGui::GetActiveID() == m_GizmoID)
     {
         ImGui::ClearActiveID();
+    }
+}
+
+// Unity's Scene Gizmo, in 3D under the toolbar at the image's top-right corner: the world's axes as the camera sees them, a cone along each in its colour, and in grey along the negative ones, round a cube, with the view's name below, or Persp or Iso. A cone turns the view to look back along its axis, in Iso while the view was in perspective, the cube and the name switch between perspective and Iso, and a right-click lists the views. What is in front is drawn last, and found first under the mouse after the cube
+void ViewportPanel::DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize)
+{
+    m_OrientationHovered = false;
+    if (!m_Mode3D)
+    {
+        return;
+    }
+
+    // Each side view's cone: its axis as the camera sees it, with Y down the screen, and how far it points at the eye
+    struct Cone
+    {
+        std::size_t View = 0;
+        glm::vec2 Screen{ 0.0f };
+        float Depth = 0.0f;
+    };
+
+    const float l_Radius = ImGui::GetFontSize() * c_OrientationRadiusInFonts;
+    const float l_Width = l_Radius * c_OrientationConeWidth;
+    const float l_CubeHalf = l_Radius * c_OrientationCube;
+    const glm::vec2 l_Center(imageMin.x + viewportSize.x - c_StatsMargin - l_Radius * 1.2f, imageMin.y + c_StatsMargin * 2.0f + m_ToolbarHeight + l_Radius * 1.2f);
+    const glm::mat3 l_Rotation(m_Camera3D.GetView());
+    std::array<Cone, c_SideViews.size()> l_Cones{};
+    std::optional<std::size_t> l_Aligned;
+    for (std::size_t it_View = 0; it_View < c_SideViews.size(); ++it_View)
+    {
+        const SideView& l_View = c_SideViews[it_View];
+        glm::vec3 l_Axis(0.0f);
+        l_Axis[l_View.Axis] = l_View.Sign;
+        const glm::vec3 l_Seen = l_Rotation * l_Axis;
+        l_Cones[it_View] = { .View = it_View, .Screen = glm::vec2(l_Seen.x, -l_Seen.y), .Depth = l_Seen.z };
+        if (std::abs(std::remainder(m_Camera3D.GetYaw() - l_View.Yaw, 360.0f)) <= c_GlideAngleTolerance && std::abs(m_Camera3D.GetPitch() - l_View.Pitch) <= c_GlideAngleTolerance)
+        {
+            l_Aligned = it_View;
+        }
+    }
+
+    std::ranges::sort(l_Cones, {}, &Cone::Depth);
+    const char* l_Name = l_Aligned ? c_SideViews[*l_Aligned].Name : (m_Camera3D.IsOrthographic() ? "Iso" : "Persp");
+    const ImVec2 l_NameSize = ImGui::CalcTextSize(l_Name);
+    const glm::vec2 l_NameMin(l_Center.x - l_NameSize.x * 0.5f, l_Center.y + l_Radius * 1.15f);
+
+    const glm::vec2 l_Mouse(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y);
+    const auto a_OnCone = [&](const Cone& cone) { return GetSegmentDistance(l_Mouse, l_Center + cone.Screen * (l_Radius * c_OrientationConeBase), l_Center + cone.Screen * l_Radius) <= l_Width; };
+    const auto a_OnCube = [&] { return glm::distance(l_Mouse, l_Center) <= l_CubeHalf * 1.5f; };
+    std::optional<std::size_t> l_HoveredCone;
+    bool l_HoveredCube = false;
+    bool l_HoveredName = false;
+    // The cube is the centre's, even where a cone towards the eye lies over it, so it switches the projection in a side view too
+    if (ImGui::IsWindowHovered())
+    {
+        l_HoveredCube = a_OnCube();
+        for (auto it_Cone = l_Cones.rbegin(); it_Cone != l_Cones.rend() && !l_HoveredCube && !l_HoveredCone; ++it_Cone)
+        {
+            if (a_OnCone(*it_Cone))
+            {
+                l_HoveredCone = it_Cone->View;
+            }
+        }
+
+        l_HoveredName = l_Mouse.x >= l_NameMin.x && l_Mouse.x <= l_NameMin.x + l_NameSize.x && l_Mouse.y >= l_NameMin.y && l_Mouse.y <= l_NameMin.y + l_NameSize.y;
+        m_OrientationHovered = glm::distance(l_Mouse, l_Center) <= l_Radius * 1.2f || l_HoveredName;
+    }
+
+    const auto a_SwitchProjection = [this]
+    {
+        m_Camera3D.SetOrthographic(!m_Camera3D.IsOrthographic());
+        m_AutoOrthographic = false;
+        MarkCameraChanged();
+    };
+
+    if (m_OrientationHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyAlt)
+    {
+        if (l_HoveredCone)
+        {
+            TurnView(c_SideViews[*l_HoveredCone].Yaw, c_SideViews[*l_HoveredCone].Pitch, true, true);
+        }
+        else if (l_HoveredCube || l_HoveredName)
+        {
+            a_SwitchProjection();
+        }
+    }
+
+    if (m_OrientationHovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right) && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Right))
+    {
+        ImGui::OpenPopup("##ViewMenu");
+    }
+
+    ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+    const auto a_Shade = [](ImU32 color, float light)
+    {
+        const ImVec4 l_Color = ImGui::ColorConvertU32ToFloat4(color);
+
+        return ImGui::GetColorU32(ImVec4(l_Color.x * light, l_Color.y * light, l_Color.z * light, l_Color.w));
+    };
+
+    // The base faces the eye when the cone points away from it, so it goes over the side, and under it otherwise
+    const auto a_DrawCone = [&](const Cone& cone)
+    {
+        const SideView& l_View = c_SideViews[cone.View];
+        const ImU32 l_Color = l_HoveredCone == cone.View ? c_HoveredAxisColor : (l_View.Sign > 0.0f ? c_AxisColors[static_cast<std::size_t>(l_View.Axis)] : c_NegativeAxisColor);
+        const float l_Length = glm::length(cone.Screen);
+        const glm::vec2 l_Side = l_Length > 1e-4f ? glm::vec2(-cone.Screen.y, cone.Screen.x) / l_Length * l_Width : glm::vec2(l_Width, 0.0f);
+        const glm::vec2 l_Tip = l_Center + cone.Screen * l_Radius;
+        const glm::vec2 l_Base = l_Center + cone.Screen * (l_Radius * c_OrientationConeBase);
+        const ImVec2 l_BaseRadius(std::max(l_Width * std::abs(cone.Depth), 0.5f), l_Width);
+        const float l_Angle = std::atan2(cone.Screen.y, cone.Screen.x);
+        if (cone.Depth >= 0.0f)
+        {
+            l_DrawList.AddEllipseFilled(ToImVec2(l_Base), l_BaseRadius, a_Shade(l_Color, 0.7f), l_Angle);
+        }
+
+        l_DrawList.AddTriangleFilled(ToImVec2(l_Tip), ToImVec2(l_Base + l_Side), ToImVec2(l_Base - l_Side), l_Color);
+        if (cone.Depth < 0.0f)
+        {
+            l_DrawList.AddEllipseFilled(ToImVec2(l_Base), l_BaseRadius, a_Shade(l_Color, 0.7f), l_Angle);
+        }
+
+        if (l_View.Sign > 0.0f && l_Length > 0.2f)
+        {
+            constexpr std::array<const char*, 3> c_Labels{ "x", "y", "z" };
+            const char* l_Label = c_Labels[static_cast<std::size_t>(l_View.Axis)];
+            const ImVec2 l_LabelSize = ImGui::CalcTextSize(l_Label);
+            const glm::vec2 l_LabelCenter = l_Center + cone.Screen / l_Length * (l_Radius * l_Length + ImGui::GetFontSize() * 0.6f);
+            l_DrawList.AddText(ImVec2(l_LabelCenter.x - l_LabelSize.x * 0.5f, l_LabelCenter.y - l_LabelSize.y * 0.5f), l_Color, l_Label);
+        }
+    };
+
+    // The faces turned to the eye, lighter the more squarely they face it
+    const auto a_DrawCube = [&]
+    {
+        for (const SideView& it_Face : c_SideViews)
+        {
+            glm::vec3 l_Normal(0.0f);
+            l_Normal[it_Face.Axis] = it_Face.Sign;
+            const float l_Facing = (l_Rotation * l_Normal).z;
+            if (l_Facing <= 0.0f)
+            {
+                continue;
+            }
+
+            glm::vec3 l_U(0.0f);
+            glm::vec3 l_V(0.0f);
+            l_U[(it_Face.Axis + 1) % 3] = 1.0f;
+            l_V[(it_Face.Axis + 2) % 3] = 1.0f;
+            constexpr std::array<glm::vec2, 4> c_Signs{ glm::vec2(1.0f, 1.0f), glm::vec2(-1.0f, 1.0f), glm::vec2(-1.0f, -1.0f), glm::vec2(1.0f, -1.0f) };
+            std::array<ImVec2, 4> l_Corners{};
+            for (std::size_t it_Corner = 0; it_Corner < c_Signs.size(); ++it_Corner)
+            {
+                const glm::vec3 l_Seen = l_Rotation * ((l_Normal + l_U * c_Signs[it_Corner].x + l_V * c_Signs[it_Corner].y) * l_CubeHalf);
+                l_Corners[it_Corner] = ToImVec2(l_Center + glm::vec2(l_Seen.x, -l_Seen.y));
+            }
+
+            const ImU32 l_Face = a_Shade(l_HoveredCube ? IM_COL32(255, 255, 255, 255) : IM_COL32(220, 220, 220, 255), 0.55f + 0.45f * l_Facing);
+            l_DrawList.AddQuadFilled(l_Corners[0], l_Corners[1], l_Corners[2], l_Corners[3], l_Face);
+            l_DrawList.AddQuad(l_Corners[0], l_Corners[1], l_Corners[2], l_Corners[3], IM_COL32(40, 40, 40, 160));
+        }
+    };
+
+    bool l_CubeDrawn = false;
+    for (const Cone& it_Cone : l_Cones)
+    {
+        if (it_Cone.Depth >= 0.0f && !std::exchange(l_CubeDrawn, true))
+        {
+            a_DrawCube();
+        }
+
+        a_DrawCone(it_Cone);
+    }
+
+    if (!l_CubeDrawn)
+    {
+        a_DrawCube();
+    }
+
+    const ImVec2 l_Padding = ImGui::GetStyle().FramePadding;
+    l_DrawList.AddRectFilled(ImVec2(l_NameMin.x - l_Padding.x, l_NameMin.y - l_Padding.y * 0.5f), ImVec2(l_NameMin.x + l_NameSize.x + l_Padding.x, l_NameMin.y + l_NameSize.y + l_Padding.y * 0.5f), IM_COL32(0, 0, 0, 140), ImGui::GetStyle().FrameRounding);
+    l_DrawList.AddText(ToImVec2(l_NameMin), l_HoveredName || l_HoveredCube ? c_HoveredAxisColor : ImGui::GetColorU32(ImGuiCol_Text), l_Name);
+
+    if (ImGui::BeginPopup("##ViewMenu"))
+    {
+        if (ImGui::MenuItem("Free", nullptr, !l_Aligned))
+        {
+            TurnView(EditorCamera3D::c_DefaultYaw, EditorCamera3D::c_DefaultPitch, false, false);
+        }
+
+        ImGui::Separator();
+        for (std::size_t it_View = 0; it_View < c_SideViews.size(); ++it_View)
+        {
+            if (ImGui::MenuItem(c_SideViews[it_View].Name, nullptr, l_Aligned == it_View))
+            {
+                TurnView(c_SideViews[it_View].Yaw, c_SideViews[it_View].Pitch, true, true);
+            }
+        }
+
+        ImGui::Separator();
+        if (ImGui::MenuItem("Perspective", nullptr, !m_Camera3D.IsOrthographic()))
+        {
+            a_SwitchProjection();
+        }
+
+        ImGui::EndPopup();
     }
 }
 
@@ -1763,14 +2074,30 @@ void ViewportPanel::DrawToolbar()
         };
 
         ImGui::SameLine();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(Trinity::Icons::c_Magnet);
-        ImGui::SetItemTooltip("Hold Ctrl while dragging to snap to these steps");
+        const bool l_Snap = m_Snap;
+        if (l_Snap)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        }
+
+        if (ImGui::Button(std::format("{}###Snap", Trinity::Icons::c_Magnet).c_str()))
+        {
+            m_Snap = !m_Snap;
+            ImGui::MarkIniSettingsDirty();
+        }
+
+        if (l_Snap)
+        {
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::SetItemTooltip("Snap (Ctrl+\\): while it is on, every drag goes by these steps. Ctrl held while dragging does the opposite, snapping while it is off and moving freely while it is on");
         a_Step("##SnapTranslate", m_SnapSteps.x, "%g", "Move snap, in units");
         a_Step("##SnapRotate", m_SnapSteps.y, "%g\xC2\xB0", "Rotate snap, in degrees");
         a_Step("##SnapScale", m_SnapSteps.z, "%g", "Scale snap");
 
         m_ToolbarWidth = ImGui::GetWindowWidth();
+        m_ToolbarHeight = ImGui::GetWindowHeight();
     }
 
     ImGui::EndChild();

@@ -9,8 +9,8 @@ namespace
 {
     // Degrees turned per pixel the mouse moves, when looking and when orbiting
     constexpr float c_TurnPerPixel = 0.25f;
-    // Short of straight up or down, where yaw would lose its meaning
-    constexpr float c_MaximumPitch = 89.0f;
+    // Straight up or down at the most, where yaw still turns the view, since the camera's right is yaw's alone
+    constexpr float c_MaximumPitch = 90.0f;
     // One wheel notch moves a tenth of the way to the focus, and changes the flying speed by a fifth
     constexpr float c_DollyStep = 0.9f;
     constexpr float c_SpeedStep = 1.2f;
@@ -20,6 +20,9 @@ namespace
     constexpr float c_FrameMargin = 1.2f;
     // Far enough for the gizmo's projection, which needs a far plane, as the rendered one does not
     constexpr float c_GizmoFar = 100000.0f;
+    // Orthographic, what lies this far in front of the focus is kept, wherever the eye is, so the shadows' first stretch is centred on the focus, and so is all behind it out to the far distance
+    constexpr float c_OrthographicReach = 50.0f;
+    constexpr float c_OrthographicFar = 10000.0f;
 
     float GetAspectRatio(glm::vec2 viewportSize)
     {
@@ -39,6 +42,7 @@ void EditorCamera3D::Set(const glm::vec3& focus, float yaw, float pitch, float d
 void EditorCamera3D::Reset()
 {
     Set(glm::vec3(0.0f), c_DefaultYaw, c_DefaultPitch, c_DefaultDistance, c_DefaultSpeed);
+    m_Orthographic = false;
 }
 
 // Turns about the eye, which stays where it is, so the focus moves round it
@@ -129,14 +133,23 @@ glm::vec3 EditorCamera3D::GetUp() const
     return glm::cross(GetRight(), GetForward());
 }
 
+// Up is the camera's own, so looking straight up or down keeps the yaw's turn
 glm::mat4 EditorCamera3D::GetView() const
 {
-    return glm::lookAt(GetPosition(), m_Focus, glm::vec3(0.0f, 1.0f, 0.0f));
+    return glm::lookAt(GetPosition(), m_Focus, GetUp());
 }
 
-// Reversed depth with no far plane, as a perspective CameraComponent has it
+// Reversed depth with no far plane, as a perspective CameraComponent has it. Orthographic, reversed too, as high as the perspective view is at the focus
 glm::mat4 EditorCamera3D::GetProjection(glm::vec2 viewportSize) const
 {
+    if (m_Orthographic)
+    {
+        const float l_HalfHeight = m_Distance * std::tan(glm::radians(c_FieldOfView) * 0.5f);
+        const float l_HalfWidth = l_HalfHeight * GetAspectRatio(viewportSize);
+
+        return glm::ortho(-l_HalfWidth, l_HalfWidth, -l_HalfHeight, l_HalfHeight, m_Distance + c_OrthographicFar, m_Distance - c_OrthographicReach);
+    }
+
     const float l_Focal = 1.0f / std::tan(glm::radians(c_FieldOfView) * 0.5f);
     glm::mat4 l_Projection(0.0f);
     l_Projection[0][0] = l_Focal / GetAspectRatio(viewportSize);
@@ -150,15 +163,43 @@ glm::mat4 EditorCamera3D::GetProjection(glm::vec2 viewportSize) const
 // With depth the usual way round and a far plane, as ImGuizmo takes it
 glm::mat4 EditorCamera3D::GetGizmoProjection(glm::vec2 viewportSize) const
 {
+    if (m_Orthographic)
+    {
+        const float l_HalfHeight = m_Distance * std::tan(glm::radians(c_FieldOfView) * 0.5f);
+        const float l_HalfWidth = l_HalfHeight * GetAspectRatio(viewportSize);
+
+        return glm::ortho(-l_HalfWidth, l_HalfWidth, -l_HalfHeight, l_HalfHeight, m_Distance - c_OrthographicReach, m_Distance + c_OrthographicFar);
+    }
+
     return glm::perspective(glm::radians(c_FieldOfView), GetAspectRatio(viewportSize), c_Near, c_GizmoFar);
 }
 
-// The unit direction from the eye through a pixel, counted from the image's top-left corner with Y down
+// The unit direction through a pixel, counted from the image's top-left corner with Y down: from the eye in perspective, and straight ahead from anywhere orthographic
 glm::vec3 EditorCamera3D::GetRayDirection(glm::vec2 pixel, glm::vec2 viewportSize) const
 {
+    if (m_Orthographic)
+    {
+        return GetForward();
+    }
+
     const float l_TanHalf = std::tan(glm::radians(c_FieldOfView) * 0.5f);
     const float l_X = (pixel.x / std::max(viewportSize.x, 1.0f) * 2.0f - 1.0f) * l_TanHalf * GetAspectRatio(viewportSize);
     const float l_Y = (1.0f - pixel.y / std::max(viewportSize.y, 1.0f) * 2.0f) * l_TanHalf;
 
     return glm::normalize(GetForward() + GetRight() * l_X + GetUp() * l_Y);
+}
+
+// Where the ray through a pixel starts: the eye in perspective, and orthographic the pixel's point on the nearest plane kept, so it meets all that is shown
+glm::vec3 EditorCamera3D::GetRayOrigin(glm::vec2 pixel, glm::vec2 viewportSize) const
+{
+    if (!m_Orthographic)
+    {
+        return GetPosition();
+    }
+
+    const float l_HalfHeight = m_Distance * std::tan(glm::radians(c_FieldOfView) * 0.5f);
+    const float l_X = (pixel.x / std::max(viewportSize.x, 1.0f) * 2.0f - 1.0f) * l_HalfHeight * GetAspectRatio(viewportSize);
+    const float l_Y = (1.0f - pixel.y / std::max(viewportSize.y, 1.0f) * 2.0f) * l_HalfHeight;
+
+    return m_Focus - GetForward() * c_OrthographicReach + GetRight() * l_X + GetUp() * l_Y;
 }
