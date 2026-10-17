@@ -632,6 +632,12 @@ void ForgeLayer::DrawBuildStatus()
         l_Indicators.push_back({ "C#", "C# scripts", m_Session.GetAssembly().GetStatus(), &m_Session.GetAssembly().GetErrorLines() });
     }
 
+    // A project without scripts has none to show, and the cursor is not moved right for nothing, which ImGui takes as stretching the menu bar
+    if (l_Indicators.empty())
+    {
+        return;
+    }
+
     const auto a_Text = [](const Indicator& indicator)
     {
         switch (indicator.Status.State)
