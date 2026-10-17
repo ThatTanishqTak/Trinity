@@ -21,6 +21,8 @@ namespace
     constexpr float c_EdgeFraction = 0.25f;
     constexpr float c_DropLineThickness = 2.0f;
     constexpr const char* c_DefaultName = "Entity";
+    // How long a second click on a selected entity waits before it renames, at least, so the second click of a double-click never does
+    constexpr double c_SlowClickSeconds = 0.5;
 
     Trinity::UUID GetID(Trinity::Entity entity)
     {
@@ -131,6 +133,7 @@ void HierarchyPanel::OnImGuiRender()
 
     ImGui::EndChild();
 
+    UpdateSlowClick(l_Scene);
     m_SearchChanged = false;
     m_RevealPath.clear();
     for (std::move_only_function<void()>& it_Action : std::exchange(m_Deferred, {}))
@@ -293,15 +296,27 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         m_ScrollToSelection = false;
     }
 
-    // Selecting on press, so a drag starts from the entity it drags. A double-click renames, and the arrow opens and closes
-    if ((ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right)) && !ImGui::IsItemToggledOpen())
+    // Selecting on press, so a drag starts from the entity it drags, and the arrow opens and closes. As in Unity, a double-click frames the entity in the Scene panel, and a second, slower click on an entity already selected renames it
+    const bool l_LeftClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen();
+    if (l_LeftClicked && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
     {
+        m_SlowClick = {};
+        Select(l_ID);
+        if (m_FrameSelection)
+        {
+            m_FrameSelection(false);
+        }
+    }
+    else if (l_LeftClicked)
+    {
+        const ImGuiIO& l_IO = ImGui::GetIO();
+        m_SlowClick = l_Selected && !l_Renaming && !l_IO.KeyCtrl && !l_IO.KeyShift && !l_IO.KeyAlt ? l_ID : Trinity::UUID();
+        m_SlowClickTime = ImGui::GetTime();
         Select(l_ID);
     }
-
-    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+    else if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !ImGui::IsItemToggledOpen())
     {
-        BeginRename(entity);
+        Select(l_ID);
     }
 
     if (!m_ReadOnly && ImGui::BeginPopupContextItem())
@@ -492,7 +507,7 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
     ImGui::EndDragDropTarget();
 }
 
-// Rename and Ctrl+F to the search while the Hierarchy has focus, as in Unity. Duplicate and Delete are Forge's own shortcuts, so they work from any panel
+// Rename, Ctrl+F to the search, and F to frame the selection in the Scene panel, or Shift+F to follow it there, while the Hierarchy has focus, as in Unity. Duplicate and Delete are Forge's own shortcuts, so they work from any panel
 void HierarchyPanel::ReadShortcuts()
 {
     if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) || ImGui::GetIO().WantTextInput)
@@ -507,10 +522,43 @@ void HierarchyPanel::ReadShortcuts()
         return;
     }
 
+    if (m_FrameSelection && (ImGui::IsKeyChordPressed(ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_F)))
+    {
+        m_FrameSelection(ImGui::GetIO().KeyShift);
+
+        return;
+    }
+
     const Trinity::Entity l_Selected = m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection());
     if (l_Selected && l_Selected.Has<Trinity::TagComponent>() && ImGui::IsKeyPressed(ImGuiKey_F2, false))
     {
         BeginRename(l_Selected);
+    }
+}
+
+// The slow click's rename waits out the double-click time with the button up, and is dropped by a drag, by the selection moving on, or by the Hierarchy losing focus to another panel
+void HierarchyPanel::UpdateSlowClick(Trinity::Scene& scene)
+{
+    if (!m_SlowClick)
+    {
+        return;
+    }
+
+    if (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || m_Session.GetSelection() != m_SlowClick || !ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))
+    {
+        m_SlowClick = {};
+
+        return;
+    }
+
+    if (ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::GetTime() - m_SlowClickTime < std::max(static_cast<double>(ImGui::GetIO().MouseDoubleClickTime), c_SlowClickSeconds))
+    {
+        return;
+    }
+
+    if (const Trinity::Entity l_Entity = scene.FindEntityByUUID(std::exchange(m_SlowClick, {})))
+    {
+        BeginRename(l_Entity);
     }
 }
 

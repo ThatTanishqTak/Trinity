@@ -29,6 +29,9 @@ public:
     void PrepareScene();
     void RenderScene(Trinity::RHI::CommandList& commands);
 
+    // Frames the selection, gliding there once the Scene panel is next drawn, as a double-click or F in the Hierarchy asks, and with follow keeps it framed as it moves
+    void RequestFrame(bool follow) { m_FrameRequest = follow; }
+
     [[nodiscard]] bool IsShowingStats() const { return m_ShowStats; }
     void SetShowingStats(bool show);
 
@@ -46,6 +49,14 @@ private:
         Scale
     };
 
+    // Where a glide takes the camera in the mode it began in: the focus and distance in 3D, or the position, in X and Y, and height in 2D
+    struct Glide
+    {
+        glm::vec3 Focus{ 0.0f };
+        float Distance = 1.0f;
+        bool Mode3D = false;
+    };
+
     void FollowPanelSize(std::uint32_t width, std::uint32_t height);
     void FollowScene();
     void SaveCamera();
@@ -53,8 +64,12 @@ private:
     void HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused);
     void HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused);
     void HandleGizmoKeys();
-    void FrameSelection(glm::vec2 viewportSize);
-    void FrameSelection3D(glm::vec2 viewportSize);
+    void Frame(glm::vec2 viewportSize, bool follow);
+    void UpdateGlide(glm::vec2 viewportSize);
+    void StopGlide();
+    [[nodiscard]] EditorCamera GetFramed(glm::vec2 viewportSize);
+    [[nodiscard]] EditorCamera3D GetFramed3D(glm::vec2 viewportSize);
+    [[nodiscard]] Glide GetFramedGlide(glm::vec2 viewportSize);
     [[nodiscard]] Trinity::Entity PickLight(glm::vec2 mouse, glm::vec2 viewportSize);
     void RequestPick(glm::vec2 mouse, glm::vec2 viewportSize);
     void ApplyPick();
@@ -92,6 +107,10 @@ private:
     bool m_Mode3D = false;
     bool m_Flying = false;
     bool m_Orbiting = false;
+    // Framing's glide, eased towards each frame and dropped once there, or as the camera is moved by hand. The entity Shift+F follows, until the selection moves on or the camera is moved off it. A frame asked for from another panel, following or not
+    std::optional<Glide> m_Glide;
+    Trinity::UUID m_Followed;
+    std::optional<bool> m_FrameRequest;
     // A click's pixel, picked through the entity IDs the next frame draws, and how many picks are on their way back
     std::optional<glm::uvec2> m_PickPixel;
     std::uint32_t m_PicksPending = 0;

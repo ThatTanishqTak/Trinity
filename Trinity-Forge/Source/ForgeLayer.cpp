@@ -91,7 +91,10 @@ void ForgeLayer::OnAttach()
     Trinity::Scope<GamePanel> l_Game = Trinity::CreateScope<GamePanel>(m_Session);
     m_GamePanel = l_Game.get();
     m_Panels.push_back(std::move(l_Game));
-    m_Panels.push_back(Trinity::CreateScope<HierarchyPanel>(m_Session));
+    // A double-click or F in the Hierarchy frames in the Scene panel, as in Unity
+    Trinity::Scope<HierarchyPanel> l_Hierarchy = Trinity::CreateScope<HierarchyPanel>(m_Session);
+    l_Hierarchy->SetFrameSelection([this](bool follow) { m_ViewportPanel->RequestFrame(follow); });
+    m_Panels.push_back(std::move(l_Hierarchy));
     Trinity::Scope<PropertiesPanel> l_Properties = Trinity::CreateScope<PropertiesPanel>(m_Session);
     m_PropertiesPanel = l_Properties.get();
     m_Panels.push_back(std::move(l_Properties));

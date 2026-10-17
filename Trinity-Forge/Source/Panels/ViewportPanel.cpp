@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <charconv>
 #include <cmath>
 #include <cstring>
@@ -55,6 +56,9 @@ namespace
     constexpr float c_FrustumDistance = 5.0f;
     // Flying never jumps further than a frame of this long, however long the frame took
     constexpr float c_MaximumFlyStep = 0.1f;
+    // Framing's glide closes this much of what is left each second, as a rate, so it is there in about a quarter of a second, and it is there once within this fraction of the distance
+    constexpr float c_GlideRate = 18.0f;
+    constexpr float c_GlideTolerance = 0.001f;
 
     // A whole number of steps, so a snapped value is exactly k times the step
     float Snap(float value, float step)
@@ -463,12 +467,32 @@ void ViewportPanel::OnImGuiRender()
         HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
     }
 
+    if (const std::optional<bool> l_Request = std::exchange(m_FrameRequest, std::nullopt))
+    {
+        Frame(l_ViewportSize, *l_Request);
+    }
+
+    UpdateGlide(l_ViewportSize);
+
     if (m_ShowStats)
     {
         DrawStats(l_ViewportSize);
     }
 
     DrawToolbar();
+
+    // While following, a line at the image's foot says what, and how to stop
+    if (const Trinity::Entity l_Followed = m_Followed ? m_Session.GetScene().FindEntityByUUID(m_Followed) : Trinity::Entity())
+    {
+        const std::string l_Text = std::format("{} Following {}. Shift+F stops", Trinity::Icons::c_Eye, GetEntityLabel(l_Followed));
+        const ImVec2 l_TextSize = ImGui::CalcTextSize(l_Text.c_str());
+        const ImVec2 l_Padding = ImGui::GetStyle().WindowPadding;
+        const ImVec2 l_Min(l_ImageMin.x + c_StatsMargin, l_ImageMin.y + l_ViewportSize.y - c_StatsMargin - l_TextSize.y - l_Padding.y * 2.0f);
+        const ImVec2 l_Max(l_Min.x + l_TextSize.x + l_Padding.x * 2.0f, l_Min.y + l_TextSize.y + l_Padding.y * 2.0f);
+        ImDrawList& l_Foot = *ImGui::GetWindowDrawList();
+        l_Foot.AddRectFilled(l_Min, l_Max, IM_COL32(0, 0, 0, 140), ImGui::GetStyle().ChildRounding);
+        l_Foot.AddText(ImVec2(l_Min.x + l_Padding.x, l_Min.y + l_Padding.y), ImGui::GetColorU32(ImGuiCol_Text), l_Text.c_str());
+    }
 
     if (m_CameraDirty && ImGui::GetTime() - m_CameraChangeTime >= c_CameraSaveSeconds)
     {
@@ -512,6 +536,7 @@ void ViewportPanel::FollowScene()
     const bool l_WasUntitled = !m_SceneID;
     m_SceneID = l_SceneID;
     m_CameraDirty = false;
+    StopGlide();
     m_PickPixel.reset();
     m_PicksPending = 0;
     if (!m_SceneID)
@@ -566,7 +591,7 @@ void ViewportPanel::MarkCameraChanged()
     m_CameraChangeTime = ImGui::GetTime();
 }
 
-// Middle drag pans, the wheel zooms towards the cursor, F frames the selection, and a left click picks the top-most sprite or clears the selection. A pan begun in the Viewport carries on outside it
+// Middle drag pans, the wheel zooms towards the cursor, F frames the selection and Shift+F follows it, and a left click picks the top-most sprite or clears the selection. A pan begun in the Viewport carries on outside it
 void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused)
 {
     const ImGuiIO& l_IO = ImGui::GetIO();
@@ -582,14 +607,17 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
         m_Panning = false;
     }
 
+    // Panning takes the camera off what it follows. Zooming only ends a glide, so a followed entity stays in the middle at the new zoom
     if (m_Panning && (l_IO.MouseDelta.x != 0.0f || l_IO.MouseDelta.y != 0.0f))
     {
+        StopGlide();
         m_Camera.Pan(glm::vec2(l_IO.MouseDelta.x, l_IO.MouseDelta.y), viewportSize);
         MarkCameraChanged();
     }
 
     if (hovered && l_IO.MouseWheel != 0.0f)
     {
+        m_Glide.reset();
         m_Camera.ZoomAt(l_Mouse, viewportSize, l_IO.MouseWheel);
         MarkCameraChanged();
     }
@@ -597,9 +625,9 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
     // W, E and R pick the gizmo's operation and X its axes, as long as no drag is under way
     if (focused && !l_IO.WantTextInput && !m_GizmoDragging)
     {
-        if (ImGui::IsKeyPressed(ImGuiKey_F, false))
+        if (ImGui::IsKeyChordPressed(ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_F))
         {
-            FrameSelection(viewportSize);
+            Frame(viewportSize, l_IO.KeyShift);
         }
 
         HandleGizmoKeys();
@@ -639,10 +667,12 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     m_Orbiting = m_Orbiting && ImGui::IsMouseDown(ImGuiMouseButton_Left);
     m_Panning = m_Panning && ImGui::IsMouseDown(ImGuiMouseButton_Middle);
 
+    // Looking, panning and flying take the camera off what it follows. Orbiting keeps the focus, so it goes on, and moving in only ends a glide, keeping the distance it is moved to
     if (l_Delta.x != 0.0f || l_Delta.y != 0.0f)
     {
         if (m_Flying)
         {
+            StopGlide();
             m_Camera3D.Look(l_Delta);
             l_Changed = true;
         }
@@ -653,6 +683,7 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
         }
         else if (m_Panning)
         {
+            StopGlide();
             m_Camera3D.Pan(l_Delta, viewportSize);
             l_Changed = true;
         }
@@ -664,6 +695,7 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
         const glm::vec3 l_Direction(a_Axis(ImGuiKey_A, ImGuiKey_D), a_Axis(ImGuiKey_Q, ImGuiKey_E), a_Axis(ImGuiKey_S, ImGuiKey_W));
         if (!l_IO.WantTextInput && l_Direction != glm::vec3(0.0f))
         {
+            StopGlide();
             m_Camera3D.Fly(l_Direction, std::min(l_IO.DeltaTime, c_MaximumFlyStep), l_IO.KeyShift);
             l_Changed = true;
         }
@@ -676,6 +708,7 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     }
     else if (hovered && l_IO.MouseWheel != 0.0f)
     {
+        m_Glide.reset();
         m_Camera3D.Dolly(l_IO.MouseWheel);
         l_Changed = true;
     }
@@ -687,9 +720,9 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
 
     if (focused && !l_IO.WantTextInput && !m_GizmoDragging && !m_Flying)
     {
-        if (ImGui::IsKeyPressed(ImGuiKey_F, false))
+        if (ImGui::IsKeyChordPressed(ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_F))
         {
-            FrameSelection3D(viewportSize);
+            Frame(viewportSize, l_IO.KeyShift);
         }
 
         HandleGizmoKeys();
@@ -803,8 +836,8 @@ std::vector<std::uint32_t> ViewportPanel::GetOutlined()
     return l_Outlined;
 }
 
-// The selected sprite's rotated rectangle, or with nothing selected every sprite in the scene. An empty scene frames the origin
-void ViewportPanel::FrameSelection(glm::vec2 viewportSize)
+// Where F puts the 2D camera: around the sprites of the selected entity and everything under it, at the entity's own position with the zoom kept when it has none, or with nothing selected around every sprite in the scene. An empty scene frames the origin
+EditorCamera ViewportPanel::GetFramed(glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
     Trinity::SceneRegistry& l_Registry = l_Scene.GetRegistry();
@@ -819,10 +852,32 @@ void ViewportPanel::FrameSelection(glm::vec2 viewportSize)
         }
     };
 
+    EditorCamera l_Camera = m_Camera;
     const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
-    if (l_Selected && l_Selected.Has<Trinity::SpriteRendererComponent>())
+    if (l_Selected)
     {
-        a_Include(l_Selected.GetHandle());
+        std::vector<Trinity::Entity> l_Pending{ l_Selected };
+        while (!l_Pending.empty())
+        {
+            const Trinity::Entity l_Entity = l_Pending.back();
+            l_Pending.pop_back();
+            if (l_Entity.Has<Trinity::SpriteRendererComponent>())
+            {
+                a_Include(l_Entity.GetHandle());
+            }
+
+            for (Trinity::Entity it_Child = l_Entity.GetFirstChild(); it_Child; it_Child = it_Child.GetNextSibling())
+            {
+                l_Pending.push_back(it_Child);
+            }
+        }
+
+        if (l_Minimum.x > l_Maximum.x)
+        {
+            l_Camera.Set(glm::vec2(l_Selected.Get<Trinity::WorldTransformComponent>().Matrix[3]), m_Camera.GetHeight());
+
+            return l_Camera;
+        }
     }
     else
     {
@@ -834,18 +889,18 @@ void ViewportPanel::FrameSelection(glm::vec2 viewportSize)
 
     if (l_Minimum.x > l_Maximum.x)
     {
-        m_Camera.Reset();
+        l_Camera.Reset();
     }
     else
     {
-        m_Camera.Frame(l_Minimum, l_Maximum, viewportSize);
+        l_Camera.Frame(l_Minimum, l_Maximum, viewportSize);
     }
 
-    MarkCameraChanged();
+    return l_Camera;
 }
 
-// The selected entity and everything under it, or with nothing selected the scene's meshes and sprites: meshes by their bounds, sprites by their quads, and anything else by where it is. A scene with none of them frames its entities, and an empty one the origin
-void ViewportPanel::FrameSelection3D(glm::vec2 viewportSize)
+// Where F puts the 3D camera: around the selected entity and everything under it, or with nothing selected the scene's meshes and sprites: meshes by their bounds, sprites by their quads, and anything else by where it is. A scene with none of them frames its entities, and an empty one the origin. The camera keeps the way it faces
+EditorCamera3D ViewportPanel::GetFramed3D(glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
     glm::vec3 l_Minimum(std::numeric_limits<float>::max());
@@ -918,16 +973,112 @@ void ViewportPanel::FrameSelection3D(glm::vec2 viewportSize)
         }
     }
 
+    EditorCamera3D l_Camera = m_Camera3D;
     if (l_Minimum.x > l_Maximum.x)
     {
-        m_Camera3D.Reset();
+        l_Camera.Reset();
     }
     else
     {
-        m_Camera3D.Frame((l_Minimum + l_Maximum) * 0.5f, glm::length(l_Maximum - l_Minimum) * 0.5f, viewportSize);
+        l_Camera.Frame((l_Minimum + l_Maximum) * 0.5f, glm::length(l_Maximum - l_Minimum) * 0.5f, viewportSize);
     }
 
-    MarkCameraChanged();
+    return l_Camera;
+}
+
+ViewportPanel::Glide ViewportPanel::GetFramedGlide(glm::vec2 viewportSize)
+{
+    if (m_Mode3D)
+    {
+        const EditorCamera3D l_Framed = GetFramed3D(viewportSize);
+
+        return { l_Framed.GetFocus(), l_Framed.GetDistance(), true };
+    }
+
+    const EditorCamera l_Framed = GetFramed(viewportSize);
+
+    return { glm::vec3(l_Framed.GetPosition(), 0.0f), l_Framed.GetHeight(), false };
+}
+
+// F glides to the selection, or with nothing selected to the whole scene, as Unity's Frame Selected does. Shift+F glides there too and then follows the selection as it moves, as Unity's Lock View to Selected does, until it is pressed again
+void ViewportPanel::Frame(glm::vec2 viewportSize, bool follow)
+{
+    const Trinity::UUID l_Selection = m_Session.GetSelection();
+    if (follow && m_Followed && m_Followed == l_Selection)
+    {
+        m_Followed = {};
+
+        return;
+    }
+
+    m_Followed = follow && m_Session.GetScene().FindEntityByUUID(l_Selection) ? l_Selection : Trinity::UUID();
+    m_Glide = GetFramedGlide(viewportSize);
+}
+
+// Each frame closes the same share of what is left by the time it took, so the glide slows as it arrives and takes as long at any frame rate. Distances go by their ratio, so a long way in or out moves as evenly as a short one. While following, the focus is the entity's again each frame, at the distance the first glide was going to, or once it is over, the camera's own. The camera holds still while the gizmo drags, so what it drags stays under the mouse
+void ViewportPanel::UpdateGlide(glm::vec2 viewportSize)
+{
+    if (m_GizmoDragging)
+    {
+        return;
+    }
+
+    if (m_Followed && (m_Session.GetSelection() != m_Followed || !m_Session.GetScene().FindEntityByUUID(m_Followed)))
+    {
+        m_Followed = {};
+    }
+
+    if (m_Followed)
+    {
+        const float l_Distance = m_Glide && m_Glide->Mode3D == m_Mode3D ? m_Glide->Distance : (m_Mode3D ? m_Camera3D.GetDistance() : m_Camera.GetHeight());
+        m_Glide = Glide{ GetFramedGlide(viewportSize).Focus, l_Distance, m_Mode3D };
+    }
+
+    if (!m_Glide || m_Glide->Mode3D != m_Mode3D)
+    {
+        m_Glide.reset();
+
+        return;
+    }
+
+    const glm::vec3 l_From = m_Mode3D ? m_Camera3D.GetFocus() : glm::vec3(m_Camera.GetPosition(), 0.0f);
+    const float l_FromDistance = std::max(m_Mode3D ? m_Camera3D.GetDistance() : m_Camera.GetHeight(), FLT_MIN);
+    const float l_ToDistance = std::max(m_Glide->Distance, FLT_MIN);
+    const float l_Blend = 1.0f - std::exp(-ImGui::GetIO().DeltaTime * c_GlideRate);
+    glm::vec3 l_Focus = glm::mix(l_From, m_Glide->Focus, l_Blend);
+    float l_Distance = std::exp(glm::mix(std::log(l_FromDistance), std::log(l_ToDistance), l_Blend));
+    const bool l_Arrived = glm::distance(l_Focus, m_Glide->Focus) <= l_ToDistance * c_GlideTolerance && std::abs(std::log(l_Distance / l_ToDistance)) <= c_GlideTolerance;
+    if (l_Arrived)
+    {
+        l_Focus = m_Glide->Focus;
+        l_Distance = m_Glide->Distance;
+    }
+
+    if (l_Focus != l_From || l_Distance != l_FromDistance)
+    {
+        if (m_Mode3D)
+        {
+            m_Camera3D.Set(l_Focus, m_Camera3D.GetYaw(), m_Camera3D.GetPitch(), l_Distance, m_Camera3D.GetSpeed());
+        }
+        else
+        {
+            m_Camera.Set(glm::vec2(l_Focus), l_Distance);
+        }
+
+        MarkCameraChanged();
+    }
+
+    if (l_Arrived && !m_Followed)
+    {
+        m_Glide.reset();
+    }
+}
+
+// The camera moved by hand: framing's glide ends, and so does following
+void ViewportPanel::StopGlide()
+{
+    m_Glide.reset();
+    m_Followed = {};
 }
 
 // Where a dropped asset lands: under the mouse on Z = 0 in 2D, and in 3D where the mouse's ray meets the ground, Y = 0, or a little way ahead of the camera when it meets the ground nowhere near
@@ -1103,7 +1254,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
             l_Corners[it_Corner] = glm::vec3(l_Point) / l_Point.w;
         }
 
-        for (const auto [it_From, it_To] : { std::pair{ 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 }, { 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } })
+        for (const auto [it_From, it_To] : { std::pair{ 0, 1 },{ 1, 3 },{ 3, 2 },{ 2, 0 },{ 4, 5 },{ 5, 7 },{ 7, 6 },{ 6, 4 },{ 0, 4 },{ 1, 5 },{ 2, 6 },{ 3, 7 } })
         {
             a_Line(l_Corners[static_cast<std::size_t>(it_From)], l_Corners[static_cast<std::size_t>(it_To)], c_CameraOutlineColor, 1.0f);
         }
@@ -1506,6 +1657,7 @@ void ViewportPanel::DrawToolbar()
             m_Mode3D = !m_Mode3D;
             m_Flying = false;
             m_Orbiting = false;
+            StopGlide();
             MarkCameraChanged();
         }
 

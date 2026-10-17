@@ -16,6 +16,9 @@ class HierarchyPanel final : public Panel
 public:
     explicit HierarchyPanel(EditorSession& session);
 
+    // Frames the selection in the Scene panel, as a double-click and F do here, and with follow keeps it framed as it moves, as Shift+F does
+    void SetFrameSelection(std::function<void(bool follow)> frame) { m_FrameSelection = std::move(frame); }
+
 protected:
     void OnImGuiRender() override;
 
@@ -29,6 +32,7 @@ private:
     void DrawPrimitiveMenu(Trinity::UUID parent);
     void AcceptDrop(Trinity::Entity target);
     void ReadShortcuts();
+    void UpdateSlowClick(Trinity::Scene& scene);
 
     void Select(Trinity::UUID entity);
     void BeginRename(Trinity::Entity entity);
@@ -36,12 +40,16 @@ private:
     void Move(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before);
 
     EditorSession& m_Session;
+    std::function<void(bool follow)> m_FrameSelection;
     std::vector<std::move_only_function<void()>> m_Deferred;
     std::vector<Trinity::UUID> m_RevealPath;
     Trinity::UUID m_Revealed;
     Trinity::UUID m_Renaming;
     std::string m_RenameText;
     bool m_FocusRename = false;
+    // The entity a second click landed on while it was already selected, and when, which renames it as Unity does once no other click follows
+    Trinity::UUID m_SlowClick;
+    double m_SlowClickTime = 0.0;
     // What the search field holds, and while it holds anything, the entities it matches and those it shows: the matches and every parent above one
     std::string m_Search;
     std::unordered_set<Trinity::UUID> m_Matched;
