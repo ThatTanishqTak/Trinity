@@ -8,9 +8,11 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cstring>
 #include <format>
+#include <string_view>
 #include <utility>
 
 namespace
@@ -45,6 +47,12 @@ namespace
     {
         return reinterpret_cast<const void*>(static_cast<std::uintptr_t>(uuid.GetValue()));
     }
+
+    // Whether the text holds the part, whatever the case of either
+    bool ContainsIgnoringCase(std::string_view text, std::string_view part)
+    {
+        return part.empty() || !std::ranges::search(text, part, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).empty();
+    }
 }
 
 HierarchyPanel::HierarchyPanel(EditorSession& session) : Panel("Hierarchy", Trinity::Icons::c_Sitemap, DockSlot::Left), m_Session(session)
@@ -52,7 +60,7 @@ HierarchyPanel::HierarchyPanel(EditorSession& session) : Panel("Hierarchy", Trin
 
 }
 
-// The scene's tree in hierarchy order. A selection made elsewhere, such as in the Viewport, opens its ancestors and scrolls into view. Edits wait until the tree is drawn, since they can destroy the entities it is walking. While a copy plays, the tree is the copy's, to select in and look at but not to change
+// The scene's tree in hierarchy order, under a search field that stays as the tree scrolls. A selection made elsewhere, such as in the Viewport, opens its ancestors and scrolls into view. Edits wait until the tree is drawn, since they can destroy the entities it is walking. While a copy plays, the tree is the copy's, to select in and look at but not to change. A search draws its tree under IDs of its own, so the tree opened and closed without one is as it was once the search is cleared
 void HierarchyPanel::OnImGuiRender()
 {
     if (!m_Session.HasProject())
@@ -89,14 +97,41 @@ void HierarchyPanel::OnImGuiRender()
     }
 
     ReadShortcuts();
+    DrawSearch();
 
-    for (Trinity::Entity it_Root = l_Scene.GetFirstRoot(); it_Root; it_Root = it_Root.GetNextSibling())
+    const bool l_Searching = !m_Search.empty();
+    if (l_Searching)
     {
-        DrawEntity(it_Root);
+        UpdateSearch(l_Scene);
     }
 
-    DrawBackground();
+    if (ImGui::BeginChild("##Tree"))
+    {
+        if (l_Searching)
+        {
+            ImGui::PushID("##Search");
+        }
 
+        for (Trinity::Entity it_Root = l_Scene.GetFirstRoot(); it_Root; it_Root = it_Root.GetNextSibling())
+        {
+            DrawEntity(it_Root);
+        }
+
+        if (l_Searching)
+        {
+            ImGui::PopID();
+            if (m_Shown.empty())
+            {
+                ImGui::TextDisabled("No entity matches");
+            }
+        }
+
+        DrawBackground();
+    }
+
+    ImGui::EndChild();
+
+    m_SearchChanged = false;
     m_RevealPath.clear();
     for (std::move_only_function<void()>& it_Action : std::exchange(m_Deferred, {}))
     {
@@ -104,16 +139,129 @@ void HierarchyPanel::OnImGuiRender()
     }
 }
 
+// Unity's search field. Ctrl+F comes to it and Escape clears it, and clearing it opens the tree to the selection
+void HierarchyPanel::DrawSearch()
+{
+    if (std::exchange(m_FocusSearch, false))
+    {
+        ImGui::SetKeyboardFocusHere();
+    }
+
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::InputTextWithHint("##Search", std::format("{} Search, or t:Light for a type", Trinity::Icons::c_Search).c_str(), &m_Search, ImGuiInputTextFlags_EscapeClearsAll))
+    {
+        m_SearchChanged = true;
+        if (m_Search.empty())
+        {
+            m_Revealed = {};
+        }
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Matches names, whatever their case. t: matches a component or a script class an entity has, as t:Light, t:Collider or t:Player do, and both can be given, as in door t:Joint. The parents of what matches show dimmed");
+    }
+}
+
+// Each word must be in an entity's name, whatever its case, and with t: terms the entity must have a component or a script class one of them names, so t:Renderer finds MeshRenderer and SpriteRenderer. Each match shows with every parent above it, so the tree keeps its shape
+void HierarchyPanel::UpdateSearch(Trinity::Scene& scene)
+{
+    std::vector<std::string_view> l_Words;
+    std::vector<std::string_view> l_Types;
+    const std::string_view l_Search(m_Search);
+    for (std::size_t l_Start = l_Search.find_first_not_of(' '); l_Start != std::string_view::npos; l_Start = l_Search.find_first_not_of(' ', l_Start))
+    {
+        const std::size_t l_End = std::min(l_Search.find(' ', l_Start), l_Search.size());
+        const std::string_view l_Term = l_Search.substr(l_Start, l_End - l_Start);
+        if (l_Term.size() >= 2 && (l_Term[0] == 't' || l_Term[0] == 'T') && l_Term[1] == ':')
+        {
+            if (l_Term.size() > 2)
+            {
+                l_Types.push_back(l_Term.substr(2));
+            }
+        }
+        else
+        {
+            l_Words.push_back(l_Term);
+        }
+
+        l_Start = l_End;
+    }
+
+    // The components the t: terms name, by their labels, as Trinity.MeshRenderer reads MeshRenderer
+    std::vector<std::string_view> l_Components;
+    for (const std::string_view it_Name : Trinity::SceneSerializer::GetComponentNames())
+    {
+        if (std::ranges::any_of(l_Types, [it_Name](std::string_view type) { return ContainsIgnoringCase(GetComponentLabel(it_Name), type); }))
+        {
+            l_Components.push_back(it_Name);
+        }
+    }
+
+    const auto a_HasType = [&l_Types, &l_Components](Trinity::Entity entity)
+    {
+        if (std::ranges::any_of(l_Components, [entity](std::string_view name) { return Trinity::SceneSerializer::HasComponent(entity, name); }))
+        {
+            return true;
+        }
+
+        return entity.Has<Trinity::ScriptComponent>() && std::ranges::any_of(entity.Get<Trinity::ScriptComponent>().Scripts, [&l_Types](const Trinity::ScriptEntry& script)
+        {
+            return std::ranges::any_of(l_Types, [&script](std::string_view type) { return ContainsIgnoringCase(std::string_view(script.ClassName), type); });
+        });
+    };
+
+    m_Matched.clear();
+    m_Shown.clear();
+    for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+    {
+        const std::string l_Name = GetEntityLabel(it_Entity);
+        if (!std::ranges::all_of(l_Words, [&l_Name](std::string_view word) { return ContainsIgnoringCase(l_Name, word); }) || (!l_Types.empty() && !a_HasType(it_Entity)))
+        {
+            continue;
+        }
+
+        // Up to the first parent already shown, whose own parents are shown too
+        m_Matched.insert(it_Entity.GetUUID());
+        Trinity::Entity l_Shown = it_Entity;
+        while (l_Shown && m_Shown.insert(l_Shown.GetUUID()).second)
+        {
+            l_Shown = l_Shown.GetParent();
+        }
+    }
+}
+
+// While searching, only what the search shows: a branch with no match below it is a leaf, every branch opens as the search changes, and a parent shown only for what is below it is dimmed
 void HierarchyPanel::DrawEntity(Trinity::Entity entity)
 {
     const Trinity::UUID l_ID = entity.GetUUID();
+    const bool l_Searching = !m_Search.empty();
+    if (l_Searching && !m_Shown.contains(l_ID))
+    {
+        return;
+    }
+
     const bool l_Selected = l_ID == m_Session.GetSelection();
     const bool l_Renaming = l_ID == m_Renaming;
 
+    bool l_HasChildren = entity.GetChildCount() > 0;
+    if (l_Searching)
+    {
+        l_HasChildren = false;
+        for (Trinity::Entity it_Child = entity.GetFirstChild(); it_Child && !l_HasChildren; it_Child = it_Child.GetNextSibling())
+        {
+            l_HasChildren = m_Shown.contains(it_Child.GetUUID());
+        }
+    }
+
     ImGuiTreeNodeFlags l_Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding;
-    if (entity.GetChildCount() == 0)
+    if (!l_HasChildren)
     {
         l_Flags |= ImGuiTreeNodeFlags_Leaf;
+    }
+    else if (l_Searching)
+    {
+        l_Flags |= ImGuiTreeNodeFlags_DefaultOpen;
     }
 
     if (l_Selected)
@@ -121,13 +269,23 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         l_Flags |= ImGuiTreeNodeFlags_Selected;
     }
 
-    if (std::ranges::find(m_RevealPath, l_ID) != m_RevealPath.end())
+    if (std::ranges::find(m_RevealPath, l_ID) != m_RevealPath.end() || (l_Searching && m_SearchChanged && l_HasChildren))
     {
         ImGui::SetNextItemOpen(true);
     }
 
+    const bool l_Dimmed = l_Searching && !m_Matched.contains(l_ID);
+    if (l_Dimmed)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    }
+
     const std::string l_Label = l_Renaming ? std::string(Trinity::Icons::c_CubeOutline) : std::format("{} {}", Trinity::Icons::c_CubeOutline, GetEntityLabel(entity));
     const bool l_Open = ImGui::TreeNodeEx(ToImGuiID(l_ID), l_Flags, "%s", l_Label.c_str());
+    if (l_Dimmed)
+    {
+        ImGui::PopStyleColor();
+    }
 
     if (l_Selected && m_ScrollToSelection)
     {
@@ -334,11 +492,18 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
     ImGui::EndDragDropTarget();
 }
 
-// Rename while the Hierarchy has focus. Duplicate and Delete are Forge's own shortcuts, so they work from any panel
+// Rename and Ctrl+F to the search while the Hierarchy has focus, as in Unity. Duplicate and Delete are Forge's own shortcuts, so they work from any panel
 void HierarchyPanel::ReadShortcuts()
 {
     if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) || ImGui::GetIO().WantTextInput)
     {
+        return;
+    }
+
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F))
+    {
+        m_FocusSearch = true;
+
         return;
     }
 

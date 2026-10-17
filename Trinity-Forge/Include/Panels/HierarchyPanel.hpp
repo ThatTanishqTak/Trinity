@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class HierarchyPanel final : public Panel
@@ -19,6 +20,8 @@ protected:
     void OnImGuiRender() override;
 
 private:
+    void DrawSearch();
+    void UpdateSearch(Trinity::Scene& scene);
     void DrawEntity(Trinity::Entity entity);
     void DrawRenameField(Trinity::Entity entity);
     void DrawContextMenu(Trinity::Entity entity);
@@ -39,6 +42,13 @@ private:
     Trinity::UUID m_Renaming;
     std::string m_RenameText;
     bool m_FocusRename = false;
+    // What the search field holds, and while it holds anything, the entities it matches and those it shows: the matches and every parent above one
+    std::string m_Search;
+    std::unordered_set<Trinity::UUID> m_Matched;
+    std::unordered_set<Trinity::UUID> m_Shown;
+    bool m_FocusSearch = false;
+    // As the search changes, so the tree opens to every match afresh and is then left to be opened and closed
+    bool m_SearchChanged = false;
     // While a copy of the scene plays, which nothing may change
     bool m_ReadOnly = false;
     bool m_ScrollToSelection = false;
