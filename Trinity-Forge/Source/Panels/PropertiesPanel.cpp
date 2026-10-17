@@ -32,7 +32,8 @@ namespace
     constexpr const char* c_ConvexHullPickerPopup = "##ConvexHullPicker";
     constexpr const char* c_CollisionMeshPickerPopup = "##CollisionMeshPicker";
     constexpr const char* c_AddComponentPopup = "##AddComponent";
-    constexpr const char* c_AddScriptPopup = "##AddScript";
+    // Add Component's list is this many lines high at most, and scrolls past them
+    constexpr float c_ComponentChoiceLines = 16.0f;
     constexpr const char* c_ScriptAssetPickerPopup = "##ScriptAssetPicker";
     constexpr const char* c_UnappliedPopup = "Unapplied Import Settings###ForgeUnappliedSettings";
 
@@ -280,6 +281,127 @@ namespace
     bool ContainsIgnoringCase(std::string_view text, std::string_view pattern)
     {
         return pattern.empty() || std::ranges::search(text, pattern, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).begin() != text.end();
+    }
+
+    // A type name with its words apart, as Unity shows them: MeshRenderer reads Mesh Renderer, and RigidBody2D reads Rigid Body 2D
+    std::string SpaceWords(std::string_view name)
+    {
+        std::string l_Text;
+        for (std::size_t it_Index = 0; it_Index < name.size(); ++it_Index)
+        {
+            const unsigned char l_Character = static_cast<unsigned char>(name[it_Index]);
+            const unsigned char l_Previous = it_Index > 0 ? static_cast<unsigned char>(name[it_Index - 1]) : 0;
+            if ((std::isupper(l_Character) && std::islower(l_Previous)) || (std::isdigit(l_Character) && std::isalpha(l_Previous)))
+            {
+                l_Text += ' ';
+            }
+
+            l_Text += name[it_Index];
+        }
+
+        return l_Text;
+    }
+
+    // Unity's Add Component categories for the engine's components, in the order the list shows them. A module's components go under their namespace, after these
+    constexpr std::array<std::string_view, 4> c_ComponentCategories{ "Rendering", "Lighting", "Physics", "Physics 2D" };
+    constexpr std::string_view c_OtherCategory = "Other";
+    constexpr std::string_view c_ScriptsCategory = "Scripts";
+
+    std::string_view GetComponentCategory(std::string_view name)
+    {
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 19> c_Categories{ {
+            { Trinity::CameraComponent::c_TypeName, "Rendering" },
+            { Trinity::SpriteRendererComponent::c_TypeName, "Rendering" },
+            { Trinity::MeshRendererComponent::c_TypeName, "Rendering" },
+            { Trinity::LightComponent::c_TypeName, "Lighting" },
+            { Trinity::EnvironmentComponent::c_TypeName, "Lighting" },
+            { Trinity::RigidBodyComponent::c_TypeName, "Physics" },
+            { Trinity::BoxColliderComponent::c_TypeName, "Physics" },
+            { Trinity::SphereColliderComponent::c_TypeName, "Physics" },
+            { Trinity::CapsuleColliderComponent::c_TypeName, "Physics" },
+            { Trinity::CylinderColliderComponent::c_TypeName, "Physics" },
+            { Trinity::ConvexHullColliderComponent::c_TypeName, "Physics" },
+            { Trinity::MeshColliderComponent::c_TypeName, "Physics" },
+            { Trinity::JointComponent::c_TypeName, "Physics" },
+            { Trinity::RigidBody2DComponent::c_TypeName, "Physics 2D" },
+            { Trinity::BoxCollider2DComponent::c_TypeName, "Physics 2D" },
+            { Trinity::CircleCollider2DComponent::c_TypeName, "Physics 2D" },
+            { Trinity::CapsuleCollider2DComponent::c_TypeName, "Physics 2D" },
+            { Trinity::PolygonCollider2DComponent::c_TypeName, "Physics 2D" },
+            { Trinity::Joint2DComponent::c_TypeName, "Physics 2D" }
+        } };
+
+        if (const auto a_Found = std::ranges::find(c_Categories, name, &std::pair<std::string_view, std::string_view>::first); a_Found != c_Categories.end())
+        {
+            return a_Found->second;
+        }
+
+        const std::size_t l_Dot = name.find('.');
+
+        return l_Dot == std::string_view::npos || name.substr(0, l_Dot) == "Trinity" ? c_OtherCategory : name.substr(0, l_Dot);
+    }
+
+    // The engine's categories first, then a module's by name, then the rest, and the scripts last
+    std::pair<int, std::string_view> GetCategoryOrder(std::string_view category)
+    {
+        if (const auto a_Found = std::ranges::find(c_ComponentCategories, category); a_Found != c_ComponentCategories.end())
+        {
+            return { static_cast<int>(a_Found - c_ComponentCategories.begin()),{} };
+        }
+
+        const int l_Rank = category == c_ScriptsCategory ? 3 : category == c_OtherCategory ? 2 : 1;
+
+        return { static_cast<int>(c_ComponentCategories.size()) + l_Rank, category };
+    }
+
+    // One row of Add Component: a component by its registered name, or a script class
+    struct ComponentChoice
+    {
+        std::string_view Category;
+        std::string Label;
+        std::string_view Component;
+        const Trinity::ScriptClassDescription* Script = nullptr;
+    };
+
+    // What the entity can be given that the search matches, a component's spaced name or its type, and a script's class or label, in category order and by name within each
+    std::vector<ComponentChoice> GetComponentChoices(Trinity::Entity entity, std::string_view filter)
+    {
+        std::vector<ComponentChoice> l_Choices;
+        for (const std::string_view it_Name : Trinity::SceneSerializer::GetComponentNames())
+        {
+            if (it_Name == Trinity::TransformComponent::c_TypeName || it_Name == Trinity::ScriptComponent::c_TypeName || Trinity::SceneSerializer::HasComponent(entity, it_Name))
+            {
+                continue;
+            }
+
+            const std::string_view l_Type = GetComponentLabel(it_Name);
+            std::string l_Label = SpaceWords(l_Type);
+            if (ContainsIgnoringCase(l_Label, filter) || ContainsIgnoringCase(l_Type, filter))
+            {
+                l_Choices.push_back({ .Category = GetComponentCategory(it_Name), .Label = std::move(l_Label), .Component = it_Name, .Script = nullptr });
+            }
+        }
+
+        for (const Trinity::ScriptClassDescription* it_Class : Trinity::ScriptClassRegistry::GetClasses())
+        {
+            const std::string_view l_Name(it_Class->Name);
+            const std::size_t l_Separator = l_Name.find_last_of(".:");
+            std::string l_Label = std::format("{} ({})", l_Separator == std::string_view::npos ? l_Name : l_Name.substr(l_Separator + 1), GetScriptLanguageLabel(it_Class->Language));
+            if (ContainsIgnoringCase(l_Name, filter) || ContainsIgnoringCase(l_Label, filter))
+            {
+                l_Choices.push_back({ .Category = c_ScriptsCategory, .Label = std::move(l_Label), .Component = {}, .Script = it_Class });
+            }
+        }
+
+        std::ranges::stable_sort(l_Choices, [](const ComponentChoice& left, const ComponentChoice& right)
+        {
+            const std::pair<int, std::string_view> l_Left = GetCategoryOrder(left.Category);
+            const std::pair<int, std::string_view> l_Right = GetCategoryOrder(right.Category);
+
+            return l_Left != l_Right ? l_Left < l_Right : left.Label < right.Label;
+        });
+
+        return l_Choices;
     }
 
     // An entity of the scene, or none, picked from the list in hierarchy order or dropped from the Hierarchy
@@ -704,7 +826,6 @@ void PropertiesPanel::OnImGuiRender()
     DrawScripts(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawAddComponent(l_Entity);
-    DrawAddScript(l_Entity);
     ImGui::PopID();
     ImGui::EndDisabled();
 
@@ -2004,7 +2125,7 @@ void PropertiesPanel::DrawShapeSlot(Trinity::Entity entity, Trinity::CollisionSh
     }
 }
 
-// Every registered component the entity is without, except Transform, which it always has
+// Unity's Add Component: every registered component the entity is without, except Transform, which it always has, under its category, and every script class loaded code has under Scripts, which adds it last with its fields at their defaults and the Script component too when the entity is without it. The search is focused as it opens, and what is typed narrows them to one list across all of them. Up and Down move the highlight, which the mouse also moves, and Enter adds it. As Unity's New Script does, a name typed that no loaded class has makes a C# or C++ script by that name from its template, adds it at once and opens it in the script editor, and it runs once its build loads the class
 void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
 {
     ImGui::Spacing();
@@ -2015,49 +2136,12 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
     ImGui::SetCursorPosX(std::max((ImGui::GetContentRegionAvail().x - l_Width) * 0.5f, 0.0f) + ImGui::GetCursorPosX());
     if (ImGui::Button("Add Component", ImVec2(l_Width, 0.0f)))
     {
+        m_ComponentFilter.clear();
+        m_ComponentHighlight = 0;
         ImGui::OpenPopup(c_AddComponentPopup);
     }
 
     if (!ImGui::BeginPopup(c_AddComponentPopup))
-    {
-        return;
-    }
-
-    bool l_Any = false;
-    for (const std::string_view it_Name : Trinity::SceneSerializer::GetComponentNames())
-    {
-        if (it_Name == Trinity::TransformComponent::c_TypeName || it_Name == Trinity::ScriptComponent::c_TypeName || Trinity::SceneSerializer::HasComponent(entity, it_Name))
-        {
-            continue;
-        }
-
-        l_Any = true;
-        if (ImGui::MenuItem(std::string(GetComponentLabel(it_Name)).c_str()))
-        {
-            m_Session.GetHistory().Execute(Trinity::CreateScope<AddComponentCommand>(entity.GetUUID(), std::string(it_Name)));
-        }
-    }
-
-    if (!l_Any)
-    {
-        ImGui::TextDisabled("The entity has every component there is");
-    }
-
-    ImGui::EndPopup();
-}
-
-// The script classes loaded code has, by language, narrowed by what is typed. Picking one adds it last with its fields at their defaults, and adds the Script component too when the entity is without it
-void PropertiesPanel::DrawAddScript(Trinity::Entity entity)
-{
-    const float l_Width = ImGui::GetFontSize() * 12.0f;
-    ImGui::SetCursorPosX(std::max((ImGui::GetContentRegionAvail().x - l_Width) * 0.5f, 0.0f) + ImGui::GetCursorPosX());
-    if (ImGui::Button("Add Script", ImVec2(l_Width, 0.0f)))
-    {
-        m_ScriptFilter.clear();
-        ImGui::OpenPopup(c_AddScriptPopup);
-    }
-
-    if (!ImGui::BeginPopup(c_AddScriptPopup))
     {
         return;
     }
@@ -2067,36 +2151,151 @@ void PropertiesPanel::DrawAddScript(Trinity::Entity entity)
         ImGui::SetKeyboardFocusHere();
     }
 
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
-    ImGui::InputTextWithHint("##Filter", "Search script classes", &m_ScriptFilter);
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    const float l_PopupWidth = ImGui::GetFontSize() * 20.0f;
+    const ImGuiInputTextFlags l_Flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory | ImGuiInputTextFlags_CallbackEdit;
+    ImGui::SetNextItemWidth(l_PopupWidth);
+    const bool l_Enter = ImGui::InputTextWithHint("##Filter", std::format("{} Search components and scripts", Trinity::Icons::c_Search).c_str(), &m_ComponentFilter, l_Flags, &PropertiesPanel::OnComponentFilterEdit, this);
 
-    const std::vector<const Trinity::ScriptClassDescription*> l_Classes = Trinity::ScriptClassRegistry::GetClasses();
-    std::optional<Trinity::ScriptLanguage> l_Language;
-    for (const Trinity::ScriptClassDescription* it_Class : l_Classes)
+    const std::vector<ComponentChoice> l_Choices = GetComponentChoices(entity, m_ComponentFilter);
+    const bool l_Searching = !m_ComponentFilter.empty();
+    m_ComponentHighlight = l_Choices.empty() ? 0 : std::clamp(m_ComponentHighlight, 0, static_cast<int>(l_Choices.size()) - 1);
+    std::optional<std::size_t> l_Picked = l_Enter && !l_Choices.empty() ? std::optional(static_cast<std::size_t>(m_ComponentHighlight)) : std::nullopt;
+
+    if (l_Choices.empty())
     {
-        if (!ContainsIgnoringCase(it_Class->Name, m_ScriptFilter))
+        ImGui::TextDisabled("%s", l_Searching ? "No component or script matches" : "The entity has every component there is, and no script classes are loaded");
+    }
+    else
+    {
+        // Headers too while not searching, each a separator's height
+        float l_Height = static_cast<float>(l_Choices.size()) * ImGui::GetTextLineHeightWithSpacing();
+        if (!l_Searching)
         {
-            continue;
+            std::size_t l_Categories = 0;
+            for (std::size_t it_Index = 0; it_Index < l_Choices.size(); ++it_Index)
+            {
+                l_Categories += it_Index == 0 || l_Choices[it_Index].Category != l_Choices[it_Index - 1].Category ? 1 : 0;
+            }
+
+            l_Height += static_cast<float>(l_Categories) * (ImGui::GetTextLineHeight() + l_Style.SeparatorTextPadding.y * 2.0f + l_Style.ItemSpacing.y);
         }
 
-        if (l_Language != it_Class->Language)
+        if (ImGui::BeginChild("##Choices", ImVec2(l_PopupWidth, std::min(l_Height, c_ComponentChoiceLines * ImGui::GetTextLineHeightWithSpacing()))))
         {
-            l_Language = it_Class->Language;
-            ImGui::SeparatorText(std::string(GetScriptLanguageLabel(it_Class->Language)).c_str());
+            const ImGuiIO& l_IO = ImGui::GetIO();
+            for (std::size_t it_Index = 0; it_Index < l_Choices.size(); ++it_Index)
+            {
+                const ComponentChoice& l_Choice = l_Choices[it_Index];
+                if (!l_Searching && (it_Index == 0 || l_Choice.Category != l_Choices[it_Index - 1].Category))
+                {
+                    ImGui::SeparatorText(std::string(l_Choice.Category).c_str());
+                }
+
+                const bool l_Highlighted = static_cast<int>(it_Index) == m_ComponentHighlight;
+                if (ImGui::Selectable(std::format("{}###{}{}", l_Choice.Label, l_Choice.Category, l_Choice.Script != nullptr ? std::string_view(l_Choice.Script->Name) : l_Choice.Component).c_str(), l_Highlighted))
+                {
+                    l_Picked = it_Index;
+                }
+
+                // The mouse moves the highlight only as it moves, so it never takes it back from Up and Down
+                if (ImGui::IsItemHovered() && (l_IO.MouseDelta.x != 0.0f || l_IO.MouseDelta.y != 0.0f))
+                {
+                    m_ComponentHighlight = static_cast<int>(it_Index);
+                }
+
+                if (l_Choice.Script != nullptr)
+                {
+                    ImGui::SetItemTooltip("%s", std::string(std::string_view(l_Choice.Script->Name)).c_str());
+                }
+
+                if (l_Highlighted && std::exchange(m_ScrollToHighlight, false))
+                {
+                    ImGui::SetScrollHereY();
+                }
+            }
         }
 
-        if (ImGui::Selectable(std::format("{}###{}{}", std::string_view(it_Class->Name), Trinity::ToString(it_Class->Language), std::string_view(it_Class->Name)).c_str()))
+        ImGui::EndChild();
+    }
+
+    // A new script by the name typed, in each language the project has scripts in, unless a loaded class already has that name
+    std::optional<Trinity::ScriptLanguage> l_NewScript;
+    const Trinity::Project* l_Project = m_Session.GetProject();
+    if (l_Searching && l_Project != nullptr && EditorSession::IsClassName(m_ComponentFilter))
+    {
+        bool l_Separated = false;
+        for (const Trinity::ScriptLanguage it_Language : { Trinity::ScriptLanguage::CSharp, Trinity::ScriptLanguage::Cpp })
         {
-            m_Session.GetHistory().Execute(Trinity::CreateScope<AddScriptCommand>(entity.GetUUID(), Trinity::ScriptClassRegistry::CreateEntry(*it_Class)));
+            const bool l_CSharp = it_Language == Trinity::ScriptLanguage::CSharp;
+            const bool l_Taken = Trinity::ScriptClassRegistry::Find(it_Language, m_Session.GetScriptClassName(it_Language, m_ComponentFilter)) != nullptr;
+            if ((l_CSharp ? !l_Project->HasAssembly() : !l_Project->HasModule()) || l_Taken)
+            {
+                continue;
+            }
+
+            if (!std::exchange(l_Separated, true))
+            {
+                ImGui::Separator();
+            }
+
+            if (ImGui::Selectable(std::format("{} New {} Script \"{}\"", Trinity::Icons::c_FileCode, GetScriptLanguageLabel(it_Language), m_ComponentFilter).c_str()))
+            {
+                l_NewScript = it_Language;
+            }
+
+            ImGui::SetItemTooltip("%s", std::format("Writes {}/{}{} from its template, adds the script and opens it in the script editor. It runs once its build loads the class", l_CSharp ? EditorSession::c_ScriptsFolder : EditorSession::c_SourceFolder, m_ComponentFilter, l_CSharp ? ".cs" : ".cpp").c_str());
         }
     }
 
-    if (!l_Language)
+    if (l_Picked)
     {
-        ImGui::TextDisabled("%s", l_Classes.empty() ? "No script classes are loaded. C++ modules and C# assemblies add theirs as they load" : "No script class matches");
+        const ComponentChoice& l_Choice = l_Choices[*l_Picked];
+        if (l_Choice.Script != nullptr)
+        {
+            m_Session.GetHistory().Execute(Trinity::CreateScope<AddScriptCommand>(entity.GetUUID(), Trinity::ScriptClassRegistry::CreateEntry(*l_Choice.Script)));
+        }
+        else
+        {
+            m_Session.GetHistory().Execute(Trinity::CreateScope<AddComponentCommand>(entity.GetUUID(), std::string(l_Choice.Component)));
+        }
+
+        ImGui::CloseCurrentPopup();
+    }
+    else if (l_NewScript)
+    {
+        const std::string_view l_Folder = *l_NewScript == Trinity::ScriptLanguage::CSharp ? EditorSession::c_ScriptsFolder : EditorSession::c_SourceFolder;
+        if (const std::optional<std::string> l_Path = m_Session.CreateScript(l_Folder, *l_NewScript, m_ComponentFilter))
+        {
+            Trinity::ScriptEntry l_Entry;
+            l_Entry.ClassName.assign(m_Session.GetScriptClassName(*l_NewScript, m_ComponentFilter));
+            l_Entry.Language = *l_NewScript;
+            m_Session.GetHistory().Execute(Trinity::CreateScope<AddScriptCommand>(entity.GetUUID(), std::move(l_Entry)));
+            static_cast<void>(m_Session.OpenScript(*l_Path));
+        }
+
+        ImGui::CloseCurrentPopup();
     }
 
     ImGui::EndPopup();
+}
+
+// Up and Down move the highlight through the choices, and typing puts it back on the first, as in the search of Unity's Add Component
+int PropertiesPanel::OnComponentFilterEdit(ImGuiInputTextCallbackData* data)
+{
+    PropertiesPanel& l_Panel = *static_cast<PropertiesPanel*>(data->UserData);
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory)
+    {
+        l_Panel.m_ComponentHighlight += data->EventKey == ImGuiKey_UpArrow ? -1 : 1;
+        l_Panel.m_ScrollToHighlight = true;
+    }
+    else if (data->EventFlag == ImGuiInputTextFlags_CallbackEdit)
+    {
+        l_Panel.m_ComponentHighlight = 0;
+        l_Panel.m_ScrollToHighlight = true;
+    }
+
+    return 0;
 }
 
 // Each script by its class, with a box that turns it on and off and its fields below. Right-clicking a script moves or removes it. A class no loaded code has is marked, and its values are shown as they were read. Every change goes to a copy of the component and becomes one command once the section is drawn, since the section reads the component

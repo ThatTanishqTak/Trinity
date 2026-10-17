@@ -15,6 +15,8 @@
 #include <string>
 #include <string_view>
 
+struct ImGuiInputTextCallbackData;
+
 class PropertiesPanel final : public Panel
 {
 public:
@@ -59,13 +61,13 @@ private:
     void DrawScripts(Trinity::Entity entity);
     void DrawScriptFields(Trinity::ScriptEntry& entry, std::string& change);
     [[nodiscard]] bool DrawScriptValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value);
-    void DrawAddScript(Trinity::Entity entity);
     template<typename T>
     void DrawShapeSlot(Trinity::Entity entity, Trinity::CollisionShapeKind kind, const char* popup, const char* hint);
     void DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);
     void DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint);
     void DrawOtherComponents(Trinity::Entity entity);
     void DrawAddComponent(Trinity::Entity entity);
+    static int OnComponentFilterEdit(ImGuiInputTextCallbackData* data);
 
     void DrawAsset(Trinity::UUID id);
     void DrawTexturePreview();
@@ -98,7 +100,10 @@ private:
     Trinity::UUID m_NameEntity;
     bool m_NameActive = false;
     std::string m_AssetFilter;
-    std::string m_ScriptFilter;
+    // Add Component's search, the choice Up, Down and the mouse highlight, which Enter adds, and whether the list scrolls to it
+    std::string m_ComponentFilter;
+    int m_ComponentHighlight = 0;
+    bool m_ScrollToHighlight = false;
     std::function<void()> m_ShowConsole;
     Trinity::UUID m_EulerEntity;
     glm::quat m_EulerRotation = glm::identity<glm::quat>();

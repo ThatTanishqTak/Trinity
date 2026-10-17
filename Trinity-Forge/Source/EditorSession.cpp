@@ -180,14 +180,6 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return l_Text;
     }
 
-    // Letters, digits and underscores, not starting with a digit, which both languages take for a class's name
-    bool IsClassName(std::string_view name)
-    {
-        const auto a_Letter = [](char character) { return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_'; };
-
-        return !name.empty() && a_Letter(name.front()) && std::ranges::all_of(name, [&a_Letter](char character) { return a_Letter(character) || (character >= '0' && character <= '9'); });
-    }
-
     // A letter, a digit or _, as a C++ or C# name is made of
     bool IsNameCharacter(char character)
     {
@@ -321,7 +313,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
     }
 
     // Everything an importer cooked for the asset into /cache
-    void RemoveCooked(const Trinity::AssetRecord & record)
+    void RemoveCooked(const Trinity::AssetRecord& record)
     {
         std::vector<std::string> l_Paths;
         if (record.Importer == TextureImporter::c_Importer)
@@ -597,7 +589,7 @@ void EditorSession::Run(Command command)
         {
             ConfirmCloseProject([this]
             {
-                AskPath({ PathKind::Folder, "Choose an empty folder for the new project", {}, {}, {}, [this](const std::filesystem::path& path) { CreateProject(path); } });
+                AskPath({ PathKind::Folder, "Choose an empty folder for the new project",{},{},{}, [this](const std::filesystem::path& path) { CreateProject(path); } });
             });
             break;
         }
@@ -605,7 +597,7 @@ void EditorSession::Run(Command command)
         {
             ConfirmCloseProject([this]
             {
-                AskPath({ PathKind::OpenFile, "Open Project", c_ProjectFilters, m_Project ? m_Project->GetDirectory().parent_path() : std::filesystem::path(), {}, [this](const std::filesystem::path& path) { OpenProject(path); } });
+                AskPath({ PathKind::OpenFile, "Open Project", c_ProjectFilters, m_Project ? m_Project->GetDirectory().parent_path() : std::filesystem::path(),{}, [this](const std::filesystem::path& path) { OpenProject(path); } });
             });
             break;
         }
@@ -623,7 +615,7 @@ void EditorSession::Run(Command command)
             {
                 ConfirmDiscard([this]
                 {
-                    AskPath({ PathKind::OpenFile, "Open Scene", c_SceneFilters, m_Project->GetAssetsDirectory(), {}, [this](const std::filesystem::path& path)
+                    AskPath({ PathKind::OpenFile, "Open Scene", c_SceneFilters, m_Project->GetAssetsDirectory(),{}, [this](const std::filesystem::path& path)
                     {
                         if (const std::optional<std::string> l_AssetPath = m_Project->ToAssetPath(path))
                         {
@@ -1717,6 +1709,23 @@ std::optional<std::string> EditorSession::CreateScript(std::string_view folder, 
     TR_INFO("Forge: created the {} script {}.{} in {}, which builds as its folder settles", l_Language, l_Namespace, className, l_Path);
 
     return l_Path;
+}
+
+std::string EditorSession::GetScriptClassName(Trinity::ScriptLanguage language, std::string_view className) const
+{
+    if (!m_Project)
+    {
+        return std::string(className);
+    }
+
+    return language == Trinity::ScriptLanguage::CSharp ? std::format("{}.{}", m_Project->GetAssemblyName(), className) : std::format("{}::{}", m_Project->GetModuleName(), className);
+}
+
+bool EditorSession::IsClassName(std::string_view name)
+{
+    const auto a_Letter = [](char character) { return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_'; };
+
+    return !name.empty() && a_Letter(name.front()) && std::ranges::all_of(name, [&a_Letter](char character) { return a_Letter(character) || (character >= '0' && character <= '9'); });
 }
 
 std::optional<std::string> EditorSession::CreateScene(std::string_view folder)
