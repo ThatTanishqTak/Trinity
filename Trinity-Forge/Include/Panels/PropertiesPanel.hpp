@@ -40,6 +40,13 @@ private:
         Trinity::AssetSettings Settings;
     };
 
+    // A component as Copy Component took it, as scene text, which Paste Component Values puts into one of its type and Paste Component As New onto an entity without one. Forge's own, as Unity's is, and kept as the scene plays and stops, until the project closes
+    struct CopiedComponent
+    {
+        std::string Name;
+        std::string Text;
+    };
+
     [[nodiscard]] std::optional<UnappliedSettings> GetUnappliedSettings() const;
     void KeepUnappliedSettings(Trinity::UUID shown);
     void AskUnapplied(std::move_only_function<void()> then);
@@ -77,7 +84,7 @@ private:
     void DrawMaterial(const Trinity::AssetRecord& record);
     void DrawMaterialTextures(const Trinity::AssetRecord& record, const Trinity::MaterialData& current, const std::function<void(const char*, std::initializer_list<std::string_view>)>& label);
 
-    [[nodiscard]] bool BeginComponent(std::string_view name, const char* icon, bool removable);
+    [[nodiscard]] bool BeginComponent(Trinity::Entity entity, std::string_view name, const char* icon);
     void SetTexture(Trinity::Entity entity, Trinity::UUID texture);
 
     EditorSession& m_Session;
@@ -95,7 +102,9 @@ private:
     // A model's material as imported, read again after each model import, which the fields that differ from are marked against
     std::optional<Trinity::MaterialData> m_ImportedMaterial;
     std::uint64_t m_ImportedMaterialImports = UINT64_MAX;
-    std::string m_PendingRemoval;
+    // A change from a component's menu, which waits until every section is drawn, since the sections read the components
+    Trinity::Scope<EditorCommand> m_PendingCommand;
+    std::optional<CopiedComponent> m_CopiedComponent;
     std::string m_NameText;
     Trinity::UUID m_NameEntity;
     bool m_NameActive = false;

@@ -229,6 +229,29 @@ private:
     std::string m_Label;
 };
 
+// The component's fields set from scene text, as Reset and Paste Component put them, with the component added first when the entity is without it, so undo takes it off again. Refused, so nothing is recorded, when the component already holds the text
+class SetComponentTextCommand final : public EditorCommand
+{
+public:
+    SetComponentTextCommand(Trinity::UUID entity, std::string component, std::string text, std::string label);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::UUID m_Entity;
+    std::string m_Component;
+    std::string m_New;
+    std::string m_Old;
+    std::string m_Label;
+    bool m_Added = false;
+    bool m_Executed = false;
+};
+
 // Adds a Script component first when the entity is without one, so adding the first script and undoing it are one step each
 class AddScriptCommand final : public EditorCommand
 {

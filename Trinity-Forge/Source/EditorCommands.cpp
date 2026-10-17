@@ -681,6 +681,65 @@ std::size_t RemoveComponentCommand::GetMemorySize() const
     return sizeof(*this) + m_Component.capacity() + m_Text.capacity() + m_Label.capacity();
 }
 
+SetComponentTextCommand::SetComponentTextCommand(Trinity::UUID entity, std::string component, std::string text, std::string label) : m_Entity(entity), m_Component(std::move(component)), m_New(std::move(text)), m_Label(std::move(label))
+{
+
+}
+
+// The text the component had is kept, so undo puts back its values through its own serializer, for a module's component as well as the engine's
+bool SetComponentTextCommand::Execute(Trinity::Scene& scene)
+{
+    const Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
+    if (!l_Entity)
+    {
+        return false;
+    }
+
+    if (!m_Executed)
+    {
+        m_Old = Trinity::SceneSerializer::SaveComponentToText(l_Entity, m_Component);
+        if (m_Old == m_New)
+        {
+            return false;
+        }
+
+        m_Added = m_Old.empty();
+        m_Executed = true;
+    }
+
+    const Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::LoadComponentFromText(l_Entity, m_Component, m_New);
+    if (!l_Loaded)
+    {
+        TR_ERROR("Forge: {} failed: {}", m_Label, l_Loaded.GetError());
+
+        return false;
+    }
+
+    return true;
+}
+
+void SetComponentTextCommand::Undo(Trinity::Scene& scene)
+{
+    const Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
+    if (m_Added)
+    {
+        static_cast<void>(Trinity::SceneSerializer::RemoveComponent(l_Entity, m_Component));
+
+        return;
+    }
+
+    const Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::LoadComponentFromText(l_Entity, m_Component, m_Old);
+    if (!l_Loaded)
+    {
+        TR_ERROR("Forge: {} could not be undone: {}", m_Label, l_Loaded.GetError());
+    }
+}
+
+std::size_t SetComponentTextCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Component.capacity() + m_New.capacity() + m_Old.capacity() + m_Label.capacity();
+}
+
 SetNativeFieldCommand::SetNativeFieldCommand(Trinity::UUID entity, std::string component, std::string field, Trinity::ScriptFieldValue value) : m_Entity(entity), m_Component(std::move(component)), m_Field(std::move(field)), m_New(std::move(value))
 {
 

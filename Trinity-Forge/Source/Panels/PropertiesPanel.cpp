@@ -5,6 +5,7 @@
 #include "Panels/ConsolePanel.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
@@ -58,6 +59,12 @@ namespace
         {
             history.Execute(Trinity::CreateScope<SetComponentCommand<T>>(entity.GetUUID(), std::move(l_Value), std::string(field)));
         }
+    }
+
+    // A section with the name of the component it shows, or its own, open by default
+    bool BeginSection(std::string_view name, const char* icon)
+    {
+        return ImGui::CollapsingHeader(std::format("{} {}###{}", icon, GetComponentLabel(name), name).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
     }
 
     std::string GetAssetName(const Trinity::AssetRecord& record)
@@ -404,6 +411,19 @@ namespace
         return l_Choices;
     }
 
+    // The component's fields as a new one has them, which Reset puts back, read from an entity of a scene of its own. Every entity comes with a Transform
+    std::string GetNewComponentText(std::string_view name)
+    {
+        Trinity::Scene l_Scene;
+        const Trinity::Entity l_Entity = l_Scene.CreateEntity();
+        if (!Trinity::SceneSerializer::HasComponent(l_Entity, name))
+        {
+            static_cast<void>(Trinity::SceneSerializer::AddComponent(l_Entity, name));
+        }
+
+        return Trinity::SceneSerializer::SaveComponentToText(l_Entity, name);
+    }
+
     // An entity of the scene, or none, picked from the list in hierarchy order or dropped from the Hierarchy
     bool EntityCombo(Trinity::Scene& scene, Trinity::UUID& value)
     {
@@ -627,6 +647,8 @@ PropertiesPanel::PropertiesPanel(EditorSession& session) : Panel("Properties", T
         m_SettingsAsset = {};
         m_Unapplied.reset();
         m_AfterUnapplied = {};
+        // Its values name the project's assets
+        m_CopiedComponent.reset();
     });
 
     m_Session.SetUnappliedEdits([this] { return m_Unapplied.has_value() || GetUnappliedSettings().has_value(); }, [this](std::move_only_function<void()> then) { AskUnapplied(std::move(then)); });
@@ -758,7 +780,7 @@ void PropertiesPanel::AskUnapplied(std::move_only_function<void()> then)
     m_OpenUnappliedPopup = true;
 }
 
-// The selected entity's components, each in its own section, under IDs of that entity's own. A removal waits until every section is drawn, since the sections read the components
+// The selected entity's components, each in its own section, under IDs of that entity's own. A change from a component's menu waits until every section is drawn, since the sections read the components
 void PropertiesPanel::OnImGuiRender()
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -829,9 +851,9 @@ void PropertiesPanel::OnImGuiRender()
     ImGui::PopID();
     ImGui::EndDisabled();
 
-    if (!m_PendingRemoval.empty())
+    if (m_PendingCommand)
     {
-        m_Session.GetHistory().Execute(Trinity::CreateScope<RemoveComponentCommand>(l_Entity.GetUUID(), std::exchange(m_PendingRemoval, {})));
+        m_Session.GetHistory().Execute(std::move(m_PendingCommand));
     }
 
     // Nothing is being dragged or typed into, so the next change is a command of its own
@@ -893,7 +915,7 @@ void PropertiesPanel::CommitName(Trinity::Entity entity)
 // Rotation shows as X, Y and Z degrees, kept while the entity stays selected and its rotation is only changed here, so a drag never jumps between equivalent angles
 void PropertiesPanel::DrawTransform(Trinity::Entity entity)
 {
-    if (!BeginComponent(Trinity::TransformComponent::c_TypeName, Trinity::Icons::c_WindowRestore, false))
+    if (!BeginComponent(entity, Trinity::TransformComponent::c_TypeName, Trinity::Icons::c_WindowRestore))
     {
         return;
     }
@@ -927,7 +949,7 @@ void PropertiesPanel::DrawTransform(Trinity::Entity entity)
 
 void PropertiesPanel::DrawCamera(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::CameraComponent>() || !BeginComponent(Trinity::CameraComponent::c_TypeName, Trinity::Icons::c_Monitor, true))
+    if (!entity.Has<Trinity::CameraComponent>() || !BeginComponent(entity, Trinity::CameraComponent::c_TypeName, Trinity::Icons::c_Monitor))
     {
         return;
     }
@@ -1003,7 +1025,7 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
 // Directional, point or spot, in glTF's units: lux for a directional light, candela for the others. Directional and spot lights shine along the entity's -Z, so turning the entity aims them, and can cast shadows. Colour is edited as it looks, in sRGB, and kept linear. A range of 0 is worked out from the intensity, and the cone's inner angle stays inside its outer one
 void PropertiesPanel::DrawLight(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::LightComponent>() || !BeginComponent(Trinity::LightComponent::c_TypeName, Trinity::Icons::c_Globe, true))
+    if (!entity.Has<Trinity::LightComponent>() || !BeginComponent(entity, Trinity::LightComponent::c_TypeName, Trinity::Icons::c_Globe))
     {
         return;
     }
@@ -1088,7 +1110,7 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
 // Image-based lighting from an HDR environment in the project, which takes one dropped from the Content Browser. Rotation turns it about +Y, and 90 degrees lights a model as glTF Sample Viewer does by default
 void PropertiesPanel::DrawEnvironment(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::EnvironmentComponent>() || !BeginComponent(Trinity::EnvironmentComponent::c_TypeName, Trinity::Icons::c_Globe, true))
+    if (!entity.Has<Trinity::EnvironmentComponent>() || !BeginComponent(entity, Trinity::EnvironmentComponent::c_TypeName, Trinity::Icons::c_Globe))
     {
         return;
     }
@@ -1113,7 +1135,7 @@ void PropertiesPanel::DrawEnvironment(Trinity::Entity entity)
 
 void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::SpriteRendererComponent>() || !BeginComponent(Trinity::SpriteRendererComponent::c_TypeName, Trinity::Icons::c_File, true))
+    if (!entity.Has<Trinity::SpriteRendererComponent>() || !BeginComponent(entity, Trinity::SpriteRendererComponent::c_TypeName, Trinity::Icons::c_File))
     {
         return;
     }
@@ -1143,7 +1165,7 @@ void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
 // The mesh, a material for each of its slots and whether it casts shadows, each change one command. The slots are those the mesh's submeshes use once it has loaded, and any set past them. An empty slot draws with the default material, and empty slots at the end are not kept
 void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::MeshRendererComponent>() || !BeginComponent(Trinity::MeshRendererComponent::c_TypeName, Trinity::Icons::c_Cube, true))
+    if (!entity.Has<Trinity::MeshRendererComponent>() || !BeginComponent(entity, Trinity::MeshRendererComponent::c_TypeName, Trinity::Icons::c_Cube))
     {
         return;
     }
@@ -1350,7 +1372,7 @@ void PropertiesPanel::DrawOtherComponents(Trinity::Entity entity)
             continue;
         }
 
-        if (!BeginComponent(it_Name, Trinity::Icons::c_Gear, true))
+        if (!BeginComponent(entity, it_Name, Trinity::Icons::c_Gear))
         {
             continue;
         }
@@ -1391,7 +1413,7 @@ void PropertiesPanel::DrawOtherComponents(Trinity::Entity entity)
 
     for (const Trinity::UnknownComponentsComponent::Entry& it_Unknown : entity.Get<Trinity::UnknownComponentsComponent>().Entries)
     {
-        if (BeginComponent(it_Unknown.Name, Trinity::Icons::c_Warning, false))
+        if (BeginSection(it_Unknown.Name, Trinity::Icons::c_Warning))
         {
             ImGui::TextDisabled("Kept as it was read, since no loaded code knows this component");
         }
@@ -1401,7 +1423,7 @@ void PropertiesPanel::DrawOtherComponents(Trinity::Entity entity)
 // Static bodies never move, kinematic ones go where their transform is moved, and dynamic ones fall and collide. Mass, damping, gravity, continuous collision, locks and sleep only matter to a dynamic body, so they show for one alone. Initial velocities are in metres per second, and in degrees per second about each world axis, kept as radians
 void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::RigidBodyComponent>() || !BeginComponent(Trinity::RigidBodyComponent::c_TypeName, Trinity::Icons::c_Arrows, true))
+    if (!entity.Has<Trinity::RigidBodyComponent>() || !BeginComponent(entity, Trinity::RigidBodyComponent::c_TypeName, Trinity::Icons::c_Arrows))
     {
         return;
     }
@@ -1486,21 +1508,21 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
     CommandStack& l_History = m_Session.GetHistory();
     const Trinity::CollisionLayers l_Layers = m_Session.GetProject() != nullptr ? m_Session.GetProject()->GetCollisionLayers() : Trinity::CollisionLayers();
 
-    if (entity.Has<Trinity::BoxColliderComponent>() && BeginComponent(Trinity::BoxColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    if (entity.Has<Trinity::BoxColliderComponent>() && BeginComponent(entity, Trinity::BoxColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawColliderSettings<Trinity::BoxColliderComponent>(l_History, entity, l_Layers);
         Label("Half Extents");
         EditField<Trinity::BoxColliderComponent>(l_History, entity, "HalfExtents", [](Trinity::BoxColliderComponent& box) { return ImGui::DragFloat3("##HalfExtents", &box.HalfExtents.x, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
-    if (entity.Has<Trinity::SphereColliderComponent>() && BeginComponent(Trinity::SphereColliderComponent::c_TypeName, Trinity::Icons::c_Globe, true))
+    if (entity.Has<Trinity::SphereColliderComponent>() && BeginComponent(entity, Trinity::SphereColliderComponent::c_TypeName, Trinity::Icons::c_Globe))
     {
         DrawColliderSettings<Trinity::SphereColliderComponent>(l_History, entity, l_Layers);
         Label("Radius");
         EditField<Trinity::SphereColliderComponent>(l_History, entity, "Radius", [](Trinity::SphereColliderComponent& sphere) { return ImGui::DragFloat("##Radius", &sphere.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
-    if (entity.Has<Trinity::CapsuleColliderComponent>() && BeginComponent(Trinity::CapsuleColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    if (entity.Has<Trinity::CapsuleColliderComponent>() && BeginComponent(entity, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawColliderSettings<Trinity::CapsuleColliderComponent>(l_History, entity, l_Layers);
         Label("Radius");
@@ -1511,7 +1533,7 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
         EditField<Trinity::CapsuleColliderComponent>(l_History, entity, "Height", [](Trinity::CapsuleColliderComponent& capsule) { return ImGui::DragFloat("##Height", &capsule.Height, 0.01f, capsule.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
-    if (entity.Has<Trinity::CylinderColliderComponent>() && BeginComponent(Trinity::CylinderColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    if (entity.Has<Trinity::CylinderColliderComponent>() && BeginComponent(entity, Trinity::CylinderColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawColliderSettings<Trinity::CylinderColliderComponent>(l_History, entity, l_Layers);
         Label("Radius");
@@ -1521,13 +1543,13 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
         EditField<Trinity::CylinderColliderComponent>(l_History, entity, "Height", [](Trinity::CylinderColliderComponent& cylinder) { return ImGui::DragFloat("##Height", &cylinder.Height, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
-    if (entity.Has<Trinity::ConvexHullColliderComponent>() && BeginComponent(Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    if (entity.Has<Trinity::ConvexHullColliderComponent>() && BeginComponent(entity, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawColliderSettings<Trinity::ConvexHullColliderComponent>(l_History, entity, l_Layers);
         DrawShapeSlot<Trinity::ConvexHullColliderComponent>(entity, Trinity::CollisionShapeKind::ConvexHull, c_ConvexHullPickerPopup, "A convex hull a model cooked around one of its meshes. Without one it collides with nothing");
     }
 
-    if (entity.Has<Trinity::MeshColliderComponent>() && BeginComponent(Trinity::MeshColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    if (entity.Has<Trinity::MeshColliderComponent>() && BeginComponent(entity, Trinity::MeshColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawColliderSettings<Trinity::MeshColliderComponent>(l_History, entity, l_Layers);
         DrawShapeSlot<Trinity::MeshColliderComponent>(entity, Trinity::CollisionShapeKind::Mesh, c_CollisionMeshPickerPopup, "A model's mesh as triangles, cooked at import. Without one it collides with nothing");
@@ -1541,7 +1563,7 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
 // The type, the body it joins, picked from the entities with a body or a collider or dropped from the Hierarchy, its frame, and its type's own settings, with a hinge's angles in degrees, kept as radians. A joint naming an entity no longer in the scene says so, and is left out when the scene runs
 void PropertiesPanel::DrawJoint(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::JointComponent>() || !BeginComponent(Trinity::JointComponent::c_TypeName, Trinity::Icons::c_Link, true))
+    if (!entity.Has<Trinity::JointComponent>() || !BeginComponent(entity, Trinity::JointComponent::c_TypeName, Trinity::Icons::c_Link))
     {
         return;
     }
@@ -1710,7 +1732,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
 // As a 3D body's, in the XY plane: the settings past the motion show for a dynamic body alone, and the initial spin is in degrees per second counter-clockwise, kept as radians. An entity with a RigidBody as well keeps its 3D body, which it says
 void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::RigidBody2DComponent>() || !BeginComponent(Trinity::RigidBody2DComponent::c_TypeName, Trinity::Icons::c_Arrows, true))
+    if (!entity.Has<Trinity::RigidBody2DComponent>() || !BeginComponent(entity, Trinity::RigidBody2DComponent::c_TypeName, Trinity::Icons::c_Arrows))
     {
         return;
     }
@@ -1806,21 +1828,21 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
     CommandStack& l_History = m_Session.GetHistory();
     const Trinity::CollisionLayers l_Layers = m_Session.GetProject() != nullptr ? m_Session.GetProject()->GetCollisionLayers() : Trinity::CollisionLayers();
 
-    if (entity.Has<Trinity::BoxCollider2DComponent>() && BeginComponent(Trinity::BoxCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    if (entity.Has<Trinity::BoxCollider2DComponent>() && BeginComponent(entity, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawCollider2DSettings<Trinity::BoxCollider2DComponent>(l_History, entity, l_Layers);
         Label("Half Extents");
         EditField<Trinity::BoxCollider2DComponent>(l_History, entity, "HalfExtents", [](Trinity::BoxCollider2DComponent& box) { return ImGui::DragFloat2("##HalfExtents", &box.HalfExtents.x, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
-    if (entity.Has<Trinity::CircleCollider2DComponent>() && BeginComponent(Trinity::CircleCollider2DComponent::c_TypeName, Trinity::Icons::c_Globe, true))
+    if (entity.Has<Trinity::CircleCollider2DComponent>() && BeginComponent(entity, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::Icons::c_Globe))
     {
         DrawCollider2DSettings<Trinity::CircleCollider2DComponent>(l_History, entity, l_Layers);
         Label("Radius");
         EditField<Trinity::CircleCollider2DComponent>(l_History, entity, "Radius", [](Trinity::CircleCollider2DComponent& circle) { return ImGui::DragFloat("##Radius", &circle.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
-    if (entity.Has<Trinity::CapsuleCollider2DComponent>() && BeginComponent(Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    if (entity.Has<Trinity::CapsuleCollider2DComponent>() && BeginComponent(entity, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawCollider2DSettings<Trinity::CapsuleCollider2DComponent>(l_History, entity, l_Layers);
         Label("Radius");
@@ -1831,7 +1853,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
         EditField<Trinity::CapsuleCollider2DComponent>(l_History, entity, "Height", [](Trinity::CapsuleCollider2DComponent& capsule) { return ImGui::DragFloat("##Height", &capsule.Height, 0.01f, capsule.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
-    if (!entity.Has<Trinity::PolygonCollider2DComponent>() || !BeginComponent(Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline, true))
+    if (!entity.Has<Trinity::PolygonCollider2DComponent>() || !BeginComponent(entity, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         return;
     }
@@ -1905,7 +1927,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
 // As a 3D joint's: the type, the 2D body it joins, picked from the entities with a 2D body or collider or dropped from the Hierarchy, its anchor and axis in its entity's own XY plane, and its type's own settings, with a revolute joint's angles and a revolute or wheel motor's speed in degrees, kept as radians. A joint naming an entity no longer in the scene says so, and is left out when the scene runs
 void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::Joint2DComponent>() || !BeginComponent(Trinity::Joint2DComponent::c_TypeName, Trinity::Icons::c_Link, true))
+    if (!entity.Has<Trinity::Joint2DComponent>() || !BeginComponent(entity, Trinity::Joint2DComponent::c_TypeName, Trinity::Icons::c_Link))
     {
         return;
     }
@@ -2298,10 +2320,10 @@ int PropertiesPanel::OnComponentFilterEdit(ImGuiInputTextCallbackData* data)
     return 0;
 }
 
-// Each script by its class, with a box that turns it on and off and its fields below. Right-clicking a script moves or removes it. A class no loaded code has is marked, and its values are shown as they were read. Every change goes to a copy of the component and becomes one command once the section is drawn, since the section reads the component
+// Each script by its class, with a box that turns it on and off and its fields below. Right-clicking a script resets its fields to its class's defaults, moves or removes it. A class no loaded code has is marked, and its values are shown as they were read. Every change goes to a copy of the component and becomes one command once the section is drawn, since the section reads the component
 void PropertiesPanel::DrawScripts(Trinity::Entity entity)
 {
-    if (!entity.Has<Trinity::ScriptComponent>() || !BeginComponent(Trinity::ScriptComponent::c_TypeName, Trinity::Icons::c_Terminal, true))
+    if (!entity.Has<Trinity::ScriptComponent>() || !BeginComponent(entity, Trinity::ScriptComponent::c_TypeName, Trinity::Icons::c_Terminal))
     {
         return;
     }
@@ -2309,6 +2331,7 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
     enum class Action : std::uint8_t
     {
         None,
+        Reset,
         MoveUp,
         MoveDown,
         Remove
@@ -2363,6 +2386,14 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
 
         if (ImGui::BeginPopupContextItem())
         {
+            // First, as in Unity's component menu, for a class whose defaults are known
+            if (ImGui::MenuItem(std::format("{} Reset", Trinity::Icons::c_Undo).c_str(), nullptr, false, l_Known))
+            {
+                l_Action = Action::Reset;
+                l_ActionIndex = it_Index;
+            }
+
+            ImGui::Separator();
             if (ImGui::MenuItem(std::format("{} Move Up", Trinity::Icons::c_ArrowUp).c_str(), nullptr, false, it_Index > 0))
             {
                 l_Action = Action::MoveUp;
@@ -2432,6 +2463,15 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
         l_Change = "Order";
         switch (l_Action)
         {
+            case Action::Reset:
+            {
+                // The menu offers it for a known class alone, and nothing loads code until the section is drawn
+                Trinity::ScriptEntry& l_Entry = l_Value.Scripts[l_ActionIndex];
+                l_Change = std::format("{} Reset", l_Label);
+                l_CommandLabel = std::format("Reset Script {} on {}", l_Label, l_EntityLabel);
+                l_Entry.Fields = Trinity::ScriptClassRegistry::CreateEntry(*Trinity::ScriptClassRegistry::Find(l_Entry.Language, l_Entry.ClassName)).Fields;
+                break;
+            }
             case Action::MoveUp:
                 l_CommandLabel = std::format("Move Script {} up on {}", l_Label, l_EntityLabel);
                 std::swap(l_Value.Scripts[l_ActionIndex], l_Value.Scripts[l_ActionIndex - 1]);
@@ -2770,7 +2810,7 @@ void PropertiesPanel::DrawTextureSettings(const Trinity::AssetRecord& record)
         m_TextureSettings = l_Saved;
     }
 
-    if (!BeginComponent("Import Settings", Trinity::Icons::c_Gear, false))
+    if (!BeginSection("Import Settings", Trinity::Icons::c_Gear))
     {
         return;
     }
@@ -2833,7 +2873,7 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
         m_ModelSettings = l_Saved;
     }
 
-    if (!BeginComponent("Import Settings", Trinity::Icons::c_Gear, false))
+    if (!BeginSection("Import Settings", Trinity::Icons::c_Gear))
     {
         return;
     }
@@ -2896,7 +2936,7 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
 // Each of the model's materials, which opens its editor, with how many fields its .meta overrides
 void PropertiesPanel::DrawModelMaterials(const Trinity::AssetRecord& record)
 {
-    if (!BeginComponent("Materials", Trinity::Icons::c_PaintBrush, false))
+    if (!BeginSection("Materials", Trinity::Icons::c_PaintBrush))
     {
         return;
     }
@@ -2967,7 +3007,7 @@ void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
         return;
     }
 
-    if (!BeginComponent("Material", Trinity::Icons::c_PaintBrush, false))
+    if (!BeginSection("Material", Trinity::Icons::c_PaintBrush))
     {
         return;
     }
@@ -3214,18 +3254,67 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
     }
 }
 
-// A section with the component's name, open by default. Right-clicking a removable one offers to remove it
-bool PropertiesPanel::BeginComponent(std::string_view name, const char* icon, bool removable)
+// The component's section, with Unity's component menu on a right-click: Reset to a new one's values, Remove Component, and Copy Component, whose values go into one of its type with Paste Component Values, or onto an entity without one with Paste Component As New, each change one command. A greyed section, as while the scene plays, has the menu too with Copy Component alone, so values found while playing can be pasted once it stops. A Transform stays, and a Script component's scripts reset each from its own menu
+bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view name, const char* icon)
 {
-    const bool l_Open = ImGui::CollapsingHeader(std::format("{} {}###{}", icon, GetComponentLabel(name), name).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
-    if (removable && ImGui::BeginPopupContextItem())
+    const bool l_Open = BeginSection(name, icon);
+    const bool l_Editable = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) == 0;
+    const std::string l_Menu = std::format("##{}Menu", name);
+    // BeginPopupContextItem passes over a greyed header, as over any greyed item
+    if (!l_Editable && ImGui::IsMouseReleased(ImGuiMouseButton_Right) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup | ImGuiHoveredFlags_AllowWhenDisabled))
     {
-        if (ImGui::MenuItem(std::format("{} Remove Component", Trinity::Icons::c_Trash).c_str()))
+        ImGui::OpenPopup(l_Menu.c_str());
+    }
+
+    // The menu is not greyed with its section, as a tooltip over it is not
+    if (!l_Editable)
+    {
+        ImGui::BeginDisabledOverrideReenable();
+    }
+
+    if (ImGui::BeginPopupContextItem(l_Menu.c_str()))
+    {
+        const std::string_view l_Label = GetComponentLabel(name);
+        if (name != Trinity::ScriptComponent::c_TypeName)
         {
-            m_PendingRemoval = std::string(name);
+            if (ImGui::MenuItem(std::format("{} Reset", Trinity::Icons::c_Undo).c_str(), nullptr, false, l_Editable))
+            {
+                m_PendingCommand = Trinity::CreateScope<SetComponentTextCommand>(entity.GetUUID(), std::string(name), GetNewComponentText(name), std::format("Reset {} of {}", l_Label, GetEntityLabel(entity)));
+            }
+
+            ImGui::Separator();
+        }
+
+        if (ImGui::MenuItem(std::format("{} Remove Component", Trinity::Icons::c_Trash).c_str(), nullptr, false, l_Editable && name != Trinity::TransformComponent::c_TypeName))
+        {
+            m_PendingCommand = Trinity::CreateScope<RemoveComponentCommand>(entity.GetUUID(), std::string(name));
+        }
+
+        ImGui::Separator();
+        if (ImGui::MenuItem(std::format("{} Copy Component", Trinity::Icons::c_Copy).c_str()))
+        {
+            m_CopiedComponent = CopiedComponent{ .Name = std::string(name), .Text = Trinity::SceneSerializer::SaveComponentToText(entity, name) };
+        }
+
+        // As new onto an entity without one of the copied type, once code that knows the type is loaded
+        const std::vector<std::string_view> l_Names = Trinity::SceneSerializer::GetComponentNames();
+        const bool l_CanPasteNew = m_CopiedComponent && std::ranges::find(l_Names, m_CopiedComponent->Name) != l_Names.end() && !Trinity::SceneSerializer::HasComponent(entity, m_CopiedComponent->Name);
+        if (ImGui::MenuItem("Paste Component As New", nullptr, false, l_Editable && l_CanPasteNew))
+        {
+            m_PendingCommand = Trinity::CreateScope<SetComponentTextCommand>(entity.GetUUID(), m_CopiedComponent->Name, m_CopiedComponent->Text, std::format("Paste {} As New to {}", GetComponentLabel(m_CopiedComponent->Name), GetEntityLabel(entity)));
+        }
+
+        if (ImGui::MenuItem("Paste Component Values", nullptr, false, l_Editable && m_CopiedComponent && m_CopiedComponent->Name == name))
+        {
+            m_PendingCommand = Trinity::CreateScope<SetComponentTextCommand>(entity.GetUUID(), std::string(name), m_CopiedComponent->Text, std::format("Paste {} Values to {}", l_Label, GetEntityLabel(entity)));
         }
 
         ImGui::EndPopup();
+    }
+
+    if (!l_Editable)
+    {
+        ImGui::EndDisabledOverrideReenable();
     }
 
     return l_Open;
