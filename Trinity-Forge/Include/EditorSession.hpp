@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CommandStack.hpp"
+#include "EditorPreferences.hpp"
 #include "Importers/EnvironmentImportBatch.hpp"
 #include "Importers/EnvironmentImporter.hpp"
 #include "Importers/ModelImportBatch.hpp"
@@ -18,6 +19,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -192,9 +194,17 @@ public:
     bool ReimportAssets(std::string_view path);
     [[nodiscard]] bool IsImportingAssets() const { return IsImportRunning() || m_ImportAgain; }
 
-    // What scripts open in, which imgui.ini keeps for each person
-    [[nodiscard]] ScriptEditor GetScriptEditor() const { return m_ScriptEditor; }
-    void SetScriptEditor(ScriptEditor editor) { m_ScriptEditor = editor; }
+    // Forge's settings for the person using it, saved once nothing is being dragged or typed into
+    [[nodiscard]] const EditorPreferences& GetPreferences() const { return m_Preferences; }
+    void SetPreferences(const EditorPreferences& preferences);
+    // One of the console variables kept with them, which the command line no longer holds once it is set here
+    void SetPreferenceVariable(std::string_view name, std::string_view value);
+    // Whether Preferences.txt was there as Forge started, or has been written since. Until it is, imgui.ini's settings from before it are read into it
+    [[nodiscard]] bool HasPreferencesFile() const { return m_HasPreferencesFile; }
+
+    // What scripts open in, which the preferences keep
+    [[nodiscard]] ScriptEditor GetScriptEditor() const { return m_Preferences.Editor; }
+    void SetScriptEditor(ScriptEditor editor);
     // A file of the project at its line, counted from 1, or at its top for 0, in the script editor, with the C# solution for a .cs file and the module's folder for any other. The path is a project path, such as /project/Scripts/Player.cs, one relative to the project's folder, as build errors name them, or a native one
     bool OpenScript(std::string_view path, std::uint32_t line = 0);
     // A script class's file at the class, as Unity's Edit Script opens it: the file named after the class in the project's Scripts folder for C#, or its Source folder for C++, or else the first there that declares it
@@ -204,9 +214,9 @@ public:
     bool OpenModuleFolder();
     // The script editor's debugger on this Forge, with the C# solution open, or the module's folder without one
     bool AttachDebugger();
-    // Whether Play waits for a debugger first, which imgui.ini keeps for each person. While it waits, a popup shows Forge's process ID and what is attached, and the scene plays once a native or a managed debugger is, or at Play Now
-    [[nodiscard]] bool GetWaitForDebugger() const { return m_WaitForDebugger; }
-    void SetWaitForDebugger(bool wait) { m_WaitForDebugger = wait; }
+    // Whether Play waits for a debugger first, which the preferences keep. While it waits, a popup shows Forge's process ID and what is attached, and the scene plays once a native or a managed debugger is, or at Play Now
+    [[nodiscard]] bool GetWaitForDebugger() const { return m_Preferences.WaitForDebugger; }
+    void SetWaitForDebugger(bool wait);
     [[nodiscard]] bool IsWaitingForDebugger() const { return m_DebuggerWait.has_value(); }
     // Where the material lives: its own file, or for a model's material the fields that differ from the import, in the model's .meta, and its cooked file. A loaded material shows it the same frame
     bool WriteMaterial(Trinity::UUID material, const Trinity::MaterialData& data);
@@ -298,6 +308,8 @@ private:
     [[nodiscard]] bool SettleUnappliedEdits(Action& then);
 
     void CloseProject();
+    void ReadPreferences(const Trinity::ApplicationCommandLineArgs& args);
+    void WritePreferences();
     void ReadRecentProjects();
     void WriteRecentProjects() const;
     void RememberProject();
@@ -360,8 +372,11 @@ private:
     EnvironmentImportBatch m_EnvironmentImports;
     ModuleHost m_Module;
     AssemblyHost m_Assembly;
-    ScriptEditor m_ScriptEditor = ScriptEditor::System;
-    bool m_WaitForDebugger = false;
+    EditorPreferences m_Preferences;
+    // The kept console variables the command line set, each with the value the file had, written back in its place. Empty for one the file did not have
+    std::map<std::string, std::string, std::less<>> m_HeldVariables;
+    bool m_HasPreferencesFile = false;
+    bool m_PreferencesChanged = false;
     std::optional<DebuggerWait> m_DebuggerWait;
     bool m_OpenDebuggerPopup = false;
     bool m_PlayAfterBuild = false;

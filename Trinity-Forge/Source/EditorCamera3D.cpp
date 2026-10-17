@@ -39,9 +39,10 @@ void EditorCamera3D::Set(const glm::vec3& focus, float yaw, float pitch, float d
     m_Speed = std::clamp(speed, c_MinimumSpeed, c_MaximumSpeed);
 }
 
-void EditorCamera3D::Reset()
+// At the flying speed given, the preferences' in Forge
+void EditorCamera3D::Reset(float speed)
 {
-    Set(glm::vec3(0.0f), c_DefaultYaw, c_DefaultPitch, c_DefaultDistance, c_DefaultSpeed);
+    Set(glm::vec3(0.0f), c_DefaultYaw, c_DefaultPitch, c_DefaultDistance, speed);
     m_Orthographic = false;
 }
 

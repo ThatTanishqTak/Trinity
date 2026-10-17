@@ -26,8 +26,7 @@ namespace
     constexpr std::string_view c_DockSpaceName = "Forge dock space";
     constexpr const char* c_PanelSettingsName = "ForgePanels";
     constexpr std::size_t c_HistoryMenuEntries = 30;
-    // The backgrounds lean this far towards the tint while a copy plays, and further while it is paused
-    constexpr ImVec4 c_PlayTint{ 0.2f, 0.35f, 0.65f, 1.0f };
+    // The backgrounds lean this far towards the preferences' Play Mode Tint while a copy plays, and further while it is paused
     constexpr float c_PlayingTint = 0.18f;
     constexpr float c_PausedTint = 0.3f;
     // A notice stays this long, fading over the end of it, in text this much larger than the UI's
@@ -257,6 +256,7 @@ void ForgeLayer::OnImGuiRender()
     m_ContentBrowser->EndFrame();
     m_PropertiesPanel->DrawPopups();
     DrawStartScreen();
+    m_PreferencesWindow.Draw();
 
     if (m_ShowAbout)
     {
@@ -443,7 +443,7 @@ void ForgeLayer::DrawNotice()
     l_DrawList.AddText(l_Font, l_Size, ImVec2(l_Min.x + l_Padding.x, l_Min.y + l_Padding.y), ImGui::GetColorU32(ImGuiCol_Text, l_Opacity), l_Notice->Text.c_str());
 }
 
-// While a copy plays, the backgrounds lean towards blue, further while it is paused, so it is plain at a glance that nothing done now stays
+// While a copy plays, the backgrounds lean towards the Play Mode Tint, blue unless the preferences say otherwise, further while it is paused, so it is plain at a glance that nothing done now stays
 void ForgeLayer::PushPlayTint()
 {
     if (!m_Session.IsPlaying())
@@ -452,10 +452,11 @@ void ForgeLayer::PushPlayTint()
     }
 
     const float l_Amount = m_Session.IsPaused() ? c_PausedTint : c_PlayingTint;
+    const glm::vec3 l_Tint = m_Session.GetPreferences().PlayModeTint;
     for (const ImGuiCol it_Color : c_TintedColors)
     {
         const ImVec4 l_Base = ImGui::GetStyleColorVec4(it_Color);
-        ImGui::PushStyleColor(it_Color, ImVec4(l_Base.x + (c_PlayTint.x - l_Base.x) * l_Amount, l_Base.y + (c_PlayTint.y - l_Base.y) * l_Amount, l_Base.z + (c_PlayTint.z - l_Base.z) * l_Amount, l_Base.w));
+        ImGui::PushStyleColor(it_Color, ImVec4(l_Base.x + (l_Tint.x - l_Base.x) * l_Amount, l_Base.y + (l_Tint.y - l_Base.y) * l_Amount, l_Base.z + (l_Tint.z - l_Base.z) * l_Amount, l_Base.w));
         ++m_TintedColors;
     }
 }
@@ -558,6 +559,10 @@ void ForgeLayer::ReadShortcuts()
     {
         m_Session.GetHistory().Execute(Trinity::CreateScope<DeleteEntityCommand>(m_Session.GetSelection()));
     }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma))
+    {
+        m_PreferencesWindow.Open();
+    }
 }
 
 void ForgeLayer::DrawMenuBar()
@@ -651,7 +656,7 @@ void ForgeLayer::DrawMenuBar()
         bool l_Viewports = l_Supported && l_Variable != nullptr && l_Variable->ToString() == "true";
         if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_WindowRestore, "Multi-viewport").c_str(), nullptr, &l_Viewports, l_Supported))
         {
-            Trinity::ConsoleVariables::Set("ui.viewports", l_Viewports ? "true" : "false");
+            m_Session.SetPreferenceVariable("ui.viewports", l_Viewports ? "true" : "false");
         }
 
         ImGui::EndMenu();
@@ -914,6 +919,11 @@ void ForgeLayer::DrawEditMenu()
         m_ProjectSettings->SetOpen(true);
         m_ProjectSettings->RequestFocus();
     }
+
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Sliders, "Preferences...").c_str(), "Ctrl+,"))
+    {
+        m_PreferencesWindow.Open();
+    }
 }
 
 // Unity's GameObject menu. Each new entity goes among the roots at the spawn point, but Create Empty Child's, which goes under the selection at its origin, and an empty one is renamed in the Hierarchy at once. Not while a copy plays
@@ -1109,7 +1119,6 @@ void ForgeLayer::DrawScriptsMenu()
             if (ImGui::MenuItem(std::string(IdeLauncher::ToString(it_Editor)).c_str(), nullptr, m_Session.GetScriptEditor() == it_Editor, l_Available))
             {
                 m_Session.SetScriptEditor(it_Editor);
-                ImGui::MarkIniSettingsDirty();
             }
 
             if (!l_Available)
@@ -1140,7 +1149,6 @@ void ForgeLayer::DrawScriptsMenu()
     if (ImGui::MenuItem("Wait for Debugger at Play", nullptr, &l_Wait))
     {
         m_Session.SetWaitForDebugger(l_Wait);
-        ImGui::MarkIniSettingsDirty();
     }
 
     ImGui::SetItemTooltip("Play waits until a native or a managed debugger is attached, so breakpoints in OnCreate are hit");
@@ -1410,7 +1418,7 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::End();
 }
 
-// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap steps, the Game panel's aspect choice and whether it shows Stats, the Content Browser's thumbnail size or list, the Console's Collapse, Clear options, Error Pause and the height of the pane under its list, the script editor, and whether Play waits for a debugger
+// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap toggle, the Game panel's aspect choice and whether it shows Stats, the Content Browser's thumbnail size or list, and the Console's Collapse, Clear options, Error Pause and the height of the pane under its list. The script editor and whether Play waits for a debugger, which the preferences keep now, are read from one written before them into preferences not saved yet
 void* ForgeLayer::OpenPanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, [[maybe_unused]] const char* name)
 {
     return handler->UserData;
@@ -1435,14 +1443,20 @@ void ForgeLayer::ReadPanelSetting([[maybe_unused]] ImGuiContext* context, [[mayb
 
     if (l_Key == "ScriptEditor")
     {
-        l_Layer.m_Session.SetScriptEditor(IdeLauncher::FromKey(l_Value).value_or(ScriptEditor::System));
+        if (!l_Layer.m_Session.HasPreferencesFile())
+        {
+            l_Layer.m_Session.SetScriptEditor(IdeLauncher::FromKey(l_Value).value_or(ScriptEditor::System));
+        }
 
         return;
     }
 
     if (l_Key == "WaitForDebugger")
     {
-        l_Layer.m_Session.SetWaitForDebugger(l_Value == "1");
+        if (!l_Layer.m_Session.HasPreferencesFile())
+        {
+            l_Layer.m_Session.SetWaitForDebugger(l_Value == "1");
+        }
 
         return;
     }
@@ -1471,9 +1485,6 @@ void ForgeLayer::WritePanelSettings([[maybe_unused]] ImGuiContext* context, ImGu
     l_Layer.m_GamePanel->WriteSettings(*buffer);
     l_Layer.m_ContentBrowser->WriteSettings(*buffer);
     l_Layer.m_Console->WriteSettings(*buffer);
-    const std::string_view l_Editor = IdeLauncher::ToKey(l_Layer.m_Session.GetScriptEditor());
-    buffer->appendf("ScriptEditor=%.*s\n", static_cast<int>(l_Editor.size()), l_Editor.data());
-    buffer->appendf("WaitForDebugger=%d\n", l_Layer.m_Session.GetWaitForDebugger() ? 1 : 0);
 
     buffer->append("\n");
 }

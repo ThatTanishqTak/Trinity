@@ -37,8 +37,6 @@ namespace Trinity
     {
         constexpr std::string_view c_SettingsPath = "/saves/imgui.ini";
         constexpr float c_FontSize = 15.0f;
-        constexpr float c_MinimumUserScale = 0.5f;
-        constexpr float c_MaximumUserScale = 4.0f;
 
         struct FontFile
         {
@@ -55,6 +53,7 @@ namespace Trinity
 
         ConsoleVariable<float> s_UserScaleVariable("ui.scale", 1.0f, "UI size on top of the monitor's DPI scale, from 0.5 to 4");
         ConsoleVariable<bool> s_ViewportsVariable("ui.viewports", true, "Lets ImGui windows leave the main window as windows of their own, where the platform has windows");
+        ConsoleVariable<std::string> s_ThemeVariable("ui.theme", "dark", "The UI's colours: dark, light or classic, ImGui's own three");
 
         constexpr std::array<float, 4> c_ViewportClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
 
@@ -520,7 +519,7 @@ namespace Trinity
         Window& l_Window = l_Application.GetWindow();
         UpdateCursor(l_Window);
         UpdateViewports();
-        UpdateScale();
+        UpdateStyle();
 
         ImGuiIO& l_IO = ImGui::GetIO();
         l_IO.DisplaySize = ImVec2(static_cast<float>(l_Window.GetWidth()), static_cast<float>(l_Window.GetHeight()));
@@ -833,11 +832,12 @@ namespace Trinity
         return l_Fonts[std::min(static_cast<int>(std::to_underlying(font)), l_Fonts.Size - 1)];
     }
 
-    // Fonts are drawn at the scaled size, so text stays sharp. The style is rebuilt from ImGui's defaults because ScaleAllSizes rounds down and cannot be undone, which also drops style editor changes
-    void ImGuiLayer::UpdateScale()
+    // Fonts are drawn at the scaled size, so text stays sharp. The style is rebuilt from ImGui's defaults because ScaleAllSizes rounds down and cannot be undone, which also drops style editor changes, then given ui.theme's colours. A theme it does not know is drawn dark
+    void ImGuiLayer::UpdateStyle()
     {
         const float l_UserScale = std::clamp(s_UserScaleVariable.Get(), c_MinimumUserScale, c_MaximumUserScale);
-        if (m_DpiScale == m_AppliedDpiScale && l_UserScale == m_AppliedUserScale)
+        const std::string l_Theme = s_ThemeVariable.Get();
+        if (m_DpiScale == m_AppliedDpiScale && l_UserScale == m_AppliedUserScale && l_Theme == m_AppliedTheme)
         {
             return;
         }
@@ -853,17 +853,41 @@ namespace Trinity
             }
         }
 
+        const bool l_Rescaled = m_DpiScale != m_AppliedDpiScale || l_UserScale != m_AppliedUserScale;
+        const bool l_Rethemed = l_Theme != m_AppliedTheme;
         m_AppliedDpiScale = m_DpiScale;
         m_AppliedUserScale = l_UserScale;
+        m_AppliedTheme = l_Theme;
 
         ImGuiStyle l_Style;
         l_Style.FontSizeBase = c_FontSize;
         l_Style.FontScaleMain = l_UserScale;
         l_Style.FontScaleDpi = m_DpiScale;
         l_Style.ScaleAllSizes(m_DpiScale * l_UserScale);
+        if (l_Theme == "light")
+        {
+            ImGui::StyleColorsLight(&l_Style);
+        }
+        else if (l_Theme == "classic")
+        {
+            ImGui::StyleColorsClassic(&l_Style);
+        }
+        else if (l_Theme != "dark" && l_Rethemed)
+        {
+            TR_CORE_WARN("ImGui: ui.theme has no theme called {}, so the UI is drawn dark. It takes dark, light or classic", l_Theme);
+        }
+
         ImGui::GetStyle() = l_Style;
 
-        TR_CORE_INFO("ImGui: scaled by {} for DPI and {} from ui.scale, so text is {} px", m_DpiScale, l_UserScale, std::round(c_FontSize * m_DpiScale * l_UserScale));
+        if (l_Rescaled)
+        {
+            TR_CORE_INFO("ImGui: scaled by {} for DPI and {} from ui.scale, so text is {} px", m_DpiScale, l_UserScale, std::round(c_FontSize * m_DpiScale * l_UserScale));
+        }
+
+        if (l_Rethemed)
+        {
+            TR_CORE_INFO("ImGui: drawn with the {} theme", l_Theme);
+        }
     }
 
     // Read before the first frame rather than on attach, so layers attached after this one have added their own settings handlers by then

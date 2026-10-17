@@ -90,6 +90,33 @@ namespace
         return l_Lines;
     }
 
+    // As many finite numbers as there are values, apart by spaces, or false with the values as they were
+    bool ReadNumbers(std::string_view text, std::span<float> values)
+    {
+        std::array<float, 4> l_Read{};
+        const char* l_Position = text.data();
+        const char* const l_End = text.data() + text.size();
+        for (std::size_t it_Index = 0; it_Index < values.size(); ++it_Index)
+        {
+            while (l_Position != l_End && *l_Position == ' ')
+            {
+                ++l_Position;
+            }
+
+            const std::from_chars_result l_Parsed = std::from_chars(l_Position, l_End, l_Read[it_Index]);
+            if (l_Parsed.ec != std::errc() || !std::isfinite(l_Read[it_Index]))
+            {
+                return false;
+            }
+
+            l_Position = l_Parsed.ptr;
+        }
+
+        std::copy_n(l_Read.begin(), values.size(), values.begin());
+
+        return true;
+    }
+
     // The texels a texture import has done, the one being encoded counted by the rate the encoder has kept so far. Nothing before that can be told
     std::optional<double> GetImportedTexels(const TextureImportBatch::Progress& progress)
     {
@@ -411,9 +438,14 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
     }
 }
 
-// Before the asset manager shuts down, which must not be left holding this project's registry
+// Before the asset manager shuts down, which must not be left holding this project's registry. A preference changed by a drag Forge closed during is saved too
 EditorSession::~EditorSession()
 {
+    if (m_PreferencesChanged)
+    {
+        WritePreferences();
+    }
+
     CloseProject();
 }
 
@@ -470,6 +502,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
         }
     });
 
+    ReadPreferences(args);
     ReadRecentProjects();
     if (const auto it_Directory = args.GetOption("new-project"))
     {
@@ -495,6 +528,12 @@ void EditorSession::Request(Command command)
 
 void EditorSession::Update()
 {
+    // Once a drag or a typed value is let go, so a slider does not write the file every frame
+    if (m_PreferencesChanged && !ImGui::IsAnyItemActive())
+    {
+        WritePreferences();
+    }
+
     m_Module.Update();
     m_Assembly.Update();
     m_Reimporter.Update();
@@ -1302,6 +1341,136 @@ void EditorSession::RememberScene()
     WriteRecentScenes();
 }
 
+void EditorSession::SetPreferences(const EditorPreferences& preferences)
+{
+    m_Preferences = preferences;
+    m_PreferencesChanged = true;
+}
+
+void EditorSession::SetPreferenceVariable(std::string_view name, std::string_view value)
+{
+    if (Trinity::ConsoleVariables::Set(name, value))
+    {
+        if (const auto it_Held = m_HeldVariables.find(name); it_Held != m_HeldVariables.end())
+        {
+            m_HeldVariables.erase(it_Held);
+        }
+
+        m_PreferencesChanged = true;
+    }
+}
+
+void EditorSession::SetScriptEditor(ScriptEditor editor)
+{
+    m_Preferences.Editor = editor;
+    m_PreferencesChanged = true;
+}
+
+void EditorSession::SetWaitForDebugger(bool wait)
+{
+    m_Preferences.WaitForDebugger = wait;
+    m_PreferencesChanged = true;
+}
+
+// A line a setting, name=value, and lines starting with # left for people. One that cannot be read keeps its default, and one Forge does not know is left out. A kept console variable the command line sets keeps the command line's value, and the file's is held to be written back
+void EditorSession::ReadPreferences(const Trinity::ApplicationCommandLineArgs& args)
+{
+    for (const std::string_view it_Assignment : args.GetAllOptions("set"))
+    {
+        const std::string_view l_Name = it_Assignment.substr(0, it_Assignment.find('='));
+        if (std::ranges::find(EditorPreferences::c_Variables, l_Name) != EditorPreferences::c_Variables.end())
+        {
+            m_HeldVariables.emplace(l_Name, std::string());
+        }
+    }
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(EditorPreferences::c_Path);
+    m_HasPreferencesFile = l_Text.HasValue();
+    if (!l_Text)
+    {
+        TR_INFO("Forge: no preferences yet, so they are Forge's defaults until one is changed");
+
+        return;
+    }
+
+    for (const std::string_view it_Line : SplitLines(*l_Text))
+    {
+        const std::size_t l_Equals = it_Line.find('=');
+        if (it_Line.starts_with('#') || l_Equals == std::string_view::npos)
+        {
+            continue;
+        }
+
+        const std::string_view l_Key = it_Line.substr(0, l_Equals);
+        const std::string_view l_Value = it_Line.substr(l_Equals + 1);
+        if (std::ranges::find(EditorPreferences::c_Variables, l_Key) != EditorPreferences::c_Variables.end())
+        {
+            if (const auto it_Held = m_HeldVariables.find(l_Key); it_Held != m_HeldVariables.end())
+            {
+                it_Held->second = std::string(l_Value);
+            }
+            else
+            {
+                static_cast<void>(Trinity::ConsoleVariables::Set(l_Key, l_Value));
+            }
+        }
+        else if (l_Key == "ScriptEditor")
+        {
+            m_Preferences.Editor = IdeLauncher::FromKey(l_Value).value_or(ScriptEditor::System);
+        }
+        else if (l_Key == "WaitForDebugger")
+        {
+            m_Preferences.WaitForDebugger = l_Value == "1";
+        }
+        else if (l_Key == "PlayModeTint" && ReadNumbers(l_Value, std::span<float>(&m_Preferences.PlayModeTint.x, 3)))
+        {
+            m_Preferences.PlayModeTint = glm::clamp(m_Preferences.PlayModeTint, 0.0f, 1.0f);
+        }
+        else if (l_Key == "CameraSpeed" && ReadNumbers(l_Value, std::span<float>(&m_Preferences.CameraSpeed, 1)))
+        {
+            m_Preferences.CameraSpeed = std::clamp(m_Preferences.CameraSpeed, EditorCamera3D::c_MinimumSpeed, EditorCamera3D::c_MaximumSpeed);
+        }
+        else if (l_Key == "SnapSteps" && ReadNumbers(l_Value, std::span<float>(&m_Preferences.SnapSteps.x, 3)))
+        {
+            m_Preferences.SnapSteps = glm::clamp(m_Preferences.SnapSteps, EditorPreferences::c_MinimumSnap, EditorPreferences::c_MaximumSnap);
+        }
+    }
+
+    TR_INFO("Forge: preferences read from {}", EditorPreferences::c_Path);
+}
+
+void EditorSession::WritePreferences()
+{
+    m_PreferencesChanged = false;
+    std::string l_Text = "# Forge's preferences, the same in every project, as Edit > Preferences shows them\n";
+    for (const std::string_view it_Name : EditorPreferences::c_Variables)
+    {
+        if (const auto it_Held = m_HeldVariables.find(it_Name); it_Held != m_HeldVariables.end())
+        {
+            if (!it_Held->second.empty())
+            {
+                l_Text += std::format("{}={}\n", it_Name, it_Held->second);
+            }
+        }
+        else if (const Trinity::ConsoleVariableBase* l_Variable = Trinity::ConsoleVariables::Find(it_Name))
+        {
+            l_Text += std::format("{}={}\n", it_Name, l_Variable->ToString());
+        }
+    }
+
+    l_Text += std::format("ScriptEditor={}\nWaitForDebugger={}\n", IdeLauncher::ToKey(m_Preferences.Editor), m_Preferences.WaitForDebugger ? 1 : 0);
+    l_Text += std::format("PlayModeTint={} {} {}\n", m_Preferences.PlayModeTint.x, m_Preferences.PlayModeTint.y, m_Preferences.PlayModeTint.z);
+    l_Text += std::format("CameraSpeed={}\nSnapSteps={} {} {}\n", m_Preferences.CameraSpeed, m_Preferences.SnapSteps.x, m_Preferences.SnapSteps.y, m_Preferences.SnapSteps.z);
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(EditorPreferences::c_Path, l_Text); !l_Written)
+    {
+        TR_WARN("Forge: the preferences could not be saved: {}", Trinity::ToString(l_Written.GetError()));
+
+        return;
+    }
+
+    m_HasPreferencesFile = true;
+}
+
 // A debugger attached already plays at once, and a Play asked for while one is awaited changes nothing. A build running or about to is waited for first, and a Play asked for while waiting stops the wait
 void EditorSession::RequestPlay()
 {
@@ -1355,7 +1524,7 @@ void EditorSession::BeginPlay()
         return;
     }
 
-    if (m_WaitForDebugger && !Trinity::Process::IsDebuggerAttached() && !Trinity::ManagedScripts::IsDebuggerAttached())
+    if (m_Preferences.WaitForDebugger && !Trinity::Process::IsDebuggerAttached() && !Trinity::ManagedScripts::IsDebuggerAttached())
     {
         m_DebuggerWait.emplace();
         m_OpenDebuggerPopup = true;
@@ -2107,7 +2276,7 @@ bool EditorSession::OpenScript(std::string_view path, std::uint32_t line)
         l_Workspace = m_Project->HasAssembly() && std::filesystem::is_regular_file(l_Solution, l_Error) ? l_Solution : m_Project->GetScriptsDirectory();
     }
 
-    return IdeLauncher::OpenFile(m_ScriptEditor, l_File, line, l_Workspace);
+    return IdeLauncher::OpenFile(m_Preferences.Editor, l_File, line, l_Workspace);
 }
 
 bool EditorSession::EditScript(Trinity::ScriptLanguage language, std::string_view className)
@@ -2151,7 +2320,7 @@ bool EditorSession::OpenSolution()
         return false;
     }
 
-    return IdeLauncher::OpenWorkspace(m_ScriptEditor, l_Solution);
+    return IdeLauncher::OpenWorkspace(m_Preferences.Editor, l_Solution);
 }
 
 bool EditorSession::OpenModuleFolder()
@@ -2161,7 +2330,7 @@ bool EditorSession::OpenModuleFolder()
         return false;
     }
 
-    return IdeLauncher::OpenWorkspace(m_ScriptEditor, m_Project->GetSourceDirectory());
+    return IdeLauncher::OpenWorkspace(m_Preferences.Editor, m_Project->GetSourceDirectory());
 }
 
 // Rider and Visual Studio debug with the solution open, and VS Code opens the folder of whichever it is, where Forge wrote its launch.json
@@ -2180,7 +2349,7 @@ bool EditorSession::AttachDebugger()
         l_Workspace = l_Solution;
     }
 
-    return IdeLauncher::AttachDebugger(m_ScriptEditor, Trinity::Process::GetCurrentID(), l_Workspace);
+    return IdeLauncher::AttachDebugger(m_Preferences.Editor, Trinity::Process::GetCurrentID(), l_Workspace);
 }
 
 std::optional<std::string> EditorSession::GetMaterialKey(Trinity::UUID material) const
@@ -2816,15 +2985,15 @@ void EditorSession::DrawDebuggerPopup()
     ImGui::TextDisabled("Visual Studio debugs both languages when it attaches with Native and Managed (.NET Core, .NET 5+) code");
     ImGui::Spacing();
 
-    ImGui::BeginDisabled(m_ScriptEditor == ScriptEditor::System);
-    const std::string l_Attach = std::format("{} Attach {}", Trinity::Icons::c_Bug, IdeLauncher::ToString(m_ScriptEditor));
+    ImGui::BeginDisabled(m_Preferences.Editor == ScriptEditor::System);
+    const std::string l_Attach = std::format("{} Attach {}", Trinity::Icons::c_Bug, IdeLauncher::ToString(m_Preferences.Editor));
     if (ImGui::Button(l_Attach.c_str()))
     {
         static_cast<void>(AttachDebugger());
     }
 
     ImGui::EndDisabled();
-    if (m_ScriptEditor == ScriptEditor::System)
+    if (m_Preferences.Editor == ScriptEditor::System)
     {
         ImGui::SetItemTooltip("Pick Visual Studio, Rider or VS Code under Scripts > Script Editor to attach it from here");
     }

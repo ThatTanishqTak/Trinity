@@ -33,6 +33,10 @@ namespace Trinity
     class TRINITY_API ImGuiLayer final : public Layer
     {
     public:
+        // What ui.scale is held to, on top of the monitor's DPI scale
+        static constexpr float c_MinimumUserScale = 0.5f;
+        static constexpr float c_MaximumUserScale = 4.0f;
+
         ImGuiLayer();
         ~ImGuiLayer() override;
 
@@ -53,7 +57,7 @@ namespace Trinity
         void LoadSettings();
         void SaveSettings();
         void UpdateCursor(Window& window);
-        void UpdateScale();
+        void UpdateStyle();
         void UpdateViewports();
         void UpdateMonitors();
         void OnViewportEvent(ImGuiViewport& viewport, Event& event);
@@ -79,6 +83,7 @@ namespace Trinity
         float m_DpiScale = 1.0f;
         float m_AppliedDpiScale = 0.0f;
         float m_AppliedUserScale = 0.0f;
+        std::string m_AppliedTheme;
         std::uint64_t m_FrameCount = 0;
     };
 }

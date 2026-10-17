@@ -20,6 +20,14 @@ namespace
     constexpr std::size_t c_CountLimit = 999;
     constexpr const char* c_ClearOptionsPopup = "##ClearOptions";
 
+    // Whether the windows are drawn light, as ui.theme's light theme draws them, by how bright their background is
+    bool IsLightTheme()
+    {
+        const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+
+        return l_Background.x * 0.2126f + l_Background.y * 0.7152f + l_Background.z * 0.0722f > 0.5f;
+    }
+
     // The line's text up to its end of line, without a carriage return a tool left
     std::string_view TrimLine(std::string_view line)
     {
@@ -135,6 +143,7 @@ ConsolePanel::ConsolePanel() : Panel("Console", Trinity::Icons::c_Terminal, Dock
 
 ImVec4 ConsolePanel::GetLevelColor(Trinity::LogLevel level)
 {
+    const bool l_Light = IsLightTheme();
     switch (level)
     {
         case Trinity::LogLevel::Trace:
@@ -143,21 +152,26 @@ ImVec4 ConsolePanel::GetLevelColor(Trinity::LogLevel level)
         }
         case Trinity::LogLevel::Warn:
         {
-            return ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
+            return l_Light ? ImVec4(0.65f, 0.4f, 0.0f, 1.0f) : ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
         }
         case Trinity::LogLevel::Error:
         {
-            return ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
+            return l_Light ? ImVec4(0.8f, 0.15f, 0.1f, 1.0f) : ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
         }
         case Trinity::LogLevel::Critical:
         {
-            return ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
+            return l_Light ? ImVec4(0.65f, 0.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
         }
         default:
         {
             return ImGui::GetStyleColorVec4(ImGuiCol_Text);
         }
     }
+}
+
+ImVec4 ConsolePanel::GetSuccessColor()
+{
+    return IsLightTheme() ? ImVec4(0.1f, 0.5f, 0.15f, 1.0f) : ImVec4(0.45f, 0.85f, 0.45f, 1.0f);
 }
 
 std::optional<std::pair<std::string_view, std::uint32_t>> ConsolePanel::FindLocation(std::string_view text)

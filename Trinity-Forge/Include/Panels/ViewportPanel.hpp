@@ -133,7 +133,6 @@ private:
 
     GizmoOperation m_GizmoOperation = GizmoOperation::Translate;
     bool m_GizmoLocal = true;
-    glm::vec3 m_SnapSteps{ 0.5f, 15.0f, 0.1f };
     // Every drag snaps while it is on, and Ctrl flips it for a drag, as in Godot and Blender
     bool m_Snap = false;
     glm::mat4 m_GizmoMatrix{ 1.0f };

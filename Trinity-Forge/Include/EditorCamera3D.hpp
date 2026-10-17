@@ -26,7 +26,7 @@ public:
     void SetOrthographic(bool orthographic) { m_Orthographic = orthographic; }
 
     void Set(const glm::vec3& focus, float yaw, float pitch, float distance, float speed);
-    void Reset();
+    void Reset(float speed = c_DefaultSpeed);
 
     void Look(glm::vec2 pixelDelta);
     void Orbit(glm::vec2 pixelDelta);

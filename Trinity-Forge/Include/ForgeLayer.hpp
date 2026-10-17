@@ -9,6 +9,7 @@
 #include "Panels/Panel.hpp"
 #include "Panels/ProjectSettingsPanel.hpp"
 #include "Panels/ViewportPanel.hpp"
+#include "PreferencesWindow.hpp"
 
 #include <Trinity.hpp>
 
@@ -65,6 +66,7 @@ private:
     Trinity::ImGuiLayer& m_ImGui;
     EditorSession m_Session;
     ImportTest m_ImportTest{ m_Session };
+    PreferencesWindow m_PreferencesWindow{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
     HierarchyPanel* m_HierarchyPanel = nullptr;

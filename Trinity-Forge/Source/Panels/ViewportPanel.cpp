@@ -39,8 +39,6 @@ namespace
 
     // The gizmo's camera looks down Z from this far above the sprites, which sit near Z = 0
     constexpr float c_GizmoDistance = 10000.0f;
-    constexpr float c_MinimumSnap = 0.001f;
-    constexpr float c_MaximumSnap = 1000.0f;
     constexpr std::array<const char*, 3> c_GizmoFields{ "Position", "Rotation", "Scale" };
     constexpr std::array<std::string_view, 3> c_GizmoOperationNames{ "Translate", "Rotate", "Scale" };
 
@@ -299,16 +297,18 @@ ViewportPanel::~ViewportPanel()
     m_Session.RemoveCloseListener(m_CloseListener);
 }
 
-// The Viewport's own lines in imgui.ini: the stats overlay, the gizmo's operation and axes, the snap toggle and steps, the light heatmap and the physics drawing
+// The Viewport's own lines in imgui.ini: the stats overlay, the gizmo's operation and axes, the snap toggle, the light heatmap and the physics drawing. The snap steps, which the preferences keep now, are read from an imgui.ini written before them into preferences not saved yet
 bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 {
-    const auto a_ReadStep = [value](float& step)
+    const auto a_ReadStep = [this, value](glm::length_t axis)
     {
         float l_Value = 0.0f;
         const std::from_chars_result l_Parsed = std::from_chars(value.data(), value.data() + value.size(), l_Value);
-        if (l_Parsed.ec == std::errc() && std::isfinite(l_Value))
+        if (!m_Session.HasPreferencesFile() && l_Parsed.ec == std::errc() && std::isfinite(l_Value))
         {
-            step = std::clamp(l_Value, c_MinimumSnap, c_MaximumSnap);
+            EditorPreferences l_Preferences = m_Session.GetPreferences();
+            l_Preferences.SnapSteps[axis] = std::clamp(l_Value, EditorPreferences::c_MinimumSnap, EditorPreferences::c_MaximumSnap);
+            m_Session.SetPreferences(l_Preferences);
         }
     };
 
@@ -334,15 +334,15 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
     }
     else if (key == "SnapTranslate")
     {
-        a_ReadStep(m_SnapSteps.x);
+        a_ReadStep(0);
     }
     else if (key == "SnapRotate")
     {
-        a_ReadStep(m_SnapSteps.y);
+        a_ReadStep(1);
     }
     else if (key == "SnapScale")
     {
-        a_ReadStep(m_SnapSteps.z);
+        a_ReadStep(2);
     }
     else if (key == "ViewCamera")
     {
@@ -366,8 +366,8 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 
 void ViewportPanel::WriteSettings(ImGuiTextBuffer& buffer) const
 {
-    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnap={}\nSnapTranslate={}\nSnapRotate={}\nSnapScale={}\nLightHeatmap={}\nPhysicsDebug={}\n",
-        m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_Snap ? 1 : 0, m_SnapSteps.x, m_SnapSteps.y, m_SnapSteps.z, m_LightHeatmap ? 1 : 0, m_PhysicsDebug ? 1 : 0);
+    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnap={}\nLightHeatmap={}\nPhysicsDebug={}\n",
+        m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_Snap ? 1 : 0, m_LightHeatmap ? 1 : 0, m_PhysicsDebug ? 1 : 0);
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
@@ -589,7 +589,7 @@ void ViewportPanel::FollowScene()
     if (!m_SceneID)
     {
         m_Camera.Reset();
-        m_Camera3D.Reset();
+        m_Camera3D.Reset(m_Session.GetPreferences().CameraSpeed);
 
         return;
     }
@@ -603,13 +603,13 @@ void ViewportPanel::FollowScene()
         if (!ParseCamera3D(*l_Text, m_Mode3D, m_Camera3D))
         {
             m_Mode3D = false;
-            m_Camera3D.Reset();
+            m_Camera3D.Reset(m_Session.GetPreferences().CameraSpeed);
         }
     }
     else if (!l_WasUntitled)
     {
         m_Camera.Reset();
-        m_Camera3D.Reset();
+        m_Camera3D.Reset(m_Session.GetPreferences().CameraSpeed);
     }
 }
 
@@ -1596,7 +1596,7 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
         // A full 3D gizmo, which snaps as it drags while snapping is on, or off with Ctrl held: along the axis dragged, by the angle turned, and by the ratio scaled. It lets go of the mouse while the camera is being moved, or Alt is held to start orbiting, or the mouse is over the orientation gizmo
         const std::array<ImGuizmo::OPERATION, 3> l_Operations{ ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE };
         l_Operation = l_Operations[static_cast<std::size_t>(m_GizmoOperation)];
-        const float l_Step = m_SnapSteps[static_cast<glm::length_t>(m_GizmoOperation)];
+        const float l_Step = m_Session.GetPreferences().SnapSteps[static_cast<glm::length_t>(m_GizmoOperation)];
         const std::array<float, 3> l_Snap{ l_Step, l_Step, l_Step };
         const glm::mat4 l_View = m_Camera3D.GetView();
         const glm::mat4 l_Projection = m_Camera3D.GetGizmoProjection(viewportSize);
@@ -1877,14 +1877,15 @@ Trinity::TransformComponent ViewportPanel::ApplyGizmo(const glm::mat4& parentWor
 {
     const glm::mat4 l_Local = glm::inverse(parentWorld) * m_GizmoMatrix;
     const glm::mat4 l_Start = m_GizmoStart.GetMatrix();
+    const glm::vec3 l_Steps = m_Session.GetPreferences().SnapSteps;
 
     Trinity::TransformComponent l_Value = m_GizmoStart;
     switch (m_GizmoOperation)
     {
         case GizmoOperation::Translate:
         {
-            l_Value.Position.x = snap ? Snap(l_Local[3].x, m_SnapSteps.x) : l_Local[3].x;
-            l_Value.Position.y = snap ? Snap(l_Local[3].y, m_SnapSteps.x) : l_Local[3].y;
+            l_Value.Position.x = snap ? Snap(l_Local[3].x, l_Steps.x) : l_Local[3].x;
+            l_Value.Position.y = snap ? Snap(l_Local[3].y, l_Steps.x) : l_Local[3].y;
             break;
         }
         case GizmoOperation::Rotate:
@@ -1893,7 +1894,7 @@ Trinity::TransformComponent ViewportPanel::ApplyGizmo(const glm::mat4& parentWor
             if (snap)
             {
                 glm::vec3 l_Euler = glm::eulerAngles(l_Value.Rotation);
-                l_Euler.z = glm::radians(Snap(glm::degrees(l_Euler.z), m_SnapSteps.y));
+                l_Euler.z = glm::radians(Snap(glm::degrees(l_Euler.z), l_Steps.y));
                 l_Value.Rotation = glm::quat(l_Euler);
             }
 
@@ -1912,8 +1913,8 @@ Trinity::TransformComponent ViewportPanel::ApplyGizmo(const glm::mat4& parentWor
 
                 if (snap)
                 {
-                    const float l_Snapped = Snap(l_Value.Scale[it_Axis], m_SnapSteps.z);
-                    l_Value.Scale[it_Axis] = l_Snapped != 0.0f ? l_Snapped : std::copysign(m_SnapSteps.z, m_GizmoStart.Scale[it_Axis]);
+                    const float l_Snapped = Snap(l_Value.Scale[it_Axis], l_Steps.z);
+                    l_Value.Scale[it_Axis] = l_Snapped != 0.0f ? l_Snapped : std::copysign(l_Steps.z, m_GizmoStart.Scale[it_Axis]);
                 }
             }
 
@@ -2061,13 +2062,15 @@ void ViewportPanel::DrawToolbar()
 
         ImGui::SetItemTooltip("The gizmo's axes: the entity's own, or the world's (X)");
 
-        const auto a_Step = [](const char* id, float& step, const char* format, const char* tip)
+        // The preferences' steps, which Edit > Preferences shows too
+        EditorPreferences l_Preferences = m_Session.GetPreferences();
+        const auto a_Step = [this, &l_Preferences](const char* id, glm::length_t axis, const char* format, const char* tip)
         {
             ImGui::SameLine();
             ImGui::SetNextItemWidth(ImGui::GetFontSize() * 3.5f);
-            if (ImGui::DragFloat(id, &step, 0.01f, c_MinimumSnap, c_MaximumSnap, format, ImGuiSliderFlags_AlwaysClamp))
+            if (ImGui::DragFloat(id, &l_Preferences.SnapSteps[axis], 0.01f, EditorPreferences::c_MinimumSnap, EditorPreferences::c_MaximumSnap, format, ImGuiSliderFlags_AlwaysClamp))
             {
-                ImGui::MarkIniSettingsDirty();
+                m_Session.SetPreferences(l_Preferences);
             }
 
             ImGui::SetItemTooltip("%s", tip);
@@ -2092,9 +2095,9 @@ void ViewportPanel::DrawToolbar()
         }
 
         ImGui::SetItemTooltip("Snap (Ctrl+\\): while it is on, every drag goes by these steps. Ctrl held while dragging does the opposite, snapping while it is off and moving freely while it is on");
-        a_Step("##SnapTranslate", m_SnapSteps.x, "%g", "Move snap, in units");
-        a_Step("##SnapRotate", m_SnapSteps.y, "%g\xC2\xB0", "Rotate snap, in degrees");
-        a_Step("##SnapScale", m_SnapSteps.z, "%g", "Scale snap");
+        a_Step("##SnapTranslate", 0, "%g", "Move snap, in units");
+        a_Step("##SnapRotate", 1, "%g\xC2\xB0", "Rotate snap, in degrees");
+        a_Step("##SnapScale", 2, "%g", "Scale snap");
 
         m_ToolbarWidth = ImGui::GetWindowWidth();
         m_ToolbarHeight = ImGui::GetWindowHeight();

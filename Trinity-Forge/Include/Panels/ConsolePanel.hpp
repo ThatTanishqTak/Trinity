@@ -39,8 +39,10 @@ public:
 
     // The file and line a line names: a build's, as BuildOutput writes them, such as "Build: Scripts/Player.cs(12,5): error ...", where the first parenthesis holding a line number, and a column or not, ends the path, so a folder such as Program Files (x86) stays in it. Or else the first frame of a .NET stack trace that names its source, such as "   at Game.Player.OnUpdate() in C:\Game\Scripts\Player.cs:line 42", which is where the exception was thrown
     [[nodiscard]] static std::optional<std::pair<std::string_view, std::uint32_t>> FindLocation(std::string_view text);
-    // A level's colour, as the Console and the status bar show its lines
+    // A level's colour, as the Console and the status bar show its lines, darker on a light theme so it can still be read
     [[nodiscard]] static ImVec4 GetLevelColor(Trinity::LogLevel level);
+    // Green, as the menu bar shows a build that worked, darker on a light theme too
+    [[nodiscard]] static ImVec4 GetSuccessColor();
 
 protected:
     void OnImGuiRender() override;
