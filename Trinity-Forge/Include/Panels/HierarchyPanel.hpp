@@ -5,10 +5,12 @@
 
 #include <Trinity.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -38,6 +40,14 @@ private:
         std::vector<std::pair<Trinity::ScriptLanguage, std::string>> Scripts;
     };
 
+    // A row as the tree drew it, in the order drawn, whether it has children shown under it and whether they are open, which the keys move through the next frame
+    struct Row
+    {
+        Trinity::UUID Entity;
+        bool HasChildren = false;
+        bool Open = false;
+    };
+
     void DrawSearch();
     void ResolveReferences(const std::vector<std::string_view>& terms);
     [[nodiscard]] bool HasReference(Trinity::Entity entity) const;
@@ -49,6 +59,9 @@ private:
     void DrawCreateMenus(Trinity::UUID parent);
     void AcceptDrop(Trinity::Entity target);
     void ReadShortcuts();
+    void ReadTreeKeys();
+    void SetBranchOpen(Trinity::Entity entity, bool open, bool below);
+    void Reorder(Trinity::Entity entity, bool up);
     void UpdateSlowClick(Trinity::Scene& scene);
 
     void Select(Trinity::UUID entity);
@@ -80,4 +93,13 @@ private:
     // While a copy of the scene plays, which nothing may change
     bool m_ReadOnly = false;
     bool m_ScrollToSelection = false;
+    std::vector<Row> m_Rows;
+    // Branches to open or close the next time each is drawn, as Left and Right ask
+    std::unordered_map<Trinity::UUID, bool> m_OpenRequests;
+    // How many rows the tree shows at once, which PageUp and PageDown move by
+    std::size_t m_PageRows = 1;
+    // A key moved the selection, so its row scrolls just into view once drawn, where a selection made elsewhere scrolls to the middle
+    bool m_KeepSelectionVisible = false;
+    // Down in the search field hands the keys to the tree
+    bool m_FocusTree = false;
 };

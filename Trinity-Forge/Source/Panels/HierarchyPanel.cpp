@@ -8,6 +8,7 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cfloat>
 #include <cstring>
@@ -24,6 +25,8 @@ namespace
     constexpr float c_DropLineThickness = 2.0f;
     // How long a second click on a selected entity waits before it renames, at least, so the second click of a double-click never does
     constexpr double c_SlowClickSeconds = 0.5;
+    // The keys the tree takes from ImGui's navigation while the Hierarchy has focus, so its focus box stays where it is as they move the selection
+    constexpr std::array<ImGuiKey, 10> c_TreeKeys{ ImGuiKey_UpArrow, ImGuiKey_DownArrow, ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_Home, ImGuiKey_End, ImGuiKey_PageUp, ImGuiKey_PageDown, ImGuiKey_Enter, ImGuiKey_KeypadEnter };
 
     Trinity::UUID GetID(Trinity::Entity entity)
     {
@@ -130,8 +133,15 @@ void HierarchyPanel::OnImGuiRender()
         UpdateSearch(l_Scene);
     }
 
+    m_Rows.clear();
     if (ImGui::BeginChild("##Tree"))
     {
+        if (std::exchange(m_FocusTree, false))
+        {
+            ImGui::SetWindowFocus();
+        }
+
+        m_PageRows = std::max(static_cast<std::size_t>(ImGui::GetContentRegionAvail().y / ImGui::GetFrameHeightWithSpacing()), std::size_t(1));
         if (l_Searching)
         {
             ImGui::PushID("##Search");
@@ -171,7 +181,7 @@ void HierarchyPanel::SetSearch(std::string search)
     m_SearchChanged = true;
 }
 
-// Unity's search field. Ctrl+F comes to it and Escape clears it, and clearing it opens the tree to the selection
+// Unity's search field. Ctrl+F comes to it, Escape clears it, and Down goes into the tree to the first match. Clearing it opens the tree to the selection
 void HierarchyPanel::DrawSearch()
 {
     if (std::exchange(m_FocusSearch, false))
@@ -187,6 +197,20 @@ void HierarchyPanel::DrawSearch()
         {
             m_Revealed = {};
         }
+    }
+
+    // The rows are the last frame's, which show the matches for what the field held then
+    if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_DownArrow, false))
+    {
+        const auto a_First = std::ranges::find_if(m_Rows, [this](const Row& row) { return m_Search.empty() || m_Matched.contains(row.Entity); });
+        if (a_First != m_Rows.end())
+        {
+            Select(a_First->Entity);
+            m_KeepSelectionVisible = true;
+        }
+
+        ImGui::ClearActiveID();
+        m_FocusTree = true;
     }
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -464,6 +488,12 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         ImGui::SetNextItemOpen(true);
     }
 
+    if (const auto a_Request = m_OpenRequests.find(l_ID); a_Request != m_OpenRequests.end())
+    {
+        ImGui::SetNextItemOpen(a_Request->second);
+        m_OpenRequests.erase(a_Request);
+    }
+
     const bool l_Dimmed = l_Searching && !m_Matched.contains(l_ID);
     if (l_Dimmed)
     {
@@ -472,6 +502,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
 
     const std::string l_Label = l_Renaming ? std::string(Trinity::Icons::c_CubeOutline) : std::format("{} {}", Trinity::Icons::c_CubeOutline, GetEntityLabel(entity));
     const bool l_Open = ImGui::TreeNodeEx(ToImGuiID(l_ID), l_Flags, "%s", l_Label.c_str());
+    m_Rows.push_back({ .Entity = l_ID, .HasChildren = l_HasChildren, .Open = l_HasChildren && l_Open });
     if (l_Dimmed)
     {
         ImGui::PopStyleColor();
@@ -481,6 +512,10 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
     {
         ImGui::SetScrollHereY();
         m_ScrollToSelection = false;
+    }
+    else if (l_Selected && std::exchange(m_KeepSelectionVisible, false))
+    {
+        ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleEdgeY);
     }
 
     // Selecting on press, so a drag starts from the entity it drags, and the arrow opens and closes. As in Unity, a double-click frames the entity in the Scene panel, and a second, slower click on an entity already selected renames it
@@ -744,14 +779,15 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
     ImGui::EndDragDropTarget();
 }
 
-// Rename, Ctrl+F to the search, and F to frame the selection in the Scene panel, or Shift+F to follow it there, while the Hierarchy has focus, as in Unity. Copy, Paste, Duplicate and Delete are Forge's own shortcuts, so they work from any panel
+// Rename, Ctrl+F to the search, F to frame the selection in the Scene panel, or Shift+F to follow it there, and the tree's keys, while the Hierarchy has focus, as in Unity, and not one of its menus, which keeps its own keys. Copy, Paste, Duplicate and Delete are Forge's own shortcuts, so they work from any panel
 void HierarchyPanel::ReadShortcuts()
 {
-    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) || ImGui::GetIO().WantTextInput)
+    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows | ImGuiFocusedFlags_NoPopupHierarchy) || ImGui::GetIO().WantTextInput)
     {
         return;
     }
 
+    ReadTreeKeys();
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F))
     {
         m_FocusSearch = true;
@@ -771,6 +807,137 @@ void HierarchyPanel::ReadShortcuts()
     {
         BeginRename(l_Selected);
     }
+}
+
+// Unity's tree keys, through the rows the last frame drew: Up and Down step through them, Home and End go to the first and the last, and PageUp and PageDown a page at a time. Left closes a branch or goes to its parent, Right opens it or goes to its first child, and with Alt either does every branch below it too. Enter renames, as on a Mac, and Ctrl+Up and Ctrl+Down move the entity among its siblings, as in Godot, the last two not while a copy plays
+void HierarchyPanel::ReadTreeKeys()
+{
+    const ImGuiID l_Owner = ImGui::GetID("##TreeKeys");
+    for (const ImGuiKey it_Key : c_TreeKeys)
+    {
+        ImGui::SetKeyOwner(it_Key, l_Owner);
+    }
+
+    if (m_Rows.empty())
+    {
+        return;
+    }
+
+    const auto a_Pressed = [l_Owner](ImGuiKeyChord chord) { return ImGui::IsKeyChordPressed(chord, ImGuiInputFlags_Repeat, l_Owner); };
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
+    const auto a_Row = std::ranges::find(m_Rows, m_Session.GetSelection(), &Row::Entity);
+    const std::size_t l_Last = m_Rows.size() - 1;
+    const std::size_t l_Index = static_cast<std::size_t>(std::distance(m_Rows.begin(), a_Row));
+    const bool l_Shown = a_Row != m_Rows.end();
+
+    std::optional<std::size_t> l_Target;
+    if (a_Pressed(ImGuiKey_UpArrow))
+    {
+        l_Target = l_Shown ? (l_Index > 0 ? l_Index - 1 : 0) : l_Last;
+    }
+    else if (a_Pressed(ImGuiKey_DownArrow))
+    {
+        l_Target = l_Shown ? std::min(l_Index + 1, l_Last) : 0;
+    }
+    else if (a_Pressed(ImGuiKey_PageUp))
+    {
+        l_Target = l_Shown && l_Index > m_PageRows ? l_Index - m_PageRows : 0;
+    }
+    else if (a_Pressed(ImGuiKey_PageDown))
+    {
+        l_Target = l_Shown ? std::min(l_Index + m_PageRows, l_Last) : 0;
+    }
+    else if (a_Pressed(ImGuiKey_Home))
+    {
+        l_Target = 0;
+    }
+    else if (a_Pressed(ImGuiKey_End))
+    {
+        l_Target = l_Last;
+    }
+    else if (!l_Shown)
+    {
+        return;
+    }
+    else if (a_Pressed(ImGuiMod_Alt | ImGuiKey_LeftArrow))
+    {
+        SetBranchOpen(l_Selected, false, true);
+    }
+    else if (a_Pressed(ImGuiMod_Alt | ImGuiKey_RightArrow))
+    {
+        SetBranchOpen(l_Selected, true, true);
+    }
+    else if (a_Pressed(ImGuiKey_LeftArrow))
+    {
+        const Trinity::Entity l_Parent = l_Selected.GetParent();
+        if (a_Row->Open)
+        {
+            SetBranchOpen(l_Selected, false, false);
+        }
+        else if (const auto a_ParentRow = std::ranges::find(m_Rows, GetID(l_Parent), &Row::Entity); l_Parent && a_ParentRow != m_Rows.end())
+        {
+            l_Target = static_cast<std::size_t>(std::distance(m_Rows.begin(), a_ParentRow));
+        }
+    }
+    else if (a_Pressed(ImGuiKey_RightArrow))
+    {
+        if (a_Row->HasChildren && !a_Row->Open)
+        {
+            SetBranchOpen(l_Selected, true, false);
+        }
+        else if (a_Row->HasChildren)
+        {
+            l_Target = std::min(l_Index + 1, l_Last);
+        }
+    }
+    else if (!m_ReadOnly && a_Pressed(ImGuiMod_Ctrl | ImGuiKey_UpArrow))
+    {
+        Reorder(l_Selected, true);
+    }
+    else if (!m_ReadOnly && a_Pressed(ImGuiMod_Ctrl | ImGuiKey_DownArrow))
+    {
+        Reorder(l_Selected, false);
+    }
+    else if (ImGui::IsKeyChordPressed(ImGuiKey_Enter, ImGuiInputFlags_None, l_Owner) || ImGui::IsKeyChordPressed(ImGuiKey_KeypadEnter, ImGuiInputFlags_None, l_Owner))
+    {
+        BeginRename(l_Selected);
+    }
+
+    if (l_Target)
+    {
+        Select(m_Rows[*l_Target].Entity);
+        m_KeepSelectionVisible = true;
+    }
+}
+
+// Below asks the same of every branch under it, which applies as each is next drawn, so a branch closed below one that is closed too is found closed once that one opens
+void HierarchyPanel::SetBranchOpen(Trinity::Entity entity, bool open, bool below)
+{
+    m_OpenRequests[entity.GetUUID()] = open;
+    for (Trinity::Entity it_Entity = below ? entity.GetFirstChild() : Trinity::Entity(); it_Entity; it_Entity = m_Session.GetScene().GetNextInSubtree(it_Entity, entity))
+    {
+        if (it_Entity.GetChildCount() > 0)
+        {
+            m_OpenRequests[it_Entity.GetUUID()] = open;
+        }
+    }
+
+    m_KeepSelectionVisible = true;
+}
+
+// Before the sibling above, or after the one below, one command each. Its place in the world stays, since its parent does
+void HierarchyPanel::Reorder(Trinity::Entity entity, bool up)
+{
+    const Trinity::Entity l_Previous = entity.GetPreviousSibling();
+    const Trinity::Entity l_Next = entity.GetNextSibling();
+    if (up ? !l_Previous : !l_Next)
+    {
+        return;
+    }
+
+    Move(entity.GetUUID(), GetID(entity.GetParent()), up ? l_Previous.GetUUID() : GetID(l_Next.GetNextSibling()));
+    m_KeepSelectionVisible = true;
 }
 
 // The slow click's rename waits out the double-click time with the button up, and is dropped by a drag, by the selection moving on, or by the Hierarchy losing focus to another panel
