@@ -56,5 +56,8 @@ namespace Trinity
         [[nodiscard]] bool ResumeTask(std::intptr_t task, std::int32_t& waitType, float& seconds, std::int32_t& frames);
         [[nodiscard]] bool CheckTask(std::intptr_t task, bool& met);
         void FreeTask(std::intptr_t task);
+
+        // The Pressed and Released handlers C# scripts added to input actions, for the players whose press went down or up this frame. A handler that throws is logged by ScriptCore and removed
+        void RaiseInputEvents();
     }
 }

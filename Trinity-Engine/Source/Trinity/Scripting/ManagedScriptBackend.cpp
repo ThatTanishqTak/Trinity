@@ -187,6 +187,8 @@ namespace Trinity
                 return DotNetHost::InvokePhysics(ToHandle(instance), type, l_Collision);
             }
 
+            void RaiseInputEvents() override { DotNetHost::RaiseInputEvents(); }
+
             // ScriptCore numbers the classes it describes from 0 as each assembly loads
             void BeginLoad()
             {

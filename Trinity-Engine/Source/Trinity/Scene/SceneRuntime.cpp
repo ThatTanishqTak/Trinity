@@ -87,12 +87,13 @@ namespace Trinity
         RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()));
     }
 
-    // The actions are read from Input first, so every script sees the same frame of them. The scripts' clock moves on and scripts added since the last frame are made, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Entities destroyed meanwhile go last, then rendering, which the caller does
+    // The actions are read from Input first, so every script sees the same frame of them. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Entities destroyed meanwhile go last, then rendering, which the caller does
     void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep timestep)
     {
         InputActionsRuntime::Update();
         m_Scripts->BeginFrame(timestep, Timestep(m_Clock.GetStep()));
         m_Scripts->CreatePending();
+        m_Scripts->RaiseInputEvents();
 
         // A scene that had no 3D or no 2D body as it started gets that world once it has one
         if (!m_Physics && PhysicsScene3D::IsNeeded(m_Scene))

@@ -851,6 +851,22 @@ namespace Trinity
         l_State.Pending.clear();
     }
 
+    // Only C# has handlers, since a C++ script reads its actions as it runs
+    void ScriptRuntime::RaiseInputEvents()
+    {
+        TR_PROFILE_FUNCTION();
+
+        ScriptBackend* l_Backend = ScriptBackends::Find(ScriptLanguage::CSharp);
+        if (l_Backend == nullptr)
+        {
+            return;
+        }
+
+        const TimedPart l_Timed(m_State->Time);
+        m_State->Time.Enter(ScriptLanguage::CSharp);
+        l_Backend->RaiseInputEvents();
+    }
+
     void ScriptRuntime::FixedUpdate(Timestep step)
     {
         TR_PROFILE_FUNCTION();

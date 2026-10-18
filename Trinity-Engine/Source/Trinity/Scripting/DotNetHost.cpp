@@ -56,6 +56,7 @@ namespace Trinity
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* ResumeTask)(std::intptr_t task, std::int32_t* waitType, float* seconds, std::int32_t* frames) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* CheckTask)(std::intptr_t task, std::int32_t* met) = nullptr;
             void (CORECLR_DELEGATE_CALLTYPE* FreeTask)(std::intptr_t task) = nullptr;
+            void (CORECLR_DELEGATE_CALLTYPE* RaiseInputEvents)() = nullptr;
         };
 
         // What the runtime was started with and the entry points of ScriptCore. None of it is allocated, since .NET outlives every memory tag
@@ -343,7 +344,8 @@ namespace Trinity
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CreateInstance"), l_Entry.CreateInstance, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("DestroyInstance"), l_Entry.DestroyInstance, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("SetField"), l_Entry.SetField, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetField"), l_Entry.GetField, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("Invoke"), l_Entry.Invoke, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("InvokePhysics"), l_Entry.InvokePhysics, error)
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("ResumeTask"), l_Entry.ResumeTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CheckTask"), l_Entry.CheckTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("FreeTask"), l_Entry.FreeTask, error);
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("ResumeTask"), l_Entry.ResumeTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CheckTask"), l_Entry.CheckTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("FreeTask"), l_Entry.FreeTask, error)
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("RaiseInputEvents"), l_Entry.RaiseInputEvents, error);
             if (!l_Found)
             {
                 return false;
@@ -549,6 +551,14 @@ namespace Trinity
                 s_State.Entry.FreeTask(task);
             }
         }
+
+        void RaiseInputEvents()
+        {
+            if (s_State.Started)
+            {
+                s_State.Entry.RaiseInputEvents();
+            }
+        }
     }
 #else
     namespace DotNetHost
@@ -638,6 +648,11 @@ namespace Trinity
         }
 
         void FreeTask([[maybe_unused]] std::intptr_t task)
+        {
+
+        }
+
+        void RaiseInputEvents()
         {
 
         }

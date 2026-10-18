@@ -37,9 +37,14 @@ namespace Trinity
         InputAction() = default;
 
         [[nodiscard]] static InputAction Find(std::string_view path);
+        // The handle as one number, for C#, and back. 0 for one never found
+        [[nodiscard]] static InputAction FromHandle(std::uint64_t handle);
+        [[nodiscard]] std::uint64_t ToHandle() const;
 
         // Found while a scene runs, and in its asset now
         [[nodiscard]] bool IsValid() const;
+        // Found since the running scene started, so it reads its action whenever the asset has one by its path, valid or not. False for one never found, and for one found before the scene last stopped, which reads nothing again
+        [[nodiscard]] bool IsCurrent() const;
         [[nodiscard]] bool IsPressed(std::uint32_t player = 0) const;
         [[nodiscard]] bool WasPressed(std::uint32_t player = 0) const;
         [[nodiscard]] bool WasReleased(std::uint32_t player = 0) const;

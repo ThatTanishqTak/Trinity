@@ -107,7 +107,9 @@ namespace Trinity.Interop
         {
             if (s_Instances.Remove(instance))
             {
-                GCHandle.FromIntPtr(instance).Free();
+                GCHandle l_Handle = GCHandle.FromIntPtr(instance);
+                InputEvents.RemoveTarget(l_Handle.Target!);
+                l_Handle.Free();
             }
         }
 
@@ -248,6 +250,20 @@ namespace Trinity.Interop
             Free(task);
         }
 
+        // Once a frame, before the fixed steps. Each handler that throws is logged and removed by InputEvents
+        [UnmanagedCallersOnly]
+        public static void RaiseInputEvents()
+        {
+            try
+            {
+                InputEvents.Raise();
+            }
+            catch (Exception exception)
+            {
+                NativeLog.Write(LogLevel.Error, $"Scripting: input action handlers could not be raised: {exception}");
+            }
+        }
+
         // Held by a GC handle the engine keeps until it frees it, which it does at once when no scene runs the script
         internal static ulong StartTask(ScriptTask task, TaskKind kind, TaskWait wait, float interval)
         {
@@ -379,7 +395,7 @@ namespace Trinity.Interop
             }
         }
 
-        // Every instance still held is freed and reported, since the context cannot be collected while one lives. Then collections are asked for until the context goes, and one that stays is reported with what still holds it
+        // Every instance still held is freed and reported, since the context cannot be collected while one lives, and every input action handler is removed for the same reason. Then collections are asked for until the context goes, and one that stays is reported with what still holds it
         private static bool Unload()
         {
             if (s_Context == null)
@@ -410,6 +426,7 @@ namespace Trinity.Interop
                 s_Tasks.Clear();
             }
 
+            InputEvents.Clear();
             s_Classes.Clear();
             ScriptRegistry.Take();
             s_AssemblyName = string.Empty;

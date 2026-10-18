@@ -37,6 +37,9 @@ namespace Trinity
         [[nodiscard]] virtual bool OnDestroy(void* instance) = 0;
         [[nodiscard]] virtual bool OnReloaded(void* instance) = 0;
         [[nodiscard]] virtual bool OnPhysicsEvent(void* instance, PhysicsEventType type, const ScriptCollision& collision) = 0;
+
+        // Once a frame, the handlers this language's scripts added to input actions. Nothing for a language whose scripts read their actions as they run
+        virtual void RaiseInputEvents() {}
     };
 
     // The C# backend, made and destroyed with the others, which has classes while a game assembly is loaded

@@ -683,9 +683,27 @@ namespace Trinity
         return InputAction(static_cast<std::uint32_t>(s_State->Slots.size() - 1), s_State->Session);
     }
 
+    // The session above the slot. Sessions count up from 1, so a handle of 0 is one never found
+    InputAction InputAction::FromHandle(std::uint64_t handle)
+    {
+        const std::uint32_t l_Session = static_cast<std::uint32_t>(handle >> 32);
+
+        return l_Session != 0 ? InputAction(static_cast<std::uint32_t>(handle), l_Session) : InputAction();
+    }
+
+    std::uint64_t InputAction::ToHandle() const
+    {
+        return m_Session != 0 ? (static_cast<std::uint64_t>(m_Session) << 32) | m_Slot : 0;
+    }
+
     bool InputAction::IsValid() const
     {
-        return IsRunning() && m_Session == s_State->Session && m_Slot < s_State->Slots.size() && s_State->Slots[m_Slot].Action != c_NoAction;
+        return IsCurrent() && s_State->Slots[m_Slot].Action != c_NoAction;
+    }
+
+    bool InputAction::IsCurrent() const
+    {
+        return IsRunning() && m_Session == s_State->Session && m_Slot < s_State->Slots.size();
     }
 
     bool InputAction::IsPressed(std::uint32_t player) const

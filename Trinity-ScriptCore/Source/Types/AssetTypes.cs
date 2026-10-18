@@ -56,4 +56,11 @@ namespace Trinity
 
         public static string AssetType => "Binary";
     }
+
+    public sealed class InputActionsAsset : IAsset
+    {
+        private InputActionsAsset() { }
+
+        public static string AssetType => "InputActions";
+    }
 }
