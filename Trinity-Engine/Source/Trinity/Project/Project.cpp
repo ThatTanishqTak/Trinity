@@ -356,6 +356,21 @@ namespace Trinity
             }
         }
 
+        // An asset that cannot be one is reported and left out, so the project opens with none
+        if (l_Format >= 7)
+        {
+            const YAML::Node l_Input = l_Root["Input"];
+            const std::string l_Actions = l_Input && l_Input.IsMap() ? ReadString(l_Input, "Actions", "") : std::string();
+            if (const std::optional<UUID> l_Asset = UUID::Parse(l_Actions))
+            {
+                l_Project->m_InputActions = *l_Asset;
+            }
+            else if (!l_Actions.empty())
+            {
+                TR_CORE_WARN("Project: {} names its input actions '{}', which is not an asset's UUID, so it opens with none", l_Project->m_Name, l_Actions);
+            }
+        }
+
         if (!l_Project->IsCurrentEngineVersion())
         {
             TR_CORE_WARN("Project: {} was made with Trinity {}, and this is Trinity {}. It is opened as it is", l_Project->m_Name, l_Project->m_EngineVersion.empty() ? "of an unknown version" : l_Project->m_EngineVersion, GetVersionString());
@@ -410,6 +425,9 @@ namespace Trinity
         l_Emitter << YAML::Key << "Scripting" << YAML::Value << YAML::BeginMap;
         l_Emitter << YAML::Key << "Module" << YAML::Value << YAML::DoubleQuoted << m_ModuleName;
         l_Emitter << YAML::Key << "Assembly" << YAML::Value << YAML::DoubleQuoted << m_AssemblyName;
+        l_Emitter << YAML::EndMap;
+        l_Emitter << YAML::Key << "Input" << YAML::Value << YAML::BeginMap;
+        l_Emitter << YAML::Key << "Actions" << YAML::Value << YAML::DoubleQuoted << (m_InputActions ? m_InputActions.ToString() : std::string());
         l_Emitter << YAML::EndMap;
         l_Emitter << YAML::EndMap;
 

@@ -529,6 +529,11 @@ namespace Trinity
             return "Material";
         }
 
+        if (l_Extension == ".trinput")
+        {
+            return "InputActions";
+        }
+
         constexpr std::array<std::string_view, 5> c_ModelExtensions{ ".gltf", ".glb", ".fbx", ".obj", ".dae" };
         if (std::ranges::find(c_ModelExtensions, l_Extension) != c_ModelExtensions.end())
         {

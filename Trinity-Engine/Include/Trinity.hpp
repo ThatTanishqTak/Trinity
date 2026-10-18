@@ -43,6 +43,8 @@
 
 #include "Trinity/Input/GamepadCodes.hpp"
 #include "Trinity/Input/Input.hpp"
+#include "Trinity/Input/InputActionData.hpp"
+#include "Trinity/Input/InputActions.hpp"
 #include "Trinity/Input/KeyCodes.hpp"
 #include "Trinity/Input/MouseCodes.hpp"
 

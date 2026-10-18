@@ -8,6 +8,7 @@
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Input/Input.hpp"
+#include "Trinity/Input/InputActionsRuntime.hpp"
 #include "Trinity/Project/Project.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
@@ -147,15 +148,17 @@ namespace Trinity
         }
     };
 
-    SceneManager::SceneManager(const PhysicsSettings& settings, const AssetRegistry* registry) : m_State(Memory::New<State>(MemoryTag::Scene))
+    // The actions' players last across every scene it switches to, as the scripts kept across scenes would expect
+    SceneManager::SceneManager(const PhysicsSettings& settings, const AssetRegistry* registry, UUID inputActions) : m_State(Memory::New<State>(MemoryTag::Scene))
     {
         m_State->Settings = settings;
         m_State->Registry = registry;
         m_State->Previous = s_Active;
         s_Active = this;
+        InputActionsRuntime::Start(inputActions);
     }
 
-    // The running scene's scripts have OnDestroy before the scene goes, and any rumble they leave stops with it
+    // The running scene's scripts have OnDestroy before the scene goes, and any rumble they leave stops with it, and so do its actions' players
     SceneManager::~SceneManager()
     {
         if (m_State->Pending)
@@ -166,6 +169,7 @@ namespace Trinity
 
         m_State->Runtime.reset();
         Input::StopGamepadRumble();
+        InputActionsRuntime::Stop();
         m_State->Current.reset();
         Release(m_State->Held);
         if (s_Active == this)

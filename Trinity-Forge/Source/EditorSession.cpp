@@ -1685,7 +1685,7 @@ void EditorSession::StartPlay()
     m_Paused = false;
     m_StepRequested = false;
     const std::size_t l_Entities = l_Copy->GetEntityCount();
-    m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get());
+    m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get(), m_Project->GetInputActions());
     m_Play->Run(std::move(l_Copy), GetSceneID());
     TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), l_Entities, l_Milliseconds);
 }
@@ -2170,6 +2170,20 @@ std::optional<std::string> EditorSession::DuplicateAsset(std::string_view path)
     ScanAssets();
 
     return l_Path;
+}
+
+// As Set as Start Scene does for a scene. Play reads it from its next start
+void EditorSession::SetDefaultInputActions(Trinity::UUID asset)
+{
+    const Trinity::AssetRecord* l_Record = m_Project ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::InputActionsAsset::c_AssetType)
+    {
+        return;
+    }
+
+    m_Project->SetInputActions(asset);
+    SaveProject();
+    TR_INFO("Forge: {} ({}) is now the default input actions of {}", l_Record->Path, asset, m_Project->GetName());
 }
 
 void EditorSession::RequestImportAsset(std::string folder)

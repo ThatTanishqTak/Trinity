@@ -13,6 +13,7 @@
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Input/Input.hpp"
+#include "Trinity/Input/InputActionsRuntime.hpp"
 #include "Trinity/Physics/CollisionShapeLoaders.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
 #include "Trinity/Scripting/DotNetHost.hpp"
@@ -554,6 +555,7 @@ namespace Trinity
         NativeComponents::Initialize();
         AssetManager::Initialize();
         CollisionShapeLoaders::Register();
+        InputActionsRuntime::Initialize();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
 
@@ -566,6 +568,7 @@ namespace Trinity
 
         l_Application.reset();
 
+        InputActionsRuntime::Shutdown();
         CollisionShapeLoaders::Unregister();
         AssetManager::Shutdown();
         NativeComponents::Shutdown();

@@ -29,6 +29,7 @@ namespace Trinity
         Physics,
         Scripting,
         Game,
+        Input,
 
         Count
     };

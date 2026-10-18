@@ -193,6 +193,8 @@ public:
     // Everything cooked from the file, or from every file in the folder, cooked again, since the importers forget what they cooked it from. Assets in use load again as their imports end. Refused, logged, while imports run
     bool ReimportAssets(std::string_view path);
     [[nodiscard]] bool IsImportingAssets() const { return IsImportRunning() || m_ImportAgain; }
+    // The project's default input actions, whose first map Play enables, saved with the project at once. Anything but an input actions asset is refused
+    void SetDefaultInputActions(Trinity::UUID asset);
 
     // Forge's settings for the person using it, saved once nothing is being dragged or typed into
     [[nodiscard]] const EditorPreferences& GetPreferences() const { return m_Preferences; }

@@ -19,8 +19,8 @@ namespace Trinity
     class TRINITY_API Project
     {
     public:
-        // Format 3 added the collision layers, which an older project opens without, every pair colliding, format 4 each world's gravity and the step rate, which an older project opens with their defaults, format 5 the C++ game module, and format 6 the C# assembly, which an older project has none of
-        static constexpr std::uint32_t c_FormatVersion = 6;
+        // Format 3 added the collision layers, which an older project opens without, every pair colliding, format 4 each world's gravity and the step rate, which an older project opens with their defaults, format 5 the C++ game module, format 6 the C# assembly, and format 7 the default input actions asset, which an older project has none of
+        static constexpr std::uint32_t c_FormatVersion = 7;
         static constexpr std::string_view c_Extension = ".trproj";
         static constexpr std::string_view c_ProjectMount = "/project";
         static constexpr std::string_view c_AssetsMount = "/assets";
@@ -62,6 +62,10 @@ namespace Trinity
 
         // A name a module's target, library and C++ identifiers can all take: a letter, then letters, digits and underscores, up to 64 of them. A C# assembly's name is one too, so it is a namespace as well
         [[nodiscard]] static bool IsValidModuleName(std::string_view name);
+
+        // The input actions asset Play's scene reads, or invalid for none. Saved with the project, which the caller does
+        [[nodiscard]] UUID GetInputActions() const { return m_InputActions; }
+        void SetInputActions(UUID asset) { m_InputActions = asset; }
         // The project's name made into one, with what it cannot hold left out, or Game when nothing is left
         [[nodiscard]] static std::string MakeModuleName(std::string_view projectName);
 
@@ -92,6 +96,7 @@ namespace Trinity
         PhysicsSettings m_Physics;
         std::string m_ModuleName;
         std::string m_AssemblyName;
+        UUID m_InputActions;
         bool m_Mounted = false;
     };
 }

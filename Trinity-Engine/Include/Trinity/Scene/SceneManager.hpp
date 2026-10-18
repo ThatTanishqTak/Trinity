@@ -28,8 +28,8 @@ namespace Trinity
             std::uint32_t Waiting = 0;
         };
 
-        // The physics a scene runs with, and the registry scene assets are found in, which must outlive the manager. Without one only a scene given to Run runs
-        explicit SceneManager(const PhysicsSettings& settings = {}, const AssetRegistry* registry = nullptr);
+        // The physics a scene runs with, the registry scene assets are found in, which must outlive the manager, and the input actions asset its scenes' InputActions read, the project's default in Forge's Play. Without a registry only a scene given to Run runs, and without an actions asset every action reads as released
+        explicit SceneManager(const PhysicsSettings& settings = {}, const AssetRegistry* registry = nullptr, UUID inputActions = {});
         ~SceneManager();
 
         SceneManager(const SceneManager&) = delete;

@@ -683,6 +683,15 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
         m_FindReferences(GetReferenceSearch(item->Path));
     }
 
+    // Ticked for the one the project has, as Unity ticks the default Input Actions in Project Settings
+    const bool l_Actions = item != nullptr && item->Record != nullptr && item->Record->Importer == Trinity::InputActionsAsset::c_AssetType;
+    const Trinity::Project* l_Project = m_Session.GetProject();
+    const bool l_Default = l_Actions && l_Project != nullptr && l_Project->GetInputActions() == item->Record->ID;
+    if (ImGui::MenuItem(std::format("{} Set as Default Input Actions", Trinity::Icons::c_Gear).c_str(), nullptr, l_Default, l_Actions && !l_Default))
+    {
+        m_Session.SetDefaultInputActions(item->Record->ID);
+    }
+
     ImGui::Separator();
     if (ImGui::MenuItem(std::format("{} Refresh", Trinity::Icons::c_Refresh).c_str(), "F5"))
     {
