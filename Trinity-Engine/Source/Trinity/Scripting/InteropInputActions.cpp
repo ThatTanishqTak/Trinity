@@ -11,7 +11,7 @@ namespace Trinity::Interop
     {
         // C# writes its InputDevice out by hand, so a change to these numbers is one to make there too
         static_assert(std::to_underlying(InputDevice::KeyboardMouse) == 0 && std::to_underlying(InputDevice::Gamepad0) == 1 && std::to_underlying(InputDevice::Gamepad7) == 8 && std::to_underlying(InputDevice::None) == 0xFF, "Trinity.InputDevice must number the devices as InputDevice does");
-        static_assert(InputActions::c_MaxPlayers <= 8u, "An action's edges have 8 bits for the players it went down for, then 8 for those it went up for");
+        static_assert(InputActions::c_MaxPlayers <= 8u, "An action's edges have a byte of players for each of its four edges");
 
         // A player C# gives below 0 is none, and one above the last is one there is not
         [[nodiscard]] std::uint32_t ToPlayer(Int32 player)
@@ -56,6 +56,21 @@ namespace Trinity::Interop
         return InputAction::FromHandle(action).WasReleased(ToPlayer(player));
     }
 
+    Bool InputAction_WasPerformed(UInt64 action, Int32 player)
+    {
+        return InputAction::FromHandle(action).WasPerformed(ToPlayer(player));
+    }
+
+    Bool InputAction_WasCanceled(UInt64 action, Int32 player)
+    {
+        return InputAction::FromHandle(action).WasCanceled(ToPlayer(player));
+    }
+
+    Float InputAction_ReadProgress(UInt64 action, Int32 player)
+    {
+        return InputAction::FromHandle(action).ReadProgress(ToPlayer(player));
+    }
+
     Float InputAction_ReadValue(UInt64 action, Int32 player)
     {
         return InputAction::FromHandle(action).ReadValue(ToPlayer(player));
@@ -67,7 +82,7 @@ namespace Trinity::Interop
     }
 
     // As C# raises its events, outside any fixed step, so these are the frame's
-    Int32 InputAction_GetEdges(UInt64 action)
+    Int64 InputAction_GetEdges(UInt64 action)
     {
         const InputAction l_Action = InputAction::FromHandle(action);
         if (!l_Action.IsCurrent())
@@ -75,11 +90,13 @@ namespace Trinity::Interop
             return -1;
         }
 
-        Int32 l_Edges = 0;
+        Int64 l_Edges = 0;
         for (std::uint32_t it_Player = 0; it_Player < InputActions::c_MaxPlayers; ++it_Player)
         {
-            l_Edges |= l_Action.WasPressed(it_Player) ? Int32{ 1 } << it_Player : 0;
-            l_Edges |= l_Action.WasReleased(it_Player) ? Int32{ 1 } << (it_Player + 8) : 0;
+            l_Edges |= l_Action.WasPressed(it_Player) ? Int64{ 1 } << it_Player : 0;
+            l_Edges |= l_Action.WasReleased(it_Player) ? Int64{ 1 } << (it_Player + 8) : 0;
+            l_Edges |= l_Action.WasPerformed(it_Player) ? Int64{ 1 } << (it_Player + 16) : 0;
+            l_Edges |= l_Action.WasCanceled(it_Player) ? Int64{ 1 } << (it_Player + 24) : 0;
         }
 
         return l_Edges;

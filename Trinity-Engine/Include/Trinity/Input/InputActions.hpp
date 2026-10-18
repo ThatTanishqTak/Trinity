@@ -48,6 +48,11 @@ namespace Trinity
         [[nodiscard]] bool IsPressed(std::uint32_t player = 0) const;
         [[nodiscard]] bool WasPressed(std::uint32_t player = 0) const;
         [[nodiscard]] bool WasReleased(std::uint32_t player = 0) const;
+        // Its interaction completing, and failing once begun, read as WasPressed is. One with no interaction performs as it is pressed and never cancels
+        [[nodiscard]] bool WasPerformed(std::uint32_t player = 0) const;
+        [[nodiscard]] bool WasCanceled(std::uint32_t player = 0) const;
+        // How far its interaction has come, from 0 to 1: a Hold's time held over its Duration, staying 1 once it performs until it is released, a MultiTap's taps done over its Count, and 1 in the frame a Tap or MultiTap performs. One with no interaction is 1 while pressed
+        [[nodiscard]] float ReadProgress(std::uint32_t player = 0) const;
         // A Button's strength from 0 to 1, an Axis from -1 to 1, and a Vector2's length
         [[nodiscard]] float ReadValue(std::uint32_t player = 0) const;
         // A Vector2's X and Y, and a Button's or an Axis's value as X, with Y 0

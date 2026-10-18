@@ -92,10 +92,31 @@ namespace Trinity
         [[nodiscard]] bool operator==(const InputBinding&) const = default;
     };
 
+    // How an action's presses make it perform, each press being the action going past the press point and back below it. None performs as it is pressed and never cancels. Hold performs once it has been held for Duration, and cancels when released before. Tap performs as it is released within Duration of going down, and cancels once held longer. MultiTap performs as the last of Count taps is released, each a Tap of Duration and each going down within Spacing of the one before going up, and cancels when a tap is held too long or the next comes too late
+    enum class InputInteractionKind : std::uint8_t
+    {
+        None,
+        Hold,
+        Tap,
+        MultiTap
+    };
+
+    // Each kind reads only its own fields: Duration for Hold and Tap, and Count, Duration and Spacing for MultiTap, in seconds of the running scene's frames, so a hold waits while the scene is paused. GetDefaultInteraction gives each kind's
+    struct InputInteraction
+    {
+        InputInteractionKind Kind = InputInteractionKind::None;
+        float Duration = 0.0f;
+        float Spacing = 0.0f;
+        std::uint32_t Count = 0;
+
+        [[nodiscard]] bool operator==(const InputInteraction&) const = default;
+    };
+
     struct InputActionDefinition
     {
         InputName Name;
         InputActionType Type = InputActionType::Button;
+        InputInteraction Interaction;
         InputVector<InputBinding> Bindings;
 
         [[nodiscard]] bool operator==(const InputActionDefinition&) const = default;
@@ -109,10 +130,10 @@ namespace Trinity
         [[nodiscard]] bool operator==(const InputActionMap&) const = default;
     };
 
-    // What a .trinput file holds: maps, each with its actions, each named uniquely within its map. A name has no '/', which a path such as Gameplay/Jump puts between a map and its action
+    // What a .trinput file holds: maps, each with its actions, each named uniquely within its map. A name has no '/', which a path such as Gameplay/Jump puts between a map and its action. Format 2 gave actions their interactions, and a file of format 1 reads as one with none
     struct InputActionsData
     {
-        static constexpr std::uint32_t c_FormatVersion = 1;
+        static constexpr std::uint32_t c_FormatVersion = 2;
         static constexpr std::string_view c_Extension = ".trinput";
         static constexpr char c_PathSeparator = '/';
 
@@ -154,9 +175,9 @@ namespace Trinity
         [[nodiscard]] Expected<Asset*, std::string> Load(std::span<const std::byte> data) const override;
     };
 
-    // YAML, with each binding's empty parts and its processors' unused fields left out
+    // YAML, with each binding's empty parts, its processors' unused fields, an action with no interaction's Interaction and an interaction's unused fields left out
     [[nodiscard]] TRINITY_API std::string WriteInputActions(const InputActionsData& data);
-    // A key that is missing keeps its default. A malformed one, a source or kind this build does not know, a name with '/' or one used twice, or a newer format, refuses the file
+    // A key that is missing keeps its default, and an interaction's its kind's. A malformed one, a source or kind this build does not know, a name with '/' or one used twice, an interaction's time that is not above 0, a MultiTap of fewer than 2 taps, or a newer format, refuses the file
     [[nodiscard]] TRINITY_API Expected<InputActionsData, std::string> ParseInputActions(std::string_view text);
 
     // As a file names it, such as Keyboard/Space, Mouse/Left, Mouse/Delta, Mouse/ScrollY, Gamepad/A, Gamepad/LeftStickPress, Gamepad/LeftStick or Gamepad/LeftTrigger, and empty for none. Keys are named as C# names them
@@ -169,6 +190,11 @@ namespace Trinity
     [[nodiscard]] TRINITY_API std::optional<InputCompositeKind> ParseInputCompositeKind(std::string_view text);
     [[nodiscard]] TRINITY_API std::string_view ToString(InputProcessorKind kind);
     [[nodiscard]] TRINITY_API std::optional<InputProcessorKind> ParseInputProcessorKind(std::string_view text);
+    [[nodiscard]] TRINITY_API std::string_view ToString(InputInteractionKind kind);
+    [[nodiscard]] TRINITY_API std::optional<InputInteractionKind> ParseInputInteractionKind(std::string_view text);
+
+    // The kind with its own defaults: held for 0.4 seconds, a tap of up to 0.2 seconds, and 2 such taps up to 0.75 seconds apart, and its unused fields 0
+    [[nodiscard]] TRINITY_API InputInteraction GetDefaultInteraction(InputInteractionKind kind);
 
     // A composite's parts as a file names them, Negative and Positive, or Up, Down, Left and Right, and none for a single source
     [[nodiscard]] TRINITY_API std::span<const std::string_view> GetCompositeParts(InputCompositeKind kind);

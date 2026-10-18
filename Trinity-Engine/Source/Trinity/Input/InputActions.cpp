@@ -45,7 +45,17 @@ namespace Trinity
             bool Enable = true;
         };
 
-        // One player's reading of one action: its value, whether it is held, whether it went down or up this frame, and the same since the last fixed step
+        // Where an interaction is: waiting for a press, Down in a press that can still perform, Between a MultiTap's taps, Done with a Hold that performed until it is released, or Failed in a press held too long to be a tap until it is released
+        enum class InteractionPhase : std::uint8_t
+        {
+            Idle,
+            Down,
+            Between,
+            Done,
+            Failed
+        };
+
+        // One player's reading of one action: its value, whether it is held, whether it went down or up this frame, and the same since the last fixed step. Then its interaction's: where it is, the time it has been in that phase, the taps done, its progress, and whether it performed or canceled this frame and since the last fixed step
         struct ActionState
         {
             glm::vec2 Value{ 0.0f };
@@ -54,6 +64,14 @@ namespace Trinity
             bool Released = false;
             bool FixedPressed = false;
             bool FixedReleased = false;
+            InteractionPhase Phase = InteractionPhase::Idle;
+            float Elapsed = 0.0f;
+            std::uint32_t Taps = 0;
+            float Progress = 0.0f;
+            bool Performed = false;
+            bool Canceled = false;
+            bool FixedPerformed = false;
+            bool FixedCanceled = false;
         };
 
         // The maps a player enabled, by name so they outlive a reload, and by index into the asset now. A new player has the first map enabled once the asset is there, then the changes asked for until it was
@@ -361,8 +379,130 @@ namespace Trinity
             return glm::vec2(0.0f);
         }
 
-        // Of several bindings the strongest wins, the first among equals. An action is pressed as it goes from below the press point to it, and also when a key or button of it went down this frame and came up again before it ended
-        void Evaluate(const InputActionDefinition& action, bool enabled, std::uint32_t mask, ActionState& state)
+        // The interaction's part of the frame, once its press is read. Time counts only across a frame the action stayed down, or stayed up between taps, so a press or a release is taken as at the frame's start and a tap is never judged longer than it was
+        void Interact(const InputInteraction& interaction, float seconds, ActionState& state)
+        {
+            state.Performed = false;
+            state.Canceled = false;
+            switch (interaction.Kind)
+            {
+                case InputInteractionKind::None:
+                {
+                    state.Performed = state.Pressed;
+                    state.Progress = state.Held ? 1.0f : 0.0f;
+
+                    break;
+                }
+                case InputInteractionKind::Hold:
+                {
+                    if (state.Pressed)
+                    {
+                        state.Phase = InteractionPhase::Down;
+                        state.Elapsed = 0.0f;
+                    }
+                    else if (state.Phase == InteractionPhase::Down && state.Held)
+                    {
+                        state.Elapsed += seconds;
+                    }
+
+                    if (state.Phase == InteractionPhase::Down && state.Held && state.Elapsed >= interaction.Duration)
+                    {
+                        state.Performed = true;
+                        state.Phase = InteractionPhase::Done;
+                    }
+                    else if (!state.Held)
+                    {
+                        state.Canceled = state.Phase == InteractionPhase::Down;
+                        state.Phase = InteractionPhase::Idle;
+                    }
+
+                    state.Progress = state.Phase == InteractionPhase::Done ? 1.0f : state.Phase == InteractionPhase::Down ? std::min(state.Elapsed / interaction.Duration, 1.0f) : 0.0f;
+
+                    break;
+                }
+                case InputInteractionKind::Tap:
+                {
+                    if (state.Pressed)
+                    {
+                        state.Phase = InteractionPhase::Down;
+                        state.Elapsed = 0.0f;
+                    }
+                    else if (state.Phase == InteractionPhase::Down && state.Held)
+                    {
+                        state.Elapsed += seconds;
+                    }
+
+                    if (state.Phase == InteractionPhase::Down && state.Held && state.Elapsed > interaction.Duration)
+                    {
+                        state.Canceled = true;
+                        state.Phase = InteractionPhase::Failed;
+                    }
+                    else if (!state.Held)
+                    {
+                        state.Performed = state.Phase == InteractionPhase::Down;
+                        state.Phase = InteractionPhase::Idle;
+                    }
+
+                    state.Progress = state.Performed ? 1.0f : 0.0f;
+
+                    break;
+                }
+                case InputInteractionKind::MultiTap:
+                {
+                    if (state.Phase == InteractionPhase::Between && !state.Pressed)
+                    {
+                        state.Elapsed += seconds;
+                        if (state.Elapsed > interaction.Spacing)
+                        {
+                            state.Canceled = true;
+                            state.Phase = InteractionPhase::Idle;
+                            state.Taps = 0;
+                        }
+                    }
+
+                    if (state.Pressed)
+                    {
+                        state.Taps = state.Phase == InteractionPhase::Between ? state.Taps : 0;
+                        state.Phase = InteractionPhase::Down;
+                        state.Elapsed = 0.0f;
+                    }
+                    else if (state.Phase == InteractionPhase::Down && state.Held)
+                    {
+                        state.Elapsed += seconds;
+                        if (state.Elapsed > interaction.Duration)
+                        {
+                            state.Canceled = true;
+                            state.Phase = InteractionPhase::Failed;
+                            state.Taps = 0;
+                        }
+                    }
+
+                    if (!state.Held && state.Phase == InteractionPhase::Down)
+                    {
+                        ++state.Taps;
+                        state.Performed = state.Taps >= interaction.Count;
+                        state.Phase = state.Performed ? InteractionPhase::Idle : InteractionPhase::Between;
+                        state.Elapsed = 0.0f;
+                    }
+                    else if (!state.Held && state.Phase == InteractionPhase::Failed)
+                    {
+                        state.Phase = InteractionPhase::Idle;
+                    }
+
+                    const bool l_Running = state.Phase == InteractionPhase::Down || state.Phase == InteractionPhase::Between;
+                    state.Progress = state.Performed ? 1.0f : l_Running ? static_cast<float>(state.Taps) / static_cast<float>(interaction.Count) : 0.0f;
+                    state.Taps = state.Performed ? 0 : state.Taps;
+
+                    break;
+                }
+            }
+
+            state.FixedPerformed = state.FixedPerformed || state.Performed;
+            state.FixedCanceled = state.FixedCanceled || state.Canceled;
+        }
+
+        // Of several bindings the strongest wins, the first among equals. An action is pressed as it goes from below the press point to it, and also when a key or button of it went down this frame and came up again before it ended. Its interaction follows, over the frame's seconds
+        void Evaluate(const InputActionDefinition& action, bool enabled, std::uint32_t mask, float seconds, ActionState& state)
         {
             glm::vec2 l_Value(0.0f);
             float l_Magnitude = 0.0f;
@@ -390,6 +530,7 @@ namespace Trinity
             state.Released = (l_WasHeld || state.Pressed) && !state.Held;
             state.FixedPressed = state.FixedPressed || state.Pressed;
             state.FixedReleased = state.FixedReleased || state.Released;
+            Interact(action.Interaction, seconds, state);
         }
 
         [[nodiscard]] std::uint32_t FindMap(const InputActionsData& data, std::string_view name)
@@ -727,6 +868,27 @@ namespace Trinity
         return l_State != nullptr && (s_State->InFixedStep ? l_State->FixedReleased : l_State->Released);
     }
 
+    bool InputAction::WasPerformed(std::uint32_t player) const
+    {
+        const ActionState* l_State = FindState(m_Slot, m_Session, player);
+
+        return l_State != nullptr && (s_State->InFixedStep ? l_State->FixedPerformed : l_State->Performed);
+    }
+
+    bool InputAction::WasCanceled(std::uint32_t player) const
+    {
+        const ActionState* l_State = FindState(m_Slot, m_Session, player);
+
+        return l_State != nullptr && (s_State->InFixedStep ? l_State->FixedCanceled : l_State->Canceled);
+    }
+
+    float InputAction::ReadProgress(std::uint32_t player) const
+    {
+        const ActionState* l_State = FindState(m_Slot, m_Session, player);
+
+        return l_State != nullptr ? l_State->Progress : 0.0f;
+    }
+
     float InputAction::ReadValue(std::uint32_t player) const
     {
         const ActionState* l_State = FindState(m_Slot, m_Session, player);
@@ -965,13 +1127,15 @@ namespace Trinity
             ResetPlayers();
         }
 
-        void Update()
+        void Update(Timestep timestep)
         {
             const InputActionsData* l_Data = Sync();
             if (l_Data == nullptr)
             {
                 return;
             }
+
+            const float l_Seconds = timestep.GetSeconds();
 
             for (std::uint32_t it_Player = 0; it_Player < InputActions::c_MaxPlayers; ++it_Player)
             {
@@ -985,7 +1149,7 @@ namespace Trinity
                 for (std::size_t it_Action = 0; it_Action < s_State->Locations.size(); ++it_Action)
                 {
                     const ActionLocation& l_Location = s_State->Locations[it_Action];
-                    Evaluate(l_Data->Maps[l_Location.Map].Actions[l_Location.Action], l_Player.EnabledMaps[l_Location.Map] != 0, l_Mask, l_Player.Actions[it_Action]);
+                    Evaluate(l_Data->Maps[l_Location.Map].Actions[l_Location.Action], l_Player.EnabledMaps[l_Location.Map] != 0, l_Mask, l_Seconds, l_Player.Actions[it_Action]);
                 }
             }
         }
@@ -1012,6 +1176,8 @@ namespace Trinity
                 {
                     it_Action.FixedPressed = false;
                     it_Action.FixedReleased = false;
+                    it_Action.FixedPerformed = false;
+                    it_Action.FixedCanceled = false;
                 }
             }
         }

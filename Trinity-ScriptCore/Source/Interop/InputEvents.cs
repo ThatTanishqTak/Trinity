@@ -2,26 +2,55 @@ using System;
 
 namespace Trinity.Interop
 {
-    // The Pressed and Released handlers scripts add to input actions, raised once a frame as the engine asks through ScriptHost. Each action's handlers are in arrays made again only as one is added or removed, so raising them allocates nothing, and a handler may add or remove handlers while they are raised. An action the running scene did not find has its handlers dropped, so those of a scene that stopped go as the next one runs. Main thread only
+    // An action's events, numbered as their bytes in InputAction_GetEdges are, in the order a player's are raised in one frame
+    internal enum InputEdge
+    {
+        Pressed,
+        Released,
+        Performed,
+        Canceled
+    }
+
+    // The handlers scripts add to input actions' events, raised once a frame as the engine asks through ScriptHost. Each action's handlers are in arrays made again only as one is added or removed, so raising them allocates nothing, and a handler may add or remove handlers while they are raised. An action the running scene did not find has its handlers dropped, so those of a scene that stopped go as the next one runs. Main thread only
     internal static class InputEvents
     {
+        private const int c_EdgeCount = 4;
+
         private sealed class Subscription
         {
             public Subscription(InputAction action)
             {
                 Action = action;
+                for (int it_Edge = 0; it_Edge < c_EdgeCount; ++it_Edge)
+                {
+                    Handlers[it_Edge] = Array.Empty<Action<InputActionEvent>>();
+                }
             }
 
             public InputAction Action { get; }
-            public Action<InputActionEvent>[] Pressed = Array.Empty<Action<InputActionEvent>>();
-            public Action<InputActionEvent>[] Released = Array.Empty<Action<InputActionEvent>>();
+            // By InputEdge
+            public readonly Action<InputActionEvent>[][] Handlers = new Action<InputActionEvent>[c_EdgeCount][];
 
-            public bool IsEmpty => Pressed.Length == 0 && Released.Length == 0;
+            public bool IsEmpty
+            {
+                get
+                {
+                    foreach (Action<InputActionEvent>[] it_Handlers in Handlers)
+                    {
+                        if (it_Handlers.Length != 0)
+                        {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                }
+            }
         }
 
         private static Subscription[] s_Subscriptions = Array.Empty<Subscription>();
 
-        public static void Add(InputAction action, bool released, Action<InputActionEvent>? handler)
+        public static void Add(InputAction action, InputEdge edge, Action<InputActionEvent>? handler)
         {
             if (action.Handle == 0)
             {
@@ -40,12 +69,12 @@ namespace Trinity.Interop
                 s_Subscriptions = Append(s_Subscriptions, l_Subscription);
             }
 
-            ref Action<InputActionEvent>[] l_Handlers = ref released ? ref l_Subscription.Released : ref l_Subscription.Pressed;
+            ref Action<InputActionEvent>[] l_Handlers = ref l_Subscription.Handlers[(int)edge];
             l_Handlers = Append(l_Handlers, handler);
         }
 
         // The last added that is equal to it, as removing from an event does
-        public static void Remove(InputAction action, bool released, Action<InputActionEvent>? handler)
+        public static void Remove(InputAction action, InputEdge edge, Action<InputActionEvent>? handler)
         {
             Subscription? l_Subscription = handler != null ? Find(action) : null;
             if (l_Subscription == null)
@@ -53,7 +82,7 @@ namespace Trinity.Interop
                 return;
             }
 
-            ref Action<InputActionEvent>[] l_Handlers = ref released ? ref l_Subscription.Released : ref l_Subscription.Pressed;
+            ref Action<InputActionEvent>[] l_Handlers = ref l_Subscription.Handlers[(int)edge];
             int l_Index = Array.LastIndexOf(l_Handlers, handler);
             if (l_Index < 0)
             {
@@ -72,8 +101,11 @@ namespace Trinity.Interop
         {
             foreach (Subscription it_Subscription in s_Subscriptions)
             {
-                it_Subscription.Pressed = RemoveTarget(it_Subscription.Pressed, target);
-                it_Subscription.Released = RemoveTarget(it_Subscription.Released, target);
+                for (int it_Edge = 0; it_Edge < c_EdgeCount; ++it_Edge)
+                {
+                    it_Subscription.Handlers[it_Edge] = RemoveTarget(it_Subscription.Handlers[it_Edge], target);
+                }
+
                 if (it_Subscription.IsEmpty)
                 {
                     Drop(it_Subscription);
@@ -87,12 +119,12 @@ namespace Trinity.Interop
             s_Subscriptions = Array.Empty<Subscription>();
         }
 
-        // For each action, each player it went down or up for, Pressed and then Released
+        // For each action, each player it had an edge for, its events in InputEdge's order
         public static void Raise()
         {
             foreach (Subscription it_Subscription in s_Subscriptions)
             {
-                int l_Edges = Native.InputAction_GetEdges(it_Subscription.Action.Handle);
+                long l_Edges = Native.InputAction_GetEdges(it_Subscription.Action.Handle);
                 if (l_Edges < 0)
                 {
                     Drop(it_Subscription);
@@ -100,33 +132,30 @@ namespace Trinity.Interop
                     continue;
                 }
 
-                int l_Players = (l_Edges | (l_Edges >> 8)) & 0xFF;
+                uint l_Bits = (uint)l_Edges;
+                uint l_Players = (l_Bits | (l_Bits >> 8) | (l_Bits >> 16) | (l_Bits >> 24)) & 0xFF;
                 for (int it_Player = 0; (l_Players >> it_Player) != 0; ++it_Player)
                 {
-                    if ((l_Players & (1 << it_Player)) == 0)
+                    if ((l_Players & (1u << it_Player)) == 0)
                     {
                         continue;
                     }
 
-                    bool l_Pressed = (l_Edges & (1 << it_Player)) != 0;
-                    bool l_Released = (l_Edges & (1 << (it_Player + 8))) != 0;
                     InputActionEvent l_Event = new(it_Subscription.Action, it_Player, it_Subscription.Action.ReadValue(it_Player));
-                    if (l_Pressed)
+                    for (int it_Edge = 0; it_Edge < c_EdgeCount; ++it_Edge)
                     {
-                        Invoke(it_Subscription, false, l_Event);
-                    }
-
-                    if (l_Released)
-                    {
-                        Invoke(it_Subscription, true, l_Event);
+                        if ((l_Bits & (1u << (it_Edge * 8 + it_Player))) != 0)
+                        {
+                            Invoke(it_Subscription, (InputEdge)it_Edge, l_Event);
+                        }
                     }
                 }
             }
         }
 
-        private static void Invoke(Subscription subscription, bool released, InputActionEvent inputEvent)
+        private static void Invoke(Subscription subscription, InputEdge edge, InputActionEvent inputEvent)
         {
-            foreach (Action<InputActionEvent> it_Handler in released ? subscription.Released : subscription.Pressed)
+            foreach (Action<InputActionEvent> it_Handler in subscription.Handlers[(int)edge])
             {
                 try
                 {
@@ -135,11 +164,11 @@ namespace Trinity.Interop
                 catch (Exception exception)
                 {
                     // A script a game made itself has no class the engine knows, so its type names it
-                    string l_Handler = $"{(released ? "Released" : "Pressed")} handler {it_Handler.Method.Name} of input action '{subscription.Action.Path}'";
+                    string l_Handler = $"{edge} handler {it_Handler.Method.Name} of input action '{subscription.Action.Path}'";
                     NativeLog.Write(LogLevel.Error, it_Handler.Target is Script l_Script
                         ? $"Scripting: {l_Script.Class?.Name ?? l_Script.GetType().Name} on entity {l_Script.Entity} threw in its {l_Handler}, which is removed while play goes on: {exception}"
                         : $"Scripting: the {l_Handler} threw, and is removed while play goes on: {exception}");
-                    Remove(subscription.Action, released, it_Handler);
+                    Remove(subscription.Action, edge, it_Handler);
                 }
             }
         }

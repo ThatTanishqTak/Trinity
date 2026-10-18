@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <atomic>
 #include <charconv>
+#include <cmath>
 #include <format>
 #include <utility>
 
@@ -129,6 +130,41 @@ namespace Trinity
             }
         }
 
+        void WriteInteraction(ComponentWriter& writer, const InputInteraction& interaction)
+        {
+            if (interaction.Kind == InputInteractionKind::None)
+            {
+                return;
+            }
+
+            writer.BeginMap("Interaction");
+            writer.Write("Kind", ToString(interaction.Kind));
+            switch (interaction.Kind)
+            {
+                case InputInteractionKind::None:
+                {
+                    break;
+                }
+                case InputInteractionKind::Hold:
+                case InputInteractionKind::Tap:
+                {
+                    writer.Write("Duration", interaction.Duration);
+
+                    break;
+                }
+                case InputInteractionKind::MultiTap:
+                {
+                    writer.Write("Count", interaction.Count);
+                    writer.Write("Duration", interaction.Duration);
+                    writer.Write("Spacing", interaction.Spacing);
+
+                    break;
+                }
+            }
+
+            writer.End();
+        }
+
         // Where a part of the file lies, for its error
         std::string Describe(std::string_view map, std::string_view action)
         {
@@ -204,6 +240,75 @@ namespace Trinity
             }
 
             return l_Malformed.empty() ? std::string() : std::format("a {} processor's {} is malformed", l_Kind, l_Malformed);
+        }
+
+        // Above 0 and finite, which a stray minus or a nan is not
+        bool IsValidTime(float seconds)
+        {
+            return seconds > 0.0f && std::isfinite(seconds);
+        }
+
+        std::string ReadInteraction(const YAML::Node& node, InputInteraction& interaction)
+        {
+            if (!node.IsMap())
+            {
+                return "Interaction is not a map";
+            }
+
+            std::string l_Kind;
+            std::string l_Malformed;
+            CookedText::ReadString(node, "Kind", l_Kind, l_Malformed);
+            const std::optional<InputInteractionKind> l_Parsed = ParseInputInteractionKind(l_Kind);
+            if (!l_Malformed.empty() || !l_Parsed)
+            {
+                return std::format("Interaction's Kind '{}' is not one this build knows", l_Kind);
+            }
+
+            interaction = GetDefaultInteraction(*l_Parsed);
+            switch (interaction.Kind)
+            {
+                case InputInteractionKind::None:
+                {
+                    break;
+                }
+                case InputInteractionKind::Hold:
+                case InputInteractionKind::Tap:
+                {
+                    CookedText::ReadNumber(node, "Duration", interaction.Duration, l_Malformed);
+
+                    break;
+                }
+                case InputInteractionKind::MultiTap:
+                {
+                    CookedText::ReadNumber(node, "Count", interaction.Count, l_Malformed);
+                    CookedText::ReadNumber(node, "Duration", interaction.Duration, l_Malformed);
+                    CookedText::ReadNumber(node, "Spacing", interaction.Spacing, l_Malformed);
+
+                    break;
+                }
+            }
+
+            if (!l_Malformed.empty())
+            {
+                return std::format("a {} interaction's {} is malformed", l_Kind, l_Malformed);
+            }
+
+            if (interaction.Kind != InputInteractionKind::None && !IsValidTime(interaction.Duration))
+            {
+                return std::format("a {} interaction's Duration is {}, and needs to be above 0 seconds", l_Kind, interaction.Duration);
+            }
+
+            if (interaction.Kind == InputInteractionKind::MultiTap && !IsValidTime(interaction.Spacing))
+            {
+                return std::format("a MultiTap interaction's Spacing is {}, and needs to be above 0 seconds", interaction.Spacing);
+            }
+
+            if (interaction.Kind == InputInteractionKind::MultiTap && interaction.Count < 2)
+            {
+                return std::format("a MultiTap interaction's Count is {}, and needs to be at least 2 taps", interaction.Count);
+            }
+
+            return {};
         }
 
         std::string ReadBinding(const YAML::Node& node, InputBinding& binding)
@@ -319,6 +424,14 @@ namespace Trinity
             }
 
             action.Type = *l_Parsed;
+            if (const YAML::Node l_Interaction = node["Interaction"]; l_Interaction)
+            {
+                if (std::string l_Error = ReadInteraction(l_Interaction, action.Interaction); !l_Error.empty())
+                {
+                    return std::format("{}: {}", Describe(map.Name, action.Name), l_Error);
+                }
+            }
+
             const std::optional<YAML::Node> l_Bindings = GetList(node, "Bindings");
             if (!l_Bindings)
             {
@@ -395,6 +508,7 @@ namespace Trinity
                 l_Writer.BeginItem();
                 l_Writer.Write("Name", std::string_view(it_Action.Name));
                 l_Writer.Write("Type", ToString(it_Action.Type));
+                WriteInteraction(l_Writer, it_Action.Interaction);
                 l_Writer.BeginList("Bindings");
                 for (const InputBinding& it_Binding : it_Action.Bindings)
                 {
@@ -689,6 +803,80 @@ namespace Trinity
         }
 
         return std::nullopt;
+    }
+
+    std::string_view ToString(InputInteractionKind kind)
+    {
+        switch (kind)
+        {
+            case InputInteractionKind::None:
+            {
+                return "None";
+            }
+            case InputInteractionKind::Hold:
+            {
+                return "Hold";
+            }
+            case InputInteractionKind::Tap:
+            {
+                return "Tap";
+            }
+            case InputInteractionKind::MultiTap:
+            {
+                return "MultiTap";
+            }
+        }
+
+        return "Unknown";
+    }
+
+    std::optional<InputInteractionKind> ParseInputInteractionKind(std::string_view text)
+    {
+        for (const InputInteractionKind it_Kind : { InputInteractionKind::None, InputInteractionKind::Hold, InputInteractionKind::Tap, InputInteractionKind::MultiTap })
+        {
+            if (ToString(it_Kind) == text)
+            {
+                return it_Kind;
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    // As Unity's Input System has them
+    InputInteraction GetDefaultInteraction(InputInteractionKind kind)
+    {
+        InputInteraction l_Interaction;
+        l_Interaction.Kind = kind;
+        switch (kind)
+        {
+            case InputInteractionKind::None:
+            {
+                break;
+            }
+            case InputInteractionKind::Hold:
+            {
+                l_Interaction.Duration = 0.4f;
+
+                break;
+            }
+            case InputInteractionKind::Tap:
+            {
+                l_Interaction.Duration = 0.2f;
+
+                break;
+            }
+            case InputInteractionKind::MultiTap:
+            {
+                l_Interaction.Count = 2;
+                l_Interaction.Duration = 0.2f;
+                l_Interaction.Spacing = 0.75f;
+
+                break;
+            }
+        }
+
+        return l_Interaction;
     }
 
     std::span<const std::string_view> GetCompositeParts(InputCompositeKind kind)

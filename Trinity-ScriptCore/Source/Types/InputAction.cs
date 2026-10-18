@@ -3,7 +3,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // An action of the running scene's actions asset, as the engine's InputAction is: found once by its path, Map/Action, or by its name alone while only one map has it, as OnCreate does, and read each frame for nothing. One found before the asset is ready, or for an action it lacks, reads as released and 0 until the asset has it, as after a reload, and one found while no scene runs reads nothing. In OnFixedUpdate, WasPressed and WasReleased are what happened since the step before, so each press is seen by exactly one fixed step whatever the frame rate. Elsewhere they are this frame's. Each read is for a player, player 0 when none is named. Two are equal when found by the same path in the same run of a scene. Main thread only
+    // An action of the running scene's actions asset, as the engine's InputAction is: found once by its path, Map/Action, or by its name alone while only one map has it, as OnCreate does, and read each frame for nothing. One found before the asset is ready, or for an action it lacks, reads as released and 0 until the asset has it, as after a reload, and one found while no scene runs reads nothing. Pressed and released are the action going past the press point and back, and performed and canceled are its interaction's, such as a Hold, which the asset gives it. In OnFixedUpdate, WasPressed, WasReleased, WasPerformed and WasCanceled are what happened since the step before, so each is seen by exactly one fixed step whatever the frame rate. Elsewhere they are this frame's. Each read is for a player, player 0 when none is named. Two are equal when found by the same path in the same run of a scene. Main thread only
     public readonly struct InputAction : IEquatable<InputAction>
     {
         private readonly string? m_Path;
@@ -39,6 +39,13 @@ namespace Trinity
         public bool WasPressed(int player = 0) => Native.InputAction_WasPressed(Handle, player);
         public bool WasReleased(int player = 0) => Native.InputAction_WasReleased(Handle, player);
 
+        // Its interaction completing, and failing once begun, read as WasPressed is. One with no interaction performs as it is pressed and never cancels
+        public bool WasPerformed(int player = 0) => Native.InputAction_WasPerformed(Handle, player);
+        public bool WasCanceled(int player = 0) => Native.InputAction_WasCanceled(Handle, player);
+
+        // How far its interaction has come, from 0 to 1: a Hold's time held over its Duration, staying 1 once it performs until it is released, a MultiTap's taps done over its Count, and 1 in the frame a Tap or MultiTap performs. One with no interaction is 1 while pressed
+        public float ReadProgress(int player = 0) => Native.InputAction_ReadProgress(Handle, player);
+
         // A Button's strength from 0 to 1, an Axis from -1 to 1, and a Vector2's length
         public float ReadValue(int player = 0) => Native.InputAction_ReadValue(Handle, player);
 
@@ -51,18 +58,32 @@ namespace Trinity
             return l_Value;
         }
 
-        // Once a frame for each player it went down for, as WasPressed reads in OnUpdate, after the OnCreate of scripts made that frame and before the fixed steps, so a handler added in OnCreate hears that frame's press. A press and a release in one frame raise both, Pressed first. A handler that is a method of a script, or a lambda that uses nothing but the script's own members, goes when the script does; any other stays until it is removed, so a script removes it in OnDestroy. A handler that throws is logged and removed while play goes on. A reload removes every handler, so a script made again adds its own in OnReloaded. Adding one throws for None, and for an action found while no scene ran
+        // Once a frame for each player it went down for, as WasPressed reads in OnUpdate, after the OnCreate of scripts made that frame and before the fixed steps, so a handler added in OnCreate hears that frame's press. A player's events of one frame come Pressed, Released, Performed, then Canceled, so a press and a release in one frame raise both, Pressed first, and a Tap performs after its release. A handler that is a method of a script, or a lambda that uses nothing but the script's own members, goes when the script does; any other stays until it is removed, so a script removes it in OnDestroy. A handler that throws is logged and removed while play goes on. A reload removes every handler, so a script made again adds its own in OnReloaded. Adding one throws for None, and for an action found while no scene ran
         public event Action<InputActionEvent> Pressed
         {
-            add => InputEvents.Add(this, false, value);
-            remove => InputEvents.Remove(this, false, value);
+            add => InputEvents.Add(this, InputEdge.Pressed, value);
+            remove => InputEvents.Remove(this, InputEdge.Pressed, value);
         }
 
         // As Pressed, for each player it went up for, as WasReleased reads in OnUpdate
         public event Action<InputActionEvent> Released
         {
-            add => InputEvents.Add(this, true, value);
-            remove => InputEvents.Remove(this, true, value);
+            add => InputEvents.Add(this, InputEdge.Released, value);
+            remove => InputEvents.Remove(this, InputEdge.Released, value);
+        }
+
+        // As Pressed, for each player its interaction completed for, as WasPerformed reads in OnUpdate
+        public event Action<InputActionEvent> Performed
+        {
+            add => InputEvents.Add(this, InputEdge.Performed, value);
+            remove => InputEvents.Remove(this, InputEdge.Performed, value);
+        }
+
+        // As Pressed, for each player its interaction failed for once begun, as WasCanceled reads in OnUpdate
+        public event Action<InputActionEvent> Canceled
+        {
+            add => InputEvents.Add(this, InputEdge.Canceled, value);
+            remove => InputEvents.Remove(this, InputEdge.Canceled, value);
         }
 
         public bool Equals(InputAction other) => Handle == other.Handle;
@@ -74,7 +95,7 @@ namespace Trinity
         public static bool operator !=(InputAction left, InputAction right) => !left.Equals(right);
     }
 
-    // What an action's Pressed and Released handlers are told: the action, the player it went down or up for, and its value for that player as it did, as ReadValue gives it
+    // What an action's handlers are told: the action, the player it went down, up, performed or canceled for, and its value for that player as it did, as ReadValue gives it
     public readonly struct InputActionEvent
     {
         public InputAction Action { get; }
