@@ -24,6 +24,22 @@ namespace Trinity
                 return button >= 0 && button <= std::numeric_limits<std::uint8_t>::max() ? static_cast<MouseCode>(button) : MouseCode::Count;
             }
 
+            // A slot, button or axis C# gives that is out of range reads as one with no pad
+            [[nodiscard]] std::uint32_t ToGamepad(Int32 gamepad)
+            {
+                return gamepad >= 0 ? static_cast<std::uint32_t>(gamepad) : Input::c_MaxGamepads;
+            }
+
+            [[nodiscard]] GamepadButton ToGamepadButton(Int32 button)
+            {
+                return button >= 0 && button <= std::numeric_limits<std::uint8_t>::max() ? static_cast<GamepadButton>(button) : GamepadButton::Count;
+            }
+
+            [[nodiscard]] GamepadAxis ToGamepadAxis(Int32 axis)
+            {
+                return axis >= 0 && axis <= std::numeric_limits<std::uint8_t>::max() ? static_cast<GamepadAxis>(axis) : GamepadAxis::Count;
+            }
+
             [[nodiscard]] DebugDepth ToDepth(Bool onTop)
             {
                 return onTop ? DebugDepth::OnTop : DebugDepth::Test;
@@ -86,6 +102,51 @@ namespace Trinity
         Void Input_GetMouseScroll(Vector2* scroll)
         {
             *scroll = Input::GetMouseScroll();
+        }
+
+        Int32 Input_GetMaxGamepads()
+        {
+            return static_cast<Int32>(Input::c_MaxGamepads);
+        }
+
+        Bool Input_IsGamepadConnected(Int32 gamepad)
+        {
+            return Input::IsGamepadConnected(ToGamepad(gamepad));
+        }
+
+        Utf8 Input_GetGamepadName(Int32 gamepad)
+        {
+            return ToUtf8(Input::GetGamepadName(ToGamepad(gamepad)));
+        }
+
+        Bool Input_IsGamepadButtonPressed(Int32 gamepad, Int32 button)
+        {
+            return Input::IsGamepadButtonPressed(ToGamepad(gamepad), ToGamepadButton(button));
+        }
+
+        Bool Input_WasGamepadButtonPressed(Int32 gamepad, Int32 button)
+        {
+            return Input::WasGamepadButtonPressed(ToGamepad(gamepad), ToGamepadButton(button));
+        }
+
+        Bool Input_WasGamepadButtonReleased(Int32 gamepad, Int32 button)
+        {
+            return Input::WasGamepadButtonReleased(ToGamepad(gamepad), ToGamepadButton(button));
+        }
+
+        Float Input_GetGamepadAxis(Int32 gamepad, Int32 axis)
+        {
+            return Input::GetGamepadAxis(ToGamepad(gamepad), ToGamepadAxis(axis));
+        }
+
+        Void Input_SetGamepadRumble(Int32 gamepad, Float lowFrequency, Float highFrequency)
+        {
+            Input::SetGamepadRumble(ToGamepad(gamepad), lowFrequency, highFrequency);
+        }
+
+        Void Input_StopGamepadRumble()
+        {
+            Input::StopGamepadRumble();
         }
 
         // Each draws nothing in Distribution, where DebugDraw is empty

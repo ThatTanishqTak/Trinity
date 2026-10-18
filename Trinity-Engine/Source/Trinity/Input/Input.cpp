@@ -250,6 +250,14 @@ namespace Trinity
         }
     }
 
+    void Input::StopGamepadRumble()
+    {
+        for (std::uint32_t it_Gamepad = 0; it_Gamepad < c_MaxGamepads; ++it_Gamepad)
+        {
+            SetGamepadRumble(it_Gamepad, 0.0f, 0.0f);
+        }
+    }
+
     // Losing the focus releases every pad and stops its rumble, and getting it back starts the rumble again and reads each pad as it is now, skipping what happened in between
     void Input::PollGamepads(const std::function<void(Event&)>& onEvent)
     {

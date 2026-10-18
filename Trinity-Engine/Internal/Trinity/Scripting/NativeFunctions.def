@@ -77,6 +77,17 @@ TR_NATIVE(Input_GetMousePosition, Void, (Vector2* position))
 TR_NATIVE(Input_GetMouseDelta, Void, (Vector2* delta))
 TR_NATIVE(Input_GetMouseScroll, Void, (Vector2* scroll))
 
+// Gamepads by their slot in Input, and their buttons and axes by their GamepadButton and GamepadAxis numbers. A name crosses as Utf8, which C# copies at once
+TR_NATIVE(Input_GetMaxGamepads, Int32, ())
+TR_NATIVE(Input_IsGamepadConnected, Bool, (Int32 gamepad))
+TR_NATIVE(Input_GetGamepadName, Utf8, (Int32 gamepad))
+TR_NATIVE(Input_IsGamepadButtonPressed, Bool, (Int32 gamepad, Int32 button))
+TR_NATIVE(Input_WasGamepadButtonPressed, Bool, (Int32 gamepad, Int32 button))
+TR_NATIVE(Input_WasGamepadButtonReleased, Bool, (Int32 gamepad, Int32 button))
+TR_NATIVE(Input_GetGamepadAxis, Float, (Int32 gamepad, Int32 axis))
+TR_NATIVE(Input_SetGamepadRumble, Void, (Int32 gamepad, Float lowFrequency, Float highFrequency))
+TR_NATIVE(Input_StopGamepadRumble, Void, ())
+
 // What a script does to the body an entity is part of, named by the entity that owns it or by one of its colliders' entities, in world space, as PhysicsScene3D and 2D do it. Each Int32 result is an Interop::AccessResult: NoComponent for an entity that is not part of a body the running scene's physics has made, and BadValue for a body whose motion does not take it. A null point pushes at the body's centre of mass. A 2D body's turns are counter-clockwise radians about Z
 TR_NATIVE(Body_GetVelocity, Int32, (EntityId entity, Vector3* linear, Vector3* angular))
 TR_NATIVE(Body_SetLinearVelocity, Int32, (EntityId entity, const Vector3* velocity))

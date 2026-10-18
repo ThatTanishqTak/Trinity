@@ -6,19 +6,20 @@ set(TRINITY_SCRIPTCORE_PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/Trinity-ScriptCore.c
 set(TRINITY_SCRIPTCORE_DIRECTORY "${OUTPUT_BASE}/Scripting")
 set(TRINITY_SCRIPTCORE_ASSEMBLY "${TRINITY_SCRIPTCORE_DIRECTORY}/Trinity-ScriptCore.dll")
 
-# The C# side of what the engine shares, written into the build tree: its functions from NativeFunctions.def, its components and enums from ScriptComponents.def, and its key and mouse button codes. The generator leaves a file that would not change as it was, so ScriptCore builds again only when one of these does
+# The C# side of what the engine shares, written into the build tree: its functions from NativeFunctions.def, its components and enums from ScriptComponents.def, and its key, mouse button and gamepad codes. The generator leaves a file that would not change as it was, so ScriptCore builds again only when one of these does
 set(TRINITY_SCRIPTCORE_FUNCTIONS "${CMAKE_SOURCE_DIR}/Trinity-Engine/Internal/Trinity/Scripting/NativeFunctions.def")
 set(TRINITY_SCRIPTCORE_COMPONENTS "${CMAKE_SOURCE_DIR}/Trinity-Engine/Internal/Trinity/Scripting/ScriptComponents.def")
 set(TRINITY_SCRIPTCORE_KEYS "${CMAKE_SOURCE_DIR}/Trinity-Engine/Include/Trinity/Input/KeyCodes.hpp")
 set(TRINITY_SCRIPTCORE_MOUSE "${CMAKE_SOURCE_DIR}/Trinity-Engine/Include/Trinity/Input/MouseCodes.hpp")
+set(TRINITY_SCRIPTCORE_GAMEPAD "${CMAKE_SOURCE_DIR}/Trinity-Engine/Include/Trinity/Input/GamepadCodes.hpp")
 set(TRINITY_SCRIPTCORE_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/Generated/$<CONFIG>")
 set(TRINITY_SCRIPTCORE_GENERATED_FILES "${TRINITY_SCRIPTCORE_GENERATED}/NativeFunctions.g.cs" "${TRINITY_SCRIPTCORE_GENERATED}/Components.g.cs" "${TRINITY_SCRIPTCORE_GENERATED}/Input.g.cs")
 
 add_custom_command(OUTPUT "${TRINITY_SCRIPTCORE_GENERATED}/Generated.stamp"
     BYPRODUCTS ${TRINITY_SCRIPTCORE_GENERATED_FILES}
-    COMMAND Trinity-InteropGen "${TRINITY_SCRIPTCORE_FUNCTIONS}" "${TRINITY_SCRIPTCORE_COMPONENTS}" "${TRINITY_SCRIPTCORE_KEYS}" "${TRINITY_SCRIPTCORE_MOUSE}" "${TRINITY_SCRIPTCORE_GENERATED}"
+    COMMAND Trinity-InteropGen "${TRINITY_SCRIPTCORE_FUNCTIONS}" "${TRINITY_SCRIPTCORE_COMPONENTS}" "${TRINITY_SCRIPTCORE_KEYS}" "${TRINITY_SCRIPTCORE_MOUSE}" "${TRINITY_SCRIPTCORE_GAMEPAD}" "${TRINITY_SCRIPTCORE_GENERATED}"
     COMMAND "${CMAKE_COMMAND}" -E touch "${TRINITY_SCRIPTCORE_GENERATED}/Generated.stamp"
-    DEPENDS Trinity-InteropGen "${TRINITY_SCRIPTCORE_FUNCTIONS}" "${TRINITY_SCRIPTCORE_COMPONENTS}" "${TRINITY_SCRIPTCORE_KEYS}" "${TRINITY_SCRIPTCORE_MOUSE}"
+    DEPENDS Trinity-InteropGen "${TRINITY_SCRIPTCORE_FUNCTIONS}" "${TRINITY_SCRIPTCORE_COMPONENTS}" "${TRINITY_SCRIPTCORE_KEYS}" "${TRINITY_SCRIPTCORE_MOUSE}" "${TRINITY_SCRIPTCORE_GAMEPAD}"
     COMMENT "Generating the C# bindings of the engine's functions, components and input codes"
     VERBATIM
 )

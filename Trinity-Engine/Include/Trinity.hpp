@@ -37,9 +37,11 @@
 
 #include "Trinity/Events/ApplicationEvent.hpp"
 #include "Trinity/Events/Event.hpp"
+#include "Trinity/Events/GamepadEvent.hpp"
 #include "Trinity/Events/KeyEvent.hpp"
 #include "Trinity/Events/MouseEvent.hpp"
 
+#include "Trinity/Input/GamepadCodes.hpp"
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Input/KeyCodes.hpp"
 #include "Trinity/Input/MouseCodes.hpp"

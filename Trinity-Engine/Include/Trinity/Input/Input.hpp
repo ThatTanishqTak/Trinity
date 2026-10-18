@@ -50,6 +50,8 @@ namespace Trinity
         [[nodiscard]] static float GetGamepadAxis(std::uint32_t gamepad, GamepadAxis axis);
         // Each motor from 0 to 1, the heavy low-frequency one in the left grip and the light high-frequency one in the right, kept until changed or the pad disconnects. Rumble stops while no window of the application has the focus, and starts again when one does
         static void SetGamepadRumble(std::uint32_t gamepad, float lowFrequency, float highFrequency);
+        // Every pad's, as when a SceneManager ends, so stopping play in Forge leaves no pad rumbling
+        static void StopGamepadRumble();
 
     private:
         friend class Application;

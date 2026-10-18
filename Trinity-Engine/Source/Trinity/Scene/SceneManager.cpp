@@ -7,6 +7,7 @@
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
+#include "Trinity/Input/Input.hpp"
 #include "Trinity/Project/Project.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
@@ -154,7 +155,7 @@ namespace Trinity
         s_Active = this;
     }
 
-    // The running scene's scripts have OnDestroy before the scene goes
+    // The running scene's scripts have OnDestroy before the scene goes, and any rumble they leave stops with it
     SceneManager::~SceneManager()
     {
         if (m_State->Pending)
@@ -164,6 +165,7 @@ namespace Trinity
         }
 
         m_State->Runtime.reset();
+        Input::StopGamepadRumble();
         m_State->Current.reset();
         Release(m_State->Held);
         if (s_Active == this)
