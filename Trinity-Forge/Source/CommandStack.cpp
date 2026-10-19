@@ -11,7 +11,7 @@ CommandStack::CommandStack(Trinity::Scene& scene, Trinity::UUID& selection, std:
 // The command runs before it is kept, and one that changes nothing is not kept. Anything that could have been redone is dropped. While a drag goes on, a command merges into the one before it, unless the scene was saved in between, since the saved state would be lost
 bool CommandStack::Execute(Trinity::Scope<EditorCommand> command)
 {
-    if (RefuseLocked() || !command || !command->Execute(m_Scene))
+    if (!command || RefuseLocked(command->ChangesScene()) || !command->Execute(m_Scene))
     {
         return false;
     }
@@ -45,7 +45,7 @@ bool CommandStack::Execute(Trinity::Scope<EditorCommand> command)
 bool CommandStack::Undo()
 {
     m_MergeOpen = false;
-    if (RefuseLocked() || m_Position == 0)
+    if (m_Position == 0 || RefuseLocked(m_Commands[m_Position - 1]->ChangesScene()))
     {
         return false;
     }
@@ -61,7 +61,7 @@ bool CommandStack::Undo()
 bool CommandStack::Redo()
 {
     m_MergeOpen = false;
-    if (RefuseLocked() || m_Position == m_Commands.size())
+    if (m_Position == m_Commands.size() || RefuseLocked(m_Commands[m_Position]->ChangesScene()))
     {
         return false;
     }
@@ -142,16 +142,17 @@ bool CommandStack::IsSaved() const
     return true;
 }
 
-bool CommandStack::RefuseLocked()
+// A jump through the history may pass edits of the scene, so it is refused whatever lies between
+bool CommandStack::RefuseLocked(bool changesScene)
 {
-    if (!m_Locked)
+    if (!m_Locked || !changesScene)
     {
         return false;
     }
 
     if (!std::exchange(m_WarnedLocked, true))
     {
-        TR_WARN("Forge: the scene cannot be edited while it plays. Stop it first, and the edited scene is as it was");
+        TR_WARN("Forge: the scene cannot be edited while it plays, though assets can. Stop it first, and the edited scene is as it was");
     }
 
     return true;

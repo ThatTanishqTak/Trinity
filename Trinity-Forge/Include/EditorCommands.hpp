@@ -510,3 +510,30 @@ private:
     std::string m_Field;
     std::string m_Label;
 };
+
+
+// An edit of an input actions asset, which the writer saves to its file and loads again as it runs and as it is undone, so a scene playing reads it at once. Edits of one field in a row become one, as a drag does
+class SetInputActionsCommand final : public EditorCommand
+{
+public:
+    using Writer = std::function<bool(Trinity::UUID, const Trinity::InputActionsData&)>;
+
+    SetInputActionsCommand(Writer writer, Trinity::UUID asset, Trinity::InputActionsData before, Trinity::InputActionsData after, std::string field, std::string label);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
+    [[nodiscard]] bool ChangesScene() const override { return false; }
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Asset; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Writer m_Writer;
+    Trinity::UUID m_Asset;
+    Trinity::InputActionsData m_Before;
+    Trinity::InputActionsData m_After;
+    std::string m_Field;
+    std::string m_Label;
+};

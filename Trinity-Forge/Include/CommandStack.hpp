@@ -49,7 +49,7 @@ public:
         m_MergeOpen = false;
     }
 
-    // While a copy of the scene plays, the panels show the copy and an edit would not reach the scene, so none is taken, and the first refused says why
+    // While a copy of the scene plays, the panels show the copy and an edit of the scene would not reach the scene, so none is taken, undone or redone, and the first refused says why. An asset's edit is still taken, undone and redone, since its file is the same one the copy reads
     void SetLocked(bool locked)
     {
         m_Locked = locked;
@@ -58,8 +58,8 @@ public:
 
     [[nodiscard]] bool IsLocked() const { return m_Locked; }
 
-    [[nodiscard]] bool CanUndo() const { return m_Position > 0; }
-    [[nodiscard]] bool CanRedo() const { return m_Position < m_Commands.size(); }
+    [[nodiscard]] bool CanUndo() const { return m_Position > 0 && !IsRefused(*m_Commands[m_Position - 1]); }
+    [[nodiscard]] bool CanRedo() const { return m_Position < m_Commands.size() && !IsRefused(*m_Commands[m_Position]); }
     [[nodiscard]] bool IsSaved() const;
 
     [[nodiscard]] std::size_t GetCount() const { return m_Commands.size(); }
@@ -70,7 +70,8 @@ public:
     [[nodiscard]] std::size_t GetCapacity() const { return m_Capacity; }
 
 private:
-    [[nodiscard]] bool RefuseLocked();
+    [[nodiscard]] bool IsRefused(const EditorCommand& command) const { return m_Locked && command.ChangesScene(); }
+    [[nodiscard]] bool RefuseLocked(bool changesScene = true);
     void Select(const EditorCommand& command);
     void DropRedo();
     void Trim();

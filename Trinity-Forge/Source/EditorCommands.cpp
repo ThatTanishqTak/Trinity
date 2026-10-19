@@ -1031,3 +1031,56 @@ std::size_t SetMaterialCommand::GetMemorySize() const
 {
     return sizeof(*this) + m_Field.capacity() + m_Label.capacity();
 }
+
+SetInputActionsCommand::SetInputActionsCommand(Writer writer, Trinity::UUID asset, Trinity::InputActionsData before, Trinity::InputActionsData after, std::string field, std::string label) : m_Writer(std::move(writer)), m_Asset(asset), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::move(label))
+{
+
+}
+
+// An edit that changes nothing is no command
+bool SetInputActionsCommand::Execute([[maybe_unused]] Trinity::Scene& scene)
+{
+    return m_Before != m_After && m_Writer(m_Asset, m_After);
+}
+
+void SetInputActionsCommand::Undo([[maybe_unused]] Trinity::Scene& scene)
+{
+    static_cast<void>(m_Writer(m_Asset, m_Before));
+}
+
+// Only edits named by a field merge, so adding, removing and moving each stay a step of their own
+bool SetInputActionsCommand::MergeWith(const EditorCommand& next)
+{
+    const SetInputActionsCommand* l_Next = dynamic_cast<const SetInputActionsCommand*>(&next);
+    if (l_Next == nullptr || l_Next->m_Asset != m_Asset || m_Field.empty() || l_Next->m_Field != m_Field)
+    {
+        return false;
+    }
+
+    m_After = l_Next->m_After;
+
+    return true;
+}
+
+std::size_t SetInputActionsCommand::GetMemorySize() const
+{
+    std::size_t l_Size = sizeof(*this) + m_Field.capacity() + m_Label.capacity();
+    for (const Trinity::InputActionsData* it_Data : { &m_Before, &m_After })
+    {
+        l_Size += it_Data->Maps.capacity() * sizeof(Trinity::InputActionMap);
+        for (const Trinity::InputActionMap& it_Map : it_Data->Maps)
+        {
+            l_Size += it_Map.Name.capacity() + it_Map.Actions.capacity() * sizeof(Trinity::InputActionDefinition);
+            for (const Trinity::InputActionDefinition& it_Action : it_Map.Actions)
+            {
+                l_Size += it_Action.Name.capacity() + it_Action.Bindings.capacity() * sizeof(Trinity::InputBinding);
+                for (const Trinity::InputBinding& it_Binding : it_Action.Bindings)
+                {
+                    l_Size += it_Binding.Processors.capacity() * sizeof(Trinity::InputProcessor);
+                }
+            }
+        }
+    }
+
+    return l_Size;
+}

@@ -195,6 +195,11 @@ namespace
             return Trinity::Icons::c_Globe;
         }
 
+        if (record != nullptr && record->Importer == Trinity::InputActionsAsset::c_AssetType)
+        {
+            return Trinity::Icons::c_Gamepad;
+        }
+
         return IsScene(record) ? Trinity::Icons::c_CubeOutline : Trinity::Icons::c_File;
     }
 }
@@ -725,7 +730,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
     }
 }
 
-// Unity's Create menu. Everything is made in the open folder and named there at once: scenes and materials among the assets, and each language's scripts in its own folder
+// Unity's Create menu. Everything is made in the open folder and named there at once: scenes, materials and input actions among the assets, and each language's scripts in its own folder
 void ContentBrowserPanel::DrawCreateMenu()
 {
     if (ImGui::MenuItem(std::format("{} Folder", Trinity::Icons::c_Folder).c_str()))
@@ -753,6 +758,16 @@ void ContentBrowserPanel::DrawCreateMenu()
     if (!l_InAssets)
     {
         ImGui::SetItemTooltip("Materials go in Assets or a folder in it");
+    }
+
+    if (ImGui::MenuItem(std::format("{} Input Actions", Trinity::Icons::c_Gamepad).c_str(), nullptr, false, l_InAssets))
+    {
+        m_Deferred.push_back([this] { RenameCreated(m_Session.CreateInputActions(m_Folder)); });
+    }
+
+    if (!l_InAssets)
+    {
+        ImGui::SetItemTooltip("Input actions go in Assets or a folder in it");
     }
 
     // The name is asked for first, since it names the class as well as the file
@@ -1036,7 +1051,7 @@ void ContentBrowserPanel::Select(const Item& item)
     m_Session.SetInspectedAsset(item.Record != nullptr ? item.Record->ID : Trinity::UUID());
 }
 
-// A folder opens here, a scene in Forge and a script in the script editor. Anything else but a material, which Properties edits, opens in the program the system has for it, as Unity opens a texture in an image editor
+// A folder opens here, a scene in Forge, input actions in their panel and a script in the script editor. Anything else but a material, which Properties edits, opens in the program the system has for it, as Unity opens a texture in an image editor
 void ContentBrowserPanel::Open(const Item& item)
 {
     if (item.Folder)
@@ -1046,6 +1061,10 @@ void ContentBrowserPanel::Open(const Item& item)
     else if (IsScene(item.Record))
     {
         m_Session.RequestOpenScene(item.Path);
+    }
+    else if (item.Record != nullptr && item.Record->Importer == Trinity::InputActionsAsset::c_AssetType && m_OpenInputActions)
+    {
+        m_OpenInputActions(item.Record->ID);
     }
     else if (item.Record == nullptr && IsScriptFile(item.Name))
     {

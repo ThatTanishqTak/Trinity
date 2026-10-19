@@ -695,6 +695,38 @@ namespace Trinity
         return std::nullopt;
     }
 
+    std::span<const InputSource> GetInputSources()
+    {
+        static constexpr std::size_t c_Count = c_KeyNames.size() + c_MouseButtonNames.size() + c_MouseDeltaNames.size() + c_MouseScrollNames.size() + c_GamepadButtonNames.size() + c_GamepadAxisNames.size() + c_GamepadStickNames.size();
+        static constexpr std::array<InputSource, c_Count> c_Sources = []
+        {
+            std::array<InputSource, c_Count> l_Sources{};
+            std::size_t l_Next = 0;
+            for (const SourceName<KeyCode>& it_Key : c_KeyNames)
+            {
+                l_Sources[l_Next++] = { InputSourceKind::Key, std::to_underlying(it_Key.Value) };
+            }
+
+            const auto a_Add = [&](InputSourceKind kind, std::size_t count)
+            {
+                for (std::size_t it_Code = 0; it_Code < count; ++it_Code)
+                {
+                    l_Sources[l_Next++] = { kind, static_cast<std::uint16_t>(it_Code) };
+                }
+            };
+            a_Add(InputSourceKind::MouseButton, c_MouseButtonNames.size());
+            a_Add(InputSourceKind::MouseDelta, c_MouseDeltaNames.size());
+            a_Add(InputSourceKind::MouseScroll, c_MouseScrollNames.size());
+            a_Add(InputSourceKind::GamepadButton, c_GamepadButtonNames.size());
+            a_Add(InputSourceKind::GamepadAxis, c_GamepadAxisNames.size());
+            a_Add(InputSourceKind::GamepadStick, c_GamepadStickNames.size());
+
+            return l_Sources;
+        }();
+
+        return c_Sources;
+    }
+
     std::string_view ToString(InputActionType type)
     {
         switch (type)

@@ -152,6 +152,11 @@ void ForgeLayer::OnAttach()
         }
     });
 
+    // Beside the Console, wide enough for its three columns
+    Trinity::Scope<InputActionsPanel> l_InputActions = Trinity::CreateScope<InputActionsPanel>(m_Session);
+    m_InputActionsPanel = l_InputActions.get();
+    m_Panels.push_back(std::move(l_InputActions));
+
     // Docked after the Console, so it is the tab the default layout shows
     Trinity::Scope<ContentBrowserPanel> l_ContentBrowser = Trinity::CreateScope<ContentBrowserPanel>(m_Session);
     m_ContentBrowser = l_ContentBrowser.get();
@@ -161,6 +166,13 @@ void ForgeLayer::OnAttach()
         m_HierarchyPanel->SetSearch(std::move(search));
         m_HierarchyPanel->SetOpen(true);
         m_HierarchyPanel->RequestFocus();
+    });
+    // An input actions asset opens in its panel, brought forward
+    m_ContentBrowser->SetOpenInputActions([this](Trinity::UUID asset)
+    {
+        m_InputActionsPanel->SetAsset(asset);
+        m_InputActionsPanel->SetOpen(true);
+        m_InputActionsPanel->RequestFocus();
     });
     m_Panels.push_back(std::move(l_ContentBrowser));
 
@@ -467,10 +479,10 @@ bool ForgeLayer::OnCloseRequested()
     return m_Session.RequestClose();
 }
 
-// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open, nor while a popup is up, such as the texture import's. Ctrl+P plays and stops, and while a copy plays, nothing edits the scene, though Ctrl+C copies the playing entity
+// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open, nor while a popup is up, such as the texture import's, nor while the Input Actions panel listens for the input to bind. Ctrl+P plays and stops, and while a copy plays, nothing edits the scene, though Ctrl+C copies the playing entity and Undo and Redo take back an asset's edits
 void ForgeLayer::ReadShortcuts()
 {
-    if (ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    if (ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) || m_InputActionsPanel->IsListening())
     {
         return;
     }
@@ -519,10 +531,6 @@ void ForgeLayer::ReadShortcuts()
     {
         m_Session.CopyEntity(m_Session.GetSelection());
     }
-    else if (l_Playing)
-    {
-        // Undo, Redo, Create Empty, Paste, Duplicate and Delete would edit the scene, and the history is locked while a copy plays
-    }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, ImGuiInputFlags_Repeat) || ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_Repeat))
     {
         m_Session.GetHistory().Redo();
@@ -530,6 +538,10 @@ void ForgeLayer::ReadShortcuts()
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_Repeat))
     {
         m_Session.GetHistory().Undo();
+    }
+    else if (l_Playing)
+    {
+        // Create Empty, Paste, Duplicate and Delete would edit the scene, and the history takes no edit of it while a copy plays
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_N) && m_Session.HasProject())
     {
@@ -539,9 +551,9 @@ void ForgeLayer::ReadShortcuts()
     {
         CreateEmpty(m_Session.GetSelection());
     }
-    else if (m_ContentBrowser->IsFocused())
+    else if (m_ContentBrowser->IsFocused() || m_InputActionsPanel->IsFocused())
     {
-        // Duplicate and Delete are the browser's own while it has focus, and Copy and Paste are left to it
+        // Duplicate and Delete are the browser's own while it has focus, as they are the Input Actions panel's, and Copy and Paste are left to them
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V) && m_Session.HasCopiedEntity() && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
     {
@@ -855,13 +867,13 @@ void ForgeLayer::DrawPlayControls()
     }
 }
 
-// Undo and Redo name the command they act on. Every edit to the scene goes through the history, so it can be undone, and the project's settings are saved as they change. While a copy plays, nothing here edits the scene, and Copy takes the playing entity, to paste once it stops
+// Undo and Redo name the command they act on. Every edit to the scene goes through the history, so it can be undone, and the project's settings are saved as they change. While a copy plays, nothing here edits the scene, Undo and Redo take back only an asset's edits, and Copy takes the playing entity, to paste once it stops
 void ForgeLayer::DrawEditMenu()
 {
     CommandStack& l_History = m_Session.GetHistory();
     const bool l_Playing = m_Session.IsPlaying();
-    const bool l_CanUndo = !l_Playing && l_History.CanUndo();
-    const bool l_CanRedo = !l_Playing && l_History.CanRedo();
+    const bool l_CanUndo = l_History.CanUndo();
+    const bool l_CanRedo = l_History.CanRedo();
 
     const std::string l_Undo = l_CanUndo ? std::format("Undo {}###Undo", l_History.GetCommand(l_History.GetPosition() - 1).GetName()) : std::string("Undo###Undo");
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Undo, l_Undo).c_str(), "Ctrl+Z", false, l_CanUndo))

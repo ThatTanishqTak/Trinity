@@ -6,6 +6,7 @@
 #include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/GamePanel.hpp"
 #include "Panels/HierarchyPanel.hpp"
+#include "Panels/InputActionsPanel.hpp"
 #include "Panels/Panel.hpp"
 #include "Panels/ProjectSettingsPanel.hpp"
 #include "Panels/ViewportPanel.hpp"
@@ -74,6 +75,7 @@ private:
     PropertiesPanel* m_PropertiesPanel = nullptr;
     ProjectSettingsPanel* m_ProjectSettings = nullptr;
     ContentBrowserPanel* m_ContentBrowser = nullptr;
+    InputActionsPanel* m_InputActionsPanel = nullptr;
     ConsolePanel* m_Console = nullptr;
     std::string m_AboutTitle;
     // The status bar's line, the last logged at Info or above, copied from the history only when a newer one arrives

@@ -183,6 +183,8 @@ namespace Trinity
     // As a file names it, such as Keyboard/Space, Mouse/Left, Mouse/Delta, Mouse/ScrollY, Gamepad/A, Gamepad/LeftStickPress, Gamepad/LeftStick or Gamepad/LeftTrigger, and empty for none. Keys are named as C# names them
     [[nodiscard]] TRINITY_API std::string ToString(InputSource source);
     [[nodiscard]] TRINITY_API std::optional<InputSource> ParseInputSource(std::string_view text);
+    // Every source a file names by name, as a picker lists them: the keys in the order C# names them, the mouse's buttons, movement and scroll, then the gamepad's buttons, axes and sticks
+    [[nodiscard]] TRINITY_API std::span<const InputSource> GetInputSources();
 
     [[nodiscard]] TRINITY_API std::string_view ToString(InputActionType type);
     [[nodiscard]] TRINITY_API std::optional<InputActionType> ParseInputActionType(std::string_view text);

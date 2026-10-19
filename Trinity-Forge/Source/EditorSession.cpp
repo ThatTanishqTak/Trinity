@@ -2186,6 +2186,107 @@ void EditorSession::SetDefaultInputActions(Trinity::UUID asset)
     TR_INFO("Forge: {} ({}) is now the default input actions of {}", l_Record->Path, asset, m_Project->GetName());
 }
 
+std::optional<std::string> EditorSession::CreateInputActions(std::string_view folder)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return std::nullopt;
+    }
+
+    const std::string l_Path = GetFreePath(*m_Project, folder, "New Input Actions", Trinity::InputActionsData::c_Extension, false);
+    Trinity::InputActionsData l_Data;
+    l_Data.Maps.emplace_back().Name = Trinity::InputName(std::string_view("Gameplay"));
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, Trinity::WriteInputActions(l_Data)); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created input actions {}", l_Path);
+    ScanAssets();
+
+    return l_Path;
+}
+
+// One asset is kept, the one the panel shows, so moving between two reads each again
+const EditorSession::InputActionsFile* EditorSession::ReadInputActions(Trinity::UUID asset)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::InputActionsAsset::c_AssetType)
+    {
+        return nullptr;
+    }
+
+    if (m_InputActionsFile.Asset == asset && m_InputActionsFile.ScanCount == m_ScanCount)
+    {
+        return &m_InputActionsFile;
+    }
+
+    m_InputActionsFile = InputActionsFile{ asset, m_ScanCount, std::nullopt,{} };
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Record->Path);
+    if (!l_Text)
+    {
+        m_InputActionsFile.Error = std::format("{} could not be read: {}", l_Record->Path, Trinity::ToString(l_Text.GetError()));
+
+        return &m_InputActionsFile;
+    }
+
+    Trinity::Expected<Trinity::InputActionsData, std::string> l_Data = Trinity::ParseInputActions(*l_Text);
+    if (!l_Data)
+    {
+        m_InputActionsFile.Error = std::format("{} could not be read: {}", l_Record->Path, l_Data.GetError());
+
+        return &m_InputActionsFile;
+    }
+
+    m_InputActionsFile.Data = std::move(*l_Data);
+
+    return &m_InputActionsFile;
+}
+
+bool EditorSession::SaveInputActions(Trinity::UUID asset, const Trinity::InputActionsData& data)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::InputActionsAsset::c_AssetType)
+    {
+        return false;
+    }
+
+    const std::string l_Text = Trinity::WriteInputActions(data);
+    if (const Trinity::Expected<Trinity::InputActionsData, std::string> l_Again = Trinity::ParseInputActions(l_Text); !l_Again)
+    {
+        TR_ERROR("Forge: {} was not saved, since it would not read back: {}", l_Record->Path, l_Again.GetError());
+
+        return false;
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Record->Path, l_Text); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be written: {}", l_Record->Path, Trinity::ToString(l_Written.GetError()));
+
+        return false;
+    }
+
+    m_InputActionsFile = InputActionsFile{ asset, m_ScanCount, data,{} };
+    Trinity::AssetManager::Reload(asset);
+
+    return true;
+}
+
+bool EditorSession::EditInputActions(Trinity::UUID asset, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after, std::string_view what, std::string field)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr)
+    {
+        return false;
+    }
+
+    const std::string l_Label = std::format("{} in {}", what, ToUtf8(FromUtf8(l_Record->Path).stem()));
+
+    return m_History.Execute(Trinity::CreateScope<SetInputActionsCommand>([this](Trinity::UUID id, const Trinity::InputActionsData& data) { return SaveInputActions(id, data); }, asset, before, after, std::move(field), l_Label));
+}
+
 void EditorSession::RequestImportAsset(std::string folder)
 {
     m_Pending.push_back([this, l_Folder = std::move(folder)]
