@@ -24,6 +24,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 class EditorSession
@@ -206,12 +207,14 @@ public:
     void SetDefaultInputActions(Trinity::UUID asset);
     // With one empty map, Gameplay, named New Input Actions, or New Input Actions 1 and on when that is taken. Its project path, or nothing, logged
     [[nodiscard]] std::optional<std::string> CreateInputActions(std::string_view folder);
-    // As the Input Actions panel reads it each frame, from its file the first time and again once the files are scanned, as when Forge gets the focus back, so an edit made outside it is seen. Null for an asset that is not one
+    // As the Input Actions panel and Properties read it each frame, from its file the first time and again once the files are scanned, as when Forge gets the focus back, so an edit made outside it is seen. Null for an asset that is not one
     [[nodiscard]] const InputActionsFile* ReadInputActions(Trinity::UUID asset);
     // Its file, only once what is written reads back, and the asset loaded again where it is in use, so a scene playing reads it from the next frame
     bool SaveInputActions(Trinity::UUID asset, const Trinity::InputActionsData& data);
     // Through the history, so it undoes in one step, named for what it did, such as "Add action Jump", and the asset. Edits of the same field in a row become one, as a drag's do, and one with no field is always a step of its own. Taken while a scene plays, which reads it at once, and kept once it stops
     bool EditInputActions(Trinity::UUID asset, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after, std::string_view what, std::string field = {});
+    // As EditInputActions, for a rename of a map or an action, which in the project's default asset also rewrites the edited scene's input action fields that named it, in the same step. Refused with a notice while a scene plays and a field would change, since the scene takes no edit then
+    bool RenameInputActions(Trinity::UUID asset, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after, std::string_view what);
 
     // Forge's settings for the person using it, saved once nothing is being dragged or typed into
     [[nodiscard]] const EditorPreferences& GetPreferences() const { return m_Preferences; }
@@ -383,7 +386,7 @@ private:
     std::optional<CopiedEntity> m_CopiedEntity;
     std::vector<RecentProject> m_RecentProjects;
     std::vector<RecentScene> m_RecentScenes;
-    InputActionsFile m_InputActionsFile;
+    std::unordered_map<Trinity::UUID, InputActionsFile> m_InputActionsFiles;
     glm::vec3 m_SpawnPoint{ 0.0f };
     bool m_SceneView3D = false;
     TextureReimporter m_Reimporter;

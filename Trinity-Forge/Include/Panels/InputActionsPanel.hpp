@@ -12,7 +12,7 @@
 #include <string_view>
 #include <utility>
 
-// Unity's Input Actions editor, for one .trinput asset: its maps on the left, the chosen map's actions with their bindings in the middle, and what is chosen on the right, an action's type and interaction, or a binding's sources and processors. Every edit is a command in the history, so it undoes in one step, and is saved to the file and loaded again as it is made, so a scene playing reads it at once and keeps it once it stops. Listen takes the next key, mouse button other than the left, gamepad button, or stick or trigger pushed past half as a source, and Escape or a click anywhere stops it. Until an asset is opened from the Content Browser, it shows the project's default
+// Unity's Input Actions editor, for one .trinput asset: its maps on the left, the chosen map's actions with their bindings in the middle, and what is chosen on the right, an action's type and interaction, or a binding's sources and processors. Every edit is a command in the history, so it undoes in one step, and is saved to the file and loaded again as it is made, so a scene playing reads it at once and keeps it once it stops. Renaming a map or an action of the project's default asset rewrites the scene's input action fields that named it in the same step, and an action dragged onto such a field in Properties sets it. Listen takes the next key, mouse button other than the left, gamepad button, or stick or trigger pushed past half as a source, and Escape or a click anywhere stops it. Until an asset is opened from the Content Browser, it shows the project's default
 class InputActionsPanel final : public Panel
 {
 public:
@@ -48,18 +48,20 @@ private:
         std::array<std::array<float, std::to_underlying(Trinity::GamepadAxis::Count)>, Trinity::Input::c_MaxGamepads> Rest{};
     };
 
-    // An edit made as the panel draws, made once it has drawn, so nothing drawn after it reads what it replaced
+    // An edit made as the panel draws, made once it has drawn, so nothing drawn after it reads what it replaced. A rename takes the scene's input action fields that named what it renamed along
     struct Pending
     {
         Trinity::InputActionsData After;
         std::string What;
         std::string Field;
         std::optional<Selection> Select;
+        bool Rename = false;
     };
 
     [[nodiscard]] Trinity::UUID GetShownAsset() const;
     void Clamp(const Trinity::InputActionsData& data);
     void Edit(Trinity::InputActionsData after, std::string what, std::string field = {}, std::optional<Selection> select = {});
+    void Rename(Trinity::InputActionsData after, std::string what);
     void Select(const Trinity::InputActionsData& data, Selection selection);
 
     void DrawHeader(Trinity::UUID asset, const Trinity::AssetRecord& record);

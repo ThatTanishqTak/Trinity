@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Trinity.Interop
 {
-    // A script field's value as it crosses to the engine, laid out as the engine's Interop::FieldValue, which it checks at start. A bool, the integers, an enum and the UUID of an entity or an asset are in Integer, a float and a double in Real, the vectors, a quaternion and a colour in X to W, and a string in Text. The generated code of each script class makes and reads these
+    // A script field's value as it crosses to the engine, laid out as the engine's Interop::FieldValue, which it checks at start. A bool, the integers, an enum and the UUID of an entity or an asset are in Integer, a float and a double in Real, the vectors, a quaternion and a colour in X to W, and a string and an input action's path in Text. The generated code of each script class makes and reads these
     [EditorBrowsable(EditorBrowsableState.Never)]
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct FieldValue
@@ -37,14 +37,10 @@ namespace Trinity.Interop
         public static FieldValue Asset(ulong id) => new() { Type = FieldType.Asset, Integer = unchecked((long)id) };
 
         // Encoded into a buffer of ScriptCore's, valid until the next string is made, which is long enough for the engine to copy it
-        public static FieldValue String(string? value)
-        {
-            value ??= string.Empty;
-            byte* l_Buffer = StringBuffer.Get(Encoding.UTF8.GetMaxByteCount(value.Length));
-            int l_Length = Encoding.UTF8.GetBytes(value, new Span<byte>(l_Buffer, Encoding.UTF8.GetMaxByteCount(value.Length)));
+        public static FieldValue String(string? value) => Encode(FieldType.String, value);
 
-            return new() { Type = FieldType.String, Text = new Utf8(l_Buffer, l_Length) };
-        }
+        // By the path it was found by, which an action found while no scene ran keeps too
+        public static FieldValue InputAction(InputAction value) => Encode(FieldType.InputAction, value.Path);
 
         public readonly bool ToBool() => Integer != 0;
         public readonly int ToInt32() => unchecked((int)Integer);
@@ -62,6 +58,23 @@ namespace Trinity.Interop
         public readonly Entity ToEntity() => new(unchecked((ulong)Integer));
         public readonly ulong ToAsset() => unchecked((ulong)Integer);
         public readonly string ToText() => Text.Data != null && Text.Length > 0 ? Encoding.UTF8.GetString(Text.Data, Text.Length) : string.Empty;
+
+        // Found as the script is given its fields, and None for an empty path
+        public readonly InputAction ToInputAction()
+        {
+            string l_Path = ToText();
+
+            return l_Path.Length > 0 ? Trinity.InputAction.Find(l_Path) : Trinity.InputAction.None;
+        }
+
+        private static FieldValue Encode(FieldType type, string? value)
+        {
+            value ??= string.Empty;
+            byte* l_Buffer = StringBuffer.Get(Encoding.UTF8.GetMaxByteCount(value.Length));
+            int l_Length = Encoding.UTF8.GetBytes(value, new Span<byte>(l_Buffer, Encoding.UTF8.GetMaxByteCount(value.Length)));
+
+            return new() { Type = type, Text = new Utf8(l_Buffer, l_Length) };
+        }
 
         // A pinned buffer, which grows to the longest string asked for and never moves while it lasts
         private static class StringBuffer

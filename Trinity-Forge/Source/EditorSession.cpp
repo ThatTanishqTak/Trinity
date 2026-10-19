@@ -2218,31 +2218,32 @@ const EditorSession::InputActionsFile* EditorSession::ReadInputActions(Trinity::
         return nullptr;
     }
 
-    if (m_InputActionsFile.Asset == asset && m_InputActionsFile.ScanCount == m_ScanCount)
+    InputActionsFile& l_File = m_InputActionsFiles[asset];
+    if (l_File.Asset == asset && l_File.ScanCount == m_ScanCount)
     {
-        return &m_InputActionsFile;
+        return &l_File;
     }
 
-    m_InputActionsFile = InputActionsFile{ asset, m_ScanCount, std::nullopt,{} };
+    l_File = InputActionsFile{ asset, m_ScanCount, std::nullopt,{} };
     const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Record->Path);
     if (!l_Text)
     {
-        m_InputActionsFile.Error = std::format("{} could not be read: {}", l_Record->Path, Trinity::ToString(l_Text.GetError()));
+        l_File.Error = std::format("{} could not be read: {}", l_Record->Path, Trinity::ToString(l_Text.GetError()));
 
-        return &m_InputActionsFile;
+        return &l_File;
     }
 
     Trinity::Expected<Trinity::InputActionsData, std::string> l_Data = Trinity::ParseInputActions(*l_Text);
     if (!l_Data)
     {
-        m_InputActionsFile.Error = std::format("{} could not be read: {}", l_Record->Path, l_Data.GetError());
+        l_File.Error = std::format("{} could not be read: {}", l_Record->Path, l_Data.GetError());
 
-        return &m_InputActionsFile;
+        return &l_File;
     }
 
-    m_InputActionsFile.Data = std::move(*l_Data);
+    l_File.Data = std::move(*l_Data);
 
-    return &m_InputActionsFile;
+    return &l_File;
 }
 
 bool EditorSession::SaveInputActions(Trinity::UUID asset, const Trinity::InputActionsData& data)
@@ -2268,7 +2269,7 @@ bool EditorSession::SaveInputActions(Trinity::UUID asset, const Trinity::InputAc
         return false;
     }
 
-    m_InputActionsFile = InputActionsFile{ asset, m_ScanCount, data,{} };
+    m_InputActionsFiles[asset] = InputActionsFile{ asset, m_ScanCount, data,{} };
     Trinity::AssetManager::Reload(asset);
 
     return true;
@@ -2285,6 +2286,28 @@ bool EditorSession::EditInputActions(Trinity::UUID asset, const Trinity::InputAc
     const std::string l_Label = std::format("{} in {}", what, ToUtf8(FromUtf8(l_Record->Path).stem()));
 
     return m_History.Execute(Trinity::CreateScope<SetInputActionsCommand>([this](Trinity::UUID id, const Trinity::InputActionsData& data) { return SaveInputActions(id, data); }, asset, before, after, std::move(field), l_Label));
+}
+
+// Only the default asset's actions are what the fields name, as Play reads that one
+bool EditorSession::RenameInputActions(Trinity::UUID asset, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after, std::string_view what)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr)
+    {
+        return false;
+    }
+
+    std::vector<InputActionFieldRewrite> l_Rewrites = m_Project && m_Project->GetInputActions() == asset ? FindInputActionRewrites(m_Scene, before, after) : std::vector<InputActionFieldRewrite>();
+    if (!l_Rewrites.empty() && m_History.IsLocked())
+    {
+        Notify(std::format("{} would change {} input action field(s) of the scene, which takes no edit while it plays, so nothing was renamed. Stop it first", what, l_Rewrites.size()));
+
+        return false;
+    }
+
+    const std::string l_Label = std::format("{} in {}{}", what, ToUtf8(FromUtf8(l_Record->Path).stem()), l_Rewrites.empty() ? std::string() : std::format(", and {} field(s) naming it", l_Rewrites.size()));
+
+    return m_History.Execute(Trinity::CreateScope<SetInputActionsCommand>([this](Trinity::UUID id, const Trinity::InputActionsData& data) { return SaveInputActions(id, data); }, asset, before, after, std::string(), l_Label, std::move(l_Rewrites)));
 }
 
 void EditorSession::RequestImportAsset(std::string folder)

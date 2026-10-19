@@ -1,5 +1,6 @@
 #include "EditorCommands.hpp"
 
+#include <algorithm>
 #include <array>
 #include <utility>
 #include <vector>
@@ -97,10 +98,34 @@ namespace
         return true;
     }
 
-    // A string's text, the one part of a value held outside it
+    // A string's text, or an input action's path, the one part of a value held outside it
     std::size_t GetScriptValueMemorySize(const Trinity::ScriptFieldValue& value)
     {
-        return value.GetType() == Trinity::ScriptFieldType::String ? value.Get<Trinity::ScriptString>().capacity() : 0;
+        return value.GetType() == Trinity::ScriptFieldType::String || value.GetType() == Trinity::ScriptFieldType::InputAction ? value.Get<Trinity::ScriptString>().capacity() : 0;
+    }
+
+    // A rename's fields at their paths after it, or back at their paths before it, where one that was its class's default goes again
+    void SetInputActionFields(Trinity::Scene& scene, const std::vector<InputActionFieldRewrite>& rewrites, bool undo)
+    {
+        for (const InputActionFieldRewrite& it_Rewrite : rewrites)
+        {
+            Trinity::Entity l_Entity = scene.FindEntityByUUID(it_Rewrite.Entity);
+            Trinity::ScriptComponent* l_Scripts = l_Entity && l_Entity.Has<Trinity::ScriptComponent>() ? &l_Entity.Get<Trinity::ScriptComponent>() : nullptr;
+            if (l_Scripts == nullptr || it_Rewrite.Script >= l_Scripts->Scripts.size())
+            {
+                continue;
+            }
+
+            Trinity::ScriptEntry& l_Entry = l_Scripts->Scripts[it_Rewrite.Script];
+            if (undo && it_Rewrite.Added)
+            {
+                std::erase_if(l_Entry.Fields, [&it_Rewrite](const Trinity::ScriptEntry::Field& field) { return std::string_view(field.Name) == it_Rewrite.Field; });
+            }
+            else
+            {
+                l_Entry.SetField(it_Rewrite.Field, Trinity::ScriptFieldValue::InputAction(undo ? it_Rewrite.Before : it_Rewrite.After));
+            }
+        }
     }
 
     // What an entry holds beyond its own size
@@ -217,6 +242,88 @@ void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const
             visit({ .Component = {}, .Script = &it_Script, .Slot = it_Field.Name, .Index = std::nullopt, .AssetType = l_AssetType, .Value = it_Field.Value.Get<Trinity::UUID>(), .IsEntity = l_Type == Trinity::ScriptFieldType::Entity });
         }
     }
+}
+
+std::optional<std::pair<std::size_t, std::size_t>> FindInputAction(const Trinity::InputActionsData& data, std::string_view path)
+{
+    const std::size_t l_Separator = path.find(Trinity::InputActionsData::c_PathSeparator);
+    const std::string_view l_Map = l_Separator != std::string_view::npos ? path.substr(0, l_Separator) : std::string_view();
+    const std::string_view l_Action = l_Separator != std::string_view::npos ? path.substr(l_Separator + 1) : path;
+    std::optional<std::pair<std::size_t, std::size_t>> l_Found;
+    for (std::size_t it_Map = 0; it_Map < data.Maps.size(); ++it_Map)
+    {
+        if (l_Separator != std::string_view::npos && std::string_view(data.Maps[it_Map].Name) != l_Map)
+        {
+            continue;
+        }
+
+        const auto& l_Actions = data.Maps[it_Map].Actions;
+        const auto a_Action = std::ranges::find_if(l_Actions, [l_Action](const Trinity::InputActionDefinition& action) { return std::string_view(action.Name) == l_Action; });
+        if (a_Action == l_Actions.end())
+        {
+            continue;
+        }
+
+        if (l_Found)
+        {
+            return std::nullopt;
+        }
+
+        l_Found = std::pair(it_Map, static_cast<std::size_t>(a_Action - l_Actions.begin()));
+    }
+
+    return l_Found;
+}
+
+std::vector<InputActionFieldRewrite> FindInputActionRewrites(Trinity::Scene& scene, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after)
+{
+    std::vector<InputActionFieldRewrite> l_Rewrites;
+    const auto a_Rewrite = [&before, &after](std::string_view path) -> std::optional<std::string>
+    {
+        const std::optional<std::pair<std::size_t, std::size_t>> l_Before = path.empty() ? std::nullopt : FindInputAction(before, path);
+        if (!l_Before || FindInputAction(after, path) == l_Before)
+        {
+            return std::nullopt;
+        }
+
+        const Trinity::InputActionMap& l_Map = after.Maps[l_Before->first];
+
+        return std::format("{}{}{}", std::string_view(l_Map.Name), Trinity::InputActionsData::c_PathSeparator, std::string_view(l_Map.Actions[l_Before->second].Name));
+    };
+
+    for (const auto [it_Handle, it_Scripts] : scene.GetRegistry().view<Trinity::ScriptComponent>().each())
+    {
+        const Trinity::UUID l_Entity = Trinity::Entity(it_Handle, &scene).GetUUID();
+        for (std::size_t it_Script = 0; it_Script < it_Scripts.Scripts.size(); ++it_Script)
+        {
+            const Trinity::ScriptEntry& l_Entry = it_Scripts.Scripts[it_Script];
+            for (const Trinity::ScriptEntry::Field& it_Field : l_Entry.Fields)
+            {
+                const std::string_view l_Path = it_Field.Value.GetType() == Trinity::ScriptFieldType::InputAction ? std::string_view(it_Field.Value.Get<Trinity::ScriptString>()) : std::string_view();
+                if (std::optional<std::string> l_After = a_Rewrite(l_Path))
+                {
+                    l_Rewrites.push_back({ l_Entity, it_Script, std::string(std::string_view(it_Field.Name)), std::string(l_Path), std::move(*l_After), false });
+                }
+            }
+
+            const Trinity::ScriptClassDescription* l_Class = Trinity::ScriptClassRegistry::Find(l_Entry.Language, l_Entry.ClassName);
+            if (l_Class == nullptr)
+            {
+                continue;
+            }
+
+            for (const Trinity::ScriptFieldDescription& it_Field : l_Class->Fields)
+            {
+                const std::string_view l_Default = it_Field.GetType() == Trinity::ScriptFieldType::InputAction && l_Entry.FindField(it_Field.Name) == nullptr ? std::string_view(it_Field.Default.Get<Trinity::ScriptString>()) : std::string_view();
+                if (std::optional<std::string> l_After = a_Rewrite(l_Default))
+                {
+                    l_Rewrites.push_back({ l_Entity, it_Script, std::string(std::string_view(it_Field.Name)), std::string(l_Default), std::move(*l_After), true });
+                }
+            }
+        }
+    }
+
+    return l_Rewrites;
 }
 
 std::size_t GetScriptMemorySize(const Trinity::ScriptComponent& component)
@@ -1032,19 +1139,27 @@ std::size_t SetMaterialCommand::GetMemorySize() const
     return sizeof(*this) + m_Field.capacity() + m_Label.capacity();
 }
 
-SetInputActionsCommand::SetInputActionsCommand(Writer writer, Trinity::UUID asset, Trinity::InputActionsData before, Trinity::InputActionsData after, std::string field, std::string label) : m_Writer(std::move(writer)), m_Asset(asset), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::move(label))
+SetInputActionsCommand::SetInputActionsCommand(Writer writer, Trinity::UUID asset, Trinity::InputActionsData before, Trinity::InputActionsData after, std::string field, std::string label, std::vector<InputActionFieldRewrite> rewrites) : m_Writer(std::move(writer)), m_Asset(asset), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::move(label)), m_Rewrites(std::move(rewrites))
 {
 
 }
 
-// An edit that changes nothing is no command
-bool SetInputActionsCommand::Execute([[maybe_unused]] Trinity::Scene& scene)
+// An edit that changes nothing is no command. A rename's fields follow once its file is written
+bool SetInputActionsCommand::Execute(Trinity::Scene& scene)
 {
-    return m_Before != m_After && m_Writer(m_Asset, m_After);
+    if (m_Before == m_After || !m_Writer(m_Asset, m_After))
+    {
+        return false;
+    }
+
+    SetInputActionFields(scene, m_Rewrites, false);
+
+    return true;
 }
 
-void SetInputActionsCommand::Undo([[maybe_unused]] Trinity::Scene& scene)
+void SetInputActionsCommand::Undo(Trinity::Scene& scene)
 {
+    SetInputActionFields(scene, m_Rewrites, true);
     static_cast<void>(m_Writer(m_Asset, m_Before));
 }
 
@@ -1064,7 +1179,12 @@ bool SetInputActionsCommand::MergeWith(const EditorCommand& next)
 
 std::size_t SetInputActionsCommand::GetMemorySize() const
 {
-    std::size_t l_Size = sizeof(*this) + m_Field.capacity() + m_Label.capacity();
+    std::size_t l_Size = sizeof(*this) + m_Field.capacity() + m_Label.capacity() + m_Rewrites.capacity() * sizeof(InputActionFieldRewrite);
+    for (const InputActionFieldRewrite& it_Rewrite : m_Rewrites)
+    {
+        l_Size += it_Rewrite.Field.capacity() + it_Rewrite.Before.capacity() + it_Rewrite.After.capacity();
+    }
+
     for (const Trinity::InputActionsData* it_Data : { &m_Before, &m_After })
     {
         l_Size += it_Data->Maps.capacity() * sizeof(Trinity::InputActionMap);

@@ -161,7 +161,7 @@ bool CommandStack::RefuseLocked(bool changesScene)
 // What the command touched, while it is in the scene. One that is gone, such as a deleted entity, leaves nothing selected
 void CommandStack::Select(const EditorCommand& command)
 {
-    if (!command.ChangesScene())
+    if (!command.SelectsSubject())
     {
         return;
     }

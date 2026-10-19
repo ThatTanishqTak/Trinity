@@ -17,6 +17,8 @@ public:
     [[nodiscard]] virtual bool MergeWith([[maybe_unused]] const EditorCommand& next) { return false; }
     // An edit of an asset, written to its file as it runs, leaves the scene and the selection as they are
     [[nodiscard]] virtual bool ChangesScene() const { return true; }
+    // Whether the history selects what the command touched as it runs, is undone and is redone, as for an entity edited
+    [[nodiscard]] virtual bool SelectsSubject() const { return ChangesScene(); }
 
     [[nodiscard]] virtual std::string GetName() const = 0;
     [[nodiscard]] virtual Trinity::UUID GetSubject() const = 0;

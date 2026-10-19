@@ -74,7 +74,7 @@ namespace Trinity
         std::uint32_t m_ID = 0;
     };
 
-    // An action of the running scene's actions asset, found once by its path, Map/Action, or by its name alone while only one map has it, as a script's OnCreate does, and read each frame for nothing. One found before the asset is ready, or for an action it lacks, reads as released and zero until the asset has it, as after a reload. In OnFixedUpdate, WasPressed and WasReleased are what happened since the step before, so each press is seen by exactly one fixed step whatever the frame rate. Elsewhere they are this frame's. Each read is for a player, player 0 when none is named. Main thread only
+    // An action of the running scene's actions asset, found once by its path, Map/Action, or by its name alone while only one map has it, as a script's OnCreate does, and read each frame for nothing. One found before the asset is ready, or for an action it lacks, reads as released and zero until the asset has it, as after a reload. In OnFixedUpdate, WasPressed and WasReleased are what happened since the step before, so each press is seen by exactly one fixed step whatever the frame rate. Elsewhere they are this frame's. Each read is for a player, player 0 when none is named. A script's member of this type is a field, which Properties sets to an action of the project's default asset, and which is found as the script is given its fields. Main thread only
     class TRINITY_API InputAction
     {
     public:
@@ -84,6 +84,8 @@ namespace Trinity
         // The handle as one number, for C#, and back. 0 for one never found
         [[nodiscard]] static InputAction FromHandle(std::uint64_t handle);
         [[nodiscard]] std::uint64_t ToHandle() const;
+        // As it was found, valid until the next Find. Empty for one never found, and for one found before the scene last stopped
+        [[nodiscard]] std::string_view GetPath() const;
 
         // Found while a scene runs, and in its asset now
         [[nodiscard]] bool IsValid() const;

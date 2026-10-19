@@ -46,7 +46,7 @@ namespace Trinity::Interop
         return { text.data(), static_cast<Int32>(text.size()) };
     }
 
-    // A script field's value as it crosses, with its type as a ScriptFieldType. A bool, the integers, an enum and the UUID of an entity or an asset are in Integer, a float and a double in Real, the vectors, a quaternion and a colour in Floats, and a string in Text, which is valid for the call it crosses in
+    // A script field's value as it crosses, with its type as a ScriptFieldType. A bool, the integers, an enum and the UUID of an entity or an asset are in Integer, a float and a double in Real, the vectors, a quaternion and a colour in Floats, and a string and an input action's path in Text, which is valid for the call it crosses in
     struct FieldValue
     {
         Int32 Type;

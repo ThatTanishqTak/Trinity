@@ -23,7 +23,7 @@ namespace Trinity
     namespace
     {
         // Trinity.Interop.FieldType numbers the types as ScriptFieldType does, which these hold to
-        static_assert(static_cast<int>(ScriptFieldType::Bool) == 0 && static_cast<int>(ScriptFieldType::Float) == 5 && static_cast<int>(ScriptFieldType::Vector2) == 7 && static_cast<int>(ScriptFieldType::String) == 12 && static_cast<int>(ScriptFieldType::Asset) == 15, "Trinity.Interop.FieldType must number the field types as ScriptFieldType does");
+        static_assert(static_cast<int>(ScriptFieldType::Bool) == 0 && static_cast<int>(ScriptFieldType::Float) == 5 && static_cast<int>(ScriptFieldType::Vector2) == 7 && static_cast<int>(ScriptFieldType::String) == 12 && static_cast<int>(ScriptFieldType::Asset) == 15 && static_cast<int>(ScriptFieldType::InputAction) == 16, "Trinity.Interop.FieldType must number the field types as ScriptFieldType does");
 
         Interop::FieldValue ToFieldValue(const ScriptFieldValue& value)
         {
@@ -31,23 +31,60 @@ namespace Trinity
             l_Value.Type = static_cast<Interop::Int32>(value.GetType());
             switch (value.GetType())
             {
-                case ScriptFieldType::Bool: l_Value.Integer = value.Get<bool>() ? 1 : 0; break;
-                case ScriptFieldType::Int32: l_Value.Integer = value.Get<std::int32_t>(); break;
-                case ScriptFieldType::Int64: l_Value.Integer = value.Get<std::int64_t>(); break;
-                case ScriptFieldType::UInt32: l_Value.Integer = value.Get<std::uint32_t>(); break;
-                case ScriptFieldType::UInt64: l_Value.Integer = static_cast<std::int64_t>(value.Get<std::uint64_t>()); break;
-                case ScriptFieldType::Float: l_Value.Real = value.Get<float>(); break;
-                case ScriptFieldType::Double: l_Value.Real = value.Get<double>(); break;
+                case ScriptFieldType::Bool:
+                {
+                    l_Value.Integer = value.Get<bool>() ? 1 : 0;
+                    
+                    break;
+                }
+                case ScriptFieldType::Int32:
+                {
+                    l_Value.Integer = value.Get<std::int32_t>();
+                    
+                    break;
+                }
+                case ScriptFieldType::Int64:
+                {
+                    l_Value.Integer = value.Get<std::int64_t>();
+                    
+                    break;
+                }
+                case ScriptFieldType::UInt32:
+                {
+                    l_Value.Integer = value.Get<std::uint32_t>();
+                    
+                    break;
+                }
+                case ScriptFieldType::UInt64:
+                {
+                    l_Value.Integer = static_cast<std::int64_t>(value.Get<std::uint64_t>());
+                    
+                    break;
+                }
+                case ScriptFieldType::Float:
+                {
+                    l_Value.Real = value.Get<float>();
+                    
+                    break;
+                }
+                case ScriptFieldType::Double:
+                {
+                    l_Value.Real = value.Get<double>();
+                    
+                    break;
+                }
                 case ScriptFieldType::Vector2:
                 {
                     const glm::vec2& l_Vector = value.Get<glm::vec2>();
                     l_Value.Floats = { l_Vector.x, l_Vector.y, 0.0f, 0.0f };
+
                     break;
                 }
                 case ScriptFieldType::Vector3:
                 {
                     const glm::vec3& l_Vector = value.Get<glm::vec3>();
                     l_Value.Floats = { l_Vector.x, l_Vector.y, l_Vector.z, 0.0f };
+
                     break;
                 }
                 case ScriptFieldType::Vector4:
@@ -55,18 +92,36 @@ namespace Trinity
                 {
                     const glm::vec4& l_Vector = value.Get<glm::vec4>();
                     l_Value.Floats = { l_Vector.x, l_Vector.y, l_Vector.z, l_Vector.w };
+
                     break;
                 }
                 case ScriptFieldType::Quaternion:
                 {
                     const glm::quat& l_Rotation = value.Get<glm::quat>();
                     l_Value.Floats = { l_Rotation.x, l_Rotation.y, l_Rotation.z, l_Rotation.w };
+
                     break;
                 }
-                case ScriptFieldType::String: l_Value.Text = Interop::ToUtf8(std::string_view(value.Get<ScriptString>())); break;
-                case ScriptFieldType::Enum: l_Value.Integer = value.Get<std::int64_t>(); break;
+                case ScriptFieldType::String:
+                case ScriptFieldType::InputAction:
+                {
+                    l_Value.Text = Interop::ToUtf8(std::string_view(value.Get<ScriptString>()));
+                    
+                    break;
+                }
+                case ScriptFieldType::Enum:
+                {
+                    l_Value.Integer = value.Get<std::int64_t>();
+                    
+                    break;
+                }
                 case ScriptFieldType::Entity:
-                case ScriptFieldType::Asset: l_Value.Integer = static_cast<std::int64_t>(value.Get<UUID>().GetValue()); break;
+                case ScriptFieldType::Asset:
+                {
+                    l_Value.Integer = static_cast<std::int64_t>(value.Get<UUID>().GetValue());
+                    
+                    break;
+                }
             }
 
             return l_Value;
@@ -75,7 +130,7 @@ namespace Trinity
         // Nothing for a type that is not one
         std::optional<ScriptFieldValue> FromFieldValue(const Interop::FieldValue& value)
         {
-            if (value.Type < 0 || value.Type > static_cast<Interop::Int32>(ScriptFieldType::Asset))
+            if (value.Type < 0 || value.Type > static_cast<Interop::Int32>(ScriptFieldType::InputAction))
             {
                 return std::nullopt;
             }
@@ -83,22 +138,74 @@ namespace Trinity
             const std::array<float, 4>& l_Floats = value.Floats;
             switch (static_cast<ScriptFieldType>(value.Type))
             {
-                case ScriptFieldType::Bool: return ScriptFieldValue::Bool(value.Integer != 0);
-                case ScriptFieldType::Int32: return ScriptFieldValue::Int32(static_cast<std::int32_t>(value.Integer));
-                case ScriptFieldType::Int64: return ScriptFieldValue::Int64(value.Integer);
-                case ScriptFieldType::UInt32: return ScriptFieldValue::UInt32(static_cast<std::uint32_t>(value.Integer));
-                case ScriptFieldType::UInt64: return ScriptFieldValue::UInt64(static_cast<std::uint64_t>(value.Integer));
-                case ScriptFieldType::Float: return ScriptFieldValue::Float(static_cast<float>(value.Real));
-                case ScriptFieldType::Double: return ScriptFieldValue::Double(value.Real);
-                case ScriptFieldType::Vector2: return ScriptFieldValue::Vector2({ l_Floats[0], l_Floats[1] });
-                case ScriptFieldType::Vector3: return ScriptFieldValue::Vector3({ l_Floats[0], l_Floats[1], l_Floats[2] });
-                case ScriptFieldType::Vector4: return ScriptFieldValue::Vector4({ l_Floats[0], l_Floats[1], l_Floats[2], l_Floats[3] });
-                case ScriptFieldType::Quaternion: return ScriptFieldValue::Quaternion(glm::quat(l_Floats[3], l_Floats[0], l_Floats[1], l_Floats[2]));
-                case ScriptFieldType::Color: return ScriptFieldValue::Color({ l_Floats[0], l_Floats[1], l_Floats[2], l_Floats[3] });
-                case ScriptFieldType::String: return ScriptFieldValue::String(Interop::ToStringView(value.Text));
-                case ScriptFieldType::Enum: return ScriptFieldValue::Enum(value.Integer);
-                case ScriptFieldType::Entity: return ScriptFieldValue::Entity(UUID(static_cast<std::uint64_t>(value.Integer)));
-                case ScriptFieldType::Asset: return ScriptFieldValue::Asset(UUID(static_cast<std::uint64_t>(value.Integer)));
+                case ScriptFieldType::Bool:
+                {
+                    return ScriptFieldValue::Bool(value.Integer != 0);
+                }
+                case ScriptFieldType::Int32:
+                {
+                    return ScriptFieldValue::Int32(static_cast<std::int32_t>(value.Integer));
+                }
+                case ScriptFieldType::Int64:
+                {
+                    return ScriptFieldValue::Int64(value.Integer);
+                }
+                case ScriptFieldType::UInt32:
+                {
+                    return ScriptFieldValue::UInt32(static_cast<std::uint32_t>(value.Integer));
+                }
+                case ScriptFieldType::UInt64:
+                {
+                    return ScriptFieldValue::UInt64(static_cast<std::uint64_t>(value.Integer));
+                }
+                case ScriptFieldType::Float:
+                {
+                    return ScriptFieldValue::Float(static_cast<float>(value.Real));
+                }
+                case ScriptFieldType::Double:
+                {
+                    return ScriptFieldValue::Double(value.Real);
+                }
+                case ScriptFieldType::Vector2:
+                {
+                    return ScriptFieldValue::Vector2({ l_Floats[0], l_Floats[1] });
+                }
+                case ScriptFieldType::Vector3:
+                {
+                    return ScriptFieldValue::Vector3({ l_Floats[0], l_Floats[1], l_Floats[2] });
+                }
+                case ScriptFieldType::Vector4:
+                {
+                    return ScriptFieldValue::Vector4({ l_Floats[0], l_Floats[1], l_Floats[2], l_Floats[3] });
+                }
+                case ScriptFieldType::Quaternion:
+                {
+                    return ScriptFieldValue::Quaternion(glm::quat(l_Floats[3], l_Floats[0], l_Floats[1], l_Floats[2]));
+                }
+                case ScriptFieldType::Color:
+                {
+                    return ScriptFieldValue::Color({ l_Floats[0], l_Floats[1], l_Floats[2], l_Floats[3] });
+                }
+                case ScriptFieldType::String:
+                {
+                    return ScriptFieldValue::String(Interop::ToStringView(value.Text));
+                }
+                case ScriptFieldType::Enum:
+                {
+                    return ScriptFieldValue::Enum(value.Integer);
+                }
+                case ScriptFieldType::Entity:
+                {
+                    return ScriptFieldValue::Entity(UUID(static_cast<std::uint64_t>(value.Integer)));
+                }
+                case ScriptFieldType::Asset:
+                {
+                    return ScriptFieldValue::Asset(UUID(static_cast<std::uint64_t>(value.Integer)));
+                }
+                case ScriptFieldType::InputAction:
+                {
+                    return ScriptFieldValue::InputAction(Interop::ToStringView(value.Text));
+                }
             }
 
             return std::nullopt;

@@ -127,6 +127,43 @@ namespace
         return { std::format("{} Missing (Entity)", Trinity::Icons::c_Warning), std::format("Entity {} is not in the scene: it was deleted, or is in another scene", value), true };
     }
 
+    // Why the project's default input actions offer nothing to pick: the project names none, or its file cannot be read. Empty while they can be read
+    std::string GetActionsUnavailable(Trinity::UUID asset, const EditorSession::InputActionsFile* file)
+    {
+        if (!asset)
+        {
+            return "The project has no default input actions, which Play reads. Open an input actions asset in the Input Actions panel and choose Set as Default";
+        }
+
+        if (file == nullptr)
+        {
+            return std::format("The project's default input actions, {}, are not in the project", asset);
+        }
+
+        return file->Data ? std::string() : file->Error;
+    }
+
+    // An input action field's text, as an asset slot's: its path, None while empty, and a warning while the actions of source, the project's default, lack it or cannot be read
+    SlotText DescribeActionSlot(const Trinity::InputActionsData* data, std::string_view unavailable, std::string_view source, std::string_view path)
+    {
+        if (path.empty())
+        {
+            return { "None (Input Action)",{}, false };
+        }
+
+        if (data == nullptr)
+        {
+            return { std::format("{} {}", Trinity::Icons::c_Warning, path), std::string(unavailable), true };
+        }
+
+        if (const std::optional<std::pair<std::size_t, std::size_t>> l_Found = FindInputAction(*data, path))
+        {
+            return { std::string(path), std::format("A {} action of {}", Trinity::ToString(data->Maps[l_Found->first].Actions[l_Found->second].Type), source), false };
+        }
+
+        return { std::format("{} Missing ({})", Trinity::Icons::c_Warning, path), std::format("{} has no action {}, or more than one map has an action of that name, so Play reads it as released. It was deleted, or renamed outside the Input Actions panel", source, path), true };
+    }
+
     // A broken slot in the Console's warning colour. Pushed just for the button or combo's own text, and popped as soon as it is drawn, before a combo's list
     void PushSlotColor(const SlotText& slot)
     {
@@ -557,6 +594,12 @@ namespace
             case Trinity::ScriptFieldType::String:
             {
                 return std::format("\"{}\"", std::string_view(value.Get<Trinity::ScriptString>()));
+            }
+            case Trinity::ScriptFieldType::InputAction:
+            {
+                const std::string_view l_Path(value.Get<Trinity::ScriptString>());
+
+                return l_Path.empty() ? std::string("None (Input Action)") : std::string(l_Path);
             }
             default:
             {
@@ -2626,7 +2669,7 @@ void PropertiesPanel::DrawScriptFields(Trinity::ScriptEntry& entry, std::string&
     }
 }
 
-// The field's editor by its type, its name on the left. A colour is edited in sRGB and kept linear, a rotation in degrees about X, Y and Z worked out afresh each frame, an enum by its values' names, and an asset reference takes the asset type the field asks for, or any
+// The field's editor by its type, its name on the left. A colour is edited in sRGB and kept linear, a rotation in degrees about X, Y and Z worked out afresh each frame, an enum by its values' names, an asset reference takes the asset type the field asks for, or any, and an input action one of the project's default input actions
 bool PropertiesPanel::DrawScriptValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value)
 {
     if (value.GetType() == Trinity::ScriptFieldType::Asset)
@@ -2767,9 +2810,130 @@ bool PropertiesPanel::DrawScriptValue(const Trinity::ScriptFieldDescription& fie
         {
             break;
         }
+        case Trinity::ScriptFieldType::InputAction:
+        {
+            return DrawInputActionSlot(value.Get<Trinity::ScriptString>());
+        }
     }
 
     return false;
+}
+
+// Picked from the project's default input actions, each map's under its name, by a search of their paths, or dropped from the Input Actions panel showing that asset. A path the actions lack is kept, shown as missing, until another is picked
+bool PropertiesPanel::DrawInputActionSlot(Trinity::ScriptString& path)
+{
+    const Trinity::Project* l_Project = m_Session.GetProject();
+    const Trinity::UUID l_Asset = l_Project != nullptr ? l_Project->GetInputActions() : Trinity::UUID();
+    const EditorSession::InputActionsFile* l_File = l_Asset ? m_Session.ReadInputActions(l_Asset) : nullptr;
+    const Trinity::InputActionsData* l_Data = l_File != nullptr && l_File->Data ? &*l_File->Data : nullptr;
+    const Trinity::AssetRecord* l_Record = l_Asset && m_Session.GetRegistry() != nullptr ? m_Session.GetRegistry()->Find(l_Asset) : nullptr;
+    const std::string l_Unavailable = GetActionsUnavailable(l_Asset, l_File);
+    const SlotText l_Slot = DescribeActionSlot(l_Data, l_Unavailable, l_Record != nullptr ? std::string_view(l_Record->Path) : std::string_view(), std::string_view(path));
+
+    std::optional<std::string> l_Picked;
+    PushSlotColor(l_Slot);
+    const bool l_Open = ImGui::BeginCombo("##Value", l_Slot.Text.c_str(), ImGuiComboFlags_HeightLarge);
+    PopSlotColor(l_Slot);
+    if (!l_Open && !l_Slot.Tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("%s", l_Slot.Tooltip.c_str());
+    }
+
+    if (!l_Open && ImGui::BeginDragDropTarget())
+    {
+        const ImGuiPayload* l_Payload = ImGui::GetDragDropPayload();
+        const std::optional<std::pair<std::uint64_t, std::string_view>> l_Dragged = l_Payload != nullptr && l_Payload->IsDataType(c_InputActionPayload) ? ReadInputActionPayload(l_Payload->Data, l_Payload->DataSize) : std::nullopt;
+        if (!l_Dragged || Trinity::UUID(l_Dragged->first) != l_Asset || l_Data == nullptr || !FindInputAction(*l_Data, l_Dragged->second))
+        {
+            RefuseDrag();
+        }
+        else if (ImGui::AcceptDragDropPayload(c_InputActionPayload))
+        {
+            l_Picked = std::string(l_Dragged->second);
+        }
+
+        ImGui::EndDragDropTarget();
+    }
+
+    if (l_Open)
+    {
+        if (ImGui::IsWindowAppearing())
+        {
+            ImGui::SetKeyboardFocusHere();
+        }
+
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##Filter", std::format("{} Search actions", Trinity::Icons::c_Search).c_str(), &m_ActionFilter);
+        if (ImGui::Selectable("None", path.empty()) && !path.empty())
+        {
+            l_Picked = std::string();
+        }
+
+        if (l_Data == nullptr)
+        {
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
+            ImGui::TextDisabled("%s", l_Unavailable.c_str());
+            ImGui::PopTextWrapPos();
+        }
+        else
+        {
+            const std::optional<std::pair<std::size_t, std::size_t>> l_Current = FindInputAction(*l_Data, std::string_view(path));
+            bool l_Shown = false;
+            for (std::size_t it_Map = 0; it_Map < l_Data->Maps.size(); ++it_Map)
+            {
+                const Trinity::InputActionMap& l_Map = l_Data->Maps[it_Map];
+                bool l_Header = false;
+                for (std::size_t it_Action = 0; it_Action < l_Map.Actions.size(); ++it_Action)
+                {
+                    const Trinity::InputActionDefinition& l_Action = l_Map.Actions[it_Action];
+                    const std::string l_Path = std::format("{}{}{}", std::string_view(l_Map.Name), Trinity::InputActionsData::c_PathSeparator, std::string_view(l_Action.Name));
+                    if (!ContainsIgnoringCase(l_Path, m_ActionFilter))
+                    {
+                        continue;
+                    }
+
+                    if (!std::exchange(l_Header, true))
+                    {
+                        ImGui::SeparatorText(l_Map.Name.c_str());
+                    }
+
+                    l_Shown = true;
+                    const bool l_Selected = l_Current == std::pair(it_Map, it_Action);
+                    ImGui::PushID(l_Path.c_str());
+                    if (ImGui::Selectable(l_Action.Name.c_str(), l_Selected) && !l_Selected)
+                    {
+                        l_Picked = l_Path;
+                    }
+
+                    if (l_Selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%s", std::string(Trinity::ToString(l_Action.Type)).c_str());
+                    ImGui::PopID();
+                }
+            }
+
+            if (!l_Shown)
+            {
+                const bool l_Empty = std::ranges::all_of(l_Data->Maps, [](const Trinity::InputActionMap& map) { return map.Actions.empty(); });
+                ImGui::TextDisabled("%s", l_Empty ? "The project's default input actions have no actions yet. Add them in the Input Actions panel" : std::format("No action has \"{}\" in its path", m_ActionFilter).c_str());
+            }
+        }
+
+        ImGui::EndCombo();
+    }
+
+    if (!l_Picked)
+    {
+        return false;
+    }
+
+    path = *l_Picked;
+
+    return true;
 }
 
 // An asset picked in the Content Browser: where it is, for a texture a preview and its import settings, for a model its import settings and materials, and for a material its editor

@@ -26,7 +26,7 @@ namespace Trinity
     [[nodiscard]] TRINITY_API std::string_view ToString(ScriptLanguage language);
     [[nodiscard]] TRINITY_API std::optional<ScriptLanguage> ParseScriptLanguage(std::string_view text);
 
-    // What a script's field holds. A colour is a linear RGBA vec4 shown with a colour editor, an enum is its value as a 64-bit integer, an entity reference is the entity's UUID, and an asset reference is the asset's UUID
+    // What a script's field holds. A colour is a linear RGBA vec4 shown with a colour editor, an enum is its value as a 64-bit integer, an entity reference is the entity's UUID, an asset reference is the asset's UUID, and an input action is its path, Map/Action, as a string
     enum class ScriptFieldType : std::uint8_t
     {
         Bool,
@@ -44,7 +44,8 @@ namespace Trinity
         String,
         Enum,
         Entity,
-        Asset
+        Asset,
+        InputAction
     };
 
     [[nodiscard]] TRINITY_API std::string_view ToString(ScriptFieldType type);
@@ -59,7 +60,7 @@ namespace Trinity
         using Storage = std::variant<bool, std::int32_t, std::int64_t, std::uint32_t, std::uint64_t, float, double, glm::vec2, glm::vec3, glm::vec4, glm::quat, ScriptString, UUID>;
 
         ScriptFieldValue() = default;
-        // The type's zero: false, 0, an identity rotation, opaque white, an empty string or no entity or asset
+        // The type's zero: false, 0, an identity rotation, opaque white, an empty string, or no entity, asset or input action
         explicit ScriptFieldValue(ScriptFieldType type);
 
         [[nodiscard]] static ScriptFieldValue Bool(bool value);
@@ -78,6 +79,7 @@ namespace Trinity
         [[nodiscard]] static ScriptFieldValue Enum(std::int64_t value);
         [[nodiscard]] static ScriptFieldValue Entity(UUID value);
         [[nodiscard]] static ScriptFieldValue Asset(UUID value);
+        [[nodiscard]] static ScriptFieldValue InputAction(std::string_view path);
 
         [[nodiscard]] ScriptFieldType GetType() const { return m_Type; }
 

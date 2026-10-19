@@ -18,6 +18,7 @@ namespace Trinity.Interop
         String,
         Enum,
         Entity,
-        Asset
+        Asset,
+        InputAction
     }
 }

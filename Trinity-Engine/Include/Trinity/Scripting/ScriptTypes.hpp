@@ -3,6 +3,7 @@
 #include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
+#include "Trinity/Input/InputActions.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"
@@ -191,6 +192,22 @@ namespace Trinity
             {
                 target = l_ID.IsValid() ? AssetRef<A>(l_ID) : AssetRef<A>();
             }
+        }
+    };
+
+    // The action of the running scene's actions asset at the path, Map/Action, which Properties picks from the project's default asset. Found as the script is given its fields, so it reads as one InputAction::Find gives, and none for an empty path. A component keeps the path instead, since a handle lasts only while one scene runs
+    template<>
+    struct ScriptFieldTraits<InputAction>
+    {
+        static constexpr bool c_NeedsScene = false;
+
+        static void Describe([[maybe_unused]] ScriptFieldDescription& field) {}
+        [[nodiscard]] static ScriptFieldValue ToValue(const InputAction& value) { return ScriptFieldValue::InputAction(value.GetPath()); }
+
+        static void FromValue(InputAction& target, const ScriptFieldValue& value, [[maybe_unused]] Scene* scene)
+        {
+            const std::string_view l_Path(value.Get<ScriptString>());
+            target = l_Path.empty() ? InputAction() : InputAction::Find(l_Path);
         }
     };
 

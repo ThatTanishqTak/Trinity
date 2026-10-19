@@ -85,7 +85,7 @@ namespace Trinity::GameModule
         void Field(std::string_view name)
         {
             using FieldType = std::remove_cvref_t<decltype(std::declval<T&>().*Member)>;
-            static_assert(ScriptFieldMember<FieldType>, "TR_FIELD: a field is bool, a 32- or 64-bit integer, float, double, a glm vector or quaternion, Trinity::Color, std::string, an enum named by TR_ENUM, Trinity::Entity, Trinity::EntityReference or Trinity::AssetRef");
+            static_assert(ScriptFieldMember<FieldType>, "TR_FIELD: a field is bool, a 32- or 64-bit integer, float, double, a glm vector or quaternion, Trinity::Color, std::string, an enum named by TR_ENUM, Trinity::Entity, Trinity::EntityReference, Trinity::AssetRef or Trinity::InputAction");
             if constexpr (ScriptFieldMember<FieldType>)
             {
                 ScriptFieldDescription l_Field;
@@ -101,6 +101,7 @@ namespace Trinity::GameModule
                 else
                 {
                     static_assert(!ScriptFieldTraits<FieldType>::c_NeedsScene, "TR_FIELD: a component names an entity by Trinity::EntityReference, since it outlives the handles of the scene it was copied from");
+                    static_assert(!std::same_as<FieldType, InputAction>, "TR_FIELD: a component keeps an input action's path, Map/Action, in a std::string and finds it with Trinity::InputAction::Find, since a handle lasts only while one scene runs");
                     m_ComponentFields.push_back({ [](const void* component) { return ScriptFieldTraits<FieldType>::ToValue(static_cast<const T*>(component)->*Member); }, [](void* component, const ScriptFieldValue& value) { ScriptFieldTraits<FieldType>::FromValue(static_cast<T*>(component)->*Member, value, nullptr); } });
                 }
             }

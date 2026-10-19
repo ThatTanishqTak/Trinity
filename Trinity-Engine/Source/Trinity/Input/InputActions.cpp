@@ -1325,6 +1325,11 @@ namespace Trinity
         return m_Session != 0 ? (static_cast<std::uint64_t>(m_Session) << 32) | m_Slot : 0;
     }
 
+    std::string_view InputAction::GetPath() const
+    {
+        return IsCurrent() ? std::string_view(s_State->Slots[m_Slot].Path) : std::string_view();
+    }
+
     bool InputAction::IsValid() const
     {
         return IsCurrent() && s_State->Slots[m_Slot].Action != c_NoAction;

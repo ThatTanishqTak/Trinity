@@ -6,6 +6,7 @@
 
 #include <array>
 #include <concepts>
+#include <cstddef>
 #include <format>
 #include <functional>
 #include <optional>
@@ -13,6 +14,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 [[nodiscard]] std::string GetEntityLabel(Trinity::Entity entity);
 [[nodiscard]] std::string_view GetComponentLabel(std::string_view name);
@@ -38,6 +40,23 @@ struct SlotReference
 
 // Every such slot of the entity, empty ones too. A script's asset field takes its type from its class while that is loaded. Find References In Scene and the missing references a scene opens with both go through it, so a component with a new slot that names an asset or an entity needs it here
 void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const SlotReference&)>& visit);
+
+// The map and action a path names, Map/Action, or an action's name alone while only one map has it, as the running scene finds it. Nothing for a path the actions lack, or a name more than one map has
+[[nodiscard]] std::optional<std::pair<std::size_t, std::size_t>> FindInputAction(const Trinity::InputActionsData& data, std::string_view path);
+
+// An input action field of a script in the scene that a rename in the Input Actions panel changes: its entity, the script's index there, the field's name, and its path before and after. Added is for a field the entry left at its class's default, which an undo leaves at the default again
+struct InputActionFieldRewrite
+{
+    Trinity::UUID Entity;
+    std::size_t Script = 0;
+    std::string Field;
+    std::string Before;
+    std::string After;
+    bool Added = false;
+};
+
+// Each input action field of the scene, as its entry or its class's default has it, whose path led to an action before the rename and leads elsewhere or nowhere after it, rewritten to that action's path after, Map/Action. Before and after have the same maps and actions in the same places, renamed. A path that led nowhere before is left as it is
+[[nodiscard]] std::vector<InputActionFieldRewrite> FindInputActionRewrites(Trinity::Scene& scene, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after);
 
 // The model's nodes under one root with the given name, each with its transform, and a MeshRenderer where it has a mesh. The root's subtree holds the nodes in the model's order
 Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelData& model, std::string_view name, Trinity::Entity parent);
@@ -511,19 +530,19 @@ private:
     std::string m_Label;
 };
 
-
-// An edit of an input actions asset, which the writer saves to its file and loads again as it runs and as it is undone, so a scene playing reads it at once. Edits of one field in a row become one, as a drag does
+// An edit of an input actions asset, which the writer saves to its file and loads again as it runs and as it is undone, so a scene playing reads it at once. Edits of one field in a row become one, as a drag does. A rename takes the scene's input action fields that named what it renamed along, so they undo with it, and is then an edit of the scene too, which leaves the selection as it is
 class SetInputActionsCommand final : public EditorCommand
 {
 public:
     using Writer = std::function<bool(Trinity::UUID, const Trinity::InputActionsData&)>;
 
-    SetInputActionsCommand(Writer writer, Trinity::UUID asset, Trinity::InputActionsData before, Trinity::InputActionsData after, std::string field, std::string label);
+    SetInputActionsCommand(Writer writer, Trinity::UUID asset, Trinity::InputActionsData before, Trinity::InputActionsData after, std::string field, std::string label, std::vector<InputActionFieldRewrite> rewrites = {});
 
     [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
     void Undo(Trinity::Scene& scene) override;
     [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
-    [[nodiscard]] bool ChangesScene() const override { return false; }
+    [[nodiscard]] bool ChangesScene() const override { return !m_Rewrites.empty(); }
+    [[nodiscard]] bool SelectsSubject() const override { return false; }
 
     [[nodiscard]] std::string GetName() const override { return m_Label; }
     [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Asset; }
@@ -536,4 +555,5 @@ private:
     Trinity::InputActionsData m_After;
     std::string m_Field;
     std::string m_Label;
+    std::vector<InputActionFieldRewrite> m_Rewrites;
 };

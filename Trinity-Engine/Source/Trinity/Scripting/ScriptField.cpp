@@ -8,10 +8,10 @@ namespace Trinity
 {
     namespace
     {
-        constexpr std::array<std::pair<ScriptLanguage, std::string_view>, 2> c_LanguageNames{ { { ScriptLanguage::Cpp, "Cpp" }, { ScriptLanguage::CSharp, "CSharp" } } };
+        constexpr std::array<std::pair<ScriptLanguage, std::string_view>, 2> c_LanguageNames{ { { ScriptLanguage::Cpp, "Cpp" },{ ScriptLanguage::CSharp, "CSharp" } } };
 
         // Written into scene files, so a name never changes once released
-        constexpr std::array<std::pair<ScriptFieldType, std::string_view>, 16> c_FieldTypeNames{ {
+        constexpr std::array<std::pair<ScriptFieldType, std::string_view>, 17> c_FieldTypeNames{ {
             { ScriptFieldType::Bool, "Bool" },
             { ScriptFieldType::Int32, "Int32" },
             { ScriptFieldType::Int64, "Int64" },
@@ -27,29 +27,82 @@ namespace Trinity
             { ScriptFieldType::String, "String" },
             { ScriptFieldType::Enum, "Enum" },
             { ScriptFieldType::Entity, "Entity" },
-            { ScriptFieldType::Asset, "Asset" }
+            { ScriptFieldType::Asset, "Asset" },
+            { ScriptFieldType::InputAction, "InputAction" }
         } };
 
         ScriptFieldValue::Storage MakeZero(ScriptFieldType type)
         {
             switch (type)
             {
-                case ScriptFieldType::Bool: return false;
-                case ScriptFieldType::Int32: return std::int32_t{ 0 };
-                case ScriptFieldType::Int64: return std::int64_t{ 0 };
-                case ScriptFieldType::UInt32: return std::uint32_t{ 0 };
-                case ScriptFieldType::UInt64: return std::uint64_t{ 0 };
-                case ScriptFieldType::Float: return 0.0f;
-                case ScriptFieldType::Double: return 0.0;
-                case ScriptFieldType::Vector2: return glm::vec2(0.0f);
-                case ScriptFieldType::Vector3: return glm::vec3(0.0f);
-                case ScriptFieldType::Vector4: return glm::vec4(0.0f);
-                case ScriptFieldType::Quaternion: return glm::identity<glm::quat>();
-                case ScriptFieldType::Color: return glm::vec4(1.0f);
-                case ScriptFieldType::String: return ScriptString();
-                case ScriptFieldType::Enum: return std::int64_t{ 0 };
-                case ScriptFieldType::Entity: return UUID();
-                case ScriptFieldType::Asset: return UUID();
+                case ScriptFieldType::Bool:
+                {
+                    return false;
+                }
+                case ScriptFieldType::Int32:
+                {
+                    return std::int32_t{ 0 };
+                }
+                case ScriptFieldType::Int64:
+                {
+                    return std::int64_t{ 0 };
+                }
+                case ScriptFieldType::UInt32:
+                {
+                    return std::uint32_t{ 0 };
+                }
+                case ScriptFieldType::UInt64:
+                {
+                    return std::uint64_t{ 0 };
+                }
+                case ScriptFieldType::Float:
+                {
+                    return 0.0f;
+                }
+                case ScriptFieldType::Double:
+                {
+                    return 0.0;
+                }
+                case ScriptFieldType::Vector2:
+                {
+                    return glm::vec2(0.0f);
+                }
+                case ScriptFieldType::Vector3:
+                {
+                    return glm::vec3(0.0f);
+                }
+                case ScriptFieldType::Vector4:
+                {
+                    return glm::vec4(0.0f);
+                }
+                case ScriptFieldType::Quaternion:
+                {
+                    return glm::identity<glm::quat>();
+                }
+                case ScriptFieldType::Color:
+                {
+                    return glm::vec4(1.0f);
+                }
+                case ScriptFieldType::String:
+                {
+                    return ScriptString();
+                }
+                case ScriptFieldType::Enum:
+                {
+                    return std::int64_t{ 0 };
+                }
+                case ScriptFieldType::Entity:
+                {
+                    return UUID();
+                }
+                case ScriptFieldType::Asset:
+                {
+                    return UUID();
+                }
+                case ScriptFieldType::InputAction:
+                {
+                    return ScriptString();
+                }
             }
 
             return false;
@@ -115,4 +168,5 @@ namespace Trinity
     ScriptFieldValue ScriptFieldValue::Enum(std::int64_t value) { return { ScriptFieldType::Enum, value }; }
     ScriptFieldValue ScriptFieldValue::Entity(UUID value) { return { ScriptFieldType::Entity, value }; }
     ScriptFieldValue ScriptFieldValue::Asset(UUID value) { return { ScriptFieldType::Asset, value }; }
+    ScriptFieldValue ScriptFieldValue::InputAction(std::string_view path) { return { ScriptFieldType::InputAction, ScriptString(path) }; }
 }

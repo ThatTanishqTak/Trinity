@@ -207,6 +207,7 @@ namespace Trinity.ScriptGenerator
                 case "Trinity.Quaternion": return ("Quaternion", null);
                 case "Trinity.Color": return ("Color", null);
                 case "Trinity.Entity": return ("Entity", null);
+                case "Trinity.InputAction": return ("InputAction", null);
             }
 
             if (l_Name == "Trinity.AssetRef" && l_Named.TypeArguments.Length == 1 && l_Named.TypeArguments[0] is INamedTypeSymbol l_Marker)
@@ -374,6 +375,7 @@ namespace Trinity.ScriptGenerator
             "Enum" => $"unchecked(({field.TypeName})value.ToEnum())",
             "Entity" => "value.ToEntity()",
             "Asset" => $"new {field.TypeName}(value.ToAsset())",
+            "InputAction" => "value.ToInputAction()",
             _ => "default"
         };
 

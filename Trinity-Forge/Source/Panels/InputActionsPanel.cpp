@@ -1,5 +1,6 @@
 #include "Panels/InputActionsPanel.hpp"
 
+#include "EditorPayloads.hpp"
 #include "Panels/ConsolePanel.hpp"
 
 #include <imgui.h>
@@ -368,7 +369,8 @@ void InputActionsPanel::OnImGuiRender()
     {
         Pending l_Pending = std::move(*m_Pending);
         m_Pending.reset();
-        if (m_Session.EditInputActions(l_Asset, l_Data, l_Pending.After, l_Pending.What, std::move(l_Pending.Field)) && l_Pending.Select)
+        const bool l_Made = l_Pending.Rename ? m_Session.RenameInputActions(l_Asset, l_Data, l_Pending.After, l_Pending.What) : m_Session.EditInputActions(l_Asset, l_Data, l_Pending.After, l_Pending.What, std::move(l_Pending.Field));
+        if (l_Made && l_Pending.Select)
         {
             m_Selected = *l_Pending.Select;
             m_NameEdited = false;
@@ -404,7 +406,12 @@ void InputActionsPanel::Clamp(const Trinity::InputActionsData& data)
 
 void InputActionsPanel::Edit(Trinity::InputActionsData after, std::string what, std::string field, std::optional<Selection> select)
 {
-    m_Pending = Pending{ std::move(after), std::move(what), std::move(field), select };
+    m_Pending = Pending{ std::move(after), std::move(what), std::move(field), select, false };
+}
+
+void InputActionsPanel::Rename(Trinity::InputActionsData after, std::string what)
+{
+    m_Pending = Pending{ std::move(after), std::move(what),{}, std::nullopt, true };
 }
 
 // A rename typed for what was chosen is made before another is chosen, since its field is not drawn again to say it was left
@@ -584,6 +591,16 @@ void InputActionsPanel::DrawActions(const Trinity::InputActionsData& data)
             {
                 m_FocusNameFrame = ImGui::GetFrameCount() + 1;
             }
+        }
+
+        // Onto a script's input action field in Properties, which takes an action of the project's default asset
+        if (ImGui::BeginDragDropSource())
+        {
+            const std::string l_Path = std::format("{}{}{}", std::string_view(l_Map.Name), Trinity::InputActionsData::c_PathSeparator, std::string_view(l_Action.Name));
+            const std::string l_Payload = MakeInputActionPayload(GetShownAsset().GetValue(), l_Path);
+            ImGui::SetDragDropPayload(c_InputActionPayload, l_Payload.data(), l_Payload.size());
+            ImGui::TextUnformatted(std::format("{} {}", Trinity::Icons::c_Gamepad, l_Path).c_str());
+            ImGui::EndDragDropSource();
         }
 
         if (ImGui::BeginPopupContextItem("##ActionMenu"))
@@ -1199,7 +1216,7 @@ void InputActionsPanel::CommitName(const Trinity::InputActionsData& data)
 
         const std::string l_What = std::format("Rename action {}/{} to {}", std::string_view(l_After.Maps[static_cast<std::size_t>(m_Selected.Map)].Name), std::string_view(l_Action.Name), l_Name);
         l_Action.Name = Trinity::InputName(std::string_view(l_Name));
-        Edit(std::move(l_After), l_What);
+        Rename(std::move(l_After), l_What);
     }
     else if (m_Selected.Map >= 0)
     {
@@ -1212,7 +1229,7 @@ void InputActionsPanel::CommitName(const Trinity::InputActionsData& data)
 
         const std::string l_What = std::format("Rename map {} to {}", std::string_view(l_Map.Name), l_Name);
         l_Map.Name = Trinity::InputName(std::string_view(l_Name));
-        Edit(std::move(l_After), l_What);
+        Rename(std::move(l_After), l_What);
     }
 }
 
