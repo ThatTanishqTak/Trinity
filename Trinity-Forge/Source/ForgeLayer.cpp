@@ -265,6 +265,11 @@ void ForgeLayer::OnImGuiRender()
         it_Panel->Draw();
     }
 
+    // The scene reads the keyboard and mouse as the Game panel lets it, and the gamepads while Forge has the focus, though not while Listen waits for one to bind
+    Trinity::SceneInputFilter l_SceneInput = m_GamePanel->TakeSceneFilter();
+    l_SceneInput.Gamepads = !m_InputActionsPanel->IsListening();
+    Trinity::Input::SetSceneFilter(l_SceneInput);
+
     m_ContentBrowser->EndFrame();
     m_PropertiesPanel->DrawPopups();
     DrawStartScreen();

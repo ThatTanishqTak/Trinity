@@ -917,6 +917,24 @@ namespace Trinity
         return Sync() != nullptr;
     }
 
+    const InputActionsData* InputActions::GetData()
+    {
+        return Sync();
+    }
+
+    // Read from the states alone, which a reload sizes again, so it is safe whether or not the asset has been asked for since
+    std::optional<InputActions::ActionReading> InputActions::ReadAction(std::uint32_t action, std::uint32_t player)
+    {
+        if (!IsActive(player) || action >= s_State->Players[player].Actions.size())
+        {
+            return std::nullopt;
+        }
+
+        const ActionState& l_State = s_State->Players[player].Actions[action];
+
+        return ActionReading{ l_State.Value, l_State.Held, l_State.Progress };
+    }
+
     bool InputActions::EnableMap(std::string_view map, std::uint32_t player)
     {
         return SetMapEnabled(map, player, true);

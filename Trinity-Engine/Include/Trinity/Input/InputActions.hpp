@@ -8,11 +8,14 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string_view>
 #include <utility>
 
 namespace Trinity
 {
+    struct InputActionsData;
+
     // A device a player reads: the keyboard and mouse together, or the gamepad in one of Input's slots
     enum class InputDevice : std::uint8_t
     {
@@ -79,9 +82,21 @@ namespace Trinity
         // How far a Button or an Axis, or a Vector2's length, has to go for the action to be pressed
         static constexpr float c_PressPoint = 0.5f;
 
+        // How a player reads an action, as a debugger such as Forge's Game panel shows it: its value as ReadVector2 gives it, whether it is held, and its interaction's progress
+        struct ActionReading
+        {
+            glm::vec2 Value{ 0.0f };
+            bool Held = false;
+            float Progress = 0.0f;
+        };
+
         // Invalid when the running scene has none
         [[nodiscard]] static UUID GetAsset();
         [[nodiscard]] static bool IsReady();
+        // The running scene's asset as its actions read it now, null until it is ready. A reload replaces it, so it is asked for again each frame
+        [[nodiscard]] static const InputActionsData* GetData();
+        // The action at its index among every map's actions in order, as GetData had them this frame. None for a player there is not, or an index past the last
+        [[nodiscard]] static std::optional<ActionReading> ReadAction(std::uint32_t action, std::uint32_t player);
 
         // By name. A map the asset does not have, or a player there is not, is false and logged. Before the asset is ready the name is kept and checked once it is
         static bool EnableMap(std::string_view map, std::uint32_t player = 0);

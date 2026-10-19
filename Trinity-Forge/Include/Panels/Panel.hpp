@@ -41,6 +41,8 @@ protected:
     virtual void OnImGuiRender() = 0;
 
     void SetBorderless(bool borderless) { m_Borderless = borderless; }
+    // One that is not leaves its keys to what it shows rather than moving the keyboard between its items, as the Game panel does while the scene plays. From the next time it is drawn
+    void SetNavigable(bool navigable) { m_Navigable = navigable; }
 
 private:
     std::string m_Title;
@@ -50,5 +52,6 @@ private:
     DockSlot m_Slot;
     bool m_Open = true;
     bool m_Borderless = false;
+    bool m_Navigable = true;
     bool m_FocusRequested = false;
 };

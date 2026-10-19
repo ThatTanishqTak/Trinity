@@ -39,8 +39,11 @@ void Panel::Draw()
         ImGui::SetNextWindowFocus();
     }
 
+    ImGuiWindowFlags l_Flags = m_Borderless ? ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse : ImGuiWindowFlags_None;
+    l_Flags |= m_Navigable ? ImGuiWindowFlags_None : ImGuiWindowFlags_NoNavInputs;
+
     bool l_Open = true;
-    const bool l_Visible = ImGui::Begin(m_WindowName.c_str(), &l_Open, m_Borderless ? ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse : ImGuiWindowFlags_None);
+    const bool l_Visible = ImGui::Begin(m_WindowName.c_str(), &l_Open, l_Flags);
     if (m_Borderless)
     {
         ImGui::PopStyleVar();

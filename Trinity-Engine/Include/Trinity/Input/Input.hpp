@@ -21,7 +21,18 @@ namespace Trinity
         float Y = 0.0f;
     };
 
-    // The keyboard and mouse as the window's events left them, and the gamepads as the platform last read them. Is is whether a key or button is held now. Was is whether it went down, or up, during this frame, counted from the end of the last one, so a press and a release between two frames count as both, and a key held long enough to repeat is pressed once. OnFixedUpdate may run more than once in a frame, or not at all, so a script reads Was in OnUpdate. Main thread only
+    // What a scene shown in a panel of an editor is let read, as Forge's Game panel sets it. A device kept from the scene reads to it as released, centred and still, with a release for whatever it held, and a key, button or axis held as the scene gets it back stays hidden from it until it is let go, so the click that focuses the panel is not the game's. Mouse lets the movement in and keeps the buttons held, while a new press or the wheel also needs MouseOver, the pointer over the scene's image. The scene reads the mouse in the image's pixels, from MouseOrigin in the window's pixels, MouseScale of the window's pixels to one of its own. One never set lets the scene read everything as the window has it
+    struct SceneInputFilter
+    {
+        bool Keyboard = true;
+        bool Mouse = true;
+        bool MouseOver = true;
+        bool Gamepads = true;
+        glm::vec2 MouseOrigin{ 0.0f };
+        float MouseScale = 1.0f;
+    };
+
+    // The keyboard and mouse as the window's events left them, and the gamepads as the platform last read them. Is is whether a key or button is held now. Was is whether it went down, or up, during this frame, counted from the end of the last one, so a press and a release between two frames count as both, and a key held long enough to repeat is pressed once. OnFixedUpdate may run more than once in a frame, or not at all, so a script reads Was in OnUpdate. While a scene's frame runs, every read, its scripts' own and its actions', is of what SetSceneFilter lets the scene have, and the rest are of the window, so an editor reads the devices whatever its scene is let have. Main thread only
     class TRINITY_API Input
     {
     public:
@@ -53,8 +64,12 @@ namespace Trinity
         // Every pad's, as when a SceneManager ends, so stopping play in Forge leaves no pad rumbling
         static void StopGamepadRumble();
 
+        // Taken as the frame ends, so the scene's next frame reads by it, and kept until it is set again
+        static void SetSceneFilter(const SceneInputFilter& filter);
+
     private:
         friend class Application;
+        friend class SceneRuntime;
 
         static void OnEvent(const Event& event);
         // After the window's events each frame. Reports pads connecting and disconnecting through onEvent, with Input already reading them that way
@@ -63,5 +78,7 @@ namespace Trinity
         static void EndFrame();
         static void InitializeGamepads();
         static void ShutdownGamepads();
+        // Whether reads are the scene's, as its frame runs, returning whether they were, to go back to
+        static bool SetReadingScene(bool reading);
     };
 }
