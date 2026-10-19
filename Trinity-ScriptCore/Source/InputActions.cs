@@ -79,5 +79,8 @@ namespace Trinity
 
         // The device of the gamepad in Input's slot, or None for a slot there is not
         public static InputDevice GetGamepadDevice(int gamepad) => (uint)gamepad < (uint)Input.MaxGamepads ? (InputDevice)(gamepad + 1) : InputDevice.None;
+
+        // Takes away every rebind the player slot has, as a game's Reset to Defaults does, and saves. Each slot's rebinds are kept on the machine under /saves, read as the scene starts
+        public static void ResetBindings(int player = 0) => Native.InputActions_ResetBindings(player);
     }
 }

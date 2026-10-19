@@ -89,6 +89,14 @@ namespace Trinity
             return !name.empty() && name.find(InputActionsData::c_PathSeparator) == std::string_view::npos;
         }
 
+        // Map/Action, each a valid name
+        bool IsValidPath(std::string_view path)
+        {
+            const std::size_t l_Separator = path.find(InputActionsData::c_PathSeparator);
+
+            return l_Separator != std::string_view::npos && IsValidName(path.substr(0, l_Separator)) && IsValidName(path.substr(l_Separator + 1));
+        }
+
         void WriteSource(ComponentWriter& writer, std::string_view key, InputSource source)
         {
             if (source.Kind != InputSourceKind::None)
@@ -449,6 +457,79 @@ namespace Trinity
             return {};
         }
 
+        std::string ReadRebind(const YAML::Node& node, InputBindingOverride& rebind)
+        {
+            if (!node.IsMap())
+            {
+                return "a rebind is not a map";
+            }
+
+            std::string l_Action;
+            std::string l_Malformed;
+            CookedText::ReadString(node, "Action", l_Action, l_Malformed);
+            CookedText::ReadNumber(node, "Binding", rebind.Binding, l_Malformed);
+            CookedText::ReadNumber(node, "Part", rebind.Part, l_Malformed);
+            if (!l_Malformed.empty())
+            {
+                return std::format("{} is malformed", l_Malformed);
+            }
+
+            if (!IsValidPath(l_Action))
+            {
+                return std::format("Action '{}' is no Map/Action path", l_Action);
+            }
+
+            if (rebind.Part >= std::tuple_size_v<decltype(InputBinding::Sources)>)
+            {
+                return std::format("Part {} is past a binding's 4", rebind.Part);
+            }
+
+            rebind.Action = InputName(std::string_view(l_Action));
+            if (std::string l_Error = ReadSource(node, "From", rebind.From); !l_Error.empty())
+            {
+                return l_Error;
+            }
+
+            return ReadSource(node, "To", rebind.To);
+        }
+
+        std::string ReadOverlayPlayer(const YAML::Node& node, InputBindingOverlay& overlay, std::array<bool, InputBindingOverlay::c_PlayerSlots>& read)
+        {
+            if (!node.IsMap())
+            {
+                return "a player is not a map";
+            }
+
+            std::uint32_t l_Player = InputBindingOverlay::c_PlayerSlots;
+            std::string l_Malformed;
+            CookedText::ReadNumber(node, "Player", l_Player, l_Malformed);
+            if (!l_Malformed.empty() || l_Player >= InputBindingOverlay::c_PlayerSlots)
+            {
+                return std::format("a player's Player is not from 0 to {}", InputBindingOverlay::c_PlayerSlots - 1);
+            }
+
+            if (std::exchange(read[l_Player], true))
+            {
+                return std::format("player {} is given twice", l_Player);
+            }
+
+            const std::optional<YAML::Node> l_Rebinds = GetList(node, "Rebinds");
+            if (!l_Rebinds)
+            {
+                return std::format("player {}: Rebinds is not a list", l_Player);
+            }
+
+            for (std::size_t it_Rebind = 0; it_Rebind < l_Rebinds->size(); ++it_Rebind)
+            {
+                if (std::string l_Error = ReadRebind((*l_Rebinds)[it_Rebind], overlay.Players[l_Player].emplace_back()); !l_Error.empty())
+                {
+                    return std::format("player {}, rebind {}: {}", l_Player, it_Rebind, l_Error);
+                }
+            }
+
+            return {};
+        }
+
         std::string ReadMap(const YAML::Node& node, const InputActionsData& data, InputActionMap& map)
         {
             if (std::string l_Error = ReadNamed(node, data.Maps, "map", map.Name); !l_Error.empty())
@@ -579,6 +660,79 @@ namespace Trinity
         }
 
         return l_Data;
+    }
+
+    std::string WriteInputBindingOverlay(const InputBindingOverlay& overlay)
+    {
+        std::string l_Text = std::format("Format: {}", InputBindingOverlay::c_FormatVersion);
+        ComponentWriter l_Writer(l_Text, 0);
+        l_Writer.Write("Asset", overlay.Asset);
+        l_Writer.BeginList("Players");
+        for (std::uint32_t it_Player = 0; it_Player < InputBindingOverlay::c_PlayerSlots; ++it_Player)
+        {
+            const InputVector<InputBindingOverride>& l_Rebinds = overlay.Players[it_Player];
+            if (l_Rebinds.empty())
+            {
+                continue;
+            }
+
+            l_Writer.BeginItem();
+            l_Writer.Write("Player", it_Player);
+            l_Writer.BeginList("Rebinds");
+            for (const InputBindingOverride& it_Rebind : l_Rebinds)
+            {
+                l_Writer.BeginItem();
+                l_Writer.Write("Action", std::string_view(it_Rebind.Action));
+                l_Writer.Write("Binding", it_Rebind.Binding);
+                if (it_Rebind.Part != 0)
+                {
+                    l_Writer.Write("Part", it_Rebind.Part);
+                }
+
+                WriteSource(l_Writer, "From", it_Rebind.From);
+                WriteSource(l_Writer, "To", it_Rebind.To);
+            }
+
+            l_Writer.End();
+        }
+
+        l_Writer.End();
+
+        return l_Text + "\n";
+    }
+
+    Expected<InputBindingOverlay, std::string> ParseInputBindingOverlay(std::string_view text)
+    {
+        const Expected<YAML::Node, std::string> l_Root = CookedText::LoadRoot(text, "a rebinds file", InputBindingOverlay::c_FormatVersion);
+        if (!l_Root)
+        {
+            return Unexpected{ l_Root.GetError() };
+        }
+
+        InputBindingOverlay l_Overlay;
+        std::string l_Malformed;
+        CookedText::ReadUUID(*l_Root, "Asset", l_Overlay.Asset, l_Malformed);
+        if (!l_Malformed.empty())
+        {
+            return Unexpected{ std::string("Asset is malformed") };
+        }
+
+        const std::optional<YAML::Node> l_Players = GetList(*l_Root, "Players");
+        if (!l_Players)
+        {
+            return Unexpected{ std::string("Players is not a list") };
+        }
+
+        std::array<bool, InputBindingOverlay::c_PlayerSlots> l_Read{};
+        for (std::size_t it_Player = 0; it_Player < l_Players->size(); ++it_Player)
+        {
+            if (std::string l_Error = ReadOverlayPlayer((*l_Players)[it_Player], l_Overlay, l_Read); !l_Error.empty())
+            {
+                return Unexpected{ std::move(l_Error) };
+            }
+        }
+
+        return l_Overlay;
     }
 
     std::string ToString(InputSource source)

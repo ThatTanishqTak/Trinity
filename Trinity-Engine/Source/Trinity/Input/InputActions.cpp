@@ -4,6 +4,7 @@
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
+#include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Input/InputActionData.hpp"
 #include "Trinity/Input/InputActionsRuntime.hpp"
 
@@ -12,8 +13,11 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <limits>
+#include <optional>
 #include <ranges>
+#include <string>
 #include <utility>
 
 namespace Trinity
@@ -22,6 +26,12 @@ namespace Trinity
     {
         constexpr std::uint32_t c_NoAction = std::numeric_limits<std::uint32_t>::max();
         constexpr std::size_t c_DeviceCount = std::to_underlying(InputDevice::Count);
+        constexpr std::uint32_t c_PartCount = static_cast<std::uint32_t>(std::tuple_size_v<decltype(InputBinding::Sources)>);
+        // How far a stick or trigger has to be pushed for a rebind's Listen to take it, as Forge's Listen takes it
+        constexpr float c_ListenPush = 0.5f;
+        constexpr std::string_view c_RebindsDirectory = "/saves/Input";
+
+        static_assert(InputActions::c_MaxPlayers == InputBindingOverlay::c_PlayerSlots, "A rebinds file keeps a slot for each player");
 
         // A path a handle was found by, and the action it leads to in the asset now, by its index among every map's actions in order
         struct ActionSlot
@@ -30,12 +40,13 @@ namespace Trinity
             std::uint32_t Action = c_NoAction;
         };
 
-        // Where each action is in the asset, and its type, kept here so reading an action never looks into an asset a reload may just have replaced
+        // Where each action is in the asset, its type, and where its bindings' sources start among a player's, c_PartCount for each binding, kept here so reading an action never looks into an asset a reload may just have replaced
         struct ActionLocation
         {
             std::uint32_t Map = 0;
             std::uint32_t Action = 0;
             InputActionType Type = InputActionType::Button;
+            std::uint32_t FirstSource = 0;
         };
 
         // A map enabled or disabled before the asset was ready, made once it is, after the first map
@@ -55,7 +66,7 @@ namespace Trinity
             Failed
         };
 
-        // One player's reading of one action: its value, whether it is held, whether it went down or up this frame, and the same since the last fixed step. Then its interaction's: where it is, the time it has been in that phase, the taps done, its progress, and whether it performed or canceled this frame and since the last fixed step
+        // One player's reading of one action: its value, whether it is held, whether it went down or up this frame, and the same since the last fixed step. Then its interaction's: where it is, the time it has been in that phase, the taps done, its progress, and whether it performed or canceled this frame and since the last fixed step. Last, whether it is held back after a rebind's Listen took an input, reading as released until its sources are let go
         struct ActionState
         {
             glm::vec2 Value{ 0.0f };
@@ -72,9 +83,10 @@ namespace Trinity
             bool Canceled = false;
             bool FixedPerformed = false;
             bool FixedCanceled = false;
+            bool HeldBack = false;
         };
 
-        // The maps a player enabled, by name so they outlive a reload, and by index into the asset now. A new player has the first map enabled once the asset is there, then the changes asked for until it was
+        // The maps a player enabled, by name so they outlive a reload, and by index into the asset now. A new player has the first map enabled once the asset is there, then the changes asked for until it was. Its sources are the asset's with its slot's rebinds on top, by ActionLocation::FirstSource
         struct PlayerState
         {
             bool Active = false;
@@ -83,6 +95,28 @@ namespace Trinity
             InputVector<MapChange> PendingChanges;
             InputVector<std::uint8_t> EnabledMaps;
             InputVector<ActionState> Actions;
+            InputVector<InputSource> Sources;
+        };
+
+        // A rebind's outcome, in the slot of InputRebind::c_Kept its ID gives it: what it came to, the source it took or refused, and when refused the name of the action of its map that reads that source
+        struct RebindOutcome
+        {
+            std::uint32_t ID = 0;
+            InputRebindState State = InputRebindState::None;
+            InputSource Source;
+            InputName Conflict;
+        };
+
+        // The rebind that listens: the outcome it fills, its action by the handle's slot, so it follows a reload, the part and the player, whether it takes a stick whole, and each pad's axes pushed as it started, bit 1 << GamepadAxis, which it takes only once they have come back under c_ListenPush
+        struct Listening
+        {
+            std::uint32_t ID = 0;
+            std::uint32_t Slot = 0;
+            std::uint32_t Binding = 0;
+            std::uint32_t Part = 0;
+            std::uint32_t Player = 0;
+            bool WholeStick = false;
+            std::array<std::uint32_t, Input::c_MaxGamepads> HeldAxes{};
         };
 
         struct State
@@ -103,6 +137,14 @@ namespace Trinity
             std::array<std::uint32_t, InputActions::c_MaxPlayers> ReadMasks{};
             // Counts up as a scene starts and ends, so a handle found in an earlier one reads nothing
             std::uint32_t Session = 1;
+            // How many sources a player has, c_PartCount for each binding of every action
+            std::uint32_t SourceCount = 0;
+            // Each player slot's rebinds, read from /saves as the scene starts and saved there as they change, whether or not the player is in use
+            std::array<InputVector<InputBindingOverride>, InputActions::c_MaxPlayers> Rebinds;
+            std::array<RebindOutcome, InputRebind::c_Kept> Outcomes;
+            // Never starts again from 1, so a rebind of an earlier scene reads as None
+            std::uint32_t NextRebind = 1;
+            std::optional<Listening> Listen;
         };
 
         State* s_State = nullptr;
@@ -308,31 +350,32 @@ namespace Trinity
             return l_Reading.IsVector ? glm::length(l_Reading.Value) : l_Reading.Value.x;
         }
 
-        [[nodiscard]] Reading ReadBinding(const InputBinding& binding, std::uint32_t mask)
+        // From the player's sources for the binding, its c_PartCount starting at sources
+        [[nodiscard]] Reading ReadBinding(const InputBinding& binding, const InputSource* sources, std::uint32_t mask)
         {
             Reading l_Reading;
             switch (binding.Composite)
             {
                 case InputCompositeKind::None:
                 {
-                    l_Reading = ReadSource(binding.Sources[0], mask);
+                    l_Reading = ReadSource(sources[0], mask);
 
                     break;
                 }
                 case InputCompositeKind::Axis:
                 {
-                    const float l_Negative = ReadPart(binding.Sources[0], mask, l_Reading.WentDown);
-                    const float l_Positive = ReadPart(binding.Sources[1], mask, l_Reading.WentDown);
+                    const float l_Negative = ReadPart(sources[0], mask, l_Reading.WentDown);
+                    const float l_Positive = ReadPart(sources[1], mask, l_Reading.WentDown);
                     l_Reading.Value.x = l_Positive - l_Negative;
 
                     break;
                 }
                 case InputCompositeKind::Vector2:
                 {
-                    const float l_Up = ReadPart(binding.Sources[0], mask, l_Reading.WentDown);
-                    const float l_Down = ReadPart(binding.Sources[1], mask, l_Reading.WentDown);
-                    const float l_Left = ReadPart(binding.Sources[2], mask, l_Reading.WentDown);
-                    const float l_Right = ReadPart(binding.Sources[3], mask, l_Reading.WentDown);
+                    const float l_Up = ReadPart(sources[0], mask, l_Reading.WentDown);
+                    const float l_Down = ReadPart(sources[1], mask, l_Reading.WentDown);
+                    const float l_Left = ReadPart(sources[2], mask, l_Reading.WentDown);
+                    const float l_Right = ReadPart(sources[3], mask, l_Reading.WentDown);
                     l_Reading.Value = glm::vec2(l_Right - l_Left, l_Up - l_Down);
                     l_Reading.IsVector = true;
 
@@ -501,17 +544,17 @@ namespace Trinity
             state.FixedCanceled = state.FixedCanceled || state.Canceled;
         }
 
-        // Of several bindings the strongest wins, the first among equals. An action is pressed as it goes from below the press point to it, and also when a key or button of it went down this frame and came up again before it ended. Its interaction follows, over the frame's seconds
-        void Evaluate(const InputActionDefinition& action, bool enabled, std::uint32_t mask, float seconds, ActionState& state)
+        // Of several bindings the strongest wins, the first among equals, each read from the player's sources, which start at sources. An action is pressed as it goes from below the press point to it, and also when a key or button of it went down this frame and came up again before it ended. One held back reads as released until it is below the press point with nothing gone down, as after a rebind. Its interaction follows, over the frame's seconds
+        void Evaluate(const InputActionDefinition& action, const InputSource* sources, bool enabled, std::uint32_t mask, float seconds, ActionState& state)
         {
             glm::vec2 l_Value(0.0f);
             float l_Magnitude = 0.0f;
             bool l_WentDown = false;
             if (enabled)
             {
-                for (const InputBinding& it_Binding : action.Bindings)
+                for (std::size_t it_Binding = 0; it_Binding < action.Bindings.size(); ++it_Binding)
                 {
-                    const Reading l_Reading = ReadBinding(it_Binding, mask);
+                    const Reading l_Reading = ReadBinding(action.Bindings[it_Binding], sources + it_Binding * c_PartCount, mask);
                     float l_BindingMagnitude = 0.0f;
                     const glm::vec2 l_BindingValue = ToActionValue(action.Type, l_Reading, l_BindingMagnitude);
                     l_WentDown = l_WentDown || l_Reading.WentDown;
@@ -520,6 +563,17 @@ namespace Trinity
                         l_Magnitude = l_BindingMagnitude;
                         l_Value = l_BindingValue;
                     }
+                }
+            }
+
+            if (state.HeldBack)
+            {
+                state.HeldBack = l_Magnitude >= InputActions::c_PressPoint || l_WentDown;
+                if (state.HeldBack)
+                {
+                    l_Value = glm::vec2(0.0f);
+                    l_Magnitude = 0.0f;
+                    l_WentDown = false;
                 }
             }
 
@@ -647,28 +701,227 @@ namespace Trinity
             }
         }
 
-        // As the asset becomes ready and after each reload. Every action reads as released until the next frame's update
+        [[nodiscard]] const InputActionDefinition& GetAction(const ActionLocation& location)
+        {
+            return s_State->Data->Maps[location.Map].Actions[location.Action];
+        }
+
+        // 1 for a single source, and a composite's parts
+        [[nodiscard]] std::uint32_t GetPartCount(const InputBinding& binding)
+        {
+            return std::max(static_cast<std::uint32_t>(GetCompositeParts(binding.Composite).size()), 1u);
+        }
+
+        // Whether a rebind's path, Map/Action, is of the action there, compared without making one
+        [[nodiscard]] bool NamesLocation(std::string_view path, const ActionLocation& location)
+        {
+            const InputActionMap& l_Map = s_State->Data->Maps[location.Map];
+            const std::string_view l_MapName(l_Map.Name);
+            const std::string_view l_ActionName(l_Map.Actions[location.Action].Name);
+
+            return path.size() == l_MapName.size() + 1 + l_ActionName.size() && path.starts_with(l_MapName) && path[l_MapName.size()] == InputActionsData::c_PathSeparator && path.ends_with(l_ActionName);
+        }
+
+        // The action at a rebind's path, without logging
+        [[nodiscard]] std::uint32_t FindLocation(std::string_view path)
+        {
+            for (std::uint32_t it_Location = 0; s_State->Data != nullptr && it_Location < s_State->Locations.size(); ++it_Location)
+            {
+                if (NamesLocation(path, s_State->Locations[it_Location]))
+                {
+                    return it_Location;
+                }
+            }
+
+            return c_NoAction;
+        }
+
+        [[nodiscard]] std::string DescribeSource(InputSource source)
+        {
+            return source.Kind != InputSourceKind::None ? ToString(source) : std::string("nothing");
+        }
+
+        // Such as Gameplay/Jump binding 0, or Gameplay/Move binding 1 part 2
+        [[nodiscard]] std::string DescribePart(std::string_view action, std::uint32_t binding, std::uint32_t part)
+        {
+            return part != 0 ? std::format("{} binding {} part {}", action, binding, part) : std::format("{} binding {}", action, binding);
+        }
+
+        [[nodiscard]] std::string GetRebindsPath()
+        {
+            return std::format("{}/{}{}", c_RebindsDirectory, s_State->Asset, InputBindingOverlay::c_Extension);
+        }
+
+        // Every slot's rebinds, or the file taken away once there are none. A failure is logged, and the rebinds last until play stops
+        void SaveRebinds()
+        {
+            if (!s_State->Asset)
+            {
+                return;
+            }
+
+            const std::string l_Path = GetRebindsPath();
+            if (std::ranges::all_of(s_State->Rebinds, [](const InputVector<InputBindingOverride>& rebinds) { return rebinds.empty(); }))
+            {
+                if (FileSystem::Exists(l_Path))
+                {
+                    if (const Expected<void, FileError> l_Removed = FileSystem::RemoveFile(l_Path); !l_Removed)
+                    {
+                        TR_CORE_WARN("Input: {} was not removed, since {}, so its rebinds come back when play next starts", l_Path, ToString(l_Removed.GetError()));
+                    }
+                }
+
+                return;
+            }
+
+            InputBindingOverlay l_Overlay;
+            l_Overlay.Asset = s_State->Asset;
+            l_Overlay.Players = s_State->Rebinds;
+            if (const Expected<void, FileError> l_Written = FileSystem::WriteText(l_Path, WriteInputBindingOverlay(l_Overlay)); !l_Written)
+            {
+                TR_CORE_WARN("Input: the rebinds were not saved to {}, since {}, so they last until play stops", l_Path, ToString(l_Written.GetError()));
+            }
+        }
+
+        // The asset's rebinds on this machine, as the scene starts, logged with how many there are. A file that cannot be read is logged and left for the next rebind to replace
+        void LoadRebinds()
+        {
+            const std::string l_Path = GetRebindsPath();
+            if (!FileSystem::Exists(l_Path))
+            {
+                return;
+            }
+
+            const auto a_Refuse = [&l_Path](std::string_view reason)
+            {
+                TR_CORE_WARN("Input: the rebinds in {} were not read, since {}, so the asset's own bindings are used until the next rebind replaces them", l_Path, reason);
+            };
+
+            const Expected<std::string, FileError> l_Text = FileSystem::ReadText(l_Path);
+            if (!l_Text)
+            {
+                a_Refuse(ToString(l_Text.GetError()));
+
+                return;
+            }
+
+            Expected<InputBindingOverlay, std::string> l_Overlay = ParseInputBindingOverlay(*l_Text);
+            if (!l_Overlay || l_Overlay->Asset != s_State->Asset)
+            {
+                a_Refuse(l_Overlay ? std::string_view("they are another asset's") : std::string_view(l_Overlay.GetError()));
+
+                return;
+            }
+
+            std::size_t l_Count = 0;
+            std::size_t l_Players = 0;
+            for (std::uint32_t it_Player = 0; it_Player < InputActions::c_MaxPlayers; ++it_Player)
+            {
+                s_State->Rebinds[it_Player] = std::move(l_Overlay->Players[it_Player]);
+                l_Count += s_State->Rebinds[it_Player].size();
+                l_Players += s_State->Rebinds[it_Player].empty() ? 0 : 1;
+            }
+
+            TR_CORE_INFO("Input: {} rebind(s) of {} player(s) read from {}", l_Count, l_Players, l_Path);
+        }
+
+        // A rebind whose action, binding or part the asset no longer has, or whose part the asset now gives another source than the one it replaced, is dropped and logged, and the rest are saved
+        void DropStaleRebinds()
+        {
+            bool l_Dropped = false;
+            for (std::uint32_t it_Player = 0; it_Player < InputActions::c_MaxPlayers; ++it_Player)
+            {
+                std::erase_if(s_State->Rebinds[it_Player], [it_Player, &l_Dropped](const InputBindingOverride& rebind)
+                {
+                    const std::uint32_t l_Location = FindLocation(rebind.Action);
+                    const InputActionDefinition* l_Action = l_Location != c_NoAction ? &GetAction(s_State->Locations[l_Location]) : nullptr;
+                    const InputBinding* l_Binding = l_Action != nullptr && rebind.Binding < l_Action->Bindings.size() ? &l_Action->Bindings[rebind.Binding] : nullptr;
+                    if (l_Binding != nullptr && rebind.Part < GetPartCount(*l_Binding) && l_Binding->Sources[rebind.Part] == rebind.From)
+                    {
+                        return false;
+                    }
+
+                    TR_CORE_WARN("Input: player {}'s rebind of {} from {} to {} was dropped, since the actions asset no longer has {} there", it_Player, DescribePart(std::string_view(rebind.Action), rebind.Binding, rebind.Part), DescribeSource(rebind.From), DescribeSource(rebind.To), DescribeSource(rebind.From));
+                    l_Dropped = true;
+
+                    return true;
+                });
+            }
+
+            if (l_Dropped)
+            {
+                SaveRebinds();
+            }
+        }
+
+        // A part's source for a player slot: its rebind where it has one, and the asset's otherwise
+        [[nodiscard]] InputSource GetPlayerSource(std::uint32_t player, std::uint32_t location, std::uint32_t binding, std::uint32_t part)
+        {
+            const ActionLocation& l_Location = s_State->Locations[location];
+            for (const InputBindingOverride& it_Rebind : s_State->Rebinds[player])
+            {
+                if (it_Rebind.Binding == binding && it_Rebind.Part == part && NamesLocation(std::string_view(it_Rebind.Action), l_Location))
+                {
+                    return it_Rebind.To;
+                }
+            }
+
+            return GetAction(l_Location).Bindings[binding].Sources[part];
+        }
+
+        // The asset's sources with the slot's rebinds on top, so reading them allocates nothing until the next build or rebind
+        void FitSources(std::uint32_t player)
+        {
+            InputVector<InputSource>& l_Sources = s_State->Players[player].Sources;
+            l_Sources.assign(s_State->SourceCount, InputSource{});
+            for (const ActionLocation& it_Location : s_State->Locations)
+            {
+                const InputActionDefinition& l_Action = GetAction(it_Location);
+                for (std::size_t it_Binding = 0; it_Binding < l_Action.Bindings.size(); ++it_Binding)
+                {
+                    std::ranges::copy(l_Action.Bindings[it_Binding].Sources, l_Sources.begin() + static_cast<std::ptrdiff_t>(it_Location.FirstSource + it_Binding * c_PartCount));
+                }
+            }
+
+            for (const InputBindingOverride& it_Rebind : s_State->Rebinds[player])
+            {
+                const std::uint32_t l_Location = FindLocation(std::string_view(it_Rebind.Action));
+                if (l_Location != c_NoAction && it_Rebind.Binding < GetAction(s_State->Locations[l_Location]).Bindings.size() && it_Rebind.Part < c_PartCount)
+                {
+                    l_Sources[s_State->Locations[l_Location].FirstSource + it_Rebind.Binding * c_PartCount + it_Rebind.Part] = it_Rebind.To;
+                }
+            }
+        }
+
+        // As the asset becomes ready and after each reload, with each rebind the asset was changed under dropped. Every action reads as released until the next frame's update
         void Build(const InputActionsAsset* asset)
         {
             s_State->Data = asset != nullptr ? &asset->GetData() : nullptr;
             s_State->BuiltSerial = asset != nullptr ? asset->GetSerial() : 0;
             s_State->Locations.clear();
+            std::uint32_t l_FirstSource = 0;
             if (s_State->Data != nullptr)
             {
                 for (std::uint32_t it_Map = 0; it_Map < s_State->Data->Maps.size(); ++it_Map)
                 {
                     for (std::uint32_t it_Action = 0; it_Action < s_State->Data->Maps[it_Map].Actions.size(); ++it_Action)
                     {
-                        s_State->Locations.push_back({ it_Map, it_Action, s_State->Data->Maps[it_Map].Actions[it_Action].Type });
+                        const InputActionDefinition& l_Action = s_State->Data->Maps[it_Map].Actions[it_Action];
+                        s_State->Locations.push_back({ it_Map, it_Action, l_Action.Type, l_FirstSource });
+                        l_FirstSource += static_cast<std::uint32_t>(l_Action.Bindings.size()) * c_PartCount;
                     }
                 }
+
+                DropStaleRebinds();
             }
 
-            for (PlayerState& it_Player : s_State->Players)
+            s_State->SourceCount = l_FirstSource;
+            for (std::uint32_t it_Player = 0; it_Player < InputActions::c_MaxPlayers; ++it_Player)
             {
-                if (it_Player.Active)
+                if (s_State->Players[it_Player].Active)
                 {
-                    Fit(it_Player);
+                    Fit(s_State->Players[it_Player]);
+                    FitSources(it_Player);
                 }
             }
 
@@ -801,6 +1054,241 @@ namespace Trinity
 
             return true;
         }
+
+        // Another binding or part of the action's map that reads the source for the player, by its action. None never conflicts
+        [[nodiscard]] const InputActionDefinition* FindConflict(std::uint32_t player, std::uint32_t location, std::uint32_t binding, std::uint32_t part, InputSource source)
+        {
+            if (source.Kind == InputSourceKind::None)
+            {
+                return nullptr;
+            }
+
+            const std::uint32_t l_Map = s_State->Locations[location].Map;
+            for (std::uint32_t it_Location = 0; it_Location < s_State->Locations.size(); ++it_Location)
+            {
+                if (s_State->Locations[it_Location].Map != l_Map)
+                {
+                    continue;
+                }
+
+                const InputActionDefinition& l_Action = GetAction(s_State->Locations[it_Location]);
+                for (std::uint32_t it_Binding = 0; it_Binding < l_Action.Bindings.size(); ++it_Binding)
+                {
+                    for (std::uint32_t it_Part = 0; it_Part < GetPartCount(l_Action.Bindings[it_Binding]); ++it_Part)
+                    {
+                        const bool l_Itself = it_Location == location && it_Binding == binding && it_Part == part;
+                        if (!l_Itself && GetPlayerSource(player, it_Location, it_Binding, it_Part) == source)
+                        {
+                            return &l_Action;
+                        }
+                    }
+                }
+            }
+
+            return nullptr;
+        }
+
+        // The slot's rebind of a part to the source, or none where that is the asset's own, then the player's sources fitted again and the rebinds saved
+        void SetRebind(std::uint32_t player, std::uint32_t location, std::uint32_t binding, std::uint32_t part, InputSource source)
+        {
+            const ActionLocation& l_Location = s_State->Locations[location];
+            InputVector<InputBindingOverride>& l_Rebinds = s_State->Rebinds[player];
+            std::erase_if(l_Rebinds, [&l_Location, binding, part](const InputBindingOverride& rebind) { return rebind.Binding == binding && rebind.Part == part && NamesLocation(std::string_view(rebind.Action), l_Location); });
+
+            const InputSource l_Asset = GetAction(l_Location).Bindings[binding].Sources[part];
+            if (source != l_Asset)
+            {
+                const InputActionMap& l_Map = s_State->Data->Maps[l_Location.Map];
+                InputBindingOverride& l_Rebind = l_Rebinds.emplace_back();
+                l_Rebind.Action = InputName(std::string_view(std::format("{}{}{}", std::string_view(l_Map.Name), InputActionsData::c_PathSeparator, std::string_view(l_Map.Actions[l_Location.Action].Name))));
+                l_Rebind.Binding = binding;
+                l_Rebind.Part = part;
+                l_Rebind.From = l_Asset;
+                l_Rebind.To = source;
+            }
+
+            if (IsActive(player))
+            {
+                FitSources(player);
+            }
+
+            SaveRebinds();
+        }
+
+        // A new rebind's outcome, in the slot of the one c_Kept rebinds before it
+        [[nodiscard]] RebindOutcome& NewOutcome()
+        {
+            const std::uint32_t l_ID = std::exchange(s_State->NextRebind, s_State->NextRebind + 1 != 0 ? s_State->NextRebind + 1 : 1);
+            RebindOutcome& l_Outcome = s_State->Outcomes[l_ID % InputRebind::c_Kept];
+            l_Outcome = RebindOutcome{};
+            l_Outcome.ID = l_ID;
+
+            return l_Outcome;
+        }
+
+        [[nodiscard]] RebindOutcome* FindOutcome(std::uint32_t id)
+        {
+            RebindOutcome* l_Outcome = s_State != nullptr && id != 0 ? &s_State->Outcomes[id % InputRebind::c_Kept] : nullptr;
+
+            return l_Outcome != nullptr && l_Outcome->ID == id ? l_Outcome : nullptr;
+        }
+
+        // The place in the asset now of an action a handle has, or c_NoAction
+        [[nodiscard]] std::uint32_t FindHandleLocation(std::uint32_t slot, std::uint32_t session)
+        {
+            return IsRunning() && session == s_State->Session && slot < s_State->Slots.size() ? s_State->Slots[slot].Action : c_NoAction;
+        }
+
+        // The handle's action, for a rebind of a part there is for a player slot there is, or c_NoAction and logged
+        [[nodiscard]] std::uint32_t FindRebindLocation(std::uint32_t slot, std::uint32_t session, std::uint32_t binding, std::uint32_t part, std::uint32_t player, std::string_view what)
+        {
+            const std::uint32_t l_Location = FindHandleLocation(slot, session);
+            if (l_Location == c_NoAction)
+            {
+                TR_CORE_WARN("Input: no binding was {}, since the action is not one of the running scene's actions asset", what);
+
+                return c_NoAction;
+            }
+
+            const InputActionDefinition& l_Action = GetAction(s_State->Locations[l_Location]);
+            if (binding >= l_Action.Bindings.size() || part >= GetPartCount(l_Action.Bindings[binding]) || player >= InputActions::c_MaxPlayers)
+            {
+                TR_CORE_WARN("Input: {} was not {} for player {}, since the action has {} binding(s) and there are {} player slots", DescribePart(std::string_view(s_State->Slots[slot].Path), binding, part), what, player, l_Action.Bindings.size(), InputActions::c_MaxPlayers);
+
+                return c_NoAction;
+            }
+
+            return l_Location;
+        }
+
+        // The listening rebind done, with what it came to. One ended by the frame's input holds the player's actions back until their sources are let go, so that input reaches none
+        void EndListen(InputRebindState state, InputSource source = {}, std::string_view conflict = {}, bool byInput = false)
+        {
+            const std::uint32_t l_Player = s_State->Listen->Player;
+            if (RebindOutcome* l_Outcome = FindOutcome(s_State->Listen->ID))
+            {
+                l_Outcome->State = state;
+                l_Outcome->Source = source;
+                l_Outcome->Conflict = InputName(conflict);
+            }
+
+            s_State->Listen.reset();
+            if (byInput && IsActive(l_Player))
+            {
+                for (ActionState& it_Action : s_State->Players[l_Player].Actions)
+                {
+                    it_Action.HeldBack = true;
+                }
+            }
+        }
+
+        // The first key but Escape, mouse button or gamepad button of the devices in the mask that went down this frame, or else stick or trigger pushed past c_ListenPush, which one pushed as the rebind started has first to come back under
+        [[nodiscard]] std::optional<InputSource> FindPushed(Listening& listen, std::uint32_t mask)
+        {
+            if ((mask & (1u << std::to_underlying(InputDevice::KeyboardMouse))) != 0)
+            {
+                for (std::uint16_t it_Key = 0; it_Key < std::to_underlying(KeyCode::Count); ++it_Key)
+                {
+                    if (it_Key != std::to_underlying(KeyCode::TR_ESCAPE) && Input::WasKeyPressed(static_cast<KeyCode>(it_Key)))
+                    {
+                        return InputSource{ InputSourceKind::Key, it_Key };
+                    }
+                }
+
+                for (std::uint8_t it_Button = 0; it_Button < std::to_underlying(MouseCode::Count); ++it_Button)
+                {
+                    if (Input::WasMouseButtonPressed(static_cast<MouseCode>(it_Button)))
+                    {
+                        return InputSource{ InputSourceKind::MouseButton, it_Button };
+                    }
+                }
+            }
+
+            for (std::uint32_t it_Gamepad = 0; it_Gamepad < Input::c_MaxGamepads; ++it_Gamepad)
+            {
+                if ((mask & (1u << std::to_underlying(GetGamepadDevice(it_Gamepad)))) == 0 || !Input::IsGamepadConnected(it_Gamepad))
+                {
+                    continue;
+                }
+
+                for (std::uint8_t it_Button = 0; it_Button < std::to_underlying(GamepadButton::Count); ++it_Button)
+                {
+                    if (Input::WasGamepadButtonPressed(it_Gamepad, static_cast<GamepadButton>(it_Button)))
+                    {
+                        return InputSource{ InputSourceKind::GamepadButton, it_Button };
+                    }
+                }
+
+                std::uint32_t& l_Held = listen.HeldAxes[it_Gamepad];
+                for (std::uint8_t it_Axis = 0; it_Axis < std::to_underlying(GamepadAxis::Count); ++it_Axis)
+                {
+                    const std::uint32_t l_Bit = 1u << it_Axis;
+                    if (std::abs(Input::GetGamepadAxis(it_Gamepad, static_cast<GamepadAxis>(it_Axis))) < c_ListenPush)
+                    {
+                        l_Held &= ~l_Bit;
+
+                        continue;
+                    }
+
+                    if ((l_Held & l_Bit) != 0)
+                    {
+                        continue;
+                    }
+
+                    if (listen.WholeStick && it_Axis <= std::to_underlying(GamepadAxis::TR_RIGHT_STICK_Y))
+                    {
+                        return InputSource{ InputSourceKind::GamepadStick, static_cast<std::uint16_t>(it_Axis < std::to_underlying(GamepadAxis::TR_RIGHT_STICK_X) ? 0 : 1) };
+                    }
+
+                    return InputSource{ InputSourceKind::GamepadAxis, it_Axis };
+                }
+            }
+
+            return std::nullopt;
+        }
+
+        // The listening rebind's part of the frame, before the actions are read: Escape cancels it, and the first input pushed of the player's devices rebinds to it, or is refused. Its action leaving the asset, or its player, cancels it
+        void UpdateListen()
+        {
+            if (!s_State->Listen)
+            {
+                return;
+            }
+
+            Listening& l_Listen = *s_State->Listen;
+            const std::uint32_t l_Location = l_Listen.Slot < s_State->Slots.size() ? s_State->Slots[l_Listen.Slot].Action : c_NoAction;
+            const InputActionDefinition* l_Action = l_Location != c_NoAction ? &GetAction(s_State->Locations[l_Location]) : nullptr;
+            if (l_Action == nullptr || l_Listen.Binding >= l_Action->Bindings.size() || l_Listen.Part >= GetPartCount(l_Action->Bindings[l_Listen.Binding]) || !IsActive(l_Listen.Player))
+            {
+                EndListen(InputRebindState::Canceled);
+
+                return;
+            }
+
+            const std::uint32_t l_Mask = s_State->ReadMasks[l_Listen.Player];
+            if ((l_Mask & (1u << std::to_underlying(InputDevice::KeyboardMouse))) != 0 && Input::WasKeyPressed(KeyCode::TR_ESCAPE))
+            {
+                EndListen(InputRebindState::Canceled, {}, {}, true);
+
+                return;
+            }
+
+            const std::optional<InputSource> l_Source = FindPushed(l_Listen, l_Mask);
+            if (!l_Source)
+            {
+                return;
+            }
+
+            if (const InputActionDefinition* l_Conflict = FindConflict(l_Listen.Player, l_Location, l_Listen.Binding, l_Listen.Part, *l_Source))
+            {
+                EndListen(InputRebindState::Refused, *l_Source, std::string_view(l_Conflict->Name), true);
+
+                return;
+            }
+
+            SetRebind(l_Listen.Player, l_Location, l_Listen.Binding, l_Listen.Part, *l_Source);
+            EndListen(InputRebindState::Bound, *l_Source, {}, true);
+        }
     }
 
     InputAction InputAction::Find(std::string_view path)
@@ -907,6 +1395,154 @@ namespace Trinity
         return l_State != nullptr ? l_State->Value : glm::vec2(0.0f);
     }
 
+    std::uint32_t InputAction::GetBindingCount() const
+    {
+        const std::uint32_t l_Location = FindHandleLocation(m_Slot, m_Session);
+
+        return l_Location != c_NoAction ? static_cast<std::uint32_t>(GetAction(s_State->Locations[l_Location]).Bindings.size()) : 0;
+    }
+
+    std::uint32_t InputAction::GetPartCount(std::uint32_t binding) const
+    {
+        const std::uint32_t l_Location = FindHandleLocation(m_Slot, m_Session);
+        const InputActionDefinition* l_Action = l_Location != c_NoAction ? &GetAction(s_State->Locations[l_Location]) : nullptr;
+
+        return l_Action != nullptr && binding < l_Action->Bindings.size() ? Trinity::GetPartCount(l_Action->Bindings[binding]) : 0;
+    }
+
+    InputSource InputAction::GetSource(std::uint32_t binding, std::uint32_t part, std::uint32_t player) const
+    {
+        const std::uint32_t l_Location = FindHandleLocation(m_Slot, m_Session);
+
+        return part < GetPartCount(binding) && player < InputActions::c_MaxPlayers ? GetPlayerSource(player, l_Location, binding, part) : InputSource{};
+    }
+
+    InputSource InputAction::GetDefaultSource(std::uint32_t binding, std::uint32_t part) const
+    {
+        const std::uint32_t l_Location = FindHandleLocation(m_Slot, m_Session);
+
+        return part < GetPartCount(binding) ? GetAction(s_State->Locations[l_Location]).Bindings[binding].Sources[part] : InputSource{};
+    }
+
+    // The source is checked by its name, so it is one a rebinds file can hold
+    InputRebind InputAction::Rebind(std::uint32_t binding, std::uint32_t part, InputSource source, std::uint32_t player) const
+    {
+        const std::uint32_t l_Location = FindRebindLocation(m_Slot, m_Session, binding, part, player, "rebound");
+        if (l_Location == c_NoAction)
+        {
+            return {};
+        }
+
+        if (source.Kind != InputSourceKind::None && ParseInputSource(ToString(source)) != source)
+        {
+            TR_CORE_WARN("Input: {} was not rebound, since its source is none this build knows", DescribePart(std::string_view(s_State->Slots[m_Slot].Path), binding, part));
+
+            return {};
+        }
+
+        RebindOutcome& l_Outcome = NewOutcome();
+        l_Outcome.Source = source;
+        if (const InputActionDefinition* l_Conflict = FindConflict(player, l_Location, binding, part, source))
+        {
+            l_Outcome.State = InputRebindState::Refused;
+            l_Outcome.Conflict = l_Conflict->Name;
+
+            return InputRebind(l_Outcome.ID);
+        }
+
+        SetRebind(player, l_Location, binding, part, source);
+        l_Outcome.State = InputRebindState::Bound;
+
+        return InputRebind(l_Outcome.ID);
+    }
+
+    // Each pad's axes are read as they are now, as the scene reads them, so one already pushed is not taken until it has been let go
+    InputRebind InputAction::StartRebind(std::uint32_t binding, std::uint32_t part, std::uint32_t player) const
+    {
+        const std::uint32_t l_Location = FindRebindLocation(m_Slot, m_Session, binding, part, player, "listened for");
+        if (l_Location == c_NoAction)
+        {
+            return {};
+        }
+
+        if (!IsActive(player))
+        {
+            TR_CORE_WARN("Input: {} was not listened for, since there is no player {} to listen to", DescribePart(std::string_view(s_State->Slots[m_Slot].Path), binding, part), player);
+
+            return {};
+        }
+
+        if (s_State->Listen)
+        {
+            EndListen(InputRebindState::Canceled);
+        }
+
+        RebindOutcome& l_Outcome = NewOutcome();
+        l_Outcome.State = InputRebindState::Waiting;
+        const InputActionDefinition& l_Action = GetAction(s_State->Locations[l_Location]);
+        Listening& l_Listen = s_State->Listen.emplace();
+        l_Listen.ID = l_Outcome.ID;
+        l_Listen.Slot = m_Slot;
+        l_Listen.Binding = binding;
+        l_Listen.Part = part;
+        l_Listen.Player = player;
+        l_Listen.WholeStick = l_Action.Type == InputActionType::Vector2 && l_Action.Bindings[binding].Composite == InputCompositeKind::None;
+        for (std::uint32_t it_Gamepad = 0; it_Gamepad < Input::c_MaxGamepads; ++it_Gamepad)
+        {
+            for (std::uint8_t it_Axis = 0; it_Axis < std::to_underlying(GamepadAxis::Count); ++it_Axis)
+            {
+                l_Listen.HeldAxes[it_Gamepad] |= std::abs(Input::GetGamepadAxis(it_Gamepad, static_cast<GamepadAxis>(it_Axis))) >= c_ListenPush ? 1u << it_Axis : 0u;
+            }
+        }
+
+        return InputRebind(l_Outcome.ID);
+    }
+
+    void InputAction::ResetBinding(std::uint32_t binding, std::uint32_t part, std::uint32_t player) const
+    {
+        const std::uint32_t l_Location = FindRebindLocation(m_Slot, m_Session, binding, part, player, "reset");
+        if (l_Location == c_NoAction)
+        {
+            return;
+        }
+
+        SetRebind(player, l_Location, binding, part, GetAction(s_State->Locations[l_Location]).Bindings[binding].Sources[part]);
+    }
+
+    InputRebind InputRebind::FromHandle(std::uint64_t handle)
+    {
+        return handle <= std::numeric_limits<std::uint32_t>::max() ? InputRebind(static_cast<std::uint32_t>(handle)) : InputRebind();
+    }
+
+    InputRebindState InputRebind::GetState() const
+    {
+        const RebindOutcome* l_Outcome = FindOutcome(m_ID);
+
+        return l_Outcome != nullptr ? l_Outcome->State : InputRebindState::None;
+    }
+
+    InputSource InputRebind::GetSource() const
+    {
+        const RebindOutcome* l_Outcome = FindOutcome(m_ID);
+
+        return l_Outcome != nullptr ? l_Outcome->Source : InputSource{};
+    }
+
+    std::string_view InputRebind::GetConflict() const
+    {
+        const RebindOutcome* l_Outcome = FindOutcome(m_ID);
+
+        return l_Outcome != nullptr ? std::string_view(l_Outcome->Conflict) : std::string_view();
+    }
+
+    void InputRebind::Cancel() const
+    {
+        if (s_State != nullptr && s_State->Listen && s_State->Listen->ID == m_ID && m_ID != 0)
+        {
+            EndListen(InputRebindState::Canceled);
+        }
+    }
+
     UUID InputActions::GetAsset()
     {
         return IsRunning() ? s_State->Asset : UUID();
@@ -981,6 +1617,7 @@ namespace Trinity
                 l_Player.Active = true;
                 l_Player.FirstMapPending = true;
                 Fit(l_Player);
+                FitSources(it_Player);
                 UpdateReadMasks();
 
                 return it_Player;
@@ -1079,6 +1716,24 @@ namespace Trinity
         return InputDevice::None;
     }
 
+    void InputActions::ResetBindings(std::uint32_t player)
+    {
+        if (!IsRunning() || player >= c_MaxPlayers)
+        {
+            TR_CORE_WARN("Input: no bindings were reset, since {}", IsRunning() ? std::format("there is no player slot {}", player) : std::string("no scene runs"));
+
+            return;
+        }
+
+        s_State->Rebinds[player] = InputVector<InputBindingOverride>();
+        if (IsActive(player))
+        {
+            FitSources(player);
+        }
+
+        SaveRebinds();
+    }
+
     namespace InputActionsRuntime
     {
         void Initialize()
@@ -1123,6 +1778,7 @@ namespace Trinity
             }
 
             AssetManager::Acquire(asset);
+            LoadRebinds();
         }
 
         // Rumble is the SceneManager's to stop. What was found and enabled goes, and the memory with it
@@ -1142,9 +1798,14 @@ namespace Trinity
             s_State->BuiltSerial = 0;
             s_State->Locations = InputVector<ActionLocation>();
             s_State->Slots = InputVector<ActionSlot>();
+            s_State->SourceCount = 0;
+            s_State->Rebinds = {};
+            s_State->Outcomes = {};
+            s_State->Listen.reset();
             ResetPlayers();
         }
 
+        // A rebind that listens takes its input first, and while it waits its player's actions read as released
         void Update(Timestep timestep)
         {
             const InputActionsData* l_Data = Sync();
@@ -1153,6 +1814,7 @@ namespace Trinity
                 return;
             }
 
+            UpdateListen();
             const float l_Seconds = timestep.GetSeconds();
 
             for (std::uint32_t it_Player = 0; it_Player < InputActions::c_MaxPlayers; ++it_Player)
@@ -1164,10 +1826,11 @@ namespace Trinity
                 }
 
                 const std::uint32_t l_Mask = s_State->ReadMasks[it_Player];
+                const bool l_Listening = s_State->Listen && s_State->Listen->Player == it_Player;
                 for (std::size_t it_Action = 0; it_Action < s_State->Locations.size(); ++it_Action)
                 {
                     const ActionLocation& l_Location = s_State->Locations[it_Action];
-                    Evaluate(l_Data->Maps[l_Location.Map].Actions[l_Location.Action], l_Player.EnabledMaps[l_Location.Map] != 0, l_Mask, l_Seconds, l_Player.Actions[it_Action]);
+                    Evaluate(l_Data->Maps[l_Location.Map].Actions[l_Location.Action], l_Player.Sources.data() + l_Location.FirstSource, l_Player.EnabledMaps[l_Location.Map] != 0 && !l_Listening, l_Mask, l_Seconds, l_Player.Actions[it_Action]);
                 }
             }
         }

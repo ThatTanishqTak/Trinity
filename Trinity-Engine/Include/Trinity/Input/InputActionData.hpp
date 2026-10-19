@@ -4,6 +4,7 @@
 #include "Trinity/Core/Expected.hpp"
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Memory.hpp"
+#include "Trinity/Core/UUID.hpp"
 
 #include <glm/glm.hpp>
 
@@ -142,6 +143,31 @@ namespace Trinity
         [[nodiscard]] bool operator==(const InputActionsData&) const = default;
     };
 
+    // A player's rebind of one source of an action's binding, which /saves keeps apart from the asset: the action by its path, Map/Action, the binding by its index, and the part by its index in the binding's Sources, 0 for a single source. From is the source the asset had there, so a rebind the asset has since been changed under is dropped rather than moved onto another binding
+    struct InputBindingOverride
+    {
+        InputName Action;
+        std::uint32_t Binding = 0;
+        std::uint32_t Part = 0;
+        InputSource From;
+        InputSource To;
+
+        [[nodiscard]] bool operator==(const InputBindingOverride&) const = default;
+    };
+
+    // What /saves keeps for one actions asset on a player's machine: each player slot's rebinds, whether or not that player is in use
+    struct InputBindingOverlay
+    {
+        static constexpr std::uint32_t c_FormatVersion = 1;
+        static constexpr std::string_view c_Extension = ".trbindings";
+        static constexpr std::uint32_t c_PlayerSlots = 8;
+
+        UUID Asset;
+        std::array<InputVector<InputBindingOverride>, c_PlayerSlots> Players;
+
+        [[nodiscard]] bool operator==(const InputBindingOverlay&) const = default;
+    };
+
     class TRINITY_API InputActionsAsset final : public Asset
     {
     public:
@@ -179,6 +205,11 @@ namespace Trinity
     [[nodiscard]] TRINITY_API std::string WriteInputActions(const InputActionsData& data);
     // A key that is missing keeps its default, and an interaction's its kind's. A malformed one, a source or kind this build does not know, a name with '/' or one used twice, an interaction's time that is not above 0, a MultiTap of fewer than 2 taps, or a newer format, refuses the file
     [[nodiscard]] TRINITY_API Expected<InputActionsData, std::string> ParseInputActions(std::string_view text);
+
+    // YAML, with only the players that have rebinds, a Part of 0 and a source of none left out
+    [[nodiscard]] TRINITY_API std::string WriteInputBindingOverlay(const InputBindingOverlay& overlay);
+    // A key that is missing keeps its default. A malformed one, a player past the last slot or given twice, an action that is no Map/Action path, a part past a binding's 4, a source this build does not know, or a newer format, refuses the file
+    [[nodiscard]] TRINITY_API Expected<InputBindingOverlay, std::string> ParseInputBindingOverlay(std::string_view text);
 
     // As a file names it, such as Keyboard/Space, Mouse/Left, Mouse/Delta, Mouse/ScrollY, Gamepad/A, Gamepad/LeftStickPress, Gamepad/LeftStick or Gamepad/LeftTrigger, and empty for none. Keys are named as C# names them
     [[nodiscard]] TRINITY_API std::string ToString(InputSource source);

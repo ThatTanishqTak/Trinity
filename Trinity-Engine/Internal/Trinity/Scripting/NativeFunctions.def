@@ -100,6 +100,19 @@ TR_NATIVE(InputAction_ReadProgress, Float, (UInt64 action, Int32 player))
 TR_NATIVE(InputAction_ReadValue, Float, (UInt64 action, Int32 player))
 TR_NATIVE(InputAction_ReadVector2, Void, (UInt64 action, Int32 player, Vector2* value))
 TR_NATIVE(InputAction_GetEdges, Int64, (UInt64 action))
+
+// An action's bindings and a player's rebinds of them, a binding and a part by index, and a source by its name, such as Keyboard/Space, empty for none. A rebind crosses as its handle, 0 for none, and its state as its InputRebindState number. A name crosses as Utf8, valid until the next call that gives one, which C# copies at once
+TR_NATIVE(InputAction_GetBindingCount, Int32, (UInt64 action))
+TR_NATIVE(InputAction_GetPartCount, Int32, (UInt64 action, Int32 binding))
+TR_NATIVE(InputAction_GetSource, Utf8, (UInt64 action, Int32 binding, Int32 part, Int32 player, Bool asset))
+TR_NATIVE(InputAction_Rebind, UInt64, (UInt64 action, Int32 binding, Int32 part, Utf8 source, Int32 player))
+TR_NATIVE(InputAction_StartRebind, UInt64, (UInt64 action, Int32 binding, Int32 part, Int32 player))
+TR_NATIVE(InputAction_ResetBinding, Void, (UInt64 action, Int32 binding, Int32 part, Int32 player))
+TR_NATIVE(InputRebind_GetState, Int32, (UInt64 rebind))
+TR_NATIVE(InputRebind_GetSource, Utf8, (UInt64 rebind))
+TR_NATIVE(InputRebind_GetConflict, Utf8, (UInt64 rebind))
+TR_NATIVE(InputRebind_Cancel, Void, (UInt64 rebind))
+
 TR_NATIVE(InputActions_GetMaxPlayers, Int32, ())
 TR_NATIVE(InputActions_GetPressPoint, Float, ())
 TR_NATIVE(InputActions_GetAsset, UInt64, ())
@@ -116,6 +129,7 @@ TR_NATIVE(InputActions_UnassignDevice, Void, (Int32 device))
 TR_NATIVE(InputActions_GetDevicePlayer, Int32, (Int32 device))
 TR_NATIVE(InputActions_ReadsDevice, Bool, (Int32 player, Int32 device))
 TR_NATIVE(InputActions_GetJoiningDevice, Int32, ())
+TR_NATIVE(InputActions_ResetBindings, Void, (Int32 player))
 
 // What a script does to the body an entity is part of, named by the entity that owns it or by one of its colliders' entities, in world space, as PhysicsScene3D and 2D do it. Each Int32 result is an Interop::AccessResult: NoComponent for an entity that is not part of a body the running scene's physics has made, and BadValue for a body whose motion does not take it. A null point pushes at the body's centre of mass. A 2D body's turns are counter-clockwise radians about Z
 TR_NATIVE(Body_GetVelocity, Int32, (EntityId entity, Vector3* linear, Vector3* angular))

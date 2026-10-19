@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Trinity.Interop
 {
@@ -14,5 +15,8 @@ namespace Trinity.Interop
             Data = data;
             Length = length;
         }
+
+        // A copy, as text the engine gives back is valid only until its next call that gives text. Empty for none
+        public override string ToString() => Length > 0 ? Encoding.UTF8.GetString(Data, Length) : string.Empty;
     }
 }

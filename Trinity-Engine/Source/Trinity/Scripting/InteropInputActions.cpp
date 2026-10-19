@@ -1,8 +1,12 @@
 #include "Trinity/Scripting/Interop.hpp"
 
+#include "Trinity/Core/Log.hpp"
 #include "Trinity/Input/InputActions.hpp"
 
 #include <cstdint>
+#include <limits>
+#include <optional>
+#include <string>
 #include <utility>
 
 namespace Trinity::Interop
@@ -12,6 +16,8 @@ namespace Trinity::Interop
         // C# writes its InputDevice out by hand, so a change to these numbers is one to make there too
         static_assert(std::to_underlying(InputDevice::KeyboardMouse) == 0 && std::to_underlying(InputDevice::Gamepad0) == 1 && std::to_underlying(InputDevice::Gamepad7) == 8 && std::to_underlying(InputDevice::None) == 0xFF, "Trinity.InputDevice must number the devices as InputDevice does");
         static_assert(InputActions::c_MaxPlayers <= 8u, "An action's edges have a byte of players for each of its four edges");
+        // C# writes its InputRebindState out by hand too
+        static_assert(std::to_underlying(InputRebindState::None) == 0 && std::to_underlying(InputRebindState::Waiting) == 1 && std::to_underlying(InputRebindState::Bound) == 2 && std::to_underlying(InputRebindState::Refused) == 3 && std::to_underlying(InputRebindState::Canceled) == 4, "Trinity.InputRebindState must number the states as InputRebindState does");
 
         // A player C# gives below 0 is none, and one above the last is one there is not
         [[nodiscard]] std::uint32_t ToPlayer(Int32 player)
@@ -22,6 +28,21 @@ namespace Trinity::Interop
         [[nodiscard]] Int32 FromPlayer(std::uint32_t player)
         {
             return player != InputActions::c_NoPlayer ? static_cast<Int32>(player) : -1;
+        }
+
+        // A binding or part C# gives below 0 is one there is not
+        [[nodiscard]] std::uint32_t ToIndex(Int32 index)
+        {
+            return index >= 0 ? static_cast<std::uint32_t>(index) : std::numeric_limits<std::uint32_t>::max();
+        }
+
+        // A source's name, kept until the next is asked for, as C# copies it at once
+        [[nodiscard]] Utf8 ToName(InputSource source)
+        {
+            static std::string s_Name;
+            s_Name = ToString(source);
+
+            return ToUtf8(s_Name);
         }
 
         // A number C# gives that is no device is None, which no player reads or can be assigned
@@ -102,6 +123,67 @@ namespace Trinity::Interop
         return l_Edges;
     }
 
+    Int32 InputAction_GetBindingCount(UInt64 action)
+    {
+        return static_cast<Int32>(InputAction::FromHandle(action).GetBindingCount());
+    }
+
+    Int32 InputAction_GetPartCount(UInt64 action, Int32 binding)
+    {
+        return static_cast<Int32>(InputAction::FromHandle(action).GetPartCount(ToIndex(binding)));
+    }
+
+    Utf8 InputAction_GetSource(UInt64 action, Int32 binding, Int32 part, Int32 player, Bool asset)
+    {
+        const InputAction l_Action = InputAction::FromHandle(action);
+
+        return ToName(asset ? l_Action.GetDefaultSource(ToIndex(binding), ToIndex(part)) : l_Action.GetSource(ToIndex(binding), ToIndex(part), ToPlayer(player)));
+    }
+
+    // A name this build does not know rebinds nothing
+    UInt64 InputAction_Rebind(UInt64 action, Int32 binding, Int32 part, Utf8 source, Int32 player)
+    {
+        const std::optional<InputSource> l_Source = ParseInputSource(ToStringView(source));
+        if (!l_Source)
+        {
+            TR_CORE_WARN("Scripting: nothing was rebound to '{}', which is no source this build knows", ToStringView(source));
+
+            return 0;
+        }
+
+        return InputAction::FromHandle(action).Rebind(ToIndex(binding), ToIndex(part), *l_Source, ToPlayer(player)).ToHandle();
+    }
+
+    UInt64 InputAction_StartRebind(UInt64 action, Int32 binding, Int32 part, Int32 player)
+    {
+        return InputAction::FromHandle(action).StartRebind(ToIndex(binding), ToIndex(part), ToPlayer(player)).ToHandle();
+    }
+
+    Void InputAction_ResetBinding(UInt64 action, Int32 binding, Int32 part, Int32 player)
+    {
+        InputAction::FromHandle(action).ResetBinding(ToIndex(binding), ToIndex(part), ToPlayer(player));
+    }
+
+    Int32 InputRebind_GetState(UInt64 rebind)
+    {
+        return static_cast<Int32>(std::to_underlying(InputRebind::FromHandle(rebind).GetState()));
+    }
+
+    Utf8 InputRebind_GetSource(UInt64 rebind)
+    {
+        return ToName(InputRebind::FromHandle(rebind).GetSource());
+    }
+
+    Utf8 InputRebind_GetConflict(UInt64 rebind)
+    {
+        return ToUtf8(InputRebind::FromHandle(rebind).GetConflict());
+    }
+
+    Void InputRebind_Cancel(UInt64 rebind)
+    {
+        InputRebind::FromHandle(rebind).Cancel();
+    }
+
     Int32 InputActions_GetMaxPlayers()
     {
         return static_cast<Int32>(InputActions::c_MaxPlayers);
@@ -180,5 +262,10 @@ namespace Trinity::Interop
     Int32 InputActions_GetJoiningDevice()
     {
         return static_cast<Int32>(std::to_underlying(InputActions::GetJoiningDevice()));
+    }
+
+    Void InputActions_ResetBindings(Int32 player)
+    {
+        InputActions::ResetBindings(ToPlayer(player));
     }
 }
