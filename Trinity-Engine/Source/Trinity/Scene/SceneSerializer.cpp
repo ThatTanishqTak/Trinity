@@ -504,8 +504,12 @@ namespace Trinity
             reader.Read("Shape", component.Shape);
         }
 
-        void SaveCharacterController(const CharacterControllerComponent& component, ComponentWriter& writer)
+        constexpr std::array<std::pair<CharacterMode, std::string_view>, 2> c_CharacterModeNames{ { { CharacterMode::Kinematic, "Kinematic" },{ CharacterMode::Physical, "Physical" } } };
+
+        void SaveCharacterController(const CharacterControllerComponent & component, ComponentWriter & writer)
         {
+            const auto a_Found = std::ranges::find(c_CharacterModeNames, component.Mode, &std::pair<CharacterMode, std::string_view>::first);
+            writer.Write("Mode", a_Found != c_CharacterModeNames.end() ? a_Found->second : std::string_view("Kinematic"));
             writer.Write("Radius", component.Radius);
             writer.Write("Height", component.Height);
             writer.Write("Offset", component.Offset);
@@ -513,11 +517,16 @@ namespace Trinity
             writer.Write("StepHeight", component.StepHeight);
             writer.Write("Layer", component.Layer);
             writer.Write("PushStrength", component.PushStrength);
+            writer.Write("Mass", component.Mass);
         }
 
-        // A layer past the last there can be is taken as the first, as a collider's is
-        void LoadCharacterController(CharacterControllerComponent& component, const ComponentReader& reader)
+        // A layer past the last there can be is taken as the first, as a collider's is, and a mode this build lacks, or none, as kinematic
+        void LoadCharacterController(CharacterControllerComponent & component, const ComponentReader & reader)
         {
+            std::string l_Mode;
+            reader.Read("Mode", l_Mode);
+            const auto a_Found = std::ranges::find(c_CharacterModeNames, std::string_view(l_Mode), &std::pair<CharacterMode, std::string_view>::second);
+            component.Mode = a_Found != c_CharacterModeNames.end() ? a_Found->first : CharacterMode::Kinematic;
             reader.Read("Radius", component.Radius);
             reader.Read("Height", component.Height);
             reader.Read("Offset", component.Offset);
@@ -525,10 +534,11 @@ namespace Trinity
             reader.Read("StepHeight", component.StepHeight);
             reader.Read("Layer", component.Layer);
             reader.Read("PushStrength", component.PushStrength);
+            reader.Read("Mass", component.Mass);
             component.Layer = component.Layer < c_MaxCollisionLayers ? component.Layer : 0;
         }
 
-        void SaveRigidBody2D(const RigidBody2DComponent& component, ComponentWriter& writer)
+        void SaveRigidBody2D(const RigidBody2DComponent & component, ComponentWriter & writer)
         {
             const auto a_Found = std::ranges::find(c_BodyMotionNames, component.Motion, &std::pair<BodyMotion, std::string_view>::first);
             writer.Write("Motion", a_Found != c_BodyMotionNames.end() ? a_Found->second : std::string_view("Dynamic"));

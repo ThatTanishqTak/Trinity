@@ -100,7 +100,6 @@ namespace Trinity
                 JPH::uint32 l_Index = AvailableJobs::cInvalidObjectIndex;
                 while ((l_Index = m_Jobs.ConstructObject(name, color, this, function, dependencies)) == AvailableJobs::cInvalidObjectIndex)
                 {
-                    TR_CORE_ASSERT(false, "Jolt asked for more than {} jobs at once.", c_MaxJobs);
                     Trinity::JobSystem::Wait(m_Pending);
                 }
 

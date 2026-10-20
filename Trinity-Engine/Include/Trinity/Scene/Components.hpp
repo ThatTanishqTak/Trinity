@@ -341,11 +341,12 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MeshColliderComponent&) const = default;
     };
 
-    // Moves its entity as a character once its scene runs: a capsule standing along the entity's Y axis that goes where its velocity takes it, climbing steps up to its step height, keeping to the floor going down them, sliding down slopes steeper than its MaxSlope, riding what it stands on and pushing dynamic bodies by up to its push strength. The world's gravity pulls it while it is off the ground, and up is against gravity. An entity with this and a RigidBody is a character, and the RigidBody is left out. Colliders on it and below it, without a RigidBody of their own, follow it as a kinematic body, such as a trigger around it. It takes its entity's world scale as a capsule collider does. In metres, radians and newtons
+    // Moves its entity as a character once its scene runs: a capsule standing along the entity's Y axis that goes where its velocity takes it, climbing steps up to its step height, keeping to the floor going down them, sliding down slopes steeper than its MaxSlope and riding what it stands on. The world's gravity pulls it while it is off the ground, and up is against gravity. A kinematic one pushes dynamic bodies by up to its push strength, and nothing pushes it. A physical one is a dynamic body that cannot turn, which pushes and is knocked back as a body of its mass is. An entity with this and a RigidBody is a character, and the RigidBody is left out. Colliders on it and below it, without a RigidBody of their own, follow a kinematic one as a kinematic body, such as a trigger around it, and a physical one's solid colliders are part of its body. It takes its entity's world scale as a capsule collider does. In metres, kilograms, radians and newtons
     struct CharacterControllerComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.CharacterController";
 
+        CharacterMode Mode = CharacterMode::Kinematic;
         float Radius = 0.5f;
         // The whole capsule's, end caps included
         float Height = 2.0f;
@@ -357,8 +358,10 @@ namespace Trinity
         float StepHeight = 0.3f;
         // Below c_MaxCollisionLayers
         std::uint32_t Layer = 0;
-        // The most force it pushes a dynamic body with, in newtons
+        // The most force a kinematic one pushes a dynamic body with, in newtons. A physical one pushes as a body of its mass does
         float PushStrength = 100.0f;
+        // Its weight on what it stands on, and a physical one's mass, in kilograms, held at 0.1 kg or more
+        float Mass = 70.0f;
 
         [[nodiscard]] float GetHalfSegment() const { return std::max(Height * 0.5f - Radius, 0.0f); }
         [[nodiscard]] bool operator==(const CharacterControllerComponent&) const = default;

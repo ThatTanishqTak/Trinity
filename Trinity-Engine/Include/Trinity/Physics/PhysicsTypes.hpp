@@ -22,6 +22,13 @@ namespace Trinity
         Dynamic
     };
 
+    // How a character moves: moved through the world by the engine, which nothing that hits it pushes, or as a dynamic body that cannot turn, which what hits it knocks back
+    enum class CharacterMode : std::uint8_t
+    {
+        Kinematic,
+        Physical
+    };
+
     // What a 3D or a 2D scene's physics hands out after each step
     enum class PhysicsEventType : std::uint8_t
     {
