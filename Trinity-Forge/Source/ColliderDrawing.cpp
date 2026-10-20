@@ -23,6 +23,7 @@ namespace
     constexpr float c_ContactMarkSize = 0.06f;
     constexpr float c_ContactNormalLength = 0.25f;
     constexpr float c_GroundNormalLength = 0.5f;
+    constexpr float c_OneWayArrowLength = 0.5f;
     // A character's velocity arrow reaches where its velocity takes it in this many seconds
     constexpr float c_VelocityArrowSeconds = 0.25f;
     // The most a rounded corner of a 2D collider turns in one segment
@@ -175,7 +176,19 @@ namespace
         }
     }
 
-    // As the 2D world takes them: a circle by the larger of its X and Y scales, and a capsule by its Y scale along its length and its X scale around it
+    // The way through a solid one-way collider: an arrow from where its offset puts it along its own Y axis, the side 2D characters land on. A trigger holds no character either way, so it has none
+    void DrawOneWay2D(const Trinity::Collider2DSettings& collider, const Frame2D& frame)
+    {
+        if (!collider.OneWay || collider.Trigger || glm::length(frame.AxisY) <= 1e-6f)
+        {
+            return;
+        }
+
+        const glm::vec3 l_From(frame.Origin, frame.Depth);
+        Trinity::DebugDraw::Arrow(l_From, l_From + glm::vec3(glm::normalize(frame.AxisY) * c_OneWayArrowLength, 0.0f), GetColor(collider));
+    }
+
+    // As the 2D world takes them: a circle by the larger of its X and Y scales, and a capsule by its Y scale along its length and its X scale around it. A one-way collider shows its way through
     void DrawEntityColliders2D(Trinity::Entity entity)
     {
         const glm::mat4& l_World = entity.Get<Trinity::WorldTransformComponent>().Matrix;
@@ -183,9 +196,11 @@ namespace
         if (entity.Has<Trinity::BoxCollider2DComponent>())
         {
             const Trinity::BoxCollider2DComponent& l_Box = entity.Get<Trinity::BoxCollider2DComponent>();
+            const Frame2D l_Frame = GetFrame2D(l_World, l_Box);
             const glm::vec2 l_Half = glm::max(l_Box.HalfExtents, glm::vec2(1e-3f));
-            const std::array<glm::vec2, 4> l_Corners{ { { -l_Half.x, -l_Half.y }, { l_Half.x, -l_Half.y }, { l_Half.x, l_Half.y }, { -l_Half.x, l_Half.y } } };
-            DrawPolygon2D(GetFrame2D(l_World, l_Box), l_Corners, 0.0f, GetColor(l_Box));
+            const std::array<glm::vec2, 4> l_Corners{ { { -l_Half.x, -l_Half.y },{ l_Half.x, -l_Half.y },{ l_Half.x, l_Half.y },{ -l_Half.x, l_Half.y } } };
+            DrawPolygon2D(l_Frame, l_Corners, 0.0f, GetColor(l_Box));
+            DrawOneWay2D(l_Box, l_Frame);
         }
 
         if (entity.Has<Trinity::CircleCollider2DComponent>())
@@ -194,6 +209,7 @@ namespace
             const Frame2D l_Frame = GetFrame2D(l_World, l_Circle);
             const glm::vec2 l_Centre = l_Frame.Origin;
             DrawOutline2D(std::span(&l_Centre, 1), l_Circle.Radius * std::max(l_Frame.ScaleX, l_Frame.ScaleY), l_Frame.Depth, GetColor(l_Circle));
+            DrawOneWay2D(l_Circle, l_Frame);
         }
 
         if (entity.Has<Trinity::CapsuleCollider2DComponent>())
@@ -204,12 +220,58 @@ namespace
             const std::array<glm::vec2, 2> l_Ends{ { l_Frame.ToWorld({ 0.0f, -l_HalfSegment }), l_Frame.ToWorld({ 0.0f, l_HalfSegment }) } };
             const bool l_Round = l_HalfSegment * l_Frame.ScaleY < 1e-3f;
             DrawOutline2D(std::span(l_Ends).first(l_Round ? 1 : 2), l_Capsule.Radius * l_Frame.ScaleX, l_Frame.Depth, GetColor(l_Capsule));
+            DrawOneWay2D(l_Capsule, l_Frame);
         }
 
         if (entity.Has<Trinity::PolygonCollider2DComponent>())
         {
             const Trinity::PolygonCollider2DComponent& l_Polygon = entity.Get<Trinity::PolygonCollider2DComponent>();
-            DrawPolygon2D(GetFrame2D(l_World, l_Polygon), l_Polygon.Points, l_Polygon.Radius, GetColor(l_Polygon));
+            const Frame2D l_Frame = GetFrame2D(l_World, l_Polygon);
+            DrawPolygon2D(l_Frame, l_Polygon.Points, l_Polygon.Radius, GetColor(l_Polygon));
+            DrawOneWay2D(l_Polygon, l_Frame);
+        }
+    }
+
+    // Its capsule as the 2D world makes it, flat at its entity's depth: along the entity's Y axis from where its offset puts it, by its Y scale along its length and its X scale around it, a circle when its caps meet. While the scene runs, as a 3D character is drawn, in another colour while it stands on ground it can stand on, with arrows for its own velocity from its middle and for the normal of any ground under it from its foot
+    void DrawEntityCharacter2D(Trinity::Entity entity, Trinity::PhysicsScene2D* physics)
+    {
+        if (!entity.Has<Trinity::CharacterController2DComponent>())
+        {
+            return;
+        }
+
+        const Trinity::CharacterController2DComponent& l_Character = entity.Get<Trinity::CharacterController2DComponent>();
+        const glm::mat4& l_World = entity.Get<Trinity::WorldTransformComponent>().Matrix;
+        const glm::vec2 l_AxisY(l_World[1]);
+        const glm::vec2 l_Axis = glm::length(l_AxisY) > 1e-6f ? glm::normalize(l_AxisY) : glm::vec2(0.0f, 1.0f);
+        const glm::vec2 l_Middle(l_World * glm::vec4(l_Character.Offset, 0.0f, 1.0f));
+        const float l_HalfSegment = l_Character.GetHalfSegment() * glm::length(glm::vec3(l_World[1]));
+        const float l_Radius = std::max(l_Character.Radius * glm::length(glm::vec3(l_World[0])), 1e-3f);
+        const bool l_Round = l_HalfSegment < 1e-3f;
+        const float l_Reach = l_Round ? 0.0f : l_HalfSegment;
+        const std::array<glm::vec2, 2> l_Ends{ { l_Middle - l_Axis * l_Reach, l_Middle + l_Axis * l_Reach } };
+        const float l_Depth = l_World[3].z;
+
+        Trinity::CharacterGround2D l_Ground;
+        glm::vec2 l_Velocity{ 0.0f };
+        const bool l_Running = physics != nullptr && physics->GetCharacterGround(entity.GetUUID(), l_Ground) == Trinity::PhysicsBodyResult::Done && physics->GetCharacterVelocity(entity.GetUUID(), l_Velocity) == Trinity::PhysicsBodyResult::Done;
+        const glm::vec4 l_Color = l_Running && l_Ground.Grounded ? c_GroundedColor : c_CharacterColor;
+        DrawOutline2D(std::span(l_Ends).first(l_Round ? 1 : 2), l_Radius, l_Depth, l_Color);
+        if (!l_Running)
+        {
+            return;
+        }
+
+        const glm::vec2 l_Ahead = l_Velocity * c_VelocityArrowSeconds;
+        if (glm::length(l_Ahead) > 1e-3f)
+        {
+            Trinity::DebugDraw::Arrow(glm::vec3(l_Middle, l_Depth), glm::vec3(l_Middle + l_Ahead, l_Depth), l_Color, Trinity::DebugDepth::OnTop);
+        }
+
+        if (glm::length(l_Ground.Normal) > 0.0f)
+        {
+            const glm::vec2 l_Foot = l_Ends[0] - l_Axis * l_Radius;
+            Trinity::DebugDraw::Arrow(glm::vec3(l_Foot, l_Depth), glm::vec3(l_Foot + l_Ground.Normal * c_GroundNormalLength, l_Depth), l_Color, Trinity::DebugDepth::OnTop);
         }
     }
 
@@ -446,7 +508,7 @@ ColliderDrawing::~ColliderDrawing()
 }
 
 // The shapes drawn this time are acquired before those drawn last time are released, so one still in use is never unloaded between the two
-void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root, Trinity::PhysicsScene3D* physics)
+void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root, Trinity::PhysicsScene3D* physics, Trinity::PhysicsScene2D* physics2D)
 {
     m_Drawn.clear();
     const auto a_Next = [&scene, root](Trinity::Entity entity) { return root ? scene.GetNextInSubtree(entity, root) : scene.GetNextInHierarchyOrder(entity); };
@@ -455,6 +517,7 @@ void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root, Trinity:
         DrawEntityColliders(it_Entity, m_Drawn);
         DrawEntityCharacter(it_Entity, physics);
         DrawEntityColliders2D(it_Entity);
+        DrawEntityCharacter2D(it_Entity, physics2D);
         DrawEntityJoint(scene, it_Entity);
         DrawEntityJoint2D(scene, it_Entity);
     }

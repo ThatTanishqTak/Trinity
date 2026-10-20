@@ -392,28 +392,30 @@ void ViewportPanel::PrepareScene()
     }
 
     Trinity::PhysicsScene3D* l_Physics = nullptr;
+    Trinity::PhysicsScene2D* l_Physics2D = nullptr;
     if (Trinity::SceneRuntime* l_Runtime = m_Session.GetRuntime())
     {
         l_Runtime->SetGatherContacts(m_PhysicsDebug);
         l_Physics = l_Runtime->GetPhysics();
+        l_Physics2D = l_Runtime->GetPhysics2D();
         if (m_PhysicsDebug && l_Physics != nullptr)
         {
             ColliderDrawing::DrawContacts(l_Physics->GetContactPoints());
         }
 
-        if (m_PhysicsDebug && l_Runtime->GetPhysics2D() != nullptr)
+        if (m_PhysicsDebug && l_Physics2D != nullptr)
         {
-            ColliderDrawing::DrawContacts(l_Runtime->GetPhysics2D()->GetContactPoints());
+            ColliderDrawing::DrawContacts(l_Physics2D->GetContactPoints());
         }
     }
 
     if (m_PhysicsDebug)
     {
-        m_Colliders.Draw(l_Scene, {}, l_Physics);
+        m_Colliders.Draw(l_Scene, {}, l_Physics, l_Physics2D);
     }
     else if (const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection()))
     {
-        m_Colliders.Draw(l_Scene, l_Selected, l_Physics);
+        m_Colliders.Draw(l_Scene, l_Selected, l_Physics, l_Physics2D);
     }
     else
     {
