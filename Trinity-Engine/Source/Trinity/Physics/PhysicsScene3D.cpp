@@ -17,6 +17,7 @@
 #include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
@@ -41,6 +42,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cfloat>
 #include <cmath>
 #include <format>
 #include <map>
@@ -69,8 +71,15 @@ namespace Trinity
         // A body whose shapes weigh less than this, such as one flat hull or a triangle mesh, is given a box's inertia and this mass, unless a dynamic body's RigidBody gives one. Jolt asks a kinematic body for one too, though nothing pushes it
         constexpr float c_MinimumMass = 1e-6f;
         constexpr float c_FallbackMass = 1.0f;
-        // Set in a body's user data, beside the pointer to its record, when it is a record's sensor
+        // Set in a body's user data, beside the pointer to its record, when it is a record's sensor, or a character's inner body
         constexpr std::uint64_t c_SensorBit = 1;
+        constexpr std::uint64_t c_CharacterBit = 2;
+        constexpr std::uint64_t c_RecordBits = c_SensorBit | c_CharacterBit;
+        // A character on ground it can stand on that moves up slower than this, against the ground, stays on it, and a faster one leaves it, as one jumping does
+        constexpr float c_RisingSpeed = 0.1f;
+        // The slopes a character's MaxSlope is held between, since Jolt takes one under about a degree as no limit at all
+        constexpr float c_MinimumSlope = 0.0174533f;
+        constexpr float c_MaximumSlope = 1.5707963f;
         // A ray's hit is found again from this fraction of its distance, and a metre's, before it
         constexpr float c_RefineMargin = 1e-3f;
 
@@ -118,6 +127,17 @@ namespace Trinity
             float Restitution = 0.0f;
         };
 
+        // A body carrying a character over a step: where it was as the step began, and how it moved then, about its centre of mass
+        struct CarryingBody
+        {
+            JPH::BodyID Body;
+            JPH::RVec3 Position = JPH::RVec3::sZero();
+            JPH::Quat Rotation = JPH::Quat::sIdentity();
+            JPH::RVec3 Center = JPH::RVec3::sZero();
+            JPH::Vec3 Linear = JPH::Vec3::sZero();
+            JPH::Vec3 Angular = JPH::Vec3::sZero();
+        };
+
         // A body's owner and what it was made from. Each record is an allocation of its own, which never moves, since bodies point at theirs, and records come and go as the scene changes while it runs
         struct BodyRecord
         {
@@ -145,6 +165,15 @@ namespace Trinity
             // The entity's local position and rotation as the body was made or last wrote them, so a transform set from code is seen and the body teleported there
             glm::vec3 WrittenPosition{ 0.0f };
             glm::quat WrittenRotation = glm::identity<glm::quat>();
+            // A character's controller as it was last read, its Jolt character once made, its step height and radius in the world, and the velocity of its own, which lasts until changed. Its colliders' bodies follow it
+            bool HasCharacter = false;
+            CharacterControllerComponent Controller;
+            JPH::Ref<JPH::CharacterVirtual> Character;
+            float StepHeight = 0.0f;
+            float Radius = 0.0f;
+            glm::vec3 Velocity{ 0.0f };
+            // The body a character stood on as its step began, and where that body was, which carries it over the step
+            CarryingBody Carrier;
         };
 
         // A dynamic body's velocities, carried over when it is made again
@@ -282,14 +311,14 @@ namespace Trinity
 
         const BodyRecord* GetRecord(const JPH::Body& body)
         {
-            return reinterpret_cast<const BodyRecord*>(body.GetUserData() & ~c_SensorBit);
+            return reinterpret_cast<const BodyRecord*>(body.GetUserData() & ~c_RecordBits);
         }
 
         // The material of the solid collider a part of the body came from
         const ColliderMaterial* GetMaterial(const JPH::Body& body, const JPH::SubShapeID& part)
         {
             const BodyRecord* l_Record = GetRecord(body);
-            if (l_Record == nullptr || (body.GetUserData() & c_SensorBit) != 0 || l_Record->Materials.empty())
+            if (l_Record == nullptr || (body.GetUserData() & c_RecordBits) != 0 || l_Record->Materials.empty())
             {
                 return nullptr;
             }
@@ -305,11 +334,11 @@ namespace Trinity
             return &l_Record->Materials[std::min<std::size_t>(l_Index, l_Record->Materials.size() - 1)];
         }
 
-        // The collider a part of a body came from, found from the part's sub-shape ID, which Jolt gives for the shape that part is or, in a query's hit, for a triangle or other piece of it. A compound as a whole, which Jolt asks about before its parts, is no one collider
+        // The collider a part of a body came from, found from the part's sub-shape ID, which Jolt gives for the shape that part is or, in a query's hit, for a triangle or other piece of it. A compound as a whole, which Jolt asks about before its parts, is no one collider, and nor is a character's inner body
         const ColliderSource* FindCollider(const JPH::Body& body, const JPH::Shape* shape, const JPH::SubShapeID& part)
         {
             const BodyRecord* l_Record = GetRecord(body);
-            if (l_Record == nullptr)
+            if (l_Record == nullptr || (body.GetUserData() & c_CharacterBit) != 0)
             {
                 return nullptr;
             }
@@ -427,6 +456,121 @@ namespace Trinity
             const PhysicsQueryFilter3D& m_Filter;
         };
 
+        // What a character meets as it moves: every body but those of its own colliders, and no trigger, since a trigger finds the character through its inner body instead. Jolt leaves out its own inner body
+        class CharacterBodyFilter final : public JPH::BodyFilter
+        {
+        public:
+            explicit CharacterBodyFilter(const BodyRecord& record) : m_Record(record)
+            {
+
+            }
+
+            [[nodiscard]] bool ShouldCollideLocked(const JPH::Body& body) const override
+            {
+                return !body.IsSensor() && GetRecord(body) != &m_Record;
+            }
+
+        private:
+            const BodyRecord& m_Record;
+        };
+
+        // A body whose colliders are all on one layer was let through by its object layer, and one with colliders on several has each part held to the matrix against the character's layer
+        class CharacterShapeFilter final : public JPH::ShapeFilter
+        {
+        public:
+            CharacterShapeFilter(const JPH::BodyLockInterface& bodies, const CollisionLayers& layers, std::uint32_t layer) : m_Bodies(bodies), m_Layers(layers), m_Layer(layer)
+            {
+
+            }
+
+            [[nodiscard]] bool ShouldCollide(const JPH::Shape* shape, const JPH::SubShapeID& part) const override
+            {
+                const JPH::Body* l_Body = m_Bodies.TryGetBody(mBodyID2);
+                if (l_Body == nullptr || std::has_single_bit(PhysicsLayers3D::GetLayers(l_Body->GetObjectLayer())))
+                {
+                    return true;
+                }
+
+                const ColliderSource* l_Collider = FindCollider(*l_Body, shape, part);
+
+                return l_Collider == nullptr || m_Layers.Collides(m_Layer, l_Collider->Settings.Layer);
+            }
+
+            // A cast names the character's own shape first
+            [[nodiscard]] bool ShouldCollide([[maybe_unused]] const JPH::Shape* characterShape, [[maybe_unused]] const JPH::SubShapeID& characterPart, const JPH::Shape* shape, const JPH::SubShapeID& part) const override
+            {
+                return ShouldCollide(shape, part);
+            }
+
+        private:
+            const JPH::BodyLockInterface& m_Bodies;
+            const CollisionLayers& m_Layers;
+            std::uint32_t m_Layer;
+        };
+
+        // Turns off Jolt's own pushes, which PhysicsScene3D gives once a step itself. A character a body carries, which happens apart, sees every body as moving against that body, so the body is still, what rides it moves only as it moves on it, and the world goes past. Other characters ride along with it, since their inner bodies are placed rather than moved
+        class CharacterListener final : public JPH::CharacterContactListener
+        {
+        public:
+            void OnAdjustBodyVelocity(const JPH::CharacterVirtual* character, const JPH::Body& body, JPH::Vec3& linear, JPH::Vec3& angular) override
+            {
+                const BodyRecord* l_Record = reinterpret_cast<const BodyRecord*>(character->GetUserData() & ~c_RecordBits);
+                if (l_Record == nullptr || l_Record->Carrier.Body.IsInvalid())
+                {
+                    return;
+                }
+
+                const CarryingBody& l_Carrier = l_Record->Carrier;
+                if ((body.GetUserData() & c_CharacterBit) != 0)
+                {
+                    linear = JPH::Vec3::sZero();
+                    angular = JPH::Vec3::sZero();
+
+                    return;
+                }
+
+                linear -= l_Carrier.Linear + l_Carrier.Angular.Cross(JPH::Vec3(body.GetCenterOfMassPosition() - l_Carrier.Center));
+                angular -= l_Carrier.Angular;
+            }
+
+            void OnContactAdded([[maybe_unused]] const JPH::CharacterVirtual* character, [[maybe_unused]] const JPH::CharacterContact& contact, JPH::CharacterContactSettings& settings) override
+            {
+                settings.mCanReceiveImpulses = false;
+            }
+
+            void OnContactPersisted([[maybe_unused]] const JPH::CharacterVirtual* character, [[maybe_unused]] const JPH::CharacterContact& contact, JPH::CharacterContactSettings& settings) override
+            {
+                settings.mCanReceiveImpulses = false;
+            }
+        };
+
+        // A dynamic body a character pushes in a step: the contact it went into fastest, and the speed it would bring the body to there
+        struct BodyPush
+        {
+            const JPH::CharacterContact* Contact = nullptr;
+            float Wanted = 0.0f;
+        };
+
+        // The filters a character moves and looks about with, from its inner body's object layer
+        struct CharacterFilters
+        {
+            CharacterFilters(const JPH::PhysicsSystem& system, const CollisionLayers& layers, const BodyRecord& record) : BroadPhase(system.GetDefaultBroadPhaseLayerFilter(GetLayer(record))), Objects(system.GetDefaultLayerFilter(GetLayer(record))), Bodies(record), Shapes(system.GetBodyLockInterfaceNoLock(), layers, record.Controller.Layer)
+            {
+
+            }
+
+            // A layer past the last there can be is taken as the first, as a collider's is
+            [[nodiscard]] static JPH::ObjectLayer GetLayer(const BodyRecord& record)
+            {
+                return PhysicsLayers3D::Get(BodyMotion::Kinematic, 1u << (record.Controller.Layer < c_MaxCollisionLayers ? record.Controller.Layer : 0));
+            }
+
+            JPH::DefaultBroadPhaseLayerFilter BroadPhase;
+            JPH::DefaultObjectLayerFilter Objects;
+            CharacterBodyFilter Bodies;
+            CharacterShapeFilter Shapes;
+        };
+
         // Sized as the colliders are made
         JPH::RefConst<JPH::Shape> MakeQueryShape(const PhysicsQueryShape3D& shape)
         {
@@ -509,22 +653,22 @@ namespace Trinity
             const UUID l_ID = registry.get<IDComponent>(entity).ID;
             if (const BoxColliderComponent* l_Box = registry.try_get<BoxColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::Box, *l_Box, l_Box->HalfExtents, {}, l_ID });
+                AddCollider(record, { entity, ColliderKind::Box, *l_Box, l_Box->HalfExtents,{}, l_ID });
             }
 
             if (const SphereColliderComponent* l_Sphere = registry.try_get<SphereColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::Sphere, *l_Sphere, glm::vec3(l_Sphere->Radius, 0.0f, 0.0f), {}, l_ID });
+                AddCollider(record, { entity, ColliderKind::Sphere, *l_Sphere, glm::vec3(l_Sphere->Radius, 0.0f, 0.0f),{}, l_ID });
             }
 
             if (const CapsuleColliderComponent* l_Capsule = registry.try_get<CapsuleColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::Capsule, *l_Capsule, glm::vec3(l_Capsule->Radius, l_Capsule->Height, 0.0f), {}, l_ID });
+                AddCollider(record, { entity, ColliderKind::Capsule, *l_Capsule, glm::vec3(l_Capsule->Radius, l_Capsule->Height, 0.0f),{}, l_ID });
             }
 
             if (const CylinderColliderComponent* l_Cylinder = registry.try_get<CylinderColliderComponent>(entity))
             {
-                AddCollider(record, { entity, ColliderKind::Cylinder, *l_Cylinder, glm::vec3(l_Cylinder->Radius, l_Cylinder->Height, 0.0f), {}, l_ID });
+                AddCollider(record, { entity, ColliderKind::Cylinder, *l_Cylinder, glm::vec3(l_Cylinder->Radius, l_Cylinder->Height, 0.0f),{}, l_ID });
             }
 
             if (const ConvexHullColliderComponent* l_Hull = registry.try_get<ConvexHullColliderComponent>(entity))
@@ -576,13 +720,13 @@ namespace Trinity
             return l_Properties;
         }
 
-        // The entity whose body an entity's colliders join: the nearest at or above it with a RigidBody, none when a RigidBody2D without one comes first, since that is the 2D world's, and otherwise the highest at or above it with a collider, which is a static body. As the scene starts it finds them walking down, and this walks up to the same answer
+        // The entity whose body an entity's colliders join: the nearest at or above it with a RigidBody or a CharacterController, none when a RigidBody2D without one comes first, since that is the 2D world's, and otherwise the highest at or above it with a collider, which is a static body. As the scene starts it finds them walking down, and this walks up to the same answer
         entt::entity FindOwner(const SceneRegistry& registry, entt::entity entity)
         {
             entt::entity l_Highest = entt::null;
             for (entt::entity it_Entity = entity; it_Entity != entt::null; it_Entity = registry.get<RelationshipComponent>(it_Entity).Parent)
             {
-                if (registry.all_of<RigidBodyComponent>(it_Entity))
+                if (registry.any_of<RigidBodyComponent, CharacterControllerComponent>(it_Entity))
                 {
                     return it_Entity;
                 }
@@ -599,6 +743,20 @@ namespace Trinity
             }
 
             return l_Highest;
+        }
+
+        // What an owner's record takes from its entity: its CharacterController, or its RigidBody, or neither for a static body. A character is kinematic, as the bodies of the colliders that follow it are, and a RigidBody beside it is left out
+        void ReadOwner(const SceneRegistry& registry, entt::entity owner, BodyRecord& record)
+        {
+            const CharacterControllerComponent* l_Character = registry.try_get<CharacterControllerComponent>(owner);
+            const RigidBodyComponent* l_RigidBody = l_Character == nullptr ? registry.try_get<RigidBodyComponent>(owner) : nullptr;
+            record.Entity = owner;
+            record.ID = registry.get<IDComponent>(owner).ID;
+            record.HasRigidBody = l_RigidBody != nullptr;
+            record.Motion = l_Character != nullptr ? BodyMotion::Kinematic : (l_RigidBody != nullptr ? l_RigidBody->Motion : BodyMotion::Static);
+            record.Settings = l_RigidBody != nullptr ? *l_RigidBody : RigidBodyComponent{};
+            record.HasCharacter = l_Character != nullptr;
+            record.Controller = l_Character != nullptr ? *l_Character : CharacterControllerComponent{};
         }
 
         // Jolt's first body of a joint is the other one, and its second the joint's own, so each point moves by its own body's change of centre of mass
@@ -774,6 +932,15 @@ namespace Trinity
         }
 
         [[nodiscard]] bool MakeBody(BodyRecord& record, const BodyVelocity* carried = nullptr, bool keepBodies = false);
+        void MakeCharacter(BodyRecord& record);
+        void DestroyCharacter(BodyRecord& record);
+        void MoveCharacters(float seconds);
+        [[nodiscard]] glm::vec3 Predict(JPH::BodyID body, float seconds, const glm::vec3& up, JPH::RVec3& position, JPH::Quat& rotation) const;
+        [[nodiscard]] glm::vec3 GetGroundVelocity(const JPH::CharacterVirtual& character) const;
+        void CarryCharacters();
+        [[nodiscard]] static glm::vec3 KeepVelocity(const JPH::CharacterVirtual& character, const glm::vec3& velocity);
+        void PushBodies(const BodyRecord& record, const glm::vec3& velocity, float seconds);
+        void TurnToTransform(BodyRecord& record);
         [[nodiscard]] bool MakeJoint(JointRecord& joint);
         [[nodiscard]] bool RestoreJoint(JointRecord& joint);
         void AddConstraint(JointRecord& joint, const JPH::TwoBodyConstraintSettings& settings, JPH::Body& own, JPH::Body& other);
@@ -808,6 +975,11 @@ namespace Trinity
         PhysicsWorld3D World;
         LayerShapeFilter Parts;
         JPH::PhysicsSystem* System = nullptr;
+        // The world's scratch memory, which characters move in between its steps
+        JPH::TempAllocator* StepMemory = nullptr;
+        CharacterListener Characters;
+        // The bodies a character pushes in a step, kept so a step allocates nothing once it has room
+        PhysicsVector<BodyPush> Pushes;
         // In the order they were made, which as the scene starts is hierarchy order
         PhysicsVector<BodyRecord*> Records;
         PhysicsVector<JointRecord> Joints;
@@ -848,6 +1020,7 @@ namespace Trinity
         m_State = Memory::New<State>(MemoryTag::Physics, scene, layers);
         State& l_State = *m_State;
         l_State.System = &l_State.World.m_State->System;
+        l_State.StepMemory = &l_State.World.m_State->StepMemory;
         l_State.System->SetContactListener(&l_State);
         l_State.System->SetCombineFriction(&CombineFriction);
         l_State.System->SetCombineRestitution(&CombineRestitution);
@@ -865,19 +1038,15 @@ namespace Trinity
             const std::size_t l_Inherited = l_Parent != entt::null ? l_Owners[l_Parent] : c_NoOwner;
 
             std::size_t l_Owner = l_Inherited;
-            const RigidBodyComponent* l_RigidBody = l_Registry.try_get<RigidBodyComponent>(l_Handle);
-            if (l_RigidBody == nullptr && l_Registry.all_of<RigidBody2DComponent>(l_Handle))
+            const bool l_Moves = l_Registry.any_of<RigidBodyComponent, CharacterControllerComponent>(l_Handle);
+            if (!l_Moves && l_Registry.all_of<RigidBody2DComponent>(l_Handle))
             {
                 l_Owner = c_Owned2D;
             }
-            else if (l_RigidBody != nullptr || (l_Inherited == c_NoOwner && HasCollider(l_Registry, l_Handle)))
+            else if (l_Moves || (l_Inherited == c_NoOwner && HasCollider(l_Registry, l_Handle)))
             {
                 BodyRecord& l_Record = *l_State.Records.emplace_back(Memory::New<BodyRecord>(MemoryTag::Physics));
-                l_Record.Entity = l_Handle;
-                l_Record.ID = l_Registry.get<IDComponent>(l_Handle).ID;
-                l_Record.HasRigidBody = l_RigidBody != nullptr;
-                l_Record.Motion = l_RigidBody != nullptr ? l_RigidBody->Motion : BodyMotion::Static;
-                l_Record.Settings = l_RigidBody != nullptr ? *l_RigidBody : RigidBodyComponent{};
+                ReadOwner(l_Registry, l_Handle, l_Record);
                 l_Owner = l_State.Records.size() - 1;
             }
 
@@ -942,6 +1111,7 @@ namespace Trinity
         a_Watch.template operator() < CylinderColliderComponent > ();
         a_Watch.template operator() < ConvexHullColliderComponent > ();
         a_Watch.template operator() < MeshColliderComponent > ();
+        a_Watch.template operator() < CharacterControllerComponent > ();
         l_Registry.on_construct<JointComponent>().connect<&State::OnJointChanged>(l_State);
         l_Registry.on_update<JointComponent>().connect<&State::OnJointChanged>(l_State);
         l_Registry.on_destroy<JointComponent>().connect<&State::OnJointChanged>(l_State);
@@ -969,6 +1139,7 @@ namespace Trinity
         a_Unwatch.template operator() < CylinderColliderComponent > ();
         a_Unwatch.template operator() < ConvexHullColliderComponent > ();
         a_Unwatch.template operator() < MeshColliderComponent > ();
+        a_Unwatch.template operator() < CharacterControllerComponent > ();
         a_Unwatch.template operator() < JointComponent > ();
 
         const PhysicsVector<UUID> l_Shapes = std::move(m_State->Shapes);
@@ -986,7 +1157,7 @@ namespace Trinity
     {
         SceneRegistry& l_Registry = scene.GetRegistry();
 
-        return !l_Registry.storage<RigidBodyComponent>().empty() || !l_Registry.storage<BoxColliderComponent>().empty() || !l_Registry.storage<SphereColliderComponent>().empty() || !l_Registry.storage<CapsuleColliderComponent>().empty() || !l_Registry.storage<CylinderColliderComponent>().empty() || !l_Registry.storage<ConvexHullColliderComponent>().empty() || !l_Registry.storage<MeshColliderComponent>().empty();
+        return !l_Registry.storage<RigidBodyComponent>().empty() || !l_Registry.storage<BoxColliderComponent>().empty() || !l_Registry.storage<SphereColliderComponent>().empty() || !l_Registry.storage<CapsuleColliderComponent>().empty() || !l_Registry.storage<CylinderColliderComponent>().empty() || !l_Registry.storage<ConvexHullColliderComponent>().empty() || !l_Registry.storage<MeshColliderComponent>().empty() || !l_Registry.storage<CharacterControllerComponent>().empty();
     }
 
     // What changed in the scene since the last frame with steps is taken in, so a frame without steps changes nothing and the next one with steps takes it all. Bodies still waiting for their shapes are tried again. A frame without steps leaves the kinematic targets where they were, so the next frame with steps moves from there
@@ -1037,7 +1208,7 @@ namespace Trinity
         SceneRegistry& l_Registry = l_State.Owner.GetRegistry();
         for (BodyRecord* it_Record : l_State.Records)
         {
-            const bool l_Follows = it_Record->Motion == BodyMotion::Kinematic || (it_Record->Motion == BodyMotion::Dynamic && it_Record->Body.IsInvalid() && !it_Record->Sensor.IsInvalid());
+            const bool l_Follows = (it_Record->Motion == BodyMotion::Kinematic && !it_Record->HasCharacter) || (it_Record->Motion == BodyMotion::Dynamic && it_Record->Body.IsInvalid() && !it_Record->Sensor.IsInvalid());
             if (it_Record->Waiting || !l_Follows || !l_Registry.valid(it_Record->Entity))
             {
                 continue;
@@ -1049,7 +1220,7 @@ namespace Trinity
         }
     }
 
-    // What the scene's scripts changed since the frame began is taken in, kinematic bodies and sensors are moved for the step, the world steps, events are paired, and dynamic bodies that moved are written back in hierarchy order, so each parent is placed before its children are made local to it
+    // What the scene's scripts changed since the frame began is taken in, kinematic bodies and sensors are moved for the step, then characters, the world steps, events are paired, and dynamic bodies and characters that moved are written back in hierarchy order, so each parent is placed before its children are made local to it
     void PhysicsScene3D::Step(Timestep step, std::uint32_t index)
     {
         TR_PROFILE_FUNCTION();
@@ -1061,7 +1232,7 @@ namespace Trinity
         const float l_Factor = static_cast<float>(std::min(index + 1, l_State.Steps)) / static_cast<float>(l_State.Steps);
         for (BodyRecord* it_Record : l_State.Records)
         {
-            if (it_Record->Waiting || it_Record->Motion == BodyMotion::Static)
+            if (it_Record->Waiting || it_Record->Motion == BodyMotion::Static || it_Record->HasCharacter)
             {
                 continue;
             }
@@ -1088,8 +1259,10 @@ namespace Trinity
             }
         }
 
+        l_State.MoveCharacters(l_Seconds);
         l_State.Contacts.clear();
         l_State.World.Step(step);
+        l_State.CarryCharacters();
         ++l_State.StepCount;
         l_State.PairContacts(index);
         l_State.BreakJoints(l_Seconds, index);
@@ -1097,7 +1270,8 @@ namespace Trinity
         SceneRegistry& l_Registry = l_State.Owner.GetRegistry();
         for (BodyRecord* it_Record : l_State.Records)
         {
-            if (it_Record->Waiting || it_Record->Motion == BodyMotion::Static || it_Record->Body.IsInvalid())
+            const bool l_Character = it_Record->Character != nullptr;
+            if (it_Record->Waiting || it_Record->Motion == BodyMotion::Static || (it_Record->Body.IsInvalid() && !l_Character))
             {
                 continue;
             }
@@ -1105,10 +1279,18 @@ namespace Trinity
             it_Record->Previous = it_Record->Current;
             JPH::RVec3 l_Position;
             JPH::Quat l_Rotation;
-            l_Bodies.GetPositionAndRotation(it_Record->Body, l_Position, l_Rotation);
-            it_Record->Current = { FromJolt(JPH::Vec3(l_Position)), FromJolt(l_Rotation) };
+            if (l_Character)
+            {
+                l_Position = it_Record->Character->GetPosition();
+                l_Rotation = it_Record->Character->GetRotation();
+            }
+            else
+            {
+                l_Bodies.GetPositionAndRotation(it_Record->Body, l_Position, l_Rotation);
+            }
 
-            if (it_Record->Motion != BodyMotion::Dynamic || !l_Registry.valid(it_Record->Entity) || (it_Record->Previous.Position == it_Record->Current.Position && it_Record->Previous.Rotation == it_Record->Current.Rotation))
+            it_Record->Current = { FromJolt(JPH::Vec3(l_Position)), FromJolt(l_Rotation) };
+            if ((it_Record->Motion != BodyMotion::Dynamic && !l_Character) || !l_Registry.valid(it_Record->Entity) || (it_Record->Previous.Position == it_Record->Current.Position && it_Record->Previous.Rotation == it_Record->Current.Rotation))
             {
                 continue;
             }
@@ -1132,14 +1314,14 @@ namespace Trinity
         }
     }
 
-    // Moving bodies are drawn between their last two steps. A kinematic body's last step reached its transform, so it is drawn a little behind it, beside the bodies it carries
+    // Moving bodies and characters are drawn between their last two steps. A kinematic body's last step reached its transform, so it is drawn a little behind it, beside the bodies and characters it carries
     void PhysicsScene3D::EndFrame(float interpolation)
     {
         State& l_State = *m_State;
         SceneRegistry& l_Registry = l_State.Owner.GetRegistry();
         for (const BodyRecord* it_Record : l_State.Records)
         {
-            if (it_Record->Waiting || it_Record->Motion == BodyMotion::Static || it_Record->Body.IsInvalid() || !l_Registry.valid(it_Record->Entity))
+            if (it_Record->Waiting || it_Record->Motion == BodyMotion::Static || (it_Record->Body.IsInvalid() && it_Record->Character == nullptr) || !l_Registry.valid(it_Record->Entity))
             {
                 continue;
             }
@@ -1250,12 +1432,17 @@ namespace Trinity
         return l_Hits;
     }
 
-    // A static body is still, and reads so
+    // A static body is still, and reads so. A character's velocity is read with GetCharacterVelocity
     PhysicsBodyResult PhysicsScene3D::GetVelocity(UUID entity, glm::vec3& linear, glm::vec3& angular)
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's bodies are reached on the main thread.");
 
         const BodyRecord* l_Record = m_State->FindBody(entity);
+        if (l_Record != nullptr && l_Record->HasCharacter)
+        {
+            return PhysicsBodyResult::WrongMotion;
+        }
+
         if (l_Record == nullptr || l_Record->Body.IsInvalid())
         {
             return PhysicsBodyResult::NoBody;
@@ -1270,10 +1457,15 @@ namespace Trinity
 
     namespace
     {
-        // A dynamic body's record, or why there is none, for each call that pushes or sets a velocity
+        // A dynamic body's record, or why there is none, for each call that pushes or sets a velocity. A character is no dynamic body
         template<typename F>
         PhysicsBodyResult OnDynamic(BodyRecord* record, F call)
         {
+            if (record != nullptr && record->HasCharacter)
+            {
+                return PhysicsBodyResult::WrongMotion;
+            }
+
             if (record == nullptr || record->Body.IsInvalid())
             {
                 return PhysicsBodyResult::NoBody;
@@ -1346,14 +1538,14 @@ namespace Trinity
         return OnDynamic(m_State->FindBody(entity), [&](JPH::BodyID body) { l_Bodies.AddAngularImpulse(body, ToJolt(impulse)); });
     }
 
-    // The entity's transform is set first, so the body is placed where the transform puts it, and the next frame does not move it again
+    // The entity's transform is set first, so the body or character is placed where the transform puts it, and the next frame does not move it again
     PhysicsBodyResult PhysicsScene3D::Teleport(UUID entity, const glm::vec3& position, const glm::quat& rotation)
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's bodies are reached on the main thread.");
 
         State& l_State = *m_State;
         BodyRecord* l_Record = l_State.FindBody(entity);
-        if (l_Record == nullptr || (l_Record->Body.IsInvalid() && l_Record->Sensor.IsInvalid()))
+        if (l_Record == nullptr || (l_Record->Body.IsInvalid() && l_Record->Sensor.IsInvalid() && l_Record->Character == nullptr))
         {
             return PhysicsBodyResult::NoBody;
         }
@@ -1379,7 +1571,7 @@ namespace Trinity
             return PhysicsBodyResult::NoBody;
         }
 
-        if (l_Record->Motion != BodyMotion::Kinematic)
+        if (l_Record->Motion != BodyMotion::Kinematic || l_Record->HasCharacter)
         {
             return PhysicsBodyResult::WrongMotion;
         }
@@ -1396,6 +1588,11 @@ namespace Trinity
     PhysicsBodyResult PhysicsScene3D::SetAwake(UUID entity, bool awake)
     {
         const BodyRecord* l_Record = m_State->FindBody(entity);
+        if (l_Record != nullptr && l_Record->HasCharacter)
+        {
+            return PhysicsBodyResult::WrongMotion;
+        }
+
         if (l_Record == nullptr || l_Record->Body.IsInvalid())
         {
             return PhysicsBodyResult::NoBody;
@@ -1415,6 +1612,11 @@ namespace Trinity
     PhysicsBodyResult PhysicsScene3D::IsAwake(UUID entity, bool& awake)
     {
         const BodyRecord* l_Record = m_State->FindBody(entity);
+        if (l_Record != nullptr && l_Record->HasCharacter)
+        {
+            return PhysicsBodyResult::WrongMotion;
+        }
+
         if (l_Record == nullptr || l_Record->Body.IsInvalid())
         {
             return PhysicsBodyResult::NoBody;
@@ -1428,6 +1630,63 @@ namespace Trinity
         awake = m_State->System->GetBodyInterface().IsActive(l_Record->Body);
 
         return PhysicsBodyResult::Done;
+    }
+
+    namespace
+    {
+        // A character's record, or why there is none, for each call on a character
+        template<typename F>
+        PhysicsBodyResult OnCharacter(BodyRecord* record, F call)
+        {
+            if (record == nullptr || record->Character == nullptr)
+            {
+                return record == nullptr ? PhysicsBodyResult::NoBody : PhysicsBodyResult::WrongMotion;
+            }
+
+            call(*record);
+
+            return PhysicsBodyResult::Done;
+        }
+    }
+
+    PhysicsBodyResult PhysicsScene3D::SetCharacterVelocity(UUID entity, const glm::vec3& velocity)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's characters are reached on the main thread.");
+
+        return OnCharacter(m_State->FindBody(entity), [&velocity](BodyRecord& record) { record.Velocity = velocity; });
+    }
+
+    PhysicsBodyResult PhysicsScene3D::GetCharacterVelocity(UUID entity, glm::vec3& velocity)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's characters are reached on the main thread.");
+
+        return OnCharacter(m_State->FindBody(entity), [&velocity](const BodyRecord& record) { velocity = record.Velocity; });
+    }
+
+    // The ground Jolt found as the character last moved, the body it is part of found from its user data, and how fast that body moves there
+    PhysicsBodyResult PhysicsScene3D::GetCharacterGround(UUID entity, CharacterGround3D& ground)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's characters are reached on the main thread.");
+
+        const State& l_State = *m_State;
+        const JPH::BodyInterface& l_Bodies = l_State.System->GetBodyInterface();
+
+        return OnCharacter(m_State->FindBody(entity), [&ground, &l_State, &l_Bodies](const BodyRecord& record)
+        {
+            const JPH::CharacterVirtual& l_Character = *record.Character;
+            ground = {};
+            ground.Grounded = l_Character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+            if (!l_Character.IsSupported())
+            {
+                return;
+            }
+
+            ground.Normal = FromJolt(l_Character.GetGroundNormal());
+            ground.Velocity = l_State.GetGroundVelocity(l_Character);
+            const JPH::BodyID l_Body = l_Character.GetGroundBodyID();
+            const BodyRecord* l_Ground = !l_Body.IsInvalid() ? reinterpret_cast<const BodyRecord*>(l_Bodies.GetUserData(l_Body) & ~c_RecordBits) : nullptr;
+            ground.Entity = l_Ground != nullptr ? l_Ground->ID : UUID();
+        });
     }
 
     std::optional<bool> PhysicsScene3D::IsJointBroken(UUID entity) const
@@ -1456,6 +1715,15 @@ namespace Trinity
         l_Record.Waiting = false;
         Scene& l_Scene = l_State.Owner;
         SceneRegistry& l_Registry = l_Scene.GetRegistry();
+        if (l_Registry.valid(l_Record.Entity) && l_Record.HasCharacter)
+        {
+            l_State.MakeCharacter(l_Record);
+        }
+        else
+        {
+            l_State.DestroyCharacter(l_Record);
+        }
+
         if (!l_Registry.valid(l_Record.Entity) || (l_Record.Solids.empty() && l_Record.Triggers.empty()))
         {
             l_State.DestroyBody(l_Record.Body);
@@ -1787,8 +2055,8 @@ namespace Trinity
             }
         }
 
-        // A body changed where it is keeps where it was drawn and where it was heading
-        if (!keepBodies || (!l_HadBody && !l_Record.Body.IsInvalid()))
+        // A body changed where it is keeps where it was drawn and where it was heading, and a character keeps its own
+        if (!l_Record.HasCharacter && (!keepBodies || (!l_HadBody && !l_Record.Body.IsInvalid())))
         {
             const TransformComponent& l_Transform = l_Registry.get<TransformComponent>(l_Record.Entity);
             l_Record.Previous = l_Body.Pose;
@@ -1802,7 +2070,380 @@ namespace Trinity
         return true;
     }
 
-    // Once both its bodies are made, false until then. Its frame is its entity's world transform as it is then, which a body waiting for its shapes has not moved from, with the anchor as an offset and the axis turned with it. Given to Jolt in world space, so where it meets each body is taken from where the bodies are. Jolt measures a hinge's turn and a slider's travel as its second body's against its first, so the joint's own body goes second, and both count its own body's motion along or about the axis. A joint that holds no dynamic body, or joins a body with only triggers, is reported and left out
+    // Made where its entity is, or changed where it stands, from its controller and its entity's world scale. Its inner body is the same capsule, kinematic and on its layer, which raycasts, triggers, dynamic bodies and other characters meet, and carries the record with a bit of its own. It is told what it stands on at once
+    void PhysicsScene3D::State::MakeCharacter(BodyRecord& record)
+    {
+        Scene& l_Scene = Owner;
+        const CharacterControllerComponent& l_Controller = record.Controller;
+        const DecomposedMatrix l_World = Decompose(l_Scene.ComputeWorldMatrix(Entity(record.Entity, &l_Scene)));
+        const glm::vec3 l_Size = glm::abs(l_World.Scale);
+        const float l_Radius = std::max(l_Controller.Radius * std::max(l_Size.x, l_Size.z), c_MinimumSize);
+        const float l_HalfSegment = l_Controller.GetHalfSegment() * l_Size.y;
+        const JPH::RefConst<JPH::Shape> l_Shape = l_HalfSegment < c_MinimumSize ? JPH::RefConst<JPH::Shape>(new JPH::SphereShape(l_Radius)) : JPH::RefConst<JPH::Shape>(new JPH::CapsuleShape(l_HalfSegment, l_Radius));
+        const glm::vec3 l_Offset = l_Controller.Offset * l_World.Scale;
+        const float l_MaxSlope = std::clamp(l_Controller.MaxSlope, c_MinimumSlope, c_MaximumSlope);
+        // Contacts below the middle of its lower end cap hold it up, and the rest only stop it
+        const JPH::Plane l_Supporting(JPH::Vec3::sAxisY(), l_HalfSegment - l_Offset.y);
+        const JPH::ObjectLayer l_Layer = CharacterFilters::GetLayer(record);
+        record.StepHeight = std::max(l_Controller.StepHeight, 0.0f) * l_Size.y;
+        record.Radius = l_Radius;
+
+        JPH::BodyInterface& l_Bodies = System->GetBodyInterface();
+        if (record.Character != nullptr)
+        {
+            JPH::CharacterVirtual& l_Character = *record.Character;
+            const JPH::BodyID l_Inner = l_Character.GetInnerBodyID();
+            static_cast<void>(l_Character.SetShape(l_Shape, FLT_MAX, {}, {}, {}, {}, *StepMemory));
+            WakeAround(l_Inner);
+            l_Character.SetInnerBodyShape(l_Shape);
+            WakeAround(l_Inner);
+            l_Bodies.SetObjectLayer(l_Inner, l_Layer);
+            l_Character.SetShapeOffset(ToJolt(l_Offset));
+            l_Character.SetMaxSlopeAngle(l_MaxSlope);
+            l_Character.SetMaxStrength(std::max(l_Controller.PushStrength, 0.0f));
+            l_Character.SetSupportingVolume(l_Supporting);
+        }
+        else
+        {
+            if (Owner.GetRegistry().all_of<RigidBodyComponent>(record.Entity))
+            {
+                TR_CORE_WARN("Physics: {} has a CharacterController and a RigidBody, so it is a character and the RigidBody is left out", GetName(l_Scene, record.Entity));
+            }
+
+            JPH::Ref<JPH::CharacterVirtualSettings> l_Settings = new JPH::CharacterVirtualSettings();
+            l_Settings->mShape = l_Shape;
+            l_Settings->mInnerBodyShape = l_Shape;
+            l_Settings->mInnerBodyLayer = l_Layer;
+            l_Settings->mShapeOffset = ToJolt(l_Offset);
+            l_Settings->mMaxSlopeAngle = l_MaxSlope;
+            l_Settings->mMaxStrength = std::max(l_Controller.PushStrength, 0.0f);
+            l_Settings->mSupportingVolume = l_Supporting;
+            record.Character = new JPH::CharacterVirtual(l_Settings, JPH::RVec3(ToJolt(l_World.Pose.Position)), ToJolt(l_World.Pose.Rotation), reinterpret_cast<std::uint64_t>(&record) | c_CharacterBit, System);
+            record.Character->SetListener(&Characters);
+            if (record.Character->GetInnerBodyID().IsInvalid())
+            {
+                TR_CORE_ERROR("Physics: the world is full, so {}'s character has no inner body, and raycasts, triggers and bodies do not meet it", GetName(l_Scene, record.Entity));
+            }
+
+            const TransformComponent& l_Transform = Owner.GetRegistry().get<TransformComponent>(record.Entity);
+            record.Velocity = glm::vec3(0.0f);
+            record.Previous = l_World.Pose;
+            record.Current = l_World.Pose;
+            record.TargetFrom = l_World.Pose;
+            record.TargetTo = l_World.Pose;
+            record.WrittenPosition = l_Transform.Position;
+            record.WrittenRotation = l_Transform.Rotation;
+        }
+
+        const glm::vec3 l_Gravity = FromJolt(System->GetGravity());
+        record.Character->SetUp(glm::length(l_Gravity) > 0.0f ? ToJolt(-glm::normalize(l_Gravity)) : JPH::Vec3::sAxisY());
+        const CharacterFilters l_Filters(*System, Layers, record);
+        record.Character->RefreshContacts(l_Filters.BroadPhase, l_Filters.Objects, l_Filters.Bodies, l_Filters.Shapes, *StepMemory);
+    }
+
+    // Its inner body's pairs end, and what rested on it wakes, as for a body taken out, before Jolt takes the inner body out with the character
+    void PhysicsScene3D::State::DestroyCharacter(BodyRecord& record)
+    {
+        if (record.Character == nullptr)
+        {
+            return;
+        }
+
+        const JPH::BodyID l_Inner = record.Character->GetInnerBodyID();
+        if (!l_Inner.IsInvalid())
+        {
+            EndPairs(l_Inner);
+            WakeAround(l_Inner);
+        }
+
+        record.Character = nullptr;
+    }
+
+    // Each character, in the records' order, moved for the step by its own velocity before the world steps. One whose transform was set from code is taken there first. Standing on ground it can stand on, it loses the vertical part of its velocity, and off the ground gravity adds to it. Jolt moves it, climbing, keeping to the floor and pushing, against what it stands on, as the listener has it see the bodies, and the walls, ceilings and slopes too steep to stand on it met take from its velocity the part that went into them. A body it stands on then carries it over the step, which CarryCharacters does once the world has stepped, so its colliders' bodies are sent where that takes it. Leaving the ground it keeps what carried it, and landing it gives back what it lands on moves at, so its velocity is its own, against what it stands on
+    void PhysicsScene3D::State::MoveCharacters(float seconds)
+    {
+        SceneRegistry& l_Registry = Owner.GetRegistry();
+        JPH::BodyInterface& l_Bodies = System->GetBodyInterface();
+        const glm::vec3 l_Gravity = FromJolt(System->GetGravity());
+        const float l_Strength = glm::length(l_Gravity);
+        const glm::vec3 l_Up = l_Strength > 0.0f ? -l_Gravity / l_Strength : glm::vec3(0.0f, 1.0f, 0.0f);
+        for (BodyRecord* it_Record : Records)
+        {
+            if (it_Record->Waiting || it_Record->Character == nullptr || !l_Registry.valid(it_Record->Entity))
+            {
+                continue;
+            }
+
+            BodyRecord& l_Record = *it_Record;
+            JPH::CharacterVirtual& l_Character = *l_Record.Character;
+            const TransformComponent& l_Transform = l_Registry.get<TransformComponent>(l_Record.Entity);
+            if (l_Transform.Position != l_Record.WrittenPosition)
+            {
+                PlaceAtTransform(l_Record);
+            }
+            else if (l_Transform.Rotation != l_Record.WrittenRotation)
+            {
+                TurnToTransform(l_Record);
+            }
+
+            l_Character.SetUp(ToJolt(l_Up));
+            const bool l_Stood = l_Character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+            l_Record.Carrier = {};
+            if (l_Stood)
+            {
+                const JPH::BodyLockRead l_Lock(System->GetBodyLockInterface(), l_Character.GetGroundBodyID());
+                if (l_Lock.SucceededAndIsInBroadPhase() && !l_Lock.GetBody().IsStatic())
+                {
+                    const JPH::Body& l_Ground = l_Lock.GetBody();
+                    l_Record.Carrier = { l_Character.GetGroundBodyID(), l_Ground.GetPosition(), l_Ground.GetRotation(), l_Ground.GetCenterOfMassPosition(), l_Ground.GetLinearVelocity(), l_Ground.GetAngularVelocity() };
+                }
+            }
+
+            glm::vec3 l_Velocity = l_Record.Velocity;
+            const float l_Rising = glm::dot(l_Velocity, l_Up);
+            if (l_Stood && l_Rising < c_RisingSpeed)
+            {
+                l_Velocity -= l_Rising * l_Up;
+            }
+            else
+            {
+                l_Velocity += l_Gravity * seconds;
+            }
+
+            l_Character.SetLinearVelocity(ToJolt(l_Velocity));
+            JPH::CharacterVirtual::ExtendedUpdateSettings l_Settings;
+            l_Settings.mStickToFloorStepDown = ToJolt(l_Up * -l_Record.StepHeight);
+            l_Settings.mWalkStairsStepUp = ToJolt(l_Up * l_Record.StepHeight);
+            // Having stepped up onto an edge, Jolt looks this far on for a floor it can stand on, which a round end cap reaches only past the edge by about its radius
+            l_Settings.mWalkStairsStepForwardTest = std::max(l_Settings.mWalkStairsStepForwardTest, l_Record.Radius);
+            const CharacterFilters l_Filters(*System, Layers, l_Record);
+            l_Character.ExtendedUpdate(seconds, ToJolt(l_Gravity), l_Settings, l_Filters.BroadPhase, l_Filters.Objects, l_Filters.Bodies, l_Filters.Shapes, *StepMemory);
+            PushBodies(l_Record, l_Velocity, seconds);
+            l_Velocity = KeepVelocity(l_Character, l_Velocity);
+
+            // Walked off onto other ground, so nothing carries it this step
+            const bool l_Stands = l_Character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+            if (l_Stands && l_Character.GetGroundBodyID() != l_Record.Carrier.Body)
+            {
+                l_Record.Carrier = {};
+            }
+
+            JPH::RVec3 l_Position = l_Character.GetPosition();
+            JPH::Quat l_Rotation = l_Character.GetRotation();
+            const glm::vec3 l_Carried = Predict(l_Record.Carrier.Body, seconds, l_Up, l_Position, l_Rotation);
+            if (l_Stands)
+            {
+                l_Velocity -= l_Stood ? glm::vec3(0.0f) : GetGroundVelocity(l_Character);
+                const float l_Left = glm::dot(l_Velocity, l_Up);
+                l_Velocity -= l_Left < c_RisingSpeed ? l_Left * l_Up : glm::vec3(0.0f);
+            }
+            else if (l_Stood)
+            {
+                l_Velocity += l_Carried;
+            }
+
+            l_Record.Velocity = l_Velocity;
+            for (const JPH::BodyID it_Body : { l_Record.Body, l_Record.Sensor })
+            {
+                if (!it_Body.IsInvalid())
+                {
+                    l_Bodies.MoveKinematic(it_Body, l_Position, l_Rotation, seconds);
+                }
+            }
+        }
+    }
+
+    // Where a body's motion over the next step takes a character's pose, as Jolt moves the body: its centre of mass along its velocity, and turned about it, the character turning with it only about up. The velocity that takes the position there, none for no body
+    glm::vec3 PhysicsScene3D::State::Predict(JPH::BodyID body, float seconds, const glm::vec3& up, JPH::RVec3& position, JPH::Quat& rotation) const
+    {
+        if (body.IsInvalid())
+        {
+            return glm::vec3(0.0f);
+        }
+
+        const JPH::BodyLockRead l_Lock(System->GetBodyLockInterface(), body);
+        if (!l_Lock.SucceededAndIsInBroadPhase())
+        {
+            return glm::vec3(0.0f);
+        }
+
+        const JPH::Body& l_Body = l_Lock.GetBody();
+        const JPH::Vec3 l_Angular = l_Body.GetAngularVelocity() * seconds;
+        const float l_Angle = l_Angular.Length();
+        const JPH::Vec3 l_Arm(position - l_Body.GetCenterOfMassPosition());
+        const JPH::Vec3 l_Moved = l_Body.GetLinearVelocity() * seconds + (l_Angle > 1.0e-6f ? JPH::Quat::sRotation(l_Angular / l_Angle, l_Angle) * l_Arm - l_Arm : JPH::Vec3::sZero());
+        position += l_Moved;
+        rotation = (JPH::Quat::sRotation(ToJolt(up), l_Angle > 1.0e-6f ? l_Angular.Dot(ToJolt(up)) : 0.0f) * rotation).Normalized();
+
+        return FromJolt(l_Moved) / seconds;
+    }
+
+    // How fast the ground under a character moves where the character is, from the body's own velocities, which the character saw as still if it carries it
+    glm::vec3 PhysicsScene3D::State::GetGroundVelocity(const JPH::CharacterVirtual& character) const
+    {
+        const JPH::BodyLockRead l_Lock(System->GetBodyLockInterface(), character.GetGroundBodyID());
+        if (!l_Lock.SucceededAndIsInBroadPhase() || l_Lock.GetBody().IsStatic())
+        {
+            return glm::vec3(0.0f);
+        }
+
+        const JPH::Body& l_Body = l_Lock.GetBody();
+
+        return FromJolt(l_Body.GetPointVelocity(character.GetPosition()));
+    }
+
+    // Each character a body carried over the step taken there, as the body's pose before the step and after it move its position, turning it about up as the body turned. A kinematic body moves as Predict reckoned, and a dynamic one as the step left it
+    void PhysicsScene3D::State::CarryCharacters()
+    {
+        for (BodyRecord* it_Record : Records)
+        {
+            if (it_Record->Character == nullptr || it_Record->Carrier.Body.IsInvalid())
+            {
+                continue;
+            }
+
+            BodyRecord& l_Record = *it_Record;
+            JPH::CharacterVirtual& l_Character = *l_Record.Character;
+            const CarryingBody l_Before = std::exchange(l_Record.Carrier, CarryingBody{});
+            JPH::RMat44 l_After = JPH::RMat44::sIdentity();
+            JPH::Quat l_Turned = JPH::Quat::sIdentity();
+            {
+                const JPH::BodyLockRead l_Lock(System->GetBodyLockInterface(), l_Before.Body);
+                if (!l_Lock.SucceededAndIsInBroadPhase())
+                {
+                    continue;
+                }
+
+                l_After = l_Lock.GetBody().GetWorldTransform();
+                l_Turned = l_Lock.GetBody().GetRotation() * l_Before.Rotation.Conjugated();
+            }
+
+            const JPH::RVec3 l_Local = JPH::RMat44::sRotationTranslation(l_Before.Rotation, l_Before.Position).InversedRotationTranslation() * l_Character.GetPosition();
+            // The body's turn about up alone, its twist
+            const JPH::Vec3 l_Up = l_Character.GetUp();
+            const float l_Twist = 2.0f * std::atan2(l_Turned.GetXYZ().Dot(l_Up), l_Turned.GetW());
+            l_Character.SetPosition(l_After * l_Local);
+            l_Character.SetRotation((JPH::Quat::sRotation(l_Up, l_Twist) * l_Character.GetRotation()).Normalized());
+        }
+    }
+
+    // What is left of the velocity once the walls, ceilings and slopes too steep to stand on that the character met take the part going into them, as each moves, in a few passes for corners. As Jolt holds a character back from a steep slope, one facing up first stops it as a wall would, so walking into it does not lift the character, and what falls onto it slides off
+    glm::vec3 PhysicsScene3D::State::KeepVelocity(const JPH::CharacterVirtual& character, const glm::vec3& velocity)
+    {
+        constexpr int c_Passes = 4;
+        glm::vec3 l_Velocity = velocity;
+        for (int it_Pass = 0; it_Pass < c_Passes; ++it_Pass)
+        {
+            bool l_Changed = false;
+            for (const JPH::CharacterContact& it_Contact : character.GetActiveContacts())
+            {
+                if (!it_Contact.mHadCollision || it_Contact.mWasDiscarded || it_Contact.mIsSensorB || !character.IsSlopeTooSteep(it_Contact.mSurfaceNormal))
+                {
+                    continue;
+                }
+
+                const auto a_Hold = [&l_Velocity, &l_Changed](JPH::Vec3Arg normal, JPH::Vec3Arg moving)
+                {
+                    const glm::vec3 l_Normal = FromJolt(normal);
+                    const float l_Into = glm::dot(l_Velocity - FromJolt(moving), l_Normal);
+                    if (l_Into < 0.0f)
+                    {
+                        l_Velocity -= l_Into * l_Normal;
+                        l_Changed = true;
+                    }
+                };
+
+                const float l_Up = it_Contact.mContactNormal.Dot(character.GetUp());
+                if (l_Up > 1.0e-3f)
+                {
+                    const JPH::Vec3 l_Wall = (it_Contact.mContactNormal - l_Up * character.GetUp()).Normalized();
+                    a_Hold(l_Wall, it_Contact.mLinearVelocity.Dot(l_Wall) * l_Wall);
+                }
+
+                a_Hold(it_Contact.mContactNormal, it_Contact.mLinearVelocity);
+            }
+
+            if (!l_Changed)
+            {
+                break;
+            }
+        }
+
+        return l_Velocity;
+    }
+
+    // Once a step, each dynamic body the character walked into, at the contact it went into fastest, as Jolt reckons it: the impulse that brings the body to the character's speed there, up to the push strength over the step, and none downwards, since the character's weight on what it stands on is added apart. Jolt's own pushes are turned off by the listener, since Jolt pushes a body again each time a pass of the move meets it
+    void PhysicsScene3D::State::PushBodies(const BodyRecord& record, const glm::vec3& velocity, float seconds)
+    {
+        const JPH::CharacterVirtual& l_Character = *record.Character;
+        const JPH::Vec3 l_Velocity = ToJolt(velocity);
+        Pushes.clear();
+        for (const JPH::CharacterContact& it_Contact : l_Character.GetActiveContacts())
+        {
+            if (!it_Contact.mHadCollision || it_Contact.mWasDiscarded || it_Contact.mIsSensorB || it_Contact.mMotionTypeB != JPH::EMotionType::Dynamic)
+            {
+                continue;
+            }
+
+            constexpr float c_Damping = 0.9f;
+            constexpr float c_PenetrationResolution = 0.4f;
+            const float l_Wanted = -(l_Velocity - it_Contact.mLinearVelocity).Dot(it_Contact.mContactNormal) * c_Damping - std::min(it_Contact.mDistance, 0.0f) * c_PenetrationResolution / seconds;
+            if (l_Wanted <= 0.0f)
+            {
+                continue;
+            }
+
+            const auto a_Found = std::ranges::find(Pushes, it_Contact.mBodyB, [](const BodyPush& push) { return push.Contact->mBodyB; });
+            if (a_Found == Pushes.end())
+            {
+                Pushes.push_back({ &it_Contact, l_Wanted });
+            }
+            else if (l_Wanted > a_Found->Wanted)
+            {
+                *a_Found = { &it_Contact, l_Wanted };
+            }
+        }
+
+        const JPH::Vec3 l_Up = l_Character.GetUp();
+        for (const BodyPush& it_Push : Pushes)
+        {
+            const JPH::CharacterContact& l_Contact = *it_Push.Contact;
+            const JPH::BodyLockWrite l_Lock(System->GetBodyLockInterface(), l_Contact.mBodyB);
+            if (!l_Lock.SucceededAndIsInBroadPhase())
+            {
+                continue;
+            }
+
+            const JPH::Body& l_Body = l_Lock.GetBody();
+            const JPH::Vec3 l_Arm = JPH::Vec3(l_Contact.mPosition - l_Body.GetCenterOfMassPosition()).Cross(l_Contact.mContactNormal);
+            const float l_InverseMass = l_Body.GetInverseInertia().Multiply3x3(l_Arm).Dot(l_Arm) + l_Body.GetMotionProperties()->GetInverseMass();
+            const float l_Impulse = std::min(it_Push.Wanted / l_InverseMass, l_Character.GetMaxStrength() * seconds);
+            JPH::Vec3 l_World = -l_Impulse * l_Contact.mContactNormal;
+            const float l_Down = l_World.Dot(l_Up);
+            l_World -= l_Down < 0.0f ? l_Down * l_Up : JPH::Vec3::sZero();
+            System->GetBodyInterfaceNoLock().AddImpulse(l_Contact.mBodyB, l_World, l_Contact.mPosition);
+        }
+    }
+
+    // Turned from code alone, so it turns at once with its colliders' bodies, and moves on between its steps as it was
+    void PhysicsScene3D::State::TurnToTransform(BodyRecord& record)
+    {
+        record.WrittenRotation = Owner.GetRegistry().get<TransformComponent>(record.Entity).Rotation;
+        const glm::quat l_Rotation = Decompose(Owner.ComputeWorldMatrix(Entity(record.Entity, &Owner))).Pose.Rotation;
+        record.Character->SetRotation(ToJolt(l_Rotation));
+        record.Previous.Rotation = l_Rotation;
+        record.Current.Rotation = l_Rotation;
+        JPH::BodyInterface& l_Bodies = System->GetBodyInterface();
+        for (const JPH::BodyID it_Body : { record.Body, record.Sensor })
+        {
+            if (!it_Body.IsInvalid())
+            {
+                l_Bodies.SetRotation(it_Body, ToJolt(l_Rotation), JPH::EActivation::DontActivate);
+            }
+        }
+    }
+
+    // Once both its bodies are made, false until then. Its frame is its entity's world transform as it is then, which a body waiting for its shapes has not moved from, with the anchor as an offset and the axis turned with it. Given to Jolt in world space, so where it meets each body is taken from where the bodies are. Jolt measures a hinge's turn and a slider's travel as its second body's against its first, so the joint's own body goes second, and both count its own body's motion along or about the axis. A joint that holds no dynamic body, joins a body with only triggers, or joins a character, is reported and left out
     bool PhysicsScene3D::State::MakeJoint(JointRecord& joint)
     {
         const BodyRecord& l_First = *joint.First;
@@ -1824,6 +2465,13 @@ namespace Trinity
         if (l_First.Body.IsInvalid() || (l_Second != nullptr && l_Second->Body.IsInvalid()))
         {
             TR_CORE_WARN("Physics: {}'s Joint joins a body with no solid colliders, so it is left out", l_Name);
+
+            return true;
+        }
+
+        if (l_First.HasCharacter || (l_Second != nullptr && l_Second->HasCharacter))
+        {
+            TR_CORE_WARN("Physics: {}'s Joint joins a character, which a joint cannot hold, so it is left out", l_Name);
 
             return true;
         }
@@ -2096,16 +2744,11 @@ namespace Trinity
         }
     }
 
-    // An owner's record as the scene has it now: its RigidBody, or none for a static body, and the colliders on it and below it, in hierarchy order, that no RigidBody below takes, nor a 2D body
+    // An owner's record as the scene has it now: its CharacterController or RigidBody, or neither for a static body, and the colliders on it and below it, in hierarchy order, that no RigidBody or character below takes, nor a 2D body
     void PhysicsScene3D::State::Gather(entt::entity owner, BodyRecord& record) const
     {
         const SceneRegistry& l_Registry = Owner.GetRegistry();
-        const RigidBodyComponent* l_RigidBody = l_Registry.try_get<RigidBodyComponent>(owner);
-        record.Entity = owner;
-        record.ID = l_Registry.get<IDComponent>(owner).ID;
-        record.HasRigidBody = l_RigidBody != nullptr;
-        record.Motion = l_RigidBody != nullptr ? l_RigidBody->Motion : BodyMotion::Static;
-        record.Settings = l_RigidBody != nullptr ? *l_RigidBody : RigidBodyComponent{};
+        ReadOwner(l_Registry, owner, record);
         record.Solids.clear();
         record.Triggers.clear();
 
@@ -2114,7 +2757,7 @@ namespace Trinity
             AddColliders(l_Registry, entity, record);
             for (entt::entity it_Child = l_Registry.get<RelationshipComponent>(entity).FirstChild; it_Child != entt::null; it_Child = l_Registry.get<RelationshipComponent>(it_Child).NextSibling)
             {
-                if (!l_Registry.any_of<RigidBodyComponent, RigidBody2DComponent>(it_Child))
+                if (!l_Registry.any_of<RigidBodyComponent, CharacterControllerComponent, RigidBody2DComponent>(it_Child))
                 {
                     self(self, it_Child);
                 }
@@ -2207,6 +2850,7 @@ namespace Trinity
 
         DestroyBody(record.Body);
         DestroyBody(record.Sensor);
+        DestroyCharacter(record);
         if (l_Registry.valid(record.Entity))
         {
             l_Registry.remove<PhysicsPoseComponent>(record.Entity);
@@ -2217,15 +2861,15 @@ namespace Trinity
         Memory::Delete(&record);
     }
 
-    // A record gathered again is left alone when it is as it was. A change of its RigidBody's motion or axis locks, or of a body still waiting for its shapes, makes its bodies again, a dynamic one keeping its velocities, and any other change is made to the bodies where they are, so their contacts carry over. Its joints are let go first and made again after, holding the pose they were first made in
+    // A record gathered again is left alone when it is as it was. A change of its RigidBody's motion or axis locks, of whether it is a character, or of a body still waiting for its shapes, makes its bodies again, a dynamic one keeping its velocities, and any other change is made to the bodies and the character where they are, so their contacts carry over. Its joints are let go first and made again after, holding the pose they were first made in
     void PhysicsScene3D::State::UpdateRecord(BodyRecord& record, BodyRecord& gathered)
     {
-        if (record.HasRigidBody == gathered.HasRigidBody && record.Settings == gathered.Settings && record.Solids == gathered.Solids && record.Triggers == gathered.Triggers)
+        if (record.HasRigidBody == gathered.HasRigidBody && record.Settings == gathered.Settings && record.HasCharacter == gathered.HasCharacter && record.Controller == gathered.Controller && record.Solids == gathered.Solids && record.Triggers == gathered.Triggers)
         {
             return;
         }
 
-        const bool l_Remake = record.Waiting || record.HasRigidBody != gathered.HasRigidBody || record.Settings.Motion != gathered.Settings.Motion || record.Settings.LockPosition != gathered.Settings.LockPosition || record.Settings.LockRotation != gathered.Settings.LockRotation;
+        const bool l_Remake = record.Waiting || record.HasRigidBody != gathered.HasRigidBody || record.HasCharacter != gathered.HasCharacter || record.Settings.Motion != gathered.Settings.Motion || record.Settings.LockPosition != gathered.Settings.LockPosition || record.Settings.LockRotation != gathered.Settings.LockRotation;
         BodyVelocity l_Velocity;
         const bool l_Carry = l_Remake && record.Motion == BodyMotion::Dynamic && !record.Body.IsInvalid();
         if (l_Carry)
@@ -2239,6 +2883,8 @@ namespace Trinity
         record.HasRigidBody = gathered.HasRigidBody;
         record.Settings = gathered.Settings;
         record.Motion = gathered.Motion;
+        record.HasCharacter = gathered.HasCharacter;
+        record.Controller = gathered.Controller;
         record.Solids = std::move(gathered.Solids);
         record.Triggers = std::move(gathered.Triggers);
         Index(record);
@@ -2247,6 +2893,7 @@ namespace Trinity
         {
             DestroyBody(record.Body);
             DestroyBody(record.Sensor);
+            DestroyCharacter(record);
         }
 
         if (MakeBody(record, l_Carry ? &l_Velocity : nullptr, !l_Remake))
@@ -2288,7 +2935,7 @@ namespace Trinity
         }
     }
 
-    // As it was saved, in each body's own space, each point moved by its body's change of centre of mass, so it holds the pose it was first made in. Once both its bodies are made, false until then. One left with no dynamic body, or joining a body that has no solid colliders now, is reported and left out
+    // As it was saved, in each body's own space, each point moved by its body's change of centre of mass, so it holds the pose it was first made in. Once both its bodies are made, false until then. One left with no dynamic body, or joining a body that has no solid colliders now or is a character now, is reported and left out
     bool PhysicsScene3D::State::RestoreJoint(JointRecord& joint)
     {
         const BodyRecord& l_First = *joint.First;
@@ -2304,6 +2951,13 @@ namespace Trinity
         if (l_First.Body.IsInvalid() || (l_Second != nullptr && l_Second->Body.IsInvalid()))
         {
             TR_CORE_WARN("Physics: {}'s Joint joins a body with no solid colliders now, so it is left out", l_Name);
+
+            return true;
+        }
+
+        if (l_First.HasCharacter || (l_Second != nullptr && l_Second->HasCharacter))
+        {
+            TR_CORE_WARN("Physics: {}'s Joint joins a character now, which a joint cannot hold, so it is left out", l_Name);
 
             return true;
         }
@@ -2339,7 +2993,7 @@ namespace Trinity
         return true;
     }
 
-    // A joint is on the body its entity is part of, and names the body of the entity it joins. One on no 3D body, or naming an entity no longer in the scene, or one that is part of no body or of its own, is reported and left out
+    // A joint is on the body its entity is part of, and names the body of the entity it joins. One on no 3D body, or naming an entity no longer in the scene, or one that is part of no body or of its own, or a joint with a character on either side, is reported and left out
     void PhysicsScene3D::State::CreateJointRecord(entt::entity entity)
     {
         Scene& l_Scene = Owner;
@@ -2350,6 +3004,13 @@ namespace Trinity
         if (l_First == nullptr)
         {
             TR_CORE_WARN("Physics: {}'s Joint is on no 3D body, since nothing on it or above it has a RigidBody or a 3D collider first, so it is left out", l_Name);
+
+            return;
+        }
+
+        if (l_First->HasCharacter)
+        {
+            TR_CORE_WARN("Physics: {}'s Joint is on {}'s character, which a joint cannot hold, so it is left out", l_Name, GetName(l_Scene, l_First->Entity));
 
             return;
         }
@@ -2367,9 +3028,9 @@ namespace Trinity
             }
 
             l_Second = FindRecord(FindOwner(l_Registry, l_Connected.GetHandle()));
-            if (l_Second == nullptr || l_Second == l_First)
+            if (l_Second == nullptr || l_Second == l_First || l_Second->HasCharacter)
             {
-                TR_CORE_WARN("Physics: {}'s Joint names {}, which is {}, so it is left out", l_Name, GetName(l_Scene, l_Connected.GetHandle()), l_Second == l_First ? "part of its own body" : "part of no body");
+                TR_CORE_WARN("Physics: {}'s Joint names {}, which is {}, so it is left out", l_Name, GetName(l_Scene, l_Connected.GetHandle()), l_Second == l_First ? "part of its own body" : (l_Second != nullptr ? "part of a character, which a joint cannot hold" : "part of no body"));
 
                 return;
             }
@@ -2414,7 +3075,7 @@ namespace Trinity
         const auto a_Visit = [&l_Registry, &l_Owners, &a_Note](const auto& self, entt::entity entity) -> void
         {
             a_Note(entity);
-            if (l_Registry.all_of<RigidBodyComponent>(entity) || HasCollider(l_Registry, entity))
+            if (l_Registry.any_of<RigidBodyComponent, CharacterControllerComponent>(entity) || HasCollider(l_Registry, entity))
             {
                 if (const entt::entity l_Owner = FindOwner(l_Registry, entity); l_Owner != entt::null)
                 {
@@ -2602,7 +3263,7 @@ namespace Trinity
         return true;
     }
 
-    // A body whose entity's transform was set from code since the body made or last wrote it is taken there at once, and drawn there with nothing between. Kinematic bodies follow their transforms already
+    // A body whose entity's transform was set from code since the body made or last wrote it is taken there at once, and drawn there with nothing between. Kinematic bodies follow their transforms already, and characters look before each step
     void PhysicsScene3D::State::FollowTransforms()
     {
         SceneRegistry& l_Registry = Owner.GetRegistry();
@@ -2621,7 +3282,7 @@ namespace Trinity
         }
     }
 
-    // The body and its sensor where its entity's transform puts it, with nothing between to draw, and a kinematic one's targets there too, so it stays until its transform moves again
+    // The body, its sensor and its character where its entity's transform puts it, with nothing between to draw, and a kinematic one's targets there too, so it stays until its transform moves again. A character keeps its velocity and finds what it stands on there
     void PhysicsScene3D::State::PlaceAtTransform(BodyRecord& record)
     {
         const TransformComponent& l_Transform = Owner.GetRegistry().get<TransformComponent>(record.Entity);
@@ -2631,6 +3292,17 @@ namespace Trinity
         const JPH::RVec3 l_Position(ToJolt(l_Pose.Position));
         const JPH::Quat l_Rotation = ToJolt(l_Pose.Rotation);
         JPH::BodyInterface& l_Bodies = System->GetBodyInterface();
+        if (record.Character != nullptr)
+        {
+            JPH::CharacterVirtual& l_Character = *record.Character;
+            WakeAround(l_Character.GetInnerBodyID());
+            l_Character.SetPosition(l_Position);
+            l_Character.SetRotation(l_Rotation);
+            WakeAround(l_Character.GetInnerBodyID());
+            const CharacterFilters l_Filters(*System, Layers, record);
+            l_Character.RefreshContacts(l_Filters.BroadPhase, l_Filters.Objects, l_Filters.Bodies, l_Filters.Shapes, *StepMemory);
+        }
+
         if (!record.Body.IsInvalid())
         {
             WakeAround(record.Body);
@@ -2686,7 +3358,7 @@ namespace Trinity
         {
             const std::uint64_t l_UserData = l_Bodies.GetUserData(body);
 
-            return { reinterpret_cast<const BodyRecord*>(l_UserData & ~c_SensorBit), (l_UserData & c_SensorBit) != 0 };
+            return { reinterpret_cast<const BodyRecord*>(l_UserData & ~c_RecordBits), (l_UserData & c_SensorBit) != 0 };
         };
 
         for (std::size_t it_Raw = 0; it_Raw < l_Raw.size();)
@@ -2795,7 +3467,7 @@ namespace Trinity
         l_State.Events.insert(l_State.Events.end(), l_Events.begin(), l_Events.end());
     }
 
-    // The entities of the collider a query met and of its body. None for a body that is not the scene's
+    // The entities of the collider a query met and of its body, which for a character's inner body are both the character's. None for a body that is not the scene's
     PhysicsHit3D PhysicsScene3D::State::MakeHit(JPH::BodyID body, const JPH::SubShapeID& part) const
     {
         PhysicsHit3D l_Hit;
@@ -2807,6 +3479,14 @@ namespace Trinity
 
         const JPH::Body& l_Body = l_Lock.GetBody();
         const BodyRecord* l_Record = GetRecord(l_Body);
+        if (l_Record != nullptr && (l_Body.GetUserData() & c_CharacterBit) != 0)
+        {
+            l_Hit.Entity = l_Record->ID;
+            l_Hit.Body = l_Record->ID;
+
+            return l_Hit;
+        }
+
         const ColliderSource* l_Collider = FindCollider(l_Body, nullptr, part);
         if (l_Record == nullptr || l_Collider == nullptr)
         {

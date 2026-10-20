@@ -341,6 +341,29 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MeshColliderComponent&) const = default;
     };
 
+    // Moves its entity as a character once its scene runs: a capsule standing along the entity's Y axis that goes where its velocity takes it, climbing steps up to its step height, keeping to the floor going down them, sliding down slopes steeper than its MaxSlope, riding what it stands on and pushing dynamic bodies by up to its push strength. The world's gravity pulls it while it is off the ground, and up is against gravity. An entity with this and a RigidBody is a character, and the RigidBody is left out. Colliders on it and below it, without a RigidBody of their own, follow it as a kinematic body, such as a trigger around it. It takes its entity's world scale as a capsule collider does. In metres, radians and newtons
+    struct CharacterControllerComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.CharacterController";
+
+        float Radius = 0.5f;
+        // The whole capsule's, end caps included
+        float Height = 2.0f;
+        // Where the capsule's middle sits on its entity, relative to the entity's transform
+        glm::vec3 Offset{ 0.0f };
+        // The steepest slope it stands on, held between 1 and 90 degrees
+        float MaxSlope = glm::radians(45.0f);
+        // How far it lifts itself to climb a step, and as far down as it keeps to the floor, 0 for neither. Its round end cap climbs a little higher by itself, about 0.15 m at the default radius and slope
+        float StepHeight = 0.3f;
+        // Below c_MaxCollisionLayers
+        std::uint32_t Layer = 0;
+        // The most force it pushes a dynamic body with, in newtons
+        float PushStrength = 100.0f;
+
+        [[nodiscard]] float GetHalfSegment() const { return std::max(Height * 0.5f - Radius, 0.0f); }
+        [[nodiscard]] bool operator==(const CharacterControllerComponent&) const = default;
+    };
+
     // How an entity's 2D body moves once its scene runs, in the XY plane: it takes the entity's world X and Y and its turn about Z, and writes them back keeping the entity's depth in Z. Its shape is the entity's 2D colliders and those below it, and an entity with 2D colliders and no 2D rigid body above them is static. 2D and 3D bodies live in worlds of their own, so an entity with a RigidBody keeps that and not this. In metres, kilograms and seconds, damping the fraction of velocity lost each second
     struct RigidBody2DComponent
     {

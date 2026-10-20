@@ -504,6 +504,30 @@ namespace Trinity
             reader.Read("Shape", component.Shape);
         }
 
+        void SaveCharacterController(const CharacterControllerComponent& component, ComponentWriter& writer)
+        {
+            writer.Write("Radius", component.Radius);
+            writer.Write("Height", component.Height);
+            writer.Write("Offset", component.Offset);
+            writer.Write("MaxSlope", component.MaxSlope);
+            writer.Write("StepHeight", component.StepHeight);
+            writer.Write("Layer", component.Layer);
+            writer.Write("PushStrength", component.PushStrength);
+        }
+
+        // A layer past the last there can be is taken as the first, as a collider's is
+        void LoadCharacterController(CharacterControllerComponent& component, const ComponentReader& reader)
+        {
+            reader.Read("Radius", component.Radius);
+            reader.Read("Height", component.Height);
+            reader.Read("Offset", component.Offset);
+            reader.Read("MaxSlope", component.MaxSlope);
+            reader.Read("StepHeight", component.StepHeight);
+            reader.Read("Layer", component.Layer);
+            reader.Read("PushStrength", component.PushStrength);
+            component.Layer = component.Layer < c_MaxCollisionLayers ? component.Layer : 0;
+        }
+
         void SaveRigidBody2D(const RigidBody2DComponent& component, ComponentWriter& writer)
         {
             const auto a_Found = std::ranges::find(c_BodyMotionNames, component.Motion, &std::pair<BodyMotion, std::string_view>::first);
@@ -1704,6 +1728,7 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<CylinderColliderComponent, SaveCylinderCollider, LoadCylinderCollider>());
             RegisterComponent(MakeComponentSerializer<ConvexHullColliderComponent, SaveConvexHullCollider, LoadConvexHullCollider>());
             RegisterComponent(MakeComponentSerializer<MeshColliderComponent, SaveMeshCollider, LoadMeshCollider>());
+            RegisterComponent(MakeComponentSerializer<CharacterControllerComponent, SaveCharacterController, LoadCharacterController>());
             RegisterComponent(MakeComponentSerializer<JointComponent, SaveJoint, LoadJoint>());
             RegisterComponent(MakeComponentSerializer<RigidBody2DComponent, SaveRigidBody2D, LoadRigidBody2D>());
             RegisterComponent(MakeComponentSerializer<BoxCollider2DComponent, SaveBoxCollider2D, LoadBoxCollider2D>());
