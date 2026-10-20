@@ -364,7 +364,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const CharacterControllerComponent&) const = default;
     };
 
-    // How an entity's 2D body moves once its scene runs, in the XY plane: it takes the entity's world X and Y and its turn about Z, and writes them back keeping the entity's depth in Z. Its shape is the entity's 2D colliders and those below it, and an entity with 2D colliders and no 2D rigid body above them is static. 2D and 3D bodies live in worlds of their own, so an entity with a RigidBody keeps that and not this. In metres, kilograms and seconds, damping the fraction of velocity lost each second
+    // How an entity's 2D body moves once its scene runs, in the XY plane: it takes the entity's world X and Y and its turn about Z, and writes them back keeping the entity's depth in Z. Its shape is the entity's 2D colliders and those below it, and an entity with 2D colliders and no 2D rigid body above them is static. 2D and 3D bodies live in worlds of their own, so an entity with a RigidBody keeps that and not this, and one with a CharacterController2D is a character. In metres, kilograms and seconds, damping the fraction of velocity lost each second
     struct RigidBody2DComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.RigidBody2D";
@@ -388,7 +388,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const RigidBody2DComponent&) const = default;
     };
 
-    // What every 2D collider has, as a 3D one does: where it sits on its entity in its XY plane, its turn there counter-clockwise in radians, how it rubs and bounces, whether it is a trigger, and its collision layer from the project's. A 2D collider takes its entity's world scale in X and Y
+    // What every 2D collider has, as a 3D one does: where it sits on its entity in its XY plane, its turn there counter-clockwise in radians, how it rubs and bounces, whether it is a trigger, whether 2D characters meet it one way, and its collision layer from the project's. A 2D collider takes its entity's world scale in X and Y
     struct Collider2DSettings
     {
         glm::vec2 Offset{ 0.0f };
@@ -396,6 +396,8 @@ namespace Trinity
         float Friction = 0.5f;
         float Restitution = 0.0f;
         bool Trigger = false;
+        // A 2D character meets it only from above, along the collider's own Y axis, so it jumps up through it and lands on it, and walks through its sides. Bodies meet it as any other
+        bool OneWay = false;
         // Below c_MaxCollisionLayers
         std::uint32_t Layer = 0;
 
@@ -443,6 +445,29 @@ namespace Trinity
         float Radius = 0.0f;
 
         [[nodiscard]] bool operator==(const PolygonCollider2DComponent&) const = default;
+    };
+
+    // Moves its entity as a 2D character once its scene runs, as a CharacterController does in 3D: a capsule standing along the entity's Y axis in its XY plane that goes where its velocity takes it, climbing steps up to its step height, keeping to the floor going down them, sliding down slopes steeper than its MaxSlope, carried by what it stands on with its feet keeping their place on it while it keeps its own turn, and pushing dynamic 2D bodies by up to its push strength. The 2D world's gravity pulls it while it is off the ground, and up is against gravity. It takes its entity's world X and Y and writes them back keeping the entity's depth in Z. An entity with this and a RigidBody2D is a character, and the RigidBody2D is left out. 2D colliders on it and below it, without a RigidBody2D of their own, follow it, such as a trigger around it. It takes its entity's world scale as a capsule collider does. In metres, radians and newtons
+    struct CharacterController2DComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.CharacterController2D";
+
+        float Radius = 0.5f;
+        // The whole capsule's, end caps included
+        float Height = 2.0f;
+        // Where the capsule's middle sits on its entity in its XY plane, relative to the entity's transform
+        glm::vec2 Offset{ 0.0f };
+        // The steepest slope it stands on, held between 1 and 90 degrees
+        float MaxSlope = glm::radians(45.0f);
+        // How far it lifts itself to climb a step, and as far down as it keeps to the floor, 0 for neither. Its round end cap climbs a little higher by itself, up to just under 0.15 m at the default radius and slope
+        float StepHeight = 0.3f;
+        // Below c_MaxCollisionLayers
+        std::uint32_t Layer = 0;
+        // The most force it pushes a dynamic 2D body with, in newtons
+        float PushStrength = 100.0f;
+
+        [[nodiscard]] float GetHalfSegment() const { return std::max(Height * 0.5f - Radius, 0.0f); }
+        [[nodiscard]] bool operator==(const CharacterController2DComponent&) const = default;
     };
 
     // What a joint holds: its bodies welded fast, turning about its axis, sliding along it, kept within a range of distances, or turning every way about a point

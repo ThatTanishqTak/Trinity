@@ -720,7 +720,7 @@ namespace Trinity
             return l_Properties;
         }
 
-        // The entity whose body an entity's colliders join: the nearest at or above it with a RigidBody or a CharacterController, none when a RigidBody2D without one comes first, since that is the 2D world's, and otherwise the highest at or above it with a collider, which is a static body. As the scene starts it finds them walking down, and this walks up to the same answer
+        // The entity whose body an entity's colliders join: the nearest at or above it with a RigidBody or a CharacterController, none when a RigidBody2D or a CharacterController2D without one comes first, since that is the 2D world's, and otherwise the highest at or above it with a collider, which is a static body. As the scene starts it finds them walking down, and this walks up to the same answer
         entt::entity FindOwner(const SceneRegistry& registry, entt::entity entity)
         {
             entt::entity l_Highest = entt::null;
@@ -731,7 +731,7 @@ namespace Trinity
                     return it_Entity;
                 }
 
-                if (registry.all_of<RigidBody2DComponent>(it_Entity))
+                if (registry.any_of<RigidBody2DComponent, CharacterController2DComponent>(it_Entity))
                 {
                     return entt::null;
                 }
@@ -1029,7 +1029,7 @@ namespace Trinity
         std::unordered_map<entt::entity, std::size_t> l_Owners;
         std::vector<entt::entity> l_Joined;
         constexpr std::size_t c_NoOwner = SIZE_MAX;
-        // An entity with a RigidBody2D and no RigidBody, and everything below it, belongs to the 2D world
+        // An entity with a RigidBody2D or a CharacterController2D and no RigidBody or CharacterController, and everything below it, belongs to the 2D world
         constexpr std::size_t c_Owned2D = SIZE_MAX - 1;
         for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
@@ -1039,7 +1039,7 @@ namespace Trinity
 
             std::size_t l_Owner = l_Inherited;
             const bool l_Moves = l_Registry.any_of<RigidBodyComponent, CharacterControllerComponent>(l_Handle);
-            if (!l_Moves && l_Registry.all_of<RigidBody2DComponent>(l_Handle))
+            if (!l_Moves && l_Registry.any_of<RigidBody2DComponent, CharacterController2DComponent>(l_Handle))
             {
                 l_Owner = c_Owned2D;
             }
@@ -1053,7 +1053,7 @@ namespace Trinity
             l_Owners[l_Handle] = l_Owner;
             if (l_Owner == c_Owned2D && HasCollider(l_Registry, l_Handle))
             {
-                TR_CORE_WARN("Physics: {}'s 3D colliders are part of a 2D body, so they are left out", GetName(scene, l_Handle));
+                TR_CORE_WARN("Physics: {}'s 3D colliders are part of a 2D body or character, so they are left out", GetName(scene, l_Handle));
             }
             else if (l_Owner != c_NoOwner && l_Owner != c_Owned2D)
             {
@@ -1105,6 +1105,7 @@ namespace Trinity
 
         a_Watch.template operator() < RigidBodyComponent > ();
         a_Watch.template operator() < RigidBody2DComponent > ();
+        a_Watch.template operator() < CharacterController2DComponent > ();
         a_Watch.template operator() < BoxColliderComponent > ();
         a_Watch.template operator() < SphereColliderComponent > ();
         a_Watch.template operator() < CapsuleColliderComponent > ();
@@ -1133,6 +1134,7 @@ namespace Trinity
 
         a_Unwatch.template operator() < RigidBodyComponent > ();
         a_Unwatch.template operator() < RigidBody2DComponent > ();
+        a_Unwatch.template operator() < CharacterController2DComponent > ();
         a_Unwatch.template operator() < BoxColliderComponent > ();
         a_Unwatch.template operator() < SphereColliderComponent > ();
         a_Unwatch.template operator() < CapsuleColliderComponent > ();
@@ -2744,7 +2746,7 @@ namespace Trinity
         }
     }
 
-    // An owner's record as the scene has it now: its CharacterController or RigidBody, or neither for a static body, and the colliders on it and below it, in hierarchy order, that no RigidBody or character below takes, nor a 2D body
+    // An owner's record as the scene has it now: its CharacterController or RigidBody, or neither for a static body, and the colliders on it and below it, in hierarchy order, that no RigidBody or character below takes, nor a 2D body or character
     void PhysicsScene3D::State::Gather(entt::entity owner, BodyRecord& record) const
     {
         const SceneRegistry& l_Registry = Owner.GetRegistry();
@@ -2757,7 +2759,7 @@ namespace Trinity
             AddColliders(l_Registry, entity, record);
             for (entt::entity it_Child = l_Registry.get<RelationshipComponent>(entity).FirstChild; it_Child != entt::null; it_Child = l_Registry.get<RelationshipComponent>(it_Child).NextSibling)
             {
-                if (!l_Registry.any_of<RigidBodyComponent, CharacterControllerComponent, RigidBody2DComponent>(it_Child))
+                if (!l_Registry.any_of<RigidBodyComponent, CharacterControllerComponent, RigidBody2DComponent, CharacterController2DComponent>(it_Child))
                 {
                     self(self, it_Child);
                 }

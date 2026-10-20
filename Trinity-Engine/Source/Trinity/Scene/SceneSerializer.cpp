@@ -235,7 +235,7 @@ namespace Trinity
             return projection == CameraProjection::Perspective ? "Perspective" : "Orthographic";
         }
 
-        constexpr std::array<std::pair<LightType, std::string_view>, 3> c_LightTypeNames{ { { LightType::Directional, "Directional" }, { LightType::Point, "Point" }, { LightType::Spot, "Spot" } } };
+        constexpr std::array<std::pair<LightType, std::string_view>, 3> c_LightTypeNames{ { { LightType::Directional, "Directional" },{ LightType::Point, "Point" },{ LightType::Spot, "Spot" } } };
 
         std::string_view GetLightTypeName(LightType type)
         {
@@ -351,7 +351,7 @@ namespace Trinity
             reader.Read("Rotation", component.Rotation);
         }
 
-        constexpr std::array<std::pair<BodyMotion, std::string_view>, 3> c_BodyMotionNames{ { { BodyMotion::Static, "Static" }, { BodyMotion::Kinematic, "Kinematic" }, { BodyMotion::Dynamic, "Dynamic" } } };
+        constexpr std::array<std::pair<BodyMotion, std::string_view>, 3> c_BodyMotionNames{ { { BodyMotion::Static, "Static" },{ BodyMotion::Kinematic, "Kinematic" },{ BodyMotion::Dynamic, "Dynamic" } } };
 
         // Each locked axis is a line of its own, so a diff shows which one changed
         void WriteAxes(ComponentWriter& writer, std::string_view key, const glm::bvec3& axes)
@@ -571,10 +571,11 @@ namespace Trinity
             writer.Write("Friction", collider.Friction);
             writer.Write("Restitution", collider.Restitution);
             writer.Write("Trigger", collider.Trigger);
+            writer.Write("OneWay", collider.OneWay);
             writer.Write("Layer", collider.Layer);
         }
 
-        // A layer past the last there can be is taken as the first
+        // A layer past the last there can be is taken as the first. A scene saved before one-way colliders has none
         void LoadCollider2DSettings(Collider2DSettings& collider, const ComponentReader& reader)
         {
             reader.Read("Offset", collider.Offset);
@@ -582,6 +583,7 @@ namespace Trinity
             reader.Read("Friction", collider.Friction);
             reader.Read("Restitution", collider.Restitution);
             reader.Read("Trigger", collider.Trigger);
+            reader.Read("OneWay", collider.OneWay);
             reader.Read("Layer", collider.Layer);
             collider.Layer = collider.Layer < c_MaxCollisionLayers ? collider.Layer : 0;
         }
@@ -643,7 +645,31 @@ namespace Trinity
             }
         }
 
-        constexpr std::array<std::pair<JointType, std::string_view>, 5> c_JointTypeNames{ { { JointType::Fixed, "Fixed" }, { JointType::Hinge, "Hinge" }, { JointType::Slider, "Slider" }, { JointType::Distance, "Distance" }, { JointType::Point, "Point" } } };
+        void SaveCharacterController2D(const CharacterController2DComponent& component, ComponentWriter& writer)
+        {
+            writer.Write("Radius", component.Radius);
+            writer.Write("Height", component.Height);
+            writer.Write("Offset", component.Offset);
+            writer.Write("MaxSlope", component.MaxSlope);
+            writer.Write("StepHeight", component.StepHeight);
+            writer.Write("Layer", component.Layer);
+            writer.Write("PushStrength", component.PushStrength);
+        }
+
+        // A layer past the last there can be is taken as the first, as a collider's is
+        void LoadCharacterController2D(CharacterController2DComponent& component, const ComponentReader& reader)
+        {
+            reader.Read("Radius", component.Radius);
+            reader.Read("Height", component.Height);
+            reader.Read("Offset", component.Offset);
+            reader.Read("MaxSlope", component.MaxSlope);
+            reader.Read("StepHeight", component.StepHeight);
+            reader.Read("Layer", component.Layer);
+            reader.Read("PushStrength", component.PushStrength);
+            component.Layer = component.Layer < c_MaxCollisionLayers ? component.Layer : 0;
+        }
+
+        constexpr std::array<std::pair<JointType, std::string_view>, 5> c_JointTypeNames{ { { JointType::Fixed, "Fixed" },{ JointType::Hinge, "Hinge" },{ JointType::Slider, "Slider" },{ JointType::Distance, "Distance" },{ JointType::Point, "Point" } } };
 
         // Every field, whichever the type uses, so changing a joint's type and back keeps its settings
         void SaveJoint(const JointComponent& component, ComponentWriter& writer)
@@ -695,7 +721,7 @@ namespace Trinity
             reader.Read("SpringDamping", component.SpringDamping);
         }
 
-        constexpr std::array<std::pair<Joint2DType, std::string_view>, 5> c_Joint2DTypeNames{ { { Joint2DType::Revolute, "Revolute" }, { Joint2DType::Prismatic, "Prismatic" }, { Joint2DType::Distance, "Distance" }, { Joint2DType::Weld, "Weld" }, { Joint2DType::Wheel, "Wheel" } } };
+        constexpr std::array<std::pair<Joint2DType, std::string_view>, 5> c_Joint2DTypeNames{ { { Joint2DType::Revolute, "Revolute" },{ Joint2DType::Prismatic, "Prismatic" },{ Joint2DType::Distance, "Distance" },{ Joint2DType::Weld, "Weld" },{ Joint2DType::Wheel, "Wheel" } } };
 
         // Every field, whichever the type uses, as a 3D joint's
         void SaveJoint2D(const Joint2DComponent& component, ComponentWriter& writer)
@@ -1020,7 +1046,7 @@ namespace Trinity
         }
 
         // The YAML a scene file read without the component's code keeps for it, so a component kept this way saves as one kept from a file does
-        std::string ToKeptYaml(const ComponentSerializer & serializer, const void* component)
+        std::string ToKeptYaml(const ComponentSerializer& serializer, const void* component)
         {
             std::string l_Text;
             ComponentWriter l_Writer(l_Text, 0);
@@ -1038,7 +1064,7 @@ namespace Trinity
         }
 
         // Each of the component in the scene, as YAML in the entity's unknown components, and then the pool, whose code may be about to unload. It goes first among them, where a known component saves, so a module unloading in reverse of how it registered leaves the text as it was
-        std::size_t KeepAsYaml(Scene & scene, const ComponentSerializer & serializer)
+        std::size_t KeepAsYaml(Scene& scene, const ComponentSerializer& serializer)
         {
             SceneRegistry& l_Registry = scene.GetRegistry();
             const entt::id_type l_PoolId = GetPoolId(serializer.Name);
@@ -1068,7 +1094,7 @@ namespace Trinity
         }
 
         // The pool, then each of the component the scene keeps as YAML, loaded into it and no longer kept. YAML that cannot be read stays kept
-        std::size_t LoadKept(Scene & scene, const ComponentSerializer & serializer)
+        std::size_t LoadKept(Scene& scene, const ComponentSerializer& serializer)
         {
             SceneRegistry& l_Registry = scene.GetRegistry();
             serializer.CreateStorage(l_Registry);
@@ -1345,7 +1371,7 @@ namespace Trinity
         *m_Output += FormatFloats(std::array{ value.x, value.y, value.z, value.w });
     }
 
-    void ComponentWriter::Write(std::string_view key, const ScriptFieldValue & value)
+    void ComponentWriter::Write(std::string_view key, const ScriptFieldValue& value)
     {
         BeginInlineMap(key);
         Write("Type", ToString(value.GetType()));
@@ -1735,6 +1761,7 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<CircleCollider2DComponent, SaveCircleCollider2D, LoadCircleCollider2D>());
             RegisterComponent(MakeComponentSerializer<CapsuleCollider2DComponent, SaveCapsuleCollider2D, LoadCapsuleCollider2D>());
             RegisterComponent(MakeComponentSerializer<PolygonCollider2DComponent, SavePolygonCollider2D, LoadPolygonCollider2D>());
+            RegisterComponent(MakeComponentSerializer<CharacterController2DComponent, SaveCharacterController2D, LoadCharacterController2D>());
             RegisterComponent(MakeComponentSerializer<Joint2DComponent, SaveJoint2D, LoadJoint2D>());
             // It holds nothing, so its functions write and read nothing
             RegisterComponent({ KeepAcrossScenesComponent::c_TypeName, [](const void*, ComponentWriter&) {}, [](void*, const ComponentReader&) {}, [](SceneRegistry& registry) { static_cast<void>(registry.storage<KeepAcrossScenesComponent>()); } });
