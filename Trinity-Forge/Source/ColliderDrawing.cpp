@@ -13,12 +13,18 @@ namespace
     constexpr glm::vec4 c_TriggerColor{ 0.4f, 0.75f, 1.0f, 1.0f };
     constexpr glm::vec4 c_JointColor{ 1.0f, 0.65f, 0.2f, 1.0f };
     constexpr glm::vec4 c_ContactColor{ 1.0f, 0.3f, 0.35f, 1.0f };
+    constexpr glm::vec4 c_CharacterColor{ 0.8f, 0.55f, 1.0f, 1.0f };
+    // A running character standing on ground it can stand on
+    constexpr glm::vec4 c_GroundedColor{ 1.0f, 0.85f, 0.3f, 1.0f };
     // In metres, whatever the scene's scale
     constexpr float c_JointMarkSize = 0.1f;
     constexpr float c_JointAxisLength = 0.5f;
     constexpr float c_HingeCircleRadius = 0.2f;
     constexpr float c_ContactMarkSize = 0.06f;
     constexpr float c_ContactNormalLength = 0.25f;
+    constexpr float c_GroundNormalLength = 0.5f;
+    // A character's velocity arrow reaches where its velocity takes it in this many seconds
+    constexpr float c_VelocityArrowSeconds = 0.25f;
     // The most a rounded corner of a 2D collider turns in one segment
     constexpr float c_ArcStep = std::numbers::pi_v<float> / 12.0f;
 
@@ -317,6 +323,42 @@ namespace
         }
     }
 
+    // Its capsule as the 3D world makes it, along its entity's Y axis from where its offset puts it, by its Y scale along its length and its larger X or Z scale around it. While the scene runs, in another colour while it stands on ground it can stand on, with arrows for its own velocity from its middle and for the normal of any ground under it from its foot, read as a script reads them
+    void DrawEntityCharacter(Trinity::Entity entity, Trinity::PhysicsScene3D* physics)
+    {
+        if (!entity.Has<Trinity::CharacterControllerComponent>())
+        {
+            return;
+        }
+
+        const Trinity::CharacterControllerComponent& l_Character = entity.Get<Trinity::CharacterControllerComponent>();
+        const RoundFrame l_Round = GetRoundFrame(entity.Get<Trinity::WorldTransformComponent>().Matrix * glm::translate(glm::mat4(1.0f), l_Character.Offset));
+        const glm::vec3 l_HalfSegment = l_Round.Axis * (l_Character.GetHalfSegment() * l_Round.AxialScale);
+        const float l_Radius = l_Character.Radius * l_Round.RadialScale;
+
+        Trinity::CharacterGround3D l_Ground;
+        glm::vec3 l_Velocity{ 0.0f };
+        const bool l_Running = physics != nullptr && physics->GetCharacterGround(entity.GetUUID(), l_Ground) == Trinity::PhysicsBodyResult::Done && physics->GetCharacterVelocity(entity.GetUUID(), l_Velocity) == Trinity::PhysicsBodyResult::Done;
+        const glm::vec4 l_Color = l_Running && l_Ground.Grounded ? c_GroundedColor : c_CharacterColor;
+        Trinity::DebugDraw::Capsule(l_Round.Center - l_HalfSegment, l_Round.Center + l_HalfSegment, l_Radius, l_Color);
+        if (!l_Running)
+        {
+            return;
+        }
+
+        const glm::vec3 l_Reach = l_Velocity * c_VelocityArrowSeconds;
+        if (glm::length(l_Reach) > 1e-3f)
+        {
+            Trinity::DebugDraw::Arrow(l_Round.Center, l_Round.Center + l_Reach, l_Color, Trinity::DebugDepth::OnTop);
+        }
+
+        if (glm::length(l_Ground.Normal) > 0.0f)
+        {
+            const glm::vec3 l_Foot = l_Round.Center - l_HalfSegment - l_Round.Axis * l_Radius;
+            Trinity::DebugDraw::Arrow(l_Foot, l_Foot + l_Ground.Normal * c_GroundNormalLength, l_Color, Trinity::DebugDepth::OnTop);
+        }
+    }
+
     // The anchor in the entity's frame, the axis turned with it, and a line to the other end: the connected entity's anchor for a distance joint, or its origin, or for a distance joint to the world its anchor there. A joint naming an entity no longer in the scene draws no line
     void DrawEntityJoint(Trinity::Scene& scene, Trinity::Entity entity)
     {
@@ -404,13 +446,14 @@ ColliderDrawing::~ColliderDrawing()
 }
 
 // The shapes drawn this time are acquired before those drawn last time are released, so one still in use is never unloaded between the two
-void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root)
+void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root, Trinity::PhysicsScene3D* physics)
 {
     m_Drawn.clear();
     const auto a_Next = [&scene, root](Trinity::Entity entity) { return root ? scene.GetNextInSubtree(entity, root) : scene.GetNextInHierarchyOrder(entity); };
     for (Trinity::Entity it_Entity = root ? root : scene.GetFirstRoot(); it_Entity; it_Entity = a_Next(it_Entity))
     {
         DrawEntityColliders(it_Entity, m_Drawn);
+        DrawEntityCharacter(it_Entity, physics);
         DrawEntityColliders2D(it_Entity);
         DrawEntityJoint(scene, it_Entity);
         DrawEntityJoint2D(scene, it_Entity);

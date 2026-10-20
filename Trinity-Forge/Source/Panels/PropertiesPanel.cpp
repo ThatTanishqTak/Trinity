@@ -39,7 +39,7 @@ namespace
     constexpr const char* c_UnappliedPopup = "Unapplied Import Settings###ForgeUnappliedSettings";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 22> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
+    constexpr std::array<std::string_view, 23> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::CharacterControllerComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
 
     // A label on the left and the widget filling the rest of the row
     void Label(const char* label)
@@ -300,10 +300,29 @@ namespace
         return l_Changed;
     }
 
-    // Whether an entity can be part of a 3D body or of a 2D one, for a joint to name
+    // Whether the 3D world takes the entity as part of a character: the nearest at or above it with a CharacterController, a RigidBody or a RigidBody2D has the CharacterController, as the 3D world finds what an entity is part of. A joint cannot hold a character
+    bool IsPartOfCharacter(Trinity::Entity entity)
+    {
+        for (Trinity::Entity it_Entity = entity; it_Entity; it_Entity = it_Entity.GetParent())
+        {
+            if (it_Entity.Has<Trinity::CharacterControllerComponent>())
+            {
+                return true;
+            }
+
+            if (it_Entity.Has<Trinity::RigidBodyComponent>() || it_Entity.Has<Trinity::RigidBody2DComponent>())
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    // Whether an entity can be part of a 3D body or of a 2D one, for a joint to name. A 3D character, and what follows it, cannot
     bool Is3DBody(Trinity::Entity entity)
     {
-        return entity.Has<Trinity::RigidBodyComponent>() || entity.Has<Trinity::BoxColliderComponent>() || entity.Has<Trinity::SphereColliderComponent>() || entity.Has<Trinity::CapsuleColliderComponent>() || entity.Has<Trinity::CylinderColliderComponent>() || entity.Has<Trinity::ConvexHullColliderComponent>() || entity.Has<Trinity::MeshColliderComponent>();
+        return (entity.Has<Trinity::RigidBodyComponent>() || entity.Has<Trinity::BoxColliderComponent>() || entity.Has<Trinity::SphereColliderComponent>() || entity.Has<Trinity::CapsuleColliderComponent>() || entity.Has<Trinity::CylinderColliderComponent>() || entity.Has<Trinity::ConvexHullColliderComponent>() || entity.Has<Trinity::MeshColliderComponent>()) && !IsPartOfCharacter(entity);
     }
 
     bool Is2DBody(Trinity::Entity entity)
@@ -406,7 +425,7 @@ namespace
 
     std::string_view GetComponentCategory(std::string_view name)
     {
-        constexpr std::array<std::pair<std::string_view, std::string_view>, 19> c_Categories{ {
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 20> c_Categories{ {
             { Trinity::CameraComponent::c_TypeName, "Rendering" },
             { Trinity::SpriteRendererComponent::c_TypeName, "Rendering" },
             { Trinity::MeshRendererComponent::c_TypeName, "Rendering" },
@@ -419,6 +438,7 @@ namespace
             { Trinity::CylinderColliderComponent::c_TypeName, "Physics" },
             { Trinity::ConvexHullColliderComponent::c_TypeName, "Physics" },
             { Trinity::MeshColliderComponent::c_TypeName, "Physics" },
+            { Trinity::CharacterControllerComponent::c_TypeName, "Physics" },
             { Trinity::JointComponent::c_TypeName, "Physics" },
             { Trinity::RigidBody2DComponent::c_TypeName, "Physics 2D" },
             { Trinity::BoxCollider2DComponent::c_TypeName, "Physics 2D" },
@@ -937,6 +957,7 @@ void PropertiesPanel::OnImGuiRender()
     DrawEnvironment(l_Entity);
     DrawRigidBody(l_Entity);
     DrawColliders(l_Entity);
+    DrawCharacterController(l_Entity);
     DrawJoint(l_Entity);
     DrawRigidBody2D(l_Entity);
     DrawColliders2D(l_Entity);
@@ -1532,6 +1553,11 @@ void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
 
     CommandStack& l_History = m_Session.GetHistory();
 
+    if (entity.Has<Trinity::CharacterControllerComponent>())
+    {
+        ImGui::TextWrapped("%s", std::format("{} The entity has a CharacterController too, so it is a character and this is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
+    }
+
     Label("Motion");
     EditField<Trinity::RigidBodyComponent>(l_History, entity, "Motion", [](Trinity::RigidBodyComponent& body)
     {
@@ -1662,6 +1688,77 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
     }
 }
 
+// A capsule standing along the entity's Y axis, in metres before its entity's scale as a capsule collider is, with its slope in degrees, kept as radians, and its push in newtons
+void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::CharacterControllerComponent>() || !BeginComponent(entity, Trinity::CharacterControllerComponent::c_TypeName, Trinity::Icons::c_Arrows))
+    {
+        return;
+    }
+
+    using Character = Trinity::CharacterControllerComponent;
+    CommandStack& l_History = m_Session.GetHistory();
+    const Trinity::CollisionLayers l_Layers = m_Session.GetProject() != nullptr ? m_Session.GetProject()->GetCollisionLayers() : Trinity::CollisionLayers();
+
+    if (entity.Has<Trinity::RigidBodyComponent>())
+    {
+        ImGui::TextWrapped("%s", std::format("{} The entity has a RigidBody too, which is left out when the scene runs, since the entity is a character", Trinity::Icons::c_Warning).c_str());
+    }
+
+    Label("Radius");
+    EditField<Character>(l_History, entity, "Radius", [](Character& character) { return ImGui::DragFloat("##Radius", &character.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+
+    // Never less than the two end caps
+    Label("Height");
+    EditField<Character>(l_History, entity, "Height", [](Character& character) { return ImGui::DragFloat("##Height", &character.Height, 0.01f, character.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("The whole capsule's, end caps included");
+    }
+
+    Label("Offset");
+    EditField<Character>(l_History, entity, "Offset", [](Character& character) { return ImGui::DragFloat3("##Offset", &character.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Where the capsule's middle is, from the entity, in its own space");
+    }
+
+    Label("Max Slope");
+    EditField<Character>(l_History, entity, "MaxSlope", [](Character& character)
+    {
+        float l_Degrees = glm::degrees(character.MaxSlope);
+        const bool l_Changed = ImGui::DragFloat("##MaxSlope", &l_Degrees, 0.5f, 1.0f, 90.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+        character.MaxSlope = glm::radians(l_Degrees);
+
+        return l_Changed;
+    });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("The steepest slope it stands on. It slides down steeper ones");
+    }
+
+    Label("Step Height");
+    EditField<Character>(l_History, entity, "StepHeight", [](Character& character) { return ImGui::DragFloat("##StepHeight", &character.StepHeight, 0.01f, 0.0f, 1.0e4f, character.StepHeight > 0.0f ? "%.3f m" : "None", ImGuiSliderFlags_AlwaysClamp); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("How high a step it climbs, and as far down as it keeps to the floor going down one. Its round end cap climbs a little higher by itself");
+    }
+
+    Label("Layer");
+    EditField<Character>(l_History, entity, "Layer", [&l_Layers](Character& character) { return LayerCombo(character.Layer, l_Layers); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Edit > Project Settings names the layers and sets which collide");
+    }
+
+    Label("Push Strength");
+    EditField<Character>(l_History, entity, "PushStrength", [](Character& character) { return ImGui::DragFloat("##PushStrength", &character.PushStrength, 1.0f, 0.0f, 1.0e9f, character.PushStrength > 0.0f ? "%.1f N" : "Pushes nothing", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("The most force it pushes a dynamic body with as it walks into one");
+    }
+}
+
 // The type, the body it joins, picked from the entities with a body or a collider or dropped from the Hierarchy, its frame, and its type's own settings, with a hinge's angles in degrees, kept as radians. A joint naming an entity no longer in the scene says so, and is left out when the scene runs
 void PropertiesPanel::DrawJoint(Trinity::Entity entity)
 {
@@ -1688,7 +1785,10 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
         return l_Changed;
     });
 
-    const SlotText l_Preview = DescribeEntitySlot(l_Scene, l_Joint.ConnectedBody, "World");
+    // A character the list no longer offers shows as broken, as a missing entity does
+    const Trinity::Entity l_Connected = l_Joint.ConnectedBody ? l_Scene.FindEntityByUUID(l_Joint.ConnectedBody) : Trinity::Entity();
+    const bool l_JoinsCharacter = l_Connected && IsPartOfCharacter(l_Connected);
+    const SlotText l_Preview = l_JoinsCharacter ? SlotText{ std::format("{} {}", Trinity::Icons::c_Warning, GetEntityLabel(l_Connected)), std::format("{} is part of a character, which a joint cannot hold", GetEntityLabel(l_Connected)), true } : DescribeEntitySlot(l_Scene, l_Joint.ConnectedBody, "World");
     Label("Connected Body");
     EditField<Joint>(l_History, entity, "ConnectedBody", [&](Joint& joint) { return ConnectedBodyCombo(l_Scene, entity, joint.ConnectedBody, l_Preview, &Is3DBody); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -1696,7 +1796,15 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
         ImGui::SetTooltip("The body it joins, through that body's entity or one of its collider entities, or the world. An entity can be dropped here from the Hierarchy");
     }
 
-    if (l_Preview.Broken)
+    if (IsPartOfCharacter(entity))
+    {
+        ImGui::TextWrapped("%s", std::format("{} The joint is on a character, which a joint cannot hold, so it is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
+    }
+    else if (l_JoinsCharacter)
+    {
+        ImGui::TextWrapped("%s", std::format("{} The entity it joins is part of a character, which a joint cannot hold, so the joint is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
+    }
+    else if (l_Preview.Broken)
     {
         ImGui::TextWrapped("%s", std::format("{} The entity it joins is no longer in the scene, so the joint is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
     }
@@ -1831,7 +1939,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     }
 }
 
-// As a 3D body's, in the XY plane: the settings past the motion show for a dynamic body alone, and the initial spin is in degrees per second counter-clockwise, kept as radians. An entity with a RigidBody as well keeps its 3D body, which it says
+// As a 3D body's, in the XY plane: the settings past the motion show for a dynamic body alone, and the initial spin is in degrees per second counter-clockwise, kept as radians. An entity with a RigidBody or a CharacterController as well keeps its 3D body or character, which it says
 void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::RigidBody2DComponent>() || !BeginComponent(entity, Trinity::RigidBody2DComponent::c_TypeName, Trinity::Icons::c_Arrows))
@@ -1842,7 +1950,11 @@ void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
     using Body = Trinity::RigidBody2DComponent;
     CommandStack& l_History = m_Session.GetHistory();
 
-    if (entity.Has<Trinity::RigidBodyComponent>())
+    if (entity.Has<Trinity::CharacterControllerComponent>())
+    {
+        ImGui::TextWrapped("%s", std::format("{} The entity has a CharacterController too, so it is a 3D character and this is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
+    }
+    else if (entity.Has<Trinity::RigidBodyComponent>())
     {
         ImGui::TextWrapped("%s", std::format("{} The entity has a RigidBody too, so it keeps its 3D body and this is left out when the scene runs", Trinity::Icons::c_Warning).c_str());
     }

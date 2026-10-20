@@ -61,6 +61,7 @@ private:
     void DrawEnvironment(Trinity::Entity entity);
     void DrawRigidBody(Trinity::Entity entity);
     void DrawColliders(Trinity::Entity entity);
+    void DrawCharacterController(Trinity::Entity entity);
     void DrawJoint(Trinity::Entity entity);
     void DrawRigidBody2D(Trinity::Entity entity);
     void DrawColliders2D(Trinity::Entity entity);

@@ -381,7 +381,7 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
-// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective or an orthographic camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image, among them the selection's colliders, or with Physics on every collider and joint, and where a playing copy's bodies touch, which the copy is asked to keep only then. After the transform pass
+// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective or an orthographic camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image, among them the selection's colliders and characters, or with Physics on every collider, character and joint, and where a playing copy's bodies touch, which the copy is asked to keep only then, and how its characters stand and move. After the transform pass
 void ViewportPanel::PrepareScene()
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -391,12 +391,14 @@ void ViewportPanel::PrepareScene()
         return;
     }
 
+    Trinity::PhysicsScene3D* l_Physics = nullptr;
     if (Trinity::SceneRuntime* l_Runtime = m_Session.GetRuntime())
     {
         l_Runtime->SetGatherContacts(m_PhysicsDebug);
-        if (m_PhysicsDebug && l_Runtime->GetPhysics() != nullptr)
+        l_Physics = l_Runtime->GetPhysics();
+        if (m_PhysicsDebug && l_Physics != nullptr)
         {
-            ColliderDrawing::DrawContacts(l_Runtime->GetPhysics()->GetContactPoints());
+            ColliderDrawing::DrawContacts(l_Physics->GetContactPoints());
         }
 
         if (m_PhysicsDebug && l_Runtime->GetPhysics2D() != nullptr)
@@ -407,11 +409,11 @@ void ViewportPanel::PrepareScene()
 
     if (m_PhysicsDebug)
     {
-        m_Colliders.Draw(l_Scene, {});
+        m_Colliders.Draw(l_Scene, {}, l_Physics);
     }
     else if (const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection()))
     {
-        m_Colliders.Draw(l_Scene, l_Selected);
+        m_Colliders.Draw(l_Scene, l_Selected, l_Physics);
     }
     else
     {

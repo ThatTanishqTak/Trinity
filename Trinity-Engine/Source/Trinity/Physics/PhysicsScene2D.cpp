@@ -290,13 +290,13 @@ namespace Trinity
             }
         }
 
-        // The entity whose body an entity's 2D colliders join: the nearest at or above it with a RigidBody2D, none when a RigidBody without one comes first, since that is the 3D world's, and otherwise the highest at or above it with a 2D collider, which is a static body. As the scene starts it finds them walking down, and this walks up to the same answer
+        // The entity whose body an entity's 2D colliders join: the nearest at or above it with a RigidBody2D, none when a RigidBody or a CharacterController without one comes first, since that is the 3D world's, and otherwise the highest at or above it with a 2D collider, which is a static body. As the scene starts it finds them walking down, and this walks up to the same answer
         entt::entity FindOwner(const SceneRegistry& registry, entt::entity entity)
         {
             entt::entity l_Highest = entt::null;
             for (entt::entity it_Entity = entity; it_Entity != entt::null; it_Entity = registry.get<RelationshipComponent>(it_Entity).Parent)
             {
-                if (registry.all_of<RigidBodyComponent>(it_Entity))
+                if (registry.any_of<RigidBodyComponent, CharacterControllerComponent>(it_Entity))
                 {
                     return entt::null;
                 }
@@ -649,7 +649,7 @@ namespace Trinity
         bool WarnedRoundScale = false;
     };
 
-    // Bodies are found in hierarchy order, as in 3D. An entity with a RigidBody, and everything below it, belongs to the 3D world, so 2D components there are reported and left out
+    // Bodies are found in hierarchy order, as in 3D. An entity with a RigidBody or a CharacterController, and everything below it, belongs to the 3D world, so 2D components there are reported and left out
     PhysicsScene2D::PhysicsScene2D(Scene& scene, const CollisionLayers& layers)
     {
         TR_PROFILE_FUNCTION();
@@ -664,20 +664,25 @@ namespace Trinity
         std::unordered_map<entt::entity, std::size_t> l_Owners;
         std::vector<entt::entity> l_Joined;
         constexpr std::size_t c_NoOwner = SIZE_MAX;
-        // An entity with a RigidBody, and everything below it, belongs to the 3D world
+        // An entity with a RigidBody or a CharacterController, and everything below it, belongs to the 3D world    
         constexpr std::size_t c_Owned3D = SIZE_MAX - 1;
         for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
             const entt::entity l_Handle = it_Entity.GetHandle();
             const entt::entity l_Parent = l_Registry.get<RelationshipComponent>(l_Handle).Parent;
             const std::size_t l_Inherited = l_Parent != entt::null ? l_Owners[l_Parent] : c_NoOwner;
-            const bool l_Body3D = l_Registry.all_of<RigidBodyComponent>(l_Handle);
+            const bool l_Character3D = l_Registry.all_of<CharacterControllerComponent>(l_Handle);
+            const bool l_Body3D = l_Character3D || l_Registry.all_of<RigidBodyComponent>(l_Handle);
             const RigidBody2DComponent* l_RigidBody = l_Registry.try_get<RigidBody2DComponent>(l_Handle);
 
             std::size_t l_Owner = l_Inherited;
             if (l_Body3D)
             {
-                if (l_RigidBody != nullptr)
+                if (l_RigidBody != nullptr && l_Character3D)
+                {
+                    TR_CORE_WARN("Physics: {} has both a CharacterController and a RigidBody2D, so it is a 3D character and the 2D body is left out", GetName(scene, l_Handle));
+                }
+                else if (l_RigidBody != nullptr)
                 {
                     TR_CORE_WARN("Physics: {} has both a RigidBody and a RigidBody2D, so it keeps its 3D body and the 2D one is left out", GetName(scene, l_Handle));
                 }
@@ -699,7 +704,7 @@ namespace Trinity
             l_Owners[l_Handle] = l_Owner;
             if (l_Owner == c_Owned3D && Has2DCollider(l_Registry, l_Handle))
             {
-                TR_CORE_WARN("Physics: {}'s 2D colliders are part of a 3D body, so they are left out", GetName(scene, l_Handle));
+                TR_CORE_WARN("Physics: {}'s 2D colliders are part of a 3D body or character, so they are left out", GetName(scene, l_Handle));
             }
             else if (l_Owner != c_NoOwner && l_Owner != c_Owned3D)
             {
@@ -735,7 +740,7 @@ namespace Trinity
             l_State.MakeJoint(it_Joint);
         }
 
-        // From here on, 2D bodies, colliders and joints added, changed through Patch or Replace, or removed are taken in at the next frame with steps, and so are RigidBodies, which take entities from the 2D world or give them back
+        // From here on, 2D bodies, colliders and joints added, changed through Patch or Replace, or removed are taken in at the next frame with steps, and so are RigidBodies and CharacterControllers, which take entities from the 2D world or give them back
         const auto a_Watch = [&l_Registry, &l_State]<Component T>()
         {
             l_Registry.on_construct<T>().template connect<&State::OnBodyChanged>(l_State);
@@ -745,6 +750,7 @@ namespace Trinity
 
         a_Watch.template operator() < RigidBody2DComponent > ();
         a_Watch.template operator() < RigidBodyComponent > ();
+        a_Watch.template operator() < CharacterControllerComponent > ();
         a_Watch.template operator() < BoxCollider2DComponent > ();
         a_Watch.template operator() < CircleCollider2DComponent > ();
         a_Watch.template operator() < CapsuleCollider2DComponent > ();
@@ -770,6 +776,7 @@ namespace Trinity
 
         a_Unwatch.template operator() < RigidBody2DComponent > ();
         a_Unwatch.template operator() < RigidBodyComponent > ();
+        a_Unwatch.template operator() < CharacterControllerComponent > ();
         a_Unwatch.template operator() < BoxCollider2DComponent > ();
         a_Unwatch.template operator() < CircleCollider2DComponent > ();
         a_Unwatch.template operator() < CapsuleCollider2DComponent > ();
@@ -1977,7 +1984,7 @@ namespace Trinity
             AddColliders(l_Registry, entity, record);
             for (entt::entity it_Child = l_Registry.get<RelationshipComponent>(entity).FirstChild; it_Child != entt::null; it_Child = l_Registry.get<RelationshipComponent>(it_Child).NextSibling)
             {
-                if (!l_Registry.any_of<RigidBody2DComponent, RigidBodyComponent>(it_Child))
+                if (!l_Registry.any_of<RigidBody2DComponent, RigidBodyComponent, CharacterControllerComponent>(it_Child))
                 {
                     self(self, it_Child);
                 }
