@@ -25,7 +25,7 @@ namespace Trinity
     namespace
     {
         // Here rather than with the physics, whose sources are built for instructions this processor may lack and must run no code before the CPU check
-        ConsoleVariable<std::int32_t> s_PhysicsEventsVariable("physics.events", 0, "Logs a running scene's physics events to the Console: 0 none, 1 contacts beginning and ending, triggers entered and left and joints breaking, 2 contacts staying too");
+        ConsoleVariable<std::int32_t> s_PhysicsEventsVariable("physics.events", 0, "Logs a running scene's physics events to the Console: 0 none, 1 contacts beginning and ending, triggers entered and left, joints breaking and characters hitting bodies, 2 contacts staying too");
 
         // A joint to the world names no entity
         std::string GetEntityName(Scene& scene, UUID id)
@@ -232,7 +232,7 @@ namespace Trinity
                     continue;
                 }
 
-                const std::string l_Where = it_Event.Type == PhysicsEventType::ContactBegin ? std::format(" at ({:.3f}, {:.3f}, {:.3f}) along ({:.3f}, {:.3f}, {:.3f})", it_Event.Point.x, it_Event.Point.y, it_Event.Point.z, it_Event.Normal.x, it_Event.Normal.y, it_Event.Normal.z) : std::string();
+                const std::string l_Where = it_Event.Type == PhysicsEventType::ContactBegin || it_Event.Type == PhysicsEventType::CharacterHit ? std::format(" at ({:.3f}, {:.3f}, {:.3f}) along ({:.3f}, {:.3f}, {:.3f})", it_Event.Point.x, it_Event.Point.y, it_Event.Point.z, it_Event.Normal.x, it_Event.Normal.y, it_Event.Normal.z) : std::string();
                 TR_CORE_INFO("Physics: step {}, {}: {} and {}{}", l_FirstStep + it_Event.Step, ToString(it_Event.Type), GetEntityName(m_Scene, it_Event.First), GetEntityName(m_Scene, it_Event.Second), l_Where);
             }
         }
@@ -246,7 +246,7 @@ namespace Trinity
                     continue;
                 }
 
-                const std::string l_Where = it_Event.Type == PhysicsEventType::ContactBegin ? std::format(" at ({:.3f}, {:.3f}) along ({:.3f}, {:.3f})", it_Event.Point.x, it_Event.Point.y, it_Event.Normal.x, it_Event.Normal.y) : std::string();
+                const std::string l_Where = it_Event.Type == PhysicsEventType::ContactBegin || it_Event.Type == PhysicsEventType::CharacterHit ? std::format(" at ({:.3f}, {:.3f}) along ({:.3f}, {:.3f})", it_Event.Point.x, it_Event.Point.y, it_Event.Normal.x, it_Event.Normal.y) : std::string();
                 TR_CORE_INFO("Physics: step {}, 2D {}: {} and {}{}", l_FirstStep + it_Event.Step, ToString(it_Event.Type), GetEntityName(m_Scene, it_Event.First), GetEntityName(m_Scene, it_Event.Second), l_Where);
             }
         }

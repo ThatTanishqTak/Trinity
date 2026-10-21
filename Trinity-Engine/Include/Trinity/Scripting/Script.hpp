@@ -22,7 +22,7 @@ namespace Trinity
     class Scene;
     class ScriptRuntime;
 
-    // What a physics callback is told: the other entity, or none for a joint to the world, and for a contact beginning where it began and its normal, out from this script's entity towards the other. A 2D event's point and normal have 0 in Z
+    // What a physics callback is told: the other entity, or none for a joint to the world, for a contact beginning where it began and its normal, out from this script's entity towards the other, and for a character's hit where it touches and the normal of the surface it hit, out towards the character. A 2D event's point and normal have 0 in Z
     struct ScriptCollision
     {
         UUID Other;
@@ -70,6 +70,8 @@ namespace Trinity
         virtual void OnTriggerEnter([[maybe_unused]] const ScriptCollision& collision) {}
         virtual void OnTriggerExit([[maybe_unused]] const ScriptCollision& collision) {}
         virtual void OnJointBreak([[maybe_unused]] const ScriptCollision& collision) {}
+        // The script's entity is a character whose capsule began touching another body in the step, once until it moves away from it, after the step's contacts
+        virtual void OnCharacterHit([[maybe_unused]] const ScriptCollision& hit) {}
 
         [[nodiscard]] Entity GetEntity() const { return m_Entity; }
         [[nodiscard]] Scene& GetScene() const;

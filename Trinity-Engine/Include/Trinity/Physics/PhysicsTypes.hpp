@@ -29,7 +29,7 @@ namespace Trinity
         Physical
     };
 
-    // What a 3D or a 2D scene's physics hands out after each step
+    // What a 3D or a 2D scene's physics hands out after each step: between two bodies, contacts, triggers and a joint breaking, and a character beginning to touch a body, which only the character is told of
     enum class PhysicsEventType : std::uint8_t
     {
         ContactBegin,
@@ -37,7 +37,8 @@ namespace Trinity
         ContactEnd,
         TriggerEnter,
         TriggerExit,
-        JointBreak
+        JointBreak,
+        CharacterHit
     };
 
     [[nodiscard]] TRINITY_API std::string_view ToString(PhysicsEventType type);

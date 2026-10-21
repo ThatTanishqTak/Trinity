@@ -21,7 +21,7 @@ namespace Trinity
         constexpr std::uint32_t Update = 1u << 2;
         constexpr std::uint32_t LateUpdate = 1u << 3;
         constexpr std::uint32_t Destroy = 1u << 4;
-        // Any of the contact, trigger and joint callbacks
+        // Any of the contact, trigger, joint and character hit callbacks
         constexpr std::uint32_t Physics = 1u << 5;
         constexpr std::uint32_t Reloaded = 1u << 6;
         constexpr std::uint32_t All = Create | FixedUpdate | Update | LateUpdate | Destroy | Physics | Reloaded;

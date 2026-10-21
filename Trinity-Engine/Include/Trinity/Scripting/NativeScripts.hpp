@@ -71,7 +71,7 @@ namespace Trinity
                 l_Callbacks |= ScriptCallbacks::Reloaded;
             }
 
-            if constexpr (!std::is_same_v<decltype(&T::OnContactBegin), decltype(&Script::OnContactBegin)> || !std::is_same_v<decltype(&T::OnContactStay), decltype(&Script::OnContactStay)> || !std::is_same_v<decltype(&T::OnContactEnd), decltype(&Script::OnContactEnd)> || !std::is_same_v<decltype(&T::OnTriggerEnter), decltype(&Script::OnTriggerEnter)> || !std::is_same_v<decltype(&T::OnTriggerExit), decltype(&Script::OnTriggerExit)> || !std::is_same_v<decltype(&T::OnJointBreak), decltype(&Script::OnJointBreak)>)
+            if constexpr (!std::is_same_v<decltype(&T::OnContactBegin), decltype(&Script::OnContactBegin)> || !std::is_same_v<decltype(&T::OnContactStay), decltype(&Script::OnContactStay)> || !std::is_same_v<decltype(&T::OnContactEnd), decltype(&Script::OnContactEnd)> || !std::is_same_v<decltype(&T::OnTriggerEnter), decltype(&Script::OnTriggerEnter)> || !std::is_same_v<decltype(&T::OnTriggerExit), decltype(&Script::OnTriggerExit)> || !std::is_same_v<decltype(&T::OnJointBreak), decltype(&Script::OnJointBreak)> || !std::is_same_v<decltype(&T::OnCharacterHit), decltype(&Script::OnCharacterHit)>)
             {
                 l_Callbacks |= ScriptCallbacks::Physics;
             }

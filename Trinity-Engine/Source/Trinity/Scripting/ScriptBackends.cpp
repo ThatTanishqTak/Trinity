@@ -145,7 +145,13 @@ namespace Trinity
                 case PhysicsEventType::JointBreak:
                 {
                     l_Script->OnJointBreak(collision);
-                    
+
+                    break;
+                }
+                case PhysicsEventType::CharacterHit:
+                {
+                    l_Script->OnCharacterHit(collision);
+
                     break;
                 }
             }

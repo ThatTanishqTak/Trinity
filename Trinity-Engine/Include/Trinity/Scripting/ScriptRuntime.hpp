@@ -95,7 +95,7 @@ namespace Trinity
         // After CreatePending and before the fixed steps: the input action handlers C# scripts added, for this frame's presses and releases, so those of a script made this frame are raised too
         void RaiseInputEvents();
         void FixedUpdate(Timestep step);
-        // A step's events, in the order they happened, to every script on both entities
+        // A step's events, in the order they happened, to every script on both entities, but a character's hit to the character's scripts alone
         void DeliverEvents(std::span<const PhysicsEvent3D> events);
         void DeliverEvents(std::span<const PhysicsEvent2D> events);
         void Update(Timestep timestep);

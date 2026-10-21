@@ -877,14 +877,14 @@ namespace Trinity
         m_State->RunStepTasks();
     }
 
-    // Each to the first entity's scripts, then the second's, with the normal turned to point away from whichever is told
+    // Each to the first entity's scripts, then the second's, with the normal turned to point away from whichever is told. A character's hit goes to the character's alone, with the normal of the surface it hit
     void ScriptRuntime::DeliverEvents(std::span<const PhysicsEvent3D> events)
     {
         const TimedPart l_Timed(m_State->Time);
         for (const PhysicsEvent3D& it_Event : events)
         {
             m_State->Deliver(it_Event.First, it_Event.Type, { it_Event.Second, it_Event.Point, it_Event.Normal, false });
-            if (it_Event.Second)
+            if (it_Event.Second && it_Event.Type != PhysicsEventType::CharacterHit)
             {
                 m_State->Deliver(it_Event.Second, it_Event.Type, { it_Event.First, it_Event.Point, -it_Event.Normal, false });
             }
@@ -897,7 +897,7 @@ namespace Trinity
         for (const PhysicsEvent2D& it_Event : events)
         {
             m_State->Deliver(it_Event.First, it_Event.Type, { it_Event.Second, glm::vec3(it_Event.Point, 0.0f), glm::vec3(it_Event.Normal, 0.0f), true });
-            if (it_Event.Second)
+            if (it_Event.Second && it_Event.Type != PhysicsEventType::CharacterHit)
             {
                 m_State->Deliver(it_Event.Second, it_Event.Type, { it_Event.First, glm::vec3(it_Event.Point, 0.0f), glm::vec3(-it_Event.Normal, 0.0f), true });
             }
