@@ -154,13 +154,30 @@ namespace Trinity
                 return true;
             }
 
-            // A collision layer is one of the project's
+            // A collision layer is one of the project's, a collider's or a character's
             template<auto Member>
             constexpr bool IsLayer()
             {
-                if constexpr (std::is_same_v<decltype(Member), decltype(&ColliderSettings::Layer)>) { return Member == &ColliderSettings::Layer; }
-                else if constexpr (std::is_same_v<decltype(Member), decltype(&Collider2DSettings::Layer)>) { return Member == &Collider2DSettings::Layer; }
-                else { return false; }
+                if constexpr (std::is_same_v<decltype(Member), decltype(&ColliderSettings::Layer)>)
+                {
+                    return Member == &ColliderSettings::Layer;
+                }
+                else if constexpr (std::is_same_v<decltype(Member), decltype(&Collider2DSettings::Layer)>)
+                {
+                    return Member == &Collider2DSettings::Layer;
+                }
+                else if constexpr (std::is_same_v<decltype(Member), decltype(&CharacterControllerComponent::Layer)>)
+                {
+                    return Member == &CharacterControllerComponent::Layer;
+                }
+                else if constexpr (std::is_same_v<decltype(Member), decltype(&CharacterController2DComponent::Layer)>)
+                {
+                    return Member == &CharacterController2DComponent::Layer;
+                }
+                else
+                {
+                    return false;
+                }
             }
 
             struct ComponentAccess

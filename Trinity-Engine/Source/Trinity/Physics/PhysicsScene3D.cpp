@@ -336,6 +336,8 @@ namespace Trinity
             bool Swapped = false;
         };
 
+        using ContactPairs = std::map<std::uint64_t, ContactPair, std::less<>, TaggedAllocator<std::pair<const std::uint64_t, ContactPair>, MemoryTag::Physics>>;
+
         std::uint64_t GetPairKey(std::uint32_t first, std::uint32_t second)
         {
             return (static_cast<std::uint64_t>(first) << 32) | second;
@@ -1251,6 +1253,8 @@ namespace Trinity
         void DestroyBody(JPH::BodyID& body);
         void WakeAround(JPH::BodyID body);
         void EndPairs(JPH::BodyID body);
+        void BeginPair(std::uint64_t key, const ContactPair& pair);
+        ContactPairs::iterator EndPair(ContactPairs::iterator pair);
         void Gather(entt::entity owner, BodyRecord& record) const;
         void Index(BodyRecord& record);
         void Unindex(const BodyRecord& record);
@@ -1306,7 +1310,9 @@ namespace Trinity
         PhysicsVector<PhysicsContactPoint> Contacts;
         bool GatherContacts = false;
         PhysicsVector<RawContact> Sorting;
-        std::map<std::uint64_t, ContactPair, std::less<>, TaggedAllocator<std::pair<const std::uint64_t, ContactPair>, MemoryTag::Physics>> Pairs;
+        ContactPairs Pairs;
+        // The nodes of pairs that ended, which pairs that begin take, so pairs beginning and ending allocate nothing once there are enough
+        PhysicsVector<ContactPairs::node_type> SparePairs;
         PhysicsVector<PhysicsEvent3D> Events;
         PhysicsVector<PhysicsEvent3D> StepEvents;
         std::uint32_t Steps = 1;
@@ -2672,7 +2678,6 @@ namespace Trinity
             JPH::CharacterVirtual::ExtendedUpdateSettings l_Settings;
             l_Settings.mStickToFloorStepDown = ToJolt(l_Up * -l_Record.StepHeight);
             l_Settings.mWalkStairsStepUp = ToJolt(l_Up * l_Record.StepHeight);
-            l_Settings.mWalkStairsStepUp = ToJolt(l_Up * l_Record.StepHeight);
             // Having stepped up onto an edge, Jolt looks this far on for a floor it can stand on, which a round end cap reaches only past the edge by about its radius
             l_Settings.mWalkStairsStepForwardTest = std::max(l_Settings.mWalkStairsStepForwardTest, l_Record.Radius);
             const CharacterFilters l_Filters(*System, Layers, l_Record);
@@ -3659,8 +3664,43 @@ namespace Trinity
             }
 
             Events.push_back({ l_Pair.Trigger ? PhysicsEventType::TriggerExit : PhysicsEventType::ContactEnd, l_Pair.First, l_Pair.Second, glm::vec3(0.0f), glm::vec3(0.0f), 0 });
-            a_Pair = Pairs.erase(a_Pair);
+            a_Pair = EndPair(a_Pair);
         }
+    }
+
+    // The pair held in the node of one that ended, when there is one. A node made new makes room for every node to be spare, so however many pairs end at once they allocate nothing
+    void PhysicsScene3D::State::BeginPair(std::uint64_t key, const ContactPair& pair)
+    {
+        if (SparePairs.empty())
+        {
+            Pairs.insert_or_assign(key, pair);
+            if (SparePairs.capacity() < Pairs.size())
+            {
+                SparePairs.reserve(Pairs.size() * 2);
+            }
+
+            return;
+        }
+
+        ContactPairs::node_type l_Node = std::move(SparePairs.back());
+        SparePairs.pop_back();
+        l_Node.key() = key;
+        l_Node.mapped() = pair;
+        ContactPairs::insert_return_type l_Inserted = Pairs.insert(std::move(l_Node));
+        if (!l_Inserted.inserted)
+        {
+            l_Inserted.position->second = pair;
+            SparePairs.push_back(std::move(l_Inserted.node));
+        }
+    }
+
+    // The pair gone, its node kept for one that begins, and the pair after it
+    ContactPairs::iterator PhysicsScene3D::State::EndPair(ContactPairs::iterator pair)
+    {
+        const ContactPairs::iterator l_Next = std::next(pair);
+        SparePairs.push_back(Pairs.extract(pair));
+
+        return l_Next;
     }
 
     // An owner's record as the scene has it now: its CharacterController or RigidBody, or neither for a static body, and the colliders on it and below it, in hierarchy order, that no RigidBody or character below takes, nor a 2D body or character
@@ -4269,7 +4309,7 @@ namespace Trinity
         return a_Found->second;
     }
 
-    // Jolt's adds and removes, in an order that does not depend on its workers, are counted by body pair. A pair's first part begins it and its last ends it, unless both bodies fell asleep, and a contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities
+    // Jolt's adds and removes, in an order that does not depend on its workers, are counted by body pair. A pair's first part begins it and its last ends it, unless both bodies fell asleep, and a contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities, in place, since a stable sort's buffer would allocate each step, and in the same order on every run, as the pairs come
     void PhysicsScene3D::State::PairContacts(std::uint32_t index)
     {
         State& l_State = *this;
@@ -4341,7 +4381,7 @@ namespace Trinity
                 l_Pair.Swapped = l_Pair.Trigger ? !l_FirstSensor : l_SecondRecord->ID < l_FirstRecord->ID;
                 l_Pair.First = l_Pair.Swapped ? l_SecondRecord->ID : l_FirstRecord->ID;
                 l_Pair.Second = l_Pair.Swapped ? l_FirstRecord->ID : l_SecondRecord->ID;
-                l_State.Pairs.insert_or_assign(l_Key, l_Pair);
+                l_State.BeginPair(l_Key, l_Pair);
 
                 PhysicsEvent3D l_Event{ l_Pair.Trigger ? PhysicsEventType::TriggerEnter : PhysicsEventType::ContactBegin, l_Pair.First, l_Pair.Second, glm::vec3(0.0f), glm::vec3(0.0f), index };
                 if (!l_Pair.Trigger && l_Added != nullptr)
@@ -4365,10 +4405,10 @@ namespace Trinity
                 }
 
                 l_Events.push_back({ l_Pair.Trigger ? PhysicsEventType::TriggerExit : PhysicsEventType::ContactEnd, l_Pair.First, l_Pair.Second, glm::vec3(0.0f), glm::vec3(0.0f), index });
-                l_State.Pairs.erase(a_Found);
+                static_cast<void>(l_State.EndPair(a_Found));
             }
             else if (a_Found != l_State.Pairs.end())
-            {
+            {   
                 a_Found->second.Count = l_After;
             }
         }
@@ -4384,7 +4424,7 @@ namespace Trinity
                 if (l_Pair.Woken != 0 && l_State.StepCount > l_Pair.Woken)
                 {
                     l_Events.push_back({ l_Pair.Trigger ? PhysicsEventType::TriggerExit : PhysicsEventType::ContactEnd, l_Pair.First, l_Pair.Second, glm::vec3(0.0f), glm::vec3(0.0f), index });
-                    a_Pair = l_State.Pairs.erase(a_Pair);
+                    a_Pair = l_State.EndPair(a_Pair);
 
                     continue;
                 }
@@ -4397,7 +4437,7 @@ namespace Trinity
             ++a_Pair;
         }
 
-        std::ranges::stable_sort(l_Events, [](const PhysicsEvent3D& left, const PhysicsEvent3D& right) { return std::tie(left.First, left.Second, left.Type) < std::tie(right.First, right.Second, right.Type); });
+        std::ranges::sort(l_Events, [](const PhysicsEvent3D& left, const PhysicsEvent3D& right) { return std::tie(left.First, left.Second, left.Type) < std::tie(right.First, right.Second, right.Type); });
         l_State.Events.insert(l_State.Events.end(), l_Events.begin(), l_Events.end());
     }
 

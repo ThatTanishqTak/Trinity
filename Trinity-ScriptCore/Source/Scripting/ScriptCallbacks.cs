@@ -14,7 +14,7 @@ namespace Trinity.Scripting
         Update = 1u << 2,
         LateUpdate = 1u << 3,
         Destroy = 1u << 4,
-        // Any of the contact, trigger and joint callbacks
+        // Any of the contact, trigger, joint and character hit callbacks
         Physics = 1u << 5,
         Reloaded = 1u << 6
     }

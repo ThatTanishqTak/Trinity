@@ -31,6 +31,8 @@ namespace Trinity
         public virtual void OnTriggerEnter(Collision collision) { }
         public virtual void OnTriggerExit(Collision collision) { }
         public virtual void OnJointBreak(Collision collision) { }
+        // The script's entity is a character whose capsule began touching another body in the step, once until it moves away from it, after the step's contacts
+        public virtual void OnCharacterHit(Collision hit) { }
 
         // Runs the coroutine at once until it first yields, then as each of its waits is met, as YieldInstruction says. An exception it throws stops this script, as one a callback throws does. Default for one that finished without waiting. Throws while no scene runs the script
         public Coroutine StartCoroutine(IEnumerator routine)

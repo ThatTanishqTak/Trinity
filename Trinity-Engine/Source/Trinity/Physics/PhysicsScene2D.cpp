@@ -743,6 +743,8 @@ namespace Trinity
         void DestroyBody(BodyRecord2D& record);
         void WakeAround(b2BodyId body);
         void EndPairs(const BodyRecord2D& record);
+        void BeginPair(ContactPairs2D& pairs, std::uint64_t key, const ContactPair2D& pair);
+        ContactPairs2D::iterator EndPair(ContactPairs2D& pairs, ContactPairs2D::iterator pair);
         void Gather(entt::entity owner, BodyRecord2D& record) const;
         void Index(BodyRecord2D& record);
         void Unindex(const BodyRecord2D& record);
@@ -846,6 +848,8 @@ namespace Trinity
         b2BodyId Ground = b2_nullBodyId;
         ContactPairs2D Contacts;
         ContactPairs2D Triggers;
+        // The nodes of pairs of either kind that ended, which pairs that begin take, so pairs beginning and ending allocate nothing once there are enough
+        PhysicsVector<ContactPairs2D::node_type> SparePairs;
         PhysicsVector<RawContact2D> Raw;
         PhysicsVector<PhysicsEvent2D> Events;
         PhysicsVector<PhysicsEvent2D> StepEvents;
@@ -1899,7 +1903,7 @@ namespace Trinity
         }
     }
 
-    // Box2D's begin and end events, for contacts and for triggers, are counted by body pair. A pair's first shape pair begins it and its last ends it, so a body whose colliders were made again keeps the pairs it still touches. A contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities. Shapes taken out before the step are forgotten after it, their last touches counted
+    // Box2D's begin and end events, for contacts and for triggers, are counted by body pair. A pair's first shape pair begins it and its last ends it, so a body whose colliders were made again keeps the pairs it still touches. A contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities, in place, since a stable sort's buffer would allocate each step, and in the same order on every run, as the pairs come. Shapes taken out before the step are forgotten after it, their last touches counted
     void PhysicsScene2D::State::PairEvents(std::uint32_t index)
     {
         StepEvents.clear();
@@ -1938,7 +1942,7 @@ namespace Trinity
                     l_Pair.Second = l_Swapped ? l_FirstRecord.ID : l_SecondRecord.ID;
                     l_Pair.FirstRecord = &l_FirstRecord;
                     l_Pair.SecondRecord = &l_SecondRecord;
-                    pairs.insert_or_assign(l_Key, l_Pair);
+                    BeginPair(pairs, l_Key, l_Pair);
 
                     PhysicsEvent2D l_Event{ trigger ? PhysicsEventType::TriggerEnter : PhysicsEventType::ContactBegin, l_Pair.First, l_Pair.Second, glm::vec2(0.0f), glm::vec2(0.0f), index };
                     if (!trigger && l_Added != nullptr)
@@ -1952,7 +1956,7 @@ namespace Trinity
                 else if (l_Before > 0 && l_After == 0)
                 {
                     StepEvents.push_back({ trigger ? PhysicsEventType::TriggerExit : PhysicsEventType::ContactEnd, a_Found->second.First, a_Found->second.Second, glm::vec2(0.0f), glm::vec2(0.0f), index });
-                    pairs.erase(a_Found);
+                    static_cast<void>(EndPair(pairs, a_Found));
                 }
                 else if (a_Found != pairs.end())
                 {
@@ -2043,7 +2047,7 @@ namespace Trinity
             }
         }
 
-        std::ranges::stable_sort(StepEvents, [](const PhysicsEvent2D& left, const PhysicsEvent2D& right) { return std::tie(left.First, left.Second, left.Type) < std::tie(right.First, right.Second, right.Type); });
+        std::ranges::sort(StepEvents, [](const PhysicsEvent2D& left, const PhysicsEvent2D& right) { return std::tie(left.First, left.Second, left.Type) < std::tie(right.First, right.Second, right.Type); });
         Events.insert(Events.end(), StepEvents.begin(), StepEvents.end());
     }
 
@@ -2309,9 +2313,44 @@ namespace Trinity
                 }
 
                 Events.push_back({ it_Pairs == &Triggers ? PhysicsEventType::TriggerExit : PhysicsEventType::ContactEnd, l_Pair.First, l_Pair.Second, glm::vec2(0.0f), glm::vec2(0.0f), 0 });
-                a_Pair = it_Pairs->erase(a_Pair);
+                a_Pair = EndPair(*it_Pairs, a_Pair);
             }
         }
+    }
+
+    // The pair held in the node of one that ended, of either kind, when there is one. A node made new makes room for every node of both kinds to be spare, so however many pairs end at once they allocate nothing
+    void PhysicsScene2D::State::BeginPair(ContactPairs2D& pairs, std::uint64_t key, const ContactPair2D& pair)
+    {
+        if (SparePairs.empty())
+        {
+            pairs.insert_or_assign(key, pair);
+            if (SparePairs.capacity() < Contacts.size() + Triggers.size())
+            {
+                SparePairs.reserve((Contacts.size() + Triggers.size()) * 2);
+            }
+
+            return;
+        }
+
+        ContactPairs2D::node_type l_Node = std::move(SparePairs.back());
+        SparePairs.pop_back();
+        l_Node.key() = key;
+        l_Node.mapped() = pair;
+        ContactPairs2D::insert_return_type l_Inserted = pairs.insert(std::move(l_Node));
+        if (!l_Inserted.inserted)
+        {
+            l_Inserted.position->second = pair;
+            SparePairs.push_back(std::move(l_Inserted.node));
+        }
+    }
+
+    // The pair gone, its node kept for one that begins, and the pair after it
+    ContactPairs2D::iterator PhysicsScene2D::State::EndPair(ContactPairs2D& pairs, ContactPairs2D::iterator pair)
+    {
+        const ContactPairs2D::iterator l_Next = std::next(pair);
+        SparePairs.push_back(pairs.extract(pair));
+
+        return l_Next;
     }
 
     // An owner's record as the scene has it now: its CharacterController2D or RigidBody2D, or neither for a static body, and the 2D colliders on it and below it, in hierarchy order, that no RigidBody2D or character below takes, nor a 3D body or character

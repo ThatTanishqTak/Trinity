@@ -192,6 +192,7 @@ namespace Trinity.Interop
                     case 3: l_Script.OnTriggerEnter(l_Collision); break;
                     case 4: l_Script.OnTriggerExit(l_Collision); break;
                     case 5: l_Script.OnJointBreak(l_Collision); break;
+                    case 6: l_Script.OnCharacterHit(l_Collision); break;
                 }
 
                 return 0;

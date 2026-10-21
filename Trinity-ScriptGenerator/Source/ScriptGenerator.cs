@@ -30,7 +30,8 @@ namespace Trinity.ScriptGenerator
             ("OnContactEnd", "Physics"),
             ("OnTriggerEnter", "Physics"),
             ("OnTriggerExit", "Physics"),
-            ("OnJointBreak", "Physics")
+            ("OnJointBreak", "Physics"),
+            ("OnCharacterHit", "Physics")
         };
 
         private static readonly SymbolDisplayFormat s_EngineName = new(typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);

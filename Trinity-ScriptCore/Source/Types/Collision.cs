@@ -1,6 +1,6 @@
 namespace Trinity
 {
-    // What a physics callback is told: the other entity, or none for a joint to the world, and for a contact beginning where it began and its normal, out from this script's entity towards the other. A 2D event's point and normal have 0 in Z
+    // What a physics callback is told: the other entity, or none for a joint to the world, for a contact beginning where it began and its normal, out from this script's entity towards the other, and for a character's hit where it touches and the normal of the surface it hit, out towards the character. A 2D event's point and normal have 0 in Z
     public readonly struct Collision
     {
         public Entity Other { get; }

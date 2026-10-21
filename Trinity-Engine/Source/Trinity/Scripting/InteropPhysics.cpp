@@ -21,9 +21,18 @@ namespace Trinity::Interop
         {
             switch (result)
             {
-                case PhysicsBodyResult::Done: return std::to_underlying(AccessResult::Done);
-                case PhysicsBodyResult::NoBody: return std::to_underlying(AccessResult::NoComponent);
-                case PhysicsBodyResult::WrongMotion: return std::to_underlying(AccessResult::BadValue);
+                case PhysicsBodyResult::Done:
+                {
+                    return std::to_underlying(AccessResult::Done);
+                }
+                case PhysicsBodyResult::NoBody:
+                {
+                    return std::to_underlying(AccessResult::NoComponent);
+                }
+                case PhysicsBodyResult::WrongMotion:
+                {
+                    return std::to_underlying(AccessResult::BadValue);
+                }
             }
 
             return std::to_underlying(AccessResult::BadValue);
@@ -78,6 +87,23 @@ namespace Trinity::Interop
             *broken = *l_Broken;
 
             return std::to_underlying(AccessResult::Done);
+        }
+
+        // A character's ground as its last step left it, the ground's entity 0 for none
+        template<typename Ground, typename Physics, typename Vector>
+        [[nodiscard]] Int32 CharacterGround(Physics* physics, EntityId entity, Bool* grounded, Vector* normal, Vector* velocity, EntityId* ground)
+        {
+            return OnBody(physics, entity, [&](Physics& scene, UUID id)
+            {
+                Ground l_Ground;
+                const PhysicsBodyResult l_Result = scene.GetCharacterGround(id, l_Ground);
+                *grounded = l_Ground.Grounded;
+                *normal = l_Ground.Normal;
+                *velocity = l_Ground.Velocity;
+                *ground = l_Ground.Entity.GetValue();
+
+                return l_Result;
+            });
         }
 
         template<typename Filter>
@@ -270,6 +296,46 @@ namespace Trinity::Interop
     Int32 Joint2D_IsBroken(EntityId entity, Bool* broken)
     {
         return JointBroken(GetPhysics2D(), entity, broken);
+    }
+
+    Int32 Character_GetVelocity(EntityId entity, Vector3* velocity)
+    {
+        return OnBody(GetPhysics(), entity, [&](PhysicsScene3D& physics, UUID id) { return physics.GetCharacterVelocity(id, *velocity); });
+    }
+
+    Int32 Character_SetVelocity(EntityId entity, const Vector3* velocity)
+    {
+        return OnBody(GetPhysics(), entity, [&](PhysicsScene3D& physics, UUID id) { return physics.SetCharacterVelocity(id, *velocity); });
+    }
+
+    Int32 Character_Move(EntityId entity, const Vector3* displacement)
+    {
+        return OnBody(GetPhysics(), entity, [&](PhysicsScene3D& physics, UUID id) { return physics.MoveCharacter(id, *displacement); });
+    }
+
+    Int32 Character_GetGround(EntityId entity, Bool* grounded, Vector3* normal, Vector3* velocity, EntityId* ground)
+    {
+        return CharacterGround<CharacterGround3D>(GetPhysics(), entity, grounded, normal, velocity, ground);
+    }
+
+    Int32 Character2D_GetVelocity(EntityId entity, Vector2* velocity)
+    {
+        return OnBody(GetPhysics2D(), entity, [&](PhysicsScene2D& physics, UUID id) { return physics.GetCharacterVelocity(id, *velocity); });
+    }
+
+    Int32 Character2D_SetVelocity(EntityId entity, const Vector2* velocity)
+    {
+        return OnBody(GetPhysics2D(), entity, [&](PhysicsScene2D& physics, UUID id) { return physics.SetCharacterVelocity(id, *velocity); });
+    }
+
+    Int32 Character2D_Move(EntityId entity, const Vector2* displacement)
+    {
+        return OnBody(GetPhysics2D(), entity, [&](PhysicsScene2D& physics, UUID id) { return physics.MoveCharacter(id, *displacement); });
+    }
+
+    Int32 Character2D_GetGround(EntityId entity, Bool* grounded, Vector2* normal, Vector2* velocity, EntityId* ground)
+    {
+        return CharacterGround<CharacterGround2D>(GetPhysics2D(), entity, grounded, normal, velocity, ground);
     }
 
     Int32 Physics_Raycast(const Vector3* origin, const Vector3* direction, Float maxDistance, const QueryFilter* filter, Bool all, PhysicsHit* hits, Int32 capacity)
