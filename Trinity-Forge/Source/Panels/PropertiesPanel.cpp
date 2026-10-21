@@ -1724,7 +1724,7 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
     }
 }
 
-// A capsule standing along the entity's Y axis, in metres before its entity's scale as a capsule collider is, with its slope in degrees, kept as radians, and its push in newtons
+// Its mode, and a capsule standing along the entity's Y axis, in metres before its entity's scale as a capsule collider is, with its slope in degrees, kept as radians, its push in newtons and its mass in kilograms. Push Strength greys out for a physical one, which pushes as a body of its mass does
 void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::CharacterControllerComponent>() || !BeginComponent(entity, Trinity::CharacterControllerComponent::c_TypeName, Trinity::Icons::c_Arrows))
@@ -1739,6 +1739,20 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     if (entity.Has<Trinity::RigidBodyComponent>())
     {
         ImGui::TextWrapped("%s", std::format("{} The entity has a RigidBody too, which is left out when the scene runs, since the entity is a character", Trinity::Icons::c_Warning).c_str());
+    }
+
+    Label("Mode");
+    EditField<Character>(l_History, entity, "Mode", [](Character& character)
+    {
+        int l_Mode = static_cast<int>(character.Mode);
+        const bool l_Changed = ImGui::Combo("##Mode", &l_Mode, "Kinematic\0Physical\0");
+        character.Mode = static_cast<Trinity::CharacterMode>(l_Mode);
+
+        return l_Changed;
+    });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Kinematic is moved where its velocity takes it, pushing dynamic bodies by its push strength, and nothing pushes it. Physical is a dynamic body that cannot turn, which pushes and is knocked back as a body of its mass is");
     }
 
     Label("Radius");
@@ -1787,11 +1801,22 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
         ImGui::SetTooltip("Edit > Project Settings names the layers and sets which collide");
     }
 
+    // Read after Mode, so a change there greys this out at once
+    const bool l_Physical = entity.Get<Character>().Mode == Trinity::CharacterMode::Physical;
     Label("Push Strength");
+    ImGui::BeginDisabled(l_Physical);
     EditField<Character>(l_History, entity, "PushStrength", [](Character& character) { return ImGui::DragFloat("##PushStrength", &character.PushStrength, 1.0f, 0.0f, 1.0e9f, character.PushStrength > 0.0f ? "%.1f N" : "Pushes nothing", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("%s", l_Physical ? "A physical character pushes as a body of its mass does, so this applies in Kinematic mode only" : "The most force it pushes a dynamic body with as it walks into one");
+    }
+
+    Label("Mass");
+    EditField<Character>(l_History, entity, "Mass", [](Character& character) { return ImGui::DragFloat("##Mass", &character.Mass, 0.05f, 0.1f, 1.0e6f, "%.3f kg", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("The most force it pushes a dynamic body with as it walks into one");
+        ImGui::SetTooltip("%s", l_Physical ? "Its body's mass, by which it pushes, is knocked back and weighs on what it stands on" : "Its weight on a dynamic body it stands on");
     }
 }
 
@@ -2178,7 +2203,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
     }
 }
 
-// As a 3D character's, in its entity's XY plane: a capsule standing along the entity's Y axis, in metres before its entity's scale as a 2D capsule collider is, with its slope in degrees, kept as radians, and its push in newtons. An entity with a RigidBody or a CharacterController keeps its 3D body or character, and a RigidBody2D beside it is left out, which it says
+// As a 3D character's, in its entity's XY plane: its mode, and a capsule standing along the entity's Y axis, in metres before its entity's scale as a 2D capsule collider is, with its slope in degrees, kept as radians, its push in newtons and its mass in kilograms, Push Strength greying out for a physical one. An entity with a RigidBody or a CharacterController keeps its 3D body or character, and a RigidBody2D beside it is left out, which it says
 void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::CharacterController2DComponent>() || !BeginComponent(entity, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Icons::c_Arrows))
@@ -2201,6 +2226,20 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     else if (entity.Has<Trinity::RigidBody2DComponent>())
     {
         ImGui::TextWrapped("%s", std::format("{} The entity has a RigidBody2D too, which is left out when the scene runs, since the entity is a character", Trinity::Icons::c_Warning).c_str());
+    }
+
+    Label("Mode");
+    EditField<Character>(l_History, entity, "Mode", [](Character& character)
+    {
+        int l_Mode = static_cast<int>(character.Mode);
+        const bool l_Changed = ImGui::Combo("##Mode", &l_Mode, "Kinematic\0Physical\0");
+        character.Mode = static_cast<Trinity::CharacterMode>(l_Mode);
+
+        return l_Changed;
+    });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Kinematic is moved where its velocity takes it, pushing dynamic 2D bodies by its push strength, and nothing pushes it. Physical is a dynamic 2D body that cannot turn, which pushes and is knocked back as a body of its mass is");
     }
 
     Label("Radius");
@@ -2249,11 +2288,22 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
         ImGui::SetTooltip("Edit > Project Settings names the layers and sets which collide, for 2D and 3D alike");
     }
 
+    // Read after Mode, so a change there greys this out at once
+    const bool l_Physical = entity.Get<Character>().Mode == Trinity::CharacterMode::Physical;
     Label("Push Strength");
+    ImGui::BeginDisabled(l_Physical);
     EditField<Character>(l_History, entity, "PushStrength", [](Character& character) { return ImGui::DragFloat("##PushStrength", &character.PushStrength, 1.0f, 0.0f, 1.0e9f, character.PushStrength > 0.0f ? "%.1f N" : "Pushes nothing", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("%s", l_Physical ? "A physical character pushes as a body of its mass does, so this applies in Kinematic mode only" : "The most force it pushes a dynamic 2D body with as it walks into one");
+    }
+
+    Label("Mass");
+    EditField<Character>(l_History, entity, "Mass", [](Character& character) { return ImGui::DragFloat("##Mass", &character.Mass, 0.05f, 0.1f, 1.0e6f, "%.3f kg", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("The most force it pushes a dynamic 2D body with as it walks into one");
+        ImGui::SetTooltip("%s", l_Physical ? "Its body's mass, by which it pushes, is knocked back and weighs on what it stands on" : "Its weight on a dynamic 2D body it stands on");
     }
 }
 

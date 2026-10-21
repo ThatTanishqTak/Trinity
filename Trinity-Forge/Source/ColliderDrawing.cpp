@@ -14,6 +14,8 @@ namespace
     constexpr glm::vec4 c_JointColor{ 1.0f, 0.65f, 0.2f, 1.0f };
     constexpr glm::vec4 c_ContactColor{ 1.0f, 0.3f, 0.35f, 1.0f };
     constexpr glm::vec4 c_CharacterColor{ 0.8f, 0.55f, 1.0f, 1.0f };
+    // A physical character, which is a dynamic body that cannot turn
+    constexpr glm::vec4 c_PhysicalCharacterColor{ 1.0f, 0.5f, 0.75f, 1.0f };
     // A running character standing on ground it can stand on
     constexpr glm::vec4 c_GroundedColor{ 1.0f, 0.85f, 0.3f, 1.0f };
     // In metres, whatever the scene's scale
@@ -43,6 +45,12 @@ namespace
     glm::vec4 GetColor(const Trinity::Collider2DSettings& collider)
     {
         return collider.Trigger ? c_TriggerColor : c_SolidColor;
+    }
+
+    // A character off ground it can stand on, or while the scene is not running, by its mode
+    glm::vec4 GetColor(Trinity::CharacterMode mode)
+    {
+        return mode == Trinity::CharacterMode::Physical ? c_PhysicalCharacterColor : c_CharacterColor;
     }
 
     // A 2D collider's own frame in the XY plane, as the 2D world takes it: the entity's world transform, then the collider's offset and turn about Z, with each axis's scale, at the collider's depth in Z
@@ -232,7 +240,7 @@ namespace
         }
     }
 
-    // Its capsule as the 2D world makes it, flat at its entity's depth: along the entity's Y axis from where its offset puts it, by its Y scale along its length and its X scale around it, a circle when its caps meet. While the scene runs, as a 3D character is drawn, in another colour while it stands on ground it can stand on, with arrows for its own velocity from its middle and for the normal of any ground under it from its foot
+    // Its capsule as the 2D world makes it, flat at its entity's depth: along the entity's Y axis from where its offset puts it, by its Y scale along its length and its X scale around it, a circle when its caps meet, in its mode's colour. While the scene runs, as a 3D character is drawn, in another colour while it stands on ground it can stand on, with arrows for its own velocity from its middle and for the normal of any ground under it from its foot
     void DrawEntityCharacter2D(Trinity::Entity entity, Trinity::PhysicsScene2D* physics)
     {
         if (!entity.Has<Trinity::CharacterController2DComponent>())
@@ -255,7 +263,7 @@ namespace
         Trinity::CharacterGround2D l_Ground;
         glm::vec2 l_Velocity{ 0.0f };
         const bool l_Running = physics != nullptr && physics->GetCharacterGround(entity.GetUUID(), l_Ground) == Trinity::PhysicsBodyResult::Done && physics->GetCharacterVelocity(entity.GetUUID(), l_Velocity) == Trinity::PhysicsBodyResult::Done;
-        const glm::vec4 l_Color = l_Running && l_Ground.Grounded ? c_GroundedColor : c_CharacterColor;
+        const glm::vec4 l_Color = l_Running && l_Ground.Grounded ? c_GroundedColor : GetColor(l_Character.Mode);
         DrawOutline2D(std::span(l_Ends).first(l_Round ? 1 : 2), l_Radius, l_Depth, l_Color);
         if (!l_Running)
         {
@@ -385,7 +393,7 @@ namespace
         }
     }
 
-    // Its capsule as the 3D world makes it, along its entity's Y axis from where its offset puts it, by its Y scale along its length and its larger X or Z scale around it. While the scene runs, in another colour while it stands on ground it can stand on, with arrows for its own velocity from its middle and for the normal of any ground under it from its foot, read as a script reads them
+    // Its capsule as the 3D world makes it, along its entity's Y axis from where its offset puts it, by its Y scale along its length and its larger X or Z scale around it, in its mode's colour. While the scene runs, in another colour while it stands on ground it can stand on, with arrows for its own velocity from its middle and for the normal of any ground under it from its foot, read as a script reads them
     void DrawEntityCharacter(Trinity::Entity entity, Trinity::PhysicsScene3D* physics)
     {
         if (!entity.Has<Trinity::CharacterControllerComponent>())
@@ -401,7 +409,7 @@ namespace
         Trinity::CharacterGround3D l_Ground;
         glm::vec3 l_Velocity{ 0.0f };
         const bool l_Running = physics != nullptr && physics->GetCharacterGround(entity.GetUUID(), l_Ground) == Trinity::PhysicsBodyResult::Done && physics->GetCharacterVelocity(entity.GetUUID(), l_Velocity) == Trinity::PhysicsBodyResult::Done;
-        const glm::vec4 l_Color = l_Running && l_Ground.Grounded ? c_GroundedColor : c_CharacterColor;
+        const glm::vec4 l_Color = l_Running && l_Ground.Grounded ? c_GroundedColor : GetColor(l_Character.Mode);
         Trinity::DebugDraw::Capsule(l_Round.Center - l_HalfSegment, l_Round.Center + l_HalfSegment, l_Radius, l_Color);
         if (!l_Running)
         {
