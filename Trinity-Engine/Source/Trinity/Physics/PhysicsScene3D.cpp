@@ -230,12 +230,13 @@ namespace Trinity
             PhysicsVector<HeldContact> Held;
             PhysicsVector<JPH::Vec3> Supports;
             float GroundDepth = 0.0f;
-            // As a physical character's step began: whether it stood on ground it can stand on, and walked along it rather than rising off it, the velocity its body was given, and the velocity and turn the body it stood on gives it over the step
+            // As a physical character's step began: whether it stood on ground it can stand on, and walked along it rather than rising off it, the velocity its body was given, and the velocity and turn the body it stood on gives it over the step. Then the velocity the world's step left its body with, which tells apart what is done to the body between steps, such as a kinematic character's push
             bool Stood = false;
             bool Walking = false;
             glm::vec3 Given{ 0.0f };
             glm::vec3 Carried{ 0.0f };
             JPH::Quat Turn = JPH::Quat::sIdentity();
+            glm::vec3 Stepped{ 0.0f };
             // A physical character that walked off ground, which is set down onto ground until it has fallen its step height, and how high it walked off
             bool WalkedOff = false;
             float OffHeight = 0.0f;
@@ -2519,6 +2520,7 @@ namespace Trinity
             record.TargetTo = world.Pose;
             record.WrittenPosition = l_Transform.Position;
             record.WrittenRotation = l_Transform.Rotation;
+            record.Stepped = glm::vec3(0.0f);
         }
 
         record.Physical->SetUp(l_Up);
@@ -2734,7 +2736,7 @@ namespace Trinity
         }
     }
 
-    // A physical character before the world steps, as a kinematic one's move begins: one whose transform was set from code is taken there first. Standing on ground it can stand on and not rising off it, it walks: it loses the vertical part of its velocity, steps up onto what it walks into that its step height clears, and its body moves along the ground at its pace across it, kept on the ground's surface, neither above it nor in it. Gravity does not pull it then, and its weight presses on a dynamic body it stands on, as a kinematic one's does. Otherwise gravity pulls it as it does any body. The walls, ceilings and slopes too steep to stand on it touches take from its velocity the part going into them, and the body it stood on adds how it moves the character over the step. The world then steps its body, so what hits it, what it pushes and what it lands on change its body's velocity, which SettleCharacters reads back. Its sensor is placed where its body is, as a dynamic body's is
+    // A physical character before the world steps, as a kinematic one's move begins: one whose transform was set from code is taken there first, and what was done to its body since the last step, such as a kinematic character's push or another's weight, adds to its velocity. Standing on ground it can stand on and not rising off it, it walks: it loses the vertical part of its velocity, steps up onto what it walks into that its step height clears, and its body moves along the ground at its pace across it, kept on the ground's surface, neither above it nor in it. Gravity does not pull it then, and its weight presses on a dynamic body it stands on, as a kinematic one's does. Otherwise gravity pulls it as it does any body. The walls, ceilings and slopes too steep to stand on it touches take from its velocity the part going into them, and the body it stood on adds how it moves the character over the step. The world then steps its body, so what hits it, what it pushes and what it lands on change its body's velocity, which SettleCharacters reads back. Its sensor is placed where its body is, as a dynamic body's is
     void PhysicsScene3D::State::MovePhysical(BodyRecord& record, float seconds, const glm::vec3& gravity, const glm::vec3& up)
     {
         const TransformComponent& l_Transform = Owner.GetRegistry().get<TransformComponent>(record.Entity);
@@ -2754,6 +2756,8 @@ namespace Trinity
         JPH::Quat l_Rotation;
         l_Bodies.GetPositionAndRotation(record.Body, l_Position, l_Rotation);
 
+        // What was done to its body since the world last stepped is its own, as what the step does
+        record.Velocity += FromJolt(l_Bodies.GetLinearVelocity(record.Body)) - record.Stepped;
         record.Stood = l_Character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
         record.Carrier = {};
         record.Turn = l_Rotation;
@@ -2874,6 +2878,7 @@ namespace Trinity
             }
 
             l_Record.Velocity = l_Velocity;
+            l_Record.Stepped = FromJolt(l_Bodies.GetLinearVelocity(l_Record.Body));
         }
     }
 
@@ -3055,11 +3060,11 @@ namespace Trinity
         return true;
     }
 
-    // A physical character lifted onto a step that its capsule is not over yet stands on the step's top, so it walks on at that height
+    // A physical character lifted onto a step that its capsule is not over yet stands on the step's top, so it walks on at that height rather than down onto the step's edge, until it stands on the top itself
     void PhysicsScene3D::State::StandOnStep(BodyRecord& record)
     {
         PhysicalCharacter& l_Character = *record.Physical;
-        if (l_Character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
+        if (l_Character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround && l_Character.GetGroundNormal().Dot(record.Step.Normal) > 0.999f)
         {
             record.Climb = 0.0f;
 

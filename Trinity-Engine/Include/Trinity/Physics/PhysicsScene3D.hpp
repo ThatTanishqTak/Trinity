@@ -138,7 +138,7 @@ namespace Trinity
         // Whether the entity's joint has broken, or none for an entity with no joint the scene took in
         [[nodiscard]] std::optional<bool> IsJointBroken(UUID entity) const;
 
-        // What a script does to a character, named as a body is, which refuses an entity that is part of a body and no character. Its velocity is its own, against what it stands on, in world space, and lasts until changed: gravity adds to it off the ground, standing takes its vertical part, and what it walks into takes the part that goes into it. What it stands on carries it besides. A physical character's velocity also takes what the world does to its body in each step, so a body that hits it knocks it back until its velocity is set again
+        // What a script does to a character, named as a body is, which refuses an entity that is part of a body and no character. Its velocity is its own, against what it stands on, in world space, and lasts until changed: gravity adds to it off the ground, standing takes its vertical part, and what it walks into takes the part that goes into it. What it stands on carries it besides. A physical character's velocity also takes what the world and other characters do to its body, so a body that hits it knocks it back, and a kinematic character pushes it, until its velocity is set again
         PhysicsBodyResult SetCharacterVelocity(UUID entity, const glm::vec3& velocity);
         PhysicsBodyResult GetCharacterVelocity(UUID entity, glm::vec3& velocity);
         PhysicsBodyResult GetCharacterGround(UUID entity, CharacterGround3D& ground);

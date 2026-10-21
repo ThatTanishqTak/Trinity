@@ -450,11 +450,12 @@ namespace Trinity
         [[nodiscard]] bool operator==(const PolygonCollider2DComponent&) const = default;
     };
 
-    // Moves its entity as a 2D character once its scene runs, as a CharacterController does in 3D: a capsule standing along the entity's Y axis in its XY plane that goes where its velocity takes it, climbing steps up to its step height, keeping to the floor going down them, sliding down slopes steeper than its MaxSlope, carried by what it stands on with its feet keeping their place on it while it keeps its own turn, and pushing dynamic 2D bodies by up to its push strength. The 2D world's gravity pulls it while it is off the ground, and up is against gravity. It takes its entity's world X and Y and writes them back keeping the entity's depth in Z. An entity with this and a RigidBody2D is a character, and the RigidBody2D is left out. 2D colliders on it and below it, without a RigidBody2D of their own, follow it, such as a trigger around it. It takes its entity's world scale as a capsule collider does. In metres, radians and newtons
+    // Moves its entity as a 2D character once its scene runs, as a CharacterController does in 3D: a capsule standing along the entity's Y axis in its XY plane that goes where its velocity takes it, climbing steps up to its step height, keeping to the floor going down them, sliding down slopes steeper than its MaxSlope, and carried by what it stands on with its feet keeping their place on it while it keeps its own turn. The 2D world's gravity pulls it while it is off the ground, and up is against gravity. A kinematic one pushes dynamic 2D bodies by up to its push strength, and nothing pushes it. A physical one is a dynamic 2D body that cannot turn, which pushes and is knocked back as a body of its mass is. It takes its entity's world X and Y and writes them back keeping the entity's depth in Z. An entity with this and a RigidBody2D is a character, and the RigidBody2D is left out. 2D colliders on it and below it, without a RigidBody2D of their own, follow it, such as a trigger around it, and a physical one's solid colliders weigh with it as part of its body. It takes its entity's world scale as a capsule collider does. In metres, kilograms, radians and newtons
     struct CharacterController2DComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.CharacterController2D";
 
+        CharacterMode Mode = CharacterMode::Kinematic;
         float Radius = 0.5f;
         // The whole capsule's, end caps included
         float Height = 2.0f;
@@ -466,8 +467,10 @@ namespace Trinity
         float StepHeight = 0.3f;
         // Below c_MaxCollisionLayers
         std::uint32_t Layer = 0;
-        // The most force it pushes a dynamic 2D body with, in newtons
+        // The most force a kinematic one pushes a dynamic 2D body with, in newtons. A physical one pushes as a body of its mass does
         float PushStrength = 100.0f;
+        // Its weight on what it stands on, and a physical one's mass, in kilograms, held at 0.1 kg or more
+        float Mass = 70.0f;
 
         [[nodiscard]] float GetHalfSegment() const { return std::max(Height * 0.5f - Radius, 0.0f); }
         [[nodiscard]] bool operator==(const CharacterController2DComponent&) const = default;

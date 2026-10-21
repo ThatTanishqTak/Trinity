@@ -40,8 +40,9 @@ namespace Trinity
         constexpr float c_TiltTolerance = 1e-3f;
         // A ray's hit is found again from this fraction of its distance, and a metre's, before it
         constexpr float c_RefineMargin = 1e-3f;
-        // Box2D's linear slop, within which a contact point counts as touching
+        // Box2D's linear slop, within which a contact point counts as touching, and how near shapes come before its solver meets them
         constexpr float c_TouchingSlop = 0.005f;
+        constexpr float c_SpeculativeDistance = 4.0f * c_TouchingSlop;
         // Box2D's own bounds on a revolute joint's limits
         constexpr float c_MaxLimitAngle = 0.99f * std::numbers::pi_v<float>;
         // A 2D character rising slower than this, against what it stands on, stays on it, as a 3D one does
@@ -49,7 +50,7 @@ namespace Trinity
         // A 2D character's MaxSlope is held between these
         constexpr float c_MinimumSlope = std::numbers::pi_v<float> / 180.0f;
         constexpr float c_MaximumSlope = std::numbers::pi_v<float> *0.5f;
-        // A 2D character's move meets shapes this near, and a shape this near touches it. Box2D's plane solver and casts leave a mover its linear slop inside what it rests on, so it keeps touching
+        // A 2D character's move meets shapes this near, a physical one finds the ground this near, as a 3D one does, and a shape this near touches it. Box2D's plane solver and casts leave a mover its linear slop inside what it rests on, so it keeps touching
         constexpr float c_ContactDistance = 0.05f;
         constexpr float c_SupportDistance = 0.01f;
         // The tries a 2D character's move takes to reach where it goes, as Box2D's mover sample takes, stopping once a try moves less than this
@@ -62,6 +63,14 @@ namespace Trinity
         constexpr float c_StairsMinStepForward = 0.02f;
         constexpr float c_StairsStepForwardTest = 0.15f;
         constexpr float c_StairsCosAngleForwardContact = 0.258819f;
+        // The least a 2D character weighs, in kilograms
+        constexpr float c_MinimumCharacterMass = 0.1f;
+        // A physical 2D character stepping up looks for the step's top this far past the front of its capsule, from this far above its step height, as a 3D one does
+        constexpr float c_StepReach = 0.05f;
+        // It climbs a step this high or more, and is lifted this far above it
+        constexpr float c_StepSkin = 1e-3f;
+        // It fits where it is placed sunk this deep or less into what is about it, as Box2D's solver leaves a body resting against another
+        constexpr float c_StepAllowance = 0.03f;
 
         enum class ColliderKind2D : std::uint8_t
         {
@@ -148,7 +157,7 @@ namespace Trinity
             // The entity's local position and rotation as the body was made or last wrote them, so a transform set from code is seen and the body teleported there
             glm::vec3 WrittenPosition{ 0.0f };
             glm::quat WrittenRotation = glm::identity<glm::quat>();
-            // A character's controller as it was last read, and what its capsule shape reports to events and queries. Its body is kinematic, holding its capsule and the colliders that follow it, and is placed where the character moves
+            // A character's controller as it was last read, and what its capsule shape reports to events and queries. Its body holds its capsule and the colliders that follow it, and is kinematic and placed where the character moves, or for a physical one dynamic, unable to turn and moved by the velocity it is given
             bool HasCharacter = false;
             CharacterController2DComponent Controller;
             ColliderSource2D Capsule;
@@ -159,14 +168,49 @@ namespace Trinity
             bool Round = false;
             float StepHeight = 0.0f;
             float CosMaxSlope = 0.0f;
-            // The velocity of its own, which lasts until changed, and how its last move left it standing, with the shapes it met there
+            // The velocity of its own, which lasts until changed, and how its last move or step left it standing, with where it met the ground and the shapes it met there
             glm::vec2 Velocity{ 0.0f };
             GroundState2D Ground = GroundState2D::InAir;
             glm::vec2 GroundNormal{ 0.0f };
+            glm::vec2 GroundPoint{ 0.0f };
             b2BodyId GroundBody = b2_nullBodyId;
             PhysicsVector<CharacterContact2D> Contacts;
-            // The body a character stood on as its step began, which carries it over the step
+            // The body a kinematic character stood on as its step began, which carries it over the step
             CarryingBody2D Carrier;
+            // A physical character's: the normals of the ground it can stand on that held it up as its last step left it, and how deep it was in that ground, less than nothing above it
+            PhysicsVector<glm::vec2> Supports;
+            float GroundDepth = 0.0f;
+            // As a physical character's step began: whether it stood on ground it can stand on, and walked along it rather than rising off it, the velocity its body was given, and the velocity the body it stood on gives its feet over the step. Then the velocity the world's step left its body with, which tells apart what is done to the body between steps, such as a kinematic character's push
+            bool Stood = false;
+            bool Walking = false;
+            glm::vec2 Given{ 0.0f };
+            glm::vec2 Carried{ 0.0f };
+            glm::vec2 Stepped{ 0.0f };
+            // A physical character that walked off ground, which is set down onto ground until it has fallen its step height, and how high it walked off
+            bool WalkedOff = false;
+            float OffHeight = 0.0f;
+            // A physical character lifted onto a step it walks into: the step's top, which it stands on until its capsule is over it, how much further it walks that way to get there, and the way
+            CharacterContact2D Step;
+            float Climb = 0.0f;
+            glm::vec2 ClimbWay{ 0.0f };
+        };
+
+        // A character on a dynamic body of its own, rather than a kinematic one
+        bool IsPhysical(const BodyRecord2D& record)
+        {
+            return record.HasCharacter && record.Controller.Mode == CharacterMode::Physical;
+        }
+
+        float GetCharacterMass(const CharacterController2DComponent& controller)
+        {
+            return std::max(controller.Mass, c_MinimumCharacterMass);
+        }
+
+        // Where a physical character's capsule swept along a motion first meets something going against the motion: how far along it, from 0 to 1, and the shape it meets there, with the point and the normal out towards the capsule
+        struct CapsuleHit2D
+        {
+            float Fraction = 0.0f;
+            CharacterContact2D Contact;
         };
 
         // A joint as it was last read: its entity, the entity it names and the records of its two bodies, the second none for the world, and its Box2D joint once made. A joint that cannot be made is dropped, one whose body went with its last collider waits for it to come back, and one that breaks is let go
@@ -413,7 +457,7 @@ namespace Trinity
             return l_Highest;
         }
 
-        // What an owner's record takes from its entity: its CharacterController2D, or its RigidBody2D, or neither for a static body. A character is kinematic, and a RigidBody2D beside it is left out
+        // What an owner's record takes from its entity: its CharacterController2D, or its RigidBody2D, or neither for a static body. A character counts as kinematic, a physical one too though its body is dynamic, and a RigidBody2D beside it is left out
         void ReadOwner(const SceneRegistry& registry, entt::entity owner, BodyRecord2D& record)
         {
             const CharacterController2DComponent* l_Character = registry.try_get<CharacterController2DComponent>(owner);
@@ -728,6 +772,16 @@ namespace Trinity
         [[nodiscard]] glm::vec2 Predict(const CarryingBody2D& carrier, const glm::vec2& position, float seconds) const;
         [[nodiscard]] glm::vec2 GetGroundVelocity(const BodyRecord2D& record, const glm::vec2& position) const;
         [[nodiscard]] glm::vec2 GetContactVelocity(const BodyRecord2D& record, b2ShapeId shape, b2BodyId body, const glm::vec2& point) const;
+        void PressOnGround(const BodyRecord2D& record, float seconds);
+        void MovePhysical(BodyRecord2D& record, float seconds, const glm::vec2& gravity, const glm::vec2& up);
+        void SettleCharacters(float seconds);
+        void FindGround(BodyRecord2D& record);
+        [[nodiscard]] std::optional<CapsuleHit2D> CastAgainst(const BodyRecord2D& record, const glm::vec2& position, const glm::vec2& translation, bool standing);
+        [[nodiscard]] bool Fits(const BodyRecord2D& record, const glm::vec2& position);
+        [[nodiscard]] bool StepUp(BodyRecord2D& record, const glm::vec2& velocity, float seconds, const glm::vec2& up);
+        void StandOnStep(BodyRecord2D& record);
+        [[nodiscard]] bool KeepToFloor(BodyRecord2D& record, const glm::vec2& up, float distance);
+        [[nodiscard]] static bool HoldsContact(b2ShapeId shapeA, b2ShapeId shapeB, b2Manifold* manifold, void* context);
 
         // A static body with no shapes at the origin, made the first time a joint joins the world, since a Box2D joint is always between two bodies
         [[nodiscard]] b2BodyId GetGround()
@@ -806,6 +860,7 @@ namespace Trinity
         State& l_State = *m_State;
         l_State.WorldID = l_State.World.m_State->World;
         l_State.Layers = layers;
+        b2World_SetPreSolveCallback(l_State.WorldID, &State::HoldsContact, &l_State);
 
         SceneRegistry& l_Registry = scene.GetRegistry();
         std::unordered_map<entt::entity, std::size_t> l_Owners;
@@ -970,7 +1025,7 @@ namespace Trinity
         }
     }
 
-    // What the scene's scripts changed since the frame began is taken in, kinematic bodies are moved for the step, then characters, the world steps, what carries a character takes it along, events are paired, and dynamic bodies and characters that moved are written back in hierarchy order, each at its depth and turned about Z alone
+    // What the scene's scripts changed since the frame began is taken in, kinematic bodies are moved for the step, then characters, the world steps, what carries a kinematic character takes it along and a physical one finds where the step left it, events are paired, and dynamic bodies and characters that moved are written back in hierarchy order, each at its depth and turned about Z alone
     void PhysicsScene2D::Step(Timestep step, std::uint32_t index)
     {
         TR_PROFILE_FUNCTION();
@@ -990,6 +1045,7 @@ namespace Trinity
         l_State.MoveCharacters(step.GetSeconds());
         l_State.World.Step(step);
         l_State.CarryCharacters();
+        l_State.SettleCharacters(step.GetSeconds());
         ++l_State.StepCount;
         l_State.PairEvents(index);
         l_State.BreakJoints(index);
@@ -1360,7 +1416,7 @@ namespace Trinity
         });
     }
 
-    // The body sits at its entity's place and turn about Z, and keeps its depth in Z for write-back, with its colliders. A record with no colliders has no body, unless it is a character, whose kinematic body holds its capsule and never sleeps, so it stays where triggers and other bodies see it. A character made starts still, with the shapes about it already met
+    // The body sits at its entity's place and turn about Z, and keeps its depth in Z for write-back, with its colliders. A record with no colliders has no body, unless it is a character, whose body holds its capsule and never sleeps, so it stays where triggers and other bodies see it, kinematic, or for a physical one dynamic. A character made finds what it stands on there at once
     void PhysicsScene2D::State::MakeBody(BodyRecord2D& record)
     {
         Scene& l_Scene = Owner;
@@ -1403,6 +1459,14 @@ namespace Trinity
             l_Body.enableSleep = l_RigidBody.CanSleep;
         }
 
+        // A physical character cannot turn, its velocity, its own, is not damped, and it is swept along its motion against moving bodies as well as still ones, so a fall cannot take it through what it lands on
+        if (IsPhysical(record))
+        {
+            l_Body.type = b2_dynamicBody;
+            l_Body.fixedRotation = true;
+            l_Body.isBullet = true;
+        }
+
         record.Body = b2CreateBody(WorldID, &l_Body);
         MakeShapes(record);
         MakeCharacterShape(record);
@@ -1415,15 +1479,19 @@ namespace Trinity
         record.TargetTo = l_Pose;
         record.WrittenPosition = l_Transform.Position;
         record.WrittenRotation = l_Transform.Rotation;
-        if (record.HasCharacter)
+        if (IsPhysical(record))
         {
-            record.Velocity = glm::vec2(0.0f);
+            record.Stepped = glm::vec2(0.0f);
+            FindGround(record);
+        }
+        else if (record.HasCharacter)
+        {
             record.Carrier = {};
             UpdateGround(record, l_Pose.Position, record.Velocity, LastSeconds, true);
         }
     }
 
-    // Each collider placed on the body from its entity's world transform with the offset and turn, by the whole of the matrix in X and Y, so a box or polygon takes any scale, mirror or skew exactly, a circle the larger of its scales and a capsule its scale across for its radius. Placed against the body's entity as it is now, which is where the body is or is going. Every shape reports contacts and triggers, and a trigger weighs nothing
+    // Each collider placed on the body from its entity's world transform with the offset and turn, by the whole of the matrix in X and Y, so a box or polygon takes any scale, mirror or skew exactly, a circle the larger of its scales and a capsule its scale across for its radius. Placed against the body's entity as it is now, which is where the body is or is going. Every shape reports contacts and triggers, a trigger weighs nothing, and Box2D asks whether each contact of a one-way collider holds
     void PhysicsScene2D::State::MakeShapes(BodyRecord2D& record)
     {
         Scene& l_Scene = Owner;
@@ -1454,6 +1522,7 @@ namespace Trinity
             l_Shape.density = it_Collider.Settings.Trigger ? 0.0f : 1.0f;
             l_Shape.enableContactEvents = true;
             l_Shape.enableSensorEvents = true;
+            l_Shape.enablePreSolveEvents = it_Collider.Settings.OneWay;
 
             switch (it_Collider.Kind)
             {
@@ -1521,20 +1590,22 @@ namespace Trinity
         }
     }
 
-    // A dynamic body's mass and inertia from its colliders, scaled to the mass asked for
+    // A dynamic body's mass and inertia from its colliders, scaled to the mass asked for, and a physical character's from its colliders and its capsule, scaled to its own
     void PhysicsScene2D::State::ApplyMass(const BodyRecord2D& record) const
     {
-        if (record.Motion != BodyMotion::Dynamic || B2_IS_NULL(record.Body))
+        const bool l_Physical = IsPhysical(record);
+        if ((record.Motion != BodyMotion::Dynamic && !l_Physical) || B2_IS_NULL(record.Body))
         {
             return;
         }
 
         b2Body_ApplyMassFromShapes(record.Body);
-        if (record.Settings.Mass > 0.0f)
+        const float l_Wanted = l_Physical ? GetCharacterMass(record.Controller) : record.Settings.Mass;
+        if (l_Wanted > 0.0f)
         {
             b2MassData l_Mass = b2Body_GetMassData(record.Body);
-            const float l_Scale = l_Mass.mass > 0.0f ? record.Settings.Mass / l_Mass.mass : 1.0f;
-            l_Mass.mass = record.Settings.Mass;
+            const float l_Scale = l_Mass.mass > 0.0f ? l_Wanted / l_Mass.mass : 1.0f;
+            l_Mass.mass = l_Wanted;
             l_Mass.rotationalInertia *= l_Scale;
             b2Body_SetMassData(record.Body, l_Mass);
         }
@@ -2168,6 +2239,9 @@ namespace Trinity
         record.Contacts.clear();
         record.GroundBody = b2_nullBodyId;
         record.Carrier = {};
+        record.Supports.clear();
+        record.Climb = 0.0f;
+        record.WalkedOff = false;
     }
 
     // Box2D leaves bodies asleep when one near them is moved, or a shape near them made smaller, so everything within its bounds is woken to find out
@@ -2309,7 +2383,7 @@ namespace Trinity
         Memory::Delete(&record);
     }
 
-    // A record gathered again is left alone when it is as it was. Otherwise its body is changed where it is, so its velocity, its contacts and its joints carry over: its motion, its RigidBody2D's settings, and, when its colliders or its character's controller changed, its shapes, all made again. One that becomes dynamic takes its RigidBody2D's starting velocities, as in 3D. One that becomes a character, or stops being one, gets a body made again, its pairs ending first. A record that had no body gets one, and one left with no colliders, and no character, loses its body, its pairs ending and its joints waiting for it. True when a body came or went
+    // A record gathered again is left alone when it is as it was. Otherwise its body is changed where it is, so its velocity, its contacts and its joints carry over: its motion, its RigidBody2D's settings, and, when its colliders or its character's controller changed, its shapes, all made again, a physical character finding its ground again. One that becomes dynamic takes its RigidBody2D's starting velocities, as in 3D. One that becomes a character, stops being one, or whose character changes mode, gets a body made again, its pairs ending first, a character keeping its own velocity and one that is new starting still. A record that had no body gets one, and one left with no colliders, and no character, loses its body, its pairs ending and its joints waiting for it. True when a body came or went
     bool PhysicsScene2D::State::UpdateRecord(BodyRecord2D& record, BodyRecord2D& gathered)
     {
         if (record.HasRigidBody == gathered.HasRigidBody && record.Settings == gathered.Settings && record.HasCharacter == gathered.HasCharacter && record.Controller == gathered.Controller && record.Colliders == gathered.Colliders)
@@ -2317,11 +2391,12 @@ namespace Trinity
             return false;
         }
 
-        const bool l_Remake = record.HasCharacter != gathered.HasCharacter;
+        const bool l_Remake = record.HasCharacter != gathered.HasCharacter || record.Controller.Mode != gathered.Controller.Mode;
         const bool l_Reshape = record.Colliders != gathered.Colliders || record.Controller != gathered.Controller;
         const BodyMotion l_WasMotion = record.Motion;
         const RigidBody2DComponent l_Was = record.Settings;
         Unindex(record);
+        record.Velocity = record.HasCharacter == gathered.HasCharacter ? record.Velocity : glm::vec2(0.0f);
         record.HasRigidBody = gathered.HasRigidBody;
         record.Settings = gathered.Settings;
         record.Motion = gathered.Motion;
@@ -2413,6 +2488,10 @@ namespace Trinity
         }
 
         WakeAround(l_Body);
+        if (IsPhysical(record))
+        {
+            FindGround(record);
+        }
 
         return false;
     }
@@ -2670,7 +2749,7 @@ namespace Trinity
         }
     }
 
-    // The body where its entity's transform puts it, with the entity's depth and nothing between to draw, and a kinematic one's targets there too, so it stays until its transform moves again. A character keeps its velocity, nothing carries it over the step, and it finds what it stands on there at once
+    // The body where its entity's transform puts it, with the entity's depth and nothing between to draw, and a kinematic one's targets there too, so it stays until its transform moves again. A character keeps its velocity, nothing carries it over the step, and it finds what it stands on there at once, a physical one leaving behind whatever step or ledge it was on
     void PhysicsScene2D::State::PlaceAtTransform(BodyRecord2D& record)
     {
         const TransformComponent& l_Transform = Owner.GetRegistry().get<TransformComponent>(record.Entity);
@@ -2682,7 +2761,7 @@ namespace Trinity
         WakeAround(record.Body);
         b2Body_SetTransform(record.Body, ToBox2D(l_Pose.Position), Box2DConvert::ToRotation(l_Pose.Angle));
         WakeAround(record.Body);
-        if (record.Motion == BodyMotion::Dynamic)
+        if (record.Motion == BodyMotion::Dynamic || IsPhysical(record))
         {
             b2Body_SetAwake(record.Body, true);
         }
@@ -2691,7 +2770,13 @@ namespace Trinity
         record.Current = l_Pose;
         record.TargetFrom = l_Pose;
         record.TargetTo = l_Pose;
-        if (record.HasCharacter)
+        if (IsPhysical(record))
+        {
+            record.Climb = 0.0f;
+            record.WalkedOff = false;
+            FindGround(record);
+        }
+        else if (record.HasCharacter)
         {
             record.Carrier = {};
             UpdateGround(record, l_Pose.Position, record.Velocity, LastSeconds, true);
@@ -2734,7 +2819,7 @@ namespace Trinity
         }
     }
 
-    // A character's capsule on its kinematic body, beside the colliders that follow it, placed as a 2D capsule collider is: along its entity's Y axis from where its offset puts it, its length by the Y scale and its radius by the X scale, a circle when its caps meet. On its layer, it meets triggers, bodies and queries, and reports itself as its entity. Its step height takes the Y scale
+    // A character's capsule on its body, beside the colliders that follow it, placed as a 2D capsule collider is: along its entity's Y axis from where its offset puts it, its length by the Y scale and its radius by the X scale, a circle when its caps meet. On its layer, it meets triggers, bodies and queries, and reports itself as its entity. A kinematic one's weighs nothing, and a physical one's weighs with its body, slides along what it touches, and has Box2D ask whether each of its contacts holds. Its step height takes the Y scale
     void PhysicsScene2D::State::MakeCharacterShape(BodyRecord2D& record)
     {
         if (!record.HasCharacter || B2_IS_NULL(record.Body))
@@ -2767,15 +2852,17 @@ namespace Trinity
         record.Capsule.Settings.Layer = l_Layer;
         record.Capsule.Size = glm::vec2(l_Controller.Radius, l_Controller.Height);
 
+        const bool l_Physical = IsPhysical(record);
         b2ShapeDef l_Shape = b2DefaultShapeDef();
         l_Shape.userData = &record.Capsule;
-        l_Shape.material.friction = record.Capsule.Settings.Friction;
-        l_Shape.material.restitution = record.Capsule.Settings.Restitution;
+        l_Shape.material.friction = l_Physical ? 0.0f : record.Capsule.Settings.Friction;
+        l_Shape.material.restitution = l_Physical ? 0.0f : record.Capsule.Settings.Restitution;
         l_Shape.filter.categoryBits = 1ull << l_Layer;
         l_Shape.filter.maskBits = Layers.Rows[l_Layer] | Box2DLayers::c_QueryBit;
-        l_Shape.density = 0.0f;
+        l_Shape.density = l_Physical ? 1.0f : 0.0f;
         l_Shape.enableContactEvents = true;
         l_Shape.enableSensorEvents = true;
+        l_Shape.enablePreSolveEvents = l_Physical;
         if (record.Round)
         {
             const b2Circle l_Circle{ record.CapsuleEnds[0], record.Radius };
@@ -3049,6 +3136,7 @@ namespace Trinity
         const CharacterContact2D* l_Best = l_Supporting != nullptr ? l_Supporting : l_Deepest;
         record.GroundNormal = l_Averaged > 0 ? glm::normalize(l_Normal) : (l_Best != nullptr ? l_Best->Normal : glm::vec2(0.0f));
         record.GroundBody = l_Best != nullptr ? l_Best->Body : b2_nullBodyId;
+        record.GroundPoint = l_Best != nullptr ? l_Best->Point : glm::vec2(0.0f);
         if (l_Supported > 0)
         {
             record.Ground = GroundState2D::OnGround;
@@ -3276,7 +3364,7 @@ namespace Trinity
         UpdateGround(record, position, velocity, seconds, true);
     }
 
-    // Jolt's ExtendedUpdate for a 2D character: its velocity held back from slopes too steep it is pressed against, then its move, then, having just left the ground without rising, down to a floor within its step height, and, having walked into a step's side short of where it was going, up the step, in the way of the wall it walked into most squarely, by at least Jolt's least step and looking past an edge by at least its radius
+    // Jolt's ExtendedUpdate for a 2D character: its velocity held back from slopes too steep it is pressed against, then its move, pressing its weight on what it stands on, then, having just left the ground without rising, down to a floor within its step height, and, having walked into a step's side short of where it was going, up the step, in the way of the wall it walked into most squarely, by at least Jolt's least step and looking past an edge by at least its radius
     void PhysicsScene2D::State::MoveCharacter(BodyRecord2D& record, glm::vec2& position, const glm::vec2& velocity, float seconds)
     {
         const glm::vec2 l_Up = GetUp();
@@ -3285,6 +3373,7 @@ namespace Trinity
         const bool l_WasSupported = record.Ground == GroundState2D::OnGround || record.Ground == GroundState2D::OnSteepGround;
         position = MoveShape(record, position, l_Velocity * seconds);
         UpdateGround(record, position, l_Velocity, seconds, false);
+        PressOnGround(record, seconds);
         const bool l_Supported = record.Ground == GroundState2D::OnGround || record.Ground == GroundState2D::OnSteepGround;
         if (l_WasSupported && !l_Supported && record.StepHeight > 0.0f && glm::dot(position - l_Old, l_Up) / seconds <= 1e-6f)
         {
@@ -3394,11 +3483,12 @@ namespace Trinity
         }
     }
 
-    // What is left of the velocity once the walls, ceilings and slopes too steep to stand on that the character touches take the part going into them, as each moves, in a few passes for corners. As for a 3D character, one facing up first stops it as a wall would, so walking into it does not lift the character, and what falls onto it slides off
+    // What is left of the velocity once the walls, ceilings and slopes too steep to stand on that the character touches take the part going into them, as each moves, in a few passes for corners. As for a 3D character, one facing up first stops it as a wall would, so walking into it does not lift the character, and what falls onto it slides off. A physical one is held back by no dynamic body, which Box2D's solver meets and pushes instead
     glm::vec2 PhysicsScene2D::State::KeepVelocity(const BodyRecord2D& record, const glm::vec2& velocity) const
     {
         constexpr int c_Passes = 4;
         const glm::vec2 l_Up = GetUp();
+        const bool l_Physical = IsPhysical(record);
         glm::vec2 l_Velocity = velocity;
         for (int it_Pass = 0; it_Pass < c_Passes; ++it_Pass)
         {
@@ -3415,7 +3505,7 @@ namespace Trinity
 
             for (const CharacterContact2D& it_Contact : record.Contacts)
             {
-                if (it_Contact.Distance > c_SupportDistance || !IsTooSteep(record, it_Contact.Normal))
+                if (it_Contact.Distance > c_SupportDistance || !IsTooSteep(record, it_Contact.Normal) || (l_Physical && it_Contact.Type == b2_dynamicBody))
                 {
                     continue;
                 }
@@ -3465,11 +3555,11 @@ namespace Trinity
         return FromBox2D(b2Body_GetWorldPointVelocity(record.GroundBody, ToBox2D(position)));
     }
 
-    // How fast a shape a character meets moves at a point, as a 3D character sees it: against the body carrying the character over the step, which happens apart, so that body is still, what rides it moves only as it moves on it, and the world goes past. Still ground and other characters, which are placed rather than moved and ride along, move at none
+    // How fast a shape a character meets moves at a point, as a 3D character sees it: against the body carrying the character over the step, which happens apart, so that body is still, what rides it moves only as it moves on it, and the world goes past. Still ground and kinematic characters, which are placed rather than moved and ride along, move at none
     glm::vec2 PhysicsScene2D::State::GetContactVelocity(const BodyRecord2D& record, b2ShapeId shape, b2BodyId body, const glm::vec2& point) const
     {
         const ShapeOwner2D* l_Owner = FindShape(shape);
-        if (b2Body_GetType(body) == b2_staticBody || (l_Owner != nullptr && l_Owner->Record != nullptr && l_Owner->Record->HasCharacter))
+        if (b2Body_GetType(body) == b2_staticBody || (l_Owner != nullptr && l_Owner->Record != nullptr && l_Owner->Record->HasCharacter && !IsPhysical(*l_Owner->Record)))
         {
             return glm::vec2(0.0f);
         }
@@ -3498,7 +3588,7 @@ namespace Trinity
         WakeAround(b2AABB_Union(l_Before, b2Body_ComputeAABB(record.Body)));
     }
 
-    // Each character, in the records' order, moved for the step by its own velocity before the world steps, as a 3D one is. One whose transform was set from code is taken there first. Standing on ground it can stand on, it loses the vertical part of its velocity, and off the ground gravity adds to it. MoveCharacter moves it, climbing and keeping to the floor, it settles onto ground it stands just above, it pushes, and the walls, ceilings and slopes too steep to stand on it touches take from its velocity the part that went into them. A body it stands on then carries it over the step, which CarryCharacters does once the world has stepped. Leaving the ground it keeps what carried it, and landing it gives back what it lands on moves at, so its velocity is its own, against what it stands on. Its body is placed where it moved
+    // Each character, in the records' order, moved for the step by its own velocity before the world steps, as a 3D one is, and a physical one given it by MovePhysical. One whose transform was set from code is taken there first. Standing on ground it can stand on, it loses the vertical part of its velocity, and off the ground gravity adds to it. MoveCharacter moves it, climbing and keeping to the floor, it settles onto ground it stands just above, it pushes, and the walls, ceilings and slopes too steep to stand on it touches take from its velocity the part that went into them. A body it stands on then carries it over the step, which CarryCharacters does once the world has stepped. Leaving the ground it keeps what carried it, and landing it gives back what it lands on moves at, so its velocity is its own, against what it stands on. Its body is placed where it moved
     void PhysicsScene2D::State::MoveCharacters(float seconds)
     {
         LastSeconds = seconds;
@@ -3513,6 +3603,13 @@ namespace Trinity
             }
 
             BodyRecord2D& l_Record = *it_Record;
+            if (IsPhysical(l_Record))
+            {
+                MovePhysical(l_Record, seconds, l_Gravity, l_Up);
+
+                continue;
+            }
+
             const TransformComponent& l_Transform = l_Registry.get<TransformComponent>(l_Record.Entity);
             if (l_Transform.Position != l_Record.WrittenPosition || l_Transform.Rotation != l_Record.WrittenRotation)
             {
@@ -3589,6 +3686,435 @@ namespace Trinity
             const b2Vec2 l_Local = b2InvTransformPoint(l_Carrier.Before, ToBox2D(l_Foot));
             PlaceCharacter(*it_Record, l_Position + FromBox2D(b2TransformPoint(b2Body_GetTransform(l_Carrier.Body), l_Local)) - l_Foot);
         }
+    }
+
+    // A kinematic character's weight on a dynamic body it touches below, as Jolt presses a 3D one's: its mass under the world's gravity over the step, as much of it as goes into the ground, where it meets the ground
+    void PhysicsScene2D::State::PressOnGround(const BodyRecord2D& record, float seconds)
+    {
+        if (B2_IS_NULL(record.GroundBody) || !b2Body_IsValid(record.GroundBody) || b2Body_GetType(record.GroundBody) != b2_dynamicBody)
+        {
+            return;
+        }
+
+        const glm::vec2 l_Gravity = World.GetGravity();
+        const float l_Strength = glm::length(l_Gravity);
+        const float l_Into = glm::dot(record.GroundNormal, l_Gravity);
+        if (!(l_Strength > 0.0f) || l_Into >= 0.0f)
+        {
+            return;
+        }
+
+        const glm::vec2 l_Impulse = l_Gravity * (-GetCharacterMass(record.Controller) * l_Into / l_Strength * seconds);
+        b2Body_ApplyLinearImpulse(record.GroundBody, ToBox2D(l_Impulse), ToBox2D(record.GroundPoint), true);
+    }
+
+    // Whether a contact of a one-way collider or of a physical character's capsule holds, which Box2D asks on its workers in the middle of a step, the scene's shapes and records left as they are. A walking physical character's capsule rests on no ground it can stand on in the plane of the ground it walks on, since it keeps itself on the ground's surface, so it catches on no seam where one shape of the ground meets the next. A one-way collider holds a physical character only where it faces within about 45 degrees of the collider's up, from it to the character, while the character is no deeper in it than a little, as a kinematic one is held. Every other body meets it on every side
+    bool PhysicsScene2D::State::HoldsContact(b2ShapeId shapeA, b2ShapeId shapeB, b2Manifold* manifold, void* context)
+    {
+        const State& l_State = *static_cast<const State*>(context);
+        const ShapeOwner2D* l_A = l_State.FindShape(shapeA);
+        const ShapeOwner2D* l_B = l_State.FindShape(shapeB);
+        if (l_A == nullptr || l_B == nullptr || l_A->Record == nullptr || l_B->Record == nullptr)
+        {
+            return true;
+        }
+
+        // Box2D's normal goes from the first shape to the second
+        for (const bool it_First : { true, false })
+        {
+            const BodyRecord2D& l_Record = *(it_First ? l_A : l_B)->Record;
+            const b2ShapeId l_Shape = it_First ? shapeA : shapeB;
+            if (!IsPhysical(l_Record) || !l_Record.Walking || !B2_ID_EQUALS(l_Shape, l_Record.CapsuleShape))
+            {
+                continue;
+            }
+
+            const glm::vec2 l_Normal = FromBox2D(manifold->normal) * (it_First ? -1.0f : 1.0f);
+            const auto a_OnGround = [&l_Record](const b2ManifoldPoint& point) { return std::abs(glm::dot(FromBox2D(point.point) - l_Record.GroundPoint, l_Record.GroundNormal)) <= c_SupportDistance; };
+            if (!l_State.IsTooSteep(l_Record, l_Normal) && std::all_of(manifold->points, manifold->points + manifold->pointCount, a_OnGround))
+            {
+                return false;
+            }
+        }
+
+        const bool l_FirstWay = l_A->OneWay.x != 0.0f || l_A->OneWay.y != 0.0f;
+        const ShapeOwner2D& l_Way = l_FirstWay ? *l_A : *l_B;
+        const ShapeOwner2D& l_Other = l_FirstWay ? *l_B : *l_A;
+        if ((l_Way.OneWay.x == 0.0f && l_Way.OneWay.y == 0.0f) || !IsPhysical(*l_Other.Record))
+        {
+            return true;
+        }
+
+        const b2Vec2 l_Up = b2RotateVector(b2Body_GetRotation(b2Shape_GetBody(l_FirstWay ? shapeA : shapeB)), l_Way.OneWay);
+        const float l_Facing = b2Dot(manifold->normal, l_Up) * (l_FirstWay ? 1.0f : -1.0f);
+        float l_Deepest = 0.0f;
+        for (int it_Point = 0; it_Point < manifold->pointCount; ++it_Point)
+        {
+            l_Deepest = std::min(l_Deepest, manifold->points[it_Point].separation);
+        }
+
+        return l_Facing >= c_OneWayCosine && l_Deepest >= -c_OneWayDepth;
+    }
+
+    // A physical character before the world steps, as a kinematic one's move begins: one whose transform was set from code is taken there first, and what was done to its body since the last step, such as a kinematic character's push or another's weight, adds to its velocity. Standing on ground it can stand on and not rising off it, it walks: it loses the vertical part of its velocity, steps up onto what it walks into that its step height clears, and its body moves along the ground at its pace across it, kept on the ground's surface, neither above it nor in it, and landing on ground below it goes down onto. Gravity does not pull it then, and its weight presses on a dynamic body it stands on. Otherwise gravity pulls it as it does any body. The walls, ceilings and slopes too steep to stand on it touches take from its velocity the part going into them, and the body it stood on adds how it moves the character's feet over the step, so it rides upright. The world then steps its body, so what hits it, what it pushes and what it lands on change its body's velocity, which SettleCharacters reads back
+    void PhysicsScene2D::State::MovePhysical(BodyRecord2D& record, float seconds, const glm::vec2& gravity, const glm::vec2& up)
+    {
+        const TransformComponent& l_Transform = Owner.GetRegistry().get<TransformComponent>(record.Entity);
+        if (l_Transform.Position != record.WrittenPosition || l_Transform.Rotation != record.WrittenRotation)
+        {
+            PlaceAtTransform(record);
+        }
+
+        // What was done to its body since the world last stepped is its own, as what the step does
+        record.Velocity += FromBox2D(b2Body_GetLinearVelocity(record.Body)) - record.Stepped;
+        record.Stood = record.Ground == GroundState2D::OnGround;
+        CarryingBody2D l_Carrier;
+        if (record.Stood && B2_IS_NON_NULL(record.GroundBody) && b2Body_IsValid(record.GroundBody) && b2Body_GetType(record.GroundBody) != b2_staticBody)
+        {
+            l_Carrier.Body = record.GroundBody;
+        }
+
+        record.Carried = Predict(l_Carrier, GetFoot(record, FromBox2D(b2Body_GetPosition(record.Body))), seconds);
+
+        glm::vec2 l_Velocity = record.Velocity;
+        const float l_Rising = glm::dot(l_Velocity, up);
+        record.Walking = record.Stood && l_Rising < c_RisingSpeed;
+        if (record.Walking)
+        {
+            l_Velocity -= l_Rising * up;
+        }
+
+        // Before the walls it touches hold it back, since a step it climbs is one of them
+        if (record.Walking && record.StepHeight > 0.0f)
+        {
+            static_cast<void>(StepUp(record, l_Velocity, seconds, up));
+        }
+
+        l_Velocity = KeepVelocity(record, l_Velocity + record.Carried) - record.Carried;
+
+        glm::vec2 l_Given = l_Velocity;
+        if (record.Walking)
+        {
+            const glm::vec2 l_Normal = record.GroundNormal;
+            l_Given -= up * (glm::dot(l_Velocity, l_Normal) / std::max(glm::dot(l_Normal, up), 1.0e-3f));
+            l_Given += l_Normal * (record.GroundDepth / seconds);
+
+            // Going down faster than Box2D's solver meets what is below, as rolling over an edge does, it lands on ground it can stand on that it meets over the step and goes on along it, rather than sinking into it
+            const glm::vec2 l_Move = l_Given * seconds;
+            const std::optional<CapsuleHit2D> l_Land = glm::dot(l_Move, up) < -c_SpeculativeDistance ? CastAgainst(record, FromBox2D(b2Body_GetPosition(record.Body)), l_Move, true) : std::nullopt;
+            if (l_Land)
+            {
+                glm::vec2 l_Rest = l_Move * (1.0f - l_Land->Fraction);
+                l_Rest -= std::min(glm::dot(l_Rest, l_Land->Contact.Normal), 0.0f) * l_Land->Contact.Normal;
+                l_Given = (l_Move * l_Land->Fraction + l_Rest) / seconds;
+            }
+
+            if (B2_IS_NON_NULL(record.GroundBody) && b2Body_IsValid(record.GroundBody) && b2Body_GetType(record.GroundBody) == b2_dynamicBody)
+            {
+                b2Body_ApplyLinearImpulse(record.GroundBody, ToBox2D(gravity * (GetCharacterMass(record.Controller) * seconds)), ToBox2D(record.GroundPoint), true);
+            }
+        }
+
+        l_Given += record.Carried;
+        b2Body_SetGravityScale(record.Body, record.Walking ? 0.0f : 1.0f);
+        b2Body_SetLinearVelocity(record.Body, ToBox2D(l_Given));
+        record.Velocity = l_Velocity;
+        record.Given = l_Given;
+    }
+
+    // Each physical character once the world has stepped, as a kinematic one's move ends: what the step did to its body's velocity, beyond what it was given, is added to its own, so a hit knocks it back and a heavy body it walks into slows it, but not what the ground it walked on did to push it out, which only kept it there. Having walked off ground it stood on, it is set down onto ground below as soon as it can be, until it has fallen its step height. Standing, it loses the vertical part of its velocity, and landing it gives back what it lands on moves at. Leaving the ground it keeps what carried it
+    void PhysicsScene2D::State::SettleCharacters(float seconds)
+    {
+        const SceneRegistry& l_Registry = Owner.GetRegistry();
+        const glm::vec2 l_Up = GetUp();
+        for (BodyRecord2D* it_Record : Records)
+        {
+            if (!IsPhysical(*it_Record) || B2_IS_NULL(it_Record->Body) || !l_Registry.valid(it_Record->Entity))
+            {
+                continue;
+            }
+
+            BodyRecord2D& l_Record = *it_Record;
+            glm::vec2 l_Change = FromBox2D(b2Body_GetLinearVelocity(l_Record.Body)) - l_Record.Given;
+            for (const glm::vec2& it_Normal : l_Record.Walking ? std::span<const glm::vec2>(l_Record.Supports) : std::span<const glm::vec2>())
+            {
+                l_Change -= std::max(glm::dot(l_Change, it_Normal), 0.0f) * it_Normal;
+            }
+
+            glm::vec2 l_Velocity = l_Record.Velocity + l_Change;
+            FindGround(l_Record);
+            if (l_Record.Climb > 0.0f)
+            {
+                // Walked on along the step, or turned back from it
+                const float l_On = glm::dot(l_Velocity, l_Record.ClimbWay) * seconds;
+                l_Record.Climb = l_On > 0.0f ? l_Record.Climb - l_On : 0.0f;
+                if (l_Record.Climb > 0.0f)
+                {
+                    StandOnStep(l_Record);
+                }
+            }
+
+            bool l_Stands = l_Record.Ground == GroundState2D::OnGround;
+            const float l_Height = glm::dot(FromBox2D(b2Body_GetPosition(l_Record.Body)), l_Up);
+            if (l_Record.Stood && !l_Stands && !l_Record.WalkedOff)
+            {
+                l_Record.WalkedOff = true;
+                l_Record.OffHeight = l_Height;
+            }
+
+            const float l_Below = l_Record.StepHeight - (l_Record.OffHeight - l_Height);
+            l_Record.WalkedOff = l_Record.WalkedOff && !l_Stands && l_Below > 0.0f && glm::dot(l_Velocity, l_Up) < c_RisingSpeed;
+            if (l_Record.WalkedOff)
+            {
+                l_Stands = KeepToFloor(l_Record, l_Up, l_Below);
+                l_Record.WalkedOff = !l_Stands;
+            }
+
+            if (l_Stands)
+            {
+                l_Velocity -= l_Record.Stood ? glm::vec2(0.0f) : GetGroundVelocity(l_Record, GetFoot(l_Record, FromBox2D(b2Body_GetPosition(l_Record.Body))));
+                const float l_Left = glm::dot(l_Velocity, l_Up);
+                l_Velocity -= l_Left < c_RisingSpeed ? l_Left * l_Up : glm::vec2(0.0f);
+            }
+            else if (l_Record.Stood)
+            {
+                l_Velocity += l_Record.Carried;
+            }
+
+            l_Record.Velocity = l_Velocity;
+            l_Record.Stepped = FromBox2D(b2Body_GetLinearVelocity(l_Record.Body));
+        }
+    }
+
+    // What a physical character stands on, as a 3D one finds it after a step, from what its capsule touches or nearly does, a one-way collider only from above: ground it can stand on before anything else, the deepest of it, and otherwise what faces most up. What is below the middle of its lower end cap holds it up, on ground it can stand on or on a slope too steep, and above it the character is not held up. The normals of the ground it can stand on that holds it up are kept, to keep its velocity from being lifted off it, and so are the shapes it touches, whose walls, ceilings and slopes too steep to stand on hold its velocity back. So is how deep it is in the ground
+    void PhysicsScene2D::State::FindGround(BodyRecord2D& record)
+    {
+        const glm::vec2 l_Position = FromBox2D(b2Body_GetPosition(record.Body));
+        Collide(record, l_Position, record.Contacts);
+        const glm::vec2 l_Up = GetUp();
+        const glm::vec2 l_Foot = GetFoot(record, l_Position);
+        const CharacterContact2D* l_Ground = nullptr;
+        bool l_Walkable = false;
+        record.Supports.clear();
+        for (const CharacterContact2D& it_Contact : record.Contacts)
+        {
+            const bool l_Holds = !IsTooSteep(record, it_Contact.Normal) && glm::dot(it_Contact.Point - l_Foot, l_Up) <= 0.0f;
+            if (l_Holds)
+            {
+                record.Supports.push_back(it_Contact.Normal);
+            }
+
+            const bool l_Better = l_Ground == nullptr || (l_Holds && !l_Walkable) || (l_Holds == l_Walkable && (l_Holds ? it_Contact.Distance < l_Ground->Distance : glm::dot(it_Contact.Normal, l_Up) > glm::dot(l_Ground->Normal, l_Up)));
+            if (l_Better)
+            {
+                l_Ground = &it_Contact;
+                l_Walkable = l_Holds;
+            }
+        }
+
+        record.GroundDepth = 0.0f;
+        if (l_Ground == nullptr)
+        {
+            record.Ground = GroundState2D::InAir;
+            record.GroundNormal = glm::vec2(0.0f);
+            record.GroundPoint = glm::vec2(0.0f);
+            record.GroundBody = b2_nullBodyId;
+
+            return;
+        }
+
+        const bool l_Below = glm::dot(l_Ground->Point - l_Foot, l_Up) <= 0.0f;
+        record.Ground = l_Walkable ? GroundState2D::OnGround : (l_Below ? GroundState2D::OnSteepGround : GroundState2D::NotSupported);
+        record.GroundNormal = l_Ground->Normal;
+        record.GroundPoint = l_Ground->Point;
+        record.GroundBody = l_Ground->Body;
+        record.GroundDepth = -l_Ground->Distance;
+    }
+
+    // A physical character's capsule swept from where it is placed along the translation, and the nearest shape it meets going against the translation, or with standing, the nearest ground it can stand on, passing walls and edges in the way, as a 3D one looks about. What it rests on or slides along does not stop it, and a one-way collider stops it only coming down onto it from above. Its capsule is grown by Box2D's slop, which a cast stops inside a round shape by, so it stops where the capsule touches
+    std::optional<CapsuleHit2D> PhysicsScene2D::State::CastAgainst(const BodyRecord2D& record, const glm::vec2& position, const glm::vec2& translation, bool standing)
+    {
+        const float l_Length = glm::length(translation);
+        if (!(l_Length > 0.0f))
+        {
+            return std::nullopt;
+        }
+
+        const glm::vec2 l_Direction = translation / l_Length;
+        b2ShapeProxy l_Mover = GetMover(record, position);
+        l_Mover.radius += c_TouchingSlop;
+        GatherCharacterShapes(record, b2AABB_Union(GetBounds(l_Mover, c_SupportDistance), GetBounds(GetMover(record, position + translation), c_SupportDistance)));
+        std::optional<CapsuleHit2D> l_Nearest;
+        for (const b2ShapeId it_Shape : CharacterShapes)
+        {
+            b2ShapeCastPairInput l_Input{};
+            l_Input.proxyA = MakeProxy(it_Shape);
+            l_Input.proxyB = l_Mover;
+            l_Input.transformA = b2Transform_identity;
+            l_Input.transformB = b2Transform_identity;
+            l_Input.translationB = ToBox2D(translation);
+            l_Input.maxFraction = l_Nearest ? l_Nearest->Fraction : 1.0f;
+            l_Input.canEncroach = true;
+            const b2CastOutput l_Output = b2ShapeCast(&l_Input);
+            const glm::vec2 l_Normal = FromBox2D(l_Output.normal);
+            if (!l_Output.hit || glm::dot(l_Normal, l_Direction) >= -1e-3f || (standing && IsTooSteep(record, l_Normal)))
+            {
+                continue;
+            }
+
+            const glm::vec2 l_OneWay = GetOneWayUp(it_Shape);
+            if (l_OneWay != glm::vec2(0.0f) && (glm::dot(translation, l_OneWay) >= 0.0f || glm::dot(l_Normal, l_OneWay) < c_OneWayCosine))
+            {
+                continue;
+            }
+
+            CapsuleHit2D l_Hit;
+            l_Hit.Fraction = l_Output.fraction;
+            l_Hit.Contact.Shape = it_Shape;
+            l_Hit.Contact.Body = b2Shape_GetBody(it_Shape);
+            l_Hit.Contact.Type = b2Body_GetType(l_Hit.Contact.Body);
+            l_Hit.Contact.Point = FromBox2D(l_Output.point);
+            l_Hit.Contact.Normal = l_Normal;
+            l_Nearest = l_Hit;
+        }
+
+        return l_Nearest;
+    }
+
+    // Whether a physical character's capsule fits where it is placed, sunk into what is about it by no more than Box2D's solver leaves it, a one-way collider never in its way
+    bool PhysicsScene2D::State::Fits(const BodyRecord2D& record, const glm::vec2& position)
+    {
+        const b2ShapeProxy l_Mover = GetMover(record, position);
+        GatherCharacterShapes(record, GetBounds(l_Mover, c_SupportDistance));
+
+        return std::ranges::none_of(CharacterShapes, [this, &l_Mover](b2ShapeId shape)
+        {
+            if (GetOneWayUp(shape) != glm::vec2(0.0f))
+            {
+                return false;
+            }
+
+            b2DistanceInput l_Input{};
+            l_Input.proxyA = MakeProxy(shape);
+            l_Input.proxyB = l_Mover;
+            l_Input.transformA = b2Transform_identity;
+            l_Input.transformB = b2Transform_identity;
+            l_Input.useRadii = false;
+            b2SimplexCache l_Cache{};
+            const b2DistanceOutput l_Output = b2ShapeDistance(&l_Input, &l_Cache, nullptr, 0);
+
+            return !(l_Output.distance > 0.0f) || l_Output.distance - l_Input.proxyA.radius - l_Mover.radius < -c_StepAllowance;
+        });
+    }
+
+    // A physical character walking into what its step height clears, such as a stair, lifted onto it before the world steps, as a 3D one is: its capsule swept along its motion over the step meets a wall or a slope too steep to stand on, a ray down from its step height above its feet, just past the front of its capsule, finds ground it can stand on, and its capsule fits just above that, both where it is and over the step. Its pace across carries it on over the top. False when it does not climb
+    bool PhysicsScene2D::State::StepUp(BodyRecord2D& record, const glm::vec2& velocity, float seconds, const glm::vec2& up)
+    {
+        const glm::vec2 l_Across = velocity - glm::dot(velocity, up) * up;
+        const float l_Speed = glm::length(l_Across);
+        if (l_Speed * seconds < c_StepSkin)
+        {
+            return false;
+        }
+
+        const glm::vec2 l_Position = FromBox2D(b2Body_GetPosition(record.Body));
+        const std::optional<CapsuleHit2D> l_Wall = CastAgainst(record, l_Position, l_Across * seconds, false);
+        if (!l_Wall || !IsTooSteep(record, l_Wall->Contact.Normal))
+        {
+            return false;
+        }
+
+        // Its feet are the lowest point of its capsule, and the ray starts a little higher than it climbs, so it finds a step as high as that. A one-way collider is met from above, and a ray that starts inside anything else climbs nothing
+        const glm::vec2 l_Way = l_Across / l_Speed;
+        const float l_Reach = record.StepHeight + c_StepReach;
+        const glm::vec2 l_From = GetFoot(record, l_Position) - up * record.Radius + l_Way * (record.Radius + c_StepReach) + up * l_Reach;
+        const glm::vec2 l_Down = -up * l_Reach;
+        GatherCharacterShapes(record, { ToBox2D(glm::min(l_From, l_From + l_Down)), ToBox2D(glm::max(l_From, l_From + l_Down)) });
+        CharacterContact2D l_Top;
+        float l_Fraction = 1.0f;
+        for (const b2ShapeId it_Shape : CharacterShapes)
+        {
+            const glm::vec2 l_OneWay = GetOneWayUp(it_Shape);
+            if (l_OneWay == glm::vec2(0.0f) && b2Shape_TestPoint(it_Shape, ToBox2D(l_From)))
+            {
+                return false;
+            }
+
+            const b2RayCastInput l_Input{ ToBox2D(l_From), ToBox2D(l_Down), l_Fraction };
+            const b2CastOutput l_Output = b2Shape_RayCast(it_Shape, &l_Input);
+            if (!l_Output.hit || l_Output.fraction >= l_Fraction || (l_OneWay != glm::vec2(0.0f) && glm::dot(FromBox2D(l_Output.normal), l_OneWay) < c_OneWayCosine))
+            {
+                continue;
+            }
+
+            l_Fraction = l_Output.fraction;
+            l_Top.Shape = it_Shape;
+            l_Top.Body = b2Shape_GetBody(it_Shape);
+            l_Top.Type = b2Body_GetType(l_Top.Body);
+            l_Top.Point = FromBox2D(l_Output.point);
+            l_Top.Normal = FromBox2D(l_Output.normal);
+        }
+
+        const float l_Rise = l_Reach * (1.0f - l_Fraction);
+        if (B2_IS_NULL(l_Top.Shape) || l_Rise < c_StepSkin || l_Rise > record.StepHeight + c_StepSkin || IsTooSteep(record, l_Top.Normal))
+        {
+            return false;
+        }
+
+        // Lifted, and as far on as it is held there, over the step
+        const glm::vec2 l_Lifted = l_Position + up * (l_Rise + c_StepSkin);
+        const float l_Climb = record.Radius + c_StepReach;
+        if (!Fits(record, l_Lifted) || !Fits(record, l_Lifted + l_Way * l_Climb))
+        {
+            return false;
+        }
+
+        PlaceCharacter(record, l_Lifted);
+        record.Step = l_Top;
+        record.Climb = l_Climb;
+        record.ClimbWay = l_Way;
+        FindGround(record);
+        StandOnStep(record);
+
+        return true;
+    }
+
+    // A physical character lifted onto a step that its capsule is not over yet stands on the step's top, so it walks on at that height rather than down onto the step's edge, until it stands on the top itself
+    void PhysicsScene2D::State::StandOnStep(BodyRecord2D& record)
+    {
+        const bool l_OnTop = record.Ground == GroundState2D::OnGround && glm::dot(record.GroundNormal, record.Step.Normal) > 0.999f;
+        if (l_OnTop || !b2Body_IsValid(record.Step.Body))
+        {
+            record.Climb = 0.0f;
+
+            return;
+        }
+
+        record.Ground = GroundState2D::OnGround;
+        record.GroundNormal = record.Step.Normal;
+        record.GroundPoint = record.Step.Point;
+        record.GroundBody = record.Step.Body;
+        record.GroundDepth = 0.0f;
+        record.Supports.clear();
+        record.Supports.push_back(record.Step.Normal);
+    }
+
+    // A physical character that walked off ground it stood on, set down onto ground it can stand on within the distance below, as a kinematic one keeps to the floor going down stairs: its capsule swept down meets it, and fits there, which it does not while the edge it walked off is in the way. False when it is not set down
+    bool PhysicsScene2D::State::KeepToFloor(BodyRecord2D& record, const glm::vec2& up, float distance)
+    {
+        const glm::vec2 l_Position = FromBox2D(b2Body_GetPosition(record.Body));
+        const glm::vec2 l_Down = -up * distance;
+        const std::optional<CapsuleHit2D> l_Floor = CastAgainst(record, l_Position, l_Down, true);
+        const glm::vec2 l_There = l_Floor ? l_Position + l_Down * l_Floor->Fraction : l_Position;
+        if (!l_Floor || !Fits(record, l_There))
+        {
+            return false;
+        }
+
+        PlaceCharacter(record, l_There);
+        FindGround(record);
+
+        return record.Ground == GroundState2D::OnGround;
     }
 
     // The record of the 2D body made for the entity, or for the body one of its colliders is part of, with the scene's changes taken in
