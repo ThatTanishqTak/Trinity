@@ -12,3 +12,4 @@ TR0004 | Trinity.Scripting | Error | A script class without a parameterless cons
 TR0005 | Trinity.Scripting | Warning | A readonly script field
 TR0006 | Trinity.Scripting | Warning | A field name that repeats one of a base class
 TR0007 | Trinity.Scripting | Warning | A field the generated code cannot reach
+TR0008 | Trinity.Scripting | Warning | A list of lists

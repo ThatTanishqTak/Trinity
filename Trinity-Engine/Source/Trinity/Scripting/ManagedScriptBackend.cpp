@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -23,7 +24,7 @@ namespace Trinity
     namespace
     {
         // Trinity.Interop.FieldType numbers the types as ScriptFieldType does, which these hold to
-        static_assert(static_cast<int>(ScriptFieldType::Bool) == 0 && static_cast<int>(ScriptFieldType::Float) == 5 && static_cast<int>(ScriptFieldType::Vector2) == 7 && static_cast<int>(ScriptFieldType::String) == 12 && static_cast<int>(ScriptFieldType::Asset) == 15 && static_cast<int>(ScriptFieldType::InputAction) == 16, "Trinity.Interop.FieldType must number the field types as ScriptFieldType does");
+        static_assert(static_cast<int>(ScriptFieldType::Bool) == 0 && static_cast<int>(ScriptFieldType::Float) == 5 && static_cast<int>(ScriptFieldType::Vector2) == 7 && static_cast<int>(ScriptFieldType::String) == 12 && static_cast<int>(ScriptFieldType::Asset) == 15 && static_cast<int>(ScriptFieldType::InputAction) == 16 && static_cast<int>(ScriptFieldType::List) == 17, "Trinity.Interop.FieldType must number the field types as ScriptFieldType does");
 
         Interop::FieldValue ToFieldValue(const ScriptFieldValue& value)
         {
@@ -125,7 +126,9 @@ namespace Trinity
                 }
                 case ScriptFieldType::List:
                 {
-                    // No C# field is a list, so none crosses
+                    const ScriptList& l_List = value.Get<ScriptList>();
+                    l_Value.ElementType = static_cast<Interop::Int32>(l_List.ElementType);
+                    l_Value.Integer = static_cast<std::int64_t>(l_List.Elements.size());
 
                     break;
                 }
@@ -134,10 +137,10 @@ namespace Trinity
             return l_Value;
         }
 
-        // Nothing for a type that is not one
+        // Nothing for a type that is not one. A list comes empty, since its elements cross after it
         std::optional<ScriptFieldValue> FromFieldValue(const Interop::FieldValue& value)
         {
-            if (value.Type < 0 || value.Type > static_cast<Interop::Int32>(ScriptFieldType::InputAction))
+            if (value.Type < 0 || value.Type > static_cast<Interop::Int32>(ScriptFieldType::List))
             {
                 return std::nullopt;
             }
@@ -215,11 +218,30 @@ namespace Trinity
                 }
                 case ScriptFieldType::List:
                 {
-                    return std::nullopt;
+                    if (value.ElementType < 0 || value.ElementType >= static_cast<Interop::Int32>(ScriptFieldType::List) || value.Integer < 0 || value.Integer > std::numeric_limits<std::int32_t>::max())
+                    {
+                        return std::nullopt;
+                    }
+
+                    return ScriptFieldValue::List(static_cast<ScriptFieldType>(value.ElementType));
                 }
             }
 
             return std::nullopt;
+        }
+
+        // The element at the end of the list, when it has the list's element type
+        bool AddElement(ScriptFieldValue& list, const Interop::FieldValue& value)
+        {
+            std::optional<ScriptFieldValue> l_Element = FromFieldValue(value);
+            if (!l_Element || l_Element->GetType() != list.GetElementType())
+            {
+                return false;
+            }
+
+            list.Get<ScriptList>().Elements.push_back(std::move(*l_Element));
+
+            return true;
         }
 
         // An instance is its GC handle, which is never 0 for a live one
@@ -258,32 +280,54 @@ namespace Trinity
 
             }
 
-            // ScriptCore described the fields in the order the description has them
-            bool ApplyFields(void* instance, const ScriptClassDescription & description, const ScriptEntry & entry, [[maybe_unused]] Scene & scene) override
+            // ScriptCore described the fields in the order the description has them. A list's elements follow it
+            bool ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, [[maybe_unused]] Scene& scene) override
             {
                 for (std::size_t it_Index = 0; it_Index < description.Fields.size(); ++it_Index)
                 {
-                    const Interop::FieldValue l_Value = ToFieldValue(ScriptClassRegistry::GetFieldValue(entry, description.Fields[it_Index]));
-                    if (!DotNetHost::SetField(ToHandle(instance), static_cast<std::int32_t>(it_Index), l_Value))
+                    const ScriptFieldValue& l_Field = ScriptClassRegistry::GetFieldValue(entry, description.Fields[it_Index]);
+                    const std::int32_t l_Index = static_cast<std::int32_t>(it_Index);
+                    if (!DotNetHost::SetField(ToHandle(instance), l_Index, ToFieldValue(l_Field)))
                     {
                         return false;
+                    }
+
+                    if (l_Field.GetType() != ScriptFieldType::List)
+                    {
+                        continue;
+                    }
+
+                    const auto& l_Elements = l_Field.Get<ScriptList>().Elements;
+                    for (std::size_t it_Element = 0; it_Element < l_Elements.size(); ++it_Element)
+                    {
+                        if (!DotNetHost::SetElement(ToHandle(instance), l_Index, static_cast<std::int32_t>(it_Element), ToFieldValue(l_Elements[it_Element])))
+                        {
+                            return false;
+                        }
                     }
                 }
 
                 return true;
             }
 
+            // A list whose elements cannot all be read, or are of another type, leaves the field as the entry has it
             void ReadFields(const void* instance, const ScriptClassDescription& description, ScriptEntry& entry) override
             {
                 for (std::size_t it_Index = 0; it_Index < description.Fields.size(); ++it_Index)
                 {
                     Interop::FieldValue l_Value{};
-                    if (!DotNetHost::GetField(ToHandle(instance), static_cast<std::int32_t>(it_Index), l_Value))
+                    const std::int32_t l_Index = static_cast<std::int32_t>(it_Index);
+                    if (!DotNetHost::GetField(ToHandle(instance), l_Index, l_Value))
                     {
                         continue;
                     }
 
                     std::optional<ScriptFieldValue> l_Read = FromFieldValue(l_Value);
+                    if (l_Read && l_Read->GetType() == ScriptFieldType::List && !ReadElements(instance, l_Index, l_Value.Integer, *l_Read))
+                    {
+                        continue;
+                    }
+
                     if (l_Read && l_Read->HasSameType(description.Fields[it_Index].Default))
                     {
                         entry.SetField(description.Fields[it_Index].Name, std::move(*l_Read));
@@ -361,6 +405,22 @@ namespace Trinity
                 m_Building->Description.Fields.push_back(std::move(l_Field));
             }
 
+            // The next default element of the field added last, which is a list
+            void AddListElement(const Interop::FieldValue& value)
+            {
+                if (!m_Building || m_Building->Description.Fields.empty())
+                {
+                    return;
+                }
+
+                ScriptFieldDescription& l_Field = m_Building->Description.Fields.back();
+                if (l_Field.Default.GetType() != ScriptFieldType::List || !AddElement(l_Field.Default, value))
+                {
+                    TR_CORE_ERROR("Scripting: field {} of C# class {} has a default element of another type than its list's", std::string_view(l_Field.Name), std::string_view(m_Building->Description.Name));
+                    m_Building->Valid = false;
+                }
+            }
+
             void AddEnumValue(std::string_view name, std::int64_t value)
             {
                 if (m_Building && !m_Building->Description.Fields.empty())
@@ -405,6 +465,22 @@ namespace Trinity
                 std::int32_t Index = 0;
                 bool Valid = true;
             };
+
+            // A list's elements after its length, each in a call of its own
+            [[nodiscard]] static bool ReadElements(const void* instance, std::int32_t field, std::int64_t length, ScriptFieldValue& list)
+            {
+                list.Get<ScriptList>().Elements.reserve(static_cast<std::size_t>(length));
+                for (std::int64_t it_Element = 0; it_Element < length; ++it_Element)
+                {
+                    Interop::FieldValue l_Element{};
+                    if (!DotNetHost::GetElement(ToHandle(instance), field, static_cast<std::int32_t>(it_Element), l_Element) || !AddElement(list, l_Element))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
 
             [[nodiscard]] std::optional<std::int32_t> FindIndex(std::string_view name) const
             {
@@ -501,6 +577,14 @@ namespace Trinity
             if (s_Managed != nullptr)
             {
                 s_Managed->AddField(ToStringView(name), value, ToStringView(assetType));
+            }
+        }
+
+        Void Scripting_AddListElement(const FieldValue* value)
+        {
+            if (s_Managed != nullptr && value != nullptr)
+            {
+                s_Managed->AddListElement(*value);
             }
         }
 

@@ -51,6 +51,8 @@ namespace Trinity
             void (CORECLR_DELEGATE_CALLTYPE* DestroyInstance)(std::intptr_t instance) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* SetField)(std::intptr_t instance, std::int32_t field, const Interop::FieldValue* value) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* GetField)(std::intptr_t instance, std::int32_t field, Interop::FieldValue* value) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* SetElement)(std::intptr_t instance, std::int32_t field, std::int32_t element, const Interop::FieldValue* value) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* GetElement)(std::intptr_t instance, std::int32_t field, std::int32_t element, Interop::FieldValue* value) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* Invoke)(std::intptr_t instance, std::int32_t callback, float timestep) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* InvokePhysics)(std::intptr_t instance, std::int32_t type, const Interop::Collision* collision) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* ResumeTask)(std::intptr_t task, std::int32_t* waitType, float* seconds, std::int32_t* frames) = nullptr;
@@ -161,7 +163,7 @@ namespace Trinity
                 Describe("Color",{ "R", "G", "B", "A" }, l_Color, l_Color.r, l_Color.g, l_Color.b, l_Color.a),
                 Describe("Matrix4x4",{ "Column0", "Column1", "Column2", "Column3" }, l_Matrix, l_Matrix[0], l_Matrix[1], l_Matrix[2], l_Matrix[3]),
                 Describe("Utf8",{ "Data", "Length" }, l_Text, l_Text.Data, l_Text.Length),
-                Describe("FieldValue",{ "Type", "Reserved", "Integer", "Real", "Floats", "Text" }, l_Value, l_Value.Type, l_Value.Reserved, l_Value.Integer, l_Value.Real, l_Value.Floats, l_Value.Text),
+                Describe("FieldValue",{ "Type", "ElementType", "Integer", "Real", "Floats", "Text" }, l_Value, l_Value.Type, l_Value.ElementType, l_Value.Integer, l_Value.Real, l_Value.Floats, l_Value.Text),
                 Describe("Collision",{ "Other", "Point", "Normal", "Is2D" }, l_Collision, l_Collision.Other, l_Collision.Point, l_Collision.Normal, l_Collision.Is2D),
                 Describe("QueryFilter",{ "Layers", "HitTriggers", "Ignore" }, l_Filter, l_Filter.Layers, l_Filter.HitTriggers, l_Filter.Ignore),
                 Describe("QueryShape",{ "Type", "Radius", "HalfExtents", "Height" }, l_Shape, l_Shape.Type, l_Shape.Radius, l_Shape.HalfExtents, l_Shape.Height),
@@ -343,6 +345,7 @@ namespace Trinity
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("LoadAssembly"), l_Entry.LoadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("UnloadAssembly"), l_Entry.UnloadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetHeapStatistics"), l_Entry.GetHeapStatistics, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CreateInstance"), l_Entry.CreateInstance, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("DestroyInstance"), l_Entry.DestroyInstance, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("SetField"), l_Entry.SetField, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetField"), l_Entry.GetField, error)
+                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("SetElement"), l_Entry.SetElement, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetElement"), l_Entry.GetElement, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("Invoke"), l_Entry.Invoke, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("InvokePhysics"), l_Entry.InvokePhysics, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("ResumeTask"), l_Entry.ResumeTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CheckTask"), l_Entry.CheckTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("FreeTask"), l_Entry.FreeTask, error)
                 && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("RaiseInputEvents"), l_Entry.RaiseInputEvents, error);
@@ -520,6 +523,16 @@ namespace Trinity
             return s_State.Started && s_State.Entry.GetField(instance, field, &value) == 0;
         }
 
+        bool SetElement(std::intptr_t instance, std::int32_t field, std::int32_t element, const Interop::FieldValue& value)
+        {
+            return s_State.Started && s_State.Entry.SetElement(instance, field, element, &value) == 0;
+        }
+
+        bool GetElement(std::intptr_t instance, std::int32_t field, std::int32_t element, Interop::FieldValue& value)
+        {
+            return s_State.Started && s_State.Entry.GetElement(instance, field, element, &value) == 0;
+        }
+
         bool Invoke(std::intptr_t instance, ManagedCallback callback, float timestep)
         {
             return s_State.Started && s_State.Entry.Invoke(instance, static_cast<std::int32_t>(callback), timestep) == 0;
@@ -621,6 +634,16 @@ namespace Trinity
         }
 
         bool GetField([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] std::int32_t field, [[maybe_unused]] Interop::FieldValue& value)
+        {
+            return false;
+        }
+
+        bool SetElement([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] std::int32_t field, [[maybe_unused]] std::int32_t element, [[maybe_unused]] const Interop::FieldValue & value)
+        {
+            return false;
+        }
+
+        bool GetElement([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] std::int32_t field, [[maybe_unused]] std::int32_t element, [[maybe_unused]] Interop::FieldValue & value)
         {
             return false;
         }

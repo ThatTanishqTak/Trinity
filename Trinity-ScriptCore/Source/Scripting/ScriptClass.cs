@@ -19,19 +19,21 @@ namespace Trinity.Scripting
         }
     }
 
-    // A field a script class shows in Properties: its name and type, and for an asset reference the asset type it takes, or for an enum its values
+    // A field a script class shows in Properties: its name and type, the type of its elements for a list or its own type for any other, and for an asset reference, or a list of them, the asset type it takes, or for an enum its values
     [EditorBrowsable(EditorBrowsableState.Never)]
     public sealed class ScriptField
     {
         public string Name { get; }
         public FieldType Type { get; }
+        public FieldType ElementType { get; }
         public string AssetType { get; }
         public IReadOnlyList<ScriptEnumValue> EnumValues { get; }
 
-        public ScriptField(string name, FieldType type, string? assetType = null, ScriptEnumValue[]? enumValues = null)
+        public ScriptField(string name, FieldType type, string? assetType = null, ScriptEnumValue[]? enumValues = null, FieldType? elementType = null)
         {
             Name = name;
             Type = type;
+            ElementType = elementType ?? type;
             AssetType = assetType ?? string.Empty;
             EnumValues = enumValues ?? Array.Empty<ScriptEnumValue>();
         }
@@ -55,5 +57,9 @@ namespace Trinity.Scripting
         public abstract Script Create();
         public abstract void SetField(Script script, int index, in FieldValue value);
         public abstract FieldValue GetField(Script script, int index);
+
+        // An element of a list field, given and read after the list, which a class without list fields has none of
+        public virtual void SetElement(Script script, int index, int element, in FieldValue value) => throw new ArgumentOutOfRangeException(nameof(index));
+        public virtual FieldValue GetElement(Script script, int index, int element) => throw new ArgumentOutOfRangeException(nameof(index));
     }
 }

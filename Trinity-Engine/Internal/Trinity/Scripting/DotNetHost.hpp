@@ -46,9 +46,11 @@ namespace Trinity
         // An instance of the class ScriptCore described at that index, for the entity, held by a GC handle, or 0 when its constructor threw, which ScriptCore has logged
         [[nodiscard]] std::intptr_t CreateInstance(std::int32_t classIndex, UUID entity);
         void DestroyInstance(std::intptr_t instance);
-        // Each is false when the script threw, which ScriptCore has logged with the C# stack trace. A string GetField gives is valid until the next call into ScriptCore
+        // Each is false when the script threw, which ScriptCore has logged with the C# stack trace. A string GetField or GetElement gives is valid until the next call into ScriptCore. A list field is given and read as its length, then each element at its index
         [[nodiscard]] bool SetField(std::intptr_t instance, std::int32_t field, const Interop::FieldValue& value);
         [[nodiscard]] bool GetField(std::intptr_t instance, std::int32_t field, Interop::FieldValue& value);
+        [[nodiscard]] bool SetElement(std::intptr_t instance, std::int32_t field, std::int32_t element, const Interop::FieldValue& value);
+        [[nodiscard]] bool GetElement(std::intptr_t instance, std::int32_t field, std::int32_t element, Interop::FieldValue& value);
         [[nodiscard]] bool Invoke(std::intptr_t instance, ManagedCallback callback, float timestep);
         [[nodiscard]] bool InvokePhysics(std::intptr_t instance, PhysicsEventType type, const Interop::Collision& collision);
 

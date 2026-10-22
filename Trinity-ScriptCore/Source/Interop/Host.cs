@@ -88,7 +88,7 @@ namespace Trinity.Interop
             Describe(ref layouts[4], sizeof(Color), At(&l_Color, &l_Color.R), At(&l_Color, &l_Color.G), At(&l_Color, &l_Color.B), At(&l_Color, &l_Color.A));
             Describe(ref layouts[5], sizeof(Matrix4x4), At(&l_Matrix, &l_Matrix.Column0), At(&l_Matrix, &l_Matrix.Column1), At(&l_Matrix, &l_Matrix.Column2), At(&l_Matrix, &l_Matrix.Column3));
             Describe(ref layouts[6], sizeof(Utf8), At(&l_Text, &l_Text.Data), At(&l_Text, &l_Text.Length));
-            Describe(ref layouts[7], sizeof(FieldValue), At(&l_Value, &l_Value.Type), At(&l_Value, &l_Value.Reserved), At(&l_Value, &l_Value.Integer), At(&l_Value, &l_Value.Real), At(&l_Value, &l_Value.X), At(&l_Value, &l_Value.Text));
+            Describe(ref layouts[7], sizeof(FieldValue), At(&l_Value, &l_Value.Type), At(&l_Value, &l_Value.ElementType), At(&l_Value, &l_Value.Integer), At(&l_Value, &l_Value.Real), At(&l_Value, &l_Value.X), At(&l_Value, &l_Value.Text));
             Describe(ref layouts[8], sizeof(Collision), At(&l_Collision, &l_Collision.Other), At(&l_Collision, &l_Collision.Point), At(&l_Collision, &l_Collision.Normal), At(&l_Collision, &l_Collision.Is2D));
             Describe(ref layouts[9], sizeof(QueryFilter), At(&l_Filter, &l_Filter.Layers), At(&l_Filter, &l_Filter.HitTriggers), At(&l_Filter, &l_Filter.Ignore));
             Describe(ref layouts[10], sizeof(QueryShape), At(&l_Shape, &l_Shape.Type), At(&l_Shape, &l_Shape.Radius), At(&l_Shape, &l_Shape.HalfExtents), At(&l_Shape, &l_Shape.Height));

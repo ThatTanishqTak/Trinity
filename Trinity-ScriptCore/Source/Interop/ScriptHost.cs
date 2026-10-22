@@ -149,6 +149,42 @@ namespace Trinity.Interop
             }
         }
 
+        [UnmanagedCallersOnly]
+        public static int SetElement(nint instance, int field, int element, FieldValue* value)
+        {
+            Script l_Script = GetScript(instance);
+            try
+            {
+                l_Script.Class!.SetElement(l_Script, field, element, *value);
+
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                Report(l_Script, $"took element {element} of its field {GetFieldName(l_Script, field)}", exception);
+
+                return 1;
+            }
+        }
+
+        [UnmanagedCallersOnly]
+        public static int GetElement(nint instance, int field, int element, FieldValue* value)
+        {
+            Script l_Script = GetScript(instance);
+            try
+            {
+                *value = l_Script.Class!.GetElement(l_Script, field, element);
+
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                Report(l_Script, $"gave element {element} of its field {GetFieldName(l_Script, field)}", exception);
+
+                return 1;
+            }
+        }
+
         // 0 once the callback has run, and 1 when it threw
         [UnmanagedCallersOnly]
         public static int Invoke(nint instance, int callback, float timestep)
@@ -369,7 +405,12 @@ namespace Trinity.Interop
                 catch (Exception exception)
                 {
                     NativeLog.Write(LogLevel.Warn, $"Scripting: field {l_Field.Name} of {scriptClass.Name} could not be read, so it starts empty: {exception}");
-                    l_Default = l_Field.Type == FieldType.String ? FieldValue.String(null) : new FieldValue { Type = l_Field.Type };
+                    l_Default = l_Field.Type switch
+                    {
+                        FieldType.String => FieldValue.String(null),
+                        FieldType.List => FieldValue.List(l_Field.ElementType, 0),
+                        _ => new FieldValue { Type = l_Field.Type }
+                    };
                 }
 
                 byte[] l_FieldName = Encoding.UTF8.GetBytes(l_Field.Name);
@@ -378,6 +419,25 @@ namespace Trinity.Interop
                 fixed (byte* l_AssetData = l_AssetType)
                 {
                     Native.Scripting_AddField(new Utf8(l_NameData, l_FieldName.Length), &l_Default, new Utf8(l_AssetData, l_AssetType.Length));
+                }
+
+                // A list's default elements, each copied by the engine before the next is made
+                int l_Length = l_Default.Type == FieldType.List ? l_Default.ToLength() : 0;
+                for (int it_Element = 0; it_Element < l_Length; ++it_Element)
+                {
+                    FieldValue l_Element;
+                    try
+                    {
+                        l_Element = scriptClass.GetElement(l_Defaults, it_Field, it_Element);
+                    }
+                    catch (Exception exception)
+                    {
+                        NativeLog.Write(LogLevel.Warn, $"Scripting: element {it_Element} of field {l_Field.Name} of {scriptClass.Name} could not be read, so its default stops before it: {exception}");
+
+                        break;
+                    }
+
+                    Native.Scripting_AddListElement(&l_Element);
                 }
 
                 foreach (ScriptEnumValue it_Value in l_Field.EnumValues)

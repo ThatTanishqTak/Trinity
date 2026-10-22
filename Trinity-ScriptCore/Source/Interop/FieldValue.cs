@@ -1,17 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Trinity.Interop
 {
-    // A script field's value as it crosses to the engine, laid out as the engine's Interop::FieldValue, which it checks at start. A bool, the integers, an enum and the UUID of an entity or an asset are in Integer, a float and a double in Real, the vectors, a quaternion and a colour in X to W, and a string and an input action's path in Text. The generated code of each script class makes and reads these
+    // A script field's value as it crosses to the engine, laid out as the engine's Interop::FieldValue, which it checks at start. A bool, the integers, an enum and the UUID of an entity or an asset are in Integer, a float and a double in Real, the vectors, a quaternion and a colour in X to W, a string and an input action's path in Text, and a list is its element type in ElementType and its length in Integer, its elements crossing after it one call each. The generated code of each script class makes and reads these
     [EditorBrowsable(EditorBrowsableState.Never)]
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct FieldValue
     {
         public FieldType Type;
-        public int Reserved;
+        public FieldType ElementType;
         public long Integer;
         public double Real;
         public float X;
@@ -35,6 +36,7 @@ namespace Trinity.Interop
         public static FieldValue Enum(long value) => new() { Type = FieldType.Enum, Integer = value };
         public static FieldValue Entity(Entity value) => new() { Type = FieldType.Entity, Integer = unchecked((long)value.ID) };
         public static FieldValue Asset(ulong id) => new() { Type = FieldType.Asset, Integer = unchecked((long)id) };
+        public static FieldValue List(FieldType elementType, int length) => new() { Type = FieldType.List, ElementType = elementType, Integer = length };
 
         // Encoded into a buffer of ScriptCore's, valid until the next string is made, which is long enough for the engine to copy it
         public static FieldValue String(string? value) => Encode(FieldType.String, value);
@@ -57,6 +59,7 @@ namespace Trinity.Interop
         public readonly long ToEnum() => Integer;
         public readonly Entity ToEntity() => new(unchecked((ulong)Integer));
         public readonly ulong ToAsset() => unchecked((ulong)Integer);
+        public readonly int ToLength() => unchecked((int)Integer);
         public readonly string ToText() => Text.Data != null && Text.Length > 0 ? Encoding.UTF8.GetString(Text.Data, Text.Length) : string.Empty;
 
         // Found as the script is given its fields, and None for an empty path
@@ -65,6 +68,15 @@ namespace Trinity.Interop
             string l_Path = ToText();
 
             return l_Path.Length > 0 ? Trinity.InputAction.Find(l_Path) : Trinity.InputAction.None;
+        }
+
+        // A new list as long as the one crossing, each element default until it is given
+        public readonly List<T> ToList<T>()
+        {
+            List<T> l_List = new(ToLength());
+            CollectionsMarshal.SetCount(l_List, ToLength());
+
+            return l_List;
         }
 
         private static FieldValue Encode(FieldType type, string? value)

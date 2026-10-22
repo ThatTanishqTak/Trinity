@@ -148,7 +148,17 @@ namespace Trinity.ScriptGenerator
             }
 
             ITypeSymbol l_Type = field.Type;
-            (string? l_Kind, string? l_Marker) = Classify(l_Type);
+            ITypeSymbol? l_Element = GetListElement(l_Type);
+            if (l_Element != null && GetListElement(l_Element) != null)
+            {
+                diagnostics.Add(new DiagnosticModel(Diagnostics.NestedList.Id, l_Location, Strings(l_ScriptName, field.Name, l_Type.ToDisplayString())));
+
+                return null;
+            }
+
+            // A list is what it holds, any number of them
+            ITypeSymbol l_Held = l_Element ?? l_Type;
+            (string? l_Kind, string? l_Marker) = Classify(l_Held);
             if (l_Kind == null)
             {
                 diagnostics.Add(new DiagnosticModel(Diagnostics.UnsupportedFieldType.Id, l_Location, Strings(l_ScriptName, field.Name, l_Type.ToDisplayString())));
@@ -168,11 +178,14 @@ namespace Trinity.ScriptGenerator
             EnumValueModel[] l_Values = Array.Empty<EnumValueModel>();
             if (l_Kind == "Enum")
             {
-                l_Values = l_Type.GetMembers().OfType<IFieldSymbol>().Where(static member => member.HasConstantValue).Select(static member => new EnumValueModel(member.Name, ToInt64(member.ConstantValue))).ToArray();
+                l_Values = l_Held.GetMembers().OfType<IFieldSymbol>().Where(static member => member.HasConstantValue).Select(static member => new EnumValueModel(member.Name, ToInt64(member.ConstantValue))).ToArray();
             }
 
-            return new FieldModel(field.Name, l_Kind, l_Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), l_Marker, new EquatableArray<EnumValueModel>(l_Values), l_Direct ? null : field.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+            return new FieldModel(field.Name, l_Kind, l_Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), l_Marker, new EquatableArray<EnumValueModel>(l_Values), l_Direct ? null : field.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), l_Element?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
         }
+
+        // What a List<T> holds, or nothing for any other type
+        private static ITypeSymbol? GetListElement(ITypeSymbol type) => type is INamedTypeSymbol { TypeArguments.Length: 1 } l_Named && l_Named.OriginalDefinition.ToDisplayString(s_EngineName) == "System.Collections.Generic.List" ? l_Named.TypeArguments[0] : null;
 
         // The Trinity.Interop.FieldType a type is, and for an AssetRef<T> its T, or nothing for a type a field cannot have
         private static (string? Kind, string? Marker) Classify(ITypeSymbol type)
@@ -290,7 +303,7 @@ namespace Trinity.ScriptGenerator
             text.AppendLine("        {");
             foreach (FieldModel it_Field in script.Fields)
             {
-                text.Append($"            new global::Trinity.Scripting.ScriptField({Literal(it_Field.Name)}, global::Trinity.Interop.FieldType.{it_Field.Kind}");
+                text.Append($"            new global::Trinity.Scripting.ScriptField({Literal(it_Field.Name)}, global::Trinity.Interop.FieldType.{(it_Field.ElementTypeName != null ? "List" : it_Field.Kind)}");
                 if (it_Field.AssetMarker != null)
                 {
                     text.Append($", assetType: {it_Field.AssetMarker}.AssetType");
@@ -301,6 +314,11 @@ namespace Trinity.ScriptGenerator
                     text.Append(", enumValues: new global::Trinity.Scripting.ScriptEnumValue[] { ");
                     text.Append(string.Join(", ", it_Field.EnumValues.Select(static value => $"new({Literal(value.Name)}, {value.Value}L)")));
                     text.Append(" }");
+                }
+
+                if (it_Field.ElementTypeName != null)
+                {
+                    text.Append($", elementType: global::Trinity.Interop.FieldType.{it_Field.Kind}");
                 }
 
                 text.AppendLine("),");
@@ -320,7 +338,8 @@ namespace Trinity.ScriptGenerator
             for (int it_Field = 0; it_Field < script.Fields.Count; ++it_Field)
             {
                 FieldModel l_Field = script.Fields[it_Field];
-                text.AppendLine($"                case {it_Field}: {Target(l_Field, it_Field)} = {Read(l_Field)}; break;");
+                string l_Value = l_Field.ElementTypeName != null ? $"value.ToList<{l_Field.ElementTypeName}>()" : Read(l_Field.Kind, l_Field.TypeName);
+                text.AppendLine($"                case {it_Field}: {Target(l_Field, it_Field)} = {l_Value}; break;");
             }
 
             text.AppendLine("            }");
@@ -334,12 +353,18 @@ namespace Trinity.ScriptGenerator
             for (int it_Field = 0; it_Field < script.Fields.Count; ++it_Field)
             {
                 FieldModel l_Field = script.Fields[it_Field];
-                text.AppendLine($"                case {it_Field}: return {Make(l_Field, Target(l_Field, it_Field))};");
+                string l_Value = l_Field.ElementTypeName != null ? $"global::Trinity.Interop.FieldValue.List(global::Trinity.Interop.FieldType.{l_Field.Kind}, {Target(l_Field, it_Field)}?.Count ?? 0)" : Make(l_Field.Kind, Target(l_Field, it_Field));
+                text.AppendLine($"                case {it_Field}: return {l_Value};");
             }
 
             text.AppendLine("                default: throw new global::System.ArgumentOutOfRangeException(nameof(index));");
             text.AppendLine("            }");
             text.AppendLine("        }");
+            if (script.Fields.Any(static field => field.ElementTypeName != null))
+            {
+                WriteElements(text, script);
+            }
+
             for (int it_Field = 0; it_Field < script.Fields.Count; ++it_Field)
             {
                 FieldModel l_Field = script.Fields[it_Field];
@@ -355,10 +380,52 @@ namespace Trinity.ScriptGenerator
             text.AppendLine();
         }
 
+        // A list field's elements by their index, given into the new list the field was given, and read from the list it has
+        private static void WriteElements(StringBuilder text, ScriptModel script)
+        {
+            text.AppendLine();
+            text.AppendLine("        public override void SetElement(global::Trinity.Script script, int index, int element, in global::Trinity.Interop.FieldValue value)");
+            text.AppendLine("        {");
+            text.AppendLine($"            {script.TypeName} l_Target = ({script.TypeName})script;");
+            text.AppendLine("            switch (index)");
+            text.AppendLine("            {");
+            for (int it_Field = 0; it_Field < script.Fields.Count; ++it_Field)
+            {
+                FieldModel l_Field = script.Fields[it_Field];
+                if (l_Field.ElementTypeName != null)
+                {
+                    text.AppendLine($"                case {it_Field}: {Target(l_Field, it_Field)}[element] = {Read(l_Field.Kind, l_Field.ElementTypeName)}; break;");
+                }
+            }
+
+            text.AppendLine("                default: throw new global::System.ArgumentOutOfRangeException(nameof(index));");
+            text.AppendLine("            }");
+            text.AppendLine("        }");
+            text.AppendLine();
+            text.AppendLine("        public override global::Trinity.Interop.FieldValue GetElement(global::Trinity.Script script, int index, int element)");
+            text.AppendLine("        {");
+            text.AppendLine($"            {script.TypeName} l_Target = ({script.TypeName})script;");
+            text.AppendLine("            switch (index)");
+            text.AppendLine("            {");
+            for (int it_Field = 0; it_Field < script.Fields.Count; ++it_Field)
+            {
+                FieldModel l_Field = script.Fields[it_Field];
+                if (l_Field.ElementTypeName != null)
+                {
+                    text.AppendLine($"                case {it_Field}: return {Make(l_Field.Kind, $"{Target(l_Field, it_Field)}[element]")};");
+                }
+            }
+
+            text.AppendLine("                default: throw new global::System.ArgumentOutOfRangeException(nameof(index));");
+            text.AppendLine("            }");
+            text.AppendLine("        }");
+        }
+
         // The field as an expression that can be read and written
         private static string Target(FieldModel field, int index) => field.Accessor != null ? $"Field{index}(l_Target)" : $"l_Target.@{field.Name}";
 
-        private static string Read(FieldModel field) => field.Kind switch
+        // A value of the kind, of the type in full, from the FieldValue named value
+        private static string Read(string kind, string typeName) => kind switch
         {
             "Bool" => "value.ToBool()",
             "Int32" => "value.ToInt32()",
@@ -373,18 +440,18 @@ namespace Trinity.ScriptGenerator
             "Quaternion" => "value.ToQuaternion()",
             "Color" => "value.ToColor()",
             "String" => "value.ToText()",
-            "Enum" => $"unchecked(({field.TypeName})value.ToEnum())",
+            "Enum" => $"unchecked(({typeName})value.ToEnum())",
             "Entity" => "value.ToEntity()",
-            "Asset" => $"new {field.TypeName}(value.ToAsset())",
+            "Asset" => $"new {typeName}(value.ToAsset())",
             "InputAction" => "value.ToInputAction()",
             _ => "default"
         };
 
-        private static string Make(FieldModel field, string target) => field.Kind switch
+        private static string Make(string kind, string target) => kind switch
         {
             "Enum" => $"global::Trinity.Interop.FieldValue.Enum(unchecked((long){target}))",
             "Asset" => $"global::Trinity.Interop.FieldValue.Asset({target}.ID)",
-            _ => $"global::Trinity.Interop.FieldValue.{field.Kind}({target})"
+            _ => $"global::Trinity.Interop.FieldValue.{kind}({target})"
         };
 
         private static bool DerivesFrom(INamedTypeSymbol type, INamedTypeSymbol baseType)

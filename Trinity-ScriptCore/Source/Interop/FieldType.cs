@@ -1,6 +1,6 @@
 namespace Trinity.Interop
 {
-    // What a script field holds, numbered as the engine's ScriptFieldType numbers it, which it checks at build time
+    // What a script field holds, numbered as the engine's ScriptFieldType numbers it, which it checks at build time. A list's elements are of any type but a list
     public enum FieldType : int
     {
         Bool,
@@ -19,6 +19,7 @@ namespace Trinity.Interop
         Enum,
         Entity,
         Asset,
-        InputAction
+        InputAction,
+        List
     }
 }
