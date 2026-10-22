@@ -26,7 +26,7 @@ inline constexpr std::array<Trinity::LightType, 3> c_LightTypes{ Trinity::LightT
 [[nodiscard]] std::string GetScriptLabel(const Trinity::ScriptEntry& entry);
 [[nodiscard]] std::size_t GetScriptMemorySize(const Trinity::ScriptComponent& component);
 
-// A slot of an entity's component that names an asset or another entity, as Properties edits it: the component's type name, or the script whose field it is, the slot's name with its index among the mesh's materials, the asset type it takes, empty for any or for an entity, and what it holds
+// A slot of an entity's component that names an asset or another entity, as Properties edits it: the component's type name, or the script whose field it is, the slot's name with its index among the mesh's materials or the list field's elements, the asset type it takes, empty for any or for an entity, and what it holds
 struct SlotReference
 {
     std::string_view Component;
@@ -44,18 +44,18 @@ void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const
 // The map and action a path names, Map/Action, or an action's name alone while only one map has it, as the running scene finds it. Nothing for a path the actions lack, or a name more than one map has
 [[nodiscard]] std::optional<std::pair<std::size_t, std::size_t>> FindInputAction(const Trinity::InputActionsData& data, std::string_view path);
 
-// An input action field of a script in the scene that a rename in the Input Actions panel changes: its entity, the script's index there, the field's name, and its path before and after. Added is for a field the entry left at its class's default, which an undo leaves at the default again
+// An input action field of a script in the scene that a rename in the Input Actions panel changes: its entity, the script's index there, the field's name, and its value before and after, a path or a list of them. Added is for a field the entry left at its class's default, which an undo leaves at the default again
 struct InputActionFieldRewrite
 {
     Trinity::UUID Entity;
     std::size_t Script = 0;
     std::string Field;
-    std::string Before;
-    std::string After;
+    Trinity::ScriptFieldValue Before;
+    Trinity::ScriptFieldValue After;
     bool Added = false;
 };
 
-// Each input action field of the scene, as its entry or its class's default has it, whose path led to an action before the rename and leads elsewhere or nowhere after it, rewritten to that action's path after, Map/Action. Before and after have the same maps and actions in the same places, renamed. A path that led nowhere before is left as it is
+// Each input action field of the scene, or list of them, as its entry or its class's default has it, with a path that led to an action before the rename and leads elsewhere or nowhere after it, each such path rewritten to that action's path after, Map/Action. Before and after have the same maps and actions in the same places, renamed. A path that led nowhere before is left as it is
 [[nodiscard]] std::vector<InputActionFieldRewrite> FindInputActionRewrites(Trinity::Scene& scene, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after);
 
 // The model's nodes under one root with the given name, each with its transform, and a MeshRenderer where it has a mesh. The root's subtree holds the nodes in the model's order

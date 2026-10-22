@@ -160,10 +160,7 @@ namespace Trinity
                 {
                     for (ScriptEntry::Field& it_Field : it_Entry.Fields)
                     {
-                        if (it_Field.Value.GetType() == ScriptFieldType::Entity)
-                        {
-                            a_Remap(it_Field.Value.Get<UUID>());
-                        }
+                        it_Field.Value.ForEachValue<UUID>(ScriptFieldType::Entity, a_Remap);
                     }
                 }
             }

@@ -72,9 +72,9 @@ namespace Trinity
                     return "a field name repeats";
                 }
 
-                if ((it_Field->GetType() == ScriptFieldType::Enum) == it_Field->EnumValues.empty())
+                if ((it_Field->Default.GetElementType() == ScriptFieldType::Enum) == it_Field->EnumValues.empty())
                 {
-                    return "an enum field has no values, or another field has enum values";
+                    return "an enum field, or a list of enums, has no values, or another field has enum values";
                 }
             }
 
@@ -221,9 +221,9 @@ namespace Trinity
                     continue;
                 }
 
-                if (l_Value.GetType() != l_Field.GetType())
+                if (!l_Value.HasSameType(l_Field.Default))
                 {
-                    TR_CORE_WARN("Scene: field {} of {} was saved as {} and is now {}, so it keeps its default", std::string_view(l_Field.Name), name, ToString(l_Value.GetType()), ToString(l_Field.GetType()));
+                    TR_CORE_WARN("Scene: field {} of {} was saved as {} and is now {}, so it keeps its default", std::string_view(l_Field.Name), name, DescribeType(l_Value), DescribeType(l_Field.Default));
 
                     continue;
                 }
@@ -250,7 +250,7 @@ namespace Trinity
             const Registered* l_Component = FindRegistered(component);
             const std::optional<std::size_t> l_Index = l_Component != nullptr ? FindFieldIndex(*l_Component, field) : std::nullopt;
             void* l_Value = l_Index ? FindValue(entity, component) : nullptr;
-            if (l_Value == nullptr || l_Component->Description.Fields[*l_Index].GetType() != value.GetType())
+            if (l_Value == nullptr || !l_Component->Description.Fields[*l_Index].Default.HasSameType(value))
             {
                 return false;
             }
@@ -272,7 +272,7 @@ namespace Trinity
                 void* l_Value = nullptr;
                 for (std::size_t it_Index = 0; it_Index < it_Component.Fields.size(); ++it_Index)
                 {
-                    if (it_Component.Description.Fields[it_Index].GetType() != ScriptFieldType::Entity)
+                    if (it_Component.Description.Fields[it_Index].Default.GetElementType() != ScriptFieldType::Entity)
                     {
                         continue;
                     }
@@ -283,12 +283,19 @@ namespace Trinity
                         break;
                     }
 
-                    UUID l_Entity = it_Component.Fields[it_Index].Get(l_Value).Get<UUID>();
-                    const UUID l_Before = l_Entity;
-                    remap(l_Entity);
-                    if (l_Entity != l_Before)
+                    // An entity field, or each entity of a list of them
+                    ScriptFieldValue l_Field = it_Component.Fields[it_Index].Get(l_Value);
+                    bool l_Changed = false;
+                    l_Field.ForEachValue<UUID>(ScriptFieldType::Entity, [&remap, &l_Changed](UUID& id)
                     {
-                        it_Component.Fields[it_Index].Set(l_Value, ScriptFieldValue::Entity(l_Entity));
+                        const UUID l_Before = id;
+                        remap(id);
+                        l_Changed = l_Changed || id != l_Before;
+                    });
+
+                    if (l_Changed)
+                    {
+                        it_Component.Fields[it_Index].Set(l_Value, l_Field);
                     }
                 }
             }

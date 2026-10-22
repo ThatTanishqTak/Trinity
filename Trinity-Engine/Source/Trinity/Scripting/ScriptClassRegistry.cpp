@@ -44,9 +44,9 @@ namespace Trinity
                     return "a field name repeats";
                 }
 
-                if ((it_Field->GetType() == ScriptFieldType::Enum) == it_Field->EnumValues.empty())
+                if ((it_Field->Default.GetElementType() == ScriptFieldType::Enum) == it_Field->EnumValues.empty())
                 {
-                    return "an enum field has no values, or another field has enum values";
+                    return "an enum field, or a list of enums, has no values, or another field has enum values";
                 }
             }
 
@@ -171,7 +171,7 @@ namespace Trinity
         {
             const ScriptEntry::Field* l_Value = entry.FindField(field.Name);
 
-            return l_Value != nullptr && l_Value->Value.GetType() == field.GetType() ? l_Value->Value : field.Default;
+            return l_Value != nullptr && l_Value->Value.HasSameType(field.Default) ? l_Value->Value : field.Default;
         }
     }
 }

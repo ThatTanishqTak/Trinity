@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <utility>
 
 namespace Trinity
@@ -11,7 +12,7 @@ namespace Trinity
         constexpr std::array<std::pair<ScriptLanguage, std::string_view>, 2> c_LanguageNames{ { { ScriptLanguage::Cpp, "Cpp" },{ ScriptLanguage::CSharp, "CSharp" } } };
 
         // Written into scene files, so a name never changes once released
-        constexpr std::array<std::pair<ScriptFieldType, std::string_view>, 17> c_FieldTypeNames{ {
+        constexpr std::array<std::pair<ScriptFieldType, std::string_view>, 18> c_FieldTypeNames{ {
             { ScriptFieldType::Bool, "Bool" },
             { ScriptFieldType::Int32, "Int32" },
             { ScriptFieldType::Int64, "Int64" },
@@ -28,7 +29,8 @@ namespace Trinity
             { ScriptFieldType::Enum, "Enum" },
             { ScriptFieldType::Entity, "Entity" },
             { ScriptFieldType::Asset, "Asset" },
-            { ScriptFieldType::InputAction, "InputAction" }
+            { ScriptFieldType::InputAction, "InputAction" },
+            { ScriptFieldType::List, "List" }
         } };
 
         ScriptFieldValue::Storage MakeZero(ScriptFieldType type)
@@ -103,6 +105,10 @@ namespace Trinity
                 {
                     return ScriptString();
                 }
+                case ScriptFieldType::List:
+                {
+                    return ScriptList();
+                }
             }
 
             return false;
@@ -142,6 +148,11 @@ namespace Trinity
         return MakeZero(type).index();
     }
 
+    std::string DescribeType(const ScriptFieldValue& value)
+    {
+        return value.GetType() == ScriptFieldType::List ? std::format("List of {}", ToString(value.GetElementType())) : std::string(ToString(value.GetType()));
+    }
+
     ScriptFieldValue::ScriptFieldValue(ScriptFieldType type) : m_Type(type), m_Value(MakeZero(type))
     {
 
@@ -150,6 +161,7 @@ namespace Trinity
     ScriptFieldValue::ScriptFieldValue(ScriptFieldType type, Storage value) : m_Type(type), m_Value(std::move(value))
     {
         TR_CORE_ASSERT(m_Value.index() == GetScriptFieldStorageIndex(type), "ScriptFieldValue: a {} field was given a value of another type", ToString(type));
+        TR_CORE_ASSERT(type != ScriptFieldType::List || std::get<ScriptList>(m_Value).ElementType != ScriptFieldType::List, "ScriptFieldValue: a list holds any field type but another list");
     }
 
     ScriptFieldValue ScriptFieldValue::Bool(bool value) { return { ScriptFieldType::Bool, value }; }
@@ -169,4 +181,15 @@ namespace Trinity
     ScriptFieldValue ScriptFieldValue::Entity(UUID value) { return { ScriptFieldType::Entity, value }; }
     ScriptFieldValue ScriptFieldValue::Asset(UUID value) { return { ScriptFieldType::Asset, value }; }
     ScriptFieldValue ScriptFieldValue::InputAction(std::string_view path) { return { ScriptFieldType::InputAction, ScriptString(path) }; }
+    ScriptFieldValue ScriptFieldValue::List(ScriptFieldType elementType) { return { ScriptFieldType::List, ScriptList{ elementType,{} } }; }
+
+    ScriptFieldType ScriptFieldValue::GetElementType() const
+    {
+        return m_Type == ScriptFieldType::List ? std::get<ScriptList>(m_Value).ElementType : m_Type;
+    }
+
+    bool ScriptFieldValue::HasSameType(const ScriptFieldValue& other) const
+    {
+        return m_Type == other.m_Type && GetElementType() == other.GetElementType();
+    }
 }

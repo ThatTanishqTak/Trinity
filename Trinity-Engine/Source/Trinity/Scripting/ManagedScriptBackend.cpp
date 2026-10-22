@@ -120,6 +120,13 @@ namespace Trinity
                 {
                     l_Value.Integer = static_cast<std::int64_t>(value.Get<UUID>().GetValue());
                     
+
+                    break;
+                }
+                case ScriptFieldType::List:
+                {
+                    // No C# field is a list, so none crosses
+
                     break;
                 }
             }
@@ -206,6 +213,10 @@ namespace Trinity
                 {
                     return ScriptFieldValue::InputAction(Interop::ToStringView(value.Text));
                 }
+                case ScriptFieldType::List:
+                {
+                    return std::nullopt;
+                }
             }
 
             return std::nullopt;
@@ -273,7 +284,7 @@ namespace Trinity
                     }
 
                     std::optional<ScriptFieldValue> l_Read = FromFieldValue(l_Value);
-                    if (l_Read && l_Read->GetType() == description.Fields[it_Index].GetType())
+                    if (l_Read && l_Read->HasSameType(description.Fields[it_Index].Default))
                     {
                         entry.SetField(description.Fields[it_Index].Name, std::move(*l_Read));
                     }

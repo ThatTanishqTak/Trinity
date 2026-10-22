@@ -646,6 +646,19 @@ namespace
 
                 return l_Path.empty() ? std::string("None (Input Action)") : std::string(l_Path);
             }
+            case Trinity::ScriptFieldType::List:
+            {
+                // Each element as a value of its type shows, so a list of vectors reads 1, 2, 3; 0, 0, 1
+                const auto& l_Elements = value.Get<Trinity::ScriptList>().Elements;
+                std::string l_Text = l_Elements.empty() ? "Empty" : "";
+                for (std::size_t it_Index = 0; it_Index < l_Elements.size(); ++it_Index)
+                {
+                    l_Text += it_Index == 0 ? "" : "; ";
+                    l_Text += FormatScriptValue(scene, registry, l_Elements[it_Index]);
+                }
+
+                return l_Text;
+            }
             default:
             {
                 break;
@@ -667,7 +680,7 @@ namespace
             {
                 return std::format("{}, {}, {}, {}", data.x, data.y, data.z, data.w);
             }
-            else if constexpr (std::is_same_v<T, Trinity::ScriptString> || std::is_same_v<T, Trinity::UUID>)
+            else if constexpr (std::is_same_v<T, Trinity::ScriptString> || std::is_same_v<T, Trinity::UUID> || std::is_same_v<T, Trinity::ScriptList>)
             {
                 return {};
             }
@@ -682,7 +695,7 @@ namespace
     void DrawReadOnlyField(Trinity::Scene& scene, const Trinity::AssetRegistry* registry, const char* name, const Trinity::ScriptFieldValue& value)
     {
         Label(name);
-        ImGui::TextDisabled("%s", std::format("{}  ({})", FormatScriptValue(scene, registry, value), Trinity::ToString(value.GetType())).c_str());
+        ImGui::TextDisabled("%s", std::format("{}  ({})", FormatScriptValue(scene, registry, value), Trinity::DescribeType(value)).c_str());
     }
 
     // What every collider has, above its own shape. The offset's turn shows as X, Y and Z degrees worked out afresh each frame, which is enough for the small turns a collider takes. Layers show by the project's names for them
@@ -2932,7 +2945,7 @@ void PropertiesPanel::DrawScriptFields(Trinity::ScriptEntry& entry, std::string&
     {
         const Trinity::ScriptFieldDescription* l_Field = l_Class->FindField(field.Name);
 
-        return l_Field == nullptr || l_Field->GetType() != field.Value.GetType();
+        return l_Field == nullptr || !l_Field->Default.HasSameType(field.Value);
     };
 
     if (std::ranges::none_of(entry.Fields, a_IsStale))
@@ -3105,6 +3118,12 @@ bool PropertiesPanel::DrawScriptValue(const Trinity::ScriptFieldDescription& fie
         case Trinity::ScriptFieldType::InputAction:
         {
             return DrawInputActionSlot(value.Get<Trinity::ScriptString>());
+        }
+        case Trinity::ScriptFieldType::List:
+        {
+            ImGui::TextDisabled("%s", FormatScriptValue(m_Session.GetScene(), m_Session.GetRegistry(), value).c_str());
+
+            return false;
         }
     }
 

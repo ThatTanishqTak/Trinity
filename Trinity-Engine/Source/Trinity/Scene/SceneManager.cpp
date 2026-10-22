@@ -78,19 +78,17 @@ namespace Trinity
             {
                 for (const ScriptEntry& it_Script : it_Scripts.Scripts)
                 {
+                    // An asset field, or each asset of a list of them
                     for (const ScriptEntry::Field& it_Field : it_Script.Fields)
                     {
-                        if (it_Field.Value.GetType() != ScriptFieldType::Asset)
+                        it_Field.Value.ForEachValue<UUID>(ScriptFieldType::Asset, [&assets, registry](const UUID& asset)
                         {
-                            continue;
-                        }
-
-                        const UUID l_Asset = it_Field.Value.Get<UUID>();
-                        const AssetRecord* l_Record = registry != nullptr && l_Asset ? registry->Find(l_Asset) : nullptr;
-                        if (l_Record == nullptr || l_Record->Importer != "Scene")
-                        {
-                            AddAsset(assets, l_Asset);
-                        }
+                            const AssetRecord* l_Record = registry != nullptr && asset ? registry->Find(asset) : nullptr;
+                            if (l_Record == nullptr || l_Record->Importer != "Scene")
+                            {
+                                AddAsset(assets, asset);
+                            }
+                        });
                     }
                 }
             }

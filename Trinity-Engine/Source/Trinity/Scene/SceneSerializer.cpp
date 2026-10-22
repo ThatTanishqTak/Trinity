@@ -190,6 +190,52 @@ namespace Trinity
             return std::string(l_Hex.data(), l_Hex.size());
         }
 
+        // A list's element as a value of its type is written on its own, so a list of vectors is a sequence of sequences
+        std::string FormatElement(const ScriptFieldValue& element)
+        {
+            return std::visit([](const auto& data) -> std::string
+            {
+                using Type = std::decay_t<decltype(data)>;
+                if constexpr (std::is_same_v<Type, bool>)
+                {
+                    return data ? "true" : "false";
+                }
+                else if constexpr (std::is_integral_v<Type>)
+                {
+                    return std::to_string(data);
+                }
+                else if constexpr (std::is_floating_point_v<Type>)
+                {
+                    return FormatFloat(data);
+                }
+                else if constexpr (std::is_same_v<Type, glm::vec2>)
+                {
+                    return FormatFloats(std::array{ data.x, data.y });
+                }
+                else if constexpr (std::is_same_v<Type, glm::vec3>)
+                {
+                    return FormatFloats(std::array{ data.x, data.y, data.z });
+                }
+                else if constexpr (std::is_same_v<Type, glm::vec4> || std::is_same_v<Type, glm::quat>)
+                {
+                    return FormatFloats(std::array{ data.x, data.y, data.z, data.w });
+                }
+                else if constexpr (std::is_same_v<Type, ScriptString>)
+                {
+                    return FormatString(std::string_view(data));
+                }
+                else if constexpr (std::is_same_v<Type, UUID>)
+                {
+                    return ToHex(data);
+                }
+                else
+                {
+                    // An element is never a list
+                    return "[]";
+                }
+            }, element.GetStorage());
+        }
+
         entt::id_type GetPoolId(std::string_view name)
         {
             return entt::hashed_string::value(name.data(), name.size());
@@ -1399,6 +1445,19 @@ namespace Trinity
             {
                 Write("Value", std::string_view(data));
             }
+            else if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptList>)
+            {
+                Write("Element", ToString(data.ElementType));
+                WriteKey("Value");
+                *m_Output += '[';
+                for (std::size_t it_Index = 0; it_Index < data.Elements.size(); ++it_Index)
+                {
+                    *m_Output += it_Index == 0 ? "" : ", ";
+                    *m_Output += FormatElement(data.Elements[it_Index]);
+                }
+
+                *m_Output += ']';
+            }
             else
             {
                 Write("Value", data);
@@ -1441,6 +1500,100 @@ namespace Trinity
             TR_CORE_WARN("Scene: {}.{} is malformed and keeps its default", componentName, key);
 
             return false;
+        }
+
+        // A list's element as a value of its type is read on its own, or false with the element as it was
+        bool ParseElement(const YAML::Node& node, ScriptFieldValue& element)
+        {
+            return std::visit([&node](auto& data)
+            {
+                using Type = std::decay_t<decltype(data)>;
+                if constexpr (std::is_same_v<Type, bool>)
+                {
+                    if (!node.IsScalar() || (node.Scalar() != "true" && node.Scalar() != "false"))
+                    {
+                        return false;
+                    }
+
+                    data = node.Scalar() == "true";
+
+                    return true;
+                }
+                else if constexpr (std::is_arithmetic_v<Type>)
+                {
+                    return node.IsScalar() && ParseNumber(node.Scalar(), data);
+                }
+                else if constexpr (std::is_same_v<Type, glm::vec2> || std::is_same_v<Type, glm::vec3> || std::is_same_v<Type, glm::vec4>)
+                {
+                    return ParseFloatSequence(node, std::span<float>(&data.x, static_cast<std::size_t>(Type::length())));
+                }
+                else if constexpr (std::is_same_v<Type, glm::quat>)
+                {
+                    std::array<float, 4> l_Values{};
+                    if (!ParseFloatSequence(node, l_Values))
+                    {
+                        return false;
+                    }
+
+                    data = glm::quat(l_Values[3], l_Values[0], l_Values[1], l_Values[2]);
+
+                    return true;
+                }
+                else if constexpr (std::is_same_v<Type, ScriptString>)
+                {
+                    if (!node.IsScalar())
+                    {
+                        return false;
+                    }
+
+                    data = node.Scalar();
+
+                    return true;
+                }
+                else if constexpr (std::is_same_v<Type, UUID>)
+                {
+                    const std::optional<UUID> l_UUID = node.IsScalar() ? UUID::Parse(node.Scalar()) : std::nullopt;
+                    if (!l_UUID)
+                    {
+                        return false;
+                    }
+
+                    data = *l_UUID;
+
+                    return true;
+                }
+                else
+                {
+                    // An element is never a list
+                    return false;
+                }
+            }, element.GetStorage());
+        }
+
+        // Every element or none, so a list with one malformed element keeps its default, which is empty
+        bool ParseList(const YAML::Node& node, ScriptList& list)
+        {
+            if (!node.IsSequence())
+            {
+                return false;
+            }
+
+            ScriptList l_List{ list.ElementType,{} };
+            l_List.Elements.reserve(node.size());
+            for (const YAML::Node it_Node : node)
+            {
+                ScriptFieldValue l_Element(list.ElementType);
+                if (!ParseElement(it_Node, l_Element))
+                {
+                    return false;
+                }
+
+                l_List.Elements.push_back(std::move(l_Element));
+            }
+
+            list = std::move(l_List);
+
+            return true;
         }
 
         template<typename T>
@@ -1677,7 +1830,15 @@ namespace Trinity
             return false;
         }
 
-        ScriptFieldValue l_Read(*l_Type);
+        // A list's elements are of any type this build has but a list
+        std::string l_ElementName;
+        const std::optional<ScriptFieldType> l_Element = *l_Type == ScriptFieldType::List && Read("Element", l_ElementName) ? ParseScriptFieldType(l_ElementName) : std::nullopt;
+        if (*l_Type == ScriptFieldType::List && (!l_Element || *l_Element == ScriptFieldType::List))
+        {
+            return false;
+        }
+
+        ScriptFieldValue l_Read = l_Element ? ScriptFieldValue::List(*l_Element) : ScriptFieldValue(*l_Type);
         std::visit([this](auto& data)
         {
             if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptString>)
@@ -1686,6 +1847,14 @@ namespace Trinity
                 if (Read("Value", l_Text))
                 {
                     data = l_Text;
+                }
+            }
+            else if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptList>)
+            {
+                const std::optional<YAML::Node> l_Value = FindValue(*m_Node, "Value");
+                if (l_Value && !ParseList(*l_Value, data))
+                {
+                    static_cast<void>(Malformed(m_ComponentName, "Value"));
                 }
             }
             else

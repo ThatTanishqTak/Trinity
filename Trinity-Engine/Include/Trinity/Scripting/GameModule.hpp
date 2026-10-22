@@ -67,7 +67,7 @@ namespace Trinity::GameModule
     inline constexpr const char* c_ApiVersionFunction = "TrinityModuleGetApiVersion";
 
     // Raised whenever what TR_GAME_MODULE exports, or how it registers, changes, so Forge refuses a module built against other engine headers rather than calling into it
-    inline constexpr std::uint32_t c_ApiVersion = 3;
+    inline constexpr std::uint32_t c_ApiVersion = 4;
 
     // What a TR_SCRIPT or TR_COMPONENT block describes through TR_FIELD: each field's name, its type from the member's, and its default from a default-made T, with how its value reaches an instance, or a component's is read and written
     template<typename T>
@@ -85,7 +85,9 @@ namespace Trinity::GameModule
         void Field(std::string_view name)
         {
             using FieldType = std::remove_cvref_t<decltype(std::declval<T&>().*Member)>;
-            static_assert(ScriptFieldMember<FieldType>, "TR_FIELD: a field is bool, a 32- or 64-bit integer, float, double, a glm vector or quaternion, Trinity::Color, std::string, an enum named by TR_ENUM, Trinity::Entity, Trinity::EntityReference, Trinity::AssetRef or Trinity::InputAction");
+            using ElementType = typename ScriptListMember<FieldType>::Element;
+            static_assert(!ScriptListMember<ElementType>::value, "TR_FIELD: a list holds any field type but another list");
+            static_assert(ScriptFieldMember<FieldType>, "TR_FIELD: a field is bool, a 32- or 64-bit integer, float, double, a glm vector or quaternion, Trinity::Color, std::string, an enum named by TR_ENUM, Trinity::Entity, Trinity::EntityReference, Trinity::AssetRef or Trinity::InputAction, or a std::vector of any of them");
             if constexpr (ScriptFieldMember<FieldType>)
             {
                 ScriptFieldDescription l_Field;
@@ -101,7 +103,7 @@ namespace Trinity::GameModule
                 else
                 {
                     static_assert(!ScriptFieldTraits<FieldType>::c_NeedsScene, "TR_FIELD: a component names an entity by Trinity::EntityReference, since it outlives the handles of the scene it was copied from");
-                    static_assert(!std::same_as<FieldType, InputAction>, "TR_FIELD: a component keeps an input action's path, Map/Action, in a std::string and finds it with Trinity::InputAction::Find, since a handle lasts only while one scene runs");
+                    static_assert(!std::same_as<ElementType, InputAction>, "TR_FIELD: a component keeps an input action's path, Map/Action, in a std::string and finds it with Trinity::InputAction::Find, since a handle lasts only while one scene runs");
                     m_ComponentFields.push_back({ [](const void* component) { return ScriptFieldTraits<FieldType>::ToValue(static_cast<const T*>(component)->*Member); }, [](void* component, const ScriptFieldValue& value) { ScriptFieldTraits<FieldType>::FromValue(static_cast<T*>(component)->*Member, value, nullptr); } });
                 }
             }

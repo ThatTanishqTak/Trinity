@@ -231,4 +231,60 @@ namespace Trinity
         ScriptFieldTraits<T>::FromValue(target, data, scene);
         ScriptFieldTraits<T>::Describe(field);
     };
+
+    // A member type that is a list, and the type of what it holds, or the type itself for one that is not a list
+    template<typename T>
+    struct ScriptListMember : std::false_type
+    {
+        using Element = T;
+    };
+
+    template<typename T, typename A>
+    struct ScriptListMember<std::vector<T, A>> : std::true_type
+    {
+        using Element = T;
+    };
+
+    // A list of any other type a field can have, its elements made and read through that type's traits, so a list of enums keeps their names and a list of assets the type it takes. A list of lists is no field
+    template<typename T, typename A>
+        requires ScriptFieldMember<T> && (!ScriptListMember<T>::value)
+    struct ScriptFieldTraits<std::vector<T, A>>
+    {
+        static constexpr bool c_NeedsScene = ScriptFieldTraits<T>::c_NeedsScene;
+
+        static void Describe(ScriptFieldDescription& field) { ScriptFieldTraits<T>::Describe(field); }
+
+        [[nodiscard]] static ScriptFieldValue ToValue(const std::vector<T, A>& value)
+        {
+            ScriptFieldValue l_List = ScriptFieldValue::List(ScriptFieldTraits<T>::ToValue(T{}).GetType());
+            ScriptList& l_Elements = l_List.Get<ScriptList>();
+            l_Elements.Elements.reserve(value.size());
+            for (const T& it_Element : value)
+            {
+                l_Elements.Elements.push_back(ScriptFieldTraits<T>::ToValue(it_Element));
+            }
+
+            return l_List;
+        }
+
+        // As long as the list, each element given its value, so the elements already there, such as assets held, change only where the list does
+        static void FromValue(std::vector<T, A>& target, const ScriptFieldValue& value, Scene* scene)
+        {
+            const ScriptList& l_List = value.Get<ScriptList>();
+            target.resize(l_List.Elements.size());
+            for (std::size_t it_Index = 0; it_Index < l_List.Elements.size(); ++it_Index)
+            {
+                if constexpr (std::same_as<T, bool>)
+                {
+                    bool l_Element = false;
+                    ScriptFieldTraits<T>::FromValue(l_Element, l_List.Elements[it_Index], scene);
+                    target[it_Index] = l_Element;
+                }
+                else
+                {
+                    ScriptFieldTraits<T>::FromValue(target[it_Index], l_List.Elements[it_Index], scene);
+                }
+            }
+        }
+    };
 }
