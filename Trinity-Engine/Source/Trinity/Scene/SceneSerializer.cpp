@@ -2,6 +2,7 @@
 
 #include "Trinity/Scene/LiveScenes.hpp"
 
+#include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
@@ -9,6 +10,7 @@
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
+#include "Trinity/Scene/Prefab.hpp"
 #include "Trinity/Scene/Scene.hpp"
 
 #include <yaml-cpp/yaml.h>
@@ -17,11 +19,13 @@
 #include <array>
 #include <charconv>
 #include <format>
+#include <optional>
 #include <span>
 #include <string>
 #include <system_error>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -32,16 +36,26 @@ namespace Trinity
     {
         constexpr std::string_view c_EntityKey = "Entity";
         constexpr std::string_view c_ParentKey = "Parent";
+        constexpr std::string_view c_InstanceKey = "Instance";
+        constexpr std::string_view c_PrefabKey = "Prefab";
+        constexpr std::string_view c_OverridesKey = "Overrides";
+        constexpr std::string_view c_AddedComponentsKey = "AddedComponents";
+        constexpr std::string_view c_RemovedComponentsKey = "RemovedComponents";
+        constexpr std::string_view c_RemovedEntitiesKey = "RemovedEntities";
+        constexpr std::string_view c_MissingPrefabName = "Missing Prefab";
+        // Between the keys and indices of an override's path, such as Scripts/0/Fields/Health
+        constexpr char c_PathSeparator = '/';
 
         using MigrationFunction = void (*)(YAML::Node& root);
 
-        // Entry N - 1 turns a format N file into format N + 1
-        constexpr std::array<MigrationFunction, SceneSerializer::c_FormatVersion - 1> c_Migrations{};
+        // Entry N - 1 turns a format N file into format N + 1. Format 2 added prefab instances, so a format 1 file reads as it is
+        constexpr std::array<MigrationFunction, SceneSerializer::c_FormatVersion - 1> c_Migrations{ [](YAML::Node&) {} };
 
         struct State
         {
             std::vector<ComponentSerializer, TaggedAllocator<ComponentSerializer, MemoryTag::Engine>> Serializers;
             std::vector<Scene*, TaggedAllocator<Scene*, MemoryTag::Engine>> Scenes;
+            SceneSerializer::PrefabResolver Resolver;
         };
 
         State* s_State = nullptr;
@@ -552,7 +566,7 @@ namespace Trinity
 
         constexpr std::array<std::pair<CharacterMode, std::string_view>, 2> c_CharacterModeNames{ { { CharacterMode::Kinematic, "Kinematic" },{ CharacterMode::Physical, "Physical" } } };
 
-        void SaveCharacterController(const CharacterControllerComponent & component, ComponentWriter & writer)
+        void SaveCharacterController(const CharacterControllerComponent& component, ComponentWriter& writer)
         {
             const auto a_Found = std::ranges::find(c_CharacterModeNames, component.Mode, &std::pair<CharacterMode, std::string_view>::first);
             writer.Write("Mode", a_Found != c_CharacterModeNames.end() ? a_Found->second : std::string_view("Kinematic"));
@@ -567,7 +581,7 @@ namespace Trinity
         }
 
         // A layer past the last there can be is taken as the first, as a collider's is, and a mode this build lacks, or none, as kinematic
-        void LoadCharacterController(CharacterControllerComponent & component, const ComponentReader & reader)
+        void LoadCharacterController(CharacterControllerComponent& component, const ComponentReader& reader)
         {
             std::string l_Mode;
             reader.Read("Mode", l_Mode);
@@ -584,7 +598,7 @@ namespace Trinity
             component.Layer = component.Layer < c_MaxCollisionLayers ? component.Layer : 0;
         }
 
-        void SaveRigidBody2D(const RigidBody2DComponent & component, ComponentWriter & writer)
+        void SaveRigidBody2D(const RigidBody2DComponent& component, ComponentWriter& writer)
         {
             const auto a_Found = std::ranges::find(c_BodyMotionNames, component.Motion, &std::pair<BodyMotion, std::string_view>::first);
             writer.Write("Motion", a_Found != c_BodyMotionNames.end() ? a_Found->second : std::string_view("Dynamic"));
@@ -898,14 +912,74 @@ namespace Trinity
             });
         }
 
+        std::optional<UUID> ReadUUID(const YAML::Node& node)
+        {
+            const std::optional<UUID> l_UUID = node && node.IsScalar() ? UUID::Parse(node.Scalar()) : std::nullopt;
+
+            return l_UUID && l_UUID->IsValid() ? l_UUID : std::nullopt;
+        }
+
+        // Each line of the text, without its line break
+        std::vector<std::string_view> SplitLines(std::string_view text)
+        {
+            std::vector<std::string_view> l_Lines;
+            std::size_t l_Start = 0;
+            while (l_Start <= text.size())
+            {
+                const std::size_t l_End = std::min(text.find('\n', l_Start), text.size());
+                std::string_view l_Line = text.substr(l_Start, l_End - l_Start);
+                if (l_Line.ends_with('\r'))
+                {
+                    l_Line.remove_suffix(1);
+                }
+
+                l_Lines.push_back(l_Line);
+                l_Start = l_End + 1;
+            }
+
+            return l_Lines;
+        }
+
+        // A block map or sequence that holds something, which is compared and written within, where anything else is one value
+        bool IsBranch(const YAML::Node& node)
+        {
+            return (node.IsMap() || node.IsSequence()) && node.size() != 0 && node.Style() != YAML::EmitterStyle::Flow;
+        }
+
+        // A value after its key, on the key's line, or on lines of their own below it for a block map or sequence
+        void AppendNode(std::string& output, const YAML::Node& node, std::uint32_t indent)
+        {
+            if (!node.IsDefined() || node.IsNull())
+            {
+                return;
+            }
+
+            if (IsBranch(node))
+            {
+                AppendIndented(output, YAML::Dump(node), indent);
+
+                return;
+            }
+
+            output += ' ';
+            output += YAML::Dump(node);
+        }
+
+        // An entity as a file has it, or an instance of a prefab, whose ID is the instance's own, with the lines of the text the entry takes, from its first, which an instance whose prefab is missing keeps as they are
         struct FileEntity
         {
             UUID ID;
             UUID Parent;
             YAML::Node Node;
+            UUID Prefab;
+            std::size_t FirstLine = 0;
+            std::size_t EndLine = 0;
+
+            [[nodiscard]] bool IsInstance() const { return Prefab.IsValid(); }
         };
 
-        Expected<std::vector<FileEntity>, std::string> ReadEntities(const YAML::Node& root)
+        // Instances only where a scene may hold them, and not yet in a prefab
+        Expected<std::vector<FileEntity>, std::string> ReadEntities(const YAML::Node& root, bool allowInstances, std::size_t lineCount)
         {
             const YAML::Node l_Entities = root["Entities"];
             if (!l_Entities)
@@ -920,63 +994,72 @@ namespace Trinity
 
             std::vector<FileEntity> l_Result;
             l_Result.reserve(l_Entities.size());
-            std::unordered_map<UUID, UUID> l_Parents;
+            std::unordered_set<UUID> l_IDs;
             for (std::size_t it_Index = 0; it_Index < l_Entities.size(); ++it_Index)
             {
-                const YAML::Node l_Entry = l_Entities[it_Index];
-                const YAML::Node l_ID = l_Entry.IsMap() ? l_Entry[std::string(c_EntityKey)] : YAML::Node();
-                const std::optional<UUID> l_UUID = l_ID && l_ID.IsScalar() ? UUID::Parse(l_ID.Scalar()) : std::nullopt;
-                if (!l_UUID || !l_UUID->IsValid())
+                FileEntity l_Entity;
+                l_Entity.Node = l_Entities[it_Index];
+                if (const std::optional<UUID> l_UUID = l_Entity.Node.IsMap() ? ReadUUID(l_Entity.Node[std::string(c_EntityKey)]) : std::nullopt)
+                {
+                    l_Entity.ID = *l_UUID;
+                }
+                else if (const std::optional<UUID> l_Instance = allowInstances && l_Entity.Node.IsMap() ? ReadUUID(l_Entity.Node[std::string(c_InstanceKey)]) : std::nullopt)
+                {
+                    const std::optional<UUID> l_Prefab = ReadUUID(l_Entity.Node[std::string(c_PrefabKey)]);
+                    if (!l_Prefab)
+                    {
+                        return Unexpected{ std::format("instance {} names no valid Prefab", *l_Instance) };
+                    }
+
+                    l_Entity.ID = *l_Instance;
+                    l_Entity.Prefab = *l_Prefab;
+                }
+                else
                 {
                     return Unexpected{ std::format("entity {} has no valid Entity UUID", it_Index) };
                 }
 
-                UUID l_Parent;
-                if (const YAML::Node l_ParentNode = l_Entry[std::string(c_ParentKey)])
+                if (const YAML::Node l_ParentNode = l_Entity.Node[std::string(c_ParentKey)])
                 {
-                    const std::optional<UUID> l_ParentUUID = l_ParentNode.IsScalar() ? UUID::Parse(l_ParentNode.Scalar()) : std::nullopt;
-                    if (!l_ParentUUID || !l_ParentUUID->IsValid())
+                    const std::optional<UUID> l_ParentUUID = ReadUUID(l_ParentNode);
+                    if (!l_ParentUUID)
                     {
-                        return Unexpected{ std::format("entity {} has a malformed Parent", *l_UUID) };
+                        return Unexpected{ std::format("entity {} has a malformed Parent", l_Entity.ID) };
                     }
 
-                    l_Parent = *l_ParentUUID;
+                    l_Entity.Parent = *l_ParentUUID;
                 }
 
-                if (!l_Parents.emplace(*l_UUID, l_Parent).second)
+                if (!l_IDs.insert(l_Entity.ID).second)
                 {
-                    return Unexpected{ std::format("entity {} appears more than once", *l_UUID) };
+                    return Unexpected{ std::format("entity {} appears more than once", l_Entity.ID) };
                 }
 
-                l_Result.push_back({ *l_UUID, l_Parent, l_Entry });
+                l_Entity.FirstLine = static_cast<std::size_t>(std::max(l_Entity.Node.Mark().line, 0));
+                l_Result.push_back(std::move(l_Entity));
             }
 
-            // Every parent exists, and following parents from any entity reaches a root within as many steps as there are entities
-            for (const FileEntity& it_Entity : l_Result)
+            // Each entry's lines run to the next entry's, and the last's to the next of the document's own keys, or the end
+            std::size_t l_End = lineCount;
+            for (const auto& it_Pair : root)
             {
-                UUID l_Current = it_Entity.Parent;
-                for (std::size_t it_Step = 0; l_Current.IsValid(); ++it_Step)
+                const std::size_t l_Line = static_cast<std::size_t>(std::max(it_Pair.first.Mark().line, 0));
+                if (!l_Result.empty() && l_Line > l_Result.back().FirstLine)
                 {
-                    const auto a_Found = l_Parents.find(l_Current);
-                    if (a_Found == l_Parents.end())
-                    {
-                        return Unexpected{ std::format("entity {} names parent {}, which is not in the file", it_Entity.ID, l_Current) };
-                    }
-
-                    if (it_Step > l_Result.size())
-                    {
-                        return Unexpected{ std::format("entity {} is its own ancestor", it_Entity.ID) };
-                    }
-
-                    l_Current = a_Found->second;
+                    l_End = std::min(l_End, l_Line);
                 }
+            }
+
+            for (std::size_t it_Index = 0; it_Index < l_Result.size(); ++it_Index)
+            {
+                l_Result[it_Index].EndLine = it_Index + 1 < l_Result.size() ? l_Result[it_Index + 1].FirstLine : l_End;
             }
 
             return l_Result;
         }
 
-        // Format and migrations first, so entity text kept by the editor reads exactly like a scene file
-        Expected<YAML::Node, std::string> ParseDocument(std::string_view text)
+        // The YAML, refused when it is not, or when its Format is not one from 1 to the newest this build reads
+        Expected<YAML::Node, std::string> ParseFormat(std::string_view text, std::uint32_t newest, std::uint32_t& version)
         {
             YAML::Node l_Root;
             try
@@ -989,35 +1072,322 @@ namespace Trinity
             }
 
             const YAML::Node l_Format = l_Root.IsMap() ? l_Root["Format"] : YAML::Node();
-            std::uint32_t l_Version = 0;
-            if (!l_Format || !l_Format.IsScalar() || !ParseNumber(l_Format.Scalar(), l_Version) || l_Version == 0)
+            if (!l_Format || !l_Format.IsScalar() || !ParseNumber(l_Format.Scalar(), version) || version == 0)
             {
                 return Unexpected{ std::string("no valid Format version") };
             }
 
-            if (l_Version > SceneSerializer::c_FormatVersion)
+            if (version > newest)
             {
-                return Unexpected{ std::format("written in format {} by a newer Trinity, and this build reads format {} and older", l_Version, SceneSerializer::c_FormatVersion) };
-            }
-
-            for (std::uint32_t it_Version = l_Version; it_Version < SceneSerializer::c_FormatVersion; ++it_Version)
-            {
-                c_Migrations[it_Version - 1](l_Root);
+                return Unexpected{ std::format("written in format {} by a newer Trinity, and this build reads format {} and older", version, newest) };
             }
 
             return l_Root;
         }
 
-        void AppendEntity(std::string& text, Entity entity, bool writeParent)
+        // Format and migrations first, so entity text kept by the editor reads exactly like a scene file
+        Expected<YAML::Node, std::string> ParseDocument(std::string_view text)
+        {
+            std::uint32_t l_Version = 0;
+            Expected<YAML::Node, std::string> l_Root = ParseFormat(text, SceneSerializer::c_FormatVersion, l_Version);
+            if (!l_Root)
+            {
+                return l_Root;
+            }
+
+            for (std::uint32_t it_Version = l_Version; it_Version < SceneSerializer::c_FormatVersion; ++it_Version)
+            {
+                c_Migrations[it_Version - 1](*l_Root);
+            }
+
+            return l_Root;
+        }
+
+        // The prefab's entities, root first in hierarchy order, each with the UUID the instance gives it, without those the instance removes and their subtrees
+        std::vector<std::pair<entt::entity, UUID>> GetInstanceMembers(Scene& prefab, UUID instance, const std::unordered_set<UUID>& removed)
+        {
+            std::vector<std::pair<entt::entity, UUID>> l_Members;
+            const Entity l_Root = prefab.GetFirstRoot();
+            std::vector<Entity> l_Pending{ l_Root };
+            while (!l_Pending.empty())
+            {
+                const Entity l_Entity = l_Pending.back();
+                l_Pending.pop_back();
+                l_Members.emplace_back(l_Entity.GetHandle(), Prefab::MakeEntityUUID(instance, l_Entity.GetUUID()));
+                for (Entity it_Child = l_Entity.GetLastChild(); it_Child; it_Child = it_Child.GetPreviousSibling())
+                {
+                    if (!removed.contains(it_Child.GetUUID()))
+                    {
+                        l_Pending.push_back(it_Child);
+                    }
+                }
+            }
+
+            return l_Members;
+        }
+
+        // The local IDs an instance's entry removes, never its prefab's root
+        std::unordered_set<UUID> ReadRemovedEntities(const YAML::Node& entry)
+        {
+            std::unordered_set<UUID> l_Removed;
+            const YAML::Node l_List = entry[std::string(c_RemovedEntitiesKey)];
+            if (l_List && l_List.IsSequence())
+            {
+                for (const YAML::Node it_Local : l_List)
+                {
+                    if (const std::optional<UUID> l_Local = ReadUUID(it_Local))
+                    {
+                        l_Removed.insert(*l_Local);
+                    }
+                }
+            }
+
+            return l_Removed;
+        }
+
+        // An entry as it is to be loaded: an instance with its prefab's entities, its members, or one whose prefab is not there standing in for itself with the text its entry and the entries of its subtree take, which it absorbs. An entity under one its prefab no longer has goes under the instance's root
+        struct PlannedEntity
+        {
+            const FileEntity* File = nullptr;
+            UUID Parent;
+            bool Absorbed = false;
+            Scene* Template = nullptr;
+            std::vector<std::pair<entt::entity, UUID>> Members;
+            std::string Kept;
+
+            [[nodiscard]] UUID GetRoot() const { return Template != nullptr ? Members.front().second : File->ID; }
+
+            // What it is to make, the prefab's entities for an instance, and the entity itself for an entity or one standing in for an instance
+            [[nodiscard]] std::vector<UUID> GetEntities() const
+            {
+                if (Template == nullptr)
+                {
+                    return { File->ID };
+                }
+
+                std::vector<UUID> l_Entities;
+                l_Entities.reserve(Members.size());
+                for (const auto& it_Member : Members)
+                {
+                    l_Entities.push_back(it_Member.second);
+                }
+
+                return l_Entities;
+            }
+        };
+
+        bool IsBlank(std::string_view line)
+        {
+            return line.find_first_not_of(" \t") == std::string_view::npos;
+        }
+
+        // The entry's lines as the file has them, each after a line break, every one of them for an entry taken whole, or for an instance's body those after its first and Parent's, which are written in their place. An entry not written in blocks, as Trinity writes them, is written as YAML would
+        std::string GetEntryText(const FileEntity& entity, std::span<const std::string_view> lines, bool body)
+        {
+            std::size_t l_KeyLine = std::string_view::npos;
+            std::size_t l_ParentLine = std::string_view::npos;
+            bool l_OneLine = true;
+            for (const auto& it_Pair : entity.Node)
+            {
+                const std::string& l_Key = it_Pair.first.Scalar();
+                if (l_Key == c_InstanceKey || l_Key == c_EntityKey || l_Key == c_ParentKey)
+                {
+                    const std::size_t l_Line = static_cast<std::size_t>(std::max(it_Pair.first.Mark().line, 0));
+                    l_OneLine = l_OneLine && it_Pair.second.IsScalar() && it_Pair.second.Mark().line == it_Pair.first.Mark().line;
+                    (l_Key == c_ParentKey ? l_ParentLine : l_KeyLine) = l_Line;
+                }
+            }
+
+            std::string l_Text;
+            if (entity.Node.Style() != YAML::EmitterStyle::Flow && l_OneLine && l_KeyLine == entity.FirstLine && entity.FirstLine < entity.EndLine && entity.EndLine <= lines.size())
+            {
+                std::size_t l_End = entity.EndLine;
+                while (l_End > entity.FirstLine + 1 && IsBlank(lines[l_End - 1]))
+                {
+                    --l_End;
+                }
+
+                for (std::size_t it_Line = entity.FirstLine + (body ? 1 : 0); it_Line < l_End; ++it_Line)
+                {
+                    if (!body || it_Line != l_ParentLine)
+                    {
+                        l_Text += '\n';
+                        l_Text += lines[it_Line];
+                    }
+                }
+
+                return l_Text;
+            }
+
+            if (!body)
+            {
+                return std::format("\n  - {}", YAML::Dump(entity.Node));
+            }
+
+            for (const auto& it_Pair : entity.Node)
+            {
+                if (it_Pair.first.Scalar() != c_InstanceKey && it_Pair.first.Scalar() != c_ParentKey)
+                {
+                    l_Text += std::format("\n    {}:", FormatString(it_Pair.first.Scalar()));
+                    AppendNode(l_Text, it_Pair.second, 6);
+                }
+            }
+
+            return l_Text;
+        }
+
+        // Every entity there is to be with its parent, each found once, and each parent among them, which an entry under an instance's entity finds once the instance is, so a scene is only replaced once it is known to load whole
+        Expected<std::vector<PlannedEntity>, std::string> PlanEntities(const std::vector<FileEntity>& entities, std::span<const std::string_view> lines)
+        {
+            std::vector<PlannedEntity> l_Plan(entities.size());
+            std::unordered_map<UUID, UUID> l_Parents;
+            for (std::size_t it_Index = 0; it_Index < entities.size(); ++it_Index)
+            {
+                const FileEntity& l_File = entities[it_Index];
+                PlannedEntity& l_Planned = l_Plan[it_Index];
+                l_Planned.File = &l_File;
+                l_Planned.Parent = l_File.Parent;
+                Scene* l_Template = l_File.IsInstance() ? SceneSerializer::FindPrefabTemplate(l_File.Prefab) : nullptr;
+                if (l_Template == nullptr || !l_Template->GetFirstRoot())
+                {
+                    if (!l_Parents.emplace(l_File.ID, l_File.Parent).second)
+                    {
+                        return Unexpected{ std::format("entity {} appears more than once", l_File.ID) };
+                    }
+
+                    continue;
+                }
+
+                l_Planned.Template = l_Template;
+                l_Planned.Members = GetInstanceMembers(*l_Template, l_File.ID, ReadRemovedEntities(l_File.Node));
+                const SceneRegistry& l_Registry = l_Template->GetRegistry();
+                for (const auto& [it_Member, it_UUID] : l_Planned.Members)
+                {
+                    const entt::entity l_Parent = l_Registry.get<RelationshipComponent>(it_Member).Parent;
+                    const UUID l_ParentUUID = l_Parent == entt::null ? l_File.Parent : Prefab::MakeEntityUUID(l_File.ID, l_Registry.get<IDComponent>(l_Parent).ID);
+                    if (!it_UUID.IsValid() || !l_Parents.emplace(it_UUID, l_ParentUUID).second)
+                    {
+                        return Unexpected{ std::format("entity {} of instance {} appears more than once", it_UUID, l_File.ID) };
+                    }
+                }
+            }
+
+            // An entry is in the subtree of each instance before it whose entities, or entries in it, its parent is one of. While the latest such instance is one whose prefab is missing, the entry is absorbed into it, and an entry whose parent is no entity there is to be, under an instance's entity the prefab no longer has, goes under that instance's root
+            struct Run
+            {
+                std::size_t Entry = 0;
+                bool Kept = false;
+                std::unordered_set<UUID> Members;
+            };
+
+            std::vector<Run> l_Runs;
+            for (std::size_t it_Index = 0; it_Index < entities.size(); ++it_Index)
+            {
+                const FileEntity& l_File = entities[it_Index];
+                PlannedEntity& l_Planned = l_Plan[it_Index];
+                const UUID l_Parent = l_File.Parent;
+                while (!l_Runs.empty() && (!l_Parent.IsValid() || (!l_Runs.back().Members.contains(l_Parent) && l_Parents.contains(l_Parent))))
+                {
+                    l_Runs.pop_back();
+                }
+
+                const std::vector<UUID> l_Brought = l_Planned.GetEntities();
+                const auto a_Bring = [&l_Runs, &l_Brought]
+                {
+                    for (Run& it_Run : l_Runs)
+                    {
+                        it_Run.Members.insert(l_Brought.begin(), l_Brought.end());
+                    }
+                };
+
+                if (!l_Runs.empty() && l_Runs.back().Kept)
+                {
+                    l_Planned.Absorbed = true;
+                    l_Plan[l_Runs.back().Entry].Kept += GetEntryText(l_File, lines, false);
+                    a_Bring();
+
+                    continue;
+                }
+
+                if (l_Parent.IsValid() && !l_Parents.contains(l_Parent))
+                {
+                    if (l_Runs.empty())
+                    {
+                        return Unexpected{ std::format("entity {} names parent {}, which is not in the file", l_File.ID, l_Parent) };
+                    }
+
+                    const PlannedEntity& l_Owner = l_Plan[l_Runs.back().Entry];
+                    TR_CORE_WARN("Scene: entity {} was under {}, which prefab instance {} no longer has, so it goes under the instance's root", l_File.ID, l_Parent, l_Owner.File->ID);
+                    l_Planned.Parent = l_Owner.GetRoot();
+                    l_Parents[l_Planned.GetRoot()] = l_Planned.Parent;
+                }
+
+                a_Bring();
+                if (l_File.IsInstance())
+                {
+                    l_Runs.push_back({ it_Index, l_Planned.Template == nullptr, std::unordered_set<UUID>(l_Brought.begin(), l_Brought.end()) });
+                    if (l_Planned.Template == nullptr)
+                    {
+                        l_Planned.Kept = GetEntryText(l_File, lines, true);
+                    }
+                }
+            }
+
+            // Each parent is an entity there is to be, and following parents from any entity reaches a root within as many steps as there are entities
+            std::unordered_set<UUID> l_Existing;
+            for (const PlannedEntity& it_Planned : l_Plan)
+            {
+                if (!it_Planned.Absorbed)
+                {
+                    const std::vector<UUID> l_Entities = it_Planned.GetEntities();
+                    l_Existing.insert(l_Entities.begin(), l_Entities.end());
+                }
+            }
+
+            for (const PlannedEntity& it_Planned : l_Plan)
+            {
+                if (it_Planned.Absorbed)
+                {
+                    continue;
+                }
+
+                if (it_Planned.Parent.IsValid() && !l_Existing.contains(it_Planned.Parent))
+                {
+                    return Unexpected{ std::format("entity {} names parent {}, which is not in the file", it_Planned.File->ID, it_Planned.Parent) };
+                }
+
+                UUID l_Current = it_Planned.Parent;
+                for (std::size_t it_Step = 0; l_Current.IsValid(); ++it_Step)
+                {
+                    const auto a_Parent = l_Parents.find(l_Current);
+                    if (a_Parent == l_Parents.end())
+                    {
+                        return Unexpected{ std::format("entity {} has an ancestor {} that is not in the file", it_Planned.File->ID, l_Current) };
+                    }
+
+                    if (it_Step > l_Parents.size())
+                    {
+                        return Unexpected{ std::format("entity {} is its own ancestor", it_Planned.File->ID) };
+                    }
+
+                    l_Current = a_Parent->second;
+                }
+            }
+
+            return l_Plan;
+        }
+
+        // The entity, its own UUID and its parent's written, or none for one written as a root
+        void AppendEntity(std::string& text, Entity entity, UUID id, UUID parent)
         {
             constexpr std::uint32_t c_FieldIndent = 6;
 
             SceneRegistry& l_Registry = entity.GetScene()->GetRegistry();
 
-            text += std::format("\n  - {}: {}", c_EntityKey, ToHex(entity.GetUUID()));
-            if (const Entity l_Parent = entity.GetParent(); writeParent && l_Parent)
+            text += std::format("\n  - {}: {}", c_EntityKey, ToHex(id));
+            if (parent.IsValid())
             {
-                text += std::format("\n    {}: {}", c_ParentKey, ToHex(l_Parent.GetUUID()));
+                text += std::format("\n    {}: {}", c_ParentKey, ToHex(parent));
             }
 
             for (const ComponentSerializer& it_Serializer : s_State->Serializers)
@@ -1054,28 +1424,390 @@ namespace Trinity
             serializer.Load(storage.value(entity.GetHandle()), l_Reader);
         }
 
-        // Every entity first, with its own UUID, then parents in file order, which is hierarchy order, so siblings keep theirs. Components no loaded code knows are kept as YAML and counted by name
-        void CreateEntities(Scene& scene, const std::vector<FileEntity>& entities, std::unordered_map<std::string, std::size_t>& unknown)
+        // Only a component with a registered serializer, which code knows how to save and load
+        SceneRegistry::common_type* FindStorage(Entity entity, std::string_view name)
         {
-            SceneRegistry& l_Registry = scene.GetRegistry();
+            return FindSerializer(name) != nullptr ? entity.GetScene()->GetRegistry().storage(GetPoolId(name)) : nullptr;
+        }
 
-            for (const FileEntity& it_Entity : entities)
+        // The prefab's entities with the instance's UUIDs and every component the prefab gives them, linked as the prefab links them under the instance's root, which goes last among the roots. A prefab names no entity outside itself, so each it names is by local ID, and the instance names the entity of that local ID it has, or would have. Their UUIDs are free
+        Entity ExpandInstance(Scene& scene, Scene& prefab, const std::vector<std::pair<entt::entity, UUID>>& members, UUID prefabID, UUID instance)
+        {
+            SceneRegistry& l_Target = scene.GetRegistry();
+            SceneRegistry& l_Source = prefab.GetRegistry();
+            for (const auto& [it_Member, it_UUID] : members)
             {
-                static_cast<void>(scene.CreateEntityWithUUID(it_Entity.ID));
-            }
-
-            for (const FileEntity& it_Entity : entities)
-            {
-                if (it_Entity.Parent.IsValid())
+                const Entity l_Entity = scene.CreateEntityWithUUID(it_UUID);
+                for (auto [it_Id, it_Storage] : l_Source.storage())
                 {
-                    scene.SetParent(scene.FindEntityByUUID(it_Entity.ID), scene.FindEntityByUUID(it_Entity.Parent), false);
+                    if (it_Id == entt::type_hash<IDComponent>::value() || it_Id == entt::type_hash<RelationshipComponent>::value() || it_Id == entt::type_hash<PrefabInstanceComponent>::value() || !it_Storage.contains(it_Member))
+                    {
+                        continue;
+                    }
+
+                    SceneRegistry::common_type* l_Storage = l_Target.storage(it_Id);
+                    if (l_Storage == nullptr)
+                    {
+                        TR_CORE_ERROR("Scene: prefab {} has a component the scene has no pool for, which instance {} leaves out", prefabID, instance);
+
+                        continue;
+                    }
+
+                    if (l_Storage->contains(l_Entity.GetHandle()))
+                    {
+                        l_Storage->erase(l_Entity.GetHandle());
+                    }
+
+                    l_Storage->push(l_Entity.GetHandle(), it_Storage.value(it_Member));
+                }
+
+                const entt::entity l_Parent = l_Source.get<RelationshipComponent>(it_Member).Parent;
+                if (l_Parent != entt::null)
+                {
+                    scene.SetParent(l_Entity, scene.FindEntityByUUID(Prefab::MakeEntityUUID(instance, l_Source.get<IDComponent>(l_Parent).ID)), false);
                 }
             }
 
-            for (const FileEntity& it_Entity : entities)
+            Entity l_Root = scene.FindEntityByUUID(members.front().second);
+            scene.RemapEntityReferences(l_Root, [instance](UUID& entity)
             {
-                Entity l_Entity = scene.FindEntityByUUID(it_Entity.ID);
-                for (const auto& it_Pair : it_Entity.Node)
+                if (entity.IsValid())
+                {
+                    entity = Prefab::MakeEntityUUID(instance, entity);
+                }
+            });
+
+            l_Root.Add<PrefabInstanceComponent>(PrefabInstanceComponent{ .Prefab = prefabID, .Instance = instance, .Kept = {} });
+
+            return l_Root;
+        }
+
+        UnknownComponentsComponent::Entry* FindKept(Entity entity, std::string_view name)
+        {
+            if (!entity.Has<UnknownComponentsComponent>())
+            {
+                return nullptr;
+            }
+
+            auto& l_Entries = entity.Get<UnknownComponentsComponent>().Entries;
+            const auto a_Kept = std::ranges::find_if(l_Entries, [name](const UnknownComponentsComponent::Entry& entry) { return std::string_view(entry.Name) == name; });
+
+            return a_Kept != l_Entries.end() ? &*a_Kept : nullptr;
+        }
+
+        std::string SaveComponentYaml(const ComponentSerializer& serializer, const void* component)
+        {
+            std::string l_Text;
+            ComponentWriter l_Writer(l_Text, 0);
+            serializer.Save(component, l_Writer);
+
+            return l_Text;
+        }
+
+        // False when the entity keeps no YAML for the component
+        bool RemoveKept(Entity entity, std::string_view name)
+        {
+            if (!entity.Has<UnknownComponentsComponent>())
+            {
+                return false;
+            }
+
+            auto& l_Entries = entity.Get<UnknownComponentsComponent>().Entries;
+            if (std::erase_if(l_Entries, [name](const UnknownComponentsComponent::Entry& entry) { return std::string_view(entry.Name) == name; }) == 0)
+            {
+                return false;
+            }
+
+            if (l_Entries.empty())
+            {
+                entity.Remove<UnknownComponentsComponent>();
+            }
+
+            return true;
+        }
+
+        // What the entity's component is as YAML, by its serializer or as it is kept, or nothing when the entity is without it
+        std::optional<std::string> GetComponentYaml(Entity entity, std::string_view name)
+        {
+            if (SceneRegistry::common_type* l_Storage = FindStorage(entity, name); l_Storage != nullptr && l_Storage->contains(entity.GetHandle()))
+            {
+                return SaveComponentYaml(*FindSerializer(name), l_Storage->value(entity.GetHandle()));
+            }
+
+            if (const UnknownComponentsComponent::Entry* l_Kept = FindKept(entity, name))
+            {
+                return std::string(std::string_view(l_Kept->Yaml));
+            }
+
+            return std::nullopt;
+        }
+
+        // The component loaded from the YAML, by its serializer, added first when the entity is without it, or kept as it is when no loaded code knows it. Whole, so a component the entity had is replaced
+        void SetComponentYaml(Entity entity, std::string_view name, const YAML::Node& node, std::unordered_map<std::string, std::size_t>& unknown)
+        {
+            if (SceneRegistry::common_type* l_Storage = FindStorage(entity, name))
+            {
+                if (l_Storage->contains(entity.GetHandle()))
+                {
+                    l_Storage->erase(entity.GetHandle());
+                }
+
+                LoadComponent(entity, *FindSerializer(name), *l_Storage, node);
+
+                return;
+            }
+
+            if (UnknownComponentsComponent::Entry* l_Kept = FindKept(entity, name))
+            {
+                l_Kept->Yaml = TaggedString<MemoryTag::Scene>(YAML::Dump(node));
+
+                return;
+            }
+
+            if (!entity.Has<UnknownComponentsComponent>())
+            {
+                entity.Add<UnknownComponentsComponent>();
+            }
+
+            entity.Get<UnknownComponentsComponent>().Entries.push_back({ TaggedString<MemoryTag::Scene>(name), TaggedString<MemoryTag::Scene>(YAML::Dump(node)) });
+            ++unknown[std::string(name)];
+        }
+
+        // The value set at the path inside the node, by key in a map and by index in a sequence, false when the path leads nowhere the node has. A map's last key need not be there yet
+        bool SetAtPath(YAML::Node& node, std::string_view path, const YAML::Node& value)
+        {
+            YAML::Node l_Current = node;
+            std::size_t l_Start = 0;
+            while (true)
+            {
+                const std::size_t l_End = path.find(c_PathSeparator, l_Start);
+                const std::string l_Segment(path.substr(l_Start, l_End == std::string_view::npos ? std::string_view::npos : l_End - l_Start));
+                const bool l_Last = l_End == std::string_view::npos;
+                if (l_Current.IsSequence())
+                {
+                    std::size_t l_Index = 0;
+                    if (!ParseNumber(std::string_view(l_Segment), l_Index) || l_Index >= l_Current.size())
+                    {
+                        return false;
+                    }
+
+                    if (l_Last)
+                    {
+                        l_Current[l_Index] = YAML::Clone(value);
+
+                        return true;
+                    }
+
+                    l_Current.reset(l_Current[l_Index]);
+                }
+                else if (l_Current.IsMap())
+                {
+                    if (l_Last)
+                    {
+                        l_Current[l_Segment] = YAML::Clone(value);
+
+                        return true;
+                    }
+
+                    if (!l_Current[l_Segment])
+                    {
+                        return false;
+                    }
+
+                    l_Current.reset(l_Current[l_Segment]);
+                }
+                else
+                {
+                    return false;
+                }
+
+                l_Start = l_End + 1;
+            }
+        }
+
+        // The overrides of one of the entity's components: each value at its path, or the whole of it for one value. How many lead nowhere the component has, all of them for a component the entity is without
+        std::size_t OverrideComponent(Entity entity, std::string_view name, const YAML::Node& overrides, std::unordered_map<std::string, std::size_t>& unknown)
+        {
+            const bool l_ByPath = IsBranch(overrides) && overrides.IsMap();
+            const std::size_t l_Count = l_ByPath ? overrides.size() : 1;
+            const std::optional<std::string> l_Yaml = GetComponentYaml(entity, name);
+            if (!l_Yaml)
+            {
+                return l_Count;
+            }
+
+            YAML::Node l_Node;
+            try
+            {
+                l_Node = YAML::Load(*l_Yaml);
+            }
+            catch (const YAML::Exception&)
+            {
+                return l_Count;
+            }
+
+            std::size_t l_Dropped = 0;
+            if (l_ByPath)
+            {
+                for (const auto& it_Pair : overrides)
+                {
+                    if (!it_Pair.first.IsScalar() || !SetAtPath(l_Node, it_Pair.first.Scalar(), it_Pair.second))
+                    {
+                        ++l_Dropped;
+                    }
+                }
+            }
+            else
+            {
+                l_Node.reset(YAML::Clone(overrides));
+            }
+
+            SetComponentYaml(entity, name, l_Node, unknown);
+
+            return l_Dropped;
+        }
+
+        // Of each entity the section names by local ID, each component under it given to the function, with how many the section names of what the instance no longer has
+        template<typename F>
+        std::size_t ForEachChange(Scene& scene, const FileEntity& instance, std::string_view section, F&& change)
+        {
+            const YAML::Node l_Section = instance.Node[std::string(section)];
+            if (!l_Section)
+            {
+                return 0;
+            }
+
+            if (!l_Section.IsMap())
+            {
+                return 1;
+            }
+
+            std::size_t l_Dropped = 0;
+            for (const auto& it_Entity : l_Section)
+            {
+                const std::optional<UUID> l_Local = ReadUUID(it_Entity.first);
+                const Entity l_Entity = l_Local ? scene.FindEntityByUUID(Prefab::MakeEntityUUID(instance.ID, *l_Local)) : Entity();
+                if (!l_Entity)
+                {
+                    ++l_Dropped;
+
+                    continue;
+                }
+
+                l_Dropped += change(l_Entity, it_Entity.second);
+            }
+
+            return l_Dropped;
+        }
+
+        // What the instance changes of its prefab: the components it removes, the values it overrides, then the components it adds. A change of what the prefab no longer has is dropped, and logged
+        void ApplyInstanceChanges(Scene& scene, const PlannedEntity& planned, std::unordered_map<std::string, std::size_t>& unknown)
+        {
+            const FileEntity& l_File = *planned.File;
+            std::size_t l_Dropped = ForEachChange(scene, l_File, c_RemovedComponentsKey, [](Entity entity, const YAML::Node& names) -> std::size_t
+            {
+                if (!names.IsSequence())
+                {
+                    return 1;
+                }
+
+                std::size_t l_Missing = 0;
+                for (const YAML::Node it_Name : names)
+                {
+                    const std::string l_Name = it_Name.IsScalar() ? it_Name.Scalar() : std::string();
+                    if (FindStorage(entity, l_Name) != nullptr ? !SceneSerializer::RemoveComponent(entity, l_Name) : !RemoveKept(entity, l_Name))
+                    {
+                        ++l_Missing;
+                    }
+                }
+
+                return l_Missing;
+            });
+
+            l_Dropped += ForEachChange(scene, l_File, c_OverridesKey, [&unknown](Entity entity, const YAML::Node& components) -> std::size_t
+            {
+                if (!components.IsMap())
+                {
+                    return 1;
+                }
+
+                std::size_t l_Missing = 0;
+                for (const auto& it_Component : components)
+                {
+                    l_Missing += OverrideComponent(entity, it_Component.first.Scalar(), it_Component.second, unknown);
+                }
+
+                return l_Missing;
+            });
+
+            l_Dropped += ForEachChange(scene, l_File, c_AddedComponentsKey, [&unknown](Entity entity, const YAML::Node& components) -> std::size_t
+            {
+                if (!components.IsMap())
+                {
+                    return 1;
+                }
+
+                for (const auto& it_Component : components)
+                {
+                    SetComponentYaml(entity, it_Component.first.Scalar(), it_Component.second, unknown);
+                }
+
+                return 0;
+            });
+
+            if (l_Dropped != 0)
+            {
+                TR_CORE_WARN("Scene: instance {} of prefab {} changes {} thing(s) its prefab no longer has, which are dropped", l_File.ID, l_File.Prefab, l_Dropped);
+            }
+        }
+
+        // Every entity first, each instance as its prefab's entities with its UUIDs and one whose prefab is missing as the entity standing in for it, then parents in file order, which is hierarchy order, so siblings keep theirs, then components, and what each instance changes of its prefab. Components no loaded code knows are kept as YAML and counted by name
+        void CreateEntities(Scene& scene, const std::vector<PlannedEntity>& plan, std::unordered_map<std::string, std::size_t>& unknown)
+        {
+            SceneRegistry& l_Registry = scene.GetRegistry();
+            for (const PlannedEntity& it_Planned : plan)
+            {
+                const FileEntity& l_File = *it_Planned.File;
+                if (it_Planned.Absorbed)
+                {
+                    continue;
+                }
+
+                if (it_Planned.Template != nullptr)
+                {
+                    static_cast<void>(ExpandInstance(scene, *it_Planned.Template, it_Planned.Members, l_File.Prefab, l_File.ID));
+                }
+                else if (l_File.IsInstance())
+                {
+                    Entity l_Missing = scene.CreateEntityWithUUID(l_File.ID);
+                    l_Missing.Add<TagComponent>().Tag = c_MissingPrefabName;
+                    l_Missing.Add<PrefabInstanceComponent>(PrefabInstanceComponent{ .Prefab = l_File.Prefab, .Instance = l_File.ID, .Kept = TaggedString<MemoryTag::Scene>(it_Planned.Kept) });
+                    TR_CORE_WARN("Scene: prefab {} of instance {} is missing or cannot be read, so the instance is kept as the file has it until the prefab is there", l_File.Prefab, l_File.ID);
+                }
+                else
+                {
+                    static_cast<void>(scene.CreateEntityWithUUID(l_File.ID));
+                }
+            }
+
+            for (const PlannedEntity& it_Planned : plan)
+            {
+                if (!it_Planned.Absorbed && it_Planned.Parent.IsValid())
+                {
+                    scene.SetParent(scene.FindEntityByUUID(it_Planned.GetRoot()), scene.FindEntityByUUID(it_Planned.Parent), false);
+                }
+            }
+
+            for (const PlannedEntity& it_Planned : plan)
+            {
+                const FileEntity& l_File = *it_Planned.File;
+                if (it_Planned.Absorbed || l_File.IsInstance())
+                {
+                    continue;
+                }
+
+                Entity l_Entity = scene.FindEntityByUUID(l_File.ID);
+                for (const auto& it_Pair : l_File.Node)
                 {
                     const std::string& l_Name = it_Pair.first.Scalar();
                     if (l_Name == c_EntityKey || l_Name == c_ParentKey)
@@ -1101,12 +1833,360 @@ namespace Trinity
                     LoadComponent(l_Entity, *l_Serializer, *l_Storage, it_Pair.second);
                 }
             }
+
+            for (const PlannedEntity& it_Planned : plan)
+            {
+                if (!it_Planned.Absorbed && it_Planned.Template != nullptr)
+                {
+                    ApplyInstanceChanges(scene, it_Planned, unknown);
+                }
+            }
         }
 
-        // Only a component with a registered serializer, which code knows how to save and load
-        SceneRegistry::common_type* FindStorage(Entity entity, std::string_view name)
+        // The paths, by key and by index, at which the node differs from the base, each with what the node holds there. A block map or sequence is compared within, unless the base has a key the map lacks, a key could not be told from a path, or the sequences' lengths differ, when the whole of it differs
+        void DiffNode(const YAML::Node& node, const YAML::Node& base, const std::string& path, std::vector<std::pair<std::string, YAML::Node>>& changes)
         {
-            return FindSerializer(name) != nullptr ? entity.GetScene()->GetRegistry().storage(GetPoolId(name)) : nullptr;
+            const auto a_Join = [&path](std::string_view key) { return path.empty() ? std::string(key) : std::format("{}{}{}", path, c_PathSeparator, key); };
+            if (IsBranch(node) && IsBranch(base) && node.Type() == base.Type())
+            {
+                if (node.IsMap())
+                {
+                    const auto a_IsPathKey = [](const YAML::Node& key) { return key.IsScalar() && !key.Scalar().empty() && key.Scalar().find(c_PathSeparator) == std::string::npos; };
+                    const bool l_ByKey = std::ranges::all_of(node, [&a_IsPathKey](const auto& pair) { return a_IsPathKey(pair.first); }) && std::ranges::all_of(base, [&a_IsPathKey, &node](const auto& pair) { return a_IsPathKey(pair.first) && node[pair.first.Scalar()]; });
+                    if (l_ByKey)
+                    {
+                        for (const auto& it_Pair : node)
+                        {
+                            const std::string& l_Key = it_Pair.first.Scalar();
+                            if (const YAML::Node l_Base = base[l_Key])
+                            {
+                                DiffNode(it_Pair.second, l_Base, a_Join(l_Key), changes);
+                            }
+                            else
+                            {
+                                changes.emplace_back(a_Join(l_Key), it_Pair.second);
+                            }
+                        }
+
+                        return;
+                    }
+                }
+                else if (node.size() == base.size())
+                {
+                    for (std::size_t it_Index = 0; it_Index < node.size(); ++it_Index)
+                    {
+                        DiffNode(node[it_Index], base[it_Index], a_Join(std::to_string(it_Index)), changes);
+                    }
+
+                    return;
+                }
+            }
+
+            if (YAML::Dump(node) != YAML::Dump(base))
+            {
+                changes.emplace_back(path, node);
+            }
+        }
+
+        // What an instance's entity changes of the prefab's: the values of the components both have, the components only it has, which a component whose whole map changed is too, and those only the prefab's has
+        struct EntityChanges
+        {
+            UUID Local;
+            std::vector<std::pair<std::string, std::vector<std::pair<std::string, YAML::Node>>>> Overrides;
+            std::vector<std::pair<std::string, YAML::Node>> Added;
+            std::vector<std::string> Removed;
+
+            [[nodiscard]] bool IsEmpty() const { return Overrides.empty() && Added.empty() && Removed.empty(); }
+        };
+
+        // Each component's YAML, in the order a scene file has them, by name
+        std::vector<std::pair<std::string, std::string>> GetComponentYamls(Entity entity)
+        {
+            std::vector<std::pair<std::string, std::string>> l_Yamls;
+            const SceneRegistry& l_Registry = entity.GetScene()->GetRegistry();
+            for (const ComponentSerializer& it_Serializer : s_State->Serializers)
+            {
+                const SceneRegistry::common_type* l_Storage = l_Registry.storage(GetPoolId(it_Serializer.Name));
+                if (l_Storage != nullptr && l_Storage->contains(entity.GetHandle()))
+                {
+                    l_Yamls.emplace_back(std::string(it_Serializer.Name), SaveComponentYaml(it_Serializer, l_Storage->value(entity.GetHandle())));
+                }
+            }
+
+            if (entity.Has<UnknownComponentsComponent>())
+            {
+                for (const UnknownComponentsComponent::Entry& it_Kept : entity.Get<UnknownComponentsComponent>().Entries)
+                {
+                    l_Yamls.emplace_back(std::string(std::string_view(it_Kept.Name)), std::string(std::string_view(it_Kept.Yaml)));
+                }
+            }
+
+            return l_Yamls;
+        }
+
+        YAML::Node LoadYaml(const std::string& yaml)
+        {
+            try
+            {
+                return YAML::Load(yaml);
+            }
+            catch (const YAML::Exception&)
+            {
+                return YAML::Node(yaml);
+            }
+        }
+
+        // Compared as their text first, which is the same for every component the instance has as the prefab has it
+        EntityChanges DiffEntity(Entity entity, Entity base)
+        {
+            EntityChanges l_Changes;
+            const std::vector<std::pair<std::string, std::string>> l_Own = GetComponentYamls(entity);
+            const std::vector<std::pair<std::string, std::string>> l_Base = GetComponentYamls(base);
+            for (const auto& [it_Name, it_Yaml] : l_Own)
+            {
+                const auto a_Base = std::ranges::find(l_Base, it_Name, &std::pair<std::string, std::string>::first);
+                if (a_Base == l_Base.end())
+                {
+                    l_Changes.Added.emplace_back(it_Name, LoadYaml(it_Yaml));
+
+                    continue;
+                }
+
+                if (a_Base->second == it_Yaml)
+                {
+                    continue;
+                }
+
+                const YAML::Node l_Node = LoadYaml(it_Yaml);
+                std::vector<std::pair<std::string, YAML::Node>> l_Values;
+                DiffNode(l_Node, LoadYaml(a_Base->second), {}, l_Values);
+                if (l_Values.size() == 1 && l_Values.front().first.empty() && IsBranch(l_Values.front().second))
+                {
+                    l_Changes.Added.emplace_back(it_Name, l_Node);
+                }
+                else if (!l_Values.empty())
+                {
+                    l_Changes.Overrides.emplace_back(it_Name, std::move(l_Values));
+                }
+            }
+
+            for (const auto& [it_Name, it_Yaml] : l_Base)
+            {
+                if (std::ranges::find(l_Own, it_Name, &std::pair<std::string, std::string>::first) == l_Own.end())
+                {
+                    l_Changes.Removed.push_back(it_Name);
+                }
+            }
+
+            return l_Changes;
+        }
+
+        bool IsInSubtree(Entity entity, Entity root)
+        {
+            for (Entity it_Entity = entity; it_Entity; it_Entity = it_Entity.GetParent())
+            {
+                if (it_Entity == root)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // An instance whose prefab is missing, as the file had it
+        void AppendKept(std::string& text, const PrefabInstanceComponent& instance, UUID parent)
+        {
+            text += std::format("\n  - {}: {}", c_InstanceKey, ToHex(instance.Instance));
+            if (parent.IsValid())
+            {
+                text += std::format("\n    {}: {}", c_ParentKey, ToHex(parent));
+            }
+
+            text += instance.Kept;
+        }
+
+        // An instance as its prefab and what it changes of it: each value of the components it holds otherwise, by its key, each component it adds or removes, and each of the prefab's entities it removes, compared with what it would be unchanged, which is made in the scratch scene. Its prefab's entities are covered by it, so only those added under them are written as entities of their own. False, writing nothing, for a prefab the resolver does not find, or a root that is not the instance's
+        bool AppendInstance(std::string& text, Entity root, UUID parent, Scope<Scene>& scratch, std::unordered_set<UUID>& covered)
+        {
+            const PrefabInstanceComponent& l_Instance = root.Get<PrefabInstanceComponent>();
+            Scene* l_Template = SceneSerializer::FindPrefabTemplate(l_Instance.Prefab);
+            if (l_Template == nullptr || !l_Template->GetFirstRoot())
+            {
+                return false;
+            }
+
+            const std::vector<std::pair<entt::entity, UUID>> l_Members = GetInstanceMembers(*l_Template, l_Instance.Instance, {});
+            if (l_Members.front().second != root.GetUUID())
+            {
+                return false;
+            }
+
+            if (!scratch)
+            {
+                scratch = CreateScope<Scene>();
+            }
+
+            scratch->Clear();
+            static_cast<void>(ExpandInstance(*scratch, *l_Template, l_Members, l_Instance.Prefab, l_Instance.Instance));
+
+            Scene& l_Scene = *root.GetScene();
+            const SceneRegistry& l_Prefab = l_Template->GetRegistry();
+            std::vector<EntityChanges> l_Changes;
+            std::vector<UUID> l_Removed;
+            std::unordered_set<UUID> l_Gone;
+            for (const auto& [it_Member, it_UUID] : l_Members)
+            {
+                const UUID l_Local = l_Prefab.get<IDComponent>(it_Member).ID;
+                const Entity l_Entity = l_Scene.FindEntityByUUID(it_UUID);
+                if (!l_Entity || !IsInSubtree(l_Entity, root))
+                {
+                    const entt::entity l_Parent = l_Prefab.get<RelationshipComponent>(it_Member).Parent;
+                    if (l_Parent == entt::null || !l_Gone.contains(l_Prefab.get<IDComponent>(l_Parent).ID))
+                    {
+                        l_Removed.push_back(l_Local);
+                    }
+
+                    l_Gone.insert(l_Local);
+
+                    continue;
+                }
+
+                covered.insert(it_UUID);
+                EntityChanges l_EntityChanges = DiffEntity(l_Entity, scratch->FindEntityByUUID(it_UUID));
+                if (!l_EntityChanges.IsEmpty())
+                {
+                    l_EntityChanges.Local = l_Local;
+                    l_Changes.push_back(std::move(l_EntityChanges));
+                }
+            }
+
+            text += std::format("\n  - {}: {}", c_InstanceKey, ToHex(l_Instance.Instance));
+            if (parent.IsValid())
+            {
+                text += std::format("\n    {}: {}", c_ParentKey, ToHex(parent));
+            }
+
+            text += std::format("\n    {}: {}", c_PrefabKey, ToHex(l_Instance.Prefab));
+
+            const auto a_HasAny = [&l_Changes](auto member) { return std::ranges::any_of(l_Changes, [member](const EntityChanges& changes) { return !(changes.*member).empty(); }); };
+            if (a_HasAny(&EntityChanges::Overrides))
+            {
+                text += std::format("\n    {}:", c_OverridesKey);
+                for (const EntityChanges& it_Entity : l_Changes)
+                {
+                    if (it_Entity.Overrides.empty())
+                    {
+                        continue;
+                    }
+
+                    text += std::format("\n      {}:", ToHex(it_Entity.Local));
+                    for (const auto& [it_Name, it_Values] : it_Entity.Overrides)
+                    {
+                        text += std::format("\n        {}:", FormatString(it_Name));
+                        if (it_Values.size() == 1 && it_Values.front().first.empty())
+                        {
+                            AppendNode(text, it_Values.front().second, 10);
+
+                            continue;
+                        }
+
+                        for (const auto& [it_Path, it_Value] : it_Values)
+                        {
+                            text += std::format("\n          {}:", FormatString(it_Path));
+                            AppendNode(text, it_Value, 12);
+                        }
+                    }
+                }
+            }
+
+            if (a_HasAny(&EntityChanges::Added))
+            {
+                text += std::format("\n    {}:", c_AddedComponentsKey);
+                for (const EntityChanges& it_Entity : l_Changes)
+                {
+                    if (it_Entity.Added.empty())
+                    {
+                        continue;
+                    }
+
+                    text += std::format("\n      {}:", ToHex(it_Entity.Local));
+                    for (const auto& [it_Name, it_Node] : it_Entity.Added)
+                    {
+                        text += std::format("\n        {}:", FormatString(it_Name));
+                        AppendNode(text, it_Node, 10);
+                    }
+                }
+            }
+
+            if (a_HasAny(&EntityChanges::Removed))
+            {
+                text += std::format("\n    {}:", c_RemovedComponentsKey);
+                for (const EntityChanges& it_Entity : l_Changes)
+                {
+                    if (it_Entity.Removed.empty())
+                    {
+                        continue;
+                    }
+
+                    text += std::format("\n      {}: [", ToHex(it_Entity.Local));
+                    for (std::size_t it_Index = 0; it_Index < it_Entity.Removed.size(); ++it_Index)
+                    {
+                        text += std::format("{}{}", it_Index == 0 ? "" : ", ", FormatString(it_Entity.Removed[it_Index]));
+                    }
+
+                    text += ']';
+                }
+            }
+
+            if (!l_Removed.empty())
+            {
+                text += std::format("\n    {}: [", c_RemovedEntitiesKey);
+                for (std::size_t it_Index = 0; it_Index < l_Removed.size(); ++it_Index)
+                {
+                    text += std::format("{}{}", it_Index == 0 ? "" : ", ", ToHex(l_Removed[it_Index]));
+                }
+
+                text += ']';
+            }
+
+            return true;
+        }
+
+        // Each entity in hierarchy order from the root, or from the scene's first root for none, each instance as its prefab and what it changes, which covers its prefab's entities, and one whose prefab is missing as the file had it. The root's parent is not written
+        void AppendHierarchy(std::string& text, Scene& scene, Entity root)
+        {
+            Scope<Scene> l_Scratch;
+            std::unordered_set<UUID> l_Covered;
+            const SceneRegistry& l_Registry = scene.GetRegistry();
+            for (Entity it_Entity = root ? root : scene.GetFirstRoot(); it_Entity; it_Entity = root ? scene.GetNextInSubtree(it_Entity, root) : scene.GetNextInHierarchyOrder(it_Entity))
+            {
+                if (l_Covered.contains(it_Entity.GetUUID()))
+                {
+                    continue;
+                }
+
+                const Entity l_Parent = it_Entity.GetParent();
+                const UUID l_ParentID = it_Entity != root && l_Parent ? l_Parent.GetUUID() : UUID();
+                if (const PrefabInstanceComponent* l_Instance = l_Registry.try_get<PrefabInstanceComponent>(it_Entity.GetHandle()))
+                {
+                    if (l_Instance->IsMissing())
+                    {
+                        AppendKept(text, *l_Instance, l_ParentID);
+
+                        continue;
+                    }
+
+                    if (AppendInstance(text, it_Entity, l_ParentID, l_Scratch, l_Covered))
+                    {
+                        continue;
+                    }
+
+                    TR_CORE_WARN("Scene: prefab {} of instance {} is not there, so the instance's entities are written as entities of their own", l_Instance->Prefab, l_Instance->Instance);
+                }
+
+                AppendEntity(text, it_Entity, it_Entity.GetUUID(), l_ParentID);
+            }
         }
 
         // The YAML a scene file read without the component's code keeps for it, so a component kept this way saves as one kept from a file does
@@ -1989,6 +3069,26 @@ namespace Trinity
             }
         }
 
+        void SetPrefabResolver(PrefabResolver resolver)
+        {
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            s_State->Resolver = std::move(resolver);
+        }
+
+        // A prefab the asset manager has ready, until a resolver is set
+        Scene* FindPrefabTemplate(UUID prefab)
+        {
+            if (s_State != nullptr && s_State->Resolver)
+            {
+                return s_State->Resolver(prefab);
+            }
+
+            const Asset* l_Asset = prefab && AssetManager::GetState(prefab) == AssetState::Ready ? AssetManager::GetAsset(prefab) : nullptr;
+
+            return l_Asset != nullptr && l_Asset->GetAssetType() == PrefabAsset::c_AssetType ? static_cast<const PrefabAsset*>(l_Asset)->GetTemplate() : nullptr;
+        }
+
         bool RegisterComponent(const ComponentSerializer& serializer)
         {
             TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
@@ -2077,10 +3177,7 @@ namespace Trinity
                 l_Text += " []";
             }
 
-            for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
-            {
-                AppendEntity(l_Text, it_Entity, true);
-            }
+            AppendHierarchy(l_Text, scene, {});
 
             return l_Text + "\n";
         }
@@ -2096,17 +3193,24 @@ namespace Trinity
                 return Unexpected{ l_Root.GetError() };
             }
 
-            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root);
+            const std::vector<std::string_view> l_Lines = SplitLines(text);
+            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root, true, l_Lines.size());
             if (!l_Entities)
             {
                 return Unexpected{ l_Entities.GetError() };
+            }
+
+            Expected<std::vector<PlannedEntity>, std::string> l_Plan = PlanEntities(*l_Entities, l_Lines);
+            if (!l_Plan)
+            {
+                return Unexpected{ l_Plan.GetError() };
             }
 
             // Nothing can fail from here, so the scene is only replaced once the file is known to be whole
             scene.Clear();
 
             std::unordered_map<std::string, std::size_t> l_Unknown;
-            CreateEntities(scene, *l_Entities, l_Unknown);
+            CreateEntities(scene, *l_Plan, l_Unknown);
             for (const auto& [it_Name, it_Count] : l_Unknown)
             {
                 TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since no loaded code knows that component", it_Count, it_Name);
@@ -2123,10 +3227,7 @@ namespace Trinity
             TR_CORE_ASSERT(root.GetScene() == &scene && root.IsValid(), "SaveEntityToText was given an entity of another scene, or one already destroyed");
 
             std::string l_Text = std::format("Format: {}\nEntities:", c_FormatVersion);
-            for (Entity it_Entity = root; it_Entity; it_Entity = scene.GetNextInSubtree(it_Entity, root))
-            {
-                AppendEntity(l_Text, it_Entity, it_Entity != root);
-            }
+            AppendHierarchy(l_Text, scene, root);
 
             return l_Text + "\n";
         }
@@ -2143,7 +3244,8 @@ namespace Trinity
                 return Unexpected{ l_Root.GetError() };
             }
 
-            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root);
+            const std::vector<std::string_view> l_Lines = SplitLines(text);
+            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root, true, l_Lines.size());
             if (!l_Entities)
             {
                 return Unexpected{ l_Entities.GetError() };
@@ -2155,18 +3257,27 @@ namespace Trinity
                 return Unexpected{ std::string("does not hold one entity and its subtree, with the entity first") };
             }
 
-            for (const FileEntity& it_Entity : *l_Entities)
+            Expected<std::vector<PlannedEntity>, std::string> l_Plan = PlanEntities(*l_Entities, l_Lines);
+            if (!l_Plan)
             {
-                if (scene.FindEntityByUUID(it_Entity.ID))
+                return Unexpected{ l_Plan.GetError() };
+            }
+
+            for (const PlannedEntity& it_Planned : *l_Plan)
+            {
+                for (const UUID it_UUID : it_Planned.Absorbed ? std::vector<UUID>() : it_Planned.GetEntities())
                 {
-                    return Unexpected{ std::format("entity {} is already in the scene", it_Entity.ID) };
+                    if (scene.FindEntityByUUID(it_UUID))
+                    {
+                        return Unexpected{ std::format("entity {} is already in the scene", it_UUID) };
+                    }
                 }
             }
 
             std::unordered_map<std::string, std::size_t> l_Unknown;
-            CreateEntities(scene, *l_Entities, l_Unknown);
+            CreateEntities(scene, *l_Plan, l_Unknown);
 
-            const Entity l_Entity = scene.FindEntityByUUID(l_Entities->front().ID);
+            const Entity l_Entity = scene.FindEntityByUUID(l_Plan->front().GetRoot());
             if (before)
             {
                 scene.MoveBefore(l_Entity, before, false);
@@ -2258,6 +3369,154 @@ namespace Trinity
             LoadComponent(entity, *FindSerializer(name), *l_Storage, l_Value);
 
             return {};
+        }
+
+        Expected<std::string, std::string> SavePrefabToText(Scene& scene, Entity root, UUID instance)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+            TR_CORE_ASSERT(root.GetScene() == &scene && root.IsValid(), "SavePrefabToText was given an entity of another scene, or one already destroyed");
+
+            std::unordered_set<UUID> l_Members;
+            for (Entity it_Entity = root; it_Entity; it_Entity = scene.GetNextInSubtree(it_Entity, root))
+            {
+                if (it_Entity.Has<PrefabInstanceComponent>())
+                {
+                    return Unexpected{ std::format("entity {} is an instance of a prefab, which a prefab cannot hold yet", it_Entity.GetUUID()) };
+                }
+
+                if (!Prefab::FindLocalID(instance, it_Entity.GetUUID()).IsValid())
+                {
+                    return Unexpected{ std::format("instance {} gives entity {} no local ID", instance, it_Entity.GetUUID()) };
+                }
+
+                l_Members.insert(it_Entity.GetUUID());
+            }
+
+            // A copy, with what it names inside it by local IDs and nothing outside it, so the scene's own entities are left as they are
+            Scene l_Copy;
+            const Expected<Entity, std::string> l_Copied = LoadEntityFromText(l_Copy, SaveEntityToText(scene, root), {}, {});
+            if (!l_Copied)
+            {
+                return Unexpected{ l_Copied.GetError() };
+            }
+
+            l_Copy.RemapEntityReferences(*l_Copied, [&l_Members, instance](UUID& entity) { entity = l_Members.contains(entity) ? Prefab::FindLocalID(instance, entity) : UUID(); });
+
+            std::string l_Text = std::format("Format: {}\nEntities:", Prefab::c_FormatVersion);
+            for (Entity it_Entity = *l_Copied; it_Entity; it_Entity = l_Copy.GetNextInSubtree(it_Entity, *l_Copied))
+            {
+                AppendEntity(l_Text, it_Entity, Prefab::FindLocalID(instance, it_Entity.GetUUID()), it_Entity != *l_Copied ? Prefab::FindLocalID(instance, it_Entity.GetParent().GetUUID()) : UUID());
+            }
+
+            return l_Text + "\n";
+        }
+
+        Expected<void, std::string> LoadPrefabFromText(Scene& prefab, std::string_view text)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            std::uint32_t l_Version = 0;
+            const Expected<YAML::Node, std::string> l_Root = ParseFormat(text, Prefab::c_FormatVersion, l_Version);
+            if (!l_Root)
+            {
+                return Unexpected{ l_Root.GetError() };
+            }
+
+            const std::vector<std::string_view> l_Lines = SplitLines(text);
+            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root, false, l_Lines.size());
+            if (!l_Entities)
+            {
+                return Unexpected{ l_Entities.GetError() };
+            }
+
+            const auto a_IsRoot = [](const FileEntity& entity) { return !entity.Parent.IsValid(); };
+            if (l_Entities->empty() || !a_IsRoot(l_Entities->front()) || std::any_of(l_Entities->begin() + 1, l_Entities->end(), a_IsRoot))
+            {
+                return Unexpected{ std::string("does not hold one entity and its subtree, with the entity first") };
+            }
+
+            Expected<std::vector<PlannedEntity>, std::string> l_Plan = PlanEntities(*l_Entities, l_Lines);
+            if (!l_Plan)
+            {
+                return Unexpected{ l_Plan.GetError() };
+            }
+
+            prefab.Clear();
+
+            std::unordered_map<std::string, std::size_t> l_Unknown;
+            CreateEntities(prefab, *l_Plan, l_Unknown);
+            for (const auto& [it_Name, it_Count] : l_Unknown)
+            {
+                TR_CORE_INFO("Scene: kept {} {} component(s) of a prefab as YAML, since no loaded code knows that component", it_Count, it_Name);
+            }
+
+            return {};
+        }
+
+        Expected<Entity, std::string> InstantiatePrefab(Scene& scene, UUID prefab, UUID instance, Entity parent, Entity before)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            Scene* l_Template = FindPrefabTemplate(prefab);
+            if (l_Template == nullptr || !l_Template->GetFirstRoot())
+            {
+                return Unexpected{ std::format("prefab {} is not there, or cannot be read", prefab) };
+            }
+
+            const std::vector<std::pair<entt::entity, UUID>> l_Members = GetInstanceMembers(*l_Template, instance, {});
+            for (const auto& [it_Member, it_UUID] : l_Members)
+            {
+                if (!it_UUID.IsValid() || scene.FindEntityByUUID(it_UUID))
+                {
+                    return Unexpected{ std::format("entity {} of instance {} is already in the scene", it_UUID, instance) };
+                }
+            }
+
+            const Entity l_Root = ExpandInstance(scene, *l_Template, l_Members, prefab, instance);
+            if (before)
+            {
+                scene.MoveBefore(l_Root, before, false);
+            }
+            else if (parent)
+            {
+                scene.SetParent(l_Root, parent, false);
+            }
+
+            return l_Root;
+        }
+
+        std::vector<UUID> GetPrefabReferences(std::string_view text)
+        {
+            YAML::Node l_Root;
+            try
+            {
+                l_Root = YAML::Load(std::string(text));
+            }
+            catch (const YAML::Exception&)
+            {
+                return {};
+            }
+
+            std::vector<UUID> l_Prefabs;
+            const YAML::Node l_Entities = l_Root.IsMap() ? l_Root["Entities"] : YAML::Node();
+            if (!l_Entities || !l_Entities.IsSequence())
+            {
+                return l_Prefabs;
+            }
+
+            for (const YAML::Node it_Entry : l_Entities)
+            {
+                const std::optional<UUID> l_Prefab = it_Entry.IsMap() && it_Entry[std::string(c_InstanceKey)] ? ReadUUID(it_Entry[std::string(c_PrefabKey)]) : std::nullopt;
+                if (l_Prefab && std::ranges::find(l_Prefabs, *l_Prefab) == l_Prefabs.end())
+                {
+                    l_Prefabs.push_back(*l_Prefab);
+                }
+            }
+
+            return l_Prefabs;
         }
 
         Expected<void, std::string> Save(Scene& scene, std::string_view path)

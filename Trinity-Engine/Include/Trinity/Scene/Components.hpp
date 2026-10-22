@@ -631,6 +631,20 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ScriptComponent&) const = default;
     };
 
+    // The root of an instance of a prefab: the prefab, and the instance's own UUID, which each of its entities' UUIDs is made from with the entity's local ID in the prefab. A scene saves the instance as the prefab and what the instance changes of it, never as a component. For a prefab missing or broken as the scene was read, the root stands in for the whole instance, keeping its text as the file had it, after its Parent, which is written back unchanged in the root's place until the prefab is there again
+    struct PrefabInstanceComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.PrefabInstance";
+
+        UUID Prefab;
+        UUID Instance;
+        TaggedString<MemoryTag::Scene> Kept;
+
+        [[nodiscard]] bool IsMissing() const { return !Kept.empty(); }
+
+        [[nodiscard]] bool operator==(const PrefabInstanceComponent&) const = default;
+    };
+
     // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save
     struct UnknownComponentsComponent
     {

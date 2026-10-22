@@ -8,6 +8,7 @@
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
+#include "Trinity/Scene/Prefab.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -40,7 +41,7 @@ namespace Trinity
 
     Scene::Scene()
     {
-        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, CharacterControllerComponent, JointComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent, CharacterController2DComponent, Joint2DComponent, KeepAcrossScenesComponent, ScriptComponent, PhysicsPoseComponent, UnknownComponentsComponent>(m_Registry);
+        CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, CharacterControllerComponent, JointComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent, CharacterController2DComponent, Joint2DComponent, KeepAcrossScenesComponent, ScriptComponent, PhysicsPoseComponent, PrefabInstanceComponent, UnknownComponentsComponent>(m_Registry);
 
         // A module's components get their pools from the module's code, here for those registered now and as each is registered later, and lose them before the module unloads
         SceneSerializer::AttachScene(*this);
@@ -118,57 +119,74 @@ namespace Trinity
         m_Registry.destroy(l_Subtree.begin(), l_Subtree.end());
     }
 
-    // A joint in the copy, 3D or 2D, a script's entity field, or a module component's, that names an entity of the copied subtree names that entity's copy instead, so a duplicated door hangs on its own frame and a duplicated turret aims with its own barrel. The two subtrees have the same shape, so they are walked side by side
+    // A joint in the copy, 3D or 2D, a script's entity field, or a module component's, that names an entity of the copied subtree names that entity's copy instead, so a duplicated door hangs on its own frame and a duplicated turret aims with its own barrel. The two subtrees have the same shape, so they are walked side by side. A prefab instance in the copy is an instance of its own, under a new instance UUID that its entities' UUIDs are made from, as a placed instance's are
     Entity Scene::DuplicateEntity(Entity entity)
     {
         TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: DuplicateEntity was given an entity of another scene, or one already destroyed");
 
         const RelationshipComponent& l_Relationship = m_Registry.get<RelationshipComponent>(entity.GetHandle());
         const entt::entity l_Source = entity.GetHandle();
-        const entt::entity l_Copy = Duplicate(l_Source, l_Relationship.Parent, l_Relationship.NextSibling);
+        const CopyPlan l_Plan = PlanInstanceCopies(l_Source);
+        const entt::entity l_Copy = Duplicate(l_Source, l_Relationship.Parent, l_Relationship.NextSibling, l_Plan);
 
         std::vector<std::pair<UUID, UUID>> l_Copies;
         for (entt::entity it_Source = l_Source, it_Copy = l_Copy; it_Source != entt::null && it_Copy != entt::null; it_Source = GetNext(it_Source, l_Source), it_Copy = GetNext(it_Copy, l_Copy))
         {
             l_Copies.emplace_back(m_Registry.get<IDComponent>(it_Source).ID, m_Registry.get<IDComponent>(it_Copy).ID);
+            if (const auto a_Instance = l_Plan.Instances.find(it_Source); a_Instance != l_Plan.Instances.end())
+            {
+                if (a_Instance->second)
+                {
+                    m_Registry.get<PrefabInstanceComponent>(it_Copy).Instance = a_Instance->second;
+                }
+                else
+                {
+                    m_Registry.remove<PrefabInstanceComponent>(it_Copy);
+                }
+            }
         }
 
-        const auto a_Remap = [&l_Copies](UUID& connected)
+        RemapEntityReferences(Entity(l_Copy, this), [&l_Copies](UUID& connected)
         {
             const auto a_Copied = std::ranges::find(l_Copies, connected, &std::pair<UUID, UUID>::first);
             if (a_Copied != l_Copies.end())
             {
                 connected = a_Copied->second;
             }
-        };
+        });
 
-        for (entt::entity it_Copy = l_Copy; it_Copy != entt::null; it_Copy = GetNext(it_Copy, l_Copy))
+        return Entity(l_Copy, this);
+    }
+
+    void Scene::RemapEntityReferences(Entity root, const std::function<void(UUID& entity)>& remap)
+    {
+        TR_CORE_ASSERT(root.GetScene() == this && root.IsValid(), "Scene: RemapEntityReferences was given an entity of another scene, or one already destroyed");
+
+        for (entt::entity it_Entity = root.GetHandle(); it_Entity != entt::null; it_Entity = GetNext(it_Entity, root.GetHandle()))
         {
-            if (JointComponent* l_Joint = m_Registry.try_get<JointComponent>(it_Copy))
+            if (JointComponent* l_Joint = m_Registry.try_get<JointComponent>(it_Entity))
             {
-                a_Remap(l_Joint->ConnectedBody);
+                remap(l_Joint->ConnectedBody);
             }
 
-            if (Joint2DComponent* l_Joint = m_Registry.try_get<Joint2DComponent>(it_Copy))
+            if (Joint2DComponent* l_Joint = m_Registry.try_get<Joint2DComponent>(it_Entity))
             {
-                a_Remap(l_Joint->ConnectedBody);
+                remap(l_Joint->ConnectedBody);
             }
 
-            if (ScriptComponent* l_Script = m_Registry.try_get<ScriptComponent>(it_Copy))
+            if (ScriptComponent* l_Script = m_Registry.try_get<ScriptComponent>(it_Entity))
             {
                 for (ScriptEntry& it_Entry : l_Script->Scripts)
                 {
                     for (ScriptEntry::Field& it_Field : it_Entry.Fields)
                     {
-                        it_Field.Value.ForEachValue<UUID>(ScriptFieldType::Entity, a_Remap);
+                        it_Field.Value.ForEachValue<UUID>(ScriptFieldType::Entity, remap);
                     }
                 }
             }
 
-            NativeComponents::RemapEntityFields(Entity(it_Copy, this), a_Remap);
+            NativeComponents::RemapEntityFields(Entity(it_Entity, this), remap);
         }
-
-        return Entity(l_Copy, this);
     }
 
     void Scene::Clear()
@@ -430,11 +448,71 @@ namespace Trinity
         l_Relationship.NextSibling = entt::null;
     }
 
-    // Every pool the source is in is copied through the pool's own type-erased copy, so components added by modules come along too. The ID and the links are the copy's own
-    entt::entity Scene::Duplicate(entt::entity source, entt::entity parent, entt::entity before)
+    // Each prefab instance in the subtree gets a new instance UUID that makes free UUIDs for its entities, found through its prefab, and each of them the UUID it makes. One whose prefab is not there, or that stands in for a missing prefab, whose text only the original keeps, is copied as plain entities
+    Scene::CopyPlan Scene::PlanInstanceCopies(entt::entity source) const
     {
-        UUID l_UUID = UUID::Generate();
-        while (m_EntityMap.contains(l_UUID))
+        CopyPlan l_Plan;
+        for (entt::entity it_Entity = source; it_Entity != entt::null; it_Entity = GetNext(it_Entity, source))
+        {
+            const PrefabInstanceComponent* l_Instance = m_Registry.try_get<PrefabInstanceComponent>(it_Entity);
+            if (l_Instance == nullptr)
+            {
+                continue;
+            }
+
+            const Scene* l_Template = l_Instance->IsMissing() ? nullptr : SceneSerializer::FindPrefabTemplate(l_Instance->Prefab);
+            if (l_Template == nullptr)
+            {
+                TR_CORE_WARN("Scene: the copy of prefab instance {} is made of plain entities, since {}", l_Instance->Instance, l_Instance->IsMissing() ? "its prefab is missing and only the original keeps its text" : "its prefab is not there");
+                l_Plan.Instances.emplace(it_Entity, UUID());
+
+                continue;
+            }
+
+            std::vector<std::pair<entt::entity, UUID>> l_Members;
+            for (const auto [it_Template, it_ID] : l_Template->GetRegistry().view<IDComponent>().each())
+            {
+                const auto a_Member = m_EntityMap.find(Prefab::MakeEntityUUID(l_Instance->Instance, it_ID.ID));
+                if (a_Member != m_EntityMap.end() && IsSelfOrAncestor(it_Entity, a_Member->second))
+                {
+                    l_Members.emplace_back(a_Member->second, it_ID.ID);
+                }
+            }
+
+            UUID l_New;
+            const auto a_IsFree = [this, &l_Plan, &l_Members](UUID instance)
+            {
+                return std::ranges::none_of(l_Members, [this, &l_Plan, instance](const std::pair<entt::entity, UUID>& member)
+                {
+                    const UUID l_UUID = Prefab::MakeEntityUUID(instance, member.second);
+
+                    return !l_UUID.IsValid() || m_EntityMap.contains(l_UUID) || l_Plan.Taken.contains(l_UUID);
+                });
+            };
+
+            do
+            {
+                l_New = UUID::Generate();
+            } while (!a_IsFree(l_New));
+
+            l_Plan.Instances.emplace(it_Entity, l_New);
+            for (const auto& [it_Member, it_Local] : l_Members)
+            {
+                const UUID l_UUID = Prefab::MakeEntityUUID(l_New, it_Local);
+                l_Plan.Entities.emplace(it_Member, l_UUID);
+                l_Plan.Taken.insert(l_UUID);
+            }
+        }
+
+        return l_Plan;
+    }
+
+    // Every pool the source is in is copied through the pool's own type-erased copy, so components added by modules come along too. The ID and the links are the copy's own, its UUID the plan's or a new random one
+    entt::entity Scene::Duplicate(entt::entity source, entt::entity parent, entt::entity before, const CopyPlan& plan)
+    {
+        const auto a_Planned = plan.Entities.find(source);
+        UUID l_UUID = a_Planned != plan.Entities.end() ? a_Planned->second : UUID::Generate();
+        while (a_Planned == plan.Entities.end() && (m_EntityMap.contains(l_UUID) || plan.Taken.contains(l_UUID)))
         {
             l_UUID = UUID::Generate();
         }
@@ -460,7 +538,7 @@ namespace Trinity
 
         for (entt::entity it_Child = m_Registry.get<RelationshipComponent>(source).FirstChild; it_Child != entt::null; it_Child = m_Registry.get<RelationshipComponent>(it_Child).NextSibling)
         {
-            Duplicate(it_Child, l_Copy, entt::null);
+            Duplicate(it_Child, l_Copy, entt::null, plan);
         }
 
         return l_Copy;

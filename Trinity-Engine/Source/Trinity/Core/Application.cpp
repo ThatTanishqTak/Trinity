@@ -15,6 +15,7 @@
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Input/InputActionsRuntime.hpp"
 #include "Trinity/Physics/CollisionShapeLoaders.hpp"
+#include "Trinity/Scene/PrefabLoaders.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
 #include "Trinity/Scripting/DotNetHost.hpp"
 #include "Trinity/Scripting/NativeComponentRegistry.hpp"
@@ -555,6 +556,7 @@ namespace Trinity
         NativeComponents::Initialize();
         AssetManager::Initialize();
         CollisionShapeLoaders::Register();
+        PrefabLoaders::Register();
         InputActionsRuntime::Initialize();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
@@ -569,6 +571,7 @@ namespace Trinity
         l_Application.reset();
 
         InputActionsRuntime::Shutdown();
+        PrefabLoaders::Unregister();
         CollisionShapeLoaders::Unregister();
         AssetManager::Shutdown();
         NativeComponents::Shutdown();

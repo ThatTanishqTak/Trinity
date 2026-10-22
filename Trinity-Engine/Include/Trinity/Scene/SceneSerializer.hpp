@@ -147,10 +147,17 @@ namespace Trinity
 
     namespace SceneSerializer
     {
-        constexpr std::uint32_t c_FormatVersion = 1;
+        // Format 2 added prefab instances, so a format 1 scene reads as it is and is written as format 2
+        constexpr std::uint32_t c_FormatVersion = 2;
+
+        // The prefab's template, its entities under their local IDs, by the prefab's UUID, or null for a prefab that is not there or cannot be read, whose instances are kept as their text. The template must stay until the text that reads it is read, and while a scene holds instances of it that are saved
+        using PrefabResolver = std::function<Scene* (UUID prefab)>;
 
         TRINITY_API void Initialize();
         TRINITY_API void Shutdown();
+
+        // Until one is set, and once an empty one is, a prefab is found among the assets the asset manager has ready
+        TRINITY_API void SetPrefabResolver(PrefabResolver resolver);
 
         // Gives every scene there is the component's pool, and loads again each of the component kept as YAML while no loaded code knew it
         TRINITY_API bool RegisterComponent(const ComponentSerializer& serializer);
@@ -169,6 +176,15 @@ namespace Trinity
         TRINITY_API bool RemoveComponent(Entity entity, std::string_view name);
         [[nodiscard]] TRINITY_API std::string SaveComponentToText(Entity entity, std::string_view name);
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadComponentFromText(Entity entity, std::string_view name, std::string_view text);
+
+        // A .trprefab's text: the entity and its subtree under the local IDs the instance's UUID tells back from theirs, so once the entity is that instance's root its entities keep their UUIDs. An entity named outside the subtree is cleared, since a prefab names none, and the instance keeps it as what it changes. Refused for a subtree that holds a prefab instance, which a prefab cannot hold yet
+        [[nodiscard]] TRINITY_API Expected<std::string, std::string> SavePrefabToText(Scene& scene, Entity root, UUID instance);
+        // The prefab's entities under their local IDs, in place of the scene's own, as a template that instances are made from
+        [[nodiscard]] TRINITY_API Expected<void, std::string> LoadPrefabFromText(Scene& prefab, std::string_view text);
+        // A new instance of the prefab, unchanged, its root put as LoadEntityFromText puts one. Refused for a prefab the resolver does not find, or when an entity of the instance's UUIDs is already in the scene
+        [[nodiscard]] TRINITY_API Expected<Entity, std::string> InstantiatePrefab(Scene& scene, UUID prefab, UUID instance, Entity parent, Entity before);
+        // The prefabs the text's instances are of, each once, so they can be loaded before the text is. None for text that is not valid YAML
+        [[nodiscard]] TRINITY_API std::vector<UUID> GetPrefabReferences(std::string_view text);
 
         [[nodiscard]] TRINITY_API Expected<void, std::string> Save(Scene& scene, std::string_view path);
         [[nodiscard]] TRINITY_API Expected<void, std::string> Load(Scene& scene, std::string_view path);

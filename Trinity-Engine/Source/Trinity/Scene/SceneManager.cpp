@@ -111,7 +111,7 @@ namespace Trinity
         }
     }
 
-    // A scene asked for: its file being read, then the scene loaded from it waiting for its assets, then for its materials' textures
+    // A scene asked for: its file being read, then waiting for the prefabs its instances are of, then the scene loaded from it waiting for its assets, then for its materials' textures
     struct SceneManager::State
     {
         struct Loading
@@ -124,6 +124,7 @@ namespace Trinity
             std::string Error;
             Scope<Scene> Next;
             AssetList Held;
+            bool PrefabsHeld = false;
             bool TexturesHeld = false;
             std::chrono::steady_clock::time_point Started = std::chrono::steady_clock::now();
         };
@@ -271,7 +272,7 @@ namespace Trinity
         Advance();
     }
 
-    // The loading scene is parsed once read, holds its assets, then its materials' textures once its materials are in, and is switched to once nothing it holds still loads
+    // The loading scene holds the prefabs its instances are of once read, and is parsed once they are in, as its instances are made from them. It holds its assets, then its materials' textures once its materials are in, and is switched to once nothing it holds still loads. A prefab that does not load leaves its instances kept as the file has them
     void SceneManager::Advance()
     {
         State& l_State = *m_State;
@@ -291,6 +292,21 @@ namespace Trinity
                 return;
             }
 
+            if (!l_Loading.PrefabsHeld)
+            {
+                l_Loading.PrefabsHeld = true;
+                for (const UUID it_Prefab : SceneSerializer::GetPrefabReferences(*l_Loading.Text))
+                {
+                    AddAsset(l_Loading.Held, it_Prefab);
+                    AssetManager::Acquire(it_Prefab);
+                }
+            }
+
+            if (CountWaiting(l_Loading.Held) != 0)
+            {
+                return;
+            }
+
             TR_PROFILE_SCOPE("SceneManager::Parse");
             Scope<Scene> l_Next = CreateScope<Scene>();
             const Expected<void, std::string> l_Loaded = SceneSerializer::LoadFromText(*l_Next, *l_Loading.Text);
@@ -304,10 +320,11 @@ namespace Trinity
             }
 
             l_Loading.Next = std::move(l_Next);
+            const std::size_t l_Prefabs = l_Loading.Held.size();
             GatherAssets(*l_Loading.Next, l_State.Registry, l_Loading.Held);
-            for (const UUID it_Asset : l_Loading.Held)
+            for (std::size_t it_Asset = l_Prefabs; it_Asset < l_Loading.Held.size(); ++it_Asset)
             {
-                AssetManager::Acquire(it_Asset);
+                AssetManager::Acquire(l_Loading.Held[it_Asset]);
             }
         }
 
@@ -348,7 +365,7 @@ namespace Trinity
         Switch();
     }
 
-    // The kept subtrees are written out and their scripts taken before the old scene goes, so its scripts' OnDestroy still sees them. In the new scene any entity of a kept UUID gives way first, and each kept root goes last among the roots, where it was in the world
+    // The kept subtrees are written out and their scripts taken before the old scene goes, so its scripts' OnDestroy still sees them. In the new scene any entity of a kept UUID gives way first, and each kept root goes last among the roots, where it was in the world. The old scene's assets are let go once the kept subtrees are in, so the prefabs their instances are of are there to make them from
     void SceneManager::Switch()
     {
         TR_PROFILE_FUNCTION();
@@ -403,7 +420,6 @@ namespace Trinity
 
         l_State.Runtime.reset();
         l_State.Current.reset();
-        Release(l_State.Held);
 
         for (const UUID it_Entity : l_KeptEntities)
         {
@@ -430,6 +446,8 @@ namespace Trinity
                 ++l_KeptCount;
             }
         }
+
+        Release(l_State.Held);
 
         l_State.Current = std::move(l_Next);
         l_State.Asset = l_Loading->Asset;
