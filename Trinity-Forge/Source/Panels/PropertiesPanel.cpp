@@ -41,13 +41,13 @@ namespace
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
     constexpr std::array<std::string_view, 24> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::CharacterControllerComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
 
-    // A label on the left and the widget filling the rest of the row
-    void Label(const char* label)
+    // A label on the left and the widget filling the rest of the row, less the width kept for buttons after it
+    void Label(const char* label, float reserve = 0.0f)
     {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
         ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
-        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::SetNextItemWidth(reserve > 0.0f ? -reserve : -FLT_MIN);
     }
 
     // The widget edits a copy, and a change becomes a command. While a widget stays active, as during a drag, its commands merge into one
@@ -1406,14 +1406,14 @@ void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
 }
 
 // A slot for one asset of a type: a button naming it that opens a picker of the project's assets of that type, and the built-in meshes for a mesh, which also takes one dragged from the Content Browser, or the first of its type that one holds, and a cross that clears it. Only a drag that fits lights it up, as in Unity. As in Unity it reads None (Type) while empty, and in the warning colour Missing (Type) while the asset is gone, or Type Mismatch (Type) while it is another type
-void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint)
+void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint, float reserve)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
     const SlotText l_Slot = DescribeAssetSlot(l_Registry, assetType, current);
 
     Label(label);
     const float l_ClearWidth = ImGui::GetFrameHeight();
-    const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f);
+    const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x - reserve, 1.0f);
     PushSlotColor(l_Slot);
     const bool l_Clicked = ImGui::Button(std::format("{}###{}", l_Slot.Text, label).c_str(), ImVec2(l_Width, 0.0f));
     PopSlotColor(l_Slot);
@@ -2974,26 +2974,32 @@ void PropertiesPanel::DrawScriptFields(Trinity::ScriptEntry& entry, std::string&
     }
 }
 
-// The field's editor by its type, its name on the left. A colour is edited in sRGB and kept linear, a rotation in degrees about X, Y and Z worked out afresh each frame, an enum by its values' names, an asset reference takes the asset type the field asks for, or any, and an input action one of the project's default input actions
+// The field's editor by its type, its name on the left, or for a list each element's
 bool PropertiesPanel::DrawScriptValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value)
+{
+    return value.GetType() == Trinity::ScriptFieldType::List ? DrawListValue(field, value) : DrawFieldValue(field, field.Name.c_str(), value);
+}
+
+// A value's editor by the field's type, after the label, short of the width kept for buttons after it. A colour is edited in sRGB and kept linear, a rotation in degrees about X, Y and Z worked out afresh each frame, an enum by its values' names, an asset reference takes the asset type the field asks for, or any, and an input action one of the project's default input actions
+bool PropertiesPanel::DrawFieldValue(const Trinity::ScriptFieldDescription& field, const char* label, Trinity::ScriptFieldValue& value, float reserve)
 {
     if (value.GetType() == Trinity::ScriptFieldType::Asset)
     {
         bool l_Changed = false;
         const Trinity::UUID l_Current = value.Get<Trinity::UUID>();
-        DrawAssetSlot(field.Name.c_str(), c_ScriptAssetPickerPopup, field.AssetType, l_Current, [&value, &l_Changed, l_Current](Trinity::UUID asset)
+        DrawAssetSlot(label, c_ScriptAssetPickerPopup, field.AssetType, l_Current, [&value, &l_Changed, l_Current](Trinity::UUID asset)
         {
             if (asset != l_Current)
             {
                 value = Trinity::ScriptFieldValue::Asset(asset);
                 l_Changed = true;
             }
-        }, "Drop an asset here, or pick one");
+        }, "Drop an asset here, or pick one", reserve);
 
         return l_Changed;
     }
 
-    Label(field.Name.c_str());
+    Label(label, reserve);
     switch (value.GetType())
     {
         case Trinity::ScriptFieldType::Bool:
@@ -3121,13 +3127,154 @@ bool PropertiesPanel::DrawScriptValue(const Trinity::ScriptFieldDescription& fie
         }
         case Trinity::ScriptFieldType::List:
         {
-            ImGui::TextDisabled("%s", FormatScriptValue(m_Session.GetScene(), m_Session.GetRegistry(), value).c_str());
-
-            return false;
+            // An element is never a list, and a list field has an editor of its own
+            break;
         }
     }
 
     return false;
+}
+
+// The field's name folds its elements away, and is open until it is closed. Each element has its type's editor and buttons that move it up or down or remove it, and Add below them puts a copy of the last at the end, or the type's zero in an empty list. Each button press is an undo step of its own, and so are the edits of each element
+bool PropertiesPanel::DrawListValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value)
+{
+    enum class Action : std::uint8_t
+    {
+        None,
+        MoveUp,
+        MoveDown,
+        Remove,
+        Add
+    };
+
+    auto& l_Elements = value.Get<Trinity::ScriptList>().Elements;
+    const std::uint32_t l_List = ImGui::GetID("##List");
+    ImGui::AlignTextToFramePadding();
+    const bool l_Open = ImGui::TreeNodeEx("##List", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen, "%s", field.Name.c_str());
+    ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
+    ImGui::TextDisabled("%s", std::format("{} element{}", l_Elements.size(), l_Elements.size() == 1 ? "" : "s").c_str());
+    if (!l_Open)
+    {
+        return false;
+    }
+
+    const float l_Button = ImGui::GetFrameHeight();
+    const float l_Spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float l_Buttons = l_Button * 3.0f + l_Spacing * 2.0f;
+    const float l_Indent = ImGui::GetStyle().IndentSpacing;
+    Action l_Action = Action::None;
+    std::size_t l_Index = 0;
+    bool l_Changed = false;
+    ImGui::Indent(l_Indent);
+    for (std::size_t it_Element = 0; it_Element < l_Elements.size(); ++it_Element)
+    {
+        ImGui::PushID(static_cast<int>(it_Element));
+        const float l_Right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        const std::string l_Label = std::format("Element {}", it_Element);
+        if (DrawFieldValue(field, l_Label.c_str(), l_Elements[it_Element], l_Buttons + l_Spacing))
+        {
+            if (m_EditedList != l_List || m_EditedElement != it_Element)
+            {
+                m_Session.GetHistory().EndMerge();
+                m_EditedList = l_List;
+                m_EditedElement = it_Element;
+            }
+
+            l_Changed = true;
+        }
+
+        ImGui::SameLine();
+        ImGui::SetCursorScreenPos(ImVec2(l_Right - l_Buttons, ImGui::GetCursorScreenPos().y));
+        ImGui::BeginDisabled(it_Element == 0);
+        if (ImGui::Button(Trinity::Icons::c_ArrowUp, ImVec2(l_Button, l_Button)))
+        {
+            l_Action = Action::MoveUp;
+            l_Index = it_Element;
+        }
+
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Move up");
+        }
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(it_Element + 1 == l_Elements.size());
+        if (ImGui::Button(Trinity::Icons::c_ArrowDown, ImVec2(l_Button, l_Button)))
+        {
+            l_Action = Action::MoveDown;
+            l_Index = it_Element;
+        }
+
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Move down");
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button(Trinity::Icons::c_Trash, ImVec2(l_Button, l_Button)))
+        {
+            l_Action = Action::Remove;
+            l_Index = it_Element;
+        }
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Remove this element");
+        }
+
+        ImGui::PopID();
+    }
+
+    if (ImGui::Button(std::format("{} Add Element", Trinity::Icons::c_Plus).c_str(), ImVec2(-FLT_MIN, 0.0f)))
+    {
+        l_Action = Action::Add;
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("%s", l_Elements.empty() ? "Adds an element at its type's zero" : "Adds a copy of the last element");
+    }
+
+    ImGui::Unindent(l_Indent);
+    switch (l_Action)
+    {
+        case Action::None:
+        {
+            return l_Changed;
+        }
+        case Action::MoveUp:
+        {
+            std::swap(l_Elements[l_Index], l_Elements[l_Index - 1]);
+
+            break;
+        }
+        case Action::MoveDown:
+        {
+            std::swap(l_Elements[l_Index], l_Elements[l_Index + 1]);
+
+            break;
+        }
+        case Action::Remove:
+        {
+            l_Elements.erase(l_Elements.begin() + static_cast<std::ptrdiff_t>(l_Index));
+
+            break;
+        }
+        case Action::Add:
+        {
+            Trinity::ScriptFieldValue l_Element = l_Elements.empty() ? Trinity::ScriptFieldValue(value.GetElementType()) : l_Elements.back();
+            l_Elements.push_back(std::move(l_Element));
+
+            break;
+        }
+    }
+
+    m_Session.GetHistory().EndMerge();
+    m_EditedList = 0;
+
+    return true;
 }
 
 // Picked from the project's default input actions, each map's under its name, by a search of their paths, or dropped from the Input Actions panel showing that asset. A path the actions lack is kept, shown as missing, until another is picked

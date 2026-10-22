@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
@@ -70,11 +71,13 @@ private:
     void DrawScripts(Trinity::Entity entity);
     void DrawScriptFields(Trinity::ScriptEntry& entry, std::string& change);
     [[nodiscard]] bool DrawScriptValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value);
+    [[nodiscard]] bool DrawFieldValue(const Trinity::ScriptFieldDescription& field, const char* label, Trinity::ScriptFieldValue& value, float reserve = 0.0f);
+    [[nodiscard]] bool DrawListValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value);
     [[nodiscard]] bool DrawInputActionSlot(Trinity::ScriptString& path);
     template<typename T>
     void DrawShapeSlot(Trinity::Entity entity, Trinity::CollisionShapeKind kind, const char* popup, const char* hint);
     void DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);
-    void DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint);
+    void DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint, float reserve = 0.0f);
     void DrawOtherComponents(Trinity::Entity entity);
     void DrawAddComponent(Trinity::Entity entity);
     static int OnComponentFilterEdit(ImGuiInputTextCallbackData* data);
@@ -121,4 +124,7 @@ private:
     Trinity::UUID m_EulerEntity;
     glm::quat m_EulerRotation = glm::identity<glm::quat>();
     glm::vec3 m_EulerDegrees{ 0.0f };
+    // The list, by its ImGui ID, and its element that the last command edited, so an edit of another element, even one reached by Tab, is a command of its own
+    std::uint32_t m_EditedList = 0;
+    std::size_t m_EditedElement = 0;
 };

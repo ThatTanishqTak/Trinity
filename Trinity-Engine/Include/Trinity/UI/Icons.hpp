@@ -31,6 +31,8 @@ namespace Trinity
         constexpr const char* c_Folder = "\uF07B";
         constexpr const char* c_FileImage = "\uF1C5";
         constexpr const char* c_ArrowUp = "\uF062";
+        constexpr const char* c_ArrowDown = "\uF063";
+        constexpr const char* c_Plus = "\uF067";
         constexpr const char* c_Arrows = "\uF047";
         constexpr const char* c_RotateRight = "\uF01E";
         constexpr const char* c_Expand = "\uF065";
