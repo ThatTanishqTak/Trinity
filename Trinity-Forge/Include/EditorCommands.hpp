@@ -102,10 +102,11 @@ private:
     std::string m_Label;
 };
 
+// Last under the parent, or among the roots for none, at the position, which is the parent's own
 class CreateSpriteCommand final : public EditorCommand
 {
 public:
-    CreateSpriteCommand(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size);
+    CreateSpriteCommand(std::string name, Trinity::UUID texture, Trinity::UUID parent, glm::vec3 position, glm::vec2 size);
 
     [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
     void Undo(Trinity::Scene& scene) override;
@@ -117,6 +118,7 @@ public:
 private:
     std::string m_Name;
     Trinity::UUID m_Texture;
+    Trinity::UUID m_Parent;
     glm::vec3 m_Position{ 0.0f };
     glm::vec2 m_Size{ 1.0f };
     Trinity::UUID m_Entity;
@@ -186,6 +188,26 @@ public:
 
 private:
     Trinity::UUID m_Entity;
+    Trinity::UUID m_Prefab;
+    Trinity::UUID m_Instance;
+    std::string m_Label;
+};
+
+// An instance's entities made plain ones, as Unity's Unpack makes them, keeping every UUID, so what names them still does. Undo links them again, so the instance changes of its prefab what it did before
+class UnpackPrefabCommand final : public EditorCommand
+{
+public:
+    explicit UnpackPrefabCommand(Trinity::UUID root);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Root; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::UUID m_Root;
     Trinity::UUID m_Prefab;
     Trinity::UUID m_Instance;
     std::string m_Label;

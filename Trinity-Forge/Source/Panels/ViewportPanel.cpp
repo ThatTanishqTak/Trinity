@@ -1270,7 +1270,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
             }
 
             const std::string l_Name = std::filesystem::path(l_Record->Path).stem().string();
-            m_Session.GetHistory().Execute(Trinity::CreateScope<CreateSpriteCommand>(l_Name, l_ID, l_Point, l_Pixels / c_PixelsPerUnit));
+            static_cast<void>(m_Session.CreateSprite(l_Name, l_ID, l_Point, l_Pixels / c_PixelsPerUnit));
         }
     }
 

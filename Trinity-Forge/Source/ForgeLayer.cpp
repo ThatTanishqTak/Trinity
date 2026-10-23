@@ -574,7 +574,7 @@ void ForgeLayer::ReadShortcuts()
     }
     else if (ImGui::IsKeyChordPressed(ImGuiKey_Delete) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
     {
-        m_Session.GetHistory().Execute(Trinity::CreateScope<DeleteEntityCommand>(m_Session.GetSelection()));
+        static_cast<void>(m_Session.DeleteEntity(m_Session.GetSelection()));
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma))
     {
@@ -926,7 +926,7 @@ void ForgeLayer::DrawEditMenu()
 
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Trash, "Delete").c_str(), "Delete", false, l_HasSelection))
     {
-        l_History.Execute(Trinity::CreateScope<DeleteEntityCommand>(m_Session.GetSelection()));
+        static_cast<void>(m_Session.DeleteEntity(m_Session.GetSelection()));
     }
 
     ImGui::Separator();

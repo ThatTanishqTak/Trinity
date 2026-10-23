@@ -689,7 +689,7 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 
     if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), "Delete"))
     {
-        m_Deferred.push_back([this, l_ID] { m_Session.GetHistory().Execute(Trinity::CreateScope<DeleteEntityCommand>(l_ID)); });
+        m_Deferred.push_back([this, l_ID] { static_cast<void>(m_Session.DeleteEntity(l_ID)); });
     }
 
     ImGui::EndDisabled();

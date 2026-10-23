@@ -3663,6 +3663,34 @@ namespace Trinity
             return l_Text + "\n";
         }
 
+        // Saved as a new instance of it is, made in a scene of its own, so each entity's UUID tells back the local ID it has in the template
+        Expected<std::string, std::string> SavePrefabTemplateToText(Scene& prefab)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            const Entity l_Root = prefab.GetFirstRoot();
+            if (!l_Root || prefab.GetRootCount() != 1)
+            {
+                return Unexpected{ std::format("holds {} entities with no parent, and a prefab holds one and its subtree", prefab.GetRootCount()) };
+            }
+
+            for (Entity it_Entity = l_Root; it_Entity; it_Entity = prefab.GetNextInSubtree(it_Entity, l_Root))
+            {
+                if (it_Entity.Has<PrefabInstanceComponent>())
+                {
+                    return Unexpected{ std::format("entity {} is an instance of a prefab, which a prefab cannot hold yet", it_Entity.GetUUID()) };
+                }
+            }
+
+            const UUID l_Instance = UUID::Generate();
+            Scene l_Scratch;
+            Entity l_Instanced = ExpandInstance(l_Scratch, prefab, GetInstanceMembers(prefab, l_Instance, {}), UUID(), l_Instance);
+            l_Instanced.Remove<PrefabInstanceComponent>();
+
+            return SavePrefabToText(l_Scratch, l_Instanced, l_Instance);
+        }
+
         Expected<void, std::string> LoadPrefabFromText(Scene& prefab, std::string_view text)
         {
             TR_PROFILE_FUNCTION();

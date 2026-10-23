@@ -139,10 +139,11 @@ public:
     [[nodiscard]] bool IsDirty() const { return !m_History.IsSaved(); }
 
     // The scene the panels show: the scene playing, the copy or one a script switched to, and otherwise the edited scene
-    [[nodiscard]] Trinity::Scene& GetScene() { return m_Play && m_Play->GetScene() ? *m_Play->GetScene() : m_Scene; }
-    // What the history edits and the scene file holds, whether or not a copy plays
-    [[nodiscard]] Trinity::Scene& GetEditedScene() { return m_Scene; }
-    [[nodiscard]] CommandStack& GetHistory() { return m_History; }
+    [[nodiscard]] Trinity::Scene& GetScene() { return m_Play && m_Play->GetScene() ? *m_Play->GetScene() : GetEditedScene(); }
+    // What the history edits: in prefab mode the open prefab, which its file holds once saved, and otherwise the scene, which the scene file holds, whether or not a copy plays
+    [[nodiscard]] Trinity::Scene& GetEditedScene() { return m_Stage ? m_Stage->Scene : m_Scene; }
+    // In prefab mode the open prefab's own, so nothing done there reaches the scene's
+    [[nodiscard]] CommandStack& GetHistory() { return m_Stage ? m_Stage->History : m_History; }
     [[nodiscard]] const Trinity::Project* GetProject() const { return m_Project.get(); }
     [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
@@ -152,11 +153,14 @@ public:
     bool EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field);
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
     [[nodiscard]] Trinity::UUID GetSceneID() const;
+    // The scene's file name without its extension, or Untitled for a scene never saved
+    [[nodiscard]] std::string GetSceneName() const;
 
-    [[nodiscard]] Trinity::UUID GetSelection() const { return m_Selection; }
+    // In prefab mode the open prefab's, and otherwise the scene's, which is kept for when prefab mode closes
+    [[nodiscard]] Trinity::UUID GetSelection() const { return m_Stage ? m_Stage->Selection : m_Selection; }
     void SetSelection(Trinity::UUID selection)
     {
-        m_Selection = selection;
+        (m_Stage ? m_Stage->Selection : m_Selection) = selection;
         m_InspectedAsset = {};
     }
 
@@ -262,11 +266,26 @@ public:
     bool RevertPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject);
     // What an instance changes of its prefab made the prefab's own, in one command: its file is written at once, and every instance of it in the edited scene is made again from it, each keeping what else it changes. Undo writes the file back. A change made to the file outside Forge since the files were scanned is read first, so it is kept. Refused with a notice for a prefab whose file is gone, and for an entity added to the instance that is or holds an instance, which a prefab cannot hold yet. Not while a copy plays
     bool ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject);
+    // As Unity's Unpack: the instance's entities made plain ones, keeping every UUID and what they hold, so nothing links them to the prefab, in one command. Refused with a notice for an entity standing in for a missing prefab, which has nothing to unpack until the prefab is back
+    bool UnpackPrefab(Trinity::UUID root);
+    // As Unity's prefab mode: the prefab, as its file holds it, edited in isolation in a scene of its own, with a selection and a history of its own, while the scene keeps its own as they were. Save writes the file and makes every instance of it in the scene again from it, keeping what each changes, a step of neither history. Asked for mid-frame and opened at the next Update, once a copy playing has stopped and the unsaved changes of a prefab open already are settled. Play is refused while it is open
+    void RequestOpenPrefab(Trinity::UUID prefab);
+    // Back to the scene, after asking what to do with unsaved changes, which Cancel keeps open
+    void RequestClosePrefab();
+    // The prefab prefab mode has open, or none
+    [[nodiscard]] Trinity::UUID GetOpenPrefab() const { return m_Stage ? m_Stage->Prefab : Trinity::UUID(); }
+    [[nodiscard]] bool IsPrefabDirty() const { return m_Stage && !m_Stage->History.IsSaved(); }
+    // Its file's name without the extension. Empty while none is open
+    [[nodiscard]] std::string GetOpenPrefabName() const;
     // As the Hierarchy moves an entity, keeping its place in the world, in one command. One of a prefab's entities in an instance keeps the place its prefab gives it, as in Unity, and nothing goes under an entity standing in for a missing prefab, each refused with a notice
     bool MoveEntity(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before);
     // Just after the original, in one command. Refused with a notice for an entity holding an instance whose prefab is missing, which only it can keep
     bool DuplicateEntity(Trinity::UUID entity);
-    // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point
+    // In one command, as the Delete key and the Hierarchy's menu ask
+    bool DeleteEntity(Trinity::UUID entity);
+    // A sprite of the texture at the point, its size in units, as a texture dropped into the Scene panel makes one, in one command
+    bool CreateSprite(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size);
+    // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point. In prefab mode, as Unity keeps a prefab to one root, whatever is made, pasted or moved with no parent goes last under the prefab's root, keeping its place in the world, and the root is never moved, duplicated or deleted, each refused with a notice. No instance of a prefab goes into one, which waits for nested prefabs
     bool CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent);
     // As Unity's GameObject menu makes them, each in one command and placed as a built-in shape is
     bool CreateEmpty(Trinity::UUID parent);
@@ -338,9 +357,27 @@ private:
         Trinity::TransformComponent World;
     };
 
+    // A prefab open in prefab mode: its entities under their local IDs in a scene of their own, and the text its file held as it was last read or saved, which a change made outside Forge is found against
+    struct PrefabStage
+    {
+        Trinity::UUID Prefab;
+        std::string Text;
+        Trinity::Scene Scene;
+        Trinity::UUID Selection;
+        CommandStack History{ Scene, Selection };
+    };
+
+    // Where something made, pasted or moved goes: under the parent, before the sibling
+    struct Place
+    {
+        Trinity::UUID Parent;
+        Trinity::UUID Before;
+    };
+
     void Run(Command command);
     void AskPath(PathRequest request);
     void ConfirmDiscard(Action action);
+    void ConfirmClosePrefab(Action then);
     void ConfirmCloseProject(Action action);
     [[nodiscard]] bool SettleUnappliedEdits(Action& then);
 
@@ -355,8 +392,16 @@ private:
     void RememberScene();
     bool PasteEntityAt(Trinity::UUID parent, Trinity::UUID before);
     [[nodiscard]] bool CanTakeChildren(Trinity::UUID parent);
+    [[nodiscard]] Place FindPlace(Trinity::UUID parent, Trinity::UUID before);
+    [[nodiscard]] glm::vec3 ToLocalPoint(Trinity::UUID parent, glm::vec3 point);
+    [[nodiscard]] bool IsPrefabRoot(Trinity::UUID entity);
+    [[nodiscard]] bool RefuseNestedPrefab();
     bool WritePrefab(Trinity::UUID prefab, const std::string& text);
     void UpdateChangedPrefabs();
+    void OpenPrefab(Trinity::UUID prefab);
+    void ClosePrefab();
+    bool SavePrefab();
+    void UpdatePrefabStage();
     void AttachRegistry();
     void StartImports();
     void StartTextureImports();
@@ -383,9 +428,9 @@ private:
     void SaveScene(Action then);
     void SaveSceneAs(Action then);
     [[nodiscard]] bool WriteScene(const std::string& assetPath);
-    [[nodiscard]] std::string GetSceneName() const;
 
     void DrawUnsavedPopup();
+    void DrawUnsavedPrefabPopup();
     void DrawPathPopup();
     void DrawImportPopup();
     void DrawDebuggerPopup();
@@ -404,6 +449,8 @@ private:
     std::optional<CopiedEntity> m_CopiedEntity;
     // What the serializer finds prefabs in, since Forge opens a scene at once, before the asset manager could load them
     PrefabTemplateCache m_Prefabs;
+    // The prefab prefab mode has open, or null while the scene is edited
+    Trinity::Scope<PrefabStage> m_Stage;
     std::vector<RecentProject> m_RecentProjects;
     std::vector<RecentScene> m_RecentScenes;
     std::unordered_map<Trinity::UUID, InputActionsFile> m_InputActionsFiles;
@@ -443,6 +490,8 @@ private:
     std::vector<Action> m_Pending;
     Action m_AfterDiscard;
     bool m_OpenUnsavedPopup = false;
+    Action m_AfterPrefab;
+    bool m_OpenPrefabPopup = false;
 
     std::optional<PathRequest> m_PathPrompt;
     std::string m_PathText;

@@ -595,7 +595,7 @@ std::size_t CreateEntityCommand::GetMemorySize() const
     return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
 }
 
-CreateSpriteCommand::CreateSpriteCommand(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size) : m_Name(std::move(name)), m_Texture(texture), m_Position(position), m_Size(size)
+CreateSpriteCommand::CreateSpriteCommand(std::string name, Trinity::UUID texture, Trinity::UUID parent, glm::vec3 position, glm::vec2 size) : m_Name(std::move(name)), m_Texture(texture), m_Parent(parent), m_Position(position), m_Size(size)
 {
 
 }
@@ -605,10 +605,15 @@ bool CreateSpriteCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
     {
-        return Restore(scene, m_Text, {}, {}, m_Label);
+        return Restore(scene, m_Text, m_Parent, {}, m_Label);
     }
 
-    Trinity::Entity l_Entity = scene.CreateEntity(m_Name);
+    if (!IsPlaceValid(scene, m_Parent, {}))
+    {
+        return false;
+    }
+
+    Trinity::Entity l_Entity = scene.CreateEntity(m_Name, scene.FindEntityByUUID(m_Parent));
     Trinity::TransformComponent& l_Transform = l_Entity.Get<Trinity::TransformComponent>();
     l_Transform.Position = m_Position;
     l_Transform.Scale = glm::vec3(m_Size, 1.0f);
@@ -759,6 +764,43 @@ void LinkPrefabCommand::Undo(Trinity::Scene& scene)
 }
 
 std::size_t LinkPrefabCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Label.capacity();
+}
+
+UnpackPrefabCommand::UnpackPrefabCommand(Trinity::UUID root) : m_Root(root)
+{
+
+}
+
+// Only an instance whose prefab is there, since one standing in for a missing prefab keeps its entities as text
+bool UnpackPrefabCommand::Execute(Trinity::Scene& scene)
+{
+    Trinity::Entity l_Root = scene.FindEntityByUUID(m_Root);
+    if (!l_Root || !l_Root.Has<Trinity::PrefabInstanceComponent>() || IsMissingPrefab(l_Root))
+    {
+        return false;
+    }
+
+    const Trinity::PrefabInstanceComponent& l_Instance = l_Root.Get<Trinity::PrefabInstanceComponent>();
+    m_Prefab = l_Instance.Prefab;
+    m_Instance = l_Instance.Instance;
+    if (m_Label.empty())
+    {
+        m_Label = std::format("Unpack prefab {}", GetEntityLabel(l_Root));
+    }
+
+    l_Root.Remove<Trinity::PrefabInstanceComponent>();
+
+    return true;
+}
+
+void UnpackPrefabCommand::Undo(Trinity::Scene& scene)
+{
+    scene.FindEntityByUUID(m_Root).Add<Trinity::PrefabInstanceComponent>(Trinity::PrefabInstanceComponent{ .Prefab = m_Prefab, .Instance = m_Instance, .Kept = {} });
+}
+
+std::size_t UnpackPrefabCommand::GetMemorySize() const
 {
     return sizeof(*this) + m_Label.capacity();
 }

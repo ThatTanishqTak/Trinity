@@ -179,6 +179,8 @@ namespace Trinity
 
         // A .trprefab's text: the entity and its subtree under the local IDs the instance's UUID tells back from theirs, so once the entity is that instance's root its entities keep their UUIDs. An entity named outside the subtree is cleared, since a prefab names none, and the instance keeps it as what it changes. Refused for a subtree that holds a prefab instance, which a prefab cannot hold yet
         [[nodiscard]] TRINITY_API Expected<std::string, std::string> SavePrefabToText(Scene& scene, Entity root, UUID instance);
+        // A template's .trprefab text, as prefab mode saves the prefab it edits: its one root and the subtree, each entity's UUID its local ID. An entity named outside the subtree is cleared, as SavePrefabToText clears one. Refused for a template of more than one root, or one holding a prefab instance, which a prefab cannot hold yet
+        [[nodiscard]] TRINITY_API Expected<std::string, std::string> SavePrefabTemplateToText(Scene& prefab);
         // The prefab's entities under their local IDs, in place of the scene's own, as a template that instances are made from
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadPrefabFromText(Scene& prefab, std::string_view text);
         // A new instance of the prefab, unchanged, its root put as LoadEntityFromText puts one. Refused for a prefab the resolver does not find, or when an entity of the instance's UUIDs is already in the scene
