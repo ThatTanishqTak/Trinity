@@ -16,6 +16,7 @@ bool CommandStack::Execute(Trinity::Scope<EditorCommand> command)
         return false;
     }
 
+    ++m_Revision;
     DropRedo();
 
     if (m_MergeOpen && m_Position > 0 && m_SavedPosition != m_Position)
@@ -52,6 +53,7 @@ bool CommandStack::Undo()
 
     EditorCommand& l_Command = *m_Commands[--m_Position];
     l_Command.Undo(m_Scene);
+    ++m_Revision;
     Select(l_Command);
 
     return true;
@@ -76,6 +78,7 @@ bool CommandStack::Redo()
     }
 
     ++m_Position;
+    ++m_Revision;
     Select(l_Command);
 
     return true;
@@ -113,6 +116,7 @@ void CommandStack::Clear()
     m_DroppedCount = 0;
     m_MemorySize = 0;
     m_MergeOpen = false;
+    ++m_Revision;
 }
 
 void CommandStack::MarkSaved()

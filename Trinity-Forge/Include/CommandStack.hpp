@@ -3,6 +3,7 @@
 #include <Trinity.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <optional>
 #include <string>
@@ -70,6 +71,8 @@ public:
     [[nodiscard]] std::size_t GetDroppedCount() const { return m_DroppedCount; }
     [[nodiscard]] std::size_t GetMemorySize() const { return m_MemorySize; }
     [[nodiscard]] std::size_t GetCapacity() const { return m_Capacity; }
+    // Changes with every command taken, merged, undone or redone and as the history is cleared, so a panel can tell that what it read of the scene is out of date, which the position alone cannot, since a drag merges into one command
+    [[nodiscard]] std::uint64_t GetRevision() const { return m_Revision; }
 
 private:
     [[nodiscard]] bool IsRefused(const EditorCommand& command) const { return m_Locked && command.ChangesScene(); }
@@ -86,6 +89,7 @@ private:
     std::size_t m_DroppedCount = 0;
     std::size_t m_MemorySize = 0;
     std::size_t m_Capacity = 0;
+    std::uint64_t m_Revision = 0;
     bool m_MergeOpen = false;
     bool m_Locked = false;
     bool m_WarnedLocked = false;

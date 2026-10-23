@@ -1075,7 +1075,7 @@ void ContentBrowserPanel::Select(const Item& item)
     m_Session.SetInspectedAsset(item.Record != nullptr ? item.Record->ID : Trinity::UUID());
 }
 
-// A folder opens here, a scene in Forge, input actions in their panel and a script in the script editor. Anything else but a material, which Properties edits, opens in the program the system has for it, as Unity opens a texture in an image editor
+// A folder opens here, a scene in Forge, a prefab in prefab mode, input actions in their panel and a script in the script editor. Anything else but a material, which Properties edits, opens in the program the system has for it, as Unity opens a texture in an image editor
 void ContentBrowserPanel::Open(const Item& item)
 {
     if (item.Folder)
@@ -1086,6 +1086,10 @@ void ContentBrowserPanel::Open(const Item& item)
     {
         m_Session.RequestOpenScene(item.Path);
     }
+    else if (IsPrefab(item.Record))
+    {
+        m_Session.RequestOpenPrefab(item.Record->ID);
+    }
     else if (item.Record != nullptr && item.Record->Importer == Trinity::InputActionsAsset::c_AssetType && m_OpenInputActions)
     {
         m_OpenInputActions(item.Record->ID);
@@ -1094,7 +1098,7 @@ void ContentBrowserPanel::Open(const Item& item)
     {
         m_Deferred.push_back([this, l_Path = item.Path] { static_cast<void>(m_Session.OpenScript(l_Path)); });
     }
-    else if (!IsMaterial(item.Record) && !IsPrefab(item.Record))
+    else if (!IsMaterial(item.Record))
     {
         m_Deferred.push_back([this, l_Path = item.Path]
         {

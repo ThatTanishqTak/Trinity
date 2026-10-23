@@ -56,6 +56,7 @@ private:
     void ResolveReferences(const std::vector<std::string_view>& terms);
     [[nodiscard]] bool HasReference(Trinity::Entity entity) const;
     void UpdateSearch(Trinity::Scene& scene);
+    void UpdateOverrides(Trinity::Scene& scene);
     void DrawEntity(Trinity::Entity entity);
     void DrawRenameField(Trinity::Entity entity);
     void DrawContextMenu(Trinity::Entity entity);
@@ -96,6 +97,10 @@ private:
     // The ref: terms resolved, worked out again only as the terms, the project's assets or the history change, since a texture's materials are read from their files
     References m_References;
     std::string m_ReferencesKey;
+    // What the scene's instances change of their prefabs, as Unity's Hierarchy marks it: the entities with values or components of their own, and those added to an instance. Worked out again only as the history, the files or prefab mode change, since every instance is compared with its prefab
+    std::unordered_set<Trinity::UUID> m_Overridden;
+    std::unordered_set<Trinity::UUID> m_Added;
+    std::string m_OverridesKey;
     // While a copy of the scene plays, which nothing may change
     bool m_ReadOnly = false;
     bool m_ScrollToSelection = false;

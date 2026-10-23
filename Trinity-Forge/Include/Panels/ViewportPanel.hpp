@@ -89,6 +89,7 @@ private:
     [[nodiscard]] bool IsSnapping() const;
     void EndGizmoDrag();
     void DrawToolbar();
+    void DrawBreadcrumb();
 
     [[nodiscard]] Trinity::TransformComponent ApplyGizmo(const glm::mat4& parentWorld, bool snap) const;
     [[nodiscard]] Trinity::TransformComponent ApplyGizmo3D(const glm::mat4& parentWorld) const;
@@ -141,6 +142,8 @@ private:
     std::uint32_t m_GizmoID = 0;
     float m_ToolbarWidth = 0.0f;
     float m_ToolbarHeight = 0.0f;
+    // The breadcrumb's, across the top in prefab mode, which the image and what floats over it start below
+    float m_BreadcrumbHeight = 0.0f;
     bool m_GizmoDragging = false;
     bool m_GizmoHovered = false;
 };

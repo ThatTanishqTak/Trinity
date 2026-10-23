@@ -209,8 +209,15 @@ void ForgeLayer::OnEvent(Trinity::Event& event)
 void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& commands)
 {
     m_Session.GetScene().UpdateWorldTransforms();
+    // In prefab mode the Game panel goes on showing the scene, whose instances a save of the prefab makes again
+    if (Trinity::Scene& l_Main = m_Session.GetMainScene(); &l_Main != &m_Session.GetScene())
+    {
+        l_Main.UpdateWorldTransforms();
+    }
+
     Trinity::Application::Get().GetRenderer().SetToneMapping(GetSceneToneMapping(m_Session.GetScene()));
     m_ViewportPanel->PrepareScene();
+    m_GamePanel->PrepareScene();
     m_GamePanel->PrepareScene();
 }
 
@@ -612,9 +619,11 @@ void ForgeLayer::DrawMenuBar()
             ImGui::EndMenu();
         }
 
-        a_Item(Trinity::Icons::c_Save, "Save", "Ctrl+S", l_HasProject, EditorSession::Command::SaveScene);
-        a_Item(Trinity::Icons::c_Save, "Save As...", "Ctrl+Shift+S", l_HasProject, EditorSession::Command::SaveSceneAs);
-        a_Item(Trinity::Icons::c_Gear, "Set as Start Scene", nullptr, l_HasProject && m_Session.HasScenePath(), EditorSession::Command::SetStartScene);
+        // In prefab mode Save is the prefab's, as in Unity, and Save As waits for the scene
+        const bool l_PrefabMode = static_cast<bool>(m_Session.GetOpenPrefab());
+        a_Item(Trinity::Icons::c_Save, l_PrefabMode ? "Save Prefab" : "Save", "Ctrl+S", l_HasProject, EditorSession::Command::SaveScene);
+        a_Item(Trinity::Icons::c_Save, "Save As...", "Ctrl+Shift+S", l_HasProject && !l_PrefabMode, EditorSession::Command::SaveSceneAs);
+        a_Item(Trinity::Icons::c_Gear, "Set as Start Scene", nullptr, l_HasProject&& m_Session.HasScenePath(), EditorSession::Command::SetStartScene);
         a_Item(Trinity::Icons::c_Refresh, "Refresh", "F5", l_HasProject, EditorSession::Command::Refresh);
         ImGui::Separator();
         a_Item(Trinity::Icons::c_PowerOff, "Exit", "Alt+F4", true, EditorSession::Command::Exit);
@@ -850,8 +859,10 @@ void ForgeLayer::DrawPlayControls()
     // Held down while it waits for the scripts to build, as Unity's is while they compile, and saying why it is refused while a build has failed
     const bool l_Waiting = m_Session.IsWaitingForBuild();
     const std::string l_Failed = l_Playing ? std::string() : m_Session.GetFailedBuilds();
-    const std::string l_PlayTip = l_Paused ? "Resume (Ctrl+Shift+P)" : l_Waiting ? "Plays once the scripts have built. Click to stop waiting (Ctrl+P)" : !l_Failed.empty() ? std::format("Play (Ctrl+P). Build errors in {} stop it until they are fixed", l_Failed) : "Play (Ctrl+P)";
-    if (a_Button(Trinity::Icons::c_Play, "Play", m_Session.HasProject() && (!l_Playing || l_Paused), (l_Playing && !l_Paused) || l_Waiting, l_PlayTip.c_str()))
+    // Greyed in prefab mode, which has no scene to play
+    const bool l_PrefabMode = static_cast<bool>(m_Session.GetOpenPrefab());
+    const std::string l_PlayTip = l_PrefabMode ? "Play is disabled in prefab mode. Go back to the scene to play it" : l_Paused ? "Resume (Ctrl+Shift+P)" : l_Waiting ? "Plays once the scripts have built. Click to stop waiting (Ctrl+P)" : !l_Failed.empty() ? std::format("Play (Ctrl+P). Build errors in {} stop it until they are fixed", l_Failed) : "Play (Ctrl+P)";
+    if (a_Button(Trinity::Icons::c_Play, "Play", m_Session.HasProject() && !l_PrefabMode && (!l_Playing || l_Paused), (l_Playing && !l_Paused) || l_Waiting, l_PlayTip.c_str()))
     {
         m_Session.RequestPlay();
     }
@@ -943,7 +954,7 @@ void ForgeLayer::DrawEditMenu()
     }
 }
 
-// Unity's GameObject menu. Each new entity goes among the roots at the spawn point, but Create Empty Child's, which goes under the selection at its origin, and an empty one is renamed in the Hierarchy at once. Not while a copy plays
+// Unity's GameObject menu. Each new entity goes among the roots at the spawn point, but Create Empty Child's, which goes under the selection at its origin, and an empty one is renamed in the Hierarchy at once. Not while a copy plays. Unpack Prefab last
 void ForgeLayer::DrawEntityMenu()
 {
     const bool l_Editable = m_Session.HasProject() && !m_Session.IsPlaying();
@@ -989,6 +1000,15 @@ void ForgeLayer::DrawEntityMenu()
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Monitor, "Camera").c_str(), nullptr, false, l_Editable))
     {
         static_cast<void>(m_Session.CreateCamera({}));
+    }
+
+    ImGui::Separator();
+
+    // Unity's Unpack, for the instance the selection is of, its root or one of its entities
+    const Trinity::Entity l_Instance = l_HasSelection ? Trinity::Prefab::FindInstanceRoot(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection())) : Trinity::Entity();
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_PackageVariantClosed, "Unpack Prefab").c_str(), nullptr, false, l_Instance && !IsMissingPrefab(l_Instance)))
+    {
+        static_cast<void>(m_Session.UnpackPrefab(l_Instance.GetUUID()));
     }
 }
 

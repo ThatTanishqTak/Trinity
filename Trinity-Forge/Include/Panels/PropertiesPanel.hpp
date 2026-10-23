@@ -111,6 +111,8 @@ private:
     std::uint64_t m_ImportedMaterialImports = UINT64_MAX;
     // A change from a component's menu, which waits until every section is drawn, since the sections read the components
     Trinity::Scope<EditorCommand> m_PendingCommand;
+    // The instance Unpack was clicked on, unpacked once the sections are drawn, since they read it as an instance
+    Trinity::UUID m_PendingUnpack;
     std::optional<CopiedComponent> m_CopiedComponent;
     std::string m_NameText;
     Trinity::UUID m_NameEntity;

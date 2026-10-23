@@ -13,6 +13,7 @@
 #include <cctype>
 #include <cfloat>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <optional>
 #include <string_view>
@@ -136,6 +137,7 @@ void HierarchyPanel::OnImGuiRender()
 
     ReadShortcuts();
     DrawSearch();
+    UpdateOverrides(l_Scene);
 
     const bool l_Searching = !m_Search.empty();
     if (l_Searching)
@@ -333,6 +335,45 @@ void HierarchyPanel::UpdateSearch(Trinity::Scene& scene)
     }
 }
 
+// Each instance compared with its prefab as the key changes. The root's Position and Rotation are its own, so they mark nothing, and while a copy plays nothing is marked, since its instances change as it runs
+void HierarchyPanel::UpdateOverrides(Trinity::Scene& scene)
+{
+    std::string l_Key = m_ReadOnly ? std::string() : std::format("{} {} {}", m_Session.GetHistory().GetRevision(), m_Session.GetScanCount(), m_Session.GetOpenPrefab());
+    if (l_Key == m_OverridesKey)
+    {
+        return;
+    }
+
+    m_OverridesKey = std::move(l_Key);
+    m_Overridden.clear();
+    m_Added.clear();
+    if (m_ReadOnly)
+    {
+        return;
+    }
+
+    for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+    {
+        // Each instance by its root. One standing in for a missing prefab gives no overrides, having no prefab to compare with
+        if (!it_Entity.Has<Trinity::PrefabInstanceComponent>())
+        {
+            continue;
+        }
+
+        for (const Trinity::SceneSerializer::PrefabOverride& it_Override : Trinity::SceneSerializer::GetPrefabOverrides(it_Entity))
+        {
+            if (it_Override.Type == Trinity::SceneSerializer::PrefabOverride::Kind::AddedEntity)
+            {
+                m_Added.insert(it_Override.Entity);
+            }
+            else if (it_Override.Type != Trinity::SceneSerializer::PrefabOverride::Kind::RemovedEntity && !IsDefaultOverride(it_Entity, it_Override))
+            {
+                m_Overridden.insert(it_Override.Entity);
+            }
+        }
+    }
+}
+
 // A term names an asset by its path, the end of its path, as Models/Rock.fbx does, or its UUID, and every asset of that name counts. A model brings what was imported from it, its meshes, materials and collision shapes, and a texture brings each material that samples it, read from its file. A script file, which is no asset, names the class it is named after, as Edit Script finds it
 void HierarchyPanel::ResolveReferences(const std::vector<std::string_view>& terms)
 {
@@ -504,19 +545,42 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         m_OpenRequests.erase(a_Request);
     }
 
-    // As Unity colours them: a prefab's instance blue, its root and the prefab's entities in it alike, and an entity standing in for a missing prefab red. What is added to an instance is as any entity is
+    // As Unity colours them: a prefab's instance blue, its root and the prefab's entities in it alike, and an entity standing in for a missing prefab red. What is added to an instance is as any entity is, with a plus. In prefab mode the prefab's root is shown as the prefab, as Unity shows it there
     const bool l_Dimmed = l_Searching && !m_Matched.contains(l_ID);
     const Trinity::Entity l_Instance = Trinity::Prefab::FindInstanceRoot(entity);
-    const bool l_Colored = l_Dimmed || l_Instance;
+    const bool l_PrefabRoot = m_Session.GetOpenPrefab() && !entity.GetParent();
+    const bool l_Colored = l_Dimmed || l_Instance || l_PrefabRoot;
     if (l_Colored)
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, l_Dimmed ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : IsMissingPrefab(l_Instance) ? ConsolePanel::GetLevelColor(Trinity::LogLevel::Error) : GetPrefabColor());
+        ImGui::PushStyleColor(ImGuiCol_Text, l_Dimmed ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : l_Instance && IsMissingPrefab(l_Instance) ? ConsolePanel::GetLevelColor(Trinity::LogLevel::Error) : GetPrefabColor());
     }
 
-    const char* l_Icon = l_Instance == entity ? Trinity::Icons::c_PackageVariantClosed : Trinity::Icons::c_CubeOutline;
-    const std::string l_Label = l_Renaming ? std::string(l_Icon) : std::format("{} {}", l_Icon, GetEntityLabel(entity));
+    const char* l_Icon = l_Instance == entity || l_PrefabRoot ? Trinity::Icons::c_PackageVariantClosed : Trinity::Icons::c_CubeOutline;
+    const std::string l_Icons = m_Added.contains(l_ID) ? std::format("{}{}", Trinity::Icons::c_Plus, l_Icon) : std::string(l_Icon);
+    const std::string l_Label = l_Renaming ? l_Icons : std::format("{} {}", l_Icons, GetEntityLabel(entity));
+    // An instance's root ends its row with Unity's arrow, which overlaps the row, and an entity that changes its prefab is marked as Properties marks it, with the bar and a bold name
+    const bool l_Arrow = l_Instance == entity && !IsMissingPrefab(entity) && !l_Renaming;
+    const bool l_Overridden = m_Overridden.contains(l_ID);
+    const float l_Right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+    if (l_Overridden)
+    {
+        ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
+    }
+
+    if (l_Arrow)
+    {
+        ImGui::SetNextItemAllowOverlap();
+    }
+
     const bool l_Open = ImGui::TreeNodeEx(ToImGuiID(l_ID), l_Flags, "%s", l_Label.c_str());
     m_Rows.push_back({ .Entity = l_ID, .HasChildren = l_HasChildren, .Open = l_HasChildren && l_Open });
+    if (l_Overridden)
+    {
+        ImGui::PopFont();
+        const float l_Left = ImGui::GetCurrentWindow()->InnerClipRect.Min.x;
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(l_Left, ImGui::GetItemRectMin().y), ImVec2(l_Left + 3.0f, ImGui::GetItemRectMax().y), ImGui::GetColorU32(GetPrefabColor()));
+    }
+
     if (l_Colored)
     {
         ImGui::PopStyleColor();
@@ -584,6 +648,23 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         AcceptDrop(entity);
     }
 
+    if (l_Arrow)
+    {
+        const Trinity::UUID l_Prefab = entity.Get<Trinity::PrefabInstanceComponent>().Prefab;
+        const float l_Width = ImGui::CalcTextSize(Trinity::Icons::c_ChevronRight).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(std::max(l_Right - l_Width, ImGui::GetCursorPosX()));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        if (ImGui::SmallButton(std::format("{}##OpenPrefab{}", Trinity::Icons::c_ChevronRight, l_ID.GetValue()).c_str()))
+        {
+            m_Session.RequestOpenPrefab(l_Prefab);
+        }
+
+        ImGui::PopStyleColor();
+        const Trinity::AssetRecord* l_Record = m_Session.GetRegistry() != nullptr ? m_Session.GetRegistry()->Find(l_Prefab) : nullptr;
+        ImGui::SetItemTooltip("%s", std::format("Opens prefab {} in prefab mode", l_Record != nullptr ? std::filesystem::path(l_Record->Path).stem().string() : l_Prefab.ToString()).c_str());
+    }
+
     if (l_Renaming)
     {
         DrawRenameField(entity);
@@ -630,7 +711,7 @@ void HierarchyPanel::DrawRenameField(Trinity::Entity entity)
     }
 }
 
-// While a copy plays, Copy alone, which takes the playing entity to paste once it stops
+// While a copy plays, Copy alone, which takes the playing entity to paste once it stops, and Open Prefab. Unity's Prefab items close the menu of an instance's entity
 void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 {
     const Trinity::UUID l_ID = entity.GetUUID();
@@ -693,6 +774,24 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
     }
 
     ImGui::EndDisabled();
+
+    const Trinity::Entity l_Instance = Trinity::Prefab::FindInstanceRoot(entity);
+    if (!l_Instance)
+    {
+        return;
+    }
+
+    ImGui::Separator();
+    const bool l_Missing = IsMissingPrefab(l_Instance);
+    if (ImGui::MenuItem(std::format("{} Open Prefab", Trinity::Icons::c_PackageVariantClosed).c_str(), nullptr, false, !l_Missing))
+    {
+        m_Session.RequestOpenPrefab(l_Instance.Get<Trinity::PrefabInstanceComponent>().Prefab);
+    }
+
+    if (ImGui::MenuItem("Unpack Prefab", nullptr, false, !m_ReadOnly && !l_Missing))
+    {
+        m_Deferred.push_back([this, l_Root = l_Instance.GetUUID()] { static_cast<void>(m_Session.UnpackPrefab(l_Root)); });
+    }
 }
 
 // The space below the tree: a click clears the selection, a drop makes the entity the last root, or a model's hierarchy or a prefab's instance one, and its menu creates a root or pastes, the last two not while a copy plays

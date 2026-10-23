@@ -3,6 +3,7 @@
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 #include "ImGuizmoInclude.hpp"
+#include "Panels/HierarchyPanel.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -470,6 +471,7 @@ void ViewportPanel::OnImGuiRender()
     FollowScene();
     ApplyPick();
     m_Session.SetSpawnPoint(m_Mode3D ? m_Camera3D.GetFocus() : glm::vec3(m_Camera.GetPosition(), 0.0f), m_Mode3D);
+    DrawBreadcrumb();
 
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
     const std::uint32_t l_Width = static_cast<std::uint32_t>(std::max(std::floor(l_Available.x), 1.0f));
@@ -569,10 +571,11 @@ void ViewportPanel::FollowPanelSize(std::uint32_t width, std::uint32_t height)
     }
 }
 
-// Each saved scene keeps its cameras, and whether it was last edited in 2D or 3D. A scene saved for the first time keeps the view it had while untitled, one without a saved camera starts at the origin, and one saved before 3D editing opens in 2D
+// Each saved scene keeps its cameras, and whether it was last edited in 2D or 3D. A scene saved for the first time keeps the view it had while untitled, one without a saved camera starts at the origin, and one saved before 3D editing opens in 2D. In prefab mode the open prefab keeps cameras of its own, and one without them yet is framed, with its root selected, as Unity frames a prefab it opens
 void ViewportPanel::FollowScene()
 {
-    const Trinity::UUID l_SceneID = m_Session.GetSceneID();
+    const Trinity::UUID l_Prefab = m_Session.GetOpenPrefab();
+    const Trinity::UUID l_SceneID = l_Prefab ? l_Prefab : m_Session.GetSceneID();
     if (l_SceneID == m_SceneID)
     {
         return;
@@ -601,7 +604,8 @@ void ViewportPanel::FollowScene()
     const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(GetCameraPath(m_SceneID));
     glm::vec2 l_Position{ 0.0f };
     float l_Height = EditorCamera::c_DefaultHeight;
-    if (l_Text && ParseCamera(*l_Text, l_Position, l_Height))
+    const bool l_Kept = l_Text && ParseCamera(*l_Text, l_Position, l_Height);
+    if (l_Kept)
     {
         m_Camera.Set(l_Position, l_Height);
         if (!ParseCamera3D(*l_Text, m_Mode3D, m_Camera3D))
@@ -610,10 +614,15 @@ void ViewportPanel::FollowScene()
             m_Camera3D.Reset(m_Session.GetPreferences().CameraSpeed);
         }
     }
-    else if (!l_WasUntitled)
+    else if (!l_WasUntitled || l_Prefab)
     {
         m_Camera.Reset();
         m_Camera3D.Reset(m_Session.GetPreferences().CameraSpeed);
+    }
+
+    if (l_Prefab && !l_Kept)
+    {
+        m_FrameRequest = false;
     }
 }
 
@@ -1474,7 +1483,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
     const glm::vec2 l_Position = m_Camera.GetPosition();
 
     const ImVec2 l_Start = ImGui::GetCursorStartPos();
-    ImGui::SetCursorPos(ImVec2(l_Start.x + c_StatsMargin, l_Start.y + c_StatsMargin));
+    ImGui::SetCursorPos(ImVec2(l_Start.x + c_StatsMargin, l_Start.y + m_BreadcrumbHeight + c_StatsMargin));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.55f));
     const ImGuiChildFlags l_ChildFlags = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding;
     const ImGuiWindowFlags l_WindowFlags = ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings;
@@ -1978,7 +1987,7 @@ Trinity::TransformComponent ViewportPanel::ApplyGizmo3D(const glm::mat4& parentW
 void ViewportPanel::DrawToolbar()
 {
     const ImVec2 l_Start = ImGui::GetCursorStartPos();
-    ImGui::SetCursorPos(ImVec2(std::max(l_Start.x + c_StatsMargin, ImGui::GetWindowWidth() - m_ToolbarWidth - c_StatsMargin), l_Start.y + c_StatsMargin));
+    ImGui::SetCursorPos(ImVec2(std::max(l_Start.x + c_StatsMargin, ImGui::GetWindowWidth() - m_ToolbarWidth - c_StatsMargin), l_Start.y + m_BreadcrumbHeight + c_StatsMargin));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.55f));
 
     const ImGuiChildFlags l_ChildFlags = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding;
@@ -2113,6 +2122,53 @@ void ViewportPanel::DrawToolbar()
 
     ImGui::EndChild();
     ImGui::PopStyleColor();
+}
+
+// In prefab mode, as Unity's Scene view heads it: the way back to the scene, by its name, then the prefab's, starred while it has unsaved changes, and Save at the right
+void ViewportPanel::DrawBreadcrumb()
+{
+    m_BreadcrumbHeight = 0.0f;
+    if (!m_Session.GetOpenPrefab())
+    {
+        return;
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+    if (ImGui::BeginChild("##Breadcrumb", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
+    {
+        const float l_Right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+        if (ImGui::Button(std::format("{} {}###BackToScene", Trinity::Icons::c_ChevronLeft, m_Session.GetSceneName()).c_str()))
+        {
+            m_Session.RequestClosePrefab();
+        }
+
+        ImGui::SetItemTooltip("Back to the scene, asking first what to do with the prefab's unsaved changes");
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", Trinity::Icons::c_ChevronRight);
+        ImGui::SameLine();
+
+        const bool l_Dirty = m_Session.IsPrefabDirty();
+        ImGui::PushStyleColor(ImGuiCol_Text, HierarchyPanel::GetPrefabColor());
+        ImGui::TextUnformatted(std::format("{} {}{}", Trinity::Icons::c_PackageVariantClosed, m_Session.GetOpenPrefabName(), l_Dirty ? "*" : "").c_str());
+        ImGui::PopStyleColor();
+
+        const std::string l_Save = std::format("{} Save", Trinity::Icons::c_Save);
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), l_Right - ImGui::CalcTextSize(l_Save.c_str()).x - ImGui::GetStyle().FramePadding.x * 2.0f));
+        ImGui::BeginDisabled(!l_Dirty);
+        if (ImGui::Button(std::format("{}###SavePrefab", l_Save).c_str()))
+        {
+            m_Session.Request(EditorSession::Command::SaveScene);
+        }
+
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Writes the prefab to its file, and every instance of it in the scene takes it at once (Ctrl+S)");
+    }
+
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    m_BreadcrumbHeight = ImGui::GetItemRectSize().y;
 }
 
 // The scene target's size, which the image is drawn at and the camera maps through

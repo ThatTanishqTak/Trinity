@@ -1240,6 +1240,11 @@ void PropertiesPanel::OnImGuiRender()
         }
     }
 
+    if (const Trinity::UUID l_Unpack = std::exchange(m_PendingUnpack, {}))
+    {
+        static_cast<void>(m_Session.UnpackPrefab(l_Unpack));
+    }
+
     // Nothing is being dragged or typed into, so the next change is a command of its own
     if (!ImGui::IsAnyItemActive())
     {
@@ -1299,6 +1304,32 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
         const std::string l_Of = l_Instance == entity ? std::string("Instance of prefab") : std::format("Part of the instance {} of prefab", GetEntityLabel(l_Instance));
         const std::string l_Path = l_Record != nullptr ? l_Record->Path : std::format("{}, which the project no longer has", l_Prefab);
         ImGui::TextDisabled("%s", std::format("{} {} {}", Trinity::Icons::c_PackageVariantClosed, l_Of, l_Path).c_str());
+
+        // As Unity's Inspector heads one, Open edits the prefab in prefab mode, and Unpack makes the instance plain entities, beside the Overrides dropdown
+        ImGui::BeginDisabled(l_Record == nullptr);
+        if (ImGui::Button("Open###OpenPrefab"))
+        {
+            m_Session.RequestOpenPrefab(l_Prefab);
+        }
+
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("%s", std::format("Edits prefab {} in prefab mode, apart from the scene", l_Record != nullptr ? std::filesystem::path(l_Record->Path).stem().string() : l_Prefab.ToString()).c_str());
+        ImGui::SameLine();
+        // Not one standing in for a missing prefab, which keeps the instance as the scene file has it
+        const bool l_Missing = IsMissingPrefab(l_Instance);
+        ImGui::BeginDisabled(l_Missing);
+        if (ImGui::Button("Unpack###UnpackPrefab"))
+        {
+            m_PendingUnpack = l_Instance.GetUUID();
+        }
+
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("%s", l_Missing ? "The prefab is missing, so the instance is unpacked once it is back" : std::format("Makes {} plain entities that no prefab reaches, in one step", GetEntityLabel(l_Instance)).c_str());
+        if (s_Marks != nullptr)
+        {
+            ImGui::SameLine();
+        }
+
         DrawOverrides(entity);
     }
 

@@ -219,7 +219,7 @@ void GamePanel::WriteSettings(ImGuiTextBuffer& buffer) const
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
-// Through the scene's primary camera, for the view's own shape, with the camera's exposure and curve, the scene's sprites and 4x MSAA, as the game will draw it. Nothing is submitted while the panel is hidden behind another tab or closed, so the view keeps what it last showed and costs nothing. After the transform pass
+// Through the scene's primary camera, for the view's own shape, with the camera's exposure and curve, the scene's sprites and 4x MSAA, as the game will draw it, the scene itself in prefab mode too. Nothing is submitted while the panel is hidden behind another tab or closed, so the view keeps what it last showed and costs nothing. After the transform pass
 void GamePanel::PrepareScene()
 {
     if (!std::exchange(m_Shown, false))
@@ -227,7 +227,7 @@ void GamePanel::PrepareScene()
         return;
     }
 
-    Trinity::Scene& l_Scene = m_Session.GetScene();
+    Trinity::Scene& l_Scene = m_Session.GetMainScene();
     const Trinity::Entity l_Camera = FindPrimaryCamera(l_Scene);
     if (!l_Camera)
     {
@@ -261,7 +261,7 @@ void GamePanel::OnImGuiRender()
     l_DrawList.AddRectFilled(l_Start, ImVec2(l_Start.x + l_Available.x, l_Start.y + l_Available.y), IM_COL32(0, 0, 0, 255));
 
     ImageArea l_Image{ glm::vec2(l_Start.x, l_Start.y), glm::vec2(l_Available.x, l_Available.y), 1.0f };
-    if (!FindPrimaryCamera(m_Session.GetScene()))
+    if (!FindPrimaryCamera(m_Session.GetMainScene()))
     {
         const ImVec2 l_TextSize = ImGui::CalcTextSize(c_NoCameraMessage);
         l_DrawList.AddText(ImVec2(l_Start.x + (l_Available.x - l_TextSize.x) * 0.5f, l_Start.y + (l_Available.y - l_TextSize.y) * 0.5f), IM_COL32(255, 255, 255, 200), c_NoCameraMessage);

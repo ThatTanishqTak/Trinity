@@ -140,6 +140,8 @@ public:
 
     // The scene the panels show: the scene playing, the copy or one a script switched to, and otherwise the edited scene
     [[nodiscard]] Trinity::Scene& GetScene() { return m_Play && m_Play->GetScene() ? *m_Play->GetScene() : GetEditedScene(); }
+    // The scene itself, as the Game panel shows it: the scene playing, and otherwise the edited scene, in prefab mode too, as Unity's Game view goes on showing the scene
+    [[nodiscard]] Trinity::Scene& GetMainScene() { return m_Play && m_Play->GetScene() ? *m_Play->GetScene() : m_Scene; }
     // What the history edits: in prefab mode the open prefab, which its file holds once saved, and otherwise the scene, which the scene file holds, whether or not a copy plays
     [[nodiscard]] Trinity::Scene& GetEditedScene() { return m_Stage ? m_Stage->Scene : m_Scene; }
     // In prefab mode the open prefab's own, so nothing done there reaches the scene's
