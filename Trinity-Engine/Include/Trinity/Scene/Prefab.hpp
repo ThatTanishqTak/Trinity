@@ -15,6 +15,7 @@
 
 namespace Trinity
 {
+    class Entity;
     class Scene;
 
     namespace Prefab
@@ -26,6 +27,9 @@ namespace Trinity
         // An instance's entity's UUID, made from the instance's UUID and the entity's local ID, so it is the same on every load and no two instances share one. For one instance a UUID tells back its local ID, which is how a hierarchy made into a prefab keeps its UUIDs as the prefab's first instance
         [[nodiscard]] TRINITY_API UUID MakeEntityUUID(UUID instance, UUID local);
         [[nodiscard]] TRINITY_API UUID FindLocalID(UUID instance, UUID entity);
+
+        // The root of the instance whose prefab has the entity, the entity itself for an instance's root, missing prefab or not, and a null entity for one of no instance, as one added under an instance is, or one under an instance whose prefab the resolver does not find. Main thread only
+        [[nodiscard]] TRINITY_API Entity FindInstanceRoot(Entity entity);
     }
 
     // A prefab as instancing reads it: its entities under their local IDs, in a scene of their own that the loader makes on the main thread, where scenes are made

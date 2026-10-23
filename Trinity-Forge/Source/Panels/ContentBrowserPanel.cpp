@@ -140,6 +140,12 @@ namespace
         return record != nullptr && record->Importer == "Scene";
     }
 
+    // Forge's own, which no program of the system opens
+    bool IsPrefab(const Trinity::AssetRecord* record)
+    {
+        return record != nullptr && record->Importer == Trinity::PrefabAsset::c_AssetType;
+    }
+
     bool EqualIgnoringCase(char left, char right)
     {
         return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right));
@@ -198,6 +204,11 @@ namespace
         if (record != nullptr && record->Importer == Trinity::InputActionsAsset::c_AssetType)
         {
             return Trinity::Icons::c_Gamepad;
+        }
+
+        if (IsPrefab(record))
+        {
+            return Trinity::Icons::c_PackageVariantClosed;
         }
 
         return IsScene(record) ? Trinity::Icons::c_CubeOutline : Trinity::Icons::c_File;
@@ -965,7 +976,7 @@ void ContentBrowserPanel::DrawNewScriptPopup()
     ImGui::EndPopup();
 }
 
-// Files arrive as asset UUIDs, which the Viewport and the texture slot take too, and folders as paths
+// Files arrive as asset UUIDs, which the Viewport and the texture slot take too, and folders as paths. An entity from the Hierarchy becomes a prefab in the folder, as in Unity, and is shown selected
 void ContentBrowserPanel::AcceptMove(const std::string& folder)
 {
     if (!ImGui::BeginDragDropTarget())
@@ -987,6 +998,19 @@ void ContentBrowserPanel::AcceptMove(const std::string& folder)
     if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_FolderPayload))
     {
         m_Deferred.push_back([this, l_Path = std::string(static_cast<const char*>(l_Payload->Data)), folder] { Move(l_Path, folder, std::string(GetName(l_Path))); });
+    }
+
+    if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload))
+    {
+        std::uint64_t l_Value = 0;
+        std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
+        m_Deferred.push_back([this, l_Entity = Trinity::UUID(l_Value), folder]
+        {
+            if (const std::optional<std::string> l_Path = m_Session.CreatePrefab(l_Entity, folder))
+            {
+                m_Selected = *l_Path;
+            }
+        });
     }
 
     ImGui::EndDragDropTarget();
@@ -1070,7 +1094,7 @@ void ContentBrowserPanel::Open(const Item& item)
     {
         m_Deferred.push_back([this, l_Path = item.Path] { static_cast<void>(m_Session.OpenScript(l_Path)); });
     }
-    else if (!IsMaterial(item.Record))
+    else if (!IsMaterial(item.Record) && !IsPrefab(item.Record))
     {
         m_Deferred.push_back([this, l_Path = item.Path]
         {
@@ -1130,7 +1154,8 @@ void ContentBrowserPanel::Duplicate(const Item& item)
 // Asks first, since a deleted file is gone for good
 void ContentBrowserPanel::AskDelete(const Item& item)
 {
-    m_Confirmation = Confirmation{ "Delete", std::format("Delete {}{}?", item.Name, item.Folder ? " and everything in it" : ""), "This cannot be undone, and anything using it will find it missing", "Delete", [this, l_Path = item.Path]
+    const std::string_view l_Detail = IsPrefab(item.Record) ? "This cannot be undone. The open scene's instances of it stay as they are until the scene opens again, and then stand in for a missing prefab" : "This cannot be undone, and anything using it will find it missing";
+    m_Confirmation = Confirmation{ "Delete", std::format("Delete {}{}?", item.Name, item.Folder ? " and everything in it" : ""), std::string(l_Detail), "Delete", [this, l_Path = item.Path]
     {
         static_cast<void>(m_Session.DeleteAsset(l_Path));
         m_Selected.clear();

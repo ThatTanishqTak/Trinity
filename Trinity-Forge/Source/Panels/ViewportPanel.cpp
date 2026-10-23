@@ -1220,7 +1220,7 @@ glm::vec3 ViewportPanel::GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize
     return l_Origin + l_Direction * (l_Distance > 0.0f && l_Distance <= c_MaximumDropDistance ? l_Distance : c_DropDistance);
 }
 
-// Dropped from the Content Browser, a texture becomes a sprite where it lands, at its pixel size, and a model becomes its hierarchy under one root there, each in one command. Nothing is taken while a copy plays
+// Dropped from the Content Browser, a texture becomes a sprite where it lands, at its pixel size, a model becomes its hierarchy under one root there, and a prefab an instance whose root is there, each in one command. Nothing is taken while a copy plays
 void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     if (m_Session.IsPlaying() || !ImGui::BeginDragDropTarget())
@@ -1240,9 +1240,13 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
         {
             static_cast<void>(m_Session.CreateModel(l_ID, {}, {}, l_Point));
         }
+        else if (l_Record != nullptr && l_Record->Importer == Trinity::PrefabAsset::c_AssetType)
+        {
+            static_cast<void>(m_Session.InstantiatePrefab(l_ID, {}, {}, l_Point));
+        }
         else if (l_Record == nullptr || l_Record->Importer != Trinity::TextureAsset::c_AssetType)
         {
-            TR_WARN("Forge: only a texture or a model dropped into the Viewport makes entities");
+            TR_WARN("Forge: only a texture, a model or a prefab dropped into the Viewport makes entities");
         }
         else
         {
@@ -1578,8 +1582,8 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
         EndGizmoDrag();
     }
 
-    // A playing copy cannot be edited, so it shows no gizmo
-    if (!l_Entity || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f || m_Session.IsPlaying())
+    // A playing copy cannot be edited, so it shows no gizmo, and neither does an entity standing in for a missing prefab, whose instance keeps the transforms its scene file has
+    if (!l_Entity || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f || m_Session.IsPlaying() || IsMissingPrefab(l_Entity))
     {
         return;
     }

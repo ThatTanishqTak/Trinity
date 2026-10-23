@@ -193,6 +193,11 @@ std::string GetScriptLabel(const Trinity::ScriptEntry& entry)
 
 void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const SlotReference&)>& visit)
 {
+    if (entity.Has<Trinity::PrefabInstanceComponent>())
+    {
+        visit({ .Component = Trinity::PrefabInstanceComponent::c_TypeName, .Script = nullptr, .Slot = "Prefab", .Index = std::nullopt, .AssetType = Trinity::PrefabAsset::c_AssetType, .Value = entity.Get<Trinity::PrefabInstanceComponent>().Prefab, .IsEntity = false });
+    }
+
     if (entity.Has<Trinity::SpriteRendererComponent>())
     {
         visit({ .Component = Trinity::SpriteRendererComponent::c_TypeName, .Script = nullptr, .Slot = "Texture", .Index = std::nullopt, .AssetType = Trinity::TextureAsset::c_AssetType, .Value = entity.Get<Trinity::SpriteRendererComponent>().Texture, .IsEntity = false });
@@ -395,6 +400,112 @@ Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelD
     return l_Root;
 }
 
+bool IsMissingPrefab(Trinity::Entity entity)
+{
+    return entity.Has<Trinity::PrefabInstanceComponent>() && entity.Get<Trinity::PrefabInstanceComponent>().IsMissing();
+}
+
+bool IsPrefabPart(Trinity::Entity entity)
+{
+    const Trinity::Entity l_Root = Trinity::Prefab::FindInstanceRoot(entity);
+
+    return l_Root && l_Root != entity;
+}
+
+Trinity::UUID FindAddedPlace(Trinity::Scene& scene, Trinity::UUID before)
+{
+    Trinity::Entity l_Before = scene.FindEntityByUUID(before);
+    while (l_Before && IsPrefabPart(l_Before))
+    {
+        l_Before = l_Before.GetNextSibling();
+    }
+
+    return GetID(l_Before);
+}
+
+std::optional<std::string> FindChildProblem(Trinity::Scene& scene, Trinity::UUID parent)
+{
+    const Trinity::Entity l_Parent = scene.FindEntityByUUID(parent);
+    if (!l_Parent || !IsMissingPrefab(l_Parent))
+    {
+        return std::nullopt;
+    }
+
+    return std::format("{} stands in for a prefab instance whose prefab is missing, so nothing goes under it until the prefab is back", GetEntityLabel(l_Parent));
+}
+
+std::optional<std::string> FindMoveProblem(Trinity::Scene& scene, Trinity::UUID entity, Trinity::UUID parent)
+{
+    const Trinity::Entity l_Entity = scene.FindEntityByUUID(entity);
+    if (l_Entity && IsPrefabPart(l_Entity))
+    {
+        return std::format("{} is part of the prefab instance {}, whose prefab's entities keep the places the prefab gives them, as in Unity. Entities added to the instance can move", GetEntityLabel(l_Entity), GetEntityLabel(Trinity::Prefab::FindInstanceRoot(l_Entity)));
+    }
+
+    return FindChildProblem(scene, parent);
+}
+
+std::optional<std::string> FindPrefabProblem(Trinity::Entity entity)
+{
+    if (IsPrefabPart(entity))
+    {
+        return std::format("{} is part of the prefab instance {}, and a prefab made from part of one waits for nested prefabs", GetEntityLabel(entity), GetEntityLabel(Trinity::Prefab::FindInstanceRoot(entity)));
+    }
+
+    Trinity::Scene& l_Scene = *entity.GetScene();
+    for (Trinity::Entity it_Entity = entity; it_Entity; it_Entity = l_Scene.GetNextInSubtree(it_Entity, entity))
+    {
+        if (!it_Entity.Has<Trinity::PrefabInstanceComponent>())
+        {
+            continue;
+        }
+
+        if (it_Entity == entity)
+        {
+            return std::format("{} is a prefab instance already, and a prefab made from one waits for nested prefabs and variants", GetEntityLabel(entity));
+        }
+
+        return std::format("{} holds the prefab instance {}, and a prefab holding another waits for nested prefabs", GetEntityLabel(entity), GetEntityLabel(it_Entity));
+    }
+
+    return std::nullopt;
+}
+
+std::optional<std::string> FindCopyProblem(Trinity::Entity entity)
+{
+    Trinity::Scene& l_Scene = *entity.GetScene();
+    for (Trinity::Entity it_Entity = entity; it_Entity; it_Entity = l_Scene.GetNextInSubtree(it_Entity, entity))
+    {
+        if (!IsMissingPrefab(it_Entity))
+        {
+            continue;
+        }
+
+        if (it_Entity == entity)
+        {
+            return std::format("{} stands in for a prefab instance whose prefab is missing, which only it can keep, so it is not copied until the prefab is back", GetEntityLabel(entity));
+        }
+
+        return std::format("{} holds {}, which stands in for a prefab instance whose prefab is missing and only it can keep, so it is not copied until the prefab is back", GetEntityLabel(entity), GetEntityLabel(it_Entity));
+    }
+
+    return std::nullopt;
+}
+
+// Never hidden, as a name starting with a dot would be
+std::string GetPrefabFileName(std::string_view name)
+{
+    std::string l_Name(name);
+    std::ranges::replace_if(l_Name, [](char character) { return std::string_view("/\\:*?\"<>|").contains(character) || static_cast<unsigned char>(character) < 0x20; }, '_');
+    const std::size_t l_Start = l_Name.find_first_not_of(". ");
+    if (l_Start == std::string::npos)
+    {
+        return "Prefab";
+    }
+
+    return l_Name.substr(l_Start, l_Name.find_last_not_of(' ') - l_Start + 1);
+}
+
 CreateEntityCommand::CreateEntityCommand(std::string name, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position) : m_Name(std::move(name)), m_Parent(parent), m_Before(before), m_Position(position)
 {
 
@@ -522,6 +633,87 @@ void CreateModelCommand::Undo(Trinity::Scene& scene)
 std::size_t CreateModelCommand::GetMemorySize() const
 {
     return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
+}
+
+InstantiatePrefabCommand::InstantiatePrefabCommand(Trinity::UUID prefab, std::string name, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position) : m_Prefab(prefab), m_Name(std::move(name)), m_Parent(parent), m_Before(before), m_Position(position)
+{
+
+}
+
+// The first run makes the instance under a new instance UUID and keeps it as text, so a redo brings back the same UUIDs, with the position it was given as what it changes of its prefab
+bool InstantiatePrefabCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_Text.empty())
+    {
+        return Restore(scene, m_Text, m_Parent, m_Before, m_Label);
+    }
+
+    if (!IsPlaceValid(scene, m_Parent, m_Before))
+    {
+        return false;
+    }
+
+    const Trinity::Expected<Trinity::Entity, std::string> l_Root = Trinity::SceneSerializer::InstantiatePrefab(scene, m_Prefab, Trinity::UUID::Generate(), scene.FindEntityByUUID(m_Parent), scene.FindEntityByUUID(m_Before));
+    if (!l_Root)
+    {
+        TR_ERROR("Forge: {} cannot be instanced: {}", m_Name, l_Root.GetError());
+
+        return false;
+    }
+
+    Trinity::Entity l_Entity = *l_Root;
+    if (m_Position)
+    {
+        l_Entity.Get<Trinity::TransformComponent>().Position = *m_Position;
+    }
+
+    m_Entity = l_Entity.GetUUID();
+    m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Entity);
+    m_Label = std::format("Create prefab instance {}", GetEntityLabel(l_Entity));
+
+    return true;
+}
+
+void InstantiatePrefabCommand::Undo(Trinity::Scene& scene)
+{
+    scene.DestroyEntity(scene.FindEntityByUUID(m_Entity));
+}
+
+std::size_t InstantiatePrefabCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
+}
+
+LinkPrefabCommand::LinkPrefabCommand(Trinity::UUID entity, Trinity::UUID prefab, Trinity::UUID instance) : m_Entity(entity), m_Prefab(prefab), m_Instance(instance)
+{
+
+}
+
+bool LinkPrefabCommand::Execute(Trinity::Scene& scene)
+{
+    Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
+    if (!l_Entity || l_Entity.Has<Trinity::PrefabInstanceComponent>())
+    {
+        return false;
+    }
+
+    l_Entity.Add<Trinity::PrefabInstanceComponent>(Trinity::PrefabInstanceComponent{ .Prefab = m_Prefab, .Instance = m_Instance, .Kept = {} });
+    if (m_Label.empty())
+    {
+        m_Label = std::format("Create prefab {}", GetEntityLabel(l_Entity));
+    }
+
+    return true;
+}
+
+void LinkPrefabCommand::Undo(Trinity::Scene& scene)
+{
+    scene.FindEntityByUUID(m_Entity).Remove<Trinity::PrefabInstanceComponent>();
+}
+
+std::size_t LinkPrefabCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Label.capacity();
 }
 
 CreatePrimitiveCommand::CreatePrimitiveCommand(Trinity::BuiltInMesh mesh, Trinity::UUID parent, glm::vec3 position) : m_Mesh(mesh), m_Parent(parent), m_Position(position)
@@ -711,6 +903,12 @@ bool DuplicateEntityCommand::Execute(Trinity::Scene& scene)
     }
 
     const Trinity::Entity l_Copy = scene.DuplicateEntity(l_Source);
+    // A copy of one of a prefab's entities in an instance is the instance's addition, so it goes after the prefab's own children there
+    if (const Trinity::Entity l_Next = l_Copy.GetNextSibling(); l_Next && IsPrefabPart(l_Next))
+    {
+        static_cast<void>(Place(scene, l_Copy, GetID(l_Copy.GetParent()), FindAddedPlace(scene, l_Next.GetUUID())));
+    }
+
     m_Copy = l_Copy.GetUUID();
     m_Parent = GetID(l_Copy.GetParent());
     m_Before = GetID(l_Copy.GetNextSibling());

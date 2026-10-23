@@ -38,7 +38,7 @@ struct SlotReference
     bool IsEntity = false;
 };
 
-// Every such slot of the entity, empty ones too. A script's asset field takes its type from its class while that is loaded. Find References In Scene and the missing references a scene opens with both go through it, so a component with a new slot that names an asset or an entity needs it here
+// Every such slot of the entity, empty ones too, and an instance's root naming its prefab as one. A script's asset field takes its type from its class while that is loaded. Find References In Scene and the missing references a scene opens with both go through it, so a component with a new slot that names an asset or an entity needs it here
 void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const SlotReference&)>& visit);
 
 // The map and action a path names, Map/Action, or an action's name alone while only one map has it, as the running scene finds it. Nothing for a path the actions lack, or a name more than one map has
@@ -60,6 +60,23 @@ struct InputActionFieldRewrite
 
 // The model's nodes under one root with the given name, each with its transform, and a MeshRenderer where it has a mesh. The root's subtree holds the nodes in the model's order
 Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelData& model, std::string_view name, Trinity::Entity parent);
+
+// Whether the entity stands in for an instance whose prefab is missing, which keeps the instance as the scene file had it until the prefab is back, so nothing changes it but where it sits
+[[nodiscard]] bool IsMissingPrefab(Trinity::Entity entity);
+// Whether the entity is one of a prefab's entities in an instance, other than its root, which keeps the place the prefab gives it, as in Unity. What is added to an instance is not
+[[nodiscard]] bool IsPrefabPart(Trinity::Entity entity);
+// The sibling an entity added under one of an instance's entities goes before: one after the prefab's own children there, which an instance keeps first, so the entity stays where a reload puts it. Any other sibling as it is
+[[nodiscard]] Trinity::UUID FindAddedPlace(Trinity::Scene& scene, Trinity::UUID before);
+// Why nothing can go under the parent, as under an entity standing in for a missing prefab, or nothing when it can. No parent is the roots, which take anything
+[[nodiscard]] std::optional<std::string> FindChildProblem(Trinity::Scene& scene, Trinity::UUID parent);
+// Why the entity cannot move under the parent, or nothing when it can: one of a prefab's entities in an instance keeps its place, and nothing goes under an entity standing in for a missing prefab
+[[nodiscard]] std::optional<std::string> FindMoveProblem(Trinity::Scene& scene, Trinity::UUID entity, Trinity::UUID parent);
+// Why the entity and its subtree cannot become a prefab, or nothing when they can: a prefab holds no instance of another yet, and one of a prefab's entities in an instance is that prefab's
+[[nodiscard]] std::optional<std::string> FindPrefabProblem(Trinity::Entity entity);
+// Why the entity and its subtree cannot be copied or duplicated, or nothing when they can: an instance whose prefab is missing is kept as text only the entity standing in for it holds
+[[nodiscard]] std::optional<std::string> FindCopyProblem(Trinity::Entity entity);
+// The name of a prefab's file made from an entity named so, without its extension: the name with what a file name cannot hold made underscores, or Prefab for none
+[[nodiscard]] std::string GetPrefabFileName(std::string_view name);
 
 class CreateEntityCommand final : public EditorCommand
 {
@@ -125,6 +142,50 @@ private:
     glm::vec3 m_Position{ 0.0f };
     Trinity::UUID m_Entity;
     std::string m_Text;
+    std::string m_Label;
+};
+
+// A new instance of the prefab, its root moved to the position when one is given, which is then the instance's own. Last under the parent or among the roots, or before the sibling when one is given
+class InstantiatePrefabCommand final : public EditorCommand
+{
+public:
+    InstantiatePrefabCommand(Trinity::UUID prefab, std::string name, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::UUID m_Prefab;
+    std::string m_Name;
+    Trinity::UUID m_Parent;
+    Trinity::UUID m_Before;
+    std::optional<glm::vec3> m_Position;
+    Trinity::UUID m_Entity;
+    std::string m_Text;
+    std::string m_Label;
+};
+
+// The entity made the first instance of the prefab just written from it, which keeps every UUID it has, since the prefab's local IDs were told back from them for this instance. Undo makes it plain entities again, and leaves the prefab
+class LinkPrefabCommand final : public EditorCommand
+{
+public:
+    LinkPrefabCommand(Trinity::UUID entity, Trinity::UUID prefab, Trinity::UUID instance);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::UUID m_Entity;
+    Trinity::UUID m_Prefab;
+    Trinity::UUID m_Instance;
     std::string m_Label;
 };
 

@@ -2,6 +2,7 @@
 
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
+#include "Panels/ConsolePanel.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -42,11 +43,20 @@ namespace
         return Trinity::UUID(l_Value);
     }
 
-    bool IsModelPayload(const ImGuiPayload* payload, const Trinity::AssetRegistry* registry)
+    bool IsAssetPayload(const ImGuiPayload* payload, const Trinity::AssetRegistry* registry, std::string_view importer)
     {
         const Trinity::AssetRecord* l_Record = payload != nullptr && payload->IsDataType(c_AssetPayload) && registry != nullptr ? registry->Find(ReadPayloadUUID(*payload)) : nullptr;
 
-        return l_Record != nullptr && l_Record->Importer == ModelImporter::c_Importer;
+        return l_Record != nullptr && l_Record->Importer == importer;
+    }
+
+    // Unity's blue for a prefab's instance, darker on a light theme so it reads there, told by how bright the windows' background is, as the Console tells it
+    ImVec4 GetPrefabColor()
+    {
+        const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        const bool l_Light = l_Background.x * 0.2126f + l_Background.y * 0.7152f + l_Background.z * 0.0722f > 0.5f;
+
+        return l_Light ? ImVec4(0.1f, 0.35f, 0.8f, 1.0f) : ImVec4(0.45f, 0.7f, 1.0f, 1.0f);
     }
 
     const void* ToImGuiID(Trinity::UUID uuid)
@@ -494,16 +504,20 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         m_OpenRequests.erase(a_Request);
     }
 
+    // As Unity colours them: a prefab's instance blue, its root and the prefab's entities in it alike, and an entity standing in for a missing prefab red. What is added to an instance is as any entity is
     const bool l_Dimmed = l_Searching && !m_Matched.contains(l_ID);
-    if (l_Dimmed)
+    const Trinity::Entity l_Instance = Trinity::Prefab::FindInstanceRoot(entity);
+    const bool l_Colored = l_Dimmed || l_Instance;
+    if (l_Colored)
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::PushStyleColor(ImGuiCol_Text, l_Dimmed ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : IsMissingPrefab(l_Instance) ? ConsolePanel::GetLevelColor(Trinity::LogLevel::Error) : GetPrefabColor());
     }
 
-    const std::string l_Label = l_Renaming ? std::string(Trinity::Icons::c_CubeOutline) : std::format("{} {}", Trinity::Icons::c_CubeOutline, GetEntityLabel(entity));
+    const char* l_Icon = l_Instance == entity ? Trinity::Icons::c_PackageVariantClosed : Trinity::Icons::c_CubeOutline;
+    const std::string l_Label = l_Renaming ? std::string(l_Icon) : std::format("{} {}", l_Icon, GetEntityLabel(entity));
     const bool l_Open = ImGui::TreeNodeEx(ToImGuiID(l_ID), l_Flags, "%s", l_Label.c_str());
     m_Rows.push_back({ .Entity = l_ID, .HasChildren = l_HasChildren, .Open = l_HasChildren && l_Open });
-    if (l_Dimmed)
+    if (l_Colored)
     {
         ImGui::PopStyleColor();
     }
@@ -661,14 +675,14 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 
     ImGui::Separator();
 
-    if (ImGui::MenuItem("Rename", "F2", false, entity.Has<Trinity::TagComponent>()))
+    if (ImGui::MenuItem("Rename", "F2", false, entity.Has<Trinity::TagComponent>() && !IsMissingPrefab(entity)))
     {
         BeginRename(entity);
     }
 
     if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
     {
-        m_Deferred.push_back([this, l_ID] { m_Session.GetHistory().Execute(Trinity::CreateScope<DuplicateEntityCommand>(l_ID)); });
+        m_Deferred.push_back([this, l_ID] { static_cast<void>(m_Session.DuplicateEntity(l_ID)); });
     }
 
     ImGui::Separator();
@@ -681,7 +695,7 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
     ImGui::EndDisabled();
 }
 
-// The space below the tree: a click clears the selection, a drop makes the entity the last root, and its menu creates a root or pastes, the last two not while a copy plays
+// The space below the tree: a click clears the selection, a drop makes the entity the last root, or a model's hierarchy or a prefab's instance one, and its menu creates a root or pastes, the last two not while a copy plays
 void HierarchyPanel::DrawBackground()
 {
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
@@ -728,17 +742,22 @@ void HierarchyPanel::DrawBackground()
             const Trinity::UUID l_Dragged = ReadPayloadUUID(*l_Payload);
             m_Deferred.push_back([this, l_Dragged] { Move(l_Dragged, {}, {}); });
         }
-        else if (const ImGuiPayload* l_Model = IsModelPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry()) ? ImGui::AcceptDragDropPayload(c_AssetPayload) : nullptr)
+        else if (const ImGuiPayload* l_Model = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), ModelImporter::c_Importer) ? ImGui::AcceptDragDropPayload(c_AssetPayload) : nullptr)
         {
             const Trinity::UUID l_Dropped = ReadPayloadUUID(*l_Model);
             m_Deferred.push_back([this, l_Dropped] { static_cast<void>(m_Session.CreateModel(l_Dropped, {}, {}, glm::vec3(0.0f))); });
+        }
+        else if (const ImGuiPayload* l_Prefab = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), Trinity::PrefabAsset::c_AssetType) ? ImGui::AcceptDragDropPayload(c_AssetPayload) : nullptr)
+        {
+            const Trinity::UUID l_Dropped = ReadPayloadUUID(*l_Prefab);
+            m_Deferred.push_back([this, l_Dropped] { static_cast<void>(m_Session.InstantiatePrefab(l_Dropped, {}, {}, std::nullopt)); });
         }
 
         ImGui::EndDragDropTarget();
     }
 }
 
-// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, and a model is created there. A script goes onto the entity, as in Unity, so the whole row lights up for it
+// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, and a model's hierarchy or a prefab's instance is created there. A script goes onto the entity, as in Unity, so the whole row lights up for it
 void HierarchyPanel::AcceptDrop(Trinity::Entity target)
 {
     if (!ImGui::BeginDragDropTarget())
@@ -759,8 +778,9 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
     const bool l_After = !l_Before && l_MouseY > l_Max.y - l_Edge;
 
     const ImGuiDragDropFlags l_Flags = ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect;
-    const bool l_Model = IsModelPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry());
-    if (const ImGuiPayload* l_Payload = l_Model ? ImGui::AcceptDragDropPayload(c_AssetPayload, l_Flags) : ImGui::AcceptDragDropPayload(c_EntityPayload, l_Flags))
+    const bool l_Model = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), ModelImporter::c_Importer);
+    const bool l_Prefab = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), Trinity::PrefabAsset::c_AssetType);
+    if (const ImGuiPayload* l_Payload = l_Model || l_Prefab ? ImGui::AcceptDragDropPayload(c_AssetPayload, l_Flags) : ImGui::AcceptDragDropPayload(c_EntityPayload, l_Flags))
     {
         const ImU32 l_Color = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
         ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
@@ -783,6 +803,10 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
             if (l_Model)
             {
                 m_Deferred.push_back([this, l_Dragged, l_Parent, l_Next] { static_cast<void>(m_Session.CreateModel(l_Dragged, l_Parent, l_Next, glm::vec3(0.0f))); });
+            }
+            else if (l_Prefab)
+            {
+                m_Deferred.push_back([this, l_Dragged, l_Parent, l_Next] { static_cast<void>(m_Session.InstantiatePrefab(l_Dragged, l_Parent, l_Next, std::nullopt)); });
             }
             else
             {
@@ -989,7 +1013,7 @@ void HierarchyPanel::Select(Trinity::UUID entity)
 
 void HierarchyPanel::BeginRename(Trinity::Entity entity)
 {
-    if (m_ReadOnly || !entity.Has<Trinity::TagComponent>())
+    if (m_ReadOnly || !entity.Has<Trinity::TagComponent>() || IsMissingPrefab(entity))
     {
         return;
     }
@@ -1067,5 +1091,5 @@ void HierarchyPanel::Create(Trinity::UUID parent)
 // Keeping the world transform, so a dragged entity stays where it is on screen
 void HierarchyPanel::Move(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before)
 {
-    m_Session.GetHistory().Execute(Trinity::CreateScope<MoveEntityCommand>(entity, parent, before, true));
+    static_cast<void>(m_Session.MoveEntity(entity, parent, before));
 }

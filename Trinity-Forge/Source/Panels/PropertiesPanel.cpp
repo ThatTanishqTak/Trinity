@@ -987,14 +987,21 @@ void PropertiesPanel::OnImGuiRender()
         return;
     }
 
-    // Shown as it moves, and editable again once it stops
+    // Shown as it moves, and editable again once it stops. An entity standing in for a missing prefab keeps the instance as the scene file has it, so nothing of it is edited
     const bool l_Playing = m_Session.IsPlaying();
+    const bool l_Missing = IsMissingPrefab(l_Entity);
     if (l_Playing)
     {
         ImGui::TextDisabled("Playing a copy of the scene, so nothing can be edited until it stops");
     }
+    else if (l_Missing)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
+        ImGui::TextWrapped("%s", std::format("{} Stands in for a prefab instance whose prefab is missing or cannot be read. The instance is kept as the scene file has it, and comes back once the prefab does, so this can be moved or deleted, and nothing else", Trinity::Icons::c_Warning).c_str());
+        ImGui::PopStyleColor();
+    }
 
-    ImGui::BeginDisabled(l_Playing);
+    ImGui::BeginDisabled(l_Playing || l_Missing);
     ImGui::PushID(l_Entity.GetUUID().ToString().c_str());
     DrawName(l_Entity);
     DrawTransform(l_Entity);
@@ -1018,7 +1025,7 @@ void PropertiesPanel::OnImGuiRender()
     ImGui::EndDisabled();
 
     // A script dropped anywhere on the entity's sections is added to it, as on Unity's Inspector
-    if (!l_Playing && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("##AddScriptDrop")))
+    if (!l_Playing && !l_Missing && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("##AddScriptDrop")))
     {
         if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_ScriptPayload))
         {
@@ -1068,6 +1075,18 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
     }
 
     ImGui::TextDisabled("UUID %s", entity.GetUUID().ToString().c_str());
+
+    // As Unity's Inspector heads an instance, with the prefab its entities come from
+    if (const Trinity::Entity l_Instance = Trinity::Prefab::FindInstanceRoot(entity))
+    {
+        const Trinity::UUID l_Prefab = l_Instance.Get<Trinity::PrefabInstanceComponent>().Prefab;
+        const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+        const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(l_Prefab) : nullptr;
+        const std::string l_Of = l_Instance == entity ? std::string("Instance of prefab") : std::format("Part of the instance {} of prefab", GetEntityLabel(l_Instance));
+        const std::string l_Path = l_Record != nullptr ? l_Record->Path : std::format("{}, which the project no longer has", l_Prefab);
+        ImGui::TextDisabled("%s", std::format("{} {} {}", Trinity::Icons::c_PackageVariantClosed, l_Of, l_Path).c_str());
+    }
+
     ImGui::Spacing();
 }
 

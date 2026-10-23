@@ -12,6 +12,7 @@
 #include "Modules/AssemblyHost.hpp"
 #include "Modules/IdeLauncher.hpp"
 #include "Modules/ModuleHost.hpp"
+#include "PrefabTemplateCache.hpp"
 
 #include "Trinity.hpp"
 
@@ -251,6 +252,14 @@ public:
     // A model's material's key, or nothing for a material of its own
     [[nodiscard]] std::optional<std::string> GetMaterialKey(Trinity::UUID material) const;
     bool CreateModel(Trinity::UUID model, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
+    // A prefab of the entity and its subtree, written into the folder as a file named after the entity, numbered when that is taken, and the entity made its first instance in one command, keeping every UUID it has. Undo makes it plain entities again and leaves the file, as in Unity. Its project path, or nothing, with a notice for an entity that cannot become one. Not while a copy plays
+    [[nodiscard]] std::optional<std::string> CreatePrefab(Trinity::UUID entity, std::string_view folder);
+    // A new instance of the prefab in one command, last under the parent or among the roots, or before the sibling. Its root goes to the position when one is given, as a drop into the Scene panel gives, which is then the instance's own, and otherwise keeps the prefab's transform, as a drop into the Hierarchy does
+    bool InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position);
+    // As the Hierarchy moves an entity, keeping its place in the world, in one command. One of a prefab's entities in an instance keeps the place its prefab gives it, as in Unity, and nothing goes under an entity standing in for a missing prefab, each refused with a notice
+    bool MoveEntity(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before);
+    // Just after the original, in one command. Refused with a notice for an entity holding an instance whose prefab is missing, which only it can keep
+    bool DuplicateEntity(Trinity::UUID entity);
     // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point
     bool CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent);
     // As Unity's GameObject menu makes them, each in one command and placed as a built-in shape is
@@ -258,10 +267,10 @@ public:
     bool CreateLight(Trinity::LightType type, Trinity::UUID parent);
     // Perspective while the Scene panel shows the scene in 3D, and orthographic in 2D
     bool CreateCamera(Trinity::UUID parent);
-    // The entity and its subtree as they are now, to paste into this scene or another until the project closes. While a copy plays, as the playing entity is, to paste once it stops
+    // The entity and its subtree as they are now, to paste into this scene or another until the project closes. While a copy plays, as the playing entity is, to paste once it stops. Refused with a notice, as Duplicate is, for one holding an instance whose prefab is missing
     void CopyEntity(Trinity::UUID entity);
     [[nodiscard]] bool HasCopiedEntity() const { return m_CopiedEntity.has_value(); }
-    // As Unity pastes: right after the original while the scene has it, else last under the parent it was copied from, else last among the roots. Not while a copy plays
+    // As Unity pastes: right after the original while the scene has it, else last under the parent it was copied from, else last among the roots. Not while a copy plays, nor while what was copied holds an instance whose prefab is gone since
     bool PasteEntity();
     // Last under the parent
     bool PasteEntityAsChild(Trinity::UUID parent);
@@ -339,6 +348,7 @@ private:
     void WriteRecentScenes() const;
     void RememberScene();
     bool PasteEntityAt(Trinity::UUID parent, Trinity::UUID before);
+    [[nodiscard]] bool CanTakeChildren(Trinity::UUID parent);
     void AttachRegistry();
     void StartImports();
     void StartTextureImports();
@@ -384,6 +394,8 @@ private:
     CommandStack m_History{ m_Scene, m_Selection };
     Trinity::UUID m_InspectedAsset;
     std::optional<CopiedEntity> m_CopiedEntity;
+    // What the serializer finds prefabs in, since Forge opens a scene at once, before the asset manager could load them
+    PrefabTemplateCache m_Prefabs;
     std::vector<RecentProject> m_RecentProjects;
     std::vector<RecentScene> m_RecentScenes;
     std::unordered_map<Trinity::UUID, InputActionsFile> m_InputActionsFiles;

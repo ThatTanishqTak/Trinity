@@ -1,9 +1,11 @@
 #include "Trinity/Scene/Prefab.hpp"
 
+#include "Trinity/Scene/LiveScenes.hpp"
 #include "Trinity/Scene/PrefabLoaders.hpp"
 
 #include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Core/Assert.hpp"
+#include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
 
@@ -81,6 +83,30 @@ namespace Trinity
         UUID FindLocalID(UUID instance, UUID entity)
         {
             return UUID(Unmix(entity.GetValue()) ^ GetKey(instance));
+        }
+
+        // An instance's own entities stay under its root where its prefab has them, so the nearest instance root above is the one to ask, and an entity added under an instance has no local ID in its prefab
+        Entity FindInstanceRoot(Entity entity)
+        {
+            for (Entity it_Entity = entity; it_Entity; it_Entity = it_Entity.GetParent())
+            {
+                if (!it_Entity.Has<PrefabInstanceComponent>())
+                {
+                    continue;
+                }
+
+                if (it_Entity == entity)
+                {
+                    return it_Entity;
+                }
+
+                const PrefabInstanceComponent& l_Instance = it_Entity.Get<PrefabInstanceComponent>();
+                Scene* l_Template = l_Instance.IsMissing() ? nullptr : SceneSerializer::FindPrefabTemplate(l_Instance.Prefab);
+
+                return l_Template != nullptr && l_Template->FindEntityByUUID(FindLocalID(l_Instance.Instance, entity.GetUUID())) ? it_Entity : Entity();
+            }
+
+            return {};
         }
     }
 

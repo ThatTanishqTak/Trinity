@@ -447,10 +447,14 @@ EditorSession::~EditorSession()
     }
 
     CloseProject();
+    Trinity::SceneSerializer::SetPrefabResolver({});
 }
 
 void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
 {
+    // A scene opens at once, before the asset manager could load its prefabs, so Forge reads them itself, the playing scene's too
+    Trinity::SceneSerializer::SetPrefabResolver([this](Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()); });
+
     m_Module.SetBuildStarting([this]
     {
         if (m_BeforeBuild)
@@ -1820,8 +1824,10 @@ void EditorSession::RestoreBackup()
     }
 
     StopPlay();
+    PrefabTemplateCache l_Prefabs = std::exchange(m_Prefabs, {});
     if (const Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::LoadFromText(m_Scene, l_Recovery->Text); !l_Loaded)
     {
+        m_Prefabs = std::move(l_Prefabs);
         TR_ERROR("Forge: the scene backup could not be restored, so it is left in {}: {}", GetBackupPath(), l_Loaded.GetError());
 
         return;
@@ -2622,16 +2628,141 @@ bool EditorSession::CreateModel(Trinity::UUID model, Trinity::UUID parent, Trini
         return false;
     }
 
-    return m_History.Execute(Trinity::CreateScope<CreateModelCommand>(model, ToUtf8(FromUtf8(l_Record->Path).stem()), parent, before, position));
+    if (!CanTakeChildren(parent))
+    {
+        return false;
+    }
+
+    return m_History.Execute(Trinity::CreateScope<CreateModelCommand>(model, ToUtf8(FromUtf8(l_Record->Path).stem()), parent, FindAddedPlace(m_Scene, before), position));
+}
+
+// Written under the local IDs a new instance UUID tells back from the subtree's UUIDs, so linking the entity changes none of them, and what it names outside the subtree stays the instance's own
+std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std::string_view folder)
+{
+    const Trinity::Entity l_Entity = m_Scene.FindEntityByUUID(entity);
+    if (!m_Project || !m_Registry || IsPlaying() || !l_Entity)
+    {
+        return std::nullopt;
+    }
+
+    if (!IsSameOrInside(folder, Trinity::Project::c_AssetsMount))
+    {
+        Notify("Prefabs are made in Assets, as every asset of the project is");
+
+        return std::nullopt;
+    }
+
+    if (const std::optional<std::string> l_Problem = FindPrefabProblem(l_Entity))
+    {
+        Notify(*l_Problem);
+
+        return std::nullopt;
+    }
+
+    const Trinity::UUID l_Instance = Trinity::UUID::Generate();
+    const Trinity::Expected<std::string, std::string> l_Text = Trinity::SceneSerializer::SavePrefabToText(m_Scene, l_Entity, l_Instance);
+    if (!l_Text)
+    {
+        TR_ERROR("Forge: {} could not be made a prefab: {}", GetEntityLabel(l_Entity), l_Text.GetError());
+
+        return std::nullopt;
+    }
+
+    const std::string_view l_Name = l_Entity.Has<Trinity::TagComponent>() ? std::string_view(l_Entity.Get<Trinity::TagComponent>().Tag) : std::string_view();
+    const std::string l_Path = GetFreePath(*m_Project, folder, GetPrefabFileName(l_Name), Trinity::Prefab::c_Extension, false);
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, *l_Text); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created prefab {} from {}", l_Path, GetEntityLabel(l_Entity));
+    ScanAssets();
+    const Trinity::AssetRecord* l_Record = m_Registry->FindByPath(l_Path);
+    if (l_Record == nullptr || !m_History.Execute(Trinity::CreateScope<LinkPrefabCommand>(entity, l_Record->ID, l_Instance)))
+    {
+        TR_ERROR("Forge: {} was written, but {} could not be made its instance", l_Path, GetEntityLabel(l_Entity));
+    }
+
+    return l_Path;
+}
+
+bool EditorSession::InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::PrefabAsset::c_AssetType)
+    {
+        TR_WARN("Forge: only a prefab dropped into the scene makes an instance of one");
+
+        return false;
+    }
+
+    if (!CanTakeChildren(parent))
+    {
+        return false;
+    }
+
+    return m_History.Execute(Trinity::CreateScope<InstantiatePrefabCommand>(prefab, ToUtf8(FromUtf8(l_Record->Path).stem()), parent, FindAddedPlace(m_Scene, before), position));
+}
+
+// What the Hierarchy moves among an instance's entities goes after the prefab's own children there, so it stays where a reload puts it
+bool EditorSession::MoveEntity(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before)
+{
+    if (const std::optional<std::string> l_Problem = FindMoveProblem(m_Scene, entity, parent))
+    {
+        Notify(*l_Problem);
+
+        return false;
+    }
+
+    return m_History.Execute(Trinity::CreateScope<MoveEntityCommand>(entity, parent, FindAddedPlace(m_Scene, before), true));
+}
+
+bool EditorSession::DuplicateEntity(Trinity::UUID entity)
+{
+    const Trinity::Entity l_Entity = m_Scene.FindEntityByUUID(entity);
+    if (!l_Entity)
+    {
+        return false;
+    }
+
+    if (const std::optional<std::string> l_Problem = FindCopyProblem(l_Entity))
+    {
+        Notify(*l_Problem);
+
+        return false;
+    }
+
+    return m_History.Execute(Trinity::CreateScope<DuplicateEntityCommand>(entity));
+}
+
+// A notice says why not
+bool EditorSession::CanTakeChildren(Trinity::UUID parent)
+{
+    const std::optional<std::string> l_Problem = FindChildProblem(m_Scene, parent);
+    if (l_Problem)
+    {
+        Notify(*l_Problem);
+    }
+
+    return !l_Problem;
 }
 
 bool EditorSession::CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent)
 {
-    return m_History.Execute(Trinity::CreateScope<CreatePrimitiveCommand>(mesh, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
+    return CanTakeChildren(parent) && m_History.Execute(Trinity::CreateScope<CreatePrimitiveCommand>(mesh, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
 }
 
 bool EditorSession::AddScript(Trinity::UUID entity, std::string_view path)
 {
+    if (const Trinity::Entity l_Entity = m_Scene.FindEntityByUUID(entity); l_Entity && IsMissingPrefab(l_Entity))
+    {
+        Notify(std::format("{} stands in for a prefab instance whose prefab is missing, which keeps the instance as the scene file has it, so it takes no script until the prefab is back", GetEntityLabel(l_Entity)));
+
+        return false;
+    }
+
     const std::filesystem::path l_File = FromUtf8(path);
     const Trinity::ScriptLanguage l_Language = l_File.extension() == ".cs" ? Trinity::ScriptLanguage::CSharp : Trinity::ScriptLanguage::Cpp;
     const std::string l_Name = ToUtf8(l_File.stem());
@@ -2656,17 +2787,17 @@ bool EditorSession::AddScript(Trinity::UUID entity, std::string_view path)
 
 bool EditorSession::CreateEmpty(Trinity::UUID parent)
 {
-    return m_History.Execute(Trinity::CreateScope<CreateEntityCommand>("Entity", parent, Trinity::UUID(), parent ? glm::vec3(0.0f) : m_SpawnPoint));
+    return CanTakeChildren(parent) && m_History.Execute(Trinity::CreateScope<CreateEntityCommand>("Entity", parent, Trinity::UUID(), parent ? glm::vec3(0.0f) : m_SpawnPoint));
 }
 
 bool EditorSession::CreateLight(Trinity::LightType type, Trinity::UUID parent)
 {
-    return m_History.Execute(Trinity::CreateScope<CreateLightCommand>(type, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
+    return CanTakeChildren(parent) && m_History.Execute(Trinity::CreateScope<CreateLightCommand>(type, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
 }
 
 bool EditorSession::CreateCamera(Trinity::UUID parent)
 {
-    return m_History.Execute(Trinity::CreateScope<CreateCameraCommand>(m_SceneView3D ? Trinity::CameraProjection::Perspective : Trinity::CameraProjection::Orthographic, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
+    return CanTakeChildren(parent) && m_History.Execute(Trinity::CreateScope<CreateCameraCommand>(m_SceneView3D ? Trinity::CameraProjection::Perspective : Trinity::CameraProjection::Orthographic, parent, parent ? glm::vec3(0.0f) : m_SpawnPoint));
 }
 
 void EditorSession::CopyEntity(Trinity::UUID entity)
@@ -2675,6 +2806,13 @@ void EditorSession::CopyEntity(Trinity::UUID entity)
     const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(entity);
     if (!l_Entity)
     {
+        return;
+    }
+
+    if (const std::optional<std::string> l_Problem = FindCopyProblem(l_Entity))
+    {
+        Notify(*l_Problem);
+
         return;
     }
 
@@ -2705,17 +2843,25 @@ bool EditorSession::PasteEntityAsChild(Trinity::UUID parent)
     return m_CopiedEntity && m_Scene.FindEntityByUUID(parent) && PasteEntityAt(parent, {});
 }
 
-// Under the parent it was copied from, it keeps its transform, as Duplicate does, and under another it keeps its place in the world, as moving it there in the Hierarchy does
+// Under the parent it was copied from, it keeps its transform, as Duplicate does, and under another it keeps its place in the world, as moving it there in the Hierarchy does. Among an instance's entities it goes after the prefab's own children there. An instance copied while its prefab was there would be pasted as plain entities once the prefab is gone, so it waits for the prefab
 bool EditorSession::PasteEntityAt(Trinity::UUID parent, Trinity::UUID before)
 {
-    if (IsPlaying())
+    if (IsPlaying() || !CanTakeChildren(parent))
     {
+        return false;
+    }
+
+    const std::vector<Trinity::UUID> l_Prefabs = Trinity::SceneSerializer::GetPrefabReferences(m_CopiedEntity->Text);
+    if (std::ranges::any_of(l_Prefabs, [this](Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()) == nullptr; }))
+    {
+        Notify("What was copied holds a prefab instance whose prefab is missing or cannot be read, so it is not pasted until the prefab is back");
+
         return false;
     }
 
     const std::optional<Trinity::TransformComponent> l_World = parent == m_CopiedEntity->Parent ? std::nullopt : std::optional(m_CopiedEntity->World);
 
-    return m_History.Execute(Trinity::CreateScope<PasteEntityCommand>(m_CopiedEntity->Text, parent, before, l_World));
+    return m_History.Execute(Trinity::CreateScope<PasteEntityCommand>(m_CopiedEntity->Text, parent, FindAddedPlace(m_Scene, before), l_World));
 }
 
 bool EditorSession::EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field)
@@ -2754,17 +2900,20 @@ void EditorSession::SaveProject()
 void EditorSession::NewScene()
 {
     m_Scene.Clear();
+    m_Prefabs.Clear();
     m_ScenePath.clear();
     m_Selection = {};
     m_History.Clear();
 }
 
-// On an error the scene is left as it was
+// On an error the scene is left as it was, with the prefabs it was made from. Otherwise each prefab is read again as the new scene asks for it, so one changed or deleted since the last scene opened is as its file is now
 void EditorSession::OpenScene(const std::string& assetPath)
 {
+    PrefabTemplateCache l_Prefabs = std::exchange(m_Prefabs, {});
     const Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::Load(m_Scene, assetPath);
     if (!l_Loaded)
     {
+        m_Prefabs = std::move(l_Prefabs);
         TR_ERROR("Forge: the scene could not be opened: {}", l_Loaded.GetError());
 
         return;
