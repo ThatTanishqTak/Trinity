@@ -3,6 +3,7 @@
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 #include "Panels/ConsolePanel.hpp"
+#include "Panels/HierarchyPanel.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -41,11 +42,184 @@ namespace
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
     constexpr std::array<std::string_view, 24> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::CharacterControllerComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
 
-    // A label on the left and the widget filling the rest of the row, less the width kept for buttons after it
+    using PrefabOverride = Trinity::SceneSerializer::PrefabOverride;
+
+    // A row of a built-in component whose label is not its key with the spaces taken out, with the keys it shows
+    struct RowKeys
+    {
+        std::string_view Label;
+        std::array<std::string_view, 4> Keys;
+    };
+
+    // Near shows the near plane of whichever projection is shown, a lock the 3D body's three axes or the 2D body's one, and a label ending in a space starts the label of each of a list's rows, as Material 0 does
+    constexpr std::array<RowKeys, 22> c_RowKeys{ {
+        { "Size",{ "OrthographicSize" } },
+        { "Near",{ "Near", "PerspectiveNear" } },
+        { "Exposure",{ "ExposureEV100" } },
+        { "Inner Angle",{ "InnerConeAngle" } },
+        { "Outer Angle",{ "OuterConeAngle" } },
+        { "Flip",{ "FlipX", "FlipY" } },
+        { "Continuous",{ "ContinuousCollision" } },
+        { "Lock Position",{ "LockPositionX", "LockPositionY", "LockPositionZ" } },
+        { "Lock Rotation",{ "LockRotation", "LockRotationX", "LockRotationY", "LockRotationZ" } },
+        { "Velocity",{ "InitialLinearVelocity" } },
+        { "Spin",{ "InitialAngularVelocity" } },
+        { "Limits",{ "UseLimits" } },
+        { "Lower",{ "LowerLimit" } },
+        { "Upper",{ "UpperLimit" } },
+        { "Motor",{ "UseMotor" } },
+        { "Speed",{ "MotorSpeed" } },
+        { "Max Torque",{ "MotorMaxForce" } },
+        { "Max Force",{ "MotorMaxForce" } },
+        { "Spring",{ "SpringFrequency" } },
+        { "Damping",{ "SpringDamping" } },
+        { "Material ",{ "Materials" } },
+        { "Point ",{ "Points" } }
+    } };
+
+    // What a menu asked to revert or apply, named as the command names it, such as Position of Body
+    struct OverrideRequest
+    {
+        std::vector<PrefabOverride> Overrides;
+        std::string What;
+        bool Apply = false;
+    };
+
+    // What Properties marks while it shows an entity of an instance: the instance's root and its prefab's name, all the instance changes of the prefab, read once a frame, the entity shown, the component whose section is being drawn and the path a script's fields sit under, and what a menu asked for, which the panel does once every section is drawn
+    struct OverrideMarks
+    {
+        Trinity::Entity Root;
+        std::string PrefabName;
+        std::vector<PrefabOverride> Overrides;
+        Trinity::Entity Entity;
+        std::string_view Component;
+        std::string Prefix;
+        std::optional<OverrideRequest> Request;
+    };
+
+    // Set while Properties draws an entity of an instance, and null otherwise, so Label and the sections mark their rows without each being told
+    OverrideMarks* s_Marks = nullptr;
+
+    bool EqualsIgnoringCase(std::string_view left, std::string_view right)
+    {
+        return std::ranges::equal(left, right, [](char leftCharacter, char rightCharacter) { return std::tolower(static_cast<unsigned char>(leftCharacter)) == std::tolower(static_cast<unsigned char>(rightCharacter)); });
+    }
+
+    // Whether a change at the path shows on the row of the key: the path is the key, holds it, as a whole component, script or list does, or is held by it
+    bool IsShownAt(std::string_view path, std::string_view key)
+    {
+        const auto a_IsWithin = [](std::string_view inner, std::string_view outer) { return inner.size() > outer.size() && inner[outer.size()] == '/' && EqualsIgnoringCase(inner.substr(0, outer.size()), outer); };
+
+        return path.empty() || EqualsIgnoringCase(path, key) || a_IsWithin(key, path) || a_IsWithin(path, key);
+    }
+
+    // The values of the shown entity's component the row shows, by the keys its label names: the label without its spaces, under a script's fields' path, or what c_RowKeys gives a built-in component's row
+    std::vector<PrefabOverride> FindRowOverrides(const OverrideMarks& marks, std::string_view label)
+    {
+        std::vector<std::string> l_Keys;
+        const bool l_BuiltIn = marks.Prefix.empty() && std::ranges::find(c_EditedComponents, marks.Component) != c_EditedComponents.end();
+        const auto a_Row = std::ranges::find_if(c_RowKeys, [label](const RowKeys& row) { return row.Label.ends_with(' ') ? label.starts_with(row.Label) : label == row.Label; });
+        if (l_BuiltIn && a_Row != c_RowKeys.end())
+        {
+            for (const std::string_view it_Key : a_Row->Keys)
+            {
+                if (!it_Key.empty())
+                {
+                    l_Keys.emplace_back(it_Key);
+                }
+            }
+        }
+        else
+        {
+            std::string l_Key = marks.Prefix;
+            std::ranges::copy_if(label, std::back_inserter(l_Key), [](char character) { return character != ' '; });
+            l_Keys.push_back(std::move(l_Key));
+        }
+
+        std::vector<PrefabOverride> l_Overrides;
+        std::ranges::copy_if(marks.Overrides, std::back_inserter(l_Overrides), [&marks, &l_Keys](const PrefabOverride& change) { return change.Type == PrefabOverride::Kind::Value && change.Entity == marks.Entity.GetUUID() && change.Component == marks.Component && std::ranges::any_of(l_Keys, [&change](const std::string& key) { return IsShownAt(change.Path, key); }); });
+
+        return l_Overrides;
+    }
+
+    // Unity's mark for what an instance changes of its prefab: a bar in the prefab's blue at the left edge of the row from the top given
+    void DrawOverrideBar(float top)
+    {
+        const float l_Left = ImGui::GetCurrentWindow()->InnerClipRect.Min.x;
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(l_Left, top), ImVec2(l_Left + 3.0f, top + ImGui::GetFrameHeight()), ImGui::GetColorU32(HierarchyPanel::GetPrefabColor()));
+    }
+
+    // Revert and Apply to Prefab on a right-click of the item just drawn, as Unity's Inspector has them, which the panel does once every section is drawn
+    void OverrideMenu(const char* id, const std::vector<PrefabOverride>& overrides, std::string_view what)
+    {
+        ImGui::OpenPopupOnItemClick(id, ImGuiPopupFlags_MouseButtonRight);
+        if (!ImGui::BeginPopup(id))
+        {
+            return;
+        }
+
+        if (ImGui::MenuItem(std::format("{} Revert", Trinity::Icons::c_Undo).c_str()))
+        {
+            s_Marks->Request = OverrideRequest{ .Overrides = overrides, .What = std::string(what), .Apply = false };
+        }
+
+        if (ImGui::MenuItem(std::format("Apply to Prefab '{}'", s_Marks->PrefabName).c_str()))
+        {
+            s_Marks->Request = OverrideRequest{ .Overrides = overrides, .What = std::string(what), .Apply = true };
+        }
+
+        ImGui::EndPopup();
+    }
+
+    // Each component the instance removed of its prefab's, as Unity shows one: a greyed header with the bar that stays shut, whose right-click reverts or applies the removal
+    void DrawRemovedComponents(Trinity::Entity entity)
+    {
+        if (s_Marks == nullptr)
+        {
+            return;
+        }
+
+        for (const PrefabOverride& it_Override : s_Marks->Overrides)
+        {
+            if (it_Override.Type != PrefabOverride::Kind::RemovedComponent || it_Override.Entity != entity.GetUUID())
+            {
+                continue;
+            }
+
+            const std::string_view l_Label = GetComponentLabel(it_Override.Component);
+            const float l_Top = ImGui::GetCursorScreenPos().y;
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::CollapsingHeader(std::format("{} (Removed)###Removed{}", l_Label, it_Override.Component).c_str(), ImGuiTreeNodeFlags_Leaf);
+            ImGui::PopStyleColor();
+            DrawOverrideBar(l_Top);
+            OverrideMenu(std::format("##Removed{}", it_Override.Component).c_str(), { it_Override }, std::format("removal of {} from {}", l_Label, GetEntityLabel(entity)));
+        }
+    }
+
+    // A label on the left and the widget filling the rest of the row, less the width kept for buttons after it. In an instance a row that changes its prefab's value is bold, with the bar at its left edge, and its label reverts or applies the change on a right-click. The root's Position and Rotation are its own, so they are not marked, though their menu is there
     void Label(const char* label, float reserve = 0.0f)
     {
         ImGui::AlignTextToFramePadding();
+        const std::vector<PrefabOverride> l_Overrides = s_Marks != nullptr && !s_Marks->Component.empty() && label[0] != '\0' ? FindRowOverrides(*s_Marks, label) : std::vector<PrefabOverride>();
+        const bool l_Marked = std::ranges::any_of(l_Overrides, [](const PrefabOverride& change) { return !IsDefaultOverride(s_Marks->Root, change); });
+        if (l_Marked)
+        {
+            DrawOverrideBar(ImGui::GetCursorScreenPos().y);
+            ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
+        }
+
         ImGui::TextUnformatted(label);
+        if (l_Marked)
+        {
+            ImGui::PopFont();
+        }
+
+        if (!l_Overrides.empty())
+        {
+            // Two components can each have a row of the same label, as their Offset
+            OverrideMenu(std::format("##Override{}{}", s_Marks->Component, label).c_str(), l_Overrides, std::format("{} of {}", label, GetEntityLabel(s_Marks->Entity)));
+        }
+
         ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
         ImGui::SetNextItemWidth(reserve > 0.0f ? -reserve : -FLT_MIN);
     }
@@ -1001,6 +1175,15 @@ void PropertiesPanel::OnImGuiRender()
         ImGui::PopStyleColor();
     }
 
+    // What the entity's instance changes of its prefab, read once a frame for every section to mark
+    std::optional<OverrideMarks> l_Marks;
+    if (const Trinity::Entity l_Root = Trinity::Prefab::FindInstanceRoot(l_Entity); l_Root && !l_Missing)
+    {
+        const Trinity::AssetRecord* l_Record = m_Session.GetRegistry() != nullptr ? m_Session.GetRegistry()->Find(l_Root.Get<Trinity::PrefabInstanceComponent>().Prefab) : nullptr;
+        l_Marks = OverrideMarks{ .Root = l_Root, .PrefabName = l_Record != nullptr ? std::filesystem::path(l_Record->Path).stem().string() : std::string("Prefab"), .Overrides = Trinity::SceneSerializer::GetPrefabOverrides(l_Root), .Entity = l_Entity, .Component = {}, .Prefix = {}, .Request = std::nullopt };
+        s_Marks = &*l_Marks;
+    }
+
     ImGui::BeginDisabled(l_Playing || l_Missing);
     ImGui::PushID(l_Entity.GetUUID().ToString().c_str());
     DrawName(l_Entity);
@@ -1020,9 +1203,11 @@ void PropertiesPanel::OnImGuiRender()
     DrawJoint2D(l_Entity);
     DrawScripts(l_Entity);
     DrawOtherComponents(l_Entity);
+    DrawRemovedComponents(l_Entity);
     DrawAddComponent(l_Entity);
     ImGui::PopID();
     ImGui::EndDisabled();
+    s_Marks = nullptr;
 
     // A script dropped anywhere on the entity's sections is added to it, as on Unity's Inspector
     if (!l_Playing && !l_Missing && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("##AddScriptDrop")))
@@ -1038,6 +1223,21 @@ void PropertiesPanel::OnImGuiRender()
     if (m_PendingCommand)
     {
         m_Session.GetHistory().Execute(std::move(m_PendingCommand));
+    }
+
+    // Last, since the instance's entities are made again by it, so nothing after reads them
+    if (l_Marks && l_Marks->Request)
+    {
+        OverrideRequest& l_Request = *l_Marks->Request;
+        const Trinity::UUID l_Root = l_Marks->Root.GetUUID();
+        if (l_Request.Apply)
+        {
+            static_cast<void>(m_Session.ApplyPrefabOverrides(l_Root, std::move(l_Request.Overrides), l_Request.What, l_Entity.GetUUID()));
+        }
+        else
+        {
+            static_cast<void>(m_Session.RevertPrefabOverrides(l_Root, std::move(l_Request.Overrides), l_Request.What, l_Entity.GetUUID()));
+        }
     }
 
     // Nothing is being dragged or typed into, so the next change is a command of its own
@@ -1061,6 +1261,7 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
             m_NameText = std::string(std::string_view(entity.Get<Trinity::TagComponent>().Tag));
         }
 
+        const float l_Top = ImGui::GetCursorScreenPos().y;
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(Trinity::Icons::c_CubeOutline);
         ImGui::SameLine();
@@ -1071,6 +1272,19 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
         if (ImGui::IsItemDeactivated())
         {
             CommitName(entity);
+        }
+
+        // An instance's name the prefab's otherwise is marked, and its field reverts or applies it on a right-click
+        if (s_Marks != nullptr)
+        {
+            s_Marks->Component = Trinity::TagComponent::c_TypeName;
+            if (const std::vector<PrefabOverride> l_Overrides = FindRowOverrides(*s_Marks, "Tag"); !l_Overrides.empty())
+            {
+                DrawOverrideBar(l_Top);
+                OverrideMenu("##NameOverride", l_Overrides, std::format("name of {}", GetEntityLabel(entity)));
+            }
+
+            s_Marks->Component = {};
         }
     }
 
@@ -1085,9 +1299,178 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
         const std::string l_Of = l_Instance == entity ? std::string("Instance of prefab") : std::format("Part of the instance {} of prefab", GetEntityLabel(l_Instance));
         const std::string l_Path = l_Record != nullptr ? l_Record->Path : std::format("{}, which the project no longer has", l_Prefab);
         ImGui::TextDisabled("%s", std::format("{} {} {}", Trinity::Icons::c_PackageVariantClosed, l_Of, l_Path).c_str());
+        DrawOverrides(entity);
     }
 
     ImGui::Spacing();
+}
+
+// Unity's Overrides dropdown: on the instance's root all it changes of its prefab, and on one of its entities what that entity changes and the entities added or removed right under it. Each changed component, added or removed component and added or removed entity is a row with Revert and Apply, and Revert All and Apply All take every row. The root's Position and Rotation are its own, so they are left out
+void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
+{
+    if (s_Marks == nullptr)
+    {
+        return;
+    }
+
+    // What a row shows, what it is named as a command, and what it reverts or applies
+    struct Row
+    {
+        std::string Text;
+        std::string What;
+        std::vector<PrefabOverride> Overrides;
+    };
+
+    using Kind = PrefabOverride::Kind;
+    const Trinity::Entity l_Root = s_Marks->Root;
+    const Trinity::PrefabInstanceComponent& l_Instance = l_Root.Get<Trinity::PrefabInstanceComponent>();
+    Trinity::Scene* l_Template = m_Session.FindPrefabTemplate(l_Instance.Prefab);
+    Trinity::Scene& l_Scene = *entity.GetScene();
+    // The prefab's entity that one of the instance's would be, which names one the instance removed
+    const auto a_FindInPrefab = [&l_Instance, l_Template](Trinity::UUID uuid) { return l_Template != nullptr ? l_Template->FindEntityByUUID(Trinity::Prefab::FindLocalID(l_Instance.Instance, uuid)) : Trinity::Entity(); };
+    const auto a_IsUnder = [&entity](Trinity::Entity child) { return child && child.GetParent() && child.GetParent().GetUUID() == entity.GetUUID(); };
+    const auto a_IsShown = [&](const PrefabOverride& change)
+    {
+        if (IsDefaultOverride(l_Root, change))
+        {
+            return false;
+        }
+
+        if (entity == l_Root)
+        {
+            return true;
+        }
+
+        if (change.Type == Kind::AddedEntity)
+        {
+            return a_IsUnder(l_Scene.FindEntityByUUID(change.Entity));
+        }
+
+        if (change.Type == Kind::RemovedEntity)
+        {
+            const Trinity::Entity l_Removed = a_FindInPrefab(change.Entity);
+            const Trinity::Entity l_Parent = l_Removed ? l_Removed.GetParent() : Trinity::Entity();
+
+            return l_Parent && Trinity::Prefab::MakeEntityUUID(l_Instance.Instance, l_Parent.GetUUID()) == entity.GetUUID();
+        }
+
+        return change.Entity == entity.GetUUID();
+    };
+
+    std::vector<Row> l_Rows;
+    for (const PrefabOverride& it_Override : s_Marks->Overrides)
+    {
+        if (!a_IsShown(it_Override))
+        {
+            continue;
+        }
+
+        const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(it_Override.Entity);
+        const Trinity::Entity l_Removed = l_Entity ? Trinity::Entity() : a_FindInPrefab(it_Override.Entity);
+        const std::string l_Name = l_Entity ? GetEntityLabel(l_Entity) : l_Removed ? GetEntityLabel(l_Removed) : it_Override.Entity.ToString();
+        const std::string_view l_Component = GetComponentLabel(it_Override.Component);
+        // A component's values are one row, as in Unity
+        const auto a_Same = std::ranges::find_if(l_Rows, [&it_Override](const Row& row) { return it_Override.Type == Kind::Value && row.Overrides.front().Type == Kind::Value && row.Overrides.front().Entity == it_Override.Entity && row.Overrides.front().Component == it_Override.Component; });
+        if (a_Same != l_Rows.end())
+        {
+            a_Same->Overrides.push_back(it_Override);
+
+            continue;
+        }
+
+        switch (it_Override.Type)
+        {
+            case Kind::Value:
+            {
+                l_Rows.push_back({ std::format("{}: {}", l_Name, l_Component), std::format("{} of {}", l_Component, l_Name),{ it_Override } });
+
+                break;
+            }
+            case Kind::AddedComponent:
+            {
+                l_Rows.push_back({ std::format("{} {}: {} (Added)", Trinity::Icons::c_Plus, l_Name, l_Component), std::format("added {} of {}", l_Component, l_Name),{ it_Override } });
+
+                break;
+            }
+            case Kind::RemovedComponent:
+            {
+                l_Rows.push_back({ std::format("{}: {} (Removed)", l_Name, l_Component), std::format("removal of {} from {}", l_Component, l_Name),{ it_Override } });
+
+                break;
+            }
+            case Kind::AddedEntity:
+            {
+                l_Rows.push_back({ std::format("{} {} (Added)", Trinity::Icons::c_Plus, l_Name), std::format("added entity {}", l_Name),{ it_Override } });
+
+                break;
+            }
+            case Kind::RemovedEntity:
+            {
+                l_Rows.push_back({ std::format("{} (Removed)", l_Name), std::format("removal of entity {}", l_Name),{ it_Override } });
+
+                break;
+            }
+        }
+    }
+
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(ImGui::GetFontSize() * 26.0f, 0.0f), ImVec2(FLT_MAX, FLT_MAX));
+    if (!ImGui::BeginCombo("##Overrides", l_Rows.empty() ? "No Overrides" : std::format("Overrides ({})", l_Rows.size()).c_str(), ImGuiComboFlags_HeightLarge))
+    {
+        return;
+    }
+
+    const std::string l_Of = entity == l_Root ? std::format("the instance {}", GetEntityLabel(entity)) : GetEntityLabel(entity);
+    ImGui::TextDisabled("%s", (l_Rows.empty() ? std::format("{} changes nothing of prefab '{}'", l_Of, s_Marks->PrefabName) : std::format("What {} changes of prefab '{}'", l_Of, s_Marks->PrefabName)).c_str());
+    ImGui::Separator();
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    const float l_Buttons = ImGui::CalcTextSize("Revert").x + ImGui::CalcTextSize("Apply").x + l_Style.FramePadding.x * 4.0f + l_Style.ItemSpacing.x;
+    std::vector<PrefabOverride> l_All;
+    for (std::size_t it_Row = 0; it_Row < l_Rows.size(); ++it_Row)
+    {
+        Row& l_Row = l_Rows[it_Row];
+        l_All.insert(l_All.end(), l_Row.Overrides.begin(), l_Row.Overrides.end());
+        ImGui::PushID(static_cast<int>(it_Row));
+        const float l_Right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(l_Row.Text.c_str());
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(std::max(l_Right - l_Buttons, ImGui::GetCursorPosX()));
+        if (ImGui::SmallButton("Revert"))
+        {
+            s_Marks->Request = OverrideRequest{ .Overrides = l_Row.Overrides, .What = l_Row.What, .Apply = false };
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Apply"))
+        {
+            s_Marks->Request = OverrideRequest{ .Overrides = l_Row.Overrides, .What = l_Row.What, .Apply = true };
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::PopID();
+    }
+
+    if (!l_Rows.empty())
+    {
+        ImGui::Separator();
+        const std::string l_What = std::format("all overrides of {}", GetEntityLabel(entity));
+        if (ImGui::Button("Revert All"))
+        {
+            s_Marks->Request = OverrideRequest{ .Overrides = l_All, .What = l_What, .Apply = false };
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("Apply All"))
+        {
+            s_Marks->Request = OverrideRequest{ .Overrides = std::move(l_All), .What = l_What, .Apply = true };
+            ImGui::CloseCurrentPopup();
+        }
+    }
+
+    ImGui::EndCombo();
 }
 
 void PropertiesPanel::CommitName(Trinity::Entity entity)
@@ -2784,6 +3167,9 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
         const bool l_Stopped = l_Runtime != nullptr && l_Runtime->GetScripts().IsFaulted(entity, it_Index);
         const float l_RowRight = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
 
+        // In an instance, what it changes of the script, as a whole or in its fields
+        const std::vector<PrefabOverride> l_Overrides = s_Marks != nullptr ? FindRowOverrides(*s_Marks, std::format("Scripts/{}", it_Index)) : std::vector<PrefabOverride>();
+        const float l_Top = ImGui::GetCursorScreenPos().y;
         ImGui::PushID(static_cast<int>(it_Index));
         if (ImGui::Checkbox("##Enabled", &l_Entry.Enabled))
         {
@@ -2810,8 +3196,29 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
             l_Edit = std::pair(l_Entry.Language, std::string(std::string_view(l_Entry.ClassName)));
         }
 
+        if (!l_Overrides.empty())
+        {
+            DrawOverrideBar(l_Top);
+        }
+
         if (ImGui::BeginPopupContextItem())
         {
+            if (!l_Overrides.empty())
+            {
+                const std::string l_What = std::format("Script {} of {}", l_Label, GetEntityLabel(entity));
+                if (ImGui::MenuItem(std::format("{} Revert", Trinity::Icons::c_Undo).c_str()))
+                {
+                    s_Marks->Request = OverrideRequest{ .Overrides = l_Overrides, .What = l_What, .Apply = false };
+                }
+
+                if (ImGui::MenuItem(std::format("Apply to Prefab '{}'", s_Marks->PrefabName).c_str()))
+                {
+                    s_Marks->Request = OverrideRequest{ .Overrides = l_Overrides, .What = l_What, .Apply = true };
+                }
+
+                ImGui::Separator();
+            }
+
             // First, as in Unity's component menu, for a class whose defaults are known
             if (ImGui::MenuItem(std::format("{} Reset", Trinity::Icons::c_Undo).c_str(), nullptr, false, l_Known))
             {
@@ -2874,7 +3281,17 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
 
         if (l_Open)
         {
+            if (s_Marks != nullptr)
+            {
+                s_Marks->Prefix = std::format("Scripts/{}/Fields/", it_Index);
+            }
+
             DrawScriptFields(l_Entry, l_Change);
+            if (s_Marks != nullptr)
+            {
+                s_Marks->Prefix.clear();
+            }
+
             ImGui::TreePop();
         }
 
@@ -3168,8 +3585,22 @@ bool PropertiesPanel::DrawListValue(const Trinity::ScriptFieldDescription& field
 
     auto& l_Elements = value.Get<Trinity::ScriptList>().Elements;
     const std::uint32_t l_List = ImGui::GetID("##List");
+    // An instance's list is kept as a whole, so its name is marked as a row's label is
+    const std::vector<PrefabOverride> l_Overrides = s_Marks != nullptr && !s_Marks->Component.empty() ? FindRowOverrides(*s_Marks, field.Name.c_str()) : std::vector<PrefabOverride>();
     ImGui::AlignTextToFramePadding();
+    if (!l_Overrides.empty())
+    {
+        DrawOverrideBar(ImGui::GetCursorScreenPos().y);
+        ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
+    }
+
     const bool l_Open = ImGui::TreeNodeEx("##List", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen, "%s", field.Name.c_str());
+    if (!l_Overrides.empty())
+    {
+        ImGui::PopFont();
+        OverrideMenu("##ListOverride", l_Overrides, std::format("{} of {}", std::string_view(field.Name), GetEntityLabel(s_Marks->Entity)));
+    }
+
     ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
     ImGui::TextDisabled("%s", std::format("{} element{}", l_Elements.size(), l_Elements.size() == 1 ? "" : "s").c_str());
     if (!l_Open)
@@ -3949,11 +4380,26 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
     }
 }
 
-// The component's section, with Unity's component menu on a right-click: Reset to a new one's values, Remove Component, and Copy Component, whose values go into one of its type with Paste Component Values, or onto an entity without one with Paste Component As New, each change one command. A greyed section, as while the scene plays, has the menu too with Copy Component alone, so values found while playing can be pasted once it stops. A Transform stays, and a Script component's scripts reset each from its own menu
+// The component's section, with Unity's component menu on a right-click: Reset to a new one's values, Remove Component, and Copy Component, whose values go into one of its type with Paste Component Values, or onto an entity without one with Paste Component As New, each change one command. A greyed section, as while the scene plays, has the menu too with Copy Component alone, so values found while playing can be pasted once it stops. A Transform stays, and a Script component's scripts reset each from its own menu. In an instance, one the instance added has a plus and the bar, and the menu reverts or applies what the instance changes of it, leaving the root's Position and Rotation
 bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view name, const char* icon)
 {
-    const bool l_Open = BeginSection(name, icon);
+    std::vector<PrefabOverride> l_Overrides;
+    if (s_Marks != nullptr)
+    {
+        s_Marks->Component = name;
+        s_Marks->Prefix.clear();
+        std::ranges::copy_if(s_Marks->Overrides, std::back_inserter(l_Overrides), [entity, name](const PrefabOverride& change) { return (change.Type == PrefabOverride::Kind::Value || change.Type == PrefabOverride::Kind::AddedComponent) && change.Entity == entity.GetUUID() && change.Component == name && !IsDefaultOverride(s_Marks->Root, change); });
+    }
+
+    const bool l_Added = std::ranges::any_of(l_Overrides, [](const PrefabOverride& change) { return change.Type == PrefabOverride::Kind::AddedComponent; });
+    const float l_Top = ImGui::GetCursorScreenPos().y;
+    const bool l_Open = BeginSection(name, l_Added ? std::format("{}{}", Trinity::Icons::c_Plus, icon).c_str() : icon);
     const bool l_Editable = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) == 0;
+    if (l_Added)
+    {
+        DrawOverrideBar(l_Top);
+    }
+
     const std::string l_Menu = std::format("##{}Menu", name);
     // BeginPopupContextItem passes over a greyed header, as over any greyed item
     if (!l_Editable && ImGui::IsMouseReleased(ImGuiMouseButton_Right) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup | ImGuiHoveredFlags_AllowWhenDisabled))
@@ -3970,6 +4416,22 @@ bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view na
     if (ImGui::BeginPopupContextItem(l_Menu.c_str()))
     {
         const std::string_view l_Label = GetComponentLabel(name);
+        if (!l_Overrides.empty())
+        {
+            const std::string l_What = std::format("{} of {}", l_Label, GetEntityLabel(entity));
+            if (ImGui::MenuItem(std::format("{} Revert", Trinity::Icons::c_Undo).c_str(), nullptr, false, l_Editable))
+            {
+                s_Marks->Request = OverrideRequest{ .Overrides = l_Overrides, .What = l_What, .Apply = false };
+            }
+
+            if (ImGui::MenuItem(std::format("Apply to Prefab '{}'", s_Marks->PrefabName).c_str(), nullptr, false, l_Editable))
+            {
+                s_Marks->Request = OverrideRequest{ .Overrides = l_Overrides, .What = l_What, .Apply = true };
+            }
+
+            ImGui::Separator();
+        }
+
         if (name != Trinity::ScriptComponent::c_TypeName)
         {
             if (ImGui::MenuItem(std::format("{} Reset", Trinity::Icons::c_Undo).c_str(), nullptr, false, l_Editable))

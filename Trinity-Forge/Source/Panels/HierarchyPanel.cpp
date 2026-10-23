@@ -50,15 +50,6 @@ namespace
         return l_Record != nullptr && l_Record->Importer == importer;
     }
 
-    // Unity's blue for a prefab's instance, darker on a light theme so it reads there, told by how bright the windows' background is, as the Console tells it
-    ImVec4 GetPrefabColor()
-    {
-        const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-        const bool l_Light = l_Background.x * 0.2126f + l_Background.y * 0.7152f + l_Background.z * 0.0722f > 0.5f;
-
-        return l_Light ? ImVec4(0.1f, 0.35f, 0.8f, 1.0f) : ImVec4(0.45f, 0.7f, 1.0f, 1.0f);
-    }
-
     const void* ToImGuiID(Trinity::UUID uuid)
     {
         return reinterpret_cast<const void*>(static_cast<std::uintptr_t>(uuid.GetValue()));
@@ -96,6 +87,15 @@ namespace
 HierarchyPanel::HierarchyPanel(EditorSession& session) : Panel("Hierarchy", Trinity::Icons::c_Sitemap, DockSlot::Left), m_Session(session)
 {
 
+}
+
+// Told by how bright the windows' background is, as the Console tells it
+ImVec4 HierarchyPanel::GetPrefabColor()
+{
+    const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+    const bool l_Light = l_Background.x * 0.2126f + l_Background.y * 0.7152f + l_Background.z * 0.0722f > 0.5f;
+
+    return l_Light ? ImVec4(0.1f, 0.35f, 0.8f, 1.0f) : ImVec4(0.45f, 0.7f, 1.0f, 1.0f);
 }
 
 // The scene's tree in hierarchy order, under a search field that stays as the tree scrolls. A selection made elsewhere, such as in the Viewport, opens its ancestors and scrolls into view. Edits wait until the tree is drawn, since they can destroy the entities it is walking. While a copy plays, the tree is the copy's, to select in and look at but not to change. A search draws its tree under IDs of its own, so the tree opened and closed without one is as it was once the search is cleared

@@ -1010,7 +1010,37 @@ void EditorSession::ScanAssets()
         m_ScenePath = l_Record->Path;
     }
 
+    UpdateChangedPrefabs();
     StartImports();
+}
+
+// A prefab changed outside Forge, as by a text editor or version control, reaches the edited scene's instances as the files are scanned, each made again from it, keeping what it changes. Not a step of the history, as in Unity, and a scene playing keeps the prefab it started with
+void EditorSession::UpdateChangedPrefabs()
+{
+    for (auto& [it_Prefab, it_Text] : m_Prefabs.FindChanged(m_Registry.get()))
+    {
+        const std::string l_Path = m_Registry->Find(it_Prefab)->Path;
+        const std::vector<Trinity::SceneSerializer::PrefabInstanceText> l_Instances = Trinity::SceneSerializer::SavePrefabInstances(m_Scene, it_Prefab);
+        if (const Trinity::Expected<void, std::string> l_Replaced = m_Prefabs.Replace(it_Prefab, std::move(it_Text)); !l_Replaced)
+        {
+            TR_ERROR("Forge: prefab {} changed, and cannot be read now, so its instances stay as they are: {}", l_Path, l_Replaced.GetError());
+
+            continue;
+        }
+
+        if (const Trinity::Expected<void, std::string> l_Restored = Trinity::SceneSerializer::RestorePrefabInstances(m_Scene, l_Instances); !l_Restored)
+        {
+            TR_ERROR("Forge: prefab {} changed, and not every instance could be made again from it: {}", l_Path, l_Restored.GetError());
+        }
+
+        Trinity::AssetManager::Reload(it_Prefab);
+        TR_INFO("Forge: prefab {} changed outside Forge, so its {} instance(s) in the scene were made again from it", l_Path, l_Instances.size());
+    }
+
+    if (m_Selection && !GetScene().FindEntityByUUID(m_Selection))
+    {
+        m_Selection = {};
+    }
 }
 
 // Until every import the scans so far asked for is over, with the last report of each kind. For tests, which need the cache filled before they go on, so models are cooked before textures start here
@@ -2704,6 +2734,84 @@ bool EditorSession::InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent
     }
 
     return m_History.Execute(Trinity::CreateScope<InstantiatePrefabCommand>(prefab, ToUtf8(FromUtf8(l_Record->Path).stem()), parent, FindAddedPlace(m_Scene, before), position));
+}
+
+bool EditorSession::RevertPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject)
+{
+    if (overrides.empty())
+    {
+        return false;
+    }
+
+    return m_History.Execute(Trinity::CreateScope<RevertPrefabCommand>(root, std::move(overrides), subject, std::format("Revert {}", what)));
+}
+
+bool EditorSession::ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject)
+{
+    UpdateChangedPrefabs();
+    const Trinity::Entity l_Root = m_Scene.FindEntityByUUID(root);
+    if (overrides.empty() || !l_Root || !l_Root.Has<Trinity::PrefabInstanceComponent>())
+    {
+        return false;
+    }
+
+    const Trinity::UUID l_Prefab = l_Root.Get<Trinity::PrefabInstanceComponent>().Prefab;
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(l_Prefab) : nullptr;
+    const std::string* l_Text = m_Prefabs.FindText(l_Prefab);
+    if (l_Record == nullptr || l_Text == nullptr)
+    {
+        Notify(std::format("The prefab of {} is no longer in the project, so nothing can be applied to it", GetEntityLabel(l_Root)));
+
+        return false;
+    }
+
+    for (const Trinity::SceneSerializer::PrefabOverride& it_Override : overrides)
+    {
+        const Trinity::Entity l_Added = it_Override.Type == Trinity::SceneSerializer::PrefabOverride::Kind::AddedEntity ? m_Scene.FindEntityByUUID(it_Override.Entity) : Trinity::Entity();
+        for (Trinity::Entity it_Entity = l_Added; it_Entity; it_Entity = m_Scene.GetNextInSubtree(it_Entity, l_Added))
+        {
+            if (it_Entity.Has<Trinity::PrefabInstanceComponent>())
+            {
+                Notify(std::format("{} {} a prefab instance, and a prefab holding another waits for nested prefabs, so nothing was applied", GetEntityLabel(l_Added), it_Entity == l_Added ? "is" : "holds"));
+
+                return false;
+            }
+        }
+    }
+
+    const std::string l_Label = std::format("Apply {} to prefab {}", what, ToUtf8(FromUtf8(l_Record->Path).stem()));
+
+    return m_History.Execute(Trinity::CreateScope<ApplyPrefabCommand>([this](Trinity::UUID prefab, const std::string& text) { return WritePrefab(prefab, text); }, root, std::move(overrides), *l_Text, subject, l_Label));
+}
+
+// The file first, so a prefab that cannot be written keeps its template, and then the template the open scene's instances are made from, from the same text
+bool EditorSession::WritePrefab(Trinity::UUID prefab, const std::string& text)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
+    if (l_Record == nullptr)
+    {
+        TR_ERROR("Forge: prefab {} is no longer in the project, so it was not written", prefab);
+
+        return false;
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Record->Path, text); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be written: {}", l_Record->Path, Trinity::ToString(l_Written.GetError()));
+
+        return false;
+    }
+
+    if (const Trinity::Expected<void, std::string> l_Replaced = m_Prefabs.Replace(prefab, text); !l_Replaced)
+    {
+        TR_ERROR("Forge: {} was written, but does not read back, so its instances keep the prefab they were made from: {}", l_Record->Path, l_Replaced.GetError());
+
+        return false;
+    }
+
+    Trinity::AssetManager::Reload(prefab);
+
+    return true;
 }
 
 // What the Hierarchy moves among an instance's entities goes after the prefab's own children there, so it stays where a reload puts it

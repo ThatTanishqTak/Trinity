@@ -2625,6 +2625,7 @@ namespace Trinity
         switch (l_Block.Kind)
         {
             case BlockKind::List:
+            {
                 if (m_ItemPending)
                 {
                     *m_Output += '\n';
@@ -2634,13 +2635,21 @@ namespace Trinity
                 }
 
                 *m_Output += l_Block.Empty ? " []" : "";
+
                 break;
+            }
             case BlockKind::Map:
+            {
                 *m_Output += l_Block.Empty ? " {}" : "";
+
                 break;
+            }
             case BlockKind::InlineMap:
+            {
                 *m_Output += '}';
+
                 break;
+            }
         }
 
         m_Indent = l_Block.Indent;

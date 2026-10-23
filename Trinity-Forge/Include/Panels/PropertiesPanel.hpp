@@ -53,6 +53,7 @@ private:
     void AskUnapplied(std::move_only_function<void()> then);
 
     void DrawName(Trinity::Entity entity);
+    void DrawOverrides(Trinity::Entity entity);
     void CommitName(Trinity::Entity entity);
     void DrawTransform(Trinity::Entity entity);
     void DrawCamera(Trinity::Entity entity);

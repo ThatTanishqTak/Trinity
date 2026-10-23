@@ -65,6 +65,8 @@ Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelD
 [[nodiscard]] bool IsMissingPrefab(Trinity::Entity entity);
 // Whether the entity is one of a prefab's entities in an instance, other than its root, which keeps the place the prefab gives it, as in Unity. What is added to an instance is not
 [[nodiscard]] bool IsPrefabPart(Trinity::Entity entity);
+// Whether the change is the instance root's Position or Rotation, which are the instance's own, as in Unity: not marked as overrides, and left alone by Revert All and Apply All, though each can be reverted or applied by itself
+[[nodiscard]] bool IsDefaultOverride(Trinity::Entity root, const Trinity::SceneSerializer::PrefabOverride& change);
 // The sibling an entity added under one of an instance's entities goes before: one after the prefab's own children there, which an instance keeps first, so the entity stays where a reload puts it. Any other sibling as it is
 [[nodiscard]] Trinity::UUID FindAddedPlace(Trinity::Scene& scene, Trinity::UUID before);
 // Why nothing can go under the parent, as under an entity standing in for a missing prefab, or nothing when it can. No parent is the roots, which take anything
@@ -187,6 +189,56 @@ private:
     Trinity::UUID m_Prefab;
     Trinity::UUID m_Instance;
     std::string m_Label;
+};
+
+// What an instance changes of its prefab undone, so it is as its prefab has it. The instance is kept as its text before and after, so undo and redo make it again as it was, with the same UUIDs. The subject is the entity Properties showed, which stays selected while it is there
+class RevertPrefabCommand final : public EditorCommand
+{
+public:
+    RevertPrefabCommand(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, Trinity::UUID subject, std::string label);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Subject; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Trinity::UUID m_Root;
+    std::vector<Trinity::SceneSerializer::PrefabOverride> m_Overrides;
+    Trinity::UUID m_Subject;
+    std::string m_Label;
+    Trinity::SceneSerializer::PrefabInstanceText m_Before;
+    Trinity::SceneSerializer::PrefabInstanceText m_After;
+};
+
+// What an instance changes of its prefab made the prefab's own: the writer writes the prefab's file with it and makes the prefab's template again, and every instance of the prefab in the scene is made again from that, keeping what each changes, so this one changes it no more. Undo writes back the text the prefab had and puts every instance back as it was, and redo does both again
+class ApplyPrefabCommand final : public EditorCommand
+{
+public:
+    using Writer = std::function<bool(Trinity::UUID, const std::string&)>;
+
+    ApplyPrefabCommand(Writer writer, Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string oldText, Trinity::UUID subject, std::string label);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Subject; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Writer m_Writer;
+    Trinity::UUID m_Root;
+    std::vector<Trinity::SceneSerializer::PrefabOverride> m_Overrides;
+    std::string m_OldText;
+    Trinity::UUID m_Subject;
+    std::string m_Label;
+    Trinity::UUID m_Prefab;
+    std::string m_NewText;
+    std::vector<Trinity::SceneSerializer::PrefabInstanceText> m_Before;
+    std::vector<Trinity::SceneSerializer::PrefabInstanceText> m_After;
 };
 
 // A built-in shape as one entity, with its MeshRenderer and the collider that fits it, static until it is given a RigidBody

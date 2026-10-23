@@ -256,6 +256,12 @@ public:
     [[nodiscard]] std::optional<std::string> CreatePrefab(Trinity::UUID entity, std::string_view folder);
     // A new instance of the prefab in one command, last under the parent or among the roots, or before the sibling. Its root goes to the position when one is given, as a drop into the Scene panel gives, which is then the instance's own, and otherwise keeps the prefab's transform, as a drop into the Hierarchy does
     bool InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position);
+    // The template the open scene's instances of the prefab are made from, which names the entities an instance removed. Null as the serializer finds none
+    [[nodiscard]] Trinity::Scene* FindPrefabTemplate(Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()); }
+    // What an instance changes of its prefab undone, in one command, so it is as its prefab has it. What names the changes, such as Position of Body, and the subject is the entity shown, which stays selected. Not while a copy plays
+    bool RevertPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject);
+    // What an instance changes of its prefab made the prefab's own, in one command: its file is written at once, and every instance of it in the edited scene is made again from it, each keeping what else it changes. Undo writes the file back. A change made to the file outside Forge since the files were scanned is read first, so it is kept. Refused with a notice for a prefab whose file is gone, and for an entity added to the instance that is or holds an instance, which a prefab cannot hold yet. Not while a copy plays
+    bool ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject);
     // As the Hierarchy moves an entity, keeping its place in the world, in one command. One of a prefab's entities in an instance keeps the place its prefab gives it, as in Unity, and nothing goes under an entity standing in for a missing prefab, each refused with a notice
     bool MoveEntity(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before);
     // Just after the original, in one command. Refused with a notice for an entity holding an instance whose prefab is missing, which only it can keep
@@ -349,6 +355,8 @@ private:
     void RememberScene();
     bool PasteEntityAt(Trinity::UUID parent, Trinity::UUID before);
     [[nodiscard]] bool CanTakeChildren(Trinity::UUID parent);
+    bool WritePrefab(Trinity::UUID prefab, const std::string& text);
+    void UpdateChangedPrefabs();
     void AttachRegistry();
     void StartImports();
     void StartTextureImports();

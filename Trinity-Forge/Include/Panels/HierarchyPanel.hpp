@@ -5,6 +5,8 @@
 
 #include <Trinity.hpp>
 
+#include <imgui.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -28,6 +30,8 @@ public:
     [[nodiscard]] const std::unordered_set<Trinity::UUID>* GetSearchMatches() const { return m_Search.empty() ? nullptr : &m_Matched; }
     // Starts typing a new name in the entity's row, as F2 does, which the Entity menu's Create Empty does for the entity it made
     void Rename(Trinity::UUID entity);
+    // Unity's blue for a prefab's instance, which Properties marks what an instance changes in, darker on a light theme so it reads there
+    [[nodiscard]] static ImVec4 GetPrefabColor();
 
 protected:
     void OnImGuiRender() override;

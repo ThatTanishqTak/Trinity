@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -96,6 +97,47 @@ namespace
         }
 
         return true;
+    }
+
+    // An instance as its root's text where it sits, which RestoreInstances makes again there
+    Trinity::SceneSerializer::PrefabInstanceText SaveInstance(Trinity::Scene& scene, Trinity::Entity root)
+    {
+        return { .Root = root.GetUUID(), .Parent = GetID(root.GetParent()), .Before = GetID(root.GetNextSibling()), .Text = Trinity::SceneSerializer::SaveEntityToText(scene, root) };
+    }
+
+    // As Restore, for instances made again from their text in place of what they are now
+    bool RestoreInstances(Trinity::Scene& scene, std::span<const Trinity::SceneSerializer::PrefabInstanceText> instances, std::string_view label)
+    {
+        if (const Trinity::Expected<void, std::string> l_Restored = Trinity::SceneSerializer::RestorePrefabInstances(scene, instances); !l_Restored)
+        {
+            TR_ERROR("Forge: {} could not bring its entities back: {}", label, l_Restored.GetError());
+
+            return false;
+        }
+
+        return true;
+    }
+
+    std::size_t GetInstancesMemorySize(const std::vector<Trinity::SceneSerializer::PrefabInstanceText>& instances)
+    {
+        std::size_t l_Size = instances.capacity() * sizeof(Trinity::SceneSerializer::PrefabInstanceText);
+        for (const Trinity::SceneSerializer::PrefabInstanceText& it_Instance : instances)
+        {
+            l_Size += it_Instance.Text.capacity();
+        }
+
+        return l_Size;
+    }
+
+    std::size_t GetOverridesMemorySize(const std::vector<Trinity::SceneSerializer::PrefabOverride>& overrides)
+    {
+        std::size_t l_Size = overrides.capacity() * sizeof(Trinity::SceneSerializer::PrefabOverride);
+        for (const Trinity::SceneSerializer::PrefabOverride& it_Override : overrides)
+        {
+            l_Size += it_Override.Component.capacity() + it_Override.Path.capacity();
+        }
+
+        return l_Size;
     }
 
     // A string's text, an input action's path, or a list's elements with what each holds, the parts of a value held outside it
@@ -412,6 +454,11 @@ bool IsPrefabPart(Trinity::Entity entity)
     return l_Root && l_Root != entity;
 }
 
+bool IsDefaultOverride(Trinity::Entity root, const Trinity::SceneSerializer::PrefabOverride& change)
+{
+    return change.Type == Trinity::SceneSerializer::PrefabOverride::Kind::Value && change.Entity == root.GetUUID() && change.Component == Trinity::TransformComponent::c_TypeName && (change.Path == "Position" || change.Path == "Rotation");
+}
+
 Trinity::UUID FindAddedPlace(Trinity::Scene& scene, Trinity::UUID before)
 {
     Trinity::Entity l_Before = scene.FindEntityByUUID(before);
@@ -714,6 +761,120 @@ void LinkPrefabCommand::Undo(Trinity::Scene& scene)
 std::size_t LinkPrefabCommand::GetMemorySize() const
 {
     return sizeof(*this) + m_Label.capacity();
+}
+
+RevertPrefabCommand::RevertPrefabCommand(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, Trinity::UUID subject, std::string label) : m_Root(root), m_Overrides(std::move(overrides)), m_Subject(subject), m_Label(std::move(label))
+{
+
+}
+
+// The first run undoes the overrides where the instance is, and keeps it as text before and after, so a redo makes it again as it became
+bool RevertPrefabCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_After.Text.empty())
+    {
+        return RestoreInstances(scene, std::span(&m_After, 1), m_Label);
+    }
+
+    const Trinity::Entity l_Root = scene.FindEntityByUUID(m_Root);
+    if (!l_Root)
+    {
+        return false;
+    }
+
+    Trinity::SceneSerializer::PrefabInstanceText l_Before = SaveInstance(scene, l_Root);
+    if (const Trinity::Expected<void, std::string> l_Reverted = Trinity::SceneSerializer::RevertPrefabOverrides(l_Root, m_Overrides); !l_Reverted)
+    {
+        TR_ERROR("Forge: {} could not be done: {}", m_Label, l_Reverted.GetError());
+
+        return false;
+    }
+
+    m_Before = std::move(l_Before);
+    m_After = SaveInstance(scene, l_Root);
+
+    return true;
+}
+
+void RevertPrefabCommand::Undo(Trinity::Scene& scene)
+{
+    static_cast<void>(RestoreInstances(scene, std::span(&m_Before, 1), m_Label));
+}
+
+std::size_t RevertPrefabCommand::GetMemorySize() const
+{
+    return sizeof(*this) + GetOverridesMemorySize(m_Overrides) + m_Label.capacity() + m_Before.Text.capacity() + m_After.Text.capacity();
+}
+
+ApplyPrefabCommand::ApplyPrefabCommand(Writer writer, Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string oldText, Trinity::UUID subject, std::string label) : m_Writer(std::move(writer)), m_Root(root), m_Overrides(std::move(overrides)), m_OldText(std::move(oldText)), m_Subject(subject), m_Label(std::move(label))
+{
+
+}
+
+// Each instance is saved against the prefab it was made from, the one applied from once it changes none of what is applied, so made again from the new prefab each keeps the rest of what it changes
+bool ApplyPrefabCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_After.empty())
+    {
+        return m_Writer(m_Prefab, m_NewText) && RestoreInstances(scene, m_After, m_Label);
+    }
+
+    const Trinity::Entity l_Root = scene.FindEntityByUUID(m_Root);
+    if (!l_Root || !l_Root.Has<Trinity::PrefabInstanceComponent>())
+    {
+        return false;
+    }
+
+    const Trinity::UUID l_Prefab = l_Root.Get<Trinity::PrefabInstanceComponent>().Prefab;
+    const Trinity::Expected<std::string, std::string> l_New = Trinity::SceneSerializer::ApplyPrefabOverrides(l_Root, m_Overrides);
+    if (!l_New)
+    {
+        TR_ERROR("Forge: {} could not be done: {}", m_Label, l_New.GetError());
+
+        return false;
+    }
+
+    std::vector<Trinity::SceneSerializer::PrefabInstanceText> l_Before = Trinity::SceneSerializer::SavePrefabInstances(scene, l_Prefab);
+    if (const Trinity::Expected<void, std::string> l_Reverted = Trinity::SceneSerializer::RevertPrefabOverrides(l_Root, m_Overrides); !l_Reverted)
+    {
+        TR_ERROR("Forge: {} could not be done: {}", m_Label, l_Reverted.GetError());
+
+        return false;
+    }
+
+    const std::vector<Trinity::SceneSerializer::PrefabInstanceText> l_Reverted = Trinity::SceneSerializer::SavePrefabInstances(scene, l_Prefab);
+    if (!m_Writer(l_Prefab, *l_New))
+    {
+        static_cast<void>(RestoreInstances(scene, l_Before, m_Label));
+
+        return false;
+    }
+
+    static_cast<void>(RestoreInstances(scene, l_Reverted, m_Label));
+    m_Prefab = l_Prefab;
+    m_NewText = *l_New;
+    m_Before = std::move(l_Before);
+    m_After = Trinity::SceneSerializer::SavePrefabInstances(scene, m_Prefab);
+
+    return true;
+}
+
+// The prefab first, so the instances are made again from the one they were saved against
+void ApplyPrefabCommand::Undo(Trinity::Scene& scene)
+{
+    if (!m_Writer(m_Prefab, m_OldText))
+    {
+        TR_ERROR("Forge: {} could not be undone, since the prefab could not be written back, so it and its instances stay as they are", m_Label);
+
+        return;
+    }
+
+    static_cast<void>(RestoreInstances(scene, m_Before, m_Label));
+}
+
+std::size_t ApplyPrefabCommand::GetMemorySize() const
+{
+    return sizeof(*this) + GetOverridesMemorySize(m_Overrides) + m_OldText.capacity() + m_Label.capacity() + m_NewText.capacity() + GetInstancesMemorySize(m_Before) + GetInstancesMemorySize(m_After);
 }
 
 CreatePrimitiveCommand::CreatePrimitiveCommand(Trinity::BuiltInMesh mesh, Trinity::UUID parent, glm::vec3 position) : m_Mesh(mesh), m_Parent(parent), m_Position(position)
