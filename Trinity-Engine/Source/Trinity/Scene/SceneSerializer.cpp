@@ -1625,6 +1625,58 @@ namespace Trinity
             }
         }
 
+        // What the node holds at the path, by key in a map and by index in a sequence, or nothing where the path leads nowhere the node has
+        std::optional<YAML::Node> GetAtPath(const YAML::Node& node, std::string_view path)
+        {
+            YAML::Node l_Current = node;
+            std::size_t l_Start = 0;
+            while (true)
+            {
+                const std::size_t l_End = path.find(c_PathSeparator, l_Start);
+                const std::string l_Segment(path.substr(l_Start, l_End == std::string_view::npos ? std::string_view::npos : l_End - l_Start));
+                if (l_Current.IsSequence())
+                {
+                    std::size_t l_Index = 0;
+                    if (!ParseNumber(std::string_view(l_Segment), l_Index) || l_Index >= l_Current.size())
+                    {
+                        return std::nullopt;
+                    }
+
+                    l_Current.reset(std::as_const(l_Current)[l_Index]);
+                }
+                else if (l_Current.IsMap() && std::as_const(l_Current)[l_Segment])
+                {
+                    l_Current.reset(std::as_const(l_Current)[l_Segment]);
+                }
+                else
+                {
+                    return std::nullopt;
+                }
+
+                if (l_End == std::string_view::npos)
+                {
+                    return l_Current;
+                }
+
+                l_Start = l_End + 1;
+            }
+        }
+
+        // The map's key at the end of the path taken out, false when the path leads to no map's key
+        bool RemoveAtPath(YAML::Node& node, std::string_view path)
+        {
+            const std::size_t l_Last = path.rfind(c_PathSeparator);
+            const std::optional<YAML::Node> l_Parent = l_Last == std::string_view::npos ? std::optional<YAML::Node>(node) : GetAtPath(node, path.substr(0, l_Last));
+            if (!l_Parent || !l_Parent->IsMap())
+            {
+                return false;
+            }
+
+            YAML::Node l_Map = *l_Parent;
+
+            return l_Map.remove(std::string(l_Last == std::string_view::npos ? path : path.substr(l_Last + 1)));
+        }
+
         // The overrides of one of the entity's components: each value at its path, or the whole of it for one value. How many lead nowhere the component has, all of them for a component the entity is without
         std::size_t OverrideComponent(Entity entity, std::string_view name, const YAML::Node& overrides, std::unordered_map<std::string, std::size_t>& unknown)
         {
@@ -2006,20 +2058,28 @@ namespace Trinity
             text += instance.Kept;
         }
 
-        // An instance as its prefab and what it changes of it: each value of the components it holds otherwise, by its key, each component it adds or removes, and each of the prefab's entities it removes, compared with what it would be unchanged, which is made in the scratch scene. Its prefab's entities are covered by it, so only those added under them are written as entities of their own. False, writing nothing, for a prefab the resolver does not find, or a root that is not the instance's
-        bool AppendInstance(std::string& text, Entity root, UUID parent, Scope<Scene>& scratch, std::unordered_set<UUID>& covered)
+        // What an instance changes of its prefab, against what it would be unchanged, which is made in the scratch scene: its prefab's entities with the UUIDs it gives them, what each it has changes, and the local ID of each it removes, once for the whole subtree
+        struct InstanceDiff
+        {
+            std::vector<std::pair<entt::entity, UUID>> Members;
+            std::vector<EntityChanges> Changes;
+            std::vector<UUID> Removed;
+        };
+
+        // Its prefab's entities it has are covered by it. Nothing for a prefab the resolver does not find, or a root that is not the instance's
+        std::optional<InstanceDiff> DiffInstance(Entity root, Scope<Scene>& scratch, std::unordered_set<UUID>& covered)
         {
             const PrefabInstanceComponent& l_Instance = root.Get<PrefabInstanceComponent>();
             Scene* l_Template = SceneSerializer::FindPrefabTemplate(l_Instance.Prefab);
             if (l_Template == nullptr || !l_Template->GetFirstRoot())
             {
-                return false;
+                return std::nullopt;
             }
 
-            const std::vector<std::pair<entt::entity, UUID>> l_Members = GetInstanceMembers(*l_Template, l_Instance.Instance, {});
-            if (l_Members.front().second != root.GetUUID())
+            InstanceDiff l_Diff{ .Members = GetInstanceMembers(*l_Template, l_Instance.Instance,{}), .Changes = {}, .Removed = {} };
+            if (l_Diff.Members.front().second != root.GetUUID())
             {
-                return false;
+                return std::nullopt;
             }
 
             if (!scratch)
@@ -2028,14 +2088,12 @@ namespace Trinity
             }
 
             scratch->Clear();
-            static_cast<void>(ExpandInstance(*scratch, *l_Template, l_Members, l_Instance.Prefab, l_Instance.Instance));
+            static_cast<void>(ExpandInstance(*scratch, *l_Template, l_Diff.Members, l_Instance.Prefab, l_Instance.Instance));
 
             Scene& l_Scene = *root.GetScene();
             const SceneRegistry& l_Prefab = l_Template->GetRegistry();
-            std::vector<EntityChanges> l_Changes;
-            std::vector<UUID> l_Removed;
             std::unordered_set<UUID> l_Gone;
-            for (const auto& [it_Member, it_UUID] : l_Members)
+            for (const auto& [it_Member, it_UUID] : l_Diff.Members)
             {
                 const UUID l_Local = l_Prefab.get<IDComponent>(it_Member).ID;
                 const Entity l_Entity = l_Scene.FindEntityByUUID(it_UUID);
@@ -2044,7 +2102,7 @@ namespace Trinity
                     const entt::entity l_Parent = l_Prefab.get<RelationshipComponent>(it_Member).Parent;
                     if (l_Parent == entt::null || !l_Gone.contains(l_Prefab.get<IDComponent>(l_Parent).ID))
                     {
-                        l_Removed.push_back(l_Local);
+                        l_Diff.Removed.push_back(l_Local);
                     }
 
                     l_Gone.insert(l_Local);
@@ -2057,10 +2115,25 @@ namespace Trinity
                 if (!l_EntityChanges.IsEmpty())
                 {
                     l_EntityChanges.Local = l_Local;
-                    l_Changes.push_back(std::move(l_EntityChanges));
+                    l_Diff.Changes.push_back(std::move(l_EntityChanges));
                 }
             }
 
+            return l_Diff;
+        }
+
+        // An instance as its prefab and what it changes of it: each value of the components it holds otherwise, by its key, each component it adds or removes, and each of the prefab's entities it removes. Its prefab's entities are covered by it, so only those added under them are written as entities of their own. False, writing nothing, for a prefab the resolver does not find, or a root that is not the instance's
+        bool AppendInstance(std::string& text, Entity root, UUID parent, Scope<Scene>& scratch, std::unordered_set<UUID>& covered)
+        {
+            const std::optional<InstanceDiff> l_Diff = DiffInstance(root, scratch, covered);
+            if (!l_Diff)
+            {
+                return false;
+            }
+
+            const PrefabInstanceComponent& l_Instance = root.Get<PrefabInstanceComponent>();
+            const std::vector<EntityChanges>& l_Changes = l_Diff->Changes;
+            const std::vector<UUID>& l_Removed = l_Diff->Removed;
             text += std::format("\n  - {}: {}", c_InstanceKey, ToHex(l_Instance.Instance));
             if (parent.IsValid())
             {
@@ -2187,6 +2260,175 @@ namespace Trinity
 
                 AppendEntity(text, it_Entity, it_Entity.GetUUID(), l_ParentID);
             }
+        }
+
+        // What the instance changes of its prefab, as GetPrefabOverrides gives it, with what it would be unchanged left in the scratch scene. Nothing for an entity that is no instance's root, or one whose prefab the resolver does not find
+        std::optional<std::vector<SceneSerializer::PrefabOverride>> ReadOverrides(Entity root, Scope<Scene>& scratch)
+        {
+            using Kind = SceneSerializer::PrefabOverride::Kind;
+
+            if (!root.IsValid() || !root.Has<PrefabInstanceComponent>() || root.Get<PrefabInstanceComponent>().IsMissing())
+            {
+                return std::nullopt;
+            }
+
+            std::unordered_set<UUID> l_Covered;
+            const std::optional<InstanceDiff> l_Diff = DiffInstance(root, scratch, l_Covered);
+            if (!l_Diff)
+            {
+                return std::nullopt;
+            }
+
+            const UUID l_Instance = root.Get<PrefabInstanceComponent>().Instance;
+            std::unordered_map<UUID, const EntityChanges*> l_Changes;
+            for (const EntityChanges& it_Changes : l_Diff->Changes)
+            {
+                l_Changes.emplace(it_Changes.Local, &it_Changes);
+            }
+
+            const std::unordered_set<UUID> l_Removed(l_Diff->Removed.begin(), l_Diff->Removed.end());
+            Scene& l_Scene = *root.GetScene();
+            std::vector<SceneSerializer::PrefabOverride> l_Overrides;
+            const auto a_Add = [&l_Overrides](Kind type, UUID entity, std::string component, std::string path) { l_Overrides.push_back({ .Type = type, .Entity = entity, .Component = std::move(component), .Path = std::move(path) }); };
+            for (const auto& [it_Member, it_UUID] : l_Diff->Members)
+            {
+                if (l_Removed.contains(Prefab::FindLocalID(l_Instance, it_UUID)))
+                {
+                    a_Add(Kind::RemovedEntity, it_UUID, {}, {});
+
+                    continue;
+                }
+
+                if (!l_Covered.contains(it_UUID))
+                {
+                    continue;
+                }
+
+                if (const auto a_Changes = l_Changes.find(Prefab::FindLocalID(l_Instance, it_UUID)); a_Changes != l_Changes.end())
+                {
+                    const EntityChanges& l_Entity = *a_Changes->second;
+                    for (const auto& [it_Name, it_Values] : l_Entity.Overrides)
+                    {
+                        for (const auto& [it_Path, it_Value] : it_Values)
+                        {
+                            a_Add(Kind::Value, it_UUID, it_Name, it_Path);
+                        }
+                    }
+
+                    // A component replaced whole is kept with those added, and is a value of one the prefab has
+                    const Entity l_Base = scratch->FindEntityByUUID(it_UUID);
+                    for (const auto& [it_Name, it_Node] : l_Entity.Added)
+                    {
+                        a_Add(GetComponentYaml(l_Base, it_Name) ? Kind::Value : Kind::AddedComponent, it_UUID, it_Name, {});
+                    }
+
+                    for (const std::string& it_Name : l_Entity.Removed)
+                    {
+                        a_Add(Kind::RemovedComponent, it_UUID, it_Name, {});
+                    }
+                }
+
+                for (Entity it_Child = l_Scene.FindEntityByUUID(it_UUID).GetFirstChild(); it_Child; it_Child = it_Child.GetNextSibling())
+                {
+                    if (!l_Covered.contains(it_Child.GetUUID()))
+                    {
+                        a_Add(Kind::AddedEntity, it_Child.GetUUID(), {}, {});
+                    }
+                }
+            }
+
+            return l_Overrides;
+        }
+
+        // The overrides checked against what the instance has, each taken once, with what it would be unchanged in the scratch scene
+        Expected<void, std::string> CheckOverrides(Entity root, std::span<const SceneSerializer::PrefabOverride> overrides, Scope<Scene>& scratch)
+        {
+            std::optional<std::vector<SceneSerializer::PrefabOverride>> l_Has = ReadOverrides(root, scratch);
+            if (!l_Has)
+            {
+                return Unexpected{ std::format("entity {} is no root of an instance whose prefab is there", root.IsValid() ? root.GetUUID() : UUID()) };
+            }
+
+            for (const SceneSerializer::PrefabOverride& it_Override : overrides)
+            {
+                const auto a_Found = std::ranges::find(*l_Has, it_Override);
+                if (a_Found == l_Has->end())
+                {
+                    return Unexpected{ std::format("instance {} has no such change of entity {}{}{}, or it is given twice", root.GetUUID(), it_Override.Entity, it_Override.Component.empty() ? "" : " in ", it_Override.Component) };
+                }
+
+                l_Has->erase(a_Found);
+            }
+
+            return {};
+        }
+
+        // By its serializer, or as it is kept when no loaded code knows it
+        bool RemoveNamedComponent(Entity entity, std::string_view name)
+        {
+            return FindStorage(entity, name) != nullptr ? SceneSerializer::RemoveComponent(entity, name) : RemoveKept(entity, name);
+        }
+
+        // The value at the path, or the whole component for none, made as the source's, and taken out where the source has nothing there
+        void CopyComponentValue(Entity target, Entity source, std::string_view name, std::string_view path, std::unordered_map<std::string, std::size_t>& unknown)
+        {
+            const std::optional<std::string> l_Source = GetComponentYaml(source, name);
+            const std::optional<std::string> l_Target = GetComponentYaml(target, name);
+            if (!l_Source)
+            {
+                return;
+            }
+
+            if (path.empty() || !l_Target)
+            {
+                SetComponentYaml(target, name, LoadYaml(*l_Source), unknown);
+
+                return;
+            }
+
+            YAML::Node l_Node = LoadYaml(*l_Target);
+            if (const std::optional<YAML::Node> l_Value = GetAtPath(LoadYaml(*l_Source), path))
+            {
+                static_cast<void>(SetAtPath(l_Node, path, *l_Value));
+            }
+            else
+            {
+                static_cast<void>(RemoveAtPath(l_Node, path));
+            }
+
+            SetComponentYaml(target, name, l_Node, unknown);
+        }
+
+        // One of the prefab's entities the instance removed, made again with its subtree as the prefab has them, before the next of its prefab's siblings the instance has, or else before the first entity added there, so it is where a reload puts it
+        Expected<void, std::string> RestoreRemovedEntity(Scene& scene, Scene& scratch, UUID entity)
+        {
+            const Entity l_Base = scratch.FindEntityByUUID(entity);
+            const Entity l_Parent = scene.FindEntityByUUID(l_Base.GetParent().GetUUID());
+            Entity l_Before;
+            for (Entity it_Sibling = l_Base.GetNextSibling(); it_Sibling && !l_Before; it_Sibling = it_Sibling.GetNextSibling())
+            {
+                const Entity l_Own = scene.FindEntityByUUID(it_Sibling.GetUUID());
+                if (l_Own && l_Own.GetParent() == l_Parent)
+                {
+                    l_Before = l_Own;
+                }
+            }
+
+            for (Entity it_Child = l_Parent.GetFirstChild(); it_Child && !l_Before; it_Child = it_Child.GetNextSibling())
+            {
+                if (!scratch.FindEntityByUUID(it_Child.GetUUID()))
+                {
+                    l_Before = it_Child;
+                }
+            }
+
+            const Expected<Entity, std::string> l_Made = SceneSerializer::LoadEntityFromText(scene, SceneSerializer::SaveEntityToText(scratch, l_Base), l_Parent, l_Before);
+            if (!l_Made)
+            {
+                return Unexpected{ std::format("entity {} could not be made again: {}", entity, l_Made.GetError()) };
+            }
+
+            return {};
         }
 
         // The YAML a scene file read without the component's code keeps for it, so a component kept this way saves as one kept from a file does
@@ -3517,6 +3759,197 @@ namespace Trinity
             }
 
             return l_Prefabs;
+        }
+
+        std::vector<PrefabOverride> GetPrefabOverrides(Entity root)
+        {
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            Scope<Scene> l_Scratch;
+
+            return ReadOverrides(root, l_Scratch).value_or(std::vector<PrefabOverride>());
+        }
+
+        // Every override is checked first, so a refusal changes nothing
+        Expected<void, std::string> RevertPrefabOverrides(Entity root, std::span<const PrefabOverride> overrides)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            Scope<Scene> l_Scratch;
+            if (const Expected<void, std::string> l_Checked = CheckOverrides(root, overrides, l_Scratch); !l_Checked)
+            {
+                return l_Checked;
+            }
+
+            Scene& l_Scene = *root.GetScene();
+            std::unordered_map<std::string, std::size_t> l_Unknown;
+            for (const PrefabOverride& it_Override : overrides)
+            {
+                const Entity l_Entity = l_Scene.FindEntityByUUID(it_Override.Entity);
+                switch (it_Override.Type)
+                {
+                    case PrefabOverride::Kind::Value:
+                    case PrefabOverride::Kind::RemovedComponent:
+                    {
+                        CopyComponentValue(l_Entity, l_Scratch->FindEntityByUUID(it_Override.Entity), it_Override.Component, it_Override.Path, l_Unknown);
+
+                        break;
+                    }
+                    case PrefabOverride::Kind::AddedComponent:
+                    {
+                        static_cast<void>(RemoveNamedComponent(l_Entity, it_Override.Component));
+
+                        break;
+                    }
+                    case PrefabOverride::Kind::RemovedEntity:
+                    {
+                        if (const Expected<void, std::string> l_Restored = RestoreRemovedEntity(l_Scene, *l_Scratch, it_Override.Entity); !l_Restored)
+                        {
+                            return l_Restored;
+                        }
+
+                        break;
+                    }
+                    case PrefabOverride::Kind::AddedEntity:
+                    {
+                        l_Scene.DestroyEntity(l_Entity);
+
+                        break;
+                    }
+                }
+            }
+
+            return {};
+        }
+
+        // Made on the instance's prefab as it would be unchanged, in a scene of its own, and written from there under the local IDs the instance tells back
+        Expected<std::string, std::string> ApplyPrefabOverrides(Entity root, std::span<const PrefabOverride> overrides)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            Scope<Scene> l_Scratch;
+            if (const Expected<void, std::string> l_Checked = CheckOverrides(root, overrides, l_Scratch); !l_Checked)
+            {
+                return Unexpected{ l_Checked.GetError() };
+            }
+
+            Scene& l_Scene = *root.GetScene();
+            std::unordered_map<std::string, std::size_t> l_Unknown;
+            for (const PrefabOverride& it_Override : overrides)
+            {
+                const Entity l_Entity = l_Scene.FindEntityByUUID(it_Override.Entity);
+                const Entity l_Base = l_Scratch->FindEntityByUUID(it_Override.Entity);
+                switch (it_Override.Type)
+                {
+                    case PrefabOverride::Kind::Value:
+                    case PrefabOverride::Kind::AddedComponent:
+                    {
+                        CopyComponentValue(l_Base, l_Entity, it_Override.Component, it_Override.Path, l_Unknown);
+
+                        break;
+                    }
+                    case PrefabOverride::Kind::RemovedComponent:
+                    {
+                        static_cast<void>(RemoveNamedComponent(l_Base, it_Override.Component));
+
+                        break;
+                    }
+                    case PrefabOverride::Kind::RemovedEntity:
+                    {
+                        l_Scratch->DestroyEntity(l_Base);
+
+                        break;
+                    }
+                    case PrefabOverride::Kind::AddedEntity:
+                    {
+                        for (Entity it_Entity = l_Entity; it_Entity; it_Entity = l_Scene.GetNextInSubtree(it_Entity, l_Entity))
+                        {
+                            if (it_Entity.Has<PrefabInstanceComponent>())
+                            {
+                                return Unexpected{ std::format("entity {} is an instance of a prefab, which a prefab cannot hold yet", it_Entity.GetUUID()) };
+                            }
+                        }
+
+                        const Expected<Entity, std::string> l_Copied = LoadEntityFromText(*l_Scratch, SaveEntityToText(l_Scene, l_Entity), l_Scratch->FindEntityByUUID(l_Entity.GetParent().GetUUID()), {});
+                        if (!l_Copied)
+                        {
+                            return Unexpected{ l_Copied.GetError() };
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            Entity l_Root = l_Scratch->FindEntityByUUID(root.GetUUID());
+            l_Root.Remove<PrefabInstanceComponent>();
+
+            return SavePrefabToText(*l_Scratch, l_Root, root.Get<PrefabInstanceComponent>().Instance);
+        }
+
+        // An instance is found from its root, so one whose prefab is missing, which keeps its text only, is left as it is
+        std::vector<PrefabInstanceText> SavePrefabInstances(Scene& scene, UUID prefab)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            std::vector<PrefabInstanceText> l_Instances;
+            if (FindPrefabTemplate(prefab) == nullptr)
+            {
+                return l_Instances;
+            }
+
+            const auto a_IsInstance = [prefab](Entity entity) { return entity.Has<PrefabInstanceComponent>() && entity.Get<PrefabInstanceComponent>().Prefab == prefab && !entity.Get<PrefabInstanceComponent>().IsMissing(); };
+            for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+            {
+                if (!a_IsInstance(it_Entity))
+                {
+                    continue;
+                }
+
+                bool l_Inside = false;
+                for (Entity it_Parent = it_Entity.GetParent(); it_Parent && !l_Inside; it_Parent = it_Parent.GetParent())
+                {
+                    l_Inside = a_IsInstance(it_Parent);
+                }
+
+                if (!l_Inside)
+                {
+                    const Entity l_Parent = it_Entity.GetParent();
+                    const Entity l_Next = it_Entity.GetNextSibling();
+                    l_Instances.push_back({ .Root = it_Entity.GetUUID(), .Parent = l_Parent ? l_Parent.GetUUID() : UUID(), .Before = l_Next ? l_Next.GetUUID() : UUID(), .Text = SaveEntityToText(scene, it_Entity) });
+                }
+            }
+
+            return l_Instances;
+        }
+
+        // In order, so a sibling after one is still there as it is made, and each as a whole, its old entities destroyed first, since it keeps their UUIDs
+        Expected<void, std::string> RestorePrefabInstances(Scene& scene, std::span<const PrefabInstanceText> instances)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            Expected<void, std::string> l_Result;
+            for (const PrefabInstanceText& it_Instance : instances)
+            {
+                if (const Entity l_Old = scene.FindEntityByUUID(it_Instance.Root))
+                {
+                    scene.DestroyEntity(l_Old);
+                }
+
+                const Entity l_Parent = scene.FindEntityByUUID(it_Instance.Parent);
+                const Entity l_Before = scene.FindEntityByUUID(it_Instance.Before);
+                const Expected<Entity, std::string> l_Made = LoadEntityFromText(scene, it_Instance.Text, l_Parent, l_Before && l_Before.GetParent().GetHandle() == l_Parent.GetHandle() ? l_Before : Entity());
+                if (!l_Made && l_Result)
+                {
+                    l_Result = Unexpected{ std::format("instance {} could not be made again: {}", it_Instance.Root, l_Made.GetError()) };
+                }
+            }
+
+            return l_Result;
         }
 
         Expected<void, std::string> Save(Scene& scene, std::string_view path)
