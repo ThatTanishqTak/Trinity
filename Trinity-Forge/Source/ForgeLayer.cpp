@@ -623,7 +623,7 @@ void ForgeLayer::DrawMenuBar()
         const bool l_PrefabMode = static_cast<bool>(m_Session.GetOpenPrefab());
         a_Item(Trinity::Icons::c_Save, l_PrefabMode ? "Save Prefab" : "Save", "Ctrl+S", l_HasProject, EditorSession::Command::SaveScene);
         a_Item(Trinity::Icons::c_Save, "Save As...", "Ctrl+Shift+S", l_HasProject && !l_PrefabMode, EditorSession::Command::SaveSceneAs);
-        a_Item(Trinity::Icons::c_Gear, "Set as Start Scene", nullptr, l_HasProject&& m_Session.HasScenePath(), EditorSession::Command::SetStartScene);
+        a_Item(Trinity::Icons::c_Gear, "Set as Start Scene", nullptr, l_HasProject && m_Session.HasScenePath(), EditorSession::Command::SetStartScene);
         a_Item(Trinity::Icons::c_Refresh, "Refresh", "F5", l_HasProject, EditorSession::Command::Refresh);
         ImGui::Separator();
         a_Item(Trinity::Icons::c_PowerOff, "Exit", "Alt+F4", true, EditorSession::Command::Exit);
@@ -954,7 +954,7 @@ void ForgeLayer::DrawEditMenu()
     }
 }
 
-// Unity's GameObject menu. Each new entity goes among the roots at the spawn point, but Create Empty Child's, which goes under the selection at its origin, and an empty one is renamed in the Hierarchy at once. Not while a copy plays. Unpack Prefab last
+// Unity's GameObject menu. Each new entity goes among the roots at the spawn point, but Create Empty Child's, which goes under the selection at its origin, and an empty one is renamed in the Hierarchy at once. Not while a copy plays. Unpack Prefab and Unpack Prefab Completely last
 void ForgeLayer::DrawEntityMenu()
 {
     const bool l_Editable = m_Session.HasProject() && !m_Session.IsPlaying();
@@ -1009,6 +1009,11 @@ void ForgeLayer::DrawEntityMenu()
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_PackageVariantClosed, "Unpack Prefab").c_str(), nullptr, false, l_Instance && !IsMissingPrefab(l_Instance)))
     {
         static_cast<void>(m_Session.UnpackPrefab(l_Instance.GetUUID()));
+    }
+
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_PackageVariantClosed, "Unpack Prefab Completely").c_str(), nullptr, false, l_Instance && !IsMissingPrefab(l_Instance)))
+    {
+        static_cast<void>(m_Session.UnpackPrefab(l_Instance.GetUUID(), true));
     }
 }
 

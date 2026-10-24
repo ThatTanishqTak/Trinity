@@ -66,6 +66,15 @@ Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelD
 [[nodiscard]] bool IsMissingPrefab(Trinity::Entity entity);
 // Whether the entity is one of a prefab's entities in an instance, other than its root, which keeps the place the prefab gives it, as in Unity. What is added to an instance is not
 [[nodiscard]] bool IsPrefabPart(Trinity::Entity entity);
+
+// The instance nearest the entity, as Unity's Inspector heads it: the root of the innermost instance it is part of, the entity itself for one, and the prefab that instance is of, a variant's own rather than its base's. In a scene that can be an instance nested in the scene's, whose root has no component of its own there. A null root for an entity of no instance
+struct NearestInstance
+{
+    Trinity::Entity Root;
+    Trinity::UUID Prefab;
+};
+
+[[nodiscard]] NearestInstance FindNearestInstance(Trinity::Entity entity);
 // Whether the change is the instance root's Position or Rotation, which are the instance's own, as in Unity: not marked as overrides, and left alone by Revert All and Apply All, though each can be reverted or applied by itself
 [[nodiscard]] bool IsDefaultOverride(Trinity::Entity root, const Trinity::SceneSerializer::PrefabOverride& change);
 // The sibling an entity added under one of an instance's entities goes before: one after the prefab's own children there, which an instance keeps first, so the entity stays where a reload puts it. Any other sibling as it is

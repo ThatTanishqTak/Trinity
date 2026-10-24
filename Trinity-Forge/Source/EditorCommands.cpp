@@ -509,6 +509,23 @@ bool IsPrefabPart(Trinity::Entity entity)
     return l_Root && l_Root != entity;
 }
 
+// The innermost level with a root, and of the levels sharing that root the outermost, which is the variant's. An instance whose prefab is missing has no levels, so its root is the nearest
+NearestInstance FindNearestInstance(Trinity::Entity entity)
+{
+    const std::vector<Trinity::Prefab::Level> l_Levels = Trinity::Prefab::GetLevels(entity);
+    const auto a_Inner = std::ranges::find_if(l_Levels.rbegin(), l_Levels.rend(), [](const Trinity::Prefab::Level& level) { return static_cast<bool>(level.Root); });
+    if (a_Inner == l_Levels.rend())
+    {
+        const Trinity::Entity l_Root = Trinity::Prefab::FindInstanceRoot(entity);
+
+        return { .Root = l_Root, .Prefab = l_Root ? l_Root.Get<Trinity::PrefabInstanceComponent>().Prefab : Trinity::UUID() };
+    }
+
+    const auto a_Outer = std::ranges::find(l_Levels, a_Inner->Root, &Trinity::Prefab::Level::Root);
+
+    return { .Root = a_Outer->Root, .Prefab = a_Outer->Prefab };
+}
+
 bool IsDefaultOverride(Trinity::Entity root, const Trinity::SceneSerializer::PrefabOverride& change)
 {
     return change.Type == Trinity::SceneSerializer::PrefabOverride::Kind::Value && change.Entity == root.GetUUID() && change.Component == Trinity::TransformComponent::c_TypeName && (change.Path == "Position" || change.Path == "Rotation");

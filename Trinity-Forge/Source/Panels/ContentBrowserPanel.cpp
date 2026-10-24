@@ -1,5 +1,6 @@
 #include "Panels/ContentBrowserPanel.hpp"
 
+#include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 
 #include <imgui.h>
@@ -22,6 +23,7 @@ namespace
     // Shared by every question the browser asks, each of which titles it
     constexpr const char* c_ConfirmPopup = "###ForgeConfirmAsset";
     constexpr const char* c_NewScriptPopup = "New Script###ForgeNewScript";
+    constexpr const char* c_PrefabKindPopup = "Create Prefab or Variant?###ForgePrefabKind";
     // The slider's leftmost notch is the list, and the smallest grid is the next, with nothing between them
     constexpr float c_ListSize = 2.0f;
     constexpr float c_MinimumThumbnailSize = 3.0f;
@@ -169,7 +171,8 @@ namespace
         return l_Dot == std::string::npos || l_Dot == 0 ? std::string_view(name) : std::string_view(name).substr(0, l_Dot);
     }
 
-    const char* GetIcon(const Trinity::AssetRecord* record, bool folder, std::string_view name)
+    // A variant's icon is Unity's open box, which its template tells
+    const char* GetIcon(EditorSession& session, const Trinity::AssetRecord* record, bool folder, std::string_view name)
     {
         if (folder)
         {
@@ -208,7 +211,7 @@ namespace
 
         if (IsPrefab(record))
         {
-            return Trinity::Icons::c_PackageVariantClosed;
+            return session.IsPrefabVariant(record->ID) ? Trinity::Icons::c_PackageVariant : Trinity::Icons::c_PackageVariantClosed;
         }
 
         return IsScene(record) ? Trinity::Icons::c_CubeOutline : Trinity::Icons::c_File;
@@ -331,6 +334,7 @@ void ContentBrowserPanel::OnImGuiRender()
 
     DrawConfirmPopup();
     DrawNewScriptPopup();
+    DrawPrefabKindPopup();
 
     for (std::move_only_function<void()>& it_Action : std::exchange(m_Deferred, {}))
     {
@@ -572,7 +576,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
             ImGui::SetDragDropPayload(c_ScriptPayload, item.Path.c_str(), item.Path.size() + 1);
         }
 
-        ImGui::TextUnformatted(std::format("{} {}", GetIcon(item.Record, item.Folder, item.Name), item.Name).c_str());
+        ImGui::TextUnformatted(std::format("{} {}", GetIcon(m_Session, item.Record, item.Folder, item.Name), item.Name).c_str());
         ImGui::EndDragDropSource();
     }
 
@@ -636,7 +640,7 @@ void ContentBrowserPanel::DrawPicture(const Item& item, ImVec2 position, float s
     }
 
     // A list's icon is as tall as its text, and a thumbnail's leaves room around it
-    const char* l_Icon = GetIcon(item.Record, item.Folder, item.Name);
+    const char* l_Icon = GetIcon(m_Session, item.Record, item.Folder, item.Name);
     const float l_IconSize = IsListView() ? size : size * c_IconScale;
     const ImVec2 l_IconExtent = ImGui::GetFont()->CalcTextSizeA(l_IconSize, FLT_MAX, 0.0f, l_Icon);
     l_DrawList.AddText(ImGui::GetFont(), l_IconSize, ImVec2(position.x + (size - l_IconExtent.x) * 0.5f, position.y + (size - l_IconExtent.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), l_Icon);
@@ -650,7 +654,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
 
     if (ImGui::BeginMenu("Create"))
     {
-        DrawCreateMenu();
+        DrawCreateMenu(item);
         ImGui::EndMenu();
     }
 
@@ -741,8 +745,8 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
     }
 }
 
-// Unity's Create menu. Everything is made in the open folder and named there at once: scenes, materials and input actions among the assets, and each language's scripts in its own folder
-void ContentBrowserPanel::DrawCreateMenu()
+// Unity's Create menu. Everything is made in the open folder and named there at once: scenes, materials and input actions among the assets, and each language's scripts in its own folder. A prefab variant is made of the prefab the menu is for, beside it
+void ContentBrowserPanel::DrawCreateMenu(const Item* item)
 {
     if (ImGui::MenuItem(std::format("{} Folder", Trinity::Icons::c_Folder).c_str()))
     {
@@ -779,6 +783,17 @@ void ContentBrowserPanel::DrawCreateMenu()
     if (!l_InAssets)
     {
         ImGui::SetItemTooltip("Input actions go in Assets or a folder in it");
+    }
+
+    const bool l_Prefab = item != nullptr && IsPrefab(item->Record);
+    if (ImGui::MenuItem(std::format("{} Prefab Variant", Trinity::Icons::c_PackageVariant).c_str(), nullptr, false, l_Prefab))
+    {
+        m_Deferred.push_back([this, l_Base = item->Record->ID] { RenameCreated(m_Session.CreatePrefabVariant(l_Base)); });
+    }
+
+    if (!l_Prefab)
+    {
+        ImGui::SetItemTooltip("Right-click a prefab to make a variant of it, which changes nothing of it until edited");
     }
 
     // The name is asked for first, since it names the class as well as the file
@@ -862,7 +877,7 @@ void ContentBrowserPanel::DrawFooter()
     ImGui::Dummy(ImVec2(l_PathWidth, ImGui::GetFrameHeight()));
     if (const std::optional<Item> l_Selected = m_Selected.empty() ? std::nullopt : FindItem(m_Selected))
     {
-        const std::string l_Text = std::format("{} {}", GetIcon(l_Selected->Record, l_Selected->Folder, l_Selected->Name), l_Selected->Path);
+        const std::string l_Text = std::format("{} {}", GetIcon(m_Session, l_Selected->Record, l_Selected->Folder, l_Selected->Name), l_Selected->Path);
         const float l_TextY = l_Min.y + ImGui::GetStyle().FramePadding.y;
         const float l_MaxX = l_Min.x + l_PathWidth;
         ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), ImVec2(l_Min.x, l_TextY), ImVec2(l_MaxX, l_TextY + ImGui::GetFontSize()), l_MaxX, l_Text.c_str(), nullptr, nullptr);
@@ -920,6 +935,67 @@ void ContentBrowserPanel::DrawConfirmPopup()
             m_Confirmation.reset();
             ImGui::CloseCurrentPopup();
         }
+    }
+
+    ImGui::EndPopup();
+}
+
+// Unity's question for a prefab made from an instance's root: an original, whose entities are its own, or a variant of the instance's prefab, which keeps what the instance changes of it. Escape or Cancel makes neither
+void ContentBrowserPanel::DrawPrefabKindPopup()
+{
+    if (std::exchange(m_OpenPrefabKindPopup, false))
+    {
+        ImGui::OpenPopup(c_PrefabKindPopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_PrefabKindPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    if (!m_PrefabDrop)
+    {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    ImGui::TextUnformatted(std::format("{} Would you like to create a new original prefab or a variant of this prefab?", Trinity::Icons::c_PackageVariantClosed).c_str());
+    ImGui::TextDisabled("An original holds the instance's entities as its own, and a variant keeps what the instance changes of its prefab");
+    ImGui::Spacing();
+
+    std::optional<EditorSession::PrefabKind> l_Kind;
+    if (ImGui::Button("Original Prefab"))
+    {
+        l_Kind = EditorSession::PrefabKind::Original;
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Prefab Variant"))
+    {
+        l_Kind = EditorSession::PrefabKind::Variant;
+    }
+
+    ImGui::SameLine();
+    const bool l_Cancel = ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    if (l_Kind)
+    {
+        m_Deferred.push_back([this, l_Drop = std::move(*m_PrefabDrop), l_Kind = *l_Kind]
+        {
+            if (const std::optional<std::string> l_Path = m_Session.CreatePrefab(l_Drop.Entity, l_Drop.Folder, l_Kind))
+            {
+                m_Selected = *l_Path;
+            }
+        });
+        m_PrefabDrop.reset();
+        ImGui::CloseCurrentPopup();
+    }
+    else if (l_Cancel)
+    {
+        m_PrefabDrop.reset();
+        ImGui::CloseCurrentPopup();
     }
 
     ImGui::EndPopup();
@@ -1006,6 +1082,16 @@ void ContentBrowserPanel::AcceptMove(const std::string& folder)
         std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
         m_Deferred.push_back([this, l_Entity = Trinity::UUID(l_Value), folder]
         {
+            // An instance's root asks what it is to make, as Unity asks, though not the root prefab mode keeps
+            const Trinity::Entity l_Dropped = m_Session.GetEditedScene().FindEntityByUUID(l_Entity);
+            if (l_Dropped && l_Dropped.Has<Trinity::PrefabInstanceComponent>() && !IsMissingPrefab(l_Dropped) && (!m_Session.GetOpenPrefab() || l_Dropped.GetParent()))
+            {
+                m_PrefabDrop = PrefabDrop{ .Entity = l_Entity, .Folder = folder };
+                m_OpenPrefabKindPopup = true;
+
+                return;
+            }
+
             if (const std::optional<std::string> l_Path = m_Session.CreatePrefab(l_Entity, folder))
             {
                 m_Selected = *l_Path;

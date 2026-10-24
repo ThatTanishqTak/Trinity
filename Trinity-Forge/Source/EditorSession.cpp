@@ -3376,12 +3376,19 @@ bool EditorSession::RefuseHoldingPrefab(Trinity::UUID prefab)
     return true;
 }
 
-// Its file's name without the extension, or its UUID for one the project no longer has
 std::string EditorSession::GetPrefabName(Trinity::UUID prefab) const
 {
     const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
 
     return l_Record != nullptr ? ToUtf8(FromUtf8(l_Record->Path).stem()) : prefab.ToString();
+}
+
+bool EditorSession::IsPrefabVariant(Trinity::UUID prefab)
+{
+    Trinity::Scene* l_Template = FindPrefabTemplate(prefab);
+    const Trinity::Entity l_Root = l_Template != nullptr ? l_Template->GetFirstRoot() : Trinity::Entity();
+
+    return l_Root && l_Root.Has<Trinity::PrefabInstanceComponent>();
 }
 
 bool EditorSession::CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent)

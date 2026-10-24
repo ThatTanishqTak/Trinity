@@ -34,6 +34,7 @@ namespace Trinity
         constexpr const char* c_ArrowDown = "\uF063";
         constexpr const char* c_ChevronLeft = "\uF053";
         constexpr const char* c_ChevronRight = "\uF054";
+        constexpr const char* c_ChevronDown = "\uF078";
         constexpr const char* c_Plus = "\uF067";
         constexpr const char* c_Arrows = "\uF047";
         constexpr const char* c_RotateRight = "\uF01E";
@@ -55,5 +56,6 @@ namespace Trinity
         constexpr const char* c_Paste = "\uF0EA";
         constexpr const char* c_Download = "\uF019";
         constexpr const char* c_PackageVariantClosed = "\U000F03D7";
+        constexpr const char* c_PackageVariant = "\U000F03D6";
     }
 }

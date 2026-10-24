@@ -77,17 +77,19 @@ namespace
         { "Point ",{ "Points" } }
     } };
 
-    // What a menu asked to revert or apply, named as the command names it, such as Position of Body
+    // What a menu asked to revert or apply, named as the command names it, such as Position of Body, and for Apply the level of the prefab it goes to, 0 for the instance's own
     struct OverrideRequest
     {
         std::vector<PrefabOverride> Overrides;
         std::string What;
         bool Apply = false;
+        std::size_t Level = 0;
     };
 
-    // What Properties marks while it shows an entity of an instance: the instance's root and its prefab's name, all the instance changes of the prefab, read once a frame, the entity shown, the component whose section is being drawn and the path a script's fields sit under, and what a menu asked for, which the panel does once every section is drawn
+    // What Properties marks while it shows an entity of an instance: the session, which names the prefabs a change can go to, the instance's root and its prefab's name, all the instance changes of the prefab, read once a frame, the entity shown, the component whose section is being drawn and the path a script's fields sit under, and what a menu asked for, which the panel does once every section is drawn
     struct OverrideMarks
     {
+        EditorSession* Session = nullptr;
         Trinity::Entity Root;
         std::string PrefabName;
         std::vector<PrefabOverride> Overrides;
@@ -149,6 +151,43 @@ namespace
         ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(l_Left, top), ImVec2(l_Left + 3.0f, top + ImGui::GetFrameHeight()), ImGui::GetColorU32(HierarchyPanel::GetPrefabColor()));
     }
 
+    // The prefabs the changes can be made the own of, outermost first, as the first change's levels name them, or the instance's own alone for changes that name none
+    std::vector<std::string> GetApplyNames(const std::vector<PrefabOverride>& overrides)
+    {
+        std::vector<std::string> l_Names;
+        for (const Trinity::UUID it_Prefab : overrides.empty() ? std::vector<Trinity::UUID>() : Trinity::SceneSerializer::GetOverrideLevels(s_Marks->Root, overrides.front()))
+        {
+            l_Names.push_back(s_Marks->Session->GetPrefabName(it_Prefab));
+        }
+
+        if (l_Names.empty())
+        {
+            l_Names.push_back(s_Marks->PrefabName);
+        }
+
+        return l_Names;
+    }
+
+    // Unity's Apply to Prefab, an item for each prefab the changes can go to, outermost first, as Apply to Prefab 'Enemy' and Apply to Prefab 'Weapon' for a Weapon's value in an Enemy. Whether one was chosen
+    bool DrawApplyItems(const std::vector<PrefabOverride>& overrides, std::string_view what, bool enabled = true)
+    {
+        const std::vector<std::string> l_Names = GetApplyNames(overrides);
+        bool l_Chosen = false;
+        for (std::size_t it_Level = 0; it_Level < l_Names.size(); ++it_Level)
+        {
+            ImGui::PushID(static_cast<int>(it_Level));
+            if (ImGui::MenuItem(std::format("Apply to Prefab '{}'", l_Names[it_Level]).c_str(), nullptr, false, enabled))
+            {
+                s_Marks->Request = OverrideRequest{ .Overrides = overrides, .What = std::string(what), .Apply = true, .Level = it_Level };
+                l_Chosen = true;
+            }
+
+            ImGui::PopID();
+        }
+
+        return l_Chosen;
+    }
+
     // Revert and Apply to Prefab on a right-click of the item just drawn, as Unity's Inspector has them, which the panel does once every section is drawn
     void OverrideMenu(const char* id, const std::vector<PrefabOverride>& overrides, std::string_view what)
     {
@@ -163,11 +202,7 @@ namespace
             s_Marks->Request = OverrideRequest{ .Overrides = overrides, .What = std::string(what), .Apply = false };
         }
 
-        if (ImGui::MenuItem(std::format("Apply to Prefab '{}'", s_Marks->PrefabName).c_str()))
-        {
-            s_Marks->Request = OverrideRequest{ .Overrides = overrides, .What = std::string(what), .Apply = true };
-        }
-
+        static_cast<void>(DrawApplyItems(overrides, what));
         ImGui::EndPopup();
     }
 
@@ -1180,7 +1215,7 @@ void PropertiesPanel::OnImGuiRender()
     if (const Trinity::Entity l_Root = Trinity::Prefab::FindInstanceRoot(l_Entity); l_Root && !l_Missing)
     {
         const Trinity::AssetRecord* l_Record = m_Session.GetRegistry() != nullptr ? m_Session.GetRegistry()->Find(l_Root.Get<Trinity::PrefabInstanceComponent>().Prefab) : nullptr;
-        l_Marks = OverrideMarks{ .Root = l_Root, .PrefabName = l_Record != nullptr ? std::filesystem::path(l_Record->Path).stem().string() : std::string("Prefab"), .Overrides = Trinity::SceneSerializer::GetPrefabOverrides(l_Root), .Entity = l_Entity, .Component = {}, .Prefix = {}, .Request = std::nullopt };
+        l_Marks = OverrideMarks{ .Session = &m_Session, .Root = l_Root, .PrefabName = l_Record != nullptr ? std::filesystem::path(l_Record->Path).stem().string() : std::string("Prefab"), .Overrides = Trinity::SceneSerializer::GetPrefabOverrides(l_Root), .Entity = l_Entity, .Component = {}, .Prefix = {}, .Request = std::nullopt };
         s_Marks = &*l_Marks;
     }
 
@@ -1232,7 +1267,7 @@ void PropertiesPanel::OnImGuiRender()
         const Trinity::UUID l_Root = l_Marks->Root.GetUUID();
         if (l_Request.Apply)
         {
-            static_cast<void>(m_Session.ApplyPrefabOverrides(l_Root, std::move(l_Request.Overrides), l_Request.What, l_Entity.GetUUID()));
+            static_cast<void>(m_Session.ApplyPrefabOverrides(l_Root, std::move(l_Request.Overrides), l_Request.What, l_Entity.GetUUID(), l_Request.Level));
         }
         else
         {
@@ -1295,17 +1330,19 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
 
     ImGui::TextDisabled("UUID %s", entity.GetUUID().ToString().c_str());
 
-    // As Unity's Inspector heads an instance, with the prefab its entities come from
+    // As Unity's Inspector heads an instance, with the nearest prefab its entities come from, which for an entity of an instance nested in the scene's is the nested one's, in the scene's instance
     if (const Trinity::Entity l_Instance = Trinity::Prefab::FindInstanceRoot(entity))
     {
-        const Trinity::UUID l_Prefab = l_Instance.Get<Trinity::PrefabInstanceComponent>().Prefab;
+        const NearestInstance l_Nearest = FindNearestInstance(entity);
+        const Trinity::UUID l_Prefab = l_Nearest.Prefab;
         const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
         const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(l_Prefab) : nullptr;
-        const std::string l_Of = l_Instance == entity ? std::string("Instance of prefab") : std::format("Part of the instance {} of prefab", GetEntityLabel(l_Instance));
+        const std::string l_Of = l_Nearest.Root == entity ? std::string("Instance of prefab") : std::format("Part of the instance {} of prefab", GetEntityLabel(l_Nearest.Root));
         const std::string l_Path = l_Record != nullptr ? l_Record->Path : std::format("{}, which the project no longer has", l_Prefab);
-        ImGui::TextDisabled("%s", std::format("{} {} {}", Trinity::Icons::c_PackageVariantClosed, l_Of, l_Path).c_str());
+        const std::string l_In = l_Nearest.Root != l_Instance ? std::format(", in {}", GetEntityLabel(l_Instance)) : std::string();
+        ImGui::TextDisabled("%s", std::format("{} {} {}{}", Trinity::Icons::c_PackageVariantClosed, l_Of, l_Path, l_In).c_str());
 
-        // As Unity's Inspector heads one, Open edits the prefab in prefab mode, and Unpack makes the instance plain entities, beside the Overrides dropdown
+        // As Unity's Inspector heads one, Open edits that prefab in prefab mode, and Unpack makes the scene's instance plain entities, beside the Overrides dropdown, both the scene's instance's, which keeps every override
         ImGui::BeginDisabled(l_Record == nullptr);
         if (ImGui::Button("Open###OpenPrefab"))
         {
@@ -1324,7 +1361,7 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
         }
 
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip("%s", l_Missing ? "The prefab is missing, so the instance is unpacked once it is back" : std::format("Makes {} plain entities that no prefab reaches, in one step", GetEntityLabel(l_Instance)).c_str());
+        ImGui::SetItemTooltip("%s", l_Missing ? "The prefab is missing, so the instance is unpacked once it is back" : std::format("Makes {} plain entities that its prefab no longer reaches, in one step, each instance nested in the prefab staying an instance of its own", GetEntityLabel(l_Instance)).c_str());
         if (s_Marks != nullptr)
         {
             ImGui::SameLine();
@@ -1336,7 +1373,7 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
     ImGui::Spacing();
 }
 
-// Unity's Overrides dropdown: on the instance's root all it changes of its prefab, and on one of its entities what that entity changes and the entities added or removed right under it. Each changed component, added or removed component and added or removed entity is a row with Revert and Apply, and Revert All and Apply All take every row. The root's Position and Rotation are its own, so they are left out
+// Unity's Overrides dropdown: on the instance's root all it changes of its prefab, and on one of its entities what that entity changes and the entities added or removed right under it. Each changed component, added or removed component and added or removed entity is a row with Revert and Apply, whose Apply offers each prefab the change can go to where there are more, and Revert All and Apply All take every row, Apply All to the instance's own prefab. The root's Position and Rotation are its own, so they are left out
 void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
 {
     if (s_Marks == nullptr)
@@ -1455,13 +1492,16 @@ void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
     ImGui::TextDisabled("%s", (l_Rows.empty() ? std::format("{} changes nothing of prefab '{}'", l_Of, s_Marks->PrefabName) : std::format("What {} changes of prefab '{}'", l_Of, s_Marks->PrefabName)).c_str());
     ImGui::Separator();
     const ImGuiStyle& l_Style = ImGui::GetStyle();
-    const float l_Buttons = ImGui::CalcTextSize("Revert").x + ImGui::CalcTextSize("Apply").x + l_Style.FramePadding.x * 4.0f + l_Style.ItemSpacing.x;
     std::vector<PrefabOverride> l_All;
     for (std::size_t it_Row = 0; it_Row < l_Rows.size(); ++it_Row)
     {
         Row& l_Row = l_Rows[it_Row];
         l_All.insert(l_All.end(), l_Row.Overrides.begin(), l_Row.Overrides.end());
         ImGui::PushID(static_cast<int>(it_Row));
+        // A row whose change can go to more than one prefab, as a Weapon's value in an Enemy can, offers each in a menu from its Apply, as Unity's does
+        const bool l_Levels = Trinity::SceneSerializer::GetOverrideLevels(l_Root, l_Row.Overrides.front()).size() > 1;
+        const std::string l_Apply = l_Levels ? std::format("Apply {}", Trinity::Icons::c_ChevronDown) : std::string("Apply");
+        const float l_Buttons = ImGui::CalcTextSize("Revert").x + ImGui::CalcTextSize(l_Apply.c_str()).x + l_Style.FramePadding.x * 4.0f + l_Style.ItemSpacing.x;
         const float l_Right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(l_Row.Text.c_str());
@@ -1474,10 +1514,28 @@ void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
         }
 
         ImGui::SameLine();
-        if (ImGui::SmallButton("Apply"))
+        if (ImGui::SmallButton(l_Apply.c_str()))
         {
-            s_Marks->Request = OverrideRequest{ .Overrides = l_Row.Overrides, .What = l_Row.What, .Apply = true };
-            ImGui::CloseCurrentPopup();
+            if (l_Levels)
+            {
+                ImGui::OpenPopup("##ApplyLevels");
+            }
+            else
+            {
+                s_Marks->Request = OverrideRequest{ .Overrides = l_Row.Overrides, .What = l_Row.What, .Apply = true };
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        // The dropdown closes with the menu, as it does for an Apply of one prefab
+        if (ImGui::BeginPopup("##ApplyLevels"))
+        {
+            const bool l_Chosen = DrawApplyItems(l_Row.Overrides, l_Row.What);
+            ImGui::EndPopup();
+            if (l_Chosen)
+            {
+                ImGui::CloseCurrentPopup();
+            }
         }
 
         ImGui::PopID();
@@ -3242,11 +3300,7 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
                     s_Marks->Request = OverrideRequest{ .Overrides = l_Overrides, .What = l_What, .Apply = false };
                 }
 
-                if (ImGui::MenuItem(std::format("Apply to Prefab '{}'", s_Marks->PrefabName).c_str()))
-                {
-                    s_Marks->Request = OverrideRequest{ .Overrides = l_Overrides, .What = l_What, .Apply = true };
-                }
-
+                static_cast<void>(DrawApplyItems(l_Overrides, l_What));
                 ImGui::Separator();
             }
 
@@ -4455,11 +4509,7 @@ bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view na
                 s_Marks->Request = OverrideRequest{ .Overrides = l_Overrides, .What = l_What, .Apply = false };
             }
 
-            if (ImGui::MenuItem(std::format("Apply to Prefab '{}'", s_Marks->PrefabName).c_str(), nullptr, false, l_Editable))
-            {
-                s_Marks->Request = OverrideRequest{ .Overrides = l_Overrides, .What = l_What, .Apply = true };
-            }
-
+            static_cast<void>(DrawApplyItems(l_Overrides, l_What, l_Editable));
             ImGui::Separator();
         }
 

@@ -63,18 +63,26 @@ private:
         std::move_only_function<void()> Action;
     };
 
+    // An instance's root dropped to become a prefab in the folder, until it is answered whether as an original or a variant
+    struct PrefabDrop
+    {
+        Trinity::UUID Entity;
+        std::string Folder;
+    };
+
     void DrawFolderTree(const std::string& path, const std::string& label);
     void DrawToolbar();
     void DrawItems();
     void DrawItem(const Item& item, ImVec2 size);
     void DrawPicture(const Item& item, ImVec2 position, float size);
     void DrawAssetMenu(const Item* item);
-    void DrawCreateMenu();
+    void DrawCreateMenu(const Item* item);
     void DrawRenameField(const Item& item, ImVec2 position, float width);
     void DrawBackground();
     void DrawFooter();
     void DrawConfirmPopup();
     void DrawNewScriptPopup();
+    void DrawPrefabKindPopup();
     void AcceptMove(const std::string& folder);
     void ReadShortcuts();
 
@@ -115,6 +123,7 @@ private:
     // The language of the script New Script asks a name for, and the name typed so far
     std::optional<Trinity::ScriptLanguage> m_NewScript;
     std::string m_NewScriptName;
+    std::optional<PrefabDrop> m_PrefabDrop;
     std::unordered_map<std::string, std::vector<Trinity::DirectoryEntry>> m_Listings;
     std::uint64_t m_ListedScan = 0;
     std::unordered_map<Trinity::UUID, Thumbnail> m_Thumbnails;
@@ -125,5 +134,6 @@ private:
     bool m_FocusSearch = false;
     bool m_OpenConfirmPopup = false;
     bool m_OpenNewScriptPopup = false;
+    bool m_OpenPrefabKindPopup = false;
     bool m_Focused = false;
 };

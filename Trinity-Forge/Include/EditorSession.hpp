@@ -274,6 +274,10 @@ public:
     bool InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position);
     // The template the open scene's instances of the prefab are made from, which names the entities an instance removed. Null as the serializer finds none
     [[nodiscard]] Trinity::Scene* FindPrefabTemplate(Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()); }
+    // Whether the prefab is a variant, its root an instance of another, as its template has it. Not one the project does not have, or whose file cannot be read
+    [[nodiscard]] bool IsPrefabVariant(Trinity::UUID prefab);
+    // Its file's name without the extension, as Enemy, or its UUID for one the project no longer has
+    [[nodiscard]] std::string GetPrefabName(Trinity::UUID prefab) const;
     // What an instance changes of its prefab undone, in one command, so it is as its prefab has it. What names the changes, such as Position of Body, and the subject is the entity shown, which stays selected. Not while a copy plays
     bool RevertPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject);
     // What an instance changes of its prefab made the own of the prefab at the level, 0 for the instance's prefab and each level down one nested in it, as SceneSerializer::GetOverrideLevels names them, in one command: the file of that prefab, and of each between it and the instance that changed the same, is written at once, and every instance of them, in the scene and in the open prefab, is made again from them, each keeping what else it changes. Undo writes the files back. A change made to a file outside Forge since the files were scanned is read first, so it is kept. Refused with a notice for a prefab whose file is gone, and for an instance added that the prefab would then hold itself through. Not while a copy plays
@@ -409,7 +413,6 @@ private:
     [[nodiscard]] bool IsPrefabRoot(Trinity::UUID entity);
     [[nodiscard]] bool RefuseHoldingPrefab(Trinity::UUID prefab);
     [[nodiscard]] std::optional<std::string> FindUnpackProblem(Trinity::Entity root, bool completely);
-    [[nodiscard]] std::string GetPrefabName(Trinity::UUID prefab) const;
     [[nodiscard]] Trinity::Expected<std::size_t, std::string> ReplacePrefabs(std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene* own);
     [[nodiscard]] std::optional<std::size_t> WritePrefabs(std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene* own);
     void UpdateChangedPrefabs();
