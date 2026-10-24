@@ -460,7 +460,7 @@ namespace Trinity
                 continue;
             }
 
-            const Scene* l_Template = l_Instance->IsMissing() ? nullptr : SceneSerializer::FindPrefabTemplate(l_Instance->Prefab);
+            Scene* l_Template = l_Instance->IsMissing() ? nullptr : SceneSerializer::FindPrefabTemplate(l_Instance->Prefab);
             if (l_Template == nullptr)
             {
                 TR_CORE_WARN("Scene: the copy of prefab instance {} is made of plain entities, since {}", l_Instance->Instance, l_Instance->IsMissing() ? "its prefab is missing and only the original keeps its text" : "its prefab is not there");
@@ -469,22 +469,24 @@ namespace Trinity
                 continue;
             }
 
-            std::vector<std::pair<entt::entity, UUID>> l_Members;
+            // Each entity of the instance, with the template's it is, whose UUID in the copy is made as it was made in the original, through every prefab nested in this one
+            std::vector<std::pair<entt::entity, Entity>> l_Members;
             for (const auto [it_Template, it_ID] : l_Template->GetRegistry().view<IDComponent>().each())
             {
-                const auto a_Member = m_EntityMap.find(Prefab::MakeEntityUUID(l_Instance->Instance, it_ID.ID));
+                const Entity l_Member(it_Template, l_Template);
+                const auto a_Member = m_EntityMap.find(Prefab::GetInstanceEntityUUID(l_Instance->Instance, l_Member));
                 if (a_Member != m_EntityMap.end() && IsSelfOrAncestor(it_Entity, a_Member->second))
                 {
-                    l_Members.emplace_back(a_Member->second, it_ID.ID);
+                    l_Members.emplace_back(a_Member->second, l_Member);
                 }
             }
 
             UUID l_New;
             const auto a_IsFree = [this, &l_Plan, &l_Members](UUID instance)
             {
-                return std::ranges::none_of(l_Members, [this, &l_Plan, instance](const std::pair<entt::entity, UUID>& member)
+                return std::ranges::none_of(l_Members, [this, &l_Plan, instance](const std::pair<entt::entity, Entity>& member)
                 {
-                    const UUID l_UUID = Prefab::MakeEntityUUID(instance, member.second);
+                    const UUID l_UUID = Prefab::GetInstanceEntityUUID(instance, member.second);
 
                     return !l_UUID.IsValid() || m_EntityMap.contains(l_UUID) || l_Plan.Taken.contains(l_UUID);
                 });
@@ -496,9 +498,9 @@ namespace Trinity
             } while (!a_IsFree(l_New));
 
             l_Plan.Instances.emplace(it_Entity, l_New);
-            for (const auto& [it_Member, it_Local] : l_Members)
+            for (const auto& [it_Member, it_Template] : l_Members)
             {
-                const UUID l_UUID = Prefab::MakeEntityUUID(l_New, it_Local);
+                const UUID l_UUID = Prefab::GetInstanceEntityUUID(l_New, it_Template);
                 l_Plan.Entities.emplace(it_Member, l_UUID);
                 l_Plan.Taken.insert(l_UUID);
             }

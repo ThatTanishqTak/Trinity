@@ -12,7 +12,7 @@ namespace Trinity
         void AttachScene(Scene& scene);
         void DetachScene(Scene& scene);
 
-        // The prefab's entities under their local IDs, as the prefab resolver finds them, or null for a prefab that is not there or cannot be read. Main thread only
+        // The prefab's entities under their local IDs, as the prefab resolver finds them, or null for a prefab that is not there or cannot be read, and for one asked for again while its own template is found, which holds itself. Main thread only
         [[nodiscard]] Scene* FindPrefabTemplate(UUID prefab);
     }
 }

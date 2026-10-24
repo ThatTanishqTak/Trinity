@@ -18,7 +18,7 @@ Trinity::Scene* PrefabTemplateCache::Find(Trinity::UUID prefab, const Trinity::A
 
     Entry l_Entry{ .Template = Trinity::CreateScope<Trinity::Scene>(), .Text = {}, .Refused = {} };
     Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Record->Path);
-    const Trinity::Expected<void, std::string> l_Loaded = l_Text ? Trinity::SceneSerializer::LoadPrefabFromText(*l_Entry.Template, *l_Text) : Trinity::Expected<void, std::string>(Trinity::Unexpected{ std::string(Trinity::ToString(l_Text.GetError())) });
+    const Trinity::Expected<void, std::string> l_Loaded = l_Text ? Trinity::SceneSerializer::LoadPrefabFromText(*l_Entry.Template, *l_Text, prefab) : Trinity::Expected<void, std::string>(Trinity::Unexpected{ std::string(Trinity::ToString(l_Text.GetError())) });
     if (!l_Loaded)
     {
         TR_ERROR("Forge: prefab {} cannot be read, so its instances are kept as the scene file has them: {}", l_Record->Path, l_Loaded.GetError());
@@ -43,7 +43,7 @@ Trinity::Expected<void, std::string> PrefabTemplateCache::Replace(Trinity::UUID 
 {
     Entry& l_Entry = m_Templates[prefab];
     Trinity::Scope<Trinity::Scene> l_Template = Trinity::CreateScope<Trinity::Scene>();
-    if (Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::LoadPrefabFromText(*l_Template, text); !l_Loaded)
+    if (Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::LoadPrefabFromText(*l_Template, text, prefab); !l_Loaded)
     {
         l_Entry.Refused = std::move(text);
 

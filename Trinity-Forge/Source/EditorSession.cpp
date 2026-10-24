@@ -1104,7 +1104,7 @@ void EditorSession::UpdatePrefabStage()
     {
         TR_WARN("Forge: prefab {} changed outside Forge while prefab mode has unsaved changes, which are kept, so Save writes over that change", l_Record->Path);
     }
-    else if (const Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::LoadPrefabFromText(m_Stage->Scene, *l_Text); !l_Loaded)
+    else if (const Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::LoadPrefabFromText(m_Stage->Scene, *l_Text, m_Stage->Prefab); !l_Loaded)
     {
         TR_ERROR("Forge: prefab {} changed outside Forge, and cannot be read now, so prefab mode keeps it as it was: {}", l_Record->Path, l_Loaded.GetError());
     }
@@ -2955,7 +2955,7 @@ void EditorSession::OpenPrefab(Trinity::UUID prefab)
     UpdateChangedPrefabs();
     Trinity::Scope<PrefabStage> l_Stage = Trinity::CreateScope<PrefabStage>();
     Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Record->Path);
-    const Trinity::Expected<void, std::string> l_Loaded = l_Text ? Trinity::SceneSerializer::LoadPrefabFromText(l_Stage->Scene, *l_Text) : Trinity::Expected<void, std::string>(Trinity::Unexpected{ std::string(Trinity::ToString(l_Text.GetError())) });
+    const Trinity::Expected<void, std::string> l_Loaded = l_Text ? Trinity::SceneSerializer::LoadPrefabFromText(l_Stage->Scene, *l_Text, prefab) : Trinity::Expected<void, std::string>(Trinity::Unexpected{ std::string(Trinity::ToString(l_Text.GetError())) });
     if (!l_Loaded)
     {
         TR_ERROR("Forge: prefab {} cannot be read, so it does not open: {}", l_Record->Path, l_Loaded.GetError());

@@ -12,6 +12,7 @@
 #include "Trinity/Project/Project.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
+#include "Trinity/Scene/Prefab.hpp"
 #include "Trinity/Scene/Scene.hpp"
 #include "Trinity/Scene/SceneRuntime.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
@@ -108,6 +109,32 @@ namespace Trinity
         [[nodiscard]] std::uint32_t CountWaiting(const AssetList& assets)
         {
             return static_cast<std::uint32_t>(std::ranges::count_if(assets, [](UUID id) { return AssetManager::GetState(id) == AssetState::Loading; }));
+        }
+
+        // The prefabs nested in each prefab held that has loaded, which its template is made from, held too. True while one was added, so it is waited for, and the prefabs nested in it in turn
+        [[nodiscard]] bool HoldNestedPrefabs(AssetList& assets)
+        {
+            bool l_Added = false;
+            for (std::size_t it_Asset = 0; it_Asset < assets.size(); ++it_Asset)
+            {
+                const Asset* l_Asset = AssetManager::GetState(assets[it_Asset]) == AssetState::Ready ? AssetManager::GetAsset(assets[it_Asset]) : nullptr;
+                if (l_Asset == nullptr || l_Asset->GetAssetType() != PrefabAsset::c_AssetType)
+                {
+                    continue;
+                }
+
+                for (const UUID it_Nested : static_cast<const PrefabAsset*>(l_Asset)->GetNestedPrefabs())
+                {
+                    if (std::ranges::find(assets, it_Nested) == assets.end())
+                    {
+                        assets.push_back(it_Nested);
+                        AssetManager::Acquire(it_Nested);
+                        l_Added = true;
+                    }
+                }
+            }
+
+            return l_Added;
         }
     }
 
@@ -272,7 +299,7 @@ namespace Trinity
         Advance();
     }
 
-    // The loading scene holds the prefabs its instances are of once read, and is parsed once they are in, as its instances are made from them. It holds its assets, then its materials' textures once its materials are in, and is switched to once nothing it holds still loads. A prefab that does not load leaves its instances kept as the file has them
+    // The loading scene holds the prefabs its instances are of once read, and those nested in them as each is in, and is parsed once they are all in, as its instances are made from them. It holds its assets, then its materials' textures once its materials are in, and is switched to once nothing it holds still loads. A prefab that does not load leaves its instances kept as the file has them
     void SceneManager::Advance()
     {
         State& l_State = *m_State;
@@ -302,7 +329,7 @@ namespace Trinity
                 }
             }
 
-            if (CountWaiting(l_Loading.Held) != 0)
+            if (CountWaiting(l_Loading.Held) != 0 || HoldNestedPrefabs(l_Loading.Held))
             {
                 return;
             }

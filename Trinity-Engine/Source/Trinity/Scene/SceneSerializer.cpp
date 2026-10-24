@@ -56,6 +56,10 @@ namespace Trinity
             std::vector<ComponentSerializer, TaggedAllocator<ComponentSerializer, MemoryTag::Engine>> Serializers;
             std::vector<Scene*, TaggedAllocator<Scene*, MemoryTag::Engine>> Scenes;
             SceneSerializer::PrefabResolver Resolver;
+            // Templates found before the resolver's while an apply writes prefabs a level at a time, so each is read against those it holds as they will be
+            std::vector<std::pair<UUID, Scene*>, TaggedAllocator<std::pair<UUID, Scene*>, MemoryTag::Engine>> Overlay;
+            // The prefabs whose templates are being found, outermost first, so one met again while it is holds an instance of itself
+            std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Engine>> Resolving;
         };
 
         State* s_State = nullptr;
@@ -978,8 +982,8 @@ namespace Trinity
             [[nodiscard]] bool IsInstance() const { return Prefab.IsValid(); }
         };
 
-        // Instances only where a scene may hold them, and not yet in a prefab
-        Expected<std::vector<FileEntity>, std::string> ReadEntities(const YAML::Node& root, bool allowInstances, std::size_t lineCount)
+        // A scene's, and a prefab's, which may hold instances of other prefabs too
+        Expected<std::vector<FileEntity>, std::string> ReadEntities(const YAML::Node& root, std::size_t lineCount)
         {
             const YAML::Node l_Entities = root["Entities"];
             if (!l_Entities)
@@ -1003,7 +1007,7 @@ namespace Trinity
                 {
                     l_Entity.ID = *l_UUID;
                 }
-                else if (const std::optional<UUID> l_Instance = allowInstances && l_Entity.Node.IsMap() ? ReadUUID(l_Entity.Node[std::string(c_InstanceKey)]) : std::nullopt)
+                else if (const std::optional<UUID> l_Instance = l_Entity.Node.IsMap() ? ReadUUID(l_Entity.Node[std::string(c_InstanceKey)]) : std::nullopt)
                 {
                     const std::optional<UUID> l_Prefab = ReadUUID(l_Entity.Node[std::string(c_PrefabKey)]);
                     if (!l_Prefab)
@@ -1103,7 +1107,7 @@ namespace Trinity
             return l_Root;
         }
 
-        // The prefab's entities, root first in hierarchy order, each with the UUID the instance gives it, without those the instance removes and their subtrees
+        // The prefab's entities, root first in hierarchy order, each with the UUID the instance gives it, through every prefab nested in it, without those the instance removes and their subtrees
         std::vector<std::pair<entt::entity, UUID>> GetInstanceMembers(Scene& prefab, UUID instance, const std::unordered_set<UUID>& removed)
         {
             std::vector<std::pair<entt::entity, UUID>> l_Members;
@@ -1113,7 +1117,7 @@ namespace Trinity
             {
                 const Entity l_Entity = l_Pending.back();
                 l_Pending.pop_back();
-                l_Members.emplace_back(l_Entity.GetHandle(), Prefab::MakeEntityUUID(instance, l_Entity.GetUUID()));
+                l_Members.emplace_back(l_Entity.GetHandle(), Prefab::GetInstanceEntityUUID(instance, l_Entity));
                 for (Entity it_Child = l_Entity.GetLastChild(); it_Child; it_Child = it_Child.GetPreviousSibling())
                 {
                     if (!removed.contains(it_Child.GetUUID()))
@@ -1236,6 +1240,37 @@ namespace Trinity
             return l_Text;
         }
 
+        // Whether the template holds, at any depth, an instance of a prefab whose template is being read, so an instance of it there would make that prefab hold itself. A template read before that prefab changed can hold it, which the prefab's own instance being asked for again cannot tell. One kept as its text holds nothing
+        bool HoldsResolving(Scene& prefab)
+        {
+            std::vector<Scene*> l_Pending{ &prefab };
+            std::unordered_set<UUID> l_Seen;
+            while (!s_State->Resolving.empty() && !l_Pending.empty())
+            {
+                Scene* l_Template = l_Pending.back();
+                l_Pending.pop_back();
+                for (const auto [it_Root, it_Instance] : l_Template->GetRegistry().view<PrefabInstanceComponent>().each())
+                {
+                    if (it_Instance.IsMissing())
+                    {
+                        continue;
+                    }
+
+                    if (std::ranges::find(s_State->Resolving, it_Instance.Prefab) != s_State->Resolving.end())
+                    {
+                        return true;
+                    }
+
+                    if (Scene* l_Nested = l_Seen.insert(it_Instance.Prefab).second ? SceneSerializer::FindPrefabTemplate(it_Instance.Prefab) : nullptr; l_Nested != nullptr)
+                    {
+                        l_Pending.push_back(l_Nested);
+                    }
+                }
+            }
+
+            return false;
+        }
+
         // Every entity there is to be with its parent, each found once, and each parent among them, which an entry under an instance's entity finds once the instance is, so a scene is only replaced once it is known to load whole
         Expected<std::vector<PlannedEntity>, std::string> PlanEntities(const std::vector<FileEntity>& entities, std::span<const std::string_view> lines)
         {
@@ -1248,6 +1283,12 @@ namespace Trinity
                 l_Planned.File = &l_File;
                 l_Planned.Parent = l_File.Parent;
                 Scene* l_Template = l_File.IsInstance() ? SceneSerializer::FindPrefabTemplate(l_File.Prefab) : nullptr;
+                if (l_Template != nullptr && HoldsResolving(*l_Template))
+                {
+                    TR_CORE_ERROR("Scene: prefab {} of instance {} holds the prefab being read, which would hold itself through it, so the instance is kept as the file has it", l_File.Prefab, l_File.ID);
+                    l_Template = nullptr;
+                }
+
                 if (l_Template == nullptr || !l_Template->GetFirstRoot())
                 {
                     if (!l_Parents.emplace(l_File.ID, l_File.Parent).second)
@@ -1261,10 +1302,13 @@ namespace Trinity
                 l_Planned.Template = l_Template;
                 l_Planned.Members = GetInstanceMembers(*l_Template, l_File.ID, ReadRemovedEntities(l_File.Node));
                 const SceneRegistry& l_Registry = l_Template->GetRegistry();
+                // A member's parent comes before it, so its UUID is known
+                std::unordered_map<entt::entity, UUID> l_Members;
                 for (const auto& [it_Member, it_UUID] : l_Planned.Members)
                 {
                     const entt::entity l_Parent = l_Registry.get<RelationshipComponent>(it_Member).Parent;
-                    const UUID l_ParentUUID = l_Parent == entt::null ? l_File.Parent : Prefab::MakeEntityUUID(l_File.ID, l_Registry.get<IDComponent>(l_Parent).ID);
+                    const UUID l_ParentUUID = l_Parent == entt::null ? l_File.Parent : l_Members.at(l_Parent);
+                    l_Members.emplace(it_Member, it_UUID);
                     if (!it_UUID.IsValid() || !l_Parents.emplace(it_UUID, l_ParentUUID).second)
                     {
                         return Unexpected{ std::format("entity {} of instance {} appears more than once", it_UUID, l_File.ID) };
@@ -1430,11 +1474,17 @@ namespace Trinity
             return FindSerializer(name) != nullptr ? entity.GetScene()->GetRegistry().storage(GetPoolId(name)) : nullptr;
         }
 
-        // The prefab's entities with the instance's UUIDs and every component the prefab gives them, linked as the prefab links them under the instance's root, which goes last among the roots. A prefab names no entity outside itself, so each it names is by local ID, and the instance names the entity of that local ID it has, or would have. Their UUIDs are free
+        // The prefab's entities with the instance's UUIDs and every component the prefab gives them, linked as the prefab links them under the instance's root, which goes last among the roots. A prefab names no entity outside itself, so each it names is by local ID, and the instance names the entity of that local ID it has, or would have. Their UUIDs are free. The roots of instances nested in the prefab are not instances' roots in the scene, whose instance this is
         Entity ExpandInstance(Scene& scene, Scene& prefab, const std::vector<std::pair<entt::entity, UUID>>& members, UUID prefabID, UUID instance)
         {
             SceneRegistry& l_Target = scene.GetRegistry();
             SceneRegistry& l_Source = prefab.GetRegistry();
+            std::unordered_map<UUID, UUID> l_Own;
+            for (const auto& [it_Member, it_UUID] : members)
+            {
+                l_Own.emplace(l_Source.get<IDComponent>(it_Member).ID, it_UUID);
+            }
+
             for (const auto& [it_Member, it_UUID] : members)
             {
                 const Entity l_Entity = scene.CreateEntityWithUUID(it_UUID);
@@ -1464,14 +1514,23 @@ namespace Trinity
                 const entt::entity l_Parent = l_Source.get<RelationshipComponent>(it_Member).Parent;
                 if (l_Parent != entt::null)
                 {
-                    scene.SetParent(l_Entity, scene.FindEntityByUUID(Prefab::MakeEntityUUID(instance, l_Source.get<IDComponent>(l_Parent).ID)), false);
+                    scene.SetParent(l_Entity, scene.FindEntityByUUID(l_Own.at(l_Source.get<IDComponent>(l_Parent).ID)), false);
                 }
             }
 
+            // One the instance removed has the UUID it would have
             Entity l_Root = scene.FindEntityByUUID(members.front().second);
-            scene.RemapEntityReferences(l_Root, [instance](UUID& entity)
+            scene.RemapEntityReferences(l_Root, [&l_Own, &prefab, instance](UUID& entity)
             {
-                if (entity.IsValid())
+                if (const auto a_Own = l_Own.find(entity); a_Own != l_Own.end())
+                {
+                    entity = a_Own->second;
+                }
+                else if (const Entity l_Member = entity.IsValid() ? prefab.FindEntityByUUID(entity) : Entity())
+                {
+                    entity = Prefab::GetInstanceEntityUUID(instance, l_Member);
+                }
+                else if (entity.IsValid())
                 {
                     entity = Prefab::MakeEntityUUID(instance, entity);
                 }
@@ -1719,9 +1778,9 @@ namespace Trinity
             return l_Dropped;
         }
 
-        // Of each entity the section names by local ID, each component under it given to the function, with how many the section names of what the instance no longer has
+        // Of each entity the section names by local ID, each component under it given to the function, with how many the section names of what the instance no longer has. Local IDs are the template's UUIDs, an entity of a nested instance's its UUID there, and the instance's own are found by them
         template<typename F>
-        std::size_t ForEachChange(Scene& scene, const FileEntity& instance, std::string_view section, F&& change)
+        std::size_t ForEachChange(Scene& scene, const FileEntity& instance, const std::unordered_map<UUID, UUID>& members, std::string_view section, F&& change)
         {
             const YAML::Node l_Section = instance.Node[std::string(section)];
             if (!l_Section)
@@ -1738,7 +1797,8 @@ namespace Trinity
             for (const auto& it_Entity : l_Section)
             {
                 const std::optional<UUID> l_Local = ReadUUID(it_Entity.first);
-                const Entity l_Entity = l_Local ? scene.FindEntityByUUID(Prefab::MakeEntityUUID(instance.ID, *l_Local)) : Entity();
+                const auto a_Member = l_Local ? members.find(*l_Local) : members.end();
+                const Entity l_Entity = a_Member != members.end() ? scene.FindEntityByUUID(a_Member->second) : Entity();
                 if (!l_Entity)
                 {
                     ++l_Dropped;
@@ -1756,7 +1816,14 @@ namespace Trinity
         void ApplyInstanceChanges(Scene& scene, const PlannedEntity& planned, std::unordered_map<std::string, std::size_t>& unknown)
         {
             const FileEntity& l_File = *planned.File;
-            std::size_t l_Dropped = ForEachChange(scene, l_File, c_RemovedComponentsKey, [](Entity entity, const YAML::Node& names) -> std::size_t
+            std::unordered_map<UUID, UUID> l_Members;
+            const SceneRegistry& l_Template = planned.Template->GetRegistry();
+            for (const auto& [it_Member, it_UUID] : planned.Members)
+            {
+                l_Members.emplace(l_Template.get<IDComponent>(it_Member).ID, it_UUID);
+            }
+
+            std::size_t l_Dropped = ForEachChange(scene, l_File, l_Members, c_RemovedComponentsKey, [](Entity entity, const YAML::Node& names) -> std::size_t
             {
                 if (!names.IsSequence())
                 {
@@ -1776,7 +1843,7 @@ namespace Trinity
                 return l_Missing;
             });
 
-            l_Dropped += ForEachChange(scene, l_File, c_OverridesKey, [&unknown](Entity entity, const YAML::Node& components) -> std::size_t
+            l_Dropped += ForEachChange(scene, l_File, l_Members, c_OverridesKey, [&unknown](Entity entity, const YAML::Node& components) -> std::size_t
             {
                 if (!components.IsMap())
                 {
@@ -1792,7 +1859,7 @@ namespace Trinity
                 return l_Missing;
             });
 
-            l_Dropped += ForEachChange(scene, l_File, c_AddedComponentsKey, [&unknown](Entity entity, const YAML::Node& components) -> std::size_t
+            l_Dropped += ForEachChange(scene, l_File, l_Members, c_AddedComponentsKey, [&unknown](Entity entity, const YAML::Node& components) -> std::size_t
             {
                 if (!components.IsMap())
                 {
@@ -2061,6 +2128,7 @@ namespace Trinity
         // What an instance changes of its prefab, against what it would be unchanged, which is made in the scratch scene: its prefab's entities with the UUIDs it gives them, what each it has changes, and the local ID of each it removes, once for the whole subtree
         struct InstanceDiff
         {
+            Scene* Template = nullptr;
             std::vector<std::pair<entt::entity, UUID>> Members;
             std::vector<EntityChanges> Changes;
             std::vector<UUID> Removed;
@@ -2076,7 +2144,7 @@ namespace Trinity
                 return std::nullopt;
             }
 
-            InstanceDiff l_Diff{ .Members = GetInstanceMembers(*l_Template, l_Instance.Instance,{}), .Changes = {}, .Removed = {} };
+            InstanceDiff l_Diff{ .Template = l_Template, .Members = GetInstanceMembers(*l_Template, l_Instance.Instance,{}), .Changes = {}, .Removed = {} };
             if (l_Diff.Members.front().second != root.GetUUID())
             {
                 return std::nullopt;
@@ -2279,7 +2347,6 @@ namespace Trinity
                 return std::nullopt;
             }
 
-            const UUID l_Instance = root.Get<PrefabInstanceComponent>().Instance;
             std::unordered_map<UUID, const EntityChanges*> l_Changes;
             for (const EntityChanges& it_Changes : l_Diff->Changes)
             {
@@ -2288,11 +2355,13 @@ namespace Trinity
 
             const std::unordered_set<UUID> l_Removed(l_Diff->Removed.begin(), l_Diff->Removed.end());
             Scene& l_Scene = *root.GetScene();
+            const SceneRegistry& l_Template = l_Diff->Template->GetRegistry();
             std::vector<SceneSerializer::PrefabOverride> l_Overrides;
             const auto a_Add = [&l_Overrides](Kind type, UUID entity, std::string component, std::string path) { l_Overrides.push_back({ .Type = type, .Entity = entity, .Component = std::move(component), .Path = std::move(path) }); };
             for (const auto& [it_Member, it_UUID] : l_Diff->Members)
             {
-                if (l_Removed.contains(Prefab::FindLocalID(l_Instance, it_UUID)))
+                const UUID l_Local = l_Template.get<IDComponent>(it_Member).ID;
+                if (l_Removed.contains(l_Local))
                 {
                     a_Add(Kind::RemovedEntity, it_UUID, {}, {});
 
@@ -2304,7 +2373,7 @@ namespace Trinity
                     continue;
                 }
 
-                if (const auto a_Changes = l_Changes.find(Prefab::FindLocalID(l_Instance, it_UUID)); a_Changes != l_Changes.end())
+                if (const auto a_Changes = l_Changes.find(l_Local); a_Changes != l_Changes.end())
                 {
                     const EntityChanges& l_Entity = *a_Changes->second;
                     for (const auto& [it_Name, it_Values] : l_Entity.Overrides)
@@ -2429,6 +2498,216 @@ namespace Trinity
             }
 
             return {};
+        }
+
+        // A prefab's text from its template, a scene of its own under the prefab's local IDs: each of its entities, and each instance nested in it as its prefab and what it changes, as a scene file has them. The root's parent is not written
+        std::string WriteTemplate(Scene& prefab, Entity root)
+        {
+            std::string l_Text = std::format("Format: {}\nEntities:", Prefab::c_FormatVersion);
+            AppendHierarchy(l_Text, prefab, root);
+
+            return l_Text + "\n";
+        }
+
+        // The subtree as the template of a prefab it is the instance of, made in a scene of its own: each entity under the local ID its UUID tells back in that instance, and each instance in it nested in the prefab under the local ID its own UUID tells back, so made that instance of the prefab the subtree keeps every UUID, as a variant made from an instance does. An entity of the instance's own prefab, as an instance is saved back into its prefab, is the template's entity it is, and an instance nested there stays nested. What a component names inside the subtree it names by local ID, and anything outside it is cleared
+        Expected<Scope<Scene>, std::string> MakeTemplate(Scene& scene, Entity root, UUID instance)
+        {
+            struct Member
+            {
+                Entity Source;
+                UUID Local;
+                std::optional<PrefabInstanceComponent> Instance;
+            };
+
+            const PrefabInstanceComponent* l_Own = root.Has<PrefabInstanceComponent>() && root.Get<PrefabInstanceComponent>().Instance == instance ? &root.Get<PrefabInstanceComponent>() : nullptr;
+            Scene* l_OwnTemplate = l_Own != nullptr ? SceneSerializer::FindPrefabTemplate(l_Own->Prefab) : nullptr;
+            if (l_Own != nullptr && (l_Own->IsMissing() || l_OwnTemplate == nullptr))
+            {
+                return Unexpected{ std::format("prefab {} of instance {} is not there", l_Own->Prefab, instance) };
+            }
+
+            std::vector<Member> l_Members;
+            std::unordered_map<UUID, UUID> l_Locals;
+            for (Entity it_Entity = root; it_Entity; it_Entity = scene.GetNextInSubtree(it_Entity, root))
+            {
+                Member l_Member{ .Source = it_Entity, .Local = {}, .Instance = std::nullopt };
+                const Entity l_Owner = Prefab::FindInstanceRoot(it_Entity);
+                if (l_Own != nullptr && l_Owner == root)
+                {
+                    const Entity l_Template = Prefab::FindTemplateEntity(*l_OwnTemplate, instance, it_Entity.GetUUID());
+                    l_Member.Local = l_Template ? l_Template.GetUUID() : UUID();
+                    if (l_Template && l_Template.Has<PrefabInstanceComponent>())
+                    {
+                        l_Member.Instance = l_Template.Get<PrefabInstanceComponent>();
+                    }
+                }
+                else if (l_Owner)
+                {
+                    const PrefabInstanceComponent& l_Instance = l_Owner.Get<PrefabInstanceComponent>();
+                    if (!IsInSubtree(l_Owner, root))
+                    {
+                        return Unexpected{ std::format("entity {} is part of instance {}, which is not in the subtree", it_Entity.GetUUID(), l_Instance.Instance) };
+                    }
+
+                    Scene* l_Template = l_Instance.IsMissing() ? nullptr : SceneSerializer::FindPrefabTemplate(l_Instance.Prefab);
+                    if (l_Template == nullptr)
+                    {
+                        return Unexpected{ std::format("entity {} is of instance {}, whose prefab {} is missing, and such an instance goes into no prefab until its prefab is back", it_Entity.GetUUID(), l_Instance.Instance, l_Instance.Prefab) };
+                    }
+
+                    if (l_Own != nullptr && Prefab::Holds(l_Instance.Prefab, l_Own->Prefab))
+                    {
+                        return Unexpected{ std::format("instance {} is of prefab {}, which holds prefab {}, so the prefab would hold itself", l_Instance.Instance, l_Instance.Prefab, l_Own->Prefab) };
+                    }
+
+                    const Entity l_Inner = Prefab::FindTemplateEntity(*l_Template, l_Instance.Instance, it_Entity.GetUUID());
+                    const UUID l_Nested = Prefab::FindLocalID(instance, l_Instance.Instance);
+                    l_Member.Local = l_Inner ? Prefab::GetInstanceEntityUUID(l_Nested, l_Inner) : UUID();
+                    if (it_Entity == l_Owner)
+                    {
+                        l_Member.Instance = PrefabInstanceComponent{ .Prefab = l_Instance.Prefab, .Instance = l_Nested, .Kept = {} };
+                    }
+                }
+                else
+                {
+                    l_Member.Local = Prefab::FindLocalID(instance, it_Entity.GetUUID());
+                }
+
+                if (!l_Member.Local.IsValid() || !l_Locals.emplace(it_Entity.GetUUID(), l_Member.Local).second)
+                {
+                    return Unexpected{ std::format("instance {} gives entity {} no local ID of its own", instance, it_Entity.GetUUID()) };
+                }
+
+                l_Members.push_back(std::move(l_Member));
+            }
+
+            Scope<Scene> l_Template = CreateScope<Scene>();
+            SceneRegistry& l_Target = l_Template->GetRegistry();
+            SceneRegistry& l_Source = scene.GetRegistry();
+            for (const Member& it_Member : l_Members)
+            {
+                const Entity l_Entity = l_Template->CreateEntityWithUUID(it_Member.Local);
+                for (auto [it_Id, it_Storage] : l_Source.storage())
+                {
+                    if (it_Id == entt::type_hash<IDComponent>::value() || it_Id == entt::type_hash<RelationshipComponent>::value() || it_Id == entt::type_hash<PrefabInstanceComponent>::value() || !it_Storage.contains(it_Member.Source.GetHandle()))
+                    {
+                        continue;
+                    }
+
+                    SceneRegistry::common_type* l_Storage = l_Target.storage(it_Id);
+                    if (l_Storage == nullptr)
+                    {
+                        continue;
+                    }
+
+                    if (l_Storage->contains(l_Entity.GetHandle()))
+                    {
+                        l_Storage->erase(l_Entity.GetHandle());
+                    }
+
+                    l_Storage->push(l_Entity.GetHandle(), it_Storage.value(it_Member.Source.GetHandle()));
+                }
+
+                if (it_Member.Instance)
+                {
+                    l_Template->GetRegistry().emplace<PrefabInstanceComponent>(l_Entity.GetHandle(), *it_Member.Instance);
+                }
+
+                if (it_Member.Source != root)
+                {
+                    l_Template->SetParent(l_Entity, l_Template->FindEntityByUUID(l_Locals.at(it_Member.Source.GetParent().GetUUID())), false);
+                }
+            }
+
+            l_Template->RemapEntityReferences(l_Template->FindEntityByUUID(l_Members.front().Local), [&l_Locals](UUID& entity)
+            {
+                const auto a_Local = l_Locals.find(entity);
+                entity = a_Local != l_Locals.end() ? a_Local->second : UUID();
+            });
+
+            return l_Template;
+        }
+
+        // One override made the base's own, the base an instance as it would be unchanged under the scene's UUIDs: a value or an added component as the scene's entity has it, a removed component or entity gone from it, and an added entity copied in with its subtree, instances in it too
+        Expected<void, std::string> MakeBaseOwn(Scene& scene, Scene& base, const SceneSerializer::PrefabOverride & override, std::unordered_map<std::string, std::size_t>& unknown)
+        {
+            const Entity l_Entity = scene.FindEntityByUUID(override.Entity);
+            const Entity l_Base = base.FindEntityByUUID(override.Entity);
+            switch (override.Type)
+            {
+                case SceneSerializer::PrefabOverride::Kind::Value:
+                case SceneSerializer::PrefabOverride::Kind::AddedComponent:
+                {
+                    CopyComponentValue(l_Base, l_Entity, override.Component, override.Path, unknown);
+
+                    break;
+                }
+                case SceneSerializer::PrefabOverride::Kind::RemovedComponent:
+                {
+                    static_cast<void>(RemoveNamedComponent(l_Base, override.Component));
+
+                    break;
+                }
+                case SceneSerializer::PrefabOverride::Kind::RemovedEntity:
+                {
+                    base.DestroyEntity(l_Base);
+
+                    break;
+                }
+                case SceneSerializer::PrefabOverride::Kind::AddedEntity:
+                {
+                    const Expected<Entity, std::string> l_Copied = SceneSerializer::LoadEntityFromText(base, SceneSerializer::SaveEntityToText(scene, l_Entity), base.FindEntityByUUID(l_Entity.GetParent().GetUUID()), {});
+                    if (!l_Copied)
+                    {
+                        return Unexpected{ l_Copied.GetError() };
+                    }
+
+                    break;
+                }
+            }
+
+            return {};
+        }
+
+        // The levels an override can go to: those the entity it changes is part of, as far down as each has what it changes, so a value of a component an outer level added goes no deeper than that. An added entity goes where its parent is part of, and a removed one where it was
+        std::vector<Prefab::Level> GetOverrideChain(Entity root, const SceneSerializer::PrefabOverride & override)
+        {
+            using Kind = SceneSerializer::PrefabOverride::Kind;
+
+            Scene& l_Scene = *root.GetScene();
+            std::vector<Prefab::Level> l_Levels;
+            if (override.Type == Kind::RemovedEntity)
+            {
+                const PrefabInstanceComponent& l_Instance = root.Get<PrefabInstanceComponent>();
+                Scene* l_Template = SceneSerializer::FindPrefabTemplate(l_Instance.Prefab);
+                l_Levels = l_Template != nullptr ? Prefab::GetLevels(root, Prefab::FindTemplateEntity(*l_Template, l_Instance.Instance, override.Entity)) : l_Levels;
+            }
+            else
+            {
+                const Entity l_Entity = l_Scene.FindEntityByUUID(override.Entity);
+                const Entity l_Part = override.Type == Kind::AddedEntity && l_Entity ? l_Entity.GetParent() : l_Entity;
+                l_Levels = l_Part ? Prefab::GetLevels(l_Part) : l_Levels;
+            }
+
+            if (override.Type == Kind::Value || override.Type == Kind::RemovedComponent)
+            {
+                l_Levels.erase(std::ranges::find_if(l_Levels, [&override](const Prefab::Level& level) { return !GetComponentYaml(level.Template, override.Component); }), l_Levels.end());
+            }
+
+            return l_Levels;
+        }
+
+        // Put in front of the resolver's, the latest for each prefab, until the apply that put them there is done
+        void SetOverlay(UUID prefab, Scene* scene)
+        {
+            if (const auto a_Overlay = std::ranges::find(s_State->Overlay, prefab, &std::pair<UUID, Scene*>::first); a_Overlay != s_State->Overlay.end())
+            {
+                a_Overlay->second = scene;
+
+                return;
+            }
+
+            s_State->Overlay.emplace_back(prefab, scene);
         }
 
         // The YAML a scene file read without the component's code keeps for it, so a component kept this way saves as one kept from a file does
@@ -3327,17 +3606,40 @@ namespace Trinity
             s_State->Resolver = std::move(resolver);
         }
 
-        // A prefab the asset manager has ready, until a resolver is set
+        // A prefab the asset manager has ready, until a resolver is set. One found again while its template is being made, as its own instance or one nested deeper, is refused, so a prefab holding itself keeps that instance as its file has it
         Scene* FindPrefabTemplate(UUID prefab)
         {
-            if (s_State != nullptr && s_State->Resolver)
+            if (s_State == nullptr)
             {
-                return s_State->Resolver(prefab);
+                return nullptr;
             }
 
-            const Asset* l_Asset = prefab && AssetManager::GetState(prefab) == AssetState::Ready ? AssetManager::GetAsset(prefab) : nullptr;
+            if (const auto a_Overlay = std::ranges::find(s_State->Overlay, prefab, &std::pair<UUID, Scene*>::first); a_Overlay != s_State->Overlay.end())
+            {
+                return a_Overlay->second;
+            }
 
-            return l_Asset != nullptr && l_Asset->GetAssetType() == PrefabAsset::c_AssetType ? static_cast<const PrefabAsset*>(l_Asset)->GetTemplate() : nullptr;
+            if (std::ranges::find(s_State->Resolving, prefab) != s_State->Resolving.end())
+            {
+                TR_CORE_ERROR("Scene: prefab {} holds an instance of itself, which is kept as the file has it", prefab);
+
+                return nullptr;
+            }
+
+            s_State->Resolving.push_back(prefab);
+            Scene* l_Template = nullptr;
+            if (s_State->Resolver)
+            {
+                l_Template = s_State->Resolver(prefab);
+            }
+            else if (const Asset* l_Asset = prefab && AssetManager::GetState(prefab) == AssetState::Ready ? AssetManager::GetAsset(prefab) : nullptr; l_Asset != nullptr && l_Asset->GetAssetType() == PrefabAsset::c_AssetType)
+            {
+                l_Template = static_cast<const PrefabAsset*>(l_Asset)->GetTemplate();
+            }
+
+            s_State->Resolving.pop_back();
+
+            return l_Template;
         }
 
         bool RegisterComponent(const ComponentSerializer& serializer)
@@ -3445,7 +3747,7 @@ namespace Trinity
             }
 
             const std::vector<std::string_view> l_Lines = SplitLines(text);
-            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root, true, l_Lines.size());
+            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root, l_Lines.size());
             if (!l_Entities)
             {
                 return Unexpected{ l_Entities.GetError() };
@@ -3496,7 +3798,7 @@ namespace Trinity
             }
 
             const std::vector<std::string_view> l_Lines = SplitLines(text);
-            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root, true, l_Lines.size());
+            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root, l_Lines.size());
             if (!l_Entities)
             {
                 return Unexpected{ l_Entities.GetError() };
@@ -3622,48 +3924,25 @@ namespace Trinity
             return {};
         }
 
+        // The subtree made the prefab's template first, so the instances in it are written nested in the prefab, as a scene writes its instances
         Expected<std::string, std::string> SavePrefabToText(Scene& scene, Entity root, UUID instance)
         {
             TR_PROFILE_FUNCTION();
             TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
             TR_CORE_ASSERT(root.GetScene() == &scene && root.IsValid(), "SavePrefabToText was given an entity of another scene, or one already destroyed");
 
-            std::unordered_set<UUID> l_Members;
-            for (Entity it_Entity = root; it_Entity; it_Entity = scene.GetNextInSubtree(it_Entity, root))
+            Expected<Scope<Scene>, std::string> l_Template = MakeTemplate(scene, root, instance);
+            if (!l_Template)
             {
-                if (it_Entity.Has<PrefabInstanceComponent>())
-                {
-                    return Unexpected{ std::format("entity {} is an instance of a prefab, which a prefab cannot hold yet", it_Entity.GetUUID()) };
-                }
-
-                if (!Prefab::FindLocalID(instance, it_Entity.GetUUID()).IsValid())
-                {
-                    return Unexpected{ std::format("instance {} gives entity {} no local ID", instance, it_Entity.GetUUID()) };
-                }
-
-                l_Members.insert(it_Entity.GetUUID());
+                return Unexpected{ l_Template.GetError() };
             }
 
-            // A copy, with what it names inside it by local IDs and nothing outside it, so the scene's own entities are left as they are
-            Scene l_Copy;
-            const Expected<Entity, std::string> l_Copied = LoadEntityFromText(l_Copy, SaveEntityToText(scene, root), {}, {});
-            if (!l_Copied)
-            {
-                return Unexpected{ l_Copied.GetError() };
-            }
+            Scene& l_Prefab = **l_Template;
 
-            l_Copy.RemapEntityReferences(*l_Copied, [&l_Members, instance](UUID& entity) { entity = l_Members.contains(entity) ? Prefab::FindLocalID(instance, entity) : UUID(); });
-
-            std::string l_Text = std::format("Format: {}\nEntities:", Prefab::c_FormatVersion);
-            for (Entity it_Entity = *l_Copied; it_Entity; it_Entity = l_Copy.GetNextInSubtree(it_Entity, *l_Copied))
-            {
-                AppendEntity(l_Text, it_Entity, Prefab::FindLocalID(instance, it_Entity.GetUUID()), it_Entity != *l_Copied ? Prefab::FindLocalID(instance, it_Entity.GetParent().GetUUID()) : UUID());
-            }
-
-            return l_Text + "\n";
+            return WriteTemplate(l_Prefab, l_Prefab.GetFirstRoot());
         }
 
-        // Saved as a new instance of it is, made in a scene of its own, so each entity's UUID tells back the local ID it has in the template
+        // A copy first, through the text a scene keeps it as, so what the template names that it no longer has is cleared, as a prefab names nothing outside itself
         Expected<std::string, std::string> SavePrefabTemplateToText(Scene& prefab)
         {
             TR_PROFILE_FUNCTION();
@@ -3675,23 +3954,32 @@ namespace Trinity
                 return Unexpected{ std::format("holds {} entities with no parent, and a prefab holds one and its subtree", prefab.GetRootCount()) };
             }
 
-            for (Entity it_Entity = l_Root; it_Entity; it_Entity = prefab.GetNextInSubtree(it_Entity, l_Root))
+            Scene l_Copy;
+            const Expected<Entity, std::string> l_Copied = LoadEntityFromText(l_Copy, SaveEntityToText(prefab, l_Root), {}, {});
+            if (!l_Copied)
             {
-                if (it_Entity.Has<PrefabInstanceComponent>())
-                {
-                    return Unexpected{ std::format("entity {} is an instance of a prefab, which a prefab cannot hold yet", it_Entity.GetUUID()) };
-                }
+                return Unexpected{ l_Copied.GetError() };
             }
 
-            const UUID l_Instance = UUID::Generate();
-            Scene l_Scratch;
-            Entity l_Instanced = ExpandInstance(l_Scratch, prefab, GetInstanceMembers(prefab, l_Instance, {}), UUID(), l_Instance);
-            l_Instanced.Remove<PrefabInstanceComponent>();
+            // While an instance nested in it has its prefab missing, what it names may be one of that instance's entities, which are not there to tell, so it is kept
+            bool l_HoldsMissing = false;
+            for (const auto [it_Entity, it_Instance] : l_Copy.GetRegistry().view<PrefabInstanceComponent>().each())
+            {
+                l_HoldsMissing = l_HoldsMissing || it_Instance.IsMissing();
+            }
 
-            return SavePrefabToText(l_Scratch, l_Instanced, l_Instance);
+            l_Copy.RemapEntityReferences(*l_Copied, [&l_Copy, l_HoldsMissing](UUID& entity)
+            {
+                if (entity.IsValid() && !l_HoldsMissing && !l_Copy.FindEntityByUUID(entity))
+                {
+                    entity = UUID();
+                }
+            });
+
+            return WriteTemplate(l_Copy, *l_Copied);
         }
 
-        Expected<void, std::string> LoadPrefabFromText(Scene& prefab, std::string_view text)
+        Expected<void, std::string> LoadPrefabFromText(Scene& prefab, std::string_view text, UUID asset)
         {
             TR_PROFILE_FUNCTION();
             TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
@@ -3704,7 +3992,7 @@ namespace Trinity
             }
 
             const std::vector<std::string_view> l_Lines = SplitLines(text);
-            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root, false, l_Lines.size());
+            Expected<std::vector<FileEntity>, std::string> l_Entities = ReadEntities(*l_Root, l_Lines.size());
             if (!l_Entities)
             {
                 return Unexpected{ l_Entities.GetError() };
@@ -3716,7 +4004,19 @@ namespace Trinity
                 return Unexpected{ std::string("does not hold one entity and its subtree, with the entity first") };
             }
 
+            // Read as the resolver reads it, so an instance of a prefab holding it is refused
+            const bool l_Resolving = asset.IsValid() && std::ranges::find(s_State->Resolving, asset) == s_State->Resolving.end();
+            if (l_Resolving)
+            {
+                s_State->Resolving.push_back(asset);
+            }
+
             Expected<std::vector<PlannedEntity>, std::string> l_Plan = PlanEntities(*l_Entities, l_Lines);
+            if (l_Resolving)
+            {
+                s_State->Resolving.pop_back();
+            }
+
             if (!l_Plan)
             {
                 return Unexpected{ l_Plan.GetError() };
@@ -3876,57 +4176,174 @@ namespace Trinity
             std::unordered_map<std::string, std::size_t> l_Unknown;
             for (const PrefabOverride& it_Override : overrides)
             {
-                const Entity l_Entity = l_Scene.FindEntityByUUID(it_Override.Entity);
-                const Entity l_Base = l_Scratch->FindEntityByUUID(it_Override.Entity);
-                switch (it_Override.Type)
+                if (const Expected<void, std::string> l_Made = MakeBaseOwn(l_Scene, *l_Scratch, it_Override, l_Unknown); !l_Made)
                 {
-                    case PrefabOverride::Kind::Value:
-                    case PrefabOverride::Kind::AddedComponent:
-                    {
-                        CopyComponentValue(l_Base, l_Entity, it_Override.Component, it_Override.Path, l_Unknown);
-
-                        break;
-                    }
-                    case PrefabOverride::Kind::RemovedComponent:
-                    {
-                        static_cast<void>(RemoveNamedComponent(l_Base, it_Override.Component));
-
-                        break;
-                    }
-                    case PrefabOverride::Kind::RemovedEntity:
-                    {
-                        l_Scratch->DestroyEntity(l_Base);
-
-                        break;
-                    }
-                    case PrefabOverride::Kind::AddedEntity:
-                    {
-                        for (Entity it_Entity = l_Entity; it_Entity; it_Entity = l_Scene.GetNextInSubtree(it_Entity, l_Entity))
-                        {
-                            if (it_Entity.Has<PrefabInstanceComponent>())
-                            {
-                                return Unexpected{ std::format("entity {} is an instance of a prefab, which a prefab cannot hold yet", it_Entity.GetUUID()) };
-                            }
-                        }
-
-                        const Expected<Entity, std::string> l_Copied = LoadEntityFromText(*l_Scratch, SaveEntityToText(l_Scene, l_Entity), l_Scratch->FindEntityByUUID(l_Entity.GetParent().GetUUID()), {});
-                        if (!l_Copied)
-                        {
-                            return Unexpected{ l_Copied.GetError() };
-                        }
-
-                        break;
-                    }
+                    return Unexpected{ l_Made.GetError() };
                 }
             }
 
-            Entity l_Root = l_Scratch->FindEntityByUUID(root.GetUUID());
-            l_Root.Remove<PrefabInstanceComponent>();
-
-            return SavePrefabToText(*l_Scratch, l_Root, root.Get<PrefabInstanceComponent>().Instance);
+            return SavePrefabToText(*l_Scratch, l_Scratch->FindEntityByUUID(root.GetUUID()), root.Get<PrefabInstanceComponent>().Instance);
         }
 
-        // An instance is found from its root, so one whose prefab is missing, which keeps its text only, is left as it is
+        std::vector<UUID> GetOverrideLevels(Entity root, const PrefabOverride & override)
+        {
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            Scope<Scene> l_Scratch;
+            std::vector<UUID> l_Prefabs;
+            if (!CheckOverrides(root, std::span<const PrefabOverride>(&override, 1), l_Scratch))
+            {
+                return l_Prefabs;
+            }
+
+            for (const Prefab::Level& it_Level : GetOverrideChain(root, override))
+            {
+                l_Prefabs.push_back(it_Level.Prefab);
+            }
+
+            return l_Prefabs;
+        }
+
+        // From the level down to the instance: the level's prefab made as the instance has what the overrides change, then each prefab between, read again against the one below as it now is, which drops what it changed of a component no longer there, with the same values made its own, which takes out an override of them it had. Each level's instance is made under the scene's UUIDs, so what the values name is told back as the outermost's are
+        Expected<std::vector<PrefabText>, std::string> ApplyPrefabOverrides(Entity root, std::span<const PrefabOverride> overrides, std::size_t level)
+        {
+            using Kind = PrefabOverride::Kind;
+
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            Scope<Scene> l_Scratch;
+            if (const Expected<void, std::string> l_Checked = CheckOverrides(root, overrides, l_Scratch); !l_Checked)
+            {
+                return Unexpected{ l_Checked.GetError() };
+            }
+
+            std::vector<Prefab::Level> l_Levels;
+            for (const PrefabOverride& it_Override : overrides)
+            {
+                const std::vector<Prefab::Level> l_Chain = GetOverrideChain(root, it_Override);
+                if (l_Chain.size() <= level)
+                {
+                    return Unexpected{ std::format("the change of entity {}{}{} goes to no prefab {} level(s) inside instance {}", it_Override.Entity, it_Override.Component.empty() ? "" : " in ", it_Override.Component, level, root.GetUUID()) };
+                }
+
+                if (!l_Levels.empty() && l_Levels[level].Instance != l_Chain[level].Instance)
+                {
+                    return Unexpected{ std::format("the changes are not all of one instance {} level(s) inside instance {}", level, root.GetUUID()) };
+                }
+
+                l_Levels = l_Chain;
+            }
+
+            l_Levels.resize(level + 1);
+
+            // What each level between writes now, against the prefabs it holds as they are
+            std::vector<std::string> l_Old;
+            for (std::size_t it_Level = 0; it_Level < level; ++it_Level)
+            {
+                Scene* l_Template = FindPrefabTemplate(l_Levels[it_Level].Prefab);
+                if (l_Template == nullptr || !l_Template->GetFirstRoot())
+                {
+                    return Unexpected{ std::format("prefab {} is not there", l_Levels[it_Level].Prefab) };
+                }
+
+                l_Old.push_back(WriteTemplate(*l_Template, l_Template->GetFirstRoot()));
+            }
+
+            Scene& l_Scene = *root.GetScene();
+            std::unordered_map<std::string, std::size_t> l_Unknown;
+            std::vector<Scope<Scene>> l_Made;
+            std::vector<PrefabText> l_Texts;
+            Expected<void, std::string> l_Result;
+            const std::size_t l_Overlays = s_State->Overlay.size();
+            for (std::size_t it_Level = level + 1; it_Level-- > 0 && l_Result;)
+            {
+                const Prefab::Level& l_Level = l_Levels[it_Level];
+                Scene* l_Template = it_Level == level ? FindPrefabTemplate(l_Level.Prefab) : nullptr;
+                if (it_Level < level)
+                {
+                    Scope<Scene> l_Read = CreateScope<Scene>();
+                    if (const Expected<void, std::string> l_Loaded = LoadPrefabFromText(*l_Read, l_Old[it_Level]); !l_Loaded)
+                    {
+                        l_Result = Unexpected{ std::format("prefab {} does not read again: {}", l_Level.Prefab, l_Loaded.GetError()) };
+
+                        break;
+                    }
+
+                    l_Template = l_Read.get();
+                    SetOverlay(l_Level.Prefab, l_Template);
+                    l_Made.push_back(std::move(l_Read));
+                }
+
+                if (l_Template == nullptr || !l_Template->GetFirstRoot())
+                {
+                    l_Result = Unexpected{ std::format("prefab {} is not there", l_Level.Prefab) };
+
+                    break;
+                }
+
+                Scene l_Base;
+                const Entity l_BaseRoot = ExpandInstance(l_Base, *l_Template, GetInstanceMembers(*l_Template, l_Level.Instance, {}), l_Level.Prefab, l_Level.Instance);
+                for (const PrefabOverride& it_Override : overrides)
+                {
+                    const Entity l_Entity = l_Scene.FindEntityByUUID(it_Override.Entity);
+                    const Entity l_Own = l_Base.FindEntityByUUID(it_Override.Entity);
+                    if (it_Level == level)
+                    {
+                        l_Result = MakeBaseOwn(l_Scene, l_Base, it_Override, l_Unknown);
+                    }
+                    else if (l_Own && (it_Override.Type == Kind::Value || it_Override.Type == Kind::AddedComponent))
+                    {
+                        CopyComponentValue(l_Own, l_Entity, it_Override.Component, it_Override.Path, l_Unknown);
+                    }
+
+                    if (!l_Result)
+                    {
+                        break;
+                    }
+                }
+
+                Expected<std::string, std::string> l_Text = l_Result ? SavePrefabToText(l_Base, l_BaseRoot, l_Level.Instance) : Expected<std::string, std::string>(std::string());
+                if (l_Result && !l_Text)
+                {
+                    l_Result = Unexpected{ l_Text.GetError() };
+                }
+
+                if (!l_Result)
+                {
+                    break;
+                }
+
+                if (it_Level == level || *l_Text != l_Old[it_Level])
+                {
+                    l_Texts.push_back({ .Prefab = l_Level.Prefab, .Text = *l_Text });
+                }
+
+                if (it_Level > 0)
+                {
+                    Scope<Scene> l_New = CreateScope<Scene>();
+                    if (const Expected<void, std::string> l_Loaded = LoadPrefabFromText(*l_New, *l_Text); !l_Loaded)
+                    {
+                        l_Result = Unexpected{ std::format("prefab {} as it would be written does not read back: {}", l_Level.Prefab, l_Loaded.GetError()) };
+
+                        break;
+                    }
+
+                    SetOverlay(l_Level.Prefab, l_New.get());
+                    l_Made.push_back(std::move(l_New));
+                }
+            }
+
+            s_State->Overlay.resize(l_Overlays);
+            if (!l_Result)
+            {
+                return Unexpected{ l_Result.GetError() };
+            }
+
+            return l_Texts;
+        }
+
+        // An instance is found from its root, so one whose prefab is missing, which keeps its text only, is left as it is. Whether each prefab holds the one is asked once
         std::vector<PrefabInstanceText> SavePrefabInstances(Scene& scene, UUID prefab)
         {
             TR_PROFILE_FUNCTION();
@@ -3938,7 +4355,23 @@ namespace Trinity
                 return l_Instances;
             }
 
-            const auto a_IsInstance = [prefab](Entity entity) { return entity.Has<PrefabInstanceComponent>() && entity.Get<PrefabInstanceComponent>().Prefab == prefab && !entity.Get<PrefabInstanceComponent>().IsMissing(); };
+            std::unordered_map<UUID, bool> l_Holds;
+            const auto a_IsInstance = [prefab, &l_Holds](Entity entity)
+            {
+                const PrefabInstanceComponent* l_Instance = entity.Has<PrefabInstanceComponent>() ? &entity.Get<PrefabInstanceComponent>() : nullptr;
+                if (l_Instance == nullptr || l_Instance->IsMissing())
+                {
+                    return false;
+                }
+
+                const auto [a_Found, a_Inserted] = l_Holds.try_emplace(l_Instance->Prefab, false);
+                if (a_Inserted)
+                {
+                    a_Found->second = Prefab::Holds(l_Instance->Prefab, prefab);
+                }
+
+                return a_Found->second;
+            };
             for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
             {
                 if (!a_IsInstance(it_Entity))
