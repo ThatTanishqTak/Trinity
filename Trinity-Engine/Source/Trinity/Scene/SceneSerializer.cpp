@@ -3,6 +3,7 @@
 #include "Trinity/Scene/LiveScenes.hpp"
 
 #include "Trinity/Asset/AssetManager.hpp"
+#include "Trinity/Asset/ModelData.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
@@ -19,6 +20,7 @@
 #include <array>
 #include <charconv>
 #include <format>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -43,8 +45,14 @@ namespace Trinity
         constexpr std::string_view c_RemovedComponentsKey = "RemovedComponents";
         constexpr std::string_view c_RemovedEntitiesKey = "RemovedEntities";
         constexpr std::string_view c_MissingPrefabName = "Missing Prefab";
+        // A model cooked before its format had a name
+        constexpr std::string_view c_UnnamedModelName = "Model";
         // Between the keys and indices of an override's path, such as Scripts/0/Fields/Health
         constexpr char c_PathSeparator = '/';
+        // The indent of an entity's components' keys, under the dash of its entry
+        constexpr std::uint32_t c_FieldIndent = 6;
+        // FNV-1a's offset basis, which a model's root's local ID is, and every node's is hashed on from
+        constexpr std::uint64_t c_ModelRootKey = 14695981039346656037ull;
 
         using MigrationFunction = void (*)(YAML::Node& root);
 
@@ -361,10 +369,11 @@ namespace Trinity
             reader.Read("OrderInLayer", component.OrderInLayer);
         }
 
+        // The materials an item a line, so an instance changes one slot by its index
         void SaveMeshRenderer(const MeshRendererComponent& component, ComponentWriter& writer)
         {
             writer.Write("Mesh", component.Mesh);
-            writer.Write("Materials", std::span<const UUID>(component.Materials));
+            writer.WriteList("Materials", std::span<const UUID>(component.Materials));
             writer.Write("CastShadows", component.CastShadows);
         }
 
@@ -1424,8 +1433,6 @@ namespace Trinity
         // The entity, its own UUID and its parent's written, or none for one written as a root
         void AppendEntity(std::string& text, Entity entity, UUID id, UUID parent)
         {
-            constexpr std::uint32_t c_FieldIndent = 6;
-
             SceneRegistry& l_Registry = entity.GetScene()->GetRegistry();
 
             text += std::format("\n  - {}: {}", c_EntityKey, ToHex(id));
@@ -1455,6 +1462,61 @@ namespace Trinity
                     AppendUnknown(text, it_Unknown.Yaml, c_FieldIndent);
                 }
             }
+        }
+
+        // A component as AppendEntity writes one
+        template<Component T>
+        void AppendComponent(std::string& text, const T& component, void (*save)(const T&, ComponentWriter&))
+        {
+            text += std::format("\n    {}:", FormatString(T::c_TypeName));
+            ComponentWriter l_Writer(text, c_FieldIndent);
+            save(component, l_Writer);
+        }
+
+        // An entity of a model's prefab as AppendEntity writes one, with a name, a transform and, for a node with a mesh, a mesh renderer
+        void AppendModelEntity(std::string& text, UUID id, UUID parent, std::string_view name, const TransformComponent& transform, const MeshRendererComponent* renderer)
+        {
+            text += std::format("\n  - {}: {}", c_EntityKey, ToHex(id));
+            if (parent.IsValid())
+            {
+                text += std::format("\n    {}: {}", c_ParentKey, ToHex(parent));
+            }
+
+            AppendComponent(text, TagComponent{ .Tag = TaggedString<MemoryTag::Scene>(name) }, SaveTag);
+            AppendComponent(text, transform, SaveTransform);
+            if (renderer != nullptr)
+            {
+                AppendComponent(text, *renderer, SaveMeshRenderer);
+            }
+        }
+
+        // FNV-1a, on from the hash given
+        std::uint64_t HashOn(std::uint64_t hash, std::string_view text)
+        {
+            for (const char it_Character : text)
+            {
+                hash = (hash ^ static_cast<std::uint8_t>(it_Character)) * 1099511628211ull;
+            }
+
+            return hash;
+        }
+
+        // The root's local ID, then each node's, hashed on from its parent's with its name, the name's length first so no two paths of names read alike, and how many siblings before it have that name
+        std::vector<UUID> MakeModelLocalIDs(const ModelData& model)
+        {
+            std::vector<UUID> l_IDs{ UUID(c_ModelRootKey) };
+            l_IDs.reserve(model.Nodes.size() + 1);
+            std::map<std::pair<std::int32_t, std::string_view>, std::uint32_t> l_Named;
+            for (const ModelNode& it_Node : model.Nodes)
+            {
+                TR_CORE_ASSERT(it_Node.Parent >= ModelNode::c_NoParent && it_Node.Parent < static_cast<std::int32_t>(l_IDs.size()) - 1, "A model's node comes after its parent");
+
+                const UUID l_Parent = it_Node.Parent == ModelNode::c_NoParent ? l_IDs.front() : l_IDs[static_cast<std::size_t>(it_Node.Parent) + 1];
+                const std::uint32_t l_Before = l_Named[{ it_Node.Parent, it_Node.Name }]++;
+                l_IDs.emplace_back(HashOn(l_Parent.GetValue(), std::format("{}:{}#{};", it_Node.Name.size(), it_Node.Name, l_Before)));
+            }
+
+            return l_IDs;
         }
 
         void LoadComponent(Entity entity, const ComponentSerializer& serializer, SceneRegistry::common_type& storage, const YAML::Node& node)
@@ -3082,6 +3144,22 @@ namespace Trinity
         *m_Output += FormatString(value);
     }
 
+    // Items' dashes one level in, as BeginList puts them
+    void ComponentWriter::WriteList(std::string_view key, std::span<const UUID> values)
+    {
+        TR_CORE_ASSERT(m_Depth == 0 || m_Blocks[m_Depth - 1].Kind != BlockKind::InlineMap, "ComponentWriter: a block sequence inside an inline map");
+
+        WriteKeyName(key);
+        *m_Output += values.empty() ? " []" : "";
+        for (const UUID it_Value : values)
+        {
+            *m_Output += '\n';
+            m_Output->append(m_Indent + 2, ' ');
+            *m_Output += "- ";
+            *m_Output += ToHex(it_Value);
+        }
+    }
+
     ComponentReader::ComponentReader(const YAML::Node& node, std::string_view componentName) : m_Node(&node), m_ComponentName(componentName)
     {
 
@@ -3922,6 +4000,26 @@ namespace Trinity
             LoadComponent(entity, *FindSerializer(name), *l_Storage, l_Value);
 
             return {};
+        }
+
+        // Any thread, since it reads no scene, and of the serializers only the engine's own, through their functions
+        std::string WriteModelPrefab(const ModelData& model)
+        {
+            const std::vector<UUID> l_IDs = MakeModelLocalIDs(model);
+            std::string l_Text = std::format("Format: {}\nEntities:", Prefab::c_FormatVersion);
+            AppendModelEntity(l_Text, l_IDs.front(), {}, model.Name.empty() ? c_UnnamedModelName : std::string_view(model.Name), {}, nullptr);
+            for (std::size_t it_Node = 0; it_Node < model.Nodes.size(); ++it_Node)
+            {
+                const ModelNode& l_Node = model.Nodes[it_Node];
+                MeshRendererComponent l_Renderer;
+                l_Renderer.Mesh = l_Node.Mesh;
+                l_Renderer.Materials.assign(l_Node.Materials.begin(), l_Node.Materials.end());
+
+                const UUID l_Parent = l_Node.Parent == ModelNode::c_NoParent ? l_IDs.front() : l_IDs[static_cast<std::size_t>(l_Node.Parent) + 1];
+                AppendModelEntity(l_Text, l_IDs[it_Node + 1], l_Parent, l_Node.Name, TransformComponent{ .Position = l_Node.Translation, .Rotation = l_Node.Rotation, .Scale = l_Node.Scale }, l_Node.Mesh.IsValid() ? &l_Renderer : nullptr);
+            }
+
+            return l_Text + "\n";
         }
 
         // The subtree made the prefab's template first, so the instances in it are written nested in the prefab, as a scene writes its instances

@@ -16,10 +16,13 @@ namespace Trinity
         return std::format("{}/Models/{}.trmodel", Project::c_CacheMount, id);
     }
 
-    // Each node a map in a block sequence. A node without a mesh leaves out the mesh and its materials
+    // The name, then each node a map in a block sequence. A node without a mesh leaves out the mesh and its materials
     std::string WriteModelData(const ModelData& model)
     {
-        std::string l_Text = std::format("Format: {}\nNodes:{}", ModelData::c_FormatVersion, model.Nodes.empty() ? " []" : "");
+        std::string l_Text = std::format("Format: {}", ModelData::c_FormatVersion);
+        ComponentWriter l_Header(l_Text, 0);
+        l_Header.Write("Name", model.Name);
+        l_Text += std::format("\nNodes:{}", model.Nodes.empty() ? " []" : "");
         for (const ModelNode& it_Node : model.Nodes)
         {
             l_Text += "\n  -";
@@ -57,6 +60,13 @@ namespace Trinity
         }
 
         ModelData l_Model;
+        std::string l_MalformedName;
+        CookedText::ReadString(l_Map, "Name", l_Model.Name, l_MalformedName);
+        if (!l_MalformedName.empty())
+        {
+            return Unexpected{ std::string("Name is malformed") };
+        }
+
         l_Model.Nodes.reserve(l_Nodes.size());
         for (const YAML::Node it_Node : l_Nodes)
         {

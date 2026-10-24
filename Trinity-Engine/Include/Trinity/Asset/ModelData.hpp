@@ -34,15 +34,19 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ModelNode&) const = default;
     };
 
-    // The node hierarchy an importer found in a model, parents before their children, as dropping the model creates it
+    // The node hierarchy an importer found in a model, parents before their children, as an instance of the model has it under a root named for the model. Format 2 added the name, so a format 1 model reads with none
     struct ModelData
     {
-        static constexpr std::uint32_t c_FormatVersion = 1;
+        static constexpr std::uint32_t c_FormatVersion = 2;
 
+        std::string Name;
         std::vector<ModelNode> Nodes;
 
         [[nodiscard]] bool operator==(const ModelData&) const = default;
     };
+
+    // What the asset registry imports a model file as, which loads as a prefab of its hierarchy
+    constexpr std::string_view c_ModelAssetType = "Model";
 
     [[nodiscard]] TRINITY_API std::string GetCookedModelPath(UUID id);
 

@@ -4,6 +4,7 @@
 #include "Trinity/Scene/PrefabLoaders.hpp"
 
 #include "Trinity/Asset/AssetManager.hpp"
+#include "Trinity/Asset/AssetRegistry.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Scene/Entity.hpp"
@@ -76,6 +77,7 @@ namespace Trinity
         }
 
         PrefabLoader* s_Loader = nullptr;
+        ModelPrefabLoader* s_ModelLoader = nullptr;
     }
 
     namespace Prefab
@@ -349,14 +351,39 @@ namespace Trinity
         return {};
     }
 
+    std::string ModelPrefabLoader::GetLoadPath(const AssetRecord& record) const
+    {
+        return GetCookedModelPath(record.ID);
+    }
+
+    // The prefab's text is made here, on the worker, as a prefab's is read
+    Expected<Asset*, std::string> ModelPrefabLoader::Load(std::span<const std::byte> data) const
+    {
+        const Expected<ModelData, std::string> l_Model = ParseModelData(std::string_view(reinterpret_cast<const char*>(data.data()), data.size()));
+        if (!l_Model)
+        {
+            return Unexpected{ l_Model.GetError() };
+        }
+
+        return Memory::New<PrefabAsset>(MemoryTag::Assets, SceneSerializer::WriteModelPrefab(*l_Model));
+    }
+
+    // It holds no other prefab, so its template is made here, as a prefab's that holds none is
+    Expected<void, std::string> ModelPrefabLoader::Finish(Asset& asset) const
+    {
+        return m_Prefabs.Finish(asset);
+    }
+
     namespace PrefabLoaders
     {
         void Register()
         {
-            TR_CORE_ASSERT(s_Loader == nullptr, "The prefab loader is registered once.");
+            TR_CORE_ASSERT(s_Loader == nullptr, "The prefab loaders are registered once.");
 
             s_Loader = Memory::New<PrefabLoader>(MemoryTag::Engine);
+            s_ModelLoader = Memory::New<ModelPrefabLoader>(MemoryTag::Engine);
             AssetManager::RegisterLoader(*s_Loader);
+            AssetManager::RegisterLoader(*s_ModelLoader);
         }
 
         void Unregister()
@@ -366,8 +393,11 @@ namespace Trinity
                 return;
             }
 
+            AssetManager::UnregisterLoader(s_ModelLoader->GetAssetType());
             AssetManager::UnregisterLoader(s_Loader->GetAssetType());
+            Memory::Delete(s_ModelLoader);
             Memory::Delete(s_Loader);
+            s_ModelLoader = nullptr;
             s_Loader = nullptr;
         }
     }

@@ -28,6 +28,7 @@ namespace YAML
 namespace Trinity
 {
     class Entity;
+    struct ModelData;
 
     class TRINITY_API ComponentWriter
     {
@@ -50,6 +51,8 @@ namespace Trinity
         void Write(std::string_view key, const glm::quat& value);
         void Write(std::string_view key, std::span<const UUID> values);
         void Write(std::string_view key, std::span<const glm::vec2> values);
+        // A block sequence, an item a line, so a prefab instance can change one item by its index, where a flow sequence changes as a whole. Written as [] when empty. Not inside an inline map
+        void WriteList(std::string_view key, std::span<const UUID> values);
         // A field with its type, on one line, such as Speed: {Type: Float, Value: 5}
         void Write(std::string_view key, const ScriptFieldValue& value);
 
@@ -182,6 +185,8 @@ namespace Trinity
         [[nodiscard]] TRINITY_API Expected<std::string, std::string> SavePrefabToText(Scene& scene, Entity root, UUID instance);
         // A template's .trprefab text, as prefab mode saves the prefab it edits: its one root and the subtree, each entity's UUID its local ID, with each instance in it nested in the prefab. An entity named that the template does not have is cleared, as SavePrefabToText clears one. Refused for a template of more than one root
         [[nodiscard]] TRINITY_API Expected<std::string, std::string> SavePrefabTemplateToText(Scene& prefab);
+        // A model's hierarchy as the .trprefab text of a prefab an instance of the model is an instance of: a root named for the model, or Model for one cooked without a name, and under it an entity for each node, named as it is, with its transform and, for a node with a mesh, a mesh renderer of its mesh and materials. Each node's local ID is made from its name and its parents', a sibling of the same name told by how many come before it, so a reimport keeps the local ID of each node whose path of names stays the same, and one renamed, or moved under another parent, is one removed and another added, as Unity's model prefabs have it. Any thread
+        [[nodiscard]] TRINITY_API std::string WriteModelPrefab(const ModelData& model);
         // The prefab's entities under their local IDs, in place of the scene's own, as a template that instances are made from, with each instance nested in it made from its own prefab's template as a scene's instances are. Given the prefab's UUID, an instance in it of a prefab that holds it is refused as the resolver refuses one, which a template read again after its file changes needs
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadPrefabFromText(Scene& prefab, std::string_view text, UUID asset = {});
         // A new instance of the prefab, unchanged, its root put as LoadEntityFromText puts one. Refused for a prefab the resolver does not find, or when an entity of the instance's UUIDs is already in the scene

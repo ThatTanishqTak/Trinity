@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/Asset/Asset.hpp"
+#include "Trinity/Asset/ModelData.hpp"
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Expected.hpp"
 #include "Trinity/Core/Export.hpp"
@@ -102,5 +103,22 @@ namespace Trinity
 
         [[nodiscard]] Expected<Asset*, std::string> Load(std::span<const std::byte> data) const override;
         [[nodiscard]] Expected<void, std::string> Finish(Asset& asset) const override;
+    };
+
+    // Reads the hierarchy a model's import cooked as the prefab SceneSerializer::WriteModelPrefab makes of it, so a model's UUID loads as a PrefabAsset, which its instances are made from as a prefab's are. A model not imported yet, or whose hierarchy cannot be read, fails to load, and its instances are kept as their text
+    class TRINITY_API ModelPrefabLoader final : public AssetLoader
+    {
+    public:
+        [[nodiscard]] std::string_view GetAssetType() const override
+        {
+            return c_ModelAssetType;
+        }
+
+        [[nodiscard]] std::string GetLoadPath(const AssetRecord& record) const override;
+        [[nodiscard]] Expected<Asset*, std::string> Load(std::span<const std::byte> data) const override;
+        [[nodiscard]] Expected<void, std::string> Finish(Asset& asset) const override;
+
+    private:
+        PrefabLoader m_Prefabs;
     };
 }
