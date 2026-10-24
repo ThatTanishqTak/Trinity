@@ -10,6 +10,7 @@
 #include <format>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -73,7 +74,7 @@ Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelD
 [[nodiscard]] std::optional<std::string> FindChildProblem(Trinity::Scene& scene, Trinity::UUID parent);
 // Why the entity cannot move under the parent, or nothing when it can: one of a prefab's entities in an instance keeps its place, and nothing goes under an entity standing in for a missing prefab
 [[nodiscard]] std::optional<std::string> FindMoveProblem(Trinity::Scene& scene, Trinity::UUID entity, Trinity::UUID parent);
-// Why the entity and its subtree cannot become a prefab, or nothing when they can: a prefab holds no instance of another yet, and one of a prefab's entities in an instance is that prefab's
+// Why the entity and its subtree cannot become a prefab, or nothing when they can: one of a prefab's entities in an instance is that prefab's, and an instance whose prefab is missing goes into none until the prefab is back
 [[nodiscard]] std::optional<std::string> FindPrefabProblem(Trinity::Entity entity);
 // Why the entity and its subtree cannot be copied or duplicated, or nothing when they can: an instance whose prefab is missing is kept as text only the entity standing in for it holds
 [[nodiscard]] std::optional<std::string> FindCopyProblem(Trinity::Entity entity);
@@ -173,43 +174,30 @@ private:
     std::string m_Label;
 };
 
-// The entity made the first instance of the prefab just written from it, which keeps every UUID it has, since the prefab's local IDs were told back from them for this instance. Undo makes it plain entities again, and leaves the prefab
+// What an entity is to be linked to: the prefab and instance its root's component names, or none for an entity that is no instance's root
+struct PrefabLink
+{
+    Trinity::UUID Entity;
+    std::optional<Trinity::PrefabInstanceComponent> Instance;
+};
+
+// Entities linked to prefabs as given, each once, keeping every UUID, so what names them still does: a new prefab's first instance linked to it, with what is nested in it now no instance's root of its own, or an instance unpacked, as Unity's Unpack leaves one, its own entities plain and each instance nested in its prefab an instance of its own. Undo links each as it was, so each instance changes of its prefab what it did before
 class LinkPrefabCommand final : public EditorCommand
 {
 public:
-    LinkPrefabCommand(Trinity::UUID entity, Trinity::UUID prefab, Trinity::UUID instance);
+    LinkPrefabCommand(std::vector<PrefabLink> links, Trinity::UUID subject, std::string label);
 
     [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
     void Undo(Trinity::Scene& scene) override;
 
     [[nodiscard]] std::string GetName() const override { return m_Label; }
-    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Subject; }
     [[nodiscard]] std::size_t GetMemorySize() const override;
 
 private:
-    Trinity::UUID m_Entity;
-    Trinity::UUID m_Prefab;
-    Trinity::UUID m_Instance;
-    std::string m_Label;
-};
-
-// An instance's entities made plain ones, as Unity's Unpack makes them, keeping every UUID, so what names them still does. Undo links them again, so the instance changes of its prefab what it did before
-class UnpackPrefabCommand final : public EditorCommand
-{
-public:
-    explicit UnpackPrefabCommand(Trinity::UUID root);
-
-    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
-    void Undo(Trinity::Scene& scene) override;
-
-    [[nodiscard]] std::string GetName() const override { return m_Label; }
-    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Root; }
-    [[nodiscard]] std::size_t GetMemorySize() const override;
-
-private:
-    Trinity::UUID m_Root;
-    Trinity::UUID m_Prefab;
-    Trinity::UUID m_Instance;
+    std::vector<PrefabLink> m_Links;
+    std::vector<PrefabLink> m_Before;
+    Trinity::UUID m_Subject;
     std::string m_Label;
 };
 
@@ -235,13 +223,14 @@ private:
     Trinity::SceneSerializer::PrefabInstanceText m_After;
 };
 
-// What an instance changes of its prefab made the prefab's own: the writer writes the prefab's file with it and makes the prefab's template again, and every instance of the prefab in the scene is made again from that, keeping what each changes, so this one changes it no more. Undo writes back the text the prefab had and puts every instance back as it was, and redo does both again
+// What an instance changes of its prefab made the own of the prefab at the level, the instance's for 0 and one nested in it for each level down: the writer writes the file of that prefab, and of each between that changed the same, innermost first, makes their templates again, and makes every instance of them in the other scenes again, and every instance of them in this scene is made again from them, keeping what each changes, so this one changes it no more. Undo writes back the texts the prefabs had and puts every instance back as it was, and redo does both again
 class ApplyPrefabCommand final : public EditorCommand
 {
 public:
-    using Writer = std::function<bool(Trinity::UUID, const std::string&)>;
+    using Writer = std::function<bool(std::span<const Trinity::SceneSerializer::PrefabText>, const Trinity::Scene&)>;
 
-    ApplyPrefabCommand(Writer writer, Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string oldText, Trinity::UUID subject, std::string label);
+    // The old texts are each level's down to the one applied to, as their files held them
+    ApplyPrefabCommand(Writer writer, Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::size_t level, std::vector<Trinity::SceneSerializer::PrefabText> oldTexts, Trinity::UUID subject, std::string label);
 
     [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
     void Undo(Trinity::Scene& scene) override;
@@ -254,11 +243,11 @@ private:
     Writer m_Writer;
     Trinity::UUID m_Root;
     std::vector<Trinity::SceneSerializer::PrefabOverride> m_Overrides;
-    std::string m_OldText;
+    std::size_t m_Level = 0;
+    std::vector<Trinity::SceneSerializer::PrefabText> m_OldTexts;
     Trinity::UUID m_Subject;
     std::string m_Label;
-    Trinity::UUID m_Prefab;
-    std::string m_NewText;
+    std::vector<Trinity::SceneSerializer::PrefabText> m_NewTexts;
     std::vector<Trinity::SceneSerializer::PrefabInstanceText> m_Before;
     std::vector<Trinity::SceneSerializer::PrefabInstanceText> m_After;
 };

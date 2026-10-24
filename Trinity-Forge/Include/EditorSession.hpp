@@ -17,6 +17,7 @@
 #include "Trinity.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -68,6 +69,13 @@ public:
     {
         std::string Text;
         std::optional<float> Progress;
+    };
+
+    // What a prefab made from an instance's root is, as Unity asks when one is dragged into the Project window: an original, whose own entities are those the instance's prefab gave it, with the prefabs nested in that one nested in it still, or a variant of the instance's prefab, which keeps what the instance changes of it
+    enum class PrefabKind : std::uint8_t
+    {
+        Original,
+        Variant
     };
 
     // A project opened or created lately: its file, its name then and when, and whether the file was gone as the list was last read, as Forge starts and as a project closes
@@ -258,18 +266,20 @@ public:
     // A model's material's key, or nothing for a material of its own
     [[nodiscard]] std::optional<std::string> GetMaterialKey(Trinity::UUID material) const;
     bool CreateModel(Trinity::UUID model, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
-    // A prefab of the entity and its subtree, written into the folder as a file named after the entity, numbered when that is taken, and the entity made its first instance in one command, keeping every UUID it has. Undo makes it plain entities again and leaves the file, as in Unity. Its project path, or nothing, with a notice for an entity that cannot become one. Not while a copy plays
-    [[nodiscard]] std::optional<std::string> CreatePrefab(Trinity::UUID entity, std::string_view folder);
-    // A new instance of the prefab in one command, last under the parent or among the roots, or before the sibling. Its root goes to the position when one is given, as a drop into the Scene panel gives, which is then the instance's own, and otherwise keeps the prefab's transform, as a drop into the Hierarchy does
+    // A prefab of the entity and its subtree, written into the folder as a file named after the entity, numbered when that is taken, and the entity made its first instance in one command, keeping every UUID it has. The instances in the subtree are nested in it, and an instance's root makes the kind asked for: an original, as though the instance were unpacked first, or a variant, named after the entity as Enemy Variant. In prefab mode the open prefab's entity becomes an instance nested in it. Undo makes them as they were and leaves the file, as in Unity. Its project path, or nothing, with a notice for an entity that cannot become one. Not while a copy plays
+    [[nodiscard]] std::optional<std::string> CreatePrefab(Trinity::UUID entity, std::string_view folder, PrefabKind kind = PrefabKind::Original);
+    // A variant of the prefab beside its file, as Unity's Create > Prefab Variant makes one: its root an instance of the prefab that changes nothing, named after it, as Enemy Variant, numbered when that is taken. Not a step of the history, as no new asset is. Its project path, or nothing, logged
+    [[nodiscard]] std::optional<std::string> CreatePrefabVariant(Trinity::UUID prefab);
+    // A new instance of the prefab in one command, last under the parent or among the roots, or before the sibling. Its root goes to the position when one is given, as a drop into the Scene panel gives, which is then the instance's own, and otherwise keeps the prefab's transform, as a drop into the Hierarchy does. In prefab mode it is nested in the open prefab, refused with a notice for a prefab holding that one, which would then hold itself
     bool InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position);
     // The template the open scene's instances of the prefab are made from, which names the entities an instance removed. Null as the serializer finds none
     [[nodiscard]] Trinity::Scene* FindPrefabTemplate(Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()); }
     // What an instance changes of its prefab undone, in one command, so it is as its prefab has it. What names the changes, such as Position of Body, and the subject is the entity shown, which stays selected. Not while a copy plays
     bool RevertPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject);
-    // What an instance changes of its prefab made the prefab's own, in one command: its file is written at once, and every instance of it in the edited scene is made again from it, each keeping what else it changes. Undo writes the file back. A change made to the file outside Forge since the files were scanned is read first, so it is kept. Refused with a notice for a prefab whose file is gone, and for an entity added to the instance that is or holds an instance, which a prefab cannot hold yet. Not while a copy plays
-    bool ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject);
-    // As Unity's Unpack: the instance's entities made plain ones, keeping every UUID and what they hold, so nothing links them to the prefab, in one command. Refused with a notice for an entity standing in for a missing prefab, which has nothing to unpack until the prefab is back
-    bool UnpackPrefab(Trinity::UUID root);
+    // What an instance changes of its prefab made the own of the prefab at the level, 0 for the instance's prefab and each level down one nested in it, as SceneSerializer::GetOverrideLevels names them, in one command: the file of that prefab, and of each between it and the instance that changed the same, is written at once, and every instance of them, in the scene and in the open prefab, is made again from them, each keeping what else it changes. Undo writes the files back. A change made to a file outside Forge since the files were scanned is read first, so it is kept. Refused with a notice for a prefab whose file is gone, and for an instance added that the prefab would then hold itself through. Not while a copy plays
+    bool ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject, std::size_t level = 0);
+    // As Unity's Unpack: the instance's own entities made plain ones, keeping every UUID and what they hold, so nothing links them to its prefab, with each instance nested in that prefab made an instance of its own, and a variant's root its base's instance, in one command. Completely, as Unpack Completely, the instance and every instance in it are unpacked, so its subtree holds plain entities alone. Refused with a notice for an entity standing in for a missing prefab, which has nothing to unpack until the prefab is back, and for one whose prefab holds an instance whose prefab is missing, which only that prefab's file keeps
+    bool UnpackPrefab(Trinity::UUID root, bool completely = false);
     // As Unity's prefab mode: the prefab, as its file holds it, edited in isolation in a scene of its own, with a selection and a history of its own, while the scene keeps its own as they were. Save writes the file and makes every instance of it in the scene again from it, keeping what each changes, a step of neither history. Asked for mid-frame and opened at the next Update, once a copy playing has stopped and the unsaved changes of a prefab open already are settled. Play is refused while it is open
     void RequestOpenPrefab(Trinity::UUID prefab);
     // Back to the scene, after asking what to do with unsaved changes, which Cancel keeps open
@@ -287,7 +297,7 @@ public:
     bool DeleteEntity(Trinity::UUID entity);
     // A sprite of the texture at the point, its size in units, as a texture dropped into the Scene panel makes one, in one command
     bool CreateSprite(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size);
-    // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point. In prefab mode, as Unity keeps a prefab to one root, whatever is made, pasted or moved with no parent goes last under the prefab's root, keeping its place in the world, and the root is never moved, duplicated or deleted, each refused with a notice. No instance of a prefab goes into one, which waits for nested prefabs
+    // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point. In prefab mode, as Unity keeps a prefab to one root, whatever is made, pasted or moved with no parent goes last under the prefab's root, keeping its place in the world, and the root is never moved, duplicated or deleted, each refused with a notice. No instance of a prefab holding the open one goes into it, which would then hold itself
     bool CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent);
     // As Unity's GameObject menu makes them, each in one command and placed as a built-in shape is
     bool CreateEmpty(Trinity::UUID parent);
@@ -297,7 +307,7 @@ public:
     // The entity and its subtree as they are now, to paste into this scene or another until the project closes. While a copy plays, as the playing entity is, to paste once it stops. Refused with a notice, as Duplicate is, for one holding an instance whose prefab is missing
     void CopyEntity(Trinity::UUID entity);
     [[nodiscard]] bool HasCopiedEntity() const { return m_CopiedEntity.has_value(); }
-    // As Unity pastes: right after the original while the scene has it, else last under the parent it was copied from, else last among the roots. Not while a copy plays, nor while what was copied holds an instance whose prefab is gone since
+    // As Unity pastes: right after the original while the scene has it, else last under the parent it was copied from, else last among the roots. Not while a copy plays, nor while what was copied holds an instance whose prefab is gone since, or in prefab mode one whose prefab holds the open one
     bool PasteEntity();
     // Last under the parent
     bool PasteEntityAsChild(Trinity::UUID parent);
@@ -397,8 +407,11 @@ private:
     [[nodiscard]] Place FindPlace(Trinity::UUID parent, Trinity::UUID before);
     [[nodiscard]] glm::vec3 ToLocalPoint(Trinity::UUID parent, glm::vec3 point);
     [[nodiscard]] bool IsPrefabRoot(Trinity::UUID entity);
-    [[nodiscard]] bool RefuseNestedPrefab();
-    bool WritePrefab(Trinity::UUID prefab, const std::string& text);
+    [[nodiscard]] bool RefuseHoldingPrefab(Trinity::UUID prefab);
+    [[nodiscard]] std::optional<std::string> FindUnpackProblem(Trinity::Entity root, bool completely);
+    [[nodiscard]] std::string GetPrefabName(Trinity::UUID prefab) const;
+    [[nodiscard]] Trinity::Expected<std::size_t, std::string> ReplacePrefabs(std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene* own);
+    [[nodiscard]] std::optional<std::size_t> WritePrefabs(std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene* own);
     void UpdateChangedPrefabs();
     void OpenPrefab(Trinity::UUID prefab);
     void ClosePrefab();

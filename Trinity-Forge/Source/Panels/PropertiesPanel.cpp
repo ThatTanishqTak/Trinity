@@ -1357,8 +1357,8 @@ void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
     const Trinity::PrefabInstanceComponent& l_Instance = l_Root.Get<Trinity::PrefabInstanceComponent>();
     Trinity::Scene* l_Template = m_Session.FindPrefabTemplate(l_Instance.Prefab);
     Trinity::Scene& l_Scene = *entity.GetScene();
-    // The prefab's entity that one of the instance's would be, which names one the instance removed
-    const auto a_FindInPrefab = [&l_Instance, l_Template](Trinity::UUID uuid) { return l_Template != nullptr ? l_Template->FindEntityByUUID(Trinity::Prefab::FindLocalID(l_Instance.Instance, uuid)) : Trinity::Entity(); };
+    // The prefab's entity that one of the instance's would be, which names one the instance removed, one of a nested instance's too
+    const auto a_FindInPrefab = [&l_Instance, l_Template](Trinity::UUID uuid) { return l_Template != nullptr ? Trinity::Prefab::FindTemplateEntity(*l_Template, l_Instance.Instance, uuid) : Trinity::Entity(); };
     const auto a_IsUnder = [&entity](Trinity::Entity child) { return child && child.GetParent() && child.GetParent().GetUUID() == entity.GetUUID(); };
     const auto a_IsShown = [&](const PrefabOverride& change)
     {
@@ -1382,7 +1382,7 @@ void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
             const Trinity::Entity l_Removed = a_FindInPrefab(change.Entity);
             const Trinity::Entity l_Parent = l_Removed ? l_Removed.GetParent() : Trinity::Entity();
 
-            return l_Parent && Trinity::Prefab::MakeEntityUUID(l_Instance.Instance, l_Parent.GetUUID()) == entity.GetUUID();
+            return l_Parent && Trinity::Prefab::GetInstanceEntityUUID(l_Instance.Instance, l_Parent) == entity.GetUUID();
         }
 
         return change.Entity == entity.GetUUID();

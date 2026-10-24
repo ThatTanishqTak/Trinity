@@ -17,6 +17,7 @@
 #include <optional>
 #include <span>
 #include <system_error>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -1046,27 +1047,22 @@ void EditorSession::ScanAssets()
     StartImports();
 }
 
-// A prefab changed outside Forge, as by a text editor or version control, reaches the edited scene's instances as the files are scanned, each made again from it, keeping what it changes. Not a step of the history, as in Unity, and a scene playing keeps the prefab it started with
+// A prefab changed outside Forge, as by a text editor or version control, reaches the edited scene's instances as the files are scanned, each made again from it, keeping what it changes, and so do the prefabs holding it and their instances, and the instances nested in the open prefab. Not a step of either history, as in Unity, and a scene playing keeps the prefab it started with
 void EditorSession::UpdateChangedPrefabs()
 {
     for (auto& [it_Prefab, it_Text] : m_Prefabs.FindChanged(m_Registry.get()))
     {
         const std::string l_Path = m_Registry->Find(it_Prefab)->Path;
-        const std::vector<Trinity::SceneSerializer::PrefabInstanceText> l_Instances = Trinity::SceneSerializer::SavePrefabInstances(m_Scene, it_Prefab);
-        if (const Trinity::Expected<void, std::string> l_Replaced = m_Prefabs.Replace(it_Prefab, std::move(it_Text)); !l_Replaced)
+        const Trinity::SceneSerializer::PrefabText l_Text{ .Prefab = it_Prefab, .Text = std::move(it_Text) };
+        const Trinity::Expected<std::size_t, std::string> l_Made = ReplacePrefabs(std::span(&l_Text, 1), nullptr);
+        if (!l_Made)
         {
-            TR_ERROR("Forge: prefab {} changed, and cannot be read now, so its instances stay as they are: {}", l_Path, l_Replaced.GetError());
+            TR_ERROR("Forge: prefab {} changed, and cannot be read now, so its instances stay as they are: {}", l_Path, l_Made.GetError());
 
             continue;
         }
 
-        if (const Trinity::Expected<void, std::string> l_Restored = Trinity::SceneSerializer::RestorePrefabInstances(m_Scene, l_Instances); !l_Restored)
-        {
-            TR_ERROR("Forge: prefab {} changed, and not every instance could be made again from it: {}", l_Path, l_Restored.GetError());
-        }
-
-        Trinity::AssetManager::Reload(it_Prefab);
-        TR_INFO("Forge: prefab {} changed outside Forge, so its {} instance(s) in the scene were made again from it", l_Path, l_Instances.size());
+        TR_INFO("Forge: prefab {} changed outside Forge, so its {} instance(s) in the scene were made again from it", l_Path, *l_Made);
     }
 
     // In prefab mode the scene's selection waits for it to close
@@ -1074,6 +1070,51 @@ void EditorSession::UpdateChangedPrefabs()
     {
         m_Selection = {};
     }
+
+    if (m_Stage && m_Stage->Selection && !m_Stage->Scene.FindEntityByUUID(m_Stage->Selection))
+    {
+        m_Stage->Selection = {};
+    }
+}
+
+// The instances are saved against the templates they were made from first, so made again each keeps what it changes. The count is of the scene's instances holding the first prefab given, as the logs name them, though the open prefab's are made again too
+Trinity::Expected<std::size_t, std::string> EditorSession::ReplacePrefabs(std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene* own)
+{
+    std::vector<std::pair<Trinity::Scene*, std::vector<Trinity::SceneSerializer::PrefabInstanceText>>> l_Saved;
+    for (Trinity::Scene* it_Scene : { &m_Scene, m_Stage ? &m_Stage->Scene : nullptr })
+    {
+        if (it_Scene != nullptr && it_Scene != own)
+        {
+            l_Saved.emplace_back(it_Scene, Trinity::SceneSerializer::SavePrefabInstances(*it_Scene, texts.front().Prefab));
+        }
+    }
+
+    const Trinity::Expected<std::vector<Trinity::UUID>, std::string> l_Made = m_Prefabs.Replace(texts);
+    if (!l_Made)
+    {
+        return Trinity::Unexpected{ l_Made.GetError() };
+    }
+
+    std::size_t l_Count = 0;
+    for (const auto& [it_Scene, it_Instances] : l_Saved)
+    {
+        if (const Trinity::Expected<void, std::string> l_Restored = Trinity::SceneSerializer::RestorePrefabInstances(*it_Scene, it_Instances); !l_Restored)
+        {
+            TR_ERROR("Forge: prefab {} changed, and not every instance could be made again from it: {}", GetPrefabName(texts.front().Prefab), l_Restored.GetError());
+        }
+
+        if (it_Scene == &m_Scene)
+        {
+            l_Count += it_Instances.size();
+        }
+    }
+
+    for (const Trinity::UUID it_Prefab : *l_Made)
+    {
+        Trinity::AssetManager::Reload(it_Prefab);
+    }
+
+    return l_Count;
 }
 
 // The open prefab follows its file: one gone from the project closes prefab mode, and one changed outside Forge is read again while prefab mode has nothing unsaved, keeping its history, as the scene keeps its own. With unsaved changes they are kept, so Save writes over that change
@@ -2770,15 +2811,11 @@ bool EditorSession::CreateModel(Trinity::UUID model, Trinity::UUID parent, Trini
     return GetHistory().Execute(Trinity::CreateScope<CreateModelCommand>(model, ToUtf8(FromUtf8(l_Record->Path).stem()), l_Place.Parent, FindAddedPlace(GetEditedScene(), l_Place.Before), parent ? position : ToLocalPoint(l_Place.Parent, position)));
 }
 
-// Written under the local IDs a new instance UUID tells back from the subtree's UUIDs, so linking the entity changes none of them, and what it names outside the subtree stays the instance's own
-std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std::string_view folder)
+// Written under the local IDs a new instance UUID tells back from the subtree's UUIDs, so linking the entity changes none of them, and what it names outside the subtree stays the instance's own. An original made from an instance is written from a copy unpacked until its root is no instance's, so its own entities are the prefab's, and once linked only its root is an instance's, everything else nested in the prefab
+std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std::string_view folder, PrefabKind kind)
 {
-    if (RefuseNestedPrefab())
-    {
-        return std::nullopt;
-    }
-
-    const Trinity::Entity l_Entity = m_Scene.FindEntityByUUID(entity);
+    Trinity::Scene& l_Scene = GetEditedScene();
+    const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(entity);
     if (!m_Project || !m_Registry || IsPlaying() || !l_Entity)
     {
         return std::nullopt;
@@ -2791,6 +2828,13 @@ std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std
         return std::nullopt;
     }
 
+    if (IsPrefabRoot(entity))
+    {
+        Notify(std::format("{} is the root of the prefab open in prefab mode, so a prefab is made of what is under it, or of an instance of it in a scene", GetEntityLabel(l_Entity)));
+
+        return std::nullopt;
+    }
+
     if (const std::optional<std::string> l_Problem = FindPrefabProblem(l_Entity))
     {
         Notify(*l_Problem);
@@ -2798,8 +2842,40 @@ std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std
         return std::nullopt;
     }
 
+    const bool l_Variant = kind == PrefabKind::Variant && l_Entity.Has<Trinity::PrefabInstanceComponent>();
+    Trinity::Scene l_Copy;
+    Trinity::Entity l_Source = l_Entity;
+    if (!l_Variant && l_Entity.Has<Trinity::PrefabInstanceComponent>())
+    {
+        const Trinity::Expected<Trinity::Entity, std::string> l_Copied = Trinity::SceneSerializer::LoadEntityFromText(l_Copy, Trinity::SceneSerializer::SaveEntityToText(l_Scene, l_Entity), {}, {});
+        if (!l_Copied)
+        {
+            TR_ERROR("Forge: {} could not be made a prefab: {}", GetEntityLabel(l_Entity), l_Copied.GetError());
+
+            return std::nullopt;
+        }
+
+        l_Source = *l_Copied;
+        while (l_Source.Has<Trinity::PrefabInstanceComponent>())
+        {
+            if (const std::optional<std::string> l_Problem = FindUnpackProblem(l_Source, false))
+            {
+                Notify(*l_Problem);
+
+                return std::nullopt;
+            }
+
+            std::vector<std::pair<Trinity::Entity, Trinity::PrefabInstanceComponent>> l_Nested = Trinity::Prefab::GetNestedInstances(l_Source);
+            l_Source.Remove<Trinity::PrefabInstanceComponent>();
+            for (auto& [it_Root, it_Nested] : l_Nested)
+            {
+                it_Root.Add<Trinity::PrefabInstanceComponent>(std::move(it_Nested));
+            }
+        }
+    }
+
     const Trinity::UUID l_Instance = Trinity::UUID::Generate();
-    const Trinity::Expected<std::string, std::string> l_Text = Trinity::SceneSerializer::SavePrefabToText(m_Scene, l_Entity, l_Instance);
+    const Trinity::Expected<std::string, std::string> l_Text = Trinity::SceneSerializer::SavePrefabToText(*l_Source.GetScene(), l_Source, l_Instance);
     if (!l_Text)
     {
         TR_ERROR("Forge: {} could not be made a prefab: {}", GetEntityLabel(l_Entity), l_Text.GetError());
@@ -2808,7 +2884,7 @@ std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std
     }
 
     const std::string_view l_Name = l_Entity.Has<Trinity::TagComponent>() ? std::string_view(l_Entity.Get<Trinity::TagComponent>().Tag) : std::string_view();
-    const std::string l_Path = GetFreePath(*m_Project, folder, GetPrefabFileName(l_Name), Trinity::Prefab::c_Extension, false);
+    const std::string l_Path = GetFreePath(*m_Project, folder, GetPrefabFileName(l_Variant ? std::format("{} Variant", l_Name) : std::string(l_Name)), Trinity::Prefab::c_Extension, false);
     if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, *l_Text); !l_Written)
     {
         TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
@@ -2819,7 +2895,17 @@ std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std
     TR_INFO("Forge: created prefab {} from {}", l_Path, GetEntityLabel(l_Entity));
     ScanAssets();
     const Trinity::AssetRecord* l_Record = m_Registry->FindByPath(l_Path);
-    if (l_Record == nullptr || !m_History.Execute(Trinity::CreateScope<LinkPrefabCommand>(entity, l_Record->ID, l_Instance)))
+    std::vector<PrefabLink> l_Links;
+    for (Trinity::Entity it_Entity = l_Entity; l_Record != nullptr && it_Entity; it_Entity = l_Scene.GetNextInSubtree(it_Entity, l_Entity))
+    {
+        if (it_Entity == l_Entity || it_Entity.Has<Trinity::PrefabInstanceComponent>())
+        {
+            l_Links.push_back({ .Entity = it_Entity.GetUUID(), .Instance = it_Entity == l_Entity ? std::optional(Trinity::PrefabInstanceComponent{ .Prefab = l_Record->ID, .Instance = l_Instance, .Kept = {} }) : std::nullopt });
+        }
+    }
+
+    const std::string l_Label = std::format("Create prefab {}{}", l_Variant ? "variant " : "", GetEntityLabel(l_Entity));
+    if (l_Record == nullptr || !GetHistory().Execute(Trinity::CreateScope<LinkPrefabCommand>(std::move(l_Links), entity, l_Label)))
     {
         TR_ERROR("Forge: {} was written, but {} could not be made its instance", l_Path, GetEntityLabel(l_Entity));
     }
@@ -2827,6 +2913,43 @@ std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std
     return l_Path;
 }
 
+// Made from an instance of the prefab in a scene of its own, saved as the root of a new prefab's first instance, which nests it as that prefab's root
+std::optional<std::string> EditorSession::CreatePrefabVariant(Trinity::UUID prefab)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
+    if (!m_Project || l_Record == nullptr || l_Record->Importer != Trinity::PrefabAsset::c_AssetType)
+    {
+        TR_WARN("Forge: only a prefab has variants");
+
+        return std::nullopt;
+    }
+
+    Trinity::Scene l_Scratch;
+    const Trinity::Expected<Trinity::Entity, std::string> l_Base = Trinity::SceneSerializer::InstantiatePrefab(l_Scratch, prefab, Trinity::UUID::Generate(), {}, {});
+    const Trinity::Expected<std::string, std::string> l_Text = l_Base ? Trinity::SceneSerializer::SavePrefabToText(l_Scratch, *l_Base, Trinity::UUID::Generate()) : Trinity::Expected<std::string, std::string>(Trinity::Unexpected{ l_Base.GetError() });
+    if (!l_Text)
+    {
+        TR_ERROR("Forge: {} could not be given a variant: {}", l_Record->Path, l_Text.GetError());
+
+        return std::nullopt;
+    }
+
+    const std::filesystem::path l_File = FromUtf8(l_Record->Path);
+    const std::string l_Path = GetFreePath(*m_Project, ToUtf8(l_File.parent_path()), GetPrefabFileName(std::format("{} Variant", ToUtf8(l_File.stem()))), Trinity::Prefab::c_Extension, false);
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, *l_Text); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created prefab variant {} of {}", l_Path, l_Record->Path);
+    ScanAssets();
+
+    return l_Path;
+}
+
+// In prefab mode no parent is the open prefab's root, as anything made there goes, and a position given in the world becomes the root's own
 bool EditorSession::InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position)
 {
     const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
@@ -2837,12 +2960,15 @@ bool EditorSession::InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent
         return false;
     }
 
-    if (RefuseNestedPrefab() || !CanTakeChildren(parent))
+    const Place l_Place = FindPlace(parent, before);
+    if (RefuseHoldingPrefab(prefab) || !CanTakeChildren(l_Place.Parent))
     {
         return false;
     }
 
-    return m_History.Execute(Trinity::CreateScope<InstantiatePrefabCommand>(prefab, ToUtf8(FromUtf8(l_Record->Path).stem()), parent, FindAddedPlace(m_Scene, before), position));
+    const std::optional<glm::vec3> l_Position = position && l_Place.Parent != parent ? std::optional(ToLocalPoint(l_Place.Parent, *position)) : position;
+
+    return GetHistory().Execute(Trinity::CreateScope<InstantiatePrefabCommand>(prefab, ToUtf8(FromUtf8(l_Record->Path).stem()), l_Place.Parent, FindAddedPlace(GetEditedScene(), l_Place.Before), l_Position));
 }
 
 bool EditorSession::RevertPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject)
@@ -2855,77 +2981,109 @@ bool EditorSession::RevertPrefabOverrides(Trinity::UUID root, std::vector<Trinit
     return m_History.Execute(Trinity::CreateScope<RevertPrefabCommand>(root, std::move(overrides), subject, std::format("Revert {}", what)));
 }
 
-bool EditorSession::ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject)
+// Each level's prefab down to the one applied to gives its text before, which undo writes back for those the apply writes
+bool EditorSession::ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject, std::size_t level)
 {
     UpdateChangedPrefabs();
-    const Trinity::Entity l_Root = m_Scene.FindEntityByUUID(root);
+    Trinity::Scene& l_Scene = GetEditedScene();
+    const Trinity::Entity l_Root = l_Scene.FindEntityByUUID(root);
     if (overrides.empty() || !l_Root || !l_Root.Has<Trinity::PrefabInstanceComponent>())
     {
         return false;
     }
 
-    const Trinity::UUID l_Prefab = l_Root.Get<Trinity::PrefabInstanceComponent>().Prefab;
-    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(l_Prefab) : nullptr;
-    const std::string* l_Text = m_Prefabs.FindText(l_Prefab);
-    if (l_Record == nullptr || l_Text == nullptr)
+    const std::vector<Trinity::UUID> l_Levels = Trinity::SceneSerializer::GetOverrideLevels(l_Root, overrides.front());
+    std::vector<Trinity::SceneSerializer::PrefabText> l_Old;
+    for (std::size_t it_Level = 0; it_Level <= level && it_Level < l_Levels.size(); ++it_Level)
     {
-        Notify(std::format("The prefab of {} is no longer in the project, so nothing can be applied to it", GetEntityLabel(l_Root)));
+        const std::string* l_Text = m_Registry && m_Registry->Find(l_Levels[it_Level]) != nullptr ? m_Prefabs.FindText(l_Levels[it_Level]) : nullptr;
+        if (l_Text == nullptr)
+        {
+            Notify(std::format("The prefab {} of {} is no longer in the project, so nothing can be applied to it", GetPrefabName(l_Levels[it_Level]), GetEntityLabel(l_Root)));
+
+            return false;
+        }
+
+        l_Old.push_back({ .Prefab = l_Levels[it_Level], .Text = *l_Text });
+    }
+
+    if (l_Old.size() <= level)
+    {
+        Notify(std::format("{} goes to no prefab {} level(s) inside {}, so nothing was applied", what, level, GetEntityLabel(l_Root)));
 
         return false;
     }
 
+    // An instance added whose prefab holds the one applied to would make that one hold itself
+    const Trinity::UUID l_Target = l_Levels[level];
     for (const Trinity::SceneSerializer::PrefabOverride& it_Override : overrides)
     {
-        const Trinity::Entity l_Added = it_Override.Type == Trinity::SceneSerializer::PrefabOverride::Kind::AddedEntity ? m_Scene.FindEntityByUUID(it_Override.Entity) : Trinity::Entity();
-        for (Trinity::Entity it_Entity = l_Added; it_Entity; it_Entity = m_Scene.GetNextInSubtree(it_Entity, l_Added))
+        const Trinity::Entity l_Added = it_Override.Type == Trinity::SceneSerializer::PrefabOverride::Kind::AddedEntity ? l_Scene.FindEntityByUUID(it_Override.Entity) : Trinity::Entity();
+        for (Trinity::Entity it_Entity = l_Added; it_Entity; it_Entity = l_Scene.GetNextInSubtree(it_Entity, l_Added))
         {
-            if (it_Entity.Has<Trinity::PrefabInstanceComponent>())
+            const Trinity::UUID l_Prefab = it_Entity.Has<Trinity::PrefabInstanceComponent>() ? it_Entity.Get<Trinity::PrefabInstanceComponent>().Prefab : Trinity::UUID();
+            if (l_Prefab && Trinity::Prefab::Holds(l_Prefab, l_Target))
             {
-                Notify(std::format("{} {} a prefab instance, and a prefab holding another waits for nested prefabs, so nothing was applied", GetEntityLabel(l_Added), it_Entity == l_Added ? "is" : "holds"));
+                Notify(std::format("{} is an instance of {}, which {} {}, so applied there it would make {} hold itself, and nothing was applied", GetEntityLabel(it_Entity), GetPrefabName(l_Prefab), l_Prefab == l_Target ? "is" : "holds", GetPrefabName(l_Target), GetPrefabName(l_Target)));
 
                 return false;
             }
         }
     }
 
-    const std::string l_Label = std::format("Apply {} to prefab {}", what, ToUtf8(FromUtf8(l_Record->Path).stem()));
+    const std::string l_Label = std::format("Apply {} to prefab {}", what, GetPrefabName(l_Target));
 
-    return m_History.Execute(Trinity::CreateScope<ApplyPrefabCommand>([this](Trinity::UUID prefab, const std::string& text) { return WritePrefab(prefab, text); }, root, std::move(overrides), *l_Text, subject, l_Label));
+    return GetHistory().Execute(Trinity::CreateScope<ApplyPrefabCommand>([this](std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene& own) { return WritePrefabs(texts, &own).has_value(); }, root, std::move(overrides), level, std::move(l_Old), subject, l_Label));
 }
 
-// The file first, so a prefab that cannot be written keeps its template, and then the template the open scene's instances are made from, from the same text
-bool EditorSession::WritePrefab(Trinity::UUID prefab, const std::string& text)
+// The files first, so a prefab that cannot be written keeps its template, with those written before it written back, and then the templates and their instances, from the same texts. The count of the scene's instances made again, or nothing, logged
+std::optional<std::size_t> EditorSession::WritePrefabs(std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene* own)
 {
-    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
-    if (l_Record == nullptr)
+    for (std::size_t it_Index = 0; it_Index < texts.size(); ++it_Index)
     {
-        TR_ERROR("Forge: prefab {} is no longer in the project, so it was not written", prefab);
+        const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(texts[it_Index].Prefab) : nullptr;
+        const Trinity::Expected<void, Trinity::FileError> l_Written = l_Record != nullptr ? Trinity::FileSystem::WriteText(l_Record->Path, texts[it_Index].Text) : Trinity::Expected<void, Trinity::FileError>(Trinity::Unexpected{ Trinity::FileError::NotFound });
+        if (l_Written)
+        {
+            continue;
+        }
 
-        return false;
+        if (l_Record == nullptr)
+        {
+            TR_ERROR("Forge: prefab {} is no longer in the project, so it was not written", texts[it_Index].Prefab);
+        }
+        else
+        {
+            TR_ERROR("Forge: {} could not be written: {}", l_Record->Path, Trinity::ToString(l_Written.GetError()));
+        }
+
+        for (std::size_t it_Written = 0; it_Written < it_Index; ++it_Written)
+        {
+            if (const std::string* l_Old = m_Prefabs.FindText(texts[it_Written].Prefab))
+            {
+                static_cast<void>(Trinity::FileSystem::WriteText(m_Registry->Find(texts[it_Written].Prefab)->Path, *l_Old));
+            }
+        }
+
+        return std::nullopt;
     }
 
-    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Record->Path, text); !l_Written)
+    const Trinity::Expected<std::size_t, std::string> l_Made = ReplacePrefabs(texts, own);
+    if (!l_Made)
     {
-        TR_ERROR("Forge: {} could not be written: {}", l_Record->Path, Trinity::ToString(l_Written.GetError()));
+        TR_ERROR("Forge: prefab {} was written, but does not read back, so its instances keep the prefab they were made from: {}", GetPrefabName(texts.front().Prefab), l_Made.GetError());
 
-        return false;
+        return std::nullopt;
     }
 
-    if (const Trinity::Expected<void, std::string> l_Replaced = m_Prefabs.Replace(prefab, text); !l_Replaced)
-    {
-        TR_ERROR("Forge: {} was written, but does not read back, so its instances keep the prefab they were made from: {}", l_Record->Path, l_Replaced.GetError());
-
-        return false;
-    }
-
-    Trinity::AssetManager::Reload(prefab);
-
-    return true;
+    return *l_Made;
 }
 
-bool EditorSession::UnpackPrefab(Trinity::UUID root)
+// One level gives the root no link, or its base's for a variant, and each instance nested in its prefab its own, and completely every instance in the subtree gives up its link, as the scene's instances nested in others have none
+bool EditorSession::UnpackPrefab(Trinity::UUID root, bool completely)
 {
-    const Trinity::Entity l_Root = GetEditedScene().FindEntityByUUID(root);
+    Trinity::Scene& l_Scene = GetEditedScene();
+    const Trinity::Entity l_Root = l_Scene.FindEntityByUUID(root);
     if (!l_Root || !l_Root.Has<Trinity::PrefabInstanceComponent>())
     {
         return false;
@@ -2938,7 +3096,93 @@ bool EditorSession::UnpackPrefab(Trinity::UUID root)
         return false;
     }
 
-    return GetHistory().Execute(Trinity::CreateScope<UnpackPrefabCommand>(root));
+    if (IsPrefabRoot(root))
+    {
+        Notify(std::format("{} is the root of the variant open in prefab mode, an instance of its base that makes it a variant, so prefab mode keeps it", GetEntityLabel(l_Root)));
+
+        return false;
+    }
+
+    if (const std::optional<std::string> l_Problem = FindUnpackProblem(l_Root, completely))
+    {
+        Notify(*l_Problem);
+
+        return false;
+    }
+
+    std::vector<PrefabLink> l_Links{ { .Entity = root, .Instance = std::nullopt } };
+    if (completely)
+    {
+        for (Trinity::Entity it_Entity = l_Scene.GetNextInSubtree(l_Root, l_Root); it_Entity; it_Entity = l_Scene.GetNextInSubtree(it_Entity, l_Root))
+        {
+            if (it_Entity.Has<Trinity::PrefabInstanceComponent>())
+            {
+                l_Links.push_back({ .Entity = it_Entity.GetUUID(), .Instance = std::nullopt });
+            }
+        }
+    }
+    else
+    {
+        for (auto& [it_Root, it_Nested] : Trinity::Prefab::GetNestedInstances(l_Root))
+        {
+            if (it_Root == l_Root)
+            {
+                l_Links.front().Instance = std::move(it_Nested);
+            }
+            else
+            {
+                l_Links.push_back({ .Entity = it_Root.GetUUID(), .Instance = std::move(it_Nested) });
+            }
+        }
+    }
+
+    return GetHistory().Execute(Trinity::CreateScope<LinkPrefabCommand>(std::move(l_Links), root, std::format("Unpack prefab {}{}", GetEntityLabel(l_Root), completely ? " completely" : "")));
+}
+
+// Through the templates unpacking reaches: the instance's prefab's, and completely those of every prefab nested in it and of each instance in the subtree
+std::optional<std::string> EditorSession::FindUnpackProblem(Trinity::Entity root, bool completely)
+{
+    Trinity::Scene& l_Scene = *root.GetScene();
+    std::vector<Trinity::UUID> l_Pending;
+    for (Trinity::Entity it_Entity = root; it_Entity; it_Entity = completely ? l_Scene.GetNextInSubtree(it_Entity, root) : Trinity::Entity())
+    {
+        if (IsMissingPrefab(it_Entity))
+        {
+            return std::format("{} holds {}, which stands in for a prefab instance whose prefab is missing and only it can keep, so it is unpacked completely once the prefab is back", GetEntityLabel(root), GetEntityLabel(it_Entity));
+        }
+
+        if (it_Entity.Has<Trinity::PrefabInstanceComponent>())
+        {
+            l_Pending.push_back(it_Entity.Get<Trinity::PrefabInstanceComponent>().Prefab);
+        }
+    }
+
+    std::unordered_set<Trinity::UUID> l_Seen(l_Pending.begin(), l_Pending.end());
+    while (!l_Pending.empty())
+    {
+        const Trinity::UUID l_Prefab = l_Pending.back();
+        l_Pending.pop_back();
+        Trinity::Scene* l_Template = m_Prefabs.Find(l_Prefab, m_Registry.get());
+        if (l_Template == nullptr)
+        {
+            continue;
+        }
+
+        for (const auto [it_Nested, it_Instance] : l_Template->GetRegistry().view<Trinity::PrefabInstanceComponent>().each())
+        {
+            if (it_Instance.IsMissing())
+            {
+                return std::format("Prefab {} holds an instance of prefab {}, which is missing, and only {}'s file keeps that instance, so {} is unpacked once the missing prefab is back", GetPrefabName(l_Prefab), it_Instance.Prefab, GetPrefabName(l_Prefab), GetEntityLabel(root));
+            }
+
+            if (completely && l_Seen.insert(it_Instance.Prefab).second)
+            {
+                l_Pending.push_back(it_Instance.Prefab);
+            }
+        }
+    }
+
+    return std::nullopt;
 }
 
 // From its file as it is now, with its root selected. The scene's instances take a change made to the file outside Forge first, so they are what prefab mode opens
@@ -2979,7 +3223,7 @@ void EditorSession::ClosePrefab()
     m_Stage.reset();
 }
 
-// Saved as the template it now is, and each instance of it in the scene made again from it, keeping what it changes, as when the file changes outside Forge. A step of neither history. The instances are saved against the template they were made from, even after a change outside Forge not yet scanned, which Save writes over, so what they change stays theirs
+// Saved as the template it now is, and each instance of it in the scene made again from it, keeping what it changes, as when the file changes outside Forge, with the prefabs holding it and their instances. A step of neither history. The instances are saved against the template they were made from, even after a change outside Forge not yet scanned, which Save writes over, so what they change stays theirs
 bool EditorSession::SavePrefab()
 {
     if (!m_Stage)
@@ -2997,15 +3241,11 @@ bool EditorSession::SavePrefab()
         return false;
     }
 
-    const std::vector<Trinity::SceneSerializer::PrefabInstanceText> l_Instances = Trinity::SceneSerializer::SavePrefabInstances(m_Scene, m_Stage->Prefab);
-    if (!WritePrefab(m_Stage->Prefab, *l_Text))
+    const Trinity::SceneSerializer::PrefabText l_Saved{ .Prefab = m_Stage->Prefab, .Text = *l_Text };
+    const std::optional<std::size_t> l_Made = WritePrefabs(std::span(&l_Saved, 1), nullptr);
+    if (!l_Made)
     {
         return false;
-    }
-
-    if (const Trinity::Expected<void, std::string> l_Restored = Trinity::SceneSerializer::RestorePrefabInstances(m_Scene, l_Instances); !l_Restored)
-    {
-        TR_ERROR("Forge: prefab {} was saved, and not every instance in the scene could be made again from it: {}", l_Name, l_Restored.GetError());
     }
 
     if (m_Selection && !m_Scene.FindEntityByUUID(m_Selection))
@@ -3015,7 +3255,7 @@ bool EditorSession::SavePrefab()
 
     m_Stage->Text = *l_Text;
     m_Stage->History.MarkSaved();
-    TR_INFO("Forge: saved prefab {}, and made its {} instance(s) in the scene again from it", l_Name, l_Instances.size());
+    TR_INFO("Forge: saved prefab {}, and made its {} instance(s) in the scene again from it", l_Name, *l_Made);
 
     return true;
 }
@@ -3122,15 +3362,26 @@ bool EditorSession::IsPrefabRoot(Trinity::UUID entity)
     return l_Root && l_Root.GetUUID() == entity;
 }
 
-// In prefab mode, with a notice, since the open prefab would hold an instance of a prefab, which waits for nested prefabs
-bool EditorSession::RefuseNestedPrefab()
+// In prefab mode, with a notice, for the open prefab or one holding it, an instance of which there would make it hold itself
+bool EditorSession::RefuseHoldingPrefab(Trinity::UUID prefab)
 {
-    if (m_Stage)
+    if (!m_Stage || !Trinity::Prefab::Holds(prefab, m_Stage->Prefab))
     {
-        Notify("A prefab holding an instance of another waits for nested prefabs, so prefab mode makes none");
+        return false;
     }
 
-    return m_Stage != nullptr;
+    const std::string l_Open = GetPrefabName(m_Stage->Prefab);
+    Notify(prefab == m_Stage->Prefab ? std::format("{} is the prefab open in prefab mode, which cannot hold an instance of itself", l_Open) : std::format("{} holds {}, the prefab open in prefab mode, so an instance of it there would make {} hold itself", GetPrefabName(prefab), l_Open, l_Open));
+
+    return true;
+}
+
+// Its file's name without the extension, or its UUID for one the project no longer has
+std::string EditorSession::GetPrefabName(Trinity::UUID prefab) const
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
+
+    return l_Record != nullptr ? ToUtf8(FromUtf8(l_Record->Path).stem()) : prefab.ToString();
 }
 
 bool EditorSession::CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent)
@@ -3253,7 +3504,7 @@ bool EditorSession::PasteEntityAt(Trinity::UUID parent, Trinity::UUID before)
     }
 
     const std::vector<Trinity::UUID> l_Prefabs = Trinity::SceneSerializer::GetPrefabReferences(m_CopiedEntity->Text);
-    if (!l_Prefabs.empty() && RefuseNestedPrefab())
+    if (std::ranges::any_of(l_Prefabs, [this](Trinity::UUID prefab) { return RefuseHoldingPrefab(prefab); }))
     {
         return false;
     }

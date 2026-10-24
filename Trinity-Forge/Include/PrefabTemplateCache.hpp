@@ -2,6 +2,7 @@
 
 #include <Trinity.hpp>
 
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -15,8 +16,8 @@ public:
     [[nodiscard]] Trinity::Scene* Find(Trinity::UUID prefab, const Trinity::AssetRegistry* registry);
     // The text the prefab's template was made from, or null for a prefab without one kept
     [[nodiscard]] const std::string* FindText(Trinity::UUID prefab) const;
-    // The prefab's template made again from the text, in place of the one kept, which goes at once. The text is what the file holds from then on, so it is not found changed. Refused, keeping that one, for text that is not a prefab, which is not found changed either until the file changes again
-    [[nodiscard]] Trinity::Expected<void, std::string> Replace(Trinity::UUID prefab, std::string text);
+    // The prefabs' templates made again from the texts, in place of those kept, which go at once, and each prefab kept that holds one of them, at any depth, made again from the text it was made from, inner ones first, so it holds them as they now are. The texts are what the files hold from then on, so they are not found changed. Each prefab made again, in the order made. Refused, keeping every template as it was, for a text that is not a prefab, which is not found changed either until the file changes again. One holding them that cannot be read again is logged and kept as null, as one whose file cannot be read is
+    [[nodiscard]] Trinity::Expected<std::vector<Trinity::UUID>, std::string> Replace(std::span<const Trinity::SceneSerializer::PrefabText> texts);
     // Each prefab kept whose file holds other text now, with that text. One whose file is gone, or which was kept as null, is left as it is until another scene opens
     [[nodiscard]] std::vector<std::pair<Trinity::UUID, std::string>> FindChanged(const Trinity::AssetRegistry* registry) const;
     void Clear() { m_Templates.clear(); }
