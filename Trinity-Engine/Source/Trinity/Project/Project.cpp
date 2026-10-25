@@ -591,6 +591,13 @@ namespace Trinity
             return Unexpected{ std::string("another project is already open") };
         }
 
+        // Cache holds only what Forge can make again, so git never keeps it, and a project cloned or unzipped without it gets an empty one instead of being refused
+        std::error_code l_Error;
+        if (std::filesystem::is_directory(m_Directory, l_Error))
+        {
+            std::filesystem::create_directories(m_Directory / "Cache", l_Error);
+        }
+
         const bool l_Mounted = FileSystem::MountDirectory(c_ProjectMount, m_Directory, MountAccess::ReadWrite) && FileSystem::MountDirectory(c_AssetsMount, GetAssetsDirectory(), MountAccess::ReadWrite) && FileSystem::MountDirectory(c_CacheMount, m_Directory / "Cache", MountAccess::ReadWrite);
         if (!l_Mounted)
         {
@@ -598,7 +605,7 @@ namespace Trinity
             FileSystem::Unmount(c_AssetsMount);
             FileSystem::Unmount(c_ProjectMount);
 
-            return Unexpected{ std::format("{} could not be mounted, or has no Assets and Cache folders", ToUtf8(m_Directory)) };
+            return Unexpected{ std::format("{} could not be mounted, or has no Assets folder", ToUtf8(m_Directory)) };
         }
 
         m_Mounted = true;
