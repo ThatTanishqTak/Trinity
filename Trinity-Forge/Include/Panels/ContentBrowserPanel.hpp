@@ -2,6 +2,7 @@
 
 #include "EditorSession.hpp"
 #include "Panels/Panel.hpp"
+#include "PrefabThumbnails.hpp"
 
 #include <Trinity.hpp>
 
@@ -24,6 +25,8 @@ public:
     ~ContentBrowserPanel() override;
 
     void EndFrame();
+    // In OnPrepareRender: the prefabs' and models' thumbnails readied this frame submitted, each to its own view
+    void PrepareThumbnails() { m_PrefabThumbnails.Prepare(); }
 
     [[nodiscard]] bool IsFocused() const { return m_Focused; }
     // Shows what in the open scene uses an asset or a script file, as Find References In Scene asks, through the Hierarchy's search with a ref: term
@@ -131,6 +134,7 @@ private:
     std::unordered_map<std::string, std::vector<Trinity::DirectoryEntry>> m_Listings;
     std::uint64_t m_ListedScan = 0;
     std::unordered_map<Trinity::UUID, Thumbnail> m_Thumbnails;
+    PrefabThumbnails m_PrefabThumbnails{ m_Session };
     std::vector<std::move_only_function<void()>> m_Deferred;
     float m_ThumbnailSize = 6.0f;
     int m_DrawnFrame = -1;

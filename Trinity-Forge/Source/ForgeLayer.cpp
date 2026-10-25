@@ -205,7 +205,7 @@ void ForgeLayer::OnEvent(Trinity::Event& event)
     }
 }
 
-// After the UI has had its say this frame and before the Renderer builds its graph, so an exposure dragged in the Properties panel shows in the same frame. Transforms are brought up to date first, since the UI may have changed them. The Scene panel's view is the main one, collected first
+// After the UI has had its say this frame and before the Renderer builds its graph, so an exposure dragged in the Properties panel shows in the same frame. Transforms are brought up to date first, since the UI may have changed them. The Scene panel's view is the main one, collected first, and the Content Browser's thumbnails, each in a view of its own, last
 void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& commands)
 {
     m_Session.GetScene().UpdateWorldTransforms();
@@ -219,6 +219,7 @@ void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& com
     m_ViewportPanel->PrepareScene();
     m_GamePanel->PrepareScene();
     m_GamePanel->PrepareScene();
+    m_ContentBrowser->PrepareThumbnails();
 }
 
 // Drawn whether or not the Scene panel is open, so the scene target holds the scene when the panel opens again. Transforms are brought up to date again, since the UI may have changed the scene since OnUpdate

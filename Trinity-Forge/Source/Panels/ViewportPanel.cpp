@@ -1498,6 +1498,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
                 a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), l_Range, l_Color);
                 a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), l_Range, l_Color);
                 a_Circle(l_Position, glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), l_Range, l_Color);
+
                 break;
             }
             case Trinity::LightType::Spot:
@@ -1518,6 +1519,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
                 }
 
                 a_Line(l_Position, l_Position + l_Forward * l_Range, l_Color, 1.0f);
+
                 break;
             }
             case Trinity::LightType::Directional:
@@ -1533,6 +1535,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
                 }
 
                 a_Line(l_Position, l_Position + l_Forward * (l_Size * 1.5f), l_Color, 2.0f);
+
                 break;
             }
         }

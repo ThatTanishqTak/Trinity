@@ -2,6 +2,7 @@
 
 #include <Trinity.hpp>
 
+#include <cstdint>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -16,6 +17,8 @@ public:
     [[nodiscard]] Trinity::Scene* Find(Trinity::UUID prefab, const Trinity::AssetRegistry* registry);
     // The text the prefab's template was made from, or null for a prefab without one kept
     [[nodiscard]] const std::string* FindText(Trinity::UUID prefab) const;
+    // Which making of the prefab's template is kept, a number no other has had since Forge started, so what is drawn from a template tells when it was made again, by Replace or as another scene opens. 0 for a prefab without one kept, as for FindText
+    [[nodiscard]] std::uint64_t GetVersion(Trinity::UUID prefab) const;
     // The prefabs' templates made again from the texts, in place of those kept, which go at once, and each prefab kept that holds one of them, at any depth, made again from the text it was made from, inner ones first, so it holds them as they now are. The texts are what the files hold from then on, so they are not found changed. Each prefab made again, in the order made. Refused, keeping every template as it was, for a text that is not a prefab, which is not found changed either until the file changes again. One holding them that cannot be read again is logged and kept as null, as one whose file cannot be read is
     [[nodiscard]] Trinity::Expected<std::vector<Trinity::UUID>, std::string> Replace(std::span<const Trinity::SceneSerializer::PrefabText> texts);
     // Each prefab kept, or kept as null, whose file holds other text now, with that text, a model's being the prefab its cooked hierarchy makes now. One whose file is gone is left as it is until another scene opens
@@ -29,12 +32,13 @@ public:
     }
 
 private:
-    // The template and the text it was made from, and the last text that would not read, so it is logged once
+    // The template and the text it was made from, the last text that would not read, so it is logged once, and which making of it this is
     struct Entry
     {
         Trinity::Scope<Trinity::Scene> Template;
         std::string Text;
         std::string Refused;
+        std::uint64_t Version = 0;
     };
 
     // A model's prefab text and the cooked hierarchy it was made from, or why that could not be read, so a hierarchy that has not changed is not made into it again
@@ -50,4 +54,6 @@ private:
 
     std::unordered_map<Trinity::UUID, Entry> m_Templates;
     mutable std::unordered_map<Trinity::UUID, ModelText> m_Models;
+    // The last version given, which Clear does not start again, so a template read again after another scene opens is never taken for the one before
+    std::uint64_t m_LastVersion = 0;
 };

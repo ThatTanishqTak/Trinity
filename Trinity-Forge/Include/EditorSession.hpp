@@ -283,6 +283,8 @@ public:
     bool InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position);
     // The template the open scene's instances of the prefab are made from, which names the entities an instance removed. Null as the serializer finds none
     [[nodiscard]] Trinity::Scene* FindPrefabTemplate(Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()); }
+    // Changes each time the prefab's template is made again, as a save, an Apply, a change outside Forge or one to a prefab nested in it makes it, so the Content Browser draws its thumbnail again. 0 until FindPrefabTemplate finds it
+    [[nodiscard]] std::uint64_t GetPrefabTemplateVersion(Trinity::UUID prefab) const { return m_Prefabs.GetVersion(prefab); }
     // Whether the prefab is a variant, its root an instance of another, as its template has it. Not one the project does not have, or whose file cannot be read
     [[nodiscard]] bool IsPrefabVariant(Trinity::UUID prefab);
     // Whether the asset is a model, whose prefab is made from its file's hierarchy, so it opens in no prefab mode and takes nothing applied to it, as in Unity

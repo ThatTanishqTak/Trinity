@@ -20,7 +20,7 @@ Trinity::Scene* PrefabTemplateCache::Find(Trinity::UUID prefab, const Trinity::A
         return nullptr;
     }
 
-    Entry l_Entry{ .Template = Trinity::CreateScope<Trinity::Scene>(), .Text = {}, .Refused = {} };
+    Entry l_Entry{ .Template = Trinity::CreateScope<Trinity::Scene>(), .Text = {}, .Refused = {}, .Version = ++m_LastVersion };
     Trinity::Expected<std::string, std::string> l_Text = ReadText(*l_Record);
     const Trinity::Expected<void, std::string> l_Loaded = l_Text ? Trinity::SceneSerializer::LoadPrefabFromText(*l_Entry.Template, *l_Text, prefab) : Trinity::Expected<void, std::string>(Trinity::Unexpected{ l_Text.GetError() });
     if (!l_Loaded)
@@ -42,6 +42,13 @@ const std::string* PrefabTemplateCache::FindText(Trinity::UUID prefab) const
     const auto a_Template = m_Templates.find(prefab);
 
     return a_Template != m_Templates.end() && a_Template->second.Template ? &a_Template->second.Text : nullptr;
+}
+
+std::uint64_t PrefabTemplateCache::GetVersion(Trinity::UUID prefab) const
+{
+    const auto a_Template = m_Templates.find(prefab);
+
+    return a_Template != m_Templates.end() && a_Template->second.Template ? a_Template->second.Version : 0;
 }
 
 // Inner ones first: a prefab is read once each other one to be read that it holds is, or, while each left holds another, as when they hold each other, the first left. A new template is read while the one it replaces is still kept, and a text given that does not read puts back every template replaced before it
@@ -123,7 +130,7 @@ Trinity::Expected<std::vector<Trinity::UUID>, std::string> PrefabTemplateCache::
 
         const auto a_Kept = m_Templates.find(l_Next.Prefab);
         l_Replaced.emplace_back(l_Next.Prefab, a_Kept != m_Templates.end() ? std::optional<Entry>(std::move(a_Kept->second)) : std::nullopt);
-        m_Templates[l_Next.Prefab] = Entry{ .Template = std::move(l_Template), .Text = std::move(l_Next.Text), .Refused = {} };
+        m_Templates[l_Next.Prefab] = Entry{ .Template = std::move(l_Template), .Text = std::move(l_Next.Text), .Refused = {}, .Version = ++m_LastVersion };
         l_Made.push_back(l_Next.Prefab);
     }
 

@@ -169,6 +169,12 @@ namespace
         return record != nullptr && record->Importer == Trinity::PrefabAsset::c_AssetType;
     }
 
+    // Drawn from an instance of it, as Unity previews both, a model's being the prefab its hierarchy makes
+    bool HasPrefabThumbnail(const Trinity::AssetRecord* record)
+    {
+        return IsPrefab(record) || (record != nullptr && record->Importer == ModelImporter::c_Importer);
+    }
+
     bool EqualIgnoringCase(char left, char right)
     {
         return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right));
@@ -249,7 +255,7 @@ ContentBrowserPanel::~ContentBrowserPanel()
     m_Session.RemoveCloseListener(m_CloseListener);
 }
 
-// After every panel is drawn. Thumbnails not drawn this frame, scrolled away, in another folder or in a hidden panel, let go of their textures
+// After every panel is drawn. Thumbnails not drawn this frame, scrolled away, in another folder or in a hidden panel, let go of their textures, and prefabs' of their views, and the prefabs' still to be drawn are readied
 void ContentBrowserPanel::EndFrame()
 {
     const int l_Frame = ImGui::GetFrameCount();
@@ -258,6 +264,8 @@ void ContentBrowserPanel::EndFrame()
     {
         decltype(m_Thumbnails)().swap(m_Thumbnails);
     }
+
+    m_PrefabThumbnails.EndFrame();
 
     if (m_DrawnFrame != l_Frame)
     {
@@ -646,7 +654,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
     ImGui::PopID();
 }
 
-// A texture's own picture, fitted inside the square keeping its shape, or the icon for the item's kind, centred in it
+// A texture's own picture, fitted inside the square keeping its shape, a prefab's or a model's in the grid once it is drawn, filling the square, or the icon for the item's kind, centred in it. A list's row keeps a prefab's icon, which tells an original from a variant or a model at that size
 void ContentBrowserPanel::DrawPicture(const Item& item, ImVec2 position, float size)
 {
     ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
@@ -657,6 +665,14 @@ void ContentBrowserPanel::DrawPicture(const Item& item, ImVec2 position, float s
         const ImVec2 l_Fit = l_Aspect >= 1.0f ? ImVec2(size, size / l_Aspect) : ImVec2(size * l_Aspect, size);
         const ImVec2 l_FitMin(position.x + (size - l_Fit.x) * 0.5f, position.y + (size - l_Fit.y) * 0.5f);
         l_DrawList.AddImage(ImTextureRef(static_cast<ImTextureID>(Trinity::GetImGuiTextureID(*l_Texture))), l_FitMin, ImVec2(l_FitMin.x + l_Fit.x, l_FitMin.y + l_Fit.y));
+
+        return;
+    }
+
+    const std::uint32_t l_Prefab = !IsListView() && HasPrefabThumbnail(item.Record) ? m_PrefabThumbnails.Find(item.Record->ID, size) : Trinity::RHI::c_NoBindlessIndex;
+    if (l_Prefab != Trinity::RHI::c_NoBindlessIndex)
+    {
+        l_DrawList.AddImage(ImTextureRef(static_cast<ImTextureID>(l_Prefab)), position, ImVec2(position.x + size, position.y + size));
 
         return;
     }
@@ -1432,6 +1448,7 @@ void ContentBrowserPanel::SetSize(float size)
 void ContentBrowserPanel::ReleaseAll()
 {
     m_Thumbnails.clear();
+    m_PrefabThumbnails.Clear();
     m_Listings.clear();
     m_Folder = std::string(Trinity::Project::c_AssetsMount);
     m_Selected.clear();
