@@ -1,5 +1,7 @@
 #include "Trinity/Audio/AudioEngine.hpp"
 
+#include "Trinity/Audio/AudioClipAsset.hpp"
+#include "Trinity/Audio/AudioClipStorage.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Log.hpp"
@@ -17,6 +19,25 @@
 #include <new>
 #include <system_error>
 #include <vector>
+
+// stb_vorbis allocates with malloc, so Vendor/CMakeLists.txt builds it to call these instead, which count it under the Audio tag
+extern "C"
+{
+    void* TrinityAudioAllocate(std::size_t size)
+    {
+        return Trinity::Memory::TryAllocate(size, Trinity::MemoryTag::Audio);
+    }
+
+    void* TrinityAudioReallocate(void* memory, std::size_t size)
+    {
+        return Trinity::Memory::Reallocate(memory, size, Trinity::MemoryTag::Audio);
+    }
+
+    void TrinityAudioFree(void* memory)
+    {
+        Trinity::Memory::Free(memory);
+    }
+}
 
 namespace Trinity
 {
@@ -135,20 +156,20 @@ namespace Trinity
             Memory::Free(memory);
         }
 
-        ma_allocation_callbacks GetAllocationCallbacks()
-        {
-            ma_allocation_callbacks l_Callbacks{};
-            l_Callbacks.onMalloc = &AllocateAudio;
-            l_Callbacks.onRealloc = &ReallocateAudio;
-            l_Callbacks.onFree = &FreeAudio;
-
-            return l_Callbacks;
-        }
-
         std::uint64_t ToFrames(std::uint32_t milliseconds, std::uint32_t sampleRate)
         {
             return static_cast<std::uint64_t>(milliseconds) * sampleRate / 1000;
         }
+    }
+
+    ma_allocation_callbacks GetAudioAllocationCallbacks()
+    {
+        ma_allocation_callbacks l_Callbacks{};
+        l_Callbacks.onMalloc = &AllocateAudio;
+        l_Callbacks.onRealloc = &ReallocateAudio;
+        l_Callbacks.onFree = &FreeAudio;
+
+        return l_Callbacks;
     }
 
     struct AudioEngine::State
@@ -163,6 +184,9 @@ namespace Trinity
         // True when the device now plays somewhere else than the name held
         bool ReadDeviceName();
         void MixSilently(Timestep timestep);
+        // Starts the preview once its clip's samples are in, and a stream's first page, and refills its stream: on a worker, or on this thread offline
+        void UpdatePreview(bool offline);
+        void ClosePreview();
 
         ma_context Context{};
         ma_device Device{};
@@ -190,6 +214,12 @@ namespace Trinity
         std::vector<float, TaggedAllocator<float, MemoryTag::Audio>> Scratch;
         std::int64_t StoppedNanoseconds = 0;
         bool ReportedStopped = false;
+
+        // The preview's clip, the voice reading it and the sound playing that, which waits until the clip can play
+        Ref<AudioClipStorage> PreviewClip;
+        AudioClipVoice PreviewVoice;
+        ma_sound PreviewSound{};
+        bool HasPreviewSound = false;
     };
 
     // The device stops first, so nothing is mixing while the rest goes
@@ -199,6 +229,8 @@ namespace Trinity
         {
             ma_device_uninit(&Device);
         }
+
+        ClosePreview();
 
         if (HasTone)
         {
@@ -248,7 +280,7 @@ namespace Trinity
     bool AudioEngine::State::OpenDevice(const AudioEngineSpecification& specification)
     {
         ma_context_config l_ContextConfig = ma_context_config_init();
-        l_ContextConfig.allocationCallbacks = GetAllocationCallbacks();
+        l_ContextConfig.allocationCallbacks = GetAudioAllocationCallbacks();
 
         ma_result l_Result = ma_context_init(nullptr, 0, &l_ContextConfig, &Context);
         if (l_Result != MA_SUCCESS)
@@ -296,6 +328,82 @@ namespace Trinity
         DeviceName[l_Length] = '\0';
 
         return true;
+    }
+
+    void AudioEngine::State::UpdatePreview(bool offline)
+    {
+        if (HasPreviewSound && ma_sound_at_end(&PreviewSound))
+        {
+            ClosePreview();
+
+            return;
+        }
+
+        if (PreviewClip != nullptr && !PreviewVoice.IsStarted())
+        {
+            const AudioClipStatus l_Status = PreviewClip->Status.load(std::memory_order_acquire);
+            if (l_Status == AudioClipStatus::Loading)
+            {
+                return;
+            }
+
+            if (!PreviewVoice.Start(PreviewClip))
+            {
+                PreviewClip.reset();
+
+                return;
+            }
+        }
+
+        AudioStream* l_Stream = PreviewVoice.GetStream();
+        if (l_Stream != nullptr)
+        {
+            if (offline)
+            {
+                l_Stream->RefillNow();
+            }
+            else
+            {
+                l_Stream->RequestRefill();
+            }
+        }
+
+        if (!PreviewVoice.IsStarted() || HasPreviewSound || (l_Stream != nullptr && !l_Stream->IsPrimed()))
+        {
+            return;
+        }
+
+        // At the clip's own pitch, which at the engine's rate needs no resampler, so the clip reaches the mix exactly as it decodes
+        const AudioClipHeader& l_Header = PreviewClip->Header;
+        ma_uint32 l_Flags = MA_SOUND_FLAG_NO_SPATIALIZATION;
+        if (l_Header.SampleRate == ma_engine_get_sample_rate(&Engine))
+        {
+            l_Flags |= MA_SOUND_FLAG_NO_PITCH;
+        }
+
+        if (ma_sound_init_from_data_source(&Engine, PreviewVoice.GetDataSource(), l_Flags, &Master, &PreviewSound) != MA_SUCCESS)
+        {
+            TR_CORE_ERROR("Audio: the preview of {} could not start", l_Header.ID);
+            ClosePreview();
+
+            return;
+        }
+
+        HasPreviewSound = true;
+        ma_sound_start(&PreviewSound);
+    }
+
+    // The sound goes before the voice it reads
+    void AudioEngine::State::ClosePreview()
+    {
+        if (HasPreviewSound)
+        {
+            ma_sound_uninit(&PreviewSound);
+            HasPreviewSound = false;
+        }
+
+        PreviewVoice.Stop();
+        PreviewClip.reset();
     }
 
     // Mixes the frame's time and drops it, so sounds keep their time without a device to hear them on
@@ -350,7 +458,7 @@ namespace Trinity
         l_EngineConfig.noDevice = MA_TRUE;
         l_EngineConfig.channels = l_Channels;
         l_EngineConfig.sampleRate = l_SampleRate;
-        l_EngineConfig.allocationCallbacks = GetAllocationCallbacks();
+        l_EngineConfig.allocationCallbacks = GetAudioAllocationCallbacks();
 
         ma_result l_Result = ma_engine_init(&l_EngineConfig, &l_State.Engine);
         if (l_Result == MA_SUCCESS)
@@ -427,6 +535,8 @@ namespace Trinity
             return;
         }
 
+        l_State.UpdatePreview(false);
+
         if (l_State.HasDevice)
         {
             // Windows moves the output once for each role the new default takes, so only a new name is logged
@@ -471,9 +581,20 @@ namespace Trinity
             return;
         }
 
-        ma_uint64 l_Read = 0;
-        ma_engine_read_pcm_frames(&l_State.Engine, output.data(), output.size() / l_Channels, &l_Read);
-        std::ranges::fill(output.subspan(static_cast<std::size_t>(l_Read) * l_Channels), 0.0f);
+        // A page at a time, refilling streams between, so a stream never runs dry however much is asked for at once
+        const std::size_t l_Frames = output.size() / l_Channels;
+        for (std::size_t it_Frame = 0; it_Frame < l_Frames;)
+        {
+            l_State.UpdatePreview(true);
+
+            const std::size_t l_Chunk = static_cast<std::size_t>(std::min<std::uint64_t>(l_Frames - it_Frame, AudioStream::c_PageFrames));
+            const std::span<float> l_Output = output.subspan(it_Frame * l_Channels, l_Chunk * l_Channels);
+
+            ma_uint64 l_Read = 0;
+            ma_engine_read_pcm_frames(&l_State.Engine, l_Output.data(), l_Chunk, &l_Read);
+            std::ranges::fill(l_Output.subspan(static_cast<std::size_t>(l_Read) * l_Channels), 0.0f);
+            it_Frame += l_Chunk;
+        }
     }
 
     void AudioEngine::SetVolume(float volume)
@@ -529,6 +650,37 @@ namespace Trinity
         {
             ma_sound_stop_with_fade_in_pcm_frames(&l_State.Tone, ToFrames(c_TestToneFadeMilliseconds, ma_engine_get_sample_rate(&l_State.Engine)));
         }
+    }
+
+    void AudioEngine::PlayPreview(const AudioClipAsset& clip)
+    {
+        State& l_State = *m_State;
+        l_State.ClosePreview();
+        l_State.PreviewClip = clip.GetStorage();
+        l_State.UpdatePreview(l_State.Output == AudioOutput::Offline);
+    }
+
+    void AudioEngine::StopPreview()
+    {
+        m_State->ClosePreview();
+    }
+
+    bool AudioEngine::IsPreviewPlaying() const
+    {
+        const State& l_State = *m_State;
+
+        return l_State.HasPreviewSound ? ma_sound_is_playing(&l_State.PreviewSound) == MA_TRUE : l_State.PreviewClip != nullptr;
+    }
+
+    std::uint64_t AudioEngine::GetPreviewCursor() const
+    {
+        ma_uint64 l_Cursor = 0;
+        if (m_State->HasPreviewSound)
+        {
+            static_cast<void>(ma_sound_get_cursor_in_pcm_frames(&m_State->PreviewSound, &l_Cursor));
+        }
+
+        return l_Cursor;
     }
 
     bool AudioEngine::IsTestTonePlaying() const

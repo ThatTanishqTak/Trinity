@@ -170,11 +170,43 @@ trinity_vendor_set(BASISU_SUPPORT_OPENCL OFF)
 trinity_vendor_directory(KTX-Software)
 list(APPEND TRINITY_VENDOR_TARGETS ktx ktx_read)
 
-# miniaudio - audio device, mixing and decoding.
+# miniaudio - audio device, mixing and decoding. OGG Vorbis decodes through stb_vorbis from the stb submodule, which goes in around miniaudio's implementation as miniaudio's documentation lays out. stb_vorbis allocates with malloc, so its implementation calls three functions the engine defines instead, which count what it allocates under the Audio tag
 trinity_vendor_require(miniaudio miniaudio.c)
-add_library(miniaudio STATIC EXCLUDE_FROM_ALL miniaudio/miniaudio.c)
+trinity_vendor_require(stb stb_vorbis.c)
+set(TRINITY_MINIAUDIO_UNIT "${CMAKE_CURRENT_BINARY_DIR}/MiniaudioUnit.c")
+file(CONFIGURE OUTPUT "${TRINITY_MINIAUDIO_UNIT}" @ONLY CONTENT [=[
+#define STB_VORBIS_HEADER_ONLY
+#include "stb_vorbis.c"
+#include "miniaudio.c"
+#undef STB_VORBIS_HEADER_ONLY
+
+/* Every header stb_vorbis includes comes first, so their declarations of malloc and free are read before the names change */
+#include <assert.h>
+#include <limits.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#if defined(_MSC_VER) || defined(__MINGW32__)
+#include <malloc.h>
+#endif
+#if defined(__linux__) || defined(__linux) || defined(__sun__) || defined(__EMSCRIPTEN__) || defined(__NEWLIB__)
+#include <alloca.h>
+#endif
+
+void* TrinityAudioAllocate(size_t size);
+void* TrinityAudioReallocate(void* memory, size_t size);
+void TrinityAudioFree(void* memory);
+
+#define malloc(size) TrinityAudioAllocate(size)
+#define realloc(memory, size) TrinityAudioReallocate(memory, size)
+#define free(memory) TrinityAudioFree(memory)
+#include "stb_vorbis.c"
+]=])
+add_library(miniaudio STATIC EXCLUDE_FROM_ALL "${TRINITY_MINIAUDIO_UNIT}")
 add_library(miniaudio::miniaudio ALIAS miniaudio)
 target_include_directories(miniaudio SYSTEM PUBLIC miniaudio)
+target_include_directories(miniaudio PRIVATE stb)
 # Public, since they change miniaudio's structures. The engine loads clips on its own job system, so miniaudio's resource manager and its thread are left out, and an engine without a device mixes from the main thread, so the Null backend is too
 target_compile_definitions(miniaudio PUBLIC MA_NO_RESOURCE_MANAGER MA_NO_NULL)
 if(UNIX)

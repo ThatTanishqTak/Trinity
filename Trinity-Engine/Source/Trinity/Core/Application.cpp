@@ -1,6 +1,7 @@
 #include "Trinity/Core/Application.hpp"
 
 #include "Trinity/Asset/AssetManager.hpp"
+#include "Trinity/Audio/AudioLoaders.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/CpuFeatures.hpp"
@@ -571,6 +572,7 @@ namespace Trinity
         AssetManager::Initialize();
         CollisionShapeLoaders::Register();
         PrefabLoaders::Register();
+        AudioLoaders::Register();
         InputActionsRuntime::Initialize();
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
@@ -585,6 +587,7 @@ namespace Trinity
         l_Application.reset();
 
         InputActionsRuntime::Shutdown();
+        AudioLoaders::Unregister();
         PrefabLoaders::Unregister();
         CollisionShapeLoaders::Unregister();
         AssetManager::Shutdown();

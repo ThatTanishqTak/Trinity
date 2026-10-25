@@ -9,6 +9,8 @@
 
 namespace Trinity
 {
+    class AudioClipAsset;
+
     // Where an engine's mix goes
     enum class AudioOutput : std::uint8_t
     {
@@ -38,10 +40,10 @@ namespace Trinity
         AudioEngine(const AudioEngine&) = delete;
         AudioEngine& operator=(const AudioEngine&) = delete;
 
-        // Once a frame on the main thread. Logs a move to another device, and mixes the frame's time while no device does
+        // Once a frame on the main thread. Logs a move to another device, starts the refills of the streams playing, and mixes the frame's time while no device does
         void Update(Timestep timestep);
 
-        // Offline only: mixes the next frames into output, interleaved, whose size is a whole number of frames
+        // Offline only: mixes the next frames into output, interleaved, whose size is a whole number of frames. Streams refill on the calling thread as it goes, so a render gives the same samples each time
         void Render(std::span<float> output);
 
         // The volume of everything, from 0 to 1, ramped so that a change never clicks. The audio.volume console variable sets the application's
@@ -52,6 +54,14 @@ namespace Trinity
         void PlayTestTone(float frequency, float amplitude, float seconds);
         void StopTestTone();
         [[nodiscard]] bool IsTestTonePlaying() const;
+
+        // A clip on its own, outside any scene, as Forge's previews play it, once at its own pitch. A new one replaces it, and a clip whose samples are still loading starts once they are in. It holds what it plays, so the asset may go first
+        void PlayPreview(const AudioClipAsset& clip);
+        void StopPreview();
+        // True from PlayPreview until the clip ends or is stopped, the wait for its samples included
+        [[nodiscard]] bool IsPreviewPlaying() const;
+        // Where the preview has got to in its clip, in the clip's frames
+        [[nodiscard]] std::uint64_t GetPreviewCursor() const;
 
         // Silent when a Device engine found no device
         [[nodiscard]] AudioOutput GetOutput() const;
