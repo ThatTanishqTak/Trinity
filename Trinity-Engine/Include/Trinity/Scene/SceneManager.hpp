@@ -15,7 +15,7 @@ namespace Trinity
     class Scene;
     class SceneRuntime;
 
-    // Runs one scene at a time, a game's or Forge's copy to play, and switches to a scene asset a script or the game asks for once it is ready: its file is read on a worker and loaded into a scene of its own, then every mesh, material and its textures, sprite texture, environment, hull and collision mesh it uses, and each asset a script field names, is loaded, which the new scene holds while it runs. The switch comes at the end of the frame, after the scene's scripts and its transform pass: entities marked KeepAcrossScenes, with their subtrees, move into the new scene under their own UUIDs, their scripts keeping their instances, fields and waiting timers and coroutines, then the old scene's scripts have OnDestroy and it goes, and the new scene's scripts have OnCreate as it first runs. A scene that cannot be found or read is logged and the running one goes on. C# and SceneManager::GetActive reach the one made last that still lives. Main thread only
+    // Runs one scene at a time, a game's or Forge's copy to play, and switches to a scene asset a script or the game asks for once it is ready: its file is read on a worker and loaded into a scene of its own, then every mesh, material and its textures, sprite texture, environment, hull and collision mesh it uses, and each asset a script field names, is loaded, with what is inside each prefab it names: its meshes and the rest, the prefabs nested in it and those its scripts' fields name, so an instance of it made while the scene runs is whole at once. The new scene holds them while it runs, and scripts instance only the prefabs it holds. The switch comes at the end of the frame, after the scene's scripts and its transform pass: entities marked KeepAcrossScenes, with their subtrees, move into the new scene under their own UUIDs, their scripts keeping their instances, fields and waiting timers and coroutines, then the old scene's scripts have OnDestroy and it goes, and the new scene's scripts have OnCreate as it first runs. A scene that cannot be found or read is logged and the running one goes on. C# and SceneManager::GetActive reach the one made last that still lives. Main thread only
     class TRINITY_API SceneManager
     {
     public:
@@ -51,6 +51,8 @@ namespace Trinity
         [[nodiscard]] SceneRuntime* GetRuntime() const;
         [[nodiscard]] UUID GetSceneAsset() const;
         [[nodiscard]] bool IsLoading() const;
+        // Whether the running scene holds the asset, as it holds every asset it uses and each a script field names, and what is inside each prefab it holds
+        [[nodiscard]] bool Holds(UUID asset) const;
         [[nodiscard]] Statistics GetStatistics() const;
 
     private:

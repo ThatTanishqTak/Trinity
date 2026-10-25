@@ -1,13 +1,16 @@
 #pragma once
 
+#include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Scene/Entity.hpp"
+#include "Trinity/Scene/Prefab.hpp"
 #include "Trinity/Scripting/Coroutine.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <concepts>
 #include <cstdint>
@@ -86,8 +89,11 @@ namespace Trinity
         [[nodiscard]] Entity FindEntityByName(std::string_view name) const;
         // At once, last under the parent, or last of the roots without one
         Entity CreateEntity(std::string_view name = "Entity", Entity parent = {});
-        // The entity and its subtree copied at once, placed after it, with entity fields inside the copy pointing at the copy's own entities. The copy's scripts are made at once with their fields, and have OnCreate before their first call
+        // The entity and its subtree copied at once, placed after it, with entity fields inside the copy pointing at the copy's own entities. The copy's scripts are made at once with their fields, and have OnCreate before their first call, by the end of the frame at the latest
         Entity Duplicate(Entity entity);
+        // An instance of the prefab, made at once from its template in memory, as Unity's Instantiate makes one: last of the roots, or under the parent with the prefab's transform, or with its root at the position and rotation in the world, under the parent too. Its scripts are made at once with their fields, and have OnCreate before their first call, by the end of the frame at the latest, and its bodies and characters join physics at the next step. Its root, or invalid, logged once a prefab, for a prefab the running scene does not hold, as it holds every prefab its fields name, or that cannot be read
+        Entity Instantiate(const AssetRef<PrefabAsset>& prefab, Entity parent = {});
+        Entity Instantiate(const AssetRef<PrefabAsset>& prefab, const glm::vec3& position, const glm::quat& rotation, Entity parent = {});
         // The entity and its subtree go at the end of the frame, after every script has run, so a script may destroy its own entity and finish the call it is in
         void Destroy(Entity entity);
 
@@ -107,7 +113,7 @@ namespace Trinity
         // Whether the entity has a script of the class, in either language, whether or not its code is loaded
         [[nodiscard]] bool HasScript(Entity entity, ScriptLanguage language, std::string_view className) const;
 
-        // A script of the class last on the entity, with its fields at their defaults, made at once and given OnCreate before its first call. Null, logged, when the class is not registered
+        // A script of the class last on the entity, with its fields at their defaults, made at once and given OnCreate before its first call, by the end of the frame at the latest. Null, logged, when the class is not registered
         template<std::derived_from<Script> T>
         T* AddScript(Entity entity)
         {

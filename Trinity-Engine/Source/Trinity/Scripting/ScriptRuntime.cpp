@@ -7,6 +7,9 @@
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
+#include "Trinity/Scene/SceneManager.hpp"
+#include "Trinity/Scene/SceneRuntime.hpp"
+#include "Trinity/Scene/SceneSerializer.hpp"
 #include "Trinity/Scripting/ScriptBackend.hpp"
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"
 
@@ -16,6 +19,7 @@
 #include <cmath>
 #include <format>
 #include <functional>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -602,19 +606,19 @@ namespace Trinity
                     case ScriptWaitType::Seconds:
                     {
                         l_Due = l_Task.Due <= l_Time.StepCount;
-                        
+
                         break;
                     }
                     case ScriptWaitType::Frames:
                     {
                         l_Due = l_Task.Due <= l_Time.FrameCount;
-                        
+
                         break;
                     }
                     case ScriptWaitType::Condition:
                     {
                         l_Due = IsMet(it_Task);
-                        
+
                         break;
                     }
                     case ScriptWaitType::Done:
@@ -677,6 +681,9 @@ namespace Trinity
         std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scripting>> PendingDestroy;
         std::vector<Removal, TaggedAllocator<Removal, MemoryTag::Scripting>> PendingRemove;
         std::vector<TaggedString<MemoryTag::Scripting>, TaggedAllocator<TaggedString<MemoryTag::Scripting>, MemoryTag::Scripting>> Warned;
+        std::vector<InstancingTime, TaggedAllocator<InstancingTime, MemoryTag::Scripting>> Instancing;
+        // Prefabs an instance of was refused, each logged once
+        std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scripting>> Refused;
         std::vector<Task, TaggedAllocator<Task, MemoryTag::Scripting>> Tasks;
         std::uint64_t NextSerial = 0;
         std::uint32_t TaskDepth = 0;
@@ -833,11 +840,16 @@ namespace Trinity
         m_Physics2D = physics2D;
     }
 
-    void ScriptRuntime::CreatePending()
+    bool ScriptRuntime::CreatePending()
     {
         TR_PROFILE_FUNCTION();
 
         State& l_State = *m_State;
+        if (l_State.Pending.empty())
+        {
+            return false;
+        }
+
         const TimedPart l_Timed(l_State.Time);
         for (std::size_t it_Pending = 0; it_Pending < l_State.Pending.size(); ++it_Pending)
         {
@@ -849,6 +861,8 @@ namespace Trinity
         }
 
         l_State.Pending.clear();
+
+        return true;
     }
 
     // Only C# has handlers, since a C++ script reads its actions as it runs
@@ -1219,6 +1233,76 @@ namespace Trinity
         }
 
         return l_Copy;
+    }
+
+    // Each instance has a new UUID, so its entities' are new too. A runtime that a SceneManager runs instances only what the manager holds, in Forge's Play as in a game, so a prefab the scene's fields do not name is refused in both
+    Entity ScriptRuntime::InstantiatePrefab(UUID prefab, Entity parent, const std::optional<InstancePose>& pose)
+    {
+        TR_PROFILE_FUNCTION();
+
+        State& l_State = *m_State;
+        if (parent && parent.GetScene() != &l_State.TargetScene)
+        {
+            TR_CORE_ERROR("Scripting: no instance of prefab {} is made, since its parent {} is not in the running scene", prefab, parent.GetUUID());
+
+            return {};
+        }
+
+        const auto a_Refuse = [&l_State, prefab](const std::string& why)
+        {
+            if (std::ranges::find(l_State.Refused, prefab) == l_State.Refused.end())
+            {
+                l_State.Refused.push_back(prefab);
+                TR_CORE_ERROR("Scripting: no instance of prefab {} is made, since {}", prefab, why);
+            }
+
+            return Entity();
+        };
+
+        const SceneManager* l_Manager = SceneManager::GetActive();
+        if (l_Manager != nullptr && l_Manager->GetRuntime() != nullptr && &l_Manager->GetRuntime()->GetScripts() == this && !l_Manager->Holds(prefab))
+        {
+            return a_Refuse("the running scene does not hold it, as it holds each prefab its fields name");
+        }
+
+        const auto l_Start = std::chrono::steady_clock::now();
+        const Expected<Entity, std::string> l_Root = SceneSerializer::InstantiatePrefab(l_State.TargetScene, prefab, UUID::Generate(), parent, {});
+        if (!l_Root)
+        {
+            return a_Refuse(l_Root.GetError());
+        }
+
+        if (pose)
+        {
+            TransformComponent l_World = l_State.TargetScene.ComputeWorldTransform(*l_Root);
+            l_World.Position = pose->Position;
+            l_World.Rotation = pose->Rotation;
+            l_State.TargetScene.SetWorldTransform(*l_Root, l_World);
+        }
+
+        for (Entity it_Entity = *l_Root; it_Entity; it_Entity = l_State.TargetScene.GetNextInSubtree(it_Entity, *l_Root))
+        {
+            static_cast<void>(l_State.MakeRecord(it_Entity));
+        }
+
+        const double l_Microseconds = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - l_Start).count();
+        auto a_Time = std::ranges::find(l_State.Instancing, prefab, &InstancingTime::Prefab);
+        if (a_Time == l_State.Instancing.end())
+        {
+            l_State.Instancing.push_back({ .Prefab = prefab, .Count = 0, .TotalMicroseconds = 0.0, .MostMicroseconds = 0.0 });
+            a_Time = std::prev(l_State.Instancing.end());
+        }
+
+        ++a_Time->Count;
+        a_Time->TotalMicroseconds += l_Microseconds;
+        a_Time->MostMicroseconds = std::max(a_Time->MostMicroseconds, l_Microseconds);
+
+        return *l_Root;
+    }
+
+    std::span<const ScriptRuntime::InstancingTime> ScriptRuntime::GetInstancingTimes() const
+    {
+        return m_State->Instancing;
     }
 
     void ScriptRuntime::DestroyEntity(Entity entity)

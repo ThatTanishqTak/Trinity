@@ -100,6 +100,16 @@ namespace Trinity
         return m_Runtime != nullptr ? m_Runtime->DuplicateEntity(entity) : Entity();
     }
 
+    Entity Script::Instantiate(const AssetRef<PrefabAsset>& prefab, Entity parent)
+    {
+        return m_Runtime != nullptr ? m_Runtime->InstantiatePrefab(prefab.GetID(), parent, std::nullopt) : Entity();
+    }
+
+    Entity Script::Instantiate(const AssetRef<PrefabAsset>& prefab, const glm::vec3& position, const glm::quat& rotation, Entity parent)
+    {
+        return m_Runtime != nullptr ? m_Runtime->InstantiatePrefab(prefab.GetID(), parent, ScriptRuntime::InstancePose{ .Position = position, .Rotation = rotation }) : Entity();
+    }
+
     void Script::Destroy(Entity entity)
     {
         if (m_Runtime != nullptr)

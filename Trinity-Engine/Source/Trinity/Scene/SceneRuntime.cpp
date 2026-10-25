@@ -88,13 +88,13 @@ namespace Trinity
         RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()));
     }
 
-    // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Entities destroyed meanwhile go last, then rendering, which the caller does
+    // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Scripts added meanwhile that no call has given OnCreate, such as those of a Script component put on an entity directly, have it then, with the transform pass again, so it comes in the frame they were added in. Entities destroyed meanwhile go last, then rendering, which the caller does
     void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep timestep)
     {
         const bool l_WasReadingScene = Input::SetReadingScene(true);
         InputActionsRuntime::Update(timestep);
         m_Scripts->BeginFrame(timestep, Timestep(m_Clock.GetStep()));
-        m_Scripts->CreatePending();
+        static_cast<void>(m_Scripts->CreatePending());
         m_Scripts->RaiseInputEvents();
 
         // A scene that had no 3D or no 2D body as it started gets that world once it has one
@@ -173,6 +173,11 @@ namespace Trinity
         m_Scripts->Update(timestep);
         m_Scene.UpdateWorldTransforms();
         if (m_Scripts->LateUpdate(timestep))
+        {
+            m_Scene.UpdateWorldTransforms();
+        }
+
+        if (m_Scripts->CreatePending())
         {
             m_Scene.UpdateWorldTransforms();
         }

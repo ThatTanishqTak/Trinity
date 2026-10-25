@@ -8,8 +8,12 @@
 #include "Trinity/Scripting/Script.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -69,6 +73,22 @@ namespace Trinity
             LanguageStatistics CSharp;
         };
 
+        // Where an instance's root goes in the world, as Instantiate is given it
+        struct InstancePose
+        {
+            glm::vec3 Position{ 0.0f };
+            glm::quat Rotation = glm::identity<glm::quat>();
+        };
+
+        // The instances of one prefab made while the runtime ran, and the time each took, in microseconds, from its entities to its scripts made with their fields
+        struct InstancingTime
+        {
+            UUID Prefab;
+            std::uint64_t Count = 0;
+            double TotalMicroseconds = 0.0;
+            double MostMicroseconds = 0.0;
+        };
+
         explicit ScriptRuntime(Scene& scene);
         // OnDestroy on every script that had OnCreate, in the order they were made
         ~ScriptRuntime();
@@ -90,8 +110,8 @@ namespace Trinity
         [[nodiscard]] PhysicsScene3D* GetPhysics() const { return m_Physics; }
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() const { return m_Physics2D; }
 
-        // Makes the instances of every Script component added since the last call, the scene's own on the first, gives each the values of its fields, and calls OnCreate on each enabled one. A script that a call makes is made in the same call
-        void CreatePending();
+        // Makes the instances of every Script component added since the last call, the scene's own on the first, gives each the values of its fields, and calls OnCreate on each enabled one. A script that a call makes is made in the same call. SceneRuntime calls it as a frame begins and again once the frame's scripts have run, so a script added during the frame has OnCreate within it. Whether any was added
+        bool CreatePending();
         // After CreatePending and before the fixed steps: the input action handlers C# scripts added, for this frame's presses and releases, so those of a script made this frame are raised too
         void RaiseInputEvents();
         void FixedUpdate(Timestep step);
@@ -122,6 +142,10 @@ namespace Trinity
 
         // The entity and its subtree copied at once, as Scene::DuplicateEntity copies them, with the copy's scripts made at once and given their fields. They have OnCreate before their first call, or at the next CreatePending
         Entity DuplicateEntity(Entity entity);
+        // An instance of the prefab, made at once from its template in memory, with no text read, as Unity's Instantiate makes one: last of the roots, or under the parent with the prefab's transform, or with its root put at the pose in the world, under the parent too, keeping the prefab's scale. Its scripts are made at once and given their fields, as DuplicateEntity's are, and its bodies and characters join physics at the next step, as any added do. Invalid for a parent of another scene, logged, and for a prefab whose template cannot be read, or that the SceneManager running this runtime's scene does not hold, as it holds every prefab the scene's fields name, logged once a prefab
+        Entity InstantiatePrefab(UUID prefab, Entity parent, const std::optional<InstancePose>& pose);
+        // Each prefab instanced while the runtime ran, in the order of its first instance
+        [[nodiscard]] std::span<const InstancingTime> GetInstancingTimes() const;
         // The entity and its subtree go at DestroyPending, after their scripts' OnDestroy. Physics takes their bodies, colliders and joints out at the next step
         void DestroyEntity(Entity entity);
 
