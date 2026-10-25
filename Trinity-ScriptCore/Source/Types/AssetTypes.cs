@@ -50,6 +50,14 @@ namespace Trinity
         public static string AssetType => "Scene";
     }
 
+    // A prefab or a model, which is read as a prefab of its hierarchy, so a field of AssetRef<PrefabAsset> takes either, for Entity.Instantiate
+    public sealed class PrefabAsset : IAsset
+    {
+        private PrefabAsset() { }
+
+        public static string AssetType => "Prefab";
+    }
+
     public sealed class BinaryAsset : IAsset
     {
         private BinaryAsset() { }

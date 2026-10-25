@@ -50,6 +50,21 @@ namespace Trinity
             return l_Created != 0 ? new Entity(l_Created) : throw new InvalidOperationException($"No entity was made, since the running scene has no parent {parent}");
         }
 
+        // An instance of the prefab, made at once from its template in memory, as Unity's Instantiate makes one: last of the roots, or under the parent with the prefab's transform, or with its root at the position and rotation in the world, under the parent too. Its scripts are made at once with their fields, and have OnCreate before their first call, by the end of the frame at the latest, and its bodies and characters join physics at the next step. None, logged once a prefab, for a prefab the running scene does not hold, as it holds every prefab its fields name, or that cannot be read. Throws for a parent the running scene does not have
+        public static unsafe Entity Instantiate(AssetRef<PrefabAsset> prefab, Entity parent = default)
+        {
+            CheckParent(prefab, parent);
+
+            return new Entity(Native.Entity_Instantiate(prefab.ID, parent.ID, null, null));
+        }
+
+        public static unsafe Entity Instantiate(AssetRef<PrefabAsset> prefab, Vector3 position, Quaternion rotation, Entity parent = default)
+        {
+            CheckParent(prefab, parent);
+
+            return new Entity(Native.Entity_Instantiate(prefab.ID, parent.ID, &position, &rotation));
+        }
+
         // It and its subtree go at the end of the frame, after every script has run, so a script may destroy its own entity and finish the call it is in
         public void Destroy()
         {
@@ -59,7 +74,7 @@ namespace Trinity
             }
         }
 
-        // It and its subtree copied at once, placed after it, with entity fields inside the copy pointing at the copy's own entities. The copy's scripts are made at once and have OnCreate before their first call
+        // It and its subtree copied at once, placed after it, with entity fields inside the copy pointing at the copy's own entities. The copy's scripts are made at once and have OnCreate before their first call, by the end of the frame at the latest
         public Entity Duplicate()
         {
             ulong l_Copy = Native.Entity_Duplicate(ID);
@@ -248,7 +263,7 @@ namespace Trinity
         // Whether it has a script of the class, in either language, whether or not its code is loaded
         public bool HasScript(string className, ScriptLanguage language = ScriptLanguage.CSharp) => FindScript(className, language) >= 0;
 
-        // A script of the class last on the entity, with its fields at their defaults, made at once and given OnCreate before its first call. Throws when the class is not loaded
+        // A script of the class last on the entity, with its fields at their defaults, made at once and given OnCreate before its first call, by the end of the frame at the latest. Throws when the class is not loaded
         public T AddScript<T>() where T : Script
         {
             int l_Index = AddScript(ScriptName<T>.Value, ScriptLanguage.CSharp);
@@ -335,6 +350,14 @@ namespace Trinity
         private void ThrowMissing() => throw new InvalidOperationException($"The running scene has no entity {this}");
 
         private T ThrowMissing<T>() => throw new InvalidOperationException($"The running scene has no entity {this}");
+
+        private static void CheckParent(AssetRef<PrefabAsset> prefab, Entity parent)
+        {
+            if (parent.IsValid && !parent.Exists)
+            {
+                throw new InvalidOperationException($"No instance of prefab {prefab} was made, since the running scene has no parent {parent}");
+            }
+        }
 
         // The name the engine knows a C# script class by, as its source generator writes it
         private static class ScriptName<T> where T : Script

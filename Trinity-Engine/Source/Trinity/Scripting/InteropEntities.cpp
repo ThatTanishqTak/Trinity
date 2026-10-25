@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <utility>
 
 namespace Trinity
@@ -86,6 +87,21 @@ namespace Trinity
             const Entity l_Entity = FindEntity(entity);
 
             return l_Entity ? ToId(ScriptRuntime::GetActive()->DuplicateEntity(l_Entity)) : 0;
+        }
+
+        // Its root at the pose in the world when both parts are given. 0 for a prefab the runtime refuses, which it logs once a prefab, and for a parent the scene does not have, which C# throws for before it asks
+        EntityId Entity_Instantiate(UInt64 prefab, EntityId parent, const Vector3* position, const Quaternion* rotation)
+        {
+            ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+            const Entity l_Parent = FindEntity(parent);
+            if (l_Runtime == nullptr || (parent != 0 && !l_Parent))
+            {
+                return 0;
+            }
+
+            const std::optional<ScriptRuntime::InstancePose> l_Pose = position != nullptr && rotation != nullptr ? std::optional(ScriptRuntime::InstancePose{ .Position = *position, .Rotation = *rotation }) : std::nullopt;
+
+            return ToId(l_Runtime->InstantiatePrefab(UUID(prefab), l_Parent, l_Pose));
         }
 
         // Valid until the tag changes, which C# copies at once

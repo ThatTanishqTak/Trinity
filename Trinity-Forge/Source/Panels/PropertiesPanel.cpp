@@ -308,6 +308,12 @@ namespace
         bool Broken = false;
     };
 
+    // Whether a slot of the type takes an asset the importer made: one of its type, any for a slot of no type, and a model for a prefab's, as a model is read as a prefab of its hierarchy, so Instantiate makes instances of either
+    bool TakesAsset(std::string_view assetType, std::string_view importer)
+    {
+        return assetType.empty() || importer == assetType || (assetType == Trinity::PrefabAsset::c_AssetType && importer == Trinity::c_ModelAssetType);
+    }
+
     // The type is the asset type the slot takes, or Asset for any. A built-in mesh is in every project
     SlotText DescribeAssetSlot(const Trinity::AssetRegistry* registry, std::string_view assetType, Trinity::UUID current)
     {
@@ -331,7 +337,7 @@ namespace
             return { std::format("{} Missing ({})", Trinity::Icons::c_Warning, l_Type), std::format("{} is not in the project: it was deleted, or moved outside Forge without its .meta file", current), true };
         }
 
-        if (!assetType.empty() && l_Record->Importer != assetType)
+        if (!TakesAsset(assetType, l_Record->Importer))
         {
             return { std::format("{} Type Mismatch ({})", Trinity::Icons::c_Warning, l_Type), std::format("{} is a {}, and this slot takes a {}", l_Record->Path, l_Record->Importer, l_Type), true };
         }
@@ -409,7 +415,7 @@ namespace
         }
     }
 
-    // What a drag from the Content Browser gives a slot of the type, as Unity's object fields take it: the asset when it is of the type, or for a slot of any type, else the first of the type among those it holds, such as a model's first mesh, material or embedded texture. None for an asset without one, or for another drag
+    // What a drag from the Content Browser gives a slot of the type, as Unity's object fields take it: the asset when the slot takes it, as a slot of any type does and a prefab's does a model, else the first of the type among those it holds, such as a model's first mesh, material or embedded texture. None for an asset without one, or for another drag
     Trinity::UUID GetDraggedAsset(const Trinity::AssetRegistry* registry, std::string_view assetType)
     {
         const ImGuiPayload* l_Payload = ImGui::GetDragDropPayload();
@@ -426,7 +432,7 @@ namespace
             return {};
         }
 
-        if (assetType.empty() || l_Dragged->Importer == assetType)
+        if (TakesAsset(assetType, l_Dragged->Importer))
         {
             return l_Dragged->ID;
         }
@@ -1996,7 +2002,7 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
     DrawAssetPicker(popup, assetType, current, set);
 }
 
-// The project's assets of one type, or of every type when none is given, by path, after the built-in meshes for a mesh, narrowed by what is typed
+// The project's assets of one type, or of every type when none is given, by path, after the built-in meshes for a mesh, and for a prefab its prefabs, variants among them, then the models it takes too, each under its heading, narrowed by what is typed
 void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick)
 {
     if (!ImGui::BeginPopup(popup))
@@ -2051,7 +2057,7 @@ void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetT
     {
         for (const Trinity::AssetRecord* it_Record : l_Registry->GetRecords())
         {
-            if ((assetType.empty() || it_Record->Importer == assetType) && a_Matches(it_Record->Path))
+            if (TakesAsset(assetType, it_Record->Importer) && a_Matches(it_Record->Path))
             {
                 l_Assets.push_back(it_Record);
             }
@@ -2059,8 +2065,23 @@ void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetT
     }
 
     std::ranges::sort(l_Assets, {}, &Trinity::AssetRecord::Path);
+    const bool l_Grouped = assetType == Trinity::PrefabAsset::c_AssetType;
+    const auto a_IsModel = [](const Trinity::AssetRecord* record) { return record->Importer == Trinity::c_ModelAssetType; };
+    if (l_Grouped)
+    {
+        static_cast<void>(std::ranges::stable_partition(l_Assets, [&a_IsModel](const Trinity::AssetRecord* record) { return !a_IsModel(record); }));
+    }
+
+    std::string_view l_Heading;
     for (const Trinity::AssetRecord* it_Record : l_Assets)
     {
+        const std::string_view l_Group = a_IsModel(it_Record) ? "Models" : "Prefabs";
+        if (l_Grouped && l_Group != l_Heading)
+        {
+            ImGui::SeparatorText(l_Group.data());
+            l_Heading = l_Group;
+        }
+
         if (ImGui::Selectable(std::format("{}###{}", it_Record->Path, it_Record->ID).c_str(), it_Record->ID == current))
         {
             pick(it_Record->ID);
