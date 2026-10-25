@@ -802,7 +802,7 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
     }
 }
 
-// The space below the tree: a click clears the selection, a drop makes the entity the last root, or a model's hierarchy or a prefab's instance one, and its menu creates a root or pastes, the last two not while a copy plays
+// The space below the tree: a click clears the selection, a drop makes the entity the last root, or an instance of a prefab or a model one, and its menu creates a root or pastes, the last two not while a copy plays
 void HierarchyPanel::DrawBackground()
 {
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
@@ -849,12 +849,7 @@ void HierarchyPanel::DrawBackground()
             const Trinity::UUID l_Dragged = ReadPayloadUUID(*l_Payload);
             m_Deferred.push_back([this, l_Dragged] { Move(l_Dragged, {}, {}); });
         }
-        else if (const ImGuiPayload* l_Model = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), ModelImporter::c_Importer) ? ImGui::AcceptDragDropPayload(c_AssetPayload) : nullptr)
-        {
-            const Trinity::UUID l_Dropped = ReadPayloadUUID(*l_Model);
-            m_Deferred.push_back([this, l_Dropped] { static_cast<void>(m_Session.CreateModel(l_Dropped, {}, {}, glm::vec3(0.0f))); });
-        }
-        else if (const ImGuiPayload* l_Prefab = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), Trinity::PrefabAsset::c_AssetType) ? ImGui::AcceptDragDropPayload(c_AssetPayload) : nullptr)
+        else if (const ImGuiPayload* l_Prefab = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), ModelImporter::c_Importer) || IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), Trinity::PrefabAsset::c_AssetType) ? ImGui::AcceptDragDropPayload(c_AssetPayload) : nullptr)
         {
             const Trinity::UUID l_Dropped = ReadPayloadUUID(*l_Prefab);
             m_Deferred.push_back([this, l_Dropped] { static_cast<void>(m_Session.InstantiatePrefab(l_Dropped, {}, {}, std::nullopt)); });
@@ -864,7 +859,7 @@ void HierarchyPanel::DrawBackground()
     }
 }
 
-// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, and a model's hierarchy or a prefab's instance is created there. A script goes onto the entity, as in Unity, so the whole row lights up for it
+// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, and an instance of a prefab or a model is created there. A script goes onto the entity, as in Unity, so the whole row lights up for it
 void HierarchyPanel::AcceptDrop(Trinity::Entity target)
 {
     if (!ImGui::BeginDragDropTarget())
@@ -885,9 +880,8 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
     const bool l_After = !l_Before && l_MouseY > l_Max.y - l_Edge;
 
     const ImGuiDragDropFlags l_Flags = ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect;
-    const bool l_Model = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), ModelImporter::c_Importer);
-    const bool l_Prefab = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), Trinity::PrefabAsset::c_AssetType);
-    if (const ImGuiPayload* l_Payload = l_Model || l_Prefab ? ImGui::AcceptDragDropPayload(c_AssetPayload, l_Flags) : ImGui::AcceptDragDropPayload(c_EntityPayload, l_Flags))
+    const bool l_Prefab = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), ModelImporter::c_Importer) || IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), Trinity::PrefabAsset::c_AssetType);
+    if (const ImGuiPayload* l_Payload = l_Prefab ? ImGui::AcceptDragDropPayload(c_AssetPayload, l_Flags) : ImGui::AcceptDragDropPayload(c_EntityPayload, l_Flags))
     {
         const ImU32 l_Color = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
         ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
@@ -907,11 +901,7 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
             const Trinity::UUID l_Target = target.GetUUID();
             const Trinity::UUID l_Parent = l_Before || l_After ? GetID(target.GetParent()) : l_Target;
             const Trinity::UUID l_Next = l_Before ? l_Target : (l_After ? GetID(target.GetNextSibling()) : Trinity::UUID());
-            if (l_Model)
-            {
-                m_Deferred.push_back([this, l_Dragged, l_Parent, l_Next] { static_cast<void>(m_Session.CreateModel(l_Dragged, l_Parent, l_Next, glm::vec3(0.0f))); });
-            }
-            else if (l_Prefab)
+            if (l_Prefab)
             {
                 m_Deferred.push_back([this, l_Dragged, l_Parent, l_Next] { static_cast<void>(m_Session.InstantiatePrefab(l_Dragged, l_Parent, l_Next, std::nullopt)); });
             }

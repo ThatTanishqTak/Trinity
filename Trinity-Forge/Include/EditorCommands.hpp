@@ -59,9 +59,6 @@ struct InputActionFieldRewrite
 // Each input action field of the scene, or list of them, as its entry or its class's default has it, with a path that led to an action before the rename and leads elsewhere or nowhere after it, each such path rewritten to that action's path after, Map/Action. Before and after have the same maps and actions in the same places, renamed. A path that led nowhere before is left as it is
 [[nodiscard]] std::vector<InputActionFieldRewrite> FindInputActionRewrites(Trinity::Scene& scene, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after);
 
-// The model's nodes under one root with the given name, each with its transform, and a MeshRenderer where it has a mesh. The root's subtree holds the nodes in the model's order
-Trinity::Entity CreateModelEntities(Trinity::Scene& scene, const Trinity::ModelData& model, std::string_view name, Trinity::Entity parent);
-
 // Whether the entity stands in for an instance whose prefab is missing, which keeps the instance as the scene file had it until the prefab is back, so nothing changes it but where it sits
 [[nodiscard]] bool IsMissingPrefab(Trinity::Entity entity);
 // Whether the entity is one of a prefab's entities in an instance, other than its root, which keeps the place the prefab gives it, as in Unity. What is added to an instance is not
@@ -131,29 +128,6 @@ private:
     Trinity::UUID m_Parent;
     glm::vec3 m_Position{ 0.0f };
     glm::vec2 m_Size{ 1.0f };
-    Trinity::UUID m_Entity;
-    std::string m_Text;
-    std::string m_Label;
-};
-
-class CreateModelCommand final : public EditorCommand
-{
-public:
-    CreateModelCommand(Trinity::UUID model, std::string name, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position);
-
-    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
-    void Undo(Trinity::Scene& scene) override;
-
-    [[nodiscard]] std::string GetName() const override { return m_Label; }
-    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
-    [[nodiscard]] std::size_t GetMemorySize() const override;
-
-private:
-    Trinity::UUID m_Model;
-    std::string m_Name;
-    Trinity::UUID m_Parent;
-    Trinity::UUID m_Before;
-    glm::vec3 m_Position{ 0.0f };
     Trinity::UUID m_Entity;
     std::string m_Text;
     std::string m_Label;

@@ -670,7 +670,7 @@ bool ImportTest::ReimportModels()
     return true;
 }
 
-// Each model is created in a scene of its own by the command a drop runs, which must undo to nothing and redo with the same UUIDs. For a glTF, every node's world matrix is then compared with the one fastgltf computes from the file, matrices and all
+// Each model is instanced in a scene of its own by the command a drop runs, which must undo to nothing and redo with the same UUIDs. For a glTF, every node's world matrix is then compared with the one fastgltf computes from the file, matrices and all
 bool ImportTest::CheckInstances()
 {
     bool l_Passed = true;
@@ -689,7 +689,7 @@ bool ImportTest::CheckInstances()
         };
 
         Trinity::Scene l_Scene;
-        CreateModelCommand l_Command(l_Record->ID, std::filesystem::path(it_Path).stem().string(), {}, {}, glm::vec3(0.0f));
+        InstantiatePrefabCommand l_Command(l_Record->ID, std::filesystem::path(it_Path).stem().string(), {}, {}, std::nullopt);
         if (!l_Command.Execute(l_Scene))
         {
             a_Fail("could not be created in a scene");
@@ -1649,7 +1649,7 @@ void ImportTest::BeginRendering()
     }
 
     m_RenderScene = std::make_unique<Trinity::Scene>();
-    static_cast<void>(CreateModelEntities(*m_RenderScene, *l_Model, "MetalRoughSpheres", {}));
+    static_cast<void>(Trinity::SceneSerializer::InstantiatePrefab(*m_RenderScene, l_Record->ID, Trinity::UUID::Generate(), {}, {}));
 
     std::vector<const Trinity::ModelNode*> l_MeshNodes;
     m_RenderMaterials.clear();

@@ -5,6 +5,7 @@
 #include <string>
 #include <utility>
 
+// A model is read once its import has cooked its hierarchy. What would not read is kept, so the file is found changed only once it holds something else
 Trinity::Scene* PrefabTemplateCache::Find(Trinity::UUID prefab, const Trinity::AssetRegistry* registry)
 {
     if (const auto a_Template = m_Templates.find(prefab); a_Template != m_Templates.end())
@@ -13,18 +14,20 @@ Trinity::Scene* PrefabTemplateCache::Find(Trinity::UUID prefab, const Trinity::A
     }
 
     const Trinity::AssetRecord* l_Record = registry != nullptr ? registry->Find(prefab) : nullptr;
-    if (l_Record == nullptr || l_Record->Importer != Trinity::PrefabAsset::c_AssetType)
+    const bool l_Model = l_Record != nullptr && l_Record->Importer == Trinity::c_ModelAssetType;
+    if (l_Record == nullptr || (!l_Model && l_Record->Importer != Trinity::PrefabAsset::c_AssetType) || (l_Model && !Trinity::FileSystem::Exists(Trinity::GetCookedModelPath(prefab))))
     {
         return nullptr;
     }
 
     Entry l_Entry{ .Template = Trinity::CreateScope<Trinity::Scene>(), .Text = {}, .Refused = {} };
-    Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Record->Path);
-    const Trinity::Expected<void, std::string> l_Loaded = l_Text ? Trinity::SceneSerializer::LoadPrefabFromText(*l_Entry.Template, *l_Text, prefab) : Trinity::Expected<void, std::string>(Trinity::Unexpected{ std::string(Trinity::ToString(l_Text.GetError())) });
+    Trinity::Expected<std::string, std::string> l_Text = ReadText(*l_Record);
+    const Trinity::Expected<void, std::string> l_Loaded = l_Text ? Trinity::SceneSerializer::LoadPrefabFromText(*l_Entry.Template, *l_Text, prefab) : Trinity::Expected<void, std::string>(Trinity::Unexpected{ l_Text.GetError() });
     if (!l_Loaded)
     {
-        TR_ERROR("Forge: prefab {} cannot be read, so its instances are kept as the scene file has them: {}", l_Record->Path, l_Loaded.GetError());
+        TR_ERROR("Forge: {} {} cannot be read, so its instances are kept as the scene file has them: {}", l_Model ? "model" : "prefab", l_Record->Path, l_Loaded.GetError());
         l_Entry.Template.reset();
+        l_Entry.Refused = l_Text ? std::move(*l_Text) : std::string();
     }
     else
     {
@@ -127,18 +130,19 @@ Trinity::Expected<std::vector<Trinity::UUID>, std::string> PrefabTemplateCache::
     return l_Made;
 }
 
+// A model's file is the hierarchy its import cooked, so it changes as the model is imported again, or its file renamed
 std::vector<std::pair<Trinity::UUID, std::string>> PrefabTemplateCache::FindChanged(const Trinity::AssetRegistry* registry) const
 {
     std::vector<std::pair<Trinity::UUID, std::string>> l_Changed;
     for (const auto& [it_Prefab, it_Entry] : m_Templates)
     {
         const Trinity::AssetRecord* l_Record = registry != nullptr ? registry->Find(it_Prefab) : nullptr;
-        if (!it_Entry.Template || l_Record == nullptr)
+        if (l_Record == nullptr)
         {
             continue;
         }
 
-        Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Record->Path);
+        Trinity::Expected<std::string, std::string> l_Text = ReadText(*l_Record);
         if (l_Text && *l_Text != it_Entry.Text && *l_Text != it_Entry.Refused)
         {
             l_Changed.emplace_back(it_Prefab, std::move(*l_Text));
@@ -146,4 +150,56 @@ std::vector<std::pair<Trinity::UUID, std::string>> PrefabTemplateCache::FindChan
     }
 
     return l_Changed;
+}
+
+std::vector<std::pair<Trinity::UUID, Trinity::UUID>> PrefabTemplateCache::FindMissing() const
+{
+    std::vector<std::pair<Trinity::UUID, Trinity::UUID>> l_Missing;
+    for (const auto& [it_Prefab, it_Entry] : m_Templates)
+    {
+        if (!it_Entry.Template)
+        {
+            continue;
+        }
+
+        for (const auto [it_Entity, it_Instance] : it_Entry.Template->GetRegistry().view<Trinity::PrefabInstanceComponent>().each())
+        {
+            if (it_Instance.IsMissing())
+            {
+                l_Missing.emplace_back(it_Prefab, it_Instance.Prefab);
+            }
+        }
+    }
+
+    return l_Missing;
+}
+
+// A model's hierarchy is made into its prefab once for each text its import cooks
+Trinity::Expected<std::string, std::string> PrefabTemplateCache::ReadText(const Trinity::AssetRecord& record) const
+{
+    const bool l_Model = record.Importer == Trinity::c_ModelAssetType;
+    Trinity::Expected<std::string, Trinity::FileError> l_File = Trinity::FileSystem::ReadText(l_Model ? Trinity::GetCookedModelPath(record.ID) : record.Path);
+    if (!l_File)
+    {
+        return Trinity::Unexpected{ std::string(Trinity::ToString(l_File.GetError())) };
+    }
+
+    if (!l_Model)
+    {
+        return std::move(*l_File);
+    }
+
+    ModelText& l_Made = m_Models[record.ID];
+    if (l_Made.Cooked != *l_File || (l_Made.Text.empty() && l_Made.Error.empty()))
+    {
+        const Trinity::Expected<Trinity::ModelData, std::string> l_Data = Trinity::ParseModelData(*l_File);
+        l_Made = { .Cooked = std::move(*l_File), .Text = l_Data ? Trinity::SceneSerializer::WriteModelPrefab(*l_Data) : std::string(), .Error = l_Data ? std::string() : l_Data.GetError() };
+    }
+
+    if (!l_Made.Error.empty())
+    {
+        return Trinity::Unexpected{ l_Made.Error };
+    }
+
+    return l_Made.Text;
 }

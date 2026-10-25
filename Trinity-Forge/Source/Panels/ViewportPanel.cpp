@@ -1229,7 +1229,7 @@ glm::vec3 ViewportPanel::GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize
     return l_Origin + l_Direction * (l_Distance > 0.0f && l_Distance <= c_MaximumDropDistance ? l_Distance : c_DropDistance);
 }
 
-// Dropped from the Content Browser, a texture becomes a sprite where it lands, at its pixel size, a model becomes its hierarchy under one root there, and a prefab an instance whose root is there, each in one command. Nothing is taken while a copy plays
+// Dropped from the Content Browser, a texture becomes a sprite where it lands, at its pixel size, and a prefab or a model an instance whose root is there, each in one command. Nothing is taken while a copy plays
 void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     if (m_Session.IsPlaying() || !ImGui::BeginDragDropTarget())
@@ -1245,11 +1245,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
         const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
         const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(l_ID) : nullptr;
         const glm::vec3 l_Point = GetDropPoint(imageMin, viewportSize);
-        if (l_Record != nullptr && l_Record->Importer == ModelImporter::c_Importer)
-        {
-            static_cast<void>(m_Session.CreateModel(l_ID, {}, {}, l_Point));
-        }
-        else if (l_Record != nullptr && l_Record->Importer == Trinity::PrefabAsset::c_AssetType)
+        if (l_Record != nullptr && (l_Record->Importer == ModelImporter::c_Importer || l_Record->Importer == Trinity::PrefabAsset::c_AssetType))
         {
             static_cast<void>(m_Session.InstantiatePrefab(l_ID, {}, {}, l_Point));
         }

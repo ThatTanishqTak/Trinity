@@ -95,6 +95,14 @@ namespace
         return l_Extension == ".gltf" || l_Extension == ".glb";
     }
 
+    // The file's name without its extension, as its instances' root is named
+    std::string GetModelName(std::string_view path)
+    {
+        const std::string_view l_File = path.substr(path.find_last_of('/') + 1);
+
+        return std::string(l_File.substr(0, std::min(l_File.find_last_of('.'), l_File.size())));
+    }
+
     // Metres and Y up from what the file says of itself, or from the settings where they say otherwise. Z up turns (x, y, z) into (x, z, -y)
     glm::mat4 GetConversion(const ModelSource& source, const ModelImportSettings& settings)
     {
@@ -266,6 +274,31 @@ std::vector<Trinity::UUID> ModelImporter::RefreshMaterials(const Trinity::AssetR
     }
 
     return l_Written;
+}
+
+// A hierarchy that cannot be read is left to the next import, as a material's is
+bool ModelImporter::RefreshName(const Trinity::AssetRecord& model)
+{
+    const std::string l_Path = Trinity::GetCookedModelPath(model.ID);
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Path);
+    Trinity::Expected<Trinity::ModelData, std::string> l_Model = l_Text ? Trinity::ParseModelData(*l_Text) : Trinity::Expected<Trinity::ModelData, std::string>(Trinity::Unexpected{ std::string() });
+    const std::string l_Name = GetModelName(model.Path);
+    if (!l_Model || l_Model->Name == l_Name)
+    {
+        return false;
+    }
+
+    l_Model->Name = l_Name;
+    if (const Trinity::Expected<void, Trinity::FileError> l_Result = Trinity::FileSystem::WriteText(l_Path, Trinity::WriteModelData(*l_Model)); !l_Result)
+    {
+        TR_ERROR("Models: {} could not be written for {}: {}", l_Path, model.Path, Trinity::ToString(l_Result.GetError()));
+
+        return false;
+    }
+
+    TR_INFO("Models: the instances of {} are now named {}, as its file is", model.Path, l_Name);
+
+    return true;
 }
 
 std::optional<Trinity::AssetSettings> ModelImporter::PruneMaterialOverrides(const Trinity::AssetRecord& model)
@@ -557,7 +590,8 @@ ModelImporter::Cooked ModelImporter::Cook(const Trinity::AssetRecord& record, co
         }
     }
 
-    const Trinity::ModelData l_Model = l_Source.BuildHierarchy(GetConversion(l_Source, ReadSettings(record)), l_Meshes, l_MeshMaterials);
+    Trinity::ModelData l_Model = l_Source.BuildHierarchy(GetConversion(l_Source, ReadSettings(record)), l_Meshes, l_MeshMaterials);
+    l_Model.Name = GetModelName(record.Path);
     const std::string l_ModelText = Trinity::WriteModelData(l_Model);
     static_cast<void>(a_Write({}, Trinity::GetCookedModelPath(record.ID), std::as_bytes(std::span(l_ModelText))));
 

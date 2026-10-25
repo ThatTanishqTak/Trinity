@@ -47,6 +47,8 @@ struct ModelImportReport
     std::size_t Cached = 0;
     std::size_t Failed = 0;
     std::size_t Stopped = 0;
+    // Models whose cooked hierarchy took their file's name, as after a rename
+    std::size_t Renamed = 0;
     std::size_t TexturesEncoded = 0;
     std::size_t TexturesCached = 0;
 };
@@ -71,7 +73,7 @@ public:
         Normal
     };
 
-    static constexpr std::string_view c_Importer = "Model";
+    static constexpr std::string_view c_Importer = Trinity::c_ModelAssetType;
     static constexpr std::string_view c_MaterialImporter = "Material";
     static constexpr std::uint32_t c_Version = 5;
     // Between a material's key and a field's name in the key of a .meta setting that overrides it, such as Material.0.blinn3/RoughnessFactor
@@ -120,6 +122,8 @@ public:
     [[nodiscard]] static Trinity::AssetSettings MakeMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material, const Trinity::MaterialData& imported, const Trinity::MaterialData& edited);
     // For a model whose cache is otherwise whole: each cooked material is brought in line with the .meta, which may have changed since, and those rewritten are given back
     [[nodiscard]] static std::vector<Trinity::UUID> RefreshMaterials(const Trinity::AssetRecord& model);
+    // For a model whose cache is otherwise whole: the cooked hierarchy is given the file's name when it has another, as after a rename, or none, as one cooked before it had a name, so its instances' root follows the file. Whether it was written
+    [[nodiscard]] static bool RefreshName(const Trinity::AssetRecord& model);
     // The settings without overrides of materials the model no longer has, or nothing when there are none
     [[nodiscard]] static std::optional<Trinity::AssetSettings> PruneMaterialOverrides(const Trinity::AssetRecord& model);
     [[nodiscard]] static std::string GetCacheKeyPath(Trinity::UUID id);

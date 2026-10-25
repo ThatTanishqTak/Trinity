@@ -185,6 +185,12 @@ void ModelImportBatch::TakePlans()
                 Trinity::AssetManager::Reload(it_ID);
             }
 
+            if (ModelImporter::RefreshName(*l_Record))
+            {
+                ++l_Running.Report.Renamed;
+                Trinity::AssetManager::Reload(l_Record->ID);
+            }
+
             continue;
         }
 
