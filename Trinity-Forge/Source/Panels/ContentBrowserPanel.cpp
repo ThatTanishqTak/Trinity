@@ -785,7 +785,8 @@ void ContentBrowserPanel::DrawCreateMenu(const Item* item)
         ImGui::SetItemTooltip("Input actions go in Assets or a folder in it");
     }
 
-    const bool l_Prefab = item != nullptr && IsPrefab(item->Record);
+    // A model has variants too, as in Unity, each its prefab's way to be changed
+    const bool l_Prefab = item != nullptr && (IsPrefab(item->Record) || (item->Record != nullptr && item->Record->Importer == ModelImporter::c_Importer));
     if (ImGui::MenuItem(std::format("{} Prefab Variant", Trinity::Icons::c_PackageVariant).c_str(), nullptr, false, l_Prefab))
     {
         m_Deferred.push_back([this, l_Base = item->Record->ID] { RenameCreated(m_Session.CreatePrefabVariant(l_Base)); });
@@ -793,7 +794,7 @@ void ContentBrowserPanel::DrawCreateMenu(const Item* item)
 
     if (!l_Prefab)
     {
-        ImGui::SetItemTooltip("Right-click a prefab to make a variant of it, which changes nothing of it until edited");
+        ImGui::SetItemTooltip("Right-click a prefab or a model to make a variant of it, which changes nothing of it until edited");
     }
 
     // The name is asked for first, since it names the class as well as the file
@@ -940,7 +941,7 @@ void ContentBrowserPanel::DrawConfirmPopup()
     ImGui::EndPopup();
 }
 
-// Unity's question for a prefab made from an instance's root: an original, whose entities are its own, or a variant of the instance's prefab, which keeps what the instance changes of it. Escape or Cancel makes neither
+// Unity's question for a prefab made from an instance's root: an original, whose entities are its own, or a variant of the instance's prefab, which keeps what the instance changes of it, the model for a model's instance. Escape or Cancel makes neither
 void ContentBrowserPanel::DrawPrefabKindPopup()
 {
     if (std::exchange(m_OpenPrefabKindPopup, false))
@@ -962,7 +963,9 @@ void ContentBrowserPanel::DrawPrefabKindPopup()
         return;
     }
 
-    ImGui::TextUnformatted(std::format("{} Would you like to create a new original prefab or a variant of this prefab?", Trinity::Icons::c_PackageVariantClosed).c_str());
+    const Trinity::Entity l_Dropped = m_Session.GetEditedScene().FindEntityByUUID(m_PrefabDrop->Entity);
+    const bool l_Model = l_Dropped && l_Dropped.Has<Trinity::PrefabInstanceComponent>() && m_Session.IsModel(l_Dropped.Get<Trinity::PrefabInstanceComponent>().Prefab);
+    ImGui::TextUnformatted(std::format("{} Would you like to create a new original prefab or a variant of this {}?", Trinity::Icons::c_PackageVariantClosed, l_Model ? "model" : "prefab").c_str());
     ImGui::TextDisabled("An original holds the instance's entities as its own, and a variant keeps what the instance changes of its prefab");
     ImGui::Spacing();
 

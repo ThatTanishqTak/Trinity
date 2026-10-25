@@ -545,7 +545,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         m_OpenRequests.erase(a_Request);
     }
 
-    // As Unity colours them: a prefab's instance blue, its root and the prefab's entities in it alike, and an entity standing in for a missing prefab red. What is added to an instance is as any entity is, with a plus. In prefab mode the prefab's root is shown as the prefab, as Unity shows it there. An instance nested in another has a root of its own, marked as any instance's root is, with a variant's icon for a variant
+    // As Unity colours them: a prefab's instance blue, its root and the prefab's entities in it alike, and an entity standing in for a missing prefab red. What is added to an instance is as any entity is, with a plus. In prefab mode the prefab's root is shown as the prefab, as Unity shows it there. An instance nested in another has a root of its own, marked as any instance's root is, with a variant's icon for a variant and a model's for a model's instance, as the Content Browser shows the model
     const bool l_Dimmed = l_Searching && !m_Matched.contains(l_ID);
     const Trinity::Entity l_Instance = Trinity::Prefab::FindInstanceRoot(entity);
     const NearestInstance l_Nearest = l_Instance ? FindNearestInstance(entity) : NearestInstance{};
@@ -557,11 +557,13 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         ImGui::PushStyleColor(ImGuiCol_Text, l_Dimmed ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : l_Instance && IsMissingPrefab(l_Instance) ? ConsolePanel::GetLevelColor(Trinity::LogLevel::Error) : GetPrefabColor());
     }
 
-    const char* l_Icon = !l_InstanceRoot && !l_PrefabRoot ? Trinity::Icons::c_CubeOutline : m_Session.IsPrefabVariant(l_InstanceRoot ? l_Nearest.Prefab : m_Session.GetOpenPrefab()) ? Trinity::Icons::c_PackageVariant : Trinity::Icons::c_PackageVariantClosed;
+    const Trinity::UUID l_Shown = l_InstanceRoot ? l_Nearest.Prefab : m_Session.GetOpenPrefab();
+    const bool l_Model = l_InstanceRoot && m_Session.IsModel(l_Shown);
+    const char* l_Icon = !l_InstanceRoot && !l_PrefabRoot ? Trinity::Icons::c_CubeOutline : l_Model ? Trinity::Icons::c_Cube : m_Session.IsPrefabVariant(l_Shown) ? Trinity::Icons::c_PackageVariant : Trinity::Icons::c_PackageVariantClosed;
     const std::string l_Icons = m_Added.contains(l_ID) ? std::format("{}{}", Trinity::Icons::c_Plus, l_Icon) : std::string(l_Icon);
     const std::string l_Label = l_Renaming ? l_Icons : std::format("{} {}", l_Icons, GetEntityLabel(entity));
-    // An instance's root ends its row with Unity's arrow, which overlaps the row and opens the root's prefab, and an entity that changes its prefab is marked as Properties marks it, with the bar and a bold name
-    const bool l_Arrow = l_InstanceRoot && !IsMissingPrefab(entity) && !l_Renaming;
+    // An instance's root ends its row with Unity's arrow, which overlaps the row and opens the root's prefab, though not a model's, which opens in no prefab mode, and an entity that changes its prefab is marked as Properties marks it, with the bar and a bold name
+    const bool l_Arrow = l_InstanceRoot && !IsMissingPrefab(entity) && !l_Renaming && !l_Model;
     const bool l_Overridden = m_Overridden.contains(l_ID);
     const float l_Right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
     if (l_Overridden)
@@ -783,12 +785,19 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
         return;
     }
 
-    // Open Prefab opens the nearest prefab, as the row's arrow does, and Unpack and Unpack Completely the instance the scene keeps, which holds every override
+    // Open Prefab opens the nearest prefab, as the row's arrow does, though not a model, and Unpack and Unpack Completely the instance the scene keeps, which holds every override
     ImGui::Separator();
     const bool l_Missing = IsMissingPrefab(l_Instance);
-    if (ImGui::MenuItem(std::format("{} Open Prefab", Trinity::Icons::c_PackageVariantClosed).c_str(), nullptr, false, !l_Missing))
+    const Trinity::UUID l_Nearest = FindNearestInstance(entity).Prefab;
+    const bool l_Model = !l_Missing && m_Session.IsModel(l_Nearest);
+    if (ImGui::MenuItem(std::format("{} Open Prefab", Trinity::Icons::c_PackageVariantClosed).c_str(), nullptr, false, !l_Missing && !l_Model))
     {
-        m_Session.RequestOpenPrefab(FindNearestInstance(entity).Prefab);
+        m_Session.RequestOpenPrefab(l_Nearest);
+    }
+
+    if (l_Model)
+    {
+        ImGui::SetItemTooltip("%s", std::format("{} is a model, whose prefab is made from its file, so it opens in no prefab mode. A variant of it does", m_Session.GetPrefabName(l_Nearest)).c_str());
     }
 
     if (ImGui::MenuItem("Unpack Prefab", nullptr, false, !m_ReadOnly && !l_Missing))
