@@ -124,6 +124,17 @@ namespace Trinity
         [[nodiscard]] bool operator==(const PhysicsBodyCounts&) const = default;
     };
 
+    // A world's characters as its last step left them: all it has made, and of those the ones on ground they can stand on, the ones on ground too steep to, and the ones in the air, touching nothing that holds them up
+    struct PhysicsCharacterCounts
+    {
+        std::uint32_t Characters = 0;
+        std::uint32_t Grounded = 0;
+        std::uint32_t Steep = 0;
+        std::uint32_t Airborne = 0;
+
+        [[nodiscard]] bool operator==(const PhysicsCharacterCounts&) const = default;
+    };
+
     // Where two bodies touched after the last step, in world space, with the normal from the first body to the second, for drawing
     struct PhysicsContactPoint
     {

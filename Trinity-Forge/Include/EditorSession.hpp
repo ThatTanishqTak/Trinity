@@ -78,6 +78,14 @@ public:
         Variant
     };
 
+    // What a new script starts as: an empty script, or a character that walks by the Move action and jumps by Jump, in 3D on a CharacterController or in 2D on a CharacterController2D, which it adds when its entity has none
+    enum class ScriptTemplate : std::uint8_t
+    {
+        Script,
+        Character3D,
+        Character2D
+    };
+
     // A project opened or created lately: its file, its name then and when, and whether the file was gone as the list was last read, as Forge starts and as a project closes
     struct RecentProject
     {
@@ -201,8 +209,8 @@ public:
     bool DeleteAsset(std::string_view path);
     bool ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings settings);
     [[nodiscard]] std::optional<std::string> CreateMaterial(std::string_view folder);
-    // A script of the language from its template, its class and file named as given, in Scripts or a folder in it for C#, and Source or a folder in it for C++, which its build picks up as the folder's watcher sees it. Its project path, or nothing, logged, for a name that cannot name a class, a file there already, a folder outside the language's, or a project without that language's scripts
-    [[nodiscard]] std::optional<std::string> CreateScript(std::string_view folder, Trinity::ScriptLanguage language, std::string_view className);
+    // A script of the language from the template asked for, its class and file named as given, in Scripts or a folder in it for C#, and Source or a folder in it for C++, which its build picks up as the folder's watcher sees it. Its project path, or nothing, logged, for a name that cannot name a class, a file there already, a folder outside the language's, or a project without that language's scripts
+    [[nodiscard]] std::optional<std::string> CreateScript(std::string_view folder, Trinity::ScriptLanguage language, std::string_view className, ScriptTemplate kind = ScriptTemplate::Script);
     // The full name of the class CreateScript makes, in the assembly's namespace for C#, as Game.Player, or the module's for C++, as Game::Player
     [[nodiscard]] std::string GetScriptClassName(Trinity::ScriptLanguage language, std::string_view className) const;
     // As Unity adds a script file dropped on its Inspector or Hierarchy: the loaded class of the file's language named after the file, as Player for Player.cs, with its fields at their defaults, in one command. Refused, with why, while no loaded code has that class, as before the script's first build
@@ -220,7 +228,7 @@ public:
     [[nodiscard]] bool IsImportingAssets() const { return IsImportRunning() || m_ImportAgain; }
     // The project's default input actions, whose first map Play enables, saved with the project at once. Anything but an input actions asset is refused
     void SetDefaultInputActions(Trinity::UUID asset);
-    // With one empty map, Gameplay, named New Input Actions, or New Input Actions 1 and on when that is taken. Its project path, or nothing, logged
+    // With the starter actions in one map, Gameplay: Move from WASD, the arrows and the left stick, Look from the mouse and the right stick, and Jump from Space and the A button, as the character templates find them. Named New Input Actions, or New Input Actions 1 and on when that is taken, and the project's default while it has none, or one it no longer has. Its project path, or nothing, logged
     [[nodiscard]] std::optional<std::string> CreateInputActions(std::string_view folder);
     // As the Input Actions panel and Properties read it each frame, from its file the first time and again once the files are scanned, as when Forge gets the focus back, so an edit made outside it is seen. Null for an asset that is not one
     [[nodiscard]] const InputActionsFile* ReadInputActions(Trinity::UUID asset);
@@ -269,6 +277,8 @@ public:
     [[nodiscard]] std::optional<std::string> CreatePrefab(Trinity::UUID entity, std::string_view folder, PrefabKind kind = PrefabKind::Original);
     // A variant of the prefab, or of a model, beside its file, as Unity's Create > Prefab Variant makes one: its root an instance of it that changes nothing, named after it, as Enemy Variant, numbered when that is taken. Not a step of the history, as no new asset is. Its project path, or nothing, logged
     [[nodiscard]] std::optional<std::string> CreatePrefabVariant(Trinity::UUID prefab);
+    // As Unity's Create > Prefab makes one: a root alone, with nothing but its transform, which prefab mode fills, it and its file named as given, in Assets or a folder in it. Not a step of the history, as nothing in the scene changes. Its project path, or nothing, logged, for a name that cannot name a file, a file there already, or a folder outside Assets
+    [[nodiscard]] std::optional<std::string> CreateEmptyPrefab(std::string_view folder, std::string_view name);
     // A new instance of the prefab, or of a model, whose prefab is made from its hierarchy, in one command, last under the parent or among the roots, or before the sibling. Its root goes to the position when one is given, as a drop into the Scene panel gives, which is then the instance's own, and otherwise keeps the prefab's transform, as a drop into the Hierarchy does. In prefab mode it is nested in the open prefab, refused with a notice for a prefab holding that one, which would then hold itself, and for a model not imported yet
     bool InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position);
     // The template the open scene's instances of the prefab are made from, which names the entities an instance removed. Null as the serializer finds none

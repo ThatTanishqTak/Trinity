@@ -1684,6 +1684,28 @@ namespace Trinity
         return m_State->World.GetBodyCounts();
     }
 
+    // One touching what does not hold it up falls as one in the air does, so it counts as airborne
+    PhysicsCharacterCounts PhysicsScene3D::GetCharacterCounts() const
+    {
+        PhysicsCharacterCounts l_Counts;
+        for (const BodyRecord* it_Record : m_State->Records)
+        {
+            if (it_Record->Character == nullptr && it_Record->Physical == nullptr)
+            {
+                continue;
+            }
+
+            const JPH::CharacterBase& l_Character = it_Record->Character != nullptr ? static_cast<const JPH::CharacterBase&>(*it_Record->Character) : *it_Record->Physical;
+            const JPH::CharacterBase::EGroundState l_Ground = l_Character.GetGroundState();
+            ++l_Counts.Characters;
+            l_Counts.Grounded += l_Ground == JPH::CharacterBase::EGroundState::OnGround ? 1u : 0u;
+            l_Counts.Steep += l_Ground == JPH::CharacterBase::EGroundState::OnSteepGround ? 1u : 0u;
+            l_Counts.Airborne += l_Ground == JPH::CharacterBase::EGroundState::InAir || l_Ground == JPH::CharacterBase::EGroundState::NotSupported ? 1u : 0u;
+        }
+
+        return l_Counts;
+    }
+
     // Between steps, so no worker is gathering
     void PhysicsScene3D::SetGatherContacts(bool gather)
     {

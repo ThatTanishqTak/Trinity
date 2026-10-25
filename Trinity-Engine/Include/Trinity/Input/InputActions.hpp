@@ -139,12 +139,13 @@ namespace Trinity
         // How far a Button or an Axis, or a Vector2's length, has to go for the action to be pressed
         static constexpr float c_PressPoint = 0.5f;
 
-        // How a player reads an action, as a debugger such as Forge's Game panel shows it: its value as ReadVector2 gives it, whether it is held, and its interaction's progress
+        // How a player reads an action, as a debugger such as Forge's Game panel shows it: its value as ReadVector2 gives it, whether it is held, its interaction's progress, and whether it performed this frame, as WasPerformed outside a fixed step reads it
         struct ActionReading
         {
             glm::vec2 Value{ 0.0f };
             bool Held = false;
             float Progress = 0.0f;
+            bool Performed = false;
         };
 
         // Invalid when the running scene has none

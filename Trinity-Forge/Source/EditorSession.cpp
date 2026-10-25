@@ -14,6 +14,7 @@
 #include <cmath>
 #include <format>
 #include <fstream>
+#include <initializer_list>
 #include <optional>
 #include <span>
 #include <system_error>
@@ -206,6 +207,254 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
 }
 )";
 
+    // New characters, which find their actions by the names Create > Input Actions gives them
+    constexpr std::string_view c_CSharpCharacter3DTemplate = R"(using Trinity;
+
+namespace @NAMESPACE@
+{
+    // Walks by its Move action and jumps by Jump from ground it can stand on, each found by its name while Properties sets none. Its fields are its public fields and those marked [Field], with the values a new instance has, which Properties shows once the scripts are built
+    public class @CLASS@ : Script
+    {
+        public float Speed = 5.0f;
+        public float JumpSpeed = 6.0f;
+        public InputAction Move;
+        public InputAction Jump;
+
+        private CharacterController m_Character;
+
+        // A CharacterController for its entity when it has none
+        public override void OnCreate()
+        {
+            if (!Entity.TryGet(out m_Character))
+            {
+                m_Character = Entity.Add<CharacterController>();
+            }
+
+            if (Move.Path.Length == 0)
+            {
+                Move = InputAction.Find("Move");
+            }
+
+            if (Jump.Path.Length == 0)
+            {
+                Jump = InputAction.Find("Jump");
+            }
+        }
+
+        // Its velocity lasts from step to step, so each step sets how fast it walks, along X and forward into -Z, and leaves the rest to gravity and the ground, but for a jump
+        public override void OnFixedUpdate(float step)
+        {
+            Vector2 l_Move = Move.ReadVector2();
+            Vector3 l_Velocity = m_Character.Velocity;
+            l_Velocity.X = l_Move.X * Speed;
+            l_Velocity.Z = -l_Move.Y * Speed;
+            if (Jump.WasPressed() && m_Character.Ground.Grounded)
+            {
+                l_Velocity.Y = JumpSpeed;
+            }
+
+            m_Character.Velocity = l_Velocity;
+        }
+    }
+}
+)";
+
+    constexpr std::string_view c_CSharpCharacter2DTemplate = R"(using Trinity;
+
+namespace @NAMESPACE@
+{
+    // Walks left and right by its Move action and jumps by Jump from ground it can stand on, each found by its name while Properties sets none. Its fields are its public fields and those marked [Field], with the values a new instance has, which Properties shows once the scripts are built
+    public class @CLASS@ : Script
+    {
+        public float Speed = 5.0f;
+        public float JumpSpeed = 6.0f;
+        public InputAction Move;
+        public InputAction Jump;
+
+        private CharacterController2D m_Character;
+
+        // A CharacterController2D for its entity when it has none
+        public override void OnCreate()
+        {
+            if (!Entity.TryGet(out m_Character))
+            {
+                m_Character = Entity.Add<CharacterController2D>();
+            }
+
+            if (Move.Path.Length == 0)
+            {
+                Move = InputAction.Find("Move");
+            }
+
+            if (Jump.Path.Length == 0)
+            {
+                Jump = InputAction.Find("Jump");
+            }
+        }
+
+        // Its velocity lasts from step to step, so each step sets how fast it walks along X, and leaves the rest to gravity and the ground, but for a jump
+        public override void OnFixedUpdate(float step)
+        {
+            Vector2 l_Velocity = m_Character.Velocity;
+            l_Velocity.X = Move.ReadVector2().X * Speed;
+            if (Jump.WasPressed() && m_Character.Ground.Grounded)
+            {
+                l_Velocity.Y = JumpSpeed;
+            }
+
+            m_Character.Velocity = l_Velocity;
+        }
+    }
+}
+)";
+
+    constexpr std::string_view c_CppCharacter3DTemplate = R"(#include <Trinity.hpp>
+
+namespace @NAMESPACE@
+{
+    // Walks by its Move action and jumps by Jump from ground it can stand on, each found by its name while Properties sets none. Its fields are the members its TR_SCRIPT block lists, with the values a new instance has, which Properties shows once the module is built
+    class @CLASS@ : public Trinity::Script
+    {
+    public:
+        float Speed = 5.0f;
+        float JumpSpeed = 6.0f;
+        Trinity::InputAction Move;
+        Trinity::InputAction Jump;
+
+        // A CharacterController for its entity when it has none
+        void OnCreate() override
+        {
+            Trinity::Entity l_Entity = GetEntity();
+            if (!l_Entity.Has<Trinity::CharacterControllerComponent>())
+            {
+                l_Entity.Add<Trinity::CharacterControllerComponent>();
+            }
+
+            if (Move.GetPath().empty())
+            {
+                Move = Trinity::InputAction::Find("Move");
+            }
+
+            if (Jump.GetPath().empty())
+            {
+                Jump = Trinity::InputAction::Find("Jump");
+            }
+        }
+
+        // Its velocity lasts from step to step, so each step sets how fast it walks, along X and forward into -Z, and leaves the rest to gravity and the ground, but for a jump
+        void OnFixedUpdate([[maybe_unused]] Trinity::Timestep step) override
+        {
+            Trinity::PhysicsScene3D* l_Physics = GetPhysics();
+            const Trinity::UUID l_ID = GetEntity().GetUUID();
+            glm::vec3 l_Velocity{ 0.0f };
+            Trinity::CharacterGround3D l_Ground;
+            if (l_Physics == nullptr || l_Physics->GetCharacterVelocity(l_ID, l_Velocity) != Trinity::PhysicsBodyResult::Done || l_Physics->GetCharacterGround(l_ID, l_Ground) != Trinity::PhysicsBodyResult::Done)
+            {
+                return;
+            }
+
+            const glm::vec2 l_Move = Move.ReadVector2();
+            l_Velocity.x = l_Move.x * Speed;
+            l_Velocity.z = -l_Move.y * Speed;
+            if (Jump.WasPressed() && l_Ground.Grounded)
+            {
+                l_Velocity.y = JumpSpeed;
+            }
+
+            l_Physics->SetCharacterVelocity(l_ID, l_Velocity);
+        }
+    };
+}
+
+TR_SCRIPT(@NAMESPACE@::@CLASS@)
+{
+    TR_FIELD(Speed);
+    TR_FIELD(JumpSpeed);
+    TR_FIELD(Move);
+    TR_FIELD(Jump);
+}
+)";
+
+    constexpr std::string_view c_CppCharacter2DTemplate = R"(#include <Trinity.hpp>
+
+namespace @NAMESPACE@
+{
+    // Walks left and right by its Move action and jumps by Jump from ground it can stand on, each found by its name while Properties sets none. Its fields are the members its TR_SCRIPT block lists, with the values a new instance has, which Properties shows once the module is built
+    class @CLASS@ : public Trinity::Script
+    {
+    public:
+        float Speed = 5.0f;
+        float JumpSpeed = 6.0f;
+        Trinity::InputAction Move;
+        Trinity::InputAction Jump;
+
+        // A CharacterController2D for its entity when it has none
+        void OnCreate() override
+        {
+            Trinity::Entity l_Entity = GetEntity();
+            if (!l_Entity.Has<Trinity::CharacterController2DComponent>())
+            {
+                l_Entity.Add<Trinity::CharacterController2DComponent>();
+            }
+
+            if (Move.GetPath().empty())
+            {
+                Move = Trinity::InputAction::Find("Move");
+            }
+
+            if (Jump.GetPath().empty())
+            {
+                Jump = Trinity::InputAction::Find("Jump");
+            }
+        }
+
+        // Its velocity lasts from step to step, so each step sets how fast it walks along X, and leaves the rest to gravity and the ground, but for a jump
+        void OnFixedUpdate([[maybe_unused]] Trinity::Timestep step) override
+        {
+            Trinity::PhysicsScene2D* l_Physics = GetPhysics2D();
+            const Trinity::UUID l_ID = GetEntity().GetUUID();
+            glm::vec2 l_Velocity{ 0.0f };
+            Trinity::CharacterGround2D l_Ground;
+            if (l_Physics == nullptr || l_Physics->GetCharacterVelocity(l_ID, l_Velocity) != Trinity::PhysicsBodyResult::Done || l_Physics->GetCharacterGround(l_ID, l_Ground) != Trinity::PhysicsBodyResult::Done)
+            {
+                return;
+            }
+
+            l_Velocity.x = Move.ReadVector2().x * Speed;
+            if (Jump.WasPressed() && l_Ground.Grounded)
+            {
+                l_Velocity.y = JumpSpeed;
+            }
+
+            l_Physics->SetCharacterVelocity(l_ID, l_Velocity);
+        }
+    };
+}
+
+TR_SCRIPT(@NAMESPACE@::@CLASS@)
+{
+    TR_FIELD(Speed);
+    TR_FIELD(JumpSpeed);
+    TR_FIELD(Move);
+    TR_FIELD(Jump);
+}
+)";
+
+    std::string_view GetScriptTemplate(bool csharp, EditorSession::ScriptTemplate kind)
+    {
+        if (kind == EditorSession::ScriptTemplate::Character3D)
+        {
+            return csharp ? c_CSharpCharacter3DTemplate : c_CppCharacter3DTemplate;
+        }
+
+        if (kind == EditorSession::ScriptTemplate::Character2D)
+        {
+            return csharp ? c_CSharpCharacter2DTemplate : c_CppCharacter2DTemplate;
+        }
+
+        return csharp ? c_CSharpScriptTemplate : c_CppScriptTemplate;
+    }
+
     std::string FillScriptTemplate(std::string_view text, std::string_view nameSpace, std::string_view className)
     {
         std::string l_Text(text);
@@ -218,6 +467,62 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         }
 
         return l_Text;
+    }
+
+    Trinity::InputSource MakeKeySource(Trinity::KeyCode key)
+    {
+        return Trinity::InputSource{ Trinity::InputSourceKind::Key, std::to_underlying(key) };
+    }
+
+    Trinity::InputBinding MakeBinding(Trinity::InputSource source)
+    {
+        Trinity::InputBinding l_Binding;
+        l_Binding.Sources[0] = source;
+
+        return l_Binding;
+    }
+
+    // Four keys made into a Vector2, Up, Down, Left and Right, its diagonal brought back to the length a stick's has
+    Trinity::InputBinding MakeKeyVector(Trinity::KeyCode up, Trinity::KeyCode down, Trinity::KeyCode left, Trinity::KeyCode right)
+    {
+        Trinity::InputBinding l_Binding;
+        l_Binding.Composite = Trinity::InputCompositeKind::Vector2;
+        l_Binding.Sources = { MakeKeySource(up), MakeKeySource(down), MakeKeySource(left), MakeKeySource(right) };
+        l_Binding.Processors.emplace_back().Kind = Trinity::InputProcessorKind::Normalize;
+
+        return l_Binding;
+    }
+
+    // A whole stick, 0 the left and 1 the right, with a radial deadzone, since a pad reports it raw
+    Trinity::InputBinding MakeStickBinding(std::uint16_t stick)
+    {
+        Trinity::InputBinding l_Binding = MakeBinding(Trinity::InputSource{ Trinity::InputSourceKind::GamepadStick, stick });
+        l_Binding.Processors.emplace_back().Kind = Trinity::InputProcessorKind::RadialDeadzone;
+
+        return l_Binding;
+    }
+
+    Trinity::InputActionDefinition MakeAction(std::string_view name, Trinity::InputActionType type, std::initializer_list<Trinity::InputBinding> bindings)
+    {
+        Trinity::InputActionDefinition l_Action;
+        l_Action.Name = Trinity::InputName(name);
+        l_Action.Type = type;
+        l_Action.Bindings.assign(bindings);
+
+        return l_Action;
+    }
+
+    // What a new input actions asset starts with, as Unity's starter actions do, in one map, Gameplay: Move from WASD, the arrows and the left stick, Look from the mouse's movement and the right stick, and Jump from Space and the A button, the names the character templates find them by
+    Trinity::InputActionsData MakeStarterInputActions()
+    {
+        Trinity::InputActionsData l_Data;
+        Trinity::InputActionMap& l_Map = l_Data.Maps.emplace_back();
+        l_Map.Name = Trinity::InputName(std::string_view("Gameplay"));
+        l_Map.Actions.push_back(MakeAction("Move", Trinity::InputActionType::Vector2, { MakeKeyVector(Trinity::KeyCode::TR_W, Trinity::KeyCode::TR_S, Trinity::KeyCode::TR_A, Trinity::KeyCode::TR_D), MakeKeyVector(Trinity::KeyCode::TR_UP, Trinity::KeyCode::TR_DOWN, Trinity::KeyCode::TR_LEFT, Trinity::KeyCode::TR_RIGHT), MakeStickBinding(0) }));
+        l_Map.Actions.push_back(MakeAction("Look", Trinity::InputActionType::Vector2, { MakeBinding(Trinity::InputSource{ Trinity::InputSourceKind::MouseDelta, 0 }), MakeStickBinding(1) }));
+        l_Map.Actions.push_back(MakeAction("Jump", Trinity::InputActionType::Button, { MakeBinding(MakeKeySource(Trinity::KeyCode::TR_SPACE)), MakeBinding(Trinity::InputSource{ Trinity::InputSourceKind::GamepadButton, std::to_underlying(Trinity::GamepadButton::TR_A) }) }));
+
+        return l_Data;
     }
 
     // A letter, a digit or _, as a C++ or C# name is made of
@@ -2344,7 +2649,7 @@ std::optional<std::string> EditorSession::CreateMaterial(std::string_view folder
     return l_Path;
 }
 
-std::optional<std::string> EditorSession::CreateScript(std::string_view folder, Trinity::ScriptLanguage language, std::string_view className)
+std::optional<std::string> EditorSession::CreateScript(std::string_view folder, Trinity::ScriptLanguage language, std::string_view className, ScriptTemplate kind)
 {
     if (!m_Project)
     {
@@ -2384,7 +2689,7 @@ std::optional<std::string> EditorSession::CreateScript(std::string_view folder, 
     }
 
     const std::string& l_Namespace = l_CSharp ? m_Project->GetAssemblyName() : m_Project->GetModuleName();
-    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, FillScriptTemplate(l_CSharp ? c_CSharpScriptTemplate : c_CppScriptTemplate, l_Namespace, className)); !l_Written)
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, FillScriptTemplate(GetScriptTemplate(l_CSharp, kind), l_Namespace, className)); !l_Written)
     {
         TR_ERROR("Forge: {} could not be written: {}", l_Path, Trinity::ToString(l_Written.GetError()));
 
@@ -2538,6 +2843,12 @@ std::optional<std::string> EditorSession::CreateInputActions(std::string_view fo
 
     TR_INFO("Forge: created input actions {}", l_Path);
     ScanAssets();
+    const Trinity::UUID l_Default = m_Project->GetInputActions();
+    const Trinity::AssetRecord* l_Record = m_Registry->FindByPath(l_Path);
+    if (l_Record != nullptr && (!l_Default || m_Registry->Find(l_Default) == nullptr))
+    {
+        SetDefaultInputActions(l_Record->ID);
+    }
 
     return l_Path;
 }
@@ -3077,6 +3388,58 @@ std::optional<std::string> EditorSession::CreatePrefabVariant(Trinity::UUID pref
     }
 
     TR_INFO("Forge: created prefab variant {} of {}", l_Path, l_Record->Path);
+    ScanAssets();
+
+    return l_Path;
+}
+
+std::optional<std::string> EditorSession::CreateEmptyPrefab(std::string_view folder, std::string_view name)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return std::nullopt;
+    }
+
+    if (!IsSameOrInside(folder, Trinity::Project::c_AssetsMount))
+    {
+        TR_ERROR("Forge: a prefab goes in Assets or a folder in it, so none was made in {}", folder);
+
+        return std::nullopt;
+    }
+
+    if (!IsValidName(name))
+    {
+        TR_ERROR("Forge: \"{}\" cannot name a file, so no prefab was made", name);
+
+        return std::nullopt;
+    }
+
+    const std::string l_Path = std::format("{}/{}{}", folder, name, Trinity::Prefab::c_Extension);
+    if (Trinity::FileSystem::Exists(l_Path))
+    {
+        TR_ERROR("Forge: {} is already there, so it is kept as it is", l_Path);
+
+        return std::nullopt;
+    }
+
+    Trinity::Scene l_Template;
+    l_Template.CreateEntity(name);
+    const Trinity::Expected<std::string, std::string> l_Text = Trinity::SceneSerializer::SavePrefabTemplateToText(l_Template);
+    if (!l_Text)
+    {
+        TR_ERROR("Forge: {} could not be made: {}", l_Path, l_Text.GetError());
+
+        return std::nullopt;
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, *l_Text); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created prefab {}", l_Path);
     ScanAssets();
 
     return l_Path;

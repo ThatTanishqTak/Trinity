@@ -23,6 +23,7 @@ namespace
     // Shared by every question the browser asks, each of which titles it
     constexpr const char* c_ConfirmPopup = "###ForgeConfirmAsset";
     constexpr const char* c_NewScriptPopup = "New Script###ForgeNewScript";
+    constexpr const char* c_NewPrefabPopup = "New Prefab###ForgeNewPrefab";
     constexpr const char* c_PrefabKindPopup = "Create Prefab or Variant?###ForgePrefabKind";
     // The slider's leftmost notch is the list, and the smallest grid is the next, with nothing between them
     constexpr float c_ListSize = 2.0f;
@@ -42,6 +43,26 @@ namespace
 #else
     constexpr const char* c_ShowInFileManager = "Show in File Manager";
 #endif
+
+    // New Script's templates as it lists them, each with the name it suggests, which follows the template chosen until it is typed over
+    struct ScriptTemplateChoice
+    {
+        EditorSession::ScriptTemplate Template = EditorSession::ScriptTemplate::Script;
+        const char* Label = "";
+        std::string_view Name;
+        const char* Detail = "";
+    };
+
+    constexpr std::array<ScriptTemplateChoice, 3> c_ScriptTemplates{ {
+        { EditorSession::ScriptTemplate::Script, "Script", "NewScript", "Empty OnCreate and OnUpdate, and a Speed field" },
+        { EditorSession::ScriptTemplate::Character3D, "Character Controller 3D", "PlayerController", "Walks by Move and jumps by Jump on a CharacterController, added if missing" },
+        { EditorSession::ScriptTemplate::Character2D, "Character Controller 2D", "PlayerController2D", "Walks by Move and jumps by Jump on a CharacterController2D, added if missing" }
+    } };
+
+    const ScriptTemplateChoice& GetScriptTemplateChoice(EditorSession::ScriptTemplate kind)
+    {
+        return *std::ranges::find(c_ScriptTemplates, kind, &ScriptTemplateChoice::Template);
+    }
 
     std::string GetParent(std::string_view path)
     {
@@ -334,6 +355,7 @@ void ContentBrowserPanel::OnImGuiRender()
 
     DrawConfirmPopup();
     DrawNewScriptPopup();
+    DrawNewPrefabPopup();
     DrawPrefabKindPopup();
 
     for (std::move_only_function<void()>& it_Action : std::exchange(m_Deferred, {}))
@@ -745,7 +767,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
     }
 }
 
-// Unity's Create menu. Everything is made in the open folder and named there at once: scenes, materials and input actions among the assets, and each language's scripts in its own folder. A prefab variant is made of the prefab the menu is for, beside it
+// Unity's Create menu. Everything is made in the open folder: scenes, materials and input actions among the assets, named there at once, and a prefab among them and each language's scripts in its own folder, named first, since the name is the prefab's root's or the class's as well. A prefab variant is made of the prefab the menu is for, beside it
 void ContentBrowserPanel::DrawCreateMenu(const Item* item)
 {
     if (ImGui::MenuItem(std::format("{} Folder", Trinity::Icons::c_Folder).c_str()))
@@ -785,6 +807,17 @@ void ContentBrowserPanel::DrawCreateMenu(const Item* item)
         ImGui::SetItemTooltip("Input actions go in Assets or a folder in it");
     }
 
+    if (ImGui::MenuItem(std::format("{} Prefab...", Trinity::Icons::c_PackageVariantClosed).c_str(), nullptr, false, l_InAssets))
+    {
+        m_NewPrefabName = "New Prefab";
+        m_OpenNewPrefabPopup = true;
+    }
+
+    if (!l_InAssets)
+    {
+        ImGui::SetItemTooltip("Prefabs go in Assets or a folder in it");
+    }
+
     // A model has variants too, as in Unity, each its prefab's way to be changed
     const bool l_Prefab = item != nullptr && (IsPrefab(item->Record) || (item->Record != nullptr && item->Record->Importer == ModelImporter::c_Importer));
     if (ImGui::MenuItem(std::format("{} Prefab Variant", Trinity::Icons::c_PackageVariant).c_str(), nullptr, false, l_Prefab))
@@ -806,7 +839,8 @@ void ContentBrowserPanel::DrawCreateMenu(const Item* item)
         if (ImGui::MenuItem(std::format("{} {} Script...", Trinity::Icons::c_FileCode, name).c_str(), nullptr, false, exists && l_Inside))
         {
             m_NewScript = language;
-            m_NewScriptName = "NewScript";
+            m_NewScriptTemplate = EditorSession::ScriptTemplate::Script;
+            m_NewScriptName = std::string(GetScriptTemplateChoice(m_NewScriptTemplate).Name);
             m_OpenNewScriptPopup = true;
         }
 
@@ -1004,7 +1038,7 @@ void ContentBrowserPanel::DrawPrefabKindPopup()
     ImGui::EndPopup();
 }
 
-// The class's name, which names its file too. Enter makes it, and Escape or Cancel makes nothing
+// The class's name, which names its file too, and the template it starts from. Enter makes it, and Escape or Cancel makes nothing
 void ContentBrowserPanel::DrawNewScriptPopup()
 {
     if (std::exchange(m_OpenNewScriptPopup, false))
@@ -1028,13 +1062,40 @@ void ContentBrowserPanel::DrawNewScriptPopup()
 
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
     const bool l_Entered = ImGui::InputText("##ScriptName", &m_NewScriptName, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+    const ScriptTemplateChoice& l_Chosen = GetScriptTemplateChoice(m_NewScriptTemplate);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
+    if (ImGui::BeginCombo("Template", l_Chosen.Label))
+    {
+        for (const ScriptTemplateChoice& it_Choice : c_ScriptTemplates)
+        {
+            const bool l_Current = it_Choice.Template == m_NewScriptTemplate;
+            if (ImGui::Selectable(it_Choice.Label, l_Current) && !l_Current)
+            {
+                if (m_NewScriptName == l_Chosen.Name)
+                {
+                    m_NewScriptName = std::string(it_Choice.Name);
+                }
+
+                m_NewScriptTemplate = it_Choice.Template;
+            }
+
+            if (l_Current)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+
+        ImGui::EndCombo();
+    }
+
+    ImGui::TextDisabled("%s", GetScriptTemplateChoice(m_NewScriptTemplate).Detail);
     ImGui::Spacing();
 
     if (ImGui::Button("Create") || l_Entered)
     {
-        m_Deferred.push_back([this, l_Language = m_NewScript.value_or(Trinity::ScriptLanguage::CSharp), l_Name = m_NewScriptName]
+        m_Deferred.push_back([this, l_Language = m_NewScript.value_or(Trinity::ScriptLanguage::CSharp), l_Name = m_NewScriptName, l_Template = m_NewScriptTemplate]
         {
-            if (const std::optional<std::string> l_Script = m_Session.CreateScript(m_Folder, l_Language, l_Name))
+            if (const std::optional<std::string> l_Script = m_Session.CreateScript(m_Folder, l_Language, l_Name, l_Template))
             {
                 m_Selected = *l_Script;
             }
@@ -1049,6 +1110,54 @@ void ContentBrowserPanel::DrawNewScriptPopup()
     if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
         m_NewScript.reset();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+// The name of its file and its root. Enter makes it, and Escape or Cancel makes nothing
+void ContentBrowserPanel::DrawNewPrefabPopup()
+{
+    if (std::exchange(m_OpenNewPrefabPopup, false))
+    {
+        ImGui::OpenPopup(c_NewPrefabPopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_NewPrefabPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    ImGui::TextUnformatted(std::format("{} A new prefab in {}", Trinity::Icons::c_PackageVariantClosed, m_Folder).c_str());
+    ImGui::TextDisabled("Its file and its root take this name");
+    if (ImGui::IsWindowAppearing())
+    {
+        ImGui::SetKeyboardFocusHere();
+    }
+
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
+    const bool l_Entered = ImGui::InputText("##PrefabName", &m_NewPrefabName, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+    ImGui::Spacing();
+
+    if (ImGui::Button("Create") || l_Entered)
+    {
+        m_Deferred.push_back([this, l_Name = m_NewPrefabName]
+        {
+            if (const std::optional<std::string> l_Prefab = m_Session.CreateEmptyPrefab(m_Folder, l_Name))
+            {
+                m_Selected = *l_Prefab;
+            }
+
+            m_Listings.clear();
+        });
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    {
         ImGui::CloseCurrentPopup();
     }
 

@@ -128,6 +128,77 @@ namespace
         ImGui::TextUnformatted(text.data(), text.data() + text.size());
     }
 
+    // A world's characters as its last step left them, when it has any
+    void CharacterLine(std::string_view world, const Trinity::PhysicsCharacterCounts& counts)
+    {
+        if (counts.Characters > 0)
+        {
+            TextLine(std::format("  {} characters: {}, {} grounded, {} on steep ground, {} airborne", world, counts.Characters, counts.Grounded, counts.Steep, counts.Airborne));
+        }
+    }
+
+    // The actions each player in use performed this frame, by their paths, the player named for any but player 0, as WasPerformed reads them outside a fixed step, or what keeps them from being read
+    std::string DescribeFiredActions()
+    {
+        const Trinity::InputActionsData* l_Data = Trinity::InputActions::GetData();
+        if (l_Data == nullptr)
+        {
+            return Trinity::InputActions::GetAsset() ? "Actions: the input actions asset is not ready" : "Actions: no input actions asset is set";
+        }
+
+        std::string l_Fired;
+        std::uint32_t l_Count = 0;
+        for (std::uint32_t it_Player = 0; it_Player < Trinity::InputActions::c_MaxPlayers; ++it_Player)
+        {
+            if (!Trinity::InputActions::IsPlayer(it_Player))
+            {
+                continue;
+            }
+
+            std::uint32_t l_Action = 0;
+            for (const Trinity::InputActionMap& it_Map : l_Data->Maps)
+            {
+                for (const Trinity::InputActionDefinition& it_Definition : it_Map.Actions)
+                {
+                    const std::optional<Trinity::InputActions::ActionReading> l_Reading = Trinity::InputActions::ReadAction(l_Action++, it_Player);
+                    if (l_Reading && l_Reading->Performed)
+                    {
+                        const std::string l_Player = it_Player == 0 ? std::string() : std::format(" (player {})", it_Player);
+                        l_Fired += std::format("{}{}{}{}{}", l_Count++ == 0 ? "" : ", ", std::string_view(it_Map.Name), Trinity::InputActionsData::c_PathSeparator, std::string_view(it_Definition.Name), l_Player);
+                    }
+                }
+            }
+        }
+
+        return l_Count == 0 ? std::string("Actions: none fired this frame") : std::format("Actions: {} fired this frame: {}", l_Count, l_Fired);
+    }
+
+    // The prefab instances placed in the scene, each once however deep it is placed, as those nested in a prefab are its own and not the scene's, with how many prefabs they are of and how many of those are missing
+    std::string DescribePrefabInstances(Trinity::Scene& scene)
+    {
+        std::vector<Trinity::UUID> l_Prefabs;
+        std::size_t l_Instances = 0;
+        std::size_t l_Missing = 0;
+        for (const auto [it_Entity, it_Instance] : scene.GetRegistry().view<Trinity::PrefabInstanceComponent>().each())
+        {
+            ++l_Instances;
+            l_Missing += it_Instance.IsMissing() ? 1u : 0u;
+            if (std::ranges::find(l_Prefabs, it_Instance.Prefab) == l_Prefabs.end())
+            {
+                l_Prefabs.push_back(it_Instance.Prefab);
+            }
+        }
+
+        if (l_Instances == 0)
+        {
+            return "Prefabs: no instances";
+        }
+
+        const std::string l_Lost = l_Missing > 0 ? std::format(", {} of them missing their prefab", l_Missing) : std::string();
+
+        return std::format("Prefabs: {} instance(s) of {} prefab(s){}", l_Instances, l_Prefabs.size(), l_Lost);
+    }
+
     std::string GetCameraPath(Trinity::UUID scene)
     {
         return std::format("{}/Editor/Views/{}.view", Trinity::Project::c_CacheMount, scene);
@@ -1530,7 +1601,9 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
             TextLine(std::format("Camera at ({:.2f}, {:.2f}), {:.3g} units high, grid every {:g}", l_Position.x, l_Position.y, m_Camera.GetHeight(), EditorGrid::GetSpacing(m_Camera, viewportSize)));
         }
 
-        // While a copy plays: the last frame's fixed steps and their time, and each world's bodies as it counts them
+        TextLine(DescribePrefabInstances(m_Session.GetScene()));
+
+        // While a copy plays: the last frame's fixed steps and their time, each world's bodies and characters as it counts them, and after the scripts the actions the frame performed
         if (Trinity::SceneRuntime* l_Runtime = m_Session.GetRuntime())
         {
             const Trinity::SceneRuntime::Statistics l_Physics = l_Runtime->GetStatistics();
@@ -1538,11 +1611,13 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
             if (l_Runtime->GetPhysics() != nullptr)
             {
                 TextLine(std::format("  3D: {} bodies, {} awake, {} asleep", l_Physics.Bodies3D.Bodies, l_Physics.Bodies3D.Awake, l_Physics.Bodies3D.Sleeping));
+                CharacterLine("3D", l_Physics.Characters3D);
             }
 
             if (l_Runtime->GetPhysics2D() != nullptr)
             {
                 TextLine(std::format("  2D: {} bodies, {} awake, {} asleep", l_Physics.Bodies2D.Bodies, l_Physics.Bodies2D.Awake, l_Physics.Bodies2D.Sleeping));
+                CharacterLine("2D", l_Physics.Characters2D);
             }
 
             // The last frame's time in each language's scripts, and what each has running, as the runtime counts them
@@ -1557,6 +1632,8 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
             {
                 TextLine(std::format("  {} without loaded code, {} stopped by a failed call", l_Scripts.Unknown, l_Scripts.Faulted));
             }
+
+            TextLine(DescribeFiredActions());
         }
 
         // The garbage collector's heap, which no memory tag counts, whether or not a scene plays

@@ -1573,7 +1573,7 @@ namespace Trinity
 
         const ActionState& l_State = s_State->Players[player].Actions[action];
 
-        return ActionReading{ l_State.Value, l_State.Held, l_State.Progress };
+        return ActionReading{ l_State.Value, l_State.Held, l_State.Progress, l_State.Performed };
     }
 
     bool InputActions::EnableMap(std::string_view map, std::uint32_t player)

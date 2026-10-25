@@ -82,6 +82,7 @@ private:
     void DrawFooter();
     void DrawConfirmPopup();
     void DrawNewScriptPopup();
+    void DrawNewPrefabPopup();
     void DrawPrefabKindPopup();
     void AcceptMove(const std::string& folder);
     void ReadShortcuts();
@@ -120,9 +121,12 @@ private:
     // Whether the search looks through every root rather than the open folder alone
     bool m_SearchAll = false;
     std::optional<Confirmation> m_Confirmation;
-    // The language of the script New Script asks a name for, and the name typed so far
+    // The language of the script New Script asks a name for, the name typed so far and the template it starts from
     std::optional<Trinity::ScriptLanguage> m_NewScript;
     std::string m_NewScriptName;
+    EditorSession::ScriptTemplate m_NewScriptTemplate = EditorSession::ScriptTemplate::Script;
+    // The name typed so far for the prefab Create > Prefab makes
+    std::string m_NewPrefabName;
     std::optional<PrefabDrop> m_PrefabDrop;
     std::unordered_map<std::string, std::vector<Trinity::DirectoryEntry>> m_Listings;
     std::uint64_t m_ListedScan = 0;
@@ -134,6 +138,7 @@ private:
     bool m_FocusSearch = false;
     bool m_OpenConfirmPopup = false;
     bool m_OpenNewScriptPopup = false;
+    bool m_OpenNewPrefabPopup = false;
     bool m_OpenPrefabKindPopup = false;
     bool m_Focused = false;
 };

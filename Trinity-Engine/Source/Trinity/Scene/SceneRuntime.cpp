@@ -194,11 +194,13 @@ namespace Trinity
         if (m_Physics)
         {
             l_Statistics.Bodies3D = m_Physics->GetBodyCounts();
+            l_Statistics.Characters3D = m_Physics->GetCharacterCounts();
         }
 
         if (m_Physics2D)
         {
             l_Statistics.Bodies2D = m_Physics2D->GetBodyCounts();
+            l_Statistics.Characters2D = m_Physics2D->GetCharacterCounts();
         }
 
         return l_Statistics;

@@ -101,6 +101,8 @@ namespace Trinity
         [[nodiscard]] std::uint32_t GetBodyCount() const;
         [[nodiscard]] const CollisionLayers& GetLayers() const;
         [[nodiscard]] PhysicsBodyCounts GetBodyCounts() const;
+        // By each one's ground as GetCharacterGround reads it
+        [[nodiscard]] PhysicsCharacterCounts GetCharacterCounts() const;
         // Whether each step keeps where its bodies touch, at the depth of the body whose contact it is, for drawing. Off until asked for
         void SetGatherContacts(bool gather);
         [[nodiscard]] std::span<const PhysicsContactPoint> GetContactPoints() const;

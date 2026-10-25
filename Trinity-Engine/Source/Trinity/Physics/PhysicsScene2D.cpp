@@ -1159,6 +1159,26 @@ namespace Trinity
         return { GetBodyCount(), l_Awake, l_Moving - std::min(l_Awake, l_Moving) };
     }
 
+    // One touching what does not hold it up falls as one in the air does, so it counts as airborne
+    PhysicsCharacterCounts PhysicsScene2D::GetCharacterCounts() const
+    {
+        PhysicsCharacterCounts l_Counts;
+        for (const BodyRecord2D* it_Record : m_State->Records)
+        {
+            if (!it_Record->HasCharacter)
+            {
+                continue;
+            }
+
+            ++l_Counts.Characters;
+            l_Counts.Grounded += it_Record->Ground == GroundState2D::OnGround ? 1u : 0u;
+            l_Counts.Steep += it_Record->Ground == GroundState2D::OnSteepGround ? 1u : 0u;
+            l_Counts.Airborne += it_Record->Ground == GroundState2D::InAir || it_Record->Ground == GroundState2D::NotSupported ? 1u : 0u;
+        }
+
+        return l_Counts;
+    }
+
     void PhysicsScene2D::SetGatherContacts(bool gather)
     {
         m_State->GatherContacts = gather;

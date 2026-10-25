@@ -106,6 +106,8 @@ namespace Trinity
         [[nodiscard]] std::uint32_t GetJointCount() const;
         [[nodiscard]] const CollisionLayers& GetLayers() const;
         [[nodiscard]] PhysicsBodyCounts GetBodyCounts() const;
+        // By each one's ground as GetCharacterGround reads it
+        [[nodiscard]] PhysicsCharacterCounts GetCharacterCounts() const;
         // Whether each step keeps where its bodies touch, triggers left out, for drawing. Off until asked for, since it costs each contact a lock. Jolt reports the contacts of bodies awake, so a sleeping pile shows none
         void SetGatherContacts(bool gather);
         [[nodiscard]] std::span<const PhysicsContactPoint> GetContactPoints() const;

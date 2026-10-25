@@ -31,6 +31,8 @@ namespace Trinity
             float StepMilliseconds = 0.0f;
             PhysicsBodyCounts Bodies3D;
             PhysicsBodyCounts Bodies2D;
+            PhysicsCharacterCounts Characters3D;
+            PhysicsCharacterCounts Characters2D;
         };
 
         explicit SceneRuntime(Scene& scene, const PhysicsSettings& settings = {});
