@@ -19,6 +19,7 @@ Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args
     l_Specification.Window.Height = 700;
     l_Specification.CommandLineArgs = args;
     l_Specification.StartDotNet = false;
+    l_Specification.StartAudio = false;
 
     return new HubApplication(std::move(l_Specification));
 }

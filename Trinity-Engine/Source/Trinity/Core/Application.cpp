@@ -339,6 +339,13 @@ namespace Trinity
 
         CreateDevice();
         m_Renderer = CreateScope<Renderer>(*m_Device, *m_Window, m_Specification.Window.Title);
+
+        if (m_Specification.StartAudio)
+        {
+            AudioEngineSpecification l_Audio;
+            l_Audio.Output = m_Specification.Window.Headless ? AudioOutput::Silent : AudioOutput::Device;
+            m_AudioEngine = CreateScope<AudioEngine>(l_Audio);
+        }
     }
 
     Application::~Application()
@@ -346,6 +353,7 @@ namespace Trinity
         m_LayerStack.Clear();
         JobSystem::Wait(m_FrameJobs);
         DotNetHost::Stop();
+        m_AudioEngine.reset();
         Input::ShutdownGamepads();
         m_Renderer.reset();
         m_Device.reset();
@@ -466,6 +474,12 @@ namespace Trinity
             }
 
             m_Renderer->RenderFrame(m_LayerStack);
+        }
+
+        // Sound keeps its time while the window is minimized too
+        if (m_AudioEngine)
+        {
+            m_AudioEngine->Update(l_Timestep);
         }
 
         Input::EndFrame();

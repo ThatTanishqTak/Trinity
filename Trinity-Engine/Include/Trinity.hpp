@@ -12,6 +12,8 @@
 #include "Trinity/Asset/ModelData.hpp"
 #include "Trinity/Asset/TextureAsset.hpp"
 
+#include "Trinity/Audio/AudioEngine.hpp"
+
 #include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Base.hpp"

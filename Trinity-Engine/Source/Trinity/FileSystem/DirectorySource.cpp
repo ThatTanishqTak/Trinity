@@ -10,6 +10,8 @@
 #include <fstream>
 #include <ios>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <system_error>
 #include <utility>
 
@@ -21,6 +23,75 @@ namespace Trinity
 
         using FileSystemUtilities::FromUtf8;
         using FileSystemUtilities::ToUtf8;
+
+        // Opens a regular file at its start and gives its size
+        Expected<std::uint64_t, FileError> OpenForReading(const std::filesystem::path& path, std::ifstream& file)
+        {
+            std::error_code l_Error;
+            if (!std::filesystem::is_regular_file(path, l_Error))
+            {
+                return Unexpected{ std::filesystem::is_directory(path, l_Error) ? FileError::NotAFile : FileError::NotFound };
+            }
+
+            file.open(path, std::ios::binary | std::ios::ate);
+            if (!file)
+            {
+                return Unexpected{ FileError::ReadFailed };
+            }
+
+            const std::streamoff l_Size = file.tellg();
+            if (l_Size < 0)
+            {
+                return Unexpected{ FileError::ReadFailed };
+            }
+
+            file.seekg(0);
+
+            return static_cast<std::uint64_t>(l_Size);
+        }
+
+        // One open file, read at any offset. The stream has one position, so each read holds the lock from its seek to its read
+        class DirectoryReadHandle final : public FileReadHandle
+        {
+        public:
+            DirectoryReadHandle(std::ifstream file, std::uint64_t size) : m_File(std::move(file)), m_Size(size)
+            {
+
+            }
+
+            [[nodiscard]] std::uint64_t GetSize() const override
+            {
+                return m_Size;
+            }
+
+            [[nodiscard]] Expected<std::size_t, FileError> Read(std::uint64_t offset, std::span<std::byte> destination) const override
+            {
+                TR_PROFILE_SCOPE("DirectoryReadHandle::Read");
+
+                if (offset >= m_Size || destination.empty())
+                {
+                    return std::size_t{ 0 };
+                }
+
+                const std::size_t l_Count = static_cast<std::size_t>(std::min<std::uint64_t>(destination.size(), m_Size - offset));
+
+                std::scoped_lock l_Lock(m_Mutex);
+                m_File.clear();
+                m_File.seekg(static_cast<std::streamoff>(offset));
+                m_File.read(reinterpret_cast<char*>(destination.data()), static_cast<std::streamsize>(l_Count));
+                if (m_File.gcount() != static_cast<std::streamsize>(l_Count))
+                {
+                    return Unexpected{ FileError::ReadFailed };
+                }
+
+                return l_Count;
+            }
+
+        private:
+            mutable std::mutex m_Mutex;
+            mutable std::ifstream m_File;
+            std::uint64_t m_Size = 0;
+        };
     }
 
     DirectorySource::DirectorySource(std::filesystem::path root) : m_Root(std::move(root))
@@ -95,39 +166,44 @@ namespace Trinity
             return Unexpected{ l_Path.GetError() };
         }
 
-        std::error_code l_Error;
-        if (!std::filesystem::is_regular_file(*l_Path, l_Error))
+        std::ifstream l_File;
+        const Expected<std::uint64_t, FileError> l_Size = OpenForReading(*l_Path, l_File);
+        if (!l_Size)
         {
-            return Unexpected{ std::filesystem::is_directory(*l_Path, l_Error) ? FileError::NotAFile : FileError::NotFound };
+            return Unexpected{ l_Size.GetError() };
         }
 
-        std::ifstream l_File(*l_Path, std::ios::binary | std::ios::ate);
-        if (!l_File)
-        {
-            return Unexpected{ FileError::ReadFailed };
-        }
-
-        const std::streamoff l_Size = l_File.tellg();
-        if (l_Size < 0)
-        {
-            return Unexpected{ FileError::ReadFailed };
-        }
-
-        if (static_cast<std::uintmax_t>(l_Size) > std::numeric_limits<std::size_t>::max())
+        if (static_cast<std::uintmax_t>(*l_Size) > std::numeric_limits<std::size_t>::max())
         {
             return Unexpected{ FileError::TooLarge };
         }
 
-        l_File.seekg(0);
-
-        FileBuffer l_Buffer(static_cast<std::size_t>(l_Size));
-        l_File.read(reinterpret_cast<char*>(l_Buffer.data()), static_cast<std::streamsize>(l_Size));
-        if (l_File.gcount() != static_cast<std::streamsize>(l_Size))
+        FileBuffer l_Buffer(static_cast<std::size_t>(*l_Size));
+        l_File.read(reinterpret_cast<char*>(l_Buffer.data()), static_cast<std::streamsize>(*l_Size));
+        if (l_File.gcount() != static_cast<std::streamsize>(*l_Size))
         {
             return Unexpected{ FileError::ReadFailed };
         }
 
         return l_Buffer;
+    }
+
+    Expected<Ref<FileReadHandle>, FileError> DirectorySource::Open(std::string_view relativePath) const
+    {
+        const Expected<std::filesystem::path, FileError> l_Path = Resolve(relativePath);
+        if (!l_Path)
+        {
+            return Unexpected{ l_Path.GetError() };
+        }
+
+        std::ifstream l_File;
+        const Expected<std::uint64_t, FileError> l_Size = OpenForReading(*l_Path, l_File);
+        if (!l_Size)
+        {
+            return Unexpected{ l_Size.GetError() };
+        }
+
+        return Ref<FileReadHandle>(std::allocate_shared<DirectoryReadHandle>(TaggedAllocator<DirectoryReadHandle, MemoryTag::FileSystem>(), std::move(l_File), *l_Size));
     }
 
     Expected<FileType, FileError> DirectorySource::Stat(std::string_view relativePath) const

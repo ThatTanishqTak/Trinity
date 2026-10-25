@@ -132,6 +132,7 @@ function(trinity_add_engine_library target type active_config)
             yaml-cpp::yaml-cpp
             Jolt
             box2d
+            miniaudio
     )
 
     # The engine only reads and transcodes KTX2. An executable that sets TRINITY_TEXTURE_ENCODER links the whole of libktx in its place, as the static engine and both libraries would otherwise define the same symbols

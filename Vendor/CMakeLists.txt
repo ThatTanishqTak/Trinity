@@ -175,6 +175,8 @@ trinity_vendor_require(miniaudio miniaudio.c)
 add_library(miniaudio STATIC EXCLUDE_FROM_ALL miniaudio/miniaudio.c)
 add_library(miniaudio::miniaudio ALIAS miniaudio)
 target_include_directories(miniaudio SYSTEM PUBLIC miniaudio)
+# Public, since they change miniaudio's structures. The engine loads clips on its own job system, so miniaudio's resource manager and its thread are left out, and an engine without a device mixes from the main thread, so the Null backend is too
+target_compile_definitions(miniaudio PUBLIC MA_NO_RESOURCE_MANAGER MA_NO_NULL)
 if(UNIX)
     find_package(Threads REQUIRED)
     target_link_libraries(miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)

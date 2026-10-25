@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/Audio/AudioEngine.hpp"
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/FrameAllocator.hpp"
 #include "Trinity/Core/JobSystem.hpp"
@@ -45,6 +46,8 @@ namespace Trinity
 
         // .NET starts as the application does, for C# scripts, from Scripting beside the executable. An application with no scripts, such as Hub, never starts it
         bool StartDotNet = true;
+        // Audio starts as the application does, on the system's default output, or silent with --headless, which opens no device. An application with no sound, such as Hub, never starts it
+        bool StartAudio = true;
 
         ApplicationCommandLineArgs CommandLineArgs;
     };
@@ -84,6 +87,8 @@ namespace Trinity
         [[nodiscard]] Window& GetWindow() { return *m_Window; }
         [[nodiscard]] RHI::Device& GetDevice() { return *m_Device; }
         [[nodiscard]] Renderer& GetRenderer() { return *m_Renderer; }
+        // Null when the application has no audio
+        [[nodiscard]] AudioEngine* GetAudioEngine() { return m_AudioEngine.get(); }
         [[nodiscard]] FrameAllocator& GetFrameAllocator() { return m_FrameAllocator; }
         [[nodiscard]] LayerStack& GetLayerStack() { return m_LayerStack; }
         [[nodiscard]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
@@ -104,6 +109,7 @@ namespace Trinity
         Scope<Window> m_Window;
         Scope<RHI::Device> m_Device;
         Scope<Renderer> m_Renderer;
+        Scope<AudioEngine> m_AudioEngine;
         LayerStack m_LayerStack;
         std::uint64_t m_FrameCount = 0;
         std::chrono::steady_clock::time_point m_LastFrameTime;

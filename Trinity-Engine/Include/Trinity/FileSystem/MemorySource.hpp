@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,6 +20,7 @@ namespace Trinity
         bool AddText(std::string_view relativePath, std::string_view text);
 
         [[nodiscard]] Expected<FileBuffer, FileError> Read(std::string_view relativePath) const override;
+        [[nodiscard]] Expected<Ref<FileReadHandle>, FileError> Open(std::string_view relativePath) const override;
         [[nodiscard]] Expected<FileType, FileError> Stat(std::string_view relativePath) const override;
         [[nodiscard]] Expected<std::vector<DirectoryEntry>, FileError> List(std::string_view relativeDirectory) const override;
 
@@ -28,7 +30,8 @@ namespace Trinity
         [[nodiscard]] bool IsDirectory(std::string_view relativePath) const;
         [[nodiscard]] FileError GetMissingError(std::string_view relativePath) const;
 
-        std::map<std::string, FileBuffer, std::less<>> m_Files;
+        // Shared with the read handles opened on each file, so a handle reads the bytes it opened even after the file is replaced
+        std::map<std::string, std::shared_ptr<const FileBuffer>, std::less<>> m_Files;
         std::string m_Description;
     };
 }

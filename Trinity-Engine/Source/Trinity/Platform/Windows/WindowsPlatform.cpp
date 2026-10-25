@@ -355,17 +355,25 @@ namespace Trinity
 
                 return TRUE;
             }
+
+            bool s_ComInitialized = false;
         }
 
+        // The main thread joins a single-threaded apartment before anything else uses COM, as the file dialogs and ShellExecute want. Audio would otherwise put it in the multithreaded apartment as it starts, and leaves a thread that already has one as it is
         void Initialize()
         {
             ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
             ::SetConsoleOutputCP(CP_UTF8);
+            s_ComInitialized = SUCCEEDED(::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
         }
 
         void Shutdown()
         {
-
+            if (s_ComInitialized)
+            {
+                ::CoUninitialize();
+                s_ComInitialized = false;
+            }
         }
 
         const char* GetName()

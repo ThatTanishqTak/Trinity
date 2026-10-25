@@ -1,0 +1,70 @@
+#pragma once
+
+#include "Trinity/Core/Export.hpp"
+#include "Trinity/Core/Timestep.hpp"
+
+#include <cstdint>
+#include <span>
+#include <string_view>
+
+namespace Trinity
+{
+    // Where an engine's mix goes
+    enum class AudioOutput : std::uint8_t
+    {
+        // The system's default output, followed when the default changes. Without one the engine runs as Silent, with one warning
+        Device,
+        // No device. Update mixes each frame's time and drops it, so sounds keep time as they would on a device. What --headless uses
+        Silent,
+        // No device and no clock. Only Render mixes, so the same calls give the same samples on every run
+        Offline
+    };
+
+    struct AudioEngineSpecification
+    {
+        AudioOutput Output = AudioOutput::Device;
+        // 0 takes the device's own, or 48000 Hz and 2 channels without one
+        std::uint32_t SampleRate = 0;
+        std::uint32_t Channels = 0;
+    };
+
+    // miniaudio's engine behind Trinity's own interface, so no public header includes miniaudio and a console backend can replace what is behind it. Everything it allocates is under the Audio tag. The output device mixes on its own thread, which never allocates and never waits on the main thread
+    class TRINITY_API AudioEngine
+    {
+    public:
+        explicit AudioEngine(const AudioEngineSpecification& specification = {});
+        ~AudioEngine();
+
+        AudioEngine(const AudioEngine&) = delete;
+        AudioEngine& operator=(const AudioEngine&) = delete;
+
+        // Once a frame on the main thread. Logs a move to another device, and mixes the frame's time while no device does
+        void Update(Timestep timestep);
+
+        // Offline only: mixes the next frames into output, interleaved, whose size is a whole number of frames
+        void Render(std::span<float> output);
+
+        // The volume of everything, from 0 to 1, ramped so that a change never clicks. The audio.volume console variable sets the application's
+        void SetVolume(float volume);
+        [[nodiscard]] float GetVolume() const;
+
+        // A sine at an amplitude from 0 to 1, for checking the output. It ends on its own after its time, and replaces a tone already playing
+        void PlayTestTone(float frequency, float amplitude, float seconds);
+        void StopTestTone();
+        [[nodiscard]] bool IsTestTonePlaying() const;
+
+        // Silent when a Device engine found no device
+        [[nodiscard]] AudioOutput GetOutput() const;
+        // Empty without a device
+        [[nodiscard]] std::string_view GetDeviceName() const;
+        [[nodiscard]] std::uint32_t GetSampleRate() const;
+        [[nodiscard]] std::uint32_t GetChannels() const;
+        // Frames mixed since the engine started, whether heard or not
+        [[nodiscard]] std::uint64_t GetMixedFrames() const;
+
+    private:
+        struct State;
+
+        State* m_State = nullptr;
+    };
+}

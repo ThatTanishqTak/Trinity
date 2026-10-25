@@ -65,6 +65,41 @@ namespace Trinity
 
             return std::nullopt;
         }
+
+        // What the newest mount holding the path gives, falling through to older mounts only while they do not have it, as an overlay does
+        template<typename T, typename Function>
+        Expected<T, FileError> FromNewestMount(std::string_view path, const Function& function)
+        {
+            TR_CORE_ASSERT(s_State != nullptr, "The file system is not initialized.");
+
+            const std::optional<std::string> l_Path = FileSystem::NormalizePath(path);
+            if (!l_Path)
+            {
+                return Unexpected{ FileError::InvalidPath };
+            }
+
+            std::shared_lock l_Lock(s_State->Mutex);
+
+            FileError l_Error = FileError::NotMounted;
+            for (auto it_Mount = s_State->Mounts.rbegin(); it_Mount != s_State->Mounts.rend(); ++it_Mount)
+            {
+                const std::optional<std::string_view> l_Relative = RelativeTo(*l_Path, it_Mount->Point);
+                if (!l_Relative)
+                {
+                    continue;
+                }
+
+                Expected<T, FileError> l_Result = function(*it_Mount->Source, *l_Relative);
+                if (l_Result || l_Result.GetError() != FileError::NotFound)
+                {
+                    return l_Result;
+                }
+
+                l_Error = FileError::NotFound;
+            }
+
+            return Unexpected{ l_Error };
+        }
     }
 
     struct FileRequestState
@@ -229,35 +264,15 @@ namespace Trinity
         Expected<FileBuffer, FileError> ReadFile(std::string_view path)
         {
             TR_PROFILE_SCOPE("FileSystem::ReadFile");
-            TR_CORE_ASSERT(s_State != nullptr, "The file system is not initialized.");
 
-            const std::optional<std::string> l_Path = NormalizePath(path);
-            if (!l_Path)
-            {
-                return Unexpected{ FileError::InvalidPath };
-            }
+            return FromNewestMount<FileBuffer>(path, [](const FileSource& source, std::string_view relativePath) { return source.Read(relativePath); });
+        }
 
-            std::shared_lock l_Lock(s_State->Mutex);
+        Expected<Ref<FileReadHandle>, FileError> OpenFile(std::string_view path)
+        {
+            TR_PROFILE_SCOPE("FileSystem::OpenFile");
 
-            FileError l_Error = FileError::NotMounted;
-            for (auto it_Mount = s_State->Mounts.rbegin(); it_Mount != s_State->Mounts.rend(); ++it_Mount)
-            {
-                const std::optional<std::string_view> l_Relative = RelativeTo(*l_Path, it_Mount->Point);
-                if (!l_Relative)
-                {
-                    continue;
-                }
-
-                Expected<FileBuffer, FileError> l_Result = it_Mount->Source->Read(*l_Relative);
-                if (l_Result || l_Result.GetError() != FileError::NotFound)
-                {
-                    return l_Result;
-                }
-
-                l_Error = FileError::NotFound;
-            }
-
-            return Unexpected{ l_Error };
+            return FromNewestMount<Ref<FileReadHandle>>(path, [](const FileSource& source, std::string_view relativePath) { return source.Open(relativePath); });
         }
 
         FileRequest ReadFileAsync(std::string_view path, ReadCallback callback)

@@ -12,6 +12,7 @@ namespace Trinity
         explicit DirectorySource(std::filesystem::path root);
 
         [[nodiscard]] Expected<FileBuffer, FileError> Read(std::string_view relativePath) const override;
+        [[nodiscard]] Expected<Ref<FileReadHandle>, FileError> Open(std::string_view relativePath) const override;
         [[nodiscard]] Expected<FileType, FileError> Stat(std::string_view relativePath) const override;
         [[nodiscard]] Expected<std::vector<DirectoryEntry>, FileError> List(std::string_view relativeDirectory) const override;
 

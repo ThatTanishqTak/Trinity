@@ -2,12 +2,47 @@
 
 #include "Trinity/FileSystem/FileSystemUtilities.hpp"
 
+#include <algorithm>
 #include <format>
 #include <optional>
 #include <utility>
 
 namespace Trinity
 {
+    namespace
+    {
+        class MemoryReadHandle final : public FileReadHandle
+        {
+        public:
+            explicit MemoryReadHandle(std::shared_ptr<const FileBuffer> data) : m_Data(std::move(data))
+            {
+
+            }
+
+            [[nodiscard]] std::uint64_t GetSize() const override
+            {
+                return m_Data->size();
+            }
+
+            [[nodiscard]] Expected<std::size_t, FileError> Read(std::uint64_t offset, std::span<std::byte> destination) const override
+            {
+                if (offset >= m_Data->size())
+                {
+                    return std::size_t{ 0 };
+                }
+
+                const std::span<const std::byte> l_Rest = std::span<const std::byte>(*m_Data).subspan(static_cast<std::size_t>(offset));
+                const std::size_t l_Count = std::min(destination.size(), l_Rest.size());
+                std::ranges::copy(l_Rest.first(l_Count), destination.begin());
+
+                return l_Count;
+            }
+
+        private:
+            std::shared_ptr<const FileBuffer> m_Data;
+        };
+    }
+
     MemorySource::MemorySource(std::string description) : m_Description(std::move(description))
     {
 
@@ -31,7 +66,7 @@ namespace Trinity
             }
         }
 
-        m_Files.insert_or_assign(std::move(l_Key), FileBuffer(data.begin(), data.end()));
+        m_Files.insert_or_assign(std::move(l_Key), std::allocate_shared<FileBuffer>(TaggedAllocator<FileBuffer, MemoryTag::FileSystem>(), data.begin(), data.end()));
 
         return true;
     }
@@ -72,7 +107,17 @@ namespace Trinity
     {
         if (const auto a_Iterator = m_Files.find(relativePath); a_Iterator != m_Files.end())
         {
-            return a_Iterator->second;
+            return *a_Iterator->second;
+        }
+
+        return Unexpected{ IsDirectory(relativePath) ? FileError::NotAFile : GetMissingError(relativePath) };
+    }
+
+    Expected<Ref<FileReadHandle>, FileError> MemorySource::Open(std::string_view relativePath) const
+    {
+        if (const auto a_Iterator = m_Files.find(relativePath); a_Iterator != m_Files.end())
+        {
+            return Ref<FileReadHandle>(std::allocate_shared<MemoryReadHandle>(TaggedAllocator<MemoryReadHandle, MemoryTag::FileSystem>(), a_Iterator->second));
         }
 
         return Unexpected{ IsDirectory(relativePath) ? FileError::NotAFile : GetMissingError(relativePath) };
