@@ -1,14 +1,17 @@
 #pragma once
 
+#include "Trinity/Core/UUID.hpp"
 #include "Trinity/Physics/PhysicsTypes.hpp"
 
 #include <cstdint>
 
 namespace Trinity
 {
-    // How a running scene's sounds are mixed, as Unity's Audio settings have it, which the project will name with its mixer
+    // How a running scene's sounds are mixed, as Unity's Audio settings have it, which the project saves with its mixer
     struct AudioSettings
     {
+        // The project's Audio Mixer asset, or none for Master alone
+        UUID Mixer;
         // Voices mixed at once, the most important first, then the loudest
         std::uint32_t RealVoices = 32;
         // Voices playing at once, mixed or not. Beyond it the least important stop

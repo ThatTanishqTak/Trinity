@@ -10,6 +10,7 @@
 namespace Trinity
 {
     class AudioClipAsset;
+    class AudioMixer;
 
     // Where an engine's mix goes
     enum class AudioOutput : std::uint8_t
@@ -54,6 +55,10 @@ namespace Trinity
         void PlayTestTone(float frequency, float amplitude, float seconds);
         void StopTestTone();
         [[nodiscard]] bool IsTestTonePlaying() const;
+
+        // The project's mixer, Master alone until it is given one, which every scene's sound plays through. The test tone and the preview play beside it, straight to the output
+        [[nodiscard]] AudioMixer& GetMixer();
+        [[nodiscard]] const AudioMixer& GetMixer() const;
 
         // A clip on its own, outside any scene, as Forge's previews play it, once at its own pitch. A new one replaces it, and a clip whose samples are still loading starts once they are in. It holds what it plays, so the asset may go first
         void PlayPreview(const AudioClipAsset& clip);

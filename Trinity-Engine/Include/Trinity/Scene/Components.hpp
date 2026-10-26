@@ -582,6 +582,8 @@ namespace Trinity
 
         // An AudioClip, which a Sound Event may be instead once there are any, as Unity 6's AudioResource is either
         UUID Resource;
+        // One of the project's mixer's groups, by its ID, which it plays into. None, or a group the mixer lacks, plays into Master
+        UUID Output;
         // Plays on, silent, keeping its time
         bool Mute = false;
         // Plays as the scene starts, or as the source first appears while it runs

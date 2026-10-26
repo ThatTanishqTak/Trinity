@@ -112,7 +112,7 @@ namespace Trinity
             return source.ConeOuterVolume;
         }
 
-        // Between a real voice's sound and the Master group once its source asks to be occluded: the sound scaled by a volume, with a low-pass of it mixed in, both moved evenly to each of the main thread's values over a frame's worth of samples, so a change eased over many frames is one straight line and nothing steps. Clear, it is the sound exactly. The filter is a second-order Butterworth at the source's cutoff, and runs whether it is mixed in or not, so it never starts cold
+        // Between a real voice's sound and its mixer group once its source asks to be occluded: the sound scaled by a volume, with a low-pass of it mixed in, both moved evenly to each of the main thread's values over a frame's worth of samples, so a change eased over many frames is one straight line and nothing steps. Clear, it is the sound exactly. The filter is a second-order Butterworth at the source's cutoff, and runs whether it is mixed in or not, so it never starts cold
         struct OcclusionNode
         {
             ma_node_base Base{};
@@ -217,7 +217,7 @@ namespace Trinity
 
         constexpr ma_node_vtable c_OcclusionVTable{ &ProcessOcclusion, nullptr, 1, 1, 0 };
 
-        // The part of a voice that is mixed: its clip read through a voice of its own, the sound miniaudio mixes that in, and once its source asks to be occluded, the node between the sound and the Master group. Only a real voice has one, since a virtual voice needs only its time
+        // The part of a voice that is mixed: its clip read through a voice of its own, the sound miniaudio mixes that in, once its source asks to be occluded the node after the sound, and which of the two plays into the mixer's group the source names. Only a real voice has one, since a virtual voice needs only its time
         struct RealVoice
         {
             AudioClipVoice Source;
@@ -225,6 +225,8 @@ namespace Trinity
             bool HasSound = false;
             OcclusionNode Occlusion;
             bool HasOcclusion = false;
+            ma_node* Routed = nullptr;
+            UUID RoutedGroup;
         };
 
         // One playing source: its clip, held while it plays, where it is in it, and the source's values as last read
@@ -320,6 +322,11 @@ namespace Trinity
             if (l_Real == nullptr)
             {
                 return;
+            }
+
+            if (l_Real->Routed != nullptr && engine != nullptr)
+            {
+                AudioEngineInternal::Unroute(*engine, l_Real->Routed);
             }
 
             if (l_Real->HasSound)
@@ -477,6 +484,7 @@ namespace Trinity
         void MakeReal(Voice& voice);
         void StartSound(Voice& voice);
         void AttachOcclusion(Voice& voice, bool heard);
+        void RouteVoice(Voice& voice);
         void Advance(Voice& voice, float seconds);
         void RemoveEnded();
 
@@ -832,6 +840,7 @@ namespace Trinity
         if (l_Real.HasSound)
         {
             AttachOcclusion(voice, true);
+            RouteVoice(voice);
             ApplyValues(voice, Settings);
 
             return;
@@ -842,7 +851,7 @@ namespace Trinity
             return;
         }
 
-        if (ma_sound_init_from_data_source(&AudioEngineInternal::GetEngine(*Engine), l_Real.Source.GetDataSource(), 0, &AudioEngineInternal::GetMaster(*Engine), &l_Real.Sound) != MA_SUCCESS)
+        if (ma_sound_init_from_data_source(&AudioEngineInternal::GetEngine(*Engine), l_Real.Source.GetDataSource(), 0, nullptr, &l_Real.Sound) != MA_SUCCESS)
         {
             TR_CORE_ERROR("Audio: the sound of entity {} could not start", voice.Entity);
             voice.Ended = true;
@@ -852,11 +861,12 @@ namespace Trinity
 
         l_Real.HasSound = true;
         AttachOcclusion(voice, false);
+        RouteVoice(voice);
         ApplyValues(voice, Settings);
         ma_sound_start(&l_Real.Sound);
     }
 
-    // Once its source asks to be occluded, or is still muffled from when it did, then kept until the voice is virtual again, passing the sound through exactly once it is clear. A sound already heard goes through it from clear, as it was heard, which miniaudio allows while it mixes, and one starting now from where the voice's occlusion is
+    // Once its source asks to be occluded, or is still muffled from when it did, then kept until the voice is virtual again, passing the sound through exactly once it is clear, into the sound's group. A sound already heard goes through it from clear, as it was heard, which miniaudio allows while it mixes, and one starting now from where the voice's occlusion is
     void AudioScene::State::AttachOcclusion(Voice& voice, bool heard)
     {
         RealVoice& l_Real = *voice.Real;
@@ -885,8 +895,9 @@ namespace Trinity
                 return;
             }
 
+            // Into the sound's group before the sound into it, so nothing it plays is lost between
             l_Real.HasOcclusion = true;
-            static_cast<void>(ma_node_attach_output_bus(&l_Node.Base, 0, &AudioEngineInternal::GetMaster(*Engine), 0));
+            RouteVoice(voice);
             static_cast<void>(ma_node_attach_output_bus(&l_Real.Sound, 0, &l_Node.Base, 0));
         }
 
@@ -894,6 +905,26 @@ namespace Trinity
         {
             ApplyOcclusion(voice, FrameSeconds);
         }
+    }
+
+    // Into the mixer's group its source names, or Master, through its occlusion node once it has one, and again whenever either changes. A new sound waits in the engine's output until then, not yet started
+    void AudioScene::State::RouteVoice(Voice& voice)
+    {
+        RealVoice& l_Real = *voice.Real;
+        ma_node* l_Node = l_Real.HasOcclusion ? static_cast<ma_node*>(&l_Real.Occlusion.Base) : static_cast<ma_node*>(&l_Real.Sound);
+        if (l_Node == l_Real.Routed && voice.Values.Output == l_Real.RoutedGroup)
+        {
+            return;
+        }
+
+        if (l_Real.Routed != nullptr && l_Real.Routed != l_Node)
+        {
+            AudioEngineInternal::Unroute(*Engine, l_Real.Routed);
+        }
+
+        AudioEngineInternal::Route(*Engine, l_Node, voice.Values.Output);
+        l_Real.Routed = l_Node;
+        l_Real.RoutedGroup = voice.Values.Output;
     }
 
     // A real voice's time is its sound's, and a virtual voice's moves on at its clip's rate and its pitch

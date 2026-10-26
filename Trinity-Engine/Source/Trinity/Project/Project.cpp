@@ -16,6 +16,7 @@
 #include <format>
 #include <optional>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -166,6 +167,84 @@ namespace Trinity
             if (l_Unread)
             {
                 TR_CORE_WARN("Project: {} has a gravity or step rate that cannot be read, which keeps its default", project);
+            }
+        }
+
+        // A number the whole text is, and finite, or nothing
+        template<typename T>
+        std::optional<T> ReadNumber(const YAML::Node& node)
+        {
+            T l_Value{};
+            const std::string l_Text = node && node.IsScalar() ? node.Scalar() : std::string();
+            const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Value);
+            if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_Text.data() + l_Text.size())
+            {
+                return std::nullopt;
+            }
+
+            if constexpr (std::is_floating_point_v<T>)
+            {
+                if (!std::isfinite(l_Value))
+                {
+                    return std::nullopt;
+                }
+            }
+
+            return l_Value;
+        }
+
+        // The mixer, the voice limits, the Doppler factor and occlusion, each that is missing kept at its default, and each that cannot be read reported and kept at its default. The occlusion layers are listed by number
+        void ReadAudioSettings(const YAML::Node& audio, std::string_view project, AudioSettings& settings)
+        {
+            if (!audio || !audio.IsMap())
+            {
+                return;
+            }
+
+            bool l_Unread = false;
+            const auto a_Read = [&]<typename T>(const char* key, T & value)
+            {
+                if (const YAML::Node l_Node = audio[key])
+                {
+                    const std::optional<T> l_Value = ReadNumber<T>(l_Node);
+                    l_Unread |= !l_Value;
+                    value = l_Value ? *l_Value : value;
+                }
+            };
+
+            const std::string l_Mixer = ReadString(audio, "Mixer", "");
+            if (const std::optional<UUID> l_Asset = UUID::Parse(l_Mixer))
+            {
+                settings.Mixer = *l_Asset;
+            }
+            else
+            {
+                l_Unread |= !l_Mixer.empty();
+            }
+
+            a_Read("RealVoices", settings.RealVoices);
+            a_Read("VirtualVoices", settings.VirtualVoices);
+            a_Read("DopplerFactor", settings.DopplerFactor);
+            a_Read("OcclusionRays", settings.OcclusionRays);
+            a_Read("OcclusionTime", settings.OcclusionTime);
+            if (const YAML::Node l_Layers = audio["OcclusionLayers"])
+            {
+                std::uint32_t l_Mask = 0;
+                bool l_Read = l_Layers.IsSequence();
+                for (std::size_t it_Layer = 0; l_Read && it_Layer < l_Layers.size(); ++it_Layer)
+                {
+                    const std::optional<std::uint32_t> l_Layer = ReadLayer(l_Layers[it_Layer]);
+                    l_Read = l_Layer.has_value();
+                    l_Mask |= l_Read ? 1u << *l_Layer : 0u;
+                }
+
+                l_Unread |= !l_Read;
+                settings.OcclusionLayers = l_Read ? l_Mask : settings.OcclusionLayers;
+            }
+
+            if (l_Unread)
+            {
+                TR_CORE_WARN("Project: {} has an audio setting that cannot be read, which keeps its default", project);
             }
         }
     }
@@ -371,6 +450,11 @@ namespace Trinity
             }
         }
 
+        if (l_Format >= 8)
+        {
+            ReadAudioSettings(l_Root["Audio"], l_Project->m_Name, l_Project->m_Audio);
+        }
+
         if (!l_Project->IsCurrentEngineVersion())
         {
             TR_CORE_WARN("Project: {} was made with Trinity {}, and this is Trinity {}. It is opened as it is", l_Project->m_Name, l_Project->m_EngineVersion.empty() ? "of an unknown version" : l_Project->m_EngineVersion, GetVersionString());
@@ -428,6 +512,24 @@ namespace Trinity
         l_Emitter << YAML::EndMap;
         l_Emitter << YAML::Key << "Input" << YAML::Value << YAML::BeginMap;
         l_Emitter << YAML::Key << "Actions" << YAML::Value << YAML::DoubleQuoted << (m_InputActions ? m_InputActions.ToString() : std::string());
+        l_Emitter << YAML::EndMap;
+        l_Emitter << YAML::Key << "Audio" << YAML::Value << YAML::BeginMap;
+        l_Emitter << YAML::Key << "Mixer" << YAML::Value << YAML::DoubleQuoted << (m_Audio.Mixer ? m_Audio.Mixer.ToString() : std::string());
+        l_Emitter << YAML::Key << "RealVoices" << YAML::Value << m_Audio.RealVoices;
+        l_Emitter << YAML::Key << "VirtualVoices" << YAML::Value << m_Audio.VirtualVoices;
+        l_Emitter << YAML::Key << "DopplerFactor" << YAML::Value << a_Number(m_Audio.DopplerFactor);
+        l_Emitter << YAML::Key << "OcclusionLayers" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+        for (std::uint32_t it_Layer = 0; it_Layer < c_MaxCollisionLayers; ++it_Layer)
+        {
+            if ((m_Audio.OcclusionLayers & (1u << it_Layer)) != 0)
+            {
+                l_Emitter << it_Layer;
+            }
+        }
+
+        l_Emitter << YAML::EndSeq;
+        l_Emitter << YAML::Key << "OcclusionRays" << YAML::Value << m_Audio.OcclusionRays;
+        l_Emitter << YAML::Key << "OcclusionTime" << YAML::Value << a_Number(m_Audio.OcclusionTime);
         l_Emitter << YAML::EndMap;
         l_Emitter << YAML::EndMap;
 

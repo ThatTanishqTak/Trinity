@@ -3,6 +3,7 @@
 #include "Trinity/Audio/AudioClipAsset.hpp"
 #include "Trinity/Audio/AudioClipStorage.hpp"
 #include "Trinity/Audio/AudioEngineInternal.hpp"
+#include "Trinity/Audio/AudioMixer.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Log.hpp"
@@ -195,6 +196,8 @@ namespace Trinity
         ma_device Device{};
         ma_engine Engine{};
         ma_sound_group Master{};
+        // Between the scenes' sounds and Master
+        AudioMixer* Mixer = nullptr;
         ma_waveform ToneWaveform{};
         ma_sound Tone{};
 
@@ -242,6 +245,11 @@ namespace Trinity
         {
             ma_sound_uninit(&Tone);
             ma_waveform_uninit(&ToneWaveform);
+        }
+
+        if (Mixer != nullptr)
+        {
+            Memory::Delete(Mixer);
         }
 
         if (HasMaster)
@@ -500,6 +508,21 @@ namespace Trinity
 
         l_State.HasMaster = true;
 
+        // Its constructor is the engine's to call, so it is made here rather than through Memory::New, which frees what it took if the mixer cannot be made
+        void* l_Mixer = Memory::Allocate(sizeof(AudioMixer), MemoryTag::Audio, alignof(AudioMixer));
+        try
+        {
+            l_State.Mixer = new (l_Mixer) AudioMixer(*this);
+        }
+        catch (...)
+        {
+            Memory::Free(l_Mixer);
+            Memory::Delete(m_State);
+            m_State = nullptr;
+
+            throw;
+        }
+
         if (l_State.Output != AudioOutput::Offline)
         {
             TR_CORE_ASSERT(s_ConsoleEngine == nullptr, "Only one audio engine plays out at a time.");
@@ -706,6 +729,16 @@ namespace Trinity
         return l_Cursor;
     }
 
+    AudioMixer& AudioEngine::GetMixer()
+    {
+        return *m_State->Mixer;
+    }
+
+    const AudioMixer& AudioEngine::GetMixer() const
+    {
+        return *m_State->Mixer;
+    }
+
     bool AudioEngine::IsTestTonePlaying() const
     {
         return m_State->HasTone && ma_sound_is_playing(&m_State->Tone);
@@ -744,6 +777,20 @@ namespace Trinity
     ma_sound_group& AudioEngineInternal::GetMaster(AudioEngine& engine)
     {
         return engine.m_State->Master;
+    }
+
+    void AudioEngineInternal::Route(AudioEngine& engine, ma_node* node, UUID group)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "Sounds are routed on the main thread.");
+
+        engine.m_State->Mixer->Route(node, group);
+    }
+
+    void AudioEngineInternal::Unroute(AudioEngine& engine, ma_node* node)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "Sounds are routed on the main thread.");
+
+        engine.m_State->Mixer->Unroute(node);
     }
 
     void AudioEngineInternal::AddStream(AudioEngine& engine, AudioStream& stream)

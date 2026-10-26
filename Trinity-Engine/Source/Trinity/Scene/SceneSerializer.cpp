@@ -870,6 +870,7 @@ namespace Trinity
         {
             const auto a_Found = std::ranges::find(c_AudioRolloffNames, component.Rolloff, &std::pair<AudioRolloff, std::string_view>::first);
             writer.Write("Resource", component.Resource);
+            writer.Write("Output", component.Output);
             writer.Write("Mute", component.Mute);
             writer.Write("PlayOnAwake", component.PlayOnAwake);
             writer.Write("Loop", component.Loop);
@@ -895,6 +896,7 @@ namespace Trinity
         void LoadAudioSource(AudioSourceComponent& component, const ComponentReader& reader)
         {
             reader.Read("Resource", component.Resource);
+            reader.Read("Output", component.Output);
             reader.Read("Mute", component.Mute);
             reader.Read("PlayOnAwake", component.PlayOnAwake);
             reader.Read("Loop", component.Loop);
