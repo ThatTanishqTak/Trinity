@@ -574,7 +574,7 @@ namespace Trinity
         Exponential
     };
 
-    // Plays its resource, as Unity's AudioSource does, while its scene runs. A source that spatializes is heard from its entity, facing its -Z, through the listener, as distance, its cone and its movement change it, and one that does not is heard as it is, panned by its Stereo Pan. Each playing source is a voice, and only the project's real voices are mixed, the most important first, then the loudest, while the rest keep their time
+    // Plays its resource, as Unity's AudioSource does, while its scene runs. A source that spatializes is heard from its entity, facing its -Z, through the listener, as distance, its cone and its movement change it, and muffled by what stands in the way if it asks to be, and one that does not is heard as it is, panned by its Stereo Pan. Each playing source is a voice, and only the project's real voices are mixed, the most important first, then the loudest, while the rest keep their time
     struct AudioSourceComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.AudioSource";
@@ -609,6 +609,10 @@ namespace Trinity
         float ConeInnerAngle = 360.0f;
         float ConeOuterAngle = 360.0f;
         float ConeOuterVolume = 0.0f;
+        // Muffled while the scene's physics stands between it and the listener, on the project's occlusion layers: its volume scaled by the occlusion volume, from 0 to 1, and what is above the occlusion cutoff, in hertz, filtered away, eased in and out over the project's occlusion time. Only a source that spatializes is occluded
+        bool Occlusion = false;
+        float OcclusionVolume = 0.5f;
+        float OcclusionCutoff = 1500.0f;
 
         [[nodiscard]] bool operator==(const AudioSourceComponent&) const = default;
     };

@@ -634,12 +634,14 @@ namespace Trinity
             hits = std::move(l_Kept);
         }
 
-        // What a cast gathers: the filter it keeps to, whether it wants every hit or the nearest, and the hits with their shapes
+        // What a cast gathers: the filter it keeps to, whether it wants every hit or the nearest, and the hits with their shapes, or for a ray that keeps the nearest alone, that one, so it allocates nothing
         struct CastContext
         {
             const PhysicsQueryFilter2D* Filter = nullptr;
             bool All = false;
             std::vector<std::pair<PhysicsHit2D, b2ShapeId>> Hits;
+            bool KeepNearest = false;
+            std::optional<std::pair<PhysicsHit2D, b2ShapeId>> Nearest = std::nullopt;
         };
 
         // The shape's collider and body, or nothing for a shape the filter leaves out: a trigger it did not ask for, or one of the entity it ignores
@@ -673,15 +675,25 @@ namespace Trinity
             l_Hit->Point = FromBox2D(point);
             l_Hit->Normal = FromBox2D(normal);
             l_Hit->Distance = fraction;
-            l_Context.Hits.emplace_back(*l_Hit, shape);
+            if (!l_Context.KeepNearest)
+            {
+                l_Context.Hits.emplace_back(*l_Hit, shape);
+            }
+            else if (!l_Context.Nearest || fraction < l_Context.Nearest->first.Distance)
+            {
+                l_Context.Nearest.emplace(*l_Hit, shape);
+            }
 
             return l_Context.All ? 1.0f : fraction;
         }
 
+        // What an overlap gathers, or for a ray's start that keeps the first alone, the collider of the lowest UUID, as the hits sort, so it allocates nothing
         struct OverlapContext
         {
             const PhysicsQueryFilter2D* Filter = nullptr;
             std::vector<PhysicsHit2D> Hits;
+            bool KeepFirst = false;
+            std::optional<PhysicsHit2D> First = std::nullopt;
         };
 
         bool GatherOverlap(b2ShapeId shape, void* context)
@@ -689,7 +701,14 @@ namespace Trinity
             OverlapContext& l_Context = *static_cast<OverlapContext*>(context);
             if (const std::optional<PhysicsHit2D> l_Hit = MakeHit(shape, *l_Context.Filter))
             {
-                l_Context.Hits.push_back(*l_Hit);
+                if (!l_Context.KeepFirst)
+                {
+                    l_Context.Hits.push_back(*l_Hit);
+                }
+                else if (!l_Context.First || l_Hit->Entity < l_Context.First->Entity)
+                {
+                    l_Context.First = l_Hit;
+                }
             }
 
             return true;
@@ -814,7 +833,9 @@ namespace Trinity
             return Ground;
         }
 
-        [[nodiscard]] std::vector<PhysicsHit2D> CastRay(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter, bool all) const;
+        void RefineRayHit(PhysicsHit2D& hit, b2ShapeId shape, const glm::vec2& origin, const glm::vec2& direction, float maxDistance) const;
+        [[nodiscard]] std::optional<PhysicsHit2D> CastNearestRay(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter) const;
+        [[nodiscard]] std::vector<PhysicsHit2D> CastRay(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter) const;
         [[nodiscard]] std::vector<PhysicsHit2D> CastShape(const PhysicsQueryShape2D& shape, const glm::vec2& position, float angle, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter, bool all) const;
 
         [[nodiscard]] const ShapeOwner2D* FindShape(b2ShapeId shape) const
@@ -1195,14 +1216,12 @@ namespace Trinity
 
     std::optional<PhysicsHit2D> PhysicsScene2D::Raycast(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter) const
     {
-        const std::vector<PhysicsHit2D> l_Hits = m_State->CastRay(origin, direction, maxDistance, filter, false);
-
-        return l_Hits.empty() ? std::nullopt : std::optional<PhysicsHit2D>(l_Hits.front());
+        return m_State->CastNearestRay(origin, direction, maxDistance, filter);
     }
 
     std::vector<PhysicsHit2D> PhysicsScene2D::RaycastAll(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter) const
     {
-        return m_State->CastRay(origin, direction, maxDistance, filter, true);
+        return m_State->CastRay(origin, direction, maxDistance, filter);
     }
 
     std::optional<PhysicsHit2D> PhysicsScene2D::ShapeCast(const PhysicsQueryShape2D& shape, const glm::vec2& position, float angle, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter) const
@@ -2071,8 +2090,65 @@ namespace Trinity
         Events.insert(Events.end(), StepEvents.begin(), StepEvents.end());
     }
 
-    // A ray of no length, or with no direction, meets nothing. Box2D passes over a solid the ray starts in, so a point-sized test finds those first, which meet it at once. Each other hit is found again along a short piece of the ray around it, against its own shape, as in 3D
-    std::vector<PhysicsHit2D> PhysicsScene2D::State::CastRay(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter, bool all) const
+    // A hit as Box2D gave it, its distance a fraction of the ray's, found again along a short piece of the ray around it, against its own shape, as in 3D
+    void PhysicsScene2D::State::RefineRayHit(PhysicsHit2D& hit, b2ShapeId shape, const glm::vec2& origin, const glm::vec2& direction, float maxDistance) const
+    {
+        float l_Distance = hit.Distance * maxDistance;
+        const float l_Margin = c_RefineMargin * (l_Distance + 1.0f);
+        const float l_Start = std::max(l_Distance - l_Margin, 0.0f);
+        const b2RayCastInput l_Input{ ToBox2D(origin + direction * l_Start), ToBox2D(direction * (l_Margin * 2.0f)), 1.0f };
+        const b2CastOutput l_Near = b2Shape_RayCast(shape, &l_Input);
+        if (l_Near.hit)
+        {
+            l_Distance = l_Start + l_Near.fraction * l_Margin * 2.0f;
+            hit.Normal = FromBox2D(l_Near.normal);
+        }
+
+        hit.Distance = l_Distance;
+        hit.Point = origin + direction * l_Distance;
+    }
+
+    // A ray of no length, or with no direction, meets nothing. Box2D passes over a solid the ray starts in, so a point-sized test finds those first, which meet it at once, the lowest UUID first as the hits sort. The nearest hit alone allocates nothing, so audio's occlusion casts its rays every frame without a cost to memory
+    std::optional<PhysicsHit2D> PhysicsScene2D::State::CastNearestRay(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter) const
+    {
+        TR_PROFILE_FUNCTION();
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's physics is queried on the main thread.");
+
+        const float l_Length = glm::length(direction);
+        if (!(l_Length > 0.0f) || !(maxDistance > 0.0f) || !std::isfinite(l_Length) || !std::isfinite(maxDistance))
+        {
+            return std::nullopt;
+        }
+
+        const glm::vec2 l_Direction = direction / l_Length;
+        const b2QueryFilter l_Filter = MakeQueryFilter(filter);
+        OverlapContext l_Inside{ &filter,{}, true };
+        const b2Vec2 l_Origin = ToBox2D(origin);
+        const b2ShapeProxy l_Point = b2MakeProxy(&l_Origin, 1, 0.0f);
+        b2World_OverlapShape(WorldID, &l_Point, l_Filter, &GatherOverlap, &l_Inside);
+        if (l_Inside.First)
+        {
+            l_Inside.First->Point = origin;
+            l_Inside.First->Normal = -l_Direction;
+            l_Inside.First->Distance = 0.0f;
+
+            return l_Inside.First;
+        }
+
+        CastContext l_Context{ &filter, false,{}, true };
+        b2World_CastRay(WorldID, l_Origin, ToBox2D(l_Direction * maxDistance), l_Filter, &GatherCast, &l_Context);
+        if (!l_Context.Nearest)
+        {
+            return std::nullopt;
+        }
+
+        RefineRayHit(l_Context.Nearest->first, l_Context.Nearest->second, origin, l_Direction, maxDistance);
+
+        return l_Context.Nearest->first;
+    }
+
+    // As the nearest, with every hit, each entity once
+    std::vector<PhysicsHit2D> PhysicsScene2D::State::CastRay(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter) const
     {
         TR_PROFILE_FUNCTION();
         TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's physics is queried on the main thread.");
@@ -2101,21 +2177,8 @@ namespace Trinity
             l_Hits.push_back(it_Hit);
         }
 
-        if (!all && !l_Hits.empty())
-        {
-            SortHits(l_Hits);
-
-            return l_Hits;
-        }
-
-        CastContext l_Context{ &filter, all,{} };
+        CastContext l_Context{ &filter, true,{} };
         b2World_CastRay(WorldID, l_Origin, ToBox2D(l_Direction * maxDistance), l_Filter, &GatherCast, &l_Context);
-        if (!all && !l_Context.Hits.empty())
-        {
-            const auto a_Nearest = std::ranges::min_element(l_Context.Hits, {}, [](const auto& hit) { return hit.first.Distance; });
-            l_Context.Hits = { *a_Nearest };
-        }
-
         for (auto& [it_Hit, it_Shape] : l_Context.Hits)
         {
             if (std::ranges::find(l_Hits, it_Hit.Entity, &PhysicsHit2D::Entity) != l_Hits.end())
@@ -2123,19 +2186,7 @@ namespace Trinity
                 continue;
             }
 
-            float l_Distance = it_Hit.Distance * maxDistance;
-            const float l_Margin = c_RefineMargin * (l_Distance + 1.0f);
-            const float l_Start = std::max(l_Distance - l_Margin, 0.0f);
-            const b2RayCastInput l_Input{ ToBox2D(origin + l_Direction * l_Start), ToBox2D(l_Direction * (l_Margin * 2.0f)), 1.0f };
-            const b2CastOutput l_Near = b2Shape_RayCast(it_Shape, &l_Input);
-            if (l_Near.hit)
-            {
-                l_Distance = l_Start + l_Near.fraction * l_Margin * 2.0f;
-                it_Hit.Normal = FromBox2D(l_Near.normal);
-            }
-
-            it_Hit.Distance = l_Distance;
-            it_Hit.Point = origin + l_Direction * l_Distance;
+            RefineRayHit(it_Hit, it_Shape, origin, l_Direction, maxDistance);
             l_Hits.push_back(it_Hit);
         }
 

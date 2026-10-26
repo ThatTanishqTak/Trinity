@@ -54,6 +54,11 @@ namespace
     // A selected AudioSource's maximum distance, and its minimum and cone fainter
     constexpr ImU32 c_AudioRangeColor = IM_COL32(110, 175, 255, 230);
     constexpr ImU32 c_AudioInnerColor = IM_COL32(110, 175, 255, 130);
+    // A playing source's last occlusion ray: clear, stopped as far as what stopped it, and fainter beyond it, with a dot of this radius where it was stopped
+    constexpr ImU32 c_OcclusionClearColor = IM_COL32(110, 220, 130, 230);
+    constexpr ImU32 c_OcclusionBlockedColor = IM_COL32(255, 90, 80, 230);
+    constexpr ImU32 c_OcclusionBehindColor = IM_COL32(255, 90, 80, 90);
+    constexpr float c_OcclusionHitRadius = 3.0f;
     // A scene camera's frustum is drawn this far out in front of it
     constexpr float c_FrustumDistance = 5.0f;
     // Flying never jumps further than a frame of this long, however long the frame took
@@ -1356,7 +1361,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
     ImGui::EndDragDropTarget();
 }
 
-// The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them, and a selected AudioSource's reach. Corners snap to pixel centres so one-pixel lines stay sharp. The selection is outlined from the entity IDs
+// The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them, and a selected AudioSource's reach, with its occlusion ray while the scene plays. Corners snap to pixel centres so one-pixel lines stay sharp. The selection is outlined from the entity IDs
 void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1390,7 +1395,7 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
         break;
     }
 
-    // A selected source heard in 3D, its minimum and maximum distances as circles round it in the plane of the 2D view
+    // A selected source heard in 3D, its minimum and maximum distances as circles round it in the plane of the 2D view, then its last occlusion ray
     const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
     if (l_Selected && l_Selected.Has<Trinity::AudioSourceComponent>() && l_Selected.Get<Trinity::AudioSourceComponent>().Spatialize)
     {
@@ -1407,10 +1412,22 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
 
             drawList.AddPolyline(l_Points.data(), static_cast<int>(l_Points.size()), it_Color, 1.0f, ImDrawFlags_Closed);
         }
+
+        Trinity::SceneRuntime* l_Runtime = m_Session.IsPlaying() ? m_Session.GetRuntime() : nullptr;
+        if (const std::optional<Trinity::AudioScene::Occlusion> l_Occlusion = l_Runtime != nullptr ? l_Runtime->GetAudio().GetOcclusion(l_Selected) : std::nullopt)
+        {
+            const ImVec2 l_Hit = a_ToScreen(glm::vec2(l_Occlusion->Hit));
+            drawList.AddLine(a_ToScreen(glm::vec2(l_Occlusion->From)), l_Hit, l_Occlusion->Blocked ? c_OcclusionBlockedColor : c_OcclusionClearColor, 2.0f);
+            if (l_Occlusion->Blocked)
+            {
+                drawList.AddLine(l_Hit, a_ToScreen(glm::vec2(l_Occlusion->To)), c_OcclusionBehindColor, 1.0f);
+                drawList.AddCircleFilled(l_Hit, c_OcclusionHitRadius, c_OcclusionBlockedColor);
+            }
+        }
     }
 }
 
-// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light, since nothing else shows where one is, and for a selected light its reach: a point light's range as three circles, a spot light's cones and the way a directional light shines, and for a selected AudioSource heard in 3D its distances and its cone. Lines are cut where they pass behind the eye. The selection itself is outlined from the entity IDs
+// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light, since nothing else shows where one is, and for a selected light its reach: a point light's range as three circles, a spot light's cones and the way a directional light shines, and for a selected AudioSource heard in 3D its distances, its cone and while the scene plays its occlusion ray. Lines are cut where they pass behind the eye. The selection itself is outlined from the entity IDs
 void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1563,7 +1580,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
         }
     }
 
-    // A source heard in 3D: its minimum and maximum distances as spheres of three circles each, and its cone, each angle's edge out to the maximum distance, as a spot light's cone is drawn. A source heard as it is has no reach to draw
+    // A source heard in 3D: its minimum and maximum distances as spheres of three circles each, and its cone, each angle's edge out to the maximum distance, as a spot light's cone is drawn, then its last occlusion ray. A source heard as it is has no reach to draw
     if (l_Selected.Has<Trinity::AudioSourceComponent>() && l_Selected.Get<Trinity::AudioSourceComponent>().Spatialize)
     {
         const Trinity::AudioSourceComponent& l_Source = l_Selected.Get<Trinity::AudioSourceComponent>();
@@ -1595,6 +1612,20 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
             }
 
             a_Line(l_Position, l_Position + l_Forward * l_MaxDistance, c_AudioRangeColor, 1.0f);
+        }
+
+        Trinity::SceneRuntime* l_Runtime = m_Session.IsPlaying() ? m_Session.GetRuntime() : nullptr;
+        if (const std::optional<Trinity::AudioScene::Occlusion> l_Occlusion = l_Runtime != nullptr ? l_Runtime->GetAudio().GetOcclusion(l_Selected) : std::nullopt)
+        {
+            a_Line(l_Occlusion->From, l_Occlusion->Hit, l_Occlusion->Blocked ? c_OcclusionBlockedColor : c_OcclusionClearColor, 2.0f);
+            if (l_Occlusion->Blocked)
+            {
+                a_Line(l_Occlusion->Hit, l_Occlusion->To, c_OcclusionBehindColor, 1.0f);
+                if (const std::optional<glm::vec2> l_Pixel = ProjectPoint(l_ViewProjection, l_Occlusion->Hit, viewportSize))
+                {
+                    drawList.AddCircleFilled(ImVec2(imageMin.x + l_Pixel->x, imageMin.y + l_Pixel->y), c_OcclusionHitRadius, c_OcclusionBlockedColor);
+                }
+            }
         }
     }
 }

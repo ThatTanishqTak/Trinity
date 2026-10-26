@@ -91,7 +91,7 @@ namespace Trinity
         RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()));
     }
 
-    // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Scripts added meanwhile that no call has given OnCreate, such as those of a Script component put on an entity directly, have it then, with the transform pass again, so it comes in the frame they were added in. Entities destroyed meanwhile go, then the sounds follow where everything now is, and the voices of sources gone stop, then rendering, which the caller does
+    // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Scripts added meanwhile that no call has given OnCreate, such as those of a Script component put on an entity directly, have it then, with the transform pass again, so it comes in the frame they were added in. Entities destroyed meanwhile go, then the sounds follow where everything now is, muffled by what the physics has between them and the listener, and the voices of sources gone stop, then rendering, which the caller does
     void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep timestep)
     {
         const bool l_WasReadingScene = Input::SetReadingScene(true);
@@ -116,6 +116,7 @@ namespace Trinity
         }
 
         m_Scripts->SetPhysics(m_Physics.get(), m_Physics2D.get());
+        m_Audio->SetPhysics(m_Physics.get(), m_Physics2D.get());
 
         const auto l_Start = std::chrono::steady_clock::now();
         m_StepsThisFrame = steps;

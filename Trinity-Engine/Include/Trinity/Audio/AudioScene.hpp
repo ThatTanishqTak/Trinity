@@ -5,13 +5,18 @@
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Core/UUID.hpp"
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace Trinity
 {
     class AudioEngine;
     class Entity;
+    class PhysicsScene2D;
+    class PhysicsScene3D;
     class Scene;
     struct AudioSourceComponent;
 
@@ -39,7 +44,7 @@ namespace Trinity
         State* m_State = nullptr;
     };
 
-    // A running scene's AudioSources heard through its AudioListener, on an engine of the application's or an offline one. Each playing source is a voice: the project's real voices are mixed, the most important first, then the loudest, and the rest are virtual, keeping their time unheard until they are mixed again from where they would be. Sounds follow their entities' interpolated transforms, read once a frame after the transform pass, and Doppler takes velocities from those moves. Everything it holds is under the Audio tag. Main thread
+    // A running scene's AudioSources heard through its AudioListener, on an engine of the application's or an offline one. Each playing source is a voice: the project's real voices are mixed, the most important first, then the loudest, and the rest are virtual, keeping their time unheard until they are mixed again from where they would be. Sounds follow their entities' interpolated transforms, read once a frame after the transform pass, and Doppler takes velocities from those moves. A source with Occlusion on is muffled while a ray from the listener to it is stopped by the scene's physics, on the project's occlusion layers, within the project's rays a frame. Everything it holds is under the Audio tag. Main thread
     class TRINITY_API AudioScene
     {
     public:
@@ -49,6 +54,18 @@ namespace Trinity
             std::uint32_t Virtual = 0;
             // Real voices reading their clips from files
             std::uint32_t Streams = 0;
+            // Occlusion rays cast in the last update
+            std::uint32_t OcclusionRays = 0;
+        };
+
+        // A source's occlusion as its last ray found it: how muffled it is, from 0, clear, to 1, eased towards whether that ray was stopped, and the ray, from the listener to the source, with where it was stopped, or the source where it was not
+        struct Occlusion
+        {
+            float Amount = 0.0f;
+            bool Blocked = false;
+            glm::vec3 From{ 0.0f };
+            glm::vec3 To{ 0.0f };
+            glm::vec3 Hit{ 0.0f };
         };
 
         // Without an engine every voice is virtual, so sounds still keep their time
@@ -58,7 +75,9 @@ namespace Trinity
         AudioScene(const AudioScene&) = delete;
         AudioScene& operator=(const AudioScene&) = delete;
 
-        // Once a frame, after the transform pass, with the frame's time: sources new since the last frame play if they Play On Awake, the voices of sources gone stop, and the real voices are chosen again
+        // The worlds occlusion rays are cast into: the 3D one if the scene has it, and otherwise the 2D one, in its plane. Without either nothing is occluded
+        void SetPhysics(const PhysicsScene3D* physics, const PhysicsScene2D* physics2D);
+        // Once a frame, after the transform pass, with the frame's time: sources new since the last frame play if they Play On Awake, the voices of sources gone stop, the occluded ones are checked in turn, and the real voices are chosen again
         void Update(Timestep timestep);
 
         // From the start of its resource, in place of the source's voice playing, once its clip has loaded. A source with no clip plays nothing
@@ -73,6 +92,8 @@ namespace Trinity
         [[nodiscard]] double GetTime(Entity entity) const;
         // Whether the source's voice plays unheard, as one beyond the real voices, without a listener, or paused
         [[nodiscard]] bool IsVirtual(Entity entity) const;
+        // None for a source not playing, not occluded, or whose voice no ray has reached yet
+        [[nodiscard]] std::optional<Occlusion> GetOcclusion(Entity entity) const;
 
         // Holds every voice where it is and keeps their time from moving, as a scene paused in Forge, whose Step plays nothing
         void SetPaused(bool paused);

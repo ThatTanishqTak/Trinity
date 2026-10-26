@@ -886,6 +886,9 @@ namespace Trinity
             writer.Write("ConeInnerAngle", component.ConeInnerAngle);
             writer.Write("ConeOuterAngle", component.ConeOuterAngle);
             writer.Write("ConeOuterVolume", component.ConeOuterVolume);
+            writer.Write("Occlusion", component.Occlusion);
+            writer.Write("OcclusionVolume", component.OcclusionVolume);
+            writer.Write("OcclusionCutoff", component.OcclusionCutoff);
         }
 
         // A rolloff this build lacks loads as Logarithmic, Unity's default
@@ -911,6 +914,9 @@ namespace Trinity
             reader.Read("ConeInnerAngle", component.ConeInnerAngle);
             reader.Read("ConeOuterAngle", component.ConeOuterAngle);
             reader.Read("ConeOuterVolume", component.ConeOuterVolume);
+            reader.Read("Occlusion", component.Occlusion);
+            reader.Read("OcclusionVolume", component.OcclusionVolume);
+            reader.Read("OcclusionCutoff", component.OcclusionCutoff);
         }
 
         // Each field on one line with its type, so a class no loaded code has still saves and loads every value exactly

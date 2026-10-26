@@ -1271,7 +1271,10 @@ namespace Trinity
         void PairContacts(std::uint32_t index);
         void BreakJoints(float seconds, std::uint32_t index);
         [[nodiscard]] PhysicsHit3D MakeHit(JPH::BodyID body, const JPH::SubShapeID& part) const;
-        [[nodiscard]] std::vector<PhysicsHit3D> CastRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, bool all) const;
+        [[nodiscard]] std::optional<glm::vec3> QueryRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, JPH::CastRayCollector& collector) const;
+        [[nodiscard]] std::optional<PhysicsHit3D> MakeRayHit(const JPH::RayCastResult& result, const glm::vec3& origin, const glm::vec3& direction, float maxDistance) const;
+        [[nodiscard]] std::optional<PhysicsHit3D> CastNearestRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const;
+        [[nodiscard]] std::vector<PhysicsHit3D> CastRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const;
         [[nodiscard]] std::vector<PhysicsHit3D> CastShape(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, bool all) const;
 
         Scene& Owner;
@@ -1723,14 +1726,12 @@ namespace Trinity
 
     std::optional<PhysicsHit3D> PhysicsScene3D::Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const
     {
-        const std::vector<PhysicsHit3D> l_Hits = m_State->CastRay(origin, direction, maxDistance, filter, false);
-
-        return l_Hits.empty() ? std::nullopt : std::optional<PhysicsHit3D>(l_Hits.front());
+        return m_State->CastNearestRay(origin, direction, maxDistance, filter);
     }
 
     std::vector<PhysicsHit3D> PhysicsScene3D::RaycastAll(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const
     {
-        return m_State->CastRay(origin, direction, maxDistance, filter, true);
+        return m_State->CastRay(origin, direction, maxDistance, filter);
     }
 
     std::optional<PhysicsHit3D> PhysicsScene3D::ShapeCast(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const
@@ -4496,17 +4497,15 @@ namespace Trinity
         return l_Hit;
     }
 
-    // A ray of no length, or with no direction, meets nothing. Jolt treats convex shapes as solid, and passes the back faces of triangles. It finds a round shape along the whole ray in single precision, which tens of metres away can be out by a few tenths of a millimetre, so each hit is found again along a short piece of the ray around it, against the part it is on
-    std::vector<PhysicsHit3D> PhysicsScene3D::State::CastRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, bool all) const
+    // Jolt's hits along the ray, through the filter, into the collector, and the ray's direction of unit length. A ray of no length, or with no direction, meets nothing and has none. Jolt treats convex shapes as solid, and passes the back faces of triangles
+    std::optional<glm::vec3> PhysicsScene3D::State::QueryRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter, JPH::CastRayCollector& collector) const
     {
-        TR_PROFILE_FUNCTION();
         TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's physics is queried on the main thread.");
 
-        std::vector<PhysicsHit3D> l_Hits;
         const float l_Length = glm::length(direction);
         if (!(l_Length > 0.0f) || !(maxDistance > 0.0f) || !std::isfinite(l_Length) || !std::isfinite(maxDistance))
         {
-            return l_Hits;
+            return std::nullopt;
         }
 
         const glm::vec3 l_Direction = direction / l_Length;
@@ -4514,55 +4513,75 @@ namespace Trinity
         const QueryLayerFilter l_Layers(filter.Layers);
         const QueryBodyFilter l_Bodies(filter);
         const QueryShapeFilter l_Shapes(System->GetBodyLockInterfaceNoLock(), filter);
-        const JPH::NarrowPhaseQuery& l_Query = System->GetNarrowPhaseQueryNoLock();
+        System->GetNarrowPhaseQueryNoLock().CastRay(l_Ray, JPH::RayCastSettings(), collector, {}, l_Layers, l_Bodies, l_Shapes);
 
-        const auto a_Add = [&](const JPH::RayCastResult& result)
+        return l_Direction;
+    }
+
+    // The scene's hit for one of Jolt's, none for a body that is not the scene's. Jolt finds a round shape along the whole ray in single precision, which tens of metres away can be out by a few tenths of a millimetre, so the hit is found again along a short piece of the ray around it, against the part it is on
+    std::optional<PhysicsHit3D> PhysicsScene3D::State::MakeRayHit(const JPH::RayCastResult& result, const glm::vec3& origin, const glm::vec3& direction, float maxDistance) const
+    {
+        PhysicsHit3D l_Hit = MakeHit(result.mBodyID, result.mSubShapeID2);
+        if (!l_Hit.Entity)
         {
-            PhysicsHit3D l_Hit = MakeHit(result.mBodyID, result.mSubShapeID2);
-            if (!l_Hit.Entity)
-            {
-                return;
-            }
-
-            l_Hit.Distance = result.mFraction * maxDistance;
-            l_Hit.Normal = -l_Direction;
-            if (result.mFraction > 0.0f)
-            {
-                const JPH::BodyLockRead l_Lock(System->GetBodyLockInterfaceNoLock(), result.mBodyID);
-                const JPH::Body& l_Body = l_Lock.GetBody();
-                const float l_Margin = c_RefineMargin * (l_Hit.Distance + 1.0f);
-                const float l_Start = std::max(l_Hit.Distance - l_Margin, 0.0f);
-                JPH::SubShapeID l_Remainder;
-                JPH::RayCastResult l_Near;
-                if (l_Body.GetTransformedShape().GetSubShapeTransformedShape(result.mSubShapeID2, l_Remainder).CastRay(JPH::RRayCast(JPH::RVec3(ToJolt(origin + l_Direction * l_Start)), ToJolt(l_Direction * (l_Margin * 2.0f))), l_Near))
-                {
-                    l_Hit.Distance = l_Start + l_Near.mFraction * l_Margin * 2.0f;
-                }
-
-                l_Hit.Normal = FromJolt(l_Body.GetWorldSpaceSurfaceNormal(result.mSubShapeID2, JPH::RVec3(ToJolt(origin + l_Direction * l_Hit.Distance))));
-            }
-
-            l_Hit.Point = origin + l_Direction * l_Hit.Distance;
-
-            l_Hits.push_back(l_Hit);
-        };
-
-        if (all)
-        {
-            JPH::AllHitCollisionCollector<JPH::CastRayCollector> l_Collector;
-            l_Query.CastRay(l_Ray, JPH::RayCastSettings(), l_Collector, {}, l_Layers, l_Bodies, l_Shapes);
-            for (const JPH::RayCastResult& it_Result : l_Collector.mHits)
-            {
-                a_Add(it_Result);
-            }
+            return std::nullopt;
         }
-        else
+
+        l_Hit.Distance = result.mFraction * maxDistance;
+        l_Hit.Normal = -direction;
+        if (result.mFraction > 0.0f)
         {
-            JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> l_Collector;
-            l_Query.CastRay(l_Ray, JPH::RayCastSettings(), l_Collector, {}, l_Layers, l_Bodies, l_Shapes);
-            if (l_Collector.HadHit())
+            const JPH::BodyLockRead l_Lock(System->GetBodyLockInterfaceNoLock(), result.mBodyID);
+            const JPH::Body& l_Body = l_Lock.GetBody();
+            const float l_Margin = c_RefineMargin * (l_Hit.Distance + 1.0f);
+            const float l_Start = std::max(l_Hit.Distance - l_Margin, 0.0f);
+            JPH::SubShapeID l_Remainder;
+            JPH::RayCastResult l_Near;
+            if (l_Body.GetTransformedShape().GetSubShapeTransformedShape(result.mSubShapeID2, l_Remainder).CastRay(JPH::RRayCast(JPH::RVec3(ToJolt(origin + direction * l_Start)), ToJolt(direction * (l_Margin * 2.0f))), l_Near))
             {
-                a_Add(l_Collector.mHit);
+                l_Hit.Distance = l_Start + l_Near.mFraction * l_Margin * 2.0f;
+            }
+
+            l_Hit.Normal = FromJolt(l_Body.GetWorldSpaceSurfaceNormal(result.mSubShapeID2, JPH::RVec3(ToJolt(origin + direction * l_Hit.Distance))));
+        }
+
+        l_Hit.Point = origin + direction * l_Hit.Distance;
+
+        return l_Hit;
+    }
+
+    // The nearest hit alone allocates nothing, so audio's occlusion casts its rays every frame without a cost to memory
+    std::optional<PhysicsHit3D> PhysicsScene3D::State::CastNearestRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const
+    {
+        TR_PROFILE_FUNCTION();
+
+        JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> l_Collector;
+        const std::optional<glm::vec3> l_Direction = QueryRay(origin, direction, maxDistance, filter, l_Collector);
+        if (!l_Direction || !l_Collector.HadHit())
+        {
+            return std::nullopt;
+        }
+
+        return MakeRayHit(l_Collector.mHit, origin, *l_Direction, maxDistance);
+    }
+
+    std::vector<PhysicsHit3D> PhysicsScene3D::State::CastRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter) const
+    {
+        TR_PROFILE_FUNCTION();
+
+        std::vector<PhysicsHit3D> l_Hits;
+        JPH::AllHitCollisionCollector<JPH::CastRayCollector> l_Collector;
+        const std::optional<glm::vec3> l_Direction = QueryRay(origin, direction, maxDistance, filter, l_Collector);
+        if (!l_Direction)
+        {
+            return l_Hits;
+        }
+
+        for (const JPH::RayCastResult& it_Result : l_Collector.mHits)
+        {
+            if (const std::optional<PhysicsHit3D> l_Hit = MakeRayHit(it_Result, origin, *l_Direction, maxDistance))
+            {
+                l_Hits.push_back(*l_Hit);
             }
         }
 

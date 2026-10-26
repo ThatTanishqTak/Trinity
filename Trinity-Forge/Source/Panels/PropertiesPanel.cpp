@@ -3372,7 +3372,7 @@ int PropertiesPanel::OnComponentFilterEdit(ImGuiInputTextCallbackData* data)
     return 0;
 }
 
-// Unity's AudioSource: what it plays and how, then in 3D Sound Settings, greyed while it does not spatialize, how the listener hears it from where it is, over its volume against distance. While the scene plays, where its voice has got to, and whether it is mixed or unheard
+// Unity's AudioSource: what it plays and how, then in 3D Sound Settings, greyed while it does not spatialize, how the listener hears it from where it is and from behind what is in the way, over its volume against distance. While the scene plays, where its voice has got to, whether it is mixed or unheard, and how occluded it is
 void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::AudioSourceComponent>() || !BeginComponent(entity, Trinity::AudioSourceComponent::c_TypeName, Trinity::Icons::c_VolumeUp))
@@ -3386,7 +3386,12 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     {
         const Trinity::AudioScene& l_Audio = l_Runtime->GetAudio();
         const std::string l_Time = AudioClipImporter::FormatLength(static_cast<std::uint64_t>(l_Audio.GetTime(entity) * 1000.0), 1000);
-        const std::string l_State = l_Audio.IsPlaying(entity) ? std::format("Playing at {}, {}", l_Time, l_Audio.IsVirtual(entity) ? "unheard as a virtual voice" : "mixed") : (l_Audio.GetTime(entity) > 0.0 ? std::format("Paused at {}", l_Time) : std::string("Not playing"));
+        std::string l_State = l_Audio.IsPlaying(entity) ? std::format("Playing at {}, {}", l_Time, l_Audio.IsVirtual(entity) ? "unheard as a virtual voice" : "mixed") : (l_Audio.GetTime(entity) > 0.0 ? std::format("Paused at {}", l_Time) : std::string("Not playing"));
+        if (const std::optional<Trinity::AudioScene::Occlusion> l_Occlusion = l_Audio.GetOcclusion(entity))
+        {
+            l_State += l_Occlusion->Amount > 0.0f ? std::format(", {:.0f}% occluded", l_Occlusion->Amount * 100.0f) : std::string(", clear");
+        }
+
         ImGui::TextDisabled("%s", l_State.c_str());
     }
 
@@ -3540,6 +3545,30 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
 
     Label("Cone Outer Volume");
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "ConeOuterVolume", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##ConeOuterVolume", &source.ConeOuterVolume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Occlusion");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Occlusion", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Occlusion", &source.Occlusion); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Muffled while the scene's physics, on the project's occlusion layers, stands between it and the listener, eased in and out over the project's occlusion time");
+    }
+
+    ImGui::BeginDisabled(!entity.Get<Trinity::AudioSourceComponent>().Occlusion);
+    Label("Occlusion Volume");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "OcclusionVolume", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##OcclusionVolume", &source.OcclusionVolume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Its volume behind something, from 0 to 1");
+    }
+
+    Label("Occlusion Cutoff");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "OcclusionCutoff", [](Trinity::AudioSourceComponent& source) { return ImGui::DragFloat("##OcclusionCutoff", &source.OcclusionCutoff, 10.0f, 10.0f, 22000.0f, "%.0f Hz", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Behind something, what is above this falls away, 12 dB an octave");
+    }
+
+    ImGui::EndDisabled();
 
     // While the scene plays, where its listener is from the source
     std::optional<float> l_ListenerDistance;
