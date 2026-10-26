@@ -51,6 +51,9 @@ namespace
     constexpr float c_LightPickPixels = 8.0f;
     // Segments in each circle drawn for a light's reach
     constexpr int c_CircleSegments = 48;
+    // A selected AudioSource's maximum distance, and its minimum and cone fainter
+    constexpr ImU32 c_AudioRangeColor = IM_COL32(110, 175, 255, 230);
+    constexpr ImU32 c_AudioInnerColor = IM_COL32(110, 175, 255, 130);
     // A scene camera's frustum is drawn this far out in front of it
     constexpr float c_FrustumDistance = 5.0f;
     // Flying never jumps further than a frame of this long, however long the frame took
@@ -1353,7 +1356,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
     ImGui::EndDragDropTarget();
 }
 
-// The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them. Corners snap to pixel centres so one-pixel lines stay sharp. The selection is outlined from the entity IDs
+// The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them, and a selected AudioSource's reach. Corners snap to pixel centres so one-pixel lines stay sharp. The selection is outlined from the entity IDs
 void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1386,9 +1389,28 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
 
         break;
     }
+
+    // A selected source heard in 3D, its minimum and maximum distances as circles round it in the plane of the 2D view
+    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
+    if (l_Selected && l_Selected.Has<Trinity::AudioSourceComponent>() && l_Selected.Get<Trinity::AudioSourceComponent>().Spatialize)
+    {
+        const Trinity::AudioSourceComponent& l_Source = l_Selected.Get<Trinity::AudioSourceComponent>();
+        const glm::vec2 l_Center(l_Selected.Get<Trinity::WorldTransformComponent>().Matrix[3]);
+        for (const auto& [it_Distance, it_Color] : { std::pair(l_Source.MinDistance, c_AudioInnerColor), std::pair(std::max(l_Source.MaxDistance, l_Source.MinDistance), c_AudioRangeColor) })
+        {
+            std::array<ImVec2, c_CircleSegments> l_Points{};
+            for (int it_Segment = 0; it_Segment < c_CircleSegments; ++it_Segment)
+            {
+                const float l_Angle = glm::two_pi<float>() * static_cast<float>(it_Segment) / static_cast<float>(c_CircleSegments);
+                l_Points[static_cast<std::size_t>(it_Segment)] = a_ToScreen(l_Center + glm::vec2(std::cos(l_Angle), std::sin(l_Angle)) * it_Distance);
+            }
+
+            drawList.AddPolyline(l_Points.data(), static_cast<int>(l_Points.size()), it_Color, 1.0f, ImDrawFlags_Closed);
+        }
+    }
 }
 
-// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light, since nothing else shows where one is, and for a selected light its reach: a point light's range as three circles, a spot light's cones and the way a directional light shines. Lines are cut where they pass behind the eye. The selection itself is outlined from the entity IDs
+// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light, since nothing else shows where one is, and for a selected light its reach: a point light's range as three circles, a spot light's cones and the way a directional light shines, and for a selected AudioSource heard in 3D its distances and its cone. Lines are cut where they pass behind the eye. The selection itself is outlined from the entity IDs
 void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1538,6 +1560,41 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
 
                 break;
             }
+        }
+    }
+
+    // A source heard in 3D: its minimum and maximum distances as spheres of three circles each, and its cone, each angle's edge out to the maximum distance, as a spot light's cone is drawn. A source heard as it is has no reach to draw
+    if (l_Selected.Has<Trinity::AudioSourceComponent>() && l_Selected.Get<Trinity::AudioSourceComponent>().Spatialize)
+    {
+        const Trinity::AudioSourceComponent& l_Source = l_Selected.Get<Trinity::AudioSourceComponent>();
+        const glm::vec3 l_Position(l_World[3]);
+        const float l_MaxDistance = std::max(l_Source.MaxDistance, l_Source.MinDistance);
+        for (const auto& [it_Distance, it_Color] : { std::pair(l_Source.MinDistance, c_AudioInnerColor), std::pair(l_MaxDistance, c_AudioRangeColor) })
+        {
+            a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), it_Distance, it_Color);
+            a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), it_Distance, it_Color);
+            a_Circle(l_Position, glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), it_Distance, it_Color);
+        }
+
+        if (l_Source.ConeInnerAngle < 360.0f)
+        {
+            const float l_Length = glm::length(glm::vec3(l_World[2]));
+            const glm::vec3 l_Forward = l_Length > 1e-12f ? -glm::vec3(l_World[2]) / l_Length : glm::vec3(0.0f, 0.0f, -1.0f);
+            const glm::vec3 l_Side = glm::normalize(glm::cross(l_Forward, std::abs(l_Forward.y) < 0.99f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f)));
+            const glm::vec3 l_Up = glm::cross(l_Side, l_Forward);
+            for (const auto& [it_Angle, it_Color] : { std::pair(l_Source.ConeOuterAngle, c_AudioRangeColor), std::pair(l_Source.ConeInnerAngle, c_AudioInnerColor) })
+            {
+                const float l_Half = glm::radians(std::clamp(it_Angle, 0.0f, 360.0f) * 0.5f);
+                const glm::vec3 l_Center = l_Position + l_Forward * (l_MaxDistance * std::cos(l_Half));
+                const float l_Radius = l_MaxDistance * std::sin(l_Half);
+                a_Circle(l_Center, l_Side, l_Up, l_Radius, it_Color);
+                for (const glm::vec3& it_Edge : { l_Side, -l_Side, l_Up, -l_Up })
+                {
+                    a_Line(l_Position, l_Center + it_Edge * l_Radius, it_Color, 1.0f);
+                }
+            }
+
+            a_Line(l_Position, l_Position + l_Forward * l_MaxDistance, c_AudioRangeColor, 1.0f);
         }
     }
 }

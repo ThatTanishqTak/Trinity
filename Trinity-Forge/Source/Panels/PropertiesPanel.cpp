@@ -33,6 +33,10 @@ namespace
     constexpr const char* c_MaterialPickerPopup = "##MaterialPicker";
     constexpr const char* c_ConvexHullPickerPopup = "##ConvexHullPicker";
     constexpr const char* c_CollisionMeshPickerPopup = "##CollisionMeshPicker";
+    constexpr const char* c_AudioClipPickerPopup = "##AudioClipPicker";
+    // An AudioSource's rolloff graph is this many lines high, and reaches this far past its maximum distance
+    constexpr float c_RolloffGraphLines = 6.0f;
+    constexpr float c_RolloffGraphReach = 1.1f;
     constexpr const char* c_AddComponentPopup = "##AddComponent";
     // Add Component's list is this many lines high at most, and scrolls past them
     constexpr float c_ComponentChoiceLines = 16.0f;
@@ -40,7 +44,7 @@ namespace
     constexpr const char* c_UnappliedPopup = "Unapplied Import Settings###ForgeUnappliedSettings";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 24> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::CharacterControllerComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
+    constexpr std::array<std::string_view, 26> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::CharacterControllerComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::AudioSourceComponent::c_TypeName, Trinity::AudioListenerComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
 
     using PrefabOverride = Trinity::SceneSerializer::PrefabOverride;
 
@@ -52,7 +56,9 @@ namespace
     };
 
     // Near shows the near plane of whichever projection is shown, a lock the 3D body's three axes or the 2D body's one, and a label ending in a space starts the label of each of a list's rows, as Material 0 does. A key ending in a slash is a list saved an item a line, so each of its rows shows its own item, as Material 1 shows Materials/1
-    constexpr std::array<RowKeys, 22> c_RowKeys{ {
+    constexpr std::array<RowKeys, 24> c_RowKeys{ {
+        { "Audio Resource",{ "Resource" } },
+        { "Volume Rolloff",{ "Rolloff" } },
         { "Size",{ "OrthographicSize" } },
         { "Near",{ "Near", "PerspectiveNear" } },
         { "Exposure",{ "ExposureEV100" } },
@@ -677,13 +683,13 @@ namespace
     }
 
     // Unity's Add Component categories for the engine's components, in the order the list shows them. A module's components go under their namespace, after these
-    constexpr std::array<std::string_view, 4> c_ComponentCategories{ "Rendering", "Lighting", "Physics", "Physics 2D" };
+    constexpr std::array<std::string_view, 5> c_ComponentCategories{ "Rendering", "Lighting", "Physics", "Physics 2D", "Audio" };
     constexpr std::string_view c_OtherCategory = "Other";
     constexpr std::string_view c_ScriptsCategory = "Scripts";
 
     std::string_view GetComponentCategory(std::string_view name)
     {
-        constexpr std::array<std::pair<std::string_view, std::string_view>, 21> c_Categories{ {
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 23> c_Categories{ {
             { Trinity::CameraComponent::c_TypeName, "Rendering" },
             { Trinity::SpriteRendererComponent::c_TypeName, "Rendering" },
             { Trinity::MeshRendererComponent::c_TypeName, "Rendering" },
@@ -704,7 +710,9 @@ namespace
             { Trinity::CapsuleCollider2DComponent::c_TypeName, "Physics 2D" },
             { Trinity::PolygonCollider2DComponent::c_TypeName, "Physics 2D" },
             { Trinity::CharacterController2DComponent::c_TypeName, "Physics 2D" },
-            { Trinity::Joint2DComponent::c_TypeName, "Physics 2D" }
+            { Trinity::Joint2DComponent::c_TypeName, "Physics 2D" },
+            { Trinity::AudioSourceComponent::c_TypeName, "Audio" },
+            { Trinity::AudioListenerComponent::c_TypeName, "Audio" }
         } };
 
         if (const auto a_Found = std::ranges::find(c_Categories, name, &std::pair<std::string_view, std::string_view>::first); a_Found != c_Categories.end())
@@ -791,6 +799,74 @@ namespace
         }
 
         return Trinity::SceneSerializer::SaveComponentToText(l_Entity, name);
+    }
+
+    // The listener a running scene would be heard through, the first in hierarchy order, with how many the scene has
+    Trinity::Entity FindAudioListener(Trinity::Scene& scene, std::size_t& count)
+    {
+        const auto l_Listeners = scene.GetRegistry().view<Trinity::AudioListenerComponent>();
+        count = l_Listeners.size();
+        if (count == 1)
+        {
+            return Trinity::Entity(l_Listeners.front(), &scene);
+        }
+
+        for (Trinity::Entity it_Entity = count > 1 ? scene.GetFirstRoot() : Trinity::Entity(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+        {
+            if (it_Entity.Has<Trinity::AudioListenerComponent>())
+            {
+                return it_Entity;
+            }
+        }
+
+        return {};
+    }
+
+    // Volume against distance, as Unity draws a source's rolloff: from 0 to a little past its maximum distance, with the minimum and the maximum marked, and where the listener is while the scene plays
+    void DrawRolloffGraph(const Trinity::AudioSourceComponent& source, std::optional<float> listener)
+    {
+        const float l_Width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
+        const float l_Height = ImGui::GetFontSize() * c_RolloffGraphLines;
+        const ImVec2 l_Min = ImGui::GetCursorScreenPos();
+        const ImVec2 l_Max(l_Min.x + l_Width, l_Min.y + l_Height);
+        ImGui::Dummy(ImVec2(l_Width, l_Height));
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("The volume heard against the distance from the listener, from 0 to %.0f m", static_cast<double>(std::max(source.MaxDistance, source.MinDistance) * c_RolloffGraphReach));
+        }
+
+        ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+        l_DrawList.AddRectFilled(l_Min, l_Max, ImGui::GetColorU32(ImGuiCol_FrameBg), ImGui::GetStyle().FrameRounding);
+
+        const float l_Range = std::max(std::max(source.MaxDistance, source.MinDistance) * c_RolloffGraphReach, 1e-3f);
+        const auto a_X = [&](float distance) { return std::floor(l_Min.x + std::clamp(distance / l_Range, 0.0f, 1.0f) * (l_Width - 1.0f)) + 0.5f; };
+        const auto a_Y = [&](float gain) { return l_Max.y - 1.0f - std::clamp(gain, 0.0f, 1.0f) * (l_Height - 2.0f); };
+        const ImU32 l_Marks = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+        for (const auto& [it_Distance, it_Name] : { std::pair(source.MinDistance, "Min"), std::pair(std::max(source.MaxDistance, source.MinDistance), "Max") })
+        {
+            const float l_X = a_X(it_Distance);
+            l_DrawList.AddLine(ImVec2(l_X, l_Min.y), ImVec2(l_X, l_Max.y), l_Marks);
+            l_DrawList.AddText(ImVec2(l_X + 3.0f, l_Min.y + 1.0f), l_Marks, it_Name);
+        }
+
+        if (listener)
+        {
+            const float l_X = a_X(*listener);
+            const ImU32 l_Color = ImGui::GetColorU32(ImGuiCol_CheckMark);
+            l_DrawList.AddLine(ImVec2(l_X, l_Min.y), ImVec2(l_X, l_Max.y), l_Color);
+            l_DrawList.AddText(ImVec2(l_X + 3.0f, l_Max.y - ImGui::GetTextLineHeight() - 1.0f), l_Color, "Listener");
+        }
+
+        // A point every other pixel, which follows Linear's corner and Exponential's fall closely enough
+        const ImU32 l_Curve = ImGui::GetColorU32(ImGuiCol_PlotLines);
+        ImVec2 l_Previous(a_X(0.0f), a_Y(Trinity::GetAudioRolloffGain(source, 0.0f)));
+        for (float it_X = 2.0f; it_X <= l_Width; it_X += 2.0f)
+        {
+            const float l_Distance = it_X / l_Width * l_Range;
+            const ImVec2 l_Point(l_Min.x + it_X, a_Y(Trinity::GetAudioRolloffGain(source, l_Distance)));
+            l_DrawList.AddLine(l_Previous, l_Point, l_Curve, 1.5f);
+            l_Previous = l_Point;
+        }
     }
 
     // An entity of the scene, or none, picked from the list in hierarchy order or dropped from the Hierarchy
@@ -1267,6 +1343,8 @@ void PropertiesPanel::OnImGuiRender()
     DrawColliders2D(l_Entity);
     DrawCharacterController2D(l_Entity);
     DrawJoint2D(l_Entity);
+    DrawAudioSource(l_Entity);
+    DrawAudioListener(l_Entity);
     DrawScripts(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawRemovedComponents(l_Entity);
@@ -3292,6 +3370,207 @@ int PropertiesPanel::OnComponentFilterEdit(ImGuiInputTextCallbackData* data)
     }
 
     return 0;
+}
+
+// Unity's AudioSource: what it plays and how, then in 3D Sound Settings, greyed while it does not spatialize, how the listener hears it from where it is, over its volume against distance. While the scene plays, where its voice has got to, and whether it is mixed or unheard
+void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::AudioSourceComponent>() || !BeginComponent(entity, Trinity::AudioSourceComponent::c_TypeName, Trinity::Icons::c_VolumeUp))
+    {
+        return;
+    }
+
+    CommandStack& l_History = m_Session.GetHistory();
+    Trinity::SceneRuntime* l_Runtime = m_Session.IsPlaying() ? m_Session.GetRuntime() : nullptr;
+    if (l_Runtime != nullptr)
+    {
+        const Trinity::AudioScene& l_Audio = l_Runtime->GetAudio();
+        const std::string l_Time = AudioClipImporter::FormatLength(static_cast<std::uint64_t>(l_Audio.GetTime(entity) * 1000.0), 1000);
+        const std::string l_State = l_Audio.IsPlaying(entity) ? std::format("Playing at {}, {}", l_Time, l_Audio.IsVirtual(entity) ? "unheard as a virtual voice" : "mixed") : (l_Audio.GetTime(entity) > 0.0 ? std::format("Paused at {}", l_Time) : std::string("Not playing"));
+        ImGui::TextDisabled("%s", l_State.c_str());
+    }
+
+    const auto a_SetResource = [&l_History, entity](Trinity::UUID clip)
+    {
+        Trinity::AudioSourceComponent l_Value = entity.Get<Trinity::AudioSourceComponent>();
+        l_Value.Resource = clip;
+        l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::AudioSourceComponent>>(entity.GetUUID(), std::move(l_Value), "Resource"));
+        l_History.EndMerge();
+    };
+
+    DrawAssetSlot("Audio Resource", c_AudioClipPickerPopup, Trinity::AudioClipAsset::c_AssetType, entity.Get<Trinity::AudioSourceComponent>().Resource, a_SetResource, "An audio clip in the project, which it plays. Without one it plays nothing");
+
+    Label("Mute");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Mute", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Mute", &source.Mute); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Plays on, silent, keeping its time");
+    }
+
+    Label("Play On Awake");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "PlayOnAwake", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##PlayOnAwake", &source.PlayOnAwake); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Plays as the scene starts, or as the source first appears while it runs");
+    }
+
+    Label("Loop");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Loop", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Loop", &source.Loop); });
+
+    Label("Priority");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Priority", [](Trinity::AudioSourceComponent& source)
+    {
+        int l_Priority = static_cast<int>(std::min(source.Priority, Trinity::AudioSourceComponent::c_LowestPriority));
+        const char* l_Format = l_Priority == 0 ? "%d, the highest" : (l_Priority == static_cast<int>(Trinity::AudioSourceComponent::c_LowestPriority) ? "%d, the lowest" : "%d");
+        const bool l_Changed = ImGui::SliderInt("##Priority", &l_Priority, 0, static_cast<int>(Trinity::AudioSourceComponent::c_LowestPriority), l_Format, ImGuiSliderFlags_AlwaysClamp);
+        source.Priority = static_cast<std::uint32_t>(l_Priority);
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Which sounds are mixed when more play than the project's real voices: 0 first and 256 last, and among the same the loudest first. The rest keep their time unheard");
+    }
+
+    Label("Volume");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Volume", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##Volume", &source.Volume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+
+    Label("Pitch");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Pitch", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##Pitch", &source.Pitch, 0.01f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("How fast it plays, which raises or lowers its pitch with it, as a tape played faster does");
+    }
+
+    Label("Stereo Pan");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "StereoPan", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##StereoPan", &source.StereoPan, -1.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("From -1, full left, to 1, full right. The far side falls away and the near side stays whole");
+    }
+
+    Label("Spatialize");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Spatialize", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Spatialize", &source.Spatialize); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Heard from the entity in 3D, through the scene's AudioListener, as Unity's Spatial Blend at 3D. Off, it is heard as it is, as at 2D");
+    }
+
+    ImGui::SeparatorText("3D Sound Settings");
+    ImGui::BeginDisabled(!entity.Get<Trinity::AudioSourceComponent>().Spatialize);
+
+    Label("Doppler Level");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "DopplerLevel", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##DopplerLevel", &source.DopplerLevel, 0.0f, 5.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("How much its own and the listener's movement shifts its pitch, as a passing siren's falls");
+    }
+
+    Label("Spread");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Spread", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##Spread", &source.Spread, 0.0f, 360.0f, "%.0f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("How far it spreads around the listener: 0 pans it fully towards where it is, and 180 or more leaves it centred");
+    }
+
+    Label("Volume Rolloff");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Rolloff", [](Trinity::AudioSourceComponent& source)
+    {
+        int l_Rolloff = static_cast<int>(source.Rolloff);
+        const bool l_Changed = ImGui::Combo("##Rolloff", &l_Rolloff, "Logarithmic\0Linear\0Exponential\0");
+        source.Rolloff = static_cast<Trinity::AudioRolloff>(l_Rolloff);
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("How the volume falls between the minimum and maximum distances: Logarithmic as sound does in the open, Linear to nothing at the maximum, and Exponential twice as fast as Logarithmic");
+    }
+
+    Label("Min Distance");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "MinDistance", [](Trinity::AudioSourceComponent& source)
+    {
+        const bool l_Changed = ImGui::DragFloat("##MinDistance", &source.MinDistance, 0.05f, 0.01f, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+        source.MaxDistance = std::max(source.MaxDistance, source.MinDistance);
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Closer than this it is at full volume");
+    }
+
+    Label("Max Distance");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "MaxDistance", [](Trinity::AudioSourceComponent& source) { return ImGui::DragFloat("##MaxDistance", &source.MaxDistance, 0.5f, source.MinDistance, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Beyond this it falls no further, which for Linear is silence");
+    }
+
+    Label("Cone Inner Angle");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "ConeInnerAngle", [](Trinity::AudioSourceComponent& source)
+    {
+        const bool l_Changed = ImGui::SliderFloat("##ConeInnerAngle", &source.ConeInnerAngle, 0.0f, 360.0f, "%.0f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+        source.ConeOuterAngle = std::max(source.ConeOuterAngle, source.ConeInnerAngle);
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Around the entity's -Z, where it is at full volume. 360 is no cone");
+    }
+
+    Label("Cone Outer Angle");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "ConeOuterAngle", [](Trinity::AudioSourceComponent& source)
+    {
+        const bool l_Changed = ImGui::SliderFloat("##ConeOuterAngle", &source.ConeOuterAngle, 0.0f, 360.0f, "%.0f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+        source.ConeInnerAngle = std::min(source.ConeInnerAngle, source.ConeOuterAngle);
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Beyond this it is at the outer volume, and between the two angles it falls from full to that");
+    }
+
+    Label("Cone Outer Volume");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "ConeOuterVolume", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##ConeOuterVolume", &source.ConeOuterVolume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+
+    // While the scene plays, where its listener is from the source
+    std::optional<float> l_ListenerDistance;
+    std::size_t l_Listeners = 0;
+    if (const Trinity::Entity l_Listener = l_Runtime != nullptr ? FindAudioListener(m_Session.GetScene(), l_Listeners) : Trinity::Entity())
+    {
+        l_ListenerDistance = glm::distance(glm::vec3(l_Listener.Get<Trinity::WorldTransformComponent>().Matrix[3]), glm::vec3(entity.Get<Trinity::WorldTransformComponent>().Matrix[3]));
+    }
+
+    DrawRolloffGraph(entity.Get<Trinity::AudioSourceComponent>(), l_ListenerDistance);
+    ImGui::EndDisabled();
+}
+
+// It holds nothing. Of several in a scene only the first in hierarchy order is heard through, which each of the others says, as Unity warns of them
+void PropertiesPanel::DrawAudioListener(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::AudioListenerComponent>() || !BeginComponent(entity, Trinity::AudioListenerComponent::c_TypeName, Trinity::Icons::c_Headphones))
+    {
+        return;
+    }
+
+    std::size_t l_Count = 0;
+    const Trinity::Entity l_Heard = FindAudioListener(m_Session.GetScene(), l_Count);
+    if (l_Count > 1 && l_Heard && l_Heard.GetUUID() != entity.GetUUID())
+    {
+        ImGui::TextWrapped("%s", std::format("{} The scene has {} AudioListeners, and is heard only through {}'s, the first in hierarchy order", Trinity::Icons::c_Warning, l_Count, GetEntityLabel(l_Heard)).c_str());
+
+        return;
+    }
+
+    ImGui::TextDisabled("The scene is heard from here, facing -Z with +Y up");
 }
 
 // Each script by its class, with a box that turns it on and off and its fields below. Right-clicking a script resets its fields to its class's defaults, moves or removes it. A class no loaded code has is marked, and its values are shown as they were read. Every change goes to a copy of the component and becomes one command once the section is drawn, since the section reads the component

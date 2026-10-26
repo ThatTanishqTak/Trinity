@@ -69,6 +69,8 @@ private:
     void DrawColliders2D(Trinity::Entity entity);
     void DrawCharacterController2D(Trinity::Entity entity);
     void DrawJoint2D(Trinity::Entity entity);
+    void DrawAudioSource(Trinity::Entity entity);
+    void DrawAudioListener(Trinity::Entity entity);
     void DrawScripts(Trinity::Entity entity);
     void DrawScriptFields(Trinity::ScriptEntry& entry, std::string& change);
     [[nodiscard]] bool DrawScriptValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value);

@@ -13,6 +13,10 @@ namespace Trinity
     class AudioEngine;
     class Entity;
     class Scene;
+    struct AudioSourceComponent;
+
+    // The volume a spatialized source has from its distance to the listener alone, from 0 to 1, as its voice is heard and ranked, the distance clamped between its minimum and maximum. Forge's Properties draws it as the source's rolloff curve
+    [[nodiscard]] TRINITY_API float GetAudioRolloffGain(const AudioSourceComponent& source, float distance);
 
     // Sounds taken from one scene to go on in the next, as SceneManager moves the entities kept across scenes, with no gap or restart
     class TRINITY_API AudioCarry

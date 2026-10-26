@@ -52,6 +52,8 @@ namespace Trinity
         constexpr const char* c_StepForward = "\uF051";
         constexpr const char* c_PlayCircle = "\uF144";
         constexpr const char* c_StopCircle = "\uF28D";
+        constexpr const char* c_VolumeUp = "\uF028";
+        constexpr const char* c_Headphones = "\uF025";
         constexpr const char* c_Monitor = "\U000F0379";
         constexpr const char* c_CubeOutline = "\U000F01A7";
         constexpr const char* c_Search = "\uF002";

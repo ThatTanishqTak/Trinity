@@ -2321,12 +2321,17 @@ void EditorSession::RequestStop()
     m_Pending.push_back([this] { StopPlay(); });
 }
 
-// After the session's own work, before the transform pass the frame draws with. A paused scene takes only the step asked for. A selection the scene switched to does not have is let go
+// After the session's own work, before the transform pass the frame draws with. A paused scene takes only the step asked for, and its sounds hold where they are, so a Step plays none. A selection the scene switched to does not have is let go
 void EditorSession::UpdatePlay(Trinity::Timestep timestep)
 {
     if (!m_Play)
     {
         return;
+    }
+
+    if (Trinity::SceneRuntime* l_Runtime = m_Play->GetRuntime())
+    {
+        l_Runtime->GetAudio().SetPaused(m_Paused);
     }
 
     if (!m_Paused)
@@ -2379,7 +2384,8 @@ void EditorSession::StartPlay()
     m_Paused = false;
     m_StepRequested = false;
     const std::size_t l_Entities = l_Copy->GetEntityCount();
-    m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get(), m_Project->GetInputActions());
+    // The scene's sounds play on Forge's own output, mixed as Unity's defaults have it until the project names its audio settings
+    m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get(), m_Project->GetInputActions(), Trinity::Application::Get().GetAudioEngine(), Trinity::AudioSettings{});
     m_Play->Run(std::move(l_Copy), GetSceneID());
     TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), l_Entities, l_Milliseconds);
 }

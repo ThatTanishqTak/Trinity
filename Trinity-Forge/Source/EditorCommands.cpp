@@ -315,6 +315,11 @@ void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const
         visit({ .Component = Trinity::EnvironmentComponent::c_TypeName, .Script = nullptr, .Slot = "Environment", .Index = std::nullopt, .AssetType = Trinity::EnvironmentAsset::c_AssetType, .Value = entity.Get<Trinity::EnvironmentComponent>().Environment, .IsEntity = false });
     }
 
+    if (entity.Has<Trinity::AudioSourceComponent>())
+    {
+        visit({ .Component = Trinity::AudioSourceComponent::c_TypeName, .Script = nullptr, .Slot = "Audio Resource", .Index = std::nullopt, .AssetType = Trinity::AudioClipAsset::c_AssetType, .Value = entity.Get<Trinity::AudioSourceComponent>().Resource, .IsEntity = false });
+    }
+
     if (entity.Has<Trinity::ConvexHullColliderComponent>())
     {
         visit({ .Component = Trinity::ConvexHullColliderComponent::c_TypeName, .Script = nullptr, .Slot = "Shape", .Index = std::nullopt, .AssetType = Trinity::ConvexHullAsset::c_AssetType, .Value = entity.Get<Trinity::ConvexHullColliderComponent>().Shape, .IsEntity = false });
@@ -972,7 +977,7 @@ CreateCameraCommand::CreateCameraCommand(Trinity::CameraProjection projection, T
 
 }
 
-// Last under the parent or among the roots, at the position in the parent's space, looking along -Z as every camera here does. Kept as text after the first run, as CreateEntityCommand does
+// Last under the parent or among the roots, at the position in the parent's space, looking along -Z as every camera here does. The first camera is primary, and in a scene with no AudioListener the camera gets one, as Unity's cameras come with one, so a new scene is heard and a second camera brings no second listener. Kept as text after the first run, as CreateEntityCommand does
 bool CreateCameraCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -997,6 +1002,10 @@ bool CreateCameraCommand::Execute(Trinity::Scene& scene)
     Trinity::CameraComponent& l_Camera = l_Entity.Add<Trinity::CameraComponent>();
     l_Camera.Projection = m_Projection;
     l_Camera.Primary = !l_HasPrimary;
+    if (scene.GetRegistry().view<Trinity::AudioListenerComponent>().empty())
+    {
+        l_Entity.Add<Trinity::AudioListenerComponent>();
+    }
 
     m_Entity = l_Entity.GetUUID();
     m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Entity);

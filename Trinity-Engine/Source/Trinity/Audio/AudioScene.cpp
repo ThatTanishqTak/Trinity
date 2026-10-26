@@ -70,36 +70,6 @@ namespace Trinity
             return std::max(source.MaxDistance, std::max(source.MinDistance, 0.0f));
         }
 
-        // As miniaudio's models have it, the distance clamped between the minimum and the maximum, so a voice's loudness is what it would sound at
-        float GetRolloffGain(const AudioSourceComponent& source, float distance)
-        {
-            const float l_Minimum = std::max(source.MinDistance, 0.0f);
-            const float l_Maximum = GetMaxDistance(source);
-            if (l_Minimum >= l_Maximum)
-            {
-                return 1.0f;
-            }
-
-            const float l_Distance = std::clamp(distance, l_Minimum, l_Maximum);
-            switch (source.Rolloff)
-            {
-                case AudioRolloff::Linear:
-                {
-                    return 1.0f - (l_Distance - l_Minimum) / (l_Maximum - l_Minimum);
-                }
-                case AudioRolloff::Exponential:
-                {
-                    return l_Minimum > 0.0f ? std::pow(l_Distance / l_Minimum, -c_ExponentialRolloff) : 1.0f;
-                }
-                case AudioRolloff::Logarithmic:
-                {
-                    break;
-                }
-            }
-
-            return l_Minimum > 0.0f ? l_Minimum / l_Distance : 1.0f;
-        }
-
         // As miniaudio's cone has it, from the source's facing and the direction from it to the listener
         float GetConeGain(const AudioSourceComponent& source, const glm::vec3& forward, const glm::vec3& toListener)
         {
@@ -228,6 +198,36 @@ namespace Trinity
             ma_sound_set_doppler_factor(&l_Sound, std::clamp(l_Values.DopplerLevel, 0.0f, c_MaximumDopplerLevel) * std::max(settings.DopplerFactor, 0.0f));
             ma_sound_set_directional_attenuation_factor(&l_Sound, 1.0f - std::clamp(l_Values.Spread, 0.0f, c_MaximumSpread) / c_MaximumSpread);
         }
+    }
+
+    // As miniaudio's models have it, so a voice's loudness is what it would sound at
+    float GetAudioRolloffGain(const AudioSourceComponent& source, float distance)
+    {
+        const float l_Minimum = std::max(source.MinDistance, 0.0f);
+        const float l_Maximum = GetMaxDistance(source);
+        if (l_Minimum >= l_Maximum)
+        {
+            return 1.0f;
+        }
+
+        const float l_Distance = std::clamp(distance, l_Minimum, l_Maximum);
+        switch (source.Rolloff)
+        {
+            case AudioRolloff::Linear:
+            {
+                return 1.0f - (l_Distance - l_Minimum) / (l_Maximum - l_Minimum);
+            }
+            case AudioRolloff::Exponential:
+            {
+                return l_Minimum > 0.0f ? std::pow(l_Distance / l_Minimum, -c_ExponentialRolloff) : 1.0f;
+            }
+            case AudioRolloff::Logarithmic:
+            {
+                break;
+            }
+        }
+
+        return l_Minimum > 0.0f ? l_Minimum / l_Distance : 1.0f;
     }
 
     struct AudioCarry::State
@@ -699,7 +699,7 @@ namespace Trinity
             {
                 const glm::vec3 l_ToListener = l_State.ListenerPosition - it_Voice->Position;
                 const float l_Distance = glm::length(l_ToListener);
-                l_Loudness *= GetRolloffGain(it_Voice->Values, l_Distance);
+                l_Loudness *= GetAudioRolloffGain(it_Voice->Values, l_Distance);
                 if (l_Distance > 0.0f)
                 {
                     l_Loudness *= GetConeGain(it_Voice->Values, it_Voice->Forward, l_ToListener / l_Distance);
