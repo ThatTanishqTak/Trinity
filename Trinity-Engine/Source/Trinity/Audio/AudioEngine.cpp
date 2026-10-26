@@ -395,7 +395,7 @@ namespace Trinity
             l_Flags |= MA_SOUND_FLAG_NO_PITCH;
         }
 
-        if (ma_sound_init_from_data_source(&Engine, PreviewVoice.GetDataSource(), l_Flags, &Master, &PreviewSound) != MA_SUCCESS)
+        if (ma_sound_init_from_data_source(&Engine, PreviewVoice.GetDataSource(), l_Flags, nullptr, &PreviewSound) != MA_SUCCESS)
         {
             TR_CORE_ERROR("Audio: the preview of {} could not start", l_Header.ID);
             ClosePreview();
@@ -403,15 +403,18 @@ namespace Trinity
             return;
         }
 
+        // Into the mixer's Master, so its volume, mute and meter take the preview in, as they do a scene's sounds sent to no group
         HasPreviewSound = true;
+        Mixer->Route(&PreviewSound, UUID());
         ma_sound_start(&PreviewSound);
     }
 
-    // The sound goes before the voice it reads
+    // The sound goes before the voice it reads, and is let go by the mixer first
     void AudioEngine::State::ClosePreview()
     {
         if (HasPreviewSound)
         {
+            Mixer->Unroute(&PreviewSound);
             ma_sound_uninit(&PreviewSound);
             HasPreviewSound = false;
         }

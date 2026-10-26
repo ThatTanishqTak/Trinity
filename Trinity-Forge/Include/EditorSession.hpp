@@ -242,6 +242,10 @@ public:
     bool EditInputActions(Trinity::UUID asset, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after, std::string_view what, std::string field = {});
     // As EditInputActions, for a rename of a map or an action, which in the project's default asset also rewrites the edited scene's input action fields that named it, in the same step. Refused with a notice while a scene plays and a field would change, since the scene takes no edit then
     bool RenameInputActions(Trinity::UUID asset, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after, std::string_view what);
+    // The project's Audio Mixer, which everything Forge plays goes through from the frame it loads, a scene playing included, saved with the project at once. Anything but an audio mixer asset is refused
+    void SetProjectMixer(Trinity::UUID asset);
+    // Master alone at 0 dB, named New Audio Mixer, or New Audio Mixer 1 and on when that is taken, and the project's mixer while it has none, or one it no longer has. Its project path, or nothing, logged
+    [[nodiscard]] std::optional<std::string> CreateAudioMixer(std::string_view folder);
 
     // Forge's settings for the person using it, saved once nothing is being dragged or typed into
     [[nodiscard]] const EditorPreferences& GetPreferences() const { return m_Preferences; }
@@ -345,6 +349,8 @@ public:
     [[nodiscard]] bool IsImportingAudioClips() const { return m_AudioClipImports.IsRunning() || m_ImportAgain; }
     // What the Content Browser and Properties play clips and draw their waveforms through, which stops as the project closes
     [[nodiscard]] AudioClipPreview& GetAudioPreview() { return m_AudioPreview; }
+    // What the engine mixes everything through: the project's mixer once it has loaded, and Master alone before then, without one, and without a project. Null without an audio engine
+    [[nodiscard]] const Trinity::AudioMixer* GetMixer() const;
     [[nodiscard]] std::uint64_t GetScanCount() const { return m_ScanCount; }
     // Model import batches finished, so what reads cooked model files knows to read them again
     [[nodiscard]] std::uint64_t GetModelImportCount() const { return m_ModelImportCount; }
@@ -450,6 +456,8 @@ private:
     void FinishModelImports(const ModelImportReport& report);
     void FinishEnvironmentImports(const EnvironmentImportReport& report);
     void FinishAudioClipImports(const AudioClipImportReport& report);
+    void UpdateMixer();
+    void ApplyMixer(const Trinity::AudioMixerAsset* asset);
     void SaveProject();
     void ImportAsset(const std::filesystem::path& file, const std::string& folder);
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
@@ -502,6 +510,11 @@ private:
     EnvironmentImportBatch m_EnvironmentImports;
     AudioClipImportBatch m_AudioClipImports;
     AudioClipPreview m_AudioPreview;
+    // The project's mixer, which the engine's mix follows: the asset the project names, held while it is a mixer, the scan it was last looked for in, so a file that comes back or changes outside Forge is found again, and the version applied, 0 for Master alone
+    Trinity::UUID m_MixerID;
+    Trinity::AssetRef<Trinity::AudioMixerAsset> m_Mixer;
+    std::uint64_t m_MixerScan = 0;
+    std::uint64_t m_MixerSerial = 0;
     ModuleHost m_Module;
     AssemblyHost m_Assembly;
     EditorPreferences m_Preferences;

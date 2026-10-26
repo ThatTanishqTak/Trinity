@@ -56,7 +56,7 @@ namespace Trinity
         void StopTestTone();
         [[nodiscard]] bool IsTestTonePlaying() const;
 
-        // The project's mixer, Master alone until it is given one, which every scene's sound plays through. The test tone and the preview play beside it, straight to the output
+        // The project's mixer, Master alone until it is given one, which every scene's sound plays through, and the preview into its Master. The test tone plays beside it, straight to the output
         [[nodiscard]] AudioMixer& GetMixer();
         [[nodiscard]] const AudioMixer& GetMixer() const;
 

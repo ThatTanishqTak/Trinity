@@ -18,6 +18,7 @@
 #include <format>
 #include <iterator>
 #include <optional>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -37,6 +38,8 @@ namespace
     // An AudioSource's rolloff graph is this many lines high, and reaches this far past its maximum distance
     constexpr float c_RolloffGraphLines = 6.0f;
     constexpr float c_RolloffGraphReach = 1.1f;
+    // An AudioSource's Output meter runs from this many decibels to 0
+    constexpr float c_OutputMeterFloor = -60.0f;
     constexpr const char* c_AddComponentPopup = "##AddComponent";
     // Add Component's list is this many lines high at most, and scrolls past them
     constexpr float c_ComponentChoiceLines = 16.0f;
@@ -655,6 +658,90 @@ namespace
         ImGui::EndCombo();
 
         return l_Changed;
+    }
+
+    // A source's Output as its group's name, Master's while it names none, since it then plays into Master, and a warning while the project's mixer lacks the group, which it then plays into Master as well
+    SlotText DescribeOutputSlot(const Trinity::AudioMixerData* mixer, Trinity::UUID output)
+    {
+        const std::string l_Master = mixer != nullptr ? std::string(std::string_view(mixer->GetMaster().Name)) : std::string("Master");
+        if (!output)
+        {
+            return { l_Master,{}, false };
+        }
+
+        if (const Trinity::AudioMixerGroup* l_Group = mixer != nullptr ? mixer->FindGroup(output) : nullptr)
+        {
+            return { std::string(std::string_view(l_Group->Name)),{}, false };
+        }
+
+        return { std::format("{} Missing, plays into {}", Trinity::Icons::c_Warning, l_Master), std::format("Group {} is not in the project's mixer, so it plays into {}: the group was removed, or the project has another mixer", output, l_Master), true };
+    }
+
+    // The project mixer's groups as Unity's Audio Mixer lists them, each indented under its parent, and Master first, which stands for none
+    bool OutputCombo(const Trinity::AudioMixerData* mixer, Trinity::UUID& output, const SlotText& preview)
+    {
+        PushSlotColor(preview);
+        const bool l_Open = ImGui::BeginCombo("##Output", preview.Text.c_str(), ImGuiComboFlags_HeightLarge);
+        PopSlotColor(preview);
+        if (!l_Open)
+        {
+            return false;
+        }
+
+        bool l_Changed = false;
+        const std::span<const Trinity::AudioMixerGroup> l_Groups = mixer != nullptr ? std::span<const Trinity::AudioMixerGroup>(mixer->Groups) : std::span<const Trinity::AudioMixerGroup>();
+        // Each group comes after its parent, whose depth is then known
+        std::vector<std::uint32_t> l_Depths(l_Groups.size(), 0);
+        for (std::size_t it_Group = 0; it_Group < l_Groups.size(); ++it_Group)
+        {
+            const Trinity::AudioMixerGroup& l_Group = l_Groups[it_Group];
+            for (std::size_t it_Parent = 0; it_Parent < it_Group; ++it_Parent)
+            {
+                if (l_Groups[it_Parent].ID == l_Group.Parent)
+                {
+                    l_Depths[it_Group] = l_Depths[it_Parent] + 1;
+
+                    break;
+                }
+            }
+
+            const bool l_Master = it_Group == 0;
+            const bool l_Selected = output == l_Group.ID || (l_Master && !output);
+            ImGui::PushID(l_Group.ID.ToString().c_str());
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + static_cast<float>(l_Depths[it_Group]) * ImGui::GetStyle().IndentSpacing);
+            if (ImGui::Selectable(std::string(std::string_view(l_Group.Name)).c_str(), l_Selected) && !l_Selected)
+            {
+                output = l_Master ? Trinity::UUID() : l_Group.ID;
+                l_Changed = true;
+            }
+
+            if (l_Selected)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+
+            ImGui::PopID();
+        }
+
+        ImGui::EndCombo();
+
+        return l_Changed;
+    }
+
+    // A group's meter as one bar at its loudest channel's peak, from the floor to 0 dB, read out with that peak and the loudest RMS, as Unity's mixer strips show them
+    void DrawOutputMeter(std::string_view group, const Trinity::AudioMeter& meter)
+    {
+        float l_Peak = 0.0f;
+        float l_Rms = 0.0f;
+        for (std::size_t it_Channel = 0; it_Channel < std::min<std::size_t>(meter.Channels, Trinity::AudioMeter::c_MaxChannels); ++it_Channel)
+        {
+            l_Peak = std::max(l_Peak, meter.Peak[it_Channel]);
+            l_Rms = std::max(l_Rms, meter.Rms[it_Channel]);
+        }
+
+        const float l_PeakDecibels = Trinity::AudioGainToDecibels(l_Peak);
+        const std::string l_Text = l_PeakDecibels > Trinity::AudioMixerData::c_MinimumVolume ? std::format("{} at {:.1f} dB peak, {:.1f} dB RMS", group, l_PeakDecibels, Trinity::AudioGainToDecibels(l_Rms)) : std::format("{} silent", group);
+        ImGui::ProgressBar(std::clamp((l_PeakDecibels - c_OutputMeterFloor) / -c_OutputMeterFloor, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0.0f), l_Text.c_str());
     }
 
     // Whether the text holds the pattern, whatever the case of either
@@ -3404,6 +3491,29 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     };
 
     DrawAssetSlot("Audio Resource", c_AudioClipPickerPopup, Trinity::AudioClipAsset::c_AssetType, entity.Get<Trinity::AudioSourceComponent>().Resource, a_SetResource, "An audio clip in the project, which it plays. Without one it plays nothing");
+
+    const Trinity::AudioMixer* l_Mixer = m_Session.GetMixer();
+    const Trinity::AudioMixerData* l_MixerData = l_Mixer != nullptr ? &l_Mixer->GetData() : nullptr;
+    const Trinity::UUID l_Output = entity.Get<Trinity::AudioSourceComponent>().Output;
+    const SlotText l_OutputSlot = DescribeOutputSlot(l_MixerData, l_Output);
+    Label("Output");
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Output", [&](Trinity::AudioSourceComponent& source) { return OutputCombo(l_MixerData, source.Output, l_OutputSlot); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("%s", l_OutputSlot.Broken ? l_OutputSlot.Tooltip.c_str() : "The group of the project's mixer it plays into, as Unity's Output. Master stands for none");
+    }
+
+    // While the scene plays, the level of the group it is heard through
+    if (l_Runtime != nullptr && l_MixerData != nullptr)
+    {
+        const Trinity::AudioMixerGroup* l_Group = l_Output ? l_MixerData->FindGroup(l_Output) : nullptr;
+        const Trinity::AudioMixerGroup& l_Heard = l_Group != nullptr ? *l_Group : l_MixerData->GetMaster();
+        if (const std::optional<Trinity::AudioMeter> l_Meter = l_Mixer->GetMeter(l_Heard.ID))
+        {
+            Label("");
+            DrawOutputMeter(l_Heard.Name, *l_Meter);
+        }
+    }
 
     Label("Mute");
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "Mute", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Mute", &source.Mute); });

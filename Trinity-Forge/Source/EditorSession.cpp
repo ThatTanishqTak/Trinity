@@ -888,6 +888,7 @@ void EditorSession::Update()
     }
 
     ImportAgainIfAsked();
+    UpdateMixer();
     // After the imports, so a clip cooked again this frame shows its new waveform
     m_AudioPreview.Update(m_AudioClipImports.GetImportedCount());
 
@@ -1324,6 +1325,11 @@ void EditorSession::CloseProject()
     m_Reimporter.Finish();
     // A clip streaming in a preview holds its file in the Cache open
     m_AudioPreview.Clear();
+    // Heard through Master alone again, as without a project, and the mixer let go with the project's other assets
+    m_MixerID = {};
+    m_Mixer = {};
+    m_MixerScan = 0;
+    ApplyMixer(nullptr);
     m_InspectedAsset = {};
     // Its components name the project's assets
     m_CopiedEntity.reset();
@@ -1805,6 +1811,60 @@ void EditorSession::FinishAudioClipImports(const AudioClipImportReport& report)
     {
         TR_INFO("Audio: the import was stopped with {} clip(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
     }
+}
+
+// The engine plays the project's mixer from the frame it loads, and each version after it, as Step 8's panel saves them. With each scan the asset is looked for again, and read again, so a file restored or changed outside Forge, as by version control, is heard once Forge has the focus back. Without a project or a mixer, while one first loads, and for one that never could, Master alone
+void EditorSession::UpdateMixer()
+{
+    const Trinity::UUID l_Named = m_Project ? m_Project->GetAudioSettings().Mixer : Trinity::UUID();
+    if (l_Named != m_MixerID || m_ScanCount != m_MixerScan)
+    {
+        const bool l_Changed = l_Named != m_MixerID;
+        m_MixerID = l_Named;
+        m_MixerScan = m_ScanCount;
+        const Trinity::AssetRecord* l_Record = l_Named && m_Registry ? m_Registry->Find(l_Named) : nullptr;
+        const bool l_IsMixer = l_Record != nullptr && l_Record->Importer == Trinity::AudioMixerAsset::c_AssetType;
+        if (l_Named && !l_IsMixer && l_Changed)
+        {
+            TR_WARN("Forge: {} names {} as its mixer, which {}, so it is heard through Master alone", m_Project->GetName(), l_Named, l_Record == nullptr ? std::string("is not in the project") : std::format("is a {} asset", l_Record->Importer));
+        }
+
+        if (!l_IsMixer)
+        {
+            m_Mixer = {};
+        }
+        else if (m_Mixer.GetID() != l_Named)
+        {
+            m_Mixer = Trinity::AssetRef<Trinity::AudioMixerAsset>(l_Named);
+        }
+        else
+        {
+            Trinity::AssetManager::Reload(l_Named);
+        }
+    }
+
+    ApplyMixer(m_Mixer.IsReady() ? m_Mixer.Get() : nullptr);
+}
+
+// Each version once, and a version that changes nothing leaves the mix as it is
+void EditorSession::ApplyMixer(const Trinity::AudioMixerAsset* asset)
+{
+    Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine();
+    const std::uint64_t l_Serial = asset != nullptr ? asset->GetSerial() : 0;
+    if (l_Engine == nullptr || l_Serial == m_MixerSerial)
+    {
+        return;
+    }
+
+    m_MixerSerial = l_Serial;
+    static_cast<void>(l_Engine->GetMixer().Apply(asset != nullptr ? asset->GetData() : Trinity::AudioMixerData::MakeDefault()));
+}
+
+const Trinity::AudioMixer* EditorSession::GetMixer() const
+{
+    const Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine();
+
+    return l_Engine != nullptr ? &l_Engine->GetMixer() : nullptr;
 }
 
 void EditorSession::FinishModelImports(const ModelImportReport& report)
@@ -2384,8 +2444,8 @@ void EditorSession::StartPlay()
     m_Paused = false;
     m_StepRequested = false;
     const std::size_t l_Entities = l_Copy->GetEntityCount();
-    // The scene's sounds play on Forge's own output, mixed as Unity's defaults have it until the project names its audio settings
-    m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get(), m_Project->GetInputActions(), Trinity::Application::Get().GetAudioEngine(), Trinity::AudioSettings{});
+    // The scene's sounds play on Forge's own output, through the project's mixer, which the engine already plays, with the project's voice limits, Doppler factor and occlusion
+    m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get(), m_Project->GetInputActions(), Trinity::Application::Get().GetAudioEngine(), m_Project->GetAudioSettings());
     m_Play->Run(std::move(l_Copy), GetSceneID());
     TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), l_Entities, l_Milliseconds);
 }
@@ -2918,6 +2978,49 @@ std::optional<std::string> EditorSession::CreateInputActions(std::string_view fo
     if (l_Record != nullptr && (!l_Default || m_Registry->Find(l_Default) == nullptr))
     {
         SetDefaultInputActions(l_Record->ID);
+    }
+
+    return l_Path;
+}
+
+// As Set as Default Input Actions does. The mix follows it from the next frame, a scene playing included, since the engine plays one mixer for everything
+void EditorSession::SetProjectMixer(Trinity::UUID asset)
+{
+    const Trinity::AssetRecord* l_Record = m_Project ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::AudioMixerAsset::c_AssetType)
+    {
+        return;
+    }
+
+    Trinity::AudioSettings l_Settings = m_Project->GetAudioSettings();
+    l_Settings.Mixer = asset;
+    m_Project->SetAudioSettings(l_Settings);
+    SaveProject();
+    TR_INFO("Forge: {} ({}) is now the mixer of {}", l_Record->Path, asset, m_Project->GetName());
+}
+
+std::optional<std::string> EditorSession::CreateAudioMixer(std::string_view folder)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return std::nullopt;
+    }
+
+    const std::string l_Path = GetFreePath(*m_Project, folder, "New Audio Mixer", Trinity::AudioMixerData::c_Extension, false);
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, Trinity::WriteAudioMixer(Trinity::AudioMixerData::MakeDefault())); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created audio mixer {}", l_Path);
+    ScanAssets();
+    const Trinity::UUID l_Current = m_Project->GetAudioSettings().Mixer;
+    const Trinity::AssetRecord* l_Record = m_Registry->FindByPath(l_Path);
+    if (l_Record != nullptr && (!l_Current || m_Registry->Find(l_Current) == nullptr))
+    {
+        SetProjectMixer(l_Record->ID);
     }
 
     return l_Path;
