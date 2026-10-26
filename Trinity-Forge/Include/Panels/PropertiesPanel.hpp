@@ -87,6 +87,8 @@ private:
     void DrawTexturePreview();
     void DrawTextureSettings(const Trinity::AssetRecord& record);
     void DrawModelSettings(const Trinity::AssetRecord& record);
+    void DrawAudioClip(const Trinity::AssetRecord& record);
+    void DrawAudioClipSettings(const Trinity::AssetRecord& record);
     void DrawModelMaterials(const Trinity::AssetRecord& record);
     void DrawMaterial(const Trinity::AssetRecord& record);
     void DrawMaterialTextures(const Trinity::AssetRecord& record, const Trinity::MaterialData& current, const std::function<void(const char*, std::initializer_list<std::string_view>)>& label);
@@ -101,6 +103,7 @@ private:
     Trinity::UUID m_SettingsAsset;
     TextureImportSettings m_TextureSettings;
     ModelImportSettings m_ModelSettings;
+    AudioClipImportSettings m_AudioClipSettings;
     std::optional<UnappliedSettings> m_Unapplied;
     // What waits for the question, such as Forge closing
     std::move_only_function<void()> m_AfterUnapplied;

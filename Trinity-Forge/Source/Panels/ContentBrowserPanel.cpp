@@ -31,6 +31,10 @@ namespace
     constexpr float c_MaximumThumbnailSize = 12.0f;
     constexpr float c_WheelStep = 0.5f;
     constexpr float c_IconScale = 0.55f;
+    // An audio clip's play button against its thumbnail, and how far its waveform keeps from the thumbnail's sides and from its top and foot
+    constexpr float c_PlayButtonScale = 0.4f;
+    constexpr float c_WaveformInsetX = 0.08f;
+    constexpr float c_WaveformInsetY = 0.2f;
     constexpr float c_TreeWidthInFonts = 14.0f;
     constexpr float c_SearchWidthInFonts = 14.0f;
     constexpr float c_SliderWidthInFonts = 6.0f;
@@ -149,7 +153,13 @@ namespace
     // What an importer cooks, and so what Reimport cooks again
     bool IsImported(const Trinity::AssetRecord* record)
     {
-        return record != nullptr && (record->Importer == TextureImporter::c_Importer || record->Importer == ModelImporter::c_Importer || record->Importer == EnvironmentImporter::c_Importer);
+        return record != nullptr && (record->Importer == TextureImporter::c_Importer || record->Importer == ModelImporter::c_Importer || record->Importer == EnvironmentImporter::c_Importer || record->Importer == AudioClipImporter::c_Importer);
+    }
+
+    // Previewed from a button of its own, as in Unity's Project window
+    bool IsAudioClip(const Trinity::AssetRecord* record)
+    {
+        return record != nullptr && record->Importer == AudioClipImporter::c_Importer;
     }
 
     // Properties edits a material, so the system has no program to open it in
@@ -234,6 +244,11 @@ namespace
         if (record != nullptr && record->Importer == Trinity::InputActionsAsset::c_AssetType)
         {
             return Trinity::Icons::c_Gamepad;
+        }
+
+        if (IsAudioClip(record))
+        {
+            return Trinity::Icons::c_FileAudio;
         }
 
         if (IsPrefab(record))
@@ -574,12 +589,38 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
     const bool l_Visible = ImGui::IsItemVisible();
     const bool l_Hovered = ImGui::IsItemHovered();
 
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Right) || (ImGui::IsItemDeactivated() && l_Hovered && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left)))
+    // The picture fills the top of a grid cell, or a square at the start of a list row
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    const float l_Padding = l_List ? l_Style.FramePadding.y : l_Style.FramePadding.x;
+    const float l_PictureSize = (l_List ? size.y : size.x) - l_Padding * 2.0f;
+
+    // An audio clip's play button previews it rather than selecting it, as Unity's does, over the middle of its waveform, or at the end of its row in the list. Only a clip with a cooked header has one
+    AudioClipPreview& l_Preview = m_Session.GetAudioPreview();
+    const bool l_Playable = l_Visible && IsAudioClip(item.Record) && l_Preview.FindHeader(item.Record->ID) != nullptr;
+    const bool l_Previewing = l_Playable && l_Preview.IsPlaying(item.Record->ID);
+    const float l_ButtonSize = l_List ? l_PictureSize : std::floor(l_PictureSize * c_PlayButtonScale);
+    const ImVec2 l_ButtonMin = l_List ? ImVec2(l_Min.x + size.x - l_Style.FramePadding.x - l_ButtonSize, l_Min.y + l_Padding) : ImVec2(l_Min.x + l_Padding + std::floor((l_PictureSize - l_ButtonSize) * 0.5f), l_Min.y + l_Padding + std::floor((l_PictureSize - l_ButtonSize) * 0.5f));
+    const ImVec2 l_ButtonMax(l_ButtonMin.x + l_ButtonSize, l_ButtonMin.y + l_ButtonSize);
+    const bool l_OnPlay = l_Playable && l_Hovered && ImGui::IsMouseHoveringRect(l_ButtonMin, l_ButtonMax);
+
+    const bool l_Released = ImGui::IsItemDeactivated() && l_Hovered && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left);
+    if (l_Released && l_OnPlay)
+    {
+        if (l_Previewing)
+        {
+            l_Preview.Stop();
+        }
+        else
+        {
+            l_Preview.Play(item.Record->ID);
+        }
+    }
+    else if (ImGui::IsItemClicked(ImGuiMouseButton_Right) || l_Released)
     {
         Select(item);
     }
 
-    if (l_Hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+    if (l_Hovered && !l_OnPlay && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
     {
         Open(item);
     }
@@ -618,21 +659,30 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
     if (l_Visible)
     {
         ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
-        const ImGuiStyle& l_Style = ImGui::GetStyle();
         const ImVec2 l_Max(l_Min.x + size.x, l_Min.y + size.y);
         if (item.Path == m_Selected || l_Hovered)
         {
             l_DrawList.AddRectFilled(l_Min, l_Max, ImGui::GetColorU32(item.Path == m_Selected ? ImGuiCol_Header : ImGuiCol_HeaderHovered), l_Style.FrameRounding);
         }
 
-        // The picture fills the top of a grid cell, or a square at the start of a list row
-        const float l_Padding = l_List ? l_Style.FramePadding.y : l_Style.FramePadding.x;
-        const float l_PictureSize = (l_List ? size.y : size.x) - l_Padding * 2.0f;
         DrawPicture(item, ImVec2(l_Min.x + l_Padding, l_Min.y + l_Padding), l_PictureSize);
 
-        // The name, centred under the picture while it fits, or after it along the row
+        // Shown while the item is hovered or its clip plays, on a disc that keeps it clear of the waveform under it
+        if (l_Playable && (l_Hovered || l_Previewing))
+        {
+            const char* l_Glyph = l_Previewing ? Trinity::Icons::c_StopCircle : Trinity::Icons::c_PlayCircle;
+            const ImVec2 l_Extent = ImGui::GetFont()->CalcTextSizeA(l_ButtonSize, FLT_MAX, 0.0f, l_Glyph);
+            if (!l_List)
+            {
+                l_DrawList.AddCircleFilled(ImVec2(l_ButtonMin.x + l_ButtonSize * 0.5f, l_ButtonMin.y + l_ButtonSize * 0.5f), l_ButtonSize * 0.5f, ImGui::GetColorU32(ImGuiCol_WindowBg, 0.8f));
+            }
+
+            l_DrawList.AddText(ImGui::GetFont(), l_ButtonSize, ImVec2(l_ButtonMin.x + (l_ButtonSize - l_Extent.x) * 0.5f, l_ButtonMin.y + (l_ButtonSize - l_Extent.y) * 0.5f), ImGui::GetColorU32(l_OnPlay ? ImGuiCol_CheckMark : ImGuiCol_Text), l_Glyph);
+        }
+
+        // The name, centred under the picture while it fits, or after it along the row, short of a clip's button there
         const ImVec2 l_LabelMin = l_List ? ImVec2(l_Min.x + l_Padding + l_PictureSize + l_Style.ItemInnerSpacing.x, l_Min.y) : ImVec2(l_Min.x + l_Style.FramePadding.x, l_Min.y + size.x);
-        const float l_LabelMaxX = l_Max.x - l_Style.FramePadding.x;
+        const float l_LabelMaxX = l_List && l_Playable ? l_ButtonMin.x - l_Style.ItemInnerSpacing.x : l_Max.x - l_Style.FramePadding.x;
         if (item.Path == m_Renaming && item.Path != m_Folder)
         {
             DrawRenameField(item, l_LabelMin, l_LabelMaxX - l_LabelMin.x);
@@ -647,17 +697,28 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
 
         if (l_Hovered && !ImGui::IsDragDropActive())
         {
-            ImGui::SetItemTooltip("%s", item.Path.c_str());
+            ImGui::SetItemTooltip("%s", l_OnPlay ? (l_Previewing ? "Stop" : "Play") : item.Path.c_str());
         }
     }
 
     ImGui::PopID();
 }
 
-// A texture's own picture, fitted inside the square keeping its shape, a prefab's or a model's in the grid once it is drawn, filling the square, or the icon for the item's kind, centred in it. A list's row keeps a prefab's icon, which tells an original from a variant or a model at that size
+// A texture's own picture, fitted inside the square keeping its shape, a prefab's or a model's in the grid once it is drawn, filling the square, an audio clip's waveform in the grid once it is cooked, its channels together with the playhead while it previews, or the icon for the item's kind, centred in it. A list's row keeps a prefab's icon, which tells an original from a variant or a model at that size
 void ContentBrowserPanel::DrawPicture(const Item& item, ImVec2 position, float size)
 {
     ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+    AudioClipPreview& l_Preview = m_Session.GetAudioPreview();
+    if (const Trinity::AudioClipHeader* l_Header = !IsListView() && IsAudioClip(item.Record) ? l_Preview.FindHeader(item.Record->ID) : nullptr)
+    {
+        const ImVec2 l_Max(position.x + size, position.y + size);
+        const ImVec2 l_Inset(std::floor(size * c_WaveformInsetX), std::floor(size * c_WaveformInsetY));
+        l_DrawList.AddRectFilled(position, l_Max, ImGui::GetColorU32(ImGuiCol_FrameBg), ImGui::GetStyle().FrameRounding);
+        DrawAudioWaveform(l_DrawList, *l_Header, ImVec2(position.x + l_Inset.x, position.y + l_Inset.y), ImVec2(l_Max.x - l_Inset.x, l_Max.y - l_Inset.y), false, l_Preview.GetPlayhead(item.Record->ID));
+
+        return;
+    }
+
     const Trinity::TextureAsset* l_Texture = item.Record != nullptr && item.Record->Importer == Trinity::TextureAsset::c_AssetType ? GetThumbnail(item.Record->ID) : nullptr;
     if (l_Texture != nullptr)
     {

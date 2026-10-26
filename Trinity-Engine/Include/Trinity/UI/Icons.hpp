@@ -30,6 +30,7 @@ namespace Trinity
         constexpr const char* c_Trash = "\uF1F8";
         constexpr const char* c_Folder = "\uF07B";
         constexpr const char* c_FileImage = "\uF1C5";
+        constexpr const char* c_FileAudio = "\uF1C7";
         constexpr const char* c_ArrowUp = "\uF062";
         constexpr const char* c_ArrowDown = "\uF063";
         constexpr const char* c_ChevronLeft = "\uF053";
@@ -49,6 +50,8 @@ namespace Trinity
         constexpr const char* c_Stop = "\uF04D";
         constexpr const char* c_Pause = "\uF04C";
         constexpr const char* c_StepForward = "\uF051";
+        constexpr const char* c_PlayCircle = "\uF144";
+        constexpr const char* c_StopCircle = "\uF28D";
         constexpr const char* c_Monitor = "\U000F0379";
         constexpr const char* c_CubeOutline = "\U000F01A7";
         constexpr const char* c_Search = "\uF002";

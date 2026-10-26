@@ -1129,6 +1129,11 @@ std::optional<PropertiesPanel::UnappliedSettings> PropertiesPanel::GetUnappliedS
         return UnappliedSettings{ l_Record->ID, l_Record->Path, ModelImporter::MakeSettings(m_ModelSettings, *l_Record) };
     }
 
+    if (l_Record->Importer == AudioClipImporter::c_Importer && m_AudioClipSettings != AudioClipImporter::ReadSettings(*l_Record))
+    {
+        return UnappliedSettings{ l_Record->ID, l_Record->Path, AudioClipImporter::MakeSettings(m_AudioClipSettings) };
+    }
+
     return std::nullopt;
 }
 
@@ -4000,7 +4005,7 @@ bool PropertiesPanel::DrawInputActionSlot(Trinity::ScriptString& path)
     return true;
 }
 
-// An asset picked in the Content Browser: where it is, for a texture a preview and its import settings, for a model its import settings and materials, and for a material its editor
+// An asset picked in the Content Browser: where it is, for a texture a preview and its import settings, for a model its import settings and materials, for a material its editor, and for an audio clip its waveform, a preview and its import settings
 void PropertiesPanel::DrawAsset(Trinity::UUID id)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -4015,7 +4020,8 @@ void PropertiesPanel::DrawAsset(Trinity::UUID id)
     const bool l_Texture = l_Record->Importer == Trinity::TextureAsset::c_AssetType;
     const bool l_Model = l_Record->Importer == ModelImporter::c_Importer;
     const bool l_Material = l_Record->Importer == Trinity::MaterialAsset::c_AssetType;
-    const char* l_Icon = l_Texture ? Trinity::Icons::c_FileImage : (l_Model ? Trinity::Icons::c_Cube : (l_Material ? Trinity::Icons::c_PaintBrush : Trinity::Icons::c_File));
+    const bool l_AudioClip = l_Record->Importer == AudioClipImporter::c_Importer;
+    const char* l_Icon = l_Texture ? Trinity::Icons::c_FileImage : (l_Model ? Trinity::Icons::c_Cube : (l_Material ? Trinity::Icons::c_PaintBrush : (l_AudioClip ? Trinity::Icons::c_FileAudio : Trinity::Icons::c_File)));
     ImGui::TextUnformatted(std::format("{} {}", l_Icon, GetAssetName(*l_Record)).c_str());
     ImGui::TextDisabled("%s", l_Record->Path.c_str());
     ImGui::TextDisabled("UUID %s, %s", id.ToString().c_str(), l_Record->Importer.c_str());
@@ -4039,6 +4045,15 @@ void PropertiesPanel::DrawAsset(Trinity::UUID id)
     {
         m_Preview = {};
         DrawMaterial(*l_Record);
+
+        return;
+    }
+
+    if (l_AudioClip)
+    {
+        m_Preview = {};
+        DrawAudioClip(*l_Record);
+        DrawAudioClipSettings(*l_Record);
 
         return;
     }
@@ -4214,6 +4229,105 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
     ImGui::EndDisabled();
 
     if (m_Session.IsImportingModels())
+    {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Importing...");
+    }
+}
+
+// Play, which previews the clip as the Content Browser's button does, its waveform in a lane a channel with the playhead across it, and what the importer found, all from the cooked header, so nothing of the clip loads until it plays
+void PropertiesPanel::DrawAudioClip(const Trinity::AssetRecord& record)
+{
+    AudioClipPreview& l_Preview = m_Session.GetAudioPreview();
+    const Trinity::AudioClipHeader* l_Header = l_Preview.FindHeader(record.ID);
+    if (l_Header == nullptr)
+    {
+        ImGui::TextDisabled("%s", m_Session.IsImportingAudioClips() ? "Importing..." : "Not imported. The Console says why");
+        ImGui::Spacing();
+
+        return;
+    }
+
+    const bool l_Playing = l_Preview.IsPlaying(record.ID);
+    if (ImGui::Button(std::format("{} {}###AudioPreview", l_Playing ? Trinity::Icons::c_Stop : Trinity::Icons::c_Play, l_Playing ? "Stop" : "Play").c_str()))
+    {
+        if (l_Playing)
+        {
+            l_Preview.Stop();
+        }
+        else
+        {
+            l_Preview.Play(record.ID);
+        }
+    }
+
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", AudioClipImporter::FormatLength(l_Header->Frames, l_Header->SampleRate).c_str());
+
+    const float l_Width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
+    const float l_Height = ImGui::GetFontSize() * (l_Header->Channels == 1 ? 4.0f : 6.0f);
+    const ImVec2 l_Min = ImGui::GetCursorScreenPos();
+    const ImVec2 l_Max(l_Min.x + l_Width, l_Min.y + l_Height);
+    ImGui::Dummy(ImVec2(l_Width, l_Height));
+    ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+    l_DrawList.AddRectFilled(l_Min, l_Max, ImGui::GetColorU32(ImGuiCol_FrameBg), ImGui::GetStyle().FrameRounding);
+    DrawAudioWaveform(l_DrawList, *l_Header, l_Min, l_Max, true, l_Preview.GetPlayhead(record.ID));
+
+    ImGui::TextDisabled("%s, %u channel(s) at %u Hz, decoded as %s", std::string(Trinity::ToString(l_Header->Encoding)).c_str(), l_Header->Channels, l_Header->SampleRate, std::string(Trinity::ToString(l_Header->Format)).c_str());
+    ImGui::Spacing();
+}
+
+// Edited here first, and written to the .meta and imported again only on Apply, which writes the header alone. A clip loaded anywhere loads again once its import ends, and its next play takes the new settings
+void PropertiesPanel::DrawAudioClipSettings(const Trinity::AssetRecord& record)
+{
+    const AudioClipImportSettings l_Saved = AudioClipImporter::ReadSettings(record);
+    if (m_SettingsAsset != record.ID)
+    {
+        m_SettingsAsset = record.ID;
+        m_AudioClipSettings = l_Saved;
+    }
+
+    if (!BeginSection("Import Settings", Trinity::Icons::c_Gear))
+    {
+        return;
+    }
+
+    Label("Load Type");
+    int l_LoadType = static_cast<int>(m_AudioClipSettings.LoadType);
+    if (ImGui::Combo("##LoadType", &l_LoadType, "Decompress On Load\0Compressed In Memory\0Streaming\0"))
+    {
+        m_AudioClipSettings.LoadType = static_cast<Trinity::AudioLoadType>(l_LoadType);
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Decompress On Load decodes the clip as it loads, which takes the most memory and nothing to play, for short sounds played often. Compressed In Memory keeps the file's bytes and decodes them as it plays. Streaming reads the file a little ahead as it plays, for long music and ambience");
+    }
+
+    Label("Preload");
+    ImGui::Checkbox("##Preload", &m_AudioClipSettings.Preload);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Whether a scene waits for the clip's samples before it starts. Without it they load in the background, and a play before they are in starts once they are");
+    }
+
+    ImGui::Spacing();
+    const bool l_Changed = m_AudioClipSettings != l_Saved;
+    ImGui::BeginDisabled(!l_Changed);
+    if (ImGui::Button("Apply"))
+    {
+        static_cast<void>(m_Session.ApplyImportSettings(record.ID, AudioClipImporter::MakeSettings(m_AudioClipSettings)));
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Revert"))
+    {
+        m_AudioClipSettings = l_Saved;
+    }
+
+    ImGui::EndDisabled();
+
+    if (m_Session.IsImportingAudioClips())
     {
         ImGui::SameLine();
         ImGui::TextDisabled("Importing...");

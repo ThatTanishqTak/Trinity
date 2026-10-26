@@ -1,7 +1,10 @@
 #pragma once
 
+#include "AudioClipPreview.hpp"
 #include "CommandStack.hpp"
 #include "EditorPreferences.hpp"
+#include "Importers/AudioClipImportBatch.hpp"
+#include "Importers/AudioClipImporter.hpp"
 #include "Importers/EnvironmentImportBatch.hpp"
 #include "Importers/EnvironmentImporter.hpp"
 #include "Importers/ModelImportBatch.hpp"
@@ -55,6 +58,7 @@ public:
         TextureImportReport Textures;
         ModelImportReport Models;
         EnvironmentImportReport Environments;
+        AudioClipImportReport AudioClips;
     };
 
     // A line shown over the editor for a moment, as Unity's notifications are, for something asked for that did not happen
@@ -338,6 +342,9 @@ public:
     }
     [[nodiscard]] bool IsImporting(Trinity::UUID id) const { return m_Reimporter.IsBusy(id); }
     [[nodiscard]] bool IsImportingModels() const { return m_ModelImports.IsRunning() || m_ImportAgain; }
+    [[nodiscard]] bool IsImportingAudioClips() const { return m_AudioClipImports.IsRunning() || m_ImportAgain; }
+    // What the Content Browser and Properties play clips and draw their waveforms through, which stops as the project closes
+    [[nodiscard]] AudioClipPreview& GetAudioPreview() { return m_AudioPreview; }
     [[nodiscard]] std::uint64_t GetScanCount() const { return m_ScanCount; }
     // Model import batches finished, so what reads cooked model files knows to read them again
     [[nodiscard]] std::uint64_t GetModelImportCount() const { return m_ModelImportCount; }
@@ -442,6 +449,7 @@ private:
     void FinishImports(const TextureImportReport& report);
     void FinishModelImports(const ModelImportReport& report);
     void FinishEnvironmentImports(const EnvironmentImportReport& report);
+    void FinishAudioClipImports(const AudioClipImportReport& report);
     void SaveProject();
     void ImportAsset(const std::filesystem::path& file, const std::string& folder);
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
@@ -492,6 +500,8 @@ private:
     TextureImportBatch m_Imports;
     ModelImportBatch m_ModelImports;
     EnvironmentImportBatch m_EnvironmentImports;
+    AudioClipImportBatch m_AudioClipImports;
+    AudioClipPreview m_AudioPreview;
     ModuleHost m_Module;
     AssemblyHost m_Assembly;
     EditorPreferences m_Preferences;

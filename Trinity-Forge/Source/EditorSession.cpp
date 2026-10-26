@@ -685,6 +685,10 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         {
             l_Paths = { Trinity::GetCookedEnvironmentPath(record.ID), EnvironmentImporter::GetCacheKeyPath(record.ID) };
         }
+        else if (record.Importer == AudioClipImporter::c_Importer)
+        {
+            l_Paths = AudioClipImporter::GetCookedPaths(record.ID);
+        }
 
         for (const std::string& it_Path : l_Paths)
         {
@@ -707,6 +711,10 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         else if (record.Importer == EnvironmentImporter::c_Importer)
         {
             l_Path = EnvironmentImporter::GetCacheKeyPath(record.ID);
+        }
+        else if (record.Importer == AudioClipImporter::c_Importer)
+        {
+            l_Path = AudioClipImporter::GetCacheKeyPath(record.ID);
         }
 
         if (l_Path.empty())
@@ -874,7 +882,14 @@ void EditorSession::Update()
         FinishEnvironmentImports(*l_Report);
     }
 
+    if (const std::optional<AudioClipImportReport> l_Report = m_AudioClipImports.Update())
+    {
+        FinishAudioClipImports(*l_Report);
+    }
+
     ImportAgainIfAsked();
+    // After the imports, so a clip cooked again this frame shows its new waveform
+    m_AudioPreview.Update(m_AudioClipImports.GetImportedCount());
 
     std::vector<Action> l_Pending = std::exchange(m_Pending, {});
     for (Action& it_Action : l_Pending)
@@ -1279,7 +1294,7 @@ void EditorSession::CloseProject()
     m_Module.Close();
     m_Assembly.Close();
 
-    // The texture being encoded and the environment being filtered are finished, since neither can be left halfway, and the rest wait for the project to open again
+    // The texture being encoded, the environment being filtered and the clip being cooked are finished, since none can be left halfway, and the rest wait for the project to open again
     m_ImportAgain = false;
     m_TexturesAfterModels = false;
     if (m_ModelImports.IsRunning())
@@ -1300,7 +1315,15 @@ void EditorSession::CloseProject()
         FinishEnvironmentImports(m_EnvironmentImports.Wait());
     }
 
+    if (m_AudioClipImports.IsRunning())
+    {
+        m_AudioClipImports.Stop();
+        FinishAudioClipImports(m_AudioClipImports.Wait());
+    }
+
     m_Reimporter.Finish();
+    // A clip streaming in a preview holds its file in the Cache open
+    m_AudioPreview.Clear();
     m_InspectedAsset = {};
     // Its components name the project's assets
     m_CopiedEntity.reset();
@@ -1331,11 +1354,12 @@ void EditorSession::AttachRegistry()
     m_Registry = Trinity::CreateScope<Trinity::AssetRegistry>(Trinity::Project::c_AssetsMount);
     m_Registry->SetDefaultSettings(TextureImporter::c_Importer, TextureImporter::GetDefaultSettings());
     m_Registry->SetDefaultSettings(ModelImporter::c_Importer, ModelImporter::GetDefaultSettings());
+    m_Registry->SetDefaultSettings(AudioClipImporter::c_Importer, AudioClipImporter::GetDefaultSettings());
     Trinity::AssetManager::SetRegistry(m_Registry.get());
     ScanAssets();
 }
 
-// Every texture, model and environment the scan finds is cooked into /cache in the background, unless the cache already holds it for the same files and settings
+// Every texture, model, environment and audio clip the scan finds is cooked into /cache in the background, unless the cache already holds it for the same files and settings
 void EditorSession::ScanAssets()
 {
     if (!m_Registry)
@@ -1649,13 +1673,19 @@ EditorSession::ImportReport EditorSession::WaitForImports()
             FinishEnvironmentImports(l_Report.Environments);
         }
 
+        if (m_AudioClipImports.IsRunning())
+        {
+            l_Report.AudioClips = m_AudioClipImports.Wait();
+            FinishAudioClipImports(l_Report.AudioClips);
+        }
+
         ImportAgainIfAsked();
     }
 
     return l_Report;
 }
 
-// A scan while imports run imports again once they are over, since each batch has the records it started with. Models go first, and textures once the models are planned, so a texture beside a model is encoded the way the model uses it. Environments need nothing else, so they start at once
+// A scan while imports run imports again once they are over, since each batch has the records it started with. Models go first, and textures once the models are planned, so a texture beside a model is encoded the way the model uses it. Environments and audio clips need nothing else, so they start at once
 void EditorSession::StartImports()
 {
     if (IsImportRunning())
@@ -1667,6 +1697,7 @@ void EditorSession::StartImports()
 
     std::vector<Trinity::AssetRecord> l_Models;
     std::vector<Trinity::AssetRecord> l_Environments;
+    std::vector<Trinity::AssetRecord> l_AudioClips;
     for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
     {
         if (it_Record->Importer == ModelImporter::c_Importer)
@@ -1677,11 +1708,20 @@ void EditorSession::StartImports()
         {
             l_Environments.push_back(*it_Record);
         }
+        else if (it_Record->Importer == AudioClipImporter::c_Importer)
+        {
+            l_AudioClips.push_back(*it_Record);
+        }
     }
 
     if (!l_Environments.empty())
     {
         m_EnvironmentImports.Start(std::move(l_Environments));
+    }
+
+    if (!l_AudioClips.empty())
+    {
+        m_AudioClipImports.Start(std::move(l_AudioClips));
     }
 
     if (l_Models.empty())
@@ -1738,7 +1778,7 @@ void EditorSession::FinishImports(const TextureImportReport& report)
 
 bool EditorSession::IsImportRunning() const
 {
-    return m_Imports.IsRunning() || m_ModelImports.IsRunning() || m_EnvironmentImports.IsRunning() || m_TexturesAfterModels;
+    return m_Imports.IsRunning() || m_ModelImports.IsRunning() || m_EnvironmentImports.IsRunning() || m_AudioClipImports.IsRunning() || m_TexturesAfterModels;
 }
 
 void EditorSession::FinishEnvironmentImports(const EnvironmentImportReport& report)
@@ -1751,6 +1791,19 @@ void EditorSession::FinishEnvironmentImports(const EnvironmentImportReport& repo
     if (report.Stopped != 0)
     {
         TR_INFO("Environments: the import was stopped with {} environment(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
+    }
+}
+
+void EditorSession::FinishAudioClipImports(const AudioClipImportReport& report)
+{
+    if (report.Imported != 0 || report.Failed != 0 || report.Stopped != 0)
+    {
+        TR_INFO("Audio: {} clip(s) in the project, {} imported, {} from the cache, {} failed", report.Clips, report.Imported, report.Cached, report.Failed);
+    }
+
+    if (report.Stopped != 0)
+    {
+        TR_INFO("Audio: the import was stopped with {} clip(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
     }
 }
 
@@ -2214,6 +2267,11 @@ std::vector<EditorSession::Activity> EditorSession::GetActivities() const
         l_Activities.push_back({ "Filtering environments", std::nullopt });
     }
 
+    if (m_AudioClipImports.IsRunning())
+    {
+        l_Activities.push_back({ "Importing audio clips", std::nullopt });
+    }
+
     if (m_Reimporter.IsRunning())
     {
         l_Activities.push_back({ "Reimporting textures", std::nullopt });
@@ -2587,6 +2645,12 @@ bool EditorSession::DeleteAsset(std::string_view path)
         const Trinity::AssetRecord* l_File = it_Record->Parent.IsValid() ? m_Registry->Find(it_Record->Parent) : it_Record;
         if (l_File != nullptr && IsSameOrInside(l_File->Path, path))
         {
+            // A clip streaming in a preview holds its cooked samples open, which then could not be removed
+            if (m_AudioPreview.IsPlaying(it_Record->ID))
+            {
+                m_AudioPreview.Stop();
+            }
+
             l_Removed.push_back(it_Record->ID);
             RemoveCooked(*it_Record);
         }
@@ -3242,9 +3306,9 @@ bool EditorSession::ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings
 
     const Trinity::AssetRecord* l_Record = m_Registry->Find(id);
     TR_INFO("Forge: reimporting {} with its new settings", l_Record->Path);
-    if (l_Record->Importer == ModelImporter::c_Importer)
+    // Their cache keys hold their settings, so the model or the clip imports again while every other stays cached. A clip loaded somewhere is loaded again once its import ends, and its next play takes the new settings
+    if (l_Record->Importer == ModelImporter::c_Importer || l_Record->Importer == AudioClipImporter::c_Importer)
     {
-        // Its cache key holds its settings, so the model imports again while every other model stays cached
         StartImports();
 
         return true;

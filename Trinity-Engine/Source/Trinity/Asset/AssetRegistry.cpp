@@ -257,6 +257,18 @@ namespace Trinity
                 continue;
             }
 
+            // A file an earlier Trinity had no importer for, as it had none for audio before M9, takes the importer it has now with that importer's defaults, keeping its UUID
+            if (const std::string_view l_Default = GetDefaultImporter(it_File); l_Result == MetaResult::Read && l_Record.Importer == "Binary" && l_Default != "Binary")
+            {
+                l_Record.Importer = std::string(l_Default);
+                const auto a_Defaults = m_Defaults.find(l_Record.Importer);
+                l_Record.Settings = a_Defaults != m_Defaults.end() ? a_Defaults->second : AssetSettings();
+                if (WriteMeta(l_MetaPath, l_Record))
+                {
+                    TR_CORE_INFO("Assets: {} is now imported as {}", it_File, l_Record.Importer);
+                }
+            }
+
             bool l_NeedsID = l_Result != MetaResult::Read;
             if (!l_NeedsID && l_Records.contains(l_Record.ID))
             {
@@ -543,6 +555,12 @@ namespace Trinity
         if (std::ranges::find(c_ModelExtensions, l_Extension) != c_ModelExtensions.end())
         {
             return "Model";
+        }
+
+        constexpr std::array<std::string_view, 4> c_AudioExtensions{ ".wav", ".flac", ".mp3", ".ogg" };
+        if (std::ranges::find(c_AudioExtensions, l_Extension) != c_AudioExtensions.end())
+        {
+            return "AudioClip";
         }
 
         return "Binary";
