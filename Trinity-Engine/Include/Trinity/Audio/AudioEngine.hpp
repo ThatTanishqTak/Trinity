@@ -73,6 +73,8 @@ namespace Trinity
         [[nodiscard]] std::uint64_t GetMixedFrames() const;
 
     private:
+        friend struct AudioEngineInternal;
+
         struct State;
 
         State* m_State = nullptr;

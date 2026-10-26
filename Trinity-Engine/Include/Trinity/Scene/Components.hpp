@@ -566,6 +566,63 @@ namespace Trinity
         [[nodiscard]] bool operator==(const Joint2DComponent&) const = default;
     };
 
+    // How a spatialized source's volume falls with its distance d from the listener, clamped between its minimum and maximum distances: Logarithmic as min / d, the inverse distance law Unity's Logarithmic follows, Linear from 1 at the minimum to 0 at the maximum, and Exponential as (min / d) squared, twice as steep in decibels as Logarithmic
+    enum class AudioRolloff : std::uint8_t
+    {
+        Logarithmic,
+        Linear,
+        Exponential
+    };
+
+    // Plays its resource, as Unity's AudioSource does, while its scene runs. A source that spatializes is heard from its entity, facing its -Z, through the listener, as distance, its cone and its movement change it, and one that does not is heard as it is, panned by its Stereo Pan. Each playing source is a voice, and only the project's real voices are mixed, the most important first, then the loudest, while the rest keep their time
+    struct AudioSourceComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.AudioSource";
+        static constexpr std::uint32_t c_LowestPriority = 256;
+
+        // An AudioClip, which a Sound Event may be instead once there are any, as Unity 6's AudioResource is either
+        UUID Resource;
+        // Plays on, silent, keeping its time
+        bool Mute = false;
+        // Plays as the scene starts, or as the source first appears while it runs
+        bool PlayOnAwake = true;
+        bool Loop = false;
+        // From 0, the most important, to 256, the least, as in Unity
+        std::uint32_t Priority = 128;
+        // From 0 to 1
+        float Volume = 1.0f;
+        // A speed of playing, which changes its pitch as a tape's speed does, above 0 and up to 3
+        float Pitch = 1.0f;
+        // From -1, full left, to 1, full right
+        float StereoPan = 0.0f;
+        // Heard from its entity in 3D rather than as it is
+        bool Spatialize = false;
+        // How much the source's and the listener's movement shifts its pitch, from 0, none, to 5
+        float DopplerLevel = 1.0f;
+        // How far the sound spreads around the listener, in degrees: 0 pans it fully towards where it is, and 180 or more leaves it centred
+        float Spread = 0.0f;
+        // In metres: closer than the minimum it is at full volume, and beyond the maximum it falls no further
+        float MinDistance = 1.0f;
+        float MaxDistance = 500.0f;
+        AudioRolloff Rolloff = AudioRolloff::Logarithmic;
+        // Around its -Z, in degrees: at full volume within the inner angle, at the outer volume beyond the outer, and between the two in between. 360 is no cone
+        float ConeInnerAngle = 360.0f;
+        float ConeOuterAngle = 360.0f;
+        float ConeOuterVolume = 0.0f;
+
+        [[nodiscard]] bool operator==(const AudioSourceComponent&) const = default;
+    };
+
+    // Hears the scene's sounds from its entity, facing its -Z with +Y up, as Unity's AudioListener does. The first in hierarchy order is the one heard through, and a second gives a warning. Without one the scene's sounds play on in silence. It holds nothing
+    struct AudioListenerComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.AudioListener";
+        // Stored as any other component, a byte an entity, as KeepAcrossScenes is
+        static constexpr std::size_t page_size = ENTT_PACKED_PAGE;
+
+        [[nodiscard]] bool operator==(const AudioListenerComponent&) const = default;
+    };
+
     // Marks an entity that moves, with its subtree, into each scene SceneManager switches to as the scene runs, its scripts keeping their instances, fields and waiting timers and coroutines. A scene that has an entity of the same UUID, as the scene it came from does, gives way to it. It holds nothing
     struct KeepAcrossScenesComponent
     {

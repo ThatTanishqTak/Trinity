@@ -2,6 +2,7 @@
 
 #include "Trinity/Audio/AudioClipAsset.hpp"
 #include "Trinity/Audio/AudioClipStorage.hpp"
+#include "Trinity/Audio/AudioEngineInternal.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Log.hpp"
@@ -187,6 +188,8 @@ namespace Trinity
         // Starts the preview once its clip's samples are in, and a stream's first page, and refills its stream: on a worker, or on this thread offline
         void UpdatePreview(bool offline);
         void ClosePreview();
+        // The scenes' streams likewise
+        void RefillStreams(bool offline);
 
         ma_context Context{};
         ma_device Device{};
@@ -220,6 +223,9 @@ namespace Trinity
         AudioClipVoice PreviewVoice;
         ma_sound PreviewSound{};
         bool HasPreviewSound = false;
+
+        // The streams of the scenes' voices, which the main thread refills, since the audio thread cannot start a job
+        std::vector<AudioStream*, TaggedAllocator<AudioStream*, MemoryTag::Audio>> Streams;
     };
 
     // The device stops first, so nothing is mixing while the rest goes
@@ -406,6 +412,21 @@ namespace Trinity
         PreviewClip.reset();
     }
 
+    void AudioEngine::State::RefillStreams(bool offline)
+    {
+        for (AudioStream* it_Stream : Streams)
+        {
+            if (offline)
+            {
+                it_Stream->RefillNow();
+            }
+            else
+            {
+                it_Stream->RequestRefill();
+            }
+        }
+    }
+
     // Mixes the frame's time and drops it, so sounds keep their time without a device to hear them on
     void AudioEngine::State::MixSilently(Timestep timestep)
     {
@@ -536,6 +557,7 @@ namespace Trinity
         }
 
         l_State.UpdatePreview(false);
+        l_State.RefillStreams(false);
 
         if (l_State.HasDevice)
         {
@@ -586,6 +608,7 @@ namespace Trinity
         for (std::size_t it_Frame = 0; it_Frame < l_Frames;)
         {
             l_State.UpdatePreview(true);
+            l_State.RefillStreams(true);
 
             const std::size_t l_Chunk = static_cast<std::size_t>(std::min<std::uint64_t>(l_Frames - it_Frame, AudioStream::c_PageFrames));
             const std::span<float> l_Output = output.subspan(it_Frame * l_Channels, l_Chunk * l_Channels);
@@ -711,5 +734,35 @@ namespace Trinity
     std::uint64_t AudioEngine::GetMixedFrames() const
     {
         return ma_engine_get_time_in_pcm_frames(&m_State->Engine);
+    }
+
+    ma_engine& AudioEngineInternal::GetEngine(AudioEngine& engine)
+    {
+        return engine.m_State->Engine;
+    }
+
+    ma_sound_group& AudioEngineInternal::GetMaster(AudioEngine& engine)
+    {
+        return engine.m_State->Master;
+    }
+
+    void AudioEngineInternal::AddStream(AudioEngine& engine, AudioStream& stream)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "Streams are added on the main thread.");
+
+        engine.m_State->Streams.push_back(&stream);
+    }
+
+    void AudioEngineInternal::RemoveStream(AudioEngine& engine, AudioStream& stream)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "Streams are removed on the main thread.");
+
+        std::erase(engine.m_State->Streams, &stream);
+
+        // An emptied list keeps its memory, so it is replaced, and Audio reads as it did before the first stream
+        if (engine.m_State->Streams.empty())
+        {
+            decltype(engine.m_State->Streams)().swap(engine.m_State->Streams);
+        }
     }
 }

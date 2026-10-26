@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/Audio/AudioSettings.hpp"
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Memory.hpp"
@@ -13,6 +14,8 @@
 
 namespace Trinity
 {
+    class AudioEngine;
+    class AudioScene;
     class PhysicsScene2D;
     class PhysicsScene3D;
     class Scene;
@@ -35,7 +38,8 @@ namespace Trinity
             PhysicsCharacterCounts Characters2D;
         };
 
-        explicit SceneRuntime(Scene& scene, const PhysicsSettings& settings = {});
+        // The scene's sounds play on the audio engine given, which must outlive the runtime, or keep their time unheard without one
+        explicit SceneRuntime(Scene& scene, const PhysicsSettings& settings = {}, AudioEngine* audio = nullptr, const AudioSettings& audioSettings = {});
         ~SceneRuntime();
 
         SceneRuntime(const SceneRuntime&) = delete;
@@ -62,6 +66,7 @@ namespace Trinity
         // Nothing until the scene has a RigidBody2D or a 2D collider, as it starts or later while it runs
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() { return m_Physics2D.get(); }
         [[nodiscard]] ScriptRuntime& GetScripts() { return *m_Scripts; }
+        [[nodiscard]] AudioScene& GetAudio() { return *m_Audio; }
 
     private:
         void RunSteps(std::uint32_t steps, float interpolation, Timestep timestep);
@@ -75,6 +80,8 @@ namespace Trinity
         std::vector<FixedStepSystem, TaggedAllocator<FixedStepSystem, MemoryTag::Scene>> m_Systems;
         // After the physics, so the scripts' OnDestroy runs while the bodies still exist
         Scope<ScriptRuntime> m_Scripts;
+        // Its voices stop as the runtime goes, after the scripts' OnDestroy
+        Scope<AudioScene> m_Audio;
         std::uint32_t m_StepsThisFrame = 0;
         float m_StepMilliseconds = 0.0f;
         bool m_GatherContacts = false;

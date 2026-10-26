@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/Audio/AudioSettings.hpp"
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Timestep.hpp"
@@ -12,6 +13,7 @@
 namespace Trinity
 {
     class AssetRegistry;
+    class AudioEngine;
     class Scene;
     class SceneRuntime;
 
@@ -28,8 +30,8 @@ namespace Trinity
             std::uint32_t Waiting = 0;
         };
 
-        // The physics a scene runs with, the registry scene assets are found in, which must outlive the manager, and the input actions asset its scenes' InputActions read, the project's default in Forge's Play. Without a registry only a scene given to Run runs, and without an actions asset every action reads as released
-        explicit SceneManager(const PhysicsSettings& settings = {}, const AssetRegistry* registry = nullptr, UUID inputActions = {});
+        // The physics a scene runs with, the registry scene assets are found in, which must outlive the manager, the input actions asset its scenes' InputActions read, the project's default in Forge's Play, and the audio engine its sounds play on, which must outlive it too, with how they mix. Without a registry only a scene given to Run runs, without an actions asset every action reads as released, and without an engine sounds keep their time unheard. A kept entity's sound plays on through a switch, and a switch made while the scene's sounds are paused leaves the next scene's paused
+        explicit SceneManager(const PhysicsSettings& settings = {}, const AssetRegistry* registry = nullptr, UUID inputActions = {}, AudioEngine* audio = nullptr, const AudioSettings& audioSettings = {});
         ~SceneManager();
 
         SceneManager(const SceneManager&) = delete;

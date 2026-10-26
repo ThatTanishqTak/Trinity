@@ -5,6 +5,7 @@
 #include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Asset/AssetRegistry.hpp"
 #include "Trinity/Asset/MaterialAsset.hpp"
+#include "Trinity/Audio/AudioScene.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Profiler.hpp"
@@ -75,6 +76,12 @@ namespace Trinity
             for (const auto [it_Entity, it_Mesh] : l_Registry.view<MeshColliderComponent>().each())
             {
                 AddAsset(assets, it_Mesh.Shape);
+            }
+
+            // A clip that preloads reads as loading until its samples are in, so the scene waits for those, and for the headers of the rest
+            for (const auto [it_Entity, it_Source] : l_Registry.view<AudioSourceComponent>().each())
+            {
+                AddAsset(assets, it_Source.Resource);
             }
 
             for (const auto [it_Entity, it_Scripts] : l_Registry.view<ScriptComponent>().each())
@@ -235,6 +242,8 @@ namespace Trinity
         };
 
         PhysicsSettings Settings;
+        AudioEngine* Audio = nullptr;
+        AudioSettings Mixing;
         const AssetRegistry* Registry = nullptr;
         SceneManager* Previous = nullptr;
         Scope<Scene> Current;
@@ -253,9 +262,11 @@ namespace Trinity
     };
 
     // The actions' players last across every scene it switches to, as the scripts kept across scenes would expect
-    SceneManager::SceneManager(const PhysicsSettings& settings, const AssetRegistry* registry, UUID inputActions) : m_State(Memory::New<State>(MemoryTag::Scene))
+    SceneManager::SceneManager(const PhysicsSettings& settings, const AssetRegistry* registry, UUID inputActions, AudioEngine* audio, const AudioSettings& audioSettings) : m_State(Memory::New<State>(MemoryTag::Scene))
     {
         m_State->Settings = settings;
+        m_State->Audio = audio;
+        m_State->Mixing = audioSettings;
         m_State->Registry = registry;
         m_State->Previous = s_Active;
         s_Active = this;
@@ -312,7 +323,7 @@ namespace Trinity
             static_cast<void>(HoldPrefabContents(l_State.Held, l_Seen, l_State.Registry));
 
             l_State.Current->UpdateWorldTransforms();
-            l_State.Runtime = CreateScope<SceneRuntime>(*l_State.Current, l_State.Settings);
+            l_State.Runtime = CreateScope<SceneRuntime>(*l_State.Current, l_State.Settings, l_State.Audio, l_State.Mixing);
         }
     }
 
@@ -502,6 +513,8 @@ namespace Trinity
         std::vector<Kept, TaggedAllocator<Kept, MemoryTag::Scene>> l_Kept;
         std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>> l_KeptEntities;
         ScriptCarry l_Carry;
+        AudioCarry l_Sounds;
+        bool l_SoundsPaused = false;
         if (l_State.Current)
         {
             Scene& l_Old = *l_State.Current;
@@ -533,6 +546,8 @@ namespace Trinity
             if (l_State.Runtime)
             {
                 l_Carry = l_State.Runtime->GetScripts().Extract(l_KeptEntities);
+                l_Sounds = l_State.Runtime->GetAudio().Extract(l_KeptEntities);
+                l_SoundsPaused = l_State.Runtime->GetAudio().IsPaused();
             }
         }
 
@@ -586,8 +601,10 @@ namespace Trinity
         l_State.Asset = l_Loading->Asset;
         l_State.Held = std::move(l_Loading->Held);
         l_State.Current->UpdateWorldTransforms();
-        l_State.Runtime = CreateScope<SceneRuntime>(*l_State.Current, l_State.Settings);
+        l_State.Runtime = CreateScope<SceneRuntime>(*l_State.Current, l_State.Settings, l_State.Audio, l_State.Mixing);
         l_State.Runtime->GetScripts().Adopt(l_Carry);
+        l_State.Runtime->GetAudio().SetPaused(l_SoundsPaused);
+        l_State.Runtime->GetAudio().Adopt(std::move(l_Sounds));
         ++l_State.Counts.Switches;
         l_State.Counts.Kept = l_KeptCount;
 

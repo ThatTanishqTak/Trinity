@@ -864,6 +864,55 @@ namespace Trinity
             reader.Read("SpringDamping", component.SpringDamping);
         }
 
+        constexpr std::array<std::pair<AudioRolloff, std::string_view>, 3> c_AudioRolloffNames{ { { AudioRolloff::Logarithmic, "Logarithmic" },{ AudioRolloff::Linear, "Linear" },{ AudioRolloff::Exponential, "Exponential" } } };
+
+        void SaveAudioSource(const AudioSourceComponent& component, ComponentWriter& writer)
+        {
+            const auto a_Found = std::ranges::find(c_AudioRolloffNames, component.Rolloff, &std::pair<AudioRolloff, std::string_view>::first);
+            writer.Write("Resource", component.Resource);
+            writer.Write("Mute", component.Mute);
+            writer.Write("PlayOnAwake", component.PlayOnAwake);
+            writer.Write("Loop", component.Loop);
+            writer.Write("Priority", component.Priority);
+            writer.Write("Volume", component.Volume);
+            writer.Write("Pitch", component.Pitch);
+            writer.Write("StereoPan", component.StereoPan);
+            writer.Write("Spatialize", component.Spatialize);
+            writer.Write("DopplerLevel", component.DopplerLevel);
+            writer.Write("Spread", component.Spread);
+            writer.Write("MinDistance", component.MinDistance);
+            writer.Write("MaxDistance", component.MaxDistance);
+            writer.Write("Rolloff", a_Found != c_AudioRolloffNames.end() ? a_Found->second : std::string_view("Logarithmic"));
+            writer.Write("ConeInnerAngle", component.ConeInnerAngle);
+            writer.Write("ConeOuterAngle", component.ConeOuterAngle);
+            writer.Write("ConeOuterVolume", component.ConeOuterVolume);
+        }
+
+        // A rolloff this build lacks loads as Logarithmic, Unity's default
+        void LoadAudioSource(AudioSourceComponent& component, const ComponentReader& reader)
+        {
+            reader.Read("Resource", component.Resource);
+            reader.Read("Mute", component.Mute);
+            reader.Read("PlayOnAwake", component.PlayOnAwake);
+            reader.Read("Loop", component.Loop);
+            reader.Read("Priority", component.Priority);
+            reader.Read("Volume", component.Volume);
+            reader.Read("Pitch", component.Pitch);
+            reader.Read("StereoPan", component.StereoPan);
+            reader.Read("Spatialize", component.Spatialize);
+            reader.Read("DopplerLevel", component.DopplerLevel);
+            reader.Read("Spread", component.Spread);
+            reader.Read("MinDistance", component.MinDistance);
+            reader.Read("MaxDistance", component.MaxDistance);
+            std::string l_Rolloff;
+            reader.Read("Rolloff", l_Rolloff);
+            const auto a_Found = std::ranges::find(c_AudioRolloffNames, std::string_view(l_Rolloff), &std::pair<AudioRolloff, std::string_view>::second);
+            component.Rolloff = a_Found != c_AudioRolloffNames.end() ? a_Found->first : AudioRolloff::Logarithmic;
+            reader.Read("ConeInnerAngle", component.ConeInnerAngle);
+            reader.Read("ConeOuterAngle", component.ConeOuterAngle);
+            reader.Read("ConeOuterVolume", component.ConeOuterVolume);
+        }
+
         // Each field on one line with its type, so a class no loaded code has still saves and loads every value exactly
         void SaveScript(const ScriptComponent& component, ComponentWriter& writer)
         {
@@ -3638,7 +3687,9 @@ namespace Trinity
             RegisterComponent(MakeComponentSerializer<PolygonCollider2DComponent, SavePolygonCollider2D, LoadPolygonCollider2D>());
             RegisterComponent(MakeComponentSerializer<CharacterController2DComponent, SaveCharacterController2D, LoadCharacterController2D>());
             RegisterComponent(MakeComponentSerializer<Joint2DComponent, SaveJoint2D, LoadJoint2D>());
-            // It holds nothing, so its functions write and read nothing
+            RegisterComponent(MakeComponentSerializer<AudioSourceComponent, SaveAudioSource, LoadAudioSource>());
+            // These hold nothing, so their functions write and read nothing
+            RegisterComponent({ AudioListenerComponent::c_TypeName, [](const void*, ComponentWriter&) {}, [](void*, const ComponentReader&) {}, [](SceneRegistry& registry) { static_cast<void>(registry.storage<AudioListenerComponent>()); } });
             RegisterComponent({ KeepAcrossScenesComponent::c_TypeName, [](const void*, ComponentWriter&) {}, [](void*, const ComponentReader&) {}, [](SceneRegistry& registry) { static_cast<void>(registry.storage<KeepAcrossScenesComponent>()); } });
             RegisterComponent(MakeComponentSerializer<ScriptComponent, SaveScript, LoadScript>());
         }

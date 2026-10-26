@@ -15,6 +15,8 @@
 #include "Trinity/Audio/AudioClipAsset.hpp"
 #include "Trinity/Audio/AudioClipData.hpp"
 #include "Trinity/Audio/AudioEngine.hpp"
+#include "Trinity/Audio/AudioScene.hpp"
+#include "Trinity/Audio/AudioSettings.hpp"
 
 #include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/Assert.hpp"
