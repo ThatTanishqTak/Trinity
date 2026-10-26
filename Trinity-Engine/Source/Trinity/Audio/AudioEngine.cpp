@@ -582,6 +582,8 @@ namespace Trinity
             return;
         }
 
+        // A chain that is changing steps its effects out or in once they have crossed to dry, which an offline engine does as it renders
+        l_State.Mixer->Update();
         l_State.UpdatePreview(false);
         l_State.RefillStreams(false);
 
@@ -633,6 +635,7 @@ namespace Trinity
         const std::size_t l_Frames = output.size() / l_Channels;
         for (std::size_t it_Frame = 0; it_Frame < l_Frames;)
         {
+            l_State.Mixer->Update();
             l_State.UpdatePreview(true);
             l_State.RefillStreams(true);
 
