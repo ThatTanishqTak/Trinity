@@ -17,7 +17,7 @@
 
 namespace Trinity
 {
-    // A unit of a group's chain, by Unity's names. Attenuation is where the group's volume applies, so what comes before it is before the fader and what comes after it after
+    // A unit of a group's chain, by Unity's names. Attenuation is where the group's volume applies, so what comes before it is before the fader and what comes after it after. A Send passes on what comes into it and sends a copy at its level to a Receive, which adds what is sent to it to what comes into it, or to a Duck Volume, which lowers what comes into it while what is sent to it is loud
     enum class AudioEffectType : std::uint8_t
     {
         Attenuation,
@@ -30,7 +30,11 @@ namespace Trinity
         HighShelf,
         Echo,
         Compressor,
-        Limiter
+        Limiter,
+        SFXReverb,
+        Send,
+        Receive,
+        DuckVolume
     };
 
     // One of an effect's values as the file names it and Step 8's panel shows it, with its range and default. A value outside the range is played at its nearest end
@@ -52,12 +56,13 @@ namespace Trinity
         std::span<const AudioEffectParameter> Parameters;
     };
 
-    // An effect on a group: its values in the order of its type's parameters, the rest 0, its wet mix in percent, which crosses from what comes into it at 0 to what it makes at 100, and Bypass, which passes it by. Each keeps its ID through edits, so a playing effect keeps its state, its echoes among it. Attenuation has neither, nor an ID, since it is the group's volume
+    // An effect on a group: its values in the order of its type's parameters, the rest 0, its wet mix in percent, which crosses from what comes into it at 0 to what it makes at 100, and Bypass, which passes it by. Each keeps its ID through edits, so a playing effect keeps its state, its echoes among it. Attenuation has neither, nor an ID, since it is the group's volume. A Send names the Receive or Duck Volume it sends to by its ID, and sends nothing while it names none or one the mixer no longer has, as Unity's shows None
     struct AudioEffect
     {
         static constexpr std::size_t c_MaxParameters = 16;
 
         UUID ID;
+        UUID Target;
         AudioEffectType Type = AudioEffectType::Attenuation;
         bool Bypass = false;
         float Wet = 100.0f;
@@ -121,7 +126,7 @@ namespace Trinity
     [[nodiscard]] TRINITY_API float AudioDecibelsToGain(float decibels);
     [[nodiscard]] TRINITY_API float AudioGainToDecibels(float gain);
 
-    // Empty for a mixer that keeps to its rules, and otherwise what it breaks: there is a Master and it comes first, every other group's parent is a group before it, no two groups share an ID, every volume and pitch is a number, no group has more than one Attenuation, every other effect has an ID no other effect has, and every effect's type is known and its values are numbers
+    // Empty for a mixer that keeps to its rules, and otherwise what it breaks: there is a Master and it comes first, every other group's parent is a group before it, no two groups share an ID, every volume and pitch is a number, no group has more than one Attenuation, every other effect has an ID no other effect has, every effect's type is known and its values are numbers, every Send names a Receive or a Duck Volume, or nothing the mixer has, and no Send makes a loop, as one to its own group, to a group below it, or to a group that sends back to it does, since what it sends would come back to it
     [[nodiscard]] TRINITY_API std::string ValidateAudioMixer(const AudioMixerData& data);
 
     class TRINITY_API AudioMixerAsset final : public Asset

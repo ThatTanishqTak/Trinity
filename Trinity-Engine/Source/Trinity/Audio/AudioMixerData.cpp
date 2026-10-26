@@ -27,8 +27,37 @@ namespace Trinity
         constexpr std::array<AudioEffectParameter, 2> c_EchoParameters{ { { "Delay", "Delay", "ms", 10.0f, 5000.0f, 500.0f },{ "Decay", "Decay", "%", 0.0f, 100.0f, 50.0f } } };
         constexpr std::array<AudioEffectParameter, 5> c_CompressorParameters{ { { "Threshold", "Threshold", "dB", -60.0f, 0.0f, 0.0f },{ "Ratio", "Ratio", ":1", 1.0f, 50.0f, 2.5f },{ "Attack", "Attack", "ms", 0.1f, 500.0f, 50.0f },{ "Release", "Release", "ms", 10.0f, 5000.0f, 50.0f },{ "Make Up Gain", "MakeUpGain", "dB", 0.0f, 30.0f, 0.0f } } };
         constexpr std::array<AudioEffectParameter, 3> c_LimiterParameters{ { { "Ceiling", "Ceiling", "dB", -12.0f, 0.0f, 0.0f },{ "Release", "Release", "ms", 1.0f, 1000.0f, 10.0f },{ "Gain", "Gain", "dB", 0.0f, 12.0f, 0.0f } } };
+        // Unity's SFX Reverb, its levels in millibels as Unity has them, -10000 being silence
+        constexpr std::array<AudioEffectParameter, 14> c_ReverbParameters{ {
+            { "Dry Level", "DryLevel", "mB", -10000.0f, 0.0f, 0.0f },
+            { "Room", "Room", "mB", -10000.0f, 0.0f, 0.0f },
+            { "Room HF", "RoomHF", "mB", -10000.0f, 0.0f, 0.0f },
+            { "Decay Time", "DecayTime", "s", 0.1f, 20.0f, 1.0f },
+            { "Decay HF Ratio", "DecayHFRatio", "", 0.1f, 2.0f, 0.5f },
+            { "Reflections", "Reflections", "mB", -10000.0f, 1000.0f, -10000.0f },
+            { "Reflect Delay", "ReflectDelay", "s", 0.0f, 0.3f, 0.02f },
+            { "Reverb", "Reverb", "mB", -10000.0f, 2000.0f, 0.0f },
+            { "Reverb Delay", "ReverbDelay", "s", 0.0f, 0.1f, 0.04f },
+            { "Diffusion", "Diffusion", "%", 0.0f, 100.0f, 100.0f },
+            { "Density", "Density", "%", 0.0f, 100.0f, 100.0f },
+            { "HF Reference", "HFReference", "Hz", 20.0f, 20000.0f, 5000.0f },
+            { "Room LF", "RoomLF", "mB", -10000.0f, 0.0f, 0.0f },
+            { "LF Reference", "LFReference", "Hz", 20.0f, 1000.0f, 250.0f }
+        } };
+        // At -80 dB, as Unity's starts, a Send sends nothing until it is turned up
+        constexpr std::array<AudioEffectParameter, 1> c_SendParameters{ { { "Send Level", "SendLevel", "dB", -80.0f, 20.0f, -80.0f } } };
+        // Unity's Duck Volume, its ratio in percent, 200% being 2:1, and its attack and release the times its ducking takes to come and go 99% of the way
+        constexpr std::array<AudioEffectParameter, 7> c_DuckParameters{ {
+            { "Threshold", "Threshold", "dB", -100.0f, 0.0f, -10.0f },
+            { "Ratio", "Ratio", "%", 100.0f, 5000.0f, 200.0f },
+            { "Attack Time", "AttackTime", "ms", 0.0f, 5000.0f, 100.0f },
+            { "Release Time", "ReleaseTime", "ms", 0.0f, 5000.0f, 100.0f },
+            { "Make-up Gain", "MakeUpGain", "dB", -24.0f, 24.0f, 0.0f },
+            { "Knee", "Knee", "dB", 0.0f, 50.0f, 10.0f },
+            { "Sidechain Mix", "SidechainMix", "%", 0.0f, 100.0f, 100.0f }
+        } };
 
-        constexpr std::array<AudioEffectInfo, 11> c_EffectInfos{ {
+        constexpr std::array<AudioEffectInfo, 15> c_EffectInfos{ {
             { AudioEffectType::Attenuation, "Attenuation", "Attenuation",{} },
             { AudioEffectType::Lowpass, "Lowpass", "Lowpass", c_LowpassParameters },
             { AudioEffectType::Highpass, "Highpass", "Highpass", c_HighpassParameters },
@@ -39,7 +68,11 @@ namespace Trinity
             { AudioEffectType::HighShelf, "High Shelf", "HighShelf", c_HighShelfParameters },
             { AudioEffectType::Echo, "Echo", "Echo", c_EchoParameters },
             { AudioEffectType::Compressor, "Compressor", "Compressor", c_CompressorParameters },
-            { AudioEffectType::Limiter, "Limiter", "Limiter", c_LimiterParameters }
+            { AudioEffectType::Limiter, "Limiter", "Limiter", c_LimiterParameters },
+            { AudioEffectType::SFXReverb, "SFX Reverb", "SFXReverb", c_ReverbParameters },
+            { AudioEffectType::Send, "Send", "Send", c_SendParameters },
+            { AudioEffectType::Receive, "Receive", "Receive",{} },
+            { AudioEffectType::DuckVolume, "Duck Volume", "DuckVolume", c_DuckParameters }
         } };
 
         static_assert(std::ranges::all_of(c_EffectInfos, [](const AudioEffectInfo& info) { return info.Parameters.size() <= AudioEffect::c_MaxParameters; }), "An effect has no more values than AudioEffect holds.");
@@ -68,6 +101,11 @@ namespace Trinity
 
             effect.ID = UUID();
             CookedText::ReadUUID(node, "ID", effect.ID, l_Malformed);
+            if (effect.Type == AudioEffectType::Send)
+            {
+                CookedText::ReadUUID(node, "Target", effect.Target, l_Malformed);
+            }
+
             CookedText::ReadBool(node, "Bypass", effect.Bypass, l_Malformed);
             CookedText::ReadNumber(node, "Wet", effect.Wet, l_Malformed);
             const std::span<const AudioEffectParameter> l_Parameters = GetAudioEffectInfo(effect.Type).Parameters;
@@ -156,6 +194,97 @@ namespace Trinity
     AudioMixerGroup* AudioMixerData::FindGroup(UUID id)
     {
         return const_cast<AudioMixerGroup*>(std::as_const(*this).FindGroup(id));
+    }
+
+    namespace
+    {
+        template<typename T>
+        using AudioList = std::vector<T, TaggedAllocator<T, MemoryTag::Audio>>;
+
+        // Every Send names a Receive or a Duck Volume, or nothing the mixer has, and no group's output comes back to it, through its parents or what is sent: a group plays into its parent, and into each group its Sends reach
+        std::string ValidateSends(const AudioMixerData& data)
+        {
+            const std::size_t l_Count = data.Groups.size();
+            const auto a_IndexOf = [&data](UUID id) { return static_cast<std::size_t>(std::ranges::find(data.Groups, id, &AudioMixerGroup::ID) - data.Groups.begin()); };
+            AudioList<AudioList<std::size_t>> l_Edges(l_Count);
+            for (std::size_t it_Group = 0; it_Group < l_Count; ++it_Group)
+            {
+                const AudioMixerGroup& l_Group = data.Groups[it_Group];
+                if (l_Group.Parent)
+                {
+                    l_Edges[it_Group].push_back(a_IndexOf(l_Group.Parent));
+                }
+
+                for (const AudioEffect& it_Effect : l_Group.Effects)
+                {
+                    if (it_Effect.Type != AudioEffectType::Send || !it_Effect.Target)
+                    {
+                        continue;
+                    }
+
+                    for (std::size_t it_Other = 0; it_Other < l_Count; ++it_Other)
+                    {
+                        const auto a_Target = std::ranges::find(data.Groups[it_Other].Effects, it_Effect.Target, &AudioEffect::ID);
+                        if (a_Target == data.Groups[it_Other].Effects.end() || a_Target->Type == AudioEffectType::Attenuation)
+                        {
+                            continue;
+                        }
+
+                        if (a_Target->Type != AudioEffectType::Receive && a_Target->Type != AudioEffectType::DuckVolume)
+                        {
+                            return std::format("a Send in group '{}' sends to a {}, which is not a Receive or a Duck Volume", std::string_view(l_Group.Name), GetAudioEffectInfo(a_Target->Type).Name);
+                        }
+
+                        l_Edges[it_Group].push_back(it_Other);
+                    }
+                }
+            }
+
+            // A walk from each group not yet walked, with the path it is on and how far along each step's edges it has got, which a loop comes back into
+            AudioList<std::uint8_t> l_Walked(l_Count, 0);
+            AudioList<std::pair<std::size_t, std::size_t>> l_Path;
+            for (std::size_t it_Start = 0; it_Start < l_Count; ++it_Start)
+            {
+                if (l_Walked[it_Start] != 0)
+                {
+                    continue;
+                }
+
+                l_Walked[it_Start] = 1;
+                l_Path.emplace_back(it_Start, 0);
+                while (!l_Path.empty())
+                {
+                    auto& [a_Group, a_Edge] = l_Path.back();
+                    if (a_Edge == l_Edges[a_Group].size())
+                    {
+                        l_Walked[a_Group] = 2;
+                        l_Path.pop_back();
+
+                        continue;
+                    }
+
+                    const std::size_t l_Next = l_Edges[a_Group][a_Edge++];
+                    if (l_Walked[l_Next] == 1)
+                    {
+                        std::string l_Loop;
+                        for (auto it_Step = std::ranges::find(l_Path, l_Next, &std::pair<std::size_t, std::size_t>::first); it_Step != l_Path.end(); ++it_Step)
+                        {
+                            l_Loop += std::format("'{}', ", std::string_view(data.Groups[it_Step->first].Name));
+                        }
+
+                        return std::format("its Sends make a loop through {}and back to '{}', which would play what they send back into it", l_Loop, std::string_view(data.Groups[l_Next].Name));
+                    }
+
+                    if (l_Walked[l_Next] == 0)
+                    {
+                        l_Walked[l_Next] = 1;
+                        l_Path.emplace_back(l_Next, 0);
+                    }
+                }
+            }
+
+            return {};
+        }
     }
 
     std::span<const AudioEffectInfo> GetAudioEffectInfos()
@@ -267,7 +396,7 @@ namespace Trinity
             }
         }
 
-        return {};
+        return ValidateSends(data);
     }
 
     AudioMixerAsset::AudioMixerAsset(AudioMixerData data) : m_Data(std::move(data)), m_Serial(s_NextSerial.fetch_add(1, std::memory_order_relaxed))
@@ -323,6 +452,11 @@ namespace Trinity
                 }
 
                 l_Writer.Write("ID", it_Effect.ID);
+                if (it_Effect.Type == AudioEffectType::Send && it_Effect.Target)
+                {
+                    l_Writer.Write("Target", it_Effect.Target);
+                }
+
                 l_Writer.Write("Bypass", it_Effect.Bypass);
                 l_Writer.Write("Wet", it_Effect.Wet);
                 for (std::size_t it_Parameter = 0; it_Parameter < l_Info.Parameters.size(); ++it_Parameter)
