@@ -1513,6 +1513,35 @@ std::size_t SetPhysicsSettingsCommand::GetMemorySize() const
     return l_Size;
 }
 
+SetAudioSettingsCommand::SetAudioSettingsCommand(Writer writer, Trinity::AudioSettings before, Trinity::AudioSettings after, std::string field) : m_Writer(std::move(writer)), m_Before(before), m_After(after), m_Field(std::move(field)), m_Label(std::format("Edit project {}", m_Field))
+{
+
+}
+
+// An edit that changes nothing is no command
+bool SetAudioSettingsCommand::Execute([[maybe_unused]] Trinity::Scene& scene)
+{
+    return m_Before != m_After && m_Writer(m_After);
+}
+
+void SetAudioSettingsCommand::Undo([[maybe_unused]] Trinity::Scene& scene)
+{
+    static_cast<void>(m_Writer(m_Before));
+}
+
+bool SetAudioSettingsCommand::MergeWith(const EditorCommand& next)
+{
+    const SetAudioSettingsCommand* l_Next = dynamic_cast<const SetAudioSettingsCommand*>(&next);
+    if (l_Next == nullptr || l_Next->m_Field != m_Field)
+    {
+        return false;
+    }
+
+    m_After = l_Next->m_After;
+
+    return true;
+}
+
 SetMaterialCommand::SetMaterialCommand(Writer writer, Trinity::UUID material, Trinity::MaterialData before, Trinity::MaterialData after, std::string field, std::string name) : m_Writer(std::move(writer)), m_Material(material), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::format("Edit {} of {}", m_Field, name))
 {
 

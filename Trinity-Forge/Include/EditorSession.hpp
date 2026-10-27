@@ -192,6 +192,8 @@ public:
     [[nodiscard]] const AssemblyHost& GetAssembly() const { return m_Assembly; }
     // Through the history, so it undoes in one step, and saved with the project as it runs and as it is undone. A scene playing keeps the settings it started with, and the next Play takes the new ones
     bool EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field);
+    // As EditPhysicsSettings, but for the mixer, which the engine plays from the next frame, a scene playing included
+    bool EditAudioSettings(const Trinity::AudioSettings& settings, std::string field);
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
     [[nodiscard]] Trinity::UUID GetSceneID() const;
     // The scene's file name without its extension, or Untitled for a scene never saved
@@ -203,10 +205,23 @@ public:
     {
         (m_Stage ? m_Stage->Selection : m_Selection) = selection;
         m_InspectedAsset = {};
+        m_InspectingMixer = false;
     }
 
+    // An asset inspected, or the Audio Mixer panel's group or effect, takes Properties from the other
     [[nodiscard]] Trinity::UUID GetInspectedAsset() const { return m_InspectedAsset; }
-    void SetInspectedAsset(Trinity::UUID asset) { m_InspectedAsset = asset; }
+    void SetInspectedAsset(Trinity::UUID asset)
+    {
+        m_InspectedAsset = asset;
+        m_InspectingMixer = false;
+    }
+
+    [[nodiscard]] bool IsInspectingMixer() const { return m_InspectingMixer; }
+    void SetInspectingMixer(bool inspecting)
+    {
+        m_InspectingMixer = inspecting;
+        m_InspectedAsset = inspecting ? Trinity::UUID() : m_InspectedAsset;
+    }
 
     std::uint64_t AddCloseListener(std::move_only_function<void()> listener);
     void RemoveCloseListener(std::uint64_t id);
@@ -276,6 +291,8 @@ public:
     // Unity's Edit in Play Mode: while a scene plays, the project's mixer is held at the snapshot selected, and edited, only with it on. Off again as each Play starts, so a scene starts on its own mix
     [[nodiscard]] bool IsEditingMixerInPlay() const { return m_EditMixerInPlay; }
     void SetEditMixerInPlay(bool edit) { m_EditMixerInPlay = edit; }
+    // Always but while the mixer is the project's and a scene plays with Edit in Play Mode off, when the Audio Mixer panel and Properties follow the mix it plays
+    [[nodiscard]] bool IsMixerEditable(Trinity::UUID asset) const;
 
     // Forge's settings for the person using it, saved once nothing is being dragged or typed into
     [[nodiscard]] const EditorPreferences& GetPreferences() const { return m_Preferences; }
@@ -493,6 +510,7 @@ private:
     void SaveProject();
     void ImportAsset(const std::filesystem::path& file, const std::string& folder);
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
+    bool WriteAudioSettings(const Trinity::AudioSettings& settings);
     void BeginPlay();
     void StartPlay();
     void StopPlay();
@@ -550,6 +568,7 @@ private:
     std::uint64_t m_MixerSerial = 0;
     MixerSelection m_MixerSelection;
     bool m_EditMixerInPlay = false;
+    bool m_InspectingMixer = false;
     ModuleHost m_Module;
     AssemblyHost m_Assembly;
     EditorPreferences m_Preferences;

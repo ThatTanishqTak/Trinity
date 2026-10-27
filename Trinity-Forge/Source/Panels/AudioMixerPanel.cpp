@@ -318,7 +318,7 @@ bool AudioMixerPanel::IsProjectMixer(Trinity::UUID asset) const
 // Always but while the project's mixer plays a scene with Edit in Play Mode off, when the faders follow the mix
 bool AudioMixerPanel::IsEditable(Trinity::UUID asset) const
 {
-    return !m_Session.IsPlaying() || !IsProjectMixer(asset) || m_Session.IsEditingMixerInPlay();
+    return m_Session.IsMixerEditable(asset);
 }
 
 // Edits are made once the panel has drawn, so the data it drew from stays as it was until then. A selection follows the edit only once it has been made
@@ -405,6 +405,7 @@ void AudioMixerPanel::OnImGuiRender()
         if (m_Session.EditAudioMixer(l_Asset, l_Data, l_Pending.After, l_Pending.What, std::move(l_Pending.Field)) && l_Pending.Select)
         {
             m_Session.SetMixerSelection(*l_Pending.Select);
+            m_Session.SetInspectingMixer(m_Session.IsInspectingMixer() || l_Pending.Select->Item.IsValid());
         }
     }
 }
@@ -453,12 +454,18 @@ void AudioMixerPanel::Edit(Trinity::AudioMixerData after, std::string what, std:
     m_Pending = Pending{ std::move(after), std::move(what), std::move(field), select };
 }
 
+// A group or an effect chosen, and a snapshot chosen while one is, shows it in Properties
 void AudioMixerPanel::Choose(Chosen chosen, Trinity::UUID snapshot, Trinity::UUID item)
 {
     EditorSession::MixerSelection l_Selection = m_Session.GetMixerSelection();
     l_Selection.Snapshot = snapshot;
     l_Selection.Item = item;
     m_Session.SetMixerSelection(l_Selection);
+    if (item)
+    {
+        m_Session.SetInspectingMixer(true);
+    }
+
     m_Chosen = chosen;
     m_RenameError.clear();
 }

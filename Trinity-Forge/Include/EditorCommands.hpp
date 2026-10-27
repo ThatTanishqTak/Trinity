@@ -612,6 +612,31 @@ private:
     std::string m_Label;
 };
 
+// As SetPhysicsSettingsCommand, for the project's audio settings
+class SetAudioSettingsCommand final : public EditorCommand
+{
+public:
+    using Writer = std::function<bool(const Trinity::AudioSettings&)>;
+
+    SetAudioSettingsCommand(Writer writer, Trinity::AudioSettings before, Trinity::AudioSettings after, std::string field);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
+    [[nodiscard]] bool ChangesScene() const override { return false; }
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return {}; }
+    [[nodiscard]] std::size_t GetMemorySize() const override { return sizeof(*this) + m_Field.capacity() + m_Label.capacity(); }
+
+private:
+    Writer m_Writer;
+    Trinity::AudioSettings m_Before;
+    Trinity::AudioSettings m_After;
+    std::string m_Field;
+    std::string m_Label;
+};
+
 class SetMaterialCommand final : public EditorCommand
 {
 public:

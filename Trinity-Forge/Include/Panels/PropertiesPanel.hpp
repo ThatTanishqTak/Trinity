@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EditorSession.hpp"
+#include "Panels/AudioMixerInspector.hpp"
 #include "Panels/Panel.hpp"
 
 #include <Trinity.hpp>
@@ -111,6 +112,8 @@ private:
     std::move_only_function<void()> m_AfterUnapplied;
     bool m_OpenUnappliedPopup = false;
     Trinity::AssetRef<Trinity::MaterialAsset> m_Material;
+    // The Audio Mixer panel's group, with its effects, which Properties shows while the panel has one chosen
+    AudioMixerInspector m_MixerInspector{ m_Session };
     // A model's material as imported, read again after each model import, which the fields that differ from are marked against
     std::optional<Trinity::MaterialData> m_ImportedMaterial;
     std::uint64_t m_ImportedMaterialImports = UINT64_MAX;

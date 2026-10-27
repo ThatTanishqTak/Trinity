@@ -1332,6 +1332,7 @@ void EditorSession::CloseProject()
     ApplyMixer(nullptr);
     m_MixerSelection = {};
     m_EditMixerInPlay = false;
+    m_InspectingMixer = false;
     m_InspectedAsset = {};
     // Its components name the project's assets
     m_CopiedEntity.reset();
@@ -3125,6 +3126,11 @@ bool EditorSession::SaveAudioMixer(Trinity::UUID asset, const Trinity::AudioMixe
     return true;
 }
 
+bool EditorSession::IsMixerEditable(Trinity::UUID asset) const
+{
+    return !m_Play || !m_Project || m_Project->GetAudioSettings().Mixer != asset || m_EditMixerInPlay;
+}
+
 bool EditorSession::EditAudioMixer(Trinity::UUID asset, const Trinity::AudioMixerData& before, const Trinity::AudioMixerData& after, std::string_view what, std::string field)
 {
     const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
@@ -4029,6 +4035,7 @@ void EditorSession::OpenPrefab(Trinity::UUID prefab)
     m_History.EndMerge();
     m_Stage = std::move(l_Stage);
     m_InspectedAsset = {};
+    m_InspectingMixer = false;
     TR_INFO("Forge: opened prefab {} in prefab mode", l_Record->Path);
 }
 
@@ -4369,6 +4376,30 @@ bool EditorSession::WritePhysicsSettings(const Trinity::PhysicsSettings& setting
     }
 
     m_Project->SetPhysicsSettings(settings);
+    SaveProject();
+
+    return true;
+}
+
+bool EditorSession::EditAudioSettings(const Trinity::AudioSettings& settings, std::string field)
+{
+    if (!m_Project)
+    {
+        return false;
+    }
+
+    return GetHistory().Execute(Trinity::CreateScope<SetAudioSettingsCommand>([this](const Trinity::AudioSettings& written) { return WriteAudioSettings(written); }, m_Project->GetAudioSettings(), settings, std::move(field)));
+}
+
+// The mixer the settings name is looked for as the next frame begins, so it is heard from then on
+bool EditorSession::WriteAudioSettings(const Trinity::AudioSettings& settings)
+{
+    if (!m_Project)
+    {
+        return false;
+    }
+
+    m_Project->SetAudioSettings(settings);
     SaveProject();
 
     return true;

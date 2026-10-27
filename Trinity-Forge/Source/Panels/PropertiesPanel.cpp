@@ -1363,7 +1363,7 @@ void PropertiesPanel::OnImGuiRender()
     }
 
     // A name still being typed when the selection moved on is kept for the entity it was typed for
-    if (m_NameActive && (!l_Entity || l_Entity.GetUUID() != m_NameEntity || m_Session.GetInspectedAsset()))
+    if (m_NameActive && (!l_Entity || l_Entity.GetUUID() != m_NameEntity || m_Session.GetInspectedAsset() || m_Session.IsInspectingMixer()))
     {
         CommitName(l_Scene.FindEntityByUUID(m_NameEntity));
         m_NameActive = false;
@@ -1381,6 +1381,12 @@ void PropertiesPanel::OnImGuiRender()
 
     m_Preview = {};
     m_Material = {};
+    if (m_Session.IsInspectingMixer())
+    {
+        m_MixerInspector.Draw();
+
+        return;
+    }
 
     if (!l_Entity)
     {

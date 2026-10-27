@@ -5,14 +5,21 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <bit>
 #include <cfloat>
 #include <cstdint>
 #include <format>
 #include <string_view>
+#include <vector>
 
 namespace
 {
     constexpr float c_LabelWidthInFonts = 8.0f;
+    // As Unity's Audio settings bound its voices
+    constexpr int c_MaxRealVoices = 255;
+    constexpr int c_MaxVirtualVoices = 4095;
+    constexpr int c_MaxOcclusionRays = 1024;
+    constexpr const char* c_NoMixer = "None, Master alone";
 
     void TextLine(std::string_view text)
     {
@@ -39,6 +46,57 @@ namespace
 
         return std::string(text.substr(l_First, text.find_last_not_of(" \t") - l_First + 1));
     }
+
+    void Tooltip(const char* text)
+    {
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("%s", text);
+        }
+    }
+
+    // Everything, Nothing, one layer by its name, or how many, with a box for each layer, which keeps the list open as it is ticked
+    bool LayerMaskCombo(const char* id, std::uint32_t& mask, const Trinity::CollisionLayers& layers)
+    {
+        const std::uint32_t l_Mask = mask & Trinity::c_AllCollisionLayers;
+        const int l_Count = std::popcount(l_Mask);
+        const std::string l_Preview = l_Mask == Trinity::c_AllCollisionLayers ? std::string("Everything") : (l_Count == 0 ? std::string("Nothing") : (l_Count == 1 ? layers.GetName(static_cast<std::uint32_t>(std::countr_zero(l_Mask))) : std::format("{} layers", l_Count)));
+        if (!ImGui::BeginCombo(id, l_Preview.c_str(), ImGuiComboFlags_HeightLarge))
+        {
+            return false;
+        }
+
+        bool l_Changed = false;
+        if (ImGui::Selectable("Everything", l_Mask == Trinity::c_AllCollisionLayers) && l_Mask != Trinity::c_AllCollisionLayers)
+        {
+            mask = Trinity::c_AllCollisionLayers;
+            l_Changed = true;
+        }
+
+        if (ImGui::Selectable("Nothing", l_Mask == 0) && l_Mask != 0)
+        {
+            mask = 0;
+            l_Changed = true;
+        }
+
+        ImGui::Separator();
+        for (std::uint32_t it_Layer = 0; it_Layer < Trinity::c_MaxCollisionLayers; ++it_Layer)
+        {
+            ImGui::PushID(static_cast<int>(it_Layer));
+            bool l_On = (l_Mask & (1u << it_Layer)) != 0;
+            if (ImGui::Checkbox(std::format("{}: {}", it_Layer, layers.GetName(it_Layer)).c_str(), &l_On))
+            {
+                mask = l_Mask ^ (1u << it_Layer);
+                l_Changed = true;
+            }
+
+            ImGui::PopID();
+        }
+
+        ImGui::EndCombo();
+
+        return l_Changed;
+    }
 }
 
 ProjectSettingsPanel::ProjectSettingsPanel(EditorSession& session) : Panel("Project Settings", Trinity::Icons::c_Gear, DockSlot::Right), m_Session(session)
@@ -57,6 +115,7 @@ void ProjectSettingsPanel::OnImGuiRender()
     }
 
     const bool l_Playing = m_Session.IsPlaying();
+    DrawAudio(l_Project->GetAudioSettings(), l_Project->GetCollisionLayers(), l_Playing);
     ImGui::SeparatorText("Physics");
     ImGui::TextDisabled("%s", l_Playing ? "The scene playing keeps the settings it started with, so nothing here changes until it stops" : "Saved with the project as they change, and taken by a scene as it starts playing");
 
@@ -71,6 +130,117 @@ void ProjectSettingsPanel::OnImGuiRender()
     {
         m_Session.GetHistory().EndMerge();
     }
+}
+
+// The mixer, which the engine plays from the next frame, a scene playing included, then what a scene takes as it starts playing. Virtual voices are never fewer than real ones, as Unity keeps them. A drag is one command
+void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trinity::CollisionLayers& layers, bool playing)
+{
+    ImGui::SeparatorText("Audio");
+    ImGui::TextDisabled("%s", playing ? "The scene playing hears another mixer at once, and keeps the rest as it started with until it stops" : "Saved with the project as they change. The mixer is heard at once, and the rest taken by a scene as it starts playing");
+    DrawMixer(settings);
+
+    ImGui::BeginDisabled(playing);
+    Label("Real Voices");
+    int l_Real = static_cast<int>(settings.RealVoices);
+    if (ImGui::DragInt("##RealVoices", &l_Real, 0.2f, 1, c_MaxRealVoices, "%d at once", ImGuiSliderFlags_AlwaysClamp))
+    {
+        settings.RealVoices = static_cast<std::uint32_t>(l_Real);
+        settings.VirtualVoices = std::max(settings.VirtualVoices, settings.RealVoices);
+        m_Session.EditAudioSettings(settings, "real voices");
+    }
+
+    Tooltip("Sounds mixed at once, the most important first, then the loudest. The rest go on in time, unheard, until there is room for them");
+
+    Label("Virtual Voices");
+    int l_Virtual = static_cast<int>(settings.VirtualVoices);
+    if (ImGui::DragInt("##VirtualVoices", &l_Virtual, 1.0f, static_cast<int>(settings.RealVoices), c_MaxVirtualVoices, "%d at once", ImGuiSliderFlags_AlwaysClamp))
+    {
+        settings.VirtualVoices = static_cast<std::uint32_t>(l_Virtual);
+        m_Session.EditAudioSettings(settings, "virtual voices");
+    }
+
+    Tooltip("Sounds playing at once, heard or not. Beyond it the least important stop");
+
+    Label("Doppler Factor");
+    if (ImGui::DragFloat("##DopplerFactor", &settings.DopplerFactor, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+    {
+        m_Session.EditAudioSettings(settings, "Doppler factor");
+    }
+
+    Tooltip("Scales every source's Doppler Level, 0 taking the Doppler effect away");
+
+    Label("Occlusion Layers");
+    if (LayerMaskCombo("##OcclusionLayers", settings.OcclusionLayers, layers))
+    {
+        m_Session.EditAudioSettings(settings, "occlusion layers");
+    }
+
+    Tooltip("The layers whose colliders muffle a source with Occlusion on, between it and the listener");
+
+    Label("Occlusion Rays");
+    int l_Rays = static_cast<int>(settings.OcclusionRays);
+    if (ImGui::DragInt("##OcclusionRays", &l_Rays, 0.2f, 0, c_MaxOcclusionRays, "%d a frame", ImGuiSliderFlags_AlwaysClamp))
+    {
+        settings.OcclusionRays = static_cast<std::uint32_t>(l_Rays);
+        m_Session.EditAudioSettings(settings, "occlusion rays");
+    }
+
+    Tooltip("Rays cast a frame at most, from the listener to the occluded sources in turn, the longest unchecked first. 0 checks none, so nothing is muffled");
+
+    Label("Occlusion Time");
+    if (ImGui::DragFloat("##OcclusionTime", &settings.OcclusionTime, 0.01f, 0.0f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
+    {
+        m_Session.EditAudioSettings(settings, "occlusion time");
+    }
+
+    Tooltip("How long a source takes to become muffled once blocked, and to clear again");
+    ImGui::EndDisabled();
+}
+
+// None, then the project's audio mixers by their paths. One the project names and no longer has shows as missing, which leaves Master alone
+void ProjectSettingsPanel::DrawMixer(Trinity::AudioSettings settings)
+{
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    std::vector<const Trinity::AssetRecord*> l_Mixers;
+    for (const Trinity::AssetRecord* it_Record : l_Registry != nullptr ? l_Registry->GetRecords() : std::vector<const Trinity::AssetRecord*>())
+    {
+        if (it_Record->Importer == Trinity::AudioMixerAsset::c_AssetType)
+        {
+            l_Mixers.push_back(it_Record);
+        }
+    }
+
+    std::ranges::sort(l_Mixers, {}, &Trinity::AssetRecord::Path);
+    const auto a_Current = std::ranges::find(l_Mixers, settings.Mixer, &Trinity::AssetRecord::ID);
+    const std::string l_Preview = !settings.Mixer ? std::string(c_NoMixer) : (a_Current != l_Mixers.end() ? (*a_Current)->Path : std::format("{} Missing, Master alone", Trinity::Icons::c_Warning));
+    Label("Mixer");
+    if (ImGui::BeginCombo("##Mixer", l_Preview.c_str(), ImGuiComboFlags_HeightLarge))
+    {
+        if (ImGui::Selectable(c_NoMixer, !settings.Mixer) && settings.Mixer)
+        {
+            Trinity::AudioSettings l_Changed = settings;
+            l_Changed.Mixer = {};
+            m_Session.EditAudioSettings(l_Changed, "mixer");
+        }
+
+        for (const Trinity::AssetRecord* it_Mixer : l_Mixers)
+        {
+            const bool l_Selected = it_Mixer->ID == settings.Mixer;
+            ImGui::PushID(it_Mixer->ID.ToString().c_str());
+            if (ImGui::Selectable(it_Mixer->Path.c_str(), l_Selected) && !l_Selected)
+            {
+                Trinity::AudioSettings l_Changed = settings;
+                l_Changed.Mixer = it_Mixer->ID;
+                m_Session.EditAudioSettings(l_Changed, "mixer");
+            }
+
+            ImGui::PopID();
+        }
+
+        ImGui::EndCombo();
+    }
+
+    Tooltip("The Audio Mixer everything Forge plays goes through, a scene playing included. Create > Audio Mixer in the Content Browser makes one");
 }
 
 // Gravity in each world and the fixed steps a second both take. A drag is one command
