@@ -60,6 +60,11 @@ namespace Trinity
         constexpr float c_EventLookahead = 0.05f;
         // A sound event's frames at an engine without a rate, as a virtual voice's time is kept without an engine
         constexpr std::uint32_t c_DefaultSampleRate = 48000;
+        // An instance a sound event's limit stops for a new one fades out over this long, as the mixer's ramps take, so stealing never clicks
+        constexpr float c_StealFadeSeconds = 0.02f;
+
+        // Handles from one count for the life of the process, so one from a scene that has gone never reaches a voice of another
+        std::atomic<std::uint64_t> s_NextHandle{ 1 };
 
         float ToRadians(float degrees)
         {
@@ -266,6 +271,15 @@ namespace Trinity
 
         using MixPlayList = std::vector<SoundEventMixPlay*, TaggedAllocator<SoundEventMixPlay*, MemoryTag::Audio>>;
 
+        // A source's own voice, one it plays beside it, which takes its values and its place, one played at a point, and one following an entity, which take their values from their resource
+        enum class VoiceKind : std::uint8_t
+        {
+            Source,
+            OneShot,
+            Point,
+            Attached
+        };
+
         // The part of a voice that is mixed: its clip read through a voice of its own, or a sound event's plays through its mix, the sound miniaudio mixes that in, once its source asks to be occluded the node after the sound, and which of the two plays into the mixer's group the source names. Only a real voice has one, since a virtual voice needs only its time. A mix owns the plays handed to it, which it gives back once done, and those waiting for room in its queue
         struct RealVoice
         {
@@ -281,9 +295,11 @@ namespace Trinity
             UUID RoutedGroup;
         };
 
-        // One playing source: its resource, held while it plays, where it is in it, and the source's values as last read. A sound event's has its plan, the clips it holds, each as the schedule times it, the schedule, the plays scheduled that have not yet ended, the channels its mix has, the seed of its choices and the memory of the source playing it
+        // One playing sound: its kind, its handle, the entity it plays from, a source's or one it follows, its resource, held while it plays, where it is in it, and the values it plays with as last read. A sound event's has its plan, the clips it holds, each as the schedule times it, the schedule, the plays scheduled that have not yet ended, the channels its mix has, the seed of its choices and the memory it keeps them in
         struct Voice
         {
+            VoiceKind Kind = VoiceKind::Source;
+            std::uint64_t Handle = 0;
             UUID Entity;
             UUID Resource;
             AssetHold Held;
@@ -304,6 +320,13 @@ namespace Trinity
             std::uint32_t Channels = 1;
             std::uint64_t Seed = 0;
             Ref<SoundEventMemory> Memory;
+            // A one-shot's volume against its source's, or the volume one played on its own was given
+            float Scale = 1.0f;
+            // Whether one following an entity has a place yet, which its velocity is taken from
+            bool Placed = false;
+            // Fading out over the seconds left, no longer counted against its event's limit
+            bool Stopping = false;
+            float StopLeft = 0.0f;
             // The order voices began in, which settles a tie between two of the same priority and loudness
             std::uint64_t Number = 0;
             float Loudness = 0.0f;
@@ -364,16 +387,49 @@ namespace Trinity
             return false;
         }
 
-        // A source the scene has had, seen each frame it still has it, with where it was, for its velocity, whether it has been woken, which plays it if it Plays On Awake, unless it has played already, and what it keeps of the sound events it plays from one play to the next
+        // A source the scene has had, seen each frame it still has it, with its values, where it is, which way it faces and how fast it moves, as its voices take them, whether it has been woken, which plays it if it Plays On Awake, unless it has played already, and what it keeps of the sound events it plays from one play to the next
         struct SourceState
         {
             Voice* Playing = nullptr;
             std::uint64_t Seen = 0;
+            AudioSourceComponent Values;
             glm::vec3 Position{ 0.0f };
+            glm::vec3 Forward{ 0.0f, 0.0f, -1.0f };
+            glm::vec3 Velocity{ 0.0f };
             bool Placed = false;
             bool Awake = false;
             Ref<SoundEventMemory> Memory;
         };
+
+        // Facing its -Z, as a source and a listener do
+        glm::vec3 GetForward(const glm::mat4& world)
+        {
+            const glm::vec3 l_Facing(world[2]);
+
+            return glm::dot(l_Facing, l_Facing) > 0.0f ? -glm::normalize(l_Facing) : glm::vec3(0.0f, 0.0f, -1.0f);
+        }
+
+        // A sound event played on its own, as its own source would play it, at the volume it was given
+        AudioSourceComponent MakeEventValues(const SoundEventData& data, UUID resource, float volume)
+        {
+            AudioSourceComponent l_Values;
+            l_Values.Resource = resource;
+            l_Values.Output = data.Output;
+            l_Values.PlayOnAwake = false;
+            l_Values.Priority = data.Priority;
+            l_Values.Volume = volume;
+            l_Values.Spatialize = data.Spatialize;
+            l_Values.DopplerLevel = data.DopplerLevel;
+            l_Values.Spread = data.Spread;
+            l_Values.MinDistance = data.MinDistance;
+            l_Values.MaxDistance = data.MaxDistance;
+            l_Values.Rolloff = data.Rolloff;
+            l_Values.Occlusion = data.Occlusion;
+            l_Values.OcclusionVolume = data.OcclusionVolume;
+            l_Values.OcclusionCutoff = data.OcclusionCutoff;
+
+            return l_Values;
+        }
 
         Ref<SoundEventMemory> MakeMemory()
         {
@@ -618,10 +674,21 @@ namespace Trinity
         void UpdateListener(float seconds);
         void UpdateOcclusion(float seconds);
         void CastOcclusionRay(Voice& voice, UUID listenerBody);
+        [[nodiscard]] SourceState& FindSource(Entity entity);
+        Voice* NewVoice(VoiceKind kind, UUID entity, UUID resource, const AudioSourceComponent& values, const glm::vec3& position, Ref<SoundEventMemory> memory, std::uint64_t seed);
         void StartVoice(SourceState& source, UUID entity, const AudioSourceComponent& values);
         void EndVoice(SourceState& source);
+        void RemoveVoice(Voice* voice);
+        void StopVoice(Voice& voice, float seconds);
+        [[nodiscard]] Voice* FindVoice(AudioHandle handle) const;
+        [[nodiscard]] double GetTime(const Voice& voice) const;
+        [[nodiscard]] AudioHandle PlayOwn(VoiceKind kind, UUID resource, Entity entity, const glm::vec3& position, float volume);
+        void PlaceVoice(Voice& voice, float seconds);
+        [[nodiscard]] float GetLoudness(const Voice& voice) const;
         void Load(Voice& voice);
         void LoadEvent(Voice& voice, const SoundEventAsset& asset);
+        [[nodiscard]] bool Admit(const Voice& voice);
+        [[nodiscard]] std::uint64_t CountOwnPlay(UUID resource);
         void ChooseRealVoices();
         void MakeReal(Voice& voice);
         void StartSound(Voice& voice);
@@ -660,6 +727,12 @@ namespace Trinity
         // A plan for each version of each sound event playing, shared by its voices, and let go once none plays it
         std::vector<Ref<const SoundEventPlan>, TaggedAllocator<Ref<const SoundEventPlan>, MemoryTag::Audio>> Plans;
         bool WarnedPlays = false;
+
+        // Seconds the scene has played, not paused, when each sound event last started an instance, for its cooldown, and how often each resource has been played on its own, which seeds those plays
+        double Time = 0.0;
+        std::vector<std::pair<UUID, double>, TaggedAllocator<std::pair<UUID, double>, MemoryTag::Audio>> LastStarts;
+        std::vector<std::pair<UUID, std::uint64_t>, TaggedAllocator<std::pair<UUID, std::uint64_t>, MemoryTag::Audio>> OwnPlays;
+        bool ScenePaused = false;
     };
 
     // The first listener in hierarchy order, which with one is the only one. A second, and none while sounds play, are each told once until it changes
@@ -840,17 +913,211 @@ namespace Trinity
             source.Memory = MakeMemory();
         }
 
+        Voice* l_Voice = NewVoice(VoiceKind::Source, entity, values.Resource, values, source.Position, source.Memory, SoundEventRandom::MakeSeed(values.Resource, entity, source.Memory->Plays++));
+        l_Voice->Forward = source.Forward;
+        source.Playing = l_Voice;
+    }
+
+    // A source a call reaches before the scene's next update has seen it, as it is now, its memory made for it. The entity has a source
+    SourceState& AudioScene::State::FindSource(Entity entity)
+    {
+        const auto [a_Found, a_New] = Sources.try_emplace(entity.GetUUID());
+        SourceState& l_Source = a_Found->second;
+        if (a_New)
+        {
+            const glm::mat4& l_World = entity.Get<WorldTransformComponent>().Matrix;
+            l_Source.Seen = Frame;
+            l_Source.Position = glm::vec3(l_World[3]);
+            l_Source.Forward = GetForward(l_World);
+            l_Source.Values = entity.Get<AudioSourceComponent>();
+        }
+
+        if (!l_Source.Memory)
+        {
+            l_Source.Memory = MakeMemory();
+        }
+
+        return l_Source;
+    }
+
+    // With a handle of its own, its resource held from now on
+    Voice* AudioScene::State::NewVoice(VoiceKind kind, UUID entity, UUID resource, const AudioSourceComponent& values, const glm::vec3& position, Ref<SoundEventMemory> memory, std::uint64_t seed)
+    {
         Voice* l_Voice = Memory::New<Voice>(MemoryTag::Audio);
+        l_Voice->Kind = kind;
+        l_Voice->Handle = s_NextHandle.fetch_add(1, std::memory_order_relaxed);
         l_Voice->Entity = entity;
-        l_Voice->Resource = values.Resource;
-        l_Voice->Held = AssetHold(values.Resource);
-        l_Voice->Memory = source.Memory;
-        l_Voice->Seed = SoundEventRandom::MakeSeed(values.Resource, entity, source.Memory->Plays++);
+        l_Voice->Resource = resource;
+        l_Voice->Held = AssetHold(resource);
+        l_Voice->Memory = std::move(memory);
+        l_Voice->Seed = seed;
         l_Voice->Values = values;
-        l_Voice->Position = source.Position;
+        l_Voice->Position = position;
+        l_Voice->Placed = true;
         l_Voice->Number = NextNumber++;
         Voices.push_back(l_Voice);
-        source.Playing = l_Voice;
+
+        return l_Voice;
+    }
+
+    void AudioScene::State::RemoveVoice(Voice* voice)
+    {
+        if (const auto a_Source = Sources.find(voice->Entity); a_Source != Sources.end() && a_Source->second.Playing == voice)
+        {
+            a_Source->second.Playing = nullptr;
+        }
+
+        std::erase(Voices, voice);
+        DestroyVoice(Engine, voice);
+    }
+
+    // A real voice's sound fades out on the audio thread and stops, and a virtual voice counts the time down. One that cannot be heard fading, paused or not yet sounding, ends at once
+    void AudioScene::State::StopVoice(Voice& voice, float seconds)
+    {
+        if (voice.Ended || voice.Stopping)
+        {
+            return;
+        }
+
+        const bool l_Sounding = voice.Real != nullptr && voice.Real->HasSound;
+        if (seconds <= 0.0f || voice.Paused || ScenePaused || (voice.Real != nullptr && !l_Sounding))
+        {
+            voice.Ended = true;
+
+            return;
+        }
+
+        voice.Stopping = true;
+        voice.StopLeft = seconds;
+        if (l_Sounding)
+        {
+            static_cast<void>(ma_sound_stop_with_fade_in_pcm_frames(&voice.Real->Sound, std::max<ma_uint64>(static_cast<ma_uint64>(seconds * static_cast<float>(GetSampleRate())), 1)));
+        }
+    }
+
+    Voice* AudioScene::State::FindVoice(AudioHandle handle) const
+    {
+        const auto a_Found = handle ? std::ranges::find_if(Voices, [handle](const Voice* voice) { return voice->Handle == handle.ID && !voice->Ended; }) : Voices.end();
+
+        return a_Found != Voices.end() ? *a_Found : nullptr;
+    }
+
+    // A source's voice and its one-shots take the source's values and place, a one-shot's volume scaled and its loop left out, and end once the source is gone. One following an entity takes the entity's place until it is gone, and stays where it was then, and one at a point stays at it
+    void AudioScene::State::PlaceVoice(Voice& voice, float seconds)
+    {
+        switch (voice.Kind)
+        {
+            case VoiceKind::Source:
+            case VoiceKind::OneShot:
+            {
+                const auto a_Source = Sources.find(voice.Entity);
+                if (a_Source == Sources.end())
+                {
+                    voice.Ended = true;
+
+                    return;
+                }
+
+                const SourceState& l_Source = a_Source->second;
+                voice.Values = l_Source.Values;
+                voice.Position = l_Source.Position;
+                voice.Velocity = l_Source.Velocity;
+                voice.Forward = l_Source.Forward;
+                if (voice.Kind == VoiceKind::OneShot)
+                {
+                    voice.Values.Resource = voice.Resource;
+                    voice.Values.Loop = false;
+                    voice.Values.Volume *= voice.Scale;
+                }
+
+                return;
+            }
+            case VoiceKind::Attached:
+            {
+                const Entity l_Entity = TheScene.FindEntityByUUID(voice.Entity);
+                if (!l_Entity || !l_Entity.Has<WorldTransformComponent>())
+                {
+                    voice.Velocity = glm::vec3(0.0f);
+
+                    return;
+                }
+
+                const glm::mat4& l_World = l_Entity.Get<WorldTransformComponent>().Matrix;
+                const glm::vec3 l_Position(l_World[3]);
+                voice.Velocity = voice.Placed && seconds > 0.0f ? (l_Position - voice.Position) / seconds : glm::vec3(0.0f);
+                voice.Position = l_Position;
+                voice.Forward = GetForward(l_World);
+                voice.Placed = true;
+
+                return;
+            }
+            case VoiceKind::Point:
+            {
+                voice.Velocity = glm::vec3(0.0f);
+
+                return;
+            }
+        }
+    }
+
+    // In seconds of its clip, or of its sound event at the engine's rate, as its sound has it while real
+    double AudioScene::State::GetTime(const Voice& voice) const
+    {
+        if (voice.Storage == nullptr && !voice.Player)
+        {
+            return 0.0;
+        }
+
+        double l_Cursor = voice.Cursor;
+        ma_uint64 l_Frames = 0;
+        if (voice.Real != nullptr && voice.Real->HasSound && ma_sound_get_cursor_in_pcm_frames(&voice.Real->Sound, &l_Frames) == MA_SUCCESS)
+        {
+            l_Cursor = static_cast<double>(l_Frames);
+        }
+
+        return l_Cursor / (voice.Player ? GetSampleRate() : voice.Storage->Header.SampleRate);
+    }
+
+    // A clip spatialized as a source is by default, which a sound event's own values replace as it loads, seeded by the resource, the entity it follows, if any, and how often the scene has played the resource on its own
+    AudioHandle AudioScene::State::PlayOwn(VoiceKind kind, UUID resource, Entity entity, const glm::vec3& position, float volume)
+    {
+        if (!resource)
+        {
+            return {};
+        }
+
+        AudioSourceComponent l_Values;
+        l_Values.Resource = resource;
+        l_Values.PlayOnAwake = false;
+        l_Values.Spatialize = true;
+        l_Values.Volume = volume;
+        const UUID l_Entity = entity ? entity.GetUUID() : UUID();
+        Voice* l_Voice = NewVoice(kind, l_Entity, resource, l_Values, position, MakeMemory(), SoundEventRandom::MakeSeed(resource, l_Entity, CountOwnPlay(resource)));
+        l_Voice->Scale = volume;
+        if (entity && entity.Has<WorldTransformComponent>())
+        {
+            l_Voice->Forward = GetForward(entity.Get<WorldTransformComponent>().Matrix);
+        }
+
+        return { l_Voice->Handle };
+    }
+
+    // How loud it is as the listener hears it, as voices are ranked and an event's quietest instance found: its volume, occluded, and for a spatialized one its rolloff and cone
+    float AudioScene::State::GetLoudness(const Voice& voice) const
+    {
+        float l_Loudness = voice.Values.Mute ? 0.0f : std::clamp(voice.Values.Volume, 0.0f, 1.0f) * GetOcclusionGain(voice.Values, voice.Occlusion);
+        if (voice.Values.Spatialize && HasListener)
+        {
+            const glm::vec3 l_ToListener = ListenerPosition - voice.Position;
+            const float l_Distance = glm::length(l_ToListener);
+            l_Loudness *= GetAudioRolloffGain(voice.Values, l_Distance);
+            if (l_Distance > 0.0f)
+            {
+                l_Loudness *= GetConeGain(voice.Values, voice.Forward, l_ToListener / l_Distance);
+            }
+        }
+
+        return l_Loudness;
     }
 
     void AudioScene::State::EndVoice(SourceState& source)
@@ -935,8 +1202,91 @@ namespace Trinity
             voice.Channels = std::max(voice.Channels, l_Plays ? (*l_Storage)->Header.Channels : 1u);
         }
 
+        // One played on its own plays as the event's own source would
+        if (voice.Kind == VoiceKind::Point || voice.Kind == VoiceKind::Attached)
+        {
+            voice.Values = MakeEventValues(voice.Plan->Data, voice.Resource, voice.Scale);
+        }
+
+        if (!Admit(voice))
+        {
+            voice.Ended = true;
+
+            return;
+        }
+
         voice.Player.emplace(voice.Plan, voice.ClipTimes, voice.Seed, GetSampleRate());
         voice.Loaded = true;
+    }
+
+    // As an instance starts, once its event and clips have loaded: none sooner after the event's last than its cooldown, and none beyond its limit, counting every instance of it playing and not fading out, unless it steals one, the oldest, or the quietest as heard when the new one is no quieter, which fades out over 20 ms. One admitted is the event's last to start
+    bool AudioScene::State::Admit(const Voice& voice)
+    {
+        const SoundEventData& l_Data = voice.Plan->Data;
+        const auto a_Last = std::ranges::find(LastStarts, voice.Resource, &std::pair<UUID, double>::first);
+        if (l_Data.Cooldown > 0.0f && a_Last != LastStarts.end() && Time - a_Last->second < static_cast<double>(l_Data.Cooldown))
+        {
+            return false;
+        }
+
+        const auto a_Counts = [&voice](const Voice* other) { return other != &voice && other->Resource == voice.Resource && other->Plan && other->Loaded && !other->Stopping && !other->Ended; };
+        if (l_Data.MaxInstances != 0)
+        {
+            for (std::size_t l_Playing = static_cast<std::size_t>(std::ranges::count_if(Voices, a_Counts)); l_Playing >= l_Data.MaxInstances; --l_Playing)
+            {
+                if (l_Data.Steal == SoundStealMode::None)
+                {
+                    return false;
+                }
+
+                Voice* l_Victim = nullptr;
+                for (Voice* it_Other : Voices)
+                {
+                    if (!a_Counts(it_Other))
+                    {
+                        continue;
+                    }
+
+                    const bool l_Older = l_Victim == nullptr || it_Other->Number < l_Victim->Number;
+                    if (l_Data.Steal == SoundStealMode::Oldest ? l_Older : l_Victim == nullptr || GetLoudness(*it_Other) < GetLoudness(*l_Victim) || (GetLoudness(*it_Other) == GetLoudness(*l_Victim) && l_Older))
+                    {
+                        l_Victim = it_Other;
+                    }
+                }
+
+                if (l_Data.Steal == SoundStealMode::Quietest && GetLoudness(voice) < GetLoudness(*l_Victim))
+                {
+                    return false;
+                }
+
+                StopVoice(*l_Victim, c_StealFadeSeconds);
+            }
+        }
+
+        if (a_Last != LastStarts.end())
+        {
+            a_Last->second = Time;
+        }
+        else
+        {
+            LastStarts.emplace_back(voice.Resource, Time);
+        }
+
+        return true;
+    }
+
+    // How often the resource has been played on its own in the scene before
+    std::uint64_t AudioScene::State::CountOwnPlay(UUID resource)
+    {
+        const auto a_Found = std::ranges::find(OwnPlays, resource, &std::pair<UUID, std::uint64_t>::first);
+        if (a_Found != OwnPlays.end())
+        {
+            return a_Found->second++;
+        }
+
+        OwnPlays.emplace_back(resource, 1);
+
+        return 0;
     }
 
     // The most important first, then the loudest, then the first to play. Beyond the virtual voices the least of them stop, and with no listener or no engine none is mixed, nor is one not yet heard that asks to be occluded until its first ray, which keeps its time meanwhile
@@ -977,6 +1327,18 @@ namespace Trinity
             // A paused voice keeps its sound, stopped, so it goes on from exactly where it was, and takes no real voice meanwhile
             if (it_Voice->Paused && !it_Voice->Ended)
             {
+                continue;
+            }
+
+            // One fading out stays as it is until it has, heard if it was, so its fade is not cut short
+            if (it_Voice->Stopping && !it_Voice->Ended)
+            {
+                if (it_Voice->Real != nullptr)
+                {
+                    ++l_Real;
+                    MakeReal(*it_Voice);
+                }
+
                 continue;
             }
 
@@ -1249,13 +1611,22 @@ namespace Trinity
                 voice.Cursor = static_cast<double>(l_Cursor);
             }
 
-            voice.Ended = ma_sound_at_end(&voice.Real->Sound) == MA_TRUE;
+            // One fading out ends as its sound stops
+            voice.Ended = ma_sound_at_end(&voice.Real->Sound) == MA_TRUE || (voice.Stopping && ma_sound_is_playing(&voice.Real->Sound) == MA_FALSE);
 
             return;
         }
 
         if (voice.Paused || voice.Real != nullptr)
         {
+            return;
+        }
+
+        voice.StopLeft -= voice.Stopping ? seconds : 0.0f;
+        if (voice.Stopping && voice.StopLeft <= 0.0f)
+        {
+            voice.Ended = true;
+
             return;
         }
 
@@ -1334,6 +1705,7 @@ namespace Trinity
         const float l_Seconds = std::max(timestep.GetSeconds(), 0.0f);
         ++l_State.Frame;
         l_State.FrameSeconds = l_Seconds;
+        l_State.Time += m_Paused ? 0.0 : static_cast<double>(l_Seconds);
         l_State.UpdateListener(l_Seconds);
 
         SceneRegistry& l_Registry = l_State.TheScene.GetRegistry();
@@ -1343,8 +1715,10 @@ namespace Trinity
             l_Source.Seen = l_State.Frame;
 
             const glm::vec3 l_Position(it_World.Matrix[3]);
-            const glm::vec3 l_Velocity = l_Source.Placed && l_Seconds > 0.0f ? (l_Position - l_Source.Position) / l_Seconds : glm::vec3(0.0f);
+            l_Source.Velocity = l_Source.Placed && l_Seconds > 0.0f ? (l_Position - l_Source.Position) / l_Seconds : glm::vec3(0.0f);
             l_Source.Position = l_Position;
+            l_Source.Forward = GetForward(it_World.Matrix);
+            l_Source.Values = it_Source;
             l_Source.Placed = true;
 
             if (!std::exchange(l_Source.Awake, true) && it_Source.PlayOnAwake)
@@ -1352,25 +1726,11 @@ namespace Trinity
                 l_State.StartVoice(l_Source, it_ID.ID, it_Source);
             }
 
-            Voice* l_Voice = l_Source.Playing;
-            if (l_Voice == nullptr)
-            {
-                continue;
-            }
-
             // A source given another clip stops, as Unity's does
-            if (it_Source.Resource != l_Voice->Resource)
+            if (l_Source.Playing != nullptr && it_Source.Resource != l_Source.Playing->Resource)
             {
                 l_State.EndVoice(l_Source);
-
-                continue;
             }
-
-            l_Voice->Values = it_Source;
-            l_Voice->Position = l_Position;
-            l_Voice->Velocity = l_Velocity;
-            const glm::vec3 l_Facing(it_World.Matrix[2]);
-            l_Voice->Forward = glm::dot(l_Facing, l_Facing) > 0.0f ? -glm::normalize(l_Facing) : glm::vec3(0.0f, 0.0f, -1.0f);
         }
 
         // The sources gone since the last frame, with their entities or on their own, stop
@@ -1387,6 +1747,12 @@ namespace Trinity
             it_Source = l_State.Sources.erase(it_Source);
         }
 
+        // Every voice where it plays from, before any is checked, loaded or ranked, a one-shot of a source gone ending with it
+        for (Voice* it_Voice : l_State.Voices)
+        {
+            l_State.PlaceVoice(*it_Voice, l_Seconds);
+        }
+
         // Paused, nothing is checked and nothing eases, so a Step plays none of it
         if (!m_Paused)
         {
@@ -1400,20 +1766,7 @@ namespace Trinity
         for (Voice* it_Voice : l_State.Voices)
         {
             l_State.Load(*it_Voice);
-
-            float l_Loudness = it_Voice->Values.Mute ? 0.0f : std::clamp(it_Voice->Values.Volume, 0.0f, 1.0f) * GetOcclusionGain(it_Voice->Values, it_Voice->Occlusion);
-            if (it_Voice->Values.Spatialize && l_State.HasListener)
-            {
-                const glm::vec3 l_ToListener = l_State.ListenerPosition - it_Voice->Position;
-                const float l_Distance = glm::length(l_ToListener);
-                l_Loudness *= GetAudioRolloffGain(it_Voice->Values, l_Distance);
-                if (l_Distance > 0.0f)
-                {
-                    l_Loudness *= GetConeGain(it_Voice->Values, it_Voice->Forward, l_ToListener / l_Distance);
-                }
-            }
-
-            it_Voice->Loudness = l_Loudness;
+            it_Voice->Loudness = l_State.GetLoudness(*it_Voice);
         }
 
         // Paused, every voice stays as it is, and its time with it
@@ -1447,15 +1800,9 @@ namespace Trinity
         }
 
         State& l_State = *m_State;
-        const auto [a_Found, a_New] = l_State.Sources.try_emplace(entity.GetUUID());
-        if (a_New)
-        {
-            a_Found->second.Seen = l_State.Frame;
-            a_Found->second.Position = glm::vec3(entity.Get<WorldTransformComponent>().Matrix[3]);
-        }
-
-        a_Found->second.Awake = true;
-        l_State.StartVoice(a_Found->second, entity.GetUUID(), entity.Get<AudioSourceComponent>());
+        SourceState& l_Source = l_State.FindSource(entity);
+        l_Source.Awake = true;
+        l_State.StartVoice(l_Source, entity.GetUUID(), entity.Get<AudioSourceComponent>());
     }
 
     void AudioScene::Stop(Entity entity)
@@ -1465,43 +1812,69 @@ namespace Trinity
             return;
         }
 
-        if (const auto a_Found = m_State->Sources.find(entity.GetUUID()); a_Found != m_State->Sources.end())
+        State& l_State = *m_State;
+        if (const auto a_Found = l_State.Sources.find(entity.GetUUID()); a_Found != l_State.Sources.end())
         {
-            m_State->EndVoice(a_Found->second);
+            l_State.EndVoice(a_Found->second);
         }
+
+        std::erase_if(l_State.Voices, [&l_State, entity](Voice* voice)
+        {
+            if (voice->Kind != VoiceKind::OneShot || voice->Entity != entity.GetUUID())
+            {
+                return false;
+            }
+
+            DestroyVoice(l_State.Engine, voice);
+
+            return true;
+        });
     }
 
-    // At once, so the sound stops this frame, and its time stays where it stopped
+    // At once, so the sounds stop this frame, and their time stays where they stopped. A one-shot fading out ends instead
     void AudioScene::Pause(Entity entity)
     {
-        const auto a_Found = entity.IsValid() ? m_State->Sources.find(entity.GetUUID()) : m_State->Sources.end();
-        Voice* l_Voice = a_Found != m_State->Sources.end() ? a_Found->second.Playing : nullptr;
-        if (l_Voice == nullptr || l_Voice->Paused)
+        if (!entity.IsValid())
         {
             return;
         }
 
-        l_Voice->Paused = true;
-        if (l_Voice->Real != nullptr && l_Voice->Real->HasSound)
+        for (Voice* it_Voice : m_State->Voices)
         {
-            ma_sound_stop(&l_Voice->Real->Sound);
+            if (it_Voice->Entity != entity.GetUUID() || (it_Voice->Kind != VoiceKind::Source && it_Voice->Kind != VoiceKind::OneShot) || it_Voice->Paused)
+            {
+                continue;
+            }
+
+            it_Voice->Paused = true;
+            it_Voice->Ended = it_Voice->Ended || it_Voice->Stopping;
+            if (it_Voice->Real != nullptr && it_Voice->Real->HasSound)
+            {
+                ma_sound_stop(&it_Voice->Real->Sound);
+            }
         }
     }
 
     // A voice that kept its sound starts again at once, unless the whole scene is paused, and one that did not is mixed again as the voices are next chosen
     void AudioScene::UnPause(Entity entity)
     {
-        const auto a_Found = entity.IsValid() ? m_State->Sources.find(entity.GetUUID()) : m_State->Sources.end();
-        Voice* l_Voice = a_Found != m_State->Sources.end() ? a_Found->second.Playing : nullptr;
-        if (l_Voice == nullptr || !l_Voice->Paused)
+        if (!entity.IsValid())
         {
             return;
         }
 
-        l_Voice->Paused = false;
-        if (!m_Paused && l_Voice->Real != nullptr && l_Voice->Real->HasSound)
+        for (Voice* it_Voice : m_State->Voices)
         {
-            ma_sound_start(&l_Voice->Real->Sound);
+            if (it_Voice->Entity != entity.GetUUID() || (it_Voice->Kind != VoiceKind::Source && it_Voice->Kind != VoiceKind::OneShot) || !it_Voice->Paused)
+            {
+                continue;
+            }
+
+            it_Voice->Paused = false;
+            if (!m_Paused && it_Voice->Real != nullptr && it_Voice->Real->HasSound)
+            {
+                ma_sound_start(&it_Voice->Real->Sound);
+            }
         }
     }
 
@@ -1516,20 +1889,8 @@ namespace Trinity
     double AudioScene::GetTime(Entity entity) const
     {
         const auto a_Found = entity.IsValid() ? m_State->Sources.find(entity.GetUUID()) : m_State->Sources.end();
-        const Voice* l_Voice = a_Found != m_State->Sources.end() ? a_Found->second.Playing : nullptr;
-        if (l_Voice == nullptr || (l_Voice->Storage == nullptr && !l_Voice->Player))
-        {
-            return 0.0;
-        }
 
-        double l_Cursor = l_Voice->Cursor;
-        ma_uint64 l_Frames = 0;
-        if (l_Voice->Real != nullptr && l_Voice->Real->HasSound && ma_sound_get_cursor_in_pcm_frames(&l_Voice->Real->Sound, &l_Frames) == MA_SUCCESS)
-        {
-            l_Cursor = static_cast<double>(l_Frames);
-        }
-
-        return l_Cursor / (l_Voice->Player ? m_State->GetSampleRate() : l_Voice->Storage->Header.SampleRate);
+        return a_Found != m_State->Sources.end() && a_Found->second.Playing != nullptr ? m_State->GetTime(*a_Found->second.Playing) : 0.0;
     }
 
     bool AudioScene::IsVirtual(Entity entity) const
@@ -1561,8 +1922,11 @@ namespace Trinity
         }
 
         m_Paused = paused;
+        m_State->ScenePaused = paused;
         for (Voice* it_Voice : m_State->Voices)
         {
+            // A fade would start over once the scene goes on, so one fading out ends instead
+            it_Voice->Ended = it_Voice->Ended || (paused && it_Voice->Stopping);
             if (it_Voice->Real == nullptr || !it_Voice->Real->HasSound)
             {
                 continue;
@@ -1579,25 +1943,31 @@ namespace Trinity
         }
     }
 
-    // The voices go on as they are, mixed or not, so a kept sound has no gap. The scenes share one engine
+    // The voices go on as they are, mixed or not, so a kept sound has no gap: a source's own, its one-shots and those following the entity. One played at a point stays with its scene. The scenes share one engine
     AudioCarry AudioScene::Extract(std::span<const UUID> entities)
     {
         State& l_State = *m_State;
         AudioCarry l_Carry;
         l_Carry.m_State = Memory::New<AudioCarry::State>(MemoryTag::Audio);
         l_Carry.m_State->Engine = l_State.Engine;
+        std::erase_if(l_State.Voices, [&l_Carry, entities](Voice* voice)
+        {
+            if (voice->Kind == VoiceKind::Point || std::ranges::find(entities, voice->Entity) == entities.end())
+            {
+                return false;
+            }
+
+            l_Carry.m_State->Voices.push_back(voice);
+
+            return true;
+        });
+
         for (const UUID it_Entity : entities)
         {
             const auto a_Found = l_State.Sources.find(it_Entity);
             if (a_Found == l_State.Sources.end())
             {
                 continue;
-            }
-
-            if (Voice* l_Voice = a_Found->second.Playing)
-            {
-                std::erase(l_State.Voices, l_Voice);
-                l_Carry.m_State->Voices.push_back(l_Voice);
             }
 
             l_Carry.m_State->Sources.emplace_back(it_Entity, a_Found->second);
@@ -1662,19 +2032,7 @@ namespace Trinity
             return false;
         }
 
-        const auto [a_Found, a_New] = m_State->Sources.try_emplace(entity.GetUUID());
-        if (a_New)
-        {
-            a_Found->second.Seen = m_State->Frame;
-            a_Found->second.Position = glm::vec3(entity.Get<WorldTransformComponent>().Matrix[3]);
-        }
-
-        if (!a_Found->second.Memory)
-        {
-            a_Found->second.Memory = MakeMemory();
-        }
-
-        a_Found->second.Memory->SetValue(name, value);
+        m_State->FindSource(entity).Memory->SetValue(name, value);
 
         return true;
     }
@@ -1715,6 +2073,161 @@ namespace Trinity
         const SoundParameter* l_Parameter = l_Voice != nullptr && l_Voice->Plan ? l_Voice->Plan->Data.FindParameter(name) : nullptr;
 
         return l_Parameter != nullptr ? std::optional(l_Parameter->Default) : std::nullopt;
+    }
+
+    // Not woken by it, so a source that Plays On Awake still does
+    AudioHandle AudioScene::PlayOneShot(Entity entity, UUID resource, float volumeScale)
+    {
+        if (!entity.IsValid() || !entity.Has<AudioSourceComponent>())
+        {
+            return {};
+        }
+
+        State& l_State = *m_State;
+        SourceState& l_Source = l_State.FindSource(entity);
+        const UUID l_Resource = resource ? resource : entity.Get<AudioSourceComponent>().Resource;
+        if (!l_Resource)
+        {
+            return {};
+        }
+
+        AudioSourceComponent l_Values = entity.Get<AudioSourceComponent>();
+        l_Values.Resource = l_Resource;
+        l_Values.Loop = false;
+        l_Values.Volume *= volumeScale;
+        Voice* l_Voice = l_State.NewVoice(VoiceKind::OneShot, entity.GetUUID(), l_Resource, l_Values, l_Source.Position, l_Source.Memory, SoundEventRandom::MakeSeed(l_Resource, entity.GetUUID(), l_Source.Memory->Plays++));
+        l_Voice->Scale = volumeScale;
+        l_Voice->Forward = l_Source.Forward;
+
+        return { l_Voice->Handle };
+    }
+
+    AudioHandle AudioScene::PlayAtPoint(UUID resource, const glm::vec3& position, float volume)
+    {
+        return m_State->PlayOwn(VoiceKind::Point, resource, Entity(), position, volume);
+    }
+
+    AudioHandle AudioScene::PlayAttached(UUID resource, Entity entity, float volume)
+    {
+        if (!entity.IsValid() || !entity.Has<WorldTransformComponent>())
+        {
+            return {};
+        }
+
+        return m_State->PlayOwn(VoiceKind::Attached, resource, entity, glm::vec3(entity.Get<WorldTransformComponent>().Matrix[3]), volume);
+    }
+
+    void AudioScene::Stop(AudioHandle handle, float fadeSeconds)
+    {
+        Voice* l_Voice = m_State->FindVoice(handle);
+        if (l_Voice == nullptr)
+        {
+            return;
+        }
+
+        if (fadeSeconds <= 0.0f)
+        {
+            m_State->RemoveVoice(l_Voice);
+
+            return;
+        }
+
+        m_State->StopVoice(*l_Voice, fadeSeconds);
+    }
+
+    bool AudioScene::IsPlaying(AudioHandle handle) const
+    {
+        const Voice* l_Voice = m_State->FindVoice(handle);
+
+        return l_Voice != nullptr && !l_Voice->Paused;
+    }
+
+    double AudioScene::GetTime(AudioHandle handle) const
+    {
+        const Voice* l_Voice = m_State->FindVoice(handle);
+
+        return l_Voice != nullptr ? m_State->GetTime(*l_Voice) : 0.0;
+    }
+
+    bool AudioScene::SetParameter(AudioHandle handle, std::string_view name, float value)
+    {
+        Voice* l_Voice = m_State->FindVoice(handle);
+        if (l_Voice == nullptr)
+        {
+            return false;
+        }
+
+        l_Voice->Memory->SetValue(name, value);
+
+        return true;
+    }
+
+    // By its event as it plays it, or as it has loaded while the voice waits for it
+    bool AudioScene::SetParameterLabel(AudioHandle handle, std::string_view name, std::string_view label)
+    {
+        const Voice* l_Voice = m_State->FindVoice(handle);
+        if (l_Voice == nullptr)
+        {
+            return false;
+        }
+
+        const Asset* l_Asset = l_Voice->Plan == nullptr && AssetManager::GetState(l_Voice->Resource) == AssetState::Ready ? AssetManager::GetAsset(l_Voice->Resource) : nullptr;
+        const SoundEventData* l_Data = l_Voice->Plan ? &l_Voice->Plan->Data : (l_Asset != nullptr && l_Asset->GetAssetType() == SoundEventAsset::c_AssetType ? &static_cast<const SoundEventAsset*>(l_Asset)->GetData() : nullptr);
+        const SoundParameter* l_Parameter = l_Data != nullptr ? l_Data->FindParameter(name) : nullptr;
+        const auto a_Label = l_Parameter != nullptr ? std::ranges::find(l_Parameter->Labels, label) : decltype(SoundParameter::Labels)::const_iterator();
+        if (l_Parameter == nullptr || a_Label == l_Parameter->Labels.end())
+        {
+            return false;
+        }
+
+        return SetParameter(handle, name, static_cast<float>(a_Label - l_Parameter->Labels.begin()));
+    }
+
+    std::optional<float> AudioScene::GetParameter(AudioHandle handle, std::string_view name) const
+    {
+        const Voice* l_Voice = m_State->FindVoice(handle);
+        if (l_Voice == nullptr)
+        {
+            return std::nullopt;
+        }
+
+        if (const std::optional<float> l_Value = l_Voice->Memory->FindValue(name))
+        {
+            return l_Value;
+        }
+
+        const SoundParameter* l_Parameter = l_Voice->Plan ? l_Voice->Plan->Data.FindParameter(name) : nullptr;
+
+        return l_Parameter != nullptr ? std::optional(l_Parameter->Default) : std::nullopt;
+    }
+
+    // Moved there at once, so its velocity is none
+    void AudioScene::SetPosition(AudioHandle handle, const glm::vec3& position)
+    {
+        Voice* l_Voice = m_State->FindVoice(handle);
+        if (l_Voice == nullptr || (l_Voice->Kind != VoiceKind::Point && l_Voice->Kind != VoiceKind::Attached))
+        {
+            return;
+        }
+
+        l_Voice->Kind = VoiceKind::Point;
+        l_Voice->Entity = UUID();
+        l_Voice->Position = position;
+        l_Voice->Velocity = glm::vec3(0.0f);
+    }
+
+    // From the entity's place on the next update, which its velocity is first taken after
+    void AudioScene::Follow(AudioHandle handle, Entity entity)
+    {
+        Voice* l_Voice = m_State->FindVoice(handle);
+        if (l_Voice == nullptr || (l_Voice->Kind != VoiceKind::Point && l_Voice->Kind != VoiceKind::Attached) || !entity.IsValid())
+        {
+            return;
+        }
+
+        l_Voice->Kind = VoiceKind::Attached;
+        l_Voice->Entity = entity.GetUUID();
+        l_Voice->Placed = false;
     }
 
     const AudioSettings& AudioScene::GetSettings() const
