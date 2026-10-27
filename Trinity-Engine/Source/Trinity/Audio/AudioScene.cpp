@@ -272,6 +272,9 @@ namespace Trinity
         };
 
         using MixPlayList = std::vector<SoundEventMixPlay*, TaggedAllocator<SoundEventMixPlay*, MemoryTag::Audio>>;
+        using HoldList = std::vector<AssetHold, TaggedAllocator<AssetHold, MemoryTag::Audio>>;
+        using StorageList = std::vector<Ref<AudioClipStorage>, TaggedAllocator<Ref<AudioClipStorage>, MemoryTag::Audio>>;
+        using ClipTimeList = std::vector<SoundEventClip, TaggedAllocator<SoundEventClip, MemoryTag::Audio>>;
         using TargetList = std::vector<SoundParameterTarget, TaggedAllocator<SoundParameterTarget, MemoryTag::Audio>>;
         using FloatList = std::vector<float, TaggedAllocator<float, MemoryTag::Audio>>;
 
@@ -322,9 +325,12 @@ namespace Trinity
             // In the clip's frames, or a sound event's at the engine's rate
             double Cursor = 0.0;
             Ref<const SoundEventPlan> Plan;
-            std::vector<AssetHold, TaggedAllocator<AssetHold, MemoryTag::Audio>> EventClips;
-            std::vector<Ref<AudioClipStorage>, TaggedAllocator<Ref<AudioClipStorage>, MemoryTag::Audio>> ClipStorages;
-            std::vector<SoundEventClip, TaggedAllocator<SoundEventClip, MemoryTag::Audio>> ClipTimes;
+            HoldList EventClips;
+            StorageList ClipStorages;
+            ClipTimeList ClipTimes;
+            // A version of its event loaded since it began, and the clips it names, held while they load, which it moves to once they have
+            Ref<const SoundEventPlan> NextPlan;
+            HoldList NextClips;
             std::optional<SoundEventPlayer> Player;
             SoundEventPlayer::PlayList Scheduled;
             std::uint32_t Channels = 1;
@@ -469,6 +475,33 @@ namespace Trinity
             const std::uint64_t l_FrameSize = std::uint64_t{ l_Header.Channels } * GetSampleSize(l_Header.Format);
 
             return l_FrameSize != 0 ? storage.Samples.size() / l_FrameSize : 0;
+        }
+
+
+        // Each clip held as the schedule times it, once each has loaded its samples or failed, which plays as nothing, as does a clip that is no clip, and the channels of the widest. False while one still loads
+        bool ReadEventClips(std::span<const AssetHold> holds, StorageList& storages, ClipTimeList& times, std::uint32_t& channels)
+        {
+            storages.clear();
+            times.clear();
+            channels = 1;
+            for (const AssetHold& it_Clip : holds)
+            {
+                const AssetState l_State = AssetManager::GetState(it_Clip.GetID());
+                const Asset* l_Asset = l_State == AssetState::Ready ? AssetManager::GetAsset(it_Clip.GetID()) : nullptr;
+                const Ref<AudioClipStorage>* l_Storage = l_Asset != nullptr && l_Asset->GetAssetType() == AudioClipAsset::c_AssetType ? &static_cast<const AudioClipAsset*>(l_Asset)->GetStorage() : nullptr;
+                const AudioClipStatus l_Status = l_Storage != nullptr ? (*l_Storage)->Status.load(std::memory_order_acquire) : AudioClipStatus::Failed;
+                if (l_State == AssetState::Loading || l_Status == AudioClipStatus::Loading)
+                {
+                    return false;
+                }
+
+                const bool l_Plays = l_Status == AudioClipStatus::Loaded && CountFrames(**l_Storage) != 0;
+                storages.push_back(l_Plays ? *l_Storage : Ref<AudioClipStorage>());
+                times.push_back(l_Plays ? SoundEventClip{ CountFrames(**l_Storage), (*l_Storage)->Header.SampleRate } : SoundEventClip());
+                channels = std::max(channels, l_Plays ? (*l_Storage)->Header.Channels : 1u);
+            }
+
+            return true;
         }
 
         // Its clip's voice started at once, a stream refilled before it plays, as a clip's own voice is, with what its container's curves move
@@ -730,7 +763,8 @@ namespace Trinity
         [[nodiscard]] float GetLoudness(const Voice& voice) const;
         void Load(Voice& voice);
         void LoadEvent(Voice& voice, const SoundEventAsset& asset);
-        void PrepareParameters(Voice& voice);
+        void PrepareParameters(Voice& voice, const SoundEventPlan* previous = nullptr);
+        void Refresh(Voice& voice);
         void SeekParameters(Voice& voice);
         void GiveParameter(const SoundEventMemory& memory, std::string_view name, float value);
         [[nodiscard]] std::optional<float> GetHeardParameter(const Voice& voice, std::string_view name) const;
@@ -1232,24 +1266,10 @@ namespace Trinity
             }
         }
 
-        voice.ClipStorages.clear();
-        voice.ClipTimes.clear();
-        voice.Channels = 1;
-        for (const AssetHold& it_Clip : voice.EventClips)
-        {
-            const AssetState l_State = AssetManager::GetState(it_Clip.GetID());
-            const Asset* l_Asset = l_State == AssetState::Ready ? AssetManager::GetAsset(it_Clip.GetID()) : nullptr;
-            const Ref<AudioClipStorage>* l_Storage = l_Asset != nullptr && l_Asset->GetAssetType() == AudioClipAsset::c_AssetType ? &static_cast<const AudioClipAsset*>(l_Asset)->GetStorage() : nullptr;
-            const AudioClipStatus l_Status = l_Storage != nullptr ? (*l_Storage)->Status.load(std::memory_order_acquire) : AudioClipStatus::Failed;
-            if (l_State == AssetState::Loading || l_Status == AudioClipStatus::Loading)
-            {
-                return;
-            }
 
-            const bool l_Plays = l_Status == AudioClipStatus::Loaded && CountFrames(**l_Storage) != 0;
-            voice.ClipStorages.push_back(l_Plays ? *l_Storage : Ref<AudioClipStorage>());
-            voice.ClipTimes.push_back(l_Plays ? SoundEventClip{ CountFrames(**l_Storage), (*l_Storage)->Header.SampleRate } : SoundEventClip());
-            voice.Channels = std::max(voice.Channels, l_Plays ? (*l_Storage)->Header.Channels : 1u);
+        if (!ReadEventClips(voice.EventClips, voice.ClipStorages, voice.ClipTimes, voice.Channels))
+        {
+            return;
         }
 
         // One played on its own plays as the event's own source would
@@ -1270,10 +1290,11 @@ namespace Trinity
         voice.Loaded = true;
     }
 
-    // Each parameter reads the instance's own target, given what the memory holds, or for a global one the engine's, and starts where its target is, with no seek. Room is made in the memory for each, so setting it later allocates nothing
-    void AudioScene::State::PrepareParameters(Voice& voice)
+    // Each parameter reads the instance's own target, given what the memory holds, or for a global one the engine's, and starts where its target is, with no seek, or where it was in the version before, if that had it. Room is made in the memory for each, so setting it later allocates nothing
+    void AudioScene::State::PrepareParameters(Voice& voice, const SoundEventPlan* previous)
     {
         const auto& l_Parameters = voice.Plan->Data.Parameters;
+        const FloatList l_Before = std::move(voice.Heard);
         voice.Targets = TargetList(l_Parameters.size());
         voice.Reads.assign(l_Parameters.size(), nullptr);
         voice.Latest.assign(l_Parameters.size(), 0.0f);
@@ -1298,12 +1319,93 @@ namespace Trinity
             }
 
             voice.Memory->Reserve(l_Name);
-
-            voice.Heard[it_Parameter] = l_Parameter.Clamp(voice.Reads[it_Parameter]->GetWritten().At(voice.HeardFrame).value_or(l_Parameter.Default));
+            const SoundParameter* l_Was = previous != nullptr ? previous->Data.FindParameter(l_Name) : nullptr;
+            const std::size_t l_WasAt = l_Was != nullptr ? static_cast<std::size_t>(l_Was - previous->Data.Parameters.data()) : l_Before.size();
+            voice.Heard[it_Parameter] = l_Parameter.Clamp(l_WasAt < l_Before.size() ? l_Before[l_WasAt] : voice.Reads[it_Parameter]->GetWritten().At(voice.HeardFrame).value_or(l_Parameter.Default));
         }
 
         voice.Nodes.assign(voice.Plan->Nodes.size(), {});
         voice.Pitches.assign(voice.Plan->Nodes.size(), 1.0f);
+    }
+
+    // A sound event playing whose asset has loaded a new version since, as Forge saves each edit, moves to it once every clip the new version names has loaded or failed. What it has scheduled plays on, but for a container the new version lacks, a clip it no longer names held for it meanwhile, its parameters are kept by name, and what each container starts from its next trigger is the new version's. A heard voice is made again, as a virtual one made real is, so its mix plays the new version's curves. One fading out plays on as it was
+    void AudioScene::State::Refresh(Voice& voice)
+    {
+        if (!voice.Loaded || !voice.Plan || voice.Ended || voice.Stopping || AssetManager::GetState(voice.Resource) != AssetState::Ready)
+        {
+            return;
+        }
+
+        const Asset* l_Asset = AssetManager::GetAsset(voice.Resource);
+        if (l_Asset == nullptr || l_Asset->GetAssetType() != SoundEventAsset::c_AssetType || static_cast<const SoundEventAsset*>(l_Asset)->GetSerial() == voice.Plan->Serial)
+        {
+            return;
+        }
+
+        // Its clips are held from the first frame the new version is seen, so a clip both versions name stays loaded
+        const SoundEventAsset& l_Event = *static_cast<const SoundEventAsset*>(l_Asset);
+        if (!voice.NextPlan || voice.NextPlan->Serial != l_Event.GetSerial())
+        {
+            voice.NextPlan = FindPlan(voice.Resource, l_Event);
+            voice.NextClips.clear();
+            for (const UUID it_Clip : voice.NextPlan->Clips)
+            {
+                voice.NextClips.emplace_back(it_Clip);
+            }
+        }
+
+        StorageList l_Storages;
+        ClipTimeList l_Times;
+        std::uint32_t l_Channels = 1;
+        if (!ReadEventClips(voice.NextClips, l_Storages, l_Times, l_Channels))
+        {
+            return;
+        }
+
+        DestroyReal(Engine, voice);
+        const Ref<const SoundEventPlan> l_Previous = std::exchange(voice.Plan, std::move(voice.NextPlan));
+        voice.NextPlan.reset();
+        HoldList l_Holds = std::move(voice.NextClips);
+        voice.NextClips.clear();
+        const std::size_t l_PlanClips = l_Times.size();
+        std::erase_if(voice.Scheduled, [&](SoundEventPlayer::Play& play)
+        {
+            const UUID l_Container = l_Previous->Data.Containers[play.Node].ID;
+            const auto a_Node = std::ranges::find(voice.Plan->Data.Containers, l_Container, &SoundContainer::ID);
+            if (a_Node == voice.Plan->Data.Containers.end() || a_Node->Type != SoundContainerType::Clip)
+            {
+                return true;
+            }
+
+            const UUID l_Clip = voice.EventClips[play.Clip].GetID();
+            const auto a_Held = std::ranges::find_if(l_Holds, [l_Clip](const AssetHold& hold) { return hold.GetID() == l_Clip; });
+            if (a_Held == l_Holds.end())
+            {
+                l_Holds.emplace_back(l_Clip);
+                l_Storages.push_back(voice.ClipStorages[play.Clip]);
+                l_Times.push_back(voice.ClipTimes[play.Clip]);
+                l_Channels = std::max(l_Channels, voice.ClipStorages[play.Clip] ? voice.ClipStorages[play.Clip]->Header.Channels : 1u);
+            }
+
+            play.Node = static_cast<std::uint32_t>(a_Node - voice.Plan->Data.Containers.begin());
+            play.Clip = static_cast<std::uint32_t>(std::ranges::find_if(l_Holds, [l_Clip](const AssetHold& hold) { return hold.GetID() == l_Clip; }) - l_Holds.begin());
+
+            return false;
+        });
+
+        voice.EventClips = std::move(l_Holds);
+        voice.ClipStorages = std::move(l_Storages);
+        voice.ClipTimes = std::move(l_Times);
+        voice.Channels = l_Channels;
+        if (voice.Kind == VoiceKind::Point || voice.Kind == VoiceKind::Attached)
+        {
+            voice.Values = MakeEventValues(voice.Plan->Data, voice.Resource, voice.Scale);
+        }
+
+        PrepareParameters(voice, l_Previous.get());
+        voice.Player->Adopt(voice.Plan, std::span<const SoundEventClip>(voice.ClipTimes).first(l_PlanClips), static_cast<std::uint64_t>(voice.Cursor));
+        voice.Ends = {};
+        voice.NextEnd = 0;
     }
 
     // On the main thread while the voice is virtual, as its mix would
@@ -1985,6 +2087,7 @@ namespace Trinity
         for (Voice* it_Voice : l_State.Voices)
         {
             l_State.Load(*it_Voice);
+            l_State.Refresh(*it_Voice);
             it_Voice->Loudness = l_State.GetLoudness(*it_Voice);
         }
 

@@ -718,3 +718,29 @@ private:
     std::string m_Field;
     std::string m_Label;
 };
+
+// An edit of a sound event asset, which the writer saves to its file and loads again as it runs and as it is undone, so an instance playing it moves to it as each of its containers next triggers. Edits of one field in a row become one, as a slider's drag does
+class SetSoundEventCommand final : public EditorCommand
+{
+public:
+    using Writer = std::function<bool(Trinity::UUID, const Trinity::SoundEventData&)>;
+
+    SetSoundEventCommand(Writer writer, Trinity::UUID asset, Trinity::SoundEventData before, Trinity::SoundEventData after, std::string field, std::string label);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
+    [[nodiscard]] bool ChangesScene() const override { return false; }
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Asset; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Writer m_Writer;
+    Trinity::UUID m_Asset;
+    Trinity::SoundEventData m_Before;
+    Trinity::SoundEventData m_After;
+    std::string m_Field;
+    std::string m_Label;
+};

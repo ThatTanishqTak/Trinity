@@ -862,7 +862,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
     }
 }
 
-// Unity's Create menu. Everything is made in the open folder: scenes, materials, input actions and audio mixers among the assets, named there at once, and a prefab among them and each language's scripts in its own folder, named first, since the name is the prefab's root's or the class's as well. A prefab variant is made of the prefab the menu is for, beside it
+// Unity's Create menu. Everything is made in the open folder: scenes, materials, input actions, audio mixers and sound events among the assets, named there at once, and a prefab among them and each language's scripts in its own folder, named first, since the name is the prefab's root's or the class's as well. A prefab variant is made of the prefab the menu is for, beside it
 void ContentBrowserPanel::DrawCreateMenu(const Item* item)
 {
     if (ImGui::MenuItem(std::format("{} Folder", Trinity::Icons::c_Folder).c_str()))
@@ -910,6 +910,16 @@ void ContentBrowserPanel::DrawCreateMenu(const Item* item)
     if (!l_InAssets)
     {
         ImGui::SetItemTooltip("Audio mixers go in Assets or a folder in it");
+    }
+
+    if (ImGui::MenuItem(std::format("{} Sound Event", Trinity::Icons::c_Music).c_str(), nullptr, false, l_InAssets))
+    {
+        m_Deferred.push_back([this] { RenameCreated(m_Session.CreateSoundEvent(m_Folder)); });
+    }
+
+    if (!l_InAssets)
+    {
+        ImGui::SetItemTooltip("Sound events go in Assets or a folder in it");
     }
 
     if (ImGui::MenuItem(std::format("{} Prefab...", Trinity::Icons::c_PackageVariantClosed).c_str(), nullptr, false, l_InAssets))

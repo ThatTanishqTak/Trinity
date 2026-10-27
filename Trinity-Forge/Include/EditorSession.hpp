@@ -16,6 +16,7 @@
 #include "Modules/IdeLauncher.hpp"
 #include "Modules/ModuleHost.hpp"
 #include "PrefabTemplateCache.hpp"
+#include "SoundEventAudition.hpp"
 
 #include "Trinity.hpp"
 
@@ -124,6 +125,25 @@ public:
         std::string Error;
     };
 
+    // A sound event asset as its file holds it, as for input actions
+    struct SoundEventFile
+    {
+        Trinity::UUID Asset;
+        std::uint64_t ScanCount = 0;
+        std::optional<Trinity::SoundEventData> Data;
+        std::string Error;
+    };
+
+    // What the Sound Event panel shows: the event, the container chosen in its tree, if any, and the parameter whose curves are edited, if any
+    struct SoundEventSelection
+    {
+        Trinity::UUID Asset;
+        Trinity::UUID Container;
+        Trinity::UUID Parameter;
+
+        [[nodiscard]] bool operator==(const SoundEventSelection&) const = default;
+    };
+
     // What the Audio Mixer panel shows: the mixer, the snapshot whose values are edited, and the group or effect chosen, if any
     struct MixerSelection
     {
@@ -162,7 +182,7 @@ public:
     void RequestPause();
     void RequestStep();
     void RequestStop();
-    // With the frame's time, after the session's own work
+    // With the frame's time, after the session's own work, the Sound Event panel's audition first, which plays whether a scene does or not
     void UpdatePlay(Trinity::Timestep timestep);
     [[nodiscard]] bool IsPlaying() const { return m_Play != nullptr; }
     [[nodiscard]] bool IsPaused() const { return m_Play != nullptr && m_Paused; }
@@ -293,6 +313,19 @@ public:
     void SetEditMixerInPlay(bool edit) { m_EditMixerInPlay = edit; }
     // Always but while the mixer is the project's and a scene plays with Edit in Play Mode off, when the Audio Mixer panel and Properties follow the mix it plays
     [[nodiscard]] bool IsMixerEditable(Trinity::UUID asset) const;
+    // A Random named Root with nothing in it, as Unity's new Audio Random Container is, named New Sound Event, or New Sound Event 1 and on when that is taken. Its project path, or nothing, logged
+    [[nodiscard]] std::optional<std::string> CreateSoundEvent(std::string_view folder);
+    // As ReadAudioMixer, for the Sound Event panel. Null for an asset that is not one
+    [[nodiscard]] const SoundEventFile* ReadSoundEvent(Trinity::UUID asset);
+    // Its file, only once what is written reads back, kept as it reads back, and the asset loaded again, so every instance playing it, the audition's and a scene's, moves to it as each of its containers next triggers
+    bool SaveSoundEvent(Trinity::UUID asset, const Trinity::SoundEventData& data);
+    // As EditAudioMixer: one undo step, edits of one field in a row becoming one, as a slider's drag does, and refused, logged, for data that breaks an event's rules
+    bool EditSoundEvent(Trinity::UUID asset, const Trinity::SoundEventData& before, const Trinity::SoundEventData& after, std::string_view what, std::string field = {});
+    [[nodiscard]] const SoundEventSelection& GetSoundEventSelection() const { return m_SoundEventSelection; }
+    void SetSoundEventSelection(const SoundEventSelection& selection) { m_SoundEventSelection = selection; }
+    // What the Sound Event panel plays events through, which stops as the project closes
+    [[nodiscard]] SoundEventAudition& GetAudition() { return m_Audition; }
+
 
     // Forge's settings for the person using it, saved once nothing is being dragged or typed into
     [[nodiscard]] const EditorPreferences& GetPreferences() const { return m_Preferences; }
@@ -553,6 +586,8 @@ private:
     std::vector<RecentScene> m_RecentScenes;
     std::unordered_map<Trinity::UUID, InputActionsFile> m_InputActionsFiles;
     std::unordered_map<Trinity::UUID, AudioMixerFile> m_AudioMixerFiles;
+    std::unordered_map<Trinity::UUID, SoundEventFile> m_SoundEventFiles;
+    SoundEventSelection m_SoundEventSelection;
     glm::vec3 m_SpawnPoint{ 0.0f };
     bool m_SceneView3D = false;
     TextureReimporter m_Reimporter;
@@ -561,6 +596,7 @@ private:
     EnvironmentImportBatch m_EnvironmentImports;
     AudioClipImportBatch m_AudioClipImports;
     AudioClipPreview m_AudioPreview;
+    SoundEventAudition m_Audition;
     // The project's mixer, which the engine's mix follows: the asset the project names, held while it is a mixer, the scan it was last looked for in, so a file that comes back or changes outside Forge is found again, and the version applied, 0 for Master alone
     Trinity::UUID m_MixerID;
     Trinity::AssetRef<Trinity::AudioMixerAsset> m_Mixer;

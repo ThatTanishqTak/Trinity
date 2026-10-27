@@ -521,6 +521,115 @@ namespace Trinity
         }
     }
 
+
+    // The Randoms' last picks are kept in the memory by their IDs, so Avoid Repeat goes on across versions
+    void SoundEventPlayer::Adopt(Ref<const SoundEventPlan> plan, std::span<const SoundEventClip> clips, std::uint64_t time)
+    {
+        const SoundEventPlan& l_Old = *m_Plan;
+        const SoundEventPlan& l_New = *plan;
+        std::vector<std::uint32_t, TaggedAllocator<std::uint32_t, MemoryTag::Audio>> l_Map(l_Old.Nodes.size(), SoundEventPlan::c_None);
+        for (std::size_t it_Node = 0; it_Node < l_Old.Nodes.size(); ++it_Node)
+        {
+            const SoundContainer& l_Container = l_Old.Data.Containers[it_Node];
+            const auto a_Found = std::ranges::find(l_New.Data.Containers, l_Container.ID, &SoundContainer::ID);
+            if (a_Found != l_New.Data.Containers.end() && a_Found->Type == l_Container.Type)
+            {
+                l_Map[it_Node] = static_cast<std::uint32_t>(a_Found - l_New.Data.Containers.begin());
+            }
+        }
+
+        // Started and not yet ended, and of those which go, each one whose container the new version lacks and everything below it
+        std::vector<std::uint8_t, TaggedAllocator<std::uint8_t, MemoryTag::Audio>> l_Live(m_Activations.size(), 1);
+        for (const std::uint32_t it_Free : m_Free)
+        {
+            l_Live[it_Free] = 0;
+        }
+
+        std::vector<std::uint8_t, TaggedAllocator<std::uint8_t, MemoryTag::Audio>> l_Gone(m_Activations.size(), 0);
+        for (std::uint32_t it_Activation = 0; it_Activation < m_Activations.size(); ++it_Activation)
+        {
+            for (std::uint32_t it_Up = it_Activation; l_Live[it_Activation] != 0 && it_Up != c_NoActivation; it_Up = m_Activations[it_Up].Parent)
+            {
+                if (l_Map[m_Activations[it_Up].Node] == SoundEventPlan::c_None)
+                {
+                    l_Gone[it_Activation] = 1;
+
+                    break;
+                }
+            }
+        }
+
+        std::erase_if(m_Actions, [&l_Gone](const Action& action) { return l_Gone[action.Activation] != 0; });
+        for (std::uint32_t it_Activation = 0; it_Activation < m_Activations.size(); ++it_Activation)
+        {
+            if (l_Gone[it_Activation] == 0)
+            {
+                continue;
+            }
+
+            const Activation& l_Activation = m_Activations[it_Activation];
+            if (l_Activation.Parent == c_NoActivation)
+            {
+                m_Ended = true;
+                m_End = time;
+            }
+            else if (l_Gone[l_Activation.Parent] == 0)
+            {
+                static_cast<void>(Push(time, l_Activation.Parent, ActionKind::ChildEnded, l_Activation.EndPlay, l_Activation.EndPlayTime));
+            }
+
+            m_Free.push_back(it_Activation);
+        }
+
+        for (std::uint32_t it_Activation = 0; it_Activation < m_Activations.size(); ++it_Activation)
+        {
+            if (l_Live[it_Activation] == 0 || l_Gone[it_Activation] != 0)
+            {
+                continue;
+            }
+
+            Activation& l_Activation = m_Activations[it_Activation];
+            const std::uint32_t l_From = l_Activation.Node;
+            l_Activation.Node = l_Map[l_From];
+            if (l_Old.Data.Containers[l_From].Type != SoundContainerType::Sequence)
+            {
+                continue;
+            }
+
+            // A Sequence goes on from the child it plays, found by its ID, or else from the first after it that the new version still has below it, so a child added, moved or removed is heard in its place. The step before a child is the one it ends at, which for the first is the largest, as the step after that is 0. With none left after it, its round ends as the child playing does
+            const SoundEventPlan::Node& l_Was = l_Old.Nodes[l_From];
+            const SoundEventPlan::Node& l_Is = l_New.Nodes[l_Activation.Node];
+            const std::span<const std::uint32_t> l_Children = std::span<const std::uint32_t>(l_New.Children).subspan(l_Is.FirstChild, l_Is.ChildCount);
+            std::uint32_t l_Step = l_Is.ChildCount;
+            for (std::uint32_t it_Child = l_Activation.Step; it_Child < l_Was.ChildCount; ++it_Child)
+            {
+                const auto a_At = std::ranges::find(l_Children, l_Map[l_Old.Children[l_Was.FirstChild + it_Child]]);
+                if (a_At != l_Children.end())
+                {
+                    l_Step = static_cast<std::uint32_t>(a_At - l_Children.begin()) - (it_Child == l_Activation.Step ? 0u : 1u);
+
+                    break;
+                }
+            }
+
+            l_Activation.Step = l_Step;
+        }
+
+        // A clip whose parent goes no longer tells it of its end
+        std::erase_if(m_Running, [&l_Map, &l_Gone](Pitched& running)
+        {
+            running.Node = l_Map[running.Node];
+
+            return running.Node == SoundEventPlan::c_None || (running.Parent != c_NoActivation && l_Gone[running.Parent] != 0);
+        });
+
+        std::ranges::make_heap(m_Actions, [](const Action& left, const Action& right) { return IsLater(left, right); });
+        m_Plan = std::move(plan);
+        m_Clips.assign(clips.begin(), clips.end());
+        m_Anchored = m_Anchored || m_Plan->HasPitchCurves;
+        m_Pitches.assign(m_Anchored ? m_Plan->Nodes.size() : 0, 1.0f);
+    }
+
     bool SoundEventPlayer::IsFinished() const
     {
         return m_Ended && m_Actions.empty();

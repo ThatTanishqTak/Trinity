@@ -1696,3 +1696,61 @@ std::size_t SetAudioMixerCommand::GetMemorySize() const
 
     return l_Size;
 }
+
+SetSoundEventCommand::SetSoundEventCommand(Writer writer, Trinity::UUID asset, Trinity::SoundEventData before, Trinity::SoundEventData after, std::string field, std::string label) : m_Writer(std::move(writer)), m_Asset(asset), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::move(label))
+{
+
+}
+
+// An edit that changes nothing is no command
+bool SetSoundEventCommand::Execute([[maybe_unused]] Trinity::Scene& scene)
+{
+    return m_Before != m_After && m_Writer(m_Asset, m_After);
+}
+
+void SetSoundEventCommand::Undo([[maybe_unused]] Trinity::Scene& scene)
+{
+    static_cast<void>(m_Writer(m_Asset, m_Before));
+}
+
+// Only edits named by a field merge, so adding, removing and moving each stay a step of their own
+bool SetSoundEventCommand::MergeWith(const EditorCommand& next)
+{
+    const SetSoundEventCommand* l_Next = dynamic_cast<const SetSoundEventCommand*>(&next);
+    if (l_Next == nullptr || l_Next->m_Asset != m_Asset || m_Field.empty() || l_Next->m_Field != m_Field)
+    {
+        return false;
+    }
+
+    m_After = l_Next->m_After;
+
+    return true;
+}
+
+std::size_t SetSoundEventCommand::GetMemorySize() const
+{
+    std::size_t l_Size = sizeof(*this) + m_Field.capacity() + m_Label.capacity();
+    for (const Trinity::SoundEventData* it_Data : { &m_Before, &m_After })
+    {
+        l_Size += it_Data->Containers.capacity() * sizeof(Trinity::SoundContainer) + it_Data->Parameters.capacity() * sizeof(Trinity::SoundParameter);
+        for (const Trinity::SoundContainer& it_Container : it_Data->Containers)
+        {
+            l_Size += it_Container.Name.capacity() + it_Container.Case.capacity() + it_Container.Curves.capacity() * sizeof(Trinity::SoundCurve);
+            for (const Trinity::SoundCurve& it_Curve : it_Container.Curves)
+            {
+                l_Size += it_Curve.Points.capacity() * sizeof(glm::vec2);
+            }
+        }
+
+        for (const Trinity::SoundParameter& it_Parameter : it_Data->Parameters)
+        {
+            l_Size += it_Parameter.Name.capacity() + it_Parameter.Labels.capacity() * sizeof(Trinity::TaggedString<Trinity::MemoryTag::Audio>);
+            for (const Trinity::TaggedString<Trinity::MemoryTag::Audio>& it_Label : it_Parameter.Labels)
+            {
+                l_Size += it_Label.capacity();
+            }
+        }
+    }
+
+    return l_Size;
+}

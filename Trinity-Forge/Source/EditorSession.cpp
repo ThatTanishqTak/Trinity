@@ -1323,8 +1323,10 @@ void EditorSession::CloseProject()
     }
 
     m_Reimporter.Finish();
-    // A clip streaming in a preview holds its file in the Cache open
+    // A clip streaming in a preview holds its file in the Cache open, as one an audition plays does
     m_AudioPreview.Clear();
+    m_Audition.Clear();
+    m_SoundEventSelection = {};
     // Heard through Master alone again, as without a project, and the mixer let go with the project's other assets
     m_MixerID = {};
     m_Mixer = {};
@@ -2408,6 +2410,7 @@ void EditorSession::RequestStop()
 // After the session's own work, before the transform pass the frame draws with. A paused scene takes only the step asked for, and its sounds hold where they are, so a Step plays none. A selection the scene switched to does not have is let go
 void EditorSession::UpdatePlay(Trinity::Timestep timestep)
 {
+    m_Audition.Update(Trinity::Application::Get().GetAudioEngine(), timestep);
     if (!m_Play)
     {
         return;
@@ -3149,6 +3152,114 @@ bool EditorSession::EditAudioMixer(Trinity::UUID asset, const Trinity::AudioMixe
     }
 
     return GetHistory().Execute(Trinity::CreateScope<SetAudioMixerCommand>([this](Trinity::UUID id, const Trinity::AudioMixerData& data) { return SaveAudioMixer(id, data); }, asset, before, after, std::move(field), l_Label));
+}
+
+std::optional<std::string> EditorSession::CreateSoundEvent(std::string_view folder)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return std::nullopt;
+    }
+
+    const std::string l_Path = GetFreePath(*m_Project, folder, "New Sound Event", Trinity::SoundEventData::c_Extension, false);
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, Trinity::WriteSoundEvent(Trinity::SoundEventData::MakeDefault())); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created sound event {}", l_Path);
+    ScanAssets();
+
+    return l_Path;
+}
+
+// As ReadAudioMixer keeps its files
+const EditorSession::SoundEventFile* EditorSession::ReadSoundEvent(Trinity::UUID asset)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::SoundEventAsset::c_AssetType)
+    {
+        return nullptr;
+    }
+
+    SoundEventFile& l_File = m_SoundEventFiles[asset];
+    if (l_File.Asset == asset && l_File.ScanCount == m_ScanCount)
+    {
+        return &l_File;
+    }
+
+    l_File = SoundEventFile{ asset, m_ScanCount, std::nullopt,{} };
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Record->Path);
+    if (!l_Text)
+    {
+        l_File.Error = std::format("{} could not be read: {}", l_Record->Path, Trinity::ToString(l_Text.GetError()));
+
+        return &l_File;
+    }
+
+    Trinity::Expected<Trinity::SoundEventData, std::string> l_Data = Trinity::ParseSoundEvent(*l_Text);
+    if (!l_Data)
+    {
+        l_File.Error = std::format("{} could not be read: {}", l_Record->Path, l_Data.GetError());
+
+        return &l_File;
+    }
+
+    l_File.Data = std::move(*l_Data);
+
+    return &l_File;
+}
+
+// What is kept is the data as the file reads back, which is what the asset loads from it
+bool EditorSession::SaveSoundEvent(Trinity::UUID asset, const Trinity::SoundEventData& data)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::SoundEventAsset::c_AssetType)
+    {
+        return false;
+    }
+
+    const std::string l_Text = Trinity::WriteSoundEvent(data);
+    Trinity::Expected<Trinity::SoundEventData, std::string> l_Again = Trinity::ParseSoundEvent(l_Text);
+    if (!l_Again)
+    {
+        TR_ERROR("Forge: {} was not saved, since it would not read back: {}", l_Record->Path, l_Again.GetError());
+
+        return false;
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Record->Path, l_Text); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be written: {}", l_Record->Path, Trinity::ToString(l_Written.GetError()));
+
+        return false;
+    }
+
+    m_SoundEventFiles[asset] = SoundEventFile{ asset, m_ScanCount, std::move(*l_Again),{} };
+    Trinity::AssetManager::Reload(asset);
+
+    return true;
+}
+
+bool EditorSession::EditSoundEvent(Trinity::UUID asset, const Trinity::SoundEventData& before, const Trinity::SoundEventData& after, std::string_view what, std::string field)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr)
+    {
+        return false;
+    }
+
+    const std::string l_Label = std::format("{} in {}", what, ToUtf8(FromUtf8(l_Record->Path).stem()));
+    if (const std::string l_Error = Trinity::ValidateSoundEvent(after); !l_Error.empty())
+    {
+        TR_WARN("Forge: {} was not made, since {}", l_Label, l_Error);
+
+        return false;
+    }
+
+    return GetHistory().Execute(Trinity::CreateScope<SetSoundEventCommand>([this](Trinity::UUID id, const Trinity::SoundEventData& data) { return SaveSoundEvent(id, data); }, asset, before, after, std::move(field), l_Label));
 }
 
 // One asset is kept, the one the panel shows, so moving between two reads each again

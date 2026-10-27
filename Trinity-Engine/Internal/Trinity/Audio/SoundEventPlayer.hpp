@@ -212,6 +212,9 @@ namespace Trinity
         void Schedule(std::uint64_t horizon, SoundEventMemory& memory, PlayList& plays, std::span<const float> values = {});
         // Before a Schedule, in an event whose curves move a pitch: the pitch each container's curves give it now, at the instance's frame given, from which each clip playing is foreseen to end at that pitch, its play in the list given lengthened or shortened to match
         void Retime(std::span<const float> pitches, std::uint64_t clock, PlayList& plays);
+        // As its asset is edited, with the new version's clips in its plan's order: what it has started plays on, and what each container starts from its next trigger is the new version's, each container found by its ID. A container started that the new version lacks, or has as another type, ends at the frame given with everything started below it, its parent hearing of it as of a child ending then
+        void Adopt(Ref<const SoundEventPlan> plan, std::span<const SoundEventClip> clips, std::uint64_t time);
+
 
         // Whether nothing is left to start or to end, every container having ended by the frame GetEnd gives, which is c_Never until then
         [[nodiscard]] bool IsFinished() const;

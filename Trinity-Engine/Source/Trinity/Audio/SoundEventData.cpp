@@ -11,6 +11,7 @@
 #include <cmath>
 #include <format>
 #include <initializer_list>
+#include <limits>
 #include <utility>
 
 namespace Trinity
@@ -48,6 +49,101 @@ namespace Trinity
         bool AreNumbers(std::initializer_list<float> values)
         {
             return std::ranges::all_of(values, [](float value) { return std::isfinite(value); });
+        }
+
+
+        // Whether the container is the one given or below it
+        bool IsWithin(const SoundEventData& data, UUID container, UUID ancestor)
+        {
+            for (const SoundContainer* it_Container = data.FindContainer(container); it_Container != nullptr; it_Container = it_Container->Parent ? data.FindContainer(it_Container->Parent) : nullptr)
+            {
+                if (it_Container->ID == ancestor)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // The place after the last container that is the one given or below it
+        std::size_t FindBranchEnd(const SoundEventData& data, UUID container)
+        {
+            std::size_t l_End = 0;
+            for (std::size_t it_Container = 0; it_Container < data.Containers.size(); ++it_Container)
+            {
+                l_End = IsWithin(data, data.Containers[it_Container].ID, container) ? it_Container + 1 : l_End;
+            }
+
+            return l_End;
+        }
+
+        // The children of each Switch by the parameter, or of the one container given, play for every label again
+        void ClearCases(SoundEventData& data, UUID switchContainer, UUID parameter = UUID(), std::string_view label = {})
+        {
+            for (SoundContainer& it_Child : data.Containers)
+            {
+                const SoundContainer* l_Parent = it_Child.Parent ? data.FindContainer(it_Child.Parent) : nullptr;
+                const bool l_ByParameter = parameter && l_Parent != nullptr && l_Parent->Type == SoundContainerType::Switch && l_Parent->Parameter == parameter;
+                if ((l_Parent != nullptr && l_Parent->ID == switchContainer) || (l_ByParameter && (label.empty() || std::string_view(it_Child.Case) == label)))
+                {
+                    it_Child.Case.clear();
+                }
+            }
+        }
+
+        // What the container's type never saves goes back to its default, so an edit leaves the event its file reloads as
+        void ForgetUnsaved(SoundContainer& container)
+        {
+            const SoundContainer l_Default;
+            const SoundContainerType l_Type = container.Type;
+            container.Clip = l_Type == SoundContainerType::Clip ? container.Clip : l_Default.Clip;
+            container.Loop = l_Type == SoundContainerType::Clip || l_Type == SoundContainerType::Sequence ? container.Loop : l_Default.Loop;
+            container.Parameter = l_Type == SoundContainerType::Switch ? container.Parameter : l_Default.Parameter;
+            if (l_Type != SoundContainerType::Random)
+            {
+                container.AvoidRepeat = l_Default.AvoidRepeat;
+                container.AutoTrigger = l_Default.AutoTrigger;
+                container.Timing = l_Default.Timing;
+                container.IntervalMinimum = l_Default.IntervalMinimum;
+                container.IntervalMaximum = l_Default.IntervalMaximum;
+                container.TriggerCount = l_Default.TriggerCount;
+            }
+        }
+
+        // What a curve's value is at where it changes nothing
+        float GetCurveRest(SoundCurveTarget target)
+        {
+            switch (target)
+            {
+                case SoundCurveTarget::Pitch:
+                {
+                    return 1.0f;
+                }
+                case SoundCurveTarget::Cutoff:
+                {
+                    return SoundEventData::c_MaximumCutoff;
+                }
+                case SoundCurveTarget::Volume:
+                {
+                    break;
+                }
+            }
+
+            return 0.0f;
+        }
+
+        bool IsLabelFree(const SoundParameter& parameter, std::string_view name, std::size_t except = std::numeric_limits<std::size_t>::max())
+        {
+            for (std::size_t it_Label = 0; it_Label < parameter.Labels.size(); ++it_Label)
+            {
+                if (it_Label != except && std::string_view(parameter.Labels[it_Label]) == name)
+                {
+                    return false;
+                }
+            }
+
+            return !name.empty();
         }
 
         // A curve as a file gives it, its points each a pair of numbers
@@ -496,6 +592,12 @@ namespace Trinity
         return a_Found != Parameters.end() ? &*a_Found : nullptr;
     }
 
+
+    SoundParameter* SoundEventData::FindParameter(UUID id)
+    {
+        return const_cast<SoundParameter*>(std::as_const(*this).FindParameter(id));
+    }
+
     const SoundParameter* SoundEventData::FindParameter(std::string_view name) const
     {
         const auto a_Found = std::ranges::find_if(Parameters, [name](const SoundParameter& parameter) { return std::string_view(parameter.Name) == name; });
@@ -515,6 +617,361 @@ namespace Trinity
         }
 
         return l_Clips;
+    }
+
+    const SoundCurve* SoundEventData::FindCurve(UUID container, UUID parameter, SoundCurveTarget target) const
+    {
+        const SoundContainer* l_Container = FindContainer(container);
+        if (l_Container == nullptr)
+        {
+            return nullptr;
+        }
+
+        const auto a_Found = std::ranges::find_if(l_Container->Curves, [parameter, target](const SoundCurve& curve) { return curve.Parameter == parameter && curve.Target == target; });
+
+        return a_Found != l_Container->Curves.end() ? &*a_Found : nullptr;
+    }
+
+    SoundCurve* SoundEventData::FindCurve(UUID container, UUID parameter, SoundCurveTarget target)
+    {
+        return const_cast<SoundCurve*>(std::as_const(*this).FindCurve(container, parameter, target));
+    }
+
+    SoundContainer* SoundEventData::AddContainer(UUID parent, SoundContainerType type, std::string_view name, UUID clip)
+    {
+        const SoundContainer* l_Parent = FindContainer(parent);
+        if (l_Parent == nullptr || l_Parent->Type == SoundContainerType::Clip)
+        {
+            return nullptr;
+        }
+
+        SoundContainer l_Container;
+        l_Container.ID = UUID::Generate();
+        l_Container.Parent = parent;
+        l_Container.Name = TaggedString<MemoryTag::Audio>(name);
+        l_Container.Type = type;
+        l_Container.Clip = type == SoundContainerType::Clip ? clip : UUID();
+        const auto a_At = Containers.begin() + static_cast<std::ptrdiff_t>(FindBranchEnd(*this, parent));
+
+        return &*Containers.insert(a_At, std::move(l_Container));
+    }
+
+    SoundContainer* SoundEventData::DuplicateContainer(UUID container, std::string_view name)
+    {
+        if (!container || Containers.empty() || Containers.front().ID == container || FindContainer(container) == nullptr)
+        {
+            return nullptr;
+        }
+
+        std::vector<SoundContainer, TaggedAllocator<SoundContainer, MemoryTag::Audio>> l_Copies;
+        std::vector<std::pair<UUID, UUID>, TaggedAllocator<std::pair<UUID, UUID>, MemoryTag::Audio>> l_IDs;
+        for (const SoundContainer& it_Container : Containers)
+        {
+            if (IsWithin(*this, it_Container.ID, container))
+            {
+                l_IDs.emplace_back(it_Container.ID, UUID::Generate());
+                l_Copies.push_back(it_Container);
+            }
+        }
+
+        for (SoundContainer& it_Copy : l_Copies)
+        {
+            const auto a_Parent = std::ranges::find(l_IDs, it_Copy.Parent, &std::pair<UUID, UUID>::first);
+            it_Copy.Parent = a_Parent != l_IDs.end() ? a_Parent->second : it_Copy.Parent;
+            it_Copy.ID = std::ranges::find(l_IDs, it_Copy.ID, &std::pair<UUID, UUID>::first)->second;
+        }
+
+        l_Copies.front().Name = TaggedString<MemoryTag::Audio>(name);
+        const auto a_At = Containers.begin() + static_cast<std::ptrdiff_t>(FindBranchEnd(*this, container));
+
+        return &*Containers.insert(a_At, l_Copies.begin(), l_Copies.end());
+    }
+
+    bool SoundEventData::RemoveContainer(UUID container)
+    {
+        if (!container || Containers.empty() || Containers.front().ID == container || FindContainer(container) == nullptr)
+        {
+            return false;
+        }
+
+        std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Audio>> l_Gone;
+        for (const SoundContainer& it_Container : Containers)
+        {
+            if (IsWithin(*this, it_Container.ID, container))
+            {
+                l_Gone.push_back(it_Container.ID);
+            }
+        }
+
+        std::erase_if(Containers, [&l_Gone](const SoundContainer& it_Container) { return std::ranges::find(l_Gone, it_Container.ID) != l_Gone.end(); });
+
+        return true;
+    }
+
+    // Taken out with everything below it in their order, then put back in one piece where it goes
+    bool SoundEventData::MoveContainer(UUID container, UUID parent, UUID before)
+    {
+        const SoundContainer* l_Container = FindContainer(container);
+        const SoundContainer* l_Parent = FindContainer(parent);
+        const SoundContainer* l_Before = before ? FindContainer(before) : nullptr;
+        if (l_Container == nullptr || l_Container == &Containers.front() || l_Parent == nullptr || l_Parent->Type == SoundContainerType::Clip || IsWithin(*this, parent, container) || (before && (l_Before == nullptr || l_Before->Parent != parent || before == container)))
+        {
+            return false;
+        }
+
+        const SoundContainer* l_From = FindContainer(l_Container->Parent);
+        const bool l_KeepsCase = l_From != nullptr && l_From->Type == SoundContainerType::Switch && l_Parent->Type == SoundContainerType::Switch && l_From->Parameter == l_Parent->Parameter;
+        const bool l_KeepsWeight = l_Parent->Type == SoundContainerType::Random;
+        std::vector<SoundContainer, TaggedAllocator<SoundContainer, MemoryTag::Audio>> l_Branch;
+        for (const SoundContainer& it_Container : Containers)
+        {
+            if (IsWithin(*this, it_Container.ID, container))
+            {
+                l_Branch.push_back(it_Container);
+            }
+        }
+
+        std::erase_if(Containers, [&l_Branch](const SoundContainer& it_Container) { return std::ranges::find(l_Branch, it_Container.ID, &SoundContainer::ID) != l_Branch.end(); });
+        l_Branch.front().Parent = parent;
+        if (!l_KeepsCase)
+        {
+            l_Branch.front().Case.clear();
+        }
+
+        if (!l_KeepsWeight)
+        {
+            l_Branch.front().Weight = SoundContainer().Weight;
+        }
+
+        const std::size_t l_At = before ? static_cast<std::size_t>(std::ranges::find(Containers, before, &SoundContainer::ID) - Containers.begin()) : FindBranchEnd(*this, parent);
+        Containers.insert(Containers.begin() + static_cast<std::ptrdiff_t>(l_At), l_Branch.begin(), l_Branch.end());
+
+        return true;
+    }
+
+    bool SoundEventData::SetContainerType(UUID container, SoundContainerType type)
+    {
+        SoundContainer* l_Container = FindContainer(container);
+        if (l_Container == nullptr || (type == SoundContainerType::Clip && std::ranges::any_of(Containers, [container](const SoundContainer& it_Child) { return it_Child.Parent == container; })))
+        {
+            return false;
+        }
+
+        if (l_Container->Type == SoundContainerType::Switch && type != SoundContainerType::Switch)
+        {
+            ClearCases(*this, container);
+        }
+
+        if (l_Container->Type == SoundContainerType::Random && type != SoundContainerType::Random)
+        {
+            for (SoundContainer& it_Child : Containers)
+            {
+                it_Child.Weight = it_Child.Parent == container ? SoundContainer().Weight : it_Child.Weight;
+            }
+        }
+
+        const SoundParameter* l_Parameter = FindParameter(l_Container->Parameter);
+        if (type == SoundContainerType::Switch && (l_Parameter == nullptr || l_Parameter->Kind != SoundParameterKind::Discrete))
+        {
+            l_Container->Parameter = UUID();
+        }
+
+        l_Container->Type = type;
+        ForgetUnsaved(*l_Container);
+
+        return true;
+    }
+
+    bool SoundEventData::SetSwitchParameter(UUID container, UUID parameter)
+    {
+        SoundContainer* l_Container = FindContainer(container);
+        const SoundParameter* l_Parameter = parameter ? FindParameter(parameter) : nullptr;
+        if (l_Container == nullptr || l_Container->Type != SoundContainerType::Switch || (parameter && (l_Parameter == nullptr || l_Parameter->Kind != SoundParameterKind::Discrete)))
+        {
+            return false;
+        }
+
+        if (l_Container->Parameter != parameter)
+        {
+            ClearCases(*this, container);
+        }
+
+        l_Container->Parameter = parameter;
+
+        return true;
+    }
+
+    SoundParameter* SoundEventData::AddParameter(std::string_view name, SoundParameterKind kind)
+    {
+        if (name.empty() || FindParameter(name) != nullptr)
+        {
+            return nullptr;
+        }
+
+        SoundParameter& l_Parameter = Parameters.emplace_back();
+        l_Parameter.ID = UUID::Generate();
+        l_Parameter.Name = TaggedString<MemoryTag::Audio>(name);
+        l_Parameter.Kind = kind;
+        if (kind == SoundParameterKind::Discrete)
+        {
+            l_Parameter.Labels.emplace_back(std::string_view("Label 1"));
+        }
+
+        return &l_Parameter;
+    }
+
+    bool SoundEventData::RemoveParameter(UUID parameter)
+    {
+        if (FindParameter(parameter) == nullptr)
+        {
+            return false;
+        }
+
+        ClearCases(*this, UUID(), parameter);
+        for (SoundContainer& it_Container : Containers)
+        {
+            std::erase_if(it_Container.Curves, [parameter](const SoundCurve& curve) { return curve.Parameter == parameter; });
+            it_Container.Parameter = it_Container.Parameter == parameter ? UUID() : it_Container.Parameter;
+        }
+
+        std::erase_if(Parameters, [parameter](const SoundParameter& it_Parameter) { return it_Parameter.ID == parameter; });
+
+        return true;
+    }
+
+    bool SoundEventData::RenameParameter(UUID parameter, std::string_view name)
+    {
+        const SoundParameter* l_Other = FindParameter(name);
+        SoundParameter* l_Parameter = FindParameter(parameter);
+        if (l_Parameter == nullptr || name.empty() || (l_Other != nullptr && l_Other != l_Parameter))
+        {
+            return false;
+        }
+
+        l_Parameter->Name = TaggedString<MemoryTag::Audio>(name);
+
+        return true;
+    }
+
+    bool SoundEventData::SetParameterKind(UUID parameter, SoundParameterKind kind)
+    {
+        SoundParameter* l_Parameter = FindParameter(parameter);
+        if (l_Parameter == nullptr)
+        {
+            return false;
+        }
+
+        if (l_Parameter->Kind == kind)
+        {
+            return true;
+        }
+
+        if (kind == SoundParameterKind::Continuous)
+        {
+            ClearCases(*this, UUID(), parameter);
+            for (SoundContainer& it_Container : Containers)
+            {
+                it_Container.Parameter = it_Container.Type == SoundContainerType::Switch && it_Container.Parameter == parameter ? UUID() : it_Container.Parameter;
+            }
+
+            l_Parameter->Minimum = 0.0f;
+            l_Parameter->Maximum = static_cast<float>(std::max<std::size_t>(l_Parameter->Labels.size(), 2) - 1);
+            l_Parameter->Labels.clear();
+        }
+        else
+        {
+            l_Parameter->Labels = { TaggedString<MemoryTag::Audio>(std::string_view("Label 1")) };
+        }
+
+        l_Parameter->Kind = kind;
+        l_Parameter->Default = l_Parameter->Clamp(l_Parameter->Default);
+
+        return true;
+    }
+
+    bool SoundEventData::AddLabel(UUID parameter, std::string_view name)
+    {
+        SoundParameter* l_Parameter = FindParameter(parameter);
+        if (l_Parameter == nullptr || l_Parameter->Kind != SoundParameterKind::Discrete || !IsLabelFree(*l_Parameter, name))
+        {
+            return false;
+        }
+
+        l_Parameter->Labels.emplace_back(name);
+
+        return true;
+    }
+
+    bool SoundEventData::RenameLabel(UUID parameter, std::size_t index, std::string_view name)
+    {
+        SoundParameter* l_Parameter = FindParameter(parameter);
+        if (l_Parameter == nullptr || l_Parameter->Kind != SoundParameterKind::Discrete || index >= l_Parameter->Labels.size() || !IsLabelFree(*l_Parameter, name, index))
+        {
+            return false;
+        }
+
+        const TaggedString<MemoryTag::Audio> l_Old = l_Parameter->Labels[index];
+        for (SoundContainer& it_Child : Containers)
+        {
+            const SoundContainer* l_Switch = it_Child.Parent ? FindContainer(it_Child.Parent) : nullptr;
+            if (l_Switch != nullptr && l_Switch->Type == SoundContainerType::Switch && l_Switch->Parameter == parameter && it_Child.Case == l_Old)
+            {
+                it_Child.Case = TaggedString<MemoryTag::Audio>(name);
+            }
+        }
+
+        l_Parameter->Labels[index] = TaggedString<MemoryTag::Audio>(name);
+
+        return true;
+    }
+
+    bool SoundEventData::RemoveLabel(UUID parameter, std::size_t index)
+    {
+        SoundParameter* l_Parameter = FindParameter(parameter);
+        if (l_Parameter == nullptr || l_Parameter->Kind != SoundParameterKind::Discrete || index >= l_Parameter->Labels.size() || l_Parameter->Labels.size() == 1)
+        {
+            return false;
+        }
+
+        ClearCases(*this, UUID(), parameter, std::string_view(l_Parameter->Labels[index]));
+        l_Parameter->Labels.erase(l_Parameter->Labels.begin() + static_cast<std::ptrdiff_t>(index));
+        l_Parameter->Default = l_Parameter->Clamp(l_Parameter->Default);
+
+        return true;
+    }
+
+    SoundCurve* SoundEventData::AddCurve(UUID container, UUID parameter, SoundCurveTarget target)
+    {
+        SoundContainer* l_Container = FindContainer(container);
+        const SoundParameter* l_Parameter = FindParameter(parameter);
+        if (l_Container == nullptr || l_Parameter == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (SoundCurve* l_Found = FindCurve(container, parameter, target))
+        {
+            return l_Found;
+        }
+
+        SoundCurve& l_Curve = l_Container->Curves.emplace_back();
+        l_Curve.Parameter = parameter;
+        l_Curve.Target = target;
+        const float l_Rest = GetCurveRest(target);
+        l_Curve.Points.emplace_back(l_Parameter->GetMinimum(), l_Rest);
+        if (l_Parameter->GetMaximum() > l_Parameter->GetMinimum())
+        {
+            l_Curve.Points.emplace_back(l_Parameter->GetMaximum(), l_Rest);
+        }
+
+        return &l_Curve;
+    }
+
+    bool SoundEventData::RemoveCurve(UUID container, UUID parameter, SoundCurveTarget target)
+    {
+        SoundContainer* l_Container = FindContainer(container);
+
+        return l_Container != nullptr && std::erase_if(l_Container->Curves, [parameter, target](const SoundCurve& curve) { return curve.Parameter == parameter && curve.Target == target; }) != 0;
     }
 
     std::string_view GetSoundContainerTypeKey(SoundContainerType type)

@@ -176,9 +176,42 @@ namespace Trinity
         [[nodiscard]] const SoundContainer* FindContainer(UUID id) const;
         [[nodiscard]] SoundContainer* FindContainer(UUID id);
         [[nodiscard]] const SoundParameter* FindParameter(UUID id) const;
+        [[nodiscard]] SoundParameter* FindParameter(UUID id);
         [[nodiscard]] const SoundParameter* FindParameter(std::string_view name) const;
         // The clip of each Clip container that names one, once each, in the containers' order
         [[nodiscard]] std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Audio>> GetClips() const;
+        [[nodiscard]] const SoundCurve* FindCurve(UUID container, UUID parameter, SoundCurveTarget target) const;
+        [[nodiscard]] SoundCurve* FindCurve(UUID container, UUID parameter, SoundCurveTarget target);
+
+        // The edits Forge's Sound Event panel makes, each of which keeps an event to its rules. A new container of the type below the parent, after everything below it already, with an ID of its own, at its defaults, a Clip playing the clip given. Null for a parent the event lacks or a Clip, which holds none
+        SoundContainer* AddContainer(UUID parent, SoundContainerType type, std::string_view name, UUID clip = UUID());
+        // A copy of the container and everything below it, the copy named as given, right after the last of them, below the same parent, each copy with an ID of its own. Null for the root or a container the event lacks
+        SoundContainer* DuplicateContainer(UUID container, std::string_view name);
+        // The container and everything below it. False for the root or a container the event lacks
+        bool RemoveContainer(UUID container);
+        // The container, with everything below it, below another parent, before one of the parent's children, or after the last when it names none. Its case is kept only below a Switch by the same parameter, and its weight only below a Random. False for the root, a container or a parent the event lacks, a Clip, a parent that is the container or below it, or a child before which is not the parent's
+        bool MoveContainer(UUID container, UUID parent, UUID before = UUID());
+        // Its children's cases are let go once it is no Switch, and their weights once it is no Random, as its parameter is once it is a Switch by a parameter that is not discrete. What the new type never saves, such as a Clip's clip or a Random's triggering, goes back to its default. False for a container the event lacks, or a Clip asked of one with children
+        bool SetContainerType(UUID container, SoundContainerType type);
+        // A Switch by a discrete parameter of the event's, or by none, its children's cases let go when it changes. False for a container that is no Switch, or a parameter that is not one of the event's discrete ones
+        bool SetSwitchParameter(UUID container, UUID parameter);
+        // At its kind's defaults: a continuous one from 0 to 1, and a discrete one with one label. Null for a name that is empty or another parameter's
+        SoundParameter* AddParameter(std::string_view name, SoundParameterKind kind);
+        // The parameter, with its curves, and the Switches by it, which pick by none, their children's cases let go. False for one the event lacks
+        bool RemoveParameter(UUID parameter);
+        // False for one the event lacks, or a name that is empty or another parameter's
+        bool RenameParameter(UUID parameter, std::string_view name);
+        // Continuous, its labels go, the Switches by it pick by none, and its range spans what the labels did. Discrete, it has one label. Its default is kept within its range. False for one the event lacks
+        bool SetParameterKind(UUID parameter, SoundParameterKind kind);
+        // A label last, or renamed, a case of it renamed with it, or removed, a case of it let go and a default past the last label kept to it. False for a parameter that is not one of the event's discrete ones, a name that is empty or another of its labels', a place beyond its labels, or its only label
+        bool AddLabel(UUID parameter, std::string_view name);
+        bool RenameLabel(UUID parameter, std::size_t index, std::string_view name);
+        bool RemoveLabel(UUID parameter, std::size_t index);
+        // A curve of the container's value by the parameter, level at the value that changes nothing across the parameter's range, or the one it has already. Null for a container or a parameter the event lacks
+        SoundCurve* AddCurve(UUID container, UUID parameter, SoundCurveTarget target);
+        // False for a curve the container lacks
+        bool RemoveCurve(UUID container, UUID parameter, SoundCurveTarget target);
+
 
         [[nodiscard]] bool operator==(const SoundEventData&) const = default;
     };
