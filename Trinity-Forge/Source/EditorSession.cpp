@@ -1330,6 +1330,8 @@ void EditorSession::CloseProject()
     m_Mixer = {};
     m_MixerScan = 0;
     ApplyMixer(nullptr);
+    m_MixerSelection = {};
+    m_EditMixerInPlay = false;
     m_InspectedAsset = {};
     // Its components name the project's assets
     m_CopiedEntity.reset();
@@ -1844,6 +1846,7 @@ void EditorSession::UpdateMixer()
     }
 
     ApplyMixer(m_Mixer.IsReady() ? m_Mixer.Get() : nullptr);
+    HoldMixer();
 }
 
 // Each version once, and a version that changes nothing leaves the mix as it is
@@ -1860,12 +1863,22 @@ void EditorSession::ApplyMixer(const Trinity::AudioMixerAsset* asset)
     static_cast<void>(l_Engine->GetMixer().Apply(asset != nullptr ? asset->GetData() : Trinity::AudioMixerData::MakeDefault()));
 }
 
-// Each Play starts, and Stop leaves Forge, at the start snapshot with nothing set from code, as Unity's mixer is when Play mode starts and ends
+// Each Play starts, and Stop leaves Forge, at the start snapshot with nothing set from code, as Unity's mixer is when Play mode starts and ends. The Audio Mixer panel's snapshot is let go, and held again from the next frame while it is to be
 void EditorSession::ResetMixer()
 {
     if (Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine(); l_Engine != nullptr)
     {
+        l_Engine->GetMixer().Hold({});
         l_Engine->GetMixer().Reset();
+    }
+}
+
+// The Audio Mixer panel's snapshot is heard while no scene plays, and while one does with Edit in Play Mode on, when it is one of the project mixer's, which the engine's mixer looks to
+void EditorSession::HoldMixer()
+{
+    if (Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine(); l_Engine != nullptr)
+    {
+        l_Engine->GetMixer().Hold(!m_Play || m_EditMixerInPlay ? m_MixerSelection.Snapshot : Trinity::UUID());
     }
 }
 
@@ -2454,6 +2467,7 @@ void EditorSession::StartPlay()
     m_StepRequested = false;
     const std::size_t l_Entities = l_Copy->GetEntityCount();
     // The scene's sounds play on Forge's own output, through the project's mixer, which the engine already plays, from its start snapshot, with the project's voice limits, Doppler factor and occlusion
+    m_EditMixerInPlay = false;
     ResetMixer();
     m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get(), m_Project->GetInputActions(), Trinity::Application::Get().GetAudioEngine(), m_Project->GetAudioSettings());
     m_Play->Run(std::move(l_Copy), GetSceneID());
@@ -3035,6 +3049,99 @@ std::optional<std::string> EditorSession::CreateAudioMixer(std::string_view fold
     }
 
     return l_Path;
+}
+
+// As ReadInputActions keeps its files
+const EditorSession::AudioMixerFile* EditorSession::ReadAudioMixer(Trinity::UUID asset)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::AudioMixerAsset::c_AssetType)
+    {
+        return nullptr;
+    }
+
+    AudioMixerFile& l_File = m_AudioMixerFiles[asset];
+    if (l_File.Asset == asset && l_File.ScanCount == m_ScanCount)
+    {
+        return &l_File;
+    }
+
+    l_File = AudioMixerFile{ asset, m_ScanCount, std::nullopt,{} };
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(l_Record->Path);
+    if (!l_Text)
+    {
+        l_File.Error = std::format("{} could not be read: {}", l_Record->Path, Trinity::ToString(l_Text.GetError()));
+
+        return &l_File;
+    }
+
+    Trinity::Expected<Trinity::AudioMixerData, std::string> l_Data = Trinity::ParseAudioMixer(*l_Text);
+    if (!l_Data)
+    {
+        l_File.Error = std::format("{} could not be read: {}", l_Record->Path, l_Data.GetError());
+
+        return &l_File;
+    }
+
+    l_File.Data = std::move(*l_Data);
+
+    return &l_File;
+}
+
+// What is kept and played is the data as the file reads back, which is what the asset loads from it, so the mix is left as it is when the asset arrives. The project's mixer takes it now, since the asset loads a frame or more later, and a fader's drag is heard as it moves
+bool EditorSession::SaveAudioMixer(Trinity::UUID asset, const Trinity::AudioMixerData& data)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr || l_Record->Importer != Trinity::AudioMixerAsset::c_AssetType)
+    {
+        return false;
+    }
+
+    const std::string l_Text = Trinity::WriteAudioMixer(data);
+    Trinity::Expected<Trinity::AudioMixerData, std::string> l_Again = Trinity::ParseAudioMixer(l_Text);
+    if (!l_Again)
+    {
+        TR_ERROR("Forge: {} was not saved, since it would not read back: {}", l_Record->Path, l_Again.GetError());
+
+        return false;
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Record->Path, l_Text); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be written: {}", l_Record->Path, Trinity::ToString(l_Written.GetError()));
+
+        return false;
+    }
+
+    Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine();
+    if (asset == m_MixerID && l_Engine != nullptr)
+    {
+        static_cast<void>(l_Engine->GetMixer().Apply(*l_Again));
+    }
+
+    m_AudioMixerFiles[asset] = AudioMixerFile{ asset, m_ScanCount, std::move(*l_Again),{} };
+    Trinity::AssetManager::Reload(asset);
+
+    return true;
+}
+
+bool EditorSession::EditAudioMixer(Trinity::UUID asset, const Trinity::AudioMixerData& before, const Trinity::AudioMixerData& after, std::string_view what, std::string field)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
+    if (l_Record == nullptr)
+    {
+        return false;
+    }
+
+    const std::string l_Label = std::format("{} in {}", what, ToUtf8(FromUtf8(l_Record->Path).stem()));
+    if (const std::string l_Error = Trinity::ValidateAudioMixer(after); !l_Error.empty())
+    {
+        TR_WARN("Forge: {} was not made, since {}", l_Label, l_Error);
+
+        return false;
+    }
+
+    return GetHistory().Execute(Trinity::CreateScope<SetAudioMixerCommand>([this](Trinity::UUID id, const Trinity::AudioMixerData& data) { return SaveAudioMixer(id, data); }, asset, before, after, std::move(field), l_Label));
 }
 
 // One asset is kept, the one the panel shows, so moving between two reads each again

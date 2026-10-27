@@ -186,6 +186,9 @@ namespace Trinity
         [[nodiscard]] const AudioMixerGroup& GetMaster() const;
         [[nodiscard]] const AudioMixerGroup* FindGroup(UUID id) const;
         [[nodiscard]] AudioMixerGroup* FindGroup(UUID id);
+        // Never Attenuation, which has no ID
+        [[nodiscard]] const AudioEffect* FindEffect(UUID id) const;
+        [[nodiscard]] AudioEffect* FindEffect(UUID id);
 
         // The one StartSnapshot names, which a mixer that keeps to its rules has
         [[nodiscard]] const AudioMixerSnapshot& GetStartSnapshot() const;
@@ -206,6 +209,30 @@ namespace Trinity
         bool SetCurve(UUID snapshot, AudioMixerValue value, AudioTransitionCurve curve);
         // A copy of another snapshot's values, or the start snapshot's when it names none, under the name, with an ID of its own, as Unity's Duplicate makes one
         AudioMixerSnapshot& AddSnapshot(std::string_view name, UUID copyOf = UUID());
+        // Any but the start snapshot. False for it, or for one the mixer lacks
+        bool RemoveSnapshot(UUID snapshot);
+        // As Unity's Set as Start Snapshot: the snapshot's values become the groups' and effects' own, and the start snapshot before it keeps a copy of what they were. False for a snapshot the mixer lacks
+        bool SetStartSnapshot(UUID snapshot);
+
+        // The edits Forge's Audio Mixer panel makes, which keep a mixer to its rules, but for a Send that a move of a group makes loop. A new group below the parent, after every group below it already, at its defaults, with an ID of its own. Null for a parent the mixer lacks
+        AudioMixerGroup* AddGroup(UUID parent, std::string_view name);
+        // A copy of the group and every group below it, the copy named as given, right after the last of them, below the same parent. Each copy and each of their effects has an ID of its own, each snapshot holds for a copy what it holds for its original, and a Send among them that sends to a Receive or a Duck Volume among them sends to its copy, as Unity's Duplicate Group does. Null for Master or a group the mixer lacks
+        AudioMixerGroup* DuplicateGroup(UUID group, std::string_view name);
+        // The group and every group below it, with what the snapshots hold, the names expose and Sends send to of theirs. False for Master or a group the mixer lacks
+        bool RemoveGroup(UUID group);
+        // The group, with every group below it, below another parent, before one of the parent's groups, or after the last when it names none. False for Master, a group or a parent the mixer lacks, or a parent that is the group or below it
+        bool MoveGroup(UUID group, UUID parent, UUID before = UUID());
+        // A new effect of the type at its defaults, into the group's chain at the place, as GetChain counts it, or last. Null for Attenuation, which a group has once, and for a group the mixer lacks
+        AudioEffect* InsertEffect(UUID group, std::size_t place, AudioEffectType type);
+        // The effect, with what the snapshots hold, the names expose and Sends send to of its. False for an effect the mixer lacks
+        bool RemoveEffect(UUID effect);
+        // An effect, or Attenuation, from one place of the group's chain to another, as GetChain counts them. False for a group the mixer lacks or a place beyond its chain
+        bool MoveEffect(UUID group, std::size_t from, std::size_t to);
+        // What the snapshots hold and the names expose for groups and effects the mixer no longer has, and Sends to effects it no longer has, let go
+        void Prune();
+
+        // The group's chain as it plays, its Attenuation last when its effects leave it out
+        [[nodiscard]] static AudioEffectList GetChain(const AudioMixerGroup& group);
 
         [[nodiscard]] bool operator==(const AudioMixerData&) const = default;
     };

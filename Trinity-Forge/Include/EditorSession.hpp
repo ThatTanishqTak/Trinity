@@ -115,6 +115,25 @@ public:
         std::string Error;
     };
 
+    // An audio mixer asset as its file holds it, as for input actions
+    struct AudioMixerFile
+    {
+        Trinity::UUID Asset;
+        std::uint64_t ScanCount = 0;
+        std::optional<Trinity::AudioMixerData> Data;
+        std::string Error;
+    };
+
+    // What the Audio Mixer panel shows: the mixer, the snapshot whose values are edited, and the group or effect chosen, if any
+    struct MixerSelection
+    {
+        Trinity::UUID Asset;
+        Trinity::UUID Snapshot;
+        Trinity::UUID Item;
+
+        [[nodiscard]] bool operator==(const MixerSelection&) const = default;
+    };
+
     // The project folders scripts live in, which the Content Browser shows beside Assets
     static constexpr std::string_view c_ScriptsFolder = "/project/Scripts";
     static constexpr std::string_view c_SourceFolder = "/project/Source";
@@ -246,6 +265,17 @@ public:
     void SetProjectMixer(Trinity::UUID asset);
     // Master alone at 0 dB, named New Audio Mixer, or New Audio Mixer 1 and on when that is taken, and the project's mixer while it has none, or one it no longer has. Its project path, or nothing, logged
     [[nodiscard]] std::optional<std::string> CreateAudioMixer(std::string_view folder);
+    // As the Audio Mixer panel reads it each frame, from its file the first time and again once the files are scanned, as when Forge gets the focus back, so an edit made outside it is seen. Null for an asset that is not one
+    [[nodiscard]] const AudioMixerFile* ReadAudioMixer(Trinity::UUID asset);
+    // Its file, only once what is written reads back, kept as it reads back, and the asset loaded again, so the project's mixer is heard as saved from this frame on, a scene playing included
+    bool SaveAudioMixer(Trinity::UUID asset, const Trinity::AudioMixerData& data);
+    // Through the history, so it undoes in one step, named for what it did, such as "Add group Music", and the asset. Edits of the same field in a row become one, as a fader's drag does, and one with no field is always a step of its own. Refused, logged, for data that breaks a mixer's rules, as a group moved under one it sends to. Taken while a scene plays, which hears it at once, and kept once it stops
+    bool EditAudioMixer(Trinity::UUID asset, const Trinity::AudioMixerData& before, const Trinity::AudioMixerData& after, std::string_view what, std::string field = {});
+    [[nodiscard]] const MixerSelection& GetMixerSelection() const { return m_MixerSelection; }
+    void SetMixerSelection(const MixerSelection& selection) { m_MixerSelection = selection; }
+    // Unity's Edit in Play Mode: while a scene plays, the project's mixer is held at the snapshot selected, and edited, only with it on. Off again as each Play starts, so a scene starts on its own mix
+    [[nodiscard]] bool IsEditingMixerInPlay() const { return m_EditMixerInPlay; }
+    void SetEditMixerInPlay(bool edit) { m_EditMixerInPlay = edit; }
 
     // Forge's settings for the person using it, saved once nothing is being dragged or typed into
     [[nodiscard]] const EditorPreferences& GetPreferences() const { return m_Preferences; }
@@ -459,6 +489,7 @@ private:
     void UpdateMixer();
     void ApplyMixer(const Trinity::AudioMixerAsset* asset);
     void ResetMixer();
+    void HoldMixer();
     void SaveProject();
     void ImportAsset(const std::filesystem::path& file, const std::string& folder);
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
@@ -503,6 +534,7 @@ private:
     std::vector<RecentProject> m_RecentProjects;
     std::vector<RecentScene> m_RecentScenes;
     std::unordered_map<Trinity::UUID, InputActionsFile> m_InputActionsFiles;
+    std::unordered_map<Trinity::UUID, AudioMixerFile> m_AudioMixerFiles;
     glm::vec3 m_SpawnPoint{ 0.0f };
     bool m_SceneView3D = false;
     TextureReimporter m_Reimporter;
@@ -516,6 +548,8 @@ private:
     Trinity::AssetRef<Trinity::AudioMixerAsset> m_Mixer;
     std::uint64_t m_MixerScan = 0;
     std::uint64_t m_MixerSerial = 0;
+    MixerSelection m_MixerSelection;
+    bool m_EditMixerInPlay = false;
     ModuleHost m_Module;
     AssemblyHost m_Assembly;
     EditorPreferences m_Preferences;

@@ -157,6 +157,11 @@ void ForgeLayer::OnAttach()
     m_InputActionsPanel = l_InputActions.get();
     m_Panels.push_back(std::move(l_InputActions));
 
+    // Beside Input Actions, as wide, for its strips
+    Trinity::Scope<AudioMixerPanel> l_AudioMixer = Trinity::CreateScope<AudioMixerPanel>(m_Session);
+    m_AudioMixerPanel = l_AudioMixer.get();
+    m_Panels.push_back(std::move(l_AudioMixer));
+
     // Docked after the Console, so it is the tab the default layout shows
     Trinity::Scope<ContentBrowserPanel> l_ContentBrowser = Trinity::CreateScope<ContentBrowserPanel>(m_Session);
     m_ContentBrowser = l_ContentBrowser.get();
@@ -173,6 +178,13 @@ void ForgeLayer::OnAttach()
         m_InputActionsPanel->SetAsset(asset);
         m_InputActionsPanel->SetOpen(true);
         m_InputActionsPanel->RequestFocus();
+    });
+    // As is an audio mixer
+    m_ContentBrowser->SetOpenAudioMixer([this](Trinity::UUID asset)
+    {
+        m_AudioMixerPanel->SetAsset(asset);
+        m_AudioMixerPanel->SetOpen(true);
+        m_AudioMixerPanel->RequestFocus();
     });
     m_Panels.push_back(std::move(l_ContentBrowser));
 
@@ -564,9 +576,9 @@ void ForgeLayer::ReadShortcuts()
     {
         CreateEmpty(m_Session.GetSelection());
     }
-    else if (m_ContentBrowser->IsFocused() || m_InputActionsPanel->IsFocused())
+    else if (m_ContentBrowser->IsFocused() || m_InputActionsPanel->IsFocused() || m_AudioMixerPanel->IsFocused())
     {
-        // Duplicate and Delete are the browser's own while it has focus, as they are the Input Actions panel's, and Copy and Paste are left to them
+        // Duplicate and Delete are the browser's own while it has focus, as they are the Input Actions and Audio Mixer panels', and Copy and Paste are left to them
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V) && m_Session.HasCopiedEntity() && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
     {

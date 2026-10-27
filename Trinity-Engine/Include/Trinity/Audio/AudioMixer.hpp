@@ -47,6 +47,8 @@ namespace Trinity
 
         // None for a group the mixer lacks
         [[nodiscard]] std::optional<AudioMeter> GetMeter(UUID group) const;
+        // Where the mix has a value now, as it is heard: held, set from code, or where the snapshots take it, as a fader that follows the mix shows it. None for a value the mixer lacks
+        [[nodiscard]] std::optional<float> GetValue(AudioMixerValue value) const;
 
         // As Unity's AudioMixerSnapshot.TransitionTo: every value from where it is to the snapshot's over the time, each along the snapshot's curve for it, and at once for 0. False, and no change, for a name the mixer has no snapshot of
         bool TransitionToSnapshot(std::string_view name, float seconds);
@@ -60,8 +62,11 @@ namespace Trinity
         // Back to where the snapshots take it. False for a name the mixer does not expose
         bool ClearFloat(std::string_view name);
 
-        // Back at the start snapshot at once, every value set from code cleared, as Forge has it when Play starts and stops
+        // Back at the start snapshot at once, every value set from code cleared, as Forge has it when Play starts and stops. A snapshot held stays held
         void Reset();
+
+        // Forge's, as Unity's Audio Mixer window has its mixer outside Play mode, and in it with Edit in Play Mode on: the mix plays the snapshot's values, each gliding there as an edit does, while transitions and values set from code carry on beneath it unheard, and an Apply that changes the snapshot is heard at once. An empty ID, or one of a snapshot the mixer lacks, lets go, each value gliding back to where code has it
+        void Hold(UUID snapshot);
 
     private:
         friend class AudioEngine;

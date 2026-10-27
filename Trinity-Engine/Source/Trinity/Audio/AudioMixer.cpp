@@ -1327,7 +1327,8 @@ namespace Trinity
         [[nodiscard]] Glide GetGlide(AudioMixerValue value) const;
         [[nodiscard]] float BlendTarget(AudioMixerValue value) const;
         [[nodiscard]] Lane MakeSnapshotLane(AudioMixerValue value, Glide glide, float from, std::uint64_t start, std::uint32_t length) const;
-        void PlayValue(ValueLanes& lanes, std::uint64_t now, Glide glide) const;
+        [[nodiscard]] Lane GetHeard(const ValueLanes& lanes, AudioMixerValue value) const;
+        void PlayValue(ValueLanes& lanes, AudioMixerValue value, std::uint64_t now, Glide glide) const;
         void RefreshValues(std::uint64_t now);
         void StartTransition(std::uint32_t length);
         void SendValues(UUID owner);
@@ -1347,6 +1348,8 @@ namespace Trinity
         WeightList Targets;
         std::uint64_t TransitionStart = 0;
         std::uint32_t TransitionLength = 0;
+        // The snapshot Forge holds the mix at, or none
+        UUID Held;
         std::uint32_t RampFrames = 1;
         // Set as the mixer goes, when no Send is left to let go of what it sends to
         bool Closing = false;
@@ -2016,10 +2019,23 @@ namespace Trinity
         return l_Lane;
     }
 
-    // What plays from now on: the snapshots' lane, or the value code set, gliding over the ramp from where it was when it would step, but for a value that makes its effect anew, which steps
-    void AudioMixer::State::PlayValue(ValueLanes& lanes, std::uint64_t now, Glide glide) const
+    // The held snapshot's value, within the value's range, or else the value code set, or else the snapshots' lane
+    Lane AudioMixer::State::GetHeard(const ValueLanes& lanes, AudioMixerValue value) const
     {
-        Lane l_Played = lanes.IsSet ? Constant(lanes.Set) : lanes.Snapshot;
+        if (const AudioMixerSnapshot* l_Held = Data.FindSnapshot(Held); l_Held != nullptr)
+        {
+            const AudioEffectParameter l_Info = *Data.GetValueInfo(value);
+
+            return Constant(std::clamp(*Data.GetValue(*l_Held, value), l_Info.Minimum, l_Info.Maximum));
+        }
+
+        return lanes.IsSet ? Constant(lanes.Set) : lanes.Snapshot;
+    }
+
+    // What plays from now on, as it is heard, gliding over the ramp from where it was when it would step, but for a value that makes its effect anew, which steps
+    void AudioMixer::State::PlayValue(ValueLanes& lanes, AudioMixerValue value, std::uint64_t now, Glide glide) const
+    {
+        Lane l_Played = GetHeard(lanes, value);
         const float l_Was = Evaluate(lanes.Played, now);
         if (glide != Glide::None && Evaluate(l_Played, now) != l_Was)
         {
@@ -2032,9 +2048,15 @@ namespace Trinity
         lanes.Played = l_Played;
     }
 
-    // The lanes made again from the data an Apply gives: a snapshot gone from the transition leaves it and the rest share its weight, a value of a new group or effect starts where the snapshots take it, one of a group or effect that is gone is let go, and one whose snapshots changed moves to them from where its transition started, gliding when it would step. A value no name exposes any more is no longer set
+    // The lanes made again from the data an Apply gives: a snapshot gone from the transition leaves it and the rest share its weight, a value of a new group or effect starts where the snapshots take it, one of a group or effect that is gone is let go, and one whose snapshots changed moves to them from where its transition started, gliding when it would step. A value no name exposes any more is no longer set. While a snapshot is held every value plays again, so an edit of it is heard, and a held snapshot that is gone lets go
     void AudioMixer::State::RefreshValues(std::uint64_t now)
     {
+        const bool l_Holding = Held.IsValid();
+        if (Data.FindSnapshot(Held) == nullptr)
+        {
+            Held = {};
+        }
+
         std::erase_if(Targets, [this](const std::pair<UUID, float>& target) { return Data.FindSnapshot(target.first) == nullptr; });
         if (Targets.empty())
         {
@@ -2068,7 +2090,7 @@ namespace Trinity
             if (!l_Old)
             {
                 l_Value.Snapshot = Constant(BlendTarget(value));
-                l_Value.Played = l_Value.Snapshot;
+                l_Value.Played = GetHeard(l_Value, value);
 
                 return;
             }
@@ -2076,10 +2098,10 @@ namespace Trinity
             const bool l_WasSet = l_Value.IsSet;
             const Lane l_Snapshot = MakeSnapshotLane(value, glide, l_Value.Snapshot.From, TransitionStart, TransitionLength);
             l_Value.IsSet = l_Value.IsSet && std::ranges::find(Data.Exposed, value, &AudioExposedParameter::Value) != Data.Exposed.end();
-            if (l_Snapshot != l_Value.Snapshot || l_WasSet != l_Value.IsSet)
+            if (l_Snapshot != l_Value.Snapshot || l_WasSet != l_Value.IsSet || l_Holding)
             {
                 l_Value.Snapshot = l_Snapshot;
-                PlayValue(l_Value, now, glide);
+                PlayValue(l_Value, value, now, glide);
             }
         });
 
@@ -2096,7 +2118,7 @@ namespace Trinity
         {
             ValueLanes& l_Value = Lanes.at(value.Owner).Values[value.Slot];
             l_Value.Snapshot = MakeSnapshotLane(value, glide, Evaluate(l_Value.Snapshot, l_Now), l_Now, length);
-            PlayValue(l_Value, l_Now, glide);
+            PlayValue(l_Value, value, l_Now, glide);
         });
 
         SendAllValues();
@@ -2454,7 +2476,7 @@ namespace Trinity
         ValueLanes& l_Value = l_State.Lanes.at(l_Exposed->Value.Owner).Values[l_Exposed->Value.Slot];
         l_Value.Set = std::clamp(value, l_Info.Minimum, l_Info.Maximum);
         l_Value.IsSet = true;
-        l_State.PlayValue(l_Value, l_Now, l_State.GetGlide(l_Exposed->Value));
+        l_State.PlayValue(l_Value, l_Exposed->Value, l_Now, l_State.GetGlide(l_Exposed->Value));
         l_State.SendValues(l_Exposed->Value.Owner);
         l_State.UpdatePitched(l_Now);
 
@@ -2489,7 +2511,7 @@ namespace Trinity
         const std::uint64_t l_Now = l_State.Now();
         ValueLanes& l_Value = l_State.Lanes.at(l_Exposed->Value.Owner).Values[l_Exposed->Value.Slot];
         l_Value.IsSet = false;
-        l_State.PlayValue(l_Value, l_Now, l_State.GetGlide(l_Exposed->Value));
+        l_State.PlayValue(l_Value, l_Exposed->Value, l_Now, l_State.GetGlide(l_Exposed->Value));
         l_State.SendValues(l_Exposed->Value.Owner);
         l_State.UpdatePitched(l_Now);
 
@@ -2511,6 +2533,29 @@ namespace Trinity
 
         l_State.Targets.assign(1, { l_State.Data.StartSnapshot, 1.0f });
         l_State.StartTransition(0);
+    }
+
+    // Every value played again from the snapshot held, or from where code has it once let go, and the groups whose pitch is to move given the resampler
+    void AudioMixer::Hold(UUID snapshot)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A mixer changes on the main thread.");
+
+        State& l_State = *m_State;
+        const UUID l_Held = l_State.Data.FindSnapshot(snapshot) != nullptr ? snapshot : UUID();
+        if (l_Held == l_State.Held)
+        {
+            return;
+        }
+
+        l_State.Held = l_Held;
+        const std::uint64_t l_Now = l_State.Now();
+        ForEachValue(l_State.Data, [&](AudioMixerValue value, Glide glide, AudioEffectType)
+        {
+            l_State.PlayValue(l_State.Lanes.at(value.Owner).Values[value.Slot], value, l_Now, glide);
+        });
+
+        l_State.SendAllValues();
+        l_State.UpdatePitched(l_Now);
     }
 
     const AudioMixerData& AudioMixer::GetData() const
@@ -2536,6 +2581,18 @@ namespace Trinity
         }
 
         return l_Meter;
+    }
+
+    std::optional<float> AudioMixer::GetValue(AudioMixerValue value) const
+    {
+        const State& l_State = *m_State;
+        const auto a_Lanes = l_State.Lanes.find(value.Owner);
+        if (a_Lanes == l_State.Lanes.end() || value.Slot >= l_State.Data.GetSlotCount(value.Owner))
+        {
+            return std::nullopt;
+        }
+
+        return Evaluate(a_Lanes->second.Values[value.Slot].Played, ma_engine_get_time_in_pcm_frames(&l_State.TheEngine));
     }
 
     void AudioMixer::Route(void* node, UUID group)

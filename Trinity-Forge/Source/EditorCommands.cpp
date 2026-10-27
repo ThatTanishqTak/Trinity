@@ -1612,3 +1612,58 @@ std::size_t SetInputActionsCommand::GetMemorySize() const
 
     return l_Size;
 }
+
+SetAudioMixerCommand::SetAudioMixerCommand(Writer writer, Trinity::UUID asset, Trinity::AudioMixerData before, Trinity::AudioMixerData after, std::string field, std::string label) : m_Writer(std::move(writer)), m_Asset(asset), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::move(label))
+{
+
+}
+
+// An edit that changes nothing is no command
+bool SetAudioMixerCommand::Execute([[maybe_unused]] Trinity::Scene& scene)
+{
+    return m_Before != m_After && m_Writer(m_Asset, m_After);
+}
+
+void SetAudioMixerCommand::Undo([[maybe_unused]] Trinity::Scene& scene)
+{
+    static_cast<void>(m_Writer(m_Asset, m_Before));
+}
+
+// Only edits named by a field merge, so adding, removing and moving each stay a step of their own
+bool SetAudioMixerCommand::MergeWith(const EditorCommand& next)
+{
+    const SetAudioMixerCommand* l_Next = dynamic_cast<const SetAudioMixerCommand*>(&next);
+    if (l_Next == nullptr || l_Next->m_Asset != m_Asset || m_Field.empty() || l_Next->m_Field != m_Field)
+    {
+        return false;
+    }
+
+    m_After = l_Next->m_After;
+
+    return true;
+}
+
+std::size_t SetAudioMixerCommand::GetMemorySize() const
+{
+    std::size_t l_Size = sizeof(*this) + m_Field.capacity() + m_Label.capacity();
+    for (const Trinity::AudioMixerData* it_Data : { &m_Before, &m_After })
+    {
+        l_Size += it_Data->Groups.capacity() * sizeof(Trinity::AudioMixerGroup) + it_Data->Snapshots.capacity() * sizeof(Trinity::AudioMixerSnapshot) + it_Data->Exposed.capacity() * sizeof(Trinity::AudioExposedParameter);
+        for (const Trinity::AudioMixerGroup& it_Group : it_Data->Groups)
+        {
+            l_Size += it_Group.Name.capacity() + it_Group.Effects.capacity() * sizeof(Trinity::AudioEffect);
+        }
+
+        for (const Trinity::AudioMixerSnapshot& it_Snapshot : it_Data->Snapshots)
+        {
+            l_Size += it_Snapshot.Name.capacity() + it_Snapshot.Values.capacity() * sizeof(Trinity::AudioSnapshotValues) + it_Snapshot.Curves.capacity() * sizeof(Trinity::AudioSnapshotCurves);
+        }
+
+        for (const Trinity::AudioExposedParameter& it_Exposed : it_Data->Exposed)
+        {
+            l_Size += it_Exposed.Name.capacity();
+        }
+    }
+
+    return l_Size;
+}

@@ -9,6 +9,8 @@
 #include <atomic>
 #include <cmath>
 #include <format>
+#include <iterator>
+#include <span>
 #include <utility>
 
 namespace Trinity
@@ -145,6 +147,73 @@ namespace Trinity
                         function(it_Effect.ID);
                     }
                 }
+            }
+        }
+
+        [[nodiscard]] const AudioMixerGroup* FindIn(std::span<const AudioMixerGroup> groups, UUID id)
+        {
+            const auto a_Found = std::ranges::find(groups, id, &AudioMixerGroup::ID);
+
+            return id && a_Found != groups.end() ? &*a_Found : nullptr;
+        }
+
+        // Whether the group is the one named or below it. A walk longer than the list has come round a loop, which a mixer that keeps to its rules has none of
+        [[nodiscard]] bool IsInBranch(std::span<const AudioMixerGroup> groups, const AudioMixerGroup& group, UUID top)
+        {
+            const AudioMixerGroup* l_At = &group;
+            for (std::size_t it_Step = 0; l_At != nullptr && it_Step <= groups.size(); ++it_Step)
+            {
+                if (l_At->ID == top)
+                {
+                    return true;
+                }
+
+                l_At = FindIn(groups, l_At->Parent);
+            }
+
+            return false;
+        }
+
+        // Just after the last group that is the one named or below it, which is where a group added below it goes
+        [[nodiscard]] std::size_t FindBranchEnd(std::span<const AudioMixerGroup> groups, UUID top)
+        {
+            std::size_t l_End = 0;
+            for (std::size_t it_Group = 0; it_Group < groups.size(); ++it_Group)
+            {
+                if (IsInBranch(groups, groups[it_Group], top))
+                {
+                    l_End = it_Group + 1;
+                }
+            }
+
+            return l_End;
+        }
+
+        // Attenuation left out where it comes last, since it plays there anyway, so a chain is written one way only
+        void TrimAttenuation(AudioMixerGroup& group)
+        {
+            if (!group.Effects.empty() && group.Effects.back().Type == AudioEffectType::Attenuation)
+            {
+                group.Effects.pop_back();
+            }
+        }
+
+        // A copy of each entry for a group or effect that has a copy, under the copy's ID. Each is copied before it joins the list, which may move it
+        template<typename List>
+        void CopyEntries(List& entries, std::span<const std::pair<UUID, UUID>> copies)
+        {
+            const std::size_t l_Count = entries.size();
+            for (std::size_t it_Entry = 0; it_Entry < l_Count; ++it_Entry)
+            {
+                const auto a_Copy = std::ranges::find(copies, entries[it_Entry].Owner, &std::pair<UUID, UUID>::first);
+                if (a_Copy == copies.end())
+                {
+                    continue;
+                }
+
+                typename List::value_type l_Entry = entries[it_Entry];
+                l_Entry.Owner = a_Copy->second;
+                entries.push_back(l_Entry);
             }
         }
 
@@ -391,6 +460,16 @@ namespace Trinity
         return const_cast<AudioMixerGroup*>(std::as_const(*this).FindGroup(id));
     }
 
+    const AudioEffect* AudioMixerData::FindEffect(UUID id) const
+    {
+        return FindOwner(*this, id).Effect;
+    }
+
+    AudioEffect* AudioMixerData::FindEffect(UUID id)
+    {
+        return const_cast<AudioEffect*>(std::as_const(*this).FindEffect(id));
+    }
+
     const AudioMixerSnapshot& AudioMixerData::GetStartSnapshot() const
     {
         const AudioMixerSnapshot* l_Start = FindSnapshot(StartSnapshot);
@@ -551,6 +630,290 @@ namespace Trinity
         Snapshots.push_back(std::move(l_Snapshot));
 
         return Snapshots.back();
+    }
+
+    bool AudioMixerData::RemoveSnapshot(UUID snapshot)
+    {
+        const auto a_Found = std::ranges::find(Snapshots, snapshot, &AudioMixerSnapshot::ID);
+        if (!snapshot || snapshot == StartSnapshot || a_Found == Snapshots.end())
+        {
+            return false;
+        }
+
+        Snapshots.erase(a_Found);
+
+        return true;
+    }
+
+    // Both snapshots' values are read before any is written, since each reads the groups' and effects' own for what it holds none of
+    bool AudioMixerData::SetStartSnapshot(UUID snapshot)
+    {
+        AudioMixerSnapshot* l_New = FindSnapshot(snapshot);
+        AudioMixerSnapshot* l_Old = FindSnapshot(StartSnapshot);
+        if (l_New == nullptr || l_Old == nullptr)
+        {
+            return false;
+        }
+
+        if (l_New == l_Old)
+        {
+            return true;
+        }
+
+        decltype(AudioMixerSnapshot::Values) l_Kept;
+        decltype(AudioMixerSnapshot::Values) l_Taken;
+        ForEachOwner(*this, [&](UUID owner)
+        {
+            AudioSnapshotValues& l_Keep = l_Kept.emplace_back();
+            AudioSnapshotValues& l_Take = l_Taken.emplace_back();
+            l_Keep.Owner = owner;
+            l_Take.Owner = owner;
+            for (std::uint8_t it_Slot = 0; it_Slot < GetSlotCount(owner); ++it_Slot)
+            {
+                l_Keep.Values[it_Slot] = *GetValue(*l_Old, { owner, it_Slot });
+                l_Take.Values[it_Slot] = *GetValue(*l_New, { owner, it_Slot });
+            }
+        });
+
+        StartSnapshot = snapshot;
+        for (const AudioSnapshotValues& it_Entry : l_Taken)
+        {
+            for (std::uint8_t it_Slot = 0; it_Slot < GetSlotCount(it_Entry.Owner); ++it_Slot)
+            {
+                SetValue(snapshot, { it_Entry.Owner, it_Slot }, it_Entry.Values[it_Slot]);
+            }
+        }
+
+        l_New->Values.clear();
+        l_Old->Values = std::move(l_Kept);
+
+        return true;
+    }
+
+    AudioMixerGroup* AudioMixerData::AddGroup(UUID parent, std::string_view name)
+    {
+        if (FindGroup(parent) == nullptr)
+        {
+            return nullptr;
+        }
+
+        AudioMixerGroup l_Group;
+        l_Group.ID = UUID::Generate();
+        l_Group.Parent = parent;
+        l_Group.Name = TaggedString<MemoryTag::Audio>(name);
+
+        return &*Groups.insert(Groups.begin() + static_cast<std::ptrdiff_t>(FindBranchEnd(Groups, parent)), std::move(l_Group));
+    }
+
+    // The branch keeps its order, which has each group after its parent, and the top's parent stays the original's, which comes before them all
+    AudioMixerGroup* AudioMixerData::DuplicateGroup(UUID group, std::string_view name)
+    {
+        const AudioMixerGroup* l_Original = FindGroup(group);
+        if (l_Original == nullptr || !l_Original->Parent)
+        {
+            return nullptr;
+        }
+
+        // Each original's ID by its copy's, the groups' and the effects' alike
+        std::vector<std::pair<UUID, UUID>, TaggedAllocator<std::pair<UUID, UUID>, MemoryTag::Audio>> l_Copies;
+        decltype(Groups) l_Branch;
+        for (const AudioMixerGroup& it_Group : Groups)
+        {
+            if (!IsInBranch(Groups, it_Group, group))
+            {
+                continue;
+            }
+
+            AudioMixerGroup& l_Copy = l_Branch.emplace_back(it_Group);
+            l_Copy.ID = UUID::Generate();
+            l_Copies.emplace_back(it_Group.ID, l_Copy.ID);
+            for (AudioEffect& it_Effect : l_Copy.Effects)
+            {
+                if (it_Effect.Type != AudioEffectType::Attenuation)
+                {
+                    const UUID l_ID = UUID::Generate();
+                    l_Copies.emplace_back(it_Effect.ID, l_ID);
+                    it_Effect.ID = l_ID;
+                }
+            }
+        }
+
+        const auto a_CopyOf = [&l_Copies](UUID id)
+        {
+            const auto a_Found = std::ranges::find(l_Copies, id, &std::pair<UUID, UUID>::first);
+
+            return a_Found != l_Copies.end() ? a_Found->second : id;
+        };
+
+        for (AudioMixerGroup& it_Copy : l_Branch)
+        {
+            it_Copy.Parent = a_CopyOf(it_Copy.Parent);
+            for (AudioEffect& it_Effect : it_Copy.Effects)
+            {
+                if (it_Effect.Type == AudioEffectType::Send)
+                {
+                    it_Effect.Target = a_CopyOf(it_Effect.Target);
+                }
+            }
+        }
+
+        l_Branch.front().Name = TaggedString<MemoryTag::Audio>(name);
+        for (AudioMixerSnapshot& it_Snapshot : Snapshots)
+        {
+            CopyEntries(it_Snapshot.Values, l_Copies);
+            CopyEntries(it_Snapshot.Curves, l_Copies);
+        }
+
+        const std::size_t l_At = FindBranchEnd(Groups, group);
+        Groups.insert(Groups.begin() + static_cast<std::ptrdiff_t>(l_At), std::make_move_iterator(l_Branch.begin()), std::make_move_iterator(l_Branch.end()));
+
+        return &Groups[l_At];
+    }
+
+    // Every group of the branch is found before any goes, since a group below is found through its parents
+    bool AudioMixerData::RemoveGroup(UUID group)
+    {
+        const AudioMixerGroup* l_Group = FindGroup(group);
+        if (l_Group == nullptr || !l_Group->Parent)
+        {
+            return false;
+        }
+
+        std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Audio>> l_Gone;
+        for (const AudioMixerGroup& it_Group : Groups)
+        {
+            if (IsInBranch(Groups, it_Group, group))
+            {
+                l_Gone.push_back(it_Group.ID);
+            }
+        }
+
+        std::erase_if(Groups, [&l_Gone](const AudioMixerGroup& other) { return std::ranges::find(l_Gone, other.ID) != l_Gone.end(); });
+        Prune();
+
+        return true;
+    }
+
+    // The branch leaves the list in its order and goes back in as a block, after the parent, which stays where it was, so each group is still after its parent
+    bool AudioMixerData::MoveGroup(UUID group, UUID parent, UUID before)
+    {
+        const AudioMixerGroup* l_Group = FindGroup(group);
+        const AudioMixerGroup* l_Parent = FindGroup(parent);
+        if (l_Group == nullptr || !l_Group->Parent || l_Parent == nullptr || IsInBranch(Groups, *l_Parent, group))
+        {
+            return false;
+        }
+
+        std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Audio>> l_Moving;
+        for (const AudioMixerGroup& it_Group : Groups)
+        {
+            if (IsInBranch(Groups, it_Group, group))
+            {
+                l_Moving.push_back(it_Group.ID);
+            }
+        }
+
+        decltype(Groups) l_Branch;
+        decltype(Groups) l_Rest;
+        for (AudioMixerGroup& it_Group : Groups)
+        {
+            (std::ranges::find(l_Moving, it_Group.ID) != l_Moving.end() ? l_Branch : l_Rest).push_back(std::move(it_Group));
+        }
+
+        l_Branch.front().Parent = parent;
+        const auto a_Before = before ? std::ranges::find(l_Rest, before, &AudioMixerGroup::ID) : l_Rest.end();
+        const std::size_t l_At = a_Before != l_Rest.end() && a_Before->Parent == parent ? static_cast<std::size_t>(a_Before - l_Rest.begin()) : FindBranchEnd(l_Rest, parent);
+        l_Rest.insert(l_Rest.begin() + static_cast<std::ptrdiff_t>(l_At), std::make_move_iterator(l_Branch.begin()), std::make_move_iterator(l_Branch.end()));
+        Groups = std::move(l_Rest);
+
+        return true;
+    }
+
+    // Only the new effect is ever at the place, so leaving Attenuation out once it comes last never moves it
+    AudioEffect* AudioMixerData::InsertEffect(UUID group, std::size_t place, AudioEffectType type)
+    {
+        AudioMixerGroup* l_Group = FindGroup(group);
+        if (l_Group == nullptr || type == AudioEffectType::Attenuation || static_cast<std::size_t>(type) >= c_EffectInfos.size())
+        {
+            return nullptr;
+        }
+
+        l_Group->Effects = GetChain(*l_Group);
+        const std::size_t l_At = std::min(place, l_Group->Effects.size());
+        l_Group->Effects.insert(l_Group->Effects.begin() + static_cast<std::ptrdiff_t>(l_At), MakeAudioEffect(type));
+        TrimAttenuation(*l_Group);
+
+        return &l_Group->Effects[l_At];
+    }
+
+    bool AudioMixerData::RemoveEffect(UUID effect)
+    {
+        for (AudioMixerGroup& it_Group : Groups)
+        {
+            const auto a_Found = std::ranges::find_if(it_Group.Effects, [effect](const AudioEffect& other) { return other.Type != AudioEffectType::Attenuation && other.ID == effect; });
+            if (a_Found != it_Group.Effects.end())
+            {
+                it_Group.Effects.erase(a_Found);
+                TrimAttenuation(it_Group);
+                Prune();
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool AudioMixerData::MoveEffect(UUID group, std::size_t from, std::size_t to)
+    {
+        AudioMixerGroup* l_Group = FindGroup(group);
+        AudioEffectList l_Chain = l_Group != nullptr ? GetChain(*l_Group) : AudioEffectList();
+        if (from >= l_Chain.size() || to >= l_Chain.size())
+        {
+            return false;
+        }
+
+        AudioEffect l_Moved = l_Chain[from];
+        l_Chain.erase(l_Chain.begin() + static_cast<std::ptrdiff_t>(from));
+        l_Chain.insert(l_Chain.begin() + static_cast<std::ptrdiff_t>(to), l_Moved);
+        l_Group->Effects = std::move(l_Chain);
+        TrimAttenuation(*l_Group);
+
+        return true;
+    }
+
+    // A Send to an effect that is gone is set to send nowhere, as Unity's shows None
+    void AudioMixerData::Prune()
+    {
+        const auto a_Gone = [this](UUID owner) { return GetSlotCount(owner) == 0; };
+        for (AudioMixerSnapshot& it_Snapshot : Snapshots)
+        {
+            std::erase_if(it_Snapshot.Values, [&a_Gone](const AudioSnapshotValues& entry) { return a_Gone(entry.Owner); });
+            std::erase_if(it_Snapshot.Curves, [&a_Gone](const AudioSnapshotCurves& entry) { return a_Gone(entry.Owner); });
+        }
+
+        std::erase_if(Exposed, [this](const AudioExposedParameter& exposed) { return !GetValueInfo(exposed.Value); });
+        for (AudioMixerGroup& it_Group : Groups)
+        {
+            for (AudioEffect& it_Effect : it_Group.Effects)
+            {
+                if (it_Effect.Type == AudioEffectType::Send && it_Effect.Target && FindEffect(it_Effect.Target) == nullptr)
+                {
+                    it_Effect.Target = {};
+                }
+            }
+        }
+    }
+
+    AudioEffectList AudioMixerData::GetChain(const AudioMixerGroup& group)
+    {
+        AudioEffectList l_Chain = group.Effects;
+        if (std::ranges::find(l_Chain, AudioEffectType::Attenuation, &AudioEffect::Type) == l_Chain.end())
+        {
+            l_Chain.push_back(MakeAudioEffect(AudioEffectType::Attenuation));
+        }
+
+        return l_Chain;
     }
 
     namespace

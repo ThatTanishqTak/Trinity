@@ -2,6 +2,7 @@
 
 #include "EditorSession.hpp"
 #include "ImportTest.hpp"
+#include "Panels/AudioMixerPanel.hpp"
 #include "Panels/ConsolePanel.hpp"
 #include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/GamePanel.hpp"
@@ -76,6 +77,7 @@ private:
     ProjectSettingsPanel* m_ProjectSettings = nullptr;
     ContentBrowserPanel* m_ContentBrowser = nullptr;
     InputActionsPanel* m_InputActionsPanel = nullptr;
+    AudioMixerPanel* m_AudioMixerPanel = nullptr;
     ConsolePanel* m_Console = nullptr;
     std::string m_AboutTitle;
     // The status bar's line, the last logged at Info or above, copied from the history only when a newer one arrives

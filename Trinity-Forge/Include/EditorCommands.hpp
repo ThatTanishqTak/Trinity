@@ -664,3 +664,29 @@ private:
     std::string m_Label;
     std::vector<InputActionFieldRewrite> m_Rewrites;
 };
+
+// An edit of an audio mixer asset, which the writer saves to its file and loads again as it runs and as it is undone, so the project's mixer is heard as edited at once, a scene playing included. Edits of one field in a row become one, as a fader's drag does
+class SetAudioMixerCommand final : public EditorCommand
+{
+public:
+    using Writer = std::function<bool(Trinity::UUID, const Trinity::AudioMixerData&)>;
+
+    SetAudioMixerCommand(Writer writer, Trinity::UUID asset, Trinity::AudioMixerData before, Trinity::AudioMixerData after, std::string field, std::string label);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
+    [[nodiscard]] bool ChangesScene() const override { return false; }
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Asset; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Writer m_Writer;
+    Trinity::UUID m_Asset;
+    Trinity::AudioMixerData m_Before;
+    Trinity::AudioMixerData m_After;
+    std::string m_Field;
+    std::string m_Label;
+};
