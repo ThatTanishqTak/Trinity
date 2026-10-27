@@ -3540,8 +3540,18 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
         ImGui::SetTooltip("Plays as the scene starts, or as the source first appears while it runs");
     }
 
+    // A sound event loops as its containers say, so its source's Loop is greyed
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::AssetRecord* l_ResourceRecord = l_Registry != nullptr ? l_Registry->Find(entity.Get<Trinity::AudioSourceComponent>().Resource) : nullptr;
+    const bool l_PlaysEvent = l_ResourceRecord != nullptr && l_ResourceRecord->Importer == Trinity::SoundEventAsset::c_AssetType;
     Label("Loop");
+    ImGui::BeginDisabled(l_PlaysEvent);
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "Loop", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Loop", &source.Loop); });
+    ImGui::EndDisabled();
+    if (l_PlaysEvent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("A sound event loops as its containers say, so the source's Loop is left out while it plays one");
+    }
 
     Label("Priority");
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "Priority", [](Trinity::AudioSourceComponent& source)
