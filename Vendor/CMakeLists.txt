@@ -135,7 +135,7 @@ target_compile_features(imgui PUBLIC cxx_std_17)
 target_link_libraries(imgui PRIVATE Freetype::Freetype)
 list(APPEND TRINITY_VENDOR_TARGETS imgui)
 
-# ImGuizmo - gizmos. Only its headers come from here: Forge compiles ImGuizmo.cpp itself against the engine's Dear ImGui, so the gizmos draw with Forge's one ImGui context. Its sequencer, curve, gradient and graph editors are compiled the same way once a panel needs them
+# ImGuizmo - gizmos. Only its headers come from here: Forge compiles ImGuizmo.cpp itself against the engine's Dear ImGui, so the gizmos draw with Forge's one ImGui context. Its curve editor is compiled the same way for the Sound Event panel, and its sequencer, gradient and graph editors will be once a panel needs them
 trinity_vendor_require(ImGuizmo src/ImGuizmo.cpp)
 add_library(ImGuizmo INTERFACE)
 add_library(ImGuizmo::ImGuizmo ALIAS ImGuizmo)

@@ -162,6 +162,11 @@ void ForgeLayer::OnAttach()
     m_AudioMixerPanel = l_AudioMixer.get();
     m_Panels.push_back(std::move(l_AudioMixer));
 
+    // Beside the Audio Mixer, as wide, for its tree, its details and its curves
+    Trinity::Scope<SoundEventPanel> l_SoundEvent = Trinity::CreateScope<SoundEventPanel>(m_Session);
+    m_SoundEventPanel = l_SoundEvent.get();
+    m_Panels.push_back(std::move(l_SoundEvent));
+
     // Docked after the Console, so it is the tab the default layout shows
     Trinity::Scope<ContentBrowserPanel> l_ContentBrowser = Trinity::CreateScope<ContentBrowserPanel>(m_Session);
     m_ContentBrowser = l_ContentBrowser.get();
@@ -185,6 +190,13 @@ void ForgeLayer::OnAttach()
         m_AudioMixerPanel->SetAsset(asset);
         m_AudioMixerPanel->SetOpen(true);
         m_AudioMixerPanel->RequestFocus();
+    });
+    // As is a sound event
+    m_ContentBrowser->SetOpenSoundEvent([this](Trinity::UUID asset)
+    {
+        m_SoundEventPanel->SetAsset(asset);
+        m_SoundEventPanel->SetOpen(true);
+        m_SoundEventPanel->RequestFocus();
     });
     m_Panels.push_back(std::move(l_ContentBrowser));
 
@@ -576,9 +588,9 @@ void ForgeLayer::ReadShortcuts()
     {
         CreateEmpty(m_Session.GetSelection());
     }
-    else if (m_ContentBrowser->IsFocused() || m_InputActionsPanel->IsFocused() || m_AudioMixerPanel->IsFocused())
+    else if (m_ContentBrowser->IsFocused() || m_InputActionsPanel->IsFocused() || m_AudioMixerPanel->IsFocused() || m_SoundEventPanel->IsFocused())
     {
-        // Duplicate and Delete are the browser's own while it has focus, as they are the Input Actions and Audio Mixer panels', and Copy and Paste are left to them
+        // Duplicate and Delete are the browser's own while it has focus, as they are the Input Actions, Audio Mixer and Sound Event panels', and Copy and Paste are left to them
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V) && m_Session.HasCopiedEntity() && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
     {

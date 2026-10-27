@@ -122,6 +122,11 @@ std::optional<float> SoundEventAudition::GetParameter(std::string_view name) con
     return a_Found != m_Values.end() ? std::optional(a_Found->Number) : std::nullopt;
 }
 
+std::optional<float> SoundEventAudition::GetGlobalParameter(std::string_view name) const
+{
+    return m_Engine != nullptr ? m_Engine->GetGlobalParameter(name) : std::nullopt;
+}
+
 std::optional<float> SoundEventAudition::GetHeardParameter(std::string_view name) const
 {
     return m_Audio && m_Handle ? m_Audio->GetHeardParameter(m_Handle, name) : std::nullopt;

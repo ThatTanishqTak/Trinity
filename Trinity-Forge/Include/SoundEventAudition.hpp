@@ -35,6 +35,8 @@ public:
     void SetParameter(std::string_view name, float value, bool global = false);
     // The value given, none before one is
     [[nodiscard]] std::optional<float> GetParameter(std::string_view name) const;
+    // The engine's value of a global parameter, which every instance by its name hears, a scene's too, and which a scene's script may have set. None before one is given
+    [[nodiscard]] std::optional<float> GetGlobalParameter(std::string_view name) const;
     // Where the instance playing has the parameter, its seek included. None while nothing plays
     [[nodiscard]] std::optional<float> GetHeardParameter(std::string_view name) const;
     // Every value given forgotten, as another event is opened

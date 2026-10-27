@@ -35,6 +35,9 @@ public:
     void SetOpenInputActions(std::function<void(Trinity::UUID asset)> open) { m_OpenInputActions = std::move(open); }
     // Where an audio mixer opens, as a double-click or Open asks
     void SetOpenAudioMixer(std::function<void(Trinity::UUID asset)> open) { m_OpenAudioMixer = std::move(open); }
+    // Where a sound event opens, as a double-click or Open asks
+    void SetOpenSoundEvent(std::function<void(Trinity::UUID asset)> open) { m_OpenSoundEvent = std::move(open); }
+
 
     // The thumbnail size, or the list, which imgui.ini keeps for each person
     [[nodiscard]] bool ReadSetting(std::string_view key, std::string_view value);
@@ -118,6 +121,7 @@ private:
     std::function<void(std::string search)> m_FindReferences;
     std::function<void(Trinity::UUID asset)> m_OpenInputActions;
     std::function<void(Trinity::UUID asset)> m_OpenAudioMixer;
+    std::function<void(Trinity::UUID asset)> m_OpenSoundEvent;
     std::uint64_t m_CloseListener = 0;
     std::string m_Folder;
     std::string m_Selected;

@@ -1388,7 +1388,7 @@ void ContentBrowserPanel::Select(const Item& item)
     m_Session.SetInspectedAsset(item.Record != nullptr ? item.Record->ID : Trinity::UUID());
 }
 
-// A folder opens here, a scene in Forge, a prefab in prefab mode, input actions and an audio mixer in their panels and a script in the script editor. Anything else but a material, which Properties edits, opens in the program the system has for it, as Unity opens a texture in an image editor
+// A folder opens here, a scene in Forge, a prefab in prefab mode, input actions, an audio mixer and a sound event in their panels and a script in the script editor. Anything else but a material, which Properties edits, opens in the program the system has for it, as Unity opens a texture in an image editor
 void ContentBrowserPanel::Open(const Item& item)
 {
     if (item.Folder)
@@ -1410,6 +1410,10 @@ void ContentBrowserPanel::Open(const Item& item)
     else if (item.Record != nullptr && item.Record->Importer == Trinity::AudioMixerAsset::c_AssetType && m_OpenAudioMixer)
     {
         m_OpenAudioMixer(item.Record->ID);
+    }
+    else if (item.Record != nullptr && item.Record->Importer == Trinity::SoundEventAsset::c_AssetType && m_OpenSoundEvent)
+    {
+        m_OpenSoundEvent(item.Record->ID);
     }
     else if (item.Record == nullptr && IsScriptFile(item.Name))
     {

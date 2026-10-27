@@ -10,6 +10,7 @@
 #include "Panels/InputActionsPanel.hpp"
 #include "Panels/Panel.hpp"
 #include "Panels/ProjectSettingsPanel.hpp"
+#include "Panels/SoundEventPanel.hpp"
 #include "Panels/ViewportPanel.hpp"
 #include "PreferencesWindow.hpp"
 
@@ -78,6 +79,7 @@ private:
     ContentBrowserPanel* m_ContentBrowser = nullptr;
     InputActionsPanel* m_InputActionsPanel = nullptr;
     AudioMixerPanel* m_AudioMixerPanel = nullptr;
+    SoundEventPanel* m_SoundEventPanel = nullptr;
     ConsolePanel* m_Console = nullptr;
     std::string m_AboutTitle;
     // The status bar's line, the last logged at Info or above, copied from the history only when a newer one arrives
