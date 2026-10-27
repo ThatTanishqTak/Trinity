@@ -1860,6 +1860,15 @@ void EditorSession::ApplyMixer(const Trinity::AudioMixerAsset* asset)
     static_cast<void>(l_Engine->GetMixer().Apply(asset != nullptr ? asset->GetData() : Trinity::AudioMixerData::MakeDefault()));
 }
 
+// Each Play starts, and Stop leaves Forge, at the start snapshot with nothing set from code, as Unity's mixer is when Play mode starts and ends
+void EditorSession::ResetMixer()
+{
+    if (Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine(); l_Engine != nullptr)
+    {
+        l_Engine->GetMixer().Reset();
+    }
+}
+
 const Trinity::AudioMixer* EditorSession::GetMixer() const
 {
     const Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine();
@@ -2444,7 +2453,8 @@ void EditorSession::StartPlay()
     m_Paused = false;
     m_StepRequested = false;
     const std::size_t l_Entities = l_Copy->GetEntityCount();
-    // The scene's sounds play on Forge's own output, through the project's mixer, which the engine already plays, with the project's voice limits, Doppler factor and occlusion
+    // The scene's sounds play on Forge's own output, through the project's mixer, which the engine already plays, from its start snapshot, with the project's voice limits, Doppler factor and occlusion
+    ResetMixer();
     m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get(), m_Project->GetInputActions(), Trinity::Application::Get().GetAudioEngine(), m_Project->GetAudioSettings());
     m_Play->Run(std::move(l_Copy), GetSceneID());
     TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), l_Entities, l_Milliseconds);
@@ -2492,6 +2502,7 @@ void EditorSession::StopPlay()
     }
 
     m_Play.reset();
+    ResetMixer();
     m_Paused = false;
     m_StepRequested = false;
     m_History.SetLocked(false);

@@ -14,9 +14,11 @@
 #include <atomic>
 #include <bit>
 #include <cmath>
+#include <limits>
 #include <new>
 #include <numbers>
 #include <span>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -36,8 +38,157 @@ namespace Trinity
         constexpr double c_HighestFrequencyRatio = 0.45;
         // A Duck Volume's detector follows a level up at once and down this fast, so it holds over the dips of a low tone
         constexpr float c_DetectorReleaseMilliseconds = 5.0f;
+        constexpr std::size_t c_CurveCount = 6;
 
-        // A gain moved from where it is to the main thread's latest over the mixer's ramp, each sample an even step of what is left, and, for a group's output, the meter of what leaves it
+        // How a change that would step a value moves it instead: evenly in its own units, evenly in gain for a group's volume in decibels, as its fader always ramped, or not at all for a value that makes its effect anew
+        enum class Glide : std::uint8_t
+        {
+            Even,
+            Gain,
+            None
+        };
+
+        // A value as the mixer plays it over the engine's clock: from where it was as its transition started, towards To, each snapshot's share of the way along that snapshot's curve, so by any frame it has moved only as far as its curves have, and at To once the transition is over. A change that would step it glides from where it was instead, over the ramp. Made on the main thread and played the same on the audio thread, so both agree on it at every frame
+        struct Lane
+        {
+            float From = 0.0f;
+            float To = 0.0f;
+            // How far each curve takes it, weighted, in the curves' order
+            std::array<float, c_CurveCount> Moves{};
+            std::uint64_t Start = 0;
+            std::uint32_t Length = 0;
+            float GlideFrom = 0.0f;
+            std::uint64_t GlideStart = 0;
+            std::uint32_t GlideLength = 0;
+            bool GlidesInGain = false;
+
+            [[nodiscard]] bool operator==(const Lane&) const = default;
+        };
+
+        [[nodiscard]] Lane Constant(float value)
+        {
+            Lane l_Lane;
+            l_Lane.From = value;
+            l_Lane.To = value;
+
+            return l_Lane;
+        }
+
+        // The value at a frame of the engine's clock
+        [[nodiscard]] float Evaluate(const Lane& lane, std::uint64_t frame)
+        {
+            float l_Value = lane.To;
+            if (lane.Length > 0 && frame < lane.Start + lane.Length)
+            {
+                const float l_Progress = frame <= lane.Start ? 0.0f : static_cast<float>(static_cast<double>(frame - lane.Start) / static_cast<double>(lane.Length));
+                l_Value = lane.From;
+                for (std::size_t it_Curve = 0; it_Curve < c_CurveCount; ++it_Curve)
+                {
+                    l_Value += lane.Moves[it_Curve] == 0.0f ? 0.0f : lane.Moves[it_Curve] * EvaluateAudioTransitionCurve(static_cast<AudioTransitionCurve>(it_Curve), l_Progress);
+                }
+            }
+
+            if (lane.GlideLength == 0 || frame >= lane.GlideStart + lane.GlideLength)
+            {
+                return l_Value;
+            }
+
+            if (frame <= lane.GlideStart)
+            {
+                return lane.GlideFrom;
+            }
+
+            const float l_Share = static_cast<float>(frame - lane.GlideStart) / static_cast<float>(lane.GlideLength);
+            if (!lane.GlidesInGain)
+            {
+                return lane.GlideFrom + (l_Value - lane.GlideFrom) * l_Share;
+            }
+
+            const float l_From = AudioDecibelsToGain(lane.GlideFrom);
+
+            return AudioGainToDecibels(l_From + (AudioDecibelsToGain(l_Value) - l_From) * l_Share);
+        }
+
+        // The frame from which it stays at To
+        [[nodiscard]] std::uint64_t SettlesAt(const Lane& lane)
+        {
+            return std::max(lane.Start + lane.Length, lane.GlideStart + lane.GlideLength);
+        }
+
+        // The latest of what the main thread sends the audio thread, through three copies, so neither ever waits: the main thread fills its own and swaps it into the middle, and the audio thread swaps the middle for its own whenever a newer one is there
+        template<typename T>
+        struct Mailbox
+        {
+            static constexpr std::uint8_t c_Fresh = 4;
+
+            std::array<T, 3> Copies{};
+            std::atomic<std::uint8_t> Middle{ 1 };
+            // The main thread's
+            std::uint8_t Back = 0;
+            // The audio thread's, with how many newer ones it has taken, so each node that reads it knows when it changed
+            std::uint8_t Front = 2;
+            std::uint32_t Taken = 0;
+
+            // Main thread, before any node that reads it is in the graph
+            void Reset(const T& value)
+            {
+                Copies.fill(value);
+            }
+
+            // Main thread
+            void Send(const T& value)
+            {
+                Copies[Back] = value;
+                Back = static_cast<std::uint8_t>(Middle.exchange(static_cast<std::uint8_t>(Back | c_Fresh), std::memory_order_acq_rel) & 3);
+            }
+
+            // Audio thread
+            void Receive()
+            {
+                if ((Middle.load(std::memory_order_relaxed) & c_Fresh) != 0)
+                {
+                    Front = static_cast<std::uint8_t>(Middle.exchange(Front, std::memory_order_acq_rel) & 3);
+                    ++Taken;
+                }
+            }
+
+            [[nodiscard]] const T& Get() const
+            {
+                return Copies[Front];
+            }
+        };
+
+        // Where a node's frames are on the engine's clock: the graph's time is where the read the node is part of starts, and a node read more than once in it, as one below a group pitched above 1 is, carries on from where it left off
+        struct NodeClock
+        {
+            std::uint64_t Read = std::numeric_limits<std::uint64_t>::max();
+            std::uint64_t Offset = 0;
+
+            [[nodiscard]] std::uint64_t Now(const ma_node* node)
+            {
+                const std::uint64_t l_Read = ma_node_graph_get_time(ma_node_get_node_graph(node));
+                if (l_Read != Read)
+                {
+                    Read = l_Read;
+                    Offset = 0;
+                }
+
+                return Read + Offset;
+            }
+
+            void Pass(std::uint32_t frames)
+            {
+                Offset += frames;
+            }
+        };
+
+        // A group's Volume, in decibels, and Pitch as the audio thread plays them
+        using GroupLanes = std::array<Lane, 2>;
+        using GroupMailbox = Mailbox<GroupLanes>;
+        // An effect's Wet, in percent, then its values
+        using EffectLanes = std::array<Lane, AudioMixerValue::c_MaxSlots>;
+
+        // A gain moved from where it is to the main thread's latest over the mixer's ramp, each sample an even step of what is left, and, for a group's output, the meter of what leaves it. A group's Attenuation instead plays the volume its group's lanes give it
         struct GainNode
         {
             ma_node_base Base{};
@@ -57,6 +208,12 @@ namespace Trinity
             // Written by the audio thread after each block and read by any
             std::array<std::atomic<float>, AudioMeter::c_MaxChannels> PublishedPeak{};
             std::array<std::atomic<float>, AudioMeter::c_MaxChannels> PublishedMeanSquare{};
+            // An Attenuation's: its group's lanes, the newest of them it has taken, and the frame from which its volume stays put, which it has reached once Settled
+            GroupMailbox* Lanes = nullptr;
+            NodeClock Clock;
+            std::uint32_t Taken = std::numeric_limits<std::uint32_t>::max();
+            std::uint64_t SettledAt = 0;
+            bool Settled = false;
         };
 
         static_assert(std::is_standard_layout_v<GainNode>, "miniaudio reaches the node through its base, its first member.");
@@ -109,8 +266,74 @@ namespace Trinity
             }
         }
 
+        // On the audio thread. The volume where its lane is at the end of each step, ramped to evenly from where the step before left it, until the lane settles
+        void ProcessAttenuation(ma_node* node, const float** framesIn, [[maybe_unused]] ma_uint32* frameCountIn, float** framesOut, ma_uint32* frameCountOut)
+        {
+            GainNode& l_Node = *reinterpret_cast<GainNode*>(node);
+            GroupMailbox& l_Lanes = *l_Node.Lanes;
+            l_Lanes.Receive();
+            if (l_Lanes.Taken != l_Node.Taken)
+            {
+                l_Node.Taken = l_Lanes.Taken;
+                l_Node.SettledAt = SettlesAt(l_Lanes.Get()[AudioMixerValue::c_Volume]);
+                l_Node.Settled = false;
+            }
+
+            const ma_uint32 l_Frames = *frameCountOut;
+            const std::uint64_t l_Clock = l_Node.Clock.Now(node);
+            l_Node.Clock.Pass(l_Frames);
+            const std::uint32_t l_Channels = l_Node.Channels;
+            const float* l_In = framesIn[0];
+            float* l_Out = framesOut[0];
+            for (ma_uint32 it_Start = 0; it_Start < l_Frames; it_Start += c_GlideFrames)
+            {
+                const ma_uint32 l_Run = std::min(c_GlideFrames, l_Frames - it_Start);
+                const float l_From = l_Node.Gain;
+                if (!l_Node.Settled)
+                {
+                    const std::uint64_t l_End = l_Clock + it_Start + l_Run;
+                    l_Node.Gain = AudioDecibelsToGain(Evaluate(l_Lanes.Get()[AudioMixerValue::c_Volume], l_End));
+                    l_Node.Settled = l_End >= l_Node.SettledAt;
+                }
+
+                for (ma_uint32 it_Frame = 0; it_Frame < l_Run; ++it_Frame)
+                {
+                    const float l_Gain = l_From + (l_Node.Gain - l_From) * static_cast<float>(it_Frame + 1) / static_cast<float>(l_Run);
+                    const std::size_t l_Base = static_cast<std::size_t>(it_Start + it_Frame) * l_Channels;
+                    for (std::uint32_t it_Channel = 0; it_Channel < l_Channels; ++it_Channel)
+                    {
+                        l_Out[l_Base + it_Channel] = l_In[l_Base + it_Channel] * l_Gain;
+                    }
+                }
+            }
+        }
+
         // Each runs whether or not anything plays into it, given silence: a group's output so its meter falls to nothing, a direct input so its group's resampler, when it has one, is always fed and never holds back a sample from before a silence, and an effect so its echoes and its filter's ringing carry on into a silence and its fades end
         constexpr ma_node_vtable c_GainVTable{ &ProcessGain, nullptr, 1, 1, MA_NODE_FLAG_CONTINUOUS_PROCESSING };
+        constexpr ma_node_vtable c_AttenuationVTable{ &ProcessAttenuation, nullptr, 1, 1, MA_NODE_FLAG_CONTINUOUS_PROCESSING };
+
+        // A group's sound group: miniaudio's, its process put behind one that sets its pitch from the group's lanes as each block starts, so its pitch moves with the clock as its volume does. miniaudio reads the pitch as its process starts, once its input is in
+        struct PitchedSound
+        {
+            ma_sound_group Sound{};
+            GroupMailbox* Lanes = nullptr;
+            NodeClock Clock;
+            ma_node_vtable VTable{};
+            decltype(ma_node_vtable::onProcess) Process = nullptr;
+        };
+
+        static_assert(std::is_standard_layout_v<PitchedSound>, "miniaudio reaches the node through its base, its first member.");
+
+        // On the audio thread
+        void ProcessPitchedSound(ma_node* node, const float** framesIn, ma_uint32* frameCountIn, float** framesOut, ma_uint32* frameCountOut)
+        {
+            PitchedSound& l_Sound = *reinterpret_cast<PitchedSound*>(node);
+            l_Sound.Lanes->Receive();
+            const float l_Pitch = Evaluate(l_Sound.Lanes->Get()[AudioMixerValue::c_Pitch], l_Sound.Clock.Now(node));
+            ma_sound_group_set_pitch(&l_Sound.Sound, std::clamp(l_Pitch, AudioMixerData::c_MinimumPitch, AudioMixerData::c_MaximumPitch));
+            l_Sound.Process(node, framesIn, frameCountIn, framesOut, frameCountOut);
+            l_Sound.Clock.Pass(*frameCountOut);
+        }
 
         // miniaudio's filters, of which an effect has the one its type names, and its delay for Echo
         union EffectFilters
@@ -235,7 +458,7 @@ namespace Trinity
             Memory::Delete(reverb);
         }
 
-        // An effect of a group's chain, which crosses from what comes into it to what it makes by its wet mix, each sample an even step of what is left of the fade, and glides its values to the main thread's latest over the ramp
+        // An effect of a group's chain, which crosses from what comes into it to what it makes by its gate and its Wet together, and plays its Wet and values as its lanes have them, a step at a time
         struct EffectNode
         {
             ma_node_base Base{};
@@ -243,19 +466,21 @@ namespace Trinity
             std::uint32_t Channels = 0;
             std::uint32_t SampleRate = 0;
             std::uint32_t FadeFrames = 1;
-            std::uint32_t RampFrames = 1;
             std::uint32_t ValueCount = 0;
-            // Set by the main thread and read by the audio thread each block, Asked counted on with each new wet, so a fade's end is known to be the latest's
-            std::atomic<float> TargetWet{ 0.0f };
+            // Set by the main thread and read by the audio thread each block: the gate, 1 while it plays, and 0 while it is bypassed or crosses to dry to step out of its chain or into it, with Asked counted on with each new one, so a fade's end is known to be the latest's, and its lanes
+            std::atomic<float> TargetGate{ 0.0f };
             std::atomic<std::uint32_t> Asked{ 0 };
-            std::array<std::atomic<float>, AudioEffect::c_MaxParameters> TargetValues{};
-            // The audio thread's alone once the node is in the graph
-            float Wet = 0.0f;
-            float RampWet = 0.0f;
-            std::uint32_t WetLeft = 0;
+            Mailbox<EffectLanes> Lanes;
+            // The audio thread's alone once the node is in the graph: the gate's fade, each sample an even step of what is left of it, the Wet, from 0 to 1, and the values where the lanes were at the end of the last step, the newest lanes taken, and the frame from which they stay put, which they have reached once Settled
+            float Gate = 0.0f;
+            float RampGate = 0.0f;
+            std::uint32_t GateLeft = 0;
+            float Mix = 0.0f;
             std::array<float, AudioEffect::c_MaxParameters> Values{};
-            std::array<float, AudioEffect::c_MaxParameters> RampValues{};
-            std::uint32_t ValuesLeft = 0;
+            NodeClock Clock;
+            std::uint32_t Taken = std::numeric_limits<std::uint32_t>::max();
+            std::uint64_t SettledAt = 0;
+            bool Settled = false;
             // What an Echo, a Limiter or an SFX Reverb takes into its delay, faded out while it is to be dry and in once it is to be wet, so its delay never starts or stops on a step, which it would play back a delay later as a click. A bypassed one so takes in nothing, as Unity's bypass processes nothing
             float Feed = 0.0f;
             float RampFeed = 0.0f;
@@ -275,8 +500,8 @@ namespace Trinity
             std::uint32_t Cursor = 0;
             float Released = 1.0f;
             double SmoothedSum = 0.0;
-            // Written by the audio thread after each block, with the count of the wet it started from, so the main thread sees a fade to dry end
-            std::atomic<float> PublishedWet{ 0.0f };
+            // Written by the audio thread after each block, with the count of the gate it started from, so the main thread sees a fade to dry end
+            std::atomic<float> PublishedGate{ 0.0f };
             std::atomic<std::uint32_t> Seen{ 0 };
         };
 
@@ -707,39 +932,34 @@ namespace Trinity
             }
         }
 
-        // On the audio thread, which allocates nothing here. A new wet starts a fade from where it is, and new values a glide, both of which end exactly on them. At a wet of 0 what comes in leaves exactly, so an effect fully faded can be stepped out of its chain or into it with no change to the sound
+        // On the audio thread, which allocates nothing here. A new gate starts a fade from where it is, which ends exactly on it, and the Wet and values follow their lanes, the Wet evenly across each step and the values a step at a time, its filter's coefficients worked out again for each step they move. With the gate or the Wet at 0 what comes in leaves exactly, so an effect fully faded can be stepped out of its chain or into it with no change to the sound
         void ProcessEffect(ma_node* node, const float** framesIn, [[maybe_unused]] ma_uint32* frameCountIn, float** framesOut, ma_uint32* frameCountOut)
         {
             EffectNode& l_Node = *reinterpret_cast<EffectNode*>(node);
             const std::uint32_t l_Asked = l_Node.Asked.load(std::memory_order_acquire);
-            const float l_TargetWet = l_Node.TargetWet.load(std::memory_order_relaxed);
-            if (l_TargetWet != l_Node.RampWet)
+            const float l_TargetGate = l_Node.TargetGate.load(std::memory_order_relaxed);
+            if (l_TargetGate != l_Node.RampGate)
             {
-                l_Node.RampWet = l_TargetWet;
-                l_Node.WetLeft = l_Node.FadeFrames;
+                l_Node.RampGate = l_TargetGate;
+                l_Node.GateLeft = l_Node.FadeFrames;
             }
 
-            const float l_TargetFeed = l_TargetWet > 0.0f ? 1.0f : 0.0f;
-            if (l_TargetFeed != l_Node.RampFeed)
+            l_Node.Lanes.Receive();
+            if (l_Node.Lanes.Taken != l_Node.Taken)
             {
-                l_Node.RampFeed = l_TargetFeed;
-                l_Node.FeedLeft = l_Node.FadeFrames;
-            }
+                l_Node.Taken = l_Node.Lanes.Taken;
+                l_Node.SettledAt = 0;
+                for (std::uint32_t it_Slot = 0; it_Slot <= l_Node.ValueCount; ++it_Slot)
+                {
+                    l_Node.SettledAt = std::max(l_Node.SettledAt, SettlesAt(l_Node.Lanes.Get()[it_Slot]));
+                }
 
-            bool l_NewValues = false;
-            for (std::uint32_t it_Value = 0; it_Value < l_Node.ValueCount; ++it_Value)
-            {
-                const float l_Target = l_Node.TargetValues[it_Value].load(std::memory_order_relaxed);
-                l_NewValues |= l_Target != l_Node.RampValues[it_Value];
-                l_Node.RampValues[it_Value] = l_Target;
-            }
-
-            if (l_NewValues)
-            {
-                l_Node.ValuesLeft = l_Node.RampFrames;
+                l_Node.Settled = false;
             }
 
             const ma_uint32 l_Frames = *frameCountOut;
+            const std::uint64_t l_Clock = l_Node.Clock.Now(node);
+            l_Node.Clock.Pass(l_Frames);
             const std::uint32_t l_Channels = l_Node.Channels;
             const float* l_In = framesIn[0];
             float* l_Out = framesOut[0];
@@ -750,21 +970,33 @@ namespace Trinity
             for (ma_uint32 it_Start = 0; it_Start < l_Frames; it_Start += l_RunFrames)
             {
                 const ma_uint32 l_Run = std::min(l_RunFrames, l_Frames - it_Start);
-                if (l_Node.ValuesLeft > 0)
+                const float l_MixFrom = l_Node.Mix;
+                if (!l_Node.Settled)
                 {
-                    const std::uint32_t l_Step = std::min(l_Run, l_Node.ValuesLeft);
+                    const std::uint64_t l_End = l_Clock + it_Start + l_Run;
+                    const EffectLanes& l_Lanes = l_Node.Lanes.Get();
+                    l_Node.Mix = std::clamp(Evaluate(l_Lanes[AudioMixerValue::c_Wet], l_End) / 100.0f, 0.0f, 1.0f);
+                    bool l_Moved = false;
                     for (std::uint32_t it_Value = 0; it_Value < l_Node.ValueCount; ++it_Value)
                     {
-                        l_Node.Values[it_Value] += (l_Node.RampValues[it_Value] - l_Node.Values[it_Value]) * static_cast<float>(l_Step) / static_cast<float>(l_Node.ValuesLeft);
+                        const float l_Value = Evaluate(l_Lanes[it_Value + 1], l_End);
+                        l_Moved |= l_Value != l_Node.Values[it_Value];
+                        l_Node.Values[it_Value] = l_Value;
                     }
 
-                    l_Node.ValuesLeft -= l_Step;
-                    if (l_Node.ValuesLeft == 0)
+                    if (l_Moved)
                     {
-                        l_Node.Values = l_Node.RampValues;
+                        static_cast<void>(ConfigureFilter(l_Node, nullptr));
                     }
 
-                    static_cast<void>(ConfigureFilter(l_Node, nullptr));
+                    l_Node.Settled = l_End >= l_Node.SettledAt;
+                }
+
+                const float l_TargetFeed = l_Node.RampGate > 0.0f && l_Node.Mix > 0.0f ? 1.0f : 0.0f;
+                if (l_TargetFeed != l_Node.RampFeed)
+                {
+                    l_Node.RampFeed = l_TargetFeed;
+                    l_Node.FeedLeft = l_Node.FadeFrames;
                 }
 
                 for (ma_uint32 it_Frame = 0; it_Frame < l_Run; ++it_Frame)
@@ -789,31 +1021,33 @@ namespace Trinity
                 ProcessEffectRun(l_Node, l_RunIn, l_RunOut, l_Run, std::span<const float>(l_Feed).first(l_Run), l_Side != nullptr ? l_Side + l_Offset : nullptr);
                 for (ma_uint32 it_Frame = 0; it_Frame < l_Run; ++it_Frame)
                 {
-                    if (l_Node.WetLeft > 0)
+                    if (l_Node.GateLeft > 0)
                     {
-                        l_Node.Wet += (l_Node.RampWet - l_Node.Wet) / static_cast<float>(l_Node.WetLeft);
-                        if (--l_Node.WetLeft == 0)
+                        l_Node.Gate += (l_Node.RampGate - l_Node.Gate) / static_cast<float>(l_Node.GateLeft);
+                        if (--l_Node.GateLeft == 0)
                         {
-                            l_Node.Wet = l_Node.RampWet;
+                            l_Node.Gate = l_Node.RampGate;
                         }
                     }
 
+                    const float l_Mix = l_MixFrom + (l_Node.Mix - l_MixFrom) * static_cast<float>(it_Frame + 1) / static_cast<float>(l_Run);
+                    const float l_Wet = l_Node.Gate * l_Mix;
                     const std::size_t l_Base = static_cast<std::size_t>(it_Frame) * l_Channels;
                     for (std::uint32_t it_Channel = 0; it_Channel < l_Channels; ++it_Channel)
                     {
                         const float l_Dry = l_RunIn[l_Base + it_Channel];
-                        l_RunOut[l_Base + it_Channel] = l_Node.Wet == 0.0f ? l_Dry : l_Dry + l_Node.Wet * (l_RunOut[l_Base + it_Channel] - l_Dry);
+                        l_RunOut[l_Base + it_Channel] = l_Wet == 0.0f ? l_Dry : l_Dry + l_Wet * (l_RunOut[l_Base + it_Channel] - l_Dry);
                     }
 
                     // A Send's level and wet mix on what it sends alone, as what it passes on is what comes in
                     for (std::uint32_t it_Channel = 0; l_RunSent != nullptr && it_Channel < l_Channels; ++it_Channel)
                     {
-                        l_RunSent[l_Base + it_Channel] = l_RunIn[l_Base + it_Channel] * l_SendGain * l_Node.Wet;
+                        l_RunSent[l_Base + it_Channel] = l_RunIn[l_Base + it_Channel] * l_SendGain * l_Wet;
                     }
                 }
             }
 
-            l_Node.PublishedWet.store(l_Node.Wet, std::memory_order_relaxed);
+            l_Node.PublishedGate.store(l_Node.Gate, std::memory_order_relaxed);
             l_Node.Seen.store(l_Asked, std::memory_order_release);
         }
 
@@ -833,12 +1067,44 @@ namespace Trinity
             return std::clamp(pitch, AudioMixerData::c_MinimumPitch, AudioMixerData::c_MaximumPitch) != 1.0f;
         }
 
+        // A pitch lane that moves from now on, or stays at any pitch but 1
+        bool IsPitched(const Lane& pitch, std::uint64_t now)
+        {
+            const bool l_Moves = SettlesAt(pitch) > now && (pitch.From != pitch.To || std::ranges::any_of(pitch.Moves, [](float move) { return move != 0.0f; }) || (pitch.GlideLength > 0 && pitch.GlideFrom != pitch.To));
+
+            return l_Moves || IsPitched(Evaluate(pitch, now));
+        }
+
+        // An Echo's Delay and an SFX Reverb's Density, a change of which makes the effect anew, so a transition changes them once, as it ends, and they never glide
+        [[nodiscard]] Glide GetEffectGlide(AudioEffectType type, std::size_t slot)
+        {
+            return (type == AudioEffectType::Echo && slot == 1) || (type == AudioEffectType::SFXReverb && slot == 11) ? Glide::None : Glide::Even;
+        }
+
+        // Each value of every group and effect, with how it glides and the type of its effect, Attenuation for a group's
+        template<typename Function>
+        void ForEachValue(const AudioMixerData& data, Function function)
+        {
+            for (const AudioMixerGroup& it_Group : data.Groups)
+            {
+                function(AudioMixerValue{ it_Group.ID, AudioMixerValue::c_Volume }, Glide::Gain, AudioEffectType::Attenuation);
+                function(AudioMixerValue{ it_Group.ID, AudioMixerValue::c_Pitch }, Glide::Even, AudioEffectType::Attenuation);
+                for (const AudioEffect& it_Effect : it_Group.Effects)
+                {
+                    for (std::size_t it_Slot = 0; it_Effect.Type != AudioEffectType::Attenuation && it_Slot <= GetAudioEffectInfo(it_Effect.Type).Parameters.size(); ++it_Slot)
+                    {
+                        function(AudioMixerValue{ it_Effect.ID, static_cast<std::uint8_t>(it_Slot) }, GetEffectGlide(it_Effect.Type, it_Slot), it_Effect.Type);
+                    }
+                }
+            }
+        }
+
         [[nodiscard]] std::uint32_t FramesFor(std::uint64_t microseconds, std::uint32_t sampleRate)
         {
             return std::max<std::uint32_t>(static_cast<std::uint32_t>((microseconds * sampleRate + 500000) / 1000000), 1);
         }
 
-        // A unit of a group's chain: its Attenuation, which is the group's own, or an effect, with what it was made with that a change of needs another made in its place, an Echo's delay, an SFX Reverb's density and a Send's target, and the wet it is to have once in its place. A Send's second output plays into the unit it was sent to
+        // A unit of a group's chain: its Attenuation, which is the group's own, or an effect, with what it was made with that a change of needs another made in its place, an Echo's delay, an SFX Reverb's density and a Send's target, and the gate it is to have once in its place. A Send's second output plays into the unit it was sent to
         struct Unit
         {
             UUID ID;
@@ -848,7 +1114,7 @@ namespace Trinity
             EffectNode* Effect = nullptr;
             std::uint32_t Delay = 0;
             float Density = 0.0f;
-            float Wet = 0.0f;
+            float Gate = 0.0f;
             Unit* SentTo = nullptr;
 
             [[nodiscard]] ma_node* GetNode() const
@@ -860,19 +1126,19 @@ namespace Trinity
         using UnitList = std::vector<Unit*, TaggedAllocator<Unit*, MemoryTag::Audio>>;
 
         // Set once for each new value, so a fade the main thread waits on is the latest
-        void SetWet(EffectNode& node, float wet)
+        void SetGate(EffectNode& node, float gate)
         {
-            if (node.TargetWet.load(std::memory_order_relaxed) != wet)
+            if (node.TargetGate.load(std::memory_order_relaxed) != gate)
             {
-                node.TargetWet.store(wet, std::memory_order_relaxed);
+                node.TargetGate.store(gate, std::memory_order_relaxed);
                 node.Asked.fetch_add(1, std::memory_order_release);
             }
         }
 
-        // Crossed to dry by a block the audio thread started after the latest wet was set
+        // Crossed to dry by a block the audio thread started after the latest gate was set
         [[nodiscard]] bool IsDry(const EffectNode& node)
         {
-            return node.TargetWet.load(std::memory_order_relaxed) == 0.0f && node.Seen.load(std::memory_order_acquire) == node.Asked.load(std::memory_order_relaxed) && node.PublishedWet.load(std::memory_order_relaxed) == 0.0f;
+            return node.TargetGate.load(std::memory_order_relaxed) == 0.0f && node.Seen.load(std::memory_order_acquire) == node.Asked.load(std::memory_order_relaxed) && node.PublishedGate.load(std::memory_order_relaxed) == 0.0f;
         }
 
         // The longest run of units both chains have in the same order, which play on through a change of the chain while the rest cross to dry, step out or in, and cross back. Attenuation is always among them, since it is never faded
@@ -962,37 +1228,46 @@ namespace Trinity
         }
 
         // Off for every effect of a bypassed group, as Unity's group Bypass passes its effects by, Attenuation aside
-        [[nodiscard]] float GetWet(const AudioMixerGroup& group, const AudioEffect& effect)
+        [[nodiscard]] float GetGate(const AudioMixerGroup& group, const AudioEffect& effect)
         {
-            return group.Bypass || effect.Bypass ? 0.0f : std::clamp(effect.Wet, 0.0f, 100.0f) / 100.0f;
-        }
-
-        // As the audio thread plays it, so a value outside its range plays at its nearest end
-        [[nodiscard]] float ClampValue(const AudioEffect& effect, std::size_t index)
-        {
-            const AudioEffectParameter& l_Parameter = GetAudioEffectInfo(effect.Type).Parameters[index];
-
-            return std::clamp(effect.Parameters[index], l_Parameter.Minimum, l_Parameter.Maximum);
+            return group.Bypass || effect.Bypass ? 0.0f : 1.0f;
         }
 
         // An Echo's delay as a whole number of frames, which is exactly how much later it repeats
-        [[nodiscard]] std::uint32_t EchoFrames(const AudioEffect& effect, std::uint32_t sampleRate)
+        [[nodiscard]] std::uint32_t EchoFrames(float milliseconds, std::uint32_t sampleRate)
         {
-            return FramesFor(static_cast<std::uint64_t>(std::llround(static_cast<double>(ClampValue(effect, 0)) * 1000.0)), sampleRate);
+            return FramesFor(static_cast<std::uint64_t>(std::llround(static_cast<double>(milliseconds) * 1000.0)), sampleRate);
         }
+
+        // A value on the main thread: where the snapshots take it, what plays, which is that or what code set while it holds, and what code set
+        struct ValueLanes
+        {
+            Lane Snapshot;
+            Lane Played;
+            float Set = 0.0f;
+            bool IsSet = false;
+        };
+
+        // A group's values or an effect's, with the effect's type, Attenuation for a group, so an effect given another type under its ID starts its values anew
+        struct OwnerLanes
+        {
+            AudioEffectType Type = AudioEffectType::Attenuation;
+            std::array<ValueLanes, AudioMixerValue::c_MaxSlots> Values{};
+        };
     }
 
-    // A group as it plays: what is sent to it straight into its direct input, which solo silences while the group only carries a soloed one, then its sound group, which every group below it plays into, then its effects in their order with Attenuation among them, then its output, with its mute and solo and its meter, into its parent's sound group
+    // A group as it plays: what is sent to it straight into its direct input, which solo silences while the group only carries a soloed one, then its sound group, which every group below it plays into, then its effects in their order with Attenuation among them, then its output, with its mute and solo and its meter, into its parent's sound group. Its volume and pitch play from its lanes, as each effect's Wet and values from its own
     struct AudioMixer::State
     {
         struct Group
         {
             // Apart from the group, so it can be made again with the resampler or without
-            ma_sound_group* Sound = nullptr;
+            PitchedSound* Sound = nullptr;
             GainNode Direct;
             GainNode Attenuation;
             GainNode Output;
             Unit Volume;
+            GroupMailbox Lanes;
             // The chain as the graph plays it, the chain the data wants, and every effect the group has made, in its chain or waiting to step in
             UnitList Wired;
             UnitList Desired;
@@ -1003,7 +1278,7 @@ namespace Trinity
             bool HasDirect = false;
             bool HasAttenuation = false;
             bool HasOutput = false;
-            // Made by this Apply, so its gains and wets start where they are to be, with no ramp, and its chain is wired at once
+            // Made by this Apply, so its gains and gates start where they are to be, with no ramp, and its chain is wired at once
             bool Fresh = true;
             bool Kept = false;
             // Its chain is not yet as the data wants, waiting for effects to cross to dry
@@ -1019,8 +1294,10 @@ namespace Trinity
 
         using GroupMap = std::unordered_map<UUID, Group*, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, Group*>, MemoryTag::Audio>>;
         using RouteMap = std::unordered_map<void*, Destination, std::hash<void*>, std::equal_to<void*>, TaggedAllocator<std::pair<void* const, Destination>, MemoryTag::Audio>>;
+        using LaneMap = std::unordered_map<UUID, OwnerLanes, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, OwnerLanes>, MemoryTag::Audio>>;
+        using WeightList = std::vector<std::pair<UUID, float>, TaggedAllocator<std::pair<UUID, float>, MemoryTag::Audio>>;
 
-        explicit State(AudioEngine& engine) : TheEngine(AudioEngineInternal::GetEngine(engine))
+        explicit State(AudioEngine& engine) : Audio(engine), TheEngine(AudioEngineInternal::GetEngine(engine)), RampFrames(FramesFor(static_cast<std::uint64_t>(c_RampMilliseconds) * 1000, ma_engine_get_sample_rate(&TheEngine)))
         {
 
         }
@@ -1029,9 +1306,9 @@ namespace Trinity
 
         [[nodiscard]] Group* CreateGroup(bool pitched);
         void DestroyGroup(Group* group);
-        [[nodiscard]] ma_sound_group* CreateSound(bool pitched);
+        [[nodiscard]] PitchedSound* CreateSound(bool pitched, GroupMailbox& lanes);
         void SetPitched(Group& group, bool pitched);
-        [[nodiscard]] bool InitGain(GainNode& node, bool metered);
+        [[nodiscard]] bool InitGain(GainNode& node, bool metered, GroupMailbox* lanes = nullptr);
         [[nodiscard]] Unit* CreateEffect(const AudioEffect& effect);
         void DestroyEffect(Unit* unit);
         void SetDesired(Group& group, const AudioMixerGroup& data);
@@ -1043,14 +1320,34 @@ namespace Trinity
         [[nodiscard]] Unit* FindTarget(UUID id) const;
         [[nodiscard]] const Group* FindGroupOf(const Unit* unit) const;
         [[nodiscard]] Group* FindOrMaster(UUID id) const;
-        void UpdateGains();
+        void UpdateGains(std::uint64_t now);
+        void UpdatePitched(std::uint64_t now);
 
+        [[nodiscard]] std::uint64_t Now() const;
+        [[nodiscard]] Glide GetGlide(AudioMixerValue value) const;
+        [[nodiscard]] float BlendTarget(AudioMixerValue value) const;
+        [[nodiscard]] Lane MakeSnapshotLane(AudioMixerValue value, Glide glide, float from, std::uint64_t start, std::uint32_t length) const;
+        void PlayValue(ValueLanes& lanes, std::uint64_t now, Glide glide) const;
+        void RefreshValues(std::uint64_t now);
+        void StartTransition(std::uint32_t length);
+        void SendValues(UUID owner);
+        void SendAllValues();
+        [[nodiscard]] float PlayedValue(UUID owner, std::size_t slot, std::uint64_t now) const;
+        [[nodiscard]] bool IsStale(const Unit& unit, std::uint64_t now) const;
+
+        AudioEngine& Audio;
         ma_engine& TheEngine;
         AudioMixerData Data;
         Group* Master = nullptr;
         // Every group by its ID in the data, Master's included
         GroupMap Groups;
         RouteMap Routes;
+        // Every group's and effect's values by its ID, and where the snapshots take them: the snapshots, their weights adding up to 1, and when the transition to them started and for how long
+        LaneMap Lanes;
+        WeightList Targets;
+        std::uint64_t TransitionStart = 0;
+        std::uint32_t TransitionLength = 0;
+        std::uint32_t RampFrames = 1;
         // Set as the mixer goes, when no Send is left to let go of what it sends to
         bool Closing = false;
     };
@@ -1064,34 +1361,42 @@ namespace Trinity
         }
     }
 
-    bool AudioMixer::State::InitGain(GainNode& node, bool metered)
+    // An Attenuation plays its group's lanes, and every other gain the latest it is set to
+    bool AudioMixer::State::InitGain(GainNode& node, bool metered, GroupMailbox* lanes)
     {
         const float l_SampleRate = static_cast<float>(ma_engine_get_sample_rate(&TheEngine));
         node.Channels = ma_engine_get_channels(&TheEngine);
-        node.RampFrames = FramesFor(static_cast<std::uint64_t>(c_RampMilliseconds) * 1000, ma_engine_get_sample_rate(&TheEngine));
+        node.RampFrames = RampFrames;
         node.Metered = metered;
         node.PeakFall = std::pow(10.0f, -c_PeakFallDecibelsPerSecond / 20.0f / l_SampleRate);
         node.RmsCoefficient = 1.0f - std::exp(-1.0f / (c_RmsSeconds * l_SampleRate));
+        node.Lanes = lanes;
 
         const std::array<ma_uint32, 1> l_Channels{ node.Channels };
         ma_node_config l_Config = ma_node_config_init();
-        l_Config.vtable = &c_GainVTable;
+        l_Config.vtable = lanes != nullptr ? &c_AttenuationVTable : &c_GainVTable;
         l_Config.pInputChannels = l_Channels.data();
         l_Config.pOutputChannels = l_Channels.data();
 
         return ma_node_init(ma_engine_get_node_graph(&TheEngine), &l_Config, &TheEngine.allocationCallbacks, &node.Base) == MA_SUCCESS;
     }
 
-    // Its sound group starts in the engine's output for a moment, with nothing in it. None when it cannot be made
-    ma_sound_group* AudioMixer::State::CreateSound(bool pitched)
+    // Wired to nothing, with its process put behind the one that plays its group's pitch before anything can read it. None when it cannot be made
+    PitchedSound* AudioMixer::State::CreateSound(bool pitched, GroupMailbox& lanes)
     {
-        ma_sound_group* l_Sound = Memory::New<ma_sound_group>(MemoryTag::Audio);
-        if (ma_sound_group_init(&TheEngine, MA_SOUND_FLAG_NO_SPATIALIZATION | (pitched ? 0u : static_cast<ma_uint32>(MA_SOUND_FLAG_NO_PITCH)), nullptr, l_Sound) != MA_SUCCESS)
+        PitchedSound* l_Sound = Memory::New<PitchedSound>(MemoryTag::Audio);
+        if (ma_sound_group_init(&TheEngine, MA_SOUND_FLAG_NO_SPATIALIZATION | MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT | (pitched ? 0u : static_cast<ma_uint32>(MA_SOUND_FLAG_NO_PITCH)), nullptr, &l_Sound->Sound) != MA_SUCCESS)
         {
             Memory::Delete(l_Sound);
 
             return nullptr;
         }
+
+        l_Sound->Lanes = &lanes;
+        l_Sound->VTable = *l_Sound->Sound.engineNode.baseNode.vtable;
+        l_Sound->Process = l_Sound->VTable.onProcess;
+        l_Sound->VTable.onProcess = &ProcessPitchedSound;
+        l_Sound->Sound.engineNode.baseNode.vtable = &l_Sound->VTable;
 
         return l_Sound;
     }
@@ -1099,7 +1404,7 @@ namespace Trinity
     // What plays into the old sound group, and what it plays into, move to the new one before the old goes, which moves the sound by the sample the resampler held back
     void AudioMixer::State::SetPitched(Group& group, bool pitched)
     {
-        ma_sound_group* l_Sound = CreateSound(pitched);
+        PitchedSound* l_Sound = CreateSound(pitched, group.Lanes);
         if (l_Sound == nullptr)
         {
             TR_CORE_CRITICAL("Audio: a mixer group could not be made");
@@ -1107,31 +1412,32 @@ namespace Trinity
             throw std::bad_alloc();
         }
 
-        static_cast<void>(ma_node_attach_output_bus(l_Sound, 0, group.Wired.front()->GetNode(), 0));
-        static_cast<void>(ma_node_attach_output_bus(&group.Direct.Base, 0, l_Sound, 0));
+        static_cast<void>(ma_node_attach_output_bus(&l_Sound->Sound, 0, group.Wired.front()->GetNode(), 0));
+        static_cast<void>(ma_node_attach_output_bus(&group.Direct.Base, 0, &l_Sound->Sound, 0));
         for (const auto& [it_ID, it_Child] : Groups)
         {
             if (it_Child->Parent == &group)
             {
-                static_cast<void>(ma_node_attach_output_bus(&it_Child->Output.Base, 0, l_Sound, 0));
+                static_cast<void>(ma_node_attach_output_bus(&it_Child->Output.Base, 0, &l_Sound->Sound, 0));
             }
         }
 
-        ma_sound_group_uninit(group.Sound);
+        ma_sound_group_uninit(&group.Sound->Sound);
         Memory::Delete(group.Sound);
         group.Sound = l_Sound;
         group.Pitched = pitched;
     }
 
-    // Wired within itself and to nothing above, its chain Attenuation alone, so the audio thread reaches none of it until Apply has set its gains and plays it into its parent. Only running out of memory fails, which Memory treats the same way
+    // Wired within itself and to nothing above, its chain Attenuation alone, so the audio thread reaches none of it until Apply has set its gains and lanes and plays it into its parent. Only running out of memory fails, which Memory treats the same way
     AudioMixer::State::Group* AudioMixer::State::CreateGroup(bool pitched)
     {
         Group* l_Group = Memory::New<Group>(MemoryTag::Audio);
-        l_Group->Sound = CreateSound(pitched);
+        l_Group->Lanes.Reset({ Constant(0.0f), Constant(1.0f) });
+        l_Group->Sound = CreateSound(pitched, l_Group->Lanes);
         l_Group->Pitched = pitched;
         l_Group->HasSound = l_Group->Sound != nullptr;
         l_Group->HasDirect = l_Group->HasSound && InitGain(l_Group->Direct, false);
-        l_Group->HasAttenuation = l_Group->HasDirect && InitGain(l_Group->Attenuation, false);
+        l_Group->HasAttenuation = l_Group->HasDirect && InitGain(l_Group->Attenuation, false, &l_Group->Lanes);
         l_Group->HasOutput = l_Group->HasAttenuation && InitGain(l_Group->Output, true);
         if (!l_Group->HasOutput)
         {
@@ -1145,8 +1451,8 @@ namespace Trinity
         l_Group->Wired.push_back(&l_Group->Volume);
         l_Group->Desired.push_back(&l_Group->Volume);
         static_cast<void>(ma_node_attach_output_bus(&l_Group->Attenuation.Base, 0, &l_Group->Output.Base, 0));
-        static_cast<void>(ma_node_attach_output_bus(l_Group->Sound, 0, &l_Group->Attenuation.Base, 0));
-        static_cast<void>(ma_node_attach_output_bus(&l_Group->Direct.Base, 0, l_Group->Sound, 0));
+        static_cast<void>(ma_node_attach_output_bus(&l_Group->Sound->Sound, 0, &l_Group->Attenuation.Base, 0));
+        static_cast<void>(ma_node_attach_output_bus(&l_Group->Direct.Base, 0, &l_Group->Sound->Sound, 0));
 
         return l_Group;
     }
@@ -1166,7 +1472,7 @@ namespace Trinity
 
         if (group->HasSound)
         {
-            ma_sound_group_uninit(group->Sound);
+            ma_sound_group_uninit(&group->Sound->Sound);
             Memory::Delete(group->Sound);
         }
 
@@ -1183,22 +1489,29 @@ namespace Trinity
         Memory::Delete(group);
     }
 
-    // Wired to nothing and fully dry, at its values with no glide, its filter's state, its echo's delay and its Limiter's window all made here on the main thread, so the audio thread allocates nothing for it. Only running out of memory fails, which Memory treats the same way
+    // Wired to nothing and fully dry, at the values its lanes have now, its lanes in each copy of its mailbox, its filter's state, its echo's delay and its Limiter's window all made here on the main thread, so the audio thread allocates nothing for it. Only running out of memory fails, which Memory treats the same way
     Unit* AudioMixer::State::CreateEffect(const AudioEffect& effect)
     {
         const std::uint32_t l_Rate = ma_engine_get_sample_rate(&TheEngine);
+        const std::uint64_t l_Now = Now();
+        const OwnerLanes& l_Lanes = Lanes.at(effect.ID);
         EffectNode* l_Node = Memory::New<EffectNode>(MemoryTag::Audio);
         l_Node->Type = effect.Type;
         l_Node->Channels = ma_engine_get_channels(&TheEngine);
         l_Node->SampleRate = l_Rate;
         l_Node->FadeFrames = FramesFor(static_cast<std::uint64_t>(c_FadeMilliseconds) * 1000, l_Rate);
-        l_Node->RampFrames = FramesFor(static_cast<std::uint64_t>(c_RampMilliseconds) * 1000, l_Rate);
         l_Node->ValueCount = static_cast<std::uint32_t>(GetAudioEffectInfo(effect.Type).Parameters.size());
+        EffectLanes l_Played{};
+        for (std::size_t it_Slot = 0; it_Slot <= l_Node->ValueCount; ++it_Slot)
+        {
+            l_Played[it_Slot] = l_Lanes.Values[it_Slot].Played;
+        }
+
+        l_Node->Lanes.Reset(l_Played);
+        l_Node->Mix = std::clamp(Evaluate(l_Played[AudioMixerValue::c_Wet], l_Now) / 100.0f, 0.0f, 1.0f);
         for (std::uint32_t it_Value = 0; it_Value < l_Node->ValueCount; ++it_Value)
         {
-            l_Node->Values[it_Value] = ClampValue(effect, it_Value);
-            l_Node->RampValues[it_Value] = l_Node->Values[it_Value];
-            l_Node->TargetValues[it_Value].store(l_Node->Values[it_Value], std::memory_order_relaxed);
+            l_Node->Values[it_Value] = Evaluate(l_Played[it_Value + 1], l_Now);
         }
 
         Unit* l_Unit = Memory::New<Unit>(MemoryTag::Audio);
@@ -1211,7 +1524,7 @@ namespace Trinity
         {
             case AudioEffectType::Echo:
             {
-                l_Unit->Delay = EchoFrames(effect, l_Rate);
+                l_Unit->Delay = EchoFrames(l_Node->Values[0], l_Rate);
                 ma_delay_config l_Config = ma_delay_config_init(l_Node->Channels, l_Rate, l_Unit->Delay, l_Node->Values[1] / 100.0f);
                 // The first echo a whole delay after what it echoes, at its full level, and each after it lower by the decay
                 l_Config.delayStart = MA_TRUE;
@@ -1234,7 +1547,7 @@ namespace Trinity
             }
             case AudioEffectType::SFXReverb:
             {
-                l_Unit->Density = ClampValue(effect, 10);
+                l_Unit->Density = l_Node->Values[10];
                 l_Node->Reverb = CreateReverb(l_Rate, l_Unit->Density);
                 ConfigureReverb(*l_Node);
 
@@ -1325,10 +1638,10 @@ namespace Trinity
         Memory::Delete(unit);
     }
 
-    // The chain the data wants, each effect found again by its ID and type, so a playing one keeps its state, and made anew when it is new, of another type, an Echo of another delay or an SFX Reverb of another density, which need delays of their own, or a Send to another target, so the old one's sends fade out of its target as the new one's fade into the other. Attenuation comes last when the data leaves it out. An effect made and let go again before it ever stepped in goes at once
+    // The chain the data wants, each effect found again by its ID and type, so a playing one keeps its state, and made anew when it is new, of another type, an Echo whose lane has another delay now or an SFX Reverb another density, which need delays of their own, or a Send to another target, so the old one's sends fade out of its target as the new one's fade into the other. Attenuation comes last when the data leaves it out. An effect made and let go again before it ever stepped in goes at once
     void AudioMixer::State::SetDesired(Group& group, const AudioMixerGroup& data)
     {
-        const std::uint32_t l_Rate = ma_engine_get_sample_rate(&TheEngine);
+        const std::uint64_t l_Now = Now();
         UnitList l_Desired;
         for (const AudioEffect& it_Effect : data.Effects)
         {
@@ -1341,19 +1654,14 @@ namespace Trinity
 
             const auto a_Found = std::ranges::find_if(group.Desired, [&it_Effect](const Unit* unit) { return unit->Effect != nullptr && unit->ID == it_Effect.ID; });
             Unit* l_Unit = a_Found != group.Desired.end() ? *a_Found : nullptr;
-            const bool l_Remade = l_Unit != nullptr && ((it_Effect.Type == AudioEffectType::Echo && l_Unit->Delay != EchoFrames(it_Effect, l_Rate)) || (it_Effect.Type == AudioEffectType::SFXReverb && l_Unit->Density != ClampValue(it_Effect, 10)) || (it_Effect.Type == AudioEffectType::Send && l_Unit->Target != it_Effect.Target));
+            const bool l_Remade = l_Unit != nullptr && (IsStale(*l_Unit, l_Now) || (it_Effect.Type == AudioEffectType::Send && l_Unit->Target != it_Effect.Target));
             if (l_Unit == nullptr || l_Unit->Type != it_Effect.Type || l_Remade)
             {
                 l_Unit = CreateEffect(it_Effect);
                 group.Effects.push_back(l_Unit);
             }
 
-            for (std::uint32_t it_Value = 0; it_Value < l_Unit->Effect->ValueCount; ++it_Value)
-            {
-                l_Unit->Effect->TargetValues[it_Value].store(ClampValue(it_Effect, it_Value), std::memory_order_relaxed);
-            }
-
-            l_Unit->Wet = GetWet(data, it_Effect);
+            l_Unit->Gate = GetGate(data, it_Effect);
             l_Desired.push_back(l_Unit);
         }
 
@@ -1380,7 +1688,7 @@ namespace Trinity
         Converge(group);
     }
 
-    // The effects outside the run that keeps its order cross to dry, and once all have, step out and in, and those that left go. A fresh group plays nothing yet, so its chain is wired at once with every wet where it is to be
+    // The effects outside the run that keeps its order cross to dry, and once all have, step out and in, and those that left go. A fresh group plays nothing yet, so its chain is wired at once with every gate where it is to be
     void AudioMixer::State::Converge(Group& group)
     {
         if (group.Fresh || group.Wired == group.Desired)
@@ -1394,15 +1702,15 @@ namespace Trinity
             {
                 if (it_Unit->Effect != nullptr && group.Fresh)
                 {
-                    it_Unit->Effect->Wet = it_Unit->Wet;
-                    it_Unit->Effect->RampWet = it_Unit->Wet;
-                    it_Unit->Effect->Feed = it_Unit->Wet > 0.0f ? 1.0f : 0.0f;
+                    it_Unit->Effect->Gate = it_Unit->Gate;
+                    it_Unit->Effect->RampGate = it_Unit->Gate;
+                    it_Unit->Effect->Feed = it_Unit->Gate > 0.0f && it_Unit->Effect->Mix > 0.0f ? 1.0f : 0.0f;
                     it_Unit->Effect->RampFeed = it_Unit->Effect->Feed;
                 }
 
                 if (it_Unit->Effect != nullptr)
                 {
-                    SetWet(*it_Unit->Effect, it_Unit->Wet);
+                    SetGate(*it_Unit->Effect, it_Unit->Gate);
                 }
             }
 
@@ -1421,7 +1729,7 @@ namespace Trinity
             }
 
             const bool l_Stays = Contains(l_Kept, it_Unit);
-            SetWet(*it_Unit->Effect, l_Stays ? it_Unit->Wet : 0.0f);
+            SetGate(*it_Unit->Effect, l_Stays ? it_Unit->Gate : 0.0f);
             l_Dry = l_Dry && (l_Stays || IsDry(*it_Unit->Effect));
         }
 
@@ -1435,7 +1743,7 @@ namespace Trinity
         {
             if (it_Unit->Effect != nullptr)
             {
-                SetWet(*it_Unit->Effect, it_Unit->Wet);
+                SetGate(*it_Unit->Effect, it_Unit->Gate);
             }
         }
 
@@ -1457,7 +1765,7 @@ namespace Trinity
     // Each step leaves one path from the sound group to the output through every kept unit and no loop, so the audio thread hears the chain whole whenever it runs between them: a unit steps out by joining the one before it to the one after it, then leaving, and steps in by playing into the one after its place, then taking the one before it. Every unit stepping is dry, and passes on exactly what comes in, so none of this is heard. Those the data no longer has go once out
     void AudioMixer::State::Rewire(Group& group, const UnitList& kept)
     {
-        const auto a_Before = [&group](std::size_t index) { return index == 0 ? static_cast<ma_node*>(group.Sound) : group.Wired[index - 1]->GetNode(); };
+        const auto a_Before = [&group](std::size_t index) { return index == 0 ? static_cast<ma_node*>(&group.Sound->Sound) : group.Wired[index - 1]->GetNode(); };
         const auto a_After = [&group](std::size_t index) { return index == group.Wired.size() ? static_cast<ma_node*>(&group.Output.Base) : group.Wired[index]->GetNode(); };
         for (std::size_t it_Index = 0; it_Index < group.Wired.size();)
         {
@@ -1650,8 +1958,244 @@ namespace Trinity
         return a_Found != Groups.end() ? a_Found->second : Master;
     }
 
-    // As Unity's mixer has it: mute silences a group and so everything below it, and while any group is soloed, a group neither soloed nor below a soloed one is silent unless one below it is soloed, when it carries only that. A group made by this Apply takes its gains at once
-    void AudioMixer::State::UpdateGains()
+    // A frame the audio thread has yet to reach, so a change made now starts there on every node alike: a device's period on from the frame the engine is at, since the device may be partway through mixing it, or that frame itself when the main thread mixes
+    std::uint64_t AudioMixer::State::Now() const
+    {
+        return ma_engine_get_time_in_pcm_frames(&TheEngine) + AudioEngineInternal::GetLeadFrames(Audio);
+    }
+
+    Glide AudioMixer::State::GetGlide(AudioMixerValue value) const
+    {
+        for (const AudioMixerGroup& it_Group : Data.Groups)
+        {
+            if (it_Group.ID == value.Owner)
+            {
+                return value.Slot == AudioMixerValue::c_Volume ? Glide::Gain : Glide::Even;
+            }
+
+            const auto a_Effect = std::ranges::find_if(it_Group.Effects, [&value](const AudioEffect& effect) { return effect.Type != AudioEffectType::Attenuation && effect.ID == value.Owner; });
+            if (a_Effect != it_Group.Effects.end())
+            {
+                return GetEffectGlide(a_Effect->Type, value.Slot);
+            }
+        }
+
+        return Glide::Even;
+    }
+
+    // Where the snapshots take a value once their transition is over: each one's own, within the value's range, at its weight
+    float AudioMixer::State::BlendTarget(AudioMixerValue value) const
+    {
+        const AudioEffectParameter l_Info = *Data.GetValueInfo(value);
+        float l_Target = 0.0f;
+        for (const auto& [it_ID, it_Weight] : Targets)
+        {
+            l_Target += it_Weight * std::clamp(*Data.GetValue(*Data.FindSnapshot(it_ID), value), l_Info.Minimum, l_Info.Maximum);
+        }
+
+        return l_Target;
+    }
+
+    // From where the value is towards the snapshots' blend, each snapshot's share of the way along its curve, or, for a value that makes its effect anew, all of it at the end
+    Lane AudioMixer::State::MakeSnapshotLane(AudioMixerValue value, Glide glide, float from, std::uint64_t start, std::uint32_t length) const
+    {
+        const AudioEffectParameter l_Info = *Data.GetValueInfo(value);
+        Lane l_Lane;
+        l_Lane.From = from;
+        l_Lane.Start = start;
+        l_Lane.Length = length;
+        for (const auto& [it_ID, it_Weight] : Targets)
+        {
+            const AudioMixerSnapshot& l_Snapshot = *Data.FindSnapshot(it_ID);
+            const float l_Target = std::clamp(*Data.GetValue(l_Snapshot, value), l_Info.Minimum, l_Info.Maximum);
+            const AudioTransitionCurve l_Curve = glide == Glide::None ? AudioTransitionCurve::BrickwallEnd : Data.GetCurve(l_Snapshot, value);
+            l_Lane.To += it_Weight * l_Target;
+            l_Lane.Moves[static_cast<std::size_t>(l_Curve)] += it_Weight * (l_Target - from);
+        }
+
+        return l_Lane;
+    }
+
+    // What plays from now on: the snapshots' lane, or the value code set, gliding over the ramp from where it was when it would step, but for a value that makes its effect anew, which steps
+    void AudioMixer::State::PlayValue(ValueLanes& lanes, std::uint64_t now, Glide glide) const
+    {
+        Lane l_Played = lanes.IsSet ? Constant(lanes.Set) : lanes.Snapshot;
+        const float l_Was = Evaluate(lanes.Played, now);
+        if (glide != Glide::None && Evaluate(l_Played, now) != l_Was)
+        {
+            l_Played.GlideFrom = l_Was;
+            l_Played.GlideStart = now;
+            l_Played.GlideLength = RampFrames;
+            l_Played.GlidesInGain = glide == Glide::Gain;
+        }
+
+        lanes.Played = l_Played;
+    }
+
+    // The lanes made again from the data an Apply gives: a snapshot gone from the transition leaves it and the rest share its weight, a value of a new group or effect starts where the snapshots take it, one of a group or effect that is gone is let go, and one whose snapshots changed moves to them from where its transition started, gliding when it would step. A value no name exposes any more is no longer set
+    void AudioMixer::State::RefreshValues(std::uint64_t now)
+    {
+        std::erase_if(Targets, [this](const std::pair<UUID, float>& target) { return Data.FindSnapshot(target.first) == nullptr; });
+        if (Targets.empty())
+        {
+            Targets.emplace_back(Data.StartSnapshot, 1.0f);
+        }
+
+        float l_Weights = 0.0f;
+        for (const auto& [it_ID, it_Weight] : Targets)
+        {
+            l_Weights += it_Weight;
+        }
+
+        for (auto& [it_ID, it_Weight] : Targets)
+        {
+            it_Weight /= l_Weights;
+        }
+
+        LaneMap l_Lanes;
+        ForEachValue(Data, [&](AudioMixerValue value, Glide glide, AudioEffectType type)
+        {
+            const auto a_Found = Lanes.find(value.Owner);
+            const bool l_Old = a_Found != Lanes.end() && a_Found->second.Type == type;
+            const auto [a_Entry, a_Made] = l_Lanes.try_emplace(value.Owner);
+            if (a_Made && l_Old)
+            {
+                a_Entry->second = a_Found->second;
+            }
+
+            a_Entry->second.Type = type;
+            ValueLanes& l_Value = a_Entry->second.Values[value.Slot];
+            if (!l_Old)
+            {
+                l_Value.Snapshot = Constant(BlendTarget(value));
+                l_Value.Played = l_Value.Snapshot;
+
+                return;
+            }
+
+            const bool l_WasSet = l_Value.IsSet;
+            const Lane l_Snapshot = MakeSnapshotLane(value, glide, l_Value.Snapshot.From, TransitionStart, TransitionLength);
+            l_Value.IsSet = l_Value.IsSet && std::ranges::find(Data.Exposed, value, &AudioExposedParameter::Value) != Data.Exposed.end();
+            if (l_Snapshot != l_Value.Snapshot || l_WasSet != l_Value.IsSet)
+            {
+                l_Value.Snapshot = l_Snapshot;
+                PlayValue(l_Value, now, glide);
+            }
+        });
+
+        Lanes.swap(l_Lanes);
+    }
+
+    // Every value from where the snapshots have it now towards the targets' blend over the length, played unless code set it, and the groups whose pitch is to move given the resampler before it starts
+    void AudioMixer::State::StartTransition(std::uint32_t length)
+    {
+        const std::uint64_t l_Now = Now();
+        TransitionStart = l_Now;
+        TransitionLength = length;
+        ForEachValue(Data, [&](AudioMixerValue value, Glide glide, AudioEffectType)
+        {
+            ValueLanes& l_Value = Lanes.at(value.Owner).Values[value.Slot];
+            l_Value.Snapshot = MakeSnapshotLane(value, glide, Evaluate(l_Value.Snapshot, l_Now), l_Now, length);
+            PlayValue(l_Value, l_Now, glide);
+        });
+
+        SendAllValues();
+        UpdatePitched(l_Now);
+    }
+
+    // A group's lanes to its Attenuation and its sound group, or an effect's to each unit made for it of its type
+    void AudioMixer::State::SendValues(UUID owner)
+    {
+        const OwnerLanes& l_Lanes = Lanes.at(owner);
+        if (const auto a_Group = Groups.find(owner); a_Group != Groups.end())
+        {
+            a_Group->second->Lanes.Send({ l_Lanes.Values[AudioMixerValue::c_Volume].Played, l_Lanes.Values[AudioMixerValue::c_Pitch].Played });
+
+            return;
+        }
+
+        EffectLanes l_Played{};
+        for (std::size_t it_Slot = 0; it_Slot < AudioMixerValue::c_MaxSlots; ++it_Slot)
+        {
+            l_Played[it_Slot] = l_Lanes.Values[it_Slot].Played;
+        }
+
+        for (const auto& [it_ID, it_Group] : Groups)
+        {
+            for (Unit* it_Unit : it_Group->Effects)
+            {
+                if (it_Unit->ID == owner && it_Unit->Type == l_Lanes.Type)
+                {
+                    it_Unit->Effect->Lanes.Send(l_Played);
+                }
+            }
+        }
+    }
+
+    // A unit leaving whose effect the data no longer has, or has as another type, plays on as it was
+    void AudioMixer::State::SendAllValues()
+    {
+        for (const auto& [it_ID, it_Group] : Groups)
+        {
+            SendValues(it_ID);
+            for (Unit* it_Unit : it_Group->Effects)
+            {
+                const auto a_Lanes = Lanes.find(it_Unit->ID);
+                if (a_Lanes == Lanes.end() || a_Lanes->second.Type != it_Unit->Type)
+                {
+                    continue;
+                }
+
+                EffectLanes l_Played{};
+                for (std::size_t it_Slot = 0; it_Slot < AudioMixerValue::c_MaxSlots; ++it_Slot)
+                {
+                    l_Played[it_Slot] = a_Lanes->second.Values[it_Slot].Played;
+                }
+
+                it_Unit->Effect->Lanes.Send(l_Played);
+            }
+        }
+    }
+
+    float AudioMixer::State::PlayedValue(UUID owner, std::size_t slot, std::uint64_t now) const
+    {
+        const auto a_Lanes = Lanes.find(owner);
+
+        return a_Lanes != Lanes.end() ? Evaluate(a_Lanes->second.Values[slot].Played, now) : 0.0f;
+    }
+
+    // An Echo whose delay, or an SFX Reverb whose density, its lane has moved from since it was made, which a new one is to take over from. One whose effect is gone, or is now of another type, is let be
+    bool AudioMixer::State::IsStale(const Unit& unit, std::uint64_t now) const
+    {
+        const auto a_Lanes = Lanes.find(unit.ID);
+        if (a_Lanes == Lanes.end() || a_Lanes->second.Type != unit.Type)
+        {
+            return false;
+        }
+
+        if (unit.Type == AudioEffectType::Echo)
+        {
+            return EchoFrames(PlayedValue(unit.ID, 1, now), ma_engine_get_sample_rate(&TheEngine)) != unit.Delay;
+        }
+
+        return unit.Type == AudioEffectType::SFXReverb && PlayedValue(unit.ID, 11, now) != unit.Density;
+    }
+
+    // A group whose pitch is to move, or stay off 1, takes the resampler, and one back at 1 for good lets it go
+    void AudioMixer::State::UpdatePitched(std::uint64_t now)
+    {
+        for (const auto& [it_ID, it_Group] : Groups)
+        {
+            const bool l_Pitched = IsPitched(Lanes.at(it_ID).Values[AudioMixerValue::c_Pitch].Played, now);
+            if (it_Group->Pitched != l_Pitched)
+            {
+                SetPitched(*it_Group, l_Pitched);
+            }
+        }
+    }
+
+    // As Unity's mixer has it: mute silences a group and so everything below it, and while any group is soloed, a group neither soloed nor below a soloed one is silent unless one below it is soloed, when it carries only that. A group made by this Apply takes its gains and its volume at once
+    void AudioMixer::State::UpdateGains(std::uint64_t now)
     {
         const bool l_AnySolo = std::ranges::any_of(Data.Groups, &AudioMixerGroup::Solo);
         for (const AudioMixerGroup& it_Group : Data.Groups)
@@ -1673,10 +2217,9 @@ namespace Trinity
 
             const bool l_Silenced = it_Group.Mute || (l_AnySolo && !l_Soloed && !l_Carries);
             const float l_Output = l_Silenced ? 0.0f : 1.0f;
-            const float l_Volume = AudioDecibelsToGain(it_Group.Volume);
             const float l_Direct = l_AnySolo && !l_Soloed ? 0.0f : 1.0f;
             Group& l_Group = *Groups.at(it_Group.ID);
-            for (const auto& [it_Node, it_Gain] : { std::pair(&l_Group.Output, l_Output), std::pair(&l_Group.Attenuation, l_Volume), std::pair(&l_Group.Direct, l_Direct) })
+            for (const auto& [it_Node, it_Gain] : { std::pair(&l_Group.Output, l_Output), std::pair(&l_Group.Direct, l_Direct) })
             {
                 if (l_Group.Fresh)
                 {
@@ -1687,25 +2230,28 @@ namespace Trinity
                 it_Node->TargetGain.store(it_Gain, std::memory_order_relaxed);
             }
 
-            if (l_Group.Pitched != IsPitched(it_Group.Pitch))
+            if (l_Group.Fresh)
             {
-                SetPitched(l_Group, IsPitched(it_Group.Pitch));
+                l_Group.Attenuation.Gain = AudioDecibelsToGain(Evaluate(Lanes.at(it_Group.ID).Values[AudioMixerValue::c_Volume].Played, now));
             }
-
-            ma_sound_group_set_pitch(l_Group.Sound, std::clamp(it_Group.Pitch, AudioMixerData::c_MinimumPitch, AudioMixerData::c_MaximumPitch));
         }
+
+        UpdatePitched(now);
     }
 
-    // Master alone, into the engine's output
+    // Master alone, into the engine's output, at the start snapshot
     AudioMixer::AudioMixer(AudioEngine& engine) : m_State(Memory::New<State>(MemoryTag::Audio, engine))
     {
         State& l_State = *m_State;
+        const std::uint64_t l_Now = l_State.Now();
         l_State.Data = AudioMixerData::MakeDefault();
         l_State.Master = l_State.CreateGroup(false);
         l_State.Groups.emplace(l_State.Data.GetMaster().ID, l_State.Master);
-        l_State.UpdateGains();
+        l_State.RefreshValues(l_Now);
+        l_State.UpdateGains(l_Now);
         l_State.SetDesired(*l_State.Master, l_State.Data.GetMaster());
         l_State.Master->Fresh = false;
+        l_State.SendAllValues();
         static_cast<void>(ma_node_attach_output_bus(&l_State.Master->Output.Base, 0, &AudioEngineInternal::GetMaster(engine), 0));
     }
 
@@ -1714,7 +2260,7 @@ namespace Trinity
         Memory::Delete(m_State);
     }
 
-    // The groups are made, kept and wired before any is let go, so a group that leaves takes nothing with it that stays: what was sent to it has moved to Master, and the groups below it that stay have moved to their new parents
+    // The groups are made, kept and wired before any is let go, so a group that leaves takes nothing with it that stays: what was sent to it has moved to Master, and the groups below it that stay have moved to their new parents. The values move to the new data's snapshots, the transition under way carrying on towards them
     bool AudioMixer::Apply(const AudioMixerData& data)
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "A mixer changes on the main thread.");
@@ -1760,16 +2306,20 @@ namespace Trinity
             }
         }
 
-        // A copy of its own, so a smaller mixer lets go of what a larger one held
+        // A copy of its own, so a smaller mixer lets go of what a larger one held. Each effect is made at the values its lanes give it
         l_State.Groups = std::move(l_Groups);
         l_State.Data = AudioMixerData(data);
-        l_State.UpdateGains();
+        const std::uint64_t l_Now = l_State.Now();
+        l_State.RefreshValues(l_Now);
+        l_State.UpdateGains(l_Now);
         for (const AudioMixerGroup& it_Group : data.Groups)
         {
             State::Group& l_Group = *l_State.Groups.at(it_Group.ID);
             l_State.SetDesired(l_Group, it_Group);
             l_Group.Fresh = false;
         }
+
+        l_State.SendAllValues();
 
         // A group that is going sends nothing more, and a Send that would loop through the parents old or new stops, before any group changes its parent
         for (State::Group* it_Group : l_Gone)
@@ -1791,7 +2341,7 @@ namespace Trinity
             State::Group* l_Parent = it_Group.Parent ? l_State.Groups.at(it_Group.Parent) : nullptr;
             if (l_Parent != nullptr && l_Group.Parent != l_Parent)
             {
-                static_cast<void>(ma_node_attach_output_bus(&l_Group.Output.Base, 0, l_Parent->Sound, 0));
+                static_cast<void>(ma_node_attach_output_bus(&l_Group.Output.Base, 0, &l_Parent->Sound->Sound, 0));
                 l_Group.Parent = l_Parent;
             }
         }
@@ -1815,25 +2365,152 @@ namespace Trinity
         return true;
     }
 
-    // Allocates nothing while no chain is changing. Once one has, its Sends move to the units now in their targets' chains
+    // Allocates nothing while no chain is changing. An Echo or an SFX Reverb whose delay or density a transition or code has changed is made anew and crossed over to. Once a chain has changed, its Sends move to the units now in their targets' chains, and a group whose pitch has come back to 1 for good lets its resampler go
     void AudioMixer::Update()
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "A mixer changes on the main thread.");
 
+        State& l_State = *m_State;
+        const std::uint64_t l_Now = l_State.Now();
         bool l_Changing = false;
-        for (const auto& [it_ID, it_Group] : m_State->Groups)
+        for (const auto& [it_ID, it_Group] : l_State.Groups)
         {
-            if (it_Group->Pending)
+            if (std::ranges::any_of(it_Group->Desired, [&l_State, l_Now](const Unit* unit) { return unit->Effect != nullptr && l_State.IsStale(*unit, l_Now); }))
             {
-                m_State->Converge(*it_Group);
+                l_State.SetDesired(*it_Group, *l_State.Data.FindGroup(it_ID));
+                l_Changing = true;
+            }
+            else if (it_Group->Pending)
+            {
+                l_State.Converge(*it_Group);
                 l_Changing = true;
             }
         }
 
+        l_State.UpdatePitched(l_Now);
         if (l_Changing)
         {
-            m_State->ConnectSends();
+            l_State.ConnectSends();
         }
+    }
+
+    bool AudioMixer::TransitionToSnapshot(std::string_view name, float seconds)
+    {
+        const std::array<std::string_view, 1> l_Names{ name };
+        const std::array<float, 1> l_Weights{ 1.0f };
+
+        return TransitionToSnapshots(l_Names, l_Weights, seconds);
+    }
+
+    // The weights scaled to add up to 1, and a snapshot without weight left out
+    bool AudioMixer::TransitionToSnapshots(std::span<const std::string_view> names, std::span<const float> weights, float seconds)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A mixer changes on the main thread.");
+
+        State& l_State = *m_State;
+        float l_Weights = 0.0f;
+        for (std::size_t it_Name = 0; it_Name < names.size() && it_Name < weights.size(); ++it_Name)
+        {
+            if (l_State.Data.FindSnapshot(names[it_Name]) == nullptr || !std::isfinite(weights[it_Name]) || weights[it_Name] < 0.0f)
+            {
+                return false;
+            }
+
+            l_Weights += weights[it_Name];
+        }
+
+        if (names.size() != weights.size() || !(l_Weights > 0.0f) || !std::isfinite(l_Weights) || !std::isfinite(seconds))
+        {
+            return false;
+        }
+
+        l_State.Targets.clear();
+        for (std::size_t it_Name = 0; it_Name < names.size(); ++it_Name)
+        {
+            if (weights[it_Name] > 0.0f)
+            {
+                l_State.Targets.emplace_back(l_State.Data.FindSnapshot(names[it_Name])->ID, weights[it_Name] / l_Weights);
+            }
+        }
+
+        l_State.StartTransition(static_cast<std::uint32_t>(std::llround(static_cast<double>(std::max(seconds, 0.0f)) * ma_engine_get_sample_rate(&l_State.TheEngine))));
+
+        return true;
+    }
+
+    bool AudioMixer::SetFloat(std::string_view name, float value)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A mixer changes on the main thread.");
+
+        State& l_State = *m_State;
+        const AudioExposedParameter* l_Exposed = l_State.Data.FindExposed(name);
+        if (l_Exposed == nullptr || !std::isfinite(value))
+        {
+            return false;
+        }
+
+        const AudioEffectParameter l_Info = *l_State.Data.GetValueInfo(l_Exposed->Value);
+        const std::uint64_t l_Now = l_State.Now();
+        ValueLanes& l_Value = l_State.Lanes.at(l_Exposed->Value.Owner).Values[l_Exposed->Value.Slot];
+        l_Value.Set = std::clamp(value, l_Info.Minimum, l_Info.Maximum);
+        l_Value.IsSet = true;
+        l_State.PlayValue(l_Value, l_Now, l_State.GetGlide(l_Exposed->Value));
+        l_State.SendValues(l_Exposed->Value.Owner);
+        l_State.UpdatePitched(l_Now);
+
+        return true;
+    }
+
+    std::optional<float> AudioMixer::GetFloat(std::string_view name) const
+    {
+        const State& l_State = *m_State;
+        const AudioExposedParameter* l_Exposed = l_State.Data.FindExposed(name);
+        if (l_Exposed == nullptr)
+        {
+            return std::nullopt;
+        }
+
+        const ValueLanes& l_Value = l_State.Lanes.at(l_Exposed->Value.Owner).Values[l_Exposed->Value.Slot];
+
+        return l_Value.IsSet ? l_Value.Set : Evaluate(l_Value.Snapshot, ma_engine_get_time_in_pcm_frames(&l_State.TheEngine));
+    }
+
+    bool AudioMixer::ClearFloat(std::string_view name)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A mixer changes on the main thread.");
+
+        State& l_State = *m_State;
+        const AudioExposedParameter* l_Exposed = l_State.Data.FindExposed(name);
+        if (l_Exposed == nullptr)
+        {
+            return false;
+        }
+
+        const std::uint64_t l_Now = l_State.Now();
+        ValueLanes& l_Value = l_State.Lanes.at(l_Exposed->Value.Owner).Values[l_Exposed->Value.Slot];
+        l_Value.IsSet = false;
+        l_State.PlayValue(l_Value, l_Now, l_State.GetGlide(l_Exposed->Value));
+        l_State.SendValues(l_Exposed->Value.Owner);
+        l_State.UpdatePitched(l_Now);
+
+        return true;
+    }
+
+    void AudioMixer::Reset()
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "A mixer changes on the main thread.");
+
+        State& l_State = *m_State;
+        for (auto& [it_ID, it_Lanes] : l_State.Lanes)
+        {
+            for (ValueLanes& it_Value : it_Lanes.Values)
+            {
+                it_Value.IsSet = false;
+            }
+        }
+
+        l_State.Targets.assign(1, { l_State.Data.StartSnapshot, 1.0f });
+        l_State.StartTransition(0);
     }
 
     const AudioMixerData& AudioMixer::GetData() const

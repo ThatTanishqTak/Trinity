@@ -458,6 +458,7 @@ private:
     void FinishAudioClipImports(const AudioClipImportReport& report);
     void UpdateMixer();
     void ApplyMixer(const Trinity::AudioMixerAsset* asset);
+    void ResetMixer();
     void SaveProject();
     void ImportAsset(const std::filesystem::path& file, const std::string& folder);
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);

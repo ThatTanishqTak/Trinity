@@ -97,7 +97,72 @@ namespace Trinity
         [[nodiscard]] bool operator==(const AudioMixerGroup&) const = default;
     };
 
-    // What a .trmixer file holds, Unity's Audio Mixer: a tree of groups from Master, which comes first, each group after its parent
+    // How a value moves to a snapshot's as the mixer transitions to it, Unity's transition overrides: evenly, eased in and out, slowly then fast, fast then slowly, all at once at the start, or all at once at the end
+    enum class AudioTransitionCurve : std::uint8_t
+    {
+        Linear,
+        Smoothstep,
+        Squared,
+        SquareRoot,
+        BrickwallStart,
+        BrickwallEnd
+    };
+
+    // One of the values a snapshot holds, a name exposes and code sets: a group's Volume or Pitch, or an effect's Wet or one of its parameters, by the ID of the group or the effect and the value's slot
+    struct AudioMixerValue
+    {
+        // A group's slots
+        static constexpr std::uint8_t c_Volume = 0;
+        static constexpr std::uint8_t c_Pitch = 1;
+        // An effect's, its parameters from 1 in their order
+        static constexpr std::uint8_t c_Wet = 0;
+        static constexpr std::size_t c_MaxSlots = AudioEffect::c_MaxParameters + 1;
+
+        UUID Owner;
+        std::uint8_t Slot = 0;
+
+        [[nodiscard]] bool operator==(const AudioMixerValue&) const = default;
+    };
+
+    // A snapshot's values for one group or effect, in its slots' order, the rest 0
+    struct AudioSnapshotValues
+    {
+        UUID Owner;
+        std::array<float, AudioMixerValue::c_MaxSlots> Values{};
+
+        [[nodiscard]] bool operator==(const AudioSnapshotValues&) const = default;
+    };
+
+    // The curves a snapshot's values for one group or effect are reached along, in its slots' order
+    struct AudioSnapshotCurves
+    {
+        UUID Owner;
+        std::array<AudioTransitionCurve, AudioMixerValue::c_MaxSlots> Curves{};
+
+        [[nodiscard]] bool operator==(const AudioSnapshotCurves&) const = default;
+    };
+
+    // Unity's Audio Mixer Snapshot: a value for each group's Volume and Pitch and each effect's Wet and parameters, which the mixer transitions to, each along its curve, Linear for one it has none for. Mute, Solo, Bypass, the effects and where Sends go are the mixer's, the same in every snapshot. The start snapshot's values are the groups' and effects' own, so it holds curves alone, and every other holds a copy of its own, taking the start snapshot's for a group or effect it holds none of, such as one added after it
+    struct AudioMixerSnapshot
+    {
+        UUID ID;
+        TaggedString<MemoryTag::Audio> Name;
+        std::vector<AudioSnapshotValues, TaggedAllocator<AudioSnapshotValues, MemoryTag::Audio>> Values;
+        std::vector<AudioSnapshotCurves, TaggedAllocator<AudioSnapshotCurves, MemoryTag::Audio>> Curves;
+
+        [[nodiscard]] bool operator==(const AudioMixerSnapshot&) const = default;
+    };
+
+    // A value given a name, which code sets, reads and clears, as Unity's exposed parameters. One set holds through every transition until it is cleared
+    struct AudioExposedParameter
+    {
+        TaggedString<MemoryTag::Audio> Name;
+        AudioMixerValue Value;
+
+        [[nodiscard]] bool operator==(const AudioExposedParameter&) const = default;
+    };
+
+    // What a .trmixer file holds, Unity's Audio Mixer: a tree of groups from Master, which comes first, each group after its parent, its snapshots, one of which it starts at, and the values it exposes by name
     struct TRINITY_API AudioMixerData
     {
         static constexpr std::uint32_t c_FormatVersion = 1;
@@ -110,8 +175,11 @@ namespace Trinity
         static constexpr float c_MaximumPitch = 10.0f;
 
         std::vector<AudioMixerGroup, TaggedAllocator<AudioMixerGroup, MemoryTag::Audio>> Groups;
+        std::vector<AudioMixerSnapshot, TaggedAllocator<AudioMixerSnapshot, MemoryTag::Audio>> Snapshots;
+        UUID StartSnapshot;
+        std::vector<AudioExposedParameter, TaggedAllocator<AudioExposedParameter, MemoryTag::Audio>> Exposed;
 
-        // Master alone at 0 dB, as a project without a mixer is heard
+        // Master alone at 0 dB, as a project without a mixer is heard, and one snapshot, named Snapshot as Unity's first is, to start at
         [[nodiscard]] static AudioMixerData MakeDefault();
 
         // The first group, which a mixer that keeps to its rules has
@@ -119,14 +187,40 @@ namespace Trinity
         [[nodiscard]] const AudioMixerGroup* FindGroup(UUID id) const;
         [[nodiscard]] AudioMixerGroup* FindGroup(UUID id);
 
+        // The one StartSnapshot names, which a mixer that keeps to its rules has
+        [[nodiscard]] const AudioMixerSnapshot& GetStartSnapshot() const;
+        [[nodiscard]] const AudioMixerSnapshot* FindSnapshot(UUID id) const;
+        [[nodiscard]] AudioMixerSnapshot* FindSnapshot(UUID id);
+        [[nodiscard]] const AudioMixerSnapshot* FindSnapshot(std::string_view name) const;
+        [[nodiscard]] const AudioExposedParameter* FindExposed(std::string_view name) const;
+
+        // The value's name, unit, range and default: Volume and Pitch, an effect's Wet, or its parameter's own. None for a value the mixer lacks
+        [[nodiscard]] std::optional<AudioEffectParameter> GetValueInfo(AudioMixerValue value) const;
+        // How many values a group or an effect has, 2 for a group, its parameters and its Wet for an effect, and 0 for an ID the mixer has neither of
+        [[nodiscard]] std::size_t GetSlotCount(UUID owner) const;
+        // The value as a snapshot has it: its own, or the group's or effect's for the start snapshot and for a group or effect it holds none of. None for a value the mixer lacks
+        [[nodiscard]] std::optional<float> GetValue(const AudioMixerSnapshot& snapshot, AudioMixerValue value) const;
+        [[nodiscard]] AudioTransitionCurve GetCurve(const AudioMixerSnapshot& snapshot, AudioMixerValue value) const;
+        // Into the snapshot, or the group or effect for the start snapshot. False for a snapshot or a value the mixer lacks
+        bool SetValue(UUID snapshot, AudioMixerValue value, float number);
+        bool SetCurve(UUID snapshot, AudioMixerValue value, AudioTransitionCurve curve);
+        // A copy of another snapshot's values, or the start snapshot's when it names none, under the name, with an ID of its own, as Unity's Duplicate makes one
+        AudioMixerSnapshot& AddSnapshot(std::string_view name, UUID copyOf = UUID());
+
         [[nodiscard]] bool operator==(const AudioMixerData&) const = default;
     };
+
+    // Unity's names for the curves, as a file and Step 8's panel give them
+    [[nodiscard]] TRINITY_API std::string_view GetAudioTransitionCurveKey(AudioTransitionCurve curve);
+    [[nodiscard]] TRINITY_API std::optional<AudioTransitionCurve> FindAudioTransitionCurve(std::string_view key);
+    // How far a value has moved along the curve at a share of the way through a transition, both from 0 to 1. Brickwall Start has moved all the way after 0, and Brickwall End only at 1
+    [[nodiscard]] TRINITY_API float EvaluateAudioTransitionCurve(AudioTransitionCurve curve, float progress);
 
     // Linear, 0 at the minimum volume and below, and the other way, the minimum for 0
     [[nodiscard]] TRINITY_API float AudioDecibelsToGain(float decibels);
     [[nodiscard]] TRINITY_API float AudioGainToDecibels(float gain);
 
-    // Empty for a mixer that keeps to its rules, and otherwise what it breaks: there is a Master and it comes first, every other group's parent is a group before it, no two groups share an ID, every volume and pitch is a number, no group has more than one Attenuation, every other effect has an ID no other effect has, every effect's type is known and its values are numbers, every Send names a Receive or a Duck Volume, or nothing the mixer has, and no Send makes a loop, as one to its own group, to a group below it, or to a group that sends back to it does, since what it sends would come back to it
+    // Empty for a mixer that keeps to its rules, and otherwise what it breaks: there is a Master and it comes first, every other group's parent is a group before it, no two groups share an ID, every volume and pitch is a number, no group has more than one Attenuation, every other effect has an ID no other effect has, every effect's type is known and its values are numbers, every Send names a Receive or a Duck Volume, or nothing the mixer has, no Send makes a loop, as one to its own group, to a group below it, or to a group that sends back to it does, since what it sends would come back to it, every snapshot has a name and an ID no other has, StartSnapshot names one, which holds no values, every snapshot's values and curves are for groups and effects the mixer has, once each, and are numbers and curves, and every exposed value has a name no other has and is a value the mixer has that no other name exposes
     [[nodiscard]] TRINITY_API std::string ValidateAudioMixer(const AudioMixerData& data);
 
     class TRINITY_API AudioMixerAsset final : public Asset
@@ -162,8 +256,8 @@ namespace Trinity
         [[nodiscard]] Expected<Asset*, std::string> Load(std::span<const std::byte> data) const override;
     };
 
-    // YAML, the groups in their order, Master without a Parent, each with its effects in their order, unless it has none
+    // YAML, the groups in their order, Master without a Parent, each with its effects in their order, unless it has none, then the snapshots in their order, each with its values for every group and effect but the start snapshot, and only the curves that are not Linear, then the start snapshot and the exposed values
     [[nodiscard]] TRINITY_API std::string WriteAudioMixer(const AudioMixerData& data);
-    // A key that is missing keeps its default. A malformed one, a mixer that breaks its rules, or a newer format, refuses the file
+    // A key that is missing keeps its default, and a snapshot's value the start snapshot's. A file without snapshots, as Steps 5 and 6 wrote, starts at one of its own named Snapshot. A malformed key, a mixer that breaks its rules, or a newer format, refuses the file
     [[nodiscard]] TRINITY_API Expected<AudioMixerData, std::string> ParseAudioMixer(std::string_view text);
 }

@@ -20,5 +20,7 @@ namespace Trinity
         // Refilled from then on as the engine updates, or offline before each page it renders, until it is removed, before it goes
         static void AddStream(AudioEngine& engine, AudioStream& stream);
         static void RemoveStream(AudioEngine& engine, AudioStream& stream);
+        // How far ahead of the engine's clock a change is to start so every node of the mix starts it together: a period while a device mixes, which may be partway through one, and none while the main thread does
+        [[nodiscard]] static std::uint32_t GetLeadFrames(AudioEngine& engine);
     };
 }

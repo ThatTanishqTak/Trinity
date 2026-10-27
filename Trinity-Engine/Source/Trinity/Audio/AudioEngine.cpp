@@ -818,4 +818,12 @@ namespace Trinity
             decltype(engine.m_State->Streams)().swap(engine.m_State->Streams);
         }
     }
+
+    // The main thread mixes while the device is stopped, and as it mixes nothing else does
+    std::uint32_t AudioEngineInternal::GetLeadFrames(AudioEngine& engine)
+    {
+        AudioEngine::State& l_State = *engine.m_State;
+
+        return l_State.HasDevice && ma_device_get_state(&l_State.Device) == ma_device_state_started ? l_State.Device.playback.internalPeriodSizeInFrames : 0;
+    }
 }
