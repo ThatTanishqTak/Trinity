@@ -1864,13 +1864,14 @@ void EditorSession::ApplyMixer(const Trinity::AudioMixerAsset* asset)
     static_cast<void>(l_Engine->GetMixer().Apply(asset != nullptr ? asset->GetData() : Trinity::AudioMixerData::MakeDefault()));
 }
 
-// Each Play starts, and Stop leaves Forge, at the start snapshot with nothing set from code, as Unity's mixer is when Play mode starts and ends. The Audio Mixer panel's snapshot is let go, and held again from the next frame while it is to be
+// Each Play starts, and Stop leaves Forge, at the start snapshot with nothing set from code, as Unity's mixer is when Play mode starts and ends, and with the sound events' global parameters back at their defaults. The Audio Mixer panel's snapshot is let go, and held again from the next frame while it is to be
 void EditorSession::ResetMixer()
 {
     if (Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine(); l_Engine != nullptr)
     {
         l_Engine->GetMixer().Hold({});
         l_Engine->GetMixer().Reset();
+        l_Engine->ClearGlobalParameters();
     }
 }
 

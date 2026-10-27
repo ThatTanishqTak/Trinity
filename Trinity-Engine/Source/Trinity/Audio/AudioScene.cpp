@@ -62,6 +62,8 @@ namespace Trinity
         constexpr std::uint32_t c_DefaultSampleRate = 48000;
         // An instance a sound event's limit stops for a new one fades out over this long, as the mixer's ramps take, so stealing never clicks
         constexpr float c_StealFadeSeconds = 0.02f;
+        // A real voice remembers where this many of its latest plays ended, for one handed over after them that starts once one has
+        constexpr std::size_t c_EndsKept = 16;
 
         // Handles from one count for the life of the process, so one from a scene that has gone never reaches a voice of another
         std::atomic<std::uint64_t> s_NextHandle{ 1 };
@@ -270,6 +272,14 @@ namespace Trinity
         };
 
         using MixPlayList = std::vector<SoundEventMixPlay*, TaggedAllocator<SoundEventMixPlay*, MemoryTag::Audio>>;
+        using TargetList = std::vector<SoundParameterTarget, TaggedAllocator<SoundParameterTarget, MemoryTag::Audio>>;
+        using FloatList = std::vector<float, TaggedAllocator<float, MemoryTag::Audio>>;
+
+        struct EndedPlay
+        {
+            std::uint32_t Number = SoundEventPlayer::c_NoPlay;
+            std::uint64_t Frame = 0;
+        };
 
         // A source's own voice, one it plays beside it, which takes its values and its place, one played at a point, and one following an entity, which take their values from their resource
         enum class VoiceKind : std::uint8_t
@@ -320,6 +330,17 @@ namespace Trinity
             std::uint32_t Channels = 1;
             std::uint64_t Seed = 0;
             Ref<SoundEventMemory> Memory;
+            // A sound event's parameters, in the event's order: its own targets, the target each reads, its own or the engine's global one, the latest value each was given, which a Switch picks by, and where each is, read from its mix while it is real and sought here while it is not, as of the engine's frame given, with its containers' values and pitches from them
+            TargetList Targets;
+            std::vector<const SoundParameterTarget*, TaggedAllocator<const SoundParameterTarget*, MemoryTag::Audio>> Reads;
+            FloatList Latest;
+            FloatList Heard;
+            std::uint64_t HeardFrame = 0;
+            std::vector<SoundEventPlan::NodeValue, TaggedAllocator<SoundEventPlan::NodeValue, MemoryTag::Audio>> Nodes;
+            FloatList Pitches;
+            // Where its latest plays ended, for one handed over after them that starts once one has
+            std::array<EndedPlay, c_EndsKept> Ends{};
+            std::size_t NextEnd = 0;
             // A one-shot's volume against its source's, or the volume one played on its own was given
             float Scale = 1.0f;
             // Whether one following an entity has a place yet, which its velocity is taken from
@@ -450,8 +471,8 @@ namespace Trinity
             return l_FrameSize != 0 ? storage.Samples.size() / l_FrameSize : 0;
         }
 
-        // Its clip's voice started at once, a stream refilled before it plays, as a clip's own voice is
-        SoundEventMixPlay* MakeMixPlay(AudioEngine& engine, const Ref<AudioClipStorage>& storage, const SoundEventPlayer::Play& play)
+        // Its clip's voice started at once, a stream refilled before it plays, as a clip's own voice is, with what its container's curves move
+        SoundEventMixPlay* MakeMixPlay(AudioEngine& engine, const Ref<AudioClipStorage>& storage, const SoundEventPlayer::Play& play, const SoundEventPlan& plan)
         {
             SoundEventMixPlay* l_Play = Memory::New<SoundEventMixPlay>(MemoryTag::Audio);
             if (!l_Play->Voice.Start(storage))
@@ -466,6 +487,17 @@ namespace Trinity
             l_Play->Rate = play.Rate;
             l_Play->Gain = play.Gain;
             l_Play->Loop = play.Loop;
+            l_Play->Pitch = play.Pitch;
+            l_Play->Node = play.Node;
+            l_Play->Number = play.Number;
+            l_Play->Offset = play.Offset;
+            if (play.Node < plan.Nodes.size())
+            {
+                l_Play->Faded = plan.Nodes[play.Node].Faded;
+                l_Play->Pitched = plan.Nodes[play.Node].Pitched;
+                l_Play->Filtered = plan.Nodes[play.Node].Filtered;
+            }
+
             l_Play->Channels = storage->Header.Channels;
             l_Play->Frames = CountFrames(*storage);
             l_Play->Buffer.resize(std::size_t{ SoundEventMix::c_BufferFrames } * l_Play->Channels);
@@ -522,6 +554,17 @@ namespace Trinity
                 }
 
                 ma_sound_uninit(&l_Real->Sound);
+            }
+
+            // A sound event's parameters go on from where its mix had them, sought from here on the main thread
+            if (l_Real->Mix != nullptr && engine != nullptr)
+            {
+                for (std::size_t it_Parameter = 0; it_Parameter < voice.Heard.size(); ++it_Parameter)
+                {
+                    voice.Heard[it_Parameter] = l_Real->Mix->GetValue(it_Parameter);
+                }
+
+                voice.HeardFrame = ma_engine_get_time_in_pcm_frames(&AudioEngineInternal::GetEngine(*engine));
             }
 
             if (l_Real->HasOcclusion)
@@ -687,6 +730,13 @@ namespace Trinity
         [[nodiscard]] float GetLoudness(const Voice& voice) const;
         void Load(Voice& voice);
         void LoadEvent(Voice& voice, const SoundEventAsset& asset);
+        void PrepareParameters(Voice& voice);
+        void SeekParameters(Voice& voice);
+        void GiveParameter(const SoundEventMemory& memory, std::string_view name, float value);
+        [[nodiscard]] std::optional<float> GetHeardParameter(const Voice& voice, std::string_view name) const;
+        void ResolveAnchor(Voice& voice, SoundEventMixPlay& play, const SoundEventPlayer::Play& scheduled) const;
+        [[nodiscard]] std::uint64_t GetClockFrame() const;
+        [[nodiscard]] std::uint64_t GetChangeFrame() const;
         [[nodiscard]] bool Admit(const Voice& voice);
         [[nodiscard]] std::uint64_t CountOwnPlay(UUID resource);
         void ChooseRealVoices();
@@ -1215,8 +1265,141 @@ namespace Trinity
             return;
         }
 
+        PrepareParameters(voice);
         voice.Player.emplace(voice.Plan, voice.ClipTimes, voice.Seed, GetSampleRate());
         voice.Loaded = true;
+    }
+
+    // Each parameter reads the instance's own target, given what the memory holds, or for a global one the engine's, and starts where its target is, with no seek. Room is made in the memory for each, so setting it later allocates nothing
+    void AudioScene::State::PrepareParameters(Voice& voice)
+    {
+        const auto& l_Parameters = voice.Plan->Data.Parameters;
+        voice.Targets = TargetList(l_Parameters.size());
+        voice.Reads.assign(l_Parameters.size(), nullptr);
+        voice.Latest.assign(l_Parameters.size(), 0.0f);
+        voice.Heard.assign(l_Parameters.size(), 0.0f);
+        voice.HeardFrame = GetClockFrame();
+        for (std::size_t it_Parameter = 0; it_Parameter < l_Parameters.size(); ++it_Parameter)
+        {
+            const SoundParameter& l_Parameter = l_Parameters[it_Parameter];
+            const std::string_view l_Name(l_Parameter.Name);
+            if (l_Parameter.Global && Engine != nullptr)
+            {
+                voice.Reads[it_Parameter] = &AudioEngineInternal::FindGlobalParameter(*Engine, l_Name);
+            }
+            else
+            {
+                if (const std::optional<float> l_Given = voice.Memory->FindValue(l_Name))
+                {
+                    voice.Targets[it_Parameter].Set(*l_Given, 0);
+                }
+
+                voice.Reads[it_Parameter] = &voice.Targets[it_Parameter];
+            }
+
+            voice.Memory->Reserve(l_Name);
+
+            voice.Heard[it_Parameter] = l_Parameter.Clamp(voice.Reads[it_Parameter]->GetWritten().At(voice.HeardFrame).value_or(l_Parameter.Default));
+        }
+
+        voice.Nodes.assign(voice.Plan->Nodes.size(), {});
+        voice.Pitches.assign(voice.Plan->Nodes.size(), 1.0f);
+    }
+
+    // On the main thread while the voice is virtual, as its mix would
+    void AudioScene::State::SeekParameters(Voice& voice)
+    {
+        const std::uint64_t l_Frame = GetClockFrame();
+        const auto& l_Parameters = voice.Plan->Data.Parameters;
+        for (std::size_t it_Parameter = 0; it_Parameter < voice.Heard.size(); ++it_Parameter)
+        {
+            voice.Heard[it_Parameter] = SeekSoundParameter(l_Parameters[it_Parameter], voice.Heard[it_Parameter], voice.Reads[it_Parameter]->GetWritten(), voice.HeardFrame, l_Frame, GetSampleRate());
+        }
+
+        voice.HeardFrame = l_Frame;
+    }
+
+    // To every instance playing from the memory, the source's voice and its one-shots, or one played on its own, whose event has the parameter and keeps it as its own, from the frame a change made now starts on. Nothing is allocated
+    void AudioScene::State::GiveParameter(const SoundEventMemory& memory, std::string_view name, float value)
+    {
+        const std::uint64_t l_Frame = GetChangeFrame();
+        for (Voice* it_Voice : Voices)
+        {
+            if (it_Voice->Memory.get() != &memory || !it_Voice->Plan || it_Voice->Targets.empty())
+            {
+                continue;
+            }
+
+            const auto& l_Parameters = it_Voice->Plan->Data.Parameters;
+            const auto a_Parameter = std::ranges::find_if(l_Parameters, [name](const SoundParameter& parameter) { return std::string_view(parameter.Name) == name; });
+            if (a_Parameter != l_Parameters.end() && !(a_Parameter->Global && Engine != nullptr))
+            {
+                it_Voice->Targets[static_cast<std::size_t>(a_Parameter - l_Parameters.begin())].Set(value, l_Frame);
+            }
+        }
+    }
+
+    // As its mix has it now while real
+    std::optional<float> AudioScene::State::GetHeardParameter(const Voice& voice, std::string_view name) const
+    {
+        if (!voice.Plan || voice.Heard.empty())
+        {
+            return std::nullopt;
+        }
+
+        const auto& l_Parameters = voice.Plan->Data.Parameters;
+        const auto a_Parameter = std::ranges::find_if(l_Parameters, [name](const SoundParameter& parameter) { return std::string_view(parameter.Name) == name; });
+        if (a_Parameter == l_Parameters.end())
+        {
+            return std::nullopt;
+        }
+
+        const std::size_t l_Index = static_cast<std::size_t>(a_Parameter - l_Parameters.begin());
+
+        return voice.Real != nullptr && voice.Real->Mix != nullptr ? voice.Real->Mix->GetValue(l_Index) : voice.Heard[l_Index];
+    }
+
+    // The play it starts after, among those its mix still has or is yet to be handed, or else where that one ended, so it starts from there. Without either it starts where it was foreseen to
+    void AudioScene::State::ResolveAnchor(Voice& voice, SoundEventMixPlay& play, const SoundEventPlayer::Play& scheduled) const
+    {
+        if (scheduled.After == SoundEventPlayer::c_NoPlay || voice.Real == nullptr)
+        {
+            return;
+        }
+
+        for (const MixPlayList* it_List : { &voice.Real->Plays, &voice.Real->Waiting })
+        {
+            for (SoundEventMixPlay* it_Play : *it_List)
+            {
+                if (it_Play != &play && it_Play->Number == scheduled.After)
+                {
+                    play.After = it_Play;
+
+                    return;
+                }
+            }
+        }
+
+        for (const EndedPlay& it_Ended : voice.Ends)
+        {
+            if (it_Ended.Number == scheduled.After)
+            {
+                play.Start = it_Ended.Frame + scheduled.Offset;
+
+                return;
+            }
+        }
+    }
+
+    // The engine's clock, or without an engine the scene's time in frames
+    std::uint64_t AudioScene::State::GetClockFrame() const
+    {
+        return Engine != nullptr ? ma_engine_get_time_in_pcm_frames(&AudioEngineInternal::GetEngine(*Engine)) : static_cast<std::uint64_t>(Time * c_DefaultSampleRate);
+    }
+
+    std::uint64_t AudioScene::State::GetChangeFrame() const
+    {
+        return Engine != nullptr ? AudioEngineInternal::GetChangeFrame(*Engine) : GetClockFrame();
     }
 
     // As an instance starts, once its event and clips have loaded: none sooner after the event's last than its cooldown, and none beyond its limit, counting every instance of it playing and not fading out, unless it steals one, the oldest, or the quietest as heard when the new one is no quieter, which fades out over 20 ms. One admitted is the event's last to start
@@ -1362,14 +1545,16 @@ namespace Trinity
         if (voice.Real == nullptr && voice.Plan)
         {
             RealVoice* l_Real = Memory::New<RealVoice>(MemoryTag::Audio);
-            // A virtual voice's time is added up a frame's length at a time, so it is taken to the nearest frame
+            // A virtual voice's time is added up a frame's length at a time, so it is taken to the nearest frame. Its parameters go on from where they were sought to
             l_Real->Mix = Memory::New<SoundEventMix>(MemoryTag::Audio, voice.Channels, GetSampleRate(), static_cast<std::uint64_t>(std::llround(voice.Cursor)));
+            l_Real->Mix->Control(*voice.Plan, voice.Reads, voice.Heard, ma_engine_get_node_graph(&AudioEngineInternal::GetEngine(*Engine)), voice.HeardFrame);
             voice.Real = l_Real;
             for (const SoundEventPlayer::Play& it_Play : voice.Scheduled)
             {
-                if (SoundEventMixPlay* l_Play = MakeMixPlay(*Engine, voice.ClipStorages[it_Play.Clip], it_Play))
+                if (SoundEventMixPlay* l_Play = MakeMixPlay(*Engine, voice.ClipStorages[it_Play.Clip], it_Play, *voice.Plan))
                 {
                     l_Real->Waiting.push_back(l_Play);
+                    ResolveAnchor(voice, *l_Play, it_Play);
                 }
             }
 
@@ -1507,7 +1692,7 @@ namespace Trinity
         l_Real.RoutedGroup = l_Output;
     }
 
-    // Everything its schedule starts before a little ahead of where it plays, which for a real voice is handed to its mix as each is made, those that find its queue full waiting for the next frame, and those it has played taken back. Once nothing is left to schedule and every play is handed over, its mix is told so, and ends after its last. The plays scheduled are kept until they end, as a virtual voice made real again needs them
+    // Everything its schedule starts before a little ahead of where it plays, which for a real voice is handed to its mix as each is made, those that find its queue full waiting for the next frame, and those it has played taken back, unless one it has yet to finish starts after it. Once nothing is left to schedule and every play is handed over, its mix is told so, and ends after its last. The plays scheduled are kept until they end, as a virtual voice made real again needs them. Its parameters are read from its mix first, a Switch picks by the latest value given, and in an event whose curves move a pitch, its clips playing are foreseen to end at the pitch the curves give them now
     void AudioScene::State::ScheduleEvent(Voice& voice)
     {
         if (!voice.Player || voice.Ended)
@@ -1518,30 +1703,63 @@ namespace Trinity
         RealVoice* l_Real = voice.Real;
         if (l_Real != nullptr && l_Real->Mix != nullptr)
         {
-            std::erase_if(l_Real->Plays, [this](SoundEventMixPlay* play)
+            for (std::size_t it_Parameter = 0; it_Parameter < voice.Heard.size(); ++it_Parameter)
             {
-                if (!play->Done.load(std::memory_order_acquire))
+                voice.Heard[it_Parameter] = l_Real->Mix->GetValue(it_Parameter);
+            }
+
+            voice.HeardFrame = GetClockFrame();
+            const auto a_Followed = [l_Real](const SoundEventMixPlay* play)
+            {
+                const auto a_Follows = [play](const SoundEventMixPlay* other) { return other->After == play && !other->Done.load(std::memory_order_acquire); };
+
+                return std::ranges::any_of(l_Real->Plays, a_Follows) || std::ranges::any_of(l_Real->Waiting, a_Follows);
+            };
+
+            std::erase_if(l_Real->Plays, [this, &voice, &a_Followed](SoundEventMixPlay* play)
+            {
+                if (!play->Done.load(std::memory_order_acquire) || a_Followed(play))
                 {
                     return false;
                 }
 
+                voice.Ends[voice.NextEnd++ % c_EndsKept] = { play->Number, play->Ended };
                 DestroyMixPlay(Engine, play);
 
                 return true;
             });
         }
 
+        if (voice.Plan->HasPitchCurves)
+        {
+            voice.Plan->Evaluate(voice.Heard, voice.Nodes);
+            for (std::size_t it_Node = 0; it_Node < voice.Nodes.size(); ++it_Node)
+            {
+                voice.Pitches[it_Node] = voice.Nodes[it_Node].Pitch;
+            }
+
+            voice.Player->Retime(voice.Pitches, static_cast<std::uint64_t>(voice.Cursor), voice.Scheduled);
+        }
+
+        for (std::size_t it_Parameter = 0; it_Parameter < voice.Latest.size(); ++it_Parameter)
+        {
+            const SoundParameter& l_Parameter = voice.Plan->Data.Parameters[it_Parameter];
+            const SoundParameterTarget::Reading& l_Target = voice.Reads[it_Parameter]->GetWritten();
+            voice.Latest[it_Parameter] = l_Parameter.Clamp(l_Target.Given ? l_Target.Value : l_Parameter.Default);
+        }
+
         const double l_Speed = std::max(std::clamp(voice.Values.Pitch, c_MinimumPitch, c_MaximumPitch), 1.0f) * 2.0;
         const double l_Ahead = (2.0 * FrameSeconds + c_EventLookahead) * GetSampleRate() * l_Speed;
         const std::size_t l_Before = voice.Scheduled.size();
-        voice.Player->Schedule(static_cast<std::uint64_t>(voice.Cursor + l_Ahead) + 1, *voice.Memory, voice.Scheduled);
+        voice.Player->Schedule(static_cast<std::uint64_t>(voice.Cursor + l_Ahead) + 1, *voice.Memory, voice.Scheduled, voice.Latest);
         if (l_Real != nullptr && l_Real->Mix != nullptr)
         {
             for (std::size_t it_Play = l_Before; it_Play < voice.Scheduled.size(); ++it_Play)
             {
-                if (SoundEventMixPlay* l_Play = MakeMixPlay(*Engine, voice.ClipStorages[voice.Scheduled[it_Play].Clip], voice.Scheduled[it_Play]))
+                if (SoundEventMixPlay* l_Play = MakeMixPlay(*Engine, voice.ClipStorages[voice.Scheduled[it_Play].Clip], voice.Scheduled[it_Play], *voice.Plan))
                 {
                     l_Real->Waiting.push_back(l_Play);
+                    ResolveAnchor(voice, *l_Play, voice.Scheduled[it_Play]);
                 }
             }
 
@@ -1632,6 +1850,7 @@ namespace Trinity
 
         if (voice.Plan)
         {
+            SeekParameters(voice);
             voice.Cursor += static_cast<double>(seconds) * GetSampleRate() * std::clamp(voice.Values.Pitch, c_MinimumPitch, c_MaximumPitch);
             voice.Ended = voice.Player->IsFinished() && voice.Cursor >= static_cast<double>(voice.Player->GetEnd());
 
@@ -2032,7 +2251,9 @@ namespace Trinity
             return false;
         }
 
-        m_State->FindSource(entity).Memory->SetValue(name, value);
+        SoundEventMemory& l_Memory = *m_State->FindSource(entity).Memory;
+        l_Memory.SetValue(name, value);
+        m_State->GiveParameter(l_Memory, name, value);
 
         return true;
     }
@@ -2073,6 +2294,13 @@ namespace Trinity
         const SoundParameter* l_Parameter = l_Voice != nullptr && l_Voice->Plan ? l_Voice->Plan->Data.FindParameter(name) : nullptr;
 
         return l_Parameter != nullptr ? std::optional(l_Parameter->Default) : std::nullopt;
+    }
+
+    std::optional<float> AudioScene::GetHeardParameter(Entity entity, std::string_view name) const
+    {
+        const auto a_Found = entity.IsValid() ? m_State->Sources.find(entity.GetUUID()) : m_State->Sources.end();
+
+        return a_Found != m_State->Sources.end() && a_Found->second.Playing != nullptr ? m_State->GetHeardParameter(*a_Found->second.Playing, name) : std::nullopt;
     }
 
     // Not woken by it, so a source that Plays On Awake still does
@@ -2158,6 +2386,7 @@ namespace Trinity
         }
 
         l_Voice->Memory->SetValue(name, value);
+        m_State->GiveParameter(*l_Voice->Memory, name, value);
 
         return true;
     }
@@ -2199,6 +2428,13 @@ namespace Trinity
         const SoundParameter* l_Parameter = l_Voice->Plan ? l_Voice->Plan->Data.FindParameter(name) : nullptr;
 
         return l_Parameter != nullptr ? std::optional(l_Parameter->Default) : std::nullopt;
+    }
+
+    std::optional<float> AudioScene::GetHeardParameter(AudioHandle handle, std::string_view name) const
+    {
+        const Voice* l_Voice = m_State->FindVoice(handle);
+
+        return l_Voice != nullptr ? m_State->GetHeardParameter(*l_Voice, name) : std::nullopt;
     }
 
     // Moved there at once, so its velocity is none

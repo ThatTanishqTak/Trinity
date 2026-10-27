@@ -4,6 +4,7 @@
 #include "Trinity/Core/Timestep.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -67,6 +68,13 @@ namespace Trinity
         [[nodiscard]] bool IsPreviewPlaying() const;
         // Where the preview has got to in its clip, in the clip's frames
         [[nodiscard]] std::uint64_t GetPreviewCursor() const;
+
+        // As FMOD's global parameters: a value for every sound event playing with a global parameter by that name, each event hearing it from the same period, and seeking towards it at its own speed. Until one is given, and once it is cleared, each event plays its own default. A name given for the first time takes room once, and nothing is allocated after that
+        void SetGlobalParameter(std::string_view name, float value);
+        // The value given, none before one is or once it is cleared
+        [[nodiscard]] std::optional<float> GetGlobalParameter(std::string_view name) const;
+        // Every one back to its events' defaults, as Forge has them when Play starts and stops
+        void ClearGlobalParameters();
 
         // Silent when a Device engine found no device
         [[nodiscard]] AudioOutput GetOutput() const;

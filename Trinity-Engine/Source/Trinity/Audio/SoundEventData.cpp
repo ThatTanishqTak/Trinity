@@ -22,6 +22,8 @@ namespace Trinity
         constexpr std::array<std::string_view, 5> c_ContainerTypeKeys{ "Clip", "Random", "Sequence", "Layer", "Switch" };
         constexpr std::array<std::string_view, 2> c_TriggerTimingKeys{ "Pulse", "Offset" };
         constexpr std::array<std::string_view, 3> c_StealModeKeys{ "Oldest", "Quietest", "None" };
+        constexpr std::array<std::string_view, 2> c_ParameterKindKeys{ "Discrete", "Continuous" };
+        constexpr std::array<std::string_view, 3> c_CurveTargetKeys{ "Volume", "Pitch", "Cutoff" };
 
         template<typename T, std::size_t N>
         std::string_view GetKey(const std::array<std::string_view, N>& keys, T value)
@@ -46,6 +48,48 @@ namespace Trinity
         bool AreNumbers(std::initializer_list<float> values)
         {
             return std::ranges::all_of(values, [](float value) { return std::isfinite(value); });
+        }
+
+        // A curve as a file gives it, its points each a pair of numbers
+        std::string ReadCurve(const YAML::Node& node, SoundCurve& curve)
+        {
+            if (!node.IsMap())
+            {
+                return "a curve is not a map";
+            }
+
+            std::string l_Target(GetSoundCurveTargetKey(curve.Target));
+            std::string l_Malformed;
+            CookedText::ReadUUID(node, "Parameter", curve.Parameter, l_Malformed);
+            CookedText::ReadString(node, "Target", l_Target, l_Malformed);
+            const YAML::Node l_Points = node["Points"];
+            if (!l_Malformed.empty() || (l_Points && !l_Points.IsSequence()))
+            {
+                return std::format("a curve's {} is malformed", l_Malformed.empty() ? std::string("Points") : l_Malformed);
+            }
+
+            for (std::size_t it_Point = 0; l_Points && it_Point < l_Points.size(); ++it_Point)
+            {
+                const YAML::Node l_Point = l_Points[it_Point];
+                const std::optional<float> l_X = l_Point.IsSequence() && l_Point.size() == 2 ? CookedText::ParseNumber<float>(l_Point[0]) : std::nullopt;
+                const std::optional<float> l_Y = l_Point.IsSequence() && l_Point.size() == 2 ? CookedText::ParseNumber<float>(l_Point[1]) : std::nullopt;
+                if (!l_X || !l_Y)
+                {
+                    return "a curve's point is not two numbers";
+                }
+
+                curve.Points.emplace_back(*l_X, *l_Y);
+            }
+
+            const std::optional<SoundCurveTarget> l_FoundTarget = FindSoundCurveTarget(l_Target);
+            if (!l_FoundTarget)
+            {
+                return std::format("a curve's Target is '{}', which is no value a curve moves", l_Target);
+            }
+
+            curve.Target = *l_FoundTarget;
+
+            return {};
         }
 
         // A container as a file gives it, each key that is missing at its default. Every key is read whatever its type, which the file writes only those of
@@ -84,9 +128,18 @@ namespace Trinity
             CookedText::ReadUUID(node, "Parameter", container.Parameter, l_Malformed);
             container.Name = TaggedString<MemoryTag::Audio>(std::string_view(l_Name));
             container.Case = TaggedString<MemoryTag::Audio>(std::string_view(l_Case));
-            if (!l_Malformed.empty())
+            const YAML::Node l_Curves = node["Curves"];
+            if (!l_Malformed.empty() || (l_Curves && !l_Curves.IsSequence()))
             {
-                return std::format("{}: {} is malformed", Describe(container), l_Malformed);
+                return std::format("{}: {} is malformed", Describe(container), l_Malformed.empty() ? std::string("Curves") : l_Malformed);
+            }
+
+            for (std::size_t it_Curve = 0; l_Curves && it_Curve < l_Curves.size(); ++it_Curve)
+            {
+                if (std::string l_Error = ReadCurve(l_Curves[it_Curve], container.Curves.emplace_back()); !l_Error.empty())
+                {
+                    return std::format("{}: {}", Describe(container), l_Error);
+                }
             }
 
             const std::optional<SoundContainerType> l_FoundType = FindSoundContainerType(l_Type);
@@ -107,7 +160,7 @@ namespace Trinity
             return {};
         }
 
-        // A parameter as a file gives it, with its labels in their order
+        // A parameter as a file gives it, with its labels in their order. One with no Kind is discrete, as every parameter was before there were continuous ones
         std::string ReadParameter(const YAML::Node& node, SoundParameter& parameter)
         {
             if (!node.IsMap())
@@ -116,10 +169,16 @@ namespace Trinity
             }
 
             std::string l_Name;
+            std::string l_Kind(GetSoundParameterKindKey(parameter.Kind));
             std::string l_Malformed;
             CookedText::ReadUUID(node, "ID", parameter.ID, l_Malformed);
             CookedText::ReadString(node, "Name", l_Name, l_Malformed);
+            CookedText::ReadString(node, "Kind", l_Kind, l_Malformed);
+            CookedText::ReadBool(node, "Global", parameter.Global, l_Malformed);
+            CookedText::ReadNumber(node, "Minimum", parameter.Minimum, l_Malformed);
+            CookedText::ReadNumber(node, "Maximum", parameter.Maximum, l_Malformed);
             CookedText::ReadNumber(node, "Default", parameter.Default, l_Malformed);
+            CookedText::ReadNumber(node, "SeekSpeed", parameter.SeekSpeed, l_Malformed);
             parameter.Name = TaggedString<MemoryTag::Audio>(std::string_view(l_Name));
             const YAML::Node l_Labels = node["Labels"];
             if (!l_Malformed.empty() || (l_Labels && !l_Labels.IsSequence()))
@@ -142,6 +201,14 @@ namespace Trinity
 
                 parameter.Labels.emplace_back(std::string_view(l_Label));
             }
+
+            const std::optional<SoundParameterKind> l_FoundKind = FindSoundParameterKind(l_Kind);
+            if (!l_FoundKind)
+            {
+                return std::format("parameter '{}': its Kind is '{}', which is no kind", l_Name, l_Kind);
+            }
+
+            parameter.Kind = *l_FoundKind;
 
             return {};
         }
@@ -212,6 +279,41 @@ namespace Trinity
                     return std::format("two parameters are named '{}'", l_Name);
                 }
 
+                if (static_cast<std::size_t>(l_Parameter.Kind) >= c_ParameterKindKeys.size())
+                {
+                    return std::format("parameter '{}' is of no known kind", l_Name);
+                }
+
+                if (!std::isfinite(l_Parameter.Default))
+                {
+                    return std::format("parameter '{}' has a default that is no number", l_Name);
+                }
+
+                if (!AreNumbers({ l_Parameter.Minimum, l_Parameter.Maximum, l_Parameter.SeekSpeed }))
+                {
+                    return std::format("parameter '{}' has a range or seek speed that is no number", l_Name);
+                }
+
+                if (l_Parameter.SeekSpeed < 0.0f)
+                {
+                    return std::format("parameter '{}' seeks at a speed below 0", l_Name);
+                }
+
+                if (l_Parameter.Kind == SoundParameterKind::Continuous)
+                {
+                    if (!l_Parameter.Labels.empty())
+                    {
+                        return std::format("parameter '{}' is continuous, and has labels", l_Name);
+                    }
+
+                    if (l_Parameter.Minimum >= l_Parameter.Maximum)
+                    {
+                        return std::format("parameter '{}' has a minimum that is not below its maximum", l_Name);
+                    }
+
+                    continue;
+                }
+
                 if (l_Parameter.Labels.empty())
                 {
                     return std::format("parameter '{}' has no labels", l_Name);
@@ -229,10 +331,48 @@ namespace Trinity
                         return std::format("parameter '{}' has two labels named '{}'", l_Name, std::string_view(*it_Label));
                     }
                 }
+            }
 
-                if (!std::isfinite(l_Parameter.Default))
+            return {};
+        }
+
+        // Once the parameters keep to their rules
+        std::string ValidateCurves(const SoundEventData& data)
+        {
+            for (const SoundContainer& it_Container : data.Containers)
+            {
+                for (auto it_Curve = it_Container.Curves.begin(); it_Curve != it_Container.Curves.end(); ++it_Curve)
                 {
-                    return std::format("parameter '{}' has a default that is no number", l_Name);
+                    const SoundParameter* l_Parameter = data.FindParameter(it_Curve->Parameter);
+                    if (l_Parameter == nullptr)
+                    {
+                        return std::format("{} has a curve by no parameter the event has", Describe(it_Container));
+                    }
+
+                    if (static_cast<std::size_t>(it_Curve->Target) >= c_CurveTargetKeys.size())
+                    {
+                        return std::format("{} has a curve of no value a curve moves", Describe(it_Container));
+                    }
+
+                    const std::string_view l_Target = GetSoundCurveTargetKey(it_Curve->Target);
+                    if (std::any_of(it_Container.Curves.begin(), it_Curve, [&it_Curve](const SoundCurve& other) { return other.Parameter == it_Curve->Parameter && other.Target == it_Curve->Target; }))
+                    {
+                        return std::format("{} has two curves of its {} by parameter '{}'", Describe(it_Container), l_Target, std::string_view(l_Parameter->Name));
+                    }
+
+                    for (std::size_t it_Point = 0; it_Point < it_Curve->Points.size(); ++it_Point)
+                    {
+                        const glm::vec2& l_Point = it_Curve->Points[it_Point];
+                        if (!AreNumbers({ l_Point.x, l_Point.y }))
+                        {
+                            return std::format("{}'s {} curve by '{}' has a point that is no number", Describe(it_Container), l_Target, std::string_view(l_Parameter->Name));
+                        }
+
+                        if (it_Point > 0 && l_Point.x <= it_Curve->Points[it_Point - 1].x)
+                        {
+                            return std::format("{}'s {} curve by '{}' has its points out of order, or two at one value", Describe(it_Container), l_Target, std::string_view(l_Parameter->Name));
+                        }
+                    }
                 }
             }
 
@@ -244,9 +384,18 @@ namespace Trinity
         {
             for (const SoundContainer& it_Container : data.Containers)
             {
-                if (it_Container.Type == SoundContainerType::Switch && it_Container.Parameter && data.FindParameter(it_Container.Parameter) == nullptr)
+                if (it_Container.Type == SoundContainerType::Switch && it_Container.Parameter)
                 {
-                    return std::format("{} is a Switch by no parameter the event has", Describe(it_Container));
+                    const SoundParameter* l_Parameter = data.FindParameter(it_Container.Parameter);
+                    if (l_Parameter == nullptr)
+                    {
+                        return std::format("{} is a Switch by no parameter the event has", Describe(it_Container));
+                    }
+
+                    if (l_Parameter->Kind != SoundParameterKind::Discrete)
+                    {
+                        return std::format("{} is a Switch by parameter '{}', which is continuous and has no labels", Describe(it_Container), std::string_view(l_Parameter->Name));
+                    }
                 }
 
                 const SoundContainer* l_Parent = it_Container.Parent ? data.FindContainer(it_Container.Parent) : nullptr;
@@ -269,6 +418,47 @@ namespace Trinity
 
             return {};
         }
+    }
+
+    // Between the two points either side of the value, found by halves, since points are in order
+    float SoundCurve::Evaluate(float value) const
+    {
+        if (Points.empty())
+        {
+            return 0.0f;
+        }
+
+        if (!(value > Points.front().x))
+        {
+            return Points.front().y;
+        }
+
+        if (value >= Points.back().x)
+        {
+            return Points.back().y;
+        }
+
+        const auto a_After = std::ranges::upper_bound(Points, value, {}, [](const glm::vec2& point) { return point.x; });
+        const glm::vec2& l_Before = *(a_After - 1);
+
+        return l_Before.y + (a_After->y - l_Before.y) * (value - l_Before.x) / (a_After->x - l_Before.x);
+    }
+
+    float SoundParameter::GetMinimum() const
+    {
+        return Kind == SoundParameterKind::Continuous ? Minimum : 0.0f;
+    }
+
+    float SoundParameter::GetMaximum() const
+    {
+        return Kind == SoundParameterKind::Continuous ? Maximum : static_cast<float>(std::max<std::size_t>(Labels.size(), 1) - 1);
+    }
+
+    float SoundParameter::Clamp(float value) const
+    {
+        const float l_Value = std::clamp(std::isfinite(value) ? value : (std::isfinite(Default) ? Default : 0.0f), GetMinimum(), std::max(GetMinimum(), GetMaximum()));
+
+        return Kind == SoundParameterKind::Discrete ? std::round(l_Value) : l_Value;
     }
 
     SoundEventData SoundEventData::MakeDefault()
@@ -357,6 +547,26 @@ namespace Trinity
         return FindKey<SoundStealMode>(c_StealModeKeys, key);
     }
 
+    std::string_view GetSoundParameterKindKey(SoundParameterKind kind)
+    {
+        return GetKey(c_ParameterKindKeys, kind);
+    }
+
+    std::optional<SoundParameterKind> FindSoundParameterKind(std::string_view key)
+    {
+        return FindKey<SoundParameterKind>(c_ParameterKindKeys, key);
+    }
+
+    std::string_view GetSoundCurveTargetKey(SoundCurveTarget target)
+    {
+        return GetKey(c_CurveTargetKeys, target);
+    }
+
+    std::optional<SoundCurveTarget> FindSoundCurveTarget(std::string_view key)
+    {
+        return FindKey<SoundCurveTarget>(c_CurveTargetKeys, key);
+    }
+
     std::string ValidateSoundEvent(const SoundEventData& data)
     {
         if (std::string l_Error = ValidateContainers(data); !l_Error.empty())
@@ -370,6 +580,11 @@ namespace Trinity
         }
 
         if (std::string l_Error = ValidateSwitches(data); !l_Error.empty())
+        {
+            return l_Error;
+        }
+
+        if (std::string l_Error = ValidateCurves(data); !l_Error.empty())
         {
             return l_Error;
         }
@@ -433,6 +648,18 @@ namespace Trinity
                 l_Writer.BeginItem();
                 l_Writer.Write("ID", it_Parameter.ID);
                 l_Writer.Write("Name", std::string_view(it_Parameter.Name));
+                l_Writer.Write("Kind", GetSoundParameterKindKey(it_Parameter.Kind));
+                l_Writer.Write("Global", it_Parameter.Global);
+                if (it_Parameter.Kind == SoundParameterKind::Continuous)
+                {
+                    l_Writer.Write("Minimum", it_Parameter.Minimum);
+                    l_Writer.Write("Maximum", it_Parameter.Maximum);
+                    l_Writer.Write("Default", it_Parameter.Default);
+                    l_Writer.Write("SeekSpeed", it_Parameter.SeekSpeed);
+
+                    continue;
+                }
+
                 l_Writer.Write("Default", it_Parameter.Default);
                 l_Writer.BeginList("Labels");
                 for (const TaggedString<MemoryTag::Audio>& it_Label : it_Parameter.Labels)
@@ -516,6 +743,20 @@ namespace Trinity
                 {
                     break;
                 }
+            }
+
+            if (!it_Container.Curves.empty())
+            {
+                l_Writer.BeginList("Curves");
+                for (const SoundCurve& it_Curve : it_Container.Curves)
+                {
+                    l_Writer.BeginItem();
+                    l_Writer.Write("Parameter", it_Curve.Parameter);
+                    l_Writer.Write("Target", GetSoundCurveTargetKey(it_Curve.Target));
+                    l_Writer.Write("Points", std::span<const glm::vec2>(it_Curve.Points));
+                }
+
+                l_Writer.End();
             }
         }
 

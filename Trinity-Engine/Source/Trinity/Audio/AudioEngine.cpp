@@ -4,6 +4,7 @@
 #include "Trinity/Audio/AudioClipStorage.hpp"
 #include "Trinity/Audio/AudioEngineInternal.hpp"
 #include "Trinity/Audio/AudioMixer.hpp"
+#include "Trinity/Audio/SoundEventPlayer.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Log.hpp"
@@ -229,6 +230,9 @@ namespace Trinity
 
         // The streams of the scenes' voices, which the main thread refills, since the audio thread cannot start a job
         std::vector<AudioStream*, TaggedAllocator<AudioStream*, MemoryTag::Audio>> Streams;
+
+        // The global parameters by name, each where the audio thread reads it for as long as the engine is
+        std::vector<std::pair<TaggedString<MemoryTag::Audio>, SoundParameterTarget*>, TaggedAllocator<std::pair<TaggedString<MemoryTag::Audio>, SoundParameterTarget*>, MemoryTag::Audio>> Globals;
     };
 
     // The device stops first, so nothing is mixing while the rest goes
@@ -237,6 +241,11 @@ namespace Trinity
         if (HasDevice)
         {
             ma_device_uninit(&Device);
+        }
+
+        for (const auto& [it_Name, it_Target] : Globals)
+        {
+            Memory::Delete(it_Target);
         }
 
         ClosePreview();
@@ -775,6 +784,36 @@ namespace Trinity
         return ma_engine_get_time_in_pcm_frames(&m_State->Engine);
     }
 
+    // From a period on, so every event reading it hears it in the same one
+    void AudioEngine::SetGlobalParameter(std::string_view name, float value)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "Global parameters are set on the main thread.");
+
+        AudioEngineInternal::FindGlobalParameter(*this, name).Set(value, AudioEngineInternal::GetChangeFrame(*this));
+    }
+
+    std::optional<float> AudioEngine::GetGlobalParameter(std::string_view name) const
+    {
+        const auto a_Found = std::ranges::find_if(m_State->Globals, [name](const auto& global) { return std::string_view(global.first) == name; });
+        if (a_Found == m_State->Globals.end() || !a_Found->second->GetWritten().Given)
+        {
+            return std::nullopt;
+        }
+
+        return a_Found->second->GetWritten().Value;
+    }
+
+    void AudioEngine::ClearGlobalParameters()
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "Global parameters are cleared on the main thread.");
+
+        const std::uint64_t l_Frame = AudioEngineInternal::GetChangeFrame(*this);
+        for (const auto& [it_Name, it_Target] : m_State->Globals)
+        {
+            it_Target->Clear(l_Frame);
+        }
+    }
+
     ma_engine& AudioEngineInternal::GetEngine(AudioEngine& engine)
     {
         return engine.m_State->Engine;
@@ -825,5 +864,27 @@ namespace Trinity
         AudioEngine::State& l_State = *engine.m_State;
 
         return l_State.HasDevice && ma_device_get_state(&l_State.Device) == ma_device_state_started ? l_State.Device.playback.internalPeriodSizeInFrames : 0;
+    }
+
+    std::uint64_t AudioEngineInternal::GetChangeFrame(AudioEngine& engine)
+    {
+        return ma_engine_get_time_in_pcm_frames(&engine.m_State->Engine) + GetLeadFrames(engine);
+    }
+
+    SoundParameterTarget& AudioEngineInternal::FindGlobalParameter(AudioEngine& engine, std::string_view name)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "Global parameters are made on the main thread.");
+
+        auto& l_Globals = engine.m_State->Globals;
+        const auto a_Found = std::ranges::find_if(l_Globals, [name](const auto& global) { return std::string_view(global.first) == name; });
+        if (a_Found != l_Globals.end())
+        {
+            return *a_Found->second;
+        }
+
+        SoundParameterTarget* l_Target = Memory::New<SoundParameterTarget>(MemoryTag::Audio);
+        l_Globals.emplace_back(TaggedString<MemoryTag::Audio>(name), l_Target);
+
+        return *l_Target;
     }
 }

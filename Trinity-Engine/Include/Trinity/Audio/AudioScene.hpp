@@ -54,7 +54,7 @@ namespace Trinity
         State* m_State = nullptr;
     };
 
-    // A running scene's AudioSources heard through its AudioListener, on an engine of the application's or an offline one. Each playing source is a voice, a sound event as much as a clip, whose clips its schedule starts on exact frames and its own mix plays together: the project's real voices are mixed, the most important first, then the loudest, and the rest are virtual, keeping their time unheard until they are mixed again from where they would be. Each real voice plays into the engine's mixer, in the group its source's Output names, or else its sound event's, or Master. A sound event plays as many instances at once as it allows, the oldest or the quietest as heard giving way over 20 ms to a new one when it says so, and no sooner after the last than its cooldown, counted across every voice of the running scene. Sounds follow their entities' interpolated transforms, read once a frame after the transform pass, and Doppler takes velocities from those moves. A source with Occlusion on is muffled while a ray from the listener to it is stopped by the scene's physics, on the project's occlusion layers, within the project's rays a frame. Everything it holds is under the Audio tag. Main thread
+    // A running scene's AudioSources heard through its AudioListener, on an engine of the application's or an offline one. Each playing source is a voice, a sound event as much as a clip, whose clips its schedule starts on exact frames and its own mix plays together, its parameters' curves moving their volume, pitch and low-pass as they seek: the project's real voices are mixed, the most important first, then the loudest, and the rest are virtual, keeping their time unheard until they are mixed again from where they would be. Each real voice plays into the engine's mixer, in the group its source's Output names, or else its sound event's, or Master. A sound event plays as many instances at once as it allows, the oldest or the quietest as heard giving way over 20 ms to a new one when it says so, and no sooner after the last than its cooldown, counted across every voice of the running scene. Sounds follow their entities' interpolated transforms, read once a frame after the transform pass, and Doppler takes velocities from those moves. A source with Occlusion on is muffled while a ray from the listener to it is stopped by the scene's physics, on the project's occlusion layers, within the project's rays a frame. Everything it holds is under the Audio tag. Main thread
     class TRINITY_API AudioScene
     {
     public:
@@ -108,12 +108,14 @@ namespace Trinity
         // None for a source not playing, not occluded, or whose voice no ray has reached yet
         [[nodiscard]] std::optional<Occlusion> GetOcclusion(Entity entity) const;
 
-        // A value of a parameter of the sound events the source plays, by its name, kept by the source for its later plays too, as Unity 6's AudioSource keeps its Audio Random Container's state, so a footstep's surface is set once and each step picks by it. A Switch reads it as it is triggered, and its label is the nearest, from 0. False for an entity without a source
+        // A value of a parameter of the sound events the source plays, by its name, kept by the source for its later plays too, as Unity 6's AudioSource keeps its Audio Random Container's state, so a footstep's surface is set once and each step picks by it. A Switch reads it as it is triggered, and its label is the nearest, from 0. A continuous one is kept within its range, and every instance playing hears it from the same period on, seeking towards it at its speed. A global one is the engine's, which this leaves as it is. Allocates nothing once the source has played an event with the parameter. False for an entity without a source
         bool SetParameter(Entity entity, std::string_view name, float value);
         // By one of the parameter's labels, as the sound event the source names has them once it has loaded. False before then, or for a label it lacks
         bool SetParameterLabel(Entity entity, std::string_view name, std::string_view label);
         // The value the source was given, or else the default of the sound event it plays. None for neither
         [[nodiscard]] std::optional<float> GetParameter(Entity entity, std::string_view name) const;
+        // Where the parameter is as the source's voice plays its sound event, its seek towards the value given included, as a global one's is towards the engine's. None for a source not playing an event that has it
+        [[nodiscard]] std::optional<float> GetHeardParameter(Entity entity, std::string_view name) const;
 
         // As Unity's PlayOneShot: a clip or a sound event, or the source's own resource when none is given, played beside the source's voice rather than in its place, with the source's values and its volume scaled, following the source, and stopped, paused and kept across scenes with it. It shares the source's memory, so Avoid Repeat spans both. An invalid handle for an entity without a source or a source without a resource
         AudioHandle PlayOneShot(Entity entity, UUID resource = {}, float volumeScale = 1.0f);
@@ -131,6 +133,7 @@ namespace Trinity
         bool SetParameter(AudioHandle handle, std::string_view name, float value);
         bool SetParameterLabel(AudioHandle handle, std::string_view name, std::string_view label);
         [[nodiscard]] std::optional<float> GetParameter(AudioHandle handle, std::string_view name) const;
+        [[nodiscard]] std::optional<float> GetHeardParameter(AudioHandle handle, std::string_view name) const;
         // Where a sound played at a point, or attached, plays from now on, no longer following an entity. Nothing for a one-shot, which follows its source
         void SetPosition(AudioHandle handle, const glm::vec3& position);
         // From now on following the entity, as PlayAttached does. Nothing for a one-shot
