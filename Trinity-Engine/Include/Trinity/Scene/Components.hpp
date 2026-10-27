@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/Audio/AudioSettings.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Physics/PhysicsTypes.hpp"
@@ -566,21 +567,13 @@ namespace Trinity
         [[nodiscard]] bool operator==(const Joint2DComponent&) const = default;
     };
 
-    // How a spatialized source's volume falls with its distance d from the listener, clamped between its minimum and maximum distances: Logarithmic as min / d, the inverse distance law Unity's Logarithmic follows, Linear from 1 at the minimum to 0 at the maximum, and Exponential as (min / d) squared, twice as steep in decibels as Logarithmic
-    enum class AudioRolloff : std::uint8_t
-    {
-        Logarithmic,
-        Linear,
-        Exponential
-    };
-
     // Plays its resource, as Unity's AudioSource does, while its scene runs. A source that spatializes is heard from its entity, facing its -Z, through the listener, as distance, its cone and its movement change it, and muffled by what stands in the way if it asks to be, and one that does not is heard as it is, panned by its Stereo Pan. Each playing source is a voice, and only the project's real voices are mixed, the most important first, then the loudest, while the rest keep their time
     struct AudioSourceComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.AudioSource";
         static constexpr std::uint32_t c_LowestPriority = 256;
 
-        // An AudioClip, which a Sound Event may be instead once there are any, as Unity 6's AudioResource is either
+        // An AudioClip or a Sound Event, as Unity 6's AudioResource is either
         UUID Resource;
         // One of the project's mixer's groups, by its ID, which it plays into. None, or a group the mixer lacks, plays into Master
         UUID Output;

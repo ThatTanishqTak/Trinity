@@ -34,7 +34,7 @@ namespace
     constexpr const char* c_MaterialPickerPopup = "##MaterialPicker";
     constexpr const char* c_ConvexHullPickerPopup = "##ConvexHullPicker";
     constexpr const char* c_CollisionMeshPickerPopup = "##CollisionMeshPicker";
-    constexpr const char* c_AudioClipPickerPopup = "##AudioClipPicker";
+    constexpr const char* c_AudioResourcePickerPopup = "##AudioResourcePicker";
     // An AudioSource's rolloff graph is this many lines high, and reaches this far past its maximum distance
     constexpr float c_RolloffGraphLines = 6.0f;
     constexpr float c_RolloffGraphReach = 1.1f;
@@ -317,9 +317,14 @@ namespace
         bool Broken = false;
     };
 
-    // Whether a slot of the type takes an asset the importer made: one of its type, any for a slot of no type, and a model for a prefab's, as a model is read as a prefab of its hierarchy, so Instantiate makes instances of either
+    // Whether a slot of the type takes an asset the importer made: one of its type, any for a slot of no type, a model for a prefab's, as a model is read as a prefab of its hierarchy, so Instantiate makes instances of either, and an AudioClip or a Sound Event for an Audio Resource's
     bool TakesAsset(std::string_view assetType, std::string_view importer)
     {
+        if (assetType == c_AudioResourceType)
+        {
+            return importer == Trinity::AudioClipAsset::c_AssetType || importer == Trinity::SoundEventAsset::c_AssetType;
+        }
+
         return assetType.empty() || importer == assetType || (assetType == Trinity::PrefabAsset::c_AssetType && importer == Trinity::c_ModelAssetType);
     }
 
@@ -3488,15 +3493,15 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
         ImGui::TextDisabled("%s", l_State.c_str());
     }
 
-    const auto a_SetResource = [&l_History, entity](Trinity::UUID clip)
+    const auto a_SetResource = [&l_History, entity](Trinity::UUID resource)
     {
         Trinity::AudioSourceComponent l_Value = entity.Get<Trinity::AudioSourceComponent>();
-        l_Value.Resource = clip;
+        l_Value.Resource = resource;
         l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::AudioSourceComponent>>(entity.GetUUID(), std::move(l_Value), "Resource"));
         l_History.EndMerge();
     };
 
-    DrawAssetSlot("Audio Resource", c_AudioClipPickerPopup, Trinity::AudioClipAsset::c_AssetType, entity.Get<Trinity::AudioSourceComponent>().Resource, a_SetResource, "An audio clip in the project, which it plays. Without one it plays nothing");
+    DrawAssetSlot("Audio Resource", c_AudioResourcePickerPopup, c_AudioResourceType, entity.Get<Trinity::AudioSourceComponent>().Resource, a_SetResource, "An audio clip or a sound event in the project, which it plays. Without one it plays nothing");
 
     const Trinity::AudioMixer* l_Mixer = m_Session.GetMixer();
     const Trinity::AudioMixerData* l_MixerData = l_Mixer != nullptr ? &l_Mixer->GetData() : nullptr;

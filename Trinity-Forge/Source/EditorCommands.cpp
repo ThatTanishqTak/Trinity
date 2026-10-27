@@ -317,7 +317,7 @@ void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const
 
     if (entity.Has<Trinity::AudioSourceComponent>())
     {
-        visit({ .Component = Trinity::AudioSourceComponent::c_TypeName, .Script = nullptr, .Slot = "Audio Resource", .Index = std::nullopt, .AssetType = Trinity::AudioClipAsset::c_AssetType, .Value = entity.Get<Trinity::AudioSourceComponent>().Resource, .IsEntity = false });
+        visit({ .Component = Trinity::AudioSourceComponent::c_TypeName, .Script = nullptr, .Slot = "Audio Resource", .Index = std::nullopt, .AssetType = c_AudioResourceType, .Value = entity.Get<Trinity::AudioSourceComponent>().Resource, .IsEntity = false });
     }
 
     if (entity.Has<Trinity::ConvexHullColliderComponent>())

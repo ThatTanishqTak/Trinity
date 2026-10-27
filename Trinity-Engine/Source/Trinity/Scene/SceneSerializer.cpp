@@ -864,11 +864,8 @@ namespace Trinity
             reader.Read("SpringDamping", component.SpringDamping);
         }
 
-        constexpr std::array<std::pair<AudioRolloff, std::string_view>, 3> c_AudioRolloffNames{ { { AudioRolloff::Logarithmic, "Logarithmic" },{ AudioRolloff::Linear, "Linear" },{ AudioRolloff::Exponential, "Exponential" } } };
-
         void SaveAudioSource(const AudioSourceComponent& component, ComponentWriter& writer)
         {
-            const auto a_Found = std::ranges::find(c_AudioRolloffNames, component.Rolloff, &std::pair<AudioRolloff, std::string_view>::first);
             writer.Write("Resource", component.Resource);
             writer.Write("Output", component.Output);
             writer.Write("Mute", component.Mute);
@@ -883,7 +880,7 @@ namespace Trinity
             writer.Write("Spread", component.Spread);
             writer.Write("MinDistance", component.MinDistance);
             writer.Write("MaxDistance", component.MaxDistance);
-            writer.Write("Rolloff", a_Found != c_AudioRolloffNames.end() ? a_Found->second : std::string_view("Logarithmic"));
+            writer.Write("Rolloff", GetAudioRolloffKey(component.Rolloff));
             writer.Write("ConeInnerAngle", component.ConeInnerAngle);
             writer.Write("ConeOuterAngle", component.ConeOuterAngle);
             writer.Write("ConeOuterVolume", component.ConeOuterVolume);
@@ -911,8 +908,7 @@ namespace Trinity
             reader.Read("MaxDistance", component.MaxDistance);
             std::string l_Rolloff;
             reader.Read("Rolloff", l_Rolloff);
-            const auto a_Found = std::ranges::find(c_AudioRolloffNames, std::string_view(l_Rolloff), &std::pair<AudioRolloff, std::string_view>::second);
-            component.Rolloff = a_Found != c_AudioRolloffNames.end() ? a_Found->first : AudioRolloff::Logarithmic;
+            component.Rolloff = FindAudioRolloff(l_Rolloff).value_or(AudioRolloff::Logarithmic);
             reader.Read("ConeInnerAngle", component.ConeInnerAngle);
             reader.Read("ConeOuterAngle", component.ConeOuterAngle);
             reader.Read("ConeOuterVolume", component.ConeOuterVolume);

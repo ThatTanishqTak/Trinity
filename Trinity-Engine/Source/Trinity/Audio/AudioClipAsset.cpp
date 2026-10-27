@@ -5,6 +5,7 @@
 #include "Trinity/Audio/AudioClipStorage.hpp"
 #include "Trinity/Audio/AudioLoaders.hpp"
 #include "Trinity/Audio/AudioMixerData.hpp"
+#include "Trinity/Audio/SoundEventData.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Profiler.hpp"
@@ -189,6 +190,7 @@ namespace Trinity
 
         AudioClipLoader* s_Loader = nullptr;
         AudioMixerLoader* s_MixerLoader = nullptr;
+        SoundEventLoader* s_EventLoader = nullptr;
     }
 
     AudioClipAsset::AudioClipAsset(Ref<AudioClipStorage> storage) : m_Storage(std::move(storage))
@@ -234,6 +236,8 @@ namespace Trinity
             AssetManager::RegisterLoader(*s_Loader);
             s_MixerLoader = Memory::New<AudioMixerLoader>(MemoryTag::Engine);
             AssetManager::RegisterLoader(*s_MixerLoader);
+            s_EventLoader = Memory::New<SoundEventLoader>(MemoryTag::Engine);
+            AssetManager::RegisterLoader(*s_EventLoader);
         }
 
         void Unregister()
@@ -243,6 +247,9 @@ namespace Trinity
                 return;
             }
 
+            AssetManager::UnregisterLoader(s_EventLoader->GetAssetType());
+            Memory::Delete(s_EventLoader);
+            s_EventLoader = nullptr;
             AssetManager::UnregisterLoader(s_MixerLoader->GetAssetType());
             Memory::Delete(s_MixerLoader);
             s_MixerLoader = nullptr;

@@ -6,6 +6,7 @@
 #include "Trinity/Asset/AssetRegistry.hpp"
 #include "Trinity/Asset/MaterialAsset.hpp"
 #include "Trinity/Audio/AudioScene.hpp"
+#include "Trinity/Audio/SoundEventData.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Profiler.hpp"
@@ -78,7 +79,7 @@ namespace Trinity
                 AddAsset(assets, it_Mesh.Shape);
             }
 
-            // A clip that preloads reads as loading until its samples are in, so the scene waits for those, and for the headers of the rest
+            // A clip that preloads reads as loading until its samples are in, so the scene waits for those, and for the headers of the rest. A sound event's clips are held once it is in
             for (const auto [it_Entity, it_Source] : l_Registry.view<AudioSourceComponent>().each())
             {
                 AddAsset(assets, it_Source.Resource);
@@ -221,7 +222,7 @@ namespace Trinity
         }
     }
 
-    // A scene asked for: its file being read, then waiting for the prefabs its instances are of, then the scene loaded from it waiting for its assets and what is inside the prefabs it holds, then for its materials' textures
+    // A scene asked for: its file being read, then waiting for the prefabs its instances are of, then the scene loaded from it waiting for its assets and what is inside the prefabs it holds, then for its materials' textures and its sound events' clips
     struct SceneManager::State
     {
         struct Loading
@@ -401,7 +402,7 @@ namespace Trinity
         Advance();
     }
 
-    // The loading scene holds the prefabs its instances are of once read, and those nested in them as each is in, and is parsed once they are all in, as its instances are made from them. It holds its assets, then its materials' textures once its materials are in, and is switched to once nothing it holds still loads. A prefab that does not load leaves its instances kept as the file has them
+    // The loading scene holds the prefabs its instances are of once read, and those nested in them as each is in, and is parsed once they are all in, as its instances are made from them. It holds its assets, then its materials' textures and its sound events' clips once its materials and events are in, so it waits for the clips that preload, and is switched to once nothing it holds still loads. A prefab that does not load leaves its instances kept as the file has them
     void SceneManager::Advance()
     {
         State& l_State = *m_State;
@@ -465,10 +466,24 @@ namespace Trinity
         if (!l_Loading.TexturesHeld)
         {
             l_Loading.TexturesHeld = true;
+            const auto a_Hold = [&l_Loading](UUID id)
+            {
+                if (id && std::ranges::find(l_Loading.Held, id) == l_Loading.Held.end())
+                {
+                    l_Loading.Held.push_back(id);
+                    AssetManager::Acquire(id);
+                }
+            };
+
             const std::size_t l_Count = l_Loading.Held.size();
             for (std::size_t it_Asset = 0; it_Asset < l_Count; ++it_Asset)
             {
                 const Asset* l_Asset = AssetManager::GetState(l_Loading.Held[it_Asset]) == AssetState::Ready ? AssetManager::GetAsset(l_Loading.Held[it_Asset]) : nullptr;
+                if (l_Asset != nullptr && l_Asset->GetAssetType() == SoundEventAsset::c_AssetType)
+                {
+                    std::ranges::for_each(static_cast<const SoundEventAsset*>(l_Asset)->GetClips(), a_Hold);
+                }
+
                 if (l_Asset == nullptr || l_Asset->GetAssetType() != MaterialAsset::c_AssetType)
                 {
                     continue;
@@ -477,11 +492,7 @@ namespace Trinity
                 const MaterialData& l_Data = static_cast<const MaterialAsset*>(l_Asset)->GetData();
                 for (const UUID it_Texture : { l_Data.BaseColorTexture.Texture, l_Data.MetallicRoughnessTexture.Texture, l_Data.NormalTexture.Texture, l_Data.OcclusionTexture.Texture, l_Data.EmissiveTexture.Texture })
                 {
-                    if (it_Texture && std::ranges::find(l_Loading.Held, it_Texture) == l_Loading.Held.end())
-                    {
-                        l_Loading.Held.push_back(it_Texture);
-                        AssetManager::Acquire(it_Texture);
-                    }
+                    a_Hold(it_Texture);
                 }
             }
 

@@ -256,6 +256,11 @@ namespace
             return Trinity::Icons::c_Sliders;
         }
 
+        if (record != nullptr && record->Importer == Trinity::SoundEventAsset::c_AssetType)
+        {
+            return Trinity::Icons::c_Music;
+        }
+
         if (IsPrefab(record))
         {
             return session.IsPrefabVariant(record->ID) ? Trinity::Icons::c_PackageVariant : Trinity::Icons::c_PackageVariantClosed;

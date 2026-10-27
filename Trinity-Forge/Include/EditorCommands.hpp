@@ -27,6 +27,9 @@ inline constexpr std::array<Trinity::LightType, 3> c_LightTypes{ Trinity::LightT
 [[nodiscard]] std::string GetScriptLabel(const Trinity::ScriptEntry& entry);
 [[nodiscard]] std::size_t GetScriptMemorySize(const Trinity::ScriptComponent& component);
 
+// The type an AudioSource's Resource slot takes, as Unity 6's Audio Resource is an AudioClip or an Audio Random Container: an AudioClip or a Sound Event
+inline constexpr std::string_view c_AudioResourceType = "Audio Resource";
+
 // A slot of an entity's component that names an asset or another entity, as Properties edits it: the component's type name, or the script whose field it is, the slot's name with its index among the mesh's materials or the list field's elements, the asset type it takes, empty for any or for an entity, and what it holds
 struct SlotReference
 {

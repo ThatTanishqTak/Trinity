@@ -19,6 +19,7 @@
 #include "Trinity/Audio/AudioMixerData.hpp"
 #include "Trinity/Audio/AudioScene.hpp"
 #include "Trinity/Audio/AudioSettings.hpp"
+#include "Trinity/Audio/SoundEventData.hpp"
 
 #include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/Assert.hpp"
