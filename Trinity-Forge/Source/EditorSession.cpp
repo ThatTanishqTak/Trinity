@@ -2461,7 +2461,7 @@ void EditorSession::UpdatePlay(Trinity::Timestep timestep)
     }
 }
 
-// The copy is the edited scene saved to text and loaded into a scene of its own, as a game loads it, so it keeps every UUID and the selection carries over. A scene the serializer cannot read back is not played
+// The copy is the edited scene saved to the binary form a cooked game loads and read into a scene of its own, so it keeps every UUID and the selection carries over, with its instances still instances of their prefabs. A scene the serializer cannot read back is not played
 void EditorSession::StartPlay()
 {
     if (m_Play || !m_Project || m_Stage)
@@ -2476,8 +2476,8 @@ void EditorSession::StartPlay()
 
     const auto l_Start = std::chrono::steady_clock::now();
     Trinity::Scope<Trinity::Scene> l_Copy = Trinity::CreateScope<Trinity::Scene>();
-    const std::string l_SceneText = Trinity::SceneSerializer::SaveToText(m_Scene);
-    if (const Trinity::Expected<void, std::string> l_Copied = Trinity::SceneSerializer::LoadFromText(*l_Copy, l_SceneText); !l_Copied)
+    const std::vector<std::byte> l_SceneData = Trinity::SceneSerializer::SaveToBinary(m_Scene);
+    if (const Trinity::Expected<void, std::string> l_Copied = Trinity::SceneSerializer::LoadFromBinary(*l_Copy, l_SceneData); !l_Copied)
     {
         TR_ERROR("Forge: {} could not be copied to play: {}", GetSceneName(), l_Copied.GetError());
 
@@ -2485,10 +2485,10 @@ void EditorSession::StartPlay()
     }
 
     const double l_Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - l_Start).count();
-    // As Unity backs up the open scene as Play starts, since a crash while playing is the likeliest way to lose what was not saved. The text is the copy's own, so it costs only the file
+    // As Unity backs up the open scene as Play starts, since a crash while playing is the likeliest way to lose what was not saved. Only a scene with unsaved changes is written as text for it
     if (IsDirty())
     {
-        WriteBackup(l_SceneText);
+        WriteBackup(Trinity::SceneSerializer::SaveToText(m_Scene));
     }
 
     m_History.EndMerge();

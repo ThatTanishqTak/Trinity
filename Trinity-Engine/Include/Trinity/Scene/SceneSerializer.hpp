@@ -27,6 +27,8 @@ namespace YAML
 
 namespace Trinity
 {
+    class BinaryNode;
+    class BinaryTreeBuilder;
     class Entity;
     struct ModelData;
 
@@ -34,6 +36,8 @@ namespace Trinity
     {
     public:
         ComponentWriter(std::string& output, std::uint32_t indent);
+        // Into a binary scene's tree, as the same keys and values the text would have
+        explicit ComponentWriter(BinaryTreeBuilder& builder);
 
         void Write(std::string_view key, bool value);
         void Write(std::string_view key, std::int32_t value);
@@ -87,8 +91,13 @@ namespace Trinity
         void WriteKey(std::string_view key);
         void WriteKeyName(std::string_view key);
         void Push(BlockKind kind);
+        // A value written as it is, such as a number, or as text YAML quotes where it must
+        void WritePlain(std::string_view key, std::string_view text);
+        void WriteString(std::string_view key, std::string_view text);
+        void WriteFloats(std::string_view key, std::span<const float> values);
 
         std::string* m_Output = nullptr;
+        BinaryTreeBuilder* m_Binary = nullptr;
         std::uint32_t m_Indent = 0;
         std::array<Block, c_MaxDepth> m_Blocks{};
         std::uint32_t m_Depth = 0;
@@ -99,6 +108,8 @@ namespace Trinity
     {
     public:
         ComponentReader(const YAML::Node& node, std::string_view componentName);
+        // From a binary scene's tree, read as the YAML of the same text is
+        ComponentReader(const BinaryNode& node, std::string_view componentName);
 
         bool Read(std::string_view key, bool& value) const;
         bool Read(std::string_view key, std::int32_t& value) const;
@@ -129,7 +140,12 @@ namespace Trinity
         bool ReadMap(std::string_view key, const std::function<void(std::string_view name, const ComponentReader& value)>& read) const;
 
     private:
+        // The function given whichever node the reader reads, which the same helpers read
+        template<typename F>
+        bool OnNode(F&& function) const;
+
         const YAML::Node* m_Node = nullptr;
+        const BinaryNode* m_Binary = nullptr;
         std::string_view m_ComponentName;
     };
 
@@ -153,6 +169,8 @@ namespace Trinity
     {
         // Format 2 added prefab instances, so a format 1 scene reads as it is and is written as format 2
         constexpr std::uint32_t c_FormatVersion = 2;
+        // The binary form a cooked game and Play's copy load: YAML's tree without its text, written and read by the same component serializers
+        constexpr std::uint32_t c_BinaryFormatVersion = 1;
 
         // The prefab's template, its entities under their local IDs, by the prefab's UUID, or null for a prefab that is not there or cannot be read, whose instances are kept as their text. The template must stay until the text that reads it is read, and while a scene holds instances of it that are saved. A template is read from its text with LoadPrefabFromText, which finds the prefabs nested in it through the resolver, and one asked for again while its own is read holds itself, so that instance is refused
         using PrefabResolver = std::function<Scene* (UUID prefab)>;
@@ -172,6 +190,10 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::string SaveToText(Scene& scene);
 
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadFromText(Scene& scene, std::string_view text);
+        // Each entity as the scene holds it, in hierarchy order, an instance already made from its prefab with what it changes of it, so loading never compares one with its prefab. An instance's root says it is one, unless flattened, as a cooked scene is, though one whose prefab is missing keeps its text either way
+        [[nodiscard]] TRINITY_API std::vector<std::byte> SaveToBinary(Scene& scene, bool flatten = false);
+        // The scene as SaveToBinary saved it, with a component no loaded code knows kept as YAML, as LoadFromText keeps one. Refused, leaving the scene as it is, for data that is not whole or is from a newer Trinity
+        [[nodiscard]] TRINITY_API Expected<void, std::string> LoadFromBinary(Scene& scene, std::span<const std::byte> data);
         [[nodiscard]] TRINITY_API std::string SaveEntityToText(Scene& scene, Entity root);
         [[nodiscard]] TRINITY_API Expected<Entity, std::string> LoadEntityFromText(Scene& scene, std::string_view text, Entity parent, Entity before);
 

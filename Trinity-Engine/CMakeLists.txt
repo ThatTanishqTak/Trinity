@@ -89,6 +89,8 @@ function(trinity_add_engine_library target type active_config)
     )
 
     trinity_configure_target(${target})
+    # The scene serializer reads and writes through templates over both a scene file's YAML and a binary tree, which in Debug make more sections than MSVC's default object format holds. Every source takes it, so the precompiled header matches
+    target_compile_options(${target} PRIVATE "$<$<CXX_COMPILER_ID:MSVC>:/bigobj>")
     source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_ENGINE_FILES})
     source_group("Vendor/imgui" FILES ${TRINITY_IMGUI_SOURCES})
 

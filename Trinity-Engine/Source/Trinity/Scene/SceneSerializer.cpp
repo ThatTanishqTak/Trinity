@@ -1,5 +1,6 @@
 #include "Trinity/Scene/SceneSerializer.hpp"
 
+#include "Trinity/Scene/BinaryTree.hpp"
 #include "Trinity/Scene/LiveScenes.hpp"
 
 #include "Trinity/Asset/AssetManager.hpp"
@@ -18,8 +19,11 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <charconv>
+#include <cstring>
 #include <format>
+#include <limits>
 #include <map>
 #include <optional>
 #include <span>
@@ -58,6 +62,75 @@ namespace Trinity
 
         // Entry N - 1 turns a format N file into format N + 1. Format 2 added prefab instances, so a format 1 file reads as it is
         constexpr std::array<MigrationFunction, SceneSerializer::c_FormatVersion - 1> c_Migrations{ [](YAML::Node&) {} };
+
+        static_assert(std::endian::native == std::endian::little, "Binary scenes are written and read as little-endian, as every platform Trinity targets is.");
+
+        // A binary scene: this header, the entities in hierarchy order, their components, then the tree they are read from, as each string's start and the end of the last, the strings' bytes, the nodes and the entries
+        struct BinaryHeader
+        {
+            static constexpr std::array<char, 8> c_Magic{ 'T', 'R', 'S', 'C', 'E', 'N', 'E', 'B' };
+
+            std::array<char, 8> Magic = c_Magic;
+            std::uint32_t Version = SceneSerializer::c_BinaryFormatVersion;
+            std::uint32_t EntityCount = 0;
+            std::uint32_t ComponentCount = 0;
+            std::uint32_t StringCount = 0;
+            std::uint32_t StringBytes = 0;
+            std::uint32_t NodeCount = 0;
+            std::uint32_t EntryCount = 0;
+            std::uint32_t Padding = 0;
+        };
+
+        static_assert(sizeof(BinaryHeader) == 40);
+
+        constexpr std::uint32_t c_NoString = 0xFFFFFFFF;
+
+        // An entity, with its parent's UUID, zero for a root, and the prefab and instance of an instance's root, with the text one whose prefab is missing keeps
+        struct BinaryEntity
+        {
+            std::uint64_t ID = 0;
+            std::uint64_t Parent = 0;
+            std::uint64_t Prefab = 0;
+            std::uint64_t Instance = 0;
+            std::uint32_t Kept = c_NoString;
+            std::uint32_t FirstComponent = 0;
+            std::uint32_t ComponentCount = 0;
+            std::uint32_t Padding = 0;
+        };
+
+        static_assert(sizeof(BinaryEntity) == 48);
+
+        // A component by its name, its node in the tree, or for one no loaded code knew, the string of the YAML it is kept as
+        struct BinaryComponent
+        {
+            std::uint32_t Name = 0;
+            std::uint32_t Value = 0;
+            std::uint32_t Kept = 0;
+        };
+
+        static_assert(sizeof(BinaryComponent) == 12);
+
+        template<typename T>
+        void AppendBinary(std::vector<std::byte>& output, std::span<const T> items)
+        {
+            const std::span<const std::byte> l_Bytes = std::as_bytes(items);
+            output.insert(output.end(), l_Bytes.begin(), l_Bytes.end());
+        }
+
+        // Count items of the data from the offset, which the caller has checked lie inside it
+        template<typename T>
+        std::vector<T> ReadBinary(std::span<const std::byte> data, std::size_t& offset, std::size_t count)
+        {
+            std::vector<T> l_Items(count);
+            if (count != 0)
+            {
+                std::memcpy(l_Items.data(), data.data() + offset, count * sizeof(T));
+            }
+
+            offset += count * sizeof(T);
+
+            return l_Items;
+        }
 
         struct State
         {
@@ -188,7 +261,9 @@ namespace Trinity
             output += yaml;
         }
 
-        bool ParseFloatSequence(const YAML::Node& node, std::span<float> values)
+        // Of a scene file's YAML or a binary tree, which read alike
+        template<typename Node>
+        bool ParseFloatSequence(const Node& node, std::span<float> values)
         {
             if (!node.IsSequence() || node.size() != values.size())
             {
@@ -258,6 +333,47 @@ namespace Trinity
                 {
                     // An element is never a list
                     return "[]";
+                }
+            }, element.GetStorage());
+        }
+
+        // A list's element in a binary tree, as FormatElement writes it in text
+        void AddElement(BinaryTreeBuilder& builder, const ScriptFieldValue& element)
+        {
+            std::visit([&builder, &element](const auto& data)
+            {
+                using Type = std::decay_t<decltype(data)>;
+                if constexpr (std::is_same_v<Type, glm::vec2> || std::is_same_v<Type, glm::vec3> || std::is_same_v<Type, glm::vec4> || std::is_same_v<Type, glm::quat>)
+                {
+                    // In the order FormatElement writes them, a quaternion's w last
+                    std::array<float, 4> l_Values{};
+                    if constexpr (std::is_same_v<Type, glm::quat>)
+                    {
+                        l_Values = { data.x, data.y, data.z, data.w };
+                    }
+                    else
+                    {
+                        for (std::size_t it_Index = 0; it_Index < static_cast<std::size_t>(Type::length()); ++it_Index)
+                        {
+                            l_Values[it_Index] = data[static_cast<typename Type::length_type>(it_Index)];
+                        }
+                    }
+
+                    builder.Begin({}, BinaryNodeKind::FlowSequence);
+                    for (std::size_t it_Index = 0; it_Index < static_cast<std::size_t>(Type::length()); ++it_Index)
+                    {
+                        builder.AddScalar({}, BinaryNodeKind::Plain, FormatFloat(l_Values[it_Index]));
+                    }
+
+                    builder.End();
+                }
+                else if constexpr (std::is_same_v<Type, ScriptString>)
+                {
+                    builder.AddScalar({}, BinaryNodeKind::String, std::string_view(data));
+                }
+                else
+                {
+                    builder.AddScalar({}, BinaryNodeKind::Plain, FormatElement(element));
                 }
             }, element.GetStorage());
         }
@@ -1747,6 +1863,43 @@ namespace Trinity
             ++unknown[std::string(name)];
         }
 
+        // A binary tree's node as the YAML it was saved from, for a component no loaded code knows, which is kept as YAML
+        YAML::Node ToYaml(const BinaryNode& node)
+        {
+            if (node.IsScalar())
+            {
+                return YAML::Node(std::string(node.Scalar()));
+            }
+
+            if (node.IsSequence())
+            {
+                YAML::Node l_Sequence(YAML::NodeType::Sequence);
+                for (const BinaryNode it_Item : node)
+                {
+                    l_Sequence.push_back(ToYaml(it_Item));
+                }
+
+                l_Sequence.SetStyle(node.GetKind() == BinaryNodeKind::FlowSequence ? YAML::EmitterStyle::Flow : YAML::EmitterStyle::Block);
+
+                return l_Sequence;
+            }
+
+            if (node.IsMap())
+            {
+                YAML::Node l_Map(YAML::NodeType::Map);
+                for (const BinaryNodeItem it_Pair : node)
+                {
+                    l_Map[std::string(it_Pair.first.Scalar())] = ToYaml(it_Pair.second);
+                }
+
+                l_Map.SetStyle(node.GetKind() == BinaryNodeKind::FlowMap ? YAML::EmitterStyle::Flow : YAML::EmitterStyle::Block);
+
+                return l_Map;
+            }
+
+            return YAML::Node(YAML::NodeType::Null);
+        }
+
         // The value set at the path inside the node, by key in a map and by index in a sequence, false when the path leads nowhere the node has. A map's last key need not be there yet
         bool SetAtPath(YAML::Node& node, std::string_view path, const YAML::Node& value)
         {
@@ -2930,6 +3083,56 @@ namespace Trinity
 
     }
 
+    ComponentWriter::ComponentWriter(BinaryTreeBuilder& builder) : m_Binary(&builder)
+    {
+
+    }
+
+    void ComponentWriter::WritePlain(std::string_view key, std::string_view text)
+    {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->AddScalar(key, BinaryNodeKind::Plain, text);
+
+            return;
+        }
+
+        WriteKey(key);
+        *m_Output += text;
+    }
+
+    void ComponentWriter::WriteString(std::string_view key, std::string_view text)
+    {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->AddScalar(key, BinaryNodeKind::String, text);
+
+            return;
+        }
+
+        WriteKey(key);
+        *m_Output += FormatString(text);
+    }
+
+    void ComponentWriter::WriteFloats(std::string_view key, std::span<const float> values)
+    {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->Begin(key, BinaryNodeKind::FlowSequence);
+            for (const float it_Value : values)
+            {
+                m_Binary->AddScalar({}, BinaryNodeKind::Plain, FormatFloat(it_Value));
+            }
+
+            m_Binary->End();
+
+            return;
+        }
+
+        WriteKey(key);
+        *m_Output += FormatFloats(values);
+    }
+
     void ComponentWriter::WriteKey(std::string_view key)
     {
         WriteKeyName(key);
@@ -2976,6 +3179,13 @@ namespace Trinity
     // Items' dashes one level in and their keys two, as Fields under Scripts are
     void ComponentWriter::BeginList(std::string_view key)
     {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->Begin(key, BinaryNodeKind::BlockSequence);
+
+            return;
+        }
+
         WriteKeyName(key);
         Push(BlockKind::List);
         m_Indent += 4;
@@ -2984,6 +3194,13 @@ namespace Trinity
     // An item left without keys is written as an empty map, so the dash is never lost
     void ComponentWriter::BeginItem()
     {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->BeginItem();
+
+            return;
+        }
+
         TR_CORE_ASSERT(m_Depth != 0 && m_Blocks[m_Depth - 1].Kind == BlockKind::List, "ComponentWriter: BeginItem outside a list");
 
         if (m_ItemPending)
@@ -2999,6 +3216,13 @@ namespace Trinity
 
     void ComponentWriter::BeginMap(std::string_view key)
     {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->Begin(key, BinaryNodeKind::BlockMap);
+
+            return;
+        }
+
         WriteKeyName(key);
         Push(BlockKind::Map);
         m_Indent += 2;
@@ -3006,6 +3230,13 @@ namespace Trinity
 
     void ComponentWriter::BeginInlineMap(std::string_view key)
     {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->Begin(key, BinaryNodeKind::FlowMap);
+
+            return;
+        }
+
         WriteKey(key);
         *m_Output += '{';
         Push(BlockKind::InlineMap);
@@ -3013,6 +3244,13 @@ namespace Trinity
 
     void ComponentWriter::End()
     {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->End();
+
+            return;
+        }
+
         TR_CORE_ASSERT(m_Depth != 0, "ComponentWriter: End without a block to end");
 
         const Block l_Block = m_Blocks[--m_Depth];
@@ -3051,44 +3289,37 @@ namespace Trinity
 
     void ComponentWriter::Write(std::string_view key, bool value)
     {
-        WriteKey(key);
-        *m_Output += value ? "true" : "false";
+        WritePlain(key, value ? "true" : "false");
     }
 
     void ComponentWriter::Write(std::string_view key, std::int32_t value)
     {
-        WriteKey(key);
-        *m_Output += std::to_string(value);
+        WritePlain(key, std::to_string(value));
     }
 
     void ComponentWriter::Write(std::string_view key, std::uint32_t value)
     {
-        WriteKey(key);
-        *m_Output += std::to_string(value);
+        WritePlain(key, std::to_string(value));
     }
 
     void ComponentWriter::Write(std::string_view key, std::int64_t value)
     {
-        WriteKey(key);
-        *m_Output += std::to_string(value);
+        WritePlain(key, std::to_string(value));
     }
 
     void ComponentWriter::Write(std::string_view key, std::uint64_t value)
     {
-        WriteKey(key);
-        *m_Output += std::to_string(value);
+        WritePlain(key, std::to_string(value));
     }
 
     void ComponentWriter::Write(std::string_view key, float value)
     {
-        WriteKey(key);
-        *m_Output += FormatFloat(value);
+        WritePlain(key, FormatFloat(value));
     }
 
     void ComponentWriter::Write(std::string_view key, double value)
     {
-        WriteKey(key);
-        *m_Output += FormatFloat(value);
+        WritePlain(key, FormatFloat(value));
     }
 
     void ComponentWriter::Write(std::string_view key, const char* value)
@@ -3098,19 +3329,30 @@ namespace Trinity
 
     void ComponentWriter::Write(std::string_view key, std::string_view value)
     {
-        WriteKey(key);
-        *m_Output += FormatString(value);
+        WriteString(key, value);
     }
 
     void ComponentWriter::Write(std::string_view key, UUID value)
     {
-        WriteKey(key);
-        *m_Output += ToHex(value);
+        WritePlain(key, ToHex(value));
     }
 
     // As a flow sequence, so an empty list is [] rather than nothing
     void ComponentWriter::Write(std::string_view key, std::span<const UUID> values)
     {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->Begin(key, BinaryNodeKind::FlowSequence);
+            for (const UUID it_Value : values)
+            {
+                m_Binary->AddScalar({}, BinaryNodeKind::Plain, ToHex(it_Value));
+            }
+
+            m_Binary->End();
+
+            return;
+        }
+
         WriteKey(key);
         *m_Output += '[';
         for (std::size_t it_Index = 0; it_Index < values.size(); ++it_Index)
@@ -3125,6 +3367,19 @@ namespace Trinity
     // One flow sequence of pairs, such as [[0, 0.5], [-0.5, -0.5]]
     void ComponentWriter::Write(std::string_view key, std::span<const glm::vec2> values)
     {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->Begin(key, BinaryNodeKind::FlowSequence);
+            for (const glm::vec2& it_Value : values)
+            {
+                WriteFloats({}, std::array{ it_Value.x, it_Value.y });
+            }
+
+            m_Binary->End();
+
+            return;
+        }
+
         WriteKey(key);
         *m_Output += '[';
         for (std::size_t it_Index = 0; it_Index < values.size(); ++it_Index)
@@ -3138,26 +3393,22 @@ namespace Trinity
 
     void ComponentWriter::Write(std::string_view key, const glm::vec2& value)
     {
-        WriteKey(key);
-        *m_Output += FormatFloats(std::array{ value.x, value.y });
+        WriteFloats(key, std::array{ value.x, value.y });
     }
 
     void ComponentWriter::Write(std::string_view key, const glm::vec3& value)
     {
-        WriteKey(key);
-        *m_Output += FormatFloats(std::array{ value.x, value.y, value.z });
+        WriteFloats(key, std::array{ value.x, value.y, value.z });
     }
 
     void ComponentWriter::Write(std::string_view key, const glm::vec4& value)
     {
-        WriteKey(key);
-        *m_Output += FormatFloats(std::array{ value.x, value.y, value.z, value.w });
+        WriteFloats(key, std::array{ value.x, value.y, value.z, value.w });
     }
 
     void ComponentWriter::Write(std::string_view key, const glm::quat& value)
     {
-        WriteKey(key);
-        *m_Output += FormatFloats(std::array{ value.x, value.y, value.z, value.w });
+        WriteFloats(key, std::array{ value.x, value.y, value.z, value.w });
     }
 
     void ComponentWriter::Write(std::string_view key, const ScriptFieldValue& value)
@@ -3173,6 +3424,19 @@ namespace Trinity
             else if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptList>)
             {
                 Write("Element", ToString(data.ElementType));
+                if (m_Binary != nullptr)
+                {
+                    m_Binary->Begin("Value", BinaryNodeKind::FlowSequence);
+                    for (const ScriptFieldValue& it_Element : data.Elements)
+                    {
+                        AddElement(*m_Binary, it_Element);
+                    }
+
+                    m_Binary->End();
+
+                    return;
+                }
+
                 WriteKey("Value");
                 *m_Output += '[';
                 for (std::size_t it_Index = 0; it_Index < data.Elements.size(); ++it_Index)
@@ -3193,6 +3457,13 @@ namespace Trinity
 
     void ComponentWriter::WriteValue(std::string_view value)
     {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->SetValue(BinaryNodeKind::String, value);
+
+            return;
+        }
+
         *m_Output += ' ';
         *m_Output += FormatString(value);
     }
@@ -3200,6 +3471,19 @@ namespace Trinity
     // Items' dashes one level in, as BeginList puts them
     void ComponentWriter::WriteList(std::string_view key, std::span<const UUID> values)
     {
+        if (m_Binary != nullptr)
+        {
+            m_Binary->Begin(key, BinaryNodeKind::BlockSequence);
+            for (const UUID it_Value : values)
+            {
+                m_Binary->AddScalar({}, BinaryNodeKind::Plain, ToHex(it_Value));
+            }
+
+            m_Binary->End();
+
+            return;
+        }
+
         TR_CORE_ASSERT(m_Depth == 0 || m_Blocks[m_Depth - 1].Kind != BlockKind::InlineMap, "ComponentWriter: a block sequence inside an inline map");
 
         WriteKeyName(key);
@@ -3218,6 +3502,18 @@ namespace Trinity
 
     }
 
+    ComponentReader::ComponentReader(const BinaryNode& node, std::string_view componentName) : m_Binary(&node), m_ComponentName(componentName)
+    {
+
+    }
+
+    template<typename F>
+    bool ComponentReader::OnNode(F&& function) const
+    {
+        return m_Binary != nullptr ? function(*m_Binary) : function(*m_Node);
+    }
+
+    // Each helper reads a scene file's YAML and a binary tree alike
     namespace
     {
         std::optional<YAML::Node> FindValue(const YAML::Node& component, std::string_view key)
@@ -3236,6 +3532,17 @@ namespace Trinity
             return l_Value;
         }
 
+        std::optional<BinaryNode> FindValue(const BinaryNode& component, std::string_view key)
+        {
+            const BinaryNode l_Value = component.Find(key);
+            if (!l_Value)
+            {
+                return std::nullopt;
+            }
+
+            return l_Value;
+        }
+
         bool Malformed(std::string_view componentName, std::string_view key)
         {
             TR_CORE_WARN("Scene: {}.{} is malformed and keeps its default", componentName, key);
@@ -3244,7 +3551,8 @@ namespace Trinity
         }
 
         // A list's element as a value of its type is read on its own, or false with the element as it was
-        bool ParseElement(const YAML::Node& node, ScriptFieldValue& element)
+        template<typename Node>
+        bool ParseElement(const Node& node, ScriptFieldValue& element)
         {
             return std::visit([&node](auto& data)
             {
@@ -3312,7 +3620,8 @@ namespace Trinity
         }
 
         // Every element or none, so a list with one malformed element keeps its default, which is empty
-        bool ParseList(const YAML::Node& node, ScriptList& list)
+        template<typename Node>
+        bool ParseList(const Node& node, ScriptList& list)
         {
             if (!node.IsSequence())
             {
@@ -3321,7 +3630,7 @@ namespace Trinity
 
             ScriptList l_List{ list.ElementType,{} };
             l_List.Elements.reserve(node.size());
-            for (const YAML::Node it_Node : node)
+            for (const Node it_Node : node)
             {
                 ScriptFieldValue l_Element(list.ElementType);
                 if (!ParseElement(it_Node, l_Element))
@@ -3337,10 +3646,10 @@ namespace Trinity
             return true;
         }
 
-        template<typename T>
-        bool ReadNumber(const YAML::Node& component, std::string_view componentName, std::string_view key, T& value)
+        template<typename Node, typename T>
+        bool ReadNumber(const Node& component, std::string_view componentName, std::string_view key, T& value)
         {
-            const std::optional<YAML::Node> l_Value = FindValue(component, key);
+            const auto l_Value = FindValue(component, key);
             if (!l_Value)
             {
                 return false;
@@ -3349,10 +3658,10 @@ namespace Trinity
             return (l_Value->IsScalar() && ParseNumber(l_Value->Scalar(), value)) || Malformed(componentName, key);
         }
 
-        template<std::size_t N>
-        bool ReadFloats(const YAML::Node& component, std::string_view componentName, std::string_view key, std::span<float, N> values)
+        template<typename Node, std::size_t N>
+        bool ReadFloats(const Node& component, std::string_view componentName, std::string_view key, std::span<float, N> values)
         {
-            const std::optional<YAML::Node> l_Value = FindValue(component, key);
+            const auto l_Value = FindValue(component, key);
             if (!l_Value)
             {
                 return false;
@@ -3360,174 +3669,204 @@ namespace Trinity
 
             return ParseFloatSequence(*l_Value, values) || Malformed(componentName, key);
         }
-    }
 
-    bool ComponentReader::Read(std::string_view key, bool& value) const
-    {
-        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
-        if (!l_Value)
+        template<typename Node>
+        bool ReadBool(const Node& component, std::string_view componentName, std::string_view key, bool& value)
         {
-            return false;
+            const auto l_Value = FindValue(component, key);
+            if (!l_Value)
+            {
+                return false;
+            }
+
+            if (l_Value->IsScalar() && (l_Value->Scalar() == "true" || l_Value->Scalar() == "false"))
+            {
+                value = l_Value->Scalar() == "true";
+
+                return true;
+            }
+
+            return Malformed(componentName, key);
         }
 
-        if (l_Value->IsScalar() && (l_Value->Scalar() == "true" || l_Value->Scalar() == "false"))
+        template<typename Node>
+        bool ReadString(const Node& component, std::string_view componentName, std::string_view key, std::string& value)
         {
-            value = l_Value->Scalar() == "true";
+            const auto l_Value = FindValue(component, key);
+            if (!l_Value)
+            {
+                return false;
+            }
+
+            if (!l_Value->IsScalar())
+            {
+                return Malformed(componentName, key);
+            }
+
+            value = l_Value->Scalar();
 
             return true;
         }
 
-        return Malformed(m_ComponentName, key);
+        template<typename Node>
+        bool ReadUUIDValue(const Node& component, std::string_view componentName, std::string_view key, UUID& value)
+        {
+            const auto l_Value = FindValue(component, key);
+            if (!l_Value)
+            {
+                return false;
+            }
+
+            const std::optional<UUID> l_UUID = l_Value->IsScalar() ? UUID::Parse(l_Value->Scalar()) : std::nullopt;
+            if (!l_UUID)
+            {
+                return Malformed(componentName, key);
+            }
+
+            value = *l_UUID;
+
+            return true;
+        }
+
+        template<typename Node>
+        bool ReadUUIDs(const Node& component, std::string_view componentName, std::string_view key, std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>>& values)
+        {
+            const auto l_Value = FindValue(component, key);
+            if (!l_Value)
+            {
+                return false;
+            }
+
+            if (!l_Value->IsSequence())
+            {
+                return Malformed(componentName, key);
+            }
+
+            std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>> l_Values;
+            l_Values.reserve(l_Value->size());
+            for (const Node it_Element : *l_Value)
+            {
+                const std::optional<UUID> l_UUID = it_Element.IsScalar() ? UUID::Parse(it_Element.Scalar()) : std::nullopt;
+                if (!l_UUID)
+                {
+                    return Malformed(componentName, key);
+                }
+
+                l_Values.push_back(*l_UUID);
+            }
+
+            values = std::move(l_Values);
+
+            return true;
+        }
+
+        template<typename Node>
+        bool ReadPoints(const Node& component, std::string_view componentName, std::string_view key, std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>>& values)
+        {
+            const auto l_Value = FindValue(component, key);
+            if (!l_Value)
+            {
+                return false;
+            }
+
+            if (!l_Value->IsSequence())
+            {
+                return Malformed(componentName, key);
+            }
+
+            std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>> l_Values;
+            l_Values.reserve(l_Value->size());
+            for (const Node it_Element : *l_Value)
+            {
+                glm::vec2 l_Point{ 0.0f };
+                if (!ParseFloatSequence(it_Element, std::span<float>(&l_Point.x, 2)))
+                {
+                    return Malformed(componentName, key);
+                }
+
+                l_Values.push_back(l_Point);
+            }
+
+            values = std::move(l_Values);
+
+            return true;
+        }
+    }
+
+    bool ComponentReader::Read(std::string_view key, bool& value) const
+    {
+        return OnNode([&](const auto& node) { return ReadBool(node, m_ComponentName, key, value); });
     }
 
     bool ComponentReader::Read(std::string_view key, std::int32_t& value) const
     {
-        return ReadNumber(*m_Node, m_ComponentName, key, value);
+        return OnNode([&](const auto& node) { return ReadNumber(node, m_ComponentName, key, value); });
     }
 
     bool ComponentReader::Read(std::string_view key, std::uint32_t& value) const
     {
-        return ReadNumber(*m_Node, m_ComponentName, key, value);
+        return OnNode([&](const auto& node) { return ReadNumber(node, m_ComponentName, key, value); });
     }
 
     bool ComponentReader::Read(std::string_view key, std::int64_t& value) const
     {
-        return ReadNumber(*m_Node, m_ComponentName, key, value);
+        return OnNode([&](const auto& node) { return ReadNumber(node, m_ComponentName, key, value); });
     }
 
     bool ComponentReader::Read(std::string_view key, std::uint64_t& value) const
     {
-        return ReadNumber(*m_Node, m_ComponentName, key, value);
+        return OnNode([&](const auto& node) { return ReadNumber(node, m_ComponentName, key, value); });
     }
 
     bool ComponentReader::Read(std::string_view key, float& value) const
     {
-        return ReadNumber(*m_Node, m_ComponentName, key, value);
+        return OnNode([&](const auto& node) { return ReadNumber(node, m_ComponentName, key, value); });
     }
 
     bool ComponentReader::Read(std::string_view key, double& value) const
     {
-        return ReadNumber(*m_Node, m_ComponentName, key, value);
+        return OnNode([&](const auto& node) { return ReadNumber(node, m_ComponentName, key, value); });
     }
 
     bool ComponentReader::Read(std::string_view key, std::string& value) const
     {
-        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
-        if (!l_Value)
-        {
-            return false;
-        }
-
-        if (!l_Value->IsScalar())
-        {
-            return Malformed(m_ComponentName, key);
-        }
-
-        value = l_Value->Scalar();
-
-        return true;
+        return OnNode([&](const auto& node) { return ReadString(node, m_ComponentName, key, value); });
     }
 
     bool ComponentReader::Read(std::string_view key, UUID& value) const
     {
-        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
-        if (!l_Value)
-        {
-            return false;
-        }
-
-        const std::optional<UUID> l_UUID = l_Value->IsScalar() ? UUID::Parse(l_Value->Scalar()) : std::nullopt;
-        if (!l_UUID)
-        {
-            return Malformed(m_ComponentName, key);
-        }
-
-        value = *l_UUID;
-
-        return true;
+        return OnNode([&](const auto& node) { return ReadUUIDValue(node, m_ComponentName, key, value); });
     }
 
     bool ComponentReader::Read(std::string_view key, std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>>& values) const
     {
-        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
-        if (!l_Value)
-        {
-            return false;
-        }
-
-        if (!l_Value->IsSequence())
-        {
-            return Malformed(m_ComponentName, key);
-        }
-
-        std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>> l_Values;
-        l_Values.reserve(l_Value->size());
-        for (const YAML::Node it_Element : *l_Value)
-        {
-            const std::optional<UUID> l_UUID = it_Element.IsScalar() ? UUID::Parse(it_Element.Scalar()) : std::nullopt;
-            if (!l_UUID)
-            {
-                return Malformed(m_ComponentName, key);
-            }
-
-            l_Values.push_back(*l_UUID);
-        }
-
-        values = std::move(l_Values);
-
-        return true;
+        return OnNode([&](const auto& node) { return ReadUUIDs(node, m_ComponentName, key, values); });
     }
 
     bool ComponentReader::Read(std::string_view key, std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>>& values) const
     {
-        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
-        if (!l_Value)
-        {
-            return false;
-        }
-
-        if (!l_Value->IsSequence())
-        {
-            return Malformed(m_ComponentName, key);
-        }
-
-        std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>> l_Values;
-        l_Values.reserve(l_Value->size());
-        for (const YAML::Node it_Element : *l_Value)
-        {
-            glm::vec2 l_Point{ 0.0f };
-            if (!ParseFloatSequence(it_Element, std::span<float>(&l_Point.x, 2)))
-            {
-                return Malformed(m_ComponentName, key);
-            }
-
-            l_Values.push_back(l_Point);
-        }
-
-        values = std::move(l_Values);
-
-        return true;
+        return OnNode([&](const auto& node) { return ReadPoints(node, m_ComponentName, key, values); });
     }
 
     bool ComponentReader::Read(std::string_view key, glm::vec2& value) const
     {
-        return ReadFloats(*m_Node, m_ComponentName, key, std::span<float, 2>(&value.x, 2));
+        return OnNode([&](const auto& node) { return ReadFloats(node, m_ComponentName, key, std::span<float, 2>(&value.x, 2)); });
     }
 
     bool ComponentReader::Read(std::string_view key, glm::vec3& value) const
     {
-        return ReadFloats(*m_Node, m_ComponentName, key, std::span<float, 3>(&value.x, 3));
+        return OnNode([&](const auto& node) { return ReadFloats(node, m_ComponentName, key, std::span<float, 3>(&value.x, 3)); });
     }
 
     bool ComponentReader::Read(std::string_view key, glm::vec4& value) const
     {
-        return ReadFloats(*m_Node, m_ComponentName, key, std::span<float, 4>(&value.x, 4));
+        return OnNode([&](const auto& node) { return ReadFloats(node, m_ComponentName, key, std::span<float, 4>(&value.x, 4)); });
     }
 
     bool ComponentReader::Read(std::string_view key, glm::quat& value) const
     {
         std::array<float, 4> l_Values{ value.x, value.y, value.z, value.w };
-        if (!ReadFloats(*m_Node, m_ComponentName, key, std::span<float, 4>(l_Values)))
+        if (!OnNode([&](const auto& node) { return ReadFloats(node, m_ComponentName, key, std::span<float, 4>(l_Values)); }))
         {
             return false;
         }
@@ -3539,33 +3878,40 @@ namespace Trinity
 
     bool ComponentReader::ReadValue(std::string& value) const
     {
-        if (!m_Node->IsScalar())
+        return OnNode([&](const auto& node)
         {
-            TR_CORE_WARN("Scene: {} is not a single value and keeps its default", m_ComponentName);
+            if (!node.IsScalar())
+            {
+                TR_CORE_WARN("Scene: {} is not a single value and keeps its default", m_ComponentName);
 
-            return false;
-        }
+                return false;
+            }
 
-        value = m_Node->Scalar();
+            value = node.Scalar();
 
-        return true;
+            return true;
+        });
     }
 
     bool ComponentReader::Read(std::string_view key, ScriptFieldValue& value) const
     {
-        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
-        if (!l_Value)
+        return OnNode([&](const auto& node)
         {
-            return false;
-        }
+            const auto l_Value = FindValue(node, key);
+            if (!l_Value)
+            {
+                return false;
+            }
 
-        return ComponentReader(*l_Value, m_ComponentName).ReadValue(value);
+            return ComponentReader(*l_Value, m_ComponentName).ReadValue(value);
+        });
     }
 
     bool ComponentReader::ReadValue(ScriptFieldValue& value) const
     {
         std::string l_TypeName;
-        const std::optional<ScriptFieldType> l_Type = m_Node->IsMap() && Read("Type", l_TypeName) ? ParseScriptFieldType(l_TypeName) : std::nullopt;
+        const bool l_IsMap = OnNode([](const auto& node) { return node.IsMap(); });
+        const std::optional<ScriptFieldType> l_Type = l_IsMap && Read("Type", l_TypeName) ? ParseScriptFieldType(l_TypeName) : std::nullopt;
         if (!l_Type)
         {
             return false;
@@ -3592,11 +3938,16 @@ namespace Trinity
             }
             else if constexpr (std::is_same_v<std::decay_t<decltype(data)>, ScriptList>)
             {
-                const std::optional<YAML::Node> l_Value = FindValue(*m_Node, "Value");
-                if (l_Value && !ParseList(*l_Value, data))
+                OnNode([this, &data](const auto& node)
                 {
-                    static_cast<void>(Malformed(m_ComponentName, "Value"));
-                }
+                    const auto l_Value = FindValue(node, "Value");
+                    if (l_Value && !ParseList(*l_Value, data))
+                    {
+                        static_cast<void>(Malformed(m_ComponentName, "Value"));
+                    }
+
+                    return true;
+                });
             }
             else
             {
@@ -3611,53 +3962,63 @@ namespace Trinity
 
     bool ComponentReader::ReadList(std::string_view key, const std::function<void(const ComponentReader& item)>& read) const
     {
-        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
-        if (!l_Value)
+        return OnNode([&](const auto& node)
         {
-            return false;
-        }
+            using Node = std::decay_t<decltype(node)>;
 
-        if (!l_Value->IsSequence())
-        {
-            return Malformed(m_ComponentName, key);
-        }
+            const auto l_Value = FindValue(node, key);
+            if (!l_Value)
+            {
+                return false;
+            }
 
-        for (const YAML::Node it_Item : *l_Value)
-        {
-            read(ComponentReader(it_Item, m_ComponentName));
-        }
+            if (!l_Value->IsSequence())
+            {
+                return Malformed(m_ComponentName, key);
+            }
 
-        return true;
+            for (const Node it_Item : *l_Value)
+            {
+                read(ComponentReader(it_Item, m_ComponentName));
+            }
+
+            return true;
+        });
     }
 
     // A key that is not a single value is skipped as malformed
     bool ComponentReader::ReadMap(std::string_view key, const std::function<void(std::string_view name, const ComponentReader& value)>& read) const
     {
-        const std::optional<YAML::Node> l_Value = FindValue(*m_Node, key);
-        if (!l_Value)
+        return OnNode([&](const auto& node)
         {
-            return false;
-        }
+            using Node = std::decay_t<decltype(node)>;
 
-        if (!l_Value->IsMap())
-        {
-            return Malformed(m_ComponentName, key);
-        }
-
-        for (const auto& it_Pair : *l_Value)
-        {
-            if (!it_Pair.first.IsScalar())
+            const auto l_Value = FindValue(node, key);
+            if (!l_Value)
             {
-                static_cast<void>(Malformed(m_ComponentName, key));
-
-                continue;
+                return false;
             }
 
-            const YAML::Node l_Entry = it_Pair.second;
-            read(it_Pair.first.Scalar(), ComponentReader(l_Entry, m_ComponentName));
-        }
+            if (!l_Value->IsMap())
+            {
+                return Malformed(m_ComponentName, key);
+            }
 
-        return true;
+            for (const auto& it_Pair : *l_Value)
+            {
+                if (!it_Pair.first.IsScalar())
+                {
+                    static_cast<void>(Malformed(m_ComponentName, key));
+
+                    continue;
+                }
+
+                const Node l_Entry = it_Pair.second;
+                read(it_Pair.first.Scalar(), ComponentReader(l_Entry, m_ComponentName));
+            }
+
+            return true;
+        });
     }
 
     namespace SceneSerializer
@@ -3897,6 +4258,287 @@ namespace Trinity
 
             std::unordered_map<std::string, std::size_t> l_Unknown;
             CreateEntities(scene, *l_Plan, l_Unknown);
+            for (const auto& [it_Name, it_Count] : l_Unknown)
+            {
+                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since no loaded code knows that component", it_Count, it_Name);
+            }
+
+            return {};
+        }
+
+        std::vector<std::byte> SaveToBinary(Scene& scene, bool flatten)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            const SceneRegistry& l_Registry = scene.GetRegistry();
+            std::vector<std::pair<const ComponentSerializer*, const SceneRegistry::common_type*>> l_Pools;
+            for (const ComponentSerializer& it_Serializer : s_State->Serializers)
+            {
+                if (const SceneRegistry::common_type* l_Storage = l_Registry.storage(GetPoolId(it_Serializer.Name)))
+                {
+                    l_Pools.emplace_back(&it_Serializer, l_Storage);
+                }
+            }
+
+            BinaryTreeBuilder l_Tree;
+            std::vector<BinaryEntity> l_Entities;
+            std::vector<BinaryComponent> l_Components;
+            l_Entities.reserve(scene.GetEntityCount());
+            for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+            {
+                const entt::entity l_Handle = it_Entity.GetHandle();
+                const Entity l_Parent = it_Entity.GetParent();
+
+                BinaryEntity l_Entity;
+                l_Entity.ID = it_Entity.GetUUID().GetValue();
+                l_Entity.Parent = l_Parent ? l_Parent.GetUUID().GetValue() : 0;
+                l_Entity.FirstComponent = static_cast<std::uint32_t>(l_Components.size());
+
+                for (const auto& [it_Serializer, it_Storage] : l_Pools)
+                {
+                    if (!it_Storage->contains(l_Handle))
+                    {
+                        continue;
+                    }
+
+                    l_Tree.BeginComponent();
+                    ComponentWriter l_Writer(l_Tree);
+                    it_Serializer->Save(it_Storage->value(l_Handle), l_Writer);
+                    const std::uint32_t l_Node = l_Tree.EndComponent();
+                    l_Components.push_back({ l_Tree.AddString(it_Serializer->Name), l_Node, 0 });
+                }
+
+                if (const UnknownComponentsComponent* l_Unknown = l_Registry.try_get<UnknownComponentsComponent>(l_Handle))
+                {
+                    for (const UnknownComponentsComponent::Entry& it_Entry : l_Unknown->Entries)
+                    {
+                        l_Components.push_back({ l_Tree.AddString(it_Entry.Name), l_Tree.AddString(it_Entry.Yaml), 1 });
+                    }
+                }
+
+                if (const PrefabInstanceComponent* l_Instance = l_Registry.try_get<PrefabInstanceComponent>(l_Handle); l_Instance != nullptr && (!flatten || l_Instance->IsMissing()))
+                {
+                    l_Entity.Prefab = l_Instance->Prefab.GetValue();
+                    l_Entity.Instance = l_Instance->Instance.GetValue();
+                    l_Entity.Kept = l_Instance->IsMissing() ? l_Tree.AddString(l_Instance->Kept) : c_NoString;
+                }
+
+                l_Entity.ComponentCount = static_cast<std::uint32_t>(l_Components.size()) - l_Entity.FirstComponent;
+                l_Entities.push_back(l_Entity);
+            }
+
+            const std::span<const std::string_view> l_Strings = l_Tree.GetStrings();
+            std::vector<std::uint32_t> l_Offsets;
+            l_Offsets.reserve(l_Strings.size() + 1);
+            std::uint64_t l_StringBytes = 0;
+            for (const std::string_view it_String : l_Strings)
+            {
+                l_Offsets.push_back(static_cast<std::uint32_t>(l_StringBytes));
+                l_StringBytes += it_String.size();
+            }
+
+            l_Offsets.push_back(static_cast<std::uint32_t>(l_StringBytes));
+            TR_CORE_ASSERT(l_StringBytes <= std::numeric_limits<std::uint32_t>::max(), "A binary scene's strings take more than 4 GiB");
+
+            BinaryHeader l_Header;
+            l_Header.EntityCount = static_cast<std::uint32_t>(l_Entities.size());
+            l_Header.ComponentCount = static_cast<std::uint32_t>(l_Components.size());
+            l_Header.StringCount = static_cast<std::uint32_t>(l_Strings.size());
+            l_Header.StringBytes = static_cast<std::uint32_t>(l_StringBytes);
+            l_Header.NodeCount = static_cast<std::uint32_t>(l_Tree.GetNodes().size());
+            l_Header.EntryCount = static_cast<std::uint32_t>(l_Tree.GetEntries().size());
+
+            std::vector<std::byte> l_Data;
+            l_Data.reserve(sizeof(BinaryHeader) + l_Entities.size() * sizeof(BinaryEntity) + l_Components.size() * sizeof(BinaryComponent) + l_Offsets.size() * sizeof(std::uint32_t) + static_cast<std::size_t>(l_StringBytes) + l_Tree.GetNodes().size_bytes() + l_Tree.GetEntries().size_bytes());
+            AppendBinary(l_Data, std::span<const BinaryHeader>(&l_Header, 1));
+            AppendBinary(l_Data, std::span<const BinaryEntity>(l_Entities));
+            AppendBinary(l_Data, std::span<const BinaryComponent>(l_Components));
+            AppendBinary(l_Data, std::span<const std::uint32_t>(l_Offsets));
+            for (const std::string_view it_String : l_Strings)
+            {
+                AppendBinary(l_Data, std::span<const char>(it_String));
+            }
+
+            AppendBinary(l_Data, l_Tree.GetNodes());
+            AppendBinary(l_Data, l_Tree.GetEntries());
+
+            return l_Data;
+        }
+
+        Expected<void, std::string> LoadFromBinary(Scene& scene, std::span<const std::byte> data)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            BinaryHeader l_Header;
+            if (data.size() < sizeof(BinaryHeader))
+            {
+                return Unexpected{ std::string("too short to be a binary scene") };
+            }
+
+            std::memcpy(&l_Header, data.data(), sizeof(BinaryHeader));
+            if (l_Header.Magic != BinaryHeader::c_Magic || l_Header.Version == 0)
+            {
+                return Unexpected{ std::string("not a binary scene") };
+            }
+
+            if (l_Header.Version > c_BinaryFormatVersion)
+            {
+                return Unexpected{ std::format("written in binary format {} by a newer Trinity, and this build reads binary format {} and older", l_Header.Version, c_BinaryFormatVersion) };
+            }
+
+            const std::uint64_t l_Size = sizeof(BinaryHeader) + std::uint64_t{ l_Header.EntityCount } * sizeof(BinaryEntity) + std::uint64_t{ l_Header.ComponentCount } * sizeof(BinaryComponent) + (std::uint64_t{ l_Header.StringCount } + 1) * sizeof(std::uint32_t) + l_Header.StringBytes + std::uint64_t{ l_Header.NodeCount } * sizeof(BinaryTreeNode) + std::uint64_t{ l_Header.EntryCount } * sizeof(BinaryTreeEntry);
+            if (l_Size != data.size())
+            {
+                return Unexpected{ std::format("{} bytes long where its header gives {}, so it is cut short or corrupted", data.size(), l_Size) };
+            }
+
+            std::size_t l_Offset = sizeof(BinaryHeader);
+            const std::vector<BinaryEntity> l_Entities = ReadBinary<BinaryEntity>(data, l_Offset, l_Header.EntityCount);
+            const std::vector<BinaryComponent> l_Components = ReadBinary<BinaryComponent>(data, l_Offset, l_Header.ComponentCount);
+            const std::vector<std::uint32_t> l_Offsets = ReadBinary<std::uint32_t>(data, l_Offset, std::size_t{ l_Header.StringCount } + 1);
+            const std::string_view l_StringBytes(reinterpret_cast<const char*>(data.data()) + l_Offset, l_Header.StringBytes);
+            l_Offset += l_Header.StringBytes;
+
+            BinaryTree l_Tree;
+            l_Tree.Nodes = ReadBinary<BinaryTreeNode>(data, l_Offset, l_Header.NodeCount);
+            l_Tree.Entries = ReadBinary<BinaryTreeEntry>(data, l_Offset, l_Header.EntryCount);
+            l_Tree.Strings.reserve(l_Header.StringCount);
+            for (std::size_t it_String = 0; it_String < l_Header.StringCount; ++it_String)
+            {
+                if (l_Offsets[it_String] > l_Offsets[it_String + 1] || l_Offsets[it_String + 1] > l_Header.StringBytes)
+                {
+                    return Unexpected{ std::string("its strings are malformed") };
+                }
+
+                l_Tree.Strings.push_back(l_StringBytes.substr(l_Offsets[it_String], l_Offsets[it_String + 1] - l_Offsets[it_String]));
+            }
+
+            if (!l_Tree.IsValid())
+            {
+                return Unexpected{ std::string("its tree is malformed") };
+            }
+
+            // A parent comes before its children, so a scene read this far has no loop
+            std::unordered_map<UUID, std::size_t> l_Indices;
+            l_Indices.reserve(l_Entities.size());
+            for (std::size_t it_Index = 0; it_Index < l_Entities.size(); ++it_Index)
+            {
+                const BinaryEntity& l_Entity = l_Entities[it_Index];
+                if (l_Entity.ID == 0 || !l_Indices.emplace(UUID(l_Entity.ID), it_Index).second)
+                {
+                    return Unexpected{ std::format("entity {} has no valid UUID, or one another entity has", it_Index) };
+                }
+
+                if (l_Entity.Parent != 0 && !l_Indices.contains(UUID(l_Entity.Parent)))
+                {
+                    return Unexpected{ std::format("entity {} names parent {}, which does not come before it", UUID(l_Entity.ID), UUID(l_Entity.Parent)) };
+                }
+
+                if (l_Entity.FirstComponent > l_Components.size() || l_Entity.ComponentCount > l_Components.size() - l_Entity.FirstComponent || (l_Entity.Kept != c_NoString && l_Entity.Kept >= l_Tree.Strings.size()))
+                {
+                    return Unexpected{ std::format("entity {} is malformed", UUID(l_Entity.ID)) };
+                }
+            }
+
+            for (const BinaryComponent& it_Component : l_Components)
+            {
+                if (it_Component.Name >= l_Tree.Strings.size() || it_Component.Value >= (it_Component.Kept != 0 ? l_Tree.Strings.size() : l_Tree.Nodes.size()))
+                {
+                    return Unexpected{ std::string("a component is malformed") };
+                }
+            }
+
+            // Nothing can fail from here, so the scene is only replaced once the data is known to be whole
+            scene.Clear();
+
+            std::vector<Entity> l_Created;
+            l_Created.reserve(l_Entities.size());
+            for (const BinaryEntity& it_Entity : l_Entities)
+            {
+                l_Created.push_back(scene.CreateEntityWithUUID(UUID(it_Entity.ID)));
+            }
+
+            for (std::size_t it_Index = 0; it_Index < l_Entities.size(); ++it_Index)
+            {
+                if (l_Entities[it_Index].Parent != 0)
+                {
+                    scene.SetParent(l_Created[it_Index], l_Created[l_Indices.at(UUID(l_Entities[it_Index].Parent))], false);
+                }
+            }
+
+            // Each name's serializer and pool found once, rather than once a component
+            SceneRegistry& l_Registry = scene.GetRegistry();
+            std::vector<std::optional<std::pair<const ComponentSerializer*, SceneRegistry::common_type*>>> l_Pools(l_Tree.Strings.size());
+            std::unordered_map<std::string, std::size_t> l_Unknown;
+            for (std::size_t it_Index = 0; it_Index < l_Entities.size(); ++it_Index)
+            {
+                const BinaryEntity& l_File = l_Entities[it_Index];
+                Entity l_Entity = l_Created[it_Index];
+                for (std::uint32_t it_Component = l_File.FirstComponent; it_Component < l_File.FirstComponent + l_File.ComponentCount; ++it_Component)
+                {
+                    const BinaryComponent& l_Component = l_Components[it_Component];
+                    const std::string_view l_Name = l_Tree.Strings[l_Component.Name];
+                    auto& l_Pool = l_Pools[l_Component.Name];
+                    if (!l_Pool)
+                    {
+                        const ComponentSerializer* l_Serializer = FindSerializer(l_Name);
+                        l_Pool.emplace(l_Serializer, l_Serializer != nullptr ? l_Registry.storage(GetPoolId(l_Name)) : nullptr);
+                    }
+
+                    const auto [a_Serializer, a_Storage] = *l_Pool;
+                    if (l_Component.Kept == 0 && a_Storage != nullptr)
+                    {
+                        if (!a_Storage->contains(l_Entity.GetHandle()))
+                        {
+                            a_Storage->push(l_Entity.GetHandle());
+                        }
+
+                        const BinaryNode l_Node(l_Tree, l_Component.Value);
+                        a_Serializer->Load(a_Storage->value(l_Entity.GetHandle()), ComponentReader(l_Node, a_Serializer->Name));
+
+                        continue;
+                    }
+
+                    if (l_Component.Kept == 0)
+                    {
+                        SetComponentYaml(l_Entity, l_Name, ToYaml(BinaryNode(l_Tree, l_Component.Value)), l_Unknown);
+
+                        continue;
+                    }
+
+                    // Kept as YAML when saved, and loaded by code that knows it now, or kept still when it cannot be read, as a scene's kept YAML is when its code registers
+                    const std::string_view l_Yaml = l_Tree.Strings[l_Component.Value];
+                    if (a_Storage != nullptr)
+                    {
+                        try
+                        {
+                            LoadComponent(l_Entity, *a_Serializer, *a_Storage, YAML::Load(std::string(l_Yaml)));
+
+                            continue;
+                        }
+                        catch (const YAML::Exception& exception)
+                        {
+                            TR_CORE_ERROR("Scene: {} on entity {} is kept as YAML that cannot be read, and stays kept: {}", l_Name, l_Entity.GetUUID(), exception.what());
+                        }
+                    }
+
+                    if (!l_Entity.Has<UnknownComponentsComponent>())
+                    {
+                        l_Entity.Add<UnknownComponentsComponent>();
+                    }
+
+                    l_Entity.Get<UnknownComponentsComponent>().Entries.push_back({ TaggedString<MemoryTag::Scene>(l_Name), TaggedString<MemoryTag::Scene>(l_Yaml) });
+                    ++l_Unknown[std::string(l_Name)];
+                }
+
+                if (l_File.Prefab != 0)
+                {
+                    l_Entity.Add<PrefabInstanceComponent>(PrefabInstanceComponent{ .Prefab = UUID(l_File.Prefab), .Instance = UUID(l_File.Instance), .Kept = l_File.Kept != c_NoString ? TaggedString<MemoryTag::Scene>(l_Tree.Strings[l_File.Kept]) : TaggedString<MemoryTag::Scene>() });
+                }
+            }
+
             for (const auto& [it_Name, it_Count] : l_Unknown)
             {
                 TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since no loaded code knows that component", it_Count, it_Name);
