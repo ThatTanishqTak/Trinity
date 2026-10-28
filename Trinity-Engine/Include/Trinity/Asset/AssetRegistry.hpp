@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Trinity/Core/Expected.hpp"
 #include "Trinity/Core/Export.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
@@ -8,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -43,6 +45,11 @@ namespace Trinity
         AssetSettings Settings;
         UUID Parent;
         std::vector<SubAsset> SubAssets;
+        // Where a cooked game reads the asset's own file in its pack, for an asset whose file it reads as the project has it, such as a scene or a sound event. Empty in a project, whose files are read where they lie, and for an asset a loader finds cooked by its UUID
+        std::string CookedPath;
+
+        // The file the asset is read from where its loader reads it by its path
+        [[nodiscard]] const std::string& GetReadPath() const { return CookedPath.empty() ? Path : CookedPath; }
 
         [[nodiscard]] const std::string* FindSetting(std::string_view key) const
         {
@@ -74,6 +81,10 @@ namespace Trinity
 
         void SetDefaultSettings(std::string_view importer, AssetSettings settings);
         AssetScanReport Scan();
+        // In place of a scan, for a cooked game, which has no Assets folder: the records of the asset table its export wrote, which never change. Refused, keeping the records there were, for a table that is not whole or is from a newer Trinity
+        [[nodiscard]] Expected<void, std::string> LoadTable(std::span<const std::byte> data);
+        // Whether the records are a cooked game's, from LoadTable
+        [[nodiscard]] bool IsCooked() const { return m_Cooked; }
         bool SetSettings(UUID id, AssetSettings settings);
         bool SetSubAssets(UUID parent, std::vector<SubAsset> subAssets);
 
@@ -96,5 +107,6 @@ namespace Trinity
         PathMap m_ByPath;
         DefaultsMap m_Defaults;
         bool m_Scanned = false;
+        bool m_Cooked = false;
     };
 }

@@ -18,6 +18,7 @@
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Prefab.hpp"
 #include "Trinity/Scene/Scene.hpp"
+#include "Trinity/Scene/SceneAssets.hpp"
 #include "Trinity/Scene/SceneRuntime.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
 #include "Trinity/Scripting/ScriptRuntime.hpp"
@@ -37,74 +38,7 @@ namespace Trinity
     {
         SceneManager* s_Active = nullptr;
 
-        using AssetList = std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>>;
-
-        void AddAsset(AssetList& assets, UUID id)
-        {
-            if (id && std::ranges::find(assets, id) == assets.end())
-            {
-                assets.push_back(id);
-            }
-        }
-
-        // What the scene's components and its scripts' fields name, which the renderer, physics and scripts would otherwise load as they first reach them. A field naming a scene is left out, as a scene is loaded here and not by the asset manager
-        void GatherAssets(Scene& scene, const AssetRegistry* registry, AssetList& assets)
-        {
-            SceneRegistry& l_Registry = scene.GetRegistry();
-            for (const auto [it_Entity, it_Renderer] : l_Registry.view<MeshRendererComponent>().each())
-            {
-                AddAsset(assets, it_Renderer.Mesh);
-                for (const UUID it_Material : it_Renderer.Materials)
-                {
-                    AddAsset(assets, it_Material);
-                }
-            }
-
-            for (const auto [it_Entity, it_Sprite] : l_Registry.view<SpriteRendererComponent>().each())
-            {
-                AddAsset(assets, it_Sprite.Texture);
-            }
-
-            for (const auto [it_Entity, it_Environment] : l_Registry.view<EnvironmentComponent>().each())
-            {
-                AddAsset(assets, it_Environment.Environment);
-            }
-
-            for (const auto [it_Entity, it_Hull] : l_Registry.view<ConvexHullColliderComponent>().each())
-            {
-                AddAsset(assets, it_Hull.Shape);
-            }
-
-            for (const auto [it_Entity, it_Mesh] : l_Registry.view<MeshColliderComponent>().each())
-            {
-                AddAsset(assets, it_Mesh.Shape);
-            }
-
-            // A clip that preloads reads as loading until its samples are in, so the scene waits for those, and for the headers of the rest. A sound event's clips are held once it is in
-            for (const auto [it_Entity, it_Source] : l_Registry.view<AudioSourceComponent>().each())
-            {
-                AddAsset(assets, it_Source.Resource);
-            }
-
-            for (const auto [it_Entity, it_Scripts] : l_Registry.view<ScriptComponent>().each())
-            {
-                for (const ScriptEntry& it_Script : it_Scripts.Scripts)
-                {
-                    // An asset field, or each asset of a list of them
-                    for (const ScriptEntry::Field& it_Field : it_Script.Fields)
-                    {
-                        it_Field.Value.ForEachValue<UUID>(ScriptFieldType::Asset, [&assets, registry](const UUID& asset)
-                        {
-                            const AssetRecord* l_Record = registry != nullptr && asset ? registry->Find(asset) : nullptr;
-                            if (l_Record == nullptr || l_Record->Importer != "Scene")
-                            {
-                                AddAsset(assets, asset);
-                            }
-                        });
-                    }
-                }
-            }
-        }
+        using AssetList = SceneAssets::AssetList;
 
         void Release(AssetList& assets)
         {
@@ -148,18 +82,6 @@ namespace Trinity
             return l_Added;
         }
 
-        // The prefabs the instances of a scene already read are of, as its components name them. A stand-in names one that could not be found, so it is left out
-        void GatherInstancePrefabs(Scene& scene, AssetList& assets)
-        {
-            for (const auto [it_Entity, it_Instance] : scene.GetRegistry().view<PrefabInstanceComponent>().each())
-            {
-                if (!it_Instance.IsMissing())
-                {
-                    AddAsset(assets, it_Instance.Prefab);
-                }
-            }
-        }
-
         // Each prefab held, a model's too, whose template can be read has what the template names held as well: its meshes, materials and the rest, the prefabs nested in it and those its scripts' fields name, so an instance of it made while the scene runs is whole at once and can make instances of those in turn. One still loading is waited for, and each is gone through once, those it adds in the same call when their templates can be read already. True while one was added, which is waited for and gone through in turn
         [[nodiscard]] bool HoldPrefabContents(AssetList& assets, AssetList& seen, const AssetRegistry* registry)
         {
@@ -194,8 +116,8 @@ namespace Trinity
                 }
 
                 const std::size_t l_Count = assets.size();
-                GatherAssets(*l_Template, registry, assets);
-                GatherInstancePrefabs(*l_Template, assets);
+                SceneAssets::Gather(*l_Template, registry, assets);
+                SceneAssets::GatherInstancePrefabs(*l_Template, assets);
                 for (std::size_t it_New = l_Count; it_New < assets.size(); ++it_New)
                 {
                     AssetManager::Acquire(assets[it_New]);
@@ -262,6 +184,12 @@ namespace Trinity
 
             return l_Record != nullptr ? l_Record->Path : std::string("the running scene");
         }
+
+        // A cooked game holds only the scenes of its build, so one not there is named as one left out of it
+        [[nodiscard]] std::string DescribeMissing(std::string_view scene) const
+        {
+            return Registry != nullptr && Registry->IsCooked() ? std::format("scene {} is not one of the build's scenes", scene) : std::format("there is no scene {} to load", scene);
+        }
     };
 
     // The actions' players last across every scene it switches to, as the scripts kept across scenes would expect
@@ -315,8 +243,8 @@ namespace Trinity
         l_State.Asset = asset;
         if (l_State.Current)
         {
-            GatherAssets(*l_State.Current, l_State.Registry, l_State.Held);
-            GatherInstancePrefabs(*l_State.Current, l_State.Held);
+            SceneAssets::Gather(*l_State.Current, l_State.Registry, l_State.Held);
+            SceneAssets::GatherInstancePrefabs(*l_State.Current, l_State.Held);
             for (const UUID it_Asset : l_State.Held)
             {
                 AssetManager::Acquire(it_Asset);
@@ -336,7 +264,7 @@ namespace Trinity
         const AssetRecord* l_Record = l_State.Registry != nullptr && scene ? l_State.Registry->Find(scene) : nullptr;
         if (l_Record == nullptr || l_Record->Importer != "Scene")
         {
-            TR_CORE_ERROR("SceneManager: there is no scene {} to load, so {} goes on", scene, l_State.DescribeCurrent());
+            TR_CORE_ERROR("SceneManager: {}, so {} goes on", l_State.DescribeMissing(std::format("{}", scene)), l_State.DescribeCurrent());
 
             return false;
         }
@@ -352,7 +280,7 @@ namespace Trinity
         l_State.Pending->Asset = l_Record->ID;
         l_State.Pending->Path = l_Record->Path;
         State::Loading* l_Loading = l_State.Pending.get();
-        l_Loading->Request = FileSystem::ReadFileAsync(l_Record->Path, [l_Loading](Expected<FileBuffer, FileError> result)
+        l_Loading->Request = FileSystem::ReadFileAsync(l_Record->GetReadPath(), [l_Loading](Expected<FileBuffer, FileError> result)
         {
             l_Loading->Read = true;
             if (!result)
@@ -376,7 +304,7 @@ namespace Trinity
         const AssetRecord* l_Record = l_State.Registry != nullptr ? l_State.Registry->FindByPath(l_Path) : nullptr;
         if (l_Record == nullptr)
         {
-            TR_CORE_ERROR("SceneManager: there is no scene {} to load, so {} goes on", path, l_State.DescribeCurrent());
+            TR_CORE_ERROR("SceneManager: {}, so {} goes on", l_State.DescribeMissing(path), l_State.DescribeCurrent());
 
             return false;
         }
@@ -430,7 +358,7 @@ namespace Trinity
                 const std::span<const std::byte> l_Data = std::as_bytes(std::span(*l_Loading.Text));
                 for (const UUID it_Prefab : SceneSerializer::IsBinary(l_Data) ? SceneSerializer::GetBinaryPrefabReferences(l_Data) : SceneSerializer::GetPrefabReferences(*l_Loading.Text))
                 {
-                    AddAsset(l_Loading.Held, it_Prefab);
+                    SceneAssets::Add(l_Loading.Held, it_Prefab);
                     AssetManager::Acquire(it_Prefab);
                 }
             }
@@ -455,7 +383,7 @@ namespace Trinity
 
             l_Loading.Next = std::move(l_Next);
             const std::size_t l_Prefabs = l_Loading.Held.size();
-            GatherAssets(*l_Loading.Next, l_State.Registry, l_Loading.Held);
+            SceneAssets::Gather(*l_Loading.Next, l_State.Registry, l_Loading.Held);
             for (std::size_t it_Asset = l_Prefabs; it_Asset < l_Loading.Held.size(); ++it_Asset)
             {
                 AssetManager::Acquire(l_Loading.Held[it_Asset]);
@@ -494,10 +422,7 @@ namespace Trinity
                 }
 
                 const MaterialData& l_Data = static_cast<const MaterialAsset*>(l_Asset)->GetData();
-                for (const UUID it_Texture : { l_Data.BaseColorTexture.Texture, l_Data.MetallicRoughnessTexture.Texture, l_Data.NormalTexture.Texture, l_Data.OcclusionTexture.Texture, l_Data.EmissiveTexture.Texture })
-                {
-                    a_Hold(it_Texture);
-                }
+                std::ranges::for_each(l_Data.GetTextures(), a_Hold);
             }
 
             if (CountWaiting(l_Loading.Held) != 0)
@@ -600,8 +525,8 @@ namespace Trinity
         if (l_KeptCount != 0)
         {
             const std::size_t l_Count = l_Loading->Held.size();
-            GatherAssets(*l_Next, l_State.Registry, l_Loading->Held);
-            GatherInstancePrefabs(*l_Next, l_Loading->Held);
+            SceneAssets::Gather(*l_Next, l_State.Registry, l_Loading->Held);
+            SceneAssets::GatherInstancePrefabs(*l_Next, l_Loading->Held);
             for (std::size_t it_Asset = l_Count; it_Asset < l_Loading->Held.size(); ++it_Asset)
             {
                 AssetManager::Acquire(l_Loading->Held[it_Asset]);

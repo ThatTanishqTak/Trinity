@@ -1,5 +1,7 @@
 #include "Trinity/Asset/AssetRegistry.hpp"
 
+#include "Trinity/Asset/AssetTable.hpp"
+
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
@@ -186,6 +188,12 @@ namespace Trinity
     AssetScanReport AssetRegistry::Scan()
     {
         TR_PROFILE_FUNCTION();
+
+        // A cooked game's records are its table's, and there is no Assets folder to scan
+        if (m_Cooked)
+        {
+            return { .Assets = m_Records.size() };
+        }
 
         std::vector<std::string> l_Files;
         std::set<std::string> l_Metas;
@@ -485,6 +493,40 @@ namespace Trinity
         m_Records.insert_or_assign(parent, std::move(l_Record));
 
         return true;
+    }
+
+    Expected<void, std::string> AssetRegistry::LoadTable(std::span<const std::byte> data)
+    {
+        TR_PROFILE_FUNCTION();
+
+        Expected<std::vector<AssetRecord>, std::string> l_Table = AssetTable::Read(data);
+        if (!l_Table)
+        {
+            return Unexpected{ l_Table.GetError() };
+        }
+
+        RecordMap l_Records;
+        PathMap l_ByPath;
+        l_Records.reserve(l_Table->size());
+        l_ByPath.reserve(l_Table->size());
+        for (AssetRecord& it_Record : *l_Table)
+        {
+            if (!l_ByPath.emplace(it_Record.Path, it_Record.ID).second)
+            {
+                return Unexpected{ std::format("two assets have the path {}", it_Record.Path) };
+            }
+
+            const UUID l_ID = it_Record.ID;
+            l_Records.emplace(l_ID, std::move(it_Record));
+        }
+
+        m_Records = std::move(l_Records);
+        m_ByPath = std::move(l_ByPath);
+        m_Scanned = true;
+        m_Cooked = true;
+        TR_CORE_INFO("Assets: {} from the build's asset table", m_Records.size());
+
+        return {};
     }
 
     const AssetRecord* AssetRegistry::Find(UUID id) const

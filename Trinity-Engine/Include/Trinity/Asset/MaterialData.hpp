@@ -6,6 +6,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -52,6 +53,12 @@ namespace Trinity
         MaterialTexture NormalTexture;
         MaterialTexture OcclusionTexture;
         MaterialTexture EmissiveTexture;
+
+        // Each slot's texture, an empty slot's an invalid UUID, which a scene holds while it holds the material and a build ships with it
+        [[nodiscard]] std::array<UUID, 5> GetTextures() const
+        {
+            return { BaseColorTexture.Texture, MetallicRoughnessTexture.Texture, NormalTexture.Texture, OcclusionTexture.Texture, EmissiveTexture.Texture };
+        }
 
         [[nodiscard]] bool operator==(const MaterialData&) const = default;
     };

@@ -69,7 +69,7 @@ namespace Trinity
     // A model's material is cooked into the cache, and a material file of its own is read where it is
     std::string MaterialLoader::GetLoadPath(const AssetRecord& record) const
     {
-        return record.Parent.IsValid() ? GetCookedMaterialPath(record.ID) : record.Path;
+        return record.Parent.IsValid() ? GetCookedMaterialPath(record.ID) : record.GetReadPath();
     }
 
     // On a worker

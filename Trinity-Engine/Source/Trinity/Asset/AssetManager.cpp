@@ -202,7 +202,7 @@ namespace Trinity
 
     std::string AssetLoader::GetLoadPath(const AssetRecord& record) const
     {
-        return record.Path;
+        return record.GetReadPath();
     }
 
     namespace AssetManager
