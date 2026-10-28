@@ -71,4 +71,39 @@ namespace Trinity
 
         public static string AssetType => "InputActions";
     }
+
+    // What an AudioSource plays, PlayOneShot plays beside it and Audio plays on its own, as Unity 6's AudioResource is either an AudioClip or an Audio Random Container
+    public interface IAudioResource : IAsset
+    {
+    }
+
+    public sealed class AudioClipAsset : IAudioResource
+    {
+        private AudioClipAsset() { }
+
+        public static string AssetType => "AudioClip";
+    }
+
+    public sealed class SoundEventAsset : IAudioResource
+    {
+        private SoundEventAsset() { }
+
+        public static string AssetType => "SoundEvent";
+    }
+
+    // An AudioClip or a Sound Event, as an AudioSource's Resource is, so a field of AssetRef<AudioResourceAsset> takes either
+    public sealed class AudioResourceAsset : IAudioResource
+    {
+        private AudioResourceAsset() { }
+
+        public static string AssetType => "Audio Resource";
+    }
+
+    // The project's mixer is the only one its scenes play through, so a field of AssetRef<AudioMixerAsset> names it, and AudioMixer's calls through one that names another do nothing
+    public sealed class AudioMixerAsset : IAsset
+    {
+        private AudioMixerAsset() { }
+
+        public static string AssetType => "AudioMixer";
+    }
 }

@@ -20,6 +20,8 @@
 
 namespace Trinity
 {
+    class AudioMixer;
+    class AudioScene;
     class PhysicsScene2D;
     class PhysicsScene3D;
     class Scene;
@@ -82,6 +84,10 @@ namespace Trinity
         // The running scene's physics, whose bodies a script pushes and queries, by its entities' UUIDs. Null while the scene has no body of that kind
         [[nodiscard]] PhysicsScene3D* GetPhysics() const;
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() const;
+        // The running scene's sounds: its AudioSources, which a script plays, pauses and stops by their entities, sounds of their own through PlayOneShot, PlayAtPoint and PlayAttached, reached again through the handles those give, and the parameters, local and global, their sound events hear. Null while no scene's sounds run with the script
+        [[nodiscard]] AudioScene* GetAudio() const;
+        // The project's mixer, which the running scene plays through, whose exposed values a script sets, reads and clears, and whose snapshots it moves to. Null while the scene's sounds play on no engine
+        [[nodiscard]] AudioMixer* GetAudioMixer() const;
 
         // Invalid when the scene has no such entity
         [[nodiscard]] Entity FindEntity(UUID id) const;

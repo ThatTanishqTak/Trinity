@@ -15,6 +15,7 @@
 namespace Trinity
 {
     class AudioEngine;
+    class AudioMixer;
     class Entity;
     class PhysicsScene2D;
     class PhysicsScene3D;
@@ -138,6 +139,12 @@ namespace Trinity
         void SetPosition(AudioHandle handle, const glm::vec3& position);
         // From now on following the entity, as PlayAttached does. Nothing for a one-shot
         void Follow(AudioHandle handle, Entity entity);
+
+        // The engine's, as AudioEngine has them: a value every sound event playing with a global parameter by that name hears, from the same period. False, and none, without an engine
+        bool SetGlobalParameter(std::string_view name, float value);
+        [[nodiscard]] std::optional<float> GetGlobalParameter(std::string_view name) const;
+        // The mixer of the engine the scene plays on, the project's, which its sounds play through. Null without an engine
+        [[nodiscard]] AudioMixer* GetMixer() const;
 
         // Holds every voice where it is and keeps their time from moving, as a scene paused in Forge, whose Step plays nothing
         void SetPaused(bool paused);

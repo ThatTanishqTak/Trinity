@@ -2569,6 +2569,28 @@ namespace Trinity
         l_Voice->Placed = false;
     }
 
+    bool AudioScene::SetGlobalParameter(std::string_view name, float value)
+    {
+        if (m_State->Engine == nullptr)
+        {
+            return false;
+        }
+
+        m_State->Engine->SetGlobalParameter(name, value);
+
+        return true;
+    }
+
+    std::optional<float> AudioScene::GetGlobalParameter(std::string_view name) const
+    {
+        return m_State->Engine != nullptr ? m_State->Engine->GetGlobalParameter(name) : std::nullopt;
+    }
+
+    AudioMixer* AudioScene::GetMixer() const
+    {
+        return m_State->Engine != nullptr ? &m_State->Engine->GetMixer() : nullptr;
+    }
+
     const AudioSettings& AudioScene::GetSettings() const
     {
         return m_State->Settings;

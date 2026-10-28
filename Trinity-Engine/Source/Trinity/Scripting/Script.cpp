@@ -1,5 +1,6 @@
 #include "Trinity/Scripting/Script.hpp"
 
+#include "Trinity/Audio/AudioScene.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Scene/Scene.hpp"
@@ -73,6 +74,18 @@ namespace Trinity
     PhysicsScene2D* Script::GetPhysics2D() const
     {
         return m_Runtime != nullptr ? m_Runtime->GetPhysics2D() : nullptr;
+    }
+
+    AudioScene* Script::GetAudio() const
+    {
+        return m_Runtime != nullptr ? m_Runtime->GetAudio() : nullptr;
+    }
+
+    AudioMixer* Script::GetAudioMixer() const
+    {
+        const AudioScene* l_Audio = GetAudio();
+
+        return l_Audio != nullptr ? l_Audio->GetMixer() : nullptr;
     }
 
     Entity Script::FindEntity(UUID id) const

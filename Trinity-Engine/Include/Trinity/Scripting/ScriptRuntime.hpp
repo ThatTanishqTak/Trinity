@@ -19,6 +19,7 @@
 
 namespace Trinity
 {
+    class AudioScene;
     class Entity;
     class Scene;
 
@@ -110,6 +111,10 @@ namespace Trinity
         [[nodiscard]] PhysicsScene3D* GetPhysics() const { return m_Physics; }
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() const { return m_Physics2D; }
 
+        // The scene's sounds, which SceneRuntime hands over as it makes the runtime, and null for a runtime made without them
+        void SetAudio(AudioScene* audio) { m_Audio = audio; }
+        [[nodiscard]] AudioScene* GetAudio() const { return m_Audio; }
+
         // Makes the instances of every Script component added since the last call, the scene's own on the first, gives each the values of its fields, and calls OnCreate on each enabled one. A script that a call makes is made in the same call. SceneRuntime calls it as a frame begins and again once the frame's scripts have run, so a script added during the frame has OnCreate within it. Whether any was added
         bool CreatePending();
         // After CreatePending and before the fixed steps: the input action handlers C# scripts added, for this frame's presses and releases, so those of a script made this frame are raised too
@@ -172,5 +177,6 @@ namespace Trinity
         ScriptTime m_Time;
         PhysicsScene3D* m_Physics = nullptr;
         PhysicsScene2D* m_Physics2D = nullptr;
+        AudioScene* m_Audio = nullptr;
     };
 }

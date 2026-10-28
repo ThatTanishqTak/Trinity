@@ -61,6 +61,8 @@ namespace Trinity
         // The scripts' fixed step is the first system, ahead of physics
         m_Scripts = CreateScope<ScriptRuntime>(scene);
         m_Scripts->SetPhysics(m_Physics.get(), m_Physics2D.get());
+        m_Scripts->SetAudio(m_Audio.get());
+        AddFixedStepSystem([this](Timestep step) { m_Scripts->FixedUpdate(step); });
         AddFixedStepSystem([this](Timestep step) { m_Scripts->FixedUpdate(step); });
     }
 
