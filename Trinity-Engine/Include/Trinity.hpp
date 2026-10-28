@@ -28,6 +28,7 @@
 #include "Trinity/Core/Expected.hpp"
 #include "Trinity/Core/FileDialog.hpp"
 #include "Trinity/Core/FrameAllocator.hpp"
+#include "Trinity/Core/Hash.hpp"
 #include "Trinity/Core/JobSystem.hpp"
 #include "Trinity/Core/Layer.hpp"
 #include "Trinity/Core/Log.hpp"
@@ -43,6 +44,7 @@
 #include "Trinity/FileSystem/DirectoryWatcher.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/FileSystem/MemorySource.hpp"
+#include "Trinity/FileSystem/PackFormat.hpp"
 
 #include "Trinity/Events/ApplicationEvent.hpp"
 #include "Trinity/Events/Event.hpp"

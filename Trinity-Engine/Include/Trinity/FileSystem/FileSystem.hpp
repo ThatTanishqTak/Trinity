@@ -27,7 +27,8 @@ namespace Trinity
         TooLarge,
         ReadFailed,
         ReadOnly,
-        WriteFailed
+        WriteFailed,
+        Corrupted
     };
 
     [[nodiscard]] TRINITY_API std::string_view ToString(FileError error);
@@ -95,7 +96,7 @@ namespace Trinity
         virtual ~FileSource() = default;
 
         [[nodiscard]] virtual Expected<FileBuffer, FileError> Read(std::string_view relativePath) const = 0;
-        // A handle for ranged reads, which directories, memory and later packed archives all give
+        // A handle for ranged reads, which directories, memory and packs all give
         [[nodiscard]] virtual Expected<Ref<FileReadHandle>, FileError> Open(std::string_view relativePath) const = 0;
         [[nodiscard]] virtual Expected<FileType, FileError> Stat(std::string_view relativePath) const = 0;
         [[nodiscard]] virtual Expected<std::vector<DirectoryEntry>, FileError> List(std::string_view relativeDirectory) const = 0;
@@ -121,6 +122,8 @@ namespace Trinity
 
         TRINITY_API bool Mount(std::string_view mountPoint, Scope<FileSource> source, MountAccess access = MountAccess::ReadOnly);
         TRINITY_API bool MountDirectory(std::string_view mountPoint, const std::filesystem::path& nativeDirectory, MountAccess access = MountAccess::ReadOnly);
+        // A .trpak, always read-only. One that is cut short, corrupted or from a newer Trinity is refused with one error naming it
+        TRINITY_API bool MountPack(std::string_view mountPoint, const std::filesystem::path& nativePack);
         TRINITY_API std::size_t Unmount(std::string_view mountPoint);
 
         [[nodiscard]] TRINITY_API Expected<FileBuffer, FileError> ReadFile(std::string_view path);

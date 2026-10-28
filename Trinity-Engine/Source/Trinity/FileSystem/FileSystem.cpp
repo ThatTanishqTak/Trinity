@@ -6,6 +6,8 @@
 #include "Trinity/Core/MainThread.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/FileSystem/DirectorySource.hpp"
+#include "Trinity/FileSystem/FileSystemUtilities.hpp"
+#include "Trinity/FileSystem/PackSource.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -190,6 +192,10 @@ namespace Trinity
             {
                 return "write failed";
             }
+            case FileError::Corrupted:
+            {
+                return "corrupted";
+            }
         }
 
         return "unknown error";
@@ -244,6 +250,19 @@ namespace Trinity
             }
 
             return Mount(mountPoint, CreateScope<DirectorySource>(l_Root.lexically_normal()), access);
+        }
+
+        bool MountPack(std::string_view mountPoint, const std::filesystem::path& nativePack)
+        {
+            Expected<Scope<PackSource>, std::string> l_Pack = PackSource::Load(nativePack);
+            if (!l_Pack)
+            {
+                TR_CORE_ERROR("Cannot mount pack '{}' at '{}': {}", FileSystemUtilities::ToUtf8(nativePack), mountPoint, l_Pack.GetError());
+
+                return false;
+            }
+
+            return Mount(mountPoint, std::move(*l_Pack));
         }
 
         std::size_t Unmount(std::string_view mountPoint)

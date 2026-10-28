@@ -170,6 +170,12 @@ trinity_vendor_set(BASISU_SUPPORT_OPENCL OFF)
 trinity_vendor_directory(KTX-Software)
 list(APPEND TRINITY_VENDOR_TARGETS ktx ktx_read)
 
+# zstd - compressing the files in packs. ktx and ktx_read both compile zstd 1.5.5 into themselves, so only its header comes from here, and the code from whichever of the two a target links
+trinity_vendor_require(KTX-Software external/basisu/zstd/zstd.h)
+add_library(zstd_headers INTERFACE)
+add_library(zstd::headers ALIAS zstd_headers)
+target_include_directories(zstd_headers SYSTEM INTERFACE KTX-Software/external/basisu/zstd)
+
 # miniaudio - audio device, mixing and decoding. OGG Vorbis decodes through stb_vorbis from the stb submodule, which goes in around miniaudio's implementation as miniaudio's documentation lays out. stb_vorbis allocates with malloc, so its implementation calls three functions the engine defines instead, which count what it allocates under the Audio tag
 trinity_vendor_require(miniaudio miniaudio.c)
 trinity_vendor_require(stb stb_vorbis.c)
