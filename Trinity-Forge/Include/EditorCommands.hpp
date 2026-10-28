@@ -136,6 +136,31 @@ private:
     std::string m_Label;
 };
 
+// An entity with an AudioSource playing the clip or the sound event as it wakes, at the position, which is the parent's own, heard from there in 3D when it spatializes, last under the parent or among the roots, or before the sibling, made in one step so a single undo takes it away
+class CreateAudioSourceCommand final : public EditorCommand
+{
+public:
+    CreateAudioSourceCommand(std::string name, Trinity::UUID resource, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position, bool spatialize);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    std::string m_Name;
+    Trinity::UUID m_Resource;
+    Trinity::UUID m_Parent;
+    Trinity::UUID m_Before;
+    glm::vec3 m_Position{ 0.0f };
+    bool m_Spatialize = false;
+    Trinity::UUID m_Entity;
+    std::string m_Text;
+    std::string m_Label;
+};
+
 // A new instance of the prefab, its root moved to the position when one is given, which is then the instance's own. Last under the parent or among the roots, or before the sibling when one is given
 class InstantiatePrefabCommand final : public EditorCommand
 {

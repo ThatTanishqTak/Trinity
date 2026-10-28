@@ -677,6 +677,52 @@ std::size_t CreateSpriteCommand::GetMemorySize() const
     return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
 }
 
+CreateAudioSourceCommand::CreateAudioSourceCommand(std::string name, Trinity::UUID resource, Trinity::UUID parent, Trinity::UUID before, glm::vec3 position, bool spatialize) : m_Name(std::move(name)), m_Resource(resource), m_Parent(parent), m_Before(before), m_Position(position), m_Spatialize(spatialize)
+{
+
+}
+
+// Kept as text after the first run, as CreateEntityCommand does, so a redo brings back the same UUID
+bool CreateAudioSourceCommand::Execute(Trinity::Scene& scene)
+{
+    if (!m_Text.empty())
+    {
+        return Restore(scene, m_Text, m_Parent, m_Before, m_Label);
+    }
+
+    if (!IsPlaceValid(scene, m_Parent, m_Before))
+    {
+        return false;
+    }
+
+    Trinity::Entity l_Entity = scene.CreateEntity(m_Name, scene.FindEntityByUUID(m_Parent));
+    if (const Trinity::Entity l_Before = scene.FindEntityByUUID(m_Before))
+    {
+        scene.MoveBefore(l_Entity, l_Before, false);
+    }
+
+    l_Entity.Get<Trinity::TransformComponent>().Position = m_Position;
+    Trinity::AudioSourceComponent& l_Source = l_Entity.Add<Trinity::AudioSourceComponent>();
+    l_Source.Resource = m_Resource;
+    l_Source.Spatialize = m_Spatialize;
+
+    m_Entity = l_Entity.GetUUID();
+    m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, l_Entity);
+    m_Label = std::format("Create audio source {}", GetEntityLabel(l_Entity));
+
+    return true;
+}
+
+void CreateAudioSourceCommand::Undo(Trinity::Scene& scene)
+{
+    scene.DestroyEntity(scene.FindEntityByUUID(m_Entity));
+}
+
+std::size_t CreateAudioSourceCommand::GetMemorySize() const
+{
+    return sizeof(*this) + m_Name.capacity() + m_Text.capacity() + m_Label.capacity();
+}
+
 InstantiatePrefabCommand::InstantiatePrefabCommand(Trinity::UUID prefab, std::string name, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position) : m_Prefab(prefab), m_Name(std::move(name)), m_Parent(parent), m_Before(before), m_Position(position)
 {
 

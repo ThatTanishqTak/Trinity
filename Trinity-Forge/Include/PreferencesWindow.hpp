@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
+
 
 // Edit > Preferences..., Forge's settings for the person using it, as Unity's Preferences window shows them: its sections listed down the left under a search that filters them by their settings' names, and the chosen section's settings on the right. Each applies as it changes and is saved with the preferences, and a section's Reset to Defaults puts it back as Forge first had it
 class PreferencesWindow
@@ -20,6 +22,7 @@ private:
     enum class Section : std::uint8_t
     {
         General,
+        Audio,
         ExternalTools,
         Colors,
         SceneView
@@ -29,6 +32,7 @@ private:
     [[nodiscard]] bool Lists(Section section) const;
     [[nodiscard]] bool Shows(Section section, std::string_view setting) const;
     void DrawGeneral();
+    void DrawAudio();
     void DrawExternalTools();
     void DrawColors();
     void DrawSceneView();
@@ -38,4 +42,6 @@ private:
     bool m_FocusRequested = false;
     Section m_Section = Section::General;
     std::string m_Search;
+    // The outputs as the system listed them when the Output Device menu last opened
+    std::vector<Trinity::AudioDevice> m_Devices;
 };

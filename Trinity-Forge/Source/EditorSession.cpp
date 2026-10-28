@@ -822,6 +822,12 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     });
 
     ReadPreferences(args);
+    // The application opened the system's default as it started, before the preferences were read. Headless, it opened none
+    if (Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine(); l_Engine != nullptr && l_Engine->GetOutput() == Trinity::AudioOutput::Device && !m_Preferences.AudioDevice.empty())
+    {
+        static_cast<void>(l_Engine->SetDevice(m_Preferences.AudioDevice));
+    }
+
     ReadRecentProjects();
     if (const auto it_Directory = args.GetOption("new-project"))
     {
@@ -2140,6 +2146,16 @@ void EditorSession::SetWaitForDebugger(bool wait)
     m_PreferencesChanged = true;
 }
 
+void EditorSession::SetAudioDevice(std::string_view name)
+{
+    m_Preferences.AudioDevice = std::string(name);
+    m_PreferencesChanged = true;
+    if (Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine(); l_Engine != nullptr)
+    {
+        static_cast<void>(l_Engine->SetDevice(name));
+    }
+}
+
 // A line a setting, name=value, and lines starting with # left for people. One that cannot be read keeps its default, and one Forge does not know is left out. A kept console variable the command line sets keeps the command line's value, and the file's is held to be written back
 void EditorSession::ReadPreferences(const Trinity::ApplicationCommandLineArgs& args)
 {
@@ -2202,6 +2218,14 @@ void EditorSession::ReadPreferences(const Trinity::ApplicationCommandLineArgs& a
         {
             m_Preferences.SnapSteps = glm::clamp(m_Preferences.SnapSteps, EditorPreferences::c_MinimumSnap, EditorPreferences::c_MaximumSnap);
         }
+        else if (l_Key == "AudioDevice")
+        {
+            m_Preferences.AudioDevice = std::string(l_Value);
+        }
+        else if (l_Key == "MuteWhenUnfocused")
+        {
+            m_Preferences.MuteWhenUnfocused = l_Value == "1";
+        }
     }
 
     TR_INFO("Forge: preferences read from {}", EditorPreferences::c_Path);
@@ -2229,6 +2253,7 @@ void EditorSession::WritePreferences()
     l_Text += std::format("ScriptEditor={}\nWaitForDebugger={}\n", IdeLauncher::ToKey(m_Preferences.Editor), m_Preferences.WaitForDebugger ? 1 : 0);
     l_Text += std::format("PlayModeTint={} {} {}\n", m_Preferences.PlayModeTint.x, m_Preferences.PlayModeTint.y, m_Preferences.PlayModeTint.z);
     l_Text += std::format("CameraSpeed={}\nSnapSteps={} {} {}\n", m_Preferences.CameraSpeed, m_Preferences.SnapSteps.x, m_Preferences.SnapSteps.y, m_Preferences.SnapSteps.z);
+    l_Text += std::format("AudioDevice={}\nMuteWhenUnfocused={}\n", m_Preferences.AudioDevice, m_Preferences.MuteWhenUnfocused ? 1 : 0);
     if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(EditorPreferences::c_Path, l_Text); !l_Written)
     {
         TR_WARN("Forge: the preferences could not be saved: {}", Trinity::ToString(l_Written.GetError()));
@@ -4344,6 +4369,27 @@ bool EditorSession::CreateSprite(std::string name, Trinity::UUID texture, glm::v
     const Place l_Place = FindPlace({}, {});
 
     return CanTakeChildren(l_Place.Parent) && GetHistory().Execute(Trinity::CreateScope<CreateSpriteCommand>(std::move(name), texture, l_Place.Parent, ToLocalPoint(l_Place.Parent, position), size));
+}
+
+bool EditorSession::CreateAudioSource(std::string name, Trinity::UUID resource, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position, bool spatialize)
+{
+    const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(resource) : nullptr;
+    if (l_Record == nullptr || (l_Record->Importer != Trinity::AudioClipAsset::c_AssetType && l_Record->Importer != Trinity::SoundEventAsset::c_AssetType))
+    {
+        TR_WARN("Forge: only an audio clip or a sound event dropped into the scene makes an AudioSource");
+
+        return false;
+    }
+
+    const Place l_Place = FindPlace(parent, before);
+    if (!CanTakeChildren(l_Place.Parent))
+    {
+        return false;
+    }
+
+    const glm::vec3 l_Position = position ? ToLocalPoint(l_Place.Parent, *position) : glm::vec3(0.0f);
+
+    return GetHistory().Execute(Trinity::CreateScope<CreateAudioSourceCommand>(std::move(name), resource, l_Place.Parent, l_Place.Before, l_Position, spatialize));
 }
 
 bool EditorSession::AddScript(Trinity::UUID entity, std::string_view path)

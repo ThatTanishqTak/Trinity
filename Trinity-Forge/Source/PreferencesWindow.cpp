@@ -25,14 +25,16 @@ namespace
 
     // Each section's settings by the names its rows show, which the search goes through
     constexpr std::array<std::string_view, 3> c_GeneralSettings{ "UI Scale", "Theme", "Multi-viewport" };
+    constexpr std::array<std::string_view, 2> c_AudioSettings{ "Output Device", "Mute When Unfocused" };
     constexpr std::array<std::string_view, 2> c_ExternalToolsSettings{ "Script Editor", "Wait for Debugger at Play" };
     constexpr std::array<std::string_view, 1> c_ColorsSettings{ "Play Mode Tint" };
     constexpr std::array<std::string_view, 4> c_SceneViewSettings{ "Camera Fly Speed", "Move Snap", "Rotate Snap", "Scale Snap" };
 
     // In Section order
-    constexpr std::array<SectionInfo, 4> c_Sections
+    constexpr std::array<SectionInfo, 5> c_Sections
     { {
         { Trinity::Icons::c_Monitor, "General", c_GeneralSettings },
+        { Trinity::Icons::c_VolumeUp, "Audio", c_AudioSettings },
         { Trinity::Icons::c_FileCode, "External Tools", c_ExternalToolsSettings },
         { Trinity::Icons::c_PaintBrush, "Colors", c_ColorsSettings },
         { Trinity::Icons::c_Cube, "Scene View", c_SceneViewSettings }
@@ -199,6 +201,12 @@ void PreferencesWindow::Draw()
 
                 break;
             }
+            case Section::Audio:
+            {
+                DrawAudio();
+
+                break;
+            }
             case Section::ExternalTools:
             {
                 DrawExternalTools();
@@ -296,6 +304,86 @@ void PreferencesWindow::DrawGeneral()
     }
 
     Tooltip("UI Scale 100%, the Dark theme, and multi-viewport on");
+}
+
+// Forge's own output, the scene's sounds and the previews' alike, and whether it falls silent while another program is in front. The outputs are listed as the menu opens, which takes the system a moment, and one chosen that is not connected now stays chosen, listed after the rest
+void PreferencesWindow::DrawAudio()
+{
+    EditorPreferences l_Preferences = m_Session.GetPreferences();
+    Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine();
+    if (Shows(Section::Audio, "Output Device"))
+    {
+        const std::string& l_Chosen = l_Preferences.AudioDevice;
+        Label("Output Device");
+        ImGui::BeginDisabled(l_Engine == nullptr || l_Engine->GetOutput() == Trinity::AudioOutput::Offline);
+        if (ImGui::BeginCombo("##OutputDevice", l_Chosen.empty() ? "System Default" : l_Chosen.c_str()))
+        {
+            if (ImGui::IsWindowAppearing())
+            {
+                m_Devices = l_Engine->ListDevices();
+            }
+
+            if (ImGui::Selectable("System Default", l_Chosen.empty()) && !l_Chosen.empty())
+            {
+                m_Session.SetAudioDevice({});
+            }
+
+            ImGui::Separator();
+            for (std::size_t it_Device = 0; it_Device < m_Devices.size(); ++it_Device)
+            {
+                const Trinity::AudioDevice& l_Device = m_Devices[it_Device];
+                ImGui::PushID(static_cast<int>(it_Device));
+                if (ImGui::Selectable(l_Device.Name.c_str(), l_Device.Name == l_Chosen) && l_Device.Name != l_Chosen)
+                {
+                    m_Session.SetAudioDevice(l_Device.Name);
+                }
+
+                if (l_Device.Default)
+                {
+                    Tooltip("The system's default output now");
+                }
+
+                ImGui::PopID();
+            }
+
+            if (!l_Chosen.empty() && std::ranges::none_of(m_Devices, [&l_Chosen](const Trinity::AudioDevice& device) { return device.Name == l_Chosen; }))
+            {
+                ImGui::BeginDisabled();
+                ImGui::Selectable(std::format("{} (not connected)", l_Chosen).c_str(), true);
+                ImGui::EndDisabled();
+            }
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::EndDisabled();
+        const std::string_view l_Playing = l_Engine != nullptr ? l_Engine->GetDeviceName() : std::string_view();
+        Tooltip(std::format("Where Forge plays, moved to at once. System Default follows the system's own output as it changes, such as when headphones are plugged in. {}", l_Playing.empty() ? std::string("No output plays now") : std::format("Playing through {} now", l_Playing)).c_str());
+    }
+
+    if (Shows(Section::Audio, "Mute When Unfocused"))
+    {
+        Label("Mute When Unfocused");
+        if (ImGui::Checkbox("##MuteWhenUnfocused", &l_Preferences.MuteWhenUnfocused))
+        {
+            m_Session.SetPreferences(l_Preferences);
+        }
+
+        Tooltip("Silent while another program is in front, every sound playing on unheard, and heard again from where it has got to once Forge has the focus. Off, sound goes on, so a mix can be heard while an IDE is in front");
+    }
+
+    if (ResetButton())
+    {
+        const bool l_Chosen = !l_Preferences.AudioDevice.empty();
+        l_Preferences.MuteWhenUnfocused = false;
+        m_Session.SetPreferences(l_Preferences);
+        if (l_Chosen)
+        {
+            m_Session.SetAudioDevice({});
+        }
+    }
+
+    Tooltip("The system's default output, and sound going on while Forge is not in front");
 }
 
 // Unity's External Tools page: the script editor, with one not on this machine greyed, as the Scripts menu shows them, and whether Play waits for its debugger

@@ -17,6 +17,7 @@
 #include <optional>
 #include <string_view>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 struct ImDrawList;
@@ -77,6 +78,7 @@ private:
     [[nodiscard]] EditorCamera3D GetFramed3D(glm::vec2 viewportSize);
     [[nodiscard]] Glide GetFramedGlide(glm::vec2 viewportSize);
     [[nodiscard]] Trinity::Entity PickLight(glm::vec2 mouse, glm::vec2 viewportSize);
+    [[nodiscard]] Trinity::UUID PickAudioIcon(glm::vec2 mouse) const;
     void RequestPick(glm::vec2 mouse, glm::vec2 viewportSize);
     void ApplyPick();
     [[nodiscard]] std::vector<std::uint32_t> GetOutlined();
@@ -130,6 +132,10 @@ private:
     bool m_LightHeatmap = false;
     // Every collider and joint in the scene, and while it plays, where its bodies touch, rather than the selection's alone
     bool m_PhysicsDebug = false;
+    // Every AudioSource's reach and cone, and while the scene plays its occlusion ray, rather than the selection's alone
+    bool m_AudioGizmos = false;
+    // Each AudioSource's and AudioListener's icon, by its entity, where it was drawn last in pixels from the image's corner, which a click picks at once, since neither has a surface to draw an ID on
+    std::vector<std::pair<Trinity::UUID, glm::vec2>> m_AudioIcons;
     bool m_ShowStats = true;
 
     GizmoOperation m_GizmoOperation = GizmoOperation::Translate;

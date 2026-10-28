@@ -51,9 +51,13 @@ namespace
     constexpr float c_LightPickPixels = 8.0f;
     // Segments in each circle drawn for a light's reach
     constexpr int c_CircleSegments = 48;
-    // A selected AudioSource's maximum distance, and its minimum and cone fainter
+    // A selected AudioSource's maximum distance, and its minimum and cone fainter, and every other's fainter still while the Audio toggle shows them
     constexpr ImU32 c_AudioRangeColor = IM_COL32(110, 175, 255, 230);
     constexpr ImU32 c_AudioInnerColor = IM_COL32(110, 175, 255, 130);
+    constexpr ImU32 c_AudioRangeFaintColor = IM_COL32(110, 175, 255, 120);
+    constexpr ImU32 c_AudioInnerFaintColor = IM_COL32(110, 175, 255, 60);
+    // An AudioSource's or an AudioListener's icon is a disc this many fonts across its radius, which a click inside picks
+    constexpr float c_AudioIconRadiusInFonts = 0.8f;
     // A playing source's last occlusion ray: clear, stopped as far as what stopped it, and fainter beyond it, with a dot of this radius where it was stopped
     constexpr ImU32 c_OcclusionClearColor = IM_COL32(110, 220, 130, 230);
     constexpr ImU32 c_OcclusionBlockedColor = IM_COL32(255, 90, 80, 230);
@@ -349,6 +353,44 @@ namespace
         return glm::vec2((l_Clip.x / l_Clip.w + 1.0f) * 0.5f * viewportSize.x, (1.0f - l_Clip.y / l_Clip.w) * 0.5f * viewportSize.y);
     }
 
+    // A speaker on each AudioSource and headphones on each AudioListener, as Unity's gizmo icons show them, at the pixel project gives its entity's place in the world, none for one behind the eye, in a dark disc ringed in the selection's colour for the selection and lit under the mouse. Each is kept with its entity for a click to pick, an entity with both taking the speaker
+    template<typename F>
+    void DrawAudioIcons(ImDrawList& drawList, glm::vec2 imageMin, Trinity::Scene& scene, Trinity::UUID selected, const F& project, std::vector<std::pair<Trinity::UUID, glm::vec2>>& icons)
+    {
+        icons.clear();
+        Trinity::SceneRegistry& l_Registry = scene.GetRegistry();
+        const float l_Radius = ImGui::GetFontSize() * c_AudioIconRadiusInFonts;
+        const ImVec2 l_Mouse = ImGui::GetIO().MousePos;
+        const auto a_Draw = [&](entt::entity entity, const char* icon)
+        {
+            const Trinity::UUID l_ID = Trinity::Entity(entity, &scene).GetUUID();
+            const std::optional<glm::vec2> l_Pixel = project(glm::vec3(l_Registry.get<Trinity::WorldTransformComponent>(entity).Matrix[3]));
+            if (!l_Pixel || std::ranges::any_of(icons, [l_ID](const auto& drawn) { return drawn.first == l_ID; }))
+            {
+                return;
+            }
+
+            const ImVec2 l_Center(imageMin.x + l_Pixel->x, imageMin.y + l_Pixel->y);
+            const bool l_Hovered = (l_Mouse.x - l_Center.x) * (l_Mouse.x - l_Center.x) + (l_Mouse.y - l_Center.y) * (l_Mouse.y - l_Center.y) < l_Radius * l_Radius;
+            const bool l_Selected = l_ID == selected;
+            drawList.AddCircleFilled(l_Center, l_Radius, l_Hovered ? IM_COL32(45, 45, 50, 235) : IM_COL32(0, 0, 0, 180));
+            drawList.AddCircle(l_Center, l_Radius, l_Selected ? c_AudioRangeColor : IM_COL32(255, 255, 255, 80), 0, l_Selected ? 2.0f : 1.0f);
+            const ImVec2 l_Size = ImGui::CalcTextSize(icon);
+            drawList.AddText(ImVec2(l_Center.x - l_Size.x * 0.5f, l_Center.y - l_Size.y * 0.5f), l_Selected || l_Hovered ? IM_COL32_WHITE : IM_COL32(215, 215, 215, 230), icon);
+            icons.emplace_back(l_ID, *l_Pixel);
+        };
+
+        for (const entt::entity it_Entity : l_Registry.view<Trinity::AudioSourceComponent, Trinity::WorldTransformComponent>())
+        {
+            a_Draw(it_Entity, Trinity::Icons::c_VolumeUp);
+        }
+
+        for (const entt::entity it_Entity : l_Registry.view<Trinity::AudioListenerComponent, Trinity::WorldTransformComponent>())
+        {
+            a_Draw(it_Entity, Trinity::Icons::c_Headphones);
+        }
+    }
+
     // As the light looks, from linear to sRGB, and opaque
     ImU32 GetLightColor(const Trinity::LightComponent& light, float alpha)
     {
@@ -436,6 +478,10 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
     {
         m_PhysicsDebug = value != "0";
     }
+    else if (key == "AudioGizmos")
+    {
+        m_AudioGizmos = value != "0";
+    }
     else
     {
         return false;
@@ -446,8 +492,7 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 
 void ViewportPanel::WriteSettings(ImGuiTextBuffer& buffer) const
 {
-    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnap={}\nLightHeatmap={}\nPhysicsDebug={}\n",
-        m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_Snap ? 1 : 0, m_LightHeatmap ? 1 : 0, m_PhysicsDebug ? 1 : 0);
+    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnap={}\nLightHeatmap={}\nPhysicsDebug={}\nAudioGizmos={}\n", m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_Snap ? 1 : 0, m_LightHeatmap ? 1 : 0, m_PhysicsDebug ? 1 : 0, m_AudioGizmos ? 1 : 0);
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
@@ -772,10 +817,17 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
         HandleGizmoKeys();
     }
 
-    // A click on the gizmo is the gizmo's, not a pick
+    // A click on the gizmo is the gizmo's, not a pick. An audio icon is picked at once, and anything else through the entity IDs
     if (hovered && !m_GizmoHovered && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
-        RequestPick(l_Mouse, viewportSize);
+        if (const Trinity::UUID l_Icon = PickAudioIcon(l_Mouse))
+        {
+            m_Session.SetSelection(l_Icon);
+        }
+        else
+        {
+            RequestPick(l_Mouse, viewportSize);
+        }
     }
 }
 
@@ -881,12 +933,16 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
         HandleGizmoKeys();
     }
 
-    // A click on the gizmo is the gizmo's, and one with Alt held begins an orbit, so neither is a pick. A light's marker is picked at once, and anything else through the entity IDs
+    // A click on the gizmo is the gizmo's, and one with Alt held begins an orbit, so neither is a pick. A light's marker and an audio icon are picked at once, and anything else through the entity IDs
     if (hovered && !l_IO.KeyAlt && !m_GizmoHovered && !m_GizmoDragging && !m_OrientationHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
         if (const Trinity::Entity l_Light = PickLight(l_Mouse, viewportSize))
         {
             m_Session.SetSelection(l_Light.GetUUID());
+        }
+        else if (const Trinity::UUID l_Icon = PickAudioIcon(l_Mouse))
+        {
+            m_Session.SetSelection(l_Icon);
         }
         else
         {
@@ -941,6 +997,23 @@ Trinity::Entity ViewportPanel::PickLight(glm::vec2 mouse, glm::vec2 viewportSize
     }
 
     return l_Hit != entt::null ? Trinity::Entity(l_Hit, &l_Scene) : Trinity::Entity();
+}
+
+// The icon nearest the mouse, within its disc, as the overlays last drew them
+Trinity::UUID ViewportPanel::PickAudioIcon(glm::vec2 mouse) const
+{
+    Trinity::UUID l_Hit;
+    float l_Closest = ImGui::GetFontSize() * c_AudioIconRadiusInFonts;
+    for (const auto& [it_Entity, it_Pixel] : m_AudioIcons)
+    {
+        if (glm::distance(it_Pixel, mouse) < l_Closest)
+        {
+            l_Closest = glm::distance(it_Pixel, mouse);
+            l_Hit = it_Entity;
+        }
+    }
+
+    return l_Hit;
 }
 
 // The pixel under the mouse, read from the entity IDs the next frame draws. The answer comes back a frame or two later, and selects whatever was drawn there, a sprite over a mesh as they are seen
@@ -1328,9 +1401,14 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
         {
             static_cast<void>(m_Session.InstantiatePrefab(l_ID, {}, {}, l_Point));
         }
+        else if (l_Record != nullptr && (l_Record->Importer == Trinity::AudioClipAsset::c_AssetType || l_Record->Importer == Trinity::SoundEventAsset::c_AssetType))
+        {
+            // Heard from where it lands in 3D, and in 2D as it is, as a new source starts
+            static_cast<void>(m_Session.CreateAudioSource(std::filesystem::path(l_Record->Path).stem().string(), l_ID, {}, {}, l_Point, m_Mode3D));
+        }
         else if (l_Record == nullptr || l_Record->Importer != Trinity::TextureAsset::c_AssetType)
         {
-            TR_WARN("Forge: only a texture, a model or a prefab dropped into the Viewport makes entities");
+            TR_WARN("Forge: only a texture, a model, a prefab, an audio clip or a sound event dropped into the Viewport makes entities");
         }
         else
         {
@@ -1361,7 +1439,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
     ImGui::EndDragDropTarget();
 }
 
-// The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them, and a selected AudioSource's reach, with its occlusion ray while the scene plays. Corners snap to pixel centres so one-pixel lines stay sharp. The selection is outlined from the entity IDs
+// The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them, an icon on every AudioSource and AudioListener, and a selected AudioSource's reach, or every one's while the Audio toggle is on, with its occlusion ray while the scene plays. Corners snap to pixel centres so one-pixel lines stay sharp. The selection is outlined from the entity IDs
 void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1395,13 +1473,20 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
         break;
     }
 
-    // A selected source heard in 3D, its minimum and maximum distances as circles round it in the plane of the 2D view, then its last occlusion ray
-    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
-    if (l_Selected && l_Selected.Has<Trinity::AudioSourceComponent>() && l_Selected.Get<Trinity::AudioSourceComponent>().Spatialize)
+    // A source heard in 3D, its minimum and maximum distances as circles round it in the plane of the 2D view, then its last occlusion ray: the selection's, and every other one's, fainter, while the Audio toggle is on
+    const Trinity::UUID l_SelectedID = m_Session.GetSelection();
+    Trinity::SceneRuntime* l_Runtime = m_Session.IsPlaying() ? m_Session.GetRuntime() : nullptr;
+    for (const auto [it_Entity, it_Source, it_World] : l_Registry.view<Trinity::AudioSourceComponent, Trinity::WorldTransformComponent>().each())
     {
-        const Trinity::AudioSourceComponent& l_Source = l_Selected.Get<Trinity::AudioSourceComponent>();
-        const glm::vec2 l_Center(l_Selected.Get<Trinity::WorldTransformComponent>().Matrix[3]);
-        for (const auto& [it_Distance, it_Color] : { std::pair(l_Source.MinDistance, c_AudioInnerColor), std::pair(std::max(l_Source.MaxDistance, l_Source.MinDistance), c_AudioRangeColor) })
+        const Trinity::Entity l_Entity(it_Entity, &l_Scene);
+        const bool l_IsSelected = l_Entity.GetUUID() == l_SelectedID;
+        if (!it_Source.Spatialize || (!m_AudioGizmos && !l_IsSelected))
+        {
+            continue;
+        }
+
+        const glm::vec2 l_Center(it_World.Matrix[3]);
+        for (const auto& [it_Distance, it_Color] : { std::pair(it_Source.MinDistance, l_IsSelected ? c_AudioInnerColor : c_AudioInnerFaintColor), std::pair(std::max(it_Source.MaxDistance, it_Source.MinDistance), l_IsSelected ? c_AudioRangeColor : c_AudioRangeFaintColor) })
         {
             std::array<ImVec2, c_CircleSegments> l_Points{};
             for (int it_Segment = 0; it_Segment < c_CircleSegments; ++it_Segment)
@@ -1413,8 +1498,7 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
             drawList.AddPolyline(l_Points.data(), static_cast<int>(l_Points.size()), it_Color, 1.0f, ImDrawFlags_Closed);
         }
 
-        Trinity::SceneRuntime* l_Runtime = m_Session.IsPlaying() ? m_Session.GetRuntime() : nullptr;
-        if (const std::optional<Trinity::AudioScene::Occlusion> l_Occlusion = l_Runtime != nullptr ? l_Runtime->GetAudio().GetOcclusion(l_Selected) : std::nullopt)
+        if (const std::optional<Trinity::AudioScene::Occlusion> l_Occlusion = l_Runtime != nullptr ? l_Runtime->GetAudio().GetOcclusion(l_Entity) : std::nullopt)
         {
             const ImVec2 l_Hit = a_ToScreen(glm::vec2(l_Occlusion->Hit));
             drawList.AddLine(a_ToScreen(glm::vec2(l_Occlusion->From)), l_Hit, l_Occlusion->Blocked ? c_OcclusionBlockedColor : c_OcclusionClearColor, 2.0f);
@@ -1425,9 +1509,11 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
             }
         }
     }
+
+    DrawAudioIcons(drawList, imageMin, l_Scene, l_SelectedID, [&](const glm::vec3& world) { return std::optional<glm::vec2>(m_Camera.WorldToScreen(glm::vec2(world), viewportSize)); }, m_AudioIcons);
 }
 
-// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light, since nothing else shows where one is, and for a selected light its reach: a point light's range as three circles, a spot light's cones and the way a directional light shines, and for a selected AudioSource heard in 3D its distances, its cone and while the scene plays its occlusion ray. Lines are cut where they pass behind the eye. The selection itself is outlined from the entity IDs
+// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light and an icon on every AudioSource and AudioListener, since nothing else shows where one is, for a selected light its reach: a point light's range as three circles, a spot light's cones and the way a directional light shines, and for a selected AudioSource heard in 3D, or every one while the Audio toggle is on, its distances, its cone and while the scene plays its occlusion ray. Lines are cut where they pass behind the eye. The selection itself is outlined from the entity IDs
 void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1513,7 +1599,67 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
         }
     }
 
-    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
+    // A source heard in 3D: its minimum and maximum distances as spheres of three circles each, and its cone, each angle's edge out to the maximum distance, as a spot light's cone is drawn, then its last occlusion ray: the selection's, and every other one's, fainter, while the Audio toggle is on. A source heard as it is has no reach to draw
+    const Trinity::UUID l_SelectedID = m_Session.GetSelection();
+    Trinity::SceneRuntime* l_Runtime = m_Session.IsPlaying() ? m_Session.GetRuntime() : nullptr;
+    for (const auto [it_Entity, it_Source, it_World] : l_Registry.view<Trinity::AudioSourceComponent, Trinity::WorldTransformComponent>().each())
+    {
+        const Trinity::Entity l_Entity(it_Entity, &l_Scene);
+        const bool l_IsSelected = l_Entity.GetUUID() == l_SelectedID;
+        if (!it_Source.Spatialize || (!m_AudioGizmos && !l_IsSelected))
+        {
+            continue;
+        }
+
+        const ImU32 l_RangeColor = l_IsSelected ? c_AudioRangeColor : c_AudioRangeFaintColor;
+        const ImU32 l_InnerColor = l_IsSelected ? c_AudioInnerColor : c_AudioInnerFaintColor;
+        const glm::vec3 l_Position(it_World.Matrix[3]);
+        const float l_MaxDistance = std::max(it_Source.MaxDistance, it_Source.MinDistance);
+        for (const auto& [it_Distance, it_Color] : { std::pair(it_Source.MinDistance, l_InnerColor), std::pair(l_MaxDistance, l_RangeColor) })
+        {
+            a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), it_Distance, it_Color);
+            a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), it_Distance, it_Color);
+            a_Circle(l_Position, glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), it_Distance, it_Color);
+        }
+
+        if (it_Source.ConeInnerAngle < 360.0f)
+        {
+            const float l_Length = glm::length(glm::vec3(it_World.Matrix[2]));
+            const glm::vec3 l_Forward = l_Length > 1e-12f ? -glm::vec3(it_World.Matrix[2]) / l_Length : glm::vec3(0.0f, 0.0f, -1.0f);
+            const glm::vec3 l_Side = glm::normalize(glm::cross(l_Forward, std::abs(l_Forward.y) < 0.99f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f)));
+            const glm::vec3 l_Up = glm::cross(l_Side, l_Forward);
+            for (const auto& [it_Angle, it_Color] : { std::pair(it_Source.ConeOuterAngle, l_RangeColor), std::pair(it_Source.ConeInnerAngle, l_InnerColor) })
+            {
+                const float l_Half = glm::radians(std::clamp(it_Angle, 0.0f, 360.0f) * 0.5f);
+                const glm::vec3 l_Center = l_Position + l_Forward * (l_MaxDistance * std::cos(l_Half));
+                const float l_Radius = l_MaxDistance * std::sin(l_Half);
+                a_Circle(l_Center, l_Side, l_Up, l_Radius, it_Color);
+                for (const glm::vec3& it_Edge : { l_Side, -l_Side, l_Up, -l_Up })
+                {
+                    a_Line(l_Position, l_Center + it_Edge * l_Radius, it_Color, 1.0f);
+                }
+            }
+
+            a_Line(l_Position, l_Position + l_Forward * l_MaxDistance, l_RangeColor, 1.0f);
+        }
+
+        if (const std::optional<Trinity::AudioScene::Occlusion> l_Occlusion = l_Runtime != nullptr ? l_Runtime->GetAudio().GetOcclusion(l_Entity) : std::nullopt)
+        {
+            a_Line(l_Occlusion->From, l_Occlusion->Hit, l_Occlusion->Blocked ? c_OcclusionBlockedColor : c_OcclusionClearColor, 2.0f);
+            if (l_Occlusion->Blocked)
+            {
+                a_Line(l_Occlusion->Hit, l_Occlusion->To, c_OcclusionBehindColor, 1.0f);
+                if (const std::optional<glm::vec2> l_Pixel = ProjectPoint(l_ViewProjection, l_Occlusion->Hit, viewportSize))
+                {
+                    drawList.AddCircleFilled(ImVec2(imageMin.x + l_Pixel->x, imageMin.y + l_Pixel->y), c_OcclusionHitRadius, c_OcclusionBlockedColor);
+                }
+            }
+        }
+    }
+
+    DrawAudioIcons(drawList, imageMin, l_Scene, l_SelectedID, [&](const glm::vec3& world) { return ProjectPoint(l_ViewProjection, world, viewportSize); }, m_AudioIcons);
+
+    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(l_SelectedID);
     if (!l_Selected)
     {
         return;
@@ -1576,55 +1722,6 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
                 a_Line(l_Position, l_Position + l_Forward * (l_Size * 1.5f), l_Color, 2.0f);
 
                 break;
-            }
-        }
-    }
-
-    // A source heard in 3D: its minimum and maximum distances as spheres of three circles each, and its cone, each angle's edge out to the maximum distance, as a spot light's cone is drawn, then its last occlusion ray. A source heard as it is has no reach to draw
-    if (l_Selected.Has<Trinity::AudioSourceComponent>() && l_Selected.Get<Trinity::AudioSourceComponent>().Spatialize)
-    {
-        const Trinity::AudioSourceComponent& l_Source = l_Selected.Get<Trinity::AudioSourceComponent>();
-        const glm::vec3 l_Position(l_World[3]);
-        const float l_MaxDistance = std::max(l_Source.MaxDistance, l_Source.MinDistance);
-        for (const auto& [it_Distance, it_Color] : { std::pair(l_Source.MinDistance, c_AudioInnerColor), std::pair(l_MaxDistance, c_AudioRangeColor) })
-        {
-            a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), it_Distance, it_Color);
-            a_Circle(l_Position, glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), it_Distance, it_Color);
-            a_Circle(l_Position, glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), it_Distance, it_Color);
-        }
-
-        if (l_Source.ConeInnerAngle < 360.0f)
-        {
-            const float l_Length = glm::length(glm::vec3(l_World[2]));
-            const glm::vec3 l_Forward = l_Length > 1e-12f ? -glm::vec3(l_World[2]) / l_Length : glm::vec3(0.0f, 0.0f, -1.0f);
-            const glm::vec3 l_Side = glm::normalize(glm::cross(l_Forward, std::abs(l_Forward.y) < 0.99f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f)));
-            const glm::vec3 l_Up = glm::cross(l_Side, l_Forward);
-            for (const auto& [it_Angle, it_Color] : { std::pair(l_Source.ConeOuterAngle, c_AudioRangeColor), std::pair(l_Source.ConeInnerAngle, c_AudioInnerColor) })
-            {
-                const float l_Half = glm::radians(std::clamp(it_Angle, 0.0f, 360.0f) * 0.5f);
-                const glm::vec3 l_Center = l_Position + l_Forward * (l_MaxDistance * std::cos(l_Half));
-                const float l_Radius = l_MaxDistance * std::sin(l_Half);
-                a_Circle(l_Center, l_Side, l_Up, l_Radius, it_Color);
-                for (const glm::vec3& it_Edge : { l_Side, -l_Side, l_Up, -l_Up })
-                {
-                    a_Line(l_Position, l_Center + it_Edge * l_Radius, it_Color, 1.0f);
-                }
-            }
-
-            a_Line(l_Position, l_Position + l_Forward * l_MaxDistance, c_AudioRangeColor, 1.0f);
-        }
-
-        Trinity::SceneRuntime* l_Runtime = m_Session.IsPlaying() ? m_Session.GetRuntime() : nullptr;
-        if (const std::optional<Trinity::AudioScene::Occlusion> l_Occlusion = l_Runtime != nullptr ? l_Runtime->GetAudio().GetOcclusion(l_Selected) : std::nullopt)
-        {
-            a_Line(l_Occlusion->From, l_Occlusion->Hit, l_Occlusion->Blocked ? c_OcclusionBlockedColor : c_OcclusionClearColor, 2.0f);
-            if (l_Occlusion->Blocked)
-            {
-                a_Line(l_Occlusion->Hit, l_Occlusion->To, c_OcclusionBehindColor, 1.0f);
-                if (const std::optional<glm::vec2> l_Pixel = ProjectPoint(l_ViewProjection, l_Occlusion->Hit, viewportSize))
-                {
-                    drawList.AddCircleFilled(ImVec2(imageMin.x + l_Pixel->x, imageMin.y + l_Pixel->y), c_OcclusionHitRadius, c_OcclusionBlockedColor);
-                }
             }
         }
     }
@@ -2207,6 +2304,26 @@ void ViewportPanel::DrawToolbar()
         }
 
         ImGui::SetItemTooltip("Physics: every collider and joint in the scene, not only the selection's, and while it plays, where bodies touch, each with its normal");
+        ImGui::SameLine();
+
+        const bool l_AudioGizmos = m_AudioGizmos;
+        if (l_AudioGizmos)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        }
+
+        if (ImGui::Button(std::format("{}###AudioGizmos", Trinity::Icons::c_VolumeUp).c_str()))
+        {
+            m_AudioGizmos = !m_AudioGizmos;
+            ImGui::MarkIniSettingsDirty();
+        }
+
+        if (l_AudioGizmos)
+        {
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::SetItemTooltip("Audio: every source's minimum and maximum distance and cone, not only the selection's, and while the scene plays, the ray from the listener to each occluded source, red as far as what stops it. Every source and listener has an icon, which a click selects");
         ImGui::SameLine();
         ImGui::SameLine();
 

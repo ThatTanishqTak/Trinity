@@ -43,6 +43,26 @@ namespace
         return std::format("{} {}", icon, text);
     }
 
+    // Forge's own window, or one a panel floats in
+    bool IsForgeFocused()
+    {
+        if (Trinity::Application::Get().GetWindow().IsFocused())
+        {
+            return true;
+        }
+
+        const ImGuiPlatformIO& l_PlatformIO = ImGui::GetPlatformIO();
+        if (l_PlatformIO.Platform_GetWindowFocus == nullptr)
+        {
+            return false;
+        }
+
+        return std::any_of(l_PlatformIO.Viewports.begin(), l_PlatformIO.Viewports.end(), [&l_PlatformIO](ImGuiViewport* viewport)
+        {
+            return viewport != ImGui::GetMainViewport() && viewport->PlatformWindowCreated && l_PlatformIO.Platform_GetWindowFocus(viewport);
+        });
+    }
+
     void TextLine(std::string_view text)
     {
         ImGui::TextUnformatted(text.data(), text.data() + text.size());
@@ -218,6 +238,10 @@ void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
     m_ImportTest.Update();
     m_Session.UpdatePlay(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
+    if (Trinity::AudioEngine* l_Audio = Trinity::Application::Get().GetAudioEngine(); l_Audio != nullptr)
+    {
+        l_Audio->SetMuted((m_Session.IsPlaying() && m_GamePanel->IsMutingAudio()) || (m_Session.GetPreferences().MuteWhenUnfocused && !IsForgeFocused()));
+    }
 }
 
 // Files may have changed while another program had focus

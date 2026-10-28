@@ -18,9 +18,14 @@
 #include <array>
 #include <atomic>
 #include <charconv>
+#include <chrono>
 #include <cmath>
+#include <format>
 #include <new>
+#include <span>
+#include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 // stb_vorbis allocates with malloc, so Vendor/CMakeLists.txt builds it to call these instead, which count it under the Audio tag
@@ -52,10 +57,12 @@ namespace Trinity
         // Volume changes ramp over this long, so none clicks
         constexpr std::uint32_t c_VolumeRampMilliseconds = 20;
         // A silent mix covers at most a quarter of a second a frame, as the simulation clock does, so a stall never makes a long mix, in pieces of this many frames
-        constexpr std::int64_t c_MaxSilentNanoseconds = 250'000'000;
+        constexpr std::int64_t c_MaxSilentNanoseconds = 250000000;
         constexpr std::uint32_t c_SilentChunkFrames = 1024;
         // WASAPI stops the device for a moment while it moves it to a new default, so only a device stopped this long counts as gone
-        constexpr std::int64_t c_DeviceGoneNanoseconds = 1'000'000'000;
+        constexpr std::int64_t c_DeviceGoneNanoseconds = 1000000000;
+        // How often the mix's timing is published, in parts of a second of sound
+        constexpr std::uint32_t c_TimingsPerSecond = 2;
         constexpr std::uint32_t c_TestToneFadeMilliseconds = 10;
 
         // The engine that plays out, which the console reaches. Offline engines are left to whoever made them
@@ -184,8 +191,17 @@ namespace Trinity
         static void OnDeviceNotification(const ma_device_notification* notification);
 
         bool OpenDevice(const AudioEngineSpecification& specification);
+        // The output by its ID, or the system's default for none, in the format given, 0 taking the device's own. Not started
+        ma_result InitDevice(const ma_device_id* id, std::uint32_t channels, std::uint32_t sampleRate);
+        // Closed again when it would not start
+        ma_result StartDevice();
+        void CloseDevice();
         // True when the device now plays somewhere else than the name held
         bool ReadDeviceName();
+        // The volume, or silence while muted, ramped
+        void ApplyVolume();
+        // By whichever thread mixes, under Mixing, or offline by the thread that renders: one mix's frames and how long it took
+        void RecordMix(std::uint64_t frames, std::chrono::steady_clock::duration time);
         void MixSilently(Timestep timestep);
         // Starts the preview once its clip's samples are in, and a stream's first page, and refills its stream: on a worker, or on this thread offline
         void UpdatePreview(bool offline);
@@ -209,12 +225,24 @@ namespace Trinity
         bool HasMaster = false;
         bool HasTone = false;
         float Volume = 1.0f;
+        bool Muted = false;
         std::array<char, MA_MAX_DEVICE_NAME_LENGTH + 1> DeviceName{};
+        // The output SetDevice named, empty for the system's default
+        TaggedString<MemoryTag::Audio> ChosenDevice;
 
         // Set by the system's thread when the device has moved to a new default output
         std::atomic<bool> Rerouted{ false };
         // Held by whichever thread mixes: the device's, or the main thread while the device is stopped. Neither waits for it, so the device's thread never blocks on the main thread
         std::atomic_flag Mixing;
+
+        // What the thread that mixes has timed since it last published: mixes, their frames and time and the longest. Published for the main thread each time a part of a second of sound has been mixed
+        std::uint32_t TimedMixes = 0;
+        std::uint64_t TimedFrames = 0;
+        std::uint64_t TimedNanoseconds = 0;
+        std::uint64_t TimedPeak = 0;
+        std::atomic<std::uint32_t> PublishedPeriod{ 0 };
+        std::atomic<std::uint64_t> PublishedAverage{ 0 };
+        std::atomic<std::uint64_t> PublishedPeak{ 0 };
 
         // A silent mix's time owed, in nanoseconds times the sample rate so that no part of a frame is lost, and what it mixes into
         std::uint64_t OwedTicks = 0;
@@ -238,10 +266,7 @@ namespace Trinity
     // The device stops first, so nothing is mixing while the rest goes
     AudioEngine::State::~State()
     {
-        if (HasDevice)
-        {
-            ma_device_uninit(&Device);
-        }
+        CloseDevice();
 
         for (const auto& [it_Name, it_Target] : Globals)
         {
@@ -287,7 +312,9 @@ namespace Trinity
             return;
         }
 
+        const std::chrono::steady_clock::time_point l_Start = std::chrono::steady_clock::now();
         ma_engine_read_pcm_frames(&l_State.Engine, output, frameCount, nullptr);
+        l_State.RecordMix(frameCount, std::chrono::steady_clock::now() - l_Start);
         l_State.Mixing.clear(std::memory_order_release);
     }
 
@@ -299,7 +326,7 @@ namespace Trinity
         }
     }
 
-    // The system's default output, in its own format unless the specification names one. False, with one warning, when there is none
+    // The system's default output, in its own format unless the specification names one. False, with one warning, when there is none. The context stays without one, so an output can be chosen later
     bool AudioEngine::State::OpenDevice(const AudioEngineSpecification& specification)
     {
         ma_context_config l_ContextConfig = ma_context_config_init();
@@ -313,29 +340,92 @@ namespace Trinity
             return false;
         }
 
-        // With no device ID it is the default output, which miniaudio follows when the default changes, such as when headphones are plugged in
-        ma_device_config l_DeviceConfig = ma_device_config_init(ma_device_type_playback);
-        l_DeviceConfig.playback.format = ma_format_f32;
-        l_DeviceConfig.playback.channels = specification.Channels;
-        l_DeviceConfig.sampleRate = specification.SampleRate;
-        l_DeviceConfig.dataCallback = &OnDeviceData;
-        l_DeviceConfig.notificationCallback = &OnDeviceNotification;
-        l_DeviceConfig.pUserData = this;
-
-        l_Result = ma_device_init(&Context, &l_DeviceConfig, &Device);
+        HasContext = true;
+        l_Result = InitDevice(nullptr, specification.Channels, specification.SampleRate);
         if (l_Result != MA_SUCCESS)
         {
             TR_CORE_WARN("Audio: no output device ({}), so sound is silent", ma_result_description(l_Result));
-            ma_context_uninit(&Context);
 
             return false;
         }
 
-        HasContext = true;
-        HasDevice = true;
-        ReadDeviceName();
-
         return true;
+    }
+
+    // With no ID it is the default output, which miniaudio follows when the default changes, such as when headphones are plugged in
+    ma_result AudioEngine::State::InitDevice(const ma_device_id* id, std::uint32_t channels, std::uint32_t sampleRate)
+    {
+        ma_device_config l_DeviceConfig = ma_device_config_init(ma_device_type_playback);
+        l_DeviceConfig.playback.pDeviceID = id;
+        l_DeviceConfig.playback.format = ma_format_f32;
+        l_DeviceConfig.playback.channels = channels;
+        l_DeviceConfig.sampleRate = sampleRate;
+        l_DeviceConfig.dataCallback = &OnDeviceData;
+        l_DeviceConfig.notificationCallback = &OnDeviceNotification;
+        l_DeviceConfig.pUserData = this;
+
+        const ma_result l_Result = ma_device_init(&Context, &l_DeviceConfig, &Device);
+        if (l_Result == MA_SUCCESS)
+        {
+            HasDevice = true;
+            ReadDeviceName();
+        }
+
+        return l_Result;
+    }
+
+    ma_result AudioEngine::State::StartDevice()
+    {
+        const ma_result l_Result = ma_device_start(&Device);
+        if (l_Result != MA_SUCCESS)
+        {
+            CloseDevice();
+        }
+
+        return l_Result;
+    }
+
+    // Waits for the device's thread to finish its period, so nothing mixes once it returns, and forgets where the device was, so the next one starts afresh
+    void AudioEngine::State::CloseDevice()
+    {
+        if (!HasDevice)
+        {
+            return;
+        }
+
+        ma_device_uninit(&Device);
+        HasDevice = false;
+        DeviceName = {};
+        Rerouted.store(false, std::memory_order_relaxed);
+        StoppedNanoseconds = 0;
+        ReportedStopped = false;
+    }
+
+    void AudioEngine::State::ApplyVolume()
+    {
+        ma_sound_group_set_fade_in_pcm_frames(&Master, -1.0f, Muted ? 0.0f : Volume, ToFrames(c_VolumeRampMilliseconds, ma_engine_get_sample_rate(&Engine)));
+    }
+
+    // Allocates nothing and takes no lock, as the device's thread calls it
+    void AudioEngine::State::RecordMix(std::uint64_t frames, std::chrono::steady_clock::duration time)
+    {
+        const std::uint64_t l_Nanoseconds = static_cast<std::uint64_t>(std::max<std::int64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(time).count(), 0));
+        ++TimedMixes;
+        TimedFrames += frames;
+        TimedNanoseconds += l_Nanoseconds;
+        TimedPeak = std::max(TimedPeak, l_Nanoseconds);
+        if (TimedFrames * c_TimingsPerSecond < ma_engine_get_sample_rate(&Engine))
+        {
+            return;
+        }
+
+        PublishedPeriod.store(static_cast<std::uint32_t>(frames), std::memory_order_relaxed);
+        PublishedAverage.store(TimedNanoseconds / TimedMixes, std::memory_order_relaxed);
+        PublishedPeak.store(TimedPeak, std::memory_order_relaxed);
+        TimedMixes = 0;
+        TimedFrames = 0;
+        TimedNanoseconds = 0;
+        TimedPeak = 0;
     }
 
     // The system's thread wrote the name before it set Rerouted, which Update has read
@@ -464,7 +554,9 @@ namespace Trinity
         while (l_Frames > 0)
         {
             const std::uint64_t l_Chunk = std::min<std::uint64_t>(l_Frames, c_SilentChunkFrames);
+            const std::chrono::steady_clock::time_point l_Start = std::chrono::steady_clock::now();
             ma_engine_read_pcm_frames(&Engine, Scratch.data(), l_Chunk, nullptr);
+            RecordMix(l_Chunk, std::chrono::steady_clock::now() - l_Start);
             l_Frames -= l_Chunk;
         }
 
@@ -547,15 +639,10 @@ namespace Trinity
 
         if (l_State.HasDevice)
         {
-            l_Result = ma_device_start(&l_State.Device);
+            l_Result = l_State.StartDevice();
             if (l_Result != MA_SUCCESS)
             {
                 TR_CORE_WARN("Audio: the output device would not start ({}), so sound is silent", ma_result_description(l_Result));
-                ma_device_uninit(&l_State.Device);
-                ma_context_uninit(&l_State.Context);
-                l_State.HasDevice = false;
-                l_State.HasContext = false;
-                l_State.DeviceName = {};
                 l_State.Output = AudioOutput::Silent;
             }
         }
@@ -652,7 +739,9 @@ namespace Trinity
             const std::span<float> l_Output = output.subspan(it_Frame * l_Channels, l_Chunk * l_Channels);
 
             ma_uint64 l_Read = 0;
+            const std::chrono::steady_clock::time_point l_Start = std::chrono::steady_clock::now();
             ma_engine_read_pcm_frames(&l_State.Engine, l_Output.data(), l_Chunk, &l_Read);
+            l_State.RecordMix(l_Chunk, std::chrono::steady_clock::now() - l_Start);
             std::ranges::fill(l_Output.subspan(static_cast<std::size_t>(l_Read) * l_Channels), 0.0f);
             it_Frame += l_Chunk;
         }
@@ -660,14 +749,129 @@ namespace Trinity
 
     void AudioEngine::SetVolume(float volume)
     {
-        State& l_State = *m_State;
-        l_State.Volume = ToVolume(volume);
-        ma_sound_group_set_fade_in_pcm_frames(&l_State.Master, -1.0f, l_State.Volume, ToFrames(c_VolumeRampMilliseconds, ma_engine_get_sample_rate(&l_State.Engine)));
+        m_State->Volume = ToVolume(volume);
+        m_State->ApplyVolume();
     }
 
     float AudioEngine::GetVolume() const
     {
         return m_State->Volume;
+    }
+
+    // The volume is kept as it was, for when the mute is lifted
+    void AudioEngine::SetMuted(bool muted)
+    {
+        if (std::exchange(m_State->Muted, muted) != muted)
+        {
+            m_State->ApplyVolume();
+        }
+    }
+
+    bool AudioEngine::IsMuted() const
+    {
+        return m_State->Muted;
+    }
+
+    std::vector<AudioDevice> AudioEngine::ListDevices()
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "Outputs are listed on the main thread.");
+
+        State& l_State = *m_State;
+        std::vector<AudioDevice> l_Devices;
+        ma_device_info* l_Playback = nullptr;
+        ma_uint32 l_Count = 0;
+        if (!l_State.HasContext || ma_context_get_devices(&l_State.Context, &l_Playback, &l_Count, nullptr, nullptr) != MA_SUCCESS)
+        {
+            return l_Devices;
+        }
+
+        l_Devices.reserve(l_Count);
+        for (const ma_device_info& it_Device : std::span(l_Playback, l_Count))
+        {
+            l_Devices.push_back({ std::string(it_Device.name), it_Device.isDefault == MA_TRUE });
+        }
+
+        return l_Devices;
+    }
+
+    // The old output closes before the new one opens, as one device may not be open twice, and the main thread mixes the moment between, as for a device stopped. Each takes the engine's own format, so the graph and its rate stay as they were
+    bool AudioEngine::SetDevice(std::string_view name)
+    {
+        TR_CORE_ASSERT(MainThread::IsMainThread(), "The output is chosen on the main thread.");
+
+        State& l_State = *m_State;
+        if (!l_State.HasContext)
+        {
+            TR_CORE_WARN("Audio: this engine plays to no device, so no output can be chosen");
+
+            return false;
+        }
+
+        ma_device_id l_ID{};
+        if (!name.empty())
+        {
+            ma_device_info* l_Playback = nullptr;
+            ma_uint32 l_Count = 0;
+            const std::span<ma_device_info> l_Devices = ma_context_get_devices(&l_State.Context, &l_Playback, &l_Count, nullptr, nullptr) == MA_SUCCESS ? std::span(l_Playback, l_Count) : std::span<ma_device_info>();
+            const auto a_Found = std::ranges::find_if(l_Devices, [name](const ma_device_info& device) { return std::string_view(device.name) == name; });
+            if (a_Found == l_Devices.end())
+            {
+                TR_CORE_WARN("Audio: no output is named '{}', so sound stays {}", name, l_State.HasDevice ? std::format("on '{}'", l_State.DeviceName.data()) : std::string("silent"));
+
+                return false;
+            }
+
+            l_ID = a_Found->id;
+        }
+
+        l_State.CloseDevice();
+        const std::uint32_t l_Channels = ma_engine_get_channels(&l_State.Engine);
+        const std::uint32_t l_SampleRate = ma_engine_get_sample_rate(&l_State.Engine);
+        ma_result l_Result = l_State.InitDevice(name.empty() ? nullptr : &l_ID, l_Channels, l_SampleRate);
+        if (l_Result == MA_SUCCESS)
+        {
+            l_Result = l_State.StartDevice();
+        }
+
+        const bool l_Opened = l_Result == MA_SUCCESS;
+        if (!l_Opened && !name.empty())
+        {
+            TR_CORE_WARN("Audio: '{}' would not open ({}), so the system's default plays", name, ma_result_description(l_Result));
+            if (l_State.InitDevice(nullptr, l_Channels, l_SampleRate) == MA_SUCCESS)
+            {
+                static_cast<void>(l_State.StartDevice());
+            }
+        }
+
+        l_State.ChosenDevice = l_Opened ? TaggedString<MemoryTag::Audio>(name) : TaggedString<MemoryTag::Audio>();
+        l_State.Output = l_State.HasDevice ? AudioOutput::Device : AudioOutput::Silent;
+        if (l_State.HasDevice)
+        {
+            TR_CORE_INFO("Audio: now through '{}'{}, {} Hz, {} channel(s)", l_State.DeviceName.data(), l_State.ChosenDevice.empty() ? ", the system's default" : "", l_State.Device.playback.internalSampleRate, l_State.Device.playback.internalChannels);
+        }
+        else
+        {
+            TR_CORE_WARN("Audio: no output would open ({}), so sound is silent", ma_result_description(l_Result));
+        }
+
+        return l_Opened;
+    }
+
+    std::string_view AudioEngine::GetChosenDevice() const
+    {
+        return m_State->ChosenDevice;
+    }
+
+    AudioMixTiming AudioEngine::GetMixTiming() const
+    {
+        const State& l_State = *m_State;
+        AudioMixTiming l_Timing;
+        l_Timing.PeriodFrames = l_State.PublishedPeriod.load(std::memory_order_relaxed);
+        l_Timing.PeriodMilliseconds = static_cast<double>(l_Timing.PeriodFrames) * 1000.0 / static_cast<double>(ma_engine_get_sample_rate(&l_State.Engine));
+        l_Timing.AverageMilliseconds = static_cast<double>(l_State.PublishedAverage.load(std::memory_order_relaxed)) / 1e6;
+        l_Timing.PeakMilliseconds = static_cast<double>(l_State.PublishedPeak.load(std::memory_order_relaxed)) / 1e6;
+
+        return l_Timing;
     }
 
     void AudioEngine::PlayTestTone(float frequency, float amplitude, float seconds)

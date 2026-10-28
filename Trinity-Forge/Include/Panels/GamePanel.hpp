@@ -29,6 +29,9 @@ public:
     [[nodiscard]] bool ReadSetting(std::string_view key, std::string_view value);
     void WriteSettings(ImGuiTextBuffer& buffer) const;
 
+    // Unity's Mute Audio, which silences the game while it plays
+    [[nodiscard]] bool IsMutingAudio() const { return m_MuteAudio; }
+
 protected:
     void OnImGuiRender() override;
 
@@ -79,9 +82,10 @@ private:
     // The scale the image is shown at, or none while it fits the space, and how far it is panned from the centre. A new aspect choice resets both
     std::optional<float> m_Scale;
     glm::vec2 m_Pan{ 0.0f };
-    // Unity's Stats, and the actions' overlay, which imgui.ini keeps
+    // Unity's Stats, the actions' overlay and Mute Audio, which imgui.ini keeps
     bool m_ShowStats = false;
     bool m_ShowActions = false;
+    bool m_MuteAudio = false;
     // What the scene may read of the keyboard and mouse, as the panel was last drawn
     Trinity::SceneInputFilter m_SceneFilter{ .Keyboard = false, .Mouse = false, .MouseOver = false };
     // Whether the panel was drawn this frame, which only then submits the scene

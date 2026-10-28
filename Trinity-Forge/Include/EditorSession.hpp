@@ -350,6 +350,8 @@ public:
     // Whether Play waits for a debugger first, which the preferences keep. While it waits, a popup shows Forge's process ID and what is attached, and the scene plays once a native or a managed debugger is, or at Play Now
     [[nodiscard]] bool GetWaitForDebugger() const { return m_Preferences.WaitForDebugger; }
     void SetWaitForDebugger(bool wait);
+    // The output Forge plays through, which the preferences keep, moved to at once, or the system's default for an empty name. Kept even when it will not open, so the default plays until it is there
+    void SetAudioDevice(std::string_view name);
     [[nodiscard]] bool IsWaitingForDebugger() const { return m_DebuggerWait.has_value(); }
     // Where the material lives: its own file, or for a model's material the fields that differ from the import, in the model's .meta, and its cooked file. A loaded material shows it the same frame
     bool WriteMaterial(Trinity::UUID material, const Trinity::MaterialData& data);
@@ -402,6 +404,8 @@ public:
     bool DeleteEntity(Trinity::UUID entity);
     // A sprite of the texture at the point, its size in units, as a texture dropped into the Scene panel makes one, in one command
     bool CreateSprite(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size);
+    // An entity with an AudioSource that plays the clip or the sound event as the scene starts, as one dropped into the Scene panel or the Hierarchy makes it, in one command, last under the parent or among the roots, or before the sibling. At the point in the world when one is given, heard from there in 3D when spatialize says so, and otherwise at the parent's origin, heard as it is. Refused, logged, for an asset that is neither
+    bool CreateAudioSource(std::string name, Trinity::UUID resource, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position, bool spatialize);
     // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point. In prefab mode, as Unity keeps a prefab to one root, whatever is made, pasted or moved with no parent goes last under the prefab's root, keeping its place in the world, and the root is never moved, duplicated or deleted, each refused with a notice. No instance of a prefab holding the open one goes into it, which would then hold itself
     bool CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent);
     // As Unity's GameObject menu makes them, each in one command and placed as a built-in shape is

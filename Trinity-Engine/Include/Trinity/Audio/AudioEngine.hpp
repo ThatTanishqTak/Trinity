@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -32,6 +34,23 @@ namespace Trinity
         std::uint32_t Channels = 0;
     };
 
+    // An output the system offers, by the name it shows for it
+    struct AudioDevice
+    {
+        std::string Name;
+        // The one the system plays through unless told otherwise
+        bool Default = false;
+    };
+
+    // How long mixing takes, as the thread that mixes measures it over about the last half second of sound: the device's own, or the main thread's while there is none. The period is what each mix covers, the device's period or, without one, a silent mix's chunk
+    struct AudioMixTiming
+    {
+        std::uint32_t PeriodFrames = 0;
+        double PeriodMilliseconds = 0.0;
+        double AverageMilliseconds = 0.0;
+        double PeakMilliseconds = 0.0;
+    };
+
     // miniaudio's engine behind Trinity's own interface, so no public header includes miniaudio and a console backend can replace what is behind it. Everything it allocates is under the Audio tag. The output device mixes on its own thread, which never allocates and never waits on the main thread
     class TRINITY_API AudioEngine
     {
@@ -51,6 +70,17 @@ namespace Trinity
         // The volume of everything, from 0 to 1, ramped so that a change never clicks. The audio.volume console variable sets the application's
         void SetVolume(float volume);
         [[nodiscard]] float GetVolume() const;
+        // Silences everything at once, ramped as the volume is so it never clicks, while every sound plays on and keeps its time, as Forge's Mute Audio does
+        void SetMuted(bool muted);
+        [[nodiscard]] bool IsMuted() const;
+
+        // The system's outputs as it lists them now, which takes a moment, so a menu lists them as it opens. Empty for an engine that plays to no device, as one made offline or silent does. Main thread
+        [[nodiscard]] std::vector<AudioDevice> ListDevices();
+        // Plays through the output of that name from the next period on, or through the system's default for an empty name, following it as it changes, the mix going on as it was, at the engine's own rate, which the device converts from. Main thread. False, logged, for an engine with no device to choose, or a name no output has, and the output plays on as it was, or for an output that would not open, and the default plays in its place
+        bool SetDevice(std::string_view name);
+        // The name SetDevice was given, empty while the system's default plays
+        [[nodiscard]] std::string_view GetChosenDevice() const;
+        [[nodiscard]] AudioMixTiming GetMixTiming() const;
 
         // A sine at an amplitude from 0 to 1, for checking the output. It ends on its own after its time, and replaces a tone already playing
         void PlayTestTone(float frequency, float amplitude, float seconds);
@@ -76,7 +106,7 @@ namespace Trinity
         // Every one back to its events' defaults, as Forge has them when Play starts and stops
         void ClearGlobalParameters();
 
-        // Silent when a Device engine found no device
+        // Silent when a Device engine found no device, or none would open as SetDevice chose one
         [[nodiscard]] AudioOutput GetOutput() const;
         // Empty without a device
         [[nodiscard]] std::string_view GetDeviceName() const;

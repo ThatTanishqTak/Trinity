@@ -9,6 +9,7 @@
 #include <format>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -81,6 +82,32 @@ namespace
         {
             ImGui::PopStyleColor();
         }
+    }
+
+    // The game's sound as the Stats show it, read from the engine and the playing scene each frame: the voices mixed and those kept unheard, the sound events playing and the streams read from files, then how long each period of sound took to mix, on average and at most, over about the last half second
+    void AppendAudioStats(std::vector<std::string>& lines, const Trinity::AudioEngine* engine, const Trinity::AudioScene* scene)
+    {
+        if (engine == nullptr)
+        {
+            lines.emplace_back("Audio: none");
+
+            return;
+        }
+
+        const std::string_view l_Muted = engine->IsMuted() ? ", muted" : "";
+        if (scene == nullptr)
+        {
+            lines.push_back(std::format("Audio: no scene plays{}", l_Muted));
+        }
+        else
+        {
+            const Trinity::AudioScene::Statistics l_Statistics = scene->GetStatistics();
+            lines.push_back(std::format("Audio: {} real, {} virtual voices{}", l_Statistics.Real, l_Statistics.Virtual, l_Muted));
+            lines.push_back(std::format("{} events, {} streams", l_Statistics.Events, l_Statistics.Streams));
+        }
+
+        const Trinity::AudioMixTiming l_Timing = engine->GetMixTiming();
+        lines.push_back(l_Timing.PeriodFrames == 0 ? std::string("Mix: not timed yet") : std::format("Mix {:.2f} ms of {:.2f} ms periods, {:.1f}%, at most {:.2f} ms", l_Timing.AverageMilliseconds, l_Timing.PeriodMilliseconds, l_Timing.PeriodMilliseconds > 0.0 ? 100.0 * l_Timing.AverageMilliseconds / l_Timing.PeriodMilliseconds : 0.0, l_Timing.PeakMilliseconds));
     }
 
     // The keyboard and mouse and each connected pad the player reads
@@ -199,6 +226,13 @@ bool GamePanel::ReadSetting(std::string_view key, std::string_view value)
         return true;
     }
 
+    if (key == "GameMuteAudio")
+    {
+        m_MuteAudio = value != "0";
+
+        return true;
+    }
+
     if (key != "GameAspect")
     {
         return false;
@@ -215,7 +249,7 @@ bool GamePanel::ReadSetting(std::string_view key, std::string_view value)
 
 void GamePanel::WriteSettings(ImGuiTextBuffer& buffer) const
 {
-    const std::string l_Lines = std::format("GameAspect={}\nGameStats={}\nGameActions={}\n", c_Aspects[static_cast<std::size_t>(m_Aspect)].Name, m_ShowStats ? 1 : 0, m_ShowActions ? 1 : 0);
+    const std::string l_Lines = std::format("GameAspect={}\nGameStats={}\nGameActions={}\nGameMuteAudio={}\n", c_Aspects[static_cast<std::size_t>(m_Aspect)].Name, m_ShowStats ? 1 : 0, m_ShowActions ? 1 : 0, m_MuteAudio ? 1 : 0);
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
@@ -369,17 +403,21 @@ void GamePanel::DrawToolbar()
     ImGui::SameLine();
     ImGui::TextUnformatted(std::format("{:.1f}x", GetScale()).c_str());
 
-    // Actions and Stats at the right end, when there is room for them
+    // Mute Audio, Actions and Stats at the right end, when there is room for them
+    const std::string l_MuteLabel = std::format("{} Mute Audio", Trinity::Icons::c_VolumeOff);
     constexpr const char* c_ActionsLabel = "Actions";
     constexpr const char* c_StatsLabel = "Stats";
-    const float l_ButtonsWidth = ImGui::CalcTextSize(c_ActionsLabel).x + ImGui::CalcTextSize(c_StatsLabel).x + l_Style.FramePadding.x * 4.0f + l_Style.ItemSpacing.x;
+    const float l_ButtonsWidth = ImGui::CalcTextSize(l_MuteLabel.c_str()).x + ImGui::CalcTextSize(c_ActionsLabel).x + ImGui::CalcTextSize(c_StatsLabel).x + l_Style.FramePadding.x * 6.0f + l_Style.ItemSpacing.x * 2.0f;
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(ImGui::GetContentRegionAvail().x - l_ButtonsWidth, 0.0f));
+    DrawToggle(l_MuteLabel.c_str(), m_MuteAudio);
+    ImGui::SetItemTooltip("Silences the game while it plays, every sound playing on unheard and its meters moving, as Unity's Mute Audio does. Kept from one play to the next");
+    ImGui::SameLine();
     DrawToggle(c_ActionsLabel, m_ShowActions);
     ImGui::SetItemTooltip("Each player's actions over the image while the scene plays, by the maps it has enabled: lit while held, with its value, and a Hold's or a MultiTap's progress along its foot");
     ImGui::SameLine();
     DrawToggle(c_StatsLabel, m_ShowStats);
-    ImGui::SetItemTooltip("The frame rate and the game's size over the image");
+    ImGui::SetItemTooltip("The frame rate and the game's size over the image, and its sound: the voices mixed and those kept unheard, the sound events playing, the streams read from files, and how long each period of sound takes to mix");
     ImGui::EndChild();
 }
 
@@ -442,7 +480,9 @@ void GamePanel::DrawStats(ImVec2 start, ImVec2 available) const
     const ImGuiIO& l_IO = ImGui::GetIO();
     const ImGuiStyle& l_Style = ImGui::GetStyle();
     const Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
-    const std::array<std::string, 3> l_Lines{ std::format("{:.0f} fps, {:.2f} ms", l_IO.Framerate, l_IO.Framerate > 0.0f ? 1000.0f / l_IO.Framerate : 0.0f), std::format("Game {}x{}", l_Renderer.GetSceneWidth(m_View), l_Renderer.GetSceneHeight(m_View)), std::format("Shown at {:.1f}x in {}x{}", GetScale(), m_AreaWidth, m_AreaHeight) };
+    std::vector<std::string> l_Lines{ std::format("{:.0f} fps, {:.2f} ms", l_IO.Framerate, l_IO.Framerate > 0.0f ? 1000.0f / l_IO.Framerate : 0.0f), std::format("Game {}x{}", l_Renderer.GetSceneWidth(m_View), l_Renderer.GetSceneHeight(m_View)), std::format("Shown at {:.1f}x in {}x{}", GetScale(), m_AreaWidth, m_AreaHeight) };
+    Trinity::SceneRuntime* l_Runtime = m_Session.GetRuntime();
+    AppendAudioStats(l_Lines, Trinity::Application::Get().GetAudioEngine(), l_Runtime != nullptr ? &l_Runtime->GetAudio() : nullptr);
 
     float l_Width = 0.0f;
     for (const std::string& it_Line : l_Lines)

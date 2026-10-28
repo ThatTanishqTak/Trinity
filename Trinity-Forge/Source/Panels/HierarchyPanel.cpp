@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <format>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -49,6 +50,20 @@ namespace
         const Trinity::AssetRecord* l_Record = payload != nullptr && payload->IsDataType(c_AssetPayload) && registry != nullptr ? registry->Find(ReadPayloadUUID(*payload)) : nullptr;
 
         return l_Record != nullptr && l_Record->Importer == importer;
+    }
+
+    // An audio clip or a sound event, which a drop makes an AudioSource of
+    bool IsSoundPayload(const ImGuiPayload* payload, const Trinity::AssetRegistry* registry)
+    {
+        return IsAssetPayload(payload, registry, Trinity::AudioClipAsset::c_AssetType) || IsAssetPayload(payload, registry, Trinity::SoundEventAsset::c_AssetType);
+    }
+
+    // What a new entity made from the asset is called: its file's name without the extension
+    std::string GetAssetName(const Trinity::AssetRegistry* registry, Trinity::UUID asset)
+    {
+        const Trinity::AssetRecord* l_Record = registry != nullptr ? registry->Find(asset) : nullptr;
+
+        return l_Record != nullptr ? std::filesystem::path(l_Record->Path).stem().string() : std::string("Audio Source");
     }
 
     const void* ToImGuiID(Trinity::UUID uuid)
@@ -863,12 +878,17 @@ void HierarchyPanel::DrawBackground()
             const Trinity::UUID l_Dropped = ReadPayloadUUID(*l_Prefab);
             m_Deferred.push_back([this, l_Dropped] { static_cast<void>(m_Session.InstantiatePrefab(l_Dropped, {}, {}, std::nullopt)); });
         }
+        else if (const ImGuiPayload* l_Sound = IsSoundPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry()) ? ImGui::AcceptDragDropPayload(c_AssetPayload) : nullptr)
+        {
+            const Trinity::UUID l_Dropped = ReadPayloadUUID(*l_Sound);
+            m_Deferred.push_back([this, l_Dropped] { static_cast<void>(m_Session.CreateAudioSource(GetAssetName(m_Session.GetRegistry(), l_Dropped), l_Dropped, {}, {}, std::nullopt, false)); });
+        }
 
         ImGui::EndDragDropTarget();
     }
 }
 
-// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, and an instance of a prefab or a model is created there. A script goes onto the entity, as in Unity, so the whole row lights up for it
+// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, an instance of a prefab or a model is created there, and so is an AudioSource of an audio clip or a sound event, heard as it is. A script goes onto the entity, as in Unity, so the whole row lights up for it
 void HierarchyPanel::AcceptDrop(Trinity::Entity target)
 {
     if (!ImGui::BeginDragDropTarget())
@@ -890,7 +910,8 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
 
     const ImGuiDragDropFlags l_Flags = ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect;
     const bool l_Prefab = IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), ModelImporter::c_Importer) || IsAssetPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry(), Trinity::PrefabAsset::c_AssetType);
-    if (const ImGuiPayload* l_Payload = l_Prefab ? ImGui::AcceptDragDropPayload(c_AssetPayload, l_Flags) : ImGui::AcceptDragDropPayload(c_EntityPayload, l_Flags))
+    const bool l_Sound = IsSoundPayload(ImGui::GetDragDropPayload(), m_Session.GetRegistry());
+    if (const ImGuiPayload* l_Payload = l_Prefab || l_Sound ? ImGui::AcceptDragDropPayload(c_AssetPayload, l_Flags) : ImGui::AcceptDragDropPayload(c_EntityPayload, l_Flags))
     {
         const ImU32 l_Color = ImGui::GetColorU32(ImGuiCol_DragDropTarget);
         ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
@@ -913,6 +934,10 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
             if (l_Prefab)
             {
                 m_Deferred.push_back([this, l_Dragged, l_Parent, l_Next] { static_cast<void>(m_Session.InstantiatePrefab(l_Dragged, l_Parent, l_Next, std::nullopt)); });
+            }
+            else if (l_Sound)
+            {
+                m_Deferred.push_back([this, l_Dragged, l_Parent, l_Next] { static_cast<void>(m_Session.CreateAudioSource(GetAssetName(m_Session.GetRegistry(), l_Dragged), l_Dragged, l_Parent, l_Next, std::nullopt, false)); });
             }
             else
             {
