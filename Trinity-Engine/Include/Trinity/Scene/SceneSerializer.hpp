@@ -190,10 +190,12 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::string SaveToText(Scene& scene);
 
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadFromText(Scene& scene, std::string_view text);
-        // Each entity as the scene holds it, in hierarchy order, an instance already made from its prefab with what it changes of it, so loading never compares one with its prefab. An instance's root says it is one, unless flattened, as a cooked scene is, though one whose prefab is missing keeps its text either way
+        // Each entity as the scene holds it, in hierarchy order, an instance already made from its prefab with what it changes of it, so loading never compares one with its prefab. An instance's root says it is one, unless flattened, as a cooked scene is, though one whose prefab is missing keeps its text either way. A prefab's template is cooked unflattened, for LoadPrefabFromBinary
         [[nodiscard]] TRINITY_API std::vector<std::byte> SaveToBinary(Scene& scene, bool flatten = false);
         // The scene as SaveToBinary saved it, with a component no loaded code knows kept as YAML, as LoadFromText keeps one. Refused, leaving the scene as it is, for data that is not whole or is from a newer Trinity
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadFromBinary(Scene& scene, std::span<const std::byte> data);
+        // Whether the data is a binary scene or prefab rather than a file's text, by its first bytes
+        [[nodiscard]] TRINITY_API bool IsBinary(std::span<const std::byte> data);
         [[nodiscard]] TRINITY_API std::string SaveEntityToText(Scene& scene, Entity root);
         [[nodiscard]] TRINITY_API Expected<Entity, std::string> LoadEntityFromText(Scene& scene, std::string_view text, Entity parent, Entity before);
 
@@ -211,10 +213,14 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::string WriteModelPrefab(const ModelData& model);
         // The prefab's entities under their local IDs, in place of the scene's own, as a template that instances are made from, with each instance nested in it made from its own prefab's template as a scene's instances are. Given the prefab's UUID, an instance in it of a prefab that holds it is refused as the resolver refuses one, which a template read again after its file changes needs
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadPrefabFromText(Scene& prefab, std::string_view text, UUID asset = {});
+        // A template as SaveToBinary saved it unflattened, made and changed already, so it waits on no prefab to be read. Each instance nested in it still says it is one, so an instance of this prefab makes its entities' UUIDs through the nested prefabs as one made from the text does. Refused as LoadPrefabFromText refuses anything but one root and its subtree
+        [[nodiscard]] TRINITY_API Expected<void, std::string> LoadPrefabFromBinary(Scene& prefab, std::span<const std::byte> data);
         // A new instance of the prefab, unchanged, its root put as LoadEntityFromText puts one. Refused for a prefab the resolver does not find, or when an entity of the instance's UUIDs is already in the scene
         [[nodiscard]] TRINITY_API Expected<Entity, std::string> InstantiatePrefab(Scene& scene, UUID prefab, UUID instance, Entity parent, Entity before);
         // The prefabs the text's instances are of, each once, so they can be loaded before the text is, a scene's or a prefab's. None for text that is not valid YAML
         [[nodiscard]] TRINITY_API std::vector<UUID> GetPrefabReferences(std::string_view text);
+        // The same of binary data: the prefabs of the instances that still say they are ones, as a cooked prefab's nested instances do, and none of a flattened scene. None for data that is not a whole binary scene
+        [[nodiscard]] TRINITY_API std::vector<UUID> GetBinaryPrefabReferences(std::span<const std::byte> data);
 
         // One thing an instance changes of its prefab: a component's value at a key path, or the whole component for no path, as the scene file keeps them, a component it adds or removes, one of its prefab's entities it removes, named by the UUID it would have, or an entity it adds under one of them, named by its own UUID. An entity of an instance nested in the prefab is one of the prefab's entities
         struct PrefabOverride

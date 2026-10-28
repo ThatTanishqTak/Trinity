@@ -132,6 +132,119 @@ namespace Trinity
             return l_Items;
         }
 
+        // The header of data as long as the header says, refused for anything that is not a whole binary scene this build reads
+        Expected<BinaryHeader, std::string> ReadBinaryHeader(std::span<const std::byte> data)
+        {
+            BinaryHeader l_Header;
+            if (data.size() < sizeof(BinaryHeader))
+            {
+                return Unexpected{ std::string("too short to be a binary scene") };
+            }
+
+            std::memcpy(&l_Header, data.data(), sizeof(BinaryHeader));
+            if (l_Header.Magic != BinaryHeader::c_Magic || l_Header.Version == 0)
+            {
+                return Unexpected{ std::string("not a binary scene") };
+            }
+
+            if (l_Header.Version > SceneSerializer::c_BinaryFormatVersion)
+            {
+                return Unexpected{ std::format("written in binary format {} by a newer Trinity, and this build reads binary format {} and older", l_Header.Version, SceneSerializer::c_BinaryFormatVersion) };
+            }
+
+            const std::uint64_t l_Size = sizeof(BinaryHeader) + std::uint64_t{ l_Header.EntityCount } * sizeof(BinaryEntity) + std::uint64_t{ l_Header.ComponentCount } * sizeof(BinaryComponent) + (std::uint64_t{ l_Header.StringCount } + 1) * sizeof(std::uint32_t) + l_Header.StringBytes + std::uint64_t{ l_Header.NodeCount } * sizeof(BinaryTreeNode) + std::uint64_t{ l_Header.EntryCount } * sizeof(BinaryTreeEntry);
+            if (l_Size != data.size())
+            {
+                return Unexpected{ std::format("{} bytes long where its header gives {}, so it is cut short or corrupted", data.size(), l_Size) };
+            }
+
+            return l_Header;
+        }
+
+        constexpr std::size_t c_NoParent = std::numeric_limits<std::size_t>::max();
+
+        // A binary scene read and checked whole before anything is made from it, its tree's strings views into the data
+        struct BinaryScene
+        {
+            std::vector<BinaryEntity> Entities;
+            std::vector<BinaryComponent> Components;
+            // Each entity's parent, which comes before it, or c_NoParent for a root
+            std::vector<std::size_t> Parents;
+            BinaryTree Tree;
+        };
+
+        Expected<BinaryScene, std::string> ReadBinaryScene(std::span<const std::byte> data)
+        {
+            const Expected<BinaryHeader, std::string> l_Header = ReadBinaryHeader(data);
+            if (!l_Header)
+            {
+                return Unexpected{ l_Header.GetError() };
+            }
+
+            BinaryScene l_Scene;
+            std::size_t l_Offset = sizeof(BinaryHeader);
+            l_Scene.Entities = ReadBinary<BinaryEntity>(data, l_Offset, l_Header->EntityCount);
+            l_Scene.Components = ReadBinary<BinaryComponent>(data, l_Offset, l_Header->ComponentCount);
+            const std::vector<std::uint32_t> l_Offsets = ReadBinary<std::uint32_t>(data, l_Offset, std::size_t{ l_Header->StringCount } + 1);
+            const std::string_view l_StringBytes(reinterpret_cast<const char*>(data.data()) + l_Offset, l_Header->StringBytes);
+            l_Offset += l_Header->StringBytes;
+
+            BinaryTree& l_Tree = l_Scene.Tree;
+            l_Tree.Nodes = ReadBinary<BinaryTreeNode>(data, l_Offset, l_Header->NodeCount);
+            l_Tree.Entries = ReadBinary<BinaryTreeEntry>(data, l_Offset, l_Header->EntryCount);
+            l_Tree.Strings.reserve(l_Header->StringCount);
+            for (std::size_t it_String = 0; it_String < l_Header->StringCount; ++it_String)
+            {
+                if (l_Offsets[it_String] > l_Offsets[it_String + 1] || l_Offsets[it_String + 1] > l_Header->StringBytes)
+                {
+                    return Unexpected{ std::string("its strings are malformed") };
+                }
+
+                l_Tree.Strings.push_back(l_StringBytes.substr(l_Offsets[it_String], l_Offsets[it_String + 1] - l_Offsets[it_String]));
+            }
+
+            if (!l_Tree.IsValid())
+            {
+                return Unexpected{ std::string("its tree is malformed") };
+            }
+
+            // A parent comes before its children, so a scene read this far has no loop
+            std::unordered_map<UUID, std::size_t> l_Indices;
+            l_Indices.reserve(l_Scene.Entities.size());
+            l_Scene.Parents.reserve(l_Scene.Entities.size());
+            for (std::size_t it_Index = 0; it_Index < l_Scene.Entities.size(); ++it_Index)
+            {
+                const BinaryEntity& l_Entity = l_Scene.Entities[it_Index];
+                if (l_Entity.ID == 0 || !l_Indices.emplace(UUID(l_Entity.ID), it_Index).second)
+                {
+                    return Unexpected{ std::format("entity {} has no valid UUID, or one another entity has", it_Index) };
+                }
+
+                const auto a_Parent = l_Entity.Parent != 0 ? l_Indices.find(UUID(l_Entity.Parent)) : l_Indices.end();
+                if (l_Entity.Parent != 0 && a_Parent == l_Indices.end())
+                {
+                    return Unexpected{ std::format("entity {} names parent {}, which does not come before it", UUID(l_Entity.ID), UUID(l_Entity.Parent)) };
+                }
+
+                if (l_Entity.FirstComponent > l_Scene.Components.size() || l_Entity.ComponentCount > l_Scene.Components.size() - l_Entity.FirstComponent || (l_Entity.Kept != c_NoString && l_Entity.Kept >= l_Tree.Strings.size()))
+                {
+                    return Unexpected{ std::format("entity {} is malformed", UUID(l_Entity.ID)) };
+                }
+
+                l_Scene.Parents.push_back(a_Parent != l_Indices.end() ? a_Parent->second : c_NoParent);
+            }
+
+            for (const BinaryComponent& it_Component : l_Scene.Components)
+            {
+                if (it_Component.Name >= l_Tree.Strings.size() || it_Component.Value >= (it_Component.Kept != 0 ? l_Tree.Strings.size() : l_Tree.Nodes.size()))
+                {
+                    return Unexpected{ std::string("a component is malformed") };
+                }
+            }
+
+            return l_Scene;
+        }
+
         struct State
         {
             std::vector<ComponentSerializer, TaggedAllocator<ComponentSerializer, MemoryTag::Engine>> Serializers;
@@ -1898,6 +2011,96 @@ namespace Trinity
             }
 
             return YAML::Node(YAML::NodeType::Null);
+        }
+
+        // Every entity of a binary scene read whole, in its order, then parents, so siblings keep theirs, then components, with one no loaded code knows kept as YAML and counted by name
+        void CreateBinaryEntities(Scene& scene, const BinaryScene& binary, std::unordered_map<std::string, std::size_t>& unknown)
+        {
+            const BinaryTree& l_Tree = binary.Tree;
+            std::vector<Entity> l_Created;
+            l_Created.reserve(binary.Entities.size());
+            for (const BinaryEntity& it_Entity : binary.Entities)
+            {
+                l_Created.push_back(scene.CreateEntityWithUUID(UUID(it_Entity.ID)));
+            }
+
+            for (std::size_t it_Index = 0; it_Index < binary.Entities.size(); ++it_Index)
+            {
+                if (binary.Parents[it_Index] != c_NoParent)
+                {
+                    scene.SetParent(l_Created[it_Index], l_Created[binary.Parents[it_Index]], false);
+                }
+            }
+
+            // Each name's serializer and pool found once, rather than once a component
+            SceneRegistry& l_Registry = scene.GetRegistry();
+            std::vector<std::optional<std::pair<const ComponentSerializer*, SceneRegistry::common_type*>>> l_Pools(l_Tree.Strings.size());
+            for (std::size_t it_Index = 0; it_Index < binary.Entities.size(); ++it_Index)
+            {
+                const BinaryEntity& l_File = binary.Entities[it_Index];
+                Entity l_Entity = l_Created[it_Index];
+                for (std::uint32_t it_Component = l_File.FirstComponent; it_Component < l_File.FirstComponent + l_File.ComponentCount; ++it_Component)
+                {
+                    const BinaryComponent& l_Component = binary.Components[it_Component];
+                    const std::string_view l_Name = l_Tree.Strings[l_Component.Name];
+                    auto& l_Pool = l_Pools[l_Component.Name];
+                    if (!l_Pool)
+                    {
+                        const ComponentSerializer* l_Serializer = FindSerializer(l_Name);
+                        l_Pool.emplace(l_Serializer, l_Serializer != nullptr ? l_Registry.storage(GetPoolId(l_Name)) : nullptr);
+                    }
+
+                    const auto [a_Serializer, a_Storage] = *l_Pool;
+                    if (l_Component.Kept == 0 && a_Storage != nullptr)
+                    {
+                        if (!a_Storage->contains(l_Entity.GetHandle()))
+                        {
+                            a_Storage->push(l_Entity.GetHandle());
+                        }
+
+                        const BinaryNode l_Node(l_Tree, l_Component.Value);
+                        a_Serializer->Load(a_Storage->value(l_Entity.GetHandle()), ComponentReader(l_Node, a_Serializer->Name));
+
+                        continue;
+                    }
+
+                    if (l_Component.Kept == 0)
+                    {
+                        SetComponentYaml(l_Entity, l_Name, ToYaml(BinaryNode(l_Tree, l_Component.Value)), unknown);
+
+                        continue;
+                    }
+
+                    // Kept as YAML when saved, and loaded by code that knows it now, or kept still when it cannot be read, as a scene's kept YAML is when its code registers
+                    const std::string_view l_Yaml = l_Tree.Strings[l_Component.Value];
+                    if (a_Storage != nullptr)
+                    {
+                        try
+                        {
+                            LoadComponent(l_Entity, *a_Serializer, *a_Storage, YAML::Load(std::string(l_Yaml)));
+
+                            continue;
+                        }
+                        catch (const YAML::Exception& exception)
+                        {
+                            TR_CORE_ERROR("Scene: {} on entity {} is kept as YAML that cannot be read, and stays kept: {}", l_Name, l_Entity.GetUUID(), exception.what());
+                        }
+                    }
+
+                    if (!l_Entity.Has<UnknownComponentsComponent>())
+                    {
+                        l_Entity.Add<UnknownComponentsComponent>();
+                    }
+
+                    l_Entity.Get<UnknownComponentsComponent>().Entries.push_back({ TaggedString<MemoryTag::Scene>(l_Name), TaggedString<MemoryTag::Scene>(l_Yaml) });
+                    ++unknown[std::string(l_Name)];
+                }
+
+                if (l_File.Prefab != 0)
+                {
+                    l_Entity.Add<PrefabInstanceComponent>(PrefabInstanceComponent{ .Prefab = UUID(l_File.Prefab), .Instance = UUID(l_File.Instance), .Kept = l_File.Kept != c_NoString ? TaggedString<MemoryTag::Scene>(l_Tree.Strings[l_File.Kept]) : TaggedString<MemoryTag::Scene>() });
+                }
+            }
         }
 
         // The value set at the path inside the node, by key in a map and by index in a sequence, false when the path leads nowhere the node has. A map's last key need not be there yet
@@ -4371,180 +4574,28 @@ namespace Trinity
             TR_PROFILE_FUNCTION();
             TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
 
-            BinaryHeader l_Header;
-            if (data.size() < sizeof(BinaryHeader))
+            const Expected<BinaryScene, std::string> l_Binary = ReadBinaryScene(data);
+            if (!l_Binary)
             {
-                return Unexpected{ std::string("too short to be a binary scene") };
-            }
-
-            std::memcpy(&l_Header, data.data(), sizeof(BinaryHeader));
-            if (l_Header.Magic != BinaryHeader::c_Magic || l_Header.Version == 0)
-            {
-                return Unexpected{ std::string("not a binary scene") };
-            }
-
-            if (l_Header.Version > c_BinaryFormatVersion)
-            {
-                return Unexpected{ std::format("written in binary format {} by a newer Trinity, and this build reads binary format {} and older", l_Header.Version, c_BinaryFormatVersion) };
-            }
-
-            const std::uint64_t l_Size = sizeof(BinaryHeader) + std::uint64_t{ l_Header.EntityCount } * sizeof(BinaryEntity) + std::uint64_t{ l_Header.ComponentCount } * sizeof(BinaryComponent) + (std::uint64_t{ l_Header.StringCount } + 1) * sizeof(std::uint32_t) + l_Header.StringBytes + std::uint64_t{ l_Header.NodeCount } * sizeof(BinaryTreeNode) + std::uint64_t{ l_Header.EntryCount } * sizeof(BinaryTreeEntry);
-            if (l_Size != data.size())
-            {
-                return Unexpected{ std::format("{} bytes long where its header gives {}, so it is cut short or corrupted", data.size(), l_Size) };
-            }
-
-            std::size_t l_Offset = sizeof(BinaryHeader);
-            const std::vector<BinaryEntity> l_Entities = ReadBinary<BinaryEntity>(data, l_Offset, l_Header.EntityCount);
-            const std::vector<BinaryComponent> l_Components = ReadBinary<BinaryComponent>(data, l_Offset, l_Header.ComponentCount);
-            const std::vector<std::uint32_t> l_Offsets = ReadBinary<std::uint32_t>(data, l_Offset, std::size_t{ l_Header.StringCount } + 1);
-            const std::string_view l_StringBytes(reinterpret_cast<const char*>(data.data()) + l_Offset, l_Header.StringBytes);
-            l_Offset += l_Header.StringBytes;
-
-            BinaryTree l_Tree;
-            l_Tree.Nodes = ReadBinary<BinaryTreeNode>(data, l_Offset, l_Header.NodeCount);
-            l_Tree.Entries = ReadBinary<BinaryTreeEntry>(data, l_Offset, l_Header.EntryCount);
-            l_Tree.Strings.reserve(l_Header.StringCount);
-            for (std::size_t it_String = 0; it_String < l_Header.StringCount; ++it_String)
-            {
-                if (l_Offsets[it_String] > l_Offsets[it_String + 1] || l_Offsets[it_String + 1] > l_Header.StringBytes)
-                {
-                    return Unexpected{ std::string("its strings are malformed") };
-                }
-
-                l_Tree.Strings.push_back(l_StringBytes.substr(l_Offsets[it_String], l_Offsets[it_String + 1] - l_Offsets[it_String]));
-            }
-
-            if (!l_Tree.IsValid())
-            {
-                return Unexpected{ std::string("its tree is malformed") };
-            }
-
-            // A parent comes before its children, so a scene read this far has no loop
-            std::unordered_map<UUID, std::size_t> l_Indices;
-            l_Indices.reserve(l_Entities.size());
-            for (std::size_t it_Index = 0; it_Index < l_Entities.size(); ++it_Index)
-            {
-                const BinaryEntity& l_Entity = l_Entities[it_Index];
-                if (l_Entity.ID == 0 || !l_Indices.emplace(UUID(l_Entity.ID), it_Index).second)
-                {
-                    return Unexpected{ std::format("entity {} has no valid UUID, or one another entity has", it_Index) };
-                }
-
-                if (l_Entity.Parent != 0 && !l_Indices.contains(UUID(l_Entity.Parent)))
-                {
-                    return Unexpected{ std::format("entity {} names parent {}, which does not come before it", UUID(l_Entity.ID), UUID(l_Entity.Parent)) };
-                }
-
-                if (l_Entity.FirstComponent > l_Components.size() || l_Entity.ComponentCount > l_Components.size() - l_Entity.FirstComponent || (l_Entity.Kept != c_NoString && l_Entity.Kept >= l_Tree.Strings.size()))
-                {
-                    return Unexpected{ std::format("entity {} is malformed", UUID(l_Entity.ID)) };
-                }
-            }
-
-            for (const BinaryComponent& it_Component : l_Components)
-            {
-                if (it_Component.Name >= l_Tree.Strings.size() || it_Component.Value >= (it_Component.Kept != 0 ? l_Tree.Strings.size() : l_Tree.Nodes.size()))
-                {
-                    return Unexpected{ std::string("a component is malformed") };
-                }
+                return Unexpected{ l_Binary.GetError() };
             }
 
             // Nothing can fail from here, so the scene is only replaced once the data is known to be whole
             scene.Clear();
 
-            std::vector<Entity> l_Created;
-            l_Created.reserve(l_Entities.size());
-            for (const BinaryEntity& it_Entity : l_Entities)
-            {
-                l_Created.push_back(scene.CreateEntityWithUUID(UUID(it_Entity.ID)));
-            }
-
-            for (std::size_t it_Index = 0; it_Index < l_Entities.size(); ++it_Index)
-            {
-                if (l_Entities[it_Index].Parent != 0)
-                {
-                    scene.SetParent(l_Created[it_Index], l_Created[l_Indices.at(UUID(l_Entities[it_Index].Parent))], false);
-                }
-            }
-
-            // Each name's serializer and pool found once, rather than once a component
-            SceneRegistry& l_Registry = scene.GetRegistry();
-            std::vector<std::optional<std::pair<const ComponentSerializer*, SceneRegistry::common_type*>>> l_Pools(l_Tree.Strings.size());
             std::unordered_map<std::string, std::size_t> l_Unknown;
-            for (std::size_t it_Index = 0; it_Index < l_Entities.size(); ++it_Index)
-            {
-                const BinaryEntity& l_File = l_Entities[it_Index];
-                Entity l_Entity = l_Created[it_Index];
-                for (std::uint32_t it_Component = l_File.FirstComponent; it_Component < l_File.FirstComponent + l_File.ComponentCount; ++it_Component)
-                {
-                    const BinaryComponent& l_Component = l_Components[it_Component];
-                    const std::string_view l_Name = l_Tree.Strings[l_Component.Name];
-                    auto& l_Pool = l_Pools[l_Component.Name];
-                    if (!l_Pool)
-                    {
-                        const ComponentSerializer* l_Serializer = FindSerializer(l_Name);
-                        l_Pool.emplace(l_Serializer, l_Serializer != nullptr ? l_Registry.storage(GetPoolId(l_Name)) : nullptr);
-                    }
-
-                    const auto [a_Serializer, a_Storage] = *l_Pool;
-                    if (l_Component.Kept == 0 && a_Storage != nullptr)
-                    {
-                        if (!a_Storage->contains(l_Entity.GetHandle()))
-                        {
-                            a_Storage->push(l_Entity.GetHandle());
-                        }
-
-                        const BinaryNode l_Node(l_Tree, l_Component.Value);
-                        a_Serializer->Load(a_Storage->value(l_Entity.GetHandle()), ComponentReader(l_Node, a_Serializer->Name));
-
-                        continue;
-                    }
-
-                    if (l_Component.Kept == 0)
-                    {
-                        SetComponentYaml(l_Entity, l_Name, ToYaml(BinaryNode(l_Tree, l_Component.Value)), l_Unknown);
-
-                        continue;
-                    }
-
-                    // Kept as YAML when saved, and loaded by code that knows it now, or kept still when it cannot be read, as a scene's kept YAML is when its code registers
-                    const std::string_view l_Yaml = l_Tree.Strings[l_Component.Value];
-                    if (a_Storage != nullptr)
-                    {
-                        try
-                        {
-                            LoadComponent(l_Entity, *a_Serializer, *a_Storage, YAML::Load(std::string(l_Yaml)));
-
-                            continue;
-                        }
-                        catch (const YAML::Exception& exception)
-                        {
-                            TR_CORE_ERROR("Scene: {} on entity {} is kept as YAML that cannot be read, and stays kept: {}", l_Name, l_Entity.GetUUID(), exception.what());
-                        }
-                    }
-
-                    if (!l_Entity.Has<UnknownComponentsComponent>())
-                    {
-                        l_Entity.Add<UnknownComponentsComponent>();
-                    }
-
-                    l_Entity.Get<UnknownComponentsComponent>().Entries.push_back({ TaggedString<MemoryTag::Scene>(l_Name), TaggedString<MemoryTag::Scene>(l_Yaml) });
-                    ++l_Unknown[std::string(l_Name)];
-                }
-
-                if (l_File.Prefab != 0)
-                {
-                    l_Entity.Add<PrefabInstanceComponent>(PrefabInstanceComponent{ .Prefab = UUID(l_File.Prefab), .Instance = UUID(l_File.Instance), .Kept = l_File.Kept != c_NoString ? TaggedString<MemoryTag::Scene>(l_Tree.Strings[l_File.Kept]) : TaggedString<MemoryTag::Scene>() });
-                }
-            }
-
+            CreateBinaryEntities(scene, *l_Binary, l_Unknown);
             for (const auto& [it_Name, it_Count] : l_Unknown)
             {
                 TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since no loaded code knows that component", it_Count, it_Name);
             }
 
             return {};
+        }
+
+        bool IsBinary(std::span<const std::byte> data)
+        {
+            return data.size() >= BinaryHeader::c_Magic.size() && std::memcmp(data.data(), BinaryHeader::c_Magic.data(), BinaryHeader::c_Magic.size()) == 0;
         }
 
         // The root has no Parent in the text, so it can be put back anywhere
@@ -4829,6 +4880,35 @@ namespace Trinity
             return {};
         }
 
+        Expected<void, std::string> LoadPrefabFromBinary(Scene& prefab, std::span<const std::byte> data)
+        {
+            TR_PROFILE_FUNCTION();
+            TR_CORE_ASSERT(s_State != nullptr, "The scene serializer is not initialized.");
+
+            const Expected<BinaryScene, std::string> l_Binary = ReadBinaryScene(data);
+            if (!l_Binary)
+            {
+                return Unexpected{ l_Binary.GetError() };
+            }
+
+            const std::vector<std::size_t>& l_Parents = l_Binary->Parents;
+            if (l_Parents.empty() || l_Parents.front() != c_NoParent || std::any_of(l_Parents.begin() + 1, l_Parents.end(), [](std::size_t parent) { return parent == c_NoParent; }))
+            {
+                return Unexpected{ std::string("does not hold one entity and its subtree, with the entity first") };
+            }
+
+            prefab.Clear();
+
+            std::unordered_map<std::string, std::size_t> l_Unknown;
+            CreateBinaryEntities(prefab, *l_Binary, l_Unknown);
+            for (const auto& [it_Name, it_Count] : l_Unknown)
+            {
+                TR_CORE_INFO("Scene: kept {} {} component(s) of a prefab as YAML, since no loaded code knows that component", it_Count, it_Name);
+            }
+
+            return {};
+        }
+
         Expected<Entity, std::string> InstantiatePrefab(Scene& scene, UUID prefab, UUID instance, Entity parent, Entity before)
         {
             TR_PROFILE_FUNCTION();
@@ -4887,6 +4967,28 @@ namespace Trinity
                 if (l_Prefab && std::ranges::find(l_Prefabs, *l_Prefab) == l_Prefabs.end())
                 {
                     l_Prefabs.push_back(*l_Prefab);
+                }
+            }
+
+            return l_Prefabs;
+        }
+
+        // Only the entities are read, since the markers are on them. One whose prefab is missing is left out, as binary data keeps it as its text and never makes it again
+        std::vector<UUID> GetBinaryPrefabReferences(std::span<const std::byte> data)
+        {
+            const Expected<BinaryHeader, std::string> l_Header = ReadBinaryHeader(data);
+            if (!l_Header)
+            {
+                return {};
+            }
+
+            std::size_t l_Offset = sizeof(BinaryHeader);
+            std::vector<UUID> l_Prefabs;
+            for (const BinaryEntity& it_Entity : ReadBinary<BinaryEntity>(data, l_Offset, l_Header->EntityCount))
+            {
+                if (it_Entity.Prefab != 0 && it_Entity.Kept == c_NoString && std::ranges::find(l_Prefabs, UUID(it_Entity.Prefab)) == l_Prefabs.end())
+                {
+                    l_Prefabs.push_back(UUID(it_Entity.Prefab));
                 }
             }
 
@@ -5228,15 +5330,16 @@ namespace Trinity
             return {};
         }
 
+        // A scene file's text, or a binary scene, as a cooked game's are
         Expected<void, std::string> Load(Scene& scene, std::string_view path)
         {
-            const Expected<std::string, FileError> l_Text = FileSystem::ReadText(path);
-            if (!l_Text)
+            const Expected<FileBuffer, FileError> l_Data = FileSystem::ReadFile(path);
+            if (!l_Data)
             {
-                return Unexpected{ std::format("{} could not be read: {}", path, ToString(l_Text.GetError())) };
+                return Unexpected{ std::format("{} could not be read: {}", path, ToString(l_Data.GetError())) };
             }
 
-            Expected<void, std::string> l_Loaded = LoadFromText(scene, *l_Text);
+            Expected<void, std::string> l_Loaded = IsBinary(*l_Data) ? LoadFromBinary(scene, *l_Data) : LoadFromText(scene, std::string_view(reinterpret_cast<const char*>(l_Data->data()), l_Data->size()));
             if (!l_Loaded)
             {
                 return Unexpected{ std::format("{} {}", path, l_Loaded.GetError()) };

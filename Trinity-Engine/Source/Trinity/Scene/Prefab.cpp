@@ -12,6 +12,7 @@
 #include "Trinity/Scene/SceneSerializer.hpp"
 
 #include <algorithm>
+#include <span>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -78,6 +79,14 @@ namespace Trinity
 
         PrefabLoader* s_Loader = nullptr;
         ModelPrefabLoader* s_ModelLoader = nullptr;
+
+        // A cooked game's prefabs are binary, and a project's are text
+        Expected<void, std::string> LoadTemplate(Scene& prefab, std::string_view data)
+        {
+            const std::span<const std::byte> l_Bytes = std::as_bytes(std::span(data));
+
+            return SceneSerializer::IsBinary(l_Bytes) ? SceneSerializer::LoadPrefabFromBinary(prefab, l_Bytes) : SceneSerializer::LoadPrefabFromText(prefab, data);
+        }
     }
 
     namespace Prefab
@@ -299,14 +308,14 @@ namespace Trinity
         return l_Complete;
     }
 
-    // From a copy of the text, which the reading keeps views into, and only once
+    // From a copy of the text, or of a cooked prefab's bytes, which the reading keeps views into, and only once
     void PrefabAsset::MakeTemplate() const
     {
         const std::string l_Text(m_Text);
         TaggedString<MemoryTag::Assets>().swap(m_Text);
         m_Making = true;
         Scope<Scene> l_Template = CreateScope<Scene>();
-        const Expected<void, std::string> l_Loaded = SceneSerializer::LoadPrefabFromText(*l_Template, l_Text);
+        const Expected<void, std::string> l_Loaded = LoadTemplate(*l_Template, l_Text);
         m_Making = false;
         if (!l_Loaded)
         {
@@ -318,12 +327,12 @@ namespace Trinity
         m_Template = std::move(l_Template);
     }
 
-    // Only the text is kept on the worker, since a scene belongs to the main thread, with the prefabs its instances are of
+    // Only the text, or a cooked prefab's bytes, is kept on the worker, since a scene belongs to the main thread, with the prefabs its instances are of
     Expected<Asset*, std::string> PrefabLoader::Load(std::span<const std::byte> data) const
     {
         const std::string_view l_Text(reinterpret_cast<const char*>(data.data()), data.size());
         PrefabAsset* l_Prefab = Memory::New<PrefabAsset>(MemoryTag::Assets, l_Text);
-        const std::vector<UUID> l_Nested = SceneSerializer::GetPrefabReferences(l_Text);
+        const std::vector<UUID> l_Nested = SceneSerializer::IsBinary(data) ? SceneSerializer::GetBinaryPrefabReferences(data) : SceneSerializer::GetPrefabReferences(l_Text);
         l_Prefab->m_Nested.assign(l_Nested.begin(), l_Nested.end());
 
         return l_Prefab;
@@ -339,7 +348,7 @@ namespace Trinity
         }
 
         Scope<Scene> l_Template = CreateScope<Scene>();
-        const Expected<void, std::string> l_Loaded = SceneSerializer::LoadPrefabFromText(*l_Template, l_Prefab.m_Text);
+        const Expected<void, std::string> l_Loaded = LoadTemplate(*l_Template, l_Prefab.m_Text);
         if (!l_Loaded)
         {
             return Unexpected{ l_Loaded.GetError() };

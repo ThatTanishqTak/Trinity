@@ -26,6 +26,7 @@
 #include <chrono>
 #include <format>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -231,6 +232,7 @@ namespace Trinity
             std::string Path;
             FileRequest Request;
             bool Read = false;
+            // The file as read: a project's text, or a cooked game's binary scene
             std::optional<std::string> Text;
             std::string Error;
             Scope<Scene> Next;
@@ -425,7 +427,8 @@ namespace Trinity
             if (!l_Loading.PrefabsHeld)
             {
                 l_Loading.PrefabsHeld = true;
-                for (const UUID it_Prefab : SceneSerializer::GetPrefabReferences(*l_Loading.Text))
+                const std::span<const std::byte> l_Data = std::as_bytes(std::span(*l_Loading.Text));
+                for (const UUID it_Prefab : SceneSerializer::IsBinary(l_Data) ? SceneSerializer::GetBinaryPrefabReferences(l_Data) : SceneSerializer::GetPrefabReferences(*l_Loading.Text))
                 {
                     AddAsset(l_Loading.Held, it_Prefab);
                     AssetManager::Acquire(it_Prefab);
@@ -439,7 +442,8 @@ namespace Trinity
 
             TR_PROFILE_SCOPE("SceneManager::Parse");
             Scope<Scene> l_Next = CreateScope<Scene>();
-            const Expected<void, std::string> l_Loaded = SceneSerializer::LoadFromText(*l_Next, *l_Loading.Text);
+            const std::span<const std::byte> l_Data = std::as_bytes(std::span(*l_Loading.Text));
+            const Expected<void, std::string> l_Loaded = SceneSerializer::IsBinary(l_Data) ? SceneSerializer::LoadFromBinary(*l_Next, l_Data) : SceneSerializer::LoadFromText(*l_Next, *l_Loading.Text);
             l_Loading.Text.reset();
             if (!l_Loaded)
             {
