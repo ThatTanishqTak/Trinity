@@ -221,3 +221,6 @@ TR_NATIVE(AudioMixer_GetFloat, Bool, (UInt64 mixer, Utf8 name, Float* value))
 TR_NATIVE(AudioMixer_ClearFloat, Bool, (UInt64 mixer, Utf8 name))
 TR_NATIVE(AudioMixer_TransitionToSnapshot, Bool, (UInt64 mixer, Utf8 name, Float seconds))
 TR_NATIVE(AudioMixer_FindGroup, UInt64, (UInt64 mixer, Utf8 name))
+
+// The game's end, as Application::Quit has it: a player closes once the frame ends, and Forge stops playing
+TR_NATIVE(Application_Quit, Void, ())

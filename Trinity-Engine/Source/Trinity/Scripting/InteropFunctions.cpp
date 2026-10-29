@@ -1,5 +1,6 @@
 #include "Trinity/Scripting/Interop.hpp"
 
+#include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Renderer/DebugDraw.hpp"
@@ -229,5 +230,10 @@ namespace Trinity
 
             return l_Manager != nullptr ? l_Manager->GetSceneAsset().GetValue() : 0;
         }
-}
+
+        Void Application_Quit()
+        {
+            Application::Quit();
+        }
+    }
 }

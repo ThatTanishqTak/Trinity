@@ -76,6 +76,7 @@
 #include "Trinity/Renderer/ToneMapping.hpp"
 #include "Trinity/RHI/Device.hpp"
 
+#include "Trinity/Project/GameSettings.hpp"
 #include "Trinity/Project/Project.hpp"
 
 #include "Trinity/Scene/ComponentType.hpp"

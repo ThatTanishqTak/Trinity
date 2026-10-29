@@ -23,11 +23,14 @@
 #include "Trinity/Scripting/ScriptBackend.hpp"
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <ranges>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -119,8 +122,21 @@ namespace Trinity
             FileSystem::MountDirectory("/engine", l_Directory);
         }
 
-        // Every program logs under --log-dir when given, or else in a folder of the user's own, as Unity keeps Editor.log, so its log is in one place however it was started and can be written wherever it is installed. A folder the log library cannot name, as one the system's code page cannot spell, gives way to Logs under the working directory
-        std::filesystem::path GetLogDirectory(const ApplicationCommandLineArgs& args)
+        std::filesystem::path ToDirectoryPath(std::string_view name)
+        {
+            const std::string l_Name = ToDirectoryName(name);
+
+            return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(l_Name.data()), l_Name.size()));
+        }
+
+        // Where an application keeps its own files in the user's folder: a game under its company's and product's names, as Unity's are, and Trinity's own programs under Trinity
+        std::filesystem::path GetUserFolder(const std::filesystem::path& base, std::string_view company, std::string_view name)
+        {
+            return company.empty() ? base / "Trinity" : base / ToDirectoryPath(company) / ToDirectoryPath(name);
+        }
+
+        // Every program logs under --log-dir when given, or else in a folder of the user's own, as Unity keeps Editor.log and a game's Player.log, so its log is in one place however it was started and can be written wherever it is installed. A folder the log library cannot name, as one the system's code page cannot spell, gives way to Logs under the working directory
+        std::filesystem::path GetLogDirectory(const ApplicationCommandLineArgs& args, std::string_view company = {}, std::string_view name = {})
         {
             if (const std::optional<std::string_view> l_Override = args.GetOption("log-dir"); l_Override && !l_Override->empty())
             {
@@ -133,7 +149,7 @@ namespace Trinity
                 return "Logs";
             }
 
-            const std::filesystem::path l_Directory = l_Base / "Trinity" / "Logs";
+            const std::filesystem::path l_Directory = GetUserFolder(l_Base, company, name) / "Logs";
             try
             {
                 static_cast<void>(l_Directory.string());
@@ -146,7 +162,15 @@ namespace Trinity
             return l_Directory;
         }
 
-        void MountSaveDirectory(const ApplicationCommandLineArgs& args, std::string_view applicationName)
+        // Named for the executable, so each program's is its own in a shared folder
+        std::filesystem::path GetLogFile(const std::filesystem::path& directory, const ApplicationCommandLineArgs& args, std::string_view extension)
+        {
+            const std::filesystem::path l_Stem = args.Count > 0 && args.Args != nullptr && args.Args[0] != nullptr ? std::filesystem::path(args.Args[0]).stem() : std::filesystem::path("Trinity");
+
+            return directory / std::filesystem::path(l_Stem).concat(extension);
+        }
+
+        void MountSaveDirectory(const ApplicationCommandLineArgs& args, std::string_view company, std::string_view applicationName)
         {
             std::filesystem::path l_Directory;
             if (const std::optional<std::string_view> l_Override = args.GetOption("saves"); l_Override && !l_Override->empty())
@@ -162,8 +186,9 @@ namespace Trinity
                     l_Base = "UserData";
                 }
 
-                const std::string l_Name = ToDirectoryName(applicationName);
-                l_Directory = l_Base / "Trinity" / std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(l_Name.data()), l_Name.size())) / "Saved";
+                // Trinity's own programs share its folder, so each keeps its saves under its own name
+                const std::filesystem::path l_Folder = GetUserFolder(l_Base, company, applicationName);
+                l_Directory = (company.empty() ? l_Folder / ToDirectoryPath(applicationName) : l_Folder) / "Saved";
             }
 
             std::error_code l_Error;
@@ -269,6 +294,11 @@ namespace Trinity
 
         const ApplicationCommandLineArgs& l_Args = m_Specification.CommandLineArgs;
 
+        // The log opens in the application's own folder, with every line before it first
+        const std::filesystem::path l_LogFile = GetLogFile(GetLogDirectory(l_Args, m_Specification.Company, m_Specification.Name), l_Args, ".log");
+        Log::OpenFile(l_LogFile);
+        FileSystem::MountDirectory("/logs", l_LogFile.parent_path());
+
         if (l_Args.HasOption("headless"))
         {
             m_Specification.Window.Headless = true;
@@ -286,6 +316,18 @@ namespace Trinity
             }
         }
 
+        // The order's first this build has, unless an option picks one, with the rest of it to fall back on
+        std::vector<GraphicsAPI> l_Fallbacks;
+        if (!l_Args.HasOption("d3d12") && !l_Args.HasOption("vulkan"))
+        {
+            std::ranges::copy_if(m_Specification.GraphicsOrder, std::back_inserter(l_Fallbacks), [](GraphicsAPI api) { return IsGraphicsAPIAvailable(api); });
+            if (!l_Fallbacks.empty())
+            {
+                m_Specification.Graphics = l_Fallbacks.front();
+                l_Fallbacks.erase(l_Fallbacks.begin());
+            }
+        }
+
         if (l_Args.HasOption("d3d12"))
         {
             m_Specification.Graphics = GraphicsAPI::D3D12;
@@ -299,6 +341,7 @@ namespace Trinity
         if (m_Specification.Window.Headless)
         {
             m_Specification.Graphics = GraphicsAPI::None;
+            l_Fallbacks.clear();
         }
 
         if (!IsGraphicsAPIAvailable(m_Specification.Graphics))
@@ -316,7 +359,7 @@ namespace Trinity
 
         TR_CORE_INFO("Starting '{}' (graphics: {}{})", m_Specification.Name, ToString(m_Specification.Graphics), m_Specification.Window.Headless ? ", headless" : "");
 
-        MountSaveDirectory(l_Args, m_Specification.Name);
+        MountSaveDirectory(l_Args, m_Specification.Company, m_Specification.Name);
 
         if (m_Specification.StartDotNet)
         {
@@ -338,7 +381,7 @@ namespace Trinity
             Input::InitializeGamepads();
         }
 
-        CreateDevice();
+        CreateDevice(l_Fallbacks);
         m_Renderer = CreateScope<Renderer>(*m_Device, *m_Window, m_Specification.Window.Title);
 
         if (m_Specification.StartAudio)
@@ -362,26 +405,43 @@ namespace Trinity
         s_Instance = nullptr;
     }
 
-    void Application::CreateDevice()
+    // The specification's graphics API, then each fallback in turn while a device cannot be made, and None last
+    void Application::CreateDevice(std::span<const GraphicsAPI> fallbacks)
     {
         RHI::DeviceSpecification l_Specification;
-        l_Specification.API = m_Specification.Graphics;
 #if defined(TR_DEBUG)
         l_Specification.EnableValidation = true;
         l_Specification.EnableGPUValidation = s_GPUValidationVariable.Get();
 #endif
 
-        Expected<Scope<RHI::Device>, std::string> l_Device = RHI::CreateDevice(l_Specification);
-        if (!l_Device)
+        std::vector<GraphicsAPI> l_APIs{ m_Specification.Graphics };
+        for (const GraphicsAPI it_API : fallbacks)
         {
-            TR_CORE_ERROR("Could not create a {} device: {}. Falling back to None", ToString(l_Specification.API), l_Device.GetError());
-
-            m_Specification.Graphics = GraphicsAPI::None;
-            l_Specification.API = GraphicsAPI::None;
-            l_Device = RHI::CreateDevice(l_Specification);
+            if (std::ranges::find(l_APIs, it_API) == l_APIs.end())
+            {
+                l_APIs.push_back(it_API);
+            }
         }
 
-        m_Device = std::move(*l_Device);
+        if (std::ranges::find(l_APIs, GraphicsAPI::None) == l_APIs.end())
+        {
+            l_APIs.push_back(GraphicsAPI::None);
+        }
+
+        for (std::size_t it_Index = 0; it_Index < l_APIs.size(); ++it_Index)
+        {
+            l_Specification.API = l_APIs[it_Index];
+            Expected<Scope<RHI::Device>, std::string> l_Device = RHI::CreateDevice(l_Specification);
+            if (l_Device || it_Index + 1 == l_APIs.size())
+            {
+                m_Specification.Graphics = l_Specification.API;
+                m_Device = std::move(*l_Device);
+
+                break;
+            }
+
+            TR_CORE_ERROR("Could not create a {} device: {}. Falling back to {}", ToString(l_Specification.API), l_Device.GetError(), ToString(l_APIs[it_Index + 1]));
+        }
 
         const RHI::DeviceInfo& l_Info = m_Device->GetInfo();
         TR_CORE_INFO("Graphics device: {} on {}", ToString(l_Info.API), l_Info.AdapterName);
@@ -411,6 +471,29 @@ namespace Trinity
         }
 
         Close();
+    }
+
+    void Application::Quit()
+    {
+        if (s_Instance == nullptr)
+        {
+            return;
+        }
+
+        if (s_Instance->m_QuitHandler)
+        {
+            s_Instance->m_QuitHandler();
+
+            return;
+        }
+
+        TR_CORE_INFO("The game asked to quit, so '{}' closes", s_Instance->m_Specification.Name);
+        s_Instance->Close();
+    }
+
+    void Application::SetQuitHandler(std::function<void()> handler)
+    {
+        m_QuitHandler = std::move(handler);
     }
 
     void Application::SubmitFrameJob(Job job)
@@ -528,23 +611,17 @@ namespace Trinity
     {
         Platform::Initialize();
 
+        // The log file opens as the application starts, in its folder, and the lines before then wait for it. A profile capture goes in Trinity's
         const std::filesystem::path l_LogDirectory = GetLogDirectory({ argc, argv });
-        std::filesystem::path l_LogFile = l_LogDirectory / "Trinity.log";
-        std::filesystem::path l_CaptureFile = l_LogDirectory / "Trinity.trace.json";
-        if (argc > 0 && argv != nullptr && argv[0] != nullptr)
-        {
-            const std::filesystem::path l_Stem = std::filesystem::path(argv[0]).stem();
-            l_LogFile = l_LogDirectory / std::filesystem::path(l_Stem).concat(".log");
-            l_CaptureFile = l_LogDirectory / std::filesystem::path(l_Stem).concat(".trace.json");
-        }
-
-        Log::Initialize(l_LogFile);
+        const std::filesystem::path l_CaptureFile = GetLogFile(l_LogDirectory, { argc, argv }, ".trace.json");
+        Log::Initialize();
 
         // The physics libraries are built for instructions some processors lack. Nothing built for them has run yet, so a processor without them stops here with the reason, rather than crashing once a scene starts running
         if (const std::string l_Missing = CpuFeatures::GetMissingPhysicsInstructions(); !l_Missing.empty())
         {
             const std::string l_Message = std::format("This processor does not support {}, which Trinity's physics is built for, so it cannot run here.", l_Missing);
             TR_CORE_CRITICAL("{}", l_Message);
+            Log::OpenFile(GetLogFile(l_LogDirectory, { argc, argv }, ".log"));
             if (!ApplicationCommandLineArgs{ argc, argv }.HasOption("headless"))
             {
                 Platform::ShowErrorMessage("Trinity", l_Message);
@@ -562,7 +639,6 @@ namespace Trinity
         ConsoleVariables::Initialize({ argc, argv });
         MainThread::Initialize();
         FileSystem::Initialize();
-        FileSystem::MountDirectory("/logs", l_LogFile.parent_path());
         MountEngineDirectory();
         JobSystem::Initialize();
         SceneSerializer::Initialize();

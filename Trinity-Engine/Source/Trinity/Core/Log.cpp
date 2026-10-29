@@ -2,10 +2,10 @@
 
 #include "Trinity/Core/Memory.hpp"
 
+#include <spdlog/details/file_helper.h>
 #include <spdlog/details/null_mutex.h>
 #include <spdlog/details/os.h>
 #include <spdlog/sinks/base_sink.h>
-#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <algorithm>
@@ -13,6 +13,8 @@
 #include <atomic>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <system_error>
 #include <vector>
 
@@ -23,7 +25,80 @@ namespace Trinity
         // Lines below warnings reach the file within this long too, so a crash loses little of what led up to it
         constexpr std::chrono::seconds c_FlushInterval{ 1 };
 
+        // What a run logs before its file opens, past which lines wait no more and are counted instead
+        constexpr std::size_t c_PendingCapacity = 1024 * 1024;
+
+        // The log file, opened once the application knows its folder. Until then each line waits, formatted as the file has it, so the file starts with the run's first line. Both loggers share it, under its own lock
+        class DeferredFileSink final : public spdlog::sinks::base_sink<std::mutex>
+        {
+        public:
+            // The file opened, after what waited, or the reason it was not
+            [[nodiscard]] std::string Open(const std::filesystem::path& path)
+            {
+                std::scoped_lock l_Lock(mutex_);
+                try
+                {
+                    m_File.open(path.string(), true);
+                }
+                catch (const std::exception& exception)
+                {
+                    return exception.what();
+                }
+
+                m_Open = true;
+                spdlog::memory_buf_t l_Pending;
+                l_Pending.append(m_Pending.data(), m_Pending.data() + m_Pending.size());
+                m_File.write(l_Pending);
+                std::string().swap(m_Pending);
+                if (m_Dropped != 0)
+                {
+                    const std::string l_Note = std::format("[{} lines logged before the file opened were dropped, as too many waited]\n", m_Dropped);
+                    spdlog::memory_buf_t l_Buffer;
+                    l_Buffer.append(l_Note.data(), l_Note.data() + l_Note.size());
+                    m_File.write(l_Buffer);
+                }
+
+                m_File.flush();
+
+                return {};
+            }
+
+        protected:
+            void sink_it_(const spdlog::details::log_msg& message) override
+            {
+                spdlog::memory_buf_t l_Formatted;
+                formatter_->format(message, l_Formatted);
+                if (m_Open)
+                {
+                    m_File.write(l_Formatted);
+                }
+                else if (m_Pending.size() + l_Formatted.size() <= c_PendingCapacity)
+                {
+                    m_Pending.append(l_Formatted.data(), l_Formatted.size());
+                }
+                else
+                {
+                    ++m_Dropped;
+                }
+            }
+
+            void flush_() override
+            {
+                if (m_Open)
+                {
+                    m_File.flush();
+                }
+            }
+
+        private:
+            spdlog::details::file_helper m_File;
+            bool m_Open = false;
+            std::string m_Pending;
+            std::size_t m_Dropped = 0;
+        };
+
         std::array<std::shared_ptr<spdlog::logger>, 2> s_Loggers;
+        std::shared_ptr<DeferredFileSink> s_FileSink;
         std::filesystem::path s_FilePath;
         std::filesystem::path s_PreviousFilePath;
 
@@ -181,7 +256,7 @@ namespace Trinity
         return "critical";
     }
 
-    void Log::Initialize(const std::filesystem::path& logFile)
+    void Log::Initialize()
     {
         std::vector<spdlog::sink_ptr> l_Sinks;
 
@@ -189,36 +264,9 @@ namespace Trinity
         a_ConsoleSink->set_pattern("%^[%T.%e] %-7n %-8l%$ %v");
         l_Sinks.push_back(std::move(a_ConsoleSink));
 
-        // The last run's log is kept beside the new one, as Unity keeps Editor-prev.log, so what led up to a crash is still there after the restart
-        std::filesystem::path l_Previous = logFile;
-        l_Previous.replace_filename(std::filesystem::path(logFile.stem()) += "-prev");
-        l_Previous += logFile.extension();
-
-        std::string l_FileSinkError;
-        std::error_code l_KeepError;
-        try
-        {
-            std::error_code l_Ignored;
-            if (logFile.has_parent_path())
-            {
-                std::filesystem::create_directories(logFile.parent_path(), l_Ignored);
-            }
-
-            if (std::filesystem::exists(logFile, l_Ignored))
-            {
-                std::filesystem::rename(logFile, l_Previous, l_KeepError);
-            }
-
-            auto fileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logFile.string(), true);
-            fileSink->set_pattern("[%Y-%m-%d %T.%e] %-7n %-8l %v");
-            l_Sinks.push_back(std::move(fileSink));
-            s_FilePath = logFile;
-            s_PreviousFilePath = std::filesystem::exists(l_Previous, l_Ignored) ? l_Previous : std::filesystem::path();
-        }
-        catch (const std::exception& exception)
-        {
-            l_FileSinkError = exception.what();
-        }
+        s_FileSink = std::make_shared<DeferredFileSink>();
+        s_FileSink->set_pattern("[%Y-%m-%d %T.%e] %-7n %-8l %v");
+        l_Sinks.push_back(s_FileSink);
 
         std::vector<spdlog::sink_ptr> l_CoreSinks = l_Sinks;
         l_CoreSinks.push_back(std::make_shared<HistorySink>(LogChannel::Core));
@@ -236,17 +284,53 @@ namespace Trinity
         }
 
         spdlog::flush_every(c_FlushInterval);
+    }
 
-        if (!l_FileSinkError.empty())
+    // The last run's log is kept beside the new one, as Unity keeps Editor-prev.log, so what led up to a crash is still there after the restart
+    void Log::OpenFile(const std::filesystem::path& logFile)
+    {
+        if (s_FileSink == nullptr || !s_FilePath.empty())
         {
-            TR_CORE_WARN("File logging is disabled: {}", l_FileSinkError);
-        }
-        else
-        {
-            TR_CORE_INFO("Logging to {}", s_FilePath.string());
+            return;
         }
 
-        if (l_KeepError && l_FileSinkError.empty())
+        std::filesystem::path l_Previous = logFile;
+        l_Previous.replace_filename(std::filesystem::path(logFile.stem()) += "-prev");
+        l_Previous += logFile.extension();
+
+        std::error_code l_Ignored;
+        std::error_code l_KeepError;
+        std::string l_Error;
+        try
+        {
+            if (logFile.has_parent_path())
+            {
+                std::filesystem::create_directories(logFile.parent_path(), l_Ignored);
+            }
+
+            if (std::filesystem::exists(logFile, l_Ignored))
+            {
+                std::filesystem::rename(logFile, l_Previous, l_KeepError);
+            }
+
+            l_Error = s_FileSink->Open(logFile);
+        }
+        catch (const std::exception& exception)
+        {
+            l_Error = exception.what();
+        }
+
+        if (!l_Error.empty())
+        {
+            TR_CORE_WARN("File logging is disabled: {}", l_Error);
+
+            return;
+        }
+
+        s_FilePath = logFile;
+        s_PreviousFilePath = std::filesystem::exists(l_Previous, l_Ignored) ? l_Previous : std::filesystem::path();
+        TR_CORE_INFO("Logging to {}", s_FilePath.string());
+        if (l_KeepError)
         {
             TR_CORE_WARN("The last run's log could not be kept as {}, so it was written over: {}", l_Previous.string(), l_KeepError.message());
         }
@@ -269,6 +353,7 @@ namespace Trinity
             it_Logger.reset();
         }
 
+        s_FileSink.reset();
         spdlog::shutdown();
     }
 

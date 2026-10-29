@@ -15,7 +15,9 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -37,9 +39,13 @@ namespace Trinity
     struct ApplicationSpecification
     {
         std::string Name = "Trinity Application";
+        // A game's company. Its saves and log go under it and the name in the user's folder, as Unity's do, and without one under Trinity, as Trinity's own programs' do
+        std::string Company;
         WindowSpecification Window;
 
         GraphicsAPI Graphics = GetDefaultGraphicsAPI();
+        // Tried in this order when no --d3d12 or --vulkan picks one, skipping any this build lacks, each in turn while its device cannot be made, as a game's export lists them. Empty tries Graphics alone
+        std::vector<GraphicsAPI> GraphicsOrder;
 
         std::uint64_t MaxFrames = 0;
         std::size_t FrameAllocatorCapacity = 4 * 1024 * 1024;
@@ -79,6 +85,10 @@ namespace Trinity
 
         void Close();
         void RequestClose();
+        // How a game ends, as a script's Application.Quit asks: the application closes once the frame ends, unless a handler is set, as Forge sets one to stop playing instead. Main thread only
+        static void Quit();
+        // What Quit does in place of closing, or none to close again
+        void SetQuitHandler(std::function<void()> handler);
         void SubmitFrameJob(Job job);
 
         // Also how events from windows other than the main one, such as ImGui's viewports, reach Input and the layers
@@ -99,7 +109,7 @@ namespace Trinity
     private:
         void Run();
         void RunFrame(bool pollEvents);
-        void CreateDevice();
+        void CreateDevice(std::span<const GraphicsAPI> fallbacks);
         bool OnWindowClose(WindowCloseEvent& event);
         bool OnWindowResize(WindowResizeEvent& event);
 
@@ -111,6 +121,7 @@ namespace Trinity
         Scope<Renderer> m_Renderer;
         Scope<AudioEngine> m_AudioEngine;
         LayerStack m_LayerStack;
+        std::function<void()> m_QuitHandler;
         std::uint64_t m_FrameCount = 0;
         std::chrono::steady_clock::time_point m_LastFrameTime;
         bool m_Running = true;

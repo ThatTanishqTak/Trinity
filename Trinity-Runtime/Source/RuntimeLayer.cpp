@@ -15,28 +15,23 @@ namespace
         return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
     }
 
-    std::string ToUtf8(const std::filesystem::path& path)
+    [[maybe_unused]] std::string ToUtf8(const std::filesystem::path& path)
     {
         const std::u8string l_Text = path.u8string();
 
         return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
     }
 
-    // Where Forge builds the project's module: Build/<configuration>/Modules, in Debug beside a Debug engine and in Release otherwise
-    [[maybe_unused]] std::filesystem::path GetModulePath(const Trinity::Project& project)
+    // The module's build beside the pack, as the export copies it there
+    [[maybe_unused]] std::filesystem::path GetModulePath(const std::filesystem::path& gameDirectory, std::string_view module)
     {
-#if defined(TR_DEBUG)
-        constexpr std::string_view c_Configuration = "Debug";
-#else
-        constexpr std::string_view c_Configuration = "Release";
-#endif
 #if defined(TR_PLATFORM_WINDOWS)
         constexpr std::string_view c_Extension = ".dll";
 #else
         constexpr std::string_view c_Extension = ".so";
 #endif
 
-        return project.GetBuildDirectory() / c_Configuration / "Modules" / FromUtf8(std::format("{}{}", project.GetModuleName(), c_Extension));
+        return gameDirectory / FromUtf8(std::format("{}{}", module, c_Extension));
     }
 
     // The first primary camera in hierarchy order, as the Game panel finds it
@@ -55,32 +50,22 @@ namespace
     }
 }
 
-RuntimeLayer::RuntimeLayer() : Layer("Runtime")
+RuntimeLayer::RuntimeLayer(std::optional<Trinity::GameSettings> game, std::filesystem::path gameDirectory) : Layer("Runtime"), m_Game(std::move(game)), m_GameDirectory(std::move(gameDirectory))
 {
 
 }
 
-// A player that cannot find what to play says why once, and closes
+// A game that cannot be played was reported where it failed, so the player only closes
 void RuntimeLayer::OnAttach()
 {
     Trinity::Application& l_Application = Trinity::Application::Get();
-    const Trinity::ApplicationCommandLineArgs& l_Args = l_Application.GetSpecification().CommandLineArgs;
-    const std::optional<std::string_view> l_Project = l_Args.GetOption("project");
-    if (!l_Project || l_Project->empty())
-    {
-        TR_ERROR("Runtime: no project was given. Pass --project=<path to its .trproj>, and --scene=<a scene's path in its Assets folder> to start somewhere other than its start scene");
-        l_Application.Close();
-
-        return;
-    }
-
-    if (!OpenProject(FromUtf8(*l_Project)) || !LoadStartScene(l_Args))
+    if (!m_Game || !OpenAssets() || !LoadStartScene(l_Application.GetSpecification().CommandLineArgs))
     {
         l_Application.Close();
     }
 }
 
-// The scene and its scripts go before the module whose code made them, and the project's assets before the registry that finds them
+// The scene and its scripts go before the module whose code made them, and the game's assets before the registry that finds them
 void RuntimeLayer::OnDetach()
 {
     m_Scenes.reset();
@@ -95,11 +80,9 @@ void RuntimeLayer::OnDetach()
         Trinity::AssetManager::SetRegistry(nullptr);
         m_Registry.reset();
     }
-
-    m_Project.reset();
 }
 
-// The mix is the project's from the frame its mixer is ready, as Play's is in Forge
+// The mix is the game's from the frame its mixer is ready, as Play's is in Forge
 void RuntimeLayer::OnUpdate(Trinity::Timestep timestep)
 {
     if (!m_MixerApplied && m_Mixer.IsReady())
@@ -151,31 +134,34 @@ void RuntimeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& c
     l_Renderer.SubmitScene(*l_Scene, Trinity::RenderView::FromCamera(l_Component, l_Camera.Get<Trinity::WorldTransformComponent>().Matrix, l_AspectRatio), l_Options);
 }
 
-// Opened, mounted and scanned as Forge opens it, but read only: nothing is imported, so the scenes find what Forge last imported into the project's cache
-bool RuntimeLayer::OpenProject(const std::filesystem::path& path)
+// The pack's asset table, which finds each asset the build holds by its UUID or its path in the project, and reads it where the pack has it. No .meta file is read, and no project folder
+bool RuntimeLayer::OpenAssets()
 {
-    Trinity::Expected<Trinity::Scope<Trinity::Project>, std::string> l_Project = Trinity::Project::Open(path);
-    if (!l_Project)
+    const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Table = Trinity::FileSystem::ReadFile(Trinity::AssetTable::GetPath());
+    if (!l_Table)
     {
-        TR_ERROR("Runtime: the project could not be opened: {}", l_Project.GetError());
+        TR_ERROR("Runtime: the game's pack holds no asset table that can be read: {}", Trinity::ToString(l_Table.GetError()));
 
         return false;
     }
 
-    m_Project = std::move(*l_Project);
     m_Registry = Trinity::CreateScope<Trinity::AssetRegistry>(Trinity::Project::c_AssetsMount);
-    Trinity::AssetManager::SetRegistry(m_Registry.get());
-    static_cast<void>(m_Registry->Scan());
+    if (const Trinity::Expected<void, std::string> l_Loaded = m_Registry->LoadTable(*l_Table); !l_Loaded)
+    {
+        TR_ERROR("Runtime: the game's asset table could not be read: {}", l_Loaded.GetError());
 
-    Trinity::Application::Get().GetRenderer().SetTitle(m_Project->GetName());
+        return false;
+    }
+
+    Trinity::AssetManager::SetRegistry(m_Registry.get());
     LoadModule();
-    m_Mixer = Trinity::AssetRef<Trinity::AudioMixerAsset>(m_Project->GetAudioSettings().Mixer);
-    TR_INFO("Runtime: opened {} from {}", m_Project->GetName(), ToUtf8(m_Project->GetDirectory()));
+    m_Mixer = Trinity::AssetRef<Trinity::AudioMixerAsset>(m_Game->Audio.Mixer);
+    TR_INFO("Runtime: playing {} {} by {}, with {} scene(s) in its build", m_Game->Product, m_Game->Version, m_Game->Company, m_Game->Scenes.size());
 
     return true;
 }
 
-// Beside the shared engine, the module's build as Forge last made it, loaded as Forge loads it. The static engine cannot load a module, so a game's player has it linked in by trinity_add_game, and registers its classes now that the engine has started
+// A player trinity_add_game made has the module linked in, and registers its classes now that the engine has started. Beside the shared engine, the module's build beside the pack is loaded as Forge loads it. The prebuilt player with the static engine cannot load one
 void RuntimeLayer::LoadModule()
 {
 #if !defined(TR_ENGINE_SHARED)
@@ -188,17 +174,17 @@ void RuntimeLayer::LoadModule()
     }
 #endif
 
-    if (!m_Project->HasModule())
+    if (m_Game->Module.empty())
     {
         return;
     }
 
 #if defined(TR_ENGINE_SHARED)
-    const std::filesystem::path l_Path = GetModulePath(*m_Project);
+    const std::filesystem::path l_Path = GetModulePath(m_GameDirectory, m_Game->Module);
     std::error_code l_Error;
     if (!std::filesystem::exists(l_Path, l_Error))
     {
-        TR_ERROR("Runtime: {} has the C++ module {}, which is not built at {}, so its scripts and components are missing. Open the project in Forge to build it", m_Project->GetName(), m_Project->GetModuleName(), ToUtf8(l_Path));
+        TR_ERROR("Runtime: {} has the C++ module {}, which is not at {}, so its scripts and components are missing", m_Game->Product, m_Game->Module, ToUtf8(l_Path));
 
         return;
     }
@@ -215,7 +201,7 @@ void RuntimeLayer::LoadModule()
     {
         if (const std::uint32_t l_Built = l_Version(); l_Built != Trinity::GameModule::c_ApiVersion)
         {
-            TR_ERROR("Runtime: {} was built for version {} of the module API, and this player has version {}, so it is not loaded. Building it again in Forge builds it for this one", m_Project->GetModuleName(), l_Built, Trinity::GameModule::c_ApiVersion);
+            TR_ERROR("Runtime: {} was built for version {} of the module API, and this player has version {}, so it is not loaded. Exporting the game again builds it for this one", m_Game->Module, l_Built, Trinity::GameModule::c_ApiVersion);
 
             return;
         }
@@ -223,17 +209,17 @@ void RuntimeLayer::LoadModule()
 
     m_Module = std::move(*l_Library);
     m_UnloadModule = m_Module.GetFunction<Trinity::GameModule::UnloadFunction>(Trinity::GameModule::c_UnloadFunction);
-    TR_INFO("Runtime: loaded the C++ module {} from {}", m_Project->GetModuleName(), ToUtf8(l_Path));
+    TR_INFO("Runtime: loaded the C++ module {} from {}", m_Game->Module, ToUtf8(l_Path));
     if (const Trinity::GameModule::LoadFunction l_Load = m_Module.GetFunction<Trinity::GameModule::LoadFunction>(Trinity::GameModule::c_LoadFunction))
     {
         l_Load();
     }
     else
     {
-        TR_WARN("Runtime: {} exports no {}, so nothing in it runs", m_Project->GetModuleName(), Trinity::GameModule::c_LoadFunction);
+        TR_WARN("Runtime: {} exports no {}, so nothing in it runs", m_Game->Module, Trinity::GameModule::c_LoadFunction);
     }
 #else
-    TR_ERROR("Runtime: {} has the C++ module {}, which this player cannot load, since its engine is linked statically, so its scripts and components are missing. An export links the module into the player", m_Project->GetName(), m_Project->GetModuleName());
+    TR_ERROR("Runtime: {} has the C++ module {}, which this player cannot load, since its engine is linked statically, so its scripts and components are missing. An export links the module into the player", m_Game->Product, m_Game->Module);
 #endif
 }
 
@@ -259,11 +245,11 @@ void RuntimeLayer::UnloadModule()
     m_Module.Unload();
 }
 
-// The scene --scene names, by its path in the Assets folder or its UUID, or the project's start scene, run by a scene manager with the project's physics, input actions and mix, as Play runs it in Forge
+// The scene --scene names, by its path in the project or its UUID, which must be one of the build's, or the build's first, run by a scene manager with the game's physics, input actions and mix, as Play runs it in Forge
 bool RuntimeLayer::LoadStartScene(const Trinity::ApplicationCommandLineArgs& args)
 {
     Trinity::Application& l_Application = Trinity::Application::Get();
-    m_Scenes = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get(), m_Project->GetInputActions(), l_Application.GetAudioEngine(), m_Project->GetAudioSettings());
+    m_Scenes = Trinity::CreateScope<Trinity::SceneManager>(m_Game->Physics, m_Registry.get(), m_Game->InputActions, l_Application.GetAudioEngine(), m_Game->Audio);
     if (const std::optional<std::string_view> l_Scene = args.GetOption("scene"); l_Scene && !l_Scene->empty())
     {
         const std::optional<Trinity::UUID> l_ID = Trinity::UUID::Parse(*l_Scene);
@@ -271,14 +257,5 @@ bool RuntimeLayer::LoadStartScene(const Trinity::ApplicationCommandLineArgs& arg
         return l_ID ? m_Scenes->Load(*l_ID) : m_Scenes->Load(*l_Scene);
     }
 
-    static_cast<void>(m_Project->ResolveStartScenePath(*m_Registry));
-    const Trinity::UUID l_StartScene = m_Project->GetStartScene();
-    if (!l_StartScene)
-    {
-        TR_ERROR("Runtime: {} has no start scene. Set one in Forge, or pass --scene=<a scene's path in its Assets folder>", m_Project->GetName());
-
-        return false;
-    }
-
-    return m_Scenes->Load(l_StartScene);
+    return m_Scenes->Load(m_Game->Scenes.front());
 }

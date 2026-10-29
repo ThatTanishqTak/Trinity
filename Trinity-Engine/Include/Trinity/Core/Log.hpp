@@ -36,7 +36,10 @@ namespace Trinity
     class TRINITY_API Log
     {
     public:
-        static void Initialize(const std::filesystem::path& logFile);
+        // The console and the history from the first line, and the file once OpenFile names it, which is given every line logged until then
+        static void Initialize();
+        // Opens this run's file, keeping the last run's beside it, and writes into it first every line logged so far, so it starts with the run's first line wherever it is. Once, as the application starts and knows the folder it logs in
+        static void OpenFile(const std::filesystem::path& logFile);
         static void Shutdown();
 
         // The file this run logs to, and the last run's kept beside it, as Unity keeps Editor.log and Editor-prev.log. Empty when the file could not be opened, or there was no last run

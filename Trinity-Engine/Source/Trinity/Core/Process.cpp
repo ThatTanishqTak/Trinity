@@ -113,6 +113,11 @@ namespace Trinity
             return Platform::GetExecutablePath();
         }
 
+        void ShowErrorMessage(std::string_view title, std::string_view message)
+        {
+            Platform::ShowErrorMessage(title, message);
+        }
+
         std::uint32_t GetCurrentID()
         {
             return Platform::GetProcessID();

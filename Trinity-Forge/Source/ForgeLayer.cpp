@@ -119,6 +119,10 @@ void ForgeLayer::OnAttach()
     else
     {
         m_Session.Start(l_Args);
+        if (const auto it_Folder = l_Args.GetOption("pack"); it_Folder && !it_Folder->empty())
+        {
+            m_PackCommand.Start(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(it_Folder->data()), it_Folder->size())));
+        }
     }
 
     // The scene is shown in the Scene and Game panels, so the window gets no copy of it under the UI
@@ -236,6 +240,7 @@ void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
 {
     m_Session.Update();
     m_ImportTest.Update();
+    m_PackCommand.Update();
     m_Session.UpdatePlay(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
     if (Trinity::AudioEngine* l_Audio = Trinity::Application::Get().GetAudioEngine(); l_Audio != nullptr)

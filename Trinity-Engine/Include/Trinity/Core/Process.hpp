@@ -56,5 +56,7 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::uint32_t GetCurrentID();
         // Whether a native debugger is attached: the one Windows reports, or one tracing this process elsewhere. A debugger of managed code alone is not, which ManagedScripts::IsDebuggerAttached tells of
         [[nodiscard]] TRINITY_API bool IsDebuggerAttached();
+        // A modal error box, for a failure the program cannot start past, as a game's that cannot find its pack. Nothing where the platform has no windows, so the caller logs the message too
+        TRINITY_API void ShowErrorMessage(std::string_view title, std::string_view message);
     }
 }

@@ -6,17 +6,15 @@
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/FileSystem/FileSystemUtilities.hpp"
+#include "Trinity/Project/SettingsYaml.hpp"
 
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
-#include <array>
 #include <charconv>
-#include <cmath>
 #include <format>
 #include <optional>
 #include <system_error>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -26,6 +24,7 @@ namespace Trinity
     {
         using FileSystemUtilities::FromUtf8;
         using FileSystemUtilities::ToUtf8;
+        using SettingsYaml::ReadString;
 
         // The mount points are fixed, so one project is open at a time
         bool s_ProjectOpen = false;
@@ -33,219 +32,6 @@ namespace Trinity
         std::string GetProjectFilePath(const std::filesystem::path& filePath)
         {
             return std::format("{}/{}", Project::c_ProjectMount, ToUtf8(filePath.filename()));
-        }
-
-        std::string ReadString(const YAML::Node& root, const char* key, std::string_view fallback)
-        {
-            const YAML::Node l_Value = root[key];
-
-            return l_Value && l_Value.IsScalar() ? l_Value.Scalar() : std::string(fallback);
-        }
-
-        // A whole number below the layer count, or nothing
-        std::optional<std::uint32_t> ReadLayer(const YAML::Node& node)
-        {
-            std::uint32_t l_Layer = 0;
-            const std::string l_Text = node && node.IsScalar() ? node.Scalar() : std::string();
-            const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Layer);
-            if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_Text.data() + l_Text.size() || l_Layer >= c_MaxCollisionLayers)
-            {
-                return std::nullopt;
-            }
-
-            return l_Layer;
-        }
-
-        // The names given, by layer, which are all a layer has when there are any, so a name taken away stays away, and the pairs that do not collide, each lower layer first. A layer's name or pair that cannot be read is left out, and reported
-        CollisionLayers ReadCollisionLayers(const YAML::Node& physics, std::string_view project)
-        {
-            CollisionLayers l_Layers;
-            if (!physics || !physics.IsMap())
-            {
-                return l_Layers;
-            }
-
-            bool l_Unread = false;
-            if (const YAML::Node l_Names = physics["LayerNames"]; l_Names && l_Names.IsMap())
-            {
-                l_Layers.Names.fill(std::string());
-                for (const auto& it_Name : l_Names)
-                {
-                    const std::optional<std::uint32_t> l_Layer = ReadLayer(it_Name.first);
-                    if (!l_Layer || !it_Name.second.IsScalar())
-                    {
-                        l_Unread = true;
-
-                        continue;
-                    }
-
-                    l_Layers.Names[*l_Layer] = it_Name.second.Scalar();
-                }
-            }
-
-            if (const YAML::Node l_Pairs = physics["IgnoredPairs"]; l_Pairs && l_Pairs.IsSequence())
-            {
-                for (const YAML::Node& it_Pair : l_Pairs)
-                {
-                    const std::optional<std::uint32_t> l_First = it_Pair.IsSequence() && it_Pair.size() == 2 ? ReadLayer(it_Pair[0]) : std::nullopt;
-                    const std::optional<std::uint32_t> l_Second = it_Pair.IsSequence() && it_Pair.size() == 2 ? ReadLayer(it_Pair[1]) : std::nullopt;
-                    if (!l_First || !l_Second)
-                    {
-                        l_Unread = true;
-
-                        continue;
-                    }
-
-                    l_Layers.SetCollides(*l_First, *l_Second, false);
-                }
-            }
-
-            if (l_Unread)
-            {
-                TR_CORE_WARN("Project: {} names a collision layer past the last, or one that is not a number, which is left out", project);
-            }
-
-            return l_Layers;
-        }
-
-        // Each number of the sequence, as many as there are, or nothing when it is not that long a sequence of numbers
-        template<std::size_t Count>
-        std::optional<std::array<float, Count>> ReadFloats(const YAML::Node& node)
-        {
-            if (!node || !node.IsSequence() || node.size() != Count)
-            {
-                return std::nullopt;
-            }
-
-            std::array<float, Count> l_Values{};
-            for (std::size_t it_Index = 0; it_Index < Count; ++it_Index)
-            {
-                const std::string l_Text = node[it_Index].IsScalar() ? node[it_Index].Scalar() : std::string();
-                const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Values[it_Index]);
-                if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_Text.data() + l_Text.size() || !std::isfinite(l_Values[it_Index]))
-                {
-                    return std::nullopt;
-                }
-            }
-
-            return l_Values;
-        }
-
-        // Each world's gravity and the step rate, any missing kept at its default, and any that cannot be read reported and kept at its default
-        void ReadWorldSettings(const YAML::Node& physics, std::string_view project, PhysicsSettings& settings)
-        {
-            if (!physics || !physics.IsMap())
-            {
-                return;
-            }
-
-            bool l_Unread = false;
-            if (const YAML::Node l_Node = physics["Gravity3D"])
-            {
-                const std::optional<std::array<float, 3>> l_Gravity = ReadFloats<3>(l_Node);
-                l_Unread |= !l_Gravity;
-                settings.Gravity3D = l_Gravity ? glm::vec3((*l_Gravity)[0], (*l_Gravity)[1], (*l_Gravity)[2]) : settings.Gravity3D;
-            }
-
-            if (const YAML::Node l_Node = physics["Gravity2D"])
-            {
-                const std::optional<std::array<float, 2>> l_Gravity = ReadFloats<2>(l_Node);
-                l_Unread |= !l_Gravity;
-                settings.Gravity2D = l_Gravity ? glm::vec2((*l_Gravity)[0], (*l_Gravity)[1]) : settings.Gravity2D;
-            }
-
-            if (const YAML::Node l_Node = physics["StepRate"])
-            {
-                std::uint32_t l_Rate = 0;
-                const std::string l_Text = l_Node.IsScalar() ? l_Node.Scalar() : std::string();
-                const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Rate);
-                const bool l_Read = l_Parsed.ec == std::errc() && l_Parsed.ptr == l_Text.data() + l_Text.size() && l_Rate > 0;
-                l_Unread |= !l_Read;
-                settings.StepRate = l_Read ? l_Rate : settings.StepRate;
-            }
-
-            if (l_Unread)
-            {
-                TR_CORE_WARN("Project: {} has a gravity or step rate that cannot be read, which keeps its default", project);
-            }
-        }
-
-        // A number the whole text is, and finite, or nothing
-        template<typename T>
-        std::optional<T> ReadNumber(const YAML::Node& node)
-        {
-            T l_Value{};
-            const std::string l_Text = node && node.IsScalar() ? node.Scalar() : std::string();
-            const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Value);
-            if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_Text.data() + l_Text.size())
-            {
-                return std::nullopt;
-            }
-
-            if constexpr (std::is_floating_point_v<T>)
-            {
-                if (!std::isfinite(l_Value))
-                {
-                    return std::nullopt;
-                }
-            }
-
-            return l_Value;
-        }
-
-        // The mixer, the voice limits, the Doppler factor and occlusion, each that is missing kept at its default, and each that cannot be read reported and kept at its default. The occlusion layers are listed by number
-        void ReadAudioSettings(const YAML::Node& audio, std::string_view project, AudioSettings& settings)
-        {
-            if (!audio || !audio.IsMap())
-            {
-                return;
-            }
-
-            bool l_Unread = false;
-            const auto a_Read = [&]<typename T>(const char* key, T & value)
-            {
-                if (const YAML::Node l_Node = audio[key])
-                {
-                    const std::optional<T> l_Value = ReadNumber<T>(l_Node);
-                    l_Unread |= !l_Value;
-                    value = l_Value ? *l_Value : value;
-                }
-            };
-
-            const std::string l_Mixer = ReadString(audio, "Mixer", "");
-            if (const std::optional<UUID> l_Asset = UUID::Parse(l_Mixer))
-            {
-                settings.Mixer = *l_Asset;
-            }
-            else
-            {
-                l_Unread |= !l_Mixer.empty();
-            }
-
-            a_Read("RealVoices", settings.RealVoices);
-            a_Read("VirtualVoices", settings.VirtualVoices);
-            a_Read("DopplerFactor", settings.DopplerFactor);
-            a_Read("OcclusionRays", settings.OcclusionRays);
-            a_Read("OcclusionTime", settings.OcclusionTime);
-            if (const YAML::Node l_Layers = audio["OcclusionLayers"])
-            {
-                std::uint32_t l_Mask = 0;
-                bool l_Read = l_Layers.IsSequence();
-                for (std::size_t it_Layer = 0; l_Read && it_Layer < l_Layers.size(); ++it_Layer)
-                {
-                    const std::optional<std::uint32_t> l_Layer = ReadLayer(l_Layers[it_Layer]);
-                    l_Read = l_Layer.has_value();
-                    l_Mask |= l_Read ? 1u << *l_Layer : 0u;
-                }
-
-                l_Unread |= !l_Read;
-                settings.OcclusionLayers = l_Read ? l_Mask : settings.OcclusionLayers;
-            }
-
-            if (l_Unread)
-            {
-                TR_CORE_WARN("Project: {} has an audio setting that cannot be read, which keeps its default", project);
-            }
         }
     }
 
@@ -404,10 +190,11 @@ namespace Trinity
             l_Project->m_StartScene = *l_Scene;
         }
 
-        l_Project->m_Physics.Layers = l_Format >= 3 ? ReadCollisionLayers(l_Root["Physics"], l_Project->m_Name) : CollisionLayers();
+        const std::string l_Owner = std::format("Project: {}", l_Project->m_Name);
+        l_Project->m_Physics.Layers = l_Format >= 3 ? SettingsYaml::ReadCollisionLayers(l_Root["Physics"], l_Owner) : CollisionLayers();
         if (l_Format >= 4)
         {
-            ReadWorldSettings(l_Root["Physics"], l_Project->m_Name, l_Project->m_Physics);
+            SettingsYaml::ReadWorldSettings(l_Root["Physics"], l_Owner, l_Project->m_Physics);
         }
 
         // A module or assembly name that cannot be one is reported and left out, so the project opens with none
@@ -452,7 +239,7 @@ namespace Trinity
 
         if (l_Format >= 8)
         {
-            ReadAudioSettings(l_Root["Audio"], l_Project->m_Name, l_Project->m_Audio);
+            SettingsYaml::ReadAudioSettings(l_Root["Audio"], l_Owner, l_Project->m_Audio);
         }
 
         if (!l_Project->IsCurrentEngineVersion())
@@ -474,38 +261,7 @@ namespace Trinity
         l_Emitter << YAML::Key << "EngineVersion" << YAML::Value << YAML::DoubleQuoted << m_EngineVersion;
         l_Emitter << YAML::Key << "StartScene" << YAML::Value << YAML::DoubleQuoted << (m_StartScene ? m_StartScene.ToString() : std::string());
 
-        // Only the names that are not empty, and the pairs that do not collide, so a new project's are short
-        const CollisionLayers& l_Layers = m_Physics.Layers;
-        l_Emitter << YAML::Key << "Physics" << YAML::Value << YAML::BeginMap;
-        // Each number as short as reads back the same, as the scene files write them
-        const auto a_Number = [](float value) { return std::format("{}", value); };
-        l_Emitter << YAML::Key << "Gravity3D" << YAML::Value << YAML::Flow << YAML::BeginSeq << a_Number(m_Physics.Gravity3D.x) << a_Number(m_Physics.Gravity3D.y) << a_Number(m_Physics.Gravity3D.z) << YAML::EndSeq;
-        l_Emitter << YAML::Key << "Gravity2D" << YAML::Value << YAML::Flow << YAML::BeginSeq << a_Number(m_Physics.Gravity2D.x) << a_Number(m_Physics.Gravity2D.y) << YAML::EndSeq;
-        l_Emitter << YAML::Key << "StepRate" << YAML::Value << m_Physics.StepRate;
-        l_Emitter << YAML::Key << "LayerNames" << YAML::Value << YAML::BeginMap;
-        for (std::uint32_t it_Layer = 0; it_Layer < c_MaxCollisionLayers; ++it_Layer)
-        {
-            if (!l_Layers.Names[it_Layer].empty())
-            {
-                l_Emitter << YAML::Key << it_Layer << YAML::Value << YAML::DoubleQuoted << l_Layers.Names[it_Layer];
-            }
-        }
-
-        l_Emitter << YAML::EndMap;
-        l_Emitter << YAML::Key << "IgnoredPairs" << YAML::Value << YAML::BeginSeq;
-        for (std::uint32_t it_First = 0; it_First < c_MaxCollisionLayers; ++it_First)
-        {
-            for (std::uint32_t it_Second = it_First; it_Second < c_MaxCollisionLayers; ++it_Second)
-            {
-                if (!l_Layers.Collides(it_First, it_Second))
-                {
-                    l_Emitter << YAML::Flow << YAML::BeginSeq << it_First << it_Second << YAML::EndSeq;
-                }
-            }
-        }
-
-        l_Emitter << YAML::EndSeq;
-        l_Emitter << YAML::EndMap;
+        SettingsYaml::WritePhysicsSettings(l_Emitter, m_Physics);
         l_Emitter << YAML::Key << "Scripting" << YAML::Value << YAML::BeginMap;
         l_Emitter << YAML::Key << "Module" << YAML::Value << YAML::DoubleQuoted << m_ModuleName;
         l_Emitter << YAML::Key << "Assembly" << YAML::Value << YAML::DoubleQuoted << m_AssemblyName;
@@ -513,24 +269,7 @@ namespace Trinity
         l_Emitter << YAML::Key << "Input" << YAML::Value << YAML::BeginMap;
         l_Emitter << YAML::Key << "Actions" << YAML::Value << YAML::DoubleQuoted << (m_InputActions ? m_InputActions.ToString() : std::string());
         l_Emitter << YAML::EndMap;
-        l_Emitter << YAML::Key << "Audio" << YAML::Value << YAML::BeginMap;
-        l_Emitter << YAML::Key << "Mixer" << YAML::Value << YAML::DoubleQuoted << (m_Audio.Mixer ? m_Audio.Mixer.ToString() : std::string());
-        l_Emitter << YAML::Key << "RealVoices" << YAML::Value << m_Audio.RealVoices;
-        l_Emitter << YAML::Key << "VirtualVoices" << YAML::Value << m_Audio.VirtualVoices;
-        l_Emitter << YAML::Key << "DopplerFactor" << YAML::Value << a_Number(m_Audio.DopplerFactor);
-        l_Emitter << YAML::Key << "OcclusionLayers" << YAML::Value << YAML::Flow << YAML::BeginSeq;
-        for (std::uint32_t it_Layer = 0; it_Layer < c_MaxCollisionLayers; ++it_Layer)
-        {
-            if ((m_Audio.OcclusionLayers & (1u << it_Layer)) != 0)
-            {
-                l_Emitter << it_Layer;
-            }
-        }
-
-        l_Emitter << YAML::EndSeq;
-        l_Emitter << YAML::Key << "OcclusionRays" << YAML::Value << m_Audio.OcclusionRays;
-        l_Emitter << YAML::Key << "OcclusionTime" << YAML::Value << a_Number(m_Audio.OcclusionTime);
-        l_Emitter << YAML::EndMap;
+        SettingsYaml::WriteAudioSettings(l_Emitter, m_Audio);
         l_Emitter << YAML::EndMap;
 
         const Expected<void, FileError> l_Written = FileSystem::WriteText(GetProjectFilePath(m_FilePath), std::string(l_Emitter.c_str()) + "\n");

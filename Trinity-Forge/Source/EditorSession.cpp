@@ -763,12 +763,24 @@ EditorSession::~EditorSession()
 
     CloseProject();
     Trinity::SceneSerializer::SetPrefabResolver({});
+    Trinity::Application::Get().SetQuitHandler({});
 }
 
 void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
 {
     // A scene opens at once, before the asset manager could load its prefabs, so Forge reads them itself, the playing scene's too
     Trinity::SceneSerializer::SetPrefabResolver([this](Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()); });
+
+    // A script's Application.Quit stops playing, as Unreal's QuitGame does in its editor, rather than closing Forge
+    Trinity::Application::Get().SetQuitHandler([this]
+    {
+        if (IsPlaying())
+        {
+            TR_INFO("Forge: the game asked to quit, so play stops");
+            RequestStop();
+        }
+    });
+
 
     m_Module.SetBuildStarting([this]
     {

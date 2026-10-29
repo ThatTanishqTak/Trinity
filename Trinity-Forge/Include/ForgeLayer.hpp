@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EditorSession.hpp"
+#include "Export/PackCommand.hpp"
 #include "ImportTest.hpp"
 #include "Panels/AudioMixerPanel.hpp"
 #include "Panels/ConsolePanel.hpp"
@@ -69,6 +70,7 @@ private:
     Trinity::ImGuiLayer& m_ImGui;
     EditorSession m_Session;
     ImportTest m_ImportTest{ m_Session };
+    PackCommand m_PackCommand{ m_Session };
     PreferencesWindow m_PreferencesWindow{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;

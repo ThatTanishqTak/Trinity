@@ -3,13 +3,15 @@
 #include <Trinity.hpp>
 
 #include <filesystem>
+#include <optional>
 #include <string>
 
-// Plays a project's scenes in the window, as Forge's Game panel shows them while playing: through the project's settings, its mixer, its input actions and its C++ module, from the start scene, or the one --scene names, through the scene's primary camera
+// Plays a game from its pack, as its Game.trgame describes it: through its physics, its mixer and its input actions, with its C++ module linked in or loaded from beside the pack, from the first scene of its build, or the one --scene names, through the scene's primary camera. It never reads a project
 class RuntimeLayer final : public Trinity::Layer
 {
 public:
-    RuntimeLayer();
+    // The game, or none for one that could not be opened, which was reported, so the player closes. Its folder holds its pack, and its module beside a shared engine
+    RuntimeLayer(std::optional<Trinity::GameSettings> game, std::filesystem::path gameDirectory);
 
     void OnAttach() override;
     void OnDetach() override;
@@ -17,12 +19,13 @@ public:
     void OnPrepareRender(Trinity::RHI::CommandList& commands) override;
 
 private:
-    [[nodiscard]] bool OpenProject(const std::filesystem::path& path);
+    [[nodiscard]] bool OpenAssets();
     void LoadModule();
     void UnloadModule();
     [[nodiscard]] bool LoadStartScene(const Trinity::ApplicationCommandLineArgs& args);
 
-    Trinity::Scope<Trinity::Project> m_Project;
+    std::optional<Trinity::GameSettings> m_Game;
+    std::filesystem::path m_GameDirectory;
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
     Trinity::SharedLibrary m_Module;
     Trinity::GameModule::UnloadFunction m_UnloadModule = nullptr;
