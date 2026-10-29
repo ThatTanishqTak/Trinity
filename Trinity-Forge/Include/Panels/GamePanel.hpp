@@ -14,8 +14,8 @@
 struct ImGuiTextBuffer;
 struct ImVec2;
 
-// The scene through its primary camera, as the game shows it, in a view of the Renderer's own, under a toolbar as Unity's Game view has it. Free fills the panel, an aspect ratio fills as much of it as that shape allows, and a fixed resolution is drawn at that size. Scale shows the image from fitted to the panel up to five times its size, and while the scene is stopped or paused the wheel zooms and the middle button pans, as in Unity. A playing scene reads the keyboard and mouse only while the panel has the focus, with the mouse in the image's pixels, and the keys are the game's rather than the toolbar's. Actions shows how each player reads its actions over the image
-class GamePanel final : public Panel
+// The scene through its primary camera, as the game shows it, in a view of the Renderer's own, under a toolbar as Unity's Game view has it. Free fills the panel, an aspect ratio fills as much of it as that shape allows, and a fixed resolution is drawn at that size. Scale shows the image from fitted to the panel up to five times its size, and while the scene is stopped or paused the wheel zooms and the middle button pans, as in Unity. A playing scene reads the keyboard and mouse only while the panel has the focus, with the mouse in the image's pixels, and the keys are the game's rather than the toolbar's. Actions shows how each player reads its actions over the image. It is the screen scripts read: the view's size, windowed, with Forge's vsync. A change a script asks for is a player's to make, so here it is ignored, with one line each Play
+class GamePanel final : public Panel, public Trinity::ScreenHost
 {
 public:
     explicit GamePanel(EditorSession& session);
@@ -31,6 +31,12 @@ public:
 
     // Unity's Mute Audio, which silences the game while it plays
     [[nodiscard]] bool IsMutingAudio() const { return m_MuteAudio; }
+
+    [[nodiscard]] std::uint32_t GetWidth() const override;
+    [[nodiscard]] std::uint32_t GetHeight() const override;
+    [[nodiscard]] Trinity::FullScreenMode GetFullScreenMode() const override { return Trinity::FullScreenMode::Windowed; }
+    [[nodiscard]] bool IsVSync() const override;
+    void Request(const Trinity::ScreenRequest& request) override;
 
 protected:
     void OnImGuiRender() override;
@@ -90,4 +96,6 @@ private:
     Trinity::SceneInputFilter m_SceneFilter{ .Keyboard = false, .Mouse = false, .MouseOver = false };
     // Whether the panel was drawn this frame, which only then submits the scene
     bool m_Shown = false;
+    // Whether this Play was told that the screen is not its to change
+    bool m_ScreenIgnored = false;
 };

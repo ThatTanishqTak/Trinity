@@ -41,17 +41,17 @@ namespace
     }
 }
 
-// The player. Its main, with the Agility SDK's exports, is in this file, so every player that links the runtime's objects has them, the prebuilt one and a game's alike
+// The player. Its main, with the Agility SDK's exports, is in this file, so every player that links the runtime's objects has them, the prebuilt one and a game's alike. The display was read as the window was made
 class RuntimeApplication final : public Trinity::Application
 {
 public:
-    RuntimeApplication(Trinity::ApplicationSpecification specification, std::optional<Trinity::GameSettings> game, std::filesystem::path gameDirectory) : Application(std::move(specification))
+    RuntimeApplication(Trinity::ApplicationSpecification specification, std::optional<Trinity::GameSettings> game, std::filesystem::path gameDirectory, Trinity::Ref<Trinity::DisplaySettings> display) : Application(std::move(specification))
     {
-        PushLayer<RuntimeLayer>(std::move(game), std::move(gameDirectory));
+        PushLayer<RuntimeLayer>(std::move(game), std::move(gameDirectory), std::move(*display));
     }
 };
 
-// The game's pack, Game.trpak beside the executable as an export leaves it, or the one --pack names, is opened before the application starts, so the game's saves and log go under its company and product, its window is named for it, and its graphics APIs are tried in its order. A game that cannot be opened is reported, in a box unless headless, and the player closes at once without a window. C# scripts run in a player once their ahead-of-time library does, so .NET is not started
+// The game's pack, Game.trpak beside the executable as an export leaves it, or the one --pack names, is opened before the application starts, so the game's saves and log go under its company and product, its window is named for it and opens as its player last left it, and its graphics APIs are tried in its order. A game that cannot be opened is reported, in a box unless headless, and the player closes at once without a window. C# scripts run in a player once their ahead-of-time library does, so .NET is not started
 Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args)
 {
     ApplicationSpecification l_Specification;
@@ -74,12 +74,20 @@ Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args
         l_Specification.Window.Headless = true;
         l_Specification.StartAudio = false;
 
-        return new RuntimeApplication(std::move(l_Specification), std::nullopt, {});
+        return new RuntimeApplication(std::move(l_Specification), std::nullopt, {}, CreateRef<DisplaySettings>());
     }
 
     l_Specification.Name = l_Game->Product;
     l_Specification.Company = l_Game->Company;
     l_Specification.GraphicsOrder = l_Game->GraphicsAPIs;
 
-    return new RuntimeApplication(std::move(l_Specification), std::move(*l_Game), l_Pack.parent_path());
+    // The player's choice is in its saves, which are mounted once the application knows the company and product
+    const Ref<DisplaySettings> l_Display = CreateRef<DisplaySettings>();
+    l_Specification.ConfigureWindow = [l_Display, l_Window = l_Game->Window](WindowSpecification& window)
+    {
+        *l_Display = RuntimeDisplay::Load(l_Window);
+        RuntimeDisplay::Configure(*l_Display, window);
+    };
+
+    return new RuntimeApplication(std::move(l_Specification), std::move(*l_Game), l_Pack.parent_path(), l_Display);
 }

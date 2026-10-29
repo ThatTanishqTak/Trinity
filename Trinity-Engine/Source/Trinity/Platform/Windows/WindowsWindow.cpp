@@ -34,6 +34,53 @@ namespace Trinity
             return l_Wide;
         }
 
+        std::string ToUtf8(const wchar_t* wide)
+        {
+            const int l_Length = ::WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
+            if (l_Length <= 1)
+            {
+                return {};
+            }
+
+            std::string l_Text(static_cast<std::size_t>(l_Length - 1), '\0');
+            ::WideCharToMultiByte(CP_UTF8, 0, wide, -1, l_Text.data(), l_Length, nullptr, nullptr);
+
+            return l_Text;
+        }
+
+        struct MonitorSearch
+        {
+            std::wstring Name;
+            HMONITOR Found = nullptr;
+        };
+
+        BOOL CALLBACK MatchMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM data)
+        {
+            MonitorSearch& l_Search = *reinterpret_cast<MonitorSearch*>(data);
+            MONITORINFOEXW l_Info{};
+            l_Info.cbSize = sizeof(l_Info);
+            if (::GetMonitorInfoW(monitor, &l_Info) && l_Search.Name == l_Info.szDevice)
+            {
+                l_Search.Found = monitor;
+
+                return FALSE;
+            }
+
+            return TRUE;
+        }
+
+        // The monitor Windows gives that name, as Platform's monitors have it, or the primary when none has it
+        HMONITOR FindMonitor(std::string_view name)
+        {
+            MonitorSearch l_Search{ ToWide(name) };
+            if (!name.empty())
+            {
+                ::EnumDisplayMonitors(nullptr, nullptr, &MatchMonitor, reinterpret_cast<LPARAM>(&l_Search));
+            }
+
+            return l_Search.Found != nullptr ? l_Search.Found : ::MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+        }
+
         KeyCode TranslateKey(WPARAM virtualKey, LPARAM lParam)
         {
             const UINT l_ScanCode = static_cast<UINT>((lParam >> 16) & 0xFF);
@@ -332,8 +379,28 @@ namespace Trinity
         RECT l_Rectangle{ l_X, l_Y, l_X + static_cast<LONG>(specification.Width), l_Y + static_cast<LONG>(specification.Height) };
         ::AdjustWindowRectEx(&l_Rectangle, l_Style, FALSE, l_ExStyle);
 
-        const int l_Left = specification.Position ? l_Rectangle.left : CW_USEDEFAULT;
-        const int l_Top = specification.Position ? l_Rectangle.top : CW_USEDEFAULT;
+        int l_Left = specification.Position ? l_Rectangle.left : CW_USEDEFAULT;
+        int l_Top = specification.Position ? l_Rectangle.top : CW_USEDEFAULT;
+
+        // A game's window, which names its monitor or opens fullscreen, must land on a monitor, so a place left on one that is gone gives way to the centre of the one named, or of the primary
+        if (!specification.Monitor.empty() || specification.Fullscreen)
+        {
+            if (specification.Position && ::MonitorFromRect(&l_Rectangle, MONITOR_DEFAULTTONULL) == nullptr)
+            {
+                l_Left = CW_USEDEFAULT;
+                l_Top = CW_USEDEFAULT;
+            }
+
+            MONITORINFO l_Monitor{};
+            l_Monitor.cbSize = sizeof(l_Monitor);
+            if (l_Left == CW_USEDEFAULT && ::GetMonitorInfoW(FindMonitor(specification.Monitor), &l_Monitor))
+            {
+                const RECT& l_Work = l_Monitor.rcWork;
+                l_Left = std::max(l_Work.left, l_Work.left + (l_Work.right - l_Work.left - (l_Rectangle.right - l_Rectangle.left)) / 2);
+                l_Top = std::max(l_Work.top, l_Work.top + (l_Work.bottom - l_Work.top - (l_Rectangle.bottom - l_Rectangle.top)) / 2);
+            }
+        }
+
         const HWND l_Owner = specification.Owner != nullptr ? static_cast<HWND>(specification.Owner->GetNativeHandle()) : nullptr;
 
         m_Handle = ::CreateWindowExW(l_ExStyle, c_WindowClassName, ToWide(specification.Title).c_str(), l_Style, l_Left, l_Top, l_Rectangle.right - l_Rectangle.left, l_Rectangle.bottom - l_Rectangle.top, l_Owner, nullptr, l_Instance, this);
@@ -346,6 +413,12 @@ namespace Trinity
 
         ++s_WindowCount;
         m_Counted = true;
+
+        // Over its monitor before it first shows, so it never shows framed
+        if (specification.Fullscreen)
+        {
+            SetFullscreen(true);
+        }
 
         if (specification.Visible)
         {
@@ -435,6 +508,74 @@ namespace Trinity
     {
         const RECT l_Frame = GetFrame({ 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) });
         ::SetWindowPos(m_Handle, nullptr, 0, 0, l_Frame.right - l_Frame.left, l_Frame.bottom - l_Frame.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+    }
+
+    // The frame's style goes, but for whether the window shows, and comes back with the place, size and maximized state the window had, as Raymond Chen's fullscreen toggle has them
+    void WindowsWindow::SetFullscreen(bool fullscreen)
+    {
+        if (fullscreen == m_Fullscreen || m_Handle == nullptr)
+        {
+            return;
+        }
+
+        const LONG_PTR l_Style = ::GetWindowLongPtrW(m_Handle, GWL_STYLE);
+        if (fullscreen)
+        {
+            m_WindowedPlacement.length = sizeof(m_WindowedPlacement);
+            if (!::GetWindowPlacement(m_Handle, &m_WindowedPlacement))
+            {
+                return;
+            }
+
+            m_WindowedStyle = l_Style;
+            m_Fullscreen = true;
+            ::SetWindowLongPtrW(m_Handle, GWL_STYLE, l_Style & ~static_cast<LONG_PTR>(WS_OVERLAPPEDWINDOW));
+            FitToMonitor();
+
+            return;
+        }
+
+        m_Fullscreen = false;
+        ::SetWindowLongPtrW(m_Handle, GWL_STYLE, (m_WindowedStyle & ~static_cast<LONG_PTR>(WS_VISIBLE)) | (l_Style & WS_VISIBLE));
+
+        WINDOWPLACEMENT l_Placement = m_WindowedPlacement;
+        if ((l_Style & WS_VISIBLE) == 0)
+        {
+            l_Placement.showCmd = SW_HIDE;
+        }
+        else if (l_Placement.showCmd != SW_SHOWMAXIMIZED)
+        {
+            l_Placement.showCmd = SW_SHOWNORMAL;
+        }
+
+        ::SetWindowPlacement(m_Handle, &l_Placement);
+        ::SetWindowPos(m_Handle, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+    }
+
+    std::string WindowsWindow::GetMonitor() const
+    {
+        MONITORINFOEXW l_Info{};
+        l_Info.cbSize = sizeof(l_Info);
+        if (m_Handle == nullptr || !::GetMonitorInfoW(::MonitorFromWindow(m_Handle, MONITOR_DEFAULTTONEAREST), &l_Info))
+        {
+            return {};
+        }
+
+        return ToUtf8(l_Info.szDevice);
+    }
+
+    // The whole of the monitor the window is on most, taskbar included, which Windows then leaves behind the window while it has the focus
+    void WindowsWindow::FitToMonitor()
+    {
+        MONITORINFO l_Info{};
+        l_Info.cbSize = sizeof(l_Info);
+        if (!::GetMonitorInfoW(::MonitorFromWindow(m_Handle, MONITOR_DEFAULTTONEAREST), &l_Info))
+        {
+            return;
+        }
+
+        const RECT& l_Area = l_Info.rcMonitor;
+        ::SetWindowPos(m_Handle, HWND_TOP, l_Area.left, l_Area.top, l_Area.right - l_Area.left, l_Area.bottom - l_Area.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
     }
 
     // The frame around a client rectangle, with borders sized for the monitor the window is on
@@ -620,6 +761,12 @@ namespace Trinity
             }
             case WM_DISPLAYCHANGE:
             {
+                // A fullscreen window follows its monitor to a new resolution
+                if (m_Fullscreen)
+                {
+                    FitToMonitor();
+                }
+
                 MonitorsChangedEvent l_Event;
                 Dispatch(l_Event);
 
@@ -678,8 +825,16 @@ namespace Trinity
             }
             case WM_DPICHANGED:
             {
-                const auto* suggested = reinterpret_cast<const RECT*>(lParam);
-                ::SetWindowPos(m_Handle, nullptr, suggested->left, suggested->top, suggested->right - suggested->left, suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+                // Windows suggests a size for the new scale, which a fullscreen window has no use for, since it keeps its monitor's
+                if (m_Fullscreen)
+                {
+                    FitToMonitor();
+                }
+                else
+                {
+                    const auto* suggested = reinterpret_cast<const RECT*>(lParam);
+                    ::SetWindowPos(m_Handle, nullptr, suggested->left, suggested->top, suggested->right - suggested->left, suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+                }
 
                 WindowDpiChangedEvent l_Event(static_cast<float>(LOWORD(wParam)) / static_cast<float>(USER_DEFAULT_SCREEN_DPI));
                 Dispatch(l_Event);
@@ -724,6 +879,16 @@ namespace Trinity
                 {
                     KeyReleasedEvent l_Event(key);
                     Dispatch(l_Event);
+                }
+
+                break;
+            }
+            // Alt+Enter is the application's, as a player's switch between windowed and fullscreen, and Windows would beep for it as a menu key with no menu
+            case WM_SYSCHAR:
+            {
+                if (wParam == VK_RETURN)
+                {
+                    return 0;
                 }
 
                 break;

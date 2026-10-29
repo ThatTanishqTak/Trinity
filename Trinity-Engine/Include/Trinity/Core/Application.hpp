@@ -42,6 +42,8 @@ namespace Trinity
         // A game's company. Its saves and log go under it and the name in the user's folder, as Unity's do, and without one under Trinity, as Trinity's own programs' do
         std::string Company;
         WindowSpecification Window;
+        // Called once the saves are mounted at /saves, before the window is made, so a game's window opens as its player last left it
+        std::function<void(WindowSpecification& window)> ConfigureWindow;
 
         GraphicsAPI Graphics = GetDefaultGraphicsAPI();
         // Tried in this order when no --d3d12 or --vulkan picks one, skipping any this build lacks, each in turn while its device cannot be made, as a game's export lists them. Empty tries Graphics alone

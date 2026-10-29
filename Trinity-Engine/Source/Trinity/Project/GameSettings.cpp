@@ -18,6 +18,7 @@ namespace Trinity
     namespace
     {
         constexpr std::string_view c_Owner = "Game: Game.trgame";
+        constexpr std::string_view c_DisplayOwner = "Game: Display.yaml";
         constexpr std::array<GraphicsAPI, 3> c_GraphicsAPIs{ GraphicsAPI::D3D12, GraphicsAPI::Vulkan, GraphicsAPI::Metal };
 
         std::optional<GraphicsAPI> ParseGraphicsAPI(std::string_view name)
@@ -25,6 +26,49 @@ namespace Trinity
             const auto a_Found = std::ranges::find_if(c_GraphicsAPIs, [name](GraphicsAPI api) { return ToString(api) == name; });
 
             return a_Found != c_GraphicsAPIs.end() ? std::optional<GraphicsAPI>(*a_Found) : std::nullopt;
+        }
+
+        // The file's settings, or the reason they cannot be read: text that is not YAML or holds no map, with no valid Format version, or of one newer than the reader's
+        Expected<YAML::Node, std::string> LoadSettings(std::string_view text, std::string_view fileName, std::uint32_t formatVersion)
+        {
+            YAML::Node l_Root;
+            try
+            {
+                l_Root = YAML::Load(std::string(text));
+            }
+            catch (const YAML::Exception& exception)
+            {
+                return Unexpected{ std::format("{} is not valid YAML: {}", fileName, exception.what()) };
+            }
+
+            if (!l_Root.IsMap())
+            {
+                return Unexpected{ std::format("{} holds no settings", fileName) };
+            }
+
+            std::uint32_t l_Format = 0;
+            const std::string l_FormatText = SettingsYaml::ReadString(l_Root, "Format", "");
+            const std::from_chars_result l_Parsed = std::from_chars(l_FormatText.data(), l_FormatText.data() + l_FormatText.size(), l_Format);
+            if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_FormatText.data() + l_FormatText.size() || l_Format == 0)
+            {
+                return Unexpected{ std::format("{} has no valid Format version", fileName) };
+            }
+
+            if (l_Format > formatVersion)
+            {
+                return Unexpected{ std::format("{} was written in format {} by a newer Trinity, and this player reads format {} and older", fileName, l_Format, formatVersion) };
+            }
+
+            return l_Root;
+        }
+
+        std::optional<std::int32_t> ReadCoordinate(const YAML::Node& node)
+        {
+            std::int32_t l_Value = 0;
+            const std::string l_Text = node.IsScalar() ? node.Scalar() : std::string();
+            const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Value);
+
+            return l_Parsed.ec == std::errc() && l_Parsed.ptr == l_Text.data() + l_Text.size() ? std::optional<std::int32_t>(l_Value) : std::nullopt;
         }
     }
 
@@ -51,6 +95,7 @@ namespace Trinity
         }
 
         l_Emitter << YAML::EndSeq;
+        SettingsYaml::WriteWindowSettings(l_Emitter, settings.Window);
         SettingsYaml::WritePhysicsSettings(l_Emitter, settings.Physics);
         SettingsYaml::WriteAudioSettings(l_Emitter, settings.Audio);
         l_Emitter << YAML::Key << "Input" << YAML::Value << YAML::BeginMap;
@@ -63,34 +108,13 @@ namespace Trinity
 
     Expected<GameSettings, std::string> ParseGameSettings(std::string_view text)
     {
-        YAML::Node l_Root;
-        try
+        const Expected<YAML::Node, std::string> l_Loaded = LoadSettings(text, GameSettings::c_FileName, GameSettings::c_FormatVersion);
+        if (!l_Loaded)
         {
-            l_Root = YAML::Load(std::string(text));
-        }
-        catch (const YAML::Exception& exception)
-        {
-            return Unexpected{ std::format("{} is not valid YAML: {}", GameSettings::c_FileName, exception.what()) };
+            return Unexpected{ l_Loaded.GetError() };
         }
 
-        if (!l_Root.IsMap())
-        {
-            return Unexpected{ std::format("{} holds no settings", GameSettings::c_FileName) };
-        }
-
-        std::uint32_t l_Format = 0;
-        const std::string l_FormatText = SettingsYaml::ReadString(l_Root, "Format", "");
-        const std::from_chars_result l_Parsed = std::from_chars(l_FormatText.data(), l_FormatText.data() + l_FormatText.size(), l_Format);
-        if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_FormatText.data() + l_FormatText.size() || l_Format == 0)
-        {
-            return Unexpected{ std::format("{} has no valid Format version", GameSettings::c_FileName) };
-        }
-
-        if (l_Format > GameSettings::c_FormatVersion)
-        {
-            return Unexpected{ std::format("{} was written in format {} by a newer Trinity, and this player reads format {} and older", GameSettings::c_FileName, l_Format, GameSettings::c_FormatVersion) };
-        }
-
+        const YAML::Node& l_Root = *l_Loaded;
         GameSettings l_Settings;
         l_Settings.Product = SettingsYaml::ReadString(l_Root, "Product", "");
         l_Settings.Company = SettingsYaml::ReadString(l_Root, "Company", "");
@@ -142,6 +166,7 @@ namespace Trinity
             }
         }
 
+        SettingsYaml::ReadWindowSettings(l_Root["Window"], c_Owner, l_Settings.Window);
         l_Settings.Physics.Layers = SettingsYaml::ReadCollisionLayers(l_Root["Physics"], c_Owner);
         SettingsYaml::ReadWorldSettings(l_Root["Physics"], c_Owner, l_Settings.Physics);
         SettingsYaml::ReadAudioSettings(l_Root["Audio"], c_Owner, l_Settings.Audio);
@@ -168,5 +193,57 @@ namespace Trinity
     std::string GetGameSettingsPath()
     {
         return std::format("{}/{}", Project::c_CacheMount, GameSettings::c_FileName);
+    }
+
+    std::string WriteDisplaySettings(const DisplaySettings& settings)
+    {
+        YAML::Emitter l_Emitter;
+        l_Emitter << YAML::BeginMap;
+        l_Emitter << YAML::Key << "Format" << YAML::Value << DisplaySettings::c_FormatVersion;
+        SettingsYaml::WriteWindowSettings(l_Emitter, settings.Window);
+        l_Emitter << YAML::Key << "Monitor" << YAML::Value << YAML::DoubleQuoted << settings.Monitor;
+        if (settings.Position)
+        {
+            l_Emitter << YAML::Key << "Position" << YAML::Value << YAML::Flow << YAML::BeginSeq << settings.Position->X << settings.Position->Y << YAML::EndSeq;
+        }
+
+        l_Emitter << YAML::EndMap;
+
+        return std::string(l_Emitter.c_str()) + "\n";
+    }
+
+    Expected<DisplaySettings, std::string> ParseDisplaySettings(std::string_view text, const WindowSettings& game)
+    {
+        const Expected<YAML::Node, std::string> l_Loaded = LoadSettings(text, DisplaySettings::c_FileName, DisplaySettings::c_FormatVersion);
+        if (!l_Loaded)
+        {
+            return Unexpected{ l_Loaded.GetError() };
+        }
+
+        const YAML::Node& l_Root = *l_Loaded;
+        DisplaySettings l_Settings;
+        l_Settings.Window = game;
+        SettingsYaml::ReadWindowSettings(l_Root["Window"], c_DisplayOwner, l_Settings.Window);
+        l_Settings.Monitor = SettingsYaml::ReadString(l_Root, "Monitor", "");
+        if (const YAML::Node l_Position = l_Root["Position"])
+        {
+            const std::optional<std::int32_t> l_X = l_Position.IsSequence() && l_Position.size() == 2 ? ReadCoordinate(l_Position[0]) : std::nullopt;
+            const std::optional<std::int32_t> l_Y = l_X ? ReadCoordinate(l_Position[1]) : std::nullopt;
+            if (l_X && l_Y)
+            {
+                l_Settings.Position = WindowPosition{ *l_X, *l_Y };
+            }
+            else
+            {
+                TR_CORE_WARN("{} has a window position that cannot be read, which is left out", c_DisplayOwner);
+            }
+        }
+
+        return l_Settings;
+    }
+
+    std::string GetDisplaySettingsPath()
+    {
+        return std::format("/saves/{}", DisplaySettings::c_FileName);
     }
 }

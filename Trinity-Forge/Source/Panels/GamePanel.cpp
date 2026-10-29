@@ -201,12 +201,37 @@ GamePanel::GamePanel(EditorSession& session) : Panel("Game", Trinity::Icons::c_G
 
     SetBorderless(true);
     m_View = Trinity::Application::Get().GetRenderer().CreateView(1, 1);
+    Trinity::Screen::SetHost(this);
 }
 
 // Layers are destroyed before the Renderer, so the view is still there to destroy
 GamePanel::~GamePanel()
 {
+    Trinity::Screen::SetHost(nullptr);
     Trinity::Application::Get().GetRenderer().DestroyView(m_View);
+}
+
+std::uint32_t GamePanel::GetWidth() const
+{
+    return Trinity::Application::Get().GetRenderer().GetSceneWidth(m_View);
+}
+
+std::uint32_t GamePanel::GetHeight() const
+{
+    return Trinity::Application::Get().GetRenderer().GetSceneHeight(m_View);
+}
+
+bool GamePanel::IsVSync() const
+{
+    return Trinity::Application::Get().GetRenderer().IsVSync();
+}
+
+void GamePanel::Request([[maybe_unused]] const Trinity::ScreenRequest& request)
+{
+    if (!std::exchange(m_ScreenIgnored, true))
+    {
+        TR_INFO("Game: a script changed the screen's resolution, full screen mode or vsync, which a built player applies and Forge ignores, so the Game panel stays as it is");
+    }
 }
 
 // The panel's lines in imgui.ini: the aspect choice, by its name, and whether Stats and Actions are on
@@ -256,6 +281,8 @@ void GamePanel::WriteSettings(ImGuiTextBuffer& buffer) const
 // Through the scene's primary camera, for the view's own shape, with the camera's exposure and curve, the scene's sprites and 4x MSAA, as the game will draw it, the scene itself in prefab mode too. Nothing is submitted while the panel is hidden behind another tab or closed, so the view keeps what it last showed and costs nothing. After the transform pass
 void GamePanel::PrepareScene()
 {
+    // Each Play is told once that the screen is not its to change
+    m_ScreenIgnored &= m_Session.IsPlaying();
     if (!std::exchange(m_Shown, false))
     {
         return;

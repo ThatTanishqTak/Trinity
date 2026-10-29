@@ -50,25 +50,31 @@ namespace
     }
 }
 
-RuntimeLayer::RuntimeLayer(std::optional<Trinity::GameSettings> game, std::filesystem::path gameDirectory) : Layer("Runtime"), m_Game(std::move(game)), m_GameDirectory(std::move(gameDirectory))
+RuntimeLayer::RuntimeLayer(std::optional<Trinity::GameSettings> game, std::filesystem::path gameDirectory, Trinity::DisplaySettings display) : Layer("Runtime"), m_Game(std::move(game)), m_GameDirectory(std::move(gameDirectory)), m_DisplaySettings(std::move(display))
 {
 
 }
 
-// A game that cannot be played was reported where it failed, so the player only closes
+// A game that cannot be played was reported where it failed, so the player only closes. The screen is the scripts' from the first one created
 void RuntimeLayer::OnAttach()
 {
     Trinity::Application& l_Application = Trinity::Application::Get();
+    if (m_Game)
+    {
+        m_Display = Trinity::CreateScope<RuntimeDisplay>(m_DisplaySettings);
+    }
+
     if (!m_Game || !OpenAssets() || !LoadStartScene(l_Application.GetSpecification().CommandLineArgs))
     {
         l_Application.Close();
     }
 }
 
-// The scene and its scripts go before the module whose code made them, and the game's assets before the registry that finds them
+// The scene and its scripts go before the module whose code made them, and the game's assets before the registry that finds them. The window's settings are kept once no script can change them
 void RuntimeLayer::OnDetach()
 {
     m_Scenes.reset();
+    m_Display.reset();
     m_Mixer = {};
     UnloadModule();
 
@@ -97,6 +103,19 @@ void RuntimeLayer::OnUpdate(Trinity::Timestep timestep)
     if (m_Scenes)
     {
         m_Scenes->Update(timestep);
+    }
+
+    if (m_Display)
+    {
+        m_Display->Apply();
+    }
+}
+
+void RuntimeLayer::OnEvent(Trinity::Event& event)
+{
+    if (m_Display)
+    {
+        m_Display->OnEvent(event);
     }
 }
 

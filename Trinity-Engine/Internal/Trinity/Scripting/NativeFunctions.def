@@ -224,3 +224,12 @@ TR_NATIVE(AudioMixer_FindGroup, UInt64, (UInt64 mixer, Utf8 name))
 
 // The game's end, as Application::Quit has it: a player closes once the frame ends, and Forge stops playing
 TR_NATIVE(Application_Quit, Void, ())
+
+// The game's screen, as Screen has it: the size it draws at, its mode as a FullScreenMode, and vsync. A change applies once the frame ends, and Forge's Game panel ignores it with one line. A mode that is not one is refused with a warning
+TR_NATIVE(Screen_GetWidth, Int32, ())
+TR_NATIVE(Screen_GetHeight, Int32, ())
+TR_NATIVE(Screen_GetFullScreenMode, Int32, ())
+TR_NATIVE(Screen_IsVSync, Bool, ())
+TR_NATIVE(Screen_SetResolution, Void, (Int32 width, Int32 height, Int32 mode))
+TR_NATIVE(Screen_SetFullScreenMode, Void, (Int32 mode))
+TR_NATIVE(Screen_SetVSync, Void, (Bool vsync))

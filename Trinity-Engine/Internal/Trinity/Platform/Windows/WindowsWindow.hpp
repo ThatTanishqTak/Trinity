@@ -4,6 +4,7 @@
 #include "Trinity/Input/MouseCodes.hpp"
 #include "Trinity/Platform/Windows/WindowsHeaders.hpp"
 
+#include <string>
 #include <utility>
 
 namespace Trinity
@@ -31,6 +32,10 @@ namespace Trinity
         void SetPosition(WindowPosition position) override;
         void SetSize(std::uint32_t width, std::uint32_t height) override;
 
+        void SetFullscreen(bool fullscreen) override;
+        [[nodiscard]] bool IsFullscreen() const override { return m_Fullscreen; }
+        [[nodiscard]] std::string GetMonitor() const override;
+
         void Show(bool focus) override;
         void Focus() override;
         [[nodiscard]] bool IsFocused() const override;
@@ -54,6 +59,7 @@ namespace Trinity
         void OnMouseButton(MouseCode button, bool pressed);
         void ApplyCursor() const;
         [[nodiscard]] RECT GetFrame(const RECT& client) const;
+        void FitToMonitor();
 
         HWND m_Handle = nullptr;
         EventCallback m_EventCallback;
@@ -69,5 +75,9 @@ namespace Trinity
         bool m_Counted = false;
         bool m_FocusOnClick = true;
         bool m_MousePassthrough = false;
+        // Where and how the window was before it went fullscreen, and its frame's style, which it gets back
+        WINDOWPLACEMENT m_WindowedPlacement{};
+        LONG_PTR m_WindowedStyle = 0;
+        bool m_Fullscreen = false;
     };
 }

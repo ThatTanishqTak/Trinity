@@ -7,7 +7,7 @@
 
 namespace Trinity
 {
-    HeadlessWindow::HeadlessWindow(const WindowSpecification& specification) : m_Position(specification.Position.value_or(WindowPosition{})), m_Width(specification.Width), m_Height(specification.Height)
+    HeadlessWindow::HeadlessWindow(const WindowSpecification& specification) : m_Position(specification.Position.value_or(WindowPosition{})), m_Width(specification.Width), m_Height(specification.Height), m_Fullscreen(specification.Fullscreen)
     {
 
     }

@@ -360,6 +360,10 @@ namespace Trinity
         TR_CORE_INFO("Starting '{}' (graphics: {}{})", m_Specification.Name, ToString(m_Specification.Graphics), m_Specification.Window.Headless ? ", headless" : "");
 
         MountSaveDirectory(l_Args, m_Specification.Company, m_Specification.Name);
+        if (m_Specification.ConfigureWindow)
+        {
+            m_Specification.ConfigureWindow(m_Specification.Window);
+        }
 
         if (m_Specification.StartDotNet)
         {

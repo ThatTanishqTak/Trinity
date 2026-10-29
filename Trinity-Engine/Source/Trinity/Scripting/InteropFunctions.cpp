@@ -2,11 +2,13 @@
 
 #include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/Log.hpp"
+#include "Trinity/Core/Screen.hpp"
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Renderer/DebugDraw.hpp"
 #include "Trinity/Scene/SceneManager.hpp"
 
 #include <limits>
+#include <optional>
 
 namespace Trinity
 {
@@ -39,6 +41,24 @@ namespace Trinity
             [[nodiscard]] GamepadAxis ToGamepadAxis(Int32 axis)
             {
                 return axis >= 0 && axis <= std::numeric_limits<std::uint8_t>::max() ? static_cast<GamepadAxis>(axis) : GamepadAxis::Count;
+            }
+
+            // A size C# gives that is below 1 reads as 0, which Screen refuses
+            [[nodiscard]] std::uint32_t ToScreenSize(Int32 size)
+            {
+                return size > 0 ? static_cast<std::uint32_t>(size) : 0;
+            }
+
+            [[nodiscard]] std::optional<FullScreenMode> ToFullScreenMode(Int32 mode)
+            {
+                if (mode != static_cast<Int32>(FullScreenMode::Windowed) && mode != static_cast<Int32>(FullScreenMode::FullScreenWindow))
+                {
+                    TR_CORE_WARN("Screen: {} is no FullScreenMode, so the screen is not changed", mode);
+
+                    return std::nullopt;
+                }
+
+                return static_cast<FullScreenMode>(mode);
             }
 
             [[nodiscard]] DebugDepth ToDepth(Bool onTop)
@@ -235,5 +255,46 @@ namespace Trinity
         {
             Application::Quit();
         }
-    }
+
+        Int32 Screen_GetWidth()
+        {
+            return static_cast<Int32>(Screen::GetWidth());
+        }
+
+        Int32 Screen_GetHeight()
+        {
+            return static_cast<Int32>(Screen::GetHeight());
+        }
+
+        Int32 Screen_GetFullScreenMode()
+        {
+            return static_cast<Int32>(Screen::GetFullScreenMode());
+        }
+
+        Bool Screen_IsVSync()
+        {
+            return Screen::IsVSync();
+        }
+
+        Void Screen_SetResolution(Int32 width, Int32 height, Int32 mode)
+        {
+            if (const std::optional<FullScreenMode> l_Mode = ToFullScreenMode(mode))
+            {
+                Screen::SetResolution(ToScreenSize(width), ToScreenSize(height), *l_Mode);
+            }
+        }
+
+        Void Screen_SetFullScreenMode(Int32 mode)
+        {
+            if (const std::optional<FullScreenMode> l_Mode = ToFullScreenMode(mode))
+            {
+                Screen::SetFullScreenMode(*l_Mode);
+            }
+        }
+
+        Void Screen_SetVSync(Bool vsync)
+        {
+            Screen::SetVSync(vsync);
+        }
+}
 }

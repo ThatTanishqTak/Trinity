@@ -231,6 +231,47 @@ namespace Trinity::SettingsYaml
         }
     }
 
+    void ReadWindowSettings(const YAML::Node& window, std::string_view owner, WindowSettings& settings)
+    {
+        if (!window || !window.IsMap())
+        {
+            return;
+        }
+
+        bool l_Unread = false;
+        if (const YAML::Node l_Mode = window["Mode"])
+        {
+            const std::optional<FullScreenMode> l_Read = l_Mode.IsScalar() ? ParseFullScreenMode(l_Mode.Scalar()) : std::nullopt;
+            l_Unread |= !l_Read;
+            settings.Mode = l_Read.value_or(settings.Mode);
+        }
+
+        const auto a_ReadSize = [&](const char* key, std::uint32_t& value)
+        {
+            if (const YAML::Node l_Node = window[key])
+            {
+                const std::optional<std::uint32_t> l_Size = ReadNumber<std::uint32_t>(l_Node);
+                const bool l_Read = l_Size && *l_Size > 0 && *l_Size <= WindowSettings::c_MaxSize;
+                l_Unread |= !l_Read;
+                value = l_Read ? *l_Size : value;
+            }
+        };
+
+        a_ReadSize("Width", settings.Width);
+        a_ReadSize("Height", settings.Height);
+        if (const YAML::Node l_VSync = window["VSync"])
+        {
+            const bool l_Read = l_VSync.IsScalar() && (l_VSync.Scalar() == "true" || l_VSync.Scalar() == "false");
+            l_Unread |= !l_Read;
+            settings.VSync = l_Read ? l_VSync.Scalar() == "true" : settings.VSync;
+        }
+
+        if (l_Unread)
+        {
+            TR_CORE_WARN("{} has a window setting that cannot be read, which keeps its default", owner);
+        }
+    }
+
     void WritePhysicsSettings(YAML::Emitter& emitter, const PhysicsSettings& settings)
     {
         const CollisionLayers& l_Layers = settings.Layers;
@@ -283,6 +324,16 @@ namespace Trinity::SettingsYaml
         emitter << YAML::EndSeq;
         emitter << YAML::Key << "OcclusionRays" << YAML::Value << settings.OcclusionRays;
         emitter << YAML::Key << "OcclusionTime" << YAML::Value << FormatNumber(settings.OcclusionTime);
+        emitter << YAML::EndMap;
+    }
+
+    void WriteWindowSettings(YAML::Emitter& emitter, const WindowSettings& settings)
+    {
+        emitter << YAML::Key << "Window" << YAML::Value << YAML::BeginMap;
+        emitter << YAML::Key << "Mode" << YAML::Value << std::string(ToString(settings.Mode));
+        emitter << YAML::Key << "Width" << YAML::Value << settings.Width;
+        emitter << YAML::Key << "Height" << YAML::Value << settings.Height;
+        emitter << YAML::Key << "VSync" << YAML::Value << settings.VSync;
         emitter << YAML::EndMap;
     }
 }
