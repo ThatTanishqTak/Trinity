@@ -138,8 +138,12 @@ function(trinity_add_engine_library target type active_config)
             zstd::headers
     )
 
-    # The engine only reads and transcodes KTX2. An executable that sets TRINITY_TEXTURE_ENCODER links the whole of libktx in its place, as the static engine and both libraries would otherwise define the same symbols
-    target_link_libraries(${target} PRIVATE "$<IF:$<BOOL:$<TARGET_PROPERTY:TRINITY_TEXTURE_ENCODER>>,ktx,ktx_read>")
+    # The engine only reads and transcodes KTX2, so the shared engine links ktx_read. The static one takes only libktx's headers, and what links it takes ktx_read through Trinity-Engine-Link, or the whole of libktx in its place with TRINITY_TEXTURE_ENCODER, as both would otherwise define the same symbols. Its own links then name no choice, which its export for a game's player could not carry
+    if(type STREQUAL "STATIC")
+        target_link_libraries(${target} PRIVATE "$<COMPILE_ONLY:ktx_read>")
+    else()
+        target_link_libraries(${target} PRIVATE ktx_read)
+    endif()
 
     if(TRINITY_PLATFORM STREQUAL "Windows")
         target_link_libraries(${target} PRIVATE user32 gdi32 shell32 shcore ole32 uuid)
@@ -176,10 +180,10 @@ target_link_options(Trinity-Engine PRIVATE $<$<PLATFORM_ID:Linux>:LINKER:--exclu
 
 trinity_add_engine_library(Trinity-Engine-Static STATIC "${TRINITY_ENGINE_STATIC_CONFIG}")
 
-# What executables and modules link: the shared engine or the static one, depending on the configuration
+# What executables and modules link: the shared engine or the static one, depending on the configuration, and with the static one the libktx it chose
 add_library(Trinity-Engine-Link INTERFACE)
 add_library(Trinity::Engine ALIAS Trinity-Engine-Link)
-target_link_libraries(Trinity-Engine-Link INTERFACE "$<IF:${TRINITY_ENGINE_SHARED_CONFIG},Trinity-Engine,Trinity-Engine-Static>")
+target_link_libraries(Trinity-Engine-Link INTERFACE "$<IF:${TRINITY_ENGINE_SHARED_CONFIG},Trinity-Engine,Trinity-Engine-Static>" "$<$<NOT:${TRINITY_ENGINE_SHARED_CONFIG}>:$<IF:$<BOOL:$<TARGET_PROPERTY:TRINITY_TEXTURE_ENCODER>>,ktx,ktx_read>>")
 
 if(WIN32 AND TRINITY_TRACK_GLOBAL_ALLOCATIONS)
     target_sources(Trinity-Engine-Link INTERFACE "$<${TRINITY_ENGINE_SHARED_CONFIG}:${TRINITY_ENGINE_GLOBAL_ALLOCATIONS}>")

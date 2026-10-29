@@ -25,4 +25,7 @@ add_executable(Trinity-Runtime)
 
 trinity_configure_executable(Trinity-Runtime)
 target_link_libraries(Trinity-Runtime PRIVATE Trinity-RuntimeMain)
-trinity_check_editor_libraries(Trinity-Runtime absent)
+trinity_check_player(Trinity-Runtime)
+
+# The package a game's player builds against in Distribution, beside the static engine, with these objects as its main
+trinity_write_game_package(Trinity-Engine-Static Trinity-RuntimeMain)

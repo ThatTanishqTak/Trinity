@@ -26,6 +26,7 @@ private:
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
     Trinity::SharedLibrary m_Module;
     Trinity::GameModule::UnloadFunction m_UnloadModule = nullptr;
+    bool m_ModuleLinked = false;
     Trinity::AssetRef<Trinity::AudioMixerAsset> m_Mixer;
     bool m_MixerApplied = false;
     Trinity::Scope<Trinity::SceneManager> m_Scenes;

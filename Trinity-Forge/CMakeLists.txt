@@ -26,7 +26,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_FORGE_HEADERS} $
 target_include_directories(${TARGET_NAME} PRIVATE Include)
 # The model importer's glTF, FBX, OBJ and COLLADA reading and mesh ordering stay in the editor, so no game links them
 target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine ktx zstd::headers stb::stb ImGuizmo::ImGuizmo fastgltf::fastgltf meshoptimizer assimp::assimp)
-trinity_check_editor_libraries(${TARGET_NAME} present)
+trinity_check_editor_libraries(${TARGET_NAME} present ${TRINITY_EDITOR_LIBRARIES} ImGui ImGuizmo BasisEncoder)
 
 # ImGuizmo's own code keeps its own warnings, and reads ImGui before any precompiled header could
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/ImGuizmoUnit.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/W0,-w>")

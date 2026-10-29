@@ -1,0 +1,84 @@
+# Trinity's engine for a game's player, built as Distribution. Trinity's build writes this beside its static engine. A player's build finds it with find_package(Trinity CONFIG REQUIRED), given Trinity_DIR and CMAKE_TOOLCHAIN_FILE as a module's build is, and makes the player with trinity_add_game, or with trinity_add_game_module, so a project's module, built from its own CMakeLists, is its player
+include_guard(GLOBAL)
+
+set(TRINITY_VERSION "@PROJECT_VERSION@")
+set(TRINITY_CONFIGURATION "Distribution")
+set(TRINITY_PLATFORM "@TRINITY_PLATFORM@")
+set(TRINITY_CXX_STANDARD @TRINITY_CXX_STANDARD@)
+set(TRINITY_CXX_COMPILER_ID "@CMAKE_CXX_COMPILER_ID@")
+set(TRINITY_CXX_COMPILER_VERSION "@CMAKE_CXX_COMPILER_VERSION@")
+
+# A player links the engine's objects and its C++ standard library, so its compiler must be the engine's kind, at the same major version
+string(REGEX MATCH "^[0-9]+" _trinity_engine_major "${TRINITY_CXX_COMPILER_VERSION}")
+string(REGEX MATCH "^[0-9]+" _trinity_player_major "${CMAKE_CXX_COMPILER_VERSION}")
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL TRINITY_CXX_COMPILER_ID OR NOT _trinity_engine_major STREQUAL _trinity_player_major)
+    set(Trinity_FOUND FALSE)
+    set(Trinity_NOT_FOUND_MESSAGE "Trinity ${TRINITY_VERSION} was built with ${TRINITY_CXX_COMPILER_ID} ${TRINITY_CXX_COMPILER_VERSION}, and this player would be built with ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}. Configure it with -DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_LIST_DIR}/TrinityToolchain.cmake")
+    return()
+endif()
+
+if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL TRINITY_CXX_COMPILER_VERSION)
+    message(STATUS "Trinity: the engine was built with ${TRINITY_CXX_COMPILER_ID} ${TRINITY_CXX_COMPILER_VERSION}, and this player is built with ${CMAKE_CXX_COMPILER_VERSION}")
+endif()
+
+# The engine was built as Distribution, which decides what its headers define, so a player is built as Distribution too, with the flags the engine was built with
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Distribution")
+    set(Trinity_FOUND FALSE)
+    set(Trinity_NOT_FOUND_MESSAGE "This is Trinity's Distribution package, whose static engine a player links only when it is built as Distribution too. Configure it with -DCMAKE_BUILD_TYPE=Distribution")
+    return()
+endif()
+
+set(CMAKE_C_FLAGS_DISTRIBUTION [==[@CMAKE_C_FLAGS_DISTRIBUTION@]==])
+set(CMAKE_CXX_FLAGS_DISTRIBUTION [==[@CMAKE_CXX_FLAGS_DISTRIBUTION@]==])
+set(CMAKE_EXE_LINKER_FLAGS_DISTRIBUTION [==[@CMAKE_EXE_LINKER_FLAGS_DISTRIBUTION@]==])
+
+# The static engine and every library it links, as Trinity's build exported them, with the threads library some of them link, found as they found it
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+if(NOT TARGET TrinityGame::@TRINITY_ENGINE_STATIC_TARGET@)
+    include([==[@TRINITY_GAME_TARGETS_FILE@]==])
+endif()
+
+if(NOT TARGET Trinity::Engine)
+    # The static engine, with ktx_read for its KTX2 textures, since a player never encodes one
+    add_library(Trinity::Engine INTERFACE IMPORTED)
+    set_target_properties(Trinity::Engine PROPERTIES INTERFACE_LINK_LIBRARIES "TrinityGame::@TRINITY_ENGINE_STATIC_TARGET@;TrinityGame::ktx_read")
+
+    # The player's main and its application, compiled with the engine, so a game's build compiles only its own code
+    add_library(Trinity::RuntimeMain OBJECT IMPORTED)
+    set_target_properties(Trinity::RuntimeMain PROPERTIES IMPORTED_OBJECTS [==[$<TARGET_OBJECTS:@TRINITY_RUNTIME_TARGET@>]==])
+endif()
+
+# The checks Trinity's build makes of its own player after each Distribution build
+include([==[@CMAKE_SOURCE_DIR@/CMake/TrinityEditorLibraries.cmake]==])
+
+# A game's player: its own code, whose TR_SCRIPT and TR_COMPONENT classes link themselves into the module's list as the player starts and register once the engine has, with the runtime's main and the static engine, in one executable with the static C runtime. It goes to Player in the build folder, and is checked after each build as Trinity's own player is. A player's new and delete are the engine's, so what its code allocates counts as Untagged rather than Game
+function(trinity_add_game target)
+    add_executable(${target} ${ARGN})
+    target_link_libraries(${target} PRIVATE Trinity::RuntimeMain Trinity::Engine)
+    target_compile_definitions(${target} PRIVATE TR_GAME_MODULE_LINKED)
+
+    set_target_properties(${target} PROPERTIES
+        CXX_STANDARD ${TRINITY_CXX_STANDARD}
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        CXX_SCAN_FOR_MODULES OFF
+        MSVC_RUNTIME_LIBRARY MultiThreaded
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Player"
+    )
+
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /Zc:preprocessor /Zc:__cplusplus /utf-8)
+        # A window and no console, as Trinity's own Distribution executables have
+        target_link_options(${target} PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual -Wconversion -Wsign-conversion)
+    endif()
+
+    trinity_check_player(${target})
+endfunction()
+
+# A project's module, which Forge builds from the same CMakeLists against the shared engine's package as a library it loads, is the player here
+function(trinity_add_game_module target)
+    trinity_add_game(${target} ${ARGN})
+endfunction()

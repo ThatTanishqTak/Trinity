@@ -49,12 +49,18 @@
 // One field of the class, inside its TR_SCRIPT or TR_COMPONENT block, by the member's name
 #define TR_FIELD(Member) builder.Field<&std::remove_reference_t<decltype(builder)>::Type::Member>(#Member)
 
-// The module's exports, which register every TR_SCRIPT and TR_COMPONENT of the module as it loads and unregister them before it unloads. Written once, in one .cpp of the module
+// The module's exports, which register every TR_SCRIPT and TR_COMPONENT of the module as it loads and unregister them before it unloads. Written once, in one .cpp of the module. In a player trinity_add_game links the module into, it exports nothing, and says as the player starts that the module is there, so the player registers its classes once the engine has started and unregisters them as it ends
+#if defined(TR_GAME_MODULE_LINKED)
+#define TR_GAME_MODULE() \
+    [[maybe_unused]] static const bool s_TrinityModuleLinked = (::Trinity::GameModule::Detail::GetLinked() = true); \
+    static_assert(true)
+#else
 #define TR_GAME_MODULE() \
     TR_GAME_MODULE_EXPORT void TrinityModuleLoad() { ::Trinity::GameModule::Detail::RegisterAll(); } \
     TR_GAME_MODULE_EXPORT void TrinityModuleUnload() { ::Trinity::GameModule::Detail::UnregisterAll(); } \
     TR_GAME_MODULE_EXPORT std::uint32_t TrinityModuleGetApiVersion() { return ::Trinity::GameModule::c_ApiVersion; } \
     static_assert(true)
+#endif
 
 namespace Trinity::GameModule
 {
@@ -155,6 +161,14 @@ namespace Trinity::GameModule
             static Registration* s_Last = nullptr;
 
             return s_Last;
+        }
+
+        // Whether the module is linked into the player, which TR_GAME_MODULE sets as the player starts. One flag for the player's code and the module's, as both are linked into one executable
+        inline bool& GetLinked()
+        {
+            static bool s_Linked = false;
+
+            return s_Linked;
         }
 
         inline Registration::Registration(const char* name, bool component, RegisterFunction registerFunction, UnregisterFunction unregisterFunction) : Name(name), Component(component), Register(registerFunction), Unregister(unregisterFunction), Previous(GetLast())

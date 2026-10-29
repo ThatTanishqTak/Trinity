@@ -175,9 +175,19 @@ bool RuntimeLayer::OpenProject(const std::filesystem::path& path)
     return true;
 }
 
-// Beside the shared engine, the module's build as Forge last made it, loaded as Forge loads it. The static engine cannot load a module, which an export links into the player instead
+// Beside the shared engine, the module's build as Forge last made it, loaded as Forge loads it. The static engine cannot load a module, so a game's player has it linked in by trinity_add_game, and registers its classes now that the engine has started
 void RuntimeLayer::LoadModule()
 {
+#if !defined(TR_ENGINE_SHARED)
+    if (Trinity::GameModule::Detail::GetLinked())
+    {
+        Trinity::GameModule::Detail::RegisterAll();
+        m_ModuleLinked = true;
+
+        return;
+    }
+#endif
+
     if (!m_Project->HasModule())
     {
         return;
@@ -229,6 +239,13 @@ void RuntimeLayer::LoadModule()
 
 void RuntimeLayer::UnloadModule()
 {
+    if (std::exchange(m_ModuleLinked, false))
+    {
+        Trinity::GameModule::Detail::UnregisterAll();
+
+        return;
+    }
+
     if (!m_Module.IsLoaded())
     {
         return;
