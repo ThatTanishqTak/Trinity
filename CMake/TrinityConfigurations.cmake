@@ -39,5 +39,6 @@ function(trinity_setup_configuration_flags)
 
     set(CMAKE_MAP_IMPORTED_CONFIG_DISTRIBUTION "Distribution;Release;RelWithDebInfo;MinSizeRel;" PARENT_SCOPE)
     set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,Release>:ProgramDatabase>" PARENT_SCOPE)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" PARENT_SCOPE)
+    # Distribution links the static C runtime, so a game needs nothing installed for it. Debug and Release link the DLL one, which a game module loaded beside the shared engine shares with it
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<NOT:$<CONFIG:Distribution>>:DLL>" PARENT_SCOPE)
 endfunction()

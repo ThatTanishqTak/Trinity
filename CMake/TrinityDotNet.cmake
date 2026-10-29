@@ -44,7 +44,7 @@ if(TRINITY_ENABLE_DOTNET)
     endif()
 endif()
 
-# The engine hosts .NET through nethost, which finds the installed runtime's hostfxr. It links statically except on Windows, where the static library is built for the static C runtime the engine does not use, so nethost.dll goes beside the executables instead
+# The engine hosts .NET through nethost, which finds the installed runtime's hostfxr. It links statically, except on Windows in Debug and Release, since the static library is built for the static C runtime only Distribution links, so there nethost.dll goes beside the executables instead
 function(trinity_link_dotnet_host target)
     if(NOT TRINITY_DOTNET_FOUND)
         return()
@@ -53,13 +53,14 @@ function(trinity_link_dotnet_host target)
     target_compile_definitions(${target} PRIVATE TR_DOTNET)
     target_include_directories(${target} SYSTEM PRIVATE "${TRINITY_NETHOST_DIRECTORY}")
     if(WIN32)
-        target_link_libraries(${target} PRIVATE "${TRINITY_NETHOST_DIRECTORY}/nethost.lib")
+        target_link_libraries(${target} PRIVATE "$<IF:$<CONFIG:Distribution>,${TRINITY_NETHOST_DIRECTORY}/libnethost.lib,${TRINITY_NETHOST_DIRECTORY}/nethost.lib>")
+        target_compile_definitions(${target} PRIVATE "$<$<CONFIG:Distribution>:NETHOST_USE_AS_STATIC>")
     else()
         target_link_libraries(${target} PRIVATE "${TRINITY_NETHOST_DIRECTORY}/libnethost.a")
     endif()
 endfunction()
 
-# nethost.dll to bin/<configuration>/Trinity, beside every executable, on Windows
+# nethost.dll to bin/<configuration>/Trinity, beside every executable, on Windows, but for Distribution, which links nethost statically
 function(trinity_add_dotnet_host_runtime target)
     if(NOT TRINITY_DOTNET_FOUND OR NOT WIN32)
         add_custom_target(${target})
@@ -74,5 +75,5 @@ function(trinity_add_dotnet_host_runtime target)
         COMMENT "Copying nethost.dll"
         VERBATIM
     )
-    add_custom_target(${target} ALL DEPENDS "${OUTPUT_BASE}/nethost.dll")
+    add_custom_target(${target} ALL DEPENDS "$<$<NOT:$<CONFIG:Distribution>>:${OUTPUT_BASE}/nethost.dll>")
 endfunction()

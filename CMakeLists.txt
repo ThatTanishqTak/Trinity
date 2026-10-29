@@ -12,7 +12,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 include(TrinityConfigurations)
 trinity_declare_configurations()
 
-project(Trinity VERSION 0.1.0 DESCRIPTION "Trinity game engine, Forge editor, Hub launcher and Sandbox" LANGUAGES C CXX)
+project(Trinity VERSION 0.1.0 DESCRIPTION "Trinity game engine, Forge editor, Hub launcher, Runtime player and Sandbox" LANGUAGES C CXX)
 
 trinity_setup_configuration_flags()
 
@@ -64,6 +64,7 @@ add_subdirectory(Trinity-Engine)
 add_subdirectory(Trinity-Forge)
 add_subdirectory(Trinity-Hub)
 add_subdirectory(Trinity-Sandbox)
+add_subdirectory(Trinity-Runtime)
 
 # The applications that start .NET build the managed side they load, whose bindings Trinity-InteropGen writes. Forge also builds the source generator a game's C# project runs. Hub never starts .NET
 if(TRINITY_DOTNET_FOUND)
