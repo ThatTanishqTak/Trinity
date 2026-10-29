@@ -1,7 +1,5 @@
 #include "Trinity/Scene/SceneManager.hpp"
 
-#include "Trinity/Scene/LiveScenes.hpp"
-
 #include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Asset/AssetRegistry.hpp"
 #include "Trinity/Asset/MaterialAsset.hpp"

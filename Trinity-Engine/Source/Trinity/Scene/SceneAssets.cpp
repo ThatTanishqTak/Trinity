@@ -60,13 +60,14 @@ namespace Trinity
             {
                 for (const ScriptEntry& it_Script : it_Scripts.Scripts)
                 {
-                    // An asset field, or each asset of a list of them
+                    // An asset field, or each asset of a list of them, but not a scene, which loads only when switched to. A cooked game's table lists only what its build reaches, so a field naming anything else there names a scene left out of the build, or an asset the build already listed as broken
                     for (const ScriptEntry::Field& it_Field : it_Script.Fields)
                     {
                         it_Field.Value.ForEachValue<UUID>(ScriptFieldType::Asset, [&assets, registry](const UUID& asset)
                         {
                             const AssetRecord* l_Record = registry != nullptr && asset ? registry->Find(asset) : nullptr;
-                            if (l_Record == nullptr || l_Record->Importer != "Scene")
+                            const bool l_Skipped = l_Record != nullptr ? l_Record->Importer == "Scene" : registry != nullptr && registry->IsCooked();
+                            if (!l_Skipped)
                             {
                                 Add(assets, asset);
                             }

@@ -180,6 +180,8 @@ namespace Trinity
 
         // Until one is set, and once an empty one is, a prefab is found among the assets the asset manager has ready
         TRINITY_API void SetPrefabResolver(PrefabResolver resolver);
+        // The prefab's entities under their local IDs, as the prefab resolver finds them, or null for a prefab that is not there or cannot be read, and for one asked for again while its own template is found, which holds itself. Main thread only
+        [[nodiscard]] TRINITY_API Scene* FindPrefabTemplate(UUID prefab);
 
         // Gives every scene there is the component's pool, and loads again each of the component kept as YAML while no loaded code knew it
         TRINITY_API bool RegisterComponent(const ComponentSerializer& serializer);

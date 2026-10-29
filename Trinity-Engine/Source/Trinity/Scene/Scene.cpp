@@ -9,6 +9,7 @@
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Prefab.hpp"
+#include "Trinity/Scene/SceneSerializer.hpp"
 
 #include <algorithm>
 #include <utility>

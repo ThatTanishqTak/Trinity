@@ -1,6 +1,5 @@
 #include "Trinity/Scene/Prefab.hpp"
 
-#include "Trinity/Scene/LiveScenes.hpp"
 #include "Trinity/Scene/PrefabLoaders.hpp"
 
 #include "Trinity/Asset/AssetManager.hpp"
