@@ -52,6 +52,29 @@ namespace
         return {};
     }
 
+    // This Forge's own platform, which a player built beside it runs on
+    std::string_view GetRuntimeIdentifier()
+    {
+#if defined(_M_ARM64) || defined(__aarch64__)
+        constexpr bool c_Arm64 = true;
+#else
+        constexpr bool c_Arm64 = false;
+#endif
+#if defined(TR_PLATFORM_WINDOWS)
+        return c_Arm64 ? "win-arm64" : "win-x64";
+#elif defined(TR_PLATFORM_MACOS)
+        return c_Arm64 ? "osx-arm64" : "osx-x64";
+#else
+        return c_Arm64 ? "linux-arm64" : "linux-x64";
+#endif
+    }
+
+    // A NativeAOT publish keeps its files apart from Forge's builds, so neither builds the other again
+    std::filesystem::path GetCompiledArtifacts(const std::filesystem::path& projectDirectory)
+    {
+        return projectDirectory / "Build" / "ScriptsAot";
+    }
+
     // dotnet's messages asked for in English, which the output is read in, and none of its first-run text
     bool BuildAssembly(const AssemblyBuild::Request& request, const std::atomic<bool>& cancel, BuildOutput& output)
     {
@@ -79,7 +102,24 @@ namespace
 
         // MSBuild's nodes would outlive the build and hold its output open, so none is left running, and the console logger writes plain lines, which the output is read a line at a time in
         const std::filesystem::path l_Project = request.ScriptsDirectory / FromUtf8(request.Name + ".csproj");
-        const std::vector<std::string> l_Arguments{ "build", ToUtf8(l_Project), "--nologo", "--verbosity", "quiet", "-tl:off", "-clp:NoSummary", "-nodeReuse:false", "--configuration", std::string(AssemblyBuild::GetConfiguration()), std::format("-p:TrinityScriptingDirectory={}", ToUtf8(l_Scripting)) };
+        std::vector<std::string> l_Arguments{ request.AheadOfTime ? "publish" : "build", ToUtf8(l_Project), "--nologo", "--verbosity", "quiet", "-tl:off", "-clp:NoSummary", "-nodeReuse:false", std::format("-p:TrinityScriptingDirectory={}", ToUtf8(l_Scripting)) };
+        if (!request.AheadOfTime)
+        {
+            l_Arguments.insert(l_Arguments.end(), { "--configuration", std::string(AssemblyBuild::GetConfiguration()) });
+        }
+        else
+        {
+            // PublishAot and NativeLib are read before any project file is, so they come from here, and the targets beside ScriptCore compile it in and export its way in
+            const std::filesystem::path l_Targets = l_Scripting / "Trinity-ScriptCore.Aot.targets";
+            if (!std::filesystem::exists(l_Targets, l_Error))
+            {
+                output.LogError(std::format("Build: {} has no Trinity-ScriptCore.Aot.targets, so the scripts cannot be compiled ahead of time. Build the Trinity-ScriptCore target", ToUtf8(l_Scripting)));
+
+                return false;
+            }
+
+            l_Arguments.insert(l_Arguments.end(), { "--configuration", "Release", "--runtime", std::string(GetRuntimeIdentifier()), "--output", ToUtf8(AssemblyBuild::GetCompiledPath(request.ProjectDirectory, request.Name).parent_path()), "-p:PublishAot=true", "-p:NativeLib=Shared", std::format("-p:ArtifactsPath={}", ToUtf8(GetCompiledArtifacts(request.ProjectDirectory))), std::format("-p:CustomAfterMicrosoftCommonTargets={}", ToUtf8(l_Targets)) });
+        }
 
         Trinity::ProcessOptions l_Options;
         l_Options.WorkingDirectory = request.ScriptsDirectory;
@@ -87,7 +127,15 @@ namespace
         l_Options.Cancel = &cancel;
         l_Options.OnLine = [&output](std::string_view line) { output.Read(line); };
 
-        TR_INFO("Build: building {} for {}", request.Name, AssemblyBuild::GetConfiguration());
+        if (request.AheadOfTime)
+        {
+            TR_INFO("Build: compiling {} ahead of time with NativeAOT for {}", request.Name, GetRuntimeIdentifier());
+        }
+        else
+        {
+            TR_INFO("Build: building {} for {}", request.Name, AssemblyBuild::GetConfiguration());
+        }
+
         const Trinity::Expected<int, std::string> l_ExitCode = Trinity::Process::Run(l_DotNet, l_Arguments, l_Options);
         output.Finish();
         if (!l_ExitCode)
@@ -165,6 +213,19 @@ std::filesystem::path AssemblyBuild::GetAssemblyPath(const std::filesystem::path
     return projectDirectory / "Build" / "Scripts" / "bin" / FromUtf8(name) / FromUtf8(l_Configuration) / FromUtf8(std::format("{}.dll", name));
 }
 
+std::filesystem::path AssemblyBuild::GetCompiledPath(const std::filesystem::path& projectDirectory, std::string_view name)
+{
+#if defined(TR_PLATFORM_WINDOWS)
+    constexpr std::string_view c_Extension = ".dll";
+#elif defined(TR_PLATFORM_MACOS)
+    constexpr std::string_view c_Extension = ".dylib";
+#else
+    constexpr std::string_view c_Extension = ".so";
+#endif
+
+    return GetCompiledArtifacts(projectDirectory) / "publish" / FromUtf8(std::format("{}{}", name, c_Extension));
+}
+
 void AssemblyBuild::Run(Running& running)
 {
     const Clock::time_point l_Start = Clock::now();
@@ -175,7 +236,7 @@ void AssemblyBuild::Run(Running& running)
     Result& l_Result = running.Outcome;
     std::error_code l_Error;
     l_Result.Cancelled = running.Cancel.load(std::memory_order_relaxed);
-    l_Result.Assembly = GetAssemblyPath(l_Request.ProjectDirectory, l_Request.Name);
+    l_Result.Assembly = l_Request.AheadOfTime ? GetCompiledPath(l_Request.ProjectDirectory, l_Request.Name) : GetAssemblyPath(l_Request.ProjectDirectory, l_Request.Name);
     l_Result.Succeeded = l_Built && !l_Result.Cancelled && std::filesystem::exists(l_Result.Assembly, l_Error);
     l_Result.Errors = l_Output.GetErrors();
     l_Result.Warnings = l_Output.GetWarnings();
@@ -187,7 +248,7 @@ void AssemblyBuild::Run(Running& running)
     }
     else if (l_Result.Succeeded)
     {
-        TR_INFO("Build: {} built in {:.1f} s{}", l_Request.Name, l_Result.Seconds, l_Result.Warnings > 0 ? std::format(", with {} warning(s)", l_Result.Warnings) : std::string());
+        TR_INFO("Build: {} {} in {:.1f} s{}", l_Request.Name, l_Request.AheadOfTime ? "compiled ahead of time" : "built", l_Result.Seconds, l_Result.Warnings > 0 ? std::format(", with {} warning(s)", l_Result.Warnings) : std::string());
     }
     else
     {

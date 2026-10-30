@@ -22,4 +22,9 @@
 		<Compile Include="$(TrinityGeneratedDirectory)/*.cs" />
 	</ItemGroup>
 
+	<!-- Beside ScriptCore, for Forge's NativeAOT publish of a game's scripts against it -->
+	<ItemGroup>
+		<None Update="Trinity-ScriptCore.Aot.targets" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
 </Project>

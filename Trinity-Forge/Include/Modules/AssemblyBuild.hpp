@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-// One build of a project's C# scripts, on a job, with dotnet build in Debug for a Debug Forge and Release otherwise, against the Trinity-ScriptCore and Trinity-ScriptGenerator beside Forge. The .NET SDK is the one on the PATH, or where DOTNET_ROOT points. Its warnings and errors go to the log with their files and lines as they come, the rest of the output at trace, and a summary at the end
+// One build of a project's C# scripts, on a job, with dotnet build in Debug for a Debug Forge and Release otherwise, against the Trinity-ScriptCore and Trinity-ScriptGenerator beside Forge. Or, for a player, a NativeAOT publish in Release, which compiles the scripts and ScriptCore ahead of time into one library for this platform. The .NET SDK is the one on the PATH, or where DOTNET_ROOT points. Its warnings and errors go to the log with their files and lines as they come, the rest of the output at trace, and a summary at the end
 class AssemblyBuild
 {
 public:
@@ -20,6 +20,8 @@ public:
         std::string Name;
         std::filesystem::path ProjectDirectory;
         std::filesystem::path ScriptsDirectory;
+        // Published with NativeAOT into Build/ScriptsAot rather than built, so the result is GetCompiledPath's library
+        bool AheadOfTime = false;
     };
 
     struct Result
@@ -53,6 +55,8 @@ public:
     [[nodiscard]] static std::filesystem::path GetScriptingDirectory();
     // Where the C# project's Directory.Build.props sends every build of it, Forge's and an IDE's alike: Build/Scripts/bin/<name>/<configuration>/<name>.dll
     [[nodiscard]] static std::filesystem::path GetAssemblyPath(const std::filesystem::path& projectDirectory, std::string_view name);
+    // Where a NativeAOT publish leaves its library, apart from Forge's builds: Build/ScriptsAot/publish/<name>.dll, .so or .dylib
+    [[nodiscard]] static std::filesystem::path GetCompiledPath(const std::filesystem::path& projectDirectory, std::string_view name);
 
 private:
     // The flags are read by both threads, and the result written by the job before Done

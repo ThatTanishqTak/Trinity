@@ -8,8 +8,8 @@
 #include <algorithm>
 #include <array>
 #include <format>
-#include <span>
 #include <string>
+#include <span>
 #include <system_error>
 #include <type_traits>
 #include <variant>
@@ -53,6 +53,11 @@ namespace
         return l_Build;
     }
 
+    bool IsUnderway(BuildState state)
+    {
+        return state == BuildState::Pending || state == BuildState::Building;
+    }
+
     // The graphics APIs this build of Trinity has, its default first, as a player built with it tries them
     std::vector<Trinity::GraphicsAPI> GetGraphicsAPIs()
     {
@@ -77,7 +82,7 @@ void PackCommand::Start(const std::filesystem::path& folder)
     TR_INFO("Pack: the project is written to {} once it has imported and built", ToUtf8(folder));
 }
 
-// A project that did not open, or a module that did not build, ends it with the reason, as a failed write does
+// A project that did not open, or a module or scripts that did not build, ends it with the reason, as a failed write does. The scripts compile ahead of time once Forge's own build of them has ended, so the two never run at once
 void PackCommand::Update()
 {
     if (!m_Folder)
@@ -85,9 +90,14 @@ void PackCommand::Update()
         return;
     }
 
-    const ModuleHost& l_Module = m_Session.GetModule();
-    const BuildState l_Build = l_Module.GetStatus().State;
-    if (m_Session.HasProject() && (m_Session.IsImportingAssets() || l_Build == BuildState::Pending || l_Build == BuildState::Building))
+    const BuildState l_Module = m_Session.GetModule().GetStatus().State;
+    const BuildState l_Scripts = m_Session.GetAssembly().GetStatus().State;
+    if (m_Session.HasProject() && (m_Session.IsImportingAssets() || IsUnderway(l_Module) || IsUnderway(l_Scripts)))
+    {
+        return;
+    }
+
+    if (m_Session.HasProject() && l_Module != BuildState::Failed && l_Scripts != BuildState::Failed && CompileScripts())
     {
         return;
     }
@@ -97,9 +107,17 @@ void PackCommand::Update()
     {
         TR_ERROR("Pack: no project is open, so nothing is written. Pass --project=<path> with --pack");
     }
-    else if (l_Build == BuildState::Failed)
+    else if (l_Module == BuildState::Failed)
     {
         TR_ERROR("Pack: {}'s C++ module did not build, so nothing is written", m_Session.GetProject()->GetName());
+    }
+    else if (l_Scripts == BuildState::Failed)
+    {
+        TR_ERROR("Pack: {}'s C# scripts did not build, so nothing is written", m_Session.GetProject()->GetName());
+    }
+    else if (m_Compiled && !m_Compiled->Succeeded)
+    {
+        TR_ERROR("Pack: {}'s C# scripts did not compile ahead of time, so nothing is written", m_Session.GetProject()->GetName());
     }
     else if (Write(l_Folder))
     {
@@ -107,6 +125,31 @@ void PackCommand::Update()
     }
 
     Trinity::Application::Get().Close();
+}
+
+bool PackCommand::CompileScripts()
+{
+    const Trinity::Project& l_Project = *m_Session.GetProject();
+    if (!l_Project.HasAssembly() || m_Compiled)
+    {
+        return false;
+    }
+
+    if (!m_Compiler.IsRunning())
+    {
+        AssemblyBuild::Request l_Request;
+        l_Request.Name = l_Project.GetAssemblyName();
+        l_Request.ProjectDirectory = l_Project.GetDirectory();
+        l_Request.ScriptsDirectory = l_Project.GetScriptsDirectory();
+        l_Request.AheadOfTime = true;
+        m_Compiler.Start(std::move(l_Request));
+
+        return true;
+    }
+
+    m_Compiled = m_Compiler.Update();
+
+    return !m_Compiled;
 }
 
 bool PackCommand::Write(const std::filesystem::path& folder)
@@ -142,6 +185,14 @@ bool PackCommand::Write(const std::filesystem::path& folder)
     {
         l_Game.Module = l_Project.GetModuleName();
         l_ModuleBuild = ModuleBuild::GetLibraryPath(ModuleBuild::GetBuildDirectory(l_Project.GetBuildDirectory()), l_Game.Module);
+    }
+
+    // Every player runs the scripts from their NativeAOT library, so none needs .NET installed
+    std::filesystem::path l_Compiled;
+    if (m_Compiled)
+    {
+        l_Game.Scripts = l_Project.GetAssemblyName();
+        l_Compiled = m_Compiled->Assembly;
     }
 
     PackBuilder l_Builder;
@@ -184,6 +235,13 @@ bool PackCommand::Write(const std::filesystem::path& folder)
 
             return false;
         }
+    }
+
+    if (!l_Compiled.empty() && !std::filesystem::copy_file(l_Compiled, folder / Trinity::GetScriptsLibraryName(), std::filesystem::copy_options::overwrite_existing, l_Error))
+    {
+        TR_ERROR("Pack: the scripts' library {} could not be copied beside the pack: {}", ToUtf8(l_Compiled), l_Error.message());
+
+        return false;
     }
 
     return true;

@@ -85,8 +85,9 @@ void BuildOutput::Read(std::string_view text)
     }
 
     static const std::regex c_CMake(R"(^CMake (Error|Warning)(?: \(dev\))?(?: at (.+?):(\d+)(?: \([^)]*\))?)?:\s*(.*)$)");
-    static const std::regex c_Msvc(R"(^\s*(.+?)\((\d+)(?:,(\d+))?\)\s*:\s*(fatal error|error|warning)\s*([A-Za-z]+\d+)?\s*:\s*(.*)$)");
-    static const std::regex c_Tool(R"(^\s*(.+?)\s*:\s*(fatal error|error|warning)\s+([A-Z]+\d+)\s*:\s*(.*)$)");
+    // NativeAOT's compiler says Trim analysis warning or AOT analysis warning where the others say warning
+    static const std::regex c_Msvc(R"(^\s*(.+?)\((\d+)(?:,(\d+))?\)\s*:\s*(?:(?:Trim|AOT) analysis )?(fatal error|error|warning)\s*([A-Za-z]+\d+)?\s*:\s*(.*)$)");
+    static const std::regex c_Tool(R"(^\s*(.+?)\s*:\s*(?:(?:Trim|AOT) analysis )?(fatal error|error|warning)\s+([A-Z]+\d+)\s*:\s*(.*)$)");
     static const std::regex c_Gnu(R"(^(.+?):(\d+):(?:(\d+):)?\s*(fatal error|error|warning):\s*(.*)$)");
 
     std::smatch l_Match;

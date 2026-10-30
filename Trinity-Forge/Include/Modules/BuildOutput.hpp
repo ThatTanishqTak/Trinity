@@ -27,7 +27,7 @@ struct BuildStatus
     std::uint32_t Warnings = 0;
 };
 
-// Build output read a line at a time. A warning or an error as MSVC, Clang, GCC and the C# compiler write them, or as a tool such as the linker, MSBuild or NuGet does, is logged with its file and line, as is CMake's, with the indented lines below it that say what it means. A line repeated, as MSBuild repeats each warning and error, is logged once. Every other line goes to the log at trace, and those that still say they are an error at error
+// Build output read a line at a time. A warning or an error as MSVC, Clang, GCC and the C# compiler write them, or as a tool such as the linker, MSBuild, NuGet or NativeAOT's compiler does, is logged with its file and line, as is CMake's, with the indented lines below it that say what it means. A line repeated, as MSBuild repeats each warning and error, is logged once. Every other line goes to the log at trace, and those that still say they are an error at error
 class BuildOutput
 {
 public:

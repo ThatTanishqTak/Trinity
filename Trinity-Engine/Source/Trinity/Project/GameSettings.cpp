@@ -88,6 +88,7 @@ namespace Trinity
 
         l_Emitter << YAML::EndSeq;
         l_Emitter << YAML::Key << "Module" << YAML::Value << YAML::DoubleQuoted << settings.Module;
+        l_Emitter << YAML::Key << "Scripts" << YAML::Value << YAML::DoubleQuoted << settings.Scripts;
         l_Emitter << YAML::Key << "GraphicsAPIs" << YAML::Value << YAML::Flow << YAML::BeginSeq;
         for (const GraphicsAPI it_API : settings.GraphicsAPIs)
         {
@@ -153,6 +154,16 @@ namespace Trinity
             l_Unread |= !l_Module.empty();
         }
 
+        const std::string l_Scripts = SettingsYaml::ReadString(l_Root, "Scripts", "");
+        if (Project::IsValidModuleName(l_Scripts))
+        {
+            l_Settings.Scripts = l_Scripts;
+        }
+        else
+        {
+            l_Unread |= !l_Scripts.empty();
+        }
+
         if (const YAML::Node l_APIs = l_Root["GraphicsAPIs"]; l_APIs && l_APIs.IsSequence())
         {
             for (const YAML::Node& it_API : l_APIs)
@@ -184,7 +195,7 @@ namespace Trinity
 
         if (l_Unread)
         {
-            TR_CORE_WARN("{} names a scene, module, graphics API or input actions that cannot be one, which is left out", c_Owner);
+            TR_CORE_WARN("{} names a scene, module, assembly, graphics API or input actions that cannot be one, which is left out", c_Owner);
         }
 
         return l_Settings;
@@ -193,6 +204,17 @@ namespace Trinity
     std::string GetGameSettingsPath()
     {
         return std::format("{}/{}", Project::c_CacheMount, GameSettings::c_FileName);
+    }
+
+    std::string_view GetScriptsLibraryName()
+    {
+#if defined(TR_PLATFORM_WINDOWS)
+        return "GameAssembly.dll";
+#elif defined(TR_PLATFORM_MACOS)
+        return "GameAssembly.dylib";
+#else
+        return "GameAssembly.so";
+#endif
     }
 
     std::string WriteDisplaySettings(const DisplaySettings& settings)

@@ -11,7 +11,7 @@
 
 namespace Trinity
 {
-    // .NET in the engine: the installed runtime found through nethost, started from Trinity-ScriptCore's runtime config, and ScriptCore loaded into the default load context, whose entry points are called through function pointers. A runtime that cannot be found or started leaves C# off with one error, and the engine runs on. Main thread only
+    // .NET in the engine: the installed runtime found through nethost, started from Trinity-ScriptCore's runtime config, and ScriptCore loaded into the default load context, whose entry points are called through function pointers. A player starts a game's NativeAOT library instead, which holds ScriptCore and the game's scripts compiled ahead of time, and whose export finds the same entry points. A runtime that cannot be found or started leaves C# off with one error, and the engine runs on. Main thread only
     namespace DotNetHost
     {
         // A script callback, numbered as Trinity.Interop.ScriptCallback numbers it
@@ -27,6 +27,8 @@ namespace Trinity
 
         // From the Scripting folder beside the executables, which holds Trinity-ScriptCore.dll and its runtime config. Hands ScriptCore the functions of NativeFunctions.def, checks that both sides lay out the shared types alike, and logs the runtime's version and how long it took to start, once a call into C# that calls back into the engine has come back right
         bool Start(const std::filesystem::path& scriptingDirectory);
+        // In place of Start, a game's NativeAOT library, which needs no .NET installed, checked and handed the engine's functions as Start does. It stays loaded once found
+        bool StartCompiled(const std::filesystem::path& library);
         // Unloads a game assembly still loaded, and ScriptCore lets go of the engine's functions. The runtime itself stays, since .NET cannot leave a process it has started in
         void Stop();
 
@@ -36,6 +38,8 @@ namespace Trinity
 
         // A copy of a game assembly, loaded into a collectible load context, whose script classes ScriptCore describes through Scripting_BeginClass and the rest of them as it loads. What it depends on is found beside the build it was copied from. The number of classes it described, or -1, which ScriptCore has logged, when it could not be loaded
         [[nodiscard]] std::int32_t LoadAssembly(const std::filesystem::path& path, const std::filesystem::path& buildPath);
+        // The classes compiled into a NativeAOT library, described as a loaded assembly's are, under the game assembly's name. The number described, or -1, which ScriptCore has logged
+        [[nodiscard]] std::int32_t LoadCompiled(std::string_view name);
         // Frees every instance still held and unloads the assembly's context. False when the context was not collected, which ScriptCore has logged with what still holds it
         [[nodiscard]] bool UnloadAssembly();
 

@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -28,11 +29,11 @@ namespace Trinity.Interop
             Native.Bind(default);
         }
 
-        // The runtime's description, such as .NET 10.0.0, written as UTF-8 into the buffer when it fits. Its length in bytes either way
+        // The runtime's description, such as .NET 10.0.0, or .NET 10.0.0 compiled ahead of time in a NativeAOT library, written as UTF-8 into the buffer when it fits. Its length in bytes either way
         [UnmanagedCallersOnly]
         public static int GetRuntimeDescription(byte* buffer, int capacity)
         {
-            string l_Description = RuntimeInformation.FrameworkDescription;
+            string l_Description = RuntimeFeature.IsDynamicCodeCompiled ? RuntimeInformation.FrameworkDescription : $"{RuntimeInformation.FrameworkDescription} compiled ahead of time";
             int l_Length = Encoding.UTF8.GetByteCount(l_Description);
             if (buffer != null && l_Length <= capacity)
             {

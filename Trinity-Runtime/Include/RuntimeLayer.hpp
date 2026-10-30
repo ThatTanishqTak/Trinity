@@ -8,7 +8,7 @@
 #include <optional>
 #include <string>
 
-// Plays a game from its pack, as its Game.trgame describes it: through its physics, its mixer and its input actions, with its C++ module linked in or loaded from beside the pack, from the first scene of its build, or the one --scene names, through the scene's primary camera, in a window as its player last left it. It never reads a project
+// Plays a game from its pack, as its Game.trgame describes it: through its physics, its mixer and its input actions, with its C++ module linked in or loaded from beside the pack, and its C# scripts compiled ahead of time beside it, from the first scene of its build, or the one --scene names, through the scene's primary camera, in a window as its player last left it. It never reads a project
 class RuntimeLayer final : public Trinity::Layer
 {
 public:
@@ -24,6 +24,7 @@ public:
 private:
     [[nodiscard]] bool OpenAssets();
     void LoadModule();
+    void LoadScripts();
     void UnloadModule();
     [[nodiscard]] bool LoadStartScene(const Trinity::ApplicationCommandLineArgs& args);
 

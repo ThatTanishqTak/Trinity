@@ -17,7 +17,7 @@
 
 namespace Trinity
 {
-    // What a game is, as Game.trgame in its pack holds it, which its player reads before anything else: its names, the scenes in its build, the first being the one it starts with, its C++ module, the graphics APIs it tries, the window it first opens with, and the project's physics, audio and input actions. Written as YAML, as a project's settings are
+    // What a game is, as Game.trgame in its pack holds it, which its player reads before anything else: its names, the scenes in its build, the first being the one it starts with, its C++ module and C# scripts, the graphics APIs it tries, the window it first opens with, and the project's physics, audio and input actions. Written as YAML, as a project's settings are
     struct GameSettings
     {
         static constexpr std::uint32_t c_FormatVersion = 1;
@@ -30,6 +30,8 @@ namespace Trinity
         std::vector<UUID> Scenes;
         // The module a player with the shared engine loads from beside the pack, or empty for none. A Distribution player has it linked in
         std::string Module;
+        // The C# assembly compiled ahead of time with ScriptCore into GameAssembly beside the pack, by its name, or empty for none
+        std::string Scripts;
         // Tried in this order when the player is given no --d3d12 or --vulkan, skipping any it was built without
         std::vector<GraphicsAPI> GraphicsAPIs;
         // Until its player chooses otherwise, which DisplaySettings keeps
@@ -42,10 +44,12 @@ namespace Trinity
     };
 
     [[nodiscard]] TRINITY_API std::string WriteGameSettings(const GameSettings& settings);
-    // Refused for text that is not YAML, of a newer format, without a product or a company, or with no scene. A scene, module or graphics API that cannot be one is left out, and reported
+    // Refused for text that is not YAML, of a newer format, without a product or a company, or with no scene. A scene, module, assembly or graphics API that cannot be one is left out, and reported
     [[nodiscard]] TRINITY_API Expected<GameSettings, std::string> ParseGameSettings(std::string_view text);
     // Where a player reads it: in its pack, which mounts at /cache
     [[nodiscard]] TRINITY_API std::string GetGameSettingsPath();
+    // The file beside the pack that holds the game's C# scripts and ScriptCore compiled ahead of time, named as Unity names its IL2CPP build's: GameAssembly.dll, .so or .dylib
+    [[nodiscard]] TRINITY_API std::string_view GetScriptsLibraryName();
 
     // The window as its player left it, over the game's own Window, which the player keeps in Display.yaml in its saves: the window's settings, and the monitor it was on and where its client area was while windowed, so the next start opens there again
     struct DisplaySettings

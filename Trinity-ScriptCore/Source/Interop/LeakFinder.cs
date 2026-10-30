@@ -15,6 +15,7 @@ namespace Trinity.Interop
 
         [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Run in Forge only, after a reload whose context was not collected, over whatever metadata the loaded assemblies have")]
         [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Run in Forge only, after a reload whose context was not collected, over whatever metadata the loaded assemblies have")]
+        [UnconditionalSuppressMessage("Trimming", "IL2065", Justification = "Run in Forge only, after a reload whose context was not collected, over whatever metadata the loaded assemblies have")]
         public static string Describe(WeakReference context)
         {
             if (context.Target is not AssemblyLoadContext l_Context)

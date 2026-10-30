@@ -174,6 +174,7 @@ bool RuntimeLayer::OpenAssets()
 
     Trinity::AssetManager::SetRegistry(m_Registry.get());
     LoadModule();
+    LoadScripts();
     m_Mixer = Trinity::AssetRef<Trinity::AudioMixerAsset>(m_Game->Audio.Mixer);
     TR_INFO("Runtime: playing {} {} by {}, with {} scene(s) in its build", m_Game->Product, m_Game->Version, m_Game->Company, m_Game->Scenes.size());
 
@@ -240,6 +241,20 @@ void RuntimeLayer::LoadModule()
 #else
     TR_ERROR("Runtime: {} has the C++ module {}, which this player cannot load, since its engine is linked statically, so its scripts and components are missing. An export links the module into the player", m_Game->Product, m_Game->Module);
 #endif
+}
+
+// C# runs from the game's NativeAOT library, so no .NET need be installed. One that cannot start is reported, and the game plays on without its C# scripts. .NET is let go of as the application closes
+void RuntimeLayer::LoadScripts()
+{
+    if (m_Game->Scripts.empty())
+    {
+        return;
+    }
+
+    if (!Trinity::ManagedScripts::StartCompiled(m_GameDirectory / FromUtf8(Trinity::GetScriptsLibraryName()), m_Game->Scripts))
+    {
+        TR_ERROR("Runtime: {} has the C# scripts {}, which could not be started, so they are missing", m_Game->Product, m_Game->Scripts);
+    }
 }
 
 void RuntimeLayer::UnloadModule()

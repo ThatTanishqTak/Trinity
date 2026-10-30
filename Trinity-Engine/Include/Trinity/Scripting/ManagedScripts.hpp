@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string_view>
 
 namespace Trinity
 {
@@ -14,7 +15,7 @@ namespace Trinity
         std::uint32_t Collections = 0;
     };
 
-    // A game's C# assembly, whose script classes register as C# classes once it loads, so Add Script lists them and a running scene makes their instances. One is loaded at a time, into a collectible load context, which unloads for a reload. Main thread only
+    // A game's C# assembly, whose script classes register as C# classes once it loads, so Add Script lists them and a running scene makes their instances. One is loaded at a time, into a collectible load context, which unloads for a reload, or in a player compiled ahead of time into the game's NativeAOT library. Main thread only
     namespace ManagedScripts
     {
         // Whether .NET is running, so an assembly can load
@@ -22,6 +23,8 @@ namespace Trinity
 
         // A copy of a build, which stays open while it is loaded, so the build itself can be written over. What it depends on is found beside the build it was copied from, or beside the copy without one. False, logged, when C# is off, an assembly is loaded already, or this one could not be loaded. A class that could not be registered is logged and left out, and the rest load
         TRINITY_API bool LoadAssembly(const std::filesystem::path& path, const std::filesystem::path& buildPath = {});
+        // A player's C#: the game's NativeAOT library, with the assembly and ScriptCore compiled into it, started in place of .NET, which need not be installed, and the classes compiled into it registered as a loaded assembly's are, under the assembly's name. False, logged, when C# is running already or the library could not be started
+        TRINITY_API bool StartCompiled(const std::filesystem::path& library, std::string_view assembly);
         // Its classes are unregistered, every instance ScriptCore still holds is freed, and its load context unloaded and collected. Every instance should have gone first, through ScriptRuntime::ReleaseInstances or the scene stopping. False when the context was not collected, which is logged with what still holds it, and its memory then stays until the process ends
         TRINITY_API bool UnloadAssembly();
 

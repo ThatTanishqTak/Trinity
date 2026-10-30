@@ -16,6 +16,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -35,43 +36,43 @@ namespace Trinity
                 case ScriptFieldType::Bool:
                 {
                     l_Value.Integer = value.Get<bool>() ? 1 : 0;
-                    
+
                     break;
                 }
                 case ScriptFieldType::Int32:
                 {
                     l_Value.Integer = value.Get<std::int32_t>();
-                    
+
                     break;
                 }
                 case ScriptFieldType::Int64:
                 {
                     l_Value.Integer = value.Get<std::int64_t>();
-                    
+
                     break;
                 }
                 case ScriptFieldType::UInt32:
                 {
                     l_Value.Integer = value.Get<std::uint32_t>();
-                    
+
                     break;
                 }
                 case ScriptFieldType::UInt64:
                 {
                     l_Value.Integer = static_cast<std::int64_t>(value.Get<std::uint64_t>());
-                    
+
                     break;
                 }
                 case ScriptFieldType::Float:
                 {
                     l_Value.Real = value.Get<float>();
-                    
+
                     break;
                 }
                 case ScriptFieldType::Double:
                 {
                     l_Value.Real = value.Get<double>();
-                    
+
                     break;
                 }
                 case ScriptFieldType::Vector2:
@@ -107,20 +108,20 @@ namespace Trinity
                 case ScriptFieldType::InputAction:
                 {
                     l_Value.Text = Interop::ToUtf8(std::string_view(value.Get<ScriptString>()));
-                    
+
                     break;
                 }
                 case ScriptFieldType::Enum:
                 {
                     l_Value.Integer = value.Get<std::int64_t>();
-                    
+
                     break;
                 }
                 case ScriptFieldType::Entity:
                 case ScriptFieldType::Asset:
                 {
                     l_Value.Integer = static_cast<std::int64_t>(value.Get<UUID>().GetValue());
-                    
+
 
                     break;
                 }
@@ -275,7 +276,7 @@ namespace Trinity
             }
 
             // A C# instance knows its entity by its UUID, which it keeps, and reaches whichever runtime is active
-            void Rebind([[maybe_unused]] void* instance, [[maybe_unused]] Entity entity, [[maybe_unused]] ScriptRuntime & runtime) override
+            void Rebind([[maybe_unused]] void* instance, [[maybe_unused]] Entity entity, [[maybe_unused]] ScriptRuntime& runtime) override
             {
 
             }
@@ -649,6 +650,37 @@ namespace Trinity
         }
     }
 
+    namespace
+    {
+        // As ScriptCore describes them, from an assembly it loads or the classes compiled into a NativeAOT library. load gives the number it described, or -1 when it could not
+        template<typename F>
+        bool RegisterClasses(std::string_view name, const F& load)
+        {
+            if (s_Managed->IsLoaded())
+            {
+                TR_CORE_ERROR("Scripting: {} is not loaded, since another C# assembly is", name);
+
+                return false;
+            }
+
+            s_Managed->BeginLoad();
+            const std::int32_t l_Described = load();
+            s_Managed->EndLoad();
+            if (l_Described < 0)
+            {
+                ScriptClassRegistry::UnregisterAll(ScriptLanguage::CSharp);
+                s_Managed->Clear();
+
+                return false;
+            }
+
+            s_Managed->SetLoaded(true);
+            TR_CORE_INFO("Scripting: loaded {}, with {} C# script class(es){}", name, s_Managed->GetClassCount(), static_cast<std::size_t>(l_Described) != s_Managed->GetClassCount() ? std::format(" of the {} it has", l_Described) : std::string());
+
+            return true;
+        }
+    }
+
     namespace ManagedScripts
     {
         bool IsAvailable()
@@ -669,28 +701,21 @@ namespace Trinity
                 return false;
             }
 
-            if (s_Managed->IsLoaded())
+            return RegisterClasses(l_File, [&path, &buildPath] { return DotNetHost::LoadAssembly(path, buildPath); });
+        }
+
+        bool StartCompiled(const std::filesystem::path& library, std::string_view assembly)
+        {
+            TR_CORE_ASSERT(s_Managed != nullptr, "The C# script backend is not initialized.");
+
+            if (DotNetHost::IsRunning())
             {
-                TR_CORE_ERROR("Scripting: {} is not loaded, since another C# assembly is", l_File);
+                TR_CORE_ERROR("Scripting: {} is not started, since C# is running already", assembly);
 
                 return false;
             }
 
-            s_Managed->BeginLoad();
-            const std::int32_t l_Described = DotNetHost::LoadAssembly(path, buildPath);
-            s_Managed->EndLoad();
-            if (l_Described < 0)
-            {
-                ScriptClassRegistry::UnregisterAll(ScriptLanguage::CSharp);
-                s_Managed->Clear();
-
-                return false;
-            }
-
-            s_Managed->SetLoaded(true);
-            TR_CORE_INFO("Scripting: loaded {}, with {} C# script class(es){}", l_File, s_Managed->GetClassCount(), static_cast<std::size_t>(l_Described) != s_Managed->GetClassCount() ? std::format(" of the {} it has", l_Described) : std::string());
-
-            return true;
+            return DotNetHost::StartCompiled(library) && RegisterClasses(assembly, [assembly] { return DotNetHost::LoadCompiled(assembly); });
         }
 
         bool UnloadAssembly()

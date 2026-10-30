@@ -18,6 +18,7 @@
 #include <chrono>
 #include <format>
 #include <string>
+#include <string_view>
 #include <system_error>
 #endif
 
@@ -28,15 +29,10 @@ namespace Trinity
 #if defined(TR_DOTNET)
     namespace
     {
-        // hostfxr takes its strings as the platform's characters, which are UTF-16 on Windows
-#if defined(_WIN32)
-#define TR_DOTNET_TEXT(text) L##text
-#else
-#define TR_DOTNET_TEXT(text) text
-#endif
-
-        constexpr const char_t* c_HostType = TR_DOTNET_TEXT("Trinity.Interop.Host, Trinity-ScriptCore");
-        constexpr const char_t* c_ScriptHostType = TR_DOTNET_TEXT("Trinity.Interop.ScriptHost, Trinity-ScriptCore");
+        constexpr std::string_view c_HostType = "Trinity.Interop.Host, Trinity-ScriptCore";
+        constexpr std::string_view c_ScriptHostType = "Trinity.Interop.ScriptHost, Trinity-ScriptCore";
+        // What a game's NativeAOT library exports, in place of hostfxr, to find ScriptCore's entry points by the same names
+        constexpr const char* c_CompiledEntryPoint = "TrinityScriptCore_GetEntryPoint";
 
         // ScriptCore's entry points the engine keeps, all set once the runtime has started
         struct EntryPoints
@@ -45,6 +41,7 @@ namespace Trinity
             std::int64_t(CORECLR_DELEGATE_CALLTYPE* MeasureInterop)(std::int32_t calls) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* IsDebuggerAttached)() = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* LoadAssembly)(const char* path, std::int32_t length, const char* buildPath, std::int32_t buildLength) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* LoadCompiled)(const char* name, std::int32_t length) = nullptr;
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* UnloadAssembly)() = nullptr;
             void (CORECLR_DELEGATE_CALLTYPE* GetHeapStatistics)(std::int64_t* bytes, std::int32_t* collections) = nullptr;
             std::intptr_t(CORECLR_DELEGATE_CALLTYPE* CreateInstance)(std::int32_t classIndex, std::uint64_t entity) = nullptr;
@@ -61,10 +58,18 @@ namespace Trinity
             void (CORECLR_DELEGATE_CALLTYPE* RaiseInputEvents)() = nullptr;
         };
 
-        // What the runtime was started with and the entry points of ScriptCore. None of it is allocated, since .NET outlives every memory tag
+        // Where ScriptCore's entry points are found by their type and method: through hostfxr once .NET has started, or through the export of a game's NativeAOT library
+        struct EntryPointFinder
+        {
+            get_function_pointer_fn HostFxr = nullptr;
+            std::intptr_t(CORECLR_DELEGATE_CALLTYPE* Compiled)(const char* type, std::int32_t typeLength, const char* method, std::int32_t methodLength) = nullptr;
+        };
+
+        // What the runtime was started with and the entry points of ScriptCore. None of it is allocated, since .NET outlives every memory tag. A NativeAOT library stays loaded, as .NET stays once started
         struct State
         {
             void* HostFxr = nullptr;
+            void* CompiledLibrary = nullptr;
             bool Started = false;
             EntryPoints Entry;
             std::array<char, 64> Description{};
@@ -247,19 +252,84 @@ namespace Trinity
             return true;
         }
 
+        // hostfxr takes its strings as the platform's characters, which are UTF-16 on Windows. The names are ASCII, so each character widens as it is
+        std::basic_string<char_t> ToHostText(std::string_view text)
+        {
+            return std::basic_string<char_t>(text.begin(), text.end());
+        }
+
         template<typename T>
-        bool GetEntryPoint(get_function_pointer_fn getFunction, const char_t* type, const char_t* method, T& function, std::string& error)
+        bool GetEntryPoint(const EntryPointFinder& finder, std::string_view type, std::string_view method, T& function, std::string& error)
         {
             void* l_Function = nullptr;
-            if (getFunction(type, method, UNMANAGEDCALLERSONLY_METHOD, nullptr, nullptr, &l_Function) != 0 || l_Function == nullptr)
+            if (finder.Compiled != nullptr)
             {
-                const std::string l_Type = ToUtf8(type);
-                error = std::format("Trinity-ScriptCore has no entry point {}.{}", std::string_view(l_Type).substr(0, l_Type.find(',')), ToUtf8(method));
+                l_Function = reinterpret_cast<void*>(finder.Compiled(type.data(), static_cast<std::int32_t>(type.size()), method.data(), static_cast<std::int32_t>(method.size())));
+            }
+            else if (finder.HostFxr(ToHostText(type).c_str(), ToHostText(method).c_str(), UNMANAGEDCALLERSONLY_METHOD, nullptr, nullptr, &l_Function) != 0)
+            {
+                l_Function = nullptr;
+            }
+
+            if (l_Function == nullptr)
+            {
+                error = std::format("Trinity-ScriptCore has no entry point {}.{}", type.substr(0, type.find(',')), method);
 
                 return false;
             }
 
             function = reinterpret_cast<T>(l_Function);
+
+            return true;
+        }
+
+        // ScriptCore's entry points, however it was started, then the check of the shared types, the engine's functions handed over and a call into C# that calls back into the engine
+        bool ConnectScriptCore(const EntryPointFinder& finder, std::string& error)
+        {
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_HostInitialize)(const Interop::NativeFunctions * functions, std::int32_t size) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_GetDescription)(char* buffer, std::int32_t capacity) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_Handshake)(std::int32_t value) = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_DescribeLayouts)(Interop::TypeLayout * layouts, std::int32_t capacity, std::int32_t layoutSize) = nullptr;
+            EntryPoints& l_Entry = s_State.Entry;
+            const bool l_Found = GetEntryPoint(finder, c_HostType, "Initialize", l_HostInitialize, error) && GetEntryPoint(finder, c_HostType, "Shutdown", l_Entry.Shutdown, error) && GetEntryPoint(finder, c_HostType, "GetRuntimeDescription", l_GetDescription, error)
+                && GetEntryPoint(finder, c_HostType, "Handshake", l_Handshake, error) && GetEntryPoint(finder, c_HostType, "DescribeLayouts", l_DescribeLayouts, error) && GetEntryPoint(finder, c_HostType, "MeasureInterop", l_Entry.MeasureInterop, error) && GetEntryPoint(finder, c_HostType, "IsDebuggerAttached", l_Entry.IsDebuggerAttached, error)
+                && GetEntryPoint(finder, c_ScriptHostType, "LoadAssembly", l_Entry.LoadAssembly, error) && GetEntryPoint(finder, c_ScriptHostType, "LoadCompiled", l_Entry.LoadCompiled, error) && GetEntryPoint(finder, c_ScriptHostType, "UnloadAssembly", l_Entry.UnloadAssembly, error) && GetEntryPoint(finder, c_ScriptHostType, "GetHeapStatistics", l_Entry.GetHeapStatistics, error)
+                && GetEntryPoint(finder, c_ScriptHostType, "CreateInstance", l_Entry.CreateInstance, error) && GetEntryPoint(finder, c_ScriptHostType, "DestroyInstance", l_Entry.DestroyInstance, error)
+                && GetEntryPoint(finder, c_ScriptHostType, "SetField", l_Entry.SetField, error) && GetEntryPoint(finder, c_ScriptHostType, "GetField", l_Entry.GetField, error)
+                && GetEntryPoint(finder, c_ScriptHostType, "SetElement", l_Entry.SetElement, error) && GetEntryPoint(finder, c_ScriptHostType, "GetElement", l_Entry.GetElement, error)
+                && GetEntryPoint(finder, c_ScriptHostType, "Invoke", l_Entry.Invoke, error) && GetEntryPoint(finder, c_ScriptHostType, "InvokePhysics", l_Entry.InvokePhysics, error)
+                && GetEntryPoint(finder, c_ScriptHostType, "ResumeTask", l_Entry.ResumeTask, error) && GetEntryPoint(finder, c_ScriptHostType, "CheckTask", l_Entry.CheckTask, error) && GetEntryPoint(finder, c_ScriptHostType, "FreeTask", l_Entry.FreeTask, error)
+                && GetEntryPoint(finder, c_ScriptHostType, "RaiseInputEvents", l_Entry.RaiseInputEvents, error);
+            if (!l_Found)
+            {
+                return false;
+            }
+
+            // Checked before ScriptCore takes any function, since one that takes a shared type would read it wrong
+            if (!CheckLayouts(l_DescribeLayouts, error))
+            {
+                return false;
+            }
+
+            static const Interop::NativeFunctions s_Functions{};
+            if (l_HostInitialize(&s_Functions, static_cast<std::int32_t>(sizeof(s_Functions))) != 0)
+            {
+                error = "Trinity-ScriptCore was built for another engine, and took none of its functions";
+
+                return false;
+            }
+
+            // Into C# and back: ScriptCore doubles the engine's echo of the value
+            constexpr std::int32_t c_Value = 20;
+            if (const std::int32_t l_Answer = l_Handshake(c_Value); l_Answer != (c_Value + 1) * 2)
+            {
+                error = std::format("a call into C# that calls back into the engine returned {}, where {} was expected", l_Answer, (c_Value + 1) * 2);
+
+                return false;
+            }
+
+            const std::int32_t l_Length = l_GetDescription(s_State.Description.data(), static_cast<std::int32_t>(s_State.Description.size()));
+            s_State.DescriptionLength = l_Length > 0 && static_cast<std::size_t>(l_Length) <= s_State.Description.size() ? static_cast<std::size_t>(l_Length) : 0;
 
             return true;
         }
@@ -335,50 +405,61 @@ namespace Trinity
                 return false;
             }
 
-            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_HostInitialize)(const Interop::NativeFunctions * functions, std::int32_t size) = nullptr;
-            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_GetDescription)(char* buffer, std::int32_t capacity) = nullptr;
-            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_Handshake)(std::int32_t value) = nullptr;
-            std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_DescribeLayouts)(Interop::TypeLayout * layouts, std::int32_t capacity, std::int32_t layoutSize) = nullptr;
-            EntryPoints& l_Entry = s_State.Entry;
-            const bool l_Found = GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Initialize"), l_HostInitialize, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Shutdown"), l_Entry.Shutdown, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("GetRuntimeDescription"), l_GetDescription, error)
-                && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("Handshake"), l_Handshake, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("DescribeLayouts"), l_DescribeLayouts, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("MeasureInterop"), l_Entry.MeasureInterop, error) && GetEntryPoint(l_GetFunction, c_HostType, TR_DOTNET_TEXT("IsDebuggerAttached"), l_Entry.IsDebuggerAttached, error)
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("LoadAssembly"), l_Entry.LoadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("UnloadAssembly"), l_Entry.UnloadAssembly, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetHeapStatistics"), l_Entry.GetHeapStatistics, error)
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CreateInstance"), l_Entry.CreateInstance, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("DestroyInstance"), l_Entry.DestroyInstance, error)
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("SetField"), l_Entry.SetField, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetField"), l_Entry.GetField, error)
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("SetElement"), l_Entry.SetElement, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("GetElement"), l_Entry.GetElement, error)
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("Invoke"), l_Entry.Invoke, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("InvokePhysics"), l_Entry.InvokePhysics, error)
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("ResumeTask"), l_Entry.ResumeTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("CheckTask"), l_Entry.CheckTask, error) && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("FreeTask"), l_Entry.FreeTask, error)
-                && GetEntryPoint(l_GetFunction, c_ScriptHostType, TR_DOTNET_TEXT("RaiseInputEvents"), l_Entry.RaiseInputEvents, error);
-            if (!l_Found)
-            {
-                return false;
-            }
+            EntryPointFinder l_Finder;
+            l_Finder.HostFxr = l_GetFunction;
 
-            // Checked before ScriptCore takes any function, since one that takes a shared type would read it wrong
-            if (!CheckLayouts(l_DescribeLayouts, error))
-            {
-                return false;
-            }
+            return ConnectScriptCore(l_Finder, error);
+        }
 
-            static const Interop::NativeFunctions s_Functions{};
-            if (l_HostInitialize(&s_Functions, static_cast<std::int32_t>(sizeof(s_Functions))) != 0)
+        // A game's NativeAOT library, whose runtime starts as it is first called. One that was found but would not connect stays loaded, since its runtime may have started
+        bool StartCompiledLibrary(const std::filesystem::path& library, std::string& error)
+        {
+            std::error_code l_Exists;
+            if (!std::filesystem::exists(library, l_Exists))
             {
-                error = "Trinity-ScriptCore was built for another engine, and took none of its functions";
+                error = std::format("{} is missing", ToUtf8(library.c_str()));
 
                 return false;
             }
 
-            // Into C# and back: ScriptCore doubles the engine's echo of the value
-            constexpr std::int32_t c_Value = 20;
-            if (const std::int32_t l_Answer = l_Handshake(c_Value); l_Answer != (c_Value + 1) * 2)
+            std::string l_LoadError;
+            void* l_Library = Platform::LoadSharedLibrary(library, l_LoadError);
+            if (l_Library == nullptr)
             {
-                error = std::format("a call into C# that calls back into the engine returned {}, where {} was expected", l_Answer, (c_Value + 1) * 2);
+                error = std::format("{} could not be loaded: {}", ToUtf8(library.c_str()), l_LoadError);
 
                 return false;
             }
 
-            const std::int32_t l_Length = l_GetDescription(s_State.Description.data(), static_cast<std::int32_t>(s_State.Description.size()));
-            s_State.DescriptionLength = l_Length > 0 && static_cast<std::size_t>(l_Length) <= s_State.Description.size() ? static_cast<std::size_t>(l_Length) : 0;
+            EntryPointFinder l_Finder;
+            l_Finder.Compiled = reinterpret_cast<decltype(l_Finder.Compiled)>(Platform::GetSharedLibrarySymbol(l_Library, c_CompiledEntryPoint));
+            if (l_Finder.Compiled == nullptr)
+            {
+                Platform::UnloadSharedLibrary(l_Library);
+                error = std::format("{} exports no {}, so it is not a NativeAOT build of a game's scripts", ToUtf8(library.c_str()), c_CompiledEntryPoint);
+
+                return false;
+            }
+
+            s_State.CompiledLibrary = l_Library;
+
+            return ConnectScriptCore(l_Finder, error);
+        }
+
+        // How long the start took once it has, or why C# is off
+        bool FinishStart(bool started, const std::string& error, std::chrono::steady_clock::time_point start)
+        {
+            if (!started)
+            {
+                s_State.Entry = {};
+                TR_CORE_ERROR("Scripting: C# is off, since {}", error);
+
+                return false;
+            }
+
+            s_State.Started = true;
+            const double l_Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+            TR_CORE_INFO("Scripting: {} started in {:.1f} ms", DotNetHost::GetRuntimeDescription(), l_Milliseconds);
 
             return true;
         }
@@ -421,19 +502,20 @@ namespace Trinity
 
             const auto l_Start = std::chrono::steady_clock::now();
             std::string l_Error;
-            if (!StartRuntime(scriptingDirectory, l_Error))
-            {
-                s_State.Entry = {};
-                TR_CORE_ERROR("Scripting: C# is off, since {}", l_Error);
+            const bool l_Started = StartRuntime(scriptingDirectory, l_Error);
 
-                return false;
-            }
+            return FinishStart(l_Started, l_Error, l_Start);
+        }
 
-            s_State.Started = true;
-            const double l_Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - l_Start).count();
-            TR_CORE_INFO("Scripting: {} started in {:.1f} ms", GetRuntimeDescription(), l_Milliseconds);
+        bool StartCompiled(const std::filesystem::path& library)
+        {
+            TR_CORE_ASSERT(!s_State.Started, ".NET is already started.");
 
-            return true;
+            const auto l_Start = std::chrono::steady_clock::now();
+            std::string l_Error;
+            const bool l_Started = StartCompiledLibrary(library, l_Error);
+
+            return FinishStart(l_Started, l_Error, l_Start);
         }
 
         void Stop()
@@ -472,6 +554,11 @@ namespace Trinity
             const std::u8string l_BuildPath = buildPath.u8string();
 
             return s_State.Entry.LoadAssembly(reinterpret_cast<const char*>(l_Path.data()), static_cast<std::int32_t>(l_Path.size()), reinterpret_cast<const char*>(l_BuildPath.data()), static_cast<std::int32_t>(l_BuildPath.size()));
+        }
+
+        std::int32_t LoadCompiled(std::string_view name)
+        {
+            return s_State.Started ? s_State.Entry.LoadCompiled(name.data(), static_cast<std::int32_t>(name.size())) : -1;
         }
 
         bool UnloadAssembly()
@@ -583,6 +670,13 @@ namespace Trinity
             return false;
         }
 
+        bool StartCompiled([[maybe_unused]] const std::filesystem::path& library)
+        {
+            TR_CORE_WARN("Scripting: C# is off, since this build of Trinity was configured without a .NET 10 SDK");
+
+            return false;
+        }
+
         void Stop()
         {
 
@@ -599,6 +693,11 @@ namespace Trinity
         }
 
         std::int32_t LoadAssembly([[maybe_unused]] const std::filesystem::path& path, [[maybe_unused]] const std::filesystem::path& buildPath)
+        {
+            return -1;
+        }
+
+        std::int32_t LoadCompiled([[maybe_unused]] std::string_view name)
         {
             return -1;
         }
@@ -638,12 +737,12 @@ namespace Trinity
             return false;
         }
 
-        bool SetElement([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] std::int32_t field, [[maybe_unused]] std::int32_t element, [[maybe_unused]] const Interop::FieldValue & value)
+        bool SetElement([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] std::int32_t field, [[maybe_unused]] std::int32_t element, [[maybe_unused]] const Interop::FieldValue& value)
         {
             return false;
         }
 
-        bool GetElement([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] std::int32_t field, [[maybe_unused]] std::int32_t element, [[maybe_unused]] Interop::FieldValue & value)
+        bool GetElement([[maybe_unused]] std::intptr_t instance, [[maybe_unused]] std::int32_t field, [[maybe_unused]] std::int32_t element, [[maybe_unused]] Interop::FieldValue& value)
         {
             return false;
         }

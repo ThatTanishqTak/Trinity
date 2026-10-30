@@ -1,0 +1,14 @@
+<Project>
+
+	<!-- Imported by Forge's NativeAOT publish of a game's scripts, as CustomAfterMicrosoftCommonTargets, so the library it makes from the game and ScriptCore exports ScriptCore's way in, TrinityScriptCore_GetEntryPoint, beside the game's own code. PublishAot and NativeLib come from the command line, since the SDK reads them before it imports this -->
+	<ItemGroup>
+		<UnmanagedEntryPointsAssembly Include="Trinity-ScriptCore" />
+	</ItemGroup>
+
+	<!-- A game's scripts build against ScriptCore without a copy of it, since Forge and the engine have their own, but a NativeAOT library compiles ScriptCore in. Nothing in the library calls into the game's assembly, whose module initializer registers its script classes, so the whole of it is kept -->
+	<ItemGroup>
+		<Reference Update="Trinity-ScriptCore" Private="true" />
+		<TrimmerRootAssembly Include="$(AssemblyName)" />
+	</ItemGroup>
+
+</Project>

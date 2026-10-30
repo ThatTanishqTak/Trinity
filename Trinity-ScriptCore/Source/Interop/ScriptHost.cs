@@ -30,6 +30,8 @@ namespace Trinity.Interop
 
         private static GameLoadContext? s_Context;
         private static string s_AssemblyName = string.Empty;
+        // The classes compiled into a NativeAOT library, taken once, so they are there again after an unload
+        private static List<ScriptClass>? s_Compiled;
         private static readonly List<ScriptClass> s_Classes = new();
         private static readonly HashSet<nint> s_Instances = new();
         private static readonly HashSet<nint> s_Tasks = new();
@@ -45,6 +47,22 @@ namespace Trinity.Interop
             catch (Exception exception)
             {
                 NativeLog.Write(LogLevel.Error, $"Scripting: the C# assembly could not be loaded: {exception}");
+
+                return -1;
+            }
+        }
+
+        // The game's classes compiled into this NativeAOT library with ScriptCore, which its module initializer added as the library started, under the game assembly's name. The number described, as LoadAssembly gives it, or -1 while an assembly is loaded
+        [UnmanagedCallersOnly]
+        public static int LoadCompiled(byte* name, int length)
+        {
+            try
+            {
+                return LoadCompiledClasses(Encoding.UTF8.GetString(name, length));
+            }
+            catch (Exception exception)
+            {
+                NativeLog.Write(LogLevel.Error, $"Scripting: the compiled C# scripts could not be loaded: {exception}");
 
                 return -1;
             }
@@ -338,7 +356,7 @@ namespace Trinity.Interop
         private static int Load(string path, string buildPath)
         {
             string l_Name = Path.GetFileName(path);
-            if (s_Context != null)
+            if (s_AssemblyName.Length != 0)
             {
                 NativeLog.Write(LogLevel.Error, $"Scripting: {l_Name} is not loaded, since {s_AssemblyName} is");
 
@@ -365,6 +383,26 @@ namespace Trinity.Interop
             s_Context = l_Context;
             s_AssemblyName = l_Name;
             foreach (ScriptClass it_Class in l_Found)
+            {
+                Describe(it_Class);
+            }
+
+            return s_Classes.Count;
+        }
+
+        // Named apart from the entry point, since hostfxr finds an entry point by its name alone
+        private static int LoadCompiledClasses(string name)
+        {
+            if (s_AssemblyName.Length != 0)
+            {
+                NativeLog.Write(LogLevel.Error, $"Scripting: {name} is not loaded, since {s_AssemblyName} is");
+
+                return -1;
+            }
+
+            s_Compiled ??= ScriptRegistry.Take();
+            s_AssemblyName = name;
+            foreach (ScriptClass it_Class in s_Compiled)
             {
                 Describe(it_Class);
             }
@@ -456,10 +494,10 @@ namespace Trinity.Interop
             }
         }
 
-        // Every instance still held is freed and reported, since the context cannot be collected while one lives, and every input action handler is removed for the same reason. Then collections are asked for until the context goes, and one that stays is reported with what still holds it
+        // Every instance still held is freed and reported, since the context cannot be collected while one lives, and every input action handler is removed for the same reason. Then collections are asked for until the context goes, and one that stays is reported with what still holds it. Compiled classes have no context to collect
         private static bool Unload()
         {
-            if (s_Context == null)
+            if (s_AssemblyName.Length == 0)
             {
                 return true;
             }
@@ -491,6 +529,11 @@ namespace Trinity.Interop
             s_Classes.Clear();
             ScriptRegistry.Take();
             s_AssemblyName = string.Empty;
+            if (s_Context == null)
+            {
+                return true;
+            }
+
             WeakReference l_Context = Release();
             for (int it_Attempt = 0; it_Attempt < c_CollectAttempts && l_Context.IsAlive; ++it_Attempt)
             {
