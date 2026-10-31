@@ -397,7 +397,7 @@ namespace Trinity
 
         if (m_Specification.StartGameUI)
         {
-            m_GameUI = CreateScope<GameUI>(*m_Renderer);
+            m_GameUI = CreateScope<GameUI>(*m_Renderer, *m_Device);
         }
     }
 

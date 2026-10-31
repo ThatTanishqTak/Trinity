@@ -59,10 +59,12 @@ namespace Trinity
                 { "shaderStorageBufferArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderStorageBufferArrayNonUniformIndexing }
             } };
 
-            constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan13Features>, 2> c_Required13
+            // A shader's discard is a demotion to a helper invocation in SPIR-V 1.6, which every Vulkan 1.3 device supports
+            constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan13Features>, 3> c_Required13
             { {
                 { "dynamicRendering", &VkPhysicalDeviceVulkan13Features::dynamicRendering },
-                { "synchronization2", &VkPhysicalDeviceVulkan13Features::synchronization2 }
+                { "synchronization2", &VkPhysicalDeviceVulkan13Features::synchronization2 },
+                { "shaderDemoteToHelperInvocation", &VkPhysicalDeviceVulkan13Features::shaderDemoteToHelperInvocation }
             } };
 
             // The Vulkan 1.1 to 1.3 feature structures, chained to each other. It points into itself, so it is never copied
@@ -424,6 +426,11 @@ namespace Trinity
 
             VkImageAspectFlags GetAspect(Format format)
             {
+                if (HasStencil(format))
+                {
+                    return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+                }
+
                 return IsDepthFormat(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
             }
 
@@ -559,6 +566,33 @@ namespace Trinity
                 }
             }
 
+            VkStencilOp ToVkStencilOp(StencilOp operation)
+            {
+                switch (operation)
+                {
+                    case StencilOp::Zero:
+                    {
+                        return VK_STENCIL_OP_ZERO;
+                    }
+                    case StencilOp::Replace:
+                    {
+                        return VK_STENCIL_OP_REPLACE;
+                    }
+                    case StencilOp::IncrementClamp:
+                    {
+                        return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+                    }
+                    case StencilOp::DecrementClamp:
+                    {
+                        return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+                    }
+                    default:
+                    {
+                        return VK_STENCIL_OP_KEEP;
+                    }
+                }
+            }
+
             // The bindings Slang gives descriptor handles when Bindless.slang turns off mutable descriptors
             constexpr std::uint32_t c_SamplerBinding = 0;
             constexpr std::uint32_t c_SampledImageBinding = 2;
@@ -654,6 +688,10 @@ namespace Trinity
                 {
                     return VK_FORMAT_D32_SFLOAT;
                 }
+                case Format::D32FloatS8:
+                {
+                    return VK_FORMAT_D32_SFLOAT_S8_UINT;
+                }
                 case Format::BC1Unorm:
                 {
                     return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
@@ -718,6 +756,7 @@ namespace Trinity
             const VkDescriptorSet l_Set = m_Device.GetBindlessSet();
             vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
             vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
+            vkCmdSetStencilReference(m_CommandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
         }
 
         void VulkanCommandList::End()
@@ -857,7 +896,7 @@ namespace Trinity
                 l_Depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 l_Depth.loadOp = ToVkLoadOp(description.Depth.Load);
                 l_Depth.storeOp = ToVkStoreOp(description.Depth.Store);
-                l_Depth.clearValue.depthStencil = { description.Depth.ClearDepth, 0 };
+                l_Depth.clearValue.depthStencil = { description.Depth.ClearDepth, description.Depth.ClearStencil };
             }
 
             VkRenderingInfo l_Rendering = MakeInfo<VkRenderingInfo>(VK_STRUCTURE_TYPE_RENDERING_INFO);
@@ -866,6 +905,7 @@ namespace Trinity
             l_Rendering.colorAttachmentCount = l_ColorCount;
             l_Rendering.pColorAttachments = l_Colors.data();
             l_Rendering.pDepthAttachment = l_DepthView != VK_NULL_HANDLE ? &l_Depth : nullptr;
+            l_Rendering.pStencilAttachment = l_DepthView != VK_NULL_HANDLE && HasStencil(l_DepthTexture->TextureFormat) ? &l_Depth : nullptr;
             vkCmdBeginRendering(m_CommandBuffer, &l_Rendering);
 
             m_Rendering = true;
@@ -921,8 +961,15 @@ namespace Trinity
         {
             TR_CORE_ASSERT(m_Rendering, "SetScissor is recorded inside rendering.");
 
-            const VkRect2D l_Scissor{ { scissor.X, scissor.Y }, { scissor.Width, scissor.Height } };
+            const VkRect2D l_Scissor{ { scissor.X, scissor.Y },{ scissor.Width, scissor.Height } };
             vkCmdSetScissor(m_CommandBuffer, 0, 1, &l_Scissor);
+        }
+
+        void VulkanCommandList::SetStencilReference(std::uint32_t reference)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE, "SetStencilReference is recorded within a frame.");
+
+            vkCmdSetStencilReference(m_CommandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, reference);
         }
 
         // Push constants belong to the shared pipeline layout rather than a bind point, so graphics and compute set them the same way
@@ -1867,7 +1914,7 @@ namespace Trinity
         bool VulkanDevice::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
             const VkFormat l_Format = ToVkFormat(format);
-            if (l_Format == VK_FORMAT_UNDEFINED || (IsCompressedFormat(format) && !m_TextureCompressionBC))
+            if (l_Format == VK_FORMAT_UNDEFINED || (IsCompressedFormat(format) && !m_TextureCompressionBC) || (HasStencil(format) && usage != TextureUsage::DepthStencil))
             {
                 return false;
             }
@@ -2143,6 +2190,7 @@ namespace Trinity
         {
             TR_CORE_ASSERT(!description.VertexShader.Code.empty() && !description.PixelShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
             TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
+            TR_CORE_ASSERT(!description.StencilTest || HasStencil(description.DepthFormat), "Pipeline '{}' tests stencil without a depth format that has it.", description.DebugName);
 
             const std::array<const ShaderDescription*, 2> l_Shaders{ &description.VertexShader, &description.PixelShader };
             const std::array<VkShaderStageFlagBits, 2> l_StageBits{ VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT };
@@ -2194,6 +2242,9 @@ namespace Trinity
             l_DepthStencil.depthTestEnable = description.DepthTest ? VK_TRUE : VK_FALSE;
             l_DepthStencil.depthWriteEnable = description.DepthWrite ? VK_TRUE : VK_FALSE;
             l_DepthStencil.depthCompareOp = ToVkCompareOp(description.DepthCompare);
+            l_DepthStencil.stencilTestEnable = description.StencilTest ? VK_TRUE : VK_FALSE;
+            l_DepthStencil.front = { VK_STENCIL_OP_KEEP, ToVkStencilOp(description.StencilPass), VK_STENCIL_OP_KEEP, ToVkCompareOp(description.StencilCompare), description.StencilReadMask, description.StencilWriteMask, 0 };
+            l_DepthStencil.back = l_DepthStencil.front;
 
             std::array<VkPipelineColorBlendAttachmentState, c_MaxColorAttachments> l_Blends{};
             std::array<VkFormat, c_MaxColorAttachments> l_ColorFormats{};
@@ -2203,13 +2254,13 @@ namespace Trinity
                 // An integer target is never blended
                 VkPipelineColorBlendAttachmentState& l_Blend = l_Blends[it_Color];
                 l_Blend.blendEnable = description.AlphaBlend && !IsIntegerFormat(description.ColorFormats[it_Color]) ? VK_TRUE : VK_FALSE;
-                l_Blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+                l_Blend.srcColorBlendFactor = description.PremultipliedAlpha ? VK_BLEND_FACTOR_ONE : VK_BLEND_FACTOR_SRC_ALPHA;
                 l_Blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
                 l_Blend.colorBlendOp = VK_BLEND_OP_ADD;
                 l_Blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
                 l_Blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
                 l_Blend.alphaBlendOp = VK_BLEND_OP_ADD;
-                l_Blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                l_Blend.colorWriteMask = description.ColorWrite ? VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT : 0;
 
                 l_ColorFormats[it_Color] = ToVkFormat(description.ColorFormats[it_Color]);
             }
@@ -2218,15 +2269,17 @@ namespace Trinity
             l_ColorBlend.attachmentCount = l_ColorCount;
             l_ColorBlend.pAttachments = l_Blends.data();
 
-            const std::array<VkDynamicState, 2> l_DynamicStates{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+            // The stencil reference is set on the command list, as D3D12 sets it
+            const std::array<VkDynamicState, 3> l_DynamicStates{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_STENCIL_REFERENCE };
             VkPipelineDynamicStateCreateInfo l_Dynamic = MakeInfo<VkPipelineDynamicStateCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO);
-            l_Dynamic.dynamicStateCount = static_cast<std::uint32_t>(l_DynamicStates.size());
+            l_Dynamic.dynamicStateCount = static_cast<std::uint32_t>(description.StencilTest ? l_DynamicStates.size() : l_DynamicStates.size() - 1);
             l_Dynamic.pDynamicStates = l_DynamicStates.data();
 
             VkPipelineRenderingCreateInfo l_Rendering = MakeInfo<VkPipelineRenderingCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO);
             l_Rendering.colorAttachmentCount = l_ColorCount;
             l_Rendering.pColorAttachmentFormats = l_ColorFormats.data();
             l_Rendering.depthAttachmentFormat = description.DepthFormat != Format::Unknown ? ToVkFormat(description.DepthFormat) : VK_FORMAT_UNDEFINED;
+            l_Rendering.stencilAttachmentFormat = HasStencil(description.DepthFormat) ? ToVkFormat(description.DepthFormat) : VK_FORMAT_UNDEFINED;
 
             VkGraphicsPipelineCreateInfo l_Create = MakeInfo<VkGraphicsPipelineCreateInfo>(VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO);
             l_Create.pNext = &l_Rendering;

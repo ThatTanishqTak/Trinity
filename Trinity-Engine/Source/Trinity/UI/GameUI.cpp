@@ -79,8 +79,8 @@ namespace Trinity
         }
     }
 
-    // RmlUi keeps the interfaces until it shuts down, so they live as long as the UI does. Each context keeps the list it recorded until it records again
-    struct GameUI::State
+    // RmlUi keeps the interfaces until it shuts down, so they live as long as the UI does. Each context keeps the list it recorded until it records again, which its view's overlay pass plays back
+    struct GameUI::State final : ViewOverlay
     {
         struct Context
         {
@@ -97,6 +97,11 @@ namespace Trinity
             bool Visible = true;
         };
 
+        State(RHI::Device& device, RHI::Format displayFormat) : Rendering(device, displayFormat, Renderer::c_OverlayStencilFormat)
+        {
+
+        }
+
         GameUISystemInterface System;
         GameUIFileInterface Files;
         GameUIRenderInterface Rendering;
@@ -112,15 +117,46 @@ namespace Trinity
 
             return a_Document != Documents.end() ? &*a_Document : nullptr;
         }
+
+        [[nodiscard]] const GameUIDrawList* FindDrawList(ViewID view) const
+        {
+            const auto a_Context = std::ranges::find(Contexts, view, &Context::View);
+
+            return a_Context != Contexts.end() ? &a_Context->DrawList : nullptr;
+        }
+
+        void RecordUploads(RHI::CommandList& commands) override
+        {
+            Rendering.RecordUploads(commands);
+        }
+
+        [[nodiscard]] Needs GetNeeds(ViewID view) const override
+        {
+            const GameUIDrawList* l_List = FindDrawList(view);
+            if (l_List == nullptr || l_List->Commands.empty() || !Rendering.CanDraw())
+            {
+                return Needs::Nothing;
+            }
+
+            return l_List->ClipMask && Rendering.CanClip() ? Needs::ColorAndStencil : Needs::Color;
+        }
+
+        void Draw(RHI::CommandList& commands, ViewID view, std::uint32_t width, std::uint32_t height, bool stencil) override
+        {
+            if (const GameUIDrawList* l_List = FindDrawList(view))
+            {
+                Rendering.Draw(commands, *l_List, width, height, stencil);
+            }
+        }
     };
 
-    GameUI::GameUI(Renderer& renderer) : m_Renderer(renderer)
+    GameUI::GameUI(Renderer& renderer, RHI::Device& device) : m_Renderer(renderer)
     {
         TR_CORE_ASSERT(!s_Running, "Only one GameUI may exist.");
         s_Running = true;
 
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
-        m_State = CreateScope<State>();
+        m_State = CreateScope<State>(device, m_Renderer.GetDisplayFormat());
         Rml::SetSystemInterface(&m_State->System);
         Rml::SetFileInterface(&m_State->Files);
         Rml::SetRenderInterface(&m_State->Rendering);
@@ -133,12 +169,14 @@ namespace Trinity
             return;
         }
 
+        m_Renderer.SetViewOverlay(m_State.get());
         TR_CORE_INFO("GameUI: RmlUi {} started", Rml::GetVersion());
     }
 
     // RmlUi ends every context with its documents, and releases what it made, before the interfaces go. What it still holds then is in its own statics, kept until the process ends, so it is counted as untagged, as every other static's memory is
     GameUI::~GameUI()
     {
+        m_Renderer.SetViewOverlay(nullptr);
         {
             const MemoryTagScope l_Scope(MemoryTag::GameUI);
             if (m_State->Started)
@@ -290,7 +328,11 @@ namespace Trinity
                 }
 
                 const std::size_t l_Documents = std::erase_if(m_State->Documents, [&context](const State::Document& document) { return document.View == context.View; });
-                TR_CORE_WARN("GameUI: view {} was destroyed, so its {} document(s) are unloaded", context.View, l_Documents);
+                if (l_Documents != 0)
+                {
+                    TR_CORE_WARN("GameUI: view {} was destroyed, so its {} document(s) are unloaded", context.View, l_Documents);
+                }
+
                 Rml::RemoveContext(GetContextName(context.View));
 
                 return true;

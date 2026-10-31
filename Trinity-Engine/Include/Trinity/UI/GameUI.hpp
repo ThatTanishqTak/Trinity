@@ -3,6 +3,7 @@
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Renderer/Renderer.hpp"
+#include "Trinity/RHI/Device.hpp"
 
 #include <cstdint>
 #include <string_view>
@@ -24,13 +25,13 @@ namespace Trinity
         std::uint32_t Commands = 0;
     };
 
-    // A game's UI, drawn by RmlUi: documents of RML styled by RCSS, read through the virtual file system, each in the context of the view it shows over, which takes the view's size. Fonts load from a stylesheet's @font-face, or from here. RmlUi runs on the main thread alone, on the frames' clock, and what it and its FreeType allocate is counted under GameUI, but for what RmlUi keeps in its statics past its shutdown. No public header includes RmlUi, and only one GameUI lives at a time, as RmlUi is the process's
+    // A game's UI, drawn by RmlUi: documents of RML styled by RCSS, read through the virtual file system, each in the context of the view it shows over, which takes the view's size and draws over the view's tone mapped image as its overlay, so colours are what the stylesheet says. Fonts load from a stylesheet's @font-face, or from here, and images are the project's textures, by their paths in the assets. RmlUi runs on the main thread alone, on the frames' clock, and what it and its FreeType allocate is counted under GameUI, but for what RmlUi keeps in its statics past its shutdown. No public header includes RmlUi, and only one GameUI lives at a time, as RmlUi is the process's
     class TRINITY_API GameUI
     {
     public:
         static constexpr UIDocumentID c_NoDocument = 0;
 
-        explicit GameUI(Renderer& renderer);
+        GameUI(Renderer& renderer, RHI::Device& device);
         ~GameUI();
 
         GameUI(const GameUI&) = delete;
@@ -46,7 +47,7 @@ namespace Trinity
         // A font face from the virtual file system for every document, named by the family and style it holds. A fallback face gives the glyphs other faces lack. Faces stay until the UI ends, as RmlUi keeps them. False when it cannot be read, which RmlUi logs with the reason
         bool LoadFontFace(std::string_view path, bool fallback = false);
 
-        // Once a frame, on the main thread, after the layers have updated: the clock advances, each context takes its view's size and lays out what changed, and what it draws is recorded for the view's UI pass. A context whose view was destroyed goes with its documents
+        // Once a frame, on the main thread, after the layers have updated: the clock advances, each context takes its view's size and lays out what changed, and what it draws is recorded for the view's overlay pass in the frame rendered next. A context whose view was destroyed goes with its documents
         void Update(Timestep timestep);
 
         [[nodiscard]] GameUIStatistics GetStatistics() const;

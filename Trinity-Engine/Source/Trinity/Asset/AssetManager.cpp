@@ -297,6 +297,11 @@ namespace Trinity
             s_State->Registry = registry;
         }
 
+        const AssetRegistry* GetRegistry()
+        {
+            return s_State->Registry;
+        }
+
         void RegisterLoader(const AssetLoader& loader)
         {
             if (FindLoader(loader.GetAssetType()) != nullptr)
@@ -440,6 +445,65 @@ namespace Trinity
             }
 
             l_Entry.Request = FileSystem::ReadFileAsync(l_Entry.Loader->GetLoadPath(*l_Record), [id, l_Generation = l_Entry.Generation](Expected<FileBuffer, FileError> result) { OnRead(id, l_Generation, std::move(result)); });
+        }
+
+        // A new generation throws away whatever the dropped load still hands to Update, as Release's cancel does
+        AssetState LoadNow(UUID id)
+        {
+            TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are loaded at once on the main thread.");
+
+            const auto a_Found = s_State->Entries.find(id);
+            if (a_Found == s_State->Entries.end())
+            {
+                return AssetState::None;
+            }
+
+            Entry& l_Entry = a_Found->second;
+            if (l_Entry.State != AssetState::Loading || l_Entry.Loader == nullptr || s_State->Held.contains(id))
+            {
+                return l_Entry.State;
+            }
+
+            TR_PROFILE_FUNCTION();
+
+            l_Entry.Request.Cancel();
+            l_Entry.Request = FileRequest();
+            l_Entry.Generation = s_State->NextGeneration++;
+
+            Expected<Asset*, std::string> l_Result = Unexpected{ std::string("it has no source") };
+            if (const auto a_BuiltIn = s_State->BuiltIns.find(id); a_BuiltIn != s_State->BuiltIns.end())
+            {
+                const Expected<std::vector<std::byte>, std::string> l_Bytes = a_BuiltIn->second.Source(id);
+                l_Result = l_Bytes ? l_Entry.Loader->Load(*l_Bytes) : Expected<Asset*, std::string>(Unexpected{ l_Bytes.GetError() });
+            }
+            else if (const AssetRecord* l_Record = s_State->Registry != nullptr ? s_State->Registry->Find(id) : nullptr)
+            {
+                const Expected<FileBuffer, FileError> l_Data = FileSystem::ReadFile(l_Entry.Loader->GetLoadPath(*l_Record));
+                l_Result = l_Data ? l_Entry.Loader->Load(*l_Data) : Expected<Asset*, std::string>(Unexpected{ std::string(ToString(l_Data.GetError())) });
+            }
+
+            if (l_Result)
+            {
+                const Expected<void, std::string> l_Finished = l_Entry.Loader->Finish(**l_Result);
+                if (!l_Finished)
+                {
+                    Memory::Delete(*l_Result);
+                    l_Result = Unexpected{ l_Finished.GetError() };
+                }
+            }
+
+            if (!l_Result)
+            {
+                l_Entry.State = AssetState::Failed;
+                TR_CORE_ERROR("Assets: {} could not be loaded: {}", id, l_Result.GetError());
+
+                return l_Entry.State;
+            }
+
+            l_Entry.Loaded = *l_Result;
+            l_Entry.State = AssetState::Ready;
+
+            return l_Entry.State;
         }
 
         void Release(UUID id)

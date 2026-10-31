@@ -37,12 +37,14 @@ namespace Trinity
             TextureHandle ResolveTexture{};
         };
 
+        // A format with stencil loads, clears and stores its stencil as it does its depth
         struct DepthAttachment
         {
             TextureHandle Texture;
             LoadOp Load = LoadOp::Clear;
             StoreOp Store = StoreOp::DontCare;
             float ClearDepth = 0.0f;
+            std::uint8_t ClearStencil = 0;
             std::uint32_t MipLevel = 0;
             std::uint32_t ArrayLayer = 0;
         };
@@ -71,6 +73,8 @@ namespace Trinity
             virtual void SetPipeline(PipelineHandle pipeline) = 0;
             virtual void SetViewport(const Viewport& viewport) = 0;
             virtual void SetScissor(const Rect& scissor) = 0;
+            // What a pipeline's stencil test compares with and StencilOp::Replace writes, 0 at the start of each frame and kept until set again
+            virtual void SetStencilReference(std::uint32_t reference) = 0;
             virtual void PushConstants(std::span<const std::byte> data) = 0;
             virtual void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance) = 0;
 

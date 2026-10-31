@@ -819,7 +819,7 @@ namespace Trinity
             if (l_Pass.Depth.Texture)
             {
                 const State::Texture& l_Texture = l_State.Textures[l_Pass.Depth.Texture.Index];
-                l_Rendering.Depth = { l_Texture.Handle, l_Pass.Depth.Load, a_Store(l_Pass.Depth.Texture.Index), l_Pass.Depth.ClearDepth, l_Pass.Depth.MipLevel, l_Pass.Depth.ArrayLayer };
+                l_Rendering.Depth = { l_Texture.Handle, l_Pass.Depth.Load, a_Store(l_Pass.Depth.Texture.Index), l_Pass.Depth.ClearDepth, l_Pass.Depth.ClearStencil, l_Pass.Depth.MipLevel, l_Pass.Depth.ArrayLayer };
                 if (l_Pass.ColorCount == 0)
                 {
                     l_Width = RHI::GetMipSize(l_Texture.Description.Width, l_Pass.Depth.MipLevel);

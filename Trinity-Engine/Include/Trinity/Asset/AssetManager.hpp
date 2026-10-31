@@ -27,6 +27,8 @@ namespace Trinity
         TRINITY_API void Update();
 
         TRINITY_API void SetRegistry(const AssetRegistry* registry);
+        // Where assets are found, null until a registry is set
+        [[nodiscard]] TRINITY_API const AssetRegistry* GetRegistry();
         TRINITY_API void RegisterLoader(const AssetLoader& loader);
         TRINITY_API void UnregisterLoader(std::string_view assetType);
 
@@ -36,6 +38,8 @@ namespace Trinity
         [[nodiscard]] TRINITY_API bool IsBuiltIn(UUID id);
 
         TRINITY_API void Acquire(UUID id);
+        // For a caller that cannot go on without an acquired asset still loading, such as a UI image whose size lays out its document: its read and decode under way are dropped, and it is loaded here, on the main thread. One held stays loading. Its state after
+        TRINITY_API AssetState LoadNow(UUID id);
         TRINITY_API void Release(UUID id);
         TRINITY_API void Reload(UUID id);
         TRINITY_API void Hold(UUID id);

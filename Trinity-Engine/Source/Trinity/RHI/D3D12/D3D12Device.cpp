@@ -446,6 +446,33 @@ namespace Trinity
                 }
             }
 
+            D3D12_STENCIL_OP ToStencilOp(StencilOp operation)
+            {
+                switch (operation)
+                {
+                    case StencilOp::Zero:
+                    {
+                        return D3D12_STENCIL_OP_ZERO;
+                    }
+                    case StencilOp::Replace:
+                    {
+                        return D3D12_STENCIL_OP_REPLACE;
+                    }
+                    case StencilOp::IncrementClamp:
+                    {
+                        return D3D12_STENCIL_OP_INCR_SAT;
+                    }
+                    case StencilOp::DecrementClamp:
+                    {
+                        return D3D12_STENCIL_OP_DECR_SAT;
+                    }
+                    default:
+                    {
+                        return D3D12_STENCIL_OP_KEEP;
+                    }
+                }
+            }
+
             D3D12_FILTER_TYPE ToFilterType(Filter filter)
             {
                 return filter == Filter::Linear ? D3D12_FILTER_TYPE_LINEAR : D3D12_FILTER_TYPE_POINT;
@@ -539,6 +566,10 @@ namespace Trinity
                 case Format::D32Float:
                 {
                     return DXGI_FORMAT_D32_FLOAT;
+                }
+                case Format::D32FloatS8:
+                {
+                    return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
                 }
                 case Format::BC1Unorm:
                 {
@@ -639,6 +670,7 @@ namespace Trinity
             m_CommandList->SetDescriptorHeaps(static_cast<UINT>(l_Heaps.size()), l_Heaps.data());
             m_CommandList->SetGraphicsRootSignature(m_Device.GetRootSignature());
             m_CommandList->SetComputeRootSignature(m_Device.GetRootSignature());
+            m_CommandList->OMSetStencilRef(0);
         }
 
         void D3D12CommandList::End()
@@ -686,7 +718,7 @@ namespace Trinity
                 l_Barrier.Subresources.FirstArraySlice = range.BaseArrayLayer;
                 l_Barrier.Subresources.NumArraySlices = range.ArrayLayerCount == c_RemainingSubresources ? l_Texture->ArrayLayers - range.BaseArrayLayer : range.ArrayLayerCount;
                 l_Barrier.Subresources.FirstPlane = 0;
-                l_Barrier.Subresources.NumPlanes = 1;
+                l_Barrier.Subresources.NumPlanes = HasStencil(l_Texture->TextureFormat) ? 2 : 1;
             }
 
             l_Barrier.Flags = before == ResourceState::Undefined ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
@@ -788,10 +820,19 @@ namespace Trinity
             {
                 l_Depth.cpuDescriptor = m_Device.GetDepthStencilView(l_DepthView);
                 l_Depth.DepthBeginningAccess.Type = ToBeginningAccess(description.Depth.Load);
-                l_Depth.DepthBeginningAccess.Clear.ClearValue.Format = DXGI_FORMAT_D32_FLOAT;
-                l_Depth.DepthBeginningAccess.Clear.ClearValue.DepthStencil.Depth = description.Depth.ClearDepth;
+                l_Depth.DepthBeginningAccess.Clear.ClearValue.Format = ToDXGIFormat(l_DepthTexture->TextureFormat);
+                l_Depth.DepthBeginningAccess.Clear.ClearValue.DepthStencil = { description.Depth.ClearDepth, description.Depth.ClearStencil };
                 l_Depth.DepthEndingAccess.Type = ToEndingAccess(description.Depth.Store);
-                l_Depth.StencilBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_NO_ACCESS;
+                if (HasStencil(l_DepthTexture->TextureFormat))
+                {
+                    l_Depth.StencilBeginningAccess = l_Depth.DepthBeginningAccess;
+                    l_Depth.StencilEndingAccess.Type = l_Depth.DepthEndingAccess.Type;
+                }
+                else
+                {
+                    l_Depth.StencilBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_NO_ACCESS;
+                    l_Depth.StencilEndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_NO_ACCESS;
+                }
                 l_Depth.StencilEndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_NO_ACCESS;
             }
 
@@ -850,6 +891,13 @@ namespace Trinity
 
             const D3D12_RECT l_Scissor{ static_cast<LONG>(scissor.X), static_cast<LONG>(scissor.Y), static_cast<LONG>(scissor.X) + static_cast<LONG>(scissor.Width), static_cast<LONG>(scissor.Y) + static_cast<LONG>(scissor.Height) };
             m_CommandList->RSSetScissorRects(1, &l_Scissor);
+        }
+
+        void D3D12CommandList::SetStencilReference(std::uint32_t reference)
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr, "SetStencilReference is recorded within a frame.");
+
+            m_CommandList->OMSetStencilRef(reference);
         }
 
         // The push constants are root constants at b0, the first parameter of the shared root signature. Graphics and compute keep their own, so they go to whichever pipeline the commands are recorded for
@@ -1508,7 +1556,7 @@ namespace Trinity
         bool D3D12Device::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
             const DXGI_FORMAT l_Format = ToDXGIFormat(format);
-            if (l_Format == DXGI_FORMAT_UNKNOWN)
+            if (l_Format == DXGI_FORMAT_UNKNOWN || (HasStencil(format) && usage != TextureUsage::DepthStencil))
             {
                 return false;
             }
@@ -1610,7 +1658,7 @@ namespace Trinity
             }
             else if (description.OptimizedClear && HasFlag(description.Usage, TextureUsage::DepthStencil))
             {
-                l_ClearValue.Format = DXGI_FORMAT_D32_FLOAT;
+                l_ClearValue.Format = ToDXGIFormat(description.TextureFormat);
                 l_ClearValue.DepthStencil.Depth = description.ClearDepth;
                 l_OptimizedClear = &l_ClearValue;
             }
@@ -1692,7 +1740,7 @@ namespace Trinity
                     if (l_Depth)
                     {
                         D3D12_DEPTH_STENCIL_VIEW_DESC l_Description{};
-                        l_Description.Format = DXGI_FORMAT_D32_FLOAT;
+                        l_Description.Format = ToDXGIFormat(texture.TextureFormat);
                         l_Description.ViewDimension = l_Array ? D3D12_DSV_DIMENSION_TEXTURE2DARRAY : l_Multisampled ? D3D12_DSV_DIMENSION_TEXTURE2DMS : D3D12_DSV_DIMENSION_TEXTURE2D;
                         if (l_Array)
                         {
@@ -1973,6 +2021,7 @@ namespace Trinity
         {
             TR_CORE_ASSERT(!description.VertexShader.Code.empty() && !description.PixelShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
             TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
+            TR_CORE_ASSERT(!description.StencilTest || HasStencil(description.DepthFormat), "Pipeline '{}' tests stencil without a depth format that has it.", description.DebugName);
 
             D3D12_GRAPHICS_PIPELINE_STATE_DESC l_Description{};
             l_Description.pRootSignature = m_RootSignature.Get();
@@ -1989,14 +2038,14 @@ namespace Trinity
             {
                 D3D12_RENDER_TARGET_BLEND_DESC& l_Blend = l_Description.BlendState.RenderTarget[it_Target];
                 l_Blend.BlendEnable = description.AlphaBlend && !IsIntegerFormat(description.ColorFormats[it_Target]) ? TRUE : FALSE;
-                l_Blend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+                l_Blend.SrcBlend = description.PremultipliedAlpha ? D3D12_BLEND_ONE : D3D12_BLEND_SRC_ALPHA;
                 l_Blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
                 l_Blend.BlendOp = D3D12_BLEND_OP_ADD;
                 l_Blend.SrcBlendAlpha = D3D12_BLEND_ONE;
                 l_Blend.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
                 l_Blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
                 l_Blend.LogicOp = D3D12_LOGIC_OP_NOOP;
-                l_Blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+                l_Blend.RenderTargetWriteMask = description.ColorWrite ? D3D12_COLOR_WRITE_ENABLE_ALL : 0;
 
                 l_Description.RTVFormats[it_Target] = ToDXGIFormat(description.ColorFormats[it_Target]);
             }
@@ -2015,6 +2064,11 @@ namespace Trinity
             l_Description.DepthStencilState.DepthEnable = description.DepthTest ? TRUE : FALSE;
             l_Description.DepthStencilState.DepthWriteMask = description.DepthWrite ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
             l_Description.DepthStencilState.DepthFunc = ToComparisonFunc(description.DepthCompare);
+            l_Description.DepthStencilState.StencilEnable = description.StencilTest ? TRUE : FALSE;
+            l_Description.DepthStencilState.StencilReadMask = description.StencilReadMask;
+            l_Description.DepthStencilState.StencilWriteMask = description.StencilWriteMask;
+            l_Description.DepthStencilState.FrontFace = { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, ToStencilOp(description.StencilPass), ToComparisonFunc(description.StencilCompare) };
+            l_Description.DepthStencilState.BackFace = l_Description.DepthStencilState.FrontFace;
             l_Description.DSVFormat = description.DepthFormat != Format::Unknown ? ToDXGIFormat(description.DepthFormat) : DXGI_FORMAT_UNKNOWN;
 
             D3D12Pipeline l_Pipeline;

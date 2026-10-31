@@ -246,6 +246,11 @@ namespace Trinity
         m_MaterialLoader->RecordUploads(l_Commands);
         m_MeshLoader->RecordUploads(l_Commands);
         m_EnvironmentLoader->RecordUploads(l_Commands);
+        if (m_Overlay != nullptr)
+        {
+            m_Overlay->RecordUploads(l_Commands);
+        }
+
         m_Renderer2D->BeginFrame();
         m_Renderer3D->BeginFrame();
 
@@ -327,11 +332,12 @@ namespace Trinity
         AddAddedOutputPasses();
     }
 
-    // The targets are imported in whatever state the last frame left them, and both end as shader resources. The scene is cleared to the linear clear colour, by the opaque pass when a scene was submitted. Layers draw into the main view alone, which is drawn every frame. Another view is drawn when a scene was submitted to it, or cleared while its targets have never been drawn, and otherwise keeps what it last showed
+    // The targets are imported in whatever state the last frame left them, and both end as shader resources. The scene is cleared to the linear clear colour, by the opaque pass when a scene was submitted. Layers draw into the main view alone, which is drawn every frame. Another view is drawn when a scene was submitted to it or the overlay draws over it, or cleared while its targets have never been drawn, and otherwise keeps what it last showed
     FrameGraphTexture Renderer::AddViewPasses(FrameGraph& graph, View& view, LayerStack* layers)
     {
         const bool l_Submitted = view.Submitted != nullptr;
-        const bool l_Draw = view.SceneTarget && (layers != nullptr || l_Submitted || view.DisplayState == RHI::ResourceState::Undefined);
+        const ViewOverlay::Needs l_Overlay = m_Overlay != nullptr ? m_Overlay->GetNeeds(view.Id) : ViewOverlay::Needs::Nothing;
+        const bool l_Draw = view.SceneTarget && (layers != nullptr || l_Submitted || l_Overlay != ViewOverlay::Needs::Nothing || view.DisplayState == RHI::ResourceState::Undefined);
 
         FrameGraphTexture l_Scene;
         Renderer3D::Passes l_Passes;
@@ -397,6 +403,11 @@ namespace Trinity
                 AddDebugLinePass(graph, view, l_Display, l_Passes);
             }
 #endif
+
+            if (l_Overlay != ViewOverlay::Needs::Nothing)
+            {
+                AddOverlayPass(graph, view, l_Display, l_Overlay);
+            }
         }
 
         return l_Display;
@@ -688,6 +699,37 @@ namespace Trinity
             context.GetCommands().SetPipeline(l_Pipeline);
             context.GetCommands().PushConstants(std::as_bytes(std::span(&l_PushData, 1)));
             context.GetCommands().Draw(3, 1, 0, 0);
+        });
+    }
+
+    // The stencil target comes from the graph's pool, and only for a frame that clips through it
+    void Renderer::AddOverlayPass(FrameGraph& graph, const View& view, FrameGraphTexture display, ViewOverlay::Needs needs)
+    {
+        FrameGraphTexture l_Stencil;
+        if (needs == ViewOverlay::Needs::ColorAndStencil)
+        {
+            RHI::TextureDescription l_Description;
+            l_Description.Width = view.Width;
+            l_Description.Height = view.Height;
+            l_Description.TextureFormat = c_OverlayStencilFormat;
+            l_Description.DebugName = "Overlay stencil";
+            l_Stencil = graph.CreateTexture("Overlay stencil", l_Description);
+        }
+
+        ViewOverlay* l_Overlay = m_Overlay;
+        const ViewID l_View = view.Id;
+        const std::uint32_t l_Width = view.Width;
+        const std::uint32_t l_Height = view.Height;
+        graph.AddPass("Overlay", FrameGraphPassType::Raster, [display, l_Stencil](FrameGraphPassBuilder& builder)
+        {
+            builder.AddColorAttachment({ display, RHI::LoadOp::Load });
+            if (l_Stencil)
+            {
+                builder.SetDepthAttachment({ l_Stencil, RHI::LoadOp::Clear, 0.0f, 0 });
+            }
+        }, [l_Overlay, l_View, l_Width, l_Height, l_Stencil](const FrameGraphContext& context)
+        {
+            l_Overlay->Draw(context.GetCommands(), l_View, l_Width, l_Height, static_cast<bool>(l_Stencil));
         });
     }
 

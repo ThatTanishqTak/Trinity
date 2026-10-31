@@ -60,6 +60,10 @@ namespace Trinity
                 {
                     return "D32Float";
                 }
+                case Format::D32FloatS8:
+                {
+                    return "D32FloatS8";
+                }
                 case Format::BC1Unorm:
                 {
                     return "BC1Unorm";
@@ -118,6 +122,7 @@ namespace Trinity
                 }
                 case Format::RGBA16Float:
                 case Format::RG32Float:
+                case Format::D32FloatS8:
                 {
                     return 8;
                 }

@@ -53,11 +53,13 @@ namespace Trinity
         FrameGraphTexture Resolve{};
     };
 
+    // A format with stencil loads and clears its stencil as it does its depth
     struct FrameGraphDepthAttachment
     {
         FrameGraphTexture Texture{};
         RHI::LoadOp Load = RHI::LoadOp::Clear;
         float ClearDepth = 0.0f;
+        std::uint8_t ClearStencil = 0;
         std::uint32_t MipLevel = 0;
         std::uint32_t ArrayLayer = 0;
     };

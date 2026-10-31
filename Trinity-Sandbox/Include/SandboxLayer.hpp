@@ -17,6 +17,7 @@ public:
     void OnDetach() override;
     void OnUpdate(Trinity::Timestep timestep) override;
     void OnEvent(Trinity::Event& event) override;
+    void OnPrepareRender(Trinity::RHI::CommandList& commands) override;
     void OnRender(Trinity::RHI::CommandList& commands) override;
     void OnBuildFrameGraph(Trinity::FrameGraph& graph, Trinity::FrameGraphTexture sceneColor) override;
 
@@ -37,6 +38,16 @@ private:
         Reading,
         Churning,
         Settling,
+        Done
+    };
+
+    // The reference document is drawn into a view of its own, copied out of the view's display target the frame after, and read back the frame after that
+    enum class UIPhase : std::uint8_t
+    {
+        Idle,
+        Drawing,
+        Copying,
+        Reading,
         Done
     };
 
@@ -77,6 +88,9 @@ private:
     void AddSpriteReadback(Trinity::FrameGraph& graph);
     void CheckSpriteReadback();
     void ReportSprites();
+    void UpdateGameUI();
+    void CheckGameUI();
+    void EndGameUI();
     void DestroyTestAssets();
 
     Trinity::Scope<Trinity::AssetRegistry> m_SpriteRegistry;
@@ -96,6 +110,12 @@ private:
     std::uint64_t m_SpriteBadFrames = 0;
     bool m_SpriteReported = false;
     bool m_SpritesReady = false;
+
+    Trinity::ViewID m_UIView = Trinity::Renderer::c_MainView;
+    Trinity::UIDocumentID m_UIDocument = Trinity::GameUI::c_NoDocument;
+    Trinity::RHI::BufferHandle m_UIReadback;
+    std::uint32_t m_UICommands = 0;
+    UIPhase m_UIPhase = UIPhase::Idle;
 
     std::vector<TestMesh> m_TestMeshes;
     std::vector<Trinity::AssetRef<Trinity::MeshAsset>> m_MeshRefs;

@@ -33,6 +33,25 @@ namespace Trinity
     // Names one of the Renderer's views. The main view, Renderer::c_MainView, always exists
     using ViewID = std::uint32_t;
 
+    // What draws over each view's tone mapped image, in its display space, as a game's UI does. Its uploads are recorded once a frame before the frame graph runs, and each view it has something for gets a pass of its own after the tonemap, the outline and the debug lines, with a stencil target the size of the view when it asks for one
+    class TRINITY_API ViewOverlay
+    {
+    public:
+        enum class Needs : std::uint8_t
+        {
+            Nothing,
+            Color,
+            ColorAndStencil
+        };
+
+        virtual ~ViewOverlay() = default;
+
+        virtual void RecordUploads(RHI::CommandList& commands) = 0;
+        [[nodiscard]] virtual Needs GetNeeds(ViewID view) const = 0;
+        // Inside the view's overlay pass, which loads its display target, with a viewport and scissor covering the view, and a stencil target of Renderer::c_OverlayStencilFormat cleared to 0 when it asked for one
+        virtual void Draw(RHI::CommandList& commands, ViewID view, std::uint32_t width, std::uint32_t height, bool stencil) = 0;
+    };
+
     // The entity drawn in a pixel SceneOptions::PickPixel asked about, entt::null where there is none
     struct PickResult
     {
@@ -40,12 +59,13 @@ namespace Trinity
         entt::entity Entity = entt::null;
     };
 
-    // Each frame is a frame graph that draws every view in turn, the main view first. A view has scene and display targets of its own, a size, tone mapping, and a scene submitted to it with its options, ID targets and picks. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. In the main view, layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns each view's scene into a display target of sRGB-encoded 8-bit values. The output pass copies the main view's to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space, where it can show any view's display target. A scene that asks for entity IDs also has its sprites' drawn after the scene pass, a pixel picked from them and read back without waiting, and its selection outlined over the tonemapped image. Each added output gets a pass of its own
+    // Each frame is a frame graph that draws every view in turn, the main view first. A view has scene and display targets of its own, a size, tone mapping, and a scene submitted to it with its options, ID targets and picks. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. In the main view, layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns each view's scene into a display target of sRGB-encoded 8-bit values. The output pass copies the main view's to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space, where it can show any view's display target. A scene that asks for entity IDs also has its sprites' drawn after the scene pass, a pixel picked from them and read back without waiting, and its selection outlined over the tonemapped image. A view overlay, such as a game's UI, draws over each view's display target last. Each added output gets a pass of its own
     class TRINITY_API Renderer
     {
     public:
         // Where layers draw, and what the window shows
         static constexpr ViewID c_MainView = 0;
+        static constexpr RHI::Format c_OverlayStencilFormat = RHI::Format::D32FloatS8;
 
         Renderer(RHI::Device& device, Window& window, std::string_view title);
         ~Renderer();
@@ -82,6 +102,9 @@ namespace Trinity
 
         void SetVSync(bool enabled);
         [[nodiscard]] bool IsVSync() const;
+
+        // One at a time, or none. It must outlive every frame it is set for
+        void SetViewOverlay(ViewOverlay* overlay) { m_Overlay = overlay; }
 
         [[nodiscard]] Renderer2D& GetRenderer2D() { return *m_Renderer2D; }
         [[nodiscard]] MaterialLoader& GetMaterialLoader() { return *m_MaterialLoader; }
@@ -157,6 +180,7 @@ namespace Trinity
         [[nodiscard]] FrameGraphTexture AddViewPasses(FrameGraph& graph, View& view, LayerStack* layers);
         [[nodiscard]] EntityTargets AddEntityPasses(FrameGraph& graph, View& view, const Renderer3D::Passes& passes);
         void AddOutlinePass(FrameGraph& graph, const View& view, const EntityTargets& targets, FrameGraphTexture display);
+        void AddOverlayPass(FrameGraph& graph, const View& view, FrameGraphTexture display, ViewOverlay::Needs needs);
 #if TR_DEBUG_DRAW
         void PrepareDebugLines();
         void AddDebugLinePass(FrameGraph& graph, const View& view, FrameGraphTexture display, const Renderer3D::Passes& passes);
@@ -183,6 +207,7 @@ namespace Trinity
         Scope<Renderer2D> m_Renderer2D;
         Scope<Renderer3D> m_Renderer3D;
         Scope<FrameGraph> m_FrameGraph;
+        ViewOverlay* m_Overlay = nullptr;
 
         Scope<RHI::SwapChain> m_SwapChain;
         RHI::TextureHandle m_OffscreenTarget;

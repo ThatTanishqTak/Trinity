@@ -40,6 +40,38 @@ namespace
     constexpr std::string_view c_GreyTextureName = "Grey.png";
     constexpr std::uint8_t c_GreyValue = 128;
 
+    // The Game UI probe's reference document, drawn into a view of its own, with the quadrant sprite texture and the grey one as images. Every colour is opaque over a black body but for one half-transparent white, and the font is the engine's own
+    constexpr std::string_view c_UIProbePath = "/saves/sandbox/ui/Probe.rml";
+    constexpr std::uint32_t c_UIProbeSize = 128;
+    constexpr std::string_view c_UIProbeDocument = R"(<rml>
+<head>
+<style>
+@font-face { font-family: Probe; src: "/engine/fonts/JetBrainsMonoNLNerdFontPropo-Regular.ttf"; }
+body { width: 128px; height: 128px; margin: 0px; background-color: #000000; font-family: Probe; font-size: 24px; color: #ffffff; }
+div, img { position: absolute; display: block; }
+#text { left: 4px; top: 0px; }
+#border { left: 4px; top: 30px; width: 24px; height: 24px; border: 4px #ff0000; background-color: #0000ff; }
+#image { left: 40px; top: 30px; width: 32px; height: 32px; }
+#grey { left: 76px; top: 30px; width: 16px; height: 16px; }
+#half { left: 96px; top: 30px; width: 16px; height: 16px; background-color: #ffffff80; }
+#clip { left: 76px; top: 56px; width: 20px; height: 20px; overflow: hidden; }
+#turned { left: 20px; top: 80px; width: 32px; height: 32px; transform: rotate(45deg); overflow: hidden; background-color: #ffff00; }
+#clip div, #turned div { position: static; width: 60px; height: 60px; }
+#clip div { background-color: #00ff00; }
+#turned div { background-color: #ff00ff; }
+</style>
+</head>
+<body>
+<div id="text">█</div>
+<div id="border"></div>
+<img id="image" src="../sprites/Sprite00.png"/>
+<img id="grey" src="../sprites/Grey.png"/>
+<div id="half"></div>
+<div id="clip"><div></div></div>
+<div id="turned"><div></div></div>
+</body>
+</rml>)";
+
     constexpr float c_ClearCycleSeconds = 10.0f;
 
     // The storage buffer holds c_ComputeWordCount words from one dispatch and as many again from the next, and the storage texture is c_ComputeTextureSize texels square
@@ -556,6 +588,7 @@ void SandboxLayer::OnAttach()
 
 void SandboxLayer::OnDetach()
 {
+    EndGameUI();
     DestroyTestAssets();
 }
 
@@ -580,6 +613,7 @@ void SandboxLayer::OnUpdate(Trinity::Timestep timestep)
     CheckGpuTimes();
     UpdateMeshes();
     UpdateSprites();
+    UpdateGameUI();
     UpdateResizes();
 
     m_ClearHue = std::fmod(m_ClearHue + timestep.GetSeconds() / c_ClearCycleSeconds, 1.0f);
@@ -606,6 +640,21 @@ void SandboxLayer::OnEvent(Trinity::Event& event)
 
     Trinity::EventDispatcher l_Dispatcher(event);
     l_Dispatcher.Dispatch<Trinity::KeyPressedEvent>(TR_BIND_EVENT_FN(OnKeyPressed));
+}
+
+// The Game UI probe's view drew its document in the frame before, and its display target is a shader resource, as every frame leaves it, so it is copied out before this frame's graph draws it again
+void SandboxLayer::OnPrepareRender(Trinity::RHI::CommandList& commands)
+{
+    if (m_UIPhase != UIPhase::Copying)
+    {
+        return;
+    }
+
+    const Trinity::RHI::TextureHandle l_Display = Trinity::Application::Get().GetRenderer().GetDisplayTarget(m_UIView);
+    commands.TextureBarrier(l_Display, Trinity::RHI::ResourceState::ShaderResource, Trinity::RHI::ResourceState::CopySource);
+    commands.CopyTextureToBuffer(l_Display, 0, 0, m_UIReadback, 0);
+    commands.TextureBarrier(l_Display, Trinity::RHI::ResourceState::CopySource, Trinity::RHI::ResourceState::ShaderResource);
+    m_UIPhase = UIPhase::Reading;
 }
 
 void SandboxLayer::OnRender(Trinity::RHI::CommandList& commands)
@@ -2981,6 +3030,182 @@ void SandboxLayer::ReportSprites()
     {
         TR_ERROR("Sprites: {} frame(s) did not draw all {} sprites in one draw call", m_SpriteBadFrames, c_SpriteCount);
     }
+}
+
+// Once the Renderer's graph has been checked, so its first frame shows the main view alone, and once the sprite textures are in the registry: the reference document is written and loaded into a view of its own, drawn in one frame, copied out in the next and read back in the one after
+void SandboxLayer::UpdateGameUI()
+{
+    Trinity::Application& l_Application = Trinity::Application::Get();
+    Trinity::GameUI* l_UI = l_Application.GetGameUI();
+    switch (m_UIPhase)
+    {
+        case UIPhase::Idle:
+        {
+            if (!m_GraphChecked || !m_SpritesReady || l_UI == nullptr)
+            {
+                return;
+            }
+
+            m_UIPhase = UIPhase::Done;
+            if (!Trinity::FileSystem::WriteText(c_UIProbePath, c_UIProbeDocument))
+            {
+                TR_ERROR("Game UI: the reference document could not be written to {}", c_UIProbePath);
+
+                return;
+            }
+
+            Trinity::RHI::BufferDescription l_ReadbackDescription;
+            l_ReadbackDescription.Size = Trinity::RHI::GetTextureCopyRowPitch(l_Application.GetRenderer().GetDisplayFormat(), c_UIProbeSize) * c_UIProbeSize;
+            l_ReadbackDescription.Usage = Trinity::RHI::BufferUsage::CopyDestination;
+            l_ReadbackDescription.Memory = Trinity::RHI::MemoryType::Readback;
+            l_ReadbackDescription.DebugName = "Sandbox UI readback";
+
+            m_UIReadback = l_Application.GetDevice().CreateBuffer(l_ReadbackDescription);
+            m_UIView = l_Application.GetRenderer().CreateView(c_UIProbeSize, c_UIProbeSize);
+            m_UIDocument = l_UI->LoadDocument(c_UIProbePath, m_UIView);
+            if (!m_UIReadback || m_UIDocument == Trinity::GameUI::c_NoDocument)
+            {
+                TR_ERROR("Game UI: the reference document could not be loaded, or its readback made");
+                EndGameUI();
+
+                return;
+            }
+
+            m_UIPhase = UIPhase::Drawing;
+
+            return;
+        }
+        case UIPhase::Drawing:
+        {
+            m_UICommands = l_UI != nullptr ? l_UI->GetStatistics().Commands : 0;
+            m_UIPhase = UIPhase::Copying;
+
+            return;
+        }
+        case UIPhase::Reading:
+        {
+            CheckGameUI();
+            EndGameUI();
+            m_UIPhase = UIPhase::Done;
+
+            return;
+        }
+        default:
+        {
+            return;
+        }
+    }
+}
+
+// Probes chosen so that a wrong blend, colour encoding, scissor, image orientation or clip mask each changes at least one of them, each within one 8-bit step of what the stylesheet says. The text is the full block glyph, whose exact edges are the font's, so it is checked by the white pixels it lights
+void SandboxLayer::CheckGameUI()
+{
+    TR_PROFILE_FUNCTION();
+
+    struct Probe
+    {
+        std::string_view Name;
+        std::uint32_t X = 0;
+        std::uint32_t Y = 0;
+        std::array<std::uint8_t, 3> Expected;
+    };
+
+    constexpr std::array<Probe, 16> c_Probes
+    { {
+        { "the border's left edge", 6, 46,{ 255, 0, 0 } },
+        { "the border's right edge", 34, 46,{ 255, 0, 0 } },
+        { "inside the border", 20, 46,{ 0, 0, 255 } },
+        { "the image's top left quadrant", 48, 38,{ 255, 0, 0 } },
+        { "the image's top right quadrant", 64, 38,{ 0, 255, 0 } },
+        { "the image's bottom left quadrant", 48, 54,{ 0, 0, 255 } },
+        { "the image's bottom right quadrant", 64, 54,{ 255, 255, 0 } },
+        { "an sRGB image's mid grey", 84, 38,{ c_GreyValue, c_GreyValue, c_GreyValue } },
+        { "half-transparent white over black, blended as the display shows it", 104, 38,{ 128, 128, 128 } },
+        { "inside the clipped box", 86, 66,{ 0, 255, 0 } },
+        { "where the clipped box's child would reach", 106, 66,{ 0, 0, 0 } },
+        { "the turned box's centre", 36, 96,{ 255, 0, 255 } },
+        { "above the box as laid out, inside it turned", 36, 76,{ 255, 0, 255 } },
+        { "the box's corner as laid out, outside it turned", 22, 82,{ 0, 0, 0 } },
+        { "where the turned box's child would reach", 56, 116,{ 0, 0, 0 } },
+        { "the background", 120, 120,{ 0, 0, 0 } }
+    } };
+
+    // The block glyph at 24 pixels lights well over this many of the text's corner
+    constexpr std::uint32_t c_TextWidth = 30;
+    constexpr std::uint32_t c_TextHeight = 28;
+    constexpr std::uint32_t c_TextPixels = 100;
+
+    Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
+    l_Device.WaitIdle();
+
+    const Trinity::RHI::DeviceInfo& l_Info = l_Device.GetInfo();
+    const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(Trinity::Application::Get().GetRenderer().GetDisplayFormat(), c_UIProbeSize);
+    const std::span<const std::byte> l_Data = l_Device.GetMappedData(m_UIReadback);
+    if (l_Info.API == Trinity::GraphicsAPI::None || l_Data.size() != l_RowPitch * c_UIProbeSize)
+    {
+        TR_INFO("Game UI: {} laid out the reference document into {} draw command(s)", Trinity::ToString(l_Info.API), m_UICommands);
+
+        return;
+    }
+
+    const auto a_Channel = [&l_Data, l_RowPitch](std::uint32_t x, std::uint32_t y, std::size_t channel) { return std::to_integer<std::int32_t>(l_Data[static_cast<std::size_t>(y * l_RowPitch + x * 4 + channel)]); };
+
+    std::string l_Wrong;
+    for (const Probe& it_Probe : c_Probes)
+    {
+        bool l_Matches = true;
+        for (std::size_t it_Channel = 0; it_Channel < 3; ++it_Channel)
+        {
+            l_Matches = l_Matches && std::abs(a_Channel(it_Probe.X, it_Probe.Y, it_Channel) - static_cast<std::int32_t>(it_Probe.Expected[it_Channel])) <= 1;
+        }
+
+        if (!l_Matches)
+        {
+            l_Wrong += std::format("{}{} at ({}, {}) is ({}, {}, {}) where ({}, {}, {}) was expected", l_Wrong.empty() ? "" : "; ", it_Probe.Name, it_Probe.X, it_Probe.Y, a_Channel(it_Probe.X, it_Probe.Y, 0), a_Channel(it_Probe.X, it_Probe.Y, 1), a_Channel(it_Probe.X, it_Probe.Y, 2), it_Probe.Expected[0], it_Probe.Expected[1], it_Probe.Expected[2]);
+        }
+    }
+
+    std::uint32_t l_TextPixels = 0;
+    for (std::uint32_t it_Y = 0; it_Y < c_TextHeight; ++it_Y)
+    {
+        for (std::uint32_t it_X = 0; it_X < c_TextWidth; ++it_X)
+        {
+            l_TextPixels += a_Channel(it_X, it_Y, 0) >= 254 && a_Channel(it_X, it_Y, 1) >= 254 && a_Channel(it_X, it_Y, 2) >= 254 ? 1 : 0;
+        }
+    }
+
+    if (l_TextPixels < c_TextPixels)
+    {
+        l_Wrong += std::format("{}the text lit {} white pixel(s) where at least {} were expected", l_Wrong.empty() ? "" : "; ", l_TextPixels, c_TextPixels);
+    }
+
+    if (!l_Wrong.empty())
+    {
+        TR_ERROR("Game UI: the reference document differs: {}", l_Wrong);
+
+        return;
+    }
+
+    TR_INFO("Game UI: {} drew the reference document in {} draw command(s), and all {} probes for a border, images, the sRGB round trip, blending, a scissor and a turned box's clip mask hold the expected colour within one 8-bit step, with {} white text pixels and the readback hashing to 0x{:016x}", Trinity::ToString(l_Info.API), m_UICommands, c_Probes.size(), l_TextPixels, HashRows(l_Data, l_RowPitch, std::uint64_t{ c_UIProbeSize } * 4, c_UIProbeSize));
+}
+
+void SandboxLayer::EndGameUI()
+{
+    Trinity::Application& l_Application = Trinity::Application::Get();
+    if (Trinity::GameUI* l_UI = l_Application.GetGameUI(); l_UI != nullptr && m_UIDocument != Trinity::GameUI::c_NoDocument)
+    {
+        l_UI->UnloadDocument(m_UIDocument);
+    }
+
+    if (m_UIView != Trinity::Renderer::c_MainView)
+    {
+        l_Application.GetRenderer().DestroyView(m_UIView);
+    }
+
+    l_Application.GetDevice().DestroyBuffer(m_UIReadback);
+    m_UIDocument = Trinity::GameUI::c_NoDocument;
+    m_UIView = Trinity::Renderer::c_MainView;
+    m_UIReadback = {};
 }
 
 void SandboxLayer::DestroyTestAssets()

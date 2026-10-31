@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -25,8 +26,8 @@ namespace Trinity
         // A full circle is this many segments, and an arc its share of them
         constexpr std::uint32_t c_CircleSegments = 32;
 
-        // Depth-tested lines, then lines on top. Each keeps its capacity from frame to frame, so drawing allocates nothing once the most lines a frame has drawn have been drawn once
-        std::array<VertexList, 2> s_Vertices;
+        // Depth-tested lines, then lines on top. Each keeps its capacity from frame to frame, so drawing allocates nothing once the most lines a frame has drawn have been drawn once. The lists are made with the first line and destroyed by Release, as an MSVC debug build's vector allocates under Renderer even while empty, which a static one would still hold at the leak report
+        std::optional<std::array<VertexList, 2>> s_Vertices;
         std::array<bool, 2> s_ReportedFull{};
 
         std::uint32_t PackColor(const glm::vec4& color)
@@ -49,8 +50,13 @@ namespace Trinity
         {
             TR_CORE_ASSERT(MainThread::IsMainThread(), "DebugDraw is called on the main thread only.");
 
+            if (!s_Vertices)
+            {
+                s_Vertices.emplace();
+            }
+
             const std::size_t l_List = static_cast<std::size_t>(depth);
-            VertexList& l_Vertices = s_Vertices[l_List];
+            VertexList& l_Vertices = (*s_Vertices)[l_List];
             if (l_Vertices.size() >= std::size_t{ DebugDraw::c_MaxLines } * 2)
             {
                 if (!std::exchange(s_ReportedFull[l_List], true))
@@ -208,14 +214,22 @@ namespace Trinity
     {
         std::span<const DebugVertex> GetVertices(DebugDepth depth)
         {
-            return s_Vertices[static_cast<std::size_t>(depth)];
+            if (!s_Vertices)
+            {
+                return {};
+            }
+
+            return (*s_Vertices)[static_cast<std::size_t>(depth)];
         }
 
         void Clear()
         {
-            for (VertexList& it_Vertices : s_Vertices)
+            if (s_Vertices)
             {
-                it_Vertices.clear();
+                for (VertexList& it_Vertices : *s_Vertices)
+                {
+                    it_Vertices.clear();
+                }
             }
 
             s_ReportedFull = {};
@@ -223,11 +237,7 @@ namespace Trinity
 
         void Release()
         {
-            for (VertexList& it_Vertices : s_Vertices)
-            {
-                VertexList().swap(it_Vertices);
-            }
-
+            s_Vertices.reset();
             s_ReportedFull = {};
         }
     }

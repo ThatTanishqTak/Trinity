@@ -32,6 +32,7 @@ namespace Trinity
             void SetPipeline(PipelineHandle pipeline) override;
             void SetViewport(const Viewport& viewport) override;
             void SetScissor(const Rect& scissor) override;
+            void SetStencilReference(std::uint32_t reference) override;
             void PushConstants(std::span<const std::byte> data) override;
             void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance) override;
             void SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format) override;

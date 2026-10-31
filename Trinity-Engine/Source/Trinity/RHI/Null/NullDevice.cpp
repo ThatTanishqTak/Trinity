@@ -101,6 +101,11 @@ namespace Trinity
             TR_CORE_ASSERT(m_Rendering, "SetScissor is recorded inside rendering.");
         }
 
+        void NullCommandList::SetStencilReference([[maybe_unused]] std::uint32_t reference)
+        {
+
+        }
+
         void NullCommandList::PushConstants([[maybe_unused]] std::span<const std::byte> data)
         {
             TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a graphics pipeline inside rendering, or a compute pipeline outside it.");
@@ -297,6 +302,11 @@ namespace Trinity
                 return !HasFlag(usage, TextureUsage::RenderTarget) && !HasFlag(usage, TextureUsage::DepthStencil) && !HasFlag(usage, TextureUsage::UnorderedAccess);
             }
 
+            if (HasStencil(format))
+            {
+                return usage == TextureUsage::DepthStencil;
+            }
+
             if (IsDepthFormat(format))
             {
                 return !HasFlag(usage, TextureUsage::RenderTarget) && !HasFlag(usage, TextureUsage::UnorderedAccess);
@@ -448,6 +458,7 @@ namespace Trinity
         {
             TR_CORE_ASSERT(!description.VertexShader.Code.empty() && !description.PixelShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
             TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
+            TR_CORE_ASSERT(!description.StencilTest || HasStencil(description.DepthFormat), "Pipeline '{}' tests stencil without a depth format that has it.", description.DebugName);
 
             return m_Pipelines.Add({});
         }

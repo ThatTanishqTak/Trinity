@@ -54,6 +54,7 @@ namespace Trinity
             RGB32Float,
             RGBA32Float,
             D32Float,
+            D32FloatS8,
             BC1Unorm,
             BC1Srgb,
             BC3Unorm,
@@ -103,7 +104,13 @@ namespace Trinity
 
         [[nodiscard]] constexpr bool IsDepthFormat(Format format)
         {
-            return format == Format::D32Float;
+            return format == Format::D32Float || format == Format::D32FloatS8;
+        }
+
+        // A depth format with stencil, which is only ever an attachment, so no shader reads it and no copy moves it
+        [[nodiscard]] constexpr bool HasStencil(Format format)
+        {
+            return format == Format::D32FloatS8;
         }
 
         // A cube has six layers, one per face in the order +X, -X, +Y, -Y, +Z, -Z

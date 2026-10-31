@@ -1,4 +1,4 @@
-# Run by cmake -P after a build, with BINARY, NAMES joined by '+', EXPECT absent or present, and CONFIGURATION. Only Distribution is checked
+# Run by cmake -P after a build, with BINARY, NAMES joined by '+', EXPECT absent, present or required, and CONFIGURATION. Only Distribution is checked
 if(NOT CONFIGURATION STREQUAL "Distribution")
     return()
 endif()
@@ -8,6 +8,9 @@ set(pattern_ImGui "Debug##Default")
 set(pattern_ImGuizmo "deg .5.2f rad")
 set(pattern_BasisEncoder "basis_compressor::")
 set(pattern_Slang "@Slang@@|N5Slang")
+# RmlUi's warning for an element whose font is missing, which its layout always links, and the name FreeType's auto-hinter registers under
+set(pattern_RmlUi "No font face defined")
+set(pattern_FreeType "autofitter")
 
 string(REPLACE "+" ";" names "${NAMES}")
 get_filename_component(binary_name "${BINARY}" NAME)
@@ -23,5 +26,7 @@ foreach(name IN LISTS names)
         message(FATAL_ERROR "${binary_name} carries code from ${name}, which a game never needs, such as \"${example}\". Something the game links has pulled it in")
     elseif(EXPECT STREQUAL "present" AND NOT found)
         message(FATAL_ERROR "${binary_name} links ${name}, yet what its code leaves was not found in the binary, so this check would not notice it in a game either")
+    elseif(EXPECT STREQUAL "required" AND NOT found)
+        message(FATAL_ERROR "${binary_name} carries no code from ${name}, which every game needs to draw its UI")
     endif()
 endforeach()
