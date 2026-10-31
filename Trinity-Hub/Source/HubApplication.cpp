@@ -20,6 +20,7 @@ Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args
     l_Specification.CommandLineArgs = args;
     l_Specification.StartDotNet = false;
     l_Specification.StartAudio = false;
+    l_Specification.StartGameUI = false;
 
     return new HubApplication(std::move(l_Specification));
 }

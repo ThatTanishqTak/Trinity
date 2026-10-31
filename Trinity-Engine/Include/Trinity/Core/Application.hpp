@@ -10,6 +10,7 @@
 #include "Trinity/Renderer/GraphicsAPI.hpp"
 #include "Trinity/Renderer/Renderer.hpp"
 #include "Trinity/RHI/Device.hpp"
+#include "Trinity/UI/GameUI.hpp"
 
 #include <chrono>
 #include <concepts>
@@ -56,6 +57,8 @@ namespace Trinity
         bool StartDotNet = true;
         // Audio starts as the application does, on the system's default output, or silent with --headless, which opens no device. An application with no sound, such as Hub, never starts it
         bool StartAudio = true;
+        // RmlUi starts as the application does, for a game's UI. An application that shows none, such as Hub, never starts it
+        bool StartGameUI = true;
 
         ApplicationCommandLineArgs CommandLineArgs;
     };
@@ -101,6 +104,8 @@ namespace Trinity
         [[nodiscard]] Renderer& GetRenderer() { return *m_Renderer; }
         // Null when the application has no audio
         [[nodiscard]] AudioEngine* GetAudioEngine() { return m_AudioEngine.get(); }
+        // Null when the application has no game UI
+        [[nodiscard]] GameUI* GetGameUI() { return m_GameUI.get(); }
         [[nodiscard]] FrameAllocator& GetFrameAllocator() { return m_FrameAllocator; }
         [[nodiscard]] LayerStack& GetLayerStack() { return m_LayerStack; }
         [[nodiscard]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
@@ -122,6 +127,7 @@ namespace Trinity
         Scope<RHI::Device> m_Device;
         Scope<Renderer> m_Renderer;
         Scope<AudioEngine> m_AudioEngine;
+        Scope<GameUI> m_GameUI;
         LayerStack m_LayerStack;
         std::function<void()> m_QuitHandler;
         std::uint64_t m_FrameCount = 0;

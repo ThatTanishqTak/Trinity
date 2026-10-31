@@ -131,6 +131,7 @@ function(trinity_add_engine_library target type active_config)
         PRIVATE
             spdlog::spdlog
             Freetype::Freetype
+            rmlui_core
             yaml-cpp::yaml-cpp
             Jolt
             box2d

@@ -19,7 +19,7 @@ trinity_setup_configuration_flags()
 # Options come before the includes
 option(TRINITY_WARNINGS_AS_ERRORS "Treat warnings in Trinity targets as errors" OFF)
 option(TRINITY_ENABLE_LTO "Link-time optimisation for Trinity targets in Distribution" OFF)
-option(TRINITY_TRACK_GLOBAL_ALLOCATIONS "Count every global new and delete under the Untagged memory tag" ON)
+option(TRINITY_TRACK_GLOBAL_ALLOCATIONS "Count every global new and delete, under the Untagged memory tag or a MemoryTagScope's" ON)
 option(TRINITY_ENABLE_PROFILING "Compile profiling scopes into Debug and Release builds" ON)
 option(TRINITY_SHARED_ENGINE "Build the engine as a shared library in Debug and Release. OFF links it statically everywhere" ON)
 option(TRINITY_PHYSICS_AVX2 "Build the physics libraries for AVX2, FMA, F16C, LZCNT and TZCNT, which the engine checks the processor for at startup. OFF builds them for SSE4.2" ON)

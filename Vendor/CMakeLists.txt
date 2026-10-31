@@ -146,6 +146,11 @@ trinity_vendor_set(RMLUI_SAMPLES OFF)
 trinity_vendor_set(RMLUI_FONT_ENGINE "freetype")
 trinity_vendor_set(CMAKE_DISABLE_FIND_PACKAGE_Freetype TRUE)   # never fall back to a system copy
 trinity_vendor_directory(RmlUi)
+# RmlUi's FreeType library is made and ended by the engine instead, through FreeType memory the engine counts under GameUI, as ImGui's is under UI. Only that one source is renamed, and it skips RmlUi's precompiled header, which is built without the names
+set_source_files_properties(RmlUi/Source/Core/FontEngineDefault/FreeTypeInterface.cpp TARGET_DIRECTORY rmlui_core PROPERTIES
+    COMPILE_DEFINITIONS "FT_Init_FreeType=TrinityRmlUi_InitFreeType;FT_Done_FreeType=TrinityRmlUi_DoneFreeType"
+    SKIP_PRECOMPILE_HEADERS ON
+)
 list(APPEND TRINITY_VENDOR_TARGETS rmlui_core rmlui_debugger)
 
 # --- Assets -----------------------------------------------------------------------------------

@@ -5,13 +5,13 @@
 
 namespace
 {
-    // A game module compiles this file with TR_GLOBAL_ALLOCATION_TAG=Game, so what its code allocates is counted as the module's own. Everything else's is untagged
+    // A game module compiles this file with TR_GLOBAL_ALLOCATION_TAG=Game, so what its code allocates is counted as the module's own. Everything else's goes under the thread's MemoryTagScope, and is untagged outside one
     void* TryAllocateGlobal(std::size_t size, std::size_t alignment) noexcept
     {
 #if defined(TR_GLOBAL_ALLOCATION_TAG)
         return Trinity::Memory::TryAllocate(size, Trinity::MemoryTag::TR_GLOBAL_ALLOCATION_TAG, alignment);
 #else
-        return Trinity::Memory::AllocateUntagged(size, alignment);
+        return Trinity::Memory::AllocateGlobal(size, alignment);
 #endif
     }
 

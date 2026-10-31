@@ -101,5 +101,6 @@
 #include "Trinity/Scripting/ScriptRuntime.hpp"
 #include "Trinity/Scripting/ScriptTypes.hpp"
 
+#include "Trinity/UI/GameUI.hpp"
 #include "Trinity/UI/Icons.hpp"
 #include "Trinity/UI/ImGuiLayer.hpp"

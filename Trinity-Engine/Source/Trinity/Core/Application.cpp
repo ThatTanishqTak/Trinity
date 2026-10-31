@@ -394,6 +394,11 @@ namespace Trinity
             l_Audio.Output = m_Specification.Window.Headless ? AudioOutput::Silent : AudioOutput::Device;
             m_AudioEngine = CreateScope<AudioEngine>(l_Audio);
         }
+
+        if (m_Specification.StartGameUI)
+        {
+            m_GameUI = CreateScope<GameUI>(*m_Renderer);
+        }
     }
 
     Application::~Application()
@@ -401,6 +406,7 @@ namespace Trinity
         m_LayerStack.Clear();
         JobSystem::Wait(m_FrameJobs);
         DotNetHost::Stop();
+        m_GameUI.reset();
         m_AudioEngine.reset();
         Input::ShutdownGamepads();
         m_Renderer.reset();
@@ -559,6 +565,12 @@ namespace Trinity
             for (const Scope<Layer>& it_Layer : m_LayerStack)
             {
                 it_Layer->OnUpdate(l_Timestep);
+            }
+
+            // What the layers changed in the UI this frame is laid out and drawn in it
+            if (m_GameUI)
+            {
+                m_GameUI->Update(l_Timestep);
             }
 
             m_Renderer->RenderFrame(m_LayerStack);
