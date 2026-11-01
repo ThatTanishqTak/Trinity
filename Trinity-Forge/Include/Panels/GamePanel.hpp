@@ -23,6 +23,8 @@ public:
 
     // Submits the scene to the panel's view, while the panel is shown
     void PrepareScene();
+    // Shows the scene's UIDocuments over the panel's view each frame, before the game UI lays out, whether or not the panel is shown, so a playing scene's documents are there for its scripts. They are loaded afresh as a scene starts and stops playing, so Edit mode never shows what Play did to them
+    void ShowUI();
     // What the scene may read of the keyboard and mouse from the next frame, as the panel was drawn in this one, and none of either when it was not, once it is closed or behind another tab
     [[nodiscard]] Trinity::SceneInputFilter TakeSceneFilter();
 
@@ -98,4 +100,6 @@ private:
     bool m_Shown = false;
     // Whether this Play was told that the screen is not its to change
     bool m_ScreenIgnored = false;
+    // Whether the scene the UI last showed was playing
+    bool m_UIPlaying = false;
 };

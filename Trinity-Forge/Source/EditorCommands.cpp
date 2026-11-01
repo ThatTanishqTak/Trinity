@@ -320,6 +320,11 @@ void ForEachSlotReference(Trinity::Entity entity, const std::function<void(const
         visit({ .Component = Trinity::AudioSourceComponent::c_TypeName, .Script = nullptr, .Slot = "Audio Resource", .Index = std::nullopt, .AssetType = c_AudioResourceType, .Value = entity.Get<Trinity::AudioSourceComponent>().Resource, .IsEntity = false });
     }
 
+    if (entity.Has<Trinity::UIDocumentComponent>())
+    {
+        visit({ .Component = Trinity::UIDocumentComponent::c_TypeName, .Script = nullptr, .Slot = "Source Asset", .Index = std::nullopt, .AssetType = Trinity::UIAssets::c_DocumentType, .Value = entity.Get<Trinity::UIDocumentComponent>().Document, .IsEntity = false });
+    }
+
     if (entity.Has<Trinity::ConvexHullColliderComponent>())
     {
         visit({ .Component = Trinity::ConvexHullColliderComponent::c_TypeName, .Script = nullptr, .Slot = "Shape", .Index = std::nullopt, .AssetType = Trinity::ConvexHullAsset::c_AssetType, .Value = entity.Get<Trinity::ConvexHullColliderComponent>().Shape, .IsEntity = false });

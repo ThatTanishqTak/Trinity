@@ -266,6 +266,21 @@ namespace
             return session.IsPrefabVariant(record->ID) ? Trinity::Icons::c_PackageVariant : Trinity::Icons::c_PackageVariantClosed;
         }
 
+        if (record != nullptr && record->Importer == Trinity::UIAssets::c_DocumentType)
+        {
+            return Trinity::Icons::c_WindowRestore;
+        }
+
+        if (record != nullptr && record->Importer == Trinity::UIAssets::c_StyleSheetType)
+        {
+            return Trinity::Icons::c_LanguageCss3;
+        }
+
+        if (record != nullptr && record->Importer == Trinity::UIAssets::c_FontType)
+        {
+            return Trinity::Icons::c_Font;
+        }
+
         return IsScene(record) ? Trinity::Icons::c_CubeOutline : Trinity::Icons::c_File;
     }
 }
@@ -862,7 +877,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
     }
 }
 
-// Unity's Create menu. Everything is made in the open folder: scenes, materials, input actions, audio mixers and sound events among the assets, named there at once, and a prefab among them and each language's scripts in its own folder, named first, since the name is the prefab's root's or the class's as well. A prefab variant is made of the prefab the menu is for, beside it
+// Unity's Create menu. Everything is made in the open folder: scenes, materials, input actions, audio mixers, sound events, UI documents and UI style sheets among the assets, named there at once, and a prefab among them and each language's scripts in its own folder, named first, since the name is the prefab's root's or the class's as well. A prefab variant is made of the prefab the menu is for, beside it
 void ContentBrowserPanel::DrawCreateMenu(const Item* item)
 {
     if (ImGui::MenuItem(std::format("{} Folder", Trinity::Icons::c_Folder).c_str()))
@@ -920,6 +935,26 @@ void ContentBrowserPanel::DrawCreateMenu(const Item* item)
     if (!l_InAssets)
     {
         ImGui::SetItemTooltip("Sound events go in Assets or a folder in it");
+    }
+
+    if (ImGui::MenuItem(std::format("{} UI Document", Trinity::Icons::c_WindowRestore).c_str(), nullptr, false, l_InAssets))
+    {
+        m_Deferred.push_back([this] { RenameCreated(m_Session.CreateUIDocument(m_Folder)); });
+    }
+
+    if (!l_InAssets)
+    {
+        ImGui::SetItemTooltip("UI documents go in Assets or a folder in it");
+    }
+
+    if (ImGui::MenuItem(std::format("{} UI Style Sheet", Trinity::Icons::c_LanguageCss3).c_str(), nullptr, false, l_InAssets))
+    {
+        m_Deferred.push_back([this] { RenameCreated(m_Session.CreateUIStyleSheet(m_Folder)); });
+    }
+
+    if (!l_InAssets)
+    {
+        ImGui::SetItemTooltip("UI style sheets go in Assets or a folder in it");
     }
 
     if (ImGui::MenuItem(std::format("{} Prefab...", Trinity::Icons::c_PackageVariantClosed).c_str(), nullptr, false, l_InAssets))

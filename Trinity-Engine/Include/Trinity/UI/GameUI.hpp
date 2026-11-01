@@ -2,30 +2,41 @@
 
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Timestep.hpp"
+#include "Trinity/Core/UUID.hpp"
 #include "Trinity/Renderer/Renderer.hpp"
 #include "Trinity/RHI/Device.hpp"
+#include "Trinity/UI/UIPanelSettings.hpp"
 
 #include <cstdint>
+#include <span>
+#include <string>
 #include <string_view>
 
 namespace Trinity
 {
-    // A document loaded into a view's UI
+    class Scene;
+
+    // A document loaded into the UI over a view
     using UIDocumentID = std::uint32_t;
 
     struct GameUIStatistics
     {
         std::uint32_t Contexts = 0;
         std::uint32_t Documents = 0;
+        // Of those, the documents a scene's UIDocuments keep
+        std::uint32_t SceneDocuments = 0;
         std::uint32_t Geometries = 0;
         std::uint32_t Textures = 0;
         std::uint64_t GeometryBytes = 0;
         std::uint64_t TextureBytes = 0;
-        // What the contexts recorded to draw in the last update
+        // What the documents recorded to draw in the last update
         std::uint32_t Commands = 0;
+        // Documents reloaded whole, and those whose stylesheets alone were, since the UI started
+        std::uint32_t DocumentReloads = 0;
+        std::uint32_t StyleSheetReloads = 0;
     };
 
-    // A game's UI, drawn by RmlUi: documents of RML styled by RCSS, read through the virtual file system, each in the context of the view it shows over, which takes the view's size and draws over the view's tone mapped image as its overlay, so colours are what the stylesheet says. Fonts load from a stylesheet's @font-face, or from here, and images are the project's textures, by their paths in the assets. RmlUi runs on the main thread alone, on the frames' clock, and what it and its FreeType allocate is counted under GameUI, but for what RmlUi keeps in its statics past its shutdown. No public header includes RmlUi, and only one GameUI lives at a time, as RmlUi is the process's
+    // A game's UI, drawn by RmlUi: documents of RML styled by RCSS, read through the virtual file system by their paths in the project, which a cooked game's asset table finds in its pack. Each document has a context of its own over the view it shows on, which takes the view's size, scales by the document's Panel Settings through RmlUi's dp unit, and draws, in the documents' sort order, over the view's tone mapped image as its overlay, so colours are what the stylesheet says. Fonts load from a stylesheet's @font-face, or from here, each face once however often its stylesheet is read, and images are the project's textures, by their paths. RmlUi runs on the main thread alone, on the frames' clock, and what it and its FreeType allocate is counted under GameUI, but for what RmlUi keeps in its statics past its shutdown. No public header includes RmlUi, and only one GameUI lives at a time, as RmlUi is the process's
     class TRINITY_API GameUI
     {
     public:
@@ -37,23 +48,43 @@ namespace Trinity
         GameUI(const GameUI&) = delete;
         GameUI& operator=(const GameUI&) = delete;
 
-        // A document read from the virtual file system into the view's context, made with the first document it shows, and shown. c_NoDocument when the view does not exist or the document cannot be read, which is logged
+        // A document read from the virtual file system into a context of its own over the view, and shown, at sort order 0 and one dp to a pixel. c_NoDocument when the view does not exist or the document cannot be read, which is logged
         [[nodiscard]] UIDocumentID LoadDocument(std::string_view path, ViewID view = Renderer::c_MainView);
         void UnloadDocument(UIDocumentID document);
         [[nodiscard]] bool HasDocument(UIDocumentID document) const;
         void SetVisible(UIDocumentID document, bool visible);
         [[nodiscard]] bool IsVisible(UIDocumentID document) const;
+        // Drawn over the view's documents of a lower order, and over those of the same order loaded before it
+        void SetSortOrder(UIDocumentID document, std::int32_t order);
+        [[nodiscard]] std::int32_t GetSortOrder(UIDocumentID document) const;
+        void SetPanelSettings(UIDocumentID document, const UIPanelSettings& settings);
+        // The view's pixels to one of its dp, as its Panel Settings gave it at the last Update, and 1 for a document there is not
+        [[nodiscard]] float GetScale(UIDocumentID document) const;
+
+        // Once a frame, before Update, while the scene is shown over the view: each UIDocument's document is loaded as it appears or names another, kept in step with its sort order, visibility and Panel Settings, and unloaded as the component goes, or at the Update of a frame the scene was not shown in. A document is kept by its entity's UUID, so one on an entity that moves into the next scene, as KeepAcrossScenes does, goes on as it was. Those of the same sort order are drawn as the hierarchy has them. One that names no UIDocument asset shows nothing, which is logged once
+        void ShowScene(Scene& scene, ViewID view = Renderer::c_MainView);
+        // The documents ShowScene keeps over the view are unloaded, so the next ShowScene loads them afresh, as Forge's Game panel does as its scene starts and stops playing
+        void ForgetScene(ViewID view);
+        // The document ShowScene keeps for the entity over the view, or c_NoDocument
+        [[nodiscard]] UIDocumentID FindSceneDocument(UUID entity, ViewID view = Renderer::c_MainView) const;
+
+        // Files changed on disk, by their paths in the project, as Forge's watch of the assets tells them. A changed stylesheet has every document read its stylesheets again, keeping its state, and a changed document has every document read whole again, as any may be a template another uses. Neither changes a font face already loaded. Paths of other files are passed over
+        void ReloadFiles(std::span<const std::string> paths);
+        // Every document read whole again, as when it is not known what changed
+        void ReloadAll();
 
         // A font face from the virtual file system for every document, named by the family and style it holds. A fallback face gives the glyphs other faces lack. Faces stay until the UI ends, as RmlUi keeps them. False when it cannot be read, which RmlUi logs with the reason
         bool LoadFontFace(std::string_view path, bool fallback = false);
 
-        // Once a frame, on the main thread, after the layers have updated: the clock advances, each context takes its view's size and lays out what changed, and what it draws is recorded for the view's overlay pass in the frame rendered next. A context whose view was destroyed goes with its documents
+        // Once a frame, on the main thread, after the layers have updated: the clock advances, each document's context takes its view's size and scale and lays out what changed, and what it draws is recorded for the view's overlay pass in the frame rendered next. A document whose view was destroyed is unloaded
         void Update(Timestep timestep);
 
         [[nodiscard]] GameUIStatistics GetStatistics() const;
 
     private:
         struct State;
+
+        void Reload(bool documents);
 
         Renderer& m_Renderer;
         Scope<State> m_State;

@@ -907,6 +907,7 @@ void EditorSession::Update()
 
     ImportAgainIfAsked();
     UpdateMixer();
+    ReloadChangedUIFiles();
     // After the imports, so a clip cooked again this frame shows its new waveform
     m_AudioPreview.Update(m_AudioClipImports.GetImportedCount());
 
@@ -1369,6 +1370,7 @@ void EditorSession::CloseProject()
     Trinity::Application::Get().GetRenderer().GetRenderer2D().ReleaseTextures();
     Trinity::Application::Get().GetRenderer().GetRenderer3D().ReleaseAssets();
 
+    m_AssetWatcher.Stop();
     if (m_Registry)
     {
         Trinity::AssetManager::SetRegistry(nullptr);
@@ -1386,6 +1388,47 @@ void EditorSession::AttachRegistry()
     m_Registry->SetDefaultSettings(AudioClipImporter::c_Importer, AudioClipImporter::GetDefaultSettings());
     Trinity::AssetManager::SetRegistry(m_Registry.get());
     ScanAssets();
+
+    if (Trinity::Expected<Trinity::DirectoryWatcher, std::string> l_Watcher = Trinity::DirectoryWatcher::Watch(m_Project->GetAssetsDirectory()))
+    {
+        m_AssetWatcher = std::move(*l_Watcher);
+    }
+    else
+    {
+        TR_WARN("Forge: {}, so UI documents and stylesheets are not read again as they save", l_Watcher.GetError());
+    }
+}
+
+// A watch that lost count of what changed has every document read again, as any of them may have
+void EditorSession::ReloadChangedUIFiles()
+{
+    if (!m_AssetWatcher.IsWatching())
+    {
+        return;
+    }
+
+    const Trinity::DirectoryChanges l_Changes = m_AssetWatcher.Poll();
+    Trinity::GameUI* l_UI = Trinity::Application::Get().GetGameUI();
+    if (l_Changes.IsEmpty() || l_UI == nullptr)
+    {
+        return;
+    }
+
+    if (l_Changes.Overflowed)
+    {
+        l_UI->ReloadAll();
+
+        return;
+    }
+
+    std::vector<std::string> l_Paths;
+    l_Paths.reserve(l_Changes.Paths.size());
+    for (const std::filesystem::path& it_Path : l_Changes.Paths)
+    {
+        l_Paths.push_back(std::format("{}/{}", Trinity::Project::c_AssetsMount, it_Path.generic_string()));
+    }
+
+    l_UI->ReloadFiles(l_Paths);
 }
 
 // Every texture, model, environment and audio clip the scan finds is cooked into /cache in the background, unless the cache already holds it for the same files and settings
@@ -3207,6 +3250,62 @@ std::optional<std::string> EditorSession::CreateSoundEvent(std::string_view fold
     }
 
     TR_INFO("Forge: created sound event {}", l_Path);
+    ScanAssets();
+
+    return l_Path;
+}
+
+namespace
+{
+    constexpr std::string_view c_NewUIDocument = R"(<rml>
+<head>
+    <title>New UI Document</title>
+    <style>
+        body
+        {
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+</body>
+</rml>
+)";
+
+    constexpr std::string_view c_NewUIStyleSheet = R"(body
+{
+}
+)";
+}
+
+std::optional<std::string> EditorSession::CreateUIDocument(std::string_view folder)
+{
+    return CreateTextAsset(folder, "New UI Document", ".rml", c_NewUIDocument, "UI document");
+}
+
+std::optional<std::string> EditorSession::CreateUIStyleSheet(std::string_view folder)
+{
+    return CreateTextAsset(folder, "New UI Style Sheet", ".rcss", c_NewUIStyleSheet, "UI style sheet");
+}
+
+std::optional<std::string> EditorSession::CreateTextAsset(std::string_view folder, std::string_view stem, std::string_view extension, std::string_view text, std::string_view kind)
+{
+    if (!m_Project || !m_Registry)
+    {
+        return std::nullopt;
+    }
+
+    const std::string l_Path = GetFreePath(*m_Project, folder, stem, extension, false);
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, text); !l_Written)
+    {
+        TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
+
+        return std::nullopt;
+    }
+
+    TR_INFO("Forge: created {} {}", kind, l_Path);
     ScanAssets();
 
     return l_Path;

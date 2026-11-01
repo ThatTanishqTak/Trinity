@@ -104,3 +104,5 @@
 #include "Trinity/UI/GameUI.hpp"
 #include "Trinity/UI/Icons.hpp"
 #include "Trinity/UI/ImGuiLayer.hpp"
+#include "Trinity/UI/UIAssets.hpp"
+#include "Trinity/UI/UIPanelSettings.hpp"

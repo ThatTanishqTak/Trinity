@@ -7,6 +7,7 @@
 #include "Trinity/Renderer/ToneMapping.hpp"
 #include "Trinity/Scene/ComponentType.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
+#include "Trinity/UI/UIPanelSettings.hpp"
 
 #include <entt/entity/entity.hpp>
 
@@ -630,6 +631,20 @@ namespace Trinity
         static constexpr std::size_t page_size = ENTT_PACKED_PAGE;
 
         [[nodiscard]] bool operator==(const KeepAcrossScenesComponent&) const = default;
+    };
+
+    // Shows a UI document over its scene's game view, as Unity's UIDocument does: over Forge's Game panel, where it takes no input until the scene plays, and over a player's window. Documents are drawn by their sort order, the highest on top, and those of the same order as the hierarchy has them. Its Panel Settings scale it from the view's size
+    struct UIDocumentComponent
+    {
+        static constexpr std::string_view c_TypeName = "Trinity.UIDocument";
+
+        // A UIDocument asset, an .rml file. Without one it shows nothing
+        UUID Document;
+        std::int32_t SortOrder = 0;
+        bool Visible = true;
+        UIPanelSettings Panel;
+
+        [[nodiscard]] bool operator==(const UIDocumentComponent&) const = default;
     };
 
     // One script on an entity: the class it is an instance of, by its full name in its language, whether it runs, and its fields' values. The values belong to the scene, not to the instance, so they save, undo and outlive a reload, and a class no loaded code has keeps every one of them

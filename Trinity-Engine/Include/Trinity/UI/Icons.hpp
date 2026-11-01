@@ -67,6 +67,8 @@ namespace Trinity
         constexpr const char* c_Copy = "\uF0C5";
         constexpr const char* c_Paste = "\uF0EA";
         constexpr const char* c_Download = "\uF019";
+        constexpr const char* c_Font = "\uF031";
+        constexpr const char* c_LanguageCss3 = "\uE749";
         constexpr const char* c_PackageVariantClosed = "\U000F03D7";
         constexpr const char* c_PackageVariant = "\U000F03D6";
     }

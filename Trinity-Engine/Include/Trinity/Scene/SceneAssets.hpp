@@ -18,9 +18,11 @@ namespace Trinity
 
         // Once, in the order met, and never an invalid UUID
         TRINITY_API void Add(AssetList& assets, UUID id);
-        // What the scene's components and its scripts' fields name, which the renderer, physics and scripts would otherwise load as they first reach them. A field naming a scene is left out, as a scene is loaded by the scene manager and not the asset manager
+        // What the scene's components and its scripts' fields name, which the renderer, physics and scripts would otherwise load as they first reach them. A field naming a scene is left out, as a scene is loaded by the scene manager and not the asset manager, and so is one naming a UI file, which GameUI reads
         TRINITY_API void Gather(Scene& scene, const AssetRegistry* registry, AssetList& assets);
         // The prefabs the instances of a scene already read are of, as its components name them. A stand-in names one that could not be found, so it is left out
         TRINITY_API void GatherInstancePrefabs(Scene& scene, AssetList& assets);
+        // The UI files the scene names, which GameUI reads by their paths and the asset manager never holds: its UIDocuments' documents, and the UI files its scripts' fields name, which Gather leaves out. A build ships them with what they link to
+        TRINITY_API void GatherDocuments(Scene& scene, const AssetRegistry* registry, AssetList& assets);
     }
 }

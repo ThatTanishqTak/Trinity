@@ -6,6 +6,7 @@
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/FileSystem/FileSystemUtilities.hpp"
+#include "Trinity/UI/UIAssets.hpp"
 
 #include <yaml-cpp/yaml.h>
 
@@ -601,6 +602,21 @@ namespace Trinity
         if (l_Extension == ".trsound")
         {
             return "SoundEvent";
+        }
+
+        if (l_Extension == ".rml")
+        {
+            return UIAssets::c_DocumentType;
+        }
+
+        if (l_Extension == ".rcss")
+        {
+            return UIAssets::c_StyleSheetType;
+        }
+
+        if (l_Extension == ".ttf" || l_Extension == ".otf")
+        {
+            return UIAssets::c_FontType;
         }
 
         constexpr std::array<std::string_view, 5> c_ModelExtensions{ ".gltf", ".glb", ".fbx", ".obj", ".dae" };

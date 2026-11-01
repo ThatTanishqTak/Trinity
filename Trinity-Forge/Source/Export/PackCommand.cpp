@@ -174,9 +174,17 @@ bool PackCommand::Write(const std::filesystem::path& folder)
     }
 
     const BuildContents l_Contents = BuildWalk::Gather(l_Project, l_Registry, l_Game.Scenes);
+    // A UI file's link names a path, not an asset
     for (const BrokenReference& it_Broken : l_Contents.Broken)
     {
-        TR_WARN("Pack: {} names {}, which is left out: {}", it_Broken.NamedBy, it_Broken.Asset, it_Broken.Reason);
+        if (it_Broken.Asset)
+        {
+            TR_WARN("Pack: {} names {}, which is left out: {}", it_Broken.NamedBy, it_Broken.Asset, it_Broken.Reason);
+        }
+        else
+        {
+            TR_WARN("Pack: {} {}", it_Broken.NamedBy, it_Broken.Reason);
+        }
     }
 
     // A player with the shared engine loads the module's build from beside the pack, and a Distribution Forge builds none

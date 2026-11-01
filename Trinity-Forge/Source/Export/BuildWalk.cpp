@@ -48,6 +48,16 @@ namespace
             return "InputActions";
         }
 
+        if (importer == Trinity::UIAssets::c_DocumentType || importer == Trinity::UIAssets::c_StyleSheetType)
+        {
+            return "UI";
+        }
+
+        if (importer == Trinity::UIAssets::c_FontType)
+        {
+            return "Fonts";
+        }
+
         return "Files";
     }
 
@@ -135,6 +145,10 @@ namespace
             else if (l_Type == Trinity::SoundEventAsset::c_AssetType)
             {
                 VisitSoundEvent(record, namedBy);
+            }
+            else if (l_Type == Trinity::UIAssets::c_DocumentType || l_Type == Trinity::UIAssets::c_StyleSheetType)
+            {
+                VisitUIFile(record, namedBy);
             }
             else if (l_Type == Trinity::MeshAsset::c_AssetType)
             {
@@ -285,11 +299,44 @@ namespace
             ShipSource(record, GetPackedSourcePath(record, GetPackedSourceFolder(record.Importer)), namedBy);
         }
 
+        // As the game reads it, by its path in the project, which the asset table finds where the pack keeps it, with every file of the project it links to: documents and stylesheets, which are walked in turn, fonts and images. A link to a file outside Assets, as to the engine's own fonts, is the player's, and one to a file the project lacks is listed as broken
+        void VisitUIFile(const Trinity::AssetRecord& record, std::string_view namedBy)
+        {
+            const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(record.Path);
+            if (!l_Text)
+            {
+                Break(record.ID, namedBy, std::format("it could not be read: {}", Trinity::ToString(l_Text.GetError())));
+
+                return;
+            }
+
+            const std::string l_Assets = std::format("{}/", Trinity::Project::c_AssetsMount);
+            for (const std::string& it_Link : Trinity::UIAssets::FindLinks(*l_Text, record.Path))
+            {
+                if (!it_Link.starts_with(l_Assets))
+                {
+                    continue;
+                }
+
+                if (const Trinity::AssetRecord* l_Linked = m_Registry.FindByPath(it_Link))
+                {
+                    Reach(l_Linked->ID, record.Path);
+                }
+                else
+                {
+                    Break({}, record.Path, std::format("links to {}, which is not in the project", it_Link));
+                }
+            }
+
+            ShipSource(record, GetPackedSourcePath(record, GetPackedSourceFolder(record.Importer)), namedBy);
+        }
+
         // What a scene or a template names, as a running scene gathers it, with each instance whose prefab is missing listed as broken, since a game could never make it
         void ReachContents(Trinity::Scene& scene, std::string_view namedBy, bool instances)
         {
             Trinity::SceneAssets::AssetList l_Assets;
             Trinity::SceneAssets::Gather(scene, &m_Registry, l_Assets);
+            Trinity::SceneAssets::GatherDocuments(scene, &m_Registry, l_Assets);
             if (instances)
             {
                 Trinity::SceneAssets::GatherInstancePrefabs(scene, l_Assets);

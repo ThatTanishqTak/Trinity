@@ -21,6 +21,7 @@
 #include <array>
 #include <bit>
 #include <charconv>
+#include <cmath>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -1144,6 +1145,49 @@ namespace Trinity
             reader.Read("Occlusion", component.Occlusion);
             reader.Read("OcclusionVolume", component.OcclusionVolume);
             reader.Read("OcclusionCutoff", component.OcclusionCutoff);
+        }
+
+        // The Panel Settings beside the document, each by its own key, so a prefab overrides one at a time
+        void SaveUIDocument(const UIDocumentComponent& component, ComponentWriter& writer)
+        {
+            writer.Write("Document", component.Document);
+            writer.Write("SortOrder", component.SortOrder);
+            writer.Write("Visible", component.Visible);
+            writer.Write("ScaleMode", ToString(component.Panel.ScaleMode));
+            writer.Write("Scale", component.Panel.Scale);
+            writer.Write("ReferenceResolution", glm::vec2(component.Panel.ReferenceResolution));
+            writer.Write("ScreenMatchMode", ToString(component.Panel.ScreenMatchMode));
+            writer.Write("Match", component.Panel.Match);
+            writer.Write("ReferenceDpi", component.Panel.ReferenceDpi);
+        }
+
+        // A mode this build lacks loads as the default, and a reference resolution as whole pixels within UIPanelSettings::c_MaxReferenceSize
+        void LoadUIDocument(UIDocumentComponent& component, const ComponentReader& reader)
+        {
+            reader.Read("Document", component.Document);
+            reader.Read("SortOrder", component.SortOrder);
+            reader.Read("Visible", component.Visible);
+            std::string l_Mode;
+            if (reader.Read("ScaleMode", l_Mode))
+            {
+                component.Panel.ScaleMode = FindUIScaleMode(l_Mode).value_or(UIPanelSettings().ScaleMode);
+            }
+
+            reader.Read("Scale", component.Panel.Scale);
+            glm::vec2 l_Reference(component.Panel.ReferenceResolution);
+            if (reader.Read("ReferenceResolution", l_Reference))
+            {
+                const glm::vec2 l_Clamped = glm::clamp(glm::round(l_Reference), glm::vec2(0.0f), glm::vec2(static_cast<float>(UIPanelSettings::c_MaxReferenceSize)));
+                component.Panel.ReferenceResolution = glm::uvec2(std::isfinite(l_Clamped.x) ? l_Clamped.x : 0.0f, std::isfinite(l_Clamped.y) ? l_Clamped.y : 0.0f);
+            }
+
+            if (reader.Read("ScreenMatchMode", l_Mode))
+            {
+                component.Panel.ScreenMatchMode = FindUIScreenMatchMode(l_Mode).value_or(UIPanelSettings().ScreenMatchMode);
+            }
+
+            reader.Read("Match", component.Panel.Match);
+            reader.Read("ReferenceDpi", component.Panel.ReferenceDpi);
         }
 
         // Each field on one line with its type, so a class no loaded code has still saves and loads every value exactly
@@ -4259,6 +4303,7 @@ namespace Trinity
             // These hold nothing, so their functions write and read nothing
             RegisterComponent({ AudioListenerComponent::c_TypeName, [](const void*, ComponentWriter&) {}, [](void*, const ComponentReader&) {}, [](SceneRegistry& registry) { static_cast<void>(registry.storage<AudioListenerComponent>()); } });
             RegisterComponent({ KeepAcrossScenesComponent::c_TypeName, [](const void*, ComponentWriter&) {}, [](void*, const ComponentReader&) {}, [](SceneRegistry& registry) { static_cast<void>(registry.storage<KeepAcrossScenesComponent>()); } });
+            RegisterComponent(MakeComponentSerializer<UIDocumentComponent, SaveUIDocument, LoadUIDocument>());
             RegisterComponent(MakeComponentSerializer<ScriptComponent, SaveScript, LoadScript>());
         }
 

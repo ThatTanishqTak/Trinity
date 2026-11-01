@@ -288,6 +288,8 @@ namespace Trinity
         l_Push.Sampler = { m_Device.GetSamplerIndex(m_Sampler), 0 };
         SetClipTransform(l_Push, *l_Transform, width, height);
         commands.SetIndexBuffer(l_Indices.Buffer, l_Indices.Offset, RHI::IndexFormat::UInt32);
+        // A list drawn after another in the same pass starts unscissored, whatever the last left
+        commands.SetScissor(l_View);
 
         const auto a_Bind = [&commands, &l_Bound](RHI::PipelineHandle pipeline)
         {

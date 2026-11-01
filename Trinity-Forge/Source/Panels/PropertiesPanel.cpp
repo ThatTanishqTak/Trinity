@@ -35,6 +35,7 @@ namespace
     constexpr const char* c_ConvexHullPickerPopup = "##ConvexHullPicker";
     constexpr const char* c_CollisionMeshPickerPopup = "##CollisionMeshPicker";
     constexpr const char* c_AudioResourcePickerPopup = "##AudioResourcePicker";
+    constexpr const char* c_UIDocumentPickerPopup = "##UIDocumentPicker";
     // An AudioSource's rolloff graph is this many lines high, and reaches this far past its maximum distance
     constexpr float c_RolloffGraphLines = 6.0f;
     constexpr float c_RolloffGraphReach = 1.1f;
@@ -47,7 +48,7 @@ namespace
     constexpr const char* c_UnappliedPopup = "Unapplied Import Settings###ForgeUnappliedSettings";
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
-    constexpr std::array<std::string_view, 26> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::CharacterControllerComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::AudioSourceComponent::c_TypeName, Trinity::AudioListenerComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
+    constexpr std::array<std::string_view, 27> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::CharacterControllerComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::AudioSourceComponent::c_TypeName, Trinity::AudioListenerComponent::c_TypeName, Trinity::UIDocumentComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
 
     using PrefabOverride = Trinity::SceneSerializer::PrefabOverride;
 
@@ -59,7 +60,7 @@ namespace
     };
 
     // Near shows the near plane of whichever projection is shown, a lock the 3D body's three axes or the 2D body's one, and a label ending in a space starts the label of each of a list's rows, as Material 0 does. A key ending in a slash is a list saved an item a line, so each of its rows shows its own item, as Material 1 shows Materials/1
-    constexpr std::array<RowKeys, 24> c_RowKeys{ {
+    constexpr std::array<RowKeys, 26> c_RowKeys{ {
         { "Audio Resource",{ "Resource" } },
         { "Volume Rolloff",{ "Rolloff" } },
         { "Size",{ "OrthographicSize" } },
@@ -83,7 +84,9 @@ namespace
         { "Spring",{ "SpringFrequency" } },
         { "Damping",{ "SpringDamping" } },
         { "Material ",{ "Materials/" } },
-        { "Point ",{ "Points" } }
+        { "Point ",{ "Points" } },
+        { "Source Asset",{ "Document" } },
+        { "Reference DPI",{ "ReferenceDpi" } }
     } };
 
     // What a menu asked to revert or apply, named as the command names it, such as Position of Body, and for Apply the level of the prefab it goes to, 0 for the instance's own
@@ -775,13 +778,13 @@ namespace
     }
 
     // Unity's Add Component categories for the engine's components, in the order the list shows them. A module's components go under their namespace, after these
-    constexpr std::array<std::string_view, 5> c_ComponentCategories{ "Rendering", "Lighting", "Physics", "Physics 2D", "Audio" };
+    constexpr std::array<std::string_view, 6> c_ComponentCategories{ "Rendering", "Lighting", "Physics", "Physics 2D", "Audio", "UI Toolkit" };
     constexpr std::string_view c_OtherCategory = "Other";
     constexpr std::string_view c_ScriptsCategory = "Scripts";
 
     std::string_view GetComponentCategory(std::string_view name)
     {
-        constexpr std::array<std::pair<std::string_view, std::string_view>, 23> c_Categories{ {
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 24> c_Categories{ {
             { Trinity::CameraComponent::c_TypeName, "Rendering" },
             { Trinity::SpriteRendererComponent::c_TypeName, "Rendering" },
             { Trinity::MeshRendererComponent::c_TypeName, "Rendering" },
@@ -804,7 +807,8 @@ namespace
             { Trinity::CharacterController2DComponent::c_TypeName, "Physics 2D" },
             { Trinity::Joint2DComponent::c_TypeName, "Physics 2D" },
             { Trinity::AudioSourceComponent::c_TypeName, "Audio" },
-            { Trinity::AudioListenerComponent::c_TypeName, "Audio" }
+            { Trinity::AudioListenerComponent::c_TypeName, "Audio" },
+            { Trinity::UIDocumentComponent::c_TypeName, "UI Toolkit" }
         } };
 
         if (const auto a_Found = std::ranges::find(c_Categories, name, &std::pair<std::string_view, std::string_view>::first); a_Found != c_Categories.end())
@@ -1443,6 +1447,7 @@ void PropertiesPanel::OnImGuiRender()
     DrawJoint2D(l_Entity);
     DrawAudioSource(l_Entity);
     DrawAudioListener(l_Entity);
+    DrawUIDocument(l_Entity);
     DrawScripts(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawRemovedComponents(l_Entity);
@@ -3731,6 +3736,126 @@ void PropertiesPanel::DrawAudioListener(Trinity::Entity entity)
     }
 
     ImGui::TextDisabled("The scene is heard from here, facing -Z with +Y up");
+}
+
+// Unity's UIDocument, with its Panel Settings below it, each scale mode's own fields shown as Unity's Panel Settings shows them: the document and its sort order and visibility, then how it scales from the game view's size
+void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
+{
+    if (!entity.Has<Trinity::UIDocumentComponent>() || !BeginComponent(entity, Trinity::UIDocumentComponent::c_TypeName, Trinity::Icons::c_WindowRestore))
+    {
+        return;
+    }
+
+    CommandStack& l_History = m_Session.GetHistory();
+    const auto a_SetDocument = [&l_History, entity](Trinity::UUID document)
+    {
+        Trinity::UIDocumentComponent l_Value = entity.Get<Trinity::UIDocumentComponent>();
+        l_Value.Document = document;
+        l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::UIDocumentComponent>>(entity.GetUUID(), std::move(l_Value), "Document"));
+        l_History.EndMerge();
+    };
+
+    DrawAssetSlot("Source Asset", c_UIDocumentPickerPopup, Trinity::UIAssets::c_DocumentType, entity.Get<Trinity::UIDocumentComponent>().Document, a_SetDocument, "The .rml document it shows over the game view, as Unity's Source Asset. Without one it shows nothing");
+
+    Label("Sort Order");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "SortOrder", [](Trinity::UIDocumentComponent& document) { return ImGui::DragInt("##SortOrder", &document.SortOrder, 0.1f); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Drawn over the documents of a lower order, and over those of the same order above it in the hierarchy");
+    }
+
+    Label("Visible");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "Visible", [](Trinity::UIDocumentComponent& document) { return ImGui::Checkbox("##Visible", &document.Visible); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Shown and laid out. Hidden, it keeps its state and draws nothing");
+    }
+
+    ImGui::SeparatorText("Panel Settings");
+    Label("Scale Mode");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "ScaleMode", [](Trinity::UIDocumentComponent& document)
+    {
+        int l_Mode = static_cast<int>(document.Panel.ScaleMode);
+        const bool l_Changed = ImGui::Combo("##ScaleMode", &l_Mode, "Constant Pixel Size\0Scale With Screen Size\0Constant Physical Size\0");
+        document.Panel.ScaleMode = static_cast<Trinity::UIScaleMode>(l_Mode);
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("How many of the view's pixels one dp of the document is: a fixed scale, the view's size against a reference resolution, or the monitor's DPI against a reference DPI. Lengths and font sizes in dp follow it, and px stays the view's own pixels");
+    }
+
+    switch (entity.Get<Trinity::UIDocumentComponent>().Panel.ScaleMode)
+    {
+        case Trinity::UIScaleMode::ConstantPixelSize:
+        {
+            Label("Scale");
+            EditField<Trinity::UIDocumentComponent>(l_History, entity, "Scale", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat("##Scale", &document.Panel.Scale, 0.01f, Trinity::UIPanelSettings::c_MinScale, Trinity::UIPanelSettings::c_MaxScale, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            {
+                ImGui::SetTooltip("Pixels to one dp, whatever the view's size");
+            }
+
+            break;
+        }
+        case Trinity::UIScaleMode::ScaleWithScreenSize:
+        {
+            Label("Reference Resolution");
+            EditField<Trinity::UIDocumentComponent>(l_History, entity, "ReferenceResolution", [](Trinity::UIDocumentComponent& document)
+            {
+                std::array<int, 2> l_Size{ static_cast<int>(document.Panel.ReferenceResolution.x), static_cast<int>(document.Panel.ReferenceResolution.y) };
+                const bool l_Changed = ImGui::DragInt2("##ReferenceResolution", l_Size.data(), 1.0f, 1, static_cast<int>(Trinity::UIPanelSettings::c_MaxReferenceSize), "%d", ImGuiSliderFlags_AlwaysClamp);
+                document.Panel.ReferenceResolution = glm::uvec2(static_cast<std::uint32_t>(l_Size[0]), static_cast<std::uint32_t>(l_Size[1]));
+
+                return l_Changed;
+            });
+
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            {
+                ImGui::SetTooltip("The size the document is written for, in dp, at which it is one dp to a pixel");
+            }
+
+            Label("Screen Match Mode");
+            EditField<Trinity::UIDocumentComponent>(l_History, entity, "ScreenMatchMode", [](Trinity::UIDocumentComponent& document)
+            {
+                int l_Mode = static_cast<int>(document.Panel.ScreenMatchMode);
+                const bool l_Changed = ImGui::Combo("##ScreenMatchMode", &l_Mode, "Match Width Or Height\0Expand\0Shrink\0");
+                document.Panel.ScreenMatchMode = static_cast<Trinity::UIScreenMatchMode>(l_Mode);
+
+                return l_Changed;
+            });
+
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            {
+                ImGui::SetTooltip("Match Width Or Height scales by the view's width against the reference's, its height, or between the two. Expand scales so the reference always fits, and Shrink so it always fills");
+            }
+
+            if (entity.Get<Trinity::UIDocumentComponent>().Panel.ScreenMatchMode == Trinity::UIScreenMatchMode::MatchWidthOrHeight)
+            {
+                Label("Match");
+                EditField<Trinity::UIDocumentComponent>(l_History, entity, "Match", [](Trinity::UIDocumentComponent& document) { return ImGui::SliderFloat("##Match", &document.Panel.Match, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                {
+                    ImGui::SetTooltip("From 0, the width alone, to 1, the height alone");
+                }
+            }
+
+            break;
+        }
+        case Trinity::UIScaleMode::ConstantPhysicalSize:
+        {
+            Label("Reference DPI");
+            EditField<Trinity::UIDocumentComponent>(l_History, entity, "ReferenceDpi", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat("##ReferenceDpi", &document.Panel.ReferenceDpi, 1.0f, 1.0f, 1000.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp); });
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            {
+                ImGui::SetTooltip("The DPI the document is written for, on which one dp is one pixel");
+            }
+
+            break;
+        }
+    }
 }
 
 // Each script by its class, with a box that turns it on and off and its fields below. Right-clicking a script resets its fields to its class's defaults, moves or removes it. A class no loaded code has is marked, and its values are shown as they were read. Every change goes to a copy of the component and becomes one command once the section is drawn, since the section reads the component

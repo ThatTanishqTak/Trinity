@@ -2,9 +2,7 @@
 
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Platform.hpp"
-
-#include <algorithm>
-#include <string_view>
+#include "Trinity/UI/UIAssets.hpp"
 
 namespace Trinity
 {
@@ -13,47 +11,10 @@ namespace Trinity
         return m_Time;
     }
 
-    // A path from the root of the virtual file system stays as it is, and any other is the document's folder's, so a document finds what lies beside it wherever its folder is mounted. Either way its . and .. are resolved, which the file system does not take, and a .. above the root stays at the root
+    // As a link from the document is resolved wherever the UI reads one, so the build walk finds what RmlUi will read
     void GameUISystemInterface::JoinPath(Rml::String& translatedPath, const Rml::String& documentPath, const Rml::String& path)
     {
-        Rml::String l_Joined;
-        if (path.starts_with('/') || path.starts_with('\\'))
-        {
-            l_Joined = path;
-        }
-        else
-        {
-            const std::size_t l_Folder = documentPath.find_last_of("/\\");
-            l_Joined = l_Folder != Rml::String::npos ? documentPath.substr(0, l_Folder + 1) + path : "/" + path;
-        }
-
-        translatedPath.clear();
-        std::size_t l_Position = 0;
-        while (l_Position < l_Joined.size())
-        {
-            const std::size_t l_End = std::min(l_Joined.find_first_of("/\\", l_Position), l_Joined.size());
-            const std::string_view l_Component = std::string_view(l_Joined).substr(l_Position, l_End - l_Position);
-            l_Position = l_End + 1;
-            if (l_Component.empty() || l_Component == ".")
-            {
-                continue;
-            }
-
-            if (l_Component == "..")
-            {
-                translatedPath.resize(std::min(translatedPath.size(), translatedPath.rfind('/')));
-
-                continue;
-            }
-
-            translatedPath += '/';
-            translatedPath += l_Component;
-        }
-
-        if (translatedPath.empty())
-        {
-            translatedPath = "/";
-        }
+        translatedPath = UIAssets::ResolveLink(documentPath, path);
     }
 
     // An assert inside RmlUi is logged as an error and play goes on, as it does in a player

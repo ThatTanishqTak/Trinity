@@ -88,7 +88,7 @@ void RuntimeLayer::OnDetach()
     }
 }
 
-// The mix is the game's from the frame its mixer is ready, as Play's is in Forge
+// The mix is the game's from the frame its mixer is ready, as Play's is in Forge, and the scene's UI shows over the window as it runs
 void RuntimeLayer::OnUpdate(Trinity::Timestep timestep)
 {
     if (!m_MixerApplied && m_Mixer.IsReady())
@@ -103,6 +103,13 @@ void RuntimeLayer::OnUpdate(Trinity::Timestep timestep)
     if (m_Scenes)
     {
         m_Scenes->Update(timestep);
+    }
+
+    // The running scene's UIDocuments over the window, laid out once the layers have updated
+    Trinity::GameUI* l_UI = Trinity::Application::Get().GetGameUI();
+    if (Trinity::Scene* l_Scene = m_Scenes ? m_Scenes->GetScene() : nullptr; l_UI != nullptr && l_Scene != nullptr)
+    {
+        l_UI->ShowScene(*l_Scene);
     }
 
     if (m_Display)

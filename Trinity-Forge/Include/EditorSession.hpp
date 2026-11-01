@@ -315,6 +315,9 @@ public:
     [[nodiscard]] bool IsMixerEditable(Trinity::UUID asset) const;
     // A Random named Root with nothing in it, as Unity's new Audio Random Container is, named New Sound Event, or New Sound Event 1 and on when that is taken. Its project path, or nothing, logged
     [[nodiscard]] std::optional<std::string> CreateSoundEvent(std::string_view folder);
+    // A document whose body fills the game view and lets the mouse through but where an element takes it, named New UI Document, and a style sheet with an empty rule for the body, named New UI Style Sheet, or with 1 and on when that is taken, each written in any text editor and reloaded as it saves. The project path, or nothing, logged
+    [[nodiscard]] std::optional<std::string> CreateUIDocument(std::string_view folder);
+    [[nodiscard]] std::optional<std::string> CreateUIStyleSheet(std::string_view folder);
     // As ReadAudioMixer, for the Sound Event panel. Null for an asset that is not one
     [[nodiscard]] const SoundEventFile* ReadSoundEvent(Trinity::UUID asset);
     // Its file, only once what is written reads back, kept as it reads back, and the asset loaded again, so every instance playing it, the audition's and a scene's, moves to it as each of its containers next triggers
@@ -541,6 +544,9 @@ private:
     void FinishEnvironmentImports(const EnvironmentImportReport& report);
     void FinishAudioClipImports(const AudioClipImportReport& report);
     void UpdateMixer();
+    // The UI documents and stylesheets that saved since the last frame are read again by the game UI, while a scene plays too
+    void ReloadChangedUIFiles();
+    [[nodiscard]] std::optional<std::string> CreateTextAsset(std::string_view folder, std::string_view stem, std::string_view extension, std::string_view text, std::string_view kind);
     void ApplyMixer(const Trinity::AudioMixerAsset* asset);
     void ResetMixer();
     void HoldMixer();
@@ -611,6 +617,8 @@ private:
     bool m_InspectingMixer = false;
     ModuleHost m_Module;
     AssemblyHost m_Assembly;
+    // The project's Assets, watched for UI files saved in other programs
+    Trinity::DirectoryWatcher m_AssetWatcher;
     EditorPreferences m_Preferences;
     // The kept console variables the command line set, each with the value the file had, written back in its place. Empty for one the file did not have
     std::map<std::string, std::string, std::less<>> m_HeldVariables;
