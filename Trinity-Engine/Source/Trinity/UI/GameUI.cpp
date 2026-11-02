@@ -7,10 +7,15 @@
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Profiler.hpp"
+#include "Trinity/Input/Input.hpp"
+#include "Trinity/Input/InputActionData.hpp"
+#include "Trinity/Input/InputActions.hpp"
+#include "Trinity/Input/InputActionsRuntime.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
 #include "Trinity/UI/GameUIFileInterface.hpp"
+#include "Trinity/UI/GameUIInput.hpp"
 #include "Trinity/UI/GameUIRenderInterface.hpp"
 #include "Trinity/UI/GameUISystemInterface.hpp"
 #include "Trinity/UI/UIAssets.hpp"
@@ -20,14 +25,19 @@
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Factory.h>
 #include <RmlUi/Core/FontEngineInterface.h>
+#include <RmlUi/Core/ID.h>
+#include <RmlUi/Core/StyleSheetContainer.h>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_MODULE_H
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <format>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -84,9 +94,101 @@ namespace Trinity
     {
         bool s_Running = false;
 
+        // Under every document's own, so the controls a player moves between take the focus as Unity's do, while a document's own rule for them wins
+        constexpr const char* c_BaseStyleSheet = "button, input, select, textarea { tab-index: auto; }";
+        // As Unity's UI input module: how far Navigate has to be pushed to move the focus, how long it waits before moving again while held, and how often it moves after that
+        constexpr float c_NavigatePush = 0.5f;
+        constexpr float c_NavigateRepeatDelay = 0.5f;
+        constexpr float c_NavigateRepeatRate = 0.1f;
+        // How far a pad's stick or trigger has to be pushed for the UI to take it from the game
+        constexpr float c_TakenPush = 0.5f;
+        // RmlUi's left, right and middle buttons
+        constexpr std::array<MouseCode, 3> c_PointerButtons{ MouseCode::TR_LEFT, MouseCode::TR_RIGHT, MouseCode::TR_MIDDLE };
+
+        enum class NavigateDirection : std::uint8_t
+        {
+            None,
+            Up,
+            Down,
+            Left,
+            Right
+        };
+
         Rml::String GetContextName(UIDocumentID document)
         {
             return std::format("Document {}", document);
+        }
+
+        // The UI map's action, found again once the scene it was found in has stopped
+        const InputAction& GetUIAction(InputAction& action, std::string_view name)
+        {
+            if (!action.IsCurrent())
+            {
+                action = InputAction::Find(std::format("{}{}{}", UIInputMap::c_Name, InputActionsData::c_PathSeparator, name));
+            }
+
+            return action;
+        }
+
+        // Each of an action's sources the player's devices are pushing now, kept from the game: a key, a mouse button, a pad's button, axis or stick
+        void TakeSources(const InputAction& action)
+        {
+            for (std::uint32_t it_Binding = 0; it_Binding < action.GetBindingCount(); ++it_Binding)
+            {
+                for (std::uint32_t it_Part = 0; it_Part < action.GetPartCount(it_Binding); ++it_Part)
+                {
+                    const InputSource l_Source = action.GetSource(it_Binding, it_Part, 0);
+                    switch (l_Source.Kind)
+                    {
+                        case InputSourceKind::Key:
+                        {
+                            Input::TakeKey(static_cast<KeyCode>(l_Source.Code));
+
+                            break;
+                        }
+                        case InputSourceKind::MouseButton:
+                        {
+                            Input::TakeMouseButton(static_cast<MouseCode>(l_Source.Code));
+
+                            break;
+                        }
+                        case InputSourceKind::GamepadButton:
+                        {
+                            for (std::uint32_t it_Gamepad = 0; it_Gamepad < Input::c_MaxGamepads; ++it_Gamepad)
+                            {
+                                Input::TakeGamepadButton(it_Gamepad, static_cast<GamepadButton>(l_Source.Code));
+                            }
+
+                            break;
+                        }
+                        case InputSourceKind::GamepadAxis:
+                        case InputSourceKind::GamepadStick:
+                        {
+                            const bool l_Stick = l_Source.Kind == InputSourceKind::GamepadStick;
+                            const GamepadAxis l_X = l_Stick ? (l_Source.Code == 0 ? GamepadAxis::TR_LEFT_STICK_X : GamepadAxis::TR_RIGHT_STICK_X) : static_cast<GamepadAxis>(l_Source.Code);
+                            const GamepadAxis l_Y = l_Source.Code == 0 ? GamepadAxis::TR_LEFT_STICK_Y : GamepadAxis::TR_RIGHT_STICK_Y;
+                            for (std::uint32_t it_Gamepad = 0; it_Gamepad < Input::c_MaxGamepads; ++it_Gamepad)
+                            {
+                                const float l_Push = l_Stick ? glm::length(glm::vec2(Input::GetGamepadAxis(it_Gamepad, l_X), Input::GetGamepadAxis(it_Gamepad, l_Y))) : std::abs(Input::GetGamepadAxis(it_Gamepad, l_X));
+                                if (l_Push >= c_TakenPush)
+                                {
+                                    Input::TakeGamepadAxis(it_Gamepad, l_X);
+                                    if (l_Stick)
+                                    {
+                                        Input::TakeGamepadAxis(it_Gamepad, l_Y);
+                                    }
+                                }
+                            }
+
+                            break;
+                        }
+                        default:
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         bool HasExtension(std::string_view path, std::string_view extension)
@@ -251,6 +353,67 @@ namespace Trinity
         std::uint32_t StyleSheetReloads = 0;
         bool Started = false;
         bool Sorted = true;
+        // The view whose documents take the scene's input, the document each pointer button's press went to, which its release goes to too, and Navigate's direction and the time to its next move while it is held there
+        std::optional<ViewID> InputView;
+        std::array<UIDocumentID, c_PointerButtons.size()> Captures{};
+        NavigateDirection Direction = NavigateDirection::None;
+        float NavigateWait = 0.0f;
+        InputAction Navigate;
+        InputAction Submit;
+        InputAction Cancel;
+        GameUIVector<Document*> InputDocuments;
+        Rml::SharedPtr<Rml::StyleSheetContainer> BaseStyle;
+
+        // The element with the focus, but neither the document's body nor the context's root, which stand for none
+        [[nodiscard]] static Rml::Element* GetFocusedElement(const Document& document)
+        {
+            Rml::Element* l_Focus = document.Context->GetFocusElement();
+
+            return l_Focus != nullptr && l_Focus != document.Context->GetRootElement() && l_Focus != document.Rml ? l_Focus : nullptr;
+        }
+
+        // An element under the pointer, other than the document's body, which lets the pointer through to the game
+        [[nodiscard]] static bool TakesPointer(const Document& document)
+        {
+            Rml::Element* l_Hover = document.Context->GetHoverElement();
+
+            return l_Hover != nullptr && l_Hover != document.Context->GetRootElement() && l_Hover != document.Rml;
+        }
+
+        // The focus back on the document's body
+        static void Blur(Document& document)
+        {
+            if (GetFocusedElement(document) != nullptr)
+            {
+                document.Rml->Focus();
+            }
+        }
+
+        // Under the document's own stylesheets, whose rules win where both set a property
+        void ApplyBaseStyle(Rml::ElementDocument& document) const
+        {
+            if (!BaseStyle)
+            {
+                return;
+            }
+
+            const Rml::StyleSheetContainer* l_Own = document.GetStyleSheetContainer();
+            document.SetStyleSheetContainer(l_Own != nullptr ? BaseStyle->CombineStyleSheetContainer(*l_Own) : BaseStyle->CombineStyleSheetContainer(Rml::StyleSheetContainer()));
+        }
+
+        // As the view stops taking input: no press goes on, and nothing is hovered
+        void ReleaseInput()
+        {
+            Captures.fill(c_NoDocument);
+            Direction = NavigateDirection::None;
+            for (Document& it_Document : Documents)
+            {
+                if (InputView && it_Document.View == *InputView)
+                {
+                    it_Document.Context->ProcessMouseLeave();
+                }
+            }
+        }
 
         [[nodiscard]] Document* FindDocument(UIDocumentID document)
         {
@@ -353,6 +516,8 @@ namespace Trinity
         // RmlUi made and started its font engine as it started, and nothing has asked it for a face yet
         m_State->Fonts.Wrap(Rml::GetFontEngineInterface());
         Rml::SetFontEngineInterface(&m_State->Fonts);
+        m_State->BaseStyle = Rml::Factory::InstanceStyleSheetString(c_BaseStyleSheet);
+        InputActionsRuntime::SetUIHandler([this](Timestep timestep) { ProcessInput(timestep); });
 
         m_Renderer.SetViewOverlay(m_State.get());
         TR_CORE_INFO("GameUI: RmlUi {} started", Rml::GetVersion());
@@ -361,9 +526,12 @@ namespace Trinity
     // RmlUi ends every context with its documents, and releases what it made, before the interfaces go. What it still holds then is in its own statics, kept until the process ends, so it is counted as untagged, as every other static's memory is
     GameUI::~GameUI()
     {
+        InputActionsRuntime::SetUIHandler(nullptr);
         m_Renderer.SetViewOverlay(nullptr);
         {
             const MemoryTagScope l_Scope(MemoryTag::GameUI);
+            m_State->InputDocuments = GameUIVector<State::Document*>();
+            m_State->BaseStyle.reset();
             if (m_State->Started)
             {
                 Rml::Shutdown();
@@ -416,6 +584,7 @@ namespace Trinity
             return c_NoDocument;
         }
 
+        m_State->ApplyBaseStyle(*l_Document);
         l_Document->Show();
 
         State::Document& l_Entry = m_State->Documents.emplace_back();
@@ -503,7 +672,7 @@ namespace Trinity
     }
 
     // The hierarchy is walked only when two documents share a sort order, which is all its order decides
-    void GameUI::ShowScene(Scene& scene, ViewID view)
+    void GameUI::ShowScene(Scene& scene, ViewID view, bool interactive)
     {
         if (!m_State->Started)
         {
@@ -513,6 +682,12 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
+        if (interactive != (m_State->InputView == view))
+        {
+            m_State->ReleaseInput();
+            m_State->InputView = interactive ? std::optional<ViewID>(view) : std::nullopt;
+        }
+
         SceneRegistry& l_Registry = scene.GetRegistry();
         const auto l_Components = l_Registry.view<UIDocumentComponent, IDComponent>();
         GameUIVector<std::int32_t>& l_Orders = m_State->SortOrders;
@@ -591,6 +766,11 @@ namespace Trinity
     void GameUI::ForgetScene(ViewID view)
     {
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
+        if (m_State->InputView == view)
+        {
+            m_State->ReleaseInput();
+        }
+
         std::erase_if(m_State->SceneDocuments, [this, view](const State::SceneDocument& entry)
         {
             if (entry.View != view)
@@ -609,6 +789,232 @@ namespace Trinity
         const auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.View == view && entry.Entity == entity; });
 
         return a_Entry != m_State->SceneDocuments.end() ? a_Entry->Document : c_NoDocument;
+    }
+
+    std::string GameUI::GetFocus(UIDocumentID document) const
+    {
+        const State::Document* l_Document = m_State->FindDocument(document);
+        const Rml::Element* l_Focus = l_Document != nullptr ? State::GetFocusedElement(*l_Document) : nullptr;
+
+        return l_Focus != nullptr ? std::string(l_Focus->GetId()) : std::string();
+    }
+
+    // The interactive view's documents, top first. The pointer goes to the document a button pressed in while it is held, and otherwise to the topmost with an element under it, the documents below losing it, and a press there is the UI's. A press on no element takes the focus away from every document. A text field with the focus takes every key and the text typed, and otherwise Navigate moves the focus, Submit presses what has it and Cancel sends it a cancel event, which takes the focus away unless the element or its document stops it. While an element has the focus, every source of the UI map is the UI's
+    void GameUI::ProcessInput(Timestep timestep)
+    {
+        if (!m_State->Started || !m_State->InputView)
+        {
+            return;
+        }
+
+        TR_PROFILE_FUNCTION();
+
+        const MemoryTagScope l_Scope(MemoryTag::GameUI);
+        const ViewID l_View = *m_State->InputView;
+        m_State->Sort();
+        GameUIVector<State::Document*>& l_Documents = m_State->InputDocuments;
+        l_Documents.clear();
+        for (auto it_Document = m_State->Documents.rbegin(); it_Document != m_State->Documents.rend(); ++it_Document)
+        {
+            if (it_Document->View == l_View && it_Document->Visible)
+            {
+                l_Documents.push_back(&*it_Document);
+            }
+        }
+
+        if (l_Documents.empty())
+        {
+            m_State->Captures.fill(c_NoDocument);
+            m_State->Direction = NavigateDirection::None;
+
+            return;
+        }
+
+        const int l_Modifiers = GameUIInput::GetKeyModifiers();
+        const MousePosition l_Mouse = Input::GetMousePosition();
+        const bool l_Inside = l_Mouse.X >= 0.0f && l_Mouse.Y >= 0.0f && l_Mouse.X < static_cast<float>(m_Renderer.GetSceneWidth(l_View)) && l_Mouse.Y < static_cast<float>(m_Renderer.GetSceneHeight(l_View));
+        State::Document* l_Captured = nullptr;
+        for (const UIDocumentID it_Capture : m_State->Captures)
+        {
+            if (State::Document* l_Document = m_State->FindDocument(it_Capture); l_Document != nullptr && l_Captured == nullptr)
+            {
+                l_Captured = l_Document;
+            }
+        }
+
+        State::Document* l_Under = nullptr;
+        for (State::Document* it_Document : l_Documents)
+        {
+            const bool l_Gets = l_Captured != nullptr ? it_Document == l_Captured : l_Inside && l_Under == nullptr;
+            if (!l_Gets)
+            {
+                it_Document->Context->ProcessMouseLeave();
+
+                continue;
+            }
+
+            it_Document->Context->ProcessMouseMove(static_cast<int>(std::floor(l_Mouse.X)), static_cast<int>(std::floor(l_Mouse.Y)), l_Modifiers);
+            if (l_Captured != nullptr || State::TakesPointer(*it_Document))
+            {
+                l_Under = it_Document;
+            }
+        }
+
+        for (std::size_t it_Button = 0; it_Button < c_PointerButtons.size(); ++it_Button)
+        {
+            const MouseCode l_Button = c_PointerButtons[it_Button];
+            const int l_Index = static_cast<int>(it_Button);
+            if (Input::WasMouseButtonPressed(l_Button))
+            {
+                for (State::Document* it_Document : l_Documents)
+                {
+                    if (it_Document != l_Under)
+                    {
+                        State::Blur(*it_Document);
+                    }
+                }
+
+                if (l_Under != nullptr)
+                {
+                    l_Under->Context->ProcessMouseButtonDown(l_Index, l_Modifiers);
+                    m_State->Captures[it_Button] = l_Under->ID;
+                    Input::TakeMouseButton(l_Button);
+                }
+            }
+
+            if (Input::WasMouseButtonReleased(l_Button))
+            {
+                if (State::Document* l_Pressed = m_State->FindDocument(std::exchange(m_State->Captures[it_Button], c_NoDocument)))
+                {
+                    l_Pressed->Context->ProcessMouseButtonUp(l_Index, l_Modifiers);
+                }
+            }
+        }
+
+        if (const glm::vec2 l_Scroll = Input::GetMouseScroll(); l_Under != nullptr && (l_Scroll.x != 0.0f || l_Scroll.y != 0.0f))
+        {
+            l_Under->Context->ProcessMouseWheel(Rml::Vector2f(l_Scroll.x, -l_Scroll.y), l_Modifiers);
+            Input::TakeMouseScroll();
+        }
+
+        const auto a_FindFocus = [&l_Documents]() -> std::pair<State::Document*, Rml::Element*>
+        {
+            for (State::Document* it_Document : l_Documents)
+            {
+                if (Rml::Element* l_Element = State::GetFocusedElement(*it_Document))
+                {
+                    return { it_Document, l_Element };
+                }
+            }
+
+            return { nullptr, nullptr };
+        };
+
+        auto [l_Focused, l_Element] = a_FindFocus();
+        const bool l_TextField = l_Element != nullptr && GameUIInput::IsTextField(*l_Element);
+        if (l_TextField)
+        {
+            for (const KeyStroke& it_Stroke : Input::GetKeyStrokes())
+            {
+                if (const Rml::Input::KeyIdentifier l_Key = GameUIInput::ToKeyIdentifier(it_Stroke.Key); l_Key != Rml::Input::KI_UNKNOWN)
+                {
+                    if (it_Stroke.Down)
+                    {
+                        l_Focused->Context->ProcessKeyDown(l_Key, l_Modifiers);
+                    }
+                    else
+                    {
+                        l_Focused->Context->ProcessKeyUp(l_Key, l_Modifiers);
+                    }
+                }
+
+                if (it_Stroke.Down)
+                {
+                    Input::TakeKey(it_Stroke.Key);
+                }
+            }
+
+            for (const char32_t it_Character : Input::GetTypedText())
+            {
+                if (it_Character >= U' ' && it_Character != U'\x7F')
+                {
+                    l_Focused->Context->ProcessTextInput(static_cast<Rml::Character>(it_Character));
+                }
+            }
+        }
+
+        const InputAction& l_Navigate = GetUIAction(m_State->Navigate, UIInputMap::c_Navigate);
+        const InputAction& l_Submit = GetUIAction(m_State->Submit, UIInputMap::c_Submit);
+        const InputAction& l_Cancel = GetUIAction(m_State->Cancel, UIInputMap::c_Cancel);
+        NavigateDirection l_Direction = NavigateDirection::None;
+        if (const glm::vec2 l_Push = l_Navigate.ReadVector2(); !l_TextField && glm::length(l_Push) >= c_NavigatePush)
+        {
+            l_Direction = std::abs(l_Push.x) > std::abs(l_Push.y) ? (l_Push.x > 0.0f ? NavigateDirection::Right : NavigateDirection::Left) : (l_Push.y > 0.0f ? NavigateDirection::Up : NavigateDirection::Down);
+        }
+
+        bool l_Move = false;
+        if (l_Direction != m_State->Direction)
+        {
+            m_State->Direction = l_Direction;
+            m_State->NavigateWait = c_NavigateRepeatDelay;
+            l_Move = l_Direction != NavigateDirection::None;
+        }
+        else if (l_Direction != NavigateDirection::None)
+        {
+            m_State->NavigateWait -= timestep.GetSeconds();
+            if (m_State->NavigateWait <= 0.0f)
+            {
+                m_State->NavigateWait += c_NavigateRepeatRate;
+                l_Move = true;
+            }
+        }
+
+        // With nothing focused, the topmost document with an element that takes the focus gives it to its first. An element's own nav property says where it goes, as RmlUi takes the arrows, and otherwise Down and Right go to the next element in document order and Up and Left to the one before, round from the last to the first
+        if (l_Move && l_Element == nullptr)
+        {
+            for (State::Document* it_Document : l_Documents)
+            {
+                Rml::Element* l_First = it_Document->Rml->FindNextTabElement(it_Document->Rml, true);
+                if (l_First != nullptr && l_First->Focus(true))
+                {
+                    l_First->ScrollIntoView(false);
+
+                    break;
+                }
+            }
+        }
+        else if (l_Move)
+        {
+            constexpr std::array<std::pair<Rml::PropertyId, Rml::Input::KeyIdentifier>, 4> c_Directions{ { { Rml::PropertyId::NavUp, Rml::Input::KI_UP },{ Rml::PropertyId::NavDown, Rml::Input::KI_DOWN },{ Rml::PropertyId::NavLeft, Rml::Input::KI_LEFT },{ Rml::PropertyId::NavRight, Rml::Input::KI_RIGHT } } };
+            const auto [l_Property, l_Key] = c_Directions[static_cast<std::size_t>(l_Direction) - 1];
+            if (l_Element->GetLocalProperty(l_Property) != nullptr)
+            {
+                l_Focused->Context->ProcessKeyDown(l_Key, 0);
+                l_Focused->Context->ProcessKeyUp(l_Key, 0);
+            }
+            else if (Rml::Element* l_Next = l_Focused->Rml->FindNextTabElement(l_Element, l_Direction == NavigateDirection::Down || l_Direction == NavigateDirection::Right); l_Next != nullptr && l_Next->Focus(true))
+            {
+                l_Next->ScrollIntoView(false);
+            }
+        }
+
+        std::tie(l_Focused, l_Element) = a_FindFocus();
+        if (l_Element != nullptr && !l_TextField && l_Submit.WasPressed())
+        {
+            l_Element->Click();
+        }
+
+        if (l_Element != nullptr && l_Cancel.WasPressed() && l_Element->DispatchEvent("cancel", Rml::Dictionary(), true, true))
+        {
+            State::Blur(*l_Focused);
+        }
+
+        if (a_FindFocus().second != nullptr)
+        {
+            TakeSources(l_Navigate);
+            TakeSources(l_Submit);
+            TakeSources(l_Cancel);
+        }
     }
 
     void GameUI::ReloadFiles(std::span<const std::string> paths)
@@ -645,6 +1051,7 @@ namespace Trinity
             if (!documents)
             {
                 it_Document.Rml->ReloadStyleSheet();
+                m_State->ApplyBaseStyle(*it_Document.Rml);
                 ++m_State->StyleSheetReloads;
                 ++l_Reloaded;
 
@@ -659,6 +1066,7 @@ namespace Trinity
                 continue;
             }
 
+            m_State->ApplyBaseStyle(*l_Document);
             it_Document.Rml->Close();
             it_Document.Rml = l_Document;
             if (it_Document.Visible)

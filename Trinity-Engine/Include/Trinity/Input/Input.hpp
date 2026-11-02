@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <string_view>
 
 namespace Trinity
@@ -32,7 +33,15 @@ namespace Trinity
         float MouseScale = 1.0f;
     };
 
-    // The keyboard and mouse as the window's events left them, and the gamepads as the platform last read them. Is is whether a key or button is held now. Was is whether it went down, or up, during this frame, counted from the end of the last one, so a press and a release between two frames count as both, and a key held long enough to repeat is pressed once. OnFixedUpdate may run more than once in a frame, or not at all, so a script reads Was in OnUpdate. While a scene's frame runs, every read, its scripts' own and its actions', is of what SetSceneFilter lets the scene have, and the rest are of the window, so an editor reads the devices whatever its scene is let have. Main thread only
+    // A key going down, repeating as it is held, or going up, as the window told it
+    struct KeyStroke
+    {
+        KeyCode Key = KeyCode::UNKNOWN;
+        bool Down = false;
+        bool Repeat = false;
+    };
+
+    // The keyboard and mouse as the window's events left them, and the gamepads as the platform last read them. Is is whether a key or button is held now. Was is whether it went down, or up, during this frame, counted from the end of the last one, so a press and a release between two frames count as both, and a key held long enough to repeat is pressed once. OnFixedUpdate may run more than once in a frame, or not at all, so a script reads Was in OnUpdate. While a scene's frame runs, every read, its scripts' own and its actions', is of what SetSceneFilter lets the scene have, less what the game UI took of it, and the rest are of the window, so an editor reads the devices whatever its scene is let have. The game UI reads before the scene, while SetReadingUI is on, what the filter lets the scene have before anything is taken. Main thread only
     class TRINITY_API Input
     {
     public:
@@ -66,6 +75,21 @@ namespace Trinity
 
         // Taken as the frame ends, so the scene's next frame reads by it, and kept until it is set again
         static void SetSceneFilter(const SceneInputFilter& filter);
+
+        // The game UI's reads, made as the scene's frame begins and before its actions read: while on, every read is of what the filter lets the scene have, as nothing had been taken. Returns whether it was on, to go back to
+        static bool SetReadingUI(bool reading);
+        // This frame's keys going down, repeating and up, in order, and the text typed, as the filter let the scene have the keyboard, for the game UI to edit text by. A frame keeps at most c_MaxKeyStrokes and c_MaxTypedCharacters
+        [[nodiscard]] static std::span<const KeyStroke> GetKeyStrokes();
+        [[nodiscard]] static std::u32string_view GetTypedText();
+        // What the game UI used, kept from the scene. A key or button reads to it as released from now until it is pressed again, with no press this frame and a release if it saw it held. A pad's axis reads 0 to it until the stick comes back under half way, and the wheel's turn this frame reads 0
+        static void TakeKey(KeyCode key);
+        static void TakeMouseButton(MouseCode button);
+        static void TakeMouseScroll();
+        static void TakeGamepadButton(std::uint32_t gamepad, GamepadButton button);
+        static void TakeGamepadAxis(std::uint32_t gamepad, GamepadAxis axis);
+
+        static constexpr std::size_t c_MaxKeyStrokes = 64;
+        static constexpr std::size_t c_MaxTypedCharacters = 64;
 
     private:
         friend class Application;

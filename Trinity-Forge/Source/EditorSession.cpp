@@ -512,7 +512,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return l_Action;
     }
 
-    // What a new input actions asset starts with, as Unity's starter actions do, in one map, Gameplay: Move from WASD, the arrows and the left stick, Look from the mouse's movement and the right stick, and Jump from Space and the A button, the names the character templates find them by
+    // What a new input actions asset starts with, as Unity's starter actions do: Gameplay, with Move from WASD, the arrows and the left stick, Look from the mouse's movement and the right stick, and Jump from Space and the A button, the names the character templates find them by, then UI, with Unity's default Navigate, Submit and Cancel, which the game UI reads
     Trinity::InputActionsData MakeStarterInputActions()
     {
         Trinity::InputActionsData l_Data;
@@ -521,6 +521,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         l_Map.Actions.push_back(MakeAction("Move", Trinity::InputActionType::Vector2, { MakeKeyVector(Trinity::KeyCode::TR_W, Trinity::KeyCode::TR_S, Trinity::KeyCode::TR_A, Trinity::KeyCode::TR_D), MakeKeyVector(Trinity::KeyCode::TR_UP, Trinity::KeyCode::TR_DOWN, Trinity::KeyCode::TR_LEFT, Trinity::KeyCode::TR_RIGHT), MakeStickBinding(0) }));
         l_Map.Actions.push_back(MakeAction("Look", Trinity::InputActionType::Vector2, { MakeBinding(Trinity::InputSource{ Trinity::InputSourceKind::MouseDelta, 0 }), MakeStickBinding(1) }));
         l_Map.Actions.push_back(MakeAction("Jump", Trinity::InputActionType::Button, { MakeBinding(MakeKeySource(Trinity::KeyCode::TR_SPACE)), MakeBinding(Trinity::InputSource{ Trinity::InputSourceKind::GamepadButton, std::to_underlying(Trinity::GamepadButton::TR_A) }) }));
+        l_Data.Maps.push_back(Trinity::MakeDefaultUIInputMap());
 
         return l_Data;
     }
@@ -3072,9 +3073,7 @@ std::optional<std::string> EditorSession::CreateInputActions(std::string_view fo
     }
 
     const std::string l_Path = GetFreePath(*m_Project, folder, "New Input Actions", Trinity::InputActionsData::c_Extension, false);
-    Trinity::InputActionsData l_Data;
-    l_Data.Maps.emplace_back().Name = Trinity::InputName(std::string_view("Gameplay"));
-    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, Trinity::WriteInputActions(l_Data)); !l_Written)
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(l_Path, Trinity::WriteInputActions(MakeStarterInputActions())); !l_Written)
     {
         TR_ERROR("Forge: {} could not be created: {}", l_Path, Trinity::ToString(l_Written.GetError()));
 

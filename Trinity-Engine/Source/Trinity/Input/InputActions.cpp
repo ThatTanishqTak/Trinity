@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <ranges>
@@ -127,8 +128,12 @@ namespace Trinity
             bool InFixedStep = false;
             bool WarnedType = false;
             std::uint64_t BuiltSerial = 0;
-            // The version built from, null until it is ready
+            // The version built from, null until it is ready, or a copy of it with the default UI map beside its own when it has none, or that map alone with no asset
             const InputActionsData* Data = nullptr;
+            InputActionsData Merged;
+            bool Built = false;
+            std::uint32_t UIMap = c_NoAction;
+            std::function<void(Timestep)> UIHandler;
             InputVector<ActionLocation> Locations;
             InputVector<ActionSlot> Slots;
             std::array<PlayerState, InputActions::c_MaxPlayers> Players;
@@ -658,9 +663,14 @@ namespace Trinity
                 return;
             }
 
+            // The UI's map too, which the game UI reads for player 0, as Unity's UI input module enables its own actions
             if (std::exchange(player.FirstMapPending, false) && !s_State->Data->Maps.empty())
             {
                 SetEnabledName(player, s_State->Data->Maps.front().Name, true);
+                if (s_State->UIMap != c_NoAction)
+                {
+                    SetEnabledName(player, UIInputMap::c_Name, true);
+                }
             }
 
             for (const MapChange& it_Change : player.PendingChanges)
@@ -893,10 +903,28 @@ namespace Trinity
             }
         }
 
-        // As the asset becomes ready and after each reload, with each rebind the asset was changed under dropped. Every action reads as released until the next frame's update
+        // As the asset becomes ready and after each reload, with each rebind the asset was changed under dropped, and with no asset as the scene starts. Every action reads as released until the next frame's update
         void Build(const InputActionsAsset* asset)
         {
-            s_State->Data = asset != nullptr ? &asset->GetData() : nullptr;
+            const InputActionsData* l_Own = asset != nullptr ? &asset->GetData() : nullptr;
+            if (l_Own == nullptr || FindMap(*l_Own, UIInputMap::c_Name) == c_NoAction)
+            {
+                s_State->Merged = l_Own != nullptr ? *l_Own : InputActionsData();
+                s_State->Merged.Maps.push_back(MakeDefaultUIInputMap());
+                s_State->Data = &s_State->Merged;
+                if (l_Own != nullptr)
+                {
+                    TR_CORE_INFO("Input: the actions asset has no UI map, so the game UI navigates by Unity's default Navigate, Submit and Cancel");
+                }
+            }
+            else
+            {
+                s_State->Merged = InputActionsData();
+                s_State->Data = l_Own;
+            }
+
+            s_State->Built = true;
+            s_State->UIMap = FindMap(*s_State->Data, UIInputMap::c_Name);
             s_State->BuiltSerial = asset != nullptr ? asset->GetSerial() : 0;
             s_State->Locations.clear();
             std::uint32_t l_FirstSource = 0;
@@ -934,9 +962,19 @@ namespace Trinity
         // The asset as it is now, built from again when a reload has replaced it, so nothing reads the version it replaced
         const InputActionsData* Sync()
         {
-            if (!IsRunning() || !s_State->Asset)
+            if (!IsRunning())
             {
                 return nullptr;
+            }
+
+            if (!s_State->Asset)
+            {
+                if (!s_State->Built)
+                {
+                    Build(nullptr);
+                }
+
+                return s_State->Data;
             }
 
             const Asset* l_Loaded = AssetManager::GetAsset(s_State->Asset);
@@ -1777,7 +1815,7 @@ namespace Trinity
             UpdateReadMasks();
             if (!asset)
             {
-                TR_CORE_INFO("Input: no input actions asset is set, so every action reads as released");
+                TR_CORE_INFO("Input: no input actions asset is set, so every action reads as released, but for the game UI's default Navigate, Submit and Cancel");
 
                 return;
             }
@@ -1800,6 +1838,9 @@ namespace Trinity
             s_State->InFixedStep = false;
             s_State->Asset = {};
             s_State->Data = nullptr;
+            s_State->Merged = InputActionsData();
+            s_State->Built = false;
+            s_State->UIMap = c_NoAction;
             s_State->BuiltSerial = 0;
             s_State->Locations = InputVector<ActionLocation>();
             s_State->Slots = InputVector<ActionSlot>();
@@ -1810,35 +1851,74 @@ namespace Trinity
             ResetPlayers();
         }
 
-        // A rebind that listens takes its input first, and while it waits its player's actions read as released
+        // A rebind that listens takes its input first, and while it waits its player's actions read as released and the UI has no turn. Player 0's UI map is read from Input as the UI reads it, before the UI takes what it uses, and every other action after
         void Update(Timestep timestep)
         {
             const InputActionsData* l_Data = Sync();
+            const auto a_UITurn = [timestep]
+            {
+                if (s_State->UIHandler && !s_State->Listen)
+                {
+                    const bool l_WasReadingUI = Input::SetReadingUI(true);
+                    s_State->UIHandler(timestep);
+                    Input::SetReadingUI(l_WasReadingUI);
+                }
+            };
+
             if (l_Data == nullptr)
             {
+                if (IsRunning())
+                {
+                    a_UITurn();
+                }
+
                 return;
             }
 
             UpdateListen();
             const float l_Seconds = timestep.GetSeconds();
-
-            for (std::uint32_t it_Player = 0; it_Player < InputActions::c_MaxPlayers; ++it_Player)
+            const auto a_Evaluate = [l_Data, l_Seconds](std::uint32_t player, bool uiMap)
             {
-                PlayerState& l_Player = s_State->Players[it_Player];
-                if (!l_Player.Active)
-                {
-                    continue;
-                }
-
-                const std::uint32_t l_Mask = s_State->ReadMasks[it_Player];
-                const bool l_Listening = s_State->Listen && s_State->Listen->Player == it_Player;
+                PlayerState& l_Player = s_State->Players[player];
+                const std::uint32_t l_Mask = s_State->ReadMasks[player];
+                const bool l_Listening = s_State->Listen && s_State->Listen->Player == player;
                 for (std::size_t it_Action = 0; it_Action < s_State->Locations.size(); ++it_Action)
                 {
                     const ActionLocation& l_Location = s_State->Locations[it_Action];
+                    if ((player == 0 && l_Location.Map == s_State->UIMap) != uiMap)
+                    {
+                        continue;
+                    }
+
                     Evaluate(l_Data->Maps[l_Location.Map].Actions[l_Location.Action], l_Player.Sources.data() + l_Location.FirstSource, l_Player.EnabledMaps[l_Location.Map] != 0 && !l_Listening, l_Mask, l_Seconds, l_Player.Actions[it_Action]);
+                }
+            };
+
+            if (s_State->Players[0].Active && s_State->UIMap != c_NoAction)
+            {
+                const bool l_WasReadingUI = Input::SetReadingUI(true);
+                a_Evaluate(0, true);
+                Input::SetReadingUI(l_WasReadingUI);
+            }
+
+            a_UITurn();
+            for (std::uint32_t it_Player = 0; it_Player < InputActions::c_MaxPlayers; ++it_Player)
+            {
+                if (s_State->Players[it_Player].Active)
+                {
+                    a_Evaluate(it_Player, false);
                 }
             }
         }
+
+        void SetUIHandler(std::function<void(Timestep)> handler)
+        {
+            if (s_State != nullptr)
+            {
+                s_State->UIHandler = std::move(handler);
+            }
+        }
+
 
         void BeginFixedStep()
         {

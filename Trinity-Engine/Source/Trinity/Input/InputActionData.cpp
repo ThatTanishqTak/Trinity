@@ -1085,4 +1085,49 @@ namespace Trinity
 
         return {};
     }
+
+    // Four sources made into a Vector2, Up, Down, Left and Right, its diagonal no longer than a stick's
+    InputActionMap MakeDefaultUIInputMap()
+    {
+        const auto a_Key = [](KeyCode key) { return InputSource{ InputSourceKind::Key, std::to_underlying(key) }; };
+        const auto a_Button = [](GamepadButton button) { return InputSource{ InputSourceKind::GamepadButton, std::to_underlying(button) }; };
+        const auto a_Single = [](InputSource source)
+        {
+            InputBinding l_Binding;
+            l_Binding.Sources[0] = source;
+
+            return l_Binding;
+        };
+
+        const auto a_Vector = [](InputSource up, InputSource down, InputSource left, InputSource right)
+        {
+            InputBinding l_Binding;
+            l_Binding.Composite = InputCompositeKind::Vector2;
+            l_Binding.Sources = { up, down, left, right };
+            l_Binding.Processors.emplace_back().Kind = InputProcessorKind::Normalize;
+
+            return l_Binding;
+        };
+
+        const auto a_Action = [](std::string_view name, InputActionType type, std::initializer_list<InputBinding> bindings)
+        {
+            InputActionDefinition l_Action;
+            l_Action.Name = InputName(name);
+            l_Action.Type = type;
+            l_Action.Bindings.assign(bindings);
+
+            return l_Action;
+        };
+
+        InputBinding l_Stick = a_Single(InputSource{ InputSourceKind::GamepadStick, 0 });
+        l_Stick.Processors.emplace_back().Kind = InputProcessorKind::RadialDeadzone;
+
+        InputActionMap l_Map;
+        l_Map.Name = InputName(UIInputMap::c_Name);
+        l_Map.Actions.push_back(a_Action(UIInputMap::c_Navigate, InputActionType::Vector2, { a_Vector(a_Key(KeyCode::TR_W), a_Key(KeyCode::TR_S), a_Key(KeyCode::TR_A), a_Key(KeyCode::TR_D)), a_Vector(a_Key(KeyCode::TR_UP), a_Key(KeyCode::TR_DOWN), a_Key(KeyCode::TR_LEFT), a_Key(KeyCode::TR_RIGHT)), l_Stick, a_Vector(a_Button(GamepadButton::TR_DPAD_UP), a_Button(GamepadButton::TR_DPAD_DOWN), a_Button(GamepadButton::TR_DPAD_LEFT), a_Button(GamepadButton::TR_DPAD_RIGHT)) }));
+        l_Map.Actions.push_back(a_Action(UIInputMap::c_Submit, InputActionType::Button, { a_Single(a_Key(KeyCode::TR_ENTER)), a_Single(a_Key(KeyCode::TR_KP_ENTER)), a_Single(a_Key(KeyCode::TR_SPACE)), a_Single(a_Button(GamepadButton::TR_A)) }));
+        l_Map.Actions.push_back(a_Action(UIInputMap::c_Cancel, InputActionType::Button, { a_Single(a_Key(KeyCode::TR_ESCAPE)), a_Single(a_Button(GamepadButton::TR_B)) }));
+
+        return l_Map;
+    }
 }

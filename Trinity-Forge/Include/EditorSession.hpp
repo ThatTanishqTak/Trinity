@@ -286,7 +286,7 @@ public:
     [[nodiscard]] bool IsImportingAssets() const { return IsImportRunning() || m_ImportAgain; }
     // The project's default input actions, whose first map Play enables, saved with the project at once. Anything but an input actions asset is refused
     void SetDefaultInputActions(Trinity::UUID asset);
-    // With the starter actions in one map, Gameplay: Move from WASD, the arrows and the left stick, Look from the mouse and the right stick, and Jump from Space and the A button, as the character templates find them. Named New Input Actions, or New Input Actions 1 and on when that is taken, and the project's default while it has none, or one it no longer has. Its project path, or nothing, logged
+    // With the starter actions in Gameplay: Move from WASD, the arrows and the left stick, Look from the mouse and the right stick, and Jump from Space and the A button, as the character templates find them, and the UI map the game UI reads, with Unity's default Navigate, Submit and Cancel. Named New Input Actions, or New Input Actions 1 and on when that is taken, and the project's default while it has none, or one it no longer has. Its project path, or nothing, logged
     [[nodiscard]] std::optional<std::string> CreateInputActions(std::string_view folder);
     // As the Input Actions panel and Properties read it each frame, from its file the first time and again once the files are scanned, as when Forge gets the focus back, so an edit made outside it is seen. Null for an asset that is not one
     [[nodiscard]] const InputActionsFile* ReadInputActions(Trinity::UUID asset);

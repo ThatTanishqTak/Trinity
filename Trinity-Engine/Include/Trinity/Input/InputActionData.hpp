@@ -229,6 +229,19 @@ namespace Trinity
     // The kind with its own defaults: held for 0.4 seconds, a tap of up to 0.2 seconds, and 2 such taps up to 0.75 seconds apart, and its unused fields 0
     [[nodiscard]] TRINITY_API InputInteraction GetDefaultInteraction(InputInteractionKind kind);
 
+
     // A composite's parts as a file names them, Negative and Positive, or Up, Down, Left and Right, and none for a single source
     [[nodiscard]] TRINITY_API std::span<const std::string_view> GetCompositeParts(InputCompositeKind kind);
+
+    // The map the game UI reads, as Unity's UI input module reads its actions: Navigate, a Vector2, moves the focus, Submit presses what has it, and Cancel takes it away. An actions asset without it is read with MakeDefaultUIInputMap's beside its own maps
+    namespace UIInputMap
+    {
+        inline constexpr std::string_view c_Name = "UI";
+        inline constexpr std::string_view c_Navigate = "Navigate";
+        inline constexpr std::string_view c_Submit = "Submit";
+        inline constexpr std::string_view c_Cancel = "Cancel";
+    }
+
+    // Unity's default UI bindings: Navigate from WASD, the arrows, the left stick and the d-pad, Submit from Enter, the keypad's Enter, Space and the A button, and Cancel from Escape and the B button
+    [[nodiscard]] TRINITY_API InputActionMap MakeDefaultUIInputMap();
 }

@@ -320,7 +320,7 @@ void GamePanel::ShowUI()
         l_UI->ForgetScene(m_View);
     }
 
-    l_UI->ShowScene(m_Session.GetMainScene(), m_View);
+    l_UI->ShowScene(m_Session.GetMainScene(), m_View, m_UIPlaying);
 }
 
 // The toolbar under the tab, then the view's image on black in the space below it. The image is the view's own size, which catches up with the space once it settles, so meanwhile it is bordered or scaled down. While the scene plays the panel's keys are the game's, so the keyboard does not move between the toolbar's items, and until there is an image the scene reads the mouse over the space at 1:1
