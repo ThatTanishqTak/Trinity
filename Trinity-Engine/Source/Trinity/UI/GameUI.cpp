@@ -11,10 +11,12 @@
 #include "Trinity/Input/InputActionData.hpp"
 #include "Trinity/Input/InputActions.hpp"
 #include "Trinity/Input/InputActionsRuntime.hpp"
+#include "Trinity/Physics/PhysicsScene3D.hpp"
 #include "Trinity/Renderer/WorldUI.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
+#include "Trinity/Scripting/ScriptRuntime.hpp"
 #include "Trinity/UI/GameUIFileInterface.hpp"
 #include "Trinity/UI/GameUIInput.hpp"
 #include "Trinity/UI/GameUIRenderInterface.hpp"
@@ -39,6 +41,7 @@
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -116,6 +119,103 @@ namespace Trinity
             Left,
             Right
         };
+
+        // How much nearer than a world document a collider, or the surface of the depth read back under the cursor, has to be to hide it, so one the document lies on does not
+        constexpr float c_OcclusionDistance = 0.001f;
+        constexpr float c_OcclusionFraction = 0.001f;
+        // How far in pixels the cursor may be from where the depth read back was asked about for that depth to stand for the cursor's
+        constexpr float c_DepthPickSlack = 2.0f;
+        // Below this a ray's direction is taken to lie in a quad's plane, as a fraction of the quad's area
+        constexpr float c_Parallel = 1e-6f;
+
+        // A pointer's ray in the world, from its origin along its unit direction, meeting nothing past its length
+        struct WorldRay
+        {
+            glm::vec3 Origin{ 0.0f };
+            glm::vec3 Direction{ 0.0f, 0.0f, -1.0f };
+            float Length = std::numeric_limits<float>::infinity();
+        };
+
+        // Where a ray meets a world document's quad: how far along it, the document's pixel there, from its top left, and whether that is on the quad
+        struct QuadHit
+        {
+            float Distance = 0.0f;
+            glm::vec2 Pixel{ 0.0f };
+            bool Inside = false;
+        };
+
+        // A point of the view, from its pixel, top down, and its depth, reversed as the view draws it, so the near plane is at 1
+        glm::vec3 Unproject(const glm::mat4& inverseViewProjection, glm::vec2 pixel, glm::vec2 size, float depth)
+        {
+            const glm::vec4 l_Point = inverseViewProjection * glm::vec4(2.0f * pixel.x / size.x - 1.0f, 1.0f - 2.0f * pixel.y / size.y, depth, 1.0f);
+
+            return glm::vec3(l_Point) / l_Point.w;
+        }
+
+        // Through a point of the view, from the near plane out to the far plane, at depth 0, which a perspective view has at infinity. A view-projection that gives no way through gives a ray of no length
+        WorldRay GetPixelRay(const glm::mat4& viewProjection, glm::vec2 pixel, glm::vec2 size)
+        {
+            const glm::mat4 l_Inverse = glm::inverse(viewProjection);
+            const glm::vec3 l_Near = Unproject(l_Inverse, pixel, size, 1.0f);
+            const glm::vec3 l_Way = Unproject(l_Inverse, pixel, size, 0.5f) - l_Near;
+            const float l_Length = glm::length(l_Way);
+
+            WorldRay l_Ray;
+            if (!std::isfinite(l_Length) || l_Length <= 0.0f || !std::isfinite(l_Near.x + l_Near.y + l_Near.z))
+            {
+                l_Ray.Length = 0.0f;
+
+                return l_Ray;
+            }
+
+            l_Ray.Origin = l_Near;
+            l_Ray.Direction = l_Way / l_Length;
+            const glm::vec4 l_Far = l_Inverse * glm::vec4(2.0f * pixel.x / size.x - 1.0f, 1.0f - 2.0f * pixel.y / size.y, 0.0f, 1.0f);
+            if (l_Far.w != 0.0f)
+            {
+                const float l_Reach = glm::dot(glm::vec3(l_Far) / l_Far.w - l_Near, l_Ray.Direction);
+                l_Ray.Length = std::isfinite(l_Reach) && l_Reach > 0.0f ? l_Reach : l_Ray.Length;
+            }
+
+            return l_Ray;
+        }
+
+        // The quad is the unit square sprites are drawn from, centred on its origin with +Y up, which its matrix puts in place. A ray meets its plane from either side, within the ray's length when bounded, and not at all when it runs along it
+        std::optional<QuadHit> HitQuad(const glm::mat4& quad, glm::uvec2 size, const WorldRay& ray, bool bounded)
+        {
+            const glm::vec3 l_Center(quad[3]);
+            const glm::vec3 l_Across(quad[0]);
+            const glm::vec3 l_Up(quad[1]);
+            const glm::vec3 l_Normal = glm::cross(l_Across, l_Up);
+            const float l_Facing = glm::dot(ray.Direction, l_Normal);
+            if (!(std::abs(l_Facing) > c_Parallel * glm::length(l_Normal)))
+            {
+                return std::nullopt;
+            }
+
+            const float l_Distance = glm::dot(l_Center - ray.Origin, l_Normal) / l_Facing;
+            if (bounded && !(l_Distance >= 0.0f && l_Distance <= ray.Length))
+            {
+                return std::nullopt;
+            }
+
+            const glm::vec3 l_Offset = ray.Origin + ray.Direction * l_Distance - l_Center;
+            const float l_AcrossAcross = glm::dot(l_Across, l_Across);
+            const float l_AcrossUp = glm::dot(l_Across, l_Up);
+            const float l_UpUp = glm::dot(l_Up, l_Up);
+            const float l_OffsetAcross = glm::dot(l_Offset, l_Across);
+            const float l_OffsetUp = glm::dot(l_Offset, l_Up);
+            const float l_Determinant = l_AcrossAcross * l_UpUp - l_AcrossUp * l_AcrossUp;
+            if (!(l_Determinant > 0.0f))
+            {
+                return std::nullopt;
+            }
+
+            const float l_X = (l_OffsetAcross * l_UpUp - l_OffsetUp * l_AcrossUp) / l_Determinant;
+            const float l_Y = (l_OffsetUp * l_AcrossAcross - l_OffsetAcross * l_AcrossUp) / l_Determinant;
+
+            return QuadHit{ l_Distance, glm::vec2((l_X + 0.5f) * static_cast<float>(size.x), (0.5f - l_Y) * static_cast<float>(size.y)), std::abs(l_X) <= 0.5f && std::abs(l_Y) <= 0.5f };
+        }
 
         Rml::String GetContextName(UIDocumentID document)
         {
@@ -349,8 +449,39 @@ namespace Trinity
             std::uint32_t Index = RHI::c_NoBindlessIndex;
         };
 
+        // A world document of the scene running in the interactive view, with the quad the view's camera last drew it on, whether its centre was in view and how far from the eye, and, sorted with the sprites, its sorting layer, its order and its rank in the hierarchy
+        struct WorldTarget
+        {
+            Document* Doc = nullptr;
+            UUID Entity;
+            glm::mat4 Quad{ 1.0f };
+            bool Sprites = false;
+            bool InView = false;
+            std::int32_t Layer = 0;
+            std::int32_t Order = 0;
+            std::uint64_t Rank = 0;
+            float Distance = 0.0f;
+        };
+
+        // A target a ray met, by its place in the order a ray tries them, sprites first
+        struct WorldHit
+        {
+            float Order = 0.0f;
+            std::size_t Target = 0;
+            QuadHit Hit;
+        };
+
+        // A pointer code drives in place of the mouse, kept for the next input turn
+        struct WorldPointer
+        {
+            glm::vec3 Origin{ 0.0f };
+            glm::vec3 Direction{ 0.0f, 0.0f, -1.0f };
+            bool Pressed = false;
+        };
+
         State(RHI::Device& device, RHI::Format displayFormat) : Rendering(device, displayFormat, Renderer::c_OverlayStencilFormat), DisplayFormat(displayFormat)
         {
+
 
         }
 
@@ -385,6 +516,15 @@ namespace Trinity
         GameUIVector<FrameGraphTexture> WorldTextures;
         // The scene each view was last shown, whose world documents go as the view forgets its scene
         GameUIVector<std::pair<ViewID, const Scene*>> ViewScenes;
+        // The interactive view's world documents this input turn, the sprites' topmost first, then the rest from the nearest, and those a ray met
+        GameUIVector<WorldTarget> WorldTargets;
+        GameUIVector<WorldHit> WorldHits;
+        // Code's pointer for the next turn, whether it was held at the last, and the world document it pressed in
+        std::optional<WorldPointer> PendingPointer;
+        bool PointerHeld = false;
+        UIDocumentID PointerCapture = c_NoDocument;
+        // The depth under the cursor, as the interactive view last read it back
+        std::optional<DepthPickResult> CursorDepth;
 
         // The element with the focus, but neither the document's body nor the context's root, which stand for none
         [[nodiscard]] static Rml::Element* GetFocusedElement(const Document& document)
@@ -423,18 +563,222 @@ namespace Trinity
             document.SetStyleSheetContainer(l_Own != nullptr ? BaseStyle->CombineStyleSheetContainer(*l_Own) : BaseStyle->CombineStyleSheetContainer(Rml::StyleSheetContainer()));
         }
 
-        // As the view stops taking input: no press goes on, and nothing is hovered
+        // As the view stops taking input: no press goes on, code's pointer included, and nothing is hovered, in its screen documents or the world's
         void ReleaseInput()
         {
             Captures.fill(c_NoDocument);
             Direction = NavigateDirection::None;
+            PendingPointer.reset();
+            PointerHeld = false;
+            PointerCapture = c_NoDocument;
+            CursorDepth.reset();
             for (Document& it_Document : Documents)
             {
-                if (InputView && !it_Document.World && it_Document.View == *InputView)
+                if (it_Document.World || (InputView && it_Document.View == *InputView))
                 {
                     it_Document.Context->ProcessMouseLeave();
                 }
             }
+        }
+
+        // The running scene's world documents that drew last frame, on the quads the view's camera drew them on, as the entities' transforms still are as the scene's frame begins. Sprites go first, topmost first by layer, order and hierarchy, as Renderer2D draws them over everything else, then the rest from the nearest to the eye
+        void GatherWorld(Scene* scene, const RenderView& camera)
+        {
+            WorldTargets.clear();
+            if (scene == nullptr)
+            {
+                return;
+            }
+
+            std::size_t l_Sprites = 0;
+            for (const SceneDocument& it_Entry : SceneDocuments)
+            {
+                Document* l_Document = it_Entry.World && it_Entry.Owner == scene ? FindDocument(it_Entry.Document) : nullptr;
+                const Entity l_Entity = l_Document != nullptr && l_Document->Visible && Draws(*l_Document) ? scene->FindEntityByUUID(it_Entry.Entity) : Entity();
+                if (!l_Entity)
+                {
+                    continue;
+                }
+
+                WorldTarget& l_Target = WorldTargets.emplace_back();
+                l_Target.Doc = l_Document;
+                l_Target.Entity = it_Entry.Entity;
+                l_Target.Quad = GetWorldUIMatrix(l_Document->WorldSettings, l_Document->TextureSize, l_Entity.Get<WorldTransformComponent>().Matrix, camera.ViewProjection);
+                l_Target.Sprites = l_Document->WorldSettings.Sorting == UIWorldSorting::Sprites;
+                l_Target.Layer = l_Document->WorldSettings.SortingLayer;
+                l_Target.Order = l_Document->SortOrder;
+                l_Target.Distance = glm::distance(camera.Position, glm::vec3(l_Target.Quad[3]));
+                const glm::vec4 l_Clip = camera.ViewProjection * l_Target.Quad[3];
+                l_Target.InView = l_Clip.w > 0.0f && std::abs(l_Clip.x) <= l_Clip.w && std::abs(l_Clip.y) <= l_Clip.w && l_Clip.z >= 0.0f && l_Clip.z <= l_Clip.w;
+                l_Sprites += l_Target.Sprites ? 1 : 0;
+            }
+
+            if (l_Sprites > 1)
+            {
+                std::uint64_t l_Rank = 0;
+                for (Entity it_Walked = scene->GetFirstRoot(); it_Walked; it_Walked = scene->GetNextInHierarchyOrder(it_Walked))
+                {
+                    if (const auto a_Target = std::ranges::find(WorldTargets, it_Walked.GetUUID(), &WorldTarget::Entity); a_Target != WorldTargets.end())
+                    {
+                        a_Target->Rank = l_Rank++;
+                    }
+                }
+            }
+
+            std::ranges::sort(WorldTargets, [](const WorldTarget& left, const WorldTarget& right)
+            {
+                if (left.Sprites != right.Sprites)
+                {
+                    return left.Sprites;
+                }
+
+                return left.Sprites ? std::tie(right.Layer, right.Order, right.Rank) < std::tie(left.Layer, left.Order, left.Rank) : std::tie(left.Distance, left.Doc->ID) < std::tie(right.Distance, right.Doc->ID);
+            });
+        }
+
+        // Whether a collider, but for the document's own entity's, or the surface whose depth was read back under the cursor, lies nearer along the ray than the document it meets this far along. The depth stands for the cursor's only while the cursor is near where it was asked about
+        [[nodiscard]] bool IsHidden(const WorldTarget& target, float distance, const WorldRay& ray, const PhysicsScene3D* physics, const std::optional<glm::vec2>& cursor, glm::vec2 size) const
+        {
+            const float l_Nearer = distance - (c_OcclusionDistance + c_OcclusionFraction * distance);
+            if (physics != nullptr)
+            {
+                PhysicsQueryFilter3D l_Filter;
+                l_Filter.Ignore = target.Entity;
+                if (const std::optional<PhysicsHit3D> l_Hit = physics->Raycast(ray.Origin, ray.Direction, distance, l_Filter); l_Hit && l_Hit->Distance < l_Nearer)
+                {
+                    return true;
+                }
+            }
+
+            if (!cursor || !CursorDepth || CursorDepth->Depth <= 0.0f)
+            {
+                return false;
+            }
+
+            const glm::vec2 l_Asked(CursorDepth->Pixel);
+            if (std::abs(l_Asked.x - std::floor(cursor->x)) > c_DepthPickSlack || std::abs(l_Asked.y - std::floor(cursor->y)) > c_DepthPickSlack)
+            {
+                return false;
+            }
+
+            const glm::vec3 l_Surface = Unproject(glm::inverse(CursorDepth->ViewProjection), l_Asked + 0.5f, size, CursorDepth->Depth);
+
+            return glm::dot(l_Surface - ray.Origin, ray.Direction) < l_Nearer;
+        }
+
+        // Every world document but the one kept loses the pointer
+        void LeaveWorld(const Document* kept)
+        {
+            for (const WorldTarget& it_Target : WorldTargets)
+            {
+                if (it_Target.Doc != kept)
+                {
+                    it_Target.Doc->Context->ProcessMouseLeave();
+                }
+            }
+        }
+
+        // The world documents the ray meets, sprites first and then from the nearest, each given the pointer until one has an element under it, which takes it. A document sorted by depth that something hides stops the search, as everything past it is hidden too. The rest lose the pointer
+        Document* PointWorld(const WorldRay& ray, const PhysicsScene3D* physics, const std::optional<glm::vec2>& cursor, glm::vec2 size, int modifiers)
+        {
+            WorldHits.clear();
+            for (std::size_t it_Target = 0; it_Target < WorldTargets.size(); ++it_Target)
+            {
+                const WorldTarget& l_Target = WorldTargets[it_Target];
+                if (const std::optional<QuadHit> l_Hit = HitQuad(l_Target.Quad, l_Target.Doc->TextureSize, ray, true); l_Hit && l_Hit->Inside)
+                {
+                    WorldHits.push_back({ l_Target.Sprites ? -1.0f : l_Hit->Distance, it_Target, *l_Hit });
+                }
+            }
+
+            std::ranges::stable_sort(WorldHits, {}, &WorldHit::Order);
+            Document* l_Taken = nullptr;
+            for (const WorldHit& it_Hit : WorldHits)
+            {
+                const WorldTarget& l_Target = WorldTargets[it_Hit.Target];
+                if (!l_Target.Sprites && IsHidden(l_Target, it_Hit.Hit.Distance, ray, physics, cursor, size))
+                {
+                    break;
+                }
+
+                l_Target.Doc->Context->ProcessMouseMove(static_cast<int>(std::floor(it_Hit.Hit.Pixel.x)), static_cast<int>(std::floor(it_Hit.Hit.Pixel.y)), modifiers);
+                if (TakesPointer(*l_Target.Doc))
+                {
+                    l_Taken = l_Target.Doc;
+
+                    break;
+                }
+            }
+
+            LeaveWorld(l_Taken);
+
+            return l_Taken;
+        }
+
+        // A world document pressed in keeps the pointer wherever the ray meets its plane, on its quad or off it, until the press ends
+        void PointCaptured(Document& document, const WorldRay& ray, int modifiers)
+        {
+            const auto a_Target = std::ranges::find(WorldTargets, &document, &WorldTarget::Doc);
+            if (a_Target != WorldTargets.end())
+            {
+                if (const std::optional<QuadHit> l_Hit = HitQuad(a_Target->Quad, document.TextureSize, ray, false))
+                {
+                    document.Context->ProcessMouseMove(static_cast<int>(std::floor(l_Hit->Pixel.x)), static_cast<int>(std::floor(l_Hit->Pixel.y)), modifiers);
+                }
+            }
+
+            LeaveWorld(&document);
+        }
+
+        // Code's press ends where it began
+        void ReleasePointer(int modifiers)
+        {
+            PointerHeld = false;
+            if (Document* l_Pressed = FindDocument(std::exchange(PointerCapture, c_NoDocument)))
+            {
+                l_Pressed->Context->ProcessMouseButtonUp(0, modifiers);
+            }
+        }
+
+        // The world document in view whose centre lies nearest the way Navigate points from this one's on the view, counting distance across that way twice, as Unity's automatic navigation weighs it, and which has an element that takes the focus
+        [[nodiscard]] Document* FindNeighbour(const Document& document, NavigateDirection direction, const glm::mat4& viewProjection, float aspect) const
+        {
+            const auto a_From = std::ranges::find(WorldTargets, &document, &WorldTarget::Doc);
+            if (a_From == WorldTargets.end() || direction == NavigateDirection::None)
+            {
+                return nullptr;
+            }
+
+            const auto a_OnView = [&viewProjection, aspect](const glm::mat4& quad)
+            {
+                const glm::vec4 l_Clip = viewProjection * quad[3];
+
+                return glm::vec2(l_Clip.x / l_Clip.w * aspect, l_Clip.y / l_Clip.w);
+            };
+
+            const std::array<glm::vec2, 4> l_Ways{ glm::vec2(0.0f, 1.0f), glm::vec2(0.0f, -1.0f), glm::vec2(-1.0f, 0.0f), glm::vec2(1.0f, 0.0f) };
+            const glm::vec2 l_Way = l_Ways[static_cast<std::size_t>(direction) - 1];
+            const glm::vec2 l_From = a_OnView(a_From->Quad);
+            Document* l_Best = nullptr;
+            float l_BestScore = std::numeric_limits<float>::infinity();
+            for (const WorldTarget& it_Target : WorldTargets)
+            {
+                if (it_Target.Doc == &document || !it_Target.InView)
+                {
+                    continue;
+                }
+
+                const glm::vec2 l_Delta = a_OnView(it_Target.Quad) - l_From;
+                const float l_Along = glm::dot(l_Delta, l_Way);
+                const float l_Score = l_Along + 2.0f * std::abs(l_Delta.x * l_Way.y - l_Delta.y * l_Way.x);
+                if (l_Along > 0.0f && l_Score < l_BestScore && it_Target.Doc->Rml->FindNextTabElement(it_Target.Doc->Rml, true) != nullptr)
+                {
+                    l_Best = it_Target.Doc;
+                    l_BestScore = l_Score;
+                }
+            }
+
+            return l_Best;
         }
 
         [[nodiscard]] Document* FindDocument(UIDocumentID document)
@@ -1011,11 +1355,13 @@ namespace Trinity
         return l_Focus != nullptr ? std::string(l_Focus->GetId()) : std::string();
     }
 
-    // The interactive view's documents, top first. The pointer goes to the document a button pressed in while it is held, and otherwise to the topmost with an element under it, the documents below losing it, and a press there is the UI's. A press on no element takes the focus away from every document. A text field with the focus takes every key and the text typed, and otherwise Navigate moves the focus, Submit presses what has it and Cancel sends it a cancel event, which takes the focus away unless the element or its document stops it. While an element has the focus, every source of the UI map is the UI's
+    // The interactive view's documents: its screen documents, top first, then the world documents of the scene running there, as its camera last drew them. The pointer goes to the document a button pressed in while it is held, and otherwise to the topmost screen document with an element under it, the documents below losing it, and a press there is the UI's. Where no screen document has one, the cursor's ray through the view goes on into the scene, and the first world document it meets with an element under it takes the pointer, those sorted with the sprites tried topmost first and the rest from the nearest, one sorted by depth being hidden by a nearer collider or by the nearer surface the view's depth was read back at under the cursor. A pointer code gives drives the world documents in place of the mouse, with its own press, and the mouse then has the screen documents alone. A press on no element takes the focus away from every document. A text field with the focus takes every key and the text typed, and otherwise Navigate moves the focus: from none to the first element of the topmost screen document that has one, or with none, of the nearest world document in view, and past a world document's last element, or before its first, to the world document that way on the view. Submit presses what has the focus and Cancel sends it a cancel event, which takes the focus away unless the element or its document stops it. While an element has the focus, every source of the UI map is the UI's
     void GameUI::ProcessInput(Timestep timestep)
     {
         if (!m_State->Started || !m_State->InputView)
         {
+            m_State->PendingPointer.reset();
+
             return;
         }
 
@@ -1023,7 +1369,17 @@ namespace Trinity
 
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
         const ViewID l_View = *m_State->InputView;
+        const glm::vec2 l_Size(static_cast<float>(m_Renderer.GetSceneWidth(l_View)), static_cast<float>(m_Renderer.GetSceneHeight(l_View)));
+        const RenderView& l_Camera = m_Renderer.GetSceneDraws(l_View).View;
+        ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+        const std::optional<State::WorldPointer> l_Code = std::exchange(m_State->PendingPointer, std::nullopt);
+        if (std::optional<DepthPickResult> l_Depth = m_Renderer.TakeDepthPick(l_View))
+        {
+            m_State->CursorDepth = l_Depth;
+        }
+
         m_State->Sort();
+        m_State->GatherWorld(l_Runtime != nullptr ? &l_Runtime->GetScene() : nullptr, l_Camera);
         GameUIVector<State::Document*>& l_Documents = m_State->InputDocuments;
         l_Documents.clear();
         for (auto it_Document = m_State->Documents.rbegin(); it_Document != m_State->Documents.rend(); ++it_Document)
@@ -1034,17 +1390,25 @@ namespace Trinity
             }
         }
 
+        const std::size_t l_ScreenCount = l_Documents.size();
+        for (const State::WorldTarget& it_Target : m_State->WorldTargets)
+        {
+            l_Documents.push_back(it_Target.Doc);
+        }
+
+        const int l_Modifiers = GameUIInput::GetKeyModifiers();
         if (l_Documents.empty())
         {
             m_State->Captures.fill(c_NoDocument);
             m_State->Direction = NavigateDirection::None;
+            m_State->ReleasePointer(l_Modifiers);
 
             return;
         }
 
-        const int l_Modifiers = GameUIInput::GetKeyModifiers();
         const MousePosition l_Mouse = Input::GetMousePosition();
-        const bool l_Inside = l_Mouse.X >= 0.0f && l_Mouse.Y >= 0.0f && l_Mouse.X < static_cast<float>(m_Renderer.GetSceneWidth(l_View)) && l_Mouse.Y < static_cast<float>(m_Renderer.GetSceneHeight(l_View));
+        const glm::vec2 l_Cursor(l_Mouse.X, l_Mouse.Y);
+        const bool l_Inside = l_Cursor.x >= 0.0f && l_Cursor.y >= 0.0f && l_Cursor.x < l_Size.x && l_Cursor.y < l_Size.y;
         State::Document* l_Captured = nullptr;
         for (const UIDocumentID it_Capture : m_State->Captures)
         {
@@ -1055,8 +1419,9 @@ namespace Trinity
         }
 
         State::Document* l_Under = nullptr;
-        for (State::Document* it_Document : l_Documents)
+        for (std::size_t it_Index = 0; it_Index < l_ScreenCount; ++it_Index)
         {
+            State::Document* it_Document = l_Documents[it_Index];
             const bool l_Gets = l_Captured != nullptr ? it_Document == l_Captured : l_Inside && l_Under == nullptr;
             if (!l_Gets)
             {
@@ -1069,6 +1434,74 @@ namespace Trinity
             if (l_Captured != nullptr || State::TakesPointer(*it_Document))
             {
                 l_Under = it_Document;
+            }
+        }
+
+        const PhysicsScene3D* l_Physics = l_Runtime != nullptr ? l_Runtime->GetPhysics() : nullptr;
+        if (l_Code)
+        {
+            const float l_Length = glm::length(l_Code->Direction);
+            WorldRay l_Ray;
+            l_Ray.Origin = l_Code->Origin;
+            l_Ray.Direction = std::isfinite(l_Length) && l_Length > 0.0f ? l_Code->Direction / l_Length : glm::vec3(0.0f, 0.0f, -1.0f);
+            l_Ray.Length = std::isfinite(l_Length) && l_Length > 0.0f ? l_Ray.Length : 0.0f;
+            State::Document* l_Pointed = m_State->FindDocument(m_State->PointerCapture);
+            if (l_Pointed != nullptr)
+            {
+                m_State->PointCaptured(*l_Pointed, l_Ray, l_Modifiers);
+            }
+            else
+            {
+                l_Pointed = m_State->PointWorld(l_Ray, l_Physics, std::nullopt, l_Size, l_Modifiers);
+            }
+
+            if (l_Code->Pressed && !m_State->PointerHeld)
+            {
+                for (State::Document* it_Document : l_Documents)
+                {
+                    if (it_Document != l_Pointed)
+                    {
+                        State::Blur(*it_Document);
+                    }
+                }
+
+                if (l_Pointed != nullptr)
+                {
+                    l_Pointed->Context->ProcessMouseButtonDown(0, l_Modifiers);
+                    m_State->PointerCapture = l_Pointed->ID;
+                }
+            }
+            else if (!l_Code->Pressed && m_State->PointerHeld)
+            {
+                m_State->ReleasePointer(l_Modifiers);
+            }
+
+            m_State->PointerHeld = l_Code->Pressed;
+        }
+        else
+        {
+            if (m_State->PointerHeld)
+            {
+                m_State->ReleasePointer(l_Modifiers);
+            }
+
+            const WorldRay l_Ray = GetPixelRay(l_Camera.ViewProjection, l_Cursor, l_Size);
+            if (l_Captured != nullptr && l_Captured->World)
+            {
+                m_State->PointCaptured(*l_Captured, l_Ray, l_Modifiers);
+                l_Under = l_Captured;
+            }
+            else if (l_Captured == nullptr && l_Under == nullptr && l_Inside)
+            {
+                l_Under = m_State->PointWorld(l_Ray, l_Physics, l_Cursor, l_Size, l_Modifiers);
+                if (std::ranges::any_of(m_State->WorldTargets, [](const State::WorldTarget& target) { return !target.Sprites; }))
+                {
+                    m_Renderer.RequestDepthPick(glm::uvec2(l_Cursor), l_View);
+                }
+            }
+            else
+            {
+                m_State->LeaveWorld(nullptr);
             }
         }
 
@@ -1181,11 +1614,17 @@ namespace Trinity
             }
         }
 
-        // With nothing focused, the topmost document with an element that takes the focus gives it to its first. An element's own nav property says where it goes, as RmlUi takes the arrows, and otherwise Down and Right go to the next element in document order and Up and Left to the one before, round from the last to the first
+        // With nothing focused, the topmost screen document with an element that takes the focus gives it to its first, or with none, the nearest world document in view. An element's own nav property says where it goes, as RmlUi takes the arrows, and otherwise Down and Right go to the next element in document order and Up and Left to the one before, from a world document's last on to the world document that way on the view, and otherwise round from the last to the first
         if (l_Move && l_Element == nullptr)
         {
-            for (State::Document* it_Document : l_Documents)
+            for (std::size_t it_Index = 0; it_Index < l_Documents.size(); ++it_Index)
             {
+                State::Document* it_Document = l_Documents[it_Index];
+                if (it_Index >= l_ScreenCount && !m_State->WorldTargets[it_Index - l_ScreenCount].InView)
+                {
+                    continue;
+                }
+
                 Rml::Element* l_First = it_Document->Rml->FindNextTabElement(it_Document->Rml, true);
                 if (l_First != nullptr && l_First->Focus(true))
                 {
@@ -1204,9 +1643,24 @@ namespace Trinity
                 l_Focused->Context->ProcessKeyDown(l_Key, 0);
                 l_Focused->Context->ProcessKeyUp(l_Key, 0);
             }
-            else if (Rml::Element* l_Next = l_Focused->Rml->FindNextTabElement(l_Element, l_Direction == NavigateDirection::Down || l_Direction == NavigateDirection::Right); l_Next != nullptr && l_Next->Focus(true))
+            else
             {
-                l_Next->ScrollIntoView(false);
+                const bool l_Forward = l_Direction == NavigateDirection::Down || l_Direction == NavigateDirection::Right;
+                Rml::Element* l_Next = l_Focused->Rml->FindNextTabElement(l_Element, l_Forward, false);
+                if (l_Next == nullptr && l_Focused->World)
+                {
+                    if (State::Document* l_Neighbour = m_State->FindNeighbour(*l_Focused, l_Direction, l_Camera.ViewProjection, l_Size.x / std::max(l_Size.y, 1.0f)))
+                    {
+                        State::Blur(*l_Focused);
+                        l_Next = l_Neighbour->Rml->FindNextTabElement(l_Neighbour->Rml, l_Forward);
+                    }
+                }
+
+                l_Next = l_Next != nullptr ? l_Next : l_Focused->Rml->FindNextTabElement(l_Element, l_Forward);
+                if (l_Next != nullptr && l_Next->Focus(true))
+                {
+                    l_Next->ScrollIntoView(false);
+                }
             }
         }
 
@@ -1227,6 +1681,11 @@ namespace Trinity
             TakeSources(l_Submit);
             TakeSources(l_Cancel);
         }
+    }
+
+    void GameUI::SetWorldPointer(const glm::vec3& origin, const glm::vec3& direction, bool pressed)
+    {
+        m_State->PendingPointer = State::WorldPointer{ origin, direction, pressed };
     }
 
     void GameUI::ReloadFiles(std::span<const std::string> paths)

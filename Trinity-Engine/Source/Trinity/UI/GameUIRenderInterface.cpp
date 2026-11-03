@@ -309,9 +309,23 @@ namespace Trinity
             }
         };
 
-        // An image whose asset failed, or a generated texture that could not be made, draws nothing
+        // RmlUi's scissor clamped to the view, which is empty where an element that clips lies outside the view or has no size, such as a list scrolled below the bottom or a drawer closed to no height, as RmlUi still draws the backgrounds and borders inside it
+        bool l_Hidden = false;
+        const auto a_ApplyScissor = [&]()
+        {
+            const RHI::Rect l_Rect = l_Scissored ? ClampScissor(l_Scissor, width, height) : l_View;
+            l_Hidden = l_Rect.Width == 0 || l_Rect.Height == 0;
+            commands.SetScissor(l_Rect);
+        };
+
+        // An image whose asset failed, or a generated texture that could not be made, draws nothing, and nothing is drawn under an empty scissor, which would write nothing anyway and which D3D12's debug layer warns of at every draw
         const auto a_DrawGeometry = [&](const GameUIDrawList::Command& command)
         {
+            if (l_Hidden)
+            {
+                return;
+            }
+
             const Geometry& l_Geometry = GetGeometry(command.Geometry);
             const std::size_t l_Vertex = l_VertexOffset;
             const std::uint32_t l_Index = l_FirstIndex;
@@ -364,7 +378,7 @@ namespace Trinity
                 {
                     l_Scissored = it_Command.Type == GameUIDrawList::CommandType::EnableScissor ? it_Command.Enable : l_Scissored;
                     l_Scissor = it_Command.Type == GameUIDrawList::CommandType::SetScissor ? it_Command.Scissor : l_Scissor;
-                    commands.SetScissor(l_Scissored ? ClampScissor(l_Scissor, width, height) : l_View);
+                    a_ApplyScissor();
 
                     break;
                 }
@@ -393,7 +407,7 @@ namespace Trinity
                         commands.SetScissor(l_View);
                         commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
                         commands.Draw(3, 1, 0, 0);
-                        commands.SetScissor(l_Scissored ? ClampScissor(l_Scissor, width, height) : l_View);
+                        a_ApplyScissor();
                         SetClipTransform(l_Push, *l_Transform, width, height);
                     }
 

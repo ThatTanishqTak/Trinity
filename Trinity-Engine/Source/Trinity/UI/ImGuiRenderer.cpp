@@ -358,14 +358,17 @@ namespace Trinity
                 const float l_MaxX = std::min((it_Command.ClipRect.z - l_ClipOffset.x) * l_ClipScale.x, l_Width);
                 const float l_MaxY = std::min((it_Command.ClipRect.w - l_ClipOffset.y) * l_ClipScale.y, l_Height);
                 const ImTextureID l_Texture = it_Command.GetTexID();
-                if (l_MaxX <= l_MinX || l_MaxY <= l_MinY || l_Texture == ImTextureID_Invalid)
+                // In whole pixels, so a clip under a pixel across, at a fractional DPI scale, can come to none, under which D3D12's debug layer warns of the draw
+                const std::int32_t l_Left = static_cast<std::int32_t>(l_MinX);
+                const std::int32_t l_Top = static_cast<std::int32_t>(l_MinY);
+                const std::int32_t l_Right = static_cast<std::int32_t>(l_MaxX);
+                const std::int32_t l_Bottom = static_cast<std::int32_t>(l_MaxY);
+                if (l_Right <= l_Left || l_Bottom <= l_Top || l_Texture == ImTextureID_Invalid)
                 {
                     continue;
                 }
 
-                const std::int32_t l_Left = static_cast<std::int32_t>(l_MinX);
-                const std::int32_t l_Top = static_cast<std::int32_t>(l_MinY);
-                commands.SetScissor({ l_Left, l_Top, static_cast<std::uint32_t>(static_cast<std::int32_t>(l_MaxX) - l_Left), static_cast<std::uint32_t>(static_cast<std::int32_t>(l_MaxY) - l_Top) });
+                commands.SetScissor({ l_Left, l_Top, static_cast<std::uint32_t>(l_Right - l_Left), static_cast<std::uint32_t>(l_Bottom - l_Top) });
 
                 l_PushData.Texture = { static_cast<std::uint32_t>(l_Texture & 0xFFFFFFFF), 0 };
                 l_PushData.Flags = static_cast<std::uint32_t>(l_Texture >> 32);

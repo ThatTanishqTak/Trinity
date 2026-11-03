@@ -6,6 +6,7 @@
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Renderer/DebugDraw.hpp"
 #include "Trinity/Scene/SceneManager.hpp"
+#include "Trinity/UI/GameUI.hpp"
 
 #include <limits>
 #include <optional>
@@ -295,6 +296,15 @@ namespace Trinity
         Void Screen_SetVSync(Bool vsync)
         {
             Screen::SetVSync(vsync);
+        }
+
+        // A game run without a UI has no world documents to point at
+        Void UI_SetWorldPointer(const Vector3 * origin, const Vector3 * direction, Bool pressed)
+        {
+            if (GameUI* l_UI = Application::Get().GetGameUI(); l_UI != nullptr)
+            {
+                l_UI->SetWorldPointer(*origin, *direction, pressed);
+            }
         }
 }
 }

@@ -55,6 +55,17 @@ namespace Trinity
 
         static_assert(sizeof(PickPushData) == 32);
 
+        // Laid out as DepthPick.slang reads it
+        struct DepthPickPushData
+        {
+            std::uint32_t Depth = 0;
+            std::uint32_t DepthSamples = 0;
+            std::array<std::int32_t, 2> Pixel{};
+            std::array<std::uint32_t, 2> Output{};
+        };
+
+        static_assert(sizeof(DepthPickPushData) == 24);
+
         // Laid out as SelectionOutline.slang reads it
         struct OutlinePushData
         {
@@ -136,10 +147,10 @@ namespace Trinity
         m_CopyPipeline = CreateFullscreenPipeline("SceneCopy", GetOutputFormat(), "Renderer scene copy", "the output only shows the clear colour");
         m_TonemapPipeline = CreateFullscreenPipeline("Tonemap", c_DisplayFormat, "Renderer tonemap", "the scene is shown as black");
         CreatePicking();
+        const RHI::TextureUsage l_ReadableDepth = RHI::TextureUsage::DepthStencil | RHI::TextureUsage::ShaderResource;
+        m_ReadableDepth = { m_Device.IsFormatSupported(Renderer3D::c_DepthFormat, l_ReadableDepth, 1), m_Device.IsFormatSupported(Renderer3D::c_DepthFormat, l_ReadableDepth, Renderer3D::c_SampleCount) };
 #if TR_DEBUG_DRAW
         m_DebugLinePipeline = CreateFullscreenPipeline("DebugLines", c_DisplayFormat, "Debug lines", "no debug lines are drawn", true, RHI::PrimitiveTopology::LineList);
-        const RHI::TextureUsage l_ReadableDepth = RHI::TextureUsage::DepthStencil | RHI::TextureUsage::ShaderResource;
-        m_DebugDepthSupport = { m_Device.IsFormatSupported(Renderer3D::c_DepthFormat, l_ReadableDepth, 1), m_Device.IsFormatSupported(Renderer3D::c_DepthFormat, l_ReadableDepth, Renderer3D::c_SampleCount) };
 #endif
 
         // Textures, materials, meshes and environments need this device, so their loaders, and the built-in meshes, live exactly as long as the renderer. Materials keep textures loaded, so they go before textures do
@@ -205,6 +216,7 @@ namespace Trinity
         m_SwapChain.reset();
         m_Device.DestroyPipeline(m_TonemapPipeline);
         m_Device.DestroyPipeline(m_PickPipeline);
+        m_Device.DestroyPipeline(m_DepthPickPipeline);
         m_Device.DestroyPipeline(m_OutlinePipeline);
 #if TR_DEBUG_DRAW
         m_Device.DestroyPipeline(m_DebugLinePipeline);
@@ -240,6 +252,7 @@ namespace Trinity
         for (const Scope<View>& it_View : m_Views)
         {
             ReadPick(*it_View);
+            ReadDepthPick(*it_View);
         }
 
         m_TextureLoader->RecordUploads(l_Commands);
@@ -390,6 +403,10 @@ namespace Trinity
         }
 
         const EntityTargets l_Entities = l_Scene && l_Submitted && view.Options.EntityIDs ? AddEntityPasses(graph, view, l_Passes) : EntityTargets{};
+        if (l_Passes.Depth)
+        {
+            AddDepthPickPass(graph, view, l_Passes);
+        }
 
         if (layers != nullptr)
         {
@@ -517,6 +534,50 @@ namespace Trinity
         return l_Targets;
     }
 
+    // The depth in the asked pixel into a buffer, then into this frame's readback slot of the view, with the view-projection it was drawn through. Nothing is asked of a device that cannot read the depth with the passes' samples
+    void Renderer::AddDepthPickPass(FrameGraph& graph, View& view, const Renderer3D::Passes& passes)
+    {
+        const std::optional<glm::uvec2> l_Pixel = std::exchange(view.DepthPixel, std::nullopt);
+        const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
+        if (!l_Pixel || l_Pixel->x >= view.SceneDescription.Width || l_Pixel->y >= view.SceneDescription.Height || !m_DepthPickPipeline || !view.DepthReadbacks[l_Slot] || !m_ReadableDepth[passes.SampleCount > 1 ? 1 : 0])
+        {
+            return;
+        }
+
+        view.DepthPicks[l_Slot] = DepthPickResult{ *l_Pixel, 0.0f, view.Draws.View.ViewProjection };
+        const FrameGraphTexture l_Depth = passes.Depth;
+        const std::uint32_t l_Samples = passes.SampleCount;
+        const FrameGraphBuffer l_Picked = graph.CreateBuffer("Picked depth", c_PickSize);
+        const FrameGraphBuffer l_Readback = graph.ImportBuffer("Picked depth readback", view.DepthReadbacks[l_Slot], c_PickSize, RHI::ResourceState::CopyDestination, RHI::ResourceState::CopyDestination);
+        const RHI::PipelineHandle l_Pipeline = m_DepthPickPipeline;
+        graph.AddPass("Depth pick", FrameGraphPassType::Compute, [l_Depth, l_Picked](FrameGraphPassBuilder& builder)
+        {
+            builder.Read(l_Depth, RHI::ResourceState::ShaderResource);
+            builder.Write(l_Picked, RHI::ResourceState::UnorderedAccess);
+        }, [l_Depth, l_Samples, l_Picked, l_Pipeline, l_Pixel](const FrameGraphContext& context)
+        {
+            DepthPickPushData l_Push;
+            l_Push.Depth = context.GetDevice().GetShaderResourceIndex(context.GetTexture(l_Depth));
+            l_Push.DepthSamples = l_Samples;
+            l_Push.Pixel = { static_cast<std::int32_t>(l_Pixel->x), static_cast<std::int32_t>(l_Pixel->y) };
+            l_Push.Output = { context.GetDevice().GetUnorderedAccessIndex(context.GetBuffer(l_Picked)), 0 };
+
+            context.GetCommands().SetPipeline(l_Pipeline);
+            context.GetCommands().PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+            context.GetCommands().Dispatch(1, 1, 1);
+        });
+
+        graph.AddPass("Depth pick readback", FrameGraphPassType::Copy, [l_Picked, l_Readback](FrameGraphPassBuilder& builder)
+        {
+            builder.Read(l_Picked, RHI::ResourceState::CopySource);
+            builder.Write(l_Readback, RHI::ResourceState::CopyDestination);
+            builder.SetSideEffect();
+        }, [l_Picked, l_Readback](const FrameGraphContext& context)
+        {
+            context.GetCommands().CopyBuffer(context.GetBuffer(l_Picked), 0, context.GetBuffer(l_Readback), 0, c_PickSize);
+        });
+    }
+
     // Around the entities the view's scene asked to outline, over the tonemapped image and under the UI. Their IDs go into the upload ring sorted, for the shader's binary search
     void Renderer::AddOutlinePass(FrameGraph& graph, const View& view, const EntityTargets& targets, FrameGraphTexture display)
     {
@@ -609,7 +670,7 @@ namespace Trinity
             return;
         }
 
-        const bool l_Readable = passes.Depth && m_DebugDepthSupport[passes.SampleCount > 1 ? 1 : 0];
+        const bool l_Readable = passes.Depth && m_ReadableDepth[passes.SampleCount > 1 ? 1 : 0];
         if (passes.Depth && !l_Readable && !std::exchange(m_ReportedNoDebugDepth, true))
         {
             TR_CORE_WARN("Renderer: {} cannot read {} depth with {} sample(s), so depth-tested debug lines are drawn on top", ToString(m_Device.GetInfo().API), RHI::ToString(Renderer3D::c_DepthFormat), passes.SampleCount);
@@ -679,6 +740,35 @@ namespace Trinity
         std::uint32_t l_ID = 0;
         std::memcpy(&l_ID, l_Data.data(), sizeof(l_ID));
         view.Pick = PickResult{ *l_Pixel, FromPickID(l_ID) };
+    }
+
+    void Renderer::ReadDepthPick(View& view)
+    {
+        const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
+        std::optional<DepthPickResult> l_Pick = std::exchange(view.DepthPicks[l_Slot], std::nullopt);
+        const std::span<const std::byte> l_Data = l_Pick ? m_Device.GetMappedData(view.DepthReadbacks[l_Slot]) : std::span<const std::byte>();
+        if (l_Data.size() < sizeof(float))
+        {
+            return;
+        }
+
+        std::memcpy(&l_Pick->Depth, l_Data.data(), sizeof(float));
+        view.Depth = l_Pick;
+    }
+
+    void Renderer::RequestDepthPick(glm::uvec2 pixel, ViewID view)
+    {
+        if (View* l_View = FindView(view))
+        {
+            l_View->DepthPixel = pixel;
+        }
+    }
+
+    std::optional<DepthPickResult> Renderer::TakeDepthPick(ViewID view)
+    {
+        View* l_View = FindView(view);
+
+        return l_View != nullptr ? std::exchange(l_View->Depth, std::nullopt) : std::nullopt;
     }
 
     std::optional<PickResult> Renderer::TakePickResult(ViewID view)
@@ -939,6 +1029,12 @@ namespace Trinity
             it_Readback = m_Device.CreateBuffer(l_Readback);
         }
 
+        l_Readback.DebugName = "Picked depth readback";
+        for (RHI::BufferHandle& it_Readback : l_View->DepthReadbacks)
+        {
+            it_Readback = m_Device.CreateBuffer(l_Readback);
+        }
+
         m_Views.push_back(std::move(l_View));
 
         return id;
@@ -953,6 +1049,12 @@ namespace Trinity
         view.SceneTarget = {};
         view.DisplayTarget = {};
         for (RHI::BufferHandle& it_Readback : view.PickReadbacks)
+        {
+            m_Device.DestroyBuffer(it_Readback);
+            it_Readback = {};
+        }
+
+        for (RHI::BufferHandle& it_Readback : view.DepthReadbacks)
         {
             m_Device.DestroyBuffer(it_Readback);
             it_Readback = {};
@@ -1245,8 +1347,23 @@ namespace Trinity
             TR_CORE_INFO("Renderer: no {} EntityPick shader under /engine/shaders, so nothing can be picked", l_Extension);
         }
 
+        const Expected<FileBuffer, FileError> l_DepthPick = FileSystem::ReadFile(std::format("/engine/shaders/DepthPick.PickDepth.{}", l_Extension));
+        if (l_DepthPick)
+        {
+            RHI::ComputePipelineDescription l_Description;
+            l_Description.ComputeShader = { *l_DepthPick, "PickDepth" };
+            l_Description.DebugName = "Depth pick";
+            m_DepthPickPipeline = m_Device.CreateComputePipeline(l_Description);
+        }
+
+        if (!m_DepthPickPipeline)
+        {
+            TR_CORE_INFO("Renderer: no {} DepthPick shader under /engine/shaders, so no depth can be picked", l_Extension);
+        }
+
         m_OutlinePipeline = CreateFullscreenPipeline("SelectionOutline", c_DisplayFormat, "Selection outline", "the selection is not outlined", true);
     }
+
 
     // The frame rate is added again at the next report
     void Renderer::SetTitle(std::string_view title)

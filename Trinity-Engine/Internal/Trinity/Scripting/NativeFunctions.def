@@ -233,3 +233,6 @@ TR_NATIVE(Screen_IsVSync, Bool, ())
 TR_NATIVE(Screen_SetResolution, Void, (Int32 width, Int32 height, Int32 mode))
 TR_NATIVE(Screen_SetFullScreenMode, Void, (Int32 mode))
 TR_NATIVE(Screen_SetVSync, Void, (Bool vsync))
+
+// The game UI, as GameUI has it: a pointer a script drives in place of the mouse for the world documents, by its ray and whether its button is held, for the next frame
+TR_NATIVE(UI_SetWorldPointer, Void, (const Vector3* origin, const Vector3* direction, Bool pressed))

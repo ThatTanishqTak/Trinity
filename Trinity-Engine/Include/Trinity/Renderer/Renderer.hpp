@@ -60,7 +60,15 @@ namespace Trinity
         entt::entity Entity = entt::null;
     };
 
-    // Each frame is a frame graph that draws every view in turn, the main view first. A view has scene and display targets of its own, a size, tone mapping, and a scene submitted to it with its options, ID targets and picks. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. In the main view, layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns each view's scene into a display target of sRGB-encoded 8-bit values. The output pass copies the main view's to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space, where it can show any view's display target. A scene that asks for entity IDs also has its sprites' drawn after the scene pass, a pixel picked from them and read back without waiting, and its selection outlined over the tonemapped image. A view overlay, such as a game's UI, draws over each view's display target last. A world UI source's documents are drawn into their textures before any view, for the scenes' quads to show. Each added output gets a pass of its own
+    // The depth a view's meshes left in a pixel Renderer::RequestDepthPick asked about, reversed as Renderer3D draws it, so 0 is no surface, and the view-projection of the frame it was drawn in, which turns it back into a point
+    struct DepthPickResult
+    {
+        glm::uvec2 Pixel{ 0 };
+        float Depth = 0.0f;
+        glm::mat4 ViewProjection{ 1.0f };
+    };
+
+    // Each frame is a frame graph that draws every view in turn, the main view first. A view has scene and display targets of its own, a size, tone mapping, and a scene submitted to it with its options, ID targets and picks. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. In the main view, layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns each view's scene into a display target of sRGB-encoded 8-bit values. The output pass copies the main view's to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space, where it can show any view's display target. A scene that asks for entity IDs also has its sprites' drawn after the scene pass, a pixel picked from them and read back without waiting, and its selection outlined over the tonemapped image. The depth its meshes leave in a pixel can be read back the same way, whatever its options. A view overlay, such as a game's UI, draws over each view's display target last. A world UI source's documents are drawn into their textures before any view, for the scenes' quads to show. Each added output gets a pass of its own
     class TRINITY_API Renderer
     {
     public:
@@ -90,6 +98,9 @@ namespace Trinity
         void SubmitScene(Scene& scene, const RenderView& camera, const SceneOptions& options = {}, ViewID view = c_MainView);
         // The pick a view's scene asked for c_FramesInFlight frames ago, read without waiting on the GPU since that frame has finished, and handed over once. Picks come back in the order they were asked for
         [[nodiscard]] std::optional<PickResult> TakePickResult(ViewID view = c_MainView);
+        // The depth in a pixel of the view, read in the next frame that draws its scene's meshes and handed back as a pick is, c_FramesInFlight frames later. Before the frame graph is built, and the last asked for wins. A device that cannot read the scene's depth answers none
+        void RequestDepthPick(glm::uvec2 pixel, ViewID view = c_MainView);
+        [[nodiscard]] std::optional<DepthPickResult> TakeDepthPick(ViewID view = c_MainView);
         void SetTitle(std::string_view title);
         void SetSceneCopy(bool enabled) { m_SceneCopy = enabled; }
         void SetSceneSize(std::uint32_t width, std::uint32_t height, ViewID view = c_MainView);
@@ -168,6 +179,11 @@ namespace Trinity
             std::array<RHI::BufferHandle, RHI::c_FramesInFlight> PickReadbacks{};
             std::array<std::optional<glm::uvec2>, RHI::c_FramesInFlight> PickPixels{};
             std::optional<PickResult> Pick;
+            // The same for depth: the pixel asked for next, and what each slot's frame asked, with its view-projection, until its depth is read
+            std::optional<glm::uvec2> DepthPixel;
+            std::array<RHI::BufferHandle, RHI::c_FramesInFlight> DepthReadbacks{};
+            std::array<std::optional<DepthPickResult>, RHI::c_FramesInFlight> DepthPicks{};
+            std::optional<DepthPickResult> Depth;
         };
 
         void FollowWindow();
@@ -183,12 +199,14 @@ namespace Trinity
         [[nodiscard]] FrameGraphTexture AddViewPasses(FrameGraph& graph, View& view, LayerStack* layers);
         [[nodiscard]] EntityTargets AddEntityPasses(FrameGraph& graph, View& view, const Renderer3D::Passes& passes);
         void AddOutlinePass(FrameGraph& graph, const View& view, const EntityTargets& targets, FrameGraphTexture display);
+        void AddDepthPickPass(FrameGraph& graph, View& view, const Renderer3D::Passes& passes);
         void AddOverlayPass(FrameGraph& graph, const View& view, FrameGraphTexture display, ViewOverlay::Needs needs);
 #if TR_DEBUG_DRAW
         void PrepareDebugLines();
         void AddDebugLinePass(FrameGraph& graph, const View& view, FrameGraphTexture display, const Renderer3D::Passes& passes);
 #endif
         void ReadPick(View& view);
+        void ReadDepthPick(View& view);
         void AddOutputPass(FrameGraphTexture display, RHI::TextureHandle output, LayerStack& layers);
         void AddAddedOutputPasses();
         void DestroyOutput(Output& output);
@@ -230,7 +248,10 @@ namespace Trinity
         RHI::PipelineHandle m_CopyPipeline;
         RHI::PipelineHandle m_TonemapPipeline;
         RHI::PipelineHandle m_PickPipeline;
+        RHI::PipelineHandle m_DepthPickPipeline;
         RHI::PipelineHandle m_OutlinePipeline;
+        // Whether the device can read the scene's depth in a shader, single-sampled then with Renderer3D::c_SampleCount samples
+        std::array<bool, 2> m_ReadableDepth{};
 #if TR_DEBUG_DRAW
         // Where this frame's debug lines are in the upload ring, depth-tested then on top, and whether the scene's depth can be read to test them, single-sampled then with Renderer3D::c_SampleCount samples
         struct DebugLines
@@ -244,7 +265,6 @@ namespace Trinity
 
         RHI::PipelineHandle m_DebugLinePipeline;
         DebugLines m_DebugLines;
-        std::array<bool, 2> m_DebugDepthSupport{};
         bool m_ReportedNoDebugDepth = false;
 #endif
         bool m_SceneCopy = true;
