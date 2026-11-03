@@ -69,6 +69,11 @@ namespace Trinity
         return std::isfinite(l_Scale) ? std::clamp(l_Scale, c_MinScale, c_MaxScale) : 1.0f;
     }
 
+    float UIPanelSettings::GetWorldScale() const
+    {
+        return std::isfinite(Scale) ? std::clamp(Scale, c_MinScale, c_MaxScale) : 1.0f;
+    }
+
     std::string_view ToString(UIScaleMode mode)
     {
         const std::size_t l_Index = static_cast<std::size_t>(mode);

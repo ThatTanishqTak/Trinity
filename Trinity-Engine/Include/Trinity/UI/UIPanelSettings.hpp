@@ -46,6 +46,8 @@ namespace Trinity
 
         // For a view of this size, on a monitor of this DPI scale against 96 DPI, between c_MinScale and c_MaxScale. A zero size or reference reads as 1
         [[nodiscard]] TRINITY_API float GetScale(std::uint32_t width, std::uint32_t height, float dpiScale) const;
+        // A world document's, which has no view or monitor to follow: Scale alone, whatever the scale mode, between c_MinScale and c_MaxScale
+        [[nodiscard]] TRINITY_API float GetWorldScale() const;
 
         [[nodiscard]] bool operator==(const UIPanelSettings&) const = default;
     };

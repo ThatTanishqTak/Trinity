@@ -8,6 +8,7 @@
 #include "Trinity/Scene/ComponentType.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
 #include "Trinity/UI/UIPanelSettings.hpp"
+#include "Trinity/UI/UIWorldSettings.hpp"
 
 #include <entt/entity/entity.hpp>
 
@@ -633,16 +634,19 @@ namespace Trinity
         [[nodiscard]] bool operator==(const KeepAcrossScenesComponent&) const = default;
     };
 
-    // Shows a UI document over its scene's game view, as Unity's UIDocument does: over Forge's Game panel, where it takes no input until the scene plays, and over a player's window. Documents are drawn by their sort order, the highest on top, and those of the same order as the hierarchy has them. Its Panel Settings scale it from the view's size
+    // Shows a UI document over its scene's game view, as Unity's UIDocument does: over Forge's Game panel, where it takes no input until the scene plays, and over a player's window. Documents are drawn by their sort order, the highest on top, and those of the same order as the hierarchy has them. Its Panel Settings scale it from the view's size. In World mode it is drawn into the scene instead, on a quad its World settings place, size and sort, in every view of the scene, the Scene panel's too, and in a world document Panel Settings' Scale alone sets how many of its pixels one dp is, as the view's size and the monitor's DPI mean nothing there
     struct UIDocumentComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.UIDocument";
 
         // A UIDocument asset, an .rml file. Without one it shows nothing
         UUID Document;
+        // Over the other screen documents of a lower order. In World mode, drawn with the sprites, its order in its sorting layer
         std::int32_t SortOrder = 0;
         bool Visible = true;
         UIPanelSettings Panel;
+        UIRenderMode RenderMode = UIRenderMode::Screen;
+        UIWorldSettings World;
 
         [[nodiscard]] bool operator==(const UIDocumentComponent&) const = default;
     };

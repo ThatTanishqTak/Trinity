@@ -3738,7 +3738,7 @@ void PropertiesPanel::DrawAudioListener(Trinity::Entity entity)
     ImGui::TextDisabled("The scene is heard from here, facing -Z with +Y up");
 }
 
-// Unity's UIDocument, with its Panel Settings below it, each scale mode's own fields shown as Unity's Panel Settings shows them: the document and its sort order and visibility, then how it scales from the game view's size
+// Unity's UIDocument, with its Panel Settings below it, each scale mode's own fields shown as Unity's Panel Settings shows them: the document, whether it is drawn over the game view or in the scene, its sort order and visibility, then a world document's placing, size and sorting, then how it scales. A world document's scale is Panel Settings' Scale alone, so that is all it shows
 void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::UIDocumentComponent>() || !BeginComponent(entity, Trinity::UIDocumentComponent::c_TypeName, Trinity::Icons::c_WindowRestore))
@@ -3755,13 +3755,29 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
         l_History.EndMerge();
     };
 
-    DrawAssetSlot("Source Asset", c_UIDocumentPickerPopup, Trinity::UIAssets::c_DocumentType, entity.Get<Trinity::UIDocumentComponent>().Document, a_SetDocument, "The .rml document it shows over the game view, as Unity's Source Asset. Without one it shows nothing");
+    DrawAssetSlot("Source Asset", c_UIDocumentPickerPopup, Trinity::UIAssets::c_DocumentType, entity.Get<Trinity::UIDocumentComponent>().Document, a_SetDocument, "The .rml document it shows, as Unity's Source Asset. Without one it shows nothing");
 
-    Label("Sort Order");
+    Label("Render Mode");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "RenderMode", [](Trinity::UIDocumentComponent& document)
+    {
+        int l_Mode = static_cast<int>(document.RenderMode);
+        const bool l_Changed = ImGui::Combo("##RenderMode", &l_Mode, "Screen\0World\0");
+        document.RenderMode = static_cast<Trinity::UIRenderMode>(l_Mode);
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Screen draws it over the game view. World draws it into the scene, unlit, on a quad its entity places, which every view of the scene shows");
+    }
+
+    const bool l_World = entity.Get<Trinity::UIDocumentComponent>().RenderMode == Trinity::UIRenderMode::World;
+    Label(l_World ? "Order In Layer" : "Sort Order");
     EditField<Trinity::UIDocumentComponent>(l_History, entity, "SortOrder", [](Trinity::UIDocumentComponent& document) { return ImGui::DragInt("##SortOrder", &document.SortOrder, 0.1f); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Drawn over the documents of a lower order, and over those of the same order above it in the hierarchy");
+        ImGui::SetTooltip(l_World ? "Sorted with the sprites, its order in its sorting layer, as a sprite's is. Sorted by depth, it is not used" : "Drawn over the documents of a lower order, and over those of the same order above it in the hierarchy");
     }
 
     Label("Visible");
@@ -3769,6 +3785,20 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Shown and laid out. Hidden, it keeps its state and draws nothing");
+    }
+
+    if (l_World)
+    {
+        DrawUIWorldSettings(entity);
+        ImGui::SeparatorText("Panel Settings");
+        Label("Scale");
+        EditField<Trinity::UIDocumentComponent>(l_History, entity, "Scale", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat("##Scale", &document.Panel.Scale, 0.01f, Trinity::UIPanelSettings::c_MinScale, Trinity::UIPanelSettings::c_MaxScale, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Pixels of its texture to one dp. Raise it with the size and pixels per unit for sharper text at the same size in the scene");
+        }
+
+        return;
     }
 
     ImGui::SeparatorText("Panel Settings");
@@ -3855,6 +3885,91 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
 
             break;
         }
+    }
+}
+
+// A world document's World settings: which pass sorts it, its sorting layer when that is the sprites', its size, fixed or its body's own, its pixels per unit and pivot, and whether it faces the camera
+void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
+{
+    CommandStack& l_History = m_Session.GetHistory();
+    ImGui::SeparatorText("World");
+    Label("Sorting");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "WorldSorting", [](Trinity::UIDocumentComponent& document)
+    {
+        int l_Sorting = static_cast<int>(document.World.Sorting);
+        const bool l_Changed = ImGui::Combo("##WorldSorting", &l_Sorting, "Depth\0Sprites\0");
+        document.World.Sorting = static_cast<Trinity::UIWorldSorting>(l_Sorting);
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Depth draws it with the blended meshes, from the farthest to the nearest, behind the opaque meshes in front of it, as a 3D scene wants. Sprites draws it with the sprites, by sorting layer and order, as a 2D scene wants");
+    }
+
+    if (entity.Get<Trinity::UIDocumentComponent>().World.Sorting == Trinity::UIWorldSorting::Sprites)
+    {
+        Label("Sorting Layer");
+        EditField<Trinity::UIDocumentComponent>(l_History, entity, "WorldSortingLayer", [](Trinity::UIDocumentComponent& document) { return ImGui::DragInt("##WorldSortingLayer", &document.World.SortingLayer, 0.1f); });
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Drawn over the sprites of lower layers, as a sprite's sorting layer is");
+        }
+    }
+
+    Label("Size Mode");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "WorldSizeMode", [](Trinity::UIDocumentComponent& document)
+    {
+        int l_Mode = static_cast<int>(document.World.SizeMode);
+        const bool l_Changed = ImGui::Combo("##WorldSizeMode", &l_Mode, "Fixed\0Dynamic\0");
+        document.World.SizeMode = static_cast<Trinity::UIWorldSizeMode>(l_Mode);
+
+        return l_Changed;
+    });
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Fixed lays it out in the size given. Dynamic lets its body take the size its content needs, from the top left, so a margin on the body is kept around it");
+    }
+
+    if (entity.Get<Trinity::UIDocumentComponent>().World.SizeMode == Trinity::UIWorldSizeMode::Fixed)
+    {
+        Label("Size");
+        EditField<Trinity::UIDocumentComponent>(l_History, entity, "WorldSize", [](Trinity::UIDocumentComponent& document)
+        {
+            std::array<int, 2> l_Size{ static_cast<int>(document.World.Size.x), static_cast<int>(document.World.Size.y) };
+            const bool l_Changed = ImGui::DragInt2("##WorldSize", l_Size.data(), 1.0f, 1, static_cast<int>(Trinity::UIWorldSettings::c_MaxSize), "%d", ImGuiSliderFlags_AlwaysClamp);
+            document.World.Size = glm::uvec2(static_cast<std::uint32_t>(l_Size[0]), static_cast<std::uint32_t>(l_Size[1]));
+
+            return l_Changed;
+        });
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Its texture's width and height in pixels");
+        }
+    }
+
+    Label("Pixels Per Unit");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "PixelsPerUnit", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat("##PixelsPerUnit", &document.World.PixelsPerUnit, 1.0f, Trinity::UIWorldSettings::c_MinPixelsPerUnit, Trinity::UIWorldSettings::c_MaxPixelsPerUnit, "%.1f", ImGuiSliderFlags_AlwaysClamp); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("How many of its pixels one unit of the scene holds, so 400 pixels at 100 are 4 units wide");
+    }
+
+    Label("Pivot");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "Pivot", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat2("##Pivot", &document.World.Pivot.x, 0.01f, 0.0f, 0.0f, "%.2f"); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("The point of it on its entity, from (0, 0) at its bottom left to (1, 1) at its top right");
+    }
+
+    Label("Face Camera");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "FaceCamera", [](Trinity::UIDocumentComponent& document) { return ImGui::Checkbox("##FaceCamera", &document.World.FaceCamera); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Turned to face the camera that draws it, keeping its entity's position and scale, as a health bar does. Off, it faces its entity's +Z, as a sprite does");
     }
 }
 

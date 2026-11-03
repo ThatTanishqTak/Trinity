@@ -106,3 +106,4 @@
 #include "Trinity/UI/ImGuiLayer.hpp"
 #include "Trinity/UI/UIAssets.hpp"
 #include "Trinity/UI/UIPanelSettings.hpp"
+#include "Trinity/UI/UIWorldSettings.hpp"

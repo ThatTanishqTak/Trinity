@@ -73,6 +73,7 @@ private:
     void DrawAudioSource(Trinity::Entity entity);
     void DrawAudioListener(Trinity::Entity entity);
     void DrawUIDocument(Trinity::Entity entity);
+    void DrawUIWorldSettings(Trinity::Entity entity);
     void DrawScripts(Trinity::Entity entity);
     void DrawScriptFields(Trinity::ScriptEntry& entry, std::string& change);
     [[nodiscard]] bool DrawScriptValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value);

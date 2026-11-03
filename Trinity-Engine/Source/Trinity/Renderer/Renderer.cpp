@@ -299,7 +299,7 @@ namespace Trinity
         ReportFrameRate();
     }
 
-    // Every view in turn, the main view first, then the output pass and each added output, which read every display target drawn this frame
+    // The world UI documents first, then every view in turn, the main view first, then the output pass and each added output, which read every display target drawn this frame
     void Renderer::BuildFrameGraph(LayerStack& layers)
     {
         TR_PROFILE_FUNCTION();
@@ -310,6 +310,11 @@ namespace Trinity
 #if TR_DEBUG_DRAW
         PrepareDebugLines();
 #endif
+
+        if (m_WorldUI != nullptr)
+        {
+            m_WorldUI->AddWorldPasses(l_Graph);
+        }
 
         FrameGraphTexture l_MainDisplay;
         for (const Scope<View>& it_View : m_Views)
@@ -351,13 +356,21 @@ namespace Trinity
                 l_Passes = m_Renderer3D->AddPasses(graph, view.Draws, l_Scene, view.SceneDescription, l_Clear, view.Options);
             }
 
-            // The opaque pass has already cleared a submitted scene, which then needs this pass only for its sprites or the layers
+            // The opaque pass has already cleared a submitted scene, which then needs this pass only for its sprites or the layers. Either may draw world UI documents' quads, so it reads their textures
             const bool l_Sprites = l_Submitted && view.Options.Sprites;
             if (layers != nullptr || l_Sprites || !l_Submitted)
             {
                 const RHI::LoadOp l_Load = l_Submitted ? RHI::LoadOp::Load : RHI::LoadOp::Clear;
+                const std::span<const FrameGraphTexture> l_WorldTextures = m_WorldUI != nullptr && (layers != nullptr || l_Sprites) ? m_WorldUI->GetWorldTextures() : std::span<const FrameGraphTexture>();
                 View* l_View = &view;
-                graph.AddPass("Scene", FrameGraphPassType::Raster, [l_Scene, l_Clear, l_Load](FrameGraphPassBuilder& builder) { builder.AddColorAttachment({ l_Scene, l_Load, l_Clear }); }, [this, l_View, l_Sprites, layers](const FrameGraphContext& context)
+                graph.AddPass("Scene", FrameGraphPassType::Raster, [l_Scene, l_Clear, l_Load, l_WorldTextures](FrameGraphPassBuilder& builder)
+                {
+                    builder.AddColorAttachment({ l_Scene, l_Load, l_Clear });
+                    for (const FrameGraphTexture it_Texture : l_WorldTextures)
+                    {
+                        builder.Read(it_Texture, RHI::ResourceState::ShaderResource);
+                    }
+                }, [this, l_View, l_Sprites, layers](const FrameGraphContext& context)
                 {
                     if (l_Sprites)
                     {
@@ -1002,6 +1015,13 @@ namespace Trinity
         const View* l_View = FindView(view);
 
         return l_View != nullptr ? l_View->Height : 0;
+    }
+
+    void Renderer::SetWorldUISource(WorldUISource* source)
+    {
+        m_WorldUI = source;
+        m_Renderer2D->SetWorldUISource(source);
+        m_Renderer3D->SetWorldUISource(source);
     }
 
     RHI::Format Renderer::GetSceneFormat() const

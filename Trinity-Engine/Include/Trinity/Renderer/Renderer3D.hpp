@@ -10,6 +10,7 @@
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Renderer/FrameGraph.hpp"
 #include "Trinity/Renderer/PickID.hpp"
+#include "Trinity/Renderer/WorldUI.hpp"
 #include "Trinity/RHI/Device.hpp"
 
 #include <glm/glm.hpp>
@@ -24,6 +25,7 @@
 
 namespace Trinity
 {
+    class Entity;
     class MaterialLoader;
     class Scene;
     struct CameraComponent;
@@ -106,6 +108,15 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MeshDraw&) const = default;
     };
 
+    // A world UI document's quad drawn with the blended submeshes: the document its world UI source names, its entity as ToPickID gives it, the matrix that puts the unit quad sprites are drawn from in place, and the view depth of its centre, which sorts it among them
+    struct WorldUIDraw
+    {
+        std::uint32_t Document = 0;
+        std::uint32_t PickID = 0;
+        glm::mat4 World{ 1.0f };
+        float Depth = 0.0f;
+    };
+
     // A shadow map in its tile of the atlas: the light's view-projection, with reversed depth as the camera's has, the tile's top-left texel, and how wide a texel is in world space, anywhere in a cascade or at 1 m in front of a spot light. Its casters are a range of SceneDrawList::ShadowDraws
     struct ShadowView
     {
@@ -169,7 +180,7 @@ namespace Trinity
 
     static_assert(sizeof(PunctualLight) == 64);
 
-    // What a view of a scene draws, in the order it draws it, and the lights it is lit by: opaque and alpha-masked submeshes sorted by state, then alpha-blended ones from the farthest to the nearest
+    // What a view of a scene draws, in the order it draws it, and the lights it is lit by: opaque and alpha-masked submeshes sorted by state, then alpha-blended ones and world UI documents sorted by depth together, each from the farthest to the nearest
     struct TRINITY_API SceneDrawList
     {
         static constexpr std::uint32_t c_MaxDirectionalLights = 4;
@@ -178,6 +189,8 @@ namespace Trinity
         RenderView View;
         std::vector<MeshDraw, TaggedAllocator<MeshDraw, MemoryTag::Renderer>> Draws;
         std::vector<MeshDraw, TaggedAllocator<MeshDraw, MemoryTag::Renderer>> Transparent;
+        // A blended submesh no nearer than a document's quad is drawn before it
+        std::vector<WorldUIDraw, TaggedAllocator<WorldUIDraw, MemoryTag::Renderer>> WorldUI;
         std::array<DirectionalLight, c_MaxDirectionalLights> Directional{};
         std::uint32_t DirectionalCount = 0;
         // Point and spot lights in hierarchy order, and for each the sphere in view space that holds all it lights, which is what clusters test
@@ -232,7 +245,7 @@ namespace Trinity
         bool DebugLines = false;
     };
 
-    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in. Alpha-masked submeshes are cut out in the pre-pass, and alpha-blended ones drawn after, from back to front. The sun and spot lights cast shadows from maps in one atlas, filtered with PCF. The forward passes can be multisampled, and resolve into the target
+    // Draws a scene's MeshRenderers: collected after the transform pass, culled against the view's frustum on the job system, sorted by pipeline, material and mesh, then drawn in a depth pre-pass and an opaque pass that shades each pixel once, with glTF's metallic-roughness BRDF lit by the scene's environment, up to four directional lights and the point and spot lights of the cluster the pixel lies in. Alpha-masked submeshes are cut out in the pre-pass, and alpha-blended ones drawn after, from back to front, with the quads of the world UI documents sorted by depth among them, unlit. The sun and spot lights cast shadows from maps in one atlas, filtered with PCF. The forward passes can be multisampled, and resolve into the target
     class TRINITY_API Renderer3D
     {
     public:
@@ -279,6 +292,7 @@ namespace Trinity
             std::uint32_t PrePassDraws = 0;
             std::uint32_t OpaqueDraws = 0;
             std::uint32_t TransparentDraws = 0;
+            std::uint32_t WorldUIDraws = 0;
             std::uint32_t PipelineChanges = 0;
             // Shadow maps drawn, and the casters drawn into them
             std::uint32_t ShadowMaps = 0;
@@ -297,6 +311,8 @@ namespace Trinity
 
         void BeginFrame();
         void ReleaseAssets();
+        // What a scene's world UI documents sorted by depth are drawn from, or none, when they are not drawn
+        void SetWorldUISource(const WorldUISource* source) { m_WorldUI = source; }
 
         // On the main thread, after the transform pass. Meshes and materials are kept loaded while views use them, and a submesh is drawn once its mesh is ready
         void Collect(Scene& scene, const RenderView& view, SceneDrawList& list);
@@ -329,6 +345,15 @@ namespace Trinity
             Opaque,
             Transparent,
             Shadow
+        };
+
+        // A world UI document's quad, for one colour format and sample count, writing entity IDs or not
+        struct WorldUIPipeline
+        {
+            RHI::Format Format = RHI::Format::Unknown;
+            bool EntityIDs = false;
+            std::uint32_t SampleCount = 1;
+            RHI::PipelineHandle Pipeline;
         };
 
         // An alpha-masked submesh writes depth through a pixel shader that cuts it out, in the pre-pass and shadow maps, and a forward pass can write entity IDs beside its colour
@@ -364,6 +389,12 @@ namespace Trinity
         [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format colorFormat, PipelineKind kind, MeshPass pass, bool masked, bool entityIDs, std::uint32_t sampleCount);
         void RecordDraws(RHI::CommandList& commands, const SceneDrawList& list, std::span<const MeshDraw> draws, RHI::Format colorFormat, MeshPass pass, bool entityIDs, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height, const LightInputs& lights);
         void RecordShadowDraws(RHI::CommandList& commands, const SceneDrawList& list);
+        // The entity's world UI document, when it has one sorted by depth that draws this frame
+        void CollectWorldUI(Scene& scene, Entity entity, const RenderView& view, SceneDrawList& list);
+        // The blended submeshes with the world UI documents' quads among them
+        void RecordBlended(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height, const LightInputs& lights);
+        void DrawWorldUI(RHI::CommandList& commands, const SceneDrawList& list, const WorldUIDraw& draw, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount);
+        [[nodiscard]] RHI::PipelineHandle GetWorldUIPipeline(RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount);
         // Each draw's record into the upload ring, then the draws with the pipeline each needs, which reports false when the mesh shaders are missing
         [[nodiscard]] bool DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass, bool entityIDs, std::uint32_t sampleCount);
         void ReadClusterStatistics();
@@ -375,6 +406,12 @@ namespace Trinity
         FileBuffer m_DepthPixelShader;
         FileBuffer m_MaskPixelShader;
         FileBuffer m_PickPixelShader;
+        FileBuffer m_WorldUIVertexShader;
+        FileBuffer m_WorldUIPixelShader;
+        FileBuffer m_WorldUIPickPixelShader;
+        const WorldUISource* m_WorldUI = nullptr;
+        std::vector<WorldUIPipeline, TaggedAllocator<WorldUIPipeline, MemoryTag::Renderer>> m_WorldUIPipelines;
+        bool m_ReportedNoWorldUIShaders = false;
         RHI::PipelineHandle m_ClusterPipeline;
         std::array<RHI::BufferHandle, RHI::c_FramesInFlight> m_ClusterReadbacks{};
         std::array<bool, RHI::c_FramesInFlight> m_ClusterReadbackWritten{};

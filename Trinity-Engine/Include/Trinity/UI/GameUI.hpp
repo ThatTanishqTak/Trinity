@@ -7,7 +7,10 @@
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/UI/UIPanelSettings.hpp"
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -23,8 +26,10 @@ namespace Trinity
     {
         std::uint32_t Contexts = 0;
         std::uint32_t Documents = 0;
-        // Of those, the documents a scene's UIDocuments keep
+        // Of those, the documents a scene's UIDocuments keep, and those in World mode, of which the last frame drew WorldPasses into their textures
         std::uint32_t SceneDocuments = 0;
+        std::uint32_t WorldDocuments = 0;
+        std::uint32_t WorldPasses = 0;
         std::uint32_t Geometries = 0;
         std::uint32_t Textures = 0;
         std::uint64_t GeometryBytes = 0;
@@ -36,7 +41,7 @@ namespace Trinity
         std::uint32_t StyleSheetReloads = 0;
     };
 
-    // A game's UI, drawn by RmlUi: documents of RML styled by RCSS, with a base stylesheet under each that lets buttons, inputs, selects and textareas take the focus, read through the virtual file system by their paths in the project, which a cooked game's asset table finds in its pack. Each document has a context of its own over the view it shows on, which takes the view's size, scales by the document's Panel Settings through RmlUi's dp unit, and draws, in the documents' sort order, over the view's tone mapped image as its overlay, so colours are what the stylesheet says. Fonts load from a stylesheet's @font-face, or from here, each face once however often its stylesheet is read, and images are the project's textures, by their paths. The interactive view's documents take the scene's input before its actions: the pointer goes to the topmost document under it, but for a document's body, which lets it through to the game, a text field with the focus takes the keyboard, and the UI map's Navigate moves the focus in document order, Submit presses what has it and Cancel takes it away, with the keys, buttons and sticks they read kept from the game while an element has the focus. RmlUi runs on the main thread alone, on the frames' clock, and what it and its FreeType allocate is counted under GameUI, but for what RmlUi keeps in its statics past its shutdown. No public header includes RmlUi, and only one GameUI lives at a time, as RmlUi is the process's
+    // A game's UI, drawn by RmlUi: documents of RML styled by RCSS, with a base stylesheet under each that lets buttons, inputs, selects and textareas take the focus, read through the virtual file system by their paths in the project, which a cooked game's asset table finds in its pack. Each document has a context of its own over the view it shows on, which takes the view's size, scales by the document's Panel Settings through RmlUi's dp unit, and draws, in the documents' sort order, over the view's tone mapped image as its overlay, so colours are what the stylesheet says. Fonts load from a stylesheet's @font-face, or from here, each face once however often its stylesheet is read, and images are the project's textures, by their paths. The interactive view's documents take the scene's input before its actions: the pointer goes to the topmost document under it, but for a document's body, which lets it through to the game, a text field with the focus takes the keyboard, and the UI map's Navigate moves the focus in document order, Submit presses what has it and Cancel takes it away, with the keys, buttons and sticks they read kept from the game while an element has the focus. A world document draws into the scene instead: laid out in its own size, at its Panel Settings' Scale, it is drawn into a texture of that size from the frame graph's pool before any view draws, which every view of its scene shows on its quad, and it takes no input yet. RmlUi runs on the main thread alone, on the frames' clock, and what it and its FreeType allocate is counted under GameUI, but for what RmlUi keeps in its statics past its shutdown. No public header includes RmlUi, and only one GameUI lives at a time, as RmlUi is the process's
     class TRINITY_API GameUI
     {
     public:
@@ -61,12 +66,18 @@ namespace Trinity
         // The view's pixels to one of its dp, as its Panel Settings gave it at the last Update, and 1 for a document there is not
         [[nodiscard]] float GetScale(UIDocumentID document) const;
 
-        // Once a frame, before Update, while the scene is shown over the view: each UIDocument's document is loaded as it appears or names another, kept in step with its sort order, visibility and Panel Settings, and unloaded as the component goes, or at the Update of a frame the scene was not shown in. A document is kept by its entity's UUID, so one on an entity that moves into the next scene, as KeepAcrossScenes does, goes on as it was. Those of the same sort order are drawn as the hierarchy has them. One that names no UIDocument asset shows nothing, which is logged once. Interactive, the view's documents take the scene's input before its actions read it, as the scene's frame begins, and the view is the only one that does. Not, as in Forge's Edit mode, they take none
+        // Once a frame, before Update, while the scene is shown over the view: each UIDocument's document is loaded as it appears or names another, kept in step with its sort order, visibility and Panel Settings, and unloaded as the component goes, or at the Update of a frame the scene was not shown in. A document is kept by its entity's UUID, so one on an entity that moves into the next scene, as KeepAcrossScenes does, goes on as it was. Those of the same sort order are drawn as the hierarchy has them. One that names no UIDocument asset shows nothing, which is logged once. Interactive, the view's documents take the scene's input before its actions read it, as the scene's frame begins, and the view is the only one that does. Not, as in Forge's Edit mode, they take none. A UIDocument in World mode is kept as ShowWorld keeps it
         void ShowScene(Scene& scene, ViewID view = Renderer::c_MainView, bool interactive = true);
-        // The documents ShowScene keeps over the view are unloaded, so the next ShowScene loads them afresh, as Forge's Game panel does as its scene starts and stops playing
+        // As ShowScene does for the scene's world documents alone, which are the scene's whichever views show it, for a view that shows a scene without its screen documents, as Forge's Scene panel does. A scene shown both ways in a frame keeps one document for each UIDocument
+        void ShowWorld(Scene& scene);
+        // The documents ShowScene keeps over the view are unloaded, with the world documents of the scene it last showed there, so the next ShowScene loads them afresh, as Forge's Game panel does as its scene starts and stops playing
         void ForgetScene(ViewID view);
-        // The document ShowScene keeps for the entity over the view, or c_NoDocument
+        // The screen document ShowScene keeps for the entity over the view, or c_NoDocument
         [[nodiscard]] UIDocumentID FindSceneDocument(UUID entity, ViewID view = Renderer::c_MainView) const;
+        // The world document ShowScene or ShowWorld keeps for the entity in the scene, or c_NoDocument
+        [[nodiscard]] UIDocumentID FindWorldDocument(const Scene& scene, UUID entity) const;
+        // A world document's texture's width and height in pixels at the last Update, 0 for one that has no size or is not a world document
+        [[nodiscard]] glm::uvec2 GetTextureSize(UIDocumentID document) const;
         // The id of the element of the document that has the focus, and empty when none has, or it has none
         [[nodiscard]] std::string GetFocus(UIDocumentID document) const;
 
@@ -78,7 +89,7 @@ namespace Trinity
         // A font face from the virtual file system for every document, named by the family and style it holds. A fallback face gives the glyphs other faces lack. Faces stay until the UI ends, as RmlUi keeps them. False when it cannot be read, which RmlUi logs with the reason
         bool LoadFontFace(std::string_view path, bool fallback = false);
 
-        // Once a frame, on the main thread, after the layers have updated: the clock advances, each document's context takes its view's size and scale and lays out what changed, and what it draws is recorded for the view's overlay pass in the frame rendered next. A document whose view was destroyed is unloaded
+        // Once a frame, on the main thread, after the layers have updated: the clock advances, each document's context takes its view's size and scale, or a world document's its own, and lays out what changed, and what it draws is recorded for the view's overlay pass, or the world document's own pass, in the frame rendered next. A document whose view was destroyed is unloaded
         void Update(Timestep timestep);
 
         [[nodiscard]] GameUIStatistics GetStatistics() const;
@@ -87,6 +98,8 @@ namespace Trinity
         struct State;
 
         void Reload(bool documents);
+        // The scene's UIDocuments: its world documents, and its screen documents over the view when there is one
+        void ShowDocuments(Scene& scene, std::optional<ViewID> view);
         // The interactive view's turn, as InputActions gives it to the UI each frame of the running scene, with Input reading as the UI's
         void ProcessInput(Timestep timestep);
 

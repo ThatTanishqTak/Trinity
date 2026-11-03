@@ -235,7 +235,7 @@ void ForgeLayer::OnAttach()
     ImGui::AddSettingsHandler(&l_Handler);
 }
 
-// Before ImGui's frame begins, so a native file dialog never blocks with a frame open. A playing copy steps after the session's work, and world transforms are brought up to date then, for the Viewport to draw and pick with. The Game panel's UI documents follow the scene last, before the game UI lays out
+// Before ImGui's frame begins, so a native file dialog never blocks with a frame open. A playing copy steps after the session's work, and world transforms are brought up to date then, for the Viewport to draw and pick with. The Game panel's UI documents, then the Scene panel's world documents, follow their scenes last, before the game UI lays out
 void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
 {
     m_Session.Update();
@@ -244,6 +244,7 @@ void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
     m_Session.UpdatePlay(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
     m_GamePanel->ShowUI();
+    m_ViewportPanel->ShowUI();
     if (Trinity::AudioEngine* l_Audio = Trinity::Application::Get().GetAudioEngine(); l_Audio != nullptr)
     {
         l_Audio->SetMuted((m_Session.IsPlaying() && m_GamePanel->IsMutingAudio()) || (m_Session.GetPreferences().MuteWhenUnfocused && !IsForgeFocused()));

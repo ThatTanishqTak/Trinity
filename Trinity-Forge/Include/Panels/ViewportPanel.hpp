@@ -31,6 +31,8 @@ public:
 
     void PrepareScene();
     void RenderScene(Trinity::RHI::CommandList& commands);
+    // Once a frame, before the game UI lays out
+    void ShowUI();
 
     // Frames the selection, gliding there once the Scene panel is next drawn, as a double-click or F in the Hierarchy asks, and with follow keeps it framed as it moves
     void RequestFrame(bool follow) { m_FrameRequest = follow; }

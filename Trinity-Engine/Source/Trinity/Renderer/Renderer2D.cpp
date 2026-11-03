@@ -32,6 +32,8 @@ namespace Trinity
         static_assert(sizeof(PushData) == 96);
 
         constexpr std::uint32_t c_NearestBit = 0x80000000u;
+        // Below the filter's bit: a world UI document's texture, whose colours are sRGB-encoded and multiplied by their alpha
+        constexpr std::uint32_t c_DocumentBit = 0x40000000u;
         constexpr std::uint64_t c_InstanceAlignment = 16;
 
         // About two seconds at 60 Hz without a sprite naming it, after which a texture is released
@@ -190,7 +192,7 @@ namespace Trinity
                 m_ReportedNoCamera = true;
             }
 
-            m_Statistics = { static_cast<std::uint32_t>(m_Instances.size()), 0, static_cast<std::uint32_t>(m_Textures.size()) };
+            m_Statistics = { static_cast<std::uint32_t>(m_Instances.size()), 0, static_cast<std::uint32_t>(m_Textures.size()), static_cast<std::uint32_t>(m_WorldQuads.size()) };
 
             return false;
         }
@@ -198,7 +200,9 @@ namespace Trinity
         m_ReportedNoCamera = false;
 
         const float l_AspectRatio = static_cast<float>(width) / static_cast<float>(height);
-        DrawSprites(commands, l_Camera->GetProjection(l_AspectRatio) * glm::inverse(l_CameraWorld), targetFormat, width, height);
+        const glm::mat4 l_ViewProjection = l_Camera->GetProjection(l_AspectRatio) * glm::inverse(l_CameraWorld);
+        PlaceWorldQuads(l_ViewProjection);
+        DrawSprites(commands, l_ViewProjection, targetFormat, width, height);
 
         return true;
     }
@@ -210,6 +214,7 @@ namespace Trinity
 
         glm::mat4 l_CameraWorld{ 1.0f };
         static_cast<void>(CollectSprites(scene, l_CameraWorld));
+        PlaceWorldQuads(viewProjection);
         DrawSprites(commands, viewProjection, targetFormat, width, height);
     }
 
@@ -225,6 +230,7 @@ namespace Trinity
             return;
         }
 
+        PlaceWorldQuads(viewProjection);
         const RHI::PipelineHandle l_Pipeline = GetIDPipeline();
         if (!l_Pipeline)
         {
@@ -266,7 +272,7 @@ namespace Trinity
         commands.Draw(4, static_cast<std::uint32_t>(m_Instances.size()), 0, 0);
     }
 
-    // In hierarchy order, which is the last tie-break when sorting. World transforms are read as they are, so the caller runs the transform pass first. The first primary camera met is the one used
+    // In hierarchy order, which is the last tie-break when sorting, an entity's sprite before its world UI document's. World transforms are read as they are, so the caller runs the transform pass first. The first primary camera met is the one used
     const CameraComponent* Renderer2D::CollectSprites(Scene& scene, glm::mat4& cameraWorld)
     {
         TR_PROFILE_FUNCTION();
@@ -274,6 +280,7 @@ namespace Trinity
         m_Instances.clear();
         m_Keys.clear();
         m_EntityIDs.clear();
+        m_WorldQuads.clear();
 
         SceneRegistry& l_Registry = scene.GetRegistry();
         const CameraComponent* l_Camera = nullptr;
@@ -294,6 +301,8 @@ namespace Trinity
             const SpriteRendererComponent* l_Sprite = l_Registry.try_get<SpriteRendererComponent>(l_Handle);
             if (l_Sprite == nullptr)
             {
+                CollectWorldQuad(scene, it_Entity);
+
                 continue;
             }
 
@@ -324,11 +333,56 @@ namespace Trinity
             l_Instance.Color = PackColor(l_Sprite->Tint);
             l_Instance.Texture = l_LastIndex;
 
+
             m_Keys.push_back({ l_Sprite->SortingLayer, l_Sprite->OrderInLayer, static_cast<std::uint32_t>(m_Keys.size()) });
             m_EntityIDs.push_back(ToPickID(l_Handle));
+            CollectWorldQuad(scene, it_Entity);
         }
 
         return l_Camera;
+    }
+
+    // An entity's world UI document sorted with the sprites, when it drew a texture this frame: untinted, over the whole of its texture, by its sorting layer and its UIDocument's sort order. Its place waits for the view
+    void Renderer2D::CollectWorldQuad(Scene& scene, Entity entity)
+    {
+        const UIDocumentComponent* l_Component = m_WorldUI != nullptr ? scene.GetRegistry().try_get<UIDocumentComponent>(entity.GetHandle()) : nullptr;
+        if (l_Component == nullptr || l_Component->RenderMode != UIRenderMode::World || l_Component->World.Sorting != UIWorldSorting::Sprites)
+        {
+            return;
+        }
+
+        const std::optional<WorldUIDocument> l_Document = m_WorldUI->FindWorldDocument(scene, entity.GetUUID());
+        const std::uint32_t l_Texture = l_Document ? m_WorldUI->GetWorldTextureIndex(l_Document->Document) : RHI::c_NoBindlessIndex;
+        if (l_Texture == RHI::c_NoBindlessIndex)
+        {
+            return;
+        }
+
+        m_WorldQuads.push_back({ static_cast<std::uint32_t>(m_Instances.size()), entity.Get<WorldTransformComponent>().Matrix, l_Component->World, l_Document->Size });
+
+        SpriteInstance& l_Instance = m_Instances.emplace_back();
+        l_Instance.UVRect = { PackUnorm16(0.0f, 0.0f), PackUnorm16(1.0f, 1.0f) };
+        l_Instance.Color = PackColor(glm::vec4(1.0f));
+        l_Instance.Texture = l_Texture | c_DocumentBit;
+
+        m_Keys.push_back({ l_Component->World.SortingLayer, l_Component->SortOrder, static_cast<std::uint32_t>(m_Keys.size()) });
+        m_EntityIDs.push_back(ToPickID(entity.GetHandle()));
+    }
+
+    void Renderer2D::PlaceWorldQuads(const glm::mat4& viewProjection)
+    {
+        for (const WorldQuad& it_Quad : m_WorldQuads)
+        {
+            const glm::mat4 l_World = GetWorldUIMatrix(it_Quad.Settings, it_Quad.Size, it_Quad.World, viewProjection);
+            SpriteInstance& l_Instance = m_Instances[it_Quad.Instance];
+            for (std::size_t it_Row = 0; it_Row < 3; ++it_Row)
+            {
+                for (std::size_t it_Column = 0; it_Column < 4; ++it_Column)
+                {
+                    l_Instance.Rows[it_Row * 4 + it_Column] = l_World[static_cast<glm::length_t>(it_Column)][static_cast<glm::length_t>(it_Row)];
+                }
+            }
+        }
     }
 
     // Sorted by layer, then order in layer, then hierarchy order, and drawn back to front in one instanced draw: each sprite names its own texture, so a change of texture never splits it
@@ -336,7 +390,7 @@ namespace Trinity
     {
         TR_PROFILE_FUNCTION();
 
-        m_Statistics = { static_cast<std::uint32_t>(m_Instances.size()), 0, static_cast<std::uint32_t>(m_Textures.size()) };
+        m_Statistics = { static_cast<std::uint32_t>(m_Instances.size()), 0, static_cast<std::uint32_t>(m_Textures.size()), static_cast<std::uint32_t>(m_WorldQuads.size()) };
         if (m_Instances.empty())
         {
             return;

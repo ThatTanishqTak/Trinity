@@ -7,6 +7,7 @@
 #include "Trinity/Renderer/Renderer2D.hpp"
 #include "Trinity/Renderer/Renderer3D.hpp"
 #include "Trinity/Renderer/ToneMapping.hpp"
+#include "Trinity/Renderer/WorldUI.hpp"
 #include "Trinity/RHI/Device.hpp"
 
 #include <array>
@@ -59,7 +60,7 @@ namespace Trinity
         entt::entity Entity = entt::null;
     };
 
-    // Each frame is a frame graph that draws every view in turn, the main view first. A view has scene and display targets of its own, a size, tone mapping, and a scene submitted to it with its options, ID targets and picks. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. In the main view, layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns each view's scene into a display target of sRGB-encoded 8-bit values. The output pass copies the main view's to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space, where it can show any view's display target. A scene that asks for entity IDs also has its sprites' drawn after the scene pass, a pixel picked from them and read back without waiting, and its selection outlined over the tonemapped image. A view overlay, such as a game's UI, draws over each view's display target last. Each added output gets a pass of its own
+    // Each frame is a frame graph that draws every view in turn, the main view first. A view has scene and display targets of its own, a size, tone mapping, and a scene submitted to it with its options, ID targets and picks. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. In the main view, layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns each view's scene into a display target of sRGB-encoded 8-bit values. The output pass copies the main view's to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space, where it can show any view's display target. A scene that asks for entity IDs also has its sprites' drawn after the scene pass, a pixel picked from them and read back without waiting, and its selection outlined over the tonemapped image. A view overlay, such as a game's UI, draws over each view's display target last. A world UI source's documents are drawn into their textures before any view, for the scenes' quads to show. Each added output gets a pass of its own
     class TRINITY_API Renderer
     {
     public:
@@ -105,6 +106,8 @@ namespace Trinity
 
         // One at a time, or none. It must outlive every frame it is set for
         void SetViewOverlay(ViewOverlay* overlay) { m_Overlay = overlay; }
+        // One at a time, or none, for every view, Renderer2D and Renderer3D alike. It must outlive every frame it is set for
+        void SetWorldUISource(WorldUISource* source);
 
         [[nodiscard]] Renderer2D& GetRenderer2D() { return *m_Renderer2D; }
         [[nodiscard]] MaterialLoader& GetMaterialLoader() { return *m_MaterialLoader; }
@@ -208,6 +211,7 @@ namespace Trinity
         Scope<Renderer3D> m_Renderer3D;
         Scope<FrameGraph> m_FrameGraph;
         ViewOverlay* m_Overlay = nullptr;
+        WorldUISource* m_WorldUI = nullptr;
 
         Scope<RHI::SwapChain> m_SwapChain;
         RHI::TextureHandle m_OffscreenTarget;

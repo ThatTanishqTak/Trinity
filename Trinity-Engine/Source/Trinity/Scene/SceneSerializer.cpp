@@ -1159,9 +1159,25 @@ namespace Trinity
             writer.Write("ScreenMatchMode", ToString(component.Panel.ScreenMatchMode));
             writer.Write("Match", component.Panel.Match);
             writer.Write("ReferenceDpi", component.Panel.ReferenceDpi);
+            writer.Write("RenderMode", ToString(component.RenderMode));
+            writer.Write("WorldSorting", ToString(component.World.Sorting));
+            writer.Write("WorldSortingLayer", component.World.SortingLayer);
+            writer.Write("WorldSizeMode", ToString(component.World.SizeMode));
+            writer.Write("WorldSize", glm::vec2(component.World.Size));
+            writer.Write("PixelsPerUnit", component.World.PixelsPerUnit);
+            writer.Write("Pivot", component.World.Pivot);
+            writer.Write("FaceCamera", component.World.FaceCamera);
         }
 
-        // A mode this build lacks loads as the default, and a reference resolution as whole pixels within UIPanelSettings::c_MaxReferenceSize
+        // Whole pixels within 0 and the largest, a value that is not a number as 0
+        glm::uvec2 ToPixels(const glm::vec2& value, std::uint32_t largest)
+        {
+            const glm::vec2 l_Clamped = glm::clamp(glm::round(value), glm::vec2(0.0f), glm::vec2(static_cast<float>(largest)));
+
+            return glm::uvec2(std::isfinite(l_Clamped.x) ? l_Clamped.x : 0.0f, std::isfinite(l_Clamped.y) ? l_Clamped.y : 0.0f);
+        }
+
+        // A mode this build lacks loads as the default, a reference resolution as whole pixels within UIPanelSettings::c_MaxReferenceSize, and a world size within 1 and UIWorldSettings::c_MaxSize
         void LoadUIDocument(UIDocumentComponent& component, const ComponentReader& reader)
         {
             reader.Read("Document", component.Document);
@@ -1177,8 +1193,7 @@ namespace Trinity
             glm::vec2 l_Reference(component.Panel.ReferenceResolution);
             if (reader.Read("ReferenceResolution", l_Reference))
             {
-                const glm::vec2 l_Clamped = glm::clamp(glm::round(l_Reference), glm::vec2(0.0f), glm::vec2(static_cast<float>(UIPanelSettings::c_MaxReferenceSize)));
-                component.Panel.ReferenceResolution = glm::uvec2(std::isfinite(l_Clamped.x) ? l_Clamped.x : 0.0f, std::isfinite(l_Clamped.y) ? l_Clamped.y : 0.0f);
+                component.Panel.ReferenceResolution = ToPixels(l_Reference, UIPanelSettings::c_MaxReferenceSize);
             }
 
             if (reader.Read("ScreenMatchMode", l_Mode))
@@ -1188,6 +1203,31 @@ namespace Trinity
 
             reader.Read("Match", component.Panel.Match);
             reader.Read("ReferenceDpi", component.Panel.ReferenceDpi);
+            if (reader.Read("RenderMode", l_Mode))
+            {
+                component.RenderMode = FindUIRenderMode(l_Mode).value_or(UIRenderMode::Screen);
+            }
+
+            if (reader.Read("WorldSorting", l_Mode))
+            {
+                component.World.Sorting = FindUIWorldSorting(l_Mode).value_or(UIWorldSettings().Sorting);
+            }
+
+            reader.Read("WorldSortingLayer", component.World.SortingLayer);
+            if (reader.Read("WorldSizeMode", l_Mode))
+            {
+                component.World.SizeMode = FindUIWorldSizeMode(l_Mode).value_or(UIWorldSettings().SizeMode);
+            }
+
+            glm::vec2 l_Size(component.World.Size);
+            if (reader.Read("WorldSize", l_Size))
+            {
+                component.World.Size = glm::max(ToPixels(l_Size, UIWorldSettings::c_MaxSize), glm::uvec2(1));
+            }
+
+            reader.Read("PixelsPerUnit", component.World.PixelsPerUnit);
+            reader.Read("Pivot", component.World.Pivot);
+            reader.Read("FaceCamera", component.World.FaceCamera);
         }
 
         // Each field on one line with its type, so a class no loaded code has still saves and loads every value exactly

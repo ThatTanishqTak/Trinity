@@ -8,6 +8,7 @@
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
+#include "Trinity/UI/UIWorldSettings.hpp"
 
 #include <glm/gtc/constants.hpp>
 
@@ -107,7 +108,18 @@ namespace Trinity
             std::uint32_t Entity = 0;
         };
 
+        // Laid out as WorldUI.slang reads it: the quad's world matrix and the view-projection together as four columns, the document's texture and its sampler, and the entity
+        struct WorldUIPushData
+        {
+            std::array<glm::vec4, 4> Transform{};
+            std::array<std::uint32_t, 2> Texture{};
+            std::array<std::uint32_t, 2> Sampler{};
+            std::uint32_t Entity = 0;
+            std::uint32_t Padding = 0;
+        };
+
         static_assert(sizeof(PushData) == 32);
+        static_assert(sizeof(WorldUIPushData) == 88);
         static_assert(sizeof(FrameData) == 400);
         static_assert(sizeof(ShadowHeader) == 48);
         static_assert(sizeof(ShadowRecord) == 80);
@@ -202,18 +214,45 @@ namespace Trinity
             draw.Key = (std::uint64_t{ draw.Pipeline } << 62) | (l_Masked << 61) | (std::uint64_t{ draw.Material & 0x1FFFFFFFu } << 32) | std::uint64_t{ draw.Mesh->GetShaderResourceIndex() };
         }
 
-        // From the farthest to the nearest by the view depth of each submesh's bounds' centre, keeping hierarchy order between equals, so each blends over what is behind it
+        // A point's view depth is its dot product with this, the view's third row negated
+        glm::vec4 GetDepthRow(const RenderView& view)
+        {
+            return -glm::vec4(view.View[0][2], view.View[1][2], view.View[2][2], view.View[3][2]);
+        }
+
+        // The view depth of a submesh's bounds' centre
+        float GetViewDepth(const glm::vec4& depthRow, const MeshDraw& draw)
+        {
+            glm::vec3 l_Center;
+            glm::vec3 l_Extents;
+            GetWorldBounds(draw.Mesh->GetSubmeshes()[draw.Submesh].Bounds, draw.World, l_Center, l_Extents);
+
+            return glm::dot(depthRow, glm::vec4(l_Center, 1.0f));
+        }
+
+        // From the farthest to the nearest by the view depth of each submesh's bounds' centre, and each world UI document's quad's, keeping hierarchy order between equals, so each blends over what is behind it. Quads out of the view's frustum are dropped
         void SortBackToFront(SceneDrawList& list)
         {
-            const glm::vec4 l_Depth = -glm::vec4(list.View.View[0][2], list.View.View[1][2], list.View.View[2][2], list.View.View[3][2]);
-            std::ranges::stable_sort(list.Transparent, std::ranges::greater{}, [&l_Depth](const MeshDraw& draw)
+            const glm::vec4 l_Depth = GetDepthRow(list.View);
+            std::ranges::stable_sort(list.Transparent, std::ranges::greater{}, [&l_Depth](const MeshDraw& draw) { return GetViewDepth(l_Depth, draw); });
+
+            const Frustum l_Frustum = Frustum::FromViewProjection(list.View.ViewProjection);
+            const MeshBounds l_Quad{ glm::vec3(-0.5f, -0.5f, 0.0f), glm::vec3(0.5f, 0.5f, 0.0f) };
+            std::erase_if(list.WorldUI, [&l_Frustum, &l_Quad](const WorldUIDraw& draw)
             {
                 glm::vec3 l_Center;
                 glm::vec3 l_Extents;
-                GetWorldBounds(draw.Mesh->GetSubmeshes()[draw.Submesh].Bounds, draw.World, l_Center, l_Extents);
+                GetWorldBounds(l_Quad, draw.World, l_Center, l_Extents);
 
-                return glm::dot(l_Depth, glm::vec4(l_Center, 1.0f));
+                return !l_Frustum.Intersects(l_Center, l_Extents);
             });
+
+            for (WorldUIDraw& it_Draw : list.WorldUI)
+            {
+                it_Draw.Depth = glm::dot(l_Depth, it_Draw.World[3]);
+            }
+
+            std::ranges::stable_sort(list.WorldUI, std::ranges::greater{}, &WorldUIDraw::Depth);
         }
 
         // The cone a spot light lights out to its range lies in this sphere, which is the smallest that holds it
@@ -604,6 +643,7 @@ namespace Trinity
     {
         Draws.clear();
         Transparent.clear();
+        WorldUI.clear();
         Directional = {};
         DirectionalCount = 0;
         Lights.clear();
@@ -647,8 +687,20 @@ namespace Trinity
             m_PickPixelShader = std::move(*l_PickPixel);
         }
 
+        // Without these, world UI documents sorted by depth are not drawn, which is reported once there is one
+        Expected<FileBuffer, FileError> l_WorldUIVertex = FileSystem::ReadFile(std::format("/engine/shaders/WorldUI.VertexMain.{}", l_Extension));
+        Expected<FileBuffer, FileError> l_WorldUIPixel = FileSystem::ReadFile(std::format("/engine/shaders/WorldUI.PixelMain.{}", l_Extension));
+        Expected<FileBuffer, FileError> l_WorldUIPickPixel = FileSystem::ReadFile(std::format("/engine/shaders/WorldUI.PickPixelMain.{}", l_Extension));
+        if (l_WorldUIVertex && l_WorldUIPixel && l_WorldUIPickPixel)
+        {
+            m_WorldUIVertexShader = std::move(*l_WorldUIVertex);
+            m_WorldUIPixelShader = std::move(*l_WorldUIPixel);
+            m_WorldUIPickPixelShader = std::move(*l_WorldUIPickPixel);
+        }
+
         const RHI::TextureUsage l_IDUsage = RHI::TextureUsage::RenderTarget | RHI::TextureUsage::ShaderResource;
         m_EntityIDSupport = { m_Device.IsFormatSupported(c_EntityIDFormat, l_IDUsage, 1), m_Device.IsFormatSupported(c_EntityIDFormat, l_IDUsage, c_SampleCount) };
+
 
         // Without the cluster shader every pixel shades every light, which is right but slow
         const Expected<FileBuffer, FileError> l_Clusters = FileSystem::ReadFile(std::format("/engine/shaders/LightClusters.AssignLights.{}", l_Extension));
@@ -679,6 +731,11 @@ namespace Trinity
     Renderer3D::~Renderer3D()
     {
         for (const PipelineEntry& it_Entry : m_Pipelines)
+        {
+            m_Device.DestroyPipeline(it_Entry.Pipeline);
+        }
+
+        for (const WorldUIPipeline& it_Entry : m_WorldUIPipelines)
         {
             m_Device.DestroyPipeline(it_Entry.Pipeline);
         }
@@ -714,6 +771,7 @@ namespace Trinity
         m_Statistics.PrePassDraws = 0;
         m_Statistics.OpaqueDraws = 0;
         m_Statistics.TransparentDraws = 0;
+        m_Statistics.WorldUIDraws = 0;
         m_Statistics.PipelineChanges = 0;
         m_Statistics.ShadowMaps = 0;
         m_Statistics.ShadowDraws = 0;
@@ -809,7 +867,7 @@ namespace Trinity
         return l_Asset != nullptr && l_Asset->GetAssetType() == EnvironmentAsset::c_AssetType ? static_cast<const EnvironmentAsset*>(l_Asset) : nullptr;
     }
 
-    // Each submesh of each ready mesh in hierarchy order, then culled in batches on the job system, then sorted stably, so draws with equal keys keep hierarchy order
+    // Each submesh of each ready mesh in hierarchy order, with each world UI document sorted by depth, then culled in batches on the job system, then sorted stably, so draws with equal keys keep hierarchy order
     void Renderer3D::Collect(Scene& scene, const RenderView& view, SceneDrawList& list)
     {
         TR_PROFILE_FUNCTION();
@@ -823,6 +881,11 @@ namespace Trinity
         SceneRegistry& l_Registry = scene.GetRegistry();
         for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
+            if (m_WorldUI != nullptr)
+            {
+                CollectWorldUI(scene, it_Entity, view, list);
+            }
+
             const MeshRendererComponent* l_Renderer = l_Registry.try_get<MeshRendererComponent>(it_Entity.GetHandle());
             if (l_Renderer == nullptr || !l_Renderer->Mesh)
             {
@@ -887,6 +950,27 @@ namespace Trinity
         m_Statistics.Submeshes = list.Submeshes;
         m_Statistics.Visible = l_Visible;
         m_Statistics.Pending = list.Pending;
+    }
+
+    // Facing the camera, it faces this view's
+    void Renderer3D::CollectWorldUI(Scene& scene, Entity entity, const RenderView& view, SceneDrawList& list)
+    {
+        const UIDocumentComponent* l_Component = scene.GetRegistry().try_get<UIDocumentComponent>(entity.GetHandle());
+        if (l_Component == nullptr || l_Component->RenderMode != UIRenderMode::World || l_Component->World.Sorting != UIWorldSorting::Depth)
+        {
+            return;
+        }
+
+        const std::optional<WorldUIDocument> l_Document = m_WorldUI->FindWorldDocument(scene, entity.GetUUID());
+        if (!l_Document)
+        {
+            return;
+        }
+
+        WorldUIDraw& l_Draw = list.WorldUI.emplace_back();
+        l_Draw.Document = l_Document->Document;
+        l_Draw.PickID = ToPickID(entity.GetHandle());
+        l_Draw.World = GetWorldUIMatrix(l_Component->World, l_Document->Size, entity.Get<WorldTransformComponent>().Matrix, view.ViewProjection);
     }
 
     // A caster can be out of view and still cast into it, so every candidate that casts shadows, and is not blended, which casts none, is tested against each shadow view: against all six planes of a spot light's, and all but the near plane of a cascade's, since anything between a cascade and the sun casts into it and depth clamping keeps it in the map
@@ -1300,7 +1384,7 @@ namespace Trinity
         };
 
         // The last of the forward passes resolves the multisampled colour into the target
-        const bool l_Blended = !list.Transparent.empty();
+        const bool l_Blended = !list.Transparent.empty() || !list.WorldUI.empty();
         const bool l_Overlay = static_cast<bool>(options.Overlay);
         const FrameGraphTexture l_OpaqueResolve = l_Samples > 1 && !l_Blended && !l_Overlay ? target : FrameGraphTexture{};
         const FrameGraphTexture l_IDs = l_Passes.EntityIDs;
@@ -1322,8 +1406,10 @@ namespace Trinity
 
         if (l_Blended)
         {
+            // The world UI documents' quads read the textures their source drew them into
             const FrameGraphTexture l_Resolve = l_Samples > 1 && !l_Overlay ? target : FrameGraphTexture{};
-            graph.AddPass("Transparent", FrameGraphPassType::Raster, [l_Color, l_Resolve, l_IDs, l_Depth, clearColor, a_Read](FrameGraphPassBuilder& builder)
+            const std::span<const FrameGraphTexture> l_WorldTextures = !list.WorldUI.empty() ? m_WorldUI->GetWorldTextures() : std::span<const FrameGraphTexture>();
+            graph.AddPass("Transparent", FrameGraphPassType::Raster, [l_Color, l_Resolve, l_IDs, l_Depth, clearColor, a_Read, l_WorldTextures](FrameGraphPassBuilder& builder)
             {
                 builder.AddColorAttachment({ l_Color, RHI::LoadOp::Load, clearColor, 0, 0, l_Resolve });
                 if (l_IDs)
@@ -1333,9 +1419,13 @@ namespace Trinity
 
                 builder.SetDepthAttachment({ l_Depth, RHI::LoadOp::Load, 0.0f });
                 a_Read(builder);
+                for (const FrameGraphTexture it_Texture : l_WorldTextures)
+                {
+                    builder.Read(it_Texture, RHI::ResourceState::ShaderResource);
+                }
             }, [this, l_List, l_Format, l_WriteIDs, l_Samples, l_Width, l_Height, a_Shading](const FrameGraphContext& context)
             {
-                RecordDraws(context.GetCommands(), *l_List, l_List->Transparent, l_Format, MeshPass::Transparent, l_WriteIDs, l_Samples, l_Width, l_Height, a_Shading(context));
+                RecordBlended(context.GetCommands(), *l_List, l_Format, l_WriteIDs, l_Samples, l_Width, l_Height, a_Shading(context));
             });
         }
 
@@ -1457,6 +1547,102 @@ namespace Trinity
         {
             (pass == MeshPass::PrePass ? m_Statistics.PrePassDraws : (pass == MeshPass::Opaque ? m_Statistics.OpaqueDraws : m_Statistics.TransparentDraws)) += static_cast<std::uint32_t>(draws.size());
         }
+    }
+
+    // Between the runs of blended submeshes, each quad goes after those no nearer than it, so it blends over them and the nearer ones blend over it
+    void Renderer3D::RecordBlended(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height, const LightInputs& lights)
+    {
+        const std::span<const MeshDraw> l_Transparent = list.Transparent;
+        const glm::vec4 l_Depth = GetDepthRow(list.View);
+        std::size_t l_First = 0;
+        for (const WorldUIDraw& it_Quad : list.WorldUI)
+        {
+            std::size_t l_End = l_First;
+            while (l_End < l_Transparent.size() && GetViewDepth(l_Depth, l_Transparent[l_End]) >= it_Quad.Depth)
+            {
+                ++l_End;
+            }
+
+            RecordDraws(commands, list, l_Transparent.subspan(l_First, l_End - l_First), colorFormat, MeshPass::Transparent, entityIDs, sampleCount, width, height, lights);
+            l_First = l_End;
+            DrawWorldUI(commands, list, it_Quad, colorFormat, entityIDs, sampleCount);
+        }
+
+        RecordDraws(commands, list, l_Transparent.subspan(l_First), colorFormat, MeshPass::Transparent, entityIDs, sampleCount, width, height, lights);
+    }
+
+    // A quad whose document drew no texture this frame is passed over
+    void Renderer3D::DrawWorldUI(RHI::CommandList& commands, const SceneDrawList& list, const WorldUIDraw& draw, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount)
+    {
+        const std::uint32_t l_Texture = m_WorldUI != nullptr ? m_WorldUI->GetWorldTextureIndex(draw.Document) : RHI::c_NoBindlessIndex;
+        const RHI::PipelineHandle l_Pipeline = l_Texture != RHI::c_NoBindlessIndex ? GetWorldUIPipeline(colorFormat, entityIDs, sampleCount) : RHI::PipelineHandle();
+        if (!l_Pipeline)
+        {
+            return;
+        }
+
+        const glm::mat4 l_Transform = list.View.ViewProjection * draw.World;
+        WorldUIPushData l_Push;
+        for (glm::length_t it_Column = 0; it_Column < 4; ++it_Column)
+        {
+            l_Push.Transform[static_cast<std::size_t>(it_Column)] = l_Transform[it_Column];
+        }
+
+        l_Push.Texture = { l_Texture, 0 };
+        l_Push.Sampler = { m_Device.GetSamplerIndex(m_ClampSampler), 0 };
+        l_Push.Entity = draw.PickID;
+
+        commands.SetPipeline(l_Pipeline);
+        commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+        commands.Draw(4, 1, 0, 0);
+        ++m_Statistics.WorldUIDraws;
+        ++m_Statistics.PipelineChanges;
+    }
+
+    // Unlit and seen from both sides, tested against the opaque depth as a blended submesh is, writing none, and blending its straight alpha. Made the first time each is needed, and a failed one is kept, so it is not tried again every frame
+    RHI::PipelineHandle Renderer3D::GetWorldUIPipeline(RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount)
+    {
+        const auto a_Found = std::ranges::find_if(m_WorldUIPipelines, [&](const WorldUIPipeline& entry) { return entry.Format == colorFormat && entry.EntityIDs == entityIDs && entry.SampleCount == sampleCount; });
+        if (a_Found != m_WorldUIPipelines.end())
+        {
+            return a_Found->Pipeline;
+        }
+
+        if (m_WorldUIVertexShader.empty() || m_WorldUIPixelShader.empty() || m_WorldUIPickPixelShader.empty())
+        {
+            if (!std::exchange(m_ReportedNoWorldUIShaders, true))
+            {
+                TR_CORE_ERROR("Renderer3D: the WorldUI shaders are missing from /engine/shaders, so world UI documents sorted by depth are not drawn");
+            }
+
+            return {};
+        }
+
+        const std::array<RHI::Format, 2> l_ColorFormats{ colorFormat, c_EntityIDFormat };
+
+        RHI::GraphicsPipelineDescription l_Description;
+        l_Description.VertexShader = { m_WorldUIVertexShader, "VertexMain" };
+        l_Description.PixelShader = entityIDs ? RHI::ShaderDescription{ m_WorldUIPickPixelShader, "PickPixelMain" } : RHI::ShaderDescription{ m_WorldUIPixelShader, "PixelMain" };
+        l_Description.ColorFormats = std::span<const RHI::Format>(l_ColorFormats).first(entityIDs ? 2 : 1);
+        l_Description.DepthFormat = c_DepthFormat;
+        l_Description.SampleCount = sampleCount;
+        l_Description.Topology = RHI::PrimitiveTopology::TriangleStrip;
+        l_Description.Cull = RHI::CullMode::None;
+        l_Description.DepthTest = true;
+        l_Description.DepthWrite = false;
+        l_Description.DepthCompare = c_TransparentCompare;
+        l_Description.AlphaBlend = true;
+        l_Description.DebugName = "World UI";
+
+        const RHI::PipelineHandle l_Pipeline = m_Device.CreateGraphicsPipeline(l_Description);
+        if (!l_Pipeline)
+        {
+            TR_CORE_ERROR("Renderer3D: the world UI pipeline for {} targets with {} sample(s) could not be created", RHI::ToString(colorFormat), sampleCount);
+        }
+
+        m_WorldUIPipelines.push_back({ colorFormat, entityIDs, sampleCount, l_Pipeline });
+
+        return l_Pipeline;
     }
 
     // Each view's casters into its tile, through its view-projection, with the material table and samplers a masked caster cuts itself out with, which is all of the frame's constants the shaders read here

@@ -6,8 +6,10 @@
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
+#include "Trinity/Renderer/WorldUI.hpp"
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/Scene/Entity.hpp"
+#include "Trinity/UI/UIWorldSettings.hpp"
 
 #include <glm/glm.hpp>
 
@@ -26,6 +28,7 @@ namespace Trinity
 
     [[nodiscard]] TRINITY_API Entity PickSprite(Scene& scene, const glm::vec2& worldPoint);
 
+    // Draws a scene's SpriteRenderers, and the world UI documents sorted with them, which are drawn as sprites showing their textures
     class TRINITY_API Renderer2D
     {
     public:
@@ -34,6 +37,8 @@ namespace Trinity
             std::uint32_t Sprites = 0;
             std::uint32_t DrawCalls = 0;
             std::uint32_t Textures = 0;
+            // Of the sprites, the world UI documents'
+            std::uint32_t WorldDocuments = 0;
         };
 
         Renderer2D(RHI::Device& device, std::uint32_t whiteTexture);
@@ -44,6 +49,8 @@ namespace Trinity
 
         void BeginFrame();
         void ReleaseTextures();
+        // What a scene's world UI documents sorted with the sprites are drawn from, or none, when they are not drawn
+        void SetWorldUISource(const WorldUISource* source) { m_WorldUI = source; }
 
         bool DrawScene(RHI::CommandList& commands, Scene& scene, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
         void DrawScene(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
@@ -68,6 +75,15 @@ namespace Trinity
             std::uint32_t Index = 0;
         };
 
+        // A world UI document's sprite, which is put in place once the view it is drawn through is known, as it may face the camera
+        struct WorldQuad
+        {
+            std::uint32_t Instance = 0;
+            glm::mat4 World{ 1.0f };
+            UIWorldSettings Settings;
+            glm::uvec2 Size{ 0 };
+        };
+
         struct CachedTexture
         {
             AssetRef<TextureAsset> Texture;
@@ -77,6 +93,9 @@ namespace Trinity
         using TextureCache = std::unordered_map<UUID, CachedTexture, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, CachedTexture>, MemoryTag::Renderer>>;
 
         const CameraComponent* CollectSprites(Scene& scene, glm::mat4& cameraWorld);
+        void CollectWorldQuad(Scene& scene, Entity entity);
+        // Each world UI document's sprite through this view-projection
+        void PlaceWorldQuads(const glm::mat4& viewProjection);
         void DrawSprites(RHI::CommandList& commands, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
         [[nodiscard]] std::uint32_t ResolveTexture(UUID id);
         [[nodiscard]] RHI::PipelineHandle GetPipeline(RHI::Format targetFormat);
@@ -97,6 +116,8 @@ namespace Trinity
         std::vector<SortKey, TaggedAllocator<SortKey, MemoryTag::Renderer>> m_Keys;
         // Each instance's entity, as ToPickID gives it, in the same order
         std::vector<std::uint32_t, TaggedAllocator<std::uint32_t, MemoryTag::Renderer>> m_EntityIDs;
+        std::vector<WorldQuad, TaggedAllocator<WorldQuad, MemoryTag::Renderer>> m_WorldQuads;
+        const WorldUISource* m_WorldUI = nullptr;
         TextureCache m_Textures;
         Statistics m_Statistics;
         std::uint64_t m_Frame = 0;

@@ -506,6 +506,15 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
+// The scene's world UI documents, drawn in place as the Game panel draws them, without its screen documents. That is the Game panel's scene but in prefab mode, so the two share its documents, and the prefab's in prefab mode
+void ViewportPanel::ShowUI()
+{
+    if (Trinity::GameUI* l_UI = Trinity::Application::Get().GetGameUI(); l_UI != nullptr)
+    {
+        l_UI->ShowWorld(m_Session.GetScene());
+    }
+}
+
 // The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective or an orthographic camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image, among them the selection's colliders and characters, or with Physics on every collider, character and joint, and where a playing copy's bodies touch, which the copy is asked to keep only then, and how its characters stand and move. After the transform pass
 void ViewportPanel::PrepareScene()
 {

@@ -18,3 +18,9 @@ float3 LinearToSrgb(float3 color)
 {
     return float3(LinearToSrgb(color.r), LinearToSrgb(color.g), LinearToSrgb(color.b));
 }
+
+// A world UI document's texel, sRGB-encoded and multiplied by its alpha as RmlUi draws it, as a linear colour with straight alpha, which the scene blends. Where nothing was drawn there is no colour to recover
+float4 DocumentToLinear(float4 texel)
+{
+    return texel.a > 0.0 ? float4(SrgbToLinear(saturate(texel.rgb / texel.a)), texel.a) : float4(0.0, 0.0, 0.0, 0.0);
+}

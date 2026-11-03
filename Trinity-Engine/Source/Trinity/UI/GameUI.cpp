@@ -11,6 +11,7 @@
 #include "Trinity/Input/InputActionData.hpp"
 #include "Trinity/Input/InputActions.hpp"
 #include "Trinity/Input/InputActionsRuntime.hpp"
+#include "Trinity/Renderer/WorldUI.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
@@ -19,6 +20,7 @@
 #include "Trinity/UI/GameUIRenderInterface.hpp"
 #include "Trinity/UI/GameUISystemInterface.hpp"
 #include "Trinity/UI/UIAssets.hpp"
+#include "Trinity/UI/UIWorldSettings.hpp"
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Core.h>
@@ -38,6 +40,7 @@
 #include <cmath>
 #include <format>
 #include <optional>
+#include <span>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -303,8 +306,8 @@ namespace Trinity
         };
     }
 
-    // RmlUi keeps the interfaces until it shuts down, so they live as long as the UI does. Each document has a context of its own and keeps the list it recorded until it records again, which its view's overlay pass plays back with the view's other documents', in their sort order
-    struct GameUI::State final : ViewOverlay
+    // RmlUi keeps the interfaces until it shuts down, so they live as long as the UI does. Each document has a context of its own and keeps the list it recorded until it records again, which its view's overlay pass plays back with the view's other documents', in their sort order, or a world document's own pass plays back into its texture
+    struct GameUI::State final : ViewOverlay, WorldUISource
     {
         struct Document
         {
@@ -320,19 +323,33 @@ namespace Trinity
             // What breaks a tie of sort orders: the order loaded, or the hierarchy's order for a scene's
             std::uint64_t Sequence = 0;
             bool Visible = true;
+            // A world document has no view, and its World settings and the size its texture is at the last Update, 0 when it draws nothing
+            bool World = false;
+            UIWorldSettings WorldSettings;
+            glm::uvec2 TextureSize{ 0 };
         };
 
-        // A UIDocument's document, by its entity, kept while ShowScene sees it. One whose asset could not be loaded keeps no document, and is not tried again until it names another
+        // A UIDocument's document, by its entity, kept while ShowScene or ShowWorld sees it: a screen document over a view, and a world document in a scene, which is known by its address alone and never read through. One whose asset could not be loaded keeps no document, and is not tried again until it names another
         struct SceneDocument
         {
             ViewID View = Renderer::c_MainView;
+            const Scene* Owner = nullptr;
+            bool World = false;
             UUID Entity;
             UUID Asset;
             UIDocumentID Document = c_NoDocument;
             bool Shown = false;
         };
 
-        State(RHI::Device& device, RHI::Format displayFormat) : Rendering(device, displayFormat, Renderer::c_OverlayStencilFormat)
+        // A world document drawn in this frame's graph, into its texture, whose bindless index is known once its pass has run
+        struct WorldPass
+        {
+            UIDocumentID Document = c_NoDocument;
+            FrameGraphTexture Texture;
+            std::uint32_t Index = RHI::c_NoBindlessIndex;
+        };
+
+        State(RHI::Device& device, RHI::Format displayFormat) : Rendering(device, displayFormat, Renderer::c_OverlayStencilFormat), DisplayFormat(displayFormat)
         {
 
         }
@@ -363,6 +380,11 @@ namespace Trinity
         InputAction Cancel;
         GameUIVector<Document*> InputDocuments;
         Rml::SharedPtr<Rml::StyleSheetContainer> BaseStyle;
+        RHI::Format DisplayFormat = RHI::Format::Unknown;
+        GameUIVector<WorldPass> WorldPasses;
+        GameUIVector<FrameGraphTexture> WorldTextures;
+        // The scene each view was last shown, whose world documents go as the view forgets its scene
+        GameUIVector<std::pair<ViewID, const Scene*>> ViewScenes;
 
         // The element with the focus, but neither the document's body nor the context's root, which stand for none
         [[nodiscard]] static Rml::Element* GetFocusedElement(const Document& document)
@@ -408,7 +430,7 @@ namespace Trinity
             Direction = NavigateDirection::None;
             for (Document& it_Document : Documents)
             {
-                if (InputView && it_Document.View == *InputView)
+                if (InputView && !it_Document.World && it_Document.View == *InputView)
                 {
                     it_Document.Context->ProcessMouseLeave();
                 }
@@ -427,6 +449,43 @@ namespace Trinity
             const auto a_Document = std::ranges::find(Documents, document, &Document::ID);
 
             return a_Document != Documents.end() ? &*a_Document : nullptr;
+        }
+
+        // Into a context of its own of this size, shown, with the base style under its own. c_NoDocument when it cannot be, which is logged
+        UIDocumentID Load(std::string_view path, ViewID view, Rml::Vector2i size)
+        {
+            const UIDocumentID l_ID = NextDocument++;
+            Rml::Context* l_Context = Rml::CreateContext(GetContextName(l_ID), size);
+            if (l_Context == nullptr)
+            {
+                TR_CORE_ERROR("GameUI: {} could not have a context, so it is not loaded", path);
+
+                return c_NoDocument;
+            }
+
+            Rml::ElementDocument* l_Document = l_Context->LoadDocument(Rml::String(path));
+            if (l_Document == nullptr)
+            {
+                Rml::RemoveContext(GetContextName(l_ID));
+                TR_CORE_ERROR("GameUI: {} could not be loaded", path);
+
+                return c_NoDocument;
+            }
+
+            ApplyBaseStyle(*l_Document);
+            l_Document->Show();
+
+            Document& l_Entry = Documents.emplace_back();
+            l_Entry.ID = l_ID;
+            l_Entry.View = view;
+            l_Entry.Context = l_Context;
+            l_Entry.Rml = l_Document;
+            l_Entry.Path = Rml::String(path);
+            l_Entry.Panel.ScaleMode = UIScaleMode::ConstantPixelSize;
+            l_Entry.Sequence = NextSequence++;
+            Sorted = false;
+
+            return l_ID;
         }
 
         // Removing the context frees it and its document at once. What they drew is released as the next frame begins
@@ -466,7 +525,7 @@ namespace Trinity
             Needs l_Needs = Needs::Nothing;
             for (const Document& it_Document : Documents)
             {
-                if (it_Document.View != view || it_Document.DrawList.Commands.empty())
+                if (it_Document.World || it_Document.View != view || it_Document.DrawList.Commands.empty())
                 {
                     continue;
                 }
@@ -486,11 +545,119 @@ namespace Trinity
         {
             for (const Document& it_Document : Documents)
             {
-                if (it_Document.View == view && !it_Document.DrawList.Commands.empty())
+                if (!it_Document.World && it_Document.View == view && !it_Document.DrawList.Commands.empty())
                 {
                     Rendering.Draw(commands, it_Document.DrawList, width, height, stencil);
                 }
             }
+        }
+
+        // One that recorded nothing at its last Update, such as a hidden one, or has no size, draws nothing, and so has no quad
+        [[nodiscard]] std::optional<WorldUIDocument> FindWorldDocument(const Scene & scene, UUID entity) const override
+        {
+            const auto a_Entry = std::ranges::find_if(SceneDocuments, [&](const SceneDocument& entry) { return entry.World && entry.Owner == &scene && entry.Entity == entity; });
+            const Document* l_Document = a_Entry != SceneDocuments.end() ? FindDocument(a_Entry->Document) : nullptr;
+            if (l_Document == nullptr || !Draws(*l_Document))
+            {
+                return std::nullopt;
+            }
+
+            return WorldUIDocument{ l_Document->ID, l_Document->TextureSize };
+        }
+
+        // Each into a texture of its size from the graph's pool, cleared to transparent, with a stencil target of its size for one that clips through a mask. The list it plays back is the document's own, which nothing changes until the next Update, after the graph has run
+        void AddWorldPasses(FrameGraph & graph) override
+        {
+            WorldPasses.clear();
+            WorldTextures.clear();
+            for (const Document& it_Document : Documents)
+            {
+                if (!it_Document.World || !Draws(it_Document))
+                {
+                    continue;
+                }
+
+                const std::uint32_t l_Width = it_Document.TextureSize.x;
+                const std::uint32_t l_Height = it_Document.TextureSize.y;
+                RHI::TextureDescription l_Description;
+                l_Description.Width = l_Width;
+                l_Description.Height = l_Height;
+                l_Description.TextureFormat = DisplayFormat;
+                l_Description.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+                l_Description.DebugName = "World UI";
+                const FrameGraphTexture l_Texture = graph.CreateTexture("World UI", l_Description);
+
+                FrameGraphTexture l_Stencil;
+                if (it_Document.DrawList.ClipMask && Rendering.CanClip())
+                {
+                    l_Description.TextureFormat = Renderer::c_OverlayStencilFormat;
+                    l_Description.DebugName = "World UI stencil";
+                    l_Stencil = graph.CreateTexture("World UI stencil", l_Description);
+                }
+
+                const std::size_t l_Slot = WorldPasses.size();
+                WorldPasses.push_back({ it_Document.ID, l_Texture });
+                WorldTextures.push_back(l_Texture);
+                const GameUIDrawList* l_List = &it_Document.DrawList;
+                graph.AddPass("World UI", FrameGraphPassType::Raster, [l_Texture, l_Stencil](FrameGraphPassBuilder& builder)
+                {
+                    builder.AddColorAttachment({ l_Texture, RHI::LoadOp::Clear,{ 0.0f, 0.0f, 0.0f, 0.0f } });
+                    if (l_Stencil)
+                    {
+                        builder.SetDepthAttachment({ l_Stencil, RHI::LoadOp::Clear, 0.0f, 0 });
+                    }
+                }, [this, l_List, l_Slot, l_Texture, l_Stencil, l_Width, l_Height](const FrameGraphContext& context)
+                {
+                    Rendering.Draw(context.GetCommands(), *l_List, l_Width, l_Height, static_cast<bool>(l_Stencil));
+                    WorldPasses[l_Slot].Index = context.GetDevice().GetShaderResourceIndex(context.GetTexture(l_Texture));
+                });
+            }
+        }
+
+        [[nodiscard]] std::span<const FrameGraphTexture> GetWorldTextures() const override
+        {
+            return WorldTextures;
+        }
+
+        [[nodiscard]] std::uint32_t GetWorldTextureIndex(std::uint32_t document) const override
+        {
+            const auto a_Pass = std::ranges::find(WorldPasses, document, &WorldPass::Document);
+
+            return a_Pass != WorldPasses.end() ? a_Pass->Index : RHI::c_NoBindlessIndex;
+        }
+
+        // A fixed size is its own, and a dynamic one is laid out in the largest there is, then takes from the context's top left to the body's bottom right, so a margin on the body is kept around it, and its absolute positioning lets it shrink to its content where it sets no size
+        void UpdateWorld(Document & document)
+        {
+            const UIWorldSettings& l_Settings = document.WorldSettings;
+            const bool l_Dynamic = l_Settings.SizeMode == UIWorldSizeMode::Dynamic;
+            const glm::uvec2 l_Fixed = glm::clamp(l_Settings.Size, glm::uvec2(1), glm::uvec2(UIWorldSettings::c_MaxSize));
+            const Rml::Vector2i l_Size = l_Dynamic ? Rml::Vector2i(static_cast<int>(UIWorldSettings::c_MaxSize)) : Rml::Vector2i(static_cast<int>(l_Fixed.x), static_cast<int>(l_Fixed.y));
+            if (document.Context->GetDimensions() != l_Size)
+            {
+                document.Context->SetDimensions(l_Size);
+            }
+
+            document.Scale = document.Panel.GetWorldScale();
+            document.Context->SetDensityIndependentPixelRatio(document.Scale);
+            document.Context->Update();
+            document.TextureSize = l_Fixed;
+            if (l_Dynamic)
+            {
+                const Rml::Vector2f l_Corner = document.Rml->GetAbsoluteOffset(Rml::BoxArea::Border) + document.Rml->GetBox().GetSize(Rml::BoxArea::Border);
+                const auto a_Pixels = [](float extent) { return std::isfinite(extent) ? static_cast<std::uint32_t>(std::clamp(std::ceil(extent), 0.0f, static_cast<float>(UIWorldSettings::c_MaxSize))) : 0u; };
+                document.TextureSize = glm::uvec2(a_Pixels(l_Corner.x), a_Pixels(l_Corner.y));
+            }
+
+            Rendering.Begin(document.DrawList);
+            document.Context->Render();
+            Rendering.End();
+        }
+
+        // A world document draws when its last Update recorded something into a texture of some size, and the shaders are there to draw it
+        [[nodiscard]] bool Draws(const Document & document) const
+        {
+            return Rendering.CanDraw() && document.TextureSize.x != 0 && document.TextureSize.y != 0 && !document.DrawList.Commands.empty();
         }
     };
 
@@ -520,6 +687,7 @@ namespace Trinity
         InputActionsRuntime::SetUIHandler([this](Timestep timestep) { ProcessInput(timestep); });
 
         m_Renderer.SetViewOverlay(m_State.get());
+        m_Renderer.SetWorldUISource(m_State.get());
         TR_CORE_INFO("GameUI: RmlUi {} started", Rml::GetVersion());
     }
 
@@ -528,9 +696,13 @@ namespace Trinity
     {
         InputActionsRuntime::SetUIHandler(nullptr);
         m_Renderer.SetViewOverlay(nullptr);
+        m_Renderer.SetWorldUISource(nullptr);
         {
             const MemoryTagScope l_Scope(MemoryTag::GameUI);
             m_State->InputDocuments = GameUIVector<State::Document*>();
+            m_State->WorldPasses = GameUIVector<State::WorldPass>();
+            m_State->WorldTextures = GameUIVector<FrameGraphTexture>();
+            m_State->ViewScenes = GameUIVector<std::pair<ViewID, const Scene*>>();
             m_State->BaseStyle.reset();
             if (m_State->Started)
             {
@@ -565,39 +737,8 @@ namespace Trinity
         }
 
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
-        const UIDocumentID l_ID = m_State->NextDocument++;
-        const Rml::Vector2i l_Size(static_cast<int>(std::max(m_Renderer.GetSceneWidth(view), 1u)), static_cast<int>(std::max(m_Renderer.GetSceneHeight(view), 1u)));
-        Rml::Context* l_Context = Rml::CreateContext(GetContextName(l_ID), l_Size);
-        if (l_Context == nullptr)
-        {
-            TR_CORE_ERROR("GameUI: {} could not have a context, so it is not loaded", path);
 
-            return c_NoDocument;
-        }
-
-        Rml::ElementDocument* l_Document = l_Context->LoadDocument(Rml::String(path));
-        if (l_Document == nullptr)
-        {
-            Rml::RemoveContext(GetContextName(l_ID));
-            TR_CORE_ERROR("GameUI: {} could not be loaded", path);
-
-            return c_NoDocument;
-        }
-
-        m_State->ApplyBaseStyle(*l_Document);
-        l_Document->Show();
-
-        State::Document& l_Entry = m_State->Documents.emplace_back();
-        l_Entry.ID = l_ID;
-        l_Entry.View = view;
-        l_Entry.Context = l_Context;
-        l_Entry.Rml = l_Document;
-        l_Entry.Path = Rml::String(path);
-        l_Entry.Panel.ScaleMode = UIScaleMode::ConstantPixelSize;
-        l_Entry.Sequence = m_State->NextSequence++;
-        m_State->Sorted = false;
-
-        return l_ID;
+        return m_State->Load(path, view, Rml::Vector2i(static_cast<int>(std::max(m_Renderer.GetSceneWidth(view), 1u)), static_cast<int>(std::max(m_Renderer.GetSceneHeight(view), 1u))));
     }
 
     void GameUI::UnloadDocument(UIDocumentID document)
@@ -671,7 +812,6 @@ namespace Trinity
         return l_Document != nullptr ? l_Document->Scale : 1.0f;
     }
 
-    // The hierarchy is walked only when two documents share a sort order, which is all its order decides
     void GameUI::ShowScene(Scene& scene, ViewID view, bool interactive)
     {
         if (!m_State->Started)
@@ -688,6 +828,35 @@ namespace Trinity
             m_State->InputView = interactive ? std::optional<ViewID>(view) : std::nullopt;
         }
 
+        const auto a_Shown = std::ranges::find(m_State->ViewScenes, view, &std::pair<ViewID, const Scene*>::first);
+        if (a_Shown != m_State->ViewScenes.end())
+        {
+            a_Shown->second = &scene;
+        }
+        else
+        {
+            m_State->ViewScenes.emplace_back(view, &scene);
+        }
+
+        ShowDocuments(scene, view);
+    }
+
+    void GameUI::ShowWorld(Scene& scene)
+    {
+        if (!m_State->Started)
+        {
+            return;
+        }
+
+        TR_PROFILE_FUNCTION();
+
+        const MemoryTagScope l_Scope(MemoryTag::GameUI);
+        ShowDocuments(scene, std::nullopt);
+    }
+
+    // The hierarchy is walked only when two screen documents share a sort order, which is all its order decides. A world document is the scene's, whichever view, or none, it is shown through, so a scene shown twice in a frame keeps one of each
+    void GameUI::ShowDocuments(Scene& scene, std::optional<ViewID> view)
+    {
         SceneRegistry& l_Registry = scene.GetRegistry();
         const auto l_Components = l_Registry.view<UIDocumentComponent, IDComponent>();
         GameUIVector<std::int32_t>& l_Orders = m_State->SortOrders;
@@ -696,7 +865,10 @@ namespace Trinity
         l_Ranks.clear();
         for (const auto [it_Entity, it_Component, it_ID] : l_Components.each())
         {
-            l_Orders.push_back(it_Component.SortOrder);
+            if (view && it_Component.RenderMode == UIRenderMode::Screen)
+            {
+                l_Orders.push_back(it_Component.SortOrder);
+            }
         }
 
         std::ranges::sort(l_Orders);
@@ -705,7 +877,7 @@ namespace Trinity
             std::uint64_t l_Rank = 0;
             for (Entity it_Walked = scene.GetFirstRoot(); it_Walked; it_Walked = scene.GetNextInHierarchyOrder(it_Walked))
             {
-                if (it_Walked.Has<UIDocumentComponent>())
+                if (const UIDocumentComponent* l_Walked = l_Registry.try_get<UIDocumentComponent>(it_Walked.GetHandle()); l_Walked != nullptr && l_Walked->RenderMode == UIRenderMode::Screen)
                 {
                     l_Ranks.emplace_back(it_Walked.GetUUID(), l_Rank++);
                 }
@@ -715,12 +887,20 @@ namespace Trinity
         const AssetRegistry* l_Assets = AssetManager::GetRegistry();
         for (const auto [it_Entity, it_Component, it_ID] : l_Components.each())
         {
+            const bool l_World = it_Component.RenderMode == UIRenderMode::World;
+            if (!l_World && !view)
+            {
+                continue;
+            }
+
             const UUID l_EntityID = it_ID.ID;
-            auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.View == view && entry.Entity == l_EntityID; });
+            auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.Entity == l_EntityID && entry.World == l_World && (l_World ? entry.Owner == &scene : entry.View == *view); });
             if (a_Entry == m_State->SceneDocuments.end())
             {
                 State::SceneDocument& l_New = m_State->SceneDocuments.emplace_back();
-                l_New.View = view;
+                l_New.View = l_World ? Renderer::c_MainView : *view;
+                l_New.Owner = l_World ? &scene : nullptr;
+                l_New.World = l_World;
                 l_New.Entity = l_EntityID;
                 a_Entry = m_State->SceneDocuments.end() - 1;
             }
@@ -737,9 +917,13 @@ namespace Trinity
                     {
                         TR_CORE_WARN("GameUI: entity {} names {}, which {}, so its UIDocument shows nothing", l_EntityID, a_Entry->Asset, l_Record == nullptr ? "is not in the project" : "is not a UI document");
                     }
+                    else if (l_World)
+                    {
+                        a_Entry->Document = m_State->Load(l_Record->Path, Renderer::c_MainView, Rml::Vector2i(1, 1));
+                    }
                     else
                     {
-                        a_Entry->Document = LoadDocument(l_Record->Path, view);
+                        a_Entry->Document = LoadDocument(l_Record->Path, *view);
                     }
                 }
             }
@@ -753,6 +937,13 @@ namespace Trinity
             SetVisible(l_Document->ID, it_Component.Visible);
             SetSortOrder(l_Document->ID, it_Component.SortOrder);
             l_Document->Panel = it_Component.Panel;
+            l_Document->World = l_World;
+            l_Document->WorldSettings = it_Component.World;
+            if (l_World)
+            {
+                continue;
+            }
+
             const auto a_Rank = std::ranges::find(l_Ranks, l_EntityID, &std::pair<UUID, std::uint64_t>::first);
             const std::uint64_t l_Sequence = a_Rank != l_Ranks.end() ? a_Rank->second : 0;
             if (l_Document->Sequence != l_Sequence)
@@ -771,9 +962,16 @@ namespace Trinity
             m_State->ReleaseInput();
         }
 
-        std::erase_if(m_State->SceneDocuments, [this, view](const State::SceneDocument& entry)
+        const auto a_Shown = std::ranges::find(m_State->ViewScenes, view, &std::pair<ViewID, const Scene*>::first);
+        const Scene* l_Scene = a_Shown != m_State->ViewScenes.end() ? a_Shown->second : nullptr;
+        if (a_Shown != m_State->ViewScenes.end())
         {
-            if (entry.View != view)
+            m_State->ViewScenes.erase(a_Shown);
+        }
+
+        std::erase_if(m_State->SceneDocuments, [this, view, l_Scene](const State::SceneDocument& entry)
+        {
+            if (entry.World ? entry.Owner != l_Scene : entry.View != view)
             {
                 return false;
             }
@@ -786,9 +984,23 @@ namespace Trinity
 
     UIDocumentID GameUI::FindSceneDocument(UUID entity, ViewID view) const
     {
-        const auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.View == view && entry.Entity == entity; });
+        const auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return !entry.World && entry.View == view && entry.Entity == entity; });
 
         return a_Entry != m_State->SceneDocuments.end() ? a_Entry->Document : c_NoDocument;
+    }
+
+    UIDocumentID GameUI::FindWorldDocument(const Scene& scene, UUID entity) const
+    {
+        const auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.World && entry.Owner == &scene && entry.Entity == entity; });
+
+        return a_Entry != m_State->SceneDocuments.end() ? a_Entry->Document : c_NoDocument;
+    }
+
+    glm::uvec2 GameUI::GetTextureSize(UIDocumentID document) const
+    {
+        const State::Document* l_Document = m_State->FindDocument(document);
+
+        return l_Document != nullptr ? l_Document->TextureSize : glm::uvec2(0);
     }
 
     std::string GameUI::GetFocus(UIDocumentID document) const
@@ -816,7 +1028,7 @@ namespace Trinity
         l_Documents.clear();
         for (auto it_Document = m_State->Documents.rbegin(); it_Document != m_State->Documents.rend(); ++it_Document)
         {
-            if (it_Document->View == l_View && it_Document->Visible)
+            if (!it_Document->World && it_Document->View == l_View && it_Document->Visible)
             {
                 l_Documents.push_back(&*it_Document);
             }
@@ -1123,7 +1335,7 @@ namespace Trinity
         for (std::size_t it_Index = m_State->Documents.size(); it_Index-- > 0;)
         {
             const State::Document& l_Document = m_State->Documents[it_Index];
-            if (!m_Renderer.HasView(l_Document.View))
+            if (!l_Document.World && !m_Renderer.HasView(l_Document.View))
             {
                 TR_CORE_WARN("GameUI: view {} was destroyed, so {} is unloaded", l_Document.View, l_Document.Path);
                 m_State->Remove(l_Document.ID);
@@ -1141,6 +1353,14 @@ namespace Trinity
         m_State->Commands = 0;
         for (State::Document& it_Document : m_State->Documents)
         {
+            if (it_Document.World)
+            {
+                m_State->UpdateWorld(it_Document);
+                m_State->Commands += static_cast<std::uint32_t>(it_Document.DrawList.Commands.size());
+
+                continue;
+            }
+
             const std::uint32_t l_Width = m_Renderer.GetSceneWidth(it_Document.View);
             const std::uint32_t l_Height = m_Renderer.GetSceneHeight(it_Document.View);
             if (l_Width == 0 || l_Height == 0)
@@ -1174,6 +1394,8 @@ namespace Trinity
         l_Statistics.Contexts = static_cast<std::uint32_t>(Rml::GetNumContexts());
         l_Statistics.Documents = static_cast<std::uint32_t>(m_State->Documents.size());
         l_Statistics.SceneDocuments = static_cast<std::uint32_t>(std::ranges::count_if(m_State->SceneDocuments, [](const State::SceneDocument& entry) { return entry.Document != c_NoDocument; }));
+        l_Statistics.WorldDocuments = static_cast<std::uint32_t>(std::ranges::count_if(m_State->Documents, &State::Document::World));
+        l_Statistics.WorldPasses = static_cast<std::uint32_t>(m_State->WorldPasses.size());
         l_Statistics.Geometries = l_Rendering.Geometries;
         l_Statistics.Textures = l_Rendering.Textures;
         l_Statistics.GeometryBytes = l_Rendering.GeometryBytes;

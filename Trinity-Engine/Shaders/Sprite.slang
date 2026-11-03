@@ -1,4 +1,4 @@
-// Sprites drawn as instanced quads. Each instance is read from the upload ring and names its own texture, so sprites with different textures share one draw
+// Sprites drawn as instanced quads. Each instance is read from the upload ring and names its own texture, so sprites with different textures share one draw. A world UI document sorted with the sprites is drawn as one, from its texture
 #include "Bindless.slang"
 #include "Color.slang"
 
@@ -15,9 +15,10 @@ struct PushData
 
 [[vk::push_constant]] ConstantBuffer<PushData> g_Push;
 
-// The rows of a 3x4 world matrix, then the UV rectangle as 16-bit UNORMs, minimum U and V before maximum U and V, the tint as sRGB RGBA8 with red in the low byte, and the texture's bindless index with its filter in the top bit
+// The rows of a 3x4 world matrix, then the UV rectangle as 16-bit UNORMs, minimum U and V before maximum U and V, the tint as sRGB RGBA8 with red in the low byte, and the texture's bindless index with its filter in the top bit and, below it, whether it is a world UI document's, whose colours are sRGB-encoded and multiplied by their alpha
 static const uint c_InstanceStride = 64;
 static const uint c_NearestBit = 0x80000000;
+static const uint c_DocumentBit = 0x40000000;
 
 struct VertexOutput
 {
@@ -72,12 +73,14 @@ VertexOutput TransformSprite(uint vertexIndex, uint instanceIndex)
 float4 PixelMain(VertexOutput input) : SV_Target
 {
     // Neighbouring sprites in one draw can name different textures and filters, so both indices are marked non-uniform
-    const DescriptorHandle<Texture2D> l_TextureHandle = DescriptorHandle<Texture2D>(uint2(input.Texture & ~c_NearestBit, 0));
+    const DescriptorHandle<Texture2D> l_TextureHandle = DescriptorHandle<Texture2D>(uint2(input.Texture & ~(c_NearestBit | c_DocumentBit), 0));
     const DescriptorHandle<SamplerState> l_SamplerHandle = (input.Texture & c_NearestBit) != 0 ? g_Push.NearestSampler : g_Push.LinearSampler;
     Texture2D l_Texture = nonuniform(l_TextureHandle);
     SamplerState l_Sampler = nonuniform(l_SamplerHandle);
 
-    return input.Color * l_Texture.Sample(l_Sampler, input.TexCoord);
+    const float4 l_Texel = l_Texture.Sample(l_Sampler, input.TexCoord);
+
+    return input.Color * ((input.Texture & c_DocumentBit) != 0 ? DocumentToLinear(l_Texel) : l_Texel);
 }
 
 struct PickVertexOutput
