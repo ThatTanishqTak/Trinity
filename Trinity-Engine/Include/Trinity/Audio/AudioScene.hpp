@@ -124,6 +124,8 @@ namespace Trinity
         AudioHandle PlayAtPoint(UUID resource, const glm::vec3& position, float volume = 1.0f);
         // As PlayAtPoint, following the entity as a source would, until it is gone, then staying where it was, seeded by the entity too
         AudioHandle PlayAttached(UUID resource, Entity entity, float volume = 1.0f);
+        // A clip or a sound event as the game's UI plays it, for an element's sound attribute: heard as it is, never spatialized, with a listener or without one, into the group given, or with none, a sound event's own Output, or Master, seeded as PlayAtPoint's are. It goes on as SceneManager changes scenes, so a click that loads the next scene is heard whole
+        AudioHandle PlayUI(UUID resource, UUID output = {}, float volume = 1.0f);
 
         // At once with no fade, and otherwise fading out over that many seconds, its sound still heard meanwhile, though no longer counted against its event's limit
         void Stop(AudioHandle handle, float fadeSeconds = 0.0f);
@@ -150,7 +152,7 @@ namespace Trinity
         void SetPaused(bool paused);
         [[nodiscard]] bool IsPaused() const { return m_Paused; }
 
-        // The voices of the entities, and whether each was a source already, so its Play On Awake does not play it again
+        // The voices of the entities, and whether each was a source already, so its Play On Awake does not play it again, with every sound the UI plays
         [[nodiscard]] AudioCarry Extract(std::span<const UUID> entities);
         void Adopt(AudioCarry&& carry);
 

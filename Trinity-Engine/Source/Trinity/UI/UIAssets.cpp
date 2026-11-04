@@ -53,7 +53,7 @@ namespace Trinity
 
         std::vector<std::string> FindLinks(std::string_view text, std::string_view path)
         {
-            constexpr std::array<std::string_view, 10> c_Extensions{ ".rml", ".rcss", ".ttf", ".otf", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd" };
+            constexpr std::array<std::string_view, 15> c_Extensions{ ".rml", ".rcss", ".ttf", ".otf", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".trsound", ".wav", ".flac", ".mp3", ".ogg" };
             constexpr std::string_view c_Separators = " \t\r\n\"'(),;:{}<>=";
 
             const auto a_IsLink = [&c_Extensions](std::string_view word)

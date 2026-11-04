@@ -4,7 +4,7 @@ using Trinity.Scripting;
 
 namespace Trinity
 {
-    // What a script reaches of the UIDocument as the scene runs: the elements of its document and handlers of their events. Its document is loaded as it is first reached, when no view shows the scene yet, so OnCreate finds its elements. Everything does nothing, or finds nothing, for an entity without a UIDocument or one whose document did not load, and while no scene runs
+    // What a script reaches of the UIDocument as the scene runs: the elements of its document, handlers of their events, its data models and the group its UI sounds play into. Its document is loaded as it is first reached, when no view shows the scene yet, so OnCreate finds its elements. Everything does nothing, or finds nothing, for an entity without a UIDocument or one whose document did not load, and while no scene runs
     public readonly unsafe partial struct UIDocument
     {
         // Whether its document loaded
@@ -33,6 +33,19 @@ namespace Trinity
         // The element with the focus, or none
         public UIElement Focus => new(Native.UIDocument_GetFocus(m_Entity.ID));
 
+        // The group of the project's mixer the sounds its elements' sound-hover and sound-click attributes name play into, None for each sound event's own Output, and Master for a clip. Changed, the next sound they play goes there. Throws for an entity without a UIDocument
+        public AudioMixerGroup SoundOutput
+        {
+            get
+            {
+                ulong l_Group;
+                Check(Native.UIDocument_GetSoundOutput(m_Entity.ID, &l_Group));
+
+                return new AudioMixerGroup(l_Group);
+            }
+            set => Check(Native.UIDocument_SetSoundOutput(m_Entity.ID, value.ID));
+        }
+
         // The data model of that name, as data-model="name" names it in the document, made the first time it is asked for, and kept while the scene's scripts run, its document loaded or not. Not valid for a name RmlUi cannot reach, or while no scene runs
         public UIDataModel GetModel(string name)
         {
@@ -54,5 +67,14 @@ namespace Trinity
 
         // False when it had already gone
         public bool Off(UIEventHandle handler) => handler.ID != 0 && Native.UIDocument_RemoveHandler(handler.ID);
+
+        // The message made only for a failure, so a call that works allocates nothing
+        private void Check(int result)
+        {
+            if ((AccessResult)result != AccessResult.Done)
+            {
+                ComponentAccess.Check(m_Entity, (AccessResult)result, "has no UIDocument");
+            }
+        }
     }
 }

@@ -3738,7 +3738,7 @@ void PropertiesPanel::DrawAudioListener(Trinity::Entity entity)
     ImGui::TextDisabled("The scene is heard from here, facing -Z with +Y up");
 }
 
-// Unity's UIDocument, with its Panel Settings below it, each scale mode's own fields shown as Unity's Panel Settings shows them: the document, whether it is drawn over the game view or in the scene, its sort order and visibility, then a world document's placing, size and sorting, then how it scales. A world document's scale is Panel Settings' Scale alone, so that is all it shows
+// Unity's UIDocument, with its Panel Settings below it, each scale mode's own fields shown as Unity's Panel Settings shows them: the document, whether it is drawn over the game view or in the scene, its sort order and visibility, the group its UI sounds play into, then a world document's placing, size and sorting, then how it scales. A world document's scale is Panel Settings' Scale alone, so that is all it shows
 void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::UIDocumentComponent>() || !BeginComponent(entity, Trinity::UIDocumentComponent::c_TypeName, Trinity::Icons::c_WindowRestore))
@@ -3785,6 +3785,16 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Shown and laid out. Hidden, it keeps its state and draws nothing");
+    }
+
+    const Trinity::AudioMixer* l_Mixer = m_Session.GetMixer();
+    const Trinity::AudioMixerData* l_MixerData = l_Mixer != nullptr ? &l_Mixer->GetData() : nullptr;
+    const SlotText l_SoundSlot = DescribeOutputSlot(l_MixerData, entity.Get<Trinity::UIDocumentComponent>().SoundOutput);
+    Label("Sound Output");
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "SoundOutput", [&](Trinity::UIDocumentComponent& document) { return OutputCombo(l_MixerData, document.SoundOutput, l_SoundSlot); });
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("%s", l_SoundSlot.Broken ? l_SoundSlot.Tooltip.c_str() : "The group of the project's mixer the sounds its elements' sound-hover and sound-click attributes name play into. Master stands for none, which plays a sound event into its own Output");
     }
 
     if (l_World)

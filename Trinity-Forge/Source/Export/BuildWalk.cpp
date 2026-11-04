@@ -299,7 +299,7 @@ namespace
             ShipSource(record, GetPackedSourcePath(record, GetPackedSourceFolder(record.Importer)), namedBy);
         }
 
-        // As the game reads it, by its path in the project, which the asset table finds where the pack keeps it, with every file of the project it links to: documents and stylesheets, which are walked in turn, fonts and images. A link to a file outside Assets, as to the engine's own fonts, is the player's, and one to a file the project lacks is listed as broken
+        // As the game reads it, by its path in the project, which the asset table finds where the pack keeps it, with every file of the project it links to: documents and stylesheets, which are walked in turn, fonts, images, and the clips and sound events its sound attributes name, with the clips of each event. A link to a file outside Assets, as to the engine's own fonts, is the player's, and one to a file the project lacks is listed as broken
         void VisitUIFile(const Trinity::AssetRecord& record, std::string_view namedBy)
         {
             const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(record.Path);

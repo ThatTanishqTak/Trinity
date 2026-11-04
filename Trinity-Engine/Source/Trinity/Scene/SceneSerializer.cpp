@@ -1153,6 +1153,7 @@ namespace Trinity
             writer.Write("Document", component.Document);
             writer.Write("SortOrder", component.SortOrder);
             writer.Write("Visible", component.Visible);
+            writer.Write("SoundOutput", component.SoundOutput);
             writer.Write("ScaleMode", ToString(component.Panel.ScaleMode));
             writer.Write("Scale", component.Panel.Scale);
             writer.Write("ReferenceResolution", glm::vec2(component.Panel.ReferenceResolution));
@@ -1183,6 +1184,7 @@ namespace Trinity
             reader.Read("Document", component.Document);
             reader.Read("SortOrder", component.SortOrder);
             reader.Read("Visible", component.Visible);
+            reader.Read("SoundOutput", component.SoundOutput);
             std::string l_Mode;
             if (reader.Read("ScaleMode", l_Mode))
             {

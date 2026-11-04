@@ -2,6 +2,8 @@
 
 #include "Trinity/Asset/AssetManager.hpp"
 #include "Trinity/Asset/AssetRegistry.hpp"
+#include "Trinity/Audio/AudioClipAsset.hpp"
+#include "Trinity/Audio/SoundEventData.hpp"
 #include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
@@ -469,7 +471,15 @@ namespace Trinity
             UIQueuedEvent Event;
         };
 
-        // Queues each event scripts handle as it passes the root of its document's context on its way in, in the capture phase, so it sees those that do not bubble too
+        // A sound for the scene whose document's element asked for it, by the frame it asked in
+        struct QueuedSound
+        {
+            const Scene* Owner = nullptr;
+            std::uint64_t Frame = 0;
+            UIQueuedSound Sound;
+        };
+
+        // Queues each event scripts handle, and the sound an element's attribute names for it, as it passes the root of its document's context on its way in, in the capture phase, so it sees those that do not bubble too
         class EventListener final : public Rml::EventListener
         {
         public:
@@ -481,6 +491,7 @@ namespace Trinity
             void ProcessEvent(Rml::Event& event) override
             {
                 m_State.Queue(event);
+                m_State.QueueSound(event);
             }
 
         private:
@@ -577,6 +588,11 @@ namespace Trinity
         std::uint64_t EventSequence = 0;
         std::uint64_t FrameCount = 0;
         EventListener Listener{ *this };
+        // The sounds elements' attributes asked for, with the last sequence number given, whether Navigate is moving the focus, which sounds as hovering does, and the paths named that no clip or sound event has, each logged once
+        GameUIVector<QueuedSound> Sounds;
+        std::uint64_t SoundSequence = 0;
+        bool Navigating = false;
+        GameUIVector<std::string> UnknownSounds;
         GameUIVector<std::pair<const Scene*, std::uint32_t>> RetainedScenes;
         GameUIData Data;
 
@@ -945,6 +961,58 @@ namespace Trinity
             l_Queued.Event.Value = l_Type == UIEventType::Submit ? event.GetParameter<Rml::String>("submit", "") : event.GetParameter<Rml::String>("value", "");
         }
 
+        // An element's sound-hover as the pointer enters it, which RmlUi tells each element entering the hover chain once, or as Navigate gives it the focus, and the sound-click of the innermost element around a click's target that has one. Its path is from its document's, as an image's is, and it is passed over for an element that is disabled, a document no running scene shows, or a path no clip or sound event of the project has, which is logged once
+        void QueueSound(Rml::Event& event)
+        {
+            const bool l_Hover = event.GetId() == Rml::EventId::Mouseover || (event.GetId() == Rml::EventId::Focus && Navigating);
+            if (!l_Hover && event.GetId() != Rml::EventId::Click)
+            {
+                return;
+            }
+
+            const Rml::String l_Attribute(l_Hover ? UIAssets::c_SoundHoverAttribute : UIAssets::c_SoundClickAttribute);
+            Rml::Element* l_Element = event.GetTargetElement();
+            while (l_Element != nullptr && l_Element->GetAttribute(l_Attribute) == nullptr)
+            {
+                l_Element = l_Hover ? nullptr : l_Element->GetParentNode();
+            }
+
+            Rml::ElementDocument* l_Owner = l_Element != nullptr ? l_Element->GetOwnerDocument() : nullptr;
+            if (l_Owner == nullptr || l_Element->HasAttribute("disabled"))
+            {
+                return;
+            }
+
+            const auto a_Document = std::ranges::find(Documents, l_Element->GetContext(), &Document::Context);
+            const auto a_Entry = a_Document != Documents.end() ? std::ranges::find(SceneDocuments, a_Document->ID, &SceneDocument::Document) : SceneDocuments.end();
+            if (a_Entry == SceneDocuments.end() || a_Entry->Owner == nullptr)
+            {
+                return;
+            }
+
+            const MemoryTagScope l_Scope(MemoryTag::GameUI);
+            const std::string l_Path = UIAssets::ResolveLink(l_Owner->GetSourceURL(), l_Element->GetAttribute<Rml::String>(l_Attribute, ""));
+            const AssetRegistry* l_Registry = AssetManager::GetRegistry();
+            const AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->FindByPath(l_Path) : nullptr;
+            if (l_Record == nullptr || (l_Record->Importer != AudioClipAsset::c_AssetType && l_Record->Importer != SoundEventAsset::c_AssetType))
+            {
+                if (std::ranges::find(UnknownSounds, l_Path) == UnknownSounds.end())
+                {
+                    TR_CORE_WARN("GameUI: an element's {} in {} names {}, which is no clip or sound event of the project, so it plays nothing", l_Attribute, l_Owner->GetSourceURL(), l_Path);
+                    UnknownSounds.push_back(l_Path);
+                }
+
+                return;
+            }
+
+            QueuedSound& l_Queued = Sounds.emplace_back();
+            l_Queued.Owner = a_Entry->Owner;
+            l_Queued.Frame = FrameCount;
+            l_Queued.Sound.Sequence = ++SoundSequence;
+            l_Queued.Sound.Entity = a_Entry->Entity;
+            l_Queued.Sound.Resource = l_Record->ID;
+        }
+
         [[nodiscard]] Document* FindDocument(UIDocumentID document)
         {
             const auto a_Document = std::ranges::find(Documents, document, &Document::ID);
@@ -1232,6 +1300,8 @@ namespace Trinity
             m_State->ViewScenes = GameUIVector<std::pair<ViewID, const Scene*>>();
             m_State->ElementSlots = GameUIVector<State::ElementSlot>();
             m_State->Events = GameUIVector<State::QueuedEvent>();
+            m_State->Sounds = GameUIVector<State::QueuedSound>();
+            m_State->UnknownSounds = GameUIVector<std::string>();
             m_State->RetainedScenes = GameUIVector<std::pair<const Scene*, std::uint32_t>>();
             m_State->BaseStyle.reset();
             if (m_State->Started)
@@ -1291,6 +1361,7 @@ namespace Trinity
             return;
         }
 
+        // Hidden, it lets the pointer go, so shown again it hovers nothing until the pointer next reaches it where it is, rather than where it last was
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
         if (visible)
         {
@@ -1299,6 +1370,7 @@ namespace Trinity
         else
         {
             l_Document->Rml->Hide();
+            l_Document->Context->ProcessMouseLeave();
         }
 
         l_Document->Visible = visible;
@@ -1609,6 +1681,32 @@ namespace Trinity
     std::uint64_t GameUI::GetEventSequence() const
     {
         return m_State->EventSequence;
+    }
+
+    std::size_t GameUI::GetSounds(const Scene& scene, std::uint64_t after, std::vector<UIQueuedSound>& sounds) const
+    {
+        std::size_t l_Count = 0;
+        for (const State::QueuedSound& it_Queued : m_State->Sounds)
+        {
+            if (it_Queued.Owner != &scene || it_Queued.Sound.Sequence <= after)
+            {
+                continue;
+            }
+
+            if (l_Count == sounds.size())
+            {
+                sounds.emplace_back();
+            }
+
+            sounds[l_Count++] = it_Queued.Sound;
+        }
+
+        return l_Count;
+    }
+
+    std::uint64_t GameUI::GetSoundSequence() const
+    {
+        return m_State->SoundSequence;
     }
 
     void GameUI::ForgetScene(ViewID view)
@@ -1927,7 +2025,8 @@ namespace Trinity
             }
         }
 
-        // With nothing focused, the topmost screen document with an element that takes the focus gives it to its first, or with none, the nearest world document in view. An element's own nav property says where it goes, as RmlUi takes the arrows, and otherwise Down and Right go to the next element in document order and Up and Left to the one before, from a world document's last on to the world document that way on the view, and otherwise round from the last to the first
+        // With nothing focused, the topmost screen document with an element that takes the focus gives it to its first, or with none, the nearest world document in view. An element's own nav property says where it goes, as RmlUi takes the arrows, and otherwise Down and Right go to the next element in document order and Up and Left to the one before, from a world document's last on to the world document that way on the view, and otherwise round from the last to the first. The element the focus moves to sounds its sound-hover
+        m_State->Navigating = l_Move;
         if (l_Move && l_Element == nullptr)
         {
             for (std::size_t it_Index = 0; it_Index < l_Documents.size(); ++it_Index)
@@ -1977,6 +2076,7 @@ namespace Trinity
             }
         }
 
+        m_State->Navigating = false;
         std::tie(l_Focused, l_Element) = a_FindFocus();
         if (l_Element != nullptr && !l_TextField && l_Submit.WasPressed())
         {
@@ -2092,8 +2192,9 @@ namespace Trinity
         m_State->System.Advance(std::chrono::duration<double>(timestep.GetDuration()).count());
         m_State->Rendering.BeginFrame();
 
-        // Every runtime that ran since has taken the events of the frame before, and those of this frame wait for the next
+        // Every runtime that ran since has taken the events and sounds of the frame before, and those of this frame wait for the next
         std::erase_if(m_State->Events, [this](const State::QueuedEvent& queued) { return queued.Frame < m_State->FrameCount; });
+        std::erase_if(m_State->Sounds, [this](const State::QueuedSound& queued) { return queued.Frame < m_State->FrameCount; });
         ++m_State->FrameCount;
 
         // A screen document of a scene whose scripts run stays for them over no view, and is taken by the next view to show the scene
@@ -2195,6 +2296,7 @@ namespace Trinity
         l_Statistics.StyleSheetReloads = m_State->StyleSheetReloads;
         l_Statistics.Elements = static_cast<std::uint32_t>(std::ranges::count_if(m_State->ElementSlots, [](const State::ElementSlot& slot) { return static_cast<bool>(slot.Element); }));
         l_Statistics.QueuedEvents = static_cast<std::uint32_t>(m_State->Events.size());
+        l_Statistics.QueuedSounds = static_cast<std::uint32_t>(m_State->Sounds.size());
         l_Statistics.DataModels = m_State->Data.GetModelCount();
         l_Statistics.DataVariables = m_State->Data.GetVariableCount();
 

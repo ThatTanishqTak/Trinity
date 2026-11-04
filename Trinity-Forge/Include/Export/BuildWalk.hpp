@@ -35,7 +35,7 @@ struct BuildContents
     std::vector<BrokenReference> Broken;
 };
 
-// What a build holds: its scenes, the project's input actions and mixer, and every asset they reach, nested prefabs and models, materials and their textures, clips inside sound events, and UIDocuments' documents with the stylesheets, fonts and images they link to, found as a running scene finds them, so a game ships only those
+// What a build holds: its scenes, the project's input actions and mixer, and every asset they reach, nested prefabs and models, materials and their textures, clips inside sound events, and UIDocuments' documents with the stylesheets, fonts, images and sounds they link to, found as a running scene finds them, so a game ships only those
 namespace BuildWalk
 {
     // The scenes in the build's order, the first being the one the game starts with. Each is read from its file and flattened as it is cooked, so a prefab it only places ships no file of its own, and prefabs are cooked whole with their nested instances still instances. A scene a script field names is not reached, as a game loads only its build's scenes. Main thread only, as templates are found through the serializer's resolver

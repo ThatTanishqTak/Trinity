@@ -1,5 +1,8 @@
 #include "Trinity/Scripting/Interop.hpp"
 
+#include "Trinity/Scene/Components.hpp"
+#include "Trinity/Scene/Entity.hpp"
+#include "Trinity/Scripting/ScriptApi.hpp"
 #include "Trinity/Scripting/ScriptRuntime.hpp"
 #include "Trinity/UI/GameUIAccess.hpp"
 #include "Trinity/UI/GameUIData.hpp"
@@ -8,6 +11,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Trinity
@@ -109,6 +113,44 @@ namespace Trinity
         UInt64 UIDocument_GetFocus(EntityId entity)
         {
             return GetDocument(entity).GetFocus().GetHandle();
+        }
+
+        Int32 UIDocument_GetSoundOutput(EntityId entity, UInt64* group)
+        {
+            *group = 0;
+            const Entity l_Entity = FindEntity(entity);
+            if (!l_Entity)
+            {
+                return std::to_underlying(AccessResult::NoEntity);
+            }
+
+            if (!l_Entity.Has<UIDocumentComponent>())
+            {
+                return std::to_underlying(AccessResult::NoComponent);
+            }
+
+            *group = l_Entity.Get<UIDocumentComponent>().SoundOutput.GetValue();
+
+            return std::to_underlying(AccessResult::Done);
+        }
+
+        // Through patch, as a property is written, so the next sound its elements play goes there. One the mixer lacks plays into Master
+        Int32 UIDocument_SetSoundOutput(EntityId entity, UInt64 group)
+        {
+            Entity l_Entity = FindEntity(entity);
+            if (!l_Entity)
+            {
+                return std::to_underlying(AccessResult::NoEntity);
+            }
+
+            if (!l_Entity.Has<UIDocumentComponent>())
+            {
+                return std::to_underlying(AccessResult::NoComponent);
+            }
+
+            l_Entity.Patch<UIDocumentComponent>([group](UIDocumentComponent& component) { component.SoundOutput = UUID(group); });
+
+            return std::to_underlying(AccessResult::Done);
         }
 
         Bool UIElement_IsValid(UInt64 element)

@@ -1,11 +1,15 @@
 #include "Trinity/Scene/SceneAssets.hpp"
 
 #include "Trinity/Asset/AssetRegistry.hpp"
+#include "Trinity/Audio/AudioClipAsset.hpp"
+#include "Trinity/Audio/SoundEventData.hpp"
+#include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Scene/Components.hpp"
 #include "Trinity/Scene/Scene.hpp"
 #include "Trinity/UI/UIAssets.hpp"
 
 #include <algorithm>
+#include <string>
 
 namespace Trinity
 {
@@ -77,6 +81,31 @@ namespace Trinity
             for (const auto [it_Entity, it_Source] : l_Registry.view<AudioSourceComponent>().each())
             {
                 Add(assets, it_Source.Resource);
+            }
+
+            // The clips and sound events its UIDocuments' documents link to, as their sound attributes name them, read from each document's own file, so the UI's first sound plays at once. One named only in a template a document uses, or bound from a data model, loads as it first plays
+            for (const auto [it_Entity, it_Document] : l_Registry.view<UIDocumentComponent>().each())
+            {
+                const AssetRecord* l_Record = registry != nullptr && it_Document.Document ? registry->Find(it_Document.Document) : nullptr;
+                if (l_Record == nullptr || l_Record->Importer != UIAssets::c_DocumentType)
+                {
+                    continue;
+                }
+
+                const Expected<std::string, FileError> l_Text = FileSystem::ReadText(l_Record->GetReadPath());
+                if (!l_Text)
+                {
+                    continue;
+                }
+
+                for (const std::string& it_Link : UIAssets::FindLinks(*l_Text, l_Record->Path))
+                {
+                    const AssetRecord* l_Linked = registry->FindByPath(it_Link);
+                    if (l_Linked != nullptr && (l_Linked->Importer == AudioClipAsset::c_AssetType || l_Linked->Importer == SoundEventAsset::c_AssetType))
+                    {
+                        Add(assets, l_Linked->ID);
+                    }
+                }
             }
 
             // An asset field, or each asset of a list of them, but not a scene, which loads only when switched to, nor a UI file. A cooked game's table lists only what its build reaches, so a field naming anything else there names a scene left out of the build, or an asset the build already listed as broken

@@ -16,6 +16,8 @@
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
 #include "Trinity/Scripting/ScriptRuntime.hpp"
+#include "Trinity/UI/GameUI.hpp"
+#include "Trinity/UI/GameUIAccess.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -64,6 +66,10 @@ namespace Trinity
         m_Scripts->SetAudio(m_Audio.get());
         AddFixedStepSystem([this](Timestep step) { m_Scripts->FixedUpdate(step); });
         AddFixedStepSystem([this](Timestep step) { m_Scripts->FixedUpdate(step); });
+
+        // Sounds asked for before the scene ran are not its
+        const GameUI* l_UI = GameUIAccess::GetUI();
+        m_UISoundCursor = l_UI != nullptr ? l_UI->GetSoundSequence() : 0;
     }
 
     // The scripts go first, with OnDestroy, while the physics and the scene are whole
@@ -93,7 +99,7 @@ namespace Trinity
         RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()));
     }
 
-    // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then the UI events queued since the last frame go to their handlers, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Scripts added meanwhile that no call has given OnCreate, such as those of a Script component put on an entity directly, have it then, with the transform pass again, so it comes in the frame they were added in. Entities destroyed meanwhile go, then the sounds follow where everything now is, muffled by what the physics has between them and the listener, and the voices of sources gone stop, then rendering, which the caller does
+    // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then the sounds the UI's elements asked for since the last frame play, and the UI events queued since then go to their handlers, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Scripts added meanwhile that no call has given OnCreate, such as those of a Script component put on an entity directly, have it then, with the transform pass again, so it comes in the frame they were added in. Entities destroyed meanwhile go, then the sounds follow where everything now is, muffled by what the physics has between them and the listener, and the voices of sources gone stop, then rendering, which the caller does
     void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep timestep)
     {
         const bool l_WasReadingScene = Input::SetReadingScene(true);
@@ -101,6 +107,7 @@ namespace Trinity
         m_Scripts->BeginFrame(timestep, Timestep(m_Clock.GetStep()));
         static_cast<void>(m_Scripts->CreatePending());
         m_Scripts->RaiseInputEvents();
+        PlayUISounds();
         m_Scripts->RaiseUIEvents();
 
         // A scene that had no 3D or no 2D body as it started gets that world once it has one
@@ -225,6 +232,30 @@ namespace Trinity
         if (m_Physics2D)
         {
             m_Physics2D->SetGatherContacts(gather);
+        }
+    }
+
+    // Each sound the scene's UI asked for since the last frame, in order, through its UIDocument's Sound Output, or with the UIDocument gone, as though it named none
+    void SceneRuntime::PlayUISounds()
+    {
+        const GameUI* l_UI = GameUIAccess::GetUI();
+        if (l_UI == nullptr || l_UI->GetSoundSequence() == m_UISoundCursor)
+        {
+            return;
+        }
+
+        std::size_t l_Count = 0;
+        {
+            const MemoryTagScope l_Scope(MemoryTag::Scene);
+            l_Count = l_UI->GetSounds(m_Scene, m_UISoundCursor, m_UISounds);
+        }
+
+        m_UISoundCursor = l_UI->GetSoundSequence();
+        for (std::size_t it_Sound = 0; it_Sound < l_Count; ++it_Sound)
+        {
+            const Entity l_Entity = m_Scene.FindEntityByUUID(m_UISounds[it_Sound].Entity);
+            const UUID l_Output = l_Entity && l_Entity.Has<UIDocumentComponent>() ? l_Entity.Get<UIDocumentComponent>().SoundOutput : UUID();
+            static_cast<void>(m_Audio->PlayUI(m_UISounds[it_Sound].Resource, l_Output));
         }
     }
 

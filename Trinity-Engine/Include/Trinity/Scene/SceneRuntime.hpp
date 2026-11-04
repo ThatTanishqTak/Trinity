@@ -20,6 +20,7 @@ namespace Trinity
     class PhysicsScene3D;
     class Scene;
     class ScriptRuntime;
+    struct UIQueuedSound;
 
     class TRINITY_API SceneRuntime
     {
@@ -70,6 +71,7 @@ namespace Trinity
 
     private:
         void RunSteps(std::uint32_t steps, float interpolation, Timestep timestep);
+        void PlayUISounds();
         void LogPhysicsEvents() const;
 
         Scene& m_Scene;
@@ -82,6 +84,9 @@ namespace Trinity
         Scope<ScriptRuntime> m_Scripts;
         // Its voices stop as the runtime goes, after the scripts' OnDestroy
         Scope<AudioScene> m_Audio;
+        // The UI's sounds for the scene, as GameUI last gave them under the Scene tag, and the sequence number of the last
+        std::vector<UIQueuedSound> m_UISounds;
+        std::uint64_t m_UISoundCursor = 0;
         std::uint32_t m_StepsThisFrame = 0;
         float m_StepMilliseconds = 0.0f;
         bool m_GatherContacts = false;

@@ -644,6 +644,8 @@ namespace Trinity
         // Over the other screen documents of a lower order. In World mode, drawn with the sprites, its order in its sorting layer
         std::int32_t SortOrder = 0;
         bool Visible = true;
+        // One of the project's mixer's groups, by its ID, which the sounds its elements' sound-hover and sound-click attributes name play into. None plays a sound event into its own Output, and a clip into Master, as does a group the mixer lacks
+        UUID SoundOutput;
         UIPanelSettings Panel;
         UIRenderMode RenderMode = UIRenderMode::Screen;
         UIWorldSettings World;

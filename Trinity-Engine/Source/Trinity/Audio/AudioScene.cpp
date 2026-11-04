@@ -284,13 +284,14 @@ namespace Trinity
             std::uint64_t Frame = 0;
         };
 
-        // A source's own voice, one it plays beside it, which takes its values and its place, one played at a point, and one following an entity, which take their values from their resource
+        // A source's own voice, one it plays beside it, which takes its values and its place, one played at a point, and one following an entity, which take their values from their resource, and one the UI plays, which takes its resource's heard as it is
         enum class VoiceKind : std::uint8_t
         {
             Source,
             OneShot,
             Point,
-            Attached
+            Attached,
+            UI
         };
 
         // The part of a voice that is mixed: its clip read through a voice of its own, or a sound event's plays through its mix, the sound miniaudio mixes that in, once its source asks to be occluded the node after the sound, and which of the two plays into the mixer's group the source names. Only a real voice has one, since a virtual voice needs only its time. A mix owns the plays handed to it, which it gives back once done, and those waiting for room in its queue
@@ -349,6 +350,8 @@ namespace Trinity
             std::size_t NextEnd = 0;
             // A one-shot's volume against its source's, or the volume one played on its own was given
             float Scale = 1.0f;
+            // The group one the UI plays was sent to, which it plays into in place of its sound event's Output, none for that
+            UUID UIOutput;
             // Whether one following an entity has a place yet, which its velocity is taken from
             bool Placed = false;
             // Fading out over the seconds left, no longer counted against its event's limit
@@ -456,6 +459,22 @@ namespace Trinity
             l_Values.OcclusionCutoff = data.OcclusionCutoff;
 
             return l_Values;
+        }
+
+        // One played on its own plays its sound event as the event's own source would, and one the UI plays heard as it is, into the group it was sent to when it names one. A source's voice and its one-shots keep the source's
+        void TakeEventValues(Voice& voice)
+        {
+            if (voice.Kind == VoiceKind::Source || voice.Kind == VoiceKind::OneShot)
+            {
+                return;
+            }
+
+            voice.Values = MakeEventValues(voice.Plan->Data, voice.Resource, voice.Scale);
+            if (voice.Kind == VoiceKind::UI)
+            {
+                voice.Values.Spatialize = false;
+                voice.Values.Output = voice.UIOutput ? voice.UIOutput : voice.Values.Output;
+            }
         }
 
         Ref<SoundEventMemory> MakeMemory()
@@ -851,7 +870,7 @@ namespace Trinity
         if (!HasListener)
         {
             ListenerPlaced = false;
-            if (!WarnedNoListener && !Voices.empty())
+            if (!WarnedNoListener && std::ranges::any_of(Voices, [](const Voice* voice) { return voice->Kind != VoiceKind::UI; }))
             {
                 TR_CORE_WARN("Audio: the scene has no AudioListener, so its sounds play in silence");
                 WarnedNoListener = true;
@@ -1086,7 +1105,7 @@ namespace Trinity
         return a_Found != Voices.end() ? *a_Found : nullptr;
     }
 
-    // A source's voice and its one-shots take the source's values and place, a one-shot's volume scaled and its loop left out, and end once the source is gone. One following an entity takes the entity's place until it is gone, and stays where it was then, and one at a point stays at it
+    // A source's voice and its one-shots take the source's values and place, a one-shot's volume scaled and its loop left out, and end once the source is gone. One following an entity takes the entity's place until it is gone, and stays where it was then, and one at a point stays at it, as one the UI plays does, which is heard from nowhere
     void AudioScene::State::PlaceVoice(Voice& voice, float seconds)
     {
         switch (voice.Kind)
@@ -1136,6 +1155,7 @@ namespace Trinity
                 return;
             }
             case VoiceKind::Point:
+            case VoiceKind::UI:
             {
                 voice.Velocity = glm::vec3(0.0f);
 
@@ -1272,12 +1292,7 @@ namespace Trinity
             return;
         }
 
-        // One played on its own plays as the event's own source would
-        if (voice.Kind == VoiceKind::Point || voice.Kind == VoiceKind::Attached)
-        {
-            voice.Values = MakeEventValues(voice.Plan->Data, voice.Resource, voice.Scale);
-        }
-
+        TakeEventValues(voice);
         if (!Admit(voice))
         {
             voice.Ended = true;
@@ -1397,11 +1412,7 @@ namespace Trinity
         voice.ClipStorages = std::move(l_Storages);
         voice.ClipTimes = std::move(l_Times);
         voice.Channels = l_Channels;
-        if (voice.Kind == VoiceKind::Point || voice.Kind == VoiceKind::Attached)
-        {
-            voice.Values = MakeEventValues(voice.Plan->Data, voice.Resource, voice.Scale);
-        }
-
+        TakeEventValues(voice);
         PrepareParameters(voice, l_Previous.get());
         voice.Player->Adopt(voice.Plan, std::span<const SoundEventClip>(voice.ClipTimes).first(l_PlanClips), static_cast<std::uint64_t>(voice.Cursor));
         voice.Ends = {};
@@ -1574,7 +1585,7 @@ namespace Trinity
         return 0;
     }
 
-    // The most important first, then the loudest, then the first to play. Beyond the virtual voices the least of them stop, and with no listener or no engine none is mixed, nor is one not yet heard that asks to be occluded until its first ray, which keeps its time meanwhile
+    // The most important first, then the loudest, then the first to play. Beyond the virtual voices the least of them stop, and with no engine none is mixed, nor with no listener any but those the UI plays, which are heard as they are, nor one not yet heard that asks to be occluded until its first ray, which keeps its time meanwhile
     void AudioScene::State::ChooseRealVoices()
     {
         std::ranges::sort(Voices, [](const Voice* left, const Voice* right)
@@ -1628,7 +1639,7 @@ namespace Trinity
             }
 
             const bool l_Checked = !IsOccluded(it_Voice->Values) || it_Voice->OcclusionFrame != 0 || it_Voice->Real != nullptr;
-            const bool l_Mixed = Engine != nullptr && HasListener && it_Voice->Loaded && !it_Voice->Paused && !it_Voice->Ended && l_Checked && l_Real < Settings.RealVoices;
+            const bool l_Mixed = Engine != nullptr && (HasListener || it_Voice->Kind == VoiceKind::UI) && it_Voice->Loaded && !it_Voice->Paused && !it_Voice->Ended && l_Checked && l_Real < Settings.RealVoices;
             if (l_Mixed)
             {
                 ++l_Real;
@@ -2265,7 +2276,7 @@ namespace Trinity
         }
     }
 
-    // The voices go on as they are, mixed or not, so a kept sound has no gap: a source's own, its one-shots and those following the entity. One played at a point stays with its scene. The scenes share one engine
+    // The voices go on as they are, mixed or not, so a kept sound has no gap: a source's own, its one-shots and those following the entity, and every one the UI plays. One played at a point stays with its scene. The scenes share one engine
     AudioCarry AudioScene::Extract(std::span<const UUID> entities)
     {
         State& l_State = *m_State;
@@ -2274,7 +2285,7 @@ namespace Trinity
         l_Carry.m_State->Engine = l_State.Engine;
         std::erase_if(l_State.Voices, [&l_Carry, entities](Voice* voice)
         {
-            if (voice->Kind == VoiceKind::Point || std::ranges::find(entities, voice->Entity) == entities.end())
+            if (voice->Kind != VoiceKind::UI && (voice->Kind == VoiceKind::Point || std::ranges::find(entities, voice->Entity) == entities.end()))
             {
                 return false;
             }
@@ -2446,6 +2457,28 @@ namespace Trinity
         }
 
         return m_State->PlayOwn(VoiceKind::Attached, resource, entity, glm::vec3(entity.Get<WorldTransformComponent>().Matrix[3]), volume);
+    }
+
+    // A clip with a source's values but for its volume and group, and a sound event with its own as it loads, but for those two and Spatialize
+    AudioHandle AudioScene::PlayUI(UUID resource, UUID output, float volume)
+    {
+        if (!resource)
+        {
+            return {};
+        }
+
+        State& l_State = *m_State;
+        AudioSourceComponent l_Values;
+        l_Values.Resource = resource;
+        l_Values.Output = output;
+        l_Values.PlayOnAwake = false;
+        l_Values.Spatialize = false;
+        l_Values.Volume = volume;
+        Voice* l_Voice = l_State.NewVoice(VoiceKind::UI, UUID(), resource, l_Values, glm::vec3(0.0f), MakeMemory(), SoundEventRandom::MakeSeed(resource, UUID(), l_State.CountOwnPlay(resource)));
+        l_Voice->Scale = volume;
+        l_Voice->UIOutput = output;
+
+        return { l_Voice->Handle };
     }
 
     void AudioScene::Stop(AudioHandle handle, float fadeSeconds)
