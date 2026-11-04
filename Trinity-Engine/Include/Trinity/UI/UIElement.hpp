@@ -4,6 +4,7 @@
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
+#include "Trinity/UI/UIDataModel.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -125,6 +126,8 @@ namespace Trinity
         [[nodiscard]] UIElement Query(std::string_view selector) const;
         // The element with the focus, or none
         [[nodiscard]] UIElement GetFocus() const;
+        // The data model of that name, as data-model="name" names it in the document, made the first time it is asked for, and kept while the scene's scripts run, its document loaded or not. Invalid for a name RmlUi cannot reach
+        [[nodiscard]] UIDataModel GetModel(std::string_view name) const;
 
         // The handler, for each event of that type on the element with that ID, and for Click, Change and Submit on any element inside it too, as they bubble out, the innermost element's handlers first. It is found by its ID as each event comes, so it holds for an element made again. Events are queued as they happen and given to handlers once a frame, before the fixed steps and OnUpdate, after the input action handlers. The handler is the script's that was running as it was added, and goes with it, and every handler goes with the running scene. Kept under the Scripting tag until then or until removed
         template<typename F>

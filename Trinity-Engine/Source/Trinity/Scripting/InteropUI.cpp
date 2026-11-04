@@ -1,10 +1,14 @@
 #include "Trinity/Scripting/Interop.hpp"
 
 #include "Trinity/Scripting/ScriptRuntime.hpp"
+#include "Trinity/UI/GameUIAccess.hpp"
+#include "Trinity/UI/GameUIData.hpp"
 #include "Trinity/UI/UIElement.hpp"
 
 #include <optional>
+#include <span>
 #include <string>
+#include <vector>
 
 namespace Trinity
 {
@@ -42,7 +46,48 @@ namespace Trinity
                 static std::string s_Text;
                 s_Text = std::move(text);
 
+
                 return ToUtf8(s_Text);
+            }
+
+            [[nodiscard]] GameUIData* GetData()
+            {
+                GameUI* l_UI = GameUIAccess::GetUI();
+
+                return l_UI != nullptr ? &GameUIAccess::GetData(*l_UI) : nullptr;
+            }
+
+            // A type that is none of UIDataType's reads as none
+            [[nodiscard]] std::optional<UIDataScalar> ToScalar(Int32 type, Int32 integer, Float real, Utf8 text)
+            {
+                if (type < 0 || type >= static_cast<Int32>(c_UIDataTypeCount))
+                {
+                    return std::nullopt;
+                }
+
+                UIDataScalar l_Scalar;
+                l_Scalar.Type = static_cast<UIDataType>(type);
+                l_Scalar.Int = integer;
+                l_Scalar.Float = real;
+                l_Scalar.Bool = integer != 0;
+                l_Scalar.Text = ToStringView(text);
+
+                return l_Scalar;
+            }
+
+            // Into C#'s fields when it is of the type asked for, the text kept until the next text is asked for
+            Bool FromScalar(const std::optional<UIDataScalar>& scalar, Int32 type, Int32* integer, Float* real, Utf8* text)
+            {
+                if (!scalar || static_cast<Int32>(scalar->Type) != type)
+                {
+                    return false;
+                }
+
+                *integer = scalar->Type == UIDataType::Bool ? (scalar->Bool ? 1 : 0) : scalar->Int;
+                *real = scalar->Float;
+                *text = scalar->Type == UIDataType::String ? ToText(std::string(scalar->Text)) : Utf8{ nullptr, 0 };
+
+                return true;
             }
         }
 
@@ -225,6 +270,112 @@ namespace Trinity
         Void UIElement_RemoveStyle(UInt64 element, Utf8 property)
         {
             UIElement::FromHandle(element).RemoveStyle(ToStringView(property));
+        }
+
+        UInt64 UIDocument_GetModel(EntityId entity, Utf8 name)
+        {
+            return GetDocument(entity).GetModel(ToStringView(name)).GetHandle();
+        }
+
+        Bool UIDataModel_IsValid(UInt64 model)
+        {
+            const GameUIData* l_Data = GetData();
+
+            return l_Data != nullptr && l_Data->IsModel(model);
+        }
+
+        UInt64 UIDataModel_BindValue(UInt64 model, Utf8 name, Int32 type, Int32 integer, Float real, Utf8 text)
+        {
+            GameUIData* l_Data = GetData();
+            const std::optional<UIDataScalar> l_Value = ToScalar(type, integer, real, text);
+
+            return l_Data != nullptr && l_Value ? l_Data->BindValue(model, ToStringView(name), *l_Value) : 0;
+        }
+
+        // A field of a type that is none of UIDataType's refuses the list
+        UInt64 UIDataModel_BindList(UInt64 model, Utf8 name, const Utf8 * fieldNames, const Int32 * fieldTypes, Int32 fieldCount)
+        {
+            GameUIData* l_Data = GetData();
+            if (l_Data == nullptr || fieldCount < 0)
+            {
+                return 0;
+            }
+
+            std::vector<UIDataField> l_Fields;
+            for (Int32 it_Field = 0; it_Field < fieldCount; ++it_Field)
+            {
+                if (fieldTypes[it_Field] < 0 || fieldTypes[it_Field] >= static_cast<Int32>(c_UIDataTypeCount))
+                {
+                    return 0;
+                }
+
+                l_Fields.push_back({ ToStringView(fieldNames[it_Field]), static_cast<UIDataType>(fieldTypes[it_Field]) });
+            }
+
+            return l_Data->BindList(model, ToStringView(name), l_Fields);
+        }
+
+        // -1 for none
+        Int32 UIDataValue_GetType(UInt64 value)
+        {
+            const GameUIData* l_Data = GetData();
+            const std::optional<UIDataType> l_Type = l_Data != nullptr ? l_Data->GetType(value) : std::nullopt;
+
+            return l_Type ? static_cast<Int32>(*l_Type) : -1;
+        }
+
+        Void UIDataValue_Set(UInt64 value, Int32 type, Int32 integer, Float real, Utf8 text)
+        {
+            GameUIData* l_Data = GetData();
+            if (const std::optional<UIDataScalar> l_Value = ToScalar(type, integer, real, text); l_Data != nullptr && l_Value)
+            {
+                l_Data->Set(value, *l_Value);
+            }
+        }
+
+        Bool UIDataValue_Get(UInt64 value, Int32 type, Int32 * integer, Float * real, Utf8 * text)
+        {
+            const GameUIData* l_Data = GetData();
+
+            return l_Data != nullptr && FromScalar(l_Data->Get(value), type, integer, real, text);
+        }
+
+        Bool UIDataList_IsValid(UInt64 list)
+        {
+            const GameUIData* l_Data = GetData();
+
+            return l_Data != nullptr && l_Data->IsList(list);
+        }
+
+        Int32 UIDataList_GetSize(UInt64 list)
+        {
+            const GameUIData* l_Data = GetData();
+
+            return l_Data != nullptr ? static_cast<Int32>(l_Data->GetSize(list)) : 0;
+        }
+
+        Void UIDataList_Resize(UInt64 list, Int32 rows)
+        {
+            if (GameUIData* l_Data = GetData(); l_Data != nullptr && rows >= 0)
+            {
+                l_Data->Resize(list, static_cast<std::uint32_t>(rows));
+            }
+        }
+
+        Void UIDataList_Set(UInt64 list, Int32 row, Utf8 field, Int32 type, Int32 integer, Float real, Utf8 text)
+        {
+            GameUIData* l_Data = GetData();
+            if (const std::optional<UIDataScalar> l_Value = ToScalar(type, integer, real, text); l_Data != nullptr && l_Value && row >= 0)
+            {
+                l_Data->Set(list, static_cast<std::uint32_t>(row), ToStringView(field), *l_Value);
+            }
+        }
+
+        Bool UIDataList_Get(UInt64 list, Int32 row, Utf8 field, Int32 type, Int32 * integer, Float * real, Utf8 * text)
+        {
+            const GameUIData* l_Data = GetData();
+
+            return l_Data != nullptr && row >= 0 && FromScalar(l_Data->Get(list, static_cast<std::uint32_t>(row), ToStringView(field)), type, integer, real, text);
         }
     }
 }

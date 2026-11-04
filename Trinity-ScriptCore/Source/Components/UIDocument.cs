@@ -33,6 +33,16 @@ namespace Trinity
         // The element with the focus, or none
         public UIElement Focus => new(Native.UIDocument_GetFocus(m_Entity.ID));
 
+        // The data model of that name, as data-model="name" names it in the document, made the first time it is asked for, and kept while the scene's scripts run, its document loaded or not. Not valid for a name RmlUi cannot reach, or while no scene runs
+        public UIDataModel GetModel(string name)
+        {
+            using Utf8String l_Name = new(name, stackalloc byte[Utf8String.c_StackBytes]);
+            fixed (byte* l_Data = l_Name.Bytes)
+            {
+                return new UIDataModel(Native.UIDocument_GetModel(m_Entity.ID, new Utf8(l_Data, l_Name.Bytes.Length)));
+            }
+        }
+
         // The handler, for each event of that type on the element with that ID, and for Click, Change and Submit on any element inside it too, as they bubble out, the innermost element's handlers first. It is found by its ID as each event comes, so it holds for an element made again. Events are queued as they happen and given to handlers once a frame, before the fixed steps and OnUpdate, after the input action handlers. The handler is the script's that is running as it is added, and goes with it, and every handler goes with the running scene. One that throws is logged and removed. Throws while no scene runs, or for an empty ID
         public UIEventHandle On(string element, UIEventType type, Action<UIEvent> handler)
         {

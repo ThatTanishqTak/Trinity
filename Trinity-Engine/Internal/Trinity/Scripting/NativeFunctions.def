@@ -258,3 +258,17 @@ TR_NATIVE(UIElement_RemoveStyle, Void, (UInt64 element, Utf8 property))
 // A C# handler of a UIDocument's events, kept by the running scene's runtime as ScriptRuntime::AddUIHandler has it: the element by its ID, the type as a UIEventType, and the handler a GC handle to what ScriptCore calls it through, which is the script's that is running as it is added. 0, with the handler freed, while no scene runs, for a type that is none or for an empty ID, and its ID otherwise
 TR_NATIVE(UIDocument_AddHandler, UInt64, (EntityId entity, Utf8 element, Int32 type, Int64 handler))
 TR_NATIVE(UIDocument_RemoveHandler, Bool, (UInt64 handler))
+
+// The data models scripts bind into a UIDocument of the running scene, as UIDataModel, UIDataValue and UIDataList have them, each by its handle, 0 for none. A value crosses as a UIDataType with the field of its type, an Int or a Bool as the integer, a Float as the real and a String as the text, and a list's fields as their names and UIDataTypes side by side. Text given back is valid until the next call that gives text, which C# copies at once. A get is false, its fields left as they were, for a value or a cell there is not, or of another type
+TR_NATIVE(UIDocument_GetModel, UInt64, (EntityId entity, Utf8 name))
+TR_NATIVE(UIDataModel_IsValid, Bool, (UInt64 model))
+TR_NATIVE(UIDataModel_BindValue, UInt64, (UInt64 model, Utf8 name, Int32 type, Int32 integer, Float real, Utf8 text))
+TR_NATIVE(UIDataModel_BindList, UInt64, (UInt64 model, Utf8 name, const Utf8* fieldNames, const Int32* fieldTypes, Int32 fieldCount))
+TR_NATIVE(UIDataValue_GetType, Int32, (UInt64 value))
+TR_NATIVE(UIDataValue_Set, Void, (UInt64 value, Int32 type, Int32 integer, Float real, Utf8 text))
+TR_NATIVE(UIDataValue_Get, Bool, (UInt64 value, Int32 type, Int32* integer, Float* real, Utf8* text))
+TR_NATIVE(UIDataList_IsValid, Bool, (UInt64 list))
+TR_NATIVE(UIDataList_GetSize, Int32, (UInt64 list))
+TR_NATIVE(UIDataList_Resize, Void, (UInt64 list, Int32 rows))
+TR_NATIVE(UIDataList_Set, Void, (UInt64 list, Int32 row, Utf8 field, Int32 type, Int32 integer, Float real, Utf8 text))
+TR_NATIVE(UIDataList_Get, Bool, (UInt64 list, Int32 row, Utf8 field, Int32 type, Int32* integer, Float* real, Utf8* text))

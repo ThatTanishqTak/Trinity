@@ -18,6 +18,7 @@
 #include "Trinity/Scene/Scene.hpp"
 #include "Trinity/Scripting/ScriptRuntime.hpp"
 #include "Trinity/UI/GameUIAccess.hpp"
+#include "Trinity/UI/GameUIData.hpp"
 #include "Trinity/UI/GameUIFileInterface.hpp"
 #include "Trinity/UI/GameUIInput.hpp"
 #include "Trinity/UI/GameUIRenderInterface.hpp"
@@ -31,6 +32,7 @@
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Factory.h>
+#include <RmlUi/Core/FileInterface.h>
 #include <RmlUi/Core/FontEngineInterface.h>
 #include <RmlUi/Core/ID.h>
 #include <RmlUi/Core/StyleSheetContainer.h>
@@ -576,6 +578,7 @@ namespace Trinity
         std::uint64_t FrameCount = 0;
         EventListener Listener{ *this };
         GameUIVector<std::pair<const Scene*, std::uint32_t>> RetainedScenes;
+        GameUIData Data;
 
         // The element with the focus, but neither the document's body nor the context's root, which stand for none
         [[nodiscard]] static Rml::Element* GetFocusedElement(const Document& document)
@@ -974,6 +977,7 @@ namespace Trinity
                 l_Context->GetRootElement()->AddEventListener(it_Event, &Listener, true);
             }
 
+            DeclareModels(*l_Context, path);
             Rml::ElementDocument* l_Document = l_Context->LoadDocument(Rml::String(path));
             if (l_Document == nullptr)
             {
@@ -999,6 +1003,16 @@ namespace Trinity
             return l_ID;
         }
 
+        // The data models the document's text names, read as RmlUi will read it, so it reads before any script binds into them
+        static void DeclareModels(Rml::Context& context, std::string_view path)
+        {
+            Rml::String l_Text;
+            if (Rml::GetFileInterface()->LoadFile(Rml::String(path), l_Text))
+            {
+                GameUIData::DeclareModels(context, l_Text);
+            }
+        }
+
         // Removing the context frees it and its document at once. What they drew is released as the next frame begins
         void Remove(UIDocumentID document)
         {
@@ -1008,6 +1022,7 @@ namespace Trinity
                 return;
             }
 
+            Data.Detach(document);
             Rml::RemoveContext(GetContextName(document));
             Documents.erase(a_Document);
         }
@@ -1490,6 +1505,10 @@ namespace Trinity
         l_Document->Panel = component.Panel;
         l_Document->World = l_Entry.World;
         l_Document->WorldSettings = component.World;
+        if (l_Entry.Owner != nullptr)
+        {
+            m_State->Data.Attach(l_Document->ID, *l_Document->Context, l_Entry.Owner, l_Entry.Entity);
+        }
 
         return true;
     }
@@ -1545,6 +1564,7 @@ namespace Trinity
 
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
         m_State->RetainedScenes.erase(a_Retained);
+        m_State->Data.ReleaseScene(&scene);
         std::erase_if(m_State->SceneDocuments, [this, &scene](const State::SceneDocument& entry)
         {
             if (entry.Owner != &scene || (entry.World ? entry.Shown : entry.View != c_NoView))
@@ -2022,6 +2042,7 @@ namespace Trinity
                 continue;
             }
 
+            State::DeclareModels(*it_Document.Context, it_Document.Path);
             Rml::ElementDocument* l_Document = it_Document.Context->LoadDocument(it_Document.Path);
             if (l_Document == nullptr)
             {
@@ -2174,6 +2195,8 @@ namespace Trinity
         l_Statistics.StyleSheetReloads = m_State->StyleSheetReloads;
         l_Statistics.Elements = static_cast<std::uint32_t>(std::ranges::count_if(m_State->ElementSlots, [](const State::ElementSlot& slot) { return static_cast<bool>(slot.Element); }));
         l_Statistics.QueuedEvents = static_cast<std::uint32_t>(m_State->Events.size());
+        l_Statistics.DataModels = m_State->Data.GetModelCount();
+        l_Statistics.DataVariables = m_State->Data.GetVariableCount();
 
         return l_Statistics;
     }
@@ -2198,6 +2221,11 @@ namespace Trinity
         const GameUI::State::Document* l_Document = ui.m_State->FindDocument(document);
 
         return l_Document != nullptr ? l_Document->Rml : nullptr;
+    }
+
+    GameUIData& GameUIAccess::GetData(GameUI& ui)
+    {
+        return ui.m_State->Data;
     }
 
     Rml::Element* GameUIAccess::GetFocus(GameUI& ui, UIDocumentID document)

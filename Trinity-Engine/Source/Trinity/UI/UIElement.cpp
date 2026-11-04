@@ -3,6 +3,7 @@
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Scripting/ScriptRuntime.hpp"
 #include "Trinity/UI/GameUIAccess.hpp"
+#include "Trinity/UI/GameUIData.hpp"
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
@@ -311,6 +312,13 @@ namespace Trinity
         GameUI* l_UI = m_Runtime != nullptr ? GameUIAccess::GetUI() : nullptr;
 
         return l_UI != nullptr ? GameUIAccess::Wrap(*l_UI, GameUIAccess::GetFocus(*l_UI, l_UI->GetSceneDocument(m_Runtime->GetScene(), m_Entity))) : UIElement();
+    }
+
+    UIDataModel UIDocument::GetModel(std::string_view name) const
+    {
+        GameUI* l_UI = m_Runtime != nullptr ? GameUIAccess::GetUI() : nullptr;
+
+        return UIDataModel::FromHandle(l_UI != nullptr ? GameUIAccess::GetData(*l_UI).GetModel(m_Runtime->GetScene(), m_Entity, name) : 0);
     }
 
     UIEventHandle UIDocument::AddHandler(std::string_view element, UIEventType type, const UIHandlerCalls& calls, void* handler) const
