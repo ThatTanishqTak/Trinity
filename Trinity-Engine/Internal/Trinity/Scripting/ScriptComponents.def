@@ -311,3 +311,7 @@ TR_PROPERTY(AudioSource, OcclusionVolume, Float, OcclusionVolume)
 TR_PROPERTY(AudioSource, OcclusionCutoff, Float, OcclusionCutoff)
 
 TR_COMPONENT(AudioListener, AudioListenerComponent)
+
+TR_COMPONENT(UIDocument, UIDocumentComponent)
+TR_PROPERTY(UIDocument, SortOrder, Int32, SortOrder)
+TR_PROPERTY(UIDocument, Visible, Bool, Visible)

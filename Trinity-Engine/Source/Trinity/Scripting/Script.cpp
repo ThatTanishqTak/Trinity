@@ -88,6 +88,12 @@ namespace Trinity
         return l_Audio != nullptr ? l_Audio->GetMixer() : nullptr;
     }
 
+    // An entity of another scene names nothing in this one
+    UIDocument Script::GetUIDocument(Entity entity) const
+    {
+        return m_Runtime != nullptr && entity && entity.GetScene() == &m_Runtime->GetScene() ? UIDocument(*m_Runtime, entity.GetUUID()) : UIDocument();
+    }
+
     Entity Script::FindEntity(UUID id) const
     {
         return m_Runtime != nullptr && id ? m_Runtime->GetScene().FindEntityByUUID(id) : Entity();

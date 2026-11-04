@@ -12,6 +12,7 @@
 #include "Trinity/Scene/SceneSerializer.hpp"
 #include "Trinity/Scripting/ScriptBackend.hpp"
 #include "Trinity/Scripting/ScriptClassRegistry.hpp"
+#include "Trinity/UI/GameUIAccess.hpp"
 
 #include <algorithm>
 #include <array>
@@ -61,6 +62,20 @@ namespace Trinity
             std::uint64_t ArmedFrame = 0;
             std::uint64_t Interval = 0;
             ScriptTaskKind Kind = ScriptTaskKind::Coroutine;
+            bool Running = false;
+            bool Dead = false;
+        };
+
+        // A handler of UI events, by its owner's instance handle, or none for one added outside any script's call. Running while its call is under way, and Dead once removed, freed then unless running
+        struct UIHandler
+        {
+            std::uint64_t ID = 0;
+            const void* Owner = nullptr;
+            UUID Entity;
+            TaggedString<MemoryTag::Scripting> Element;
+            UIEventType Type = UIEventType::Click;
+            UIHandlerCalls Calls;
+            void* Object = nullptr;
             bool Running = false;
             bool Dead = false;
         };
@@ -151,8 +166,9 @@ namespace Trinity
         };
 
         ScriptRuntime* s_Active = nullptr;
-        // Across every runtime, so a task carried into another keeps the ID its script holds
+        // Across every runtime, so a task or a handler carried into another keeps the ID its script holds
         std::uint64_t s_NextTask = 0;
+        std::uint64_t s_NextUIHandler = 0;
 
         // An entity's instances, one for each script in its component, in list order. Dead once its instances are freed, and orphaned once its component went without the runtime, so its instances wait to be freed without OnDestroy
         struct Record
@@ -172,7 +188,29 @@ namespace Trinity
         State(Scene& scene, ScriptRuntime& runtime, ScriptRuntime* previous) : TargetScene(scene), Runtime(runtime), Previous(previous)
         {
 
+
         }
+
+        // The instance a call goes into for as long as it lasts, which owns the UI handlers it adds, nested calls restoring the one before
+        class CallingScope
+        {
+        public:
+            CallingScope(State& state, const void* instance) : m_State(state), m_Previous(std::exchange(state.Calling, instance))
+            {
+            }
+
+            ~CallingScope()
+            {
+                m_State.Calling = m_Previous;
+            }
+
+            CallingScope(const CallingScope&) = delete;
+            CallingScope& operator=(const CallingScope&) = delete;
+
+        private:
+            State& m_State;
+            const void* m_Previous = nullptr;
+        };
 
         // Signal listeners, which only note what changed, since a script may not run while the registry is in the middle of a change
         void OnScriptAdded(SceneRegistry& registry, entt::entity entity)
@@ -296,6 +334,7 @@ namespace Trinity
             {
                 l_Instance.Created = true;
                 Time.Enter(l_Instance.Backend->GetLanguage());
+                const CallingScope l_Calling(*this, l_Instance.Handle);
                 if ((l_Instance.Callbacks & ScriptCallbacks::Create) != 0 && !l_Instance.Backend->OnCreate(l_Instance.Handle))
                 {
                     Fault(Records[record].Instances[index]);
@@ -327,6 +366,7 @@ namespace Trinity
                     {
                         l_Any = true;
                         Time.Enter(l_Instance->Backend->GetLanguage());
+                        const CallingScope l_Calling(*this, l_Instance->Handle);
                         if (!call(*l_Instance))
                         {
                             Fault(Records[it_Record].Instances[it_Index]);
@@ -356,6 +396,7 @@ namespace Trinity
                 }
 
                 Time.Enter(l_Instance->Backend->GetLanguage());
+                const CallingScope l_Calling(*this, l_Instance->Handle);
                 if (!l_Instance->Backend->OnPhysicsEvent(l_Instance->Handle, type, collision))
                 {
                     Fault(Records[l_Record].Instances[it_Index]);
@@ -377,6 +418,7 @@ namespace Trinity
                 if (callOnDestroy && l_Instance.Created && !l_Instance.Faulted && (l_Instance.Callbacks & ScriptCallbacks::Destroy) != 0)
                 {
                     Time.Enter(l_Instance.Backend->GetLanguage());
+                    const CallingScope l_Calling(*this, l_Instance.Handle);
                     static_cast<void>(l_Instance.Backend->OnDestroy(l_Instance.Handle));
                 }
 
@@ -441,9 +483,14 @@ namespace Trinity
             }
         }
 
-        // Every task of the instance, of either kind or of the one asked for, the number stopped
+        // Every task of the instance, of either kind or of the one asked for, the number stopped. Asked for every kind, its UI handlers go too
         std::uint32_t StopOwner(const void* owner, std::optional<ScriptTaskKind> kind = std::nullopt)
         {
+            if (!kind && owner != nullptr)
+            {
+                RemoveHandlers([owner](const UIHandler& handler) { return handler.Owner == owner; });
+            }
+
             std::uint32_t l_Stopped = 0;
             for (Task& it_Task : Tasks)
             {
@@ -487,7 +534,12 @@ namespace Trinity
             ++TaskDepth;
             ScriptWait l_Next;
             Time.Enter(l_Calls.Language);
-            const bool l_Resumed = l_Calls.Resume(l_Object, l_Next);
+            bool l_Resumed = false;
+            {
+                const CallingScope l_Calling(*this, Tasks[index].Owner);
+                l_Resumed = l_Calls.Resume(l_Object, l_Next);
+            }
+
             --TaskDepth;
 
             Task& l_Task = Tasks[index];
@@ -637,6 +689,72 @@ namespace Trinity
             CompactTasks();
         }
 
+        // Freed now, or once its call returns when it is running
+        void KillHandler(UIHandler& handler)
+        {
+            if (handler.Dead)
+            {
+                return;
+            }
+
+            handler.Dead = true;
+            HandlersChanged = true;
+            if (!handler.Running)
+            {
+                handler.Calls.Free(handler.Object);
+                handler.Object = nullptr;
+            }
+        }
+
+        template<typename F>
+        void RemoveHandlers(F&& which)
+        {
+            for (UIHandler& it_Handler : Handlers)
+            {
+                if (!it_Handler.Dead && which(std::as_const(it_Handler)))
+                {
+                    KillHandler(it_Handler);
+                }
+            }
+
+            CompactHandlers();
+        }
+
+        // Drops removed handlers once none runs, which frees nothing, since each was freed as it went
+        void CompactHandlers()
+        {
+            if (HandlerDepth == 0 && std::exchange(HandlersChanged, false))
+            {
+                std::erase_if(Handlers, [](const UIHandler& handler) { return handler.Dead; });
+            }
+        }
+
+        // The handler at that index called as its owner, and removed when it failed. Handlers it adds go on the end of the list, which may move, so it is found again by its index
+        void Invoke(std::size_t index, const UIEvent& event)
+        {
+            const UIHandlerCalls l_Calls = Handlers[index].Calls;
+            void* l_Object = Handlers[index].Object;
+            Handlers[index].Running = true;
+            Time.Enter(l_Calls.Language);
+            bool l_Invoked = false;
+            {
+                const CallingScope l_Calling(*this, Handlers[index].Owner);
+                l_Invoked = l_Calls.Invoke(l_Object, event);
+            }
+
+            UIHandler& l_Handler = Handlers[index];
+            l_Handler.Running = false;
+            if (l_Handler.Dead)
+            {
+                l_Calls.Free(l_Object);
+                l_Handler.Object = nullptr;
+            }
+            else if (!l_Invoked)
+            {
+                KillHandler(l_Handler);
+            }
+        }
+
         // Drops finished tasks once none runs, which frees nothing, since each was freed as it finished
         void CompactTasks()
         {
@@ -690,6 +808,13 @@ namespace Trinity
         LanguageClock Time;
         bool Changed = false;
         bool TasksChanged = false;
+        // The UI handlers, the last UI event taken and those taken, kept from frame to frame so taking them allocates only as the list grows, and the instance being called
+        std::vector<UIHandler, TaggedAllocator<UIHandler, MemoryTag::Scripting>> Handlers;
+        std::uint64_t EventCursor = 0;
+        std::vector<UIQueuedEvent> Events;
+        std::uint32_t HandlerDepth = 0;
+        bool HandlersChanged = false;
+        const void* Calling = nullptr;
     };
 
     // The step and frame the carry left its runtime at, so each wait goes on with what was left of it
@@ -697,6 +822,7 @@ namespace Trinity
     {
         std::vector<Record, TaggedAllocator<Record, MemoryTag::Scripting>> Records;
         std::vector<Task, TaggedAllocator<Task, MemoryTag::Scripting>> Tasks;
+        std::vector<UIHandler, TaggedAllocator<UIHandler, MemoryTag::Scripting>> Handlers;
         std::uint64_t StepCount = 0;
         std::uint64_t FrameCount = 0;
     };
@@ -743,7 +869,7 @@ namespace Trinity
         return m_Data != nullptr ? m_Data->Tasks.size() : 0;
     }
 
-    // Tasks first, since a C# task holds its script
+    // Tasks and handlers first, since a C# task or handler may hold its script
     void ScriptCarry::Free()
     {
         if (m_Data == nullptr)
@@ -754,6 +880,11 @@ namespace Trinity
         for (Task& it_Task : m_Data->Tasks)
         {
             it_Task.Calls.Free(it_Task.Object);
+        }
+
+        for (UIHandler& it_Handler : m_Data->Handlers)
+        {
+            it_Handler.Calls.Free(it_Handler.Object);
         }
 
         for (Record& it_Record : m_Data->Records)
@@ -786,6 +917,13 @@ namespace Trinity
         SceneRegistry& l_Registry = scene.GetRegistry();
         l_Registry.on_construct<ScriptComponent>().connect<&State::OnScriptAdded>(*m_State);
         l_Registry.on_destroy<ScriptComponent>().connect<&State::OnScriptRemoved>(*m_State);
+
+        // Events queued before the runtime began were for no script of its
+        if (GameUI* l_UI = GameUIAccess::GetUI())
+        {
+            l_UI->RetainScene(scene);
+            m_State->EventCursor = l_UI->GetEventSequence();
+        }
     }
 
     ScriptRuntime::~ScriptRuntime()
@@ -806,6 +944,13 @@ namespace Trinity
         for (Task& it_Task : m_State->Tasks)
         {
             m_State->Finish(it_Task);
+        }
+
+        // Those of scripts went with them, and those added outside any script's call go now
+        m_State->RemoveHandlers([](const UIHandler&) { return true; });
+        if (GameUI* l_UI = GameUIAccess::GetUI())
+        {
+            l_UI->ReleaseScene(m_State->TargetScene);
         }
 
         if (s_Active == this)
@@ -879,6 +1024,63 @@ namespace Trinity
         const TimedPart l_Timed(m_State->Time);
         m_State->Time.Enter(ScriptLanguage::CSharp);
         l_Backend->RaiseInputEvents();
+    }
+
+    // Each handler is matched by its element's ID against each ID on the event's path, the target's first, so a click inside a button reaches the button's handlers after the target's own
+    void ScriptRuntime::RaiseUIEvents()
+    {
+        TR_PROFILE_FUNCTION();
+
+        State& l_State = *m_State;
+        GameUI* l_UI = GameUIAccess::GetUI();
+        const std::uint64_t l_Latest = l_UI != nullptr ? l_UI->GetEventSequence() : l_State.EventCursor;
+        if (l_Latest == l_State.EventCursor)
+        {
+            return;
+        }
+
+        std::size_t l_Count = 0;
+        if (!l_State.Handlers.empty())
+        {
+            const MemoryTagScope l_Scope(MemoryTag::Scripting);
+            l_Count = l_UI->GetEvents(l_State.TargetScene, l_State.EventCursor, l_State.Events);
+        }
+
+        l_State.EventCursor = l_Latest;
+        if (l_Count == 0)
+        {
+            return;
+        }
+
+        const TimedPart l_Timed(l_State.Time);
+        ++l_State.HandlerDepth;
+        for (std::size_t it_Event = 0; it_Event < l_Count; ++it_Event)
+        {
+            const UIQueuedEvent& l_Queued = l_State.Events[it_Event];
+            const UIDocument l_Document(*this, l_Queued.Entity);
+            for (std::size_t it_Begin = 0; it_Begin < l_Queued.Path.size();)
+            {
+                const std::size_t l_End = std::min(l_Queued.Path.find('\0', it_Begin), l_Queued.Path.size());
+                const std::string_view l_ID(l_Queued.Path.data() + it_Begin, l_End - it_Begin);
+                it_Begin = l_End + 1;
+                UIEvent l_Event{ l_Queued.Type, l_Document,{}, l_Queued.Target, l_Queued.Value };
+                const std::size_t l_Handlers = l_State.Handlers.size();
+                for (std::size_t it_Handler = 0; it_Handler < l_Handlers; ++it_Handler)
+                {
+                    const UIHandler& l_Handler = l_State.Handlers[it_Handler];
+                    if (l_Handler.Dead || l_Handler.Entity != l_Queued.Entity || l_Handler.Type != l_Queued.Type || std::string_view(l_Handler.Element) != l_ID)
+                    {
+                        continue;
+                    }
+
+                    l_Event.Element = l_Event.Element ? l_Event.Element : l_Document.GetElement(l_ID);
+                    l_State.Invoke(it_Handler, l_Event);
+                }
+            }
+        }
+
+        --l_State.HandlerDepth;
+        l_State.CompactHandlers();
     }
 
     void ScriptRuntime::FixedUpdate(Timestep step)
@@ -976,6 +1178,9 @@ namespace Trinity
             TR_CORE_INFO("Scripting: the reload cancelled {} waiting {} timer(s) and coroutine(s)", l_Cancelled, ToString(language));
         }
 
+        // Those added outside any script's call too, as their code is about to unload
+        m_State->RemoveHandlers([language](const UIHandler& handler) { return handler.Calls.Language == language; });
+
         return l_Released;
     }
 
@@ -1039,6 +1244,7 @@ namespace Trinity
                 // At once, enabled or not, since its OnCreate does not run again
                 if (l_Instance.Created && !l_Instance.Faulted && (l_Instance.Callbacks & ScriptCallbacks::Reloaded) != 0)
                 {
+                    const State::CallingScope l_Calling(l_State, l_Handle);
                     if (!l_Backend->OnReloaded(l_Handle))
                     {
                         l_State.Fault(l_State.Records[it_Record].Instances[it_Index]);
@@ -1107,6 +1313,44 @@ namespace Trinity
         return a_Found != m_State->Tasks.end() && !a_Found->Dead;
     }
 
+    std::uint64_t ScriptRuntime::AddUIHandler(UUID entity, std::string_view element, UIEventType type, const UIHandlerCalls& calls, void* handler)
+    {
+        TR_CORE_ASSERT(calls.Invoke != nullptr && calls.Free != nullptr, "Scripting: a UI handler needs a way to call it and one to free it");
+
+        if (element.empty())
+        {
+            TR_CORE_WARN("Scripting: a {} handler for no element ID was not added, as no element has an empty ID", ToString(type));
+            calls.Free(handler);
+
+            return 0;
+        }
+
+        UIHandler& l_Handler = m_State->Handlers.emplace_back();
+        l_Handler.ID = ++s_NextUIHandler;
+        l_Handler.Owner = m_State->Calling;
+        l_Handler.Entity = entity;
+        l_Handler.Element = element;
+        l_Handler.Type = type;
+        l_Handler.Calls = calls;
+        l_Handler.Object = handler;
+
+        return l_Handler.ID;
+    }
+
+    bool ScriptRuntime::RemoveUIHandler(std::uint64_t id)
+    {
+        const auto a_Found = std::ranges::find(m_State->Handlers, id, &UIHandler::ID);
+        if (id == 0 || a_Found == m_State->Handlers.end() || a_Found->Dead)
+        {
+            return false;
+        }
+
+        m_State->KillHandler(*a_Found);
+        m_State->CompactHandlers();
+
+        return true;
+    }
+
     // Each record leaves its place dead and empty, which the next Compact drops, and each of its instances' tasks goes with it
     ScriptCarry ScriptRuntime::Extract(std::span<const UUID> entities)
     {
@@ -1142,12 +1386,25 @@ namespace Trinity
                         l_State.TasksChanged = true;
                     }
                 }
+
+                // Each keeps naming its document by the entity, which is carried under the same UUID
+                for (UIHandler& it_Handler : l_State.Handlers)
+                {
+                    if (!it_Handler.Dead && !it_Handler.Running && it_Instance.Backend != nullptr && it_Handler.Owner == it_Instance.Handle)
+                    {
+                        l_Carry.m_Data->Handlers.push_back(it_Handler);
+                        it_Handler.Dead = true;
+                        it_Handler.Object = nullptr;
+                        l_State.HandlersChanged = true;
+                    }
+                }
             }
 
             l_Carry.m_Data->Records.push_back(std::move(l_Moved));
         }
 
         l_State.CompactTasks();
+        l_State.CompactHandlers();
         l_State.Compact();
 
         return l_Carry;
@@ -1216,6 +1473,19 @@ namespace Trinity
             l_Task.ArmedFrame = m_Time.FrameCount;
             l_State.Tasks.push_back(l_Task);
             it_Task = l_Data.Tasks.erase(it_Task);
+        }
+
+        for (auto it_Handler = l_Data.Handlers.begin(); it_Handler != l_Data.Handlers.end();)
+        {
+            if (std::ranges::find(l_Owners, it_Handler->Owner) == l_Owners.end())
+            {
+                ++it_Handler;
+
+                continue;
+            }
+
+            l_State.Handlers.push_back(std::move(*it_Handler));
+            it_Handler = l_Data.Handlers.erase(it_Handler);
         }
     }
 
@@ -1450,7 +1720,10 @@ namespace Trinity
             if (l_Instance.Backend != nullptr && l_Instance.Created && !l_Instance.Faulted && (l_Instance.Callbacks & ScriptCallbacks::Destroy) != 0)
             {
                 l_State.Time.Enter(l_Instance.Backend->GetLanguage());
-                static_cast<void>(l_Instance.Backend->OnDestroy(l_Instance.Handle));
+                {
+                    const State::CallingScope l_Calling(l_State, l_Instance.Handle);
+                    static_cast<void>(l_Instance.Backend->OnDestroy(l_Instance.Handle));
+                }
 
                 // OnDestroy may have added or removed scripts
                 l_Found = a_FindIndex();
@@ -1546,6 +1819,7 @@ namespace Trinity
             ++(it_Task.Kind == ScriptTaskKind::Timer ? l_Language.Timers : l_Language.Coroutines);
         }
 
+        l_Statistics.UIHandlers = static_cast<std::uint32_t>(std::ranges::count(m_State->Handlers, false, &UIHandler::Dead));
         l_Statistics.Cpp.Milliseconds = m_State->Time.GetMilliseconds(ScriptLanguage::Cpp);
         l_Statistics.CSharp.Milliseconds = m_State->Time.GetMilliseconds(ScriptLanguage::CSharp);
 

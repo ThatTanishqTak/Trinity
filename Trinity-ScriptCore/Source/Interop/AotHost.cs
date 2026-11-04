@@ -38,6 +38,7 @@ namespace Trinity.Interop
                 (c_ScriptHostType, "CheckTask") => (nint)(delegate* unmanaged<nint, int*, int>)&ScriptHost.CheckTask,
                 (c_ScriptHostType, "FreeTask") => (nint)(delegate* unmanaged<nint, void>)&ScriptHost.FreeTask,
                 (c_ScriptHostType, "RaiseInputEvents") => (nint)(delegate* unmanaged<void>)&ScriptHost.RaiseInputEvents,
+                (c_ScriptHostType, "InvokeUIHandler") => (nint)(delegate* unmanaged<nint, int, ulong, ulong, byte*, int, int>)&ScriptHost.InvokeUIHandler,
                 _ => 0
             };
         }

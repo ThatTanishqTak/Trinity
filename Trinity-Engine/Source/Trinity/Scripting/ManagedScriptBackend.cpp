@@ -532,6 +532,14 @@ namespace Trinity
         }
 
         constexpr ScriptTaskCalls c_ManagedTaskCalls{ &ResumeManagedTask, &CheckManagedTask, &FreeManagedTask, ScriptLanguage::CSharp };
+
+        // A C# handler of UI events, which ScriptCore calls with the event as plain numbers and text, and frees as it frees a task
+        bool InvokeManagedHandler(void* handler, const UIEvent& event)
+        {
+            return DotNetHost::InvokeUIHandler(ToHandle(handler), static_cast<std::int32_t>(event.Type), event.Element.GetHandle(), event.Target.GetHandle(), event.Value);
+        }
+
+        constexpr UIHandlerCalls c_ManagedHandlerCalls{ &InvokeManagedHandler, &FreeManagedTask, ScriptLanguage::CSharp };
     }
 
     namespace ManagedScriptBackend
@@ -647,6 +655,27 @@ namespace Trinity
             ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
 
             return l_Runtime != nullptr && l_Runtime->IsTaskRunning(task);
+        }
+
+        // The handler is ScriptCore's to free while no runtime takes it
+        UInt64 UIDocument_AddHandler(EntityId entity, Utf8 element, Int32 type, Int64 handler)
+        {
+            ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+            if (l_Runtime == nullptr || type < 0 || type >= static_cast<Int32>(c_UIEventTypeCount))
+            {
+                FreeManagedTask(reinterpret_cast<void*>(static_cast<std::intptr_t>(handler)));
+
+                return 0;
+            }
+
+            return l_Runtime->AddUIHandler(UUID(entity), ToStringView(element), static_cast<UIEventType>(type), c_ManagedHandlerCalls, reinterpret_cast<void*>(static_cast<std::intptr_t>(handler)));
+        }
+
+        Bool UIDocument_RemoveHandler(UInt64 handler)
+        {
+            ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+
+            return l_Runtime != nullptr && l_Runtime->RemoveUIHandler(handler);
         }
     }
 

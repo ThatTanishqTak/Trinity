@@ -17,6 +17,7 @@
 #include "Trinity/Scene/Entity.hpp"
 #include "Trinity/Scene/Scene.hpp"
 #include "Trinity/Scripting/ScriptRuntime.hpp"
+#include "Trinity/UI/GameUIAccess.hpp"
 #include "Trinity/UI/GameUIFileInterface.hpp"
 #include "Trinity/UI/GameUIInput.hpp"
 #include "Trinity/UI/GameUIRenderInterface.hpp"
@@ -27,6 +28,8 @@
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Event.h>
+#include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Factory.h>
 #include <RmlUi/Core/FontEngineInterface.h>
 #include <RmlUi/Core/ID.h>
@@ -47,6 +50,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 // RmlUi's font engine makes and ends its FreeType library through these, in place of FT_Init_FreeType and FT_Done_FreeType, which Vendor/CMakeLists.txt renames in that one source of RmlUi's. They take FreeType's own steps, with its memory counted under GameUI
 extern "C"
@@ -99,6 +103,8 @@ namespace Trinity
     namespace
     {
         bool s_Running = false;
+        // The one that lives, which scripts reach through UIDocument and UIElement
+        GameUI* s_Instance = nullptr;
 
         // Under every document's own, so the controls a player moves between take the focus as Unity's do, while a document's own rule for them wins
         constexpr const char* c_BaseStyleSheet = "button, input, select, textarea { tab-index: auto; }";
@@ -110,6 +116,10 @@ namespace Trinity
         constexpr float c_TakenPush = 0.5f;
         // RmlUi's left, right and middle buttons
         constexpr std::array<MouseCode, 3> c_PointerButtons{ MouseCode::TR_LEFT, MouseCode::TR_RIGHT, MouseCode::TR_MIDDLE };
+        // The events scripts handle, each as the RmlUi event it is
+        constexpr std::array<std::pair<Rml::EventId, UIEventType>, c_UIEventTypeCount> c_ScriptEvents{ { { Rml::EventId::Click, UIEventType::Click },{ Rml::EventId::Change, UIEventType::Change },{ Rml::EventId::Submit, UIEventType::Submit },{ Rml::EventId::Mouseover, UIEventType::PointerEnter },{ Rml::EventId::Mouseout, UIEventType::PointerLeave },{ Rml::EventId::Focus, UIEventType::Focus },{ Rml::EventId::Blur, UIEventType::Blur } } };
+        // The view of a screen document loaded for a scene's scripts while no view shows the scene, which is no view, so it draws nothing and takes no input
+        constexpr ViewID c_NoView = std::numeric_limits<ViewID>::max();
 
         enum class NavigateDirection : std::uint8_t
         {
@@ -429,7 +439,7 @@ namespace Trinity
             glm::uvec2 TextureSize{ 0 };
         };
 
-        // A UIDocument's document, by its entity, kept while ShowScene or ShowWorld sees it: a screen document over a view, and a world document in a scene, which is known by its address alone and never read through. One whose asset could not be loaded keeps no document, and is not tried again until it names another
+        // A UIDocument's document, by its entity, kept while ShowScene or ShowWorld sees it, or while its scene is retained for its scripts: a screen document over a view, or over none until a view shows its scene, and a world document, in the scene it was last seen in, which is known by its address alone and never read through. One whose asset could not be loaded keeps no document, and is not tried again until it names another
         struct SceneDocument
         {
             ViewID View = Renderer::c_MainView;
@@ -439,6 +449,40 @@ namespace Trinity
             UUID Asset;
             UIDocumentID Document = c_NoDocument;
             bool Shown = false;
+        };
+
+        // An element a script reached, in a slot its handles name with the slot's generation, so a handle given out before the element went reaches nothing. An element has one slot while it lives, and a slot is used again, under the next generation, once its element has gone. Reported is the last generation a call on a gone element was logged for
+        struct ElementSlot
+        {
+            Rml::ObserverPtr<Rml::Element> Element;
+            std::uint32_t Generation = 0;
+            std::uint32_t Reported = 0;
+        };
+
+        // A UI event for the scripts of the scene whose document it happened in, by the frame it happened in
+        struct QueuedEvent
+        {
+            const Scene* Owner = nullptr;
+            std::uint64_t Frame = 0;
+            UIQueuedEvent Event;
+        };
+
+        // Queues each event scripts handle as it passes the root of its document's context on its way in, in the capture phase, so it sees those that do not bubble too
+        class EventListener final : public Rml::EventListener
+        {
+        public:
+            explicit EventListener(State& state) : m_State(state)
+            {
+
+            }
+
+            void ProcessEvent(Rml::Event& event) override
+            {
+                m_State.Queue(event);
+            }
+
+        private:
+            State& m_State;
         };
 
         // A world document drawn in this frame's graph, into its texture, whose bindless index is known once its pass has run
@@ -525,6 +569,13 @@ namespace Trinity
         UIDocumentID PointerCapture = c_NoDocument;
         // The depth under the cursor, as the interactive view last read it back
         std::optional<DepthPickResult> CursorDepth;
+        // Elements scripts hold handles to, the events queued for scripts with the last sequence number given and the frames Update has begun, and the scenes kept for their scripts, with how often each is
+        GameUIVector<ElementSlot> ElementSlots;
+        GameUIVector<QueuedEvent> Events;
+        std::uint64_t EventSequence = 0;
+        std::uint64_t FrameCount = 0;
+        EventListener Listener{ *this };
+        GameUIVector<std::pair<const Scene*, std::uint32_t>> RetainedScenes;
 
         // The element with the focus, but neither the document's body nor the context's root, which stand for none
         [[nodiscard]] static Rml::Element* GetFocusedElement(const Document& document)
@@ -781,6 +832,116 @@ namespace Trinity
             return l_Best;
         }
 
+        // A handle names its slot in its low half and the slot's generation in its high half, which starts at 1, so none is 0
+        [[nodiscard]] UIElement Wrap(Rml::Element* element)
+        {
+            if (element == nullptr)
+            {
+                return {};
+            }
+
+            std::optional<std::uint32_t> l_Free;
+            for (std::uint32_t it_Slot = 0; it_Slot < ElementSlots.size(); ++it_Slot)
+            {
+                const ElementSlot& l_Slot = ElementSlots[it_Slot];
+                if (l_Slot.Element.get() == element)
+                {
+                    return UIElement::FromHandle(static_cast<std::uint64_t>(l_Slot.Generation) << 32 | it_Slot);
+                }
+
+                if (!l_Slot.Element && !l_Free)
+                {
+                    l_Free = it_Slot;
+                }
+            }
+
+            if (!l_Free)
+            {
+                const MemoryTagScope l_Scope(MemoryTag::GameUI);
+                l_Free = static_cast<std::uint32_t>(ElementSlots.size());
+                ElementSlots.emplace_back();
+            }
+
+            ElementSlot& l_Slot = ElementSlots[*l_Free];
+            l_Slot.Element = element->GetObserverPtr();
+            ++l_Slot.Generation;
+
+            return UIElement::FromHandle(static_cast<std::uint64_t>(l_Slot.Generation) << 32 | *l_Free);
+        }
+
+        [[nodiscard]] Rml::Element* Resolve(UIElement element)
+        {
+            const std::uint64_t l_Handle = element.GetHandle();
+            const std::uint32_t l_Index = static_cast<std::uint32_t>(l_Handle);
+            const std::uint32_t l_Generation = static_cast<std::uint32_t>(l_Handle >> 32);
+            if (l_Handle == 0 || l_Index >= ElementSlots.size())
+            {
+                return nullptr;
+            }
+
+            ElementSlot& l_Slot = ElementSlots[l_Index];
+            Rml::Element* l_Element = l_Slot.Generation == l_Generation ? l_Slot.Element.get() : nullptr;
+            if (l_Element == nullptr && l_Slot.Reported != l_Generation)
+            {
+                l_Slot.Reported = l_Generation;
+                TR_CORE_WARN("GameUI: a script reached an element that has gone, as what held it was replaced or its document was read again, so the call does nothing");
+            }
+
+            return l_Element;
+        }
+
+        [[nodiscard]] bool IsRetained(const Scene* scene) const
+        {
+            return scene != nullptr && std::ranges::find(RetainedScenes, scene, &std::pair<const Scene*, std::uint32_t>::first) != RetainedScenes.end();
+        }
+
+        // The IDs of the target and of the elements around it that have one, for an event that bubbles, and of the target alone for one each element has for itself. One where none has an ID, or of a document no scene's UIDocument keeps, is passed over, as no handler could take it
+        void Queue(Rml::Event& event)
+        {
+            const auto a_Kind = std::ranges::find(c_ScriptEvents, event.GetId(), &std::pair<Rml::EventId, UIEventType>::first);
+            Rml::Element* l_Target = event.GetTargetElement();
+            Rml::Context* l_Context = l_Target != nullptr ? l_Target->GetContext() : nullptr;
+            const auto a_Document = std::ranges::find(Documents, l_Context, &Document::Context);
+            if (a_Kind == c_ScriptEvents.end() || l_Context == nullptr || a_Document == Documents.end())
+            {
+                return;
+            }
+
+            const auto a_Entry = std::ranges::find(SceneDocuments, a_Document->ID, &SceneDocument::Document);
+            if (a_Entry == SceneDocuments.end() || a_Entry->Owner == nullptr)
+            {
+                return;
+            }
+
+            const UIEventType l_Type = a_Kind->second;
+            const bool l_Bubbles = l_Type == UIEventType::Click || l_Type == UIEventType::Change || l_Type == UIEventType::Submit;
+            const MemoryTagScope l_Scope(MemoryTag::GameUI);
+            QueuedEvent& l_Queued = Events.emplace_back();
+            for (Rml::Element* it_Element = l_Target; it_Element != nullptr; it_Element = l_Bubbles ? it_Element->GetParentNode() : nullptr)
+            {
+                if (!it_Element->GetId().empty())
+                {
+                    l_Queued.Event.Path.append(it_Element->GetId());
+                    l_Queued.Event.Path.push_back('\0');
+                }
+            }
+
+            if (l_Queued.Event.Path.empty())
+            {
+                Events.pop_back();
+
+                return;
+            }
+
+            l_Queued.Owner = a_Entry->Owner;
+            l_Queued.Frame = FrameCount;
+            l_Queued.Event.Sequence = ++EventSequence;
+            l_Queued.Event.Entity = a_Entry->Entity;
+            l_Queued.Event.Type = l_Type;
+            l_Queued.Event.Target = Wrap(l_Target);
+            l_Queued.Event.Value = l_Type == UIEventType::Submit ? event.GetParameter<Rml::String>("submit", "") : event.GetParameter<Rml::String>("value", "");
+        }
+
         [[nodiscard]] Document* FindDocument(UIDocumentID document)
         {
             const auto a_Document = std::ranges::find(Documents, document, &Document::ID);
@@ -805,6 +966,12 @@ namespace Trinity
                 TR_CORE_ERROR("GameUI: {} could not have a context, so it is not loaded", path);
 
                 return c_NoDocument;
+            }
+
+            // On the context's root, which outlives each document read into it
+            for (const auto& [it_Event, it_Type] : c_ScriptEvents)
+            {
+                l_Context->GetRootElement()->AddEventListener(it_Event, &Listener, true);
             }
 
             Rml::ElementDocument* l_Document = l_Context->LoadDocument(Rml::String(path));
@@ -1009,6 +1176,7 @@ namespace Trinity
     {
         TR_CORE_ASSERT(!s_Running, "Only one GameUI may exist.");
         s_Running = true;
+        s_Instance = this;
 
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
         m_State = CreateScope<State>(device, m_Renderer.GetDisplayFormat());
@@ -1047,6 +1215,9 @@ namespace Trinity
             m_State->WorldPasses = GameUIVector<State::WorldPass>();
             m_State->WorldTextures = GameUIVector<FrameGraphTexture>();
             m_State->ViewScenes = GameUIVector<std::pair<ViewID, const Scene*>>();
+            m_State->ElementSlots = GameUIVector<State::ElementSlot>();
+            m_State->Events = GameUIVector<State::QueuedEvent>();
+            m_State->RetainedScenes = GameUIVector<std::pair<const Scene*, std::uint32_t>>();
             m_State->BaseStyle.reset();
             if (m_State->Started)
             {
@@ -1062,6 +1233,7 @@ namespace Trinity
             TR_CORE_INFO("GameUI: {} in {} allocation(s) that RmlUi keeps in its statics until the process ends are counted as untagged", Memory::FormatBytes(l_Statics.CurrentBytes), l_Statics.LiveAllocations);
         }
 
+        s_Instance = nullptr;
         s_Running = false;
     }
 
@@ -1228,7 +1400,6 @@ namespace Trinity
             }
         }
 
-        const AssetRegistry* l_Assets = AssetManager::GetRegistry();
         for (const auto [it_Entity, it_Component, it_ID] : l_Components.each())
         {
             const bool l_World = it_Component.RenderMode == UIRenderMode::World;
@@ -1237,53 +1408,36 @@ namespace Trinity
                 continue;
             }
 
+            // The scene's own first, which may be one its scripts had loaded before any view showed it, then a screen document the view kept from the scene it showed before, as one on an entity kept across scenes is
             const UUID l_EntityID = it_ID.ID;
-            auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.Entity == l_EntityID && entry.World == l_World && (l_World ? entry.Owner == &scene : entry.View == *view); });
+            auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.Entity == l_EntityID && entry.World == l_World && entry.Owner == &scene && (l_World || entry.View == *view || entry.View == c_NoView); });
+            if (a_Entry == m_State->SceneDocuments.end() && !l_World)
+            {
+                a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.Entity == l_EntityID && !entry.World && entry.View == *view; });
+            }
+
             if (a_Entry == m_State->SceneDocuments.end())
             {
                 State::SceneDocument& l_New = m_State->SceneDocuments.emplace_back();
                 l_New.View = l_World ? Renderer::c_MainView : *view;
-                l_New.Owner = l_World ? &scene : nullptr;
                 l_New.World = l_World;
                 l_New.Entity = l_EntityID;
                 a_Entry = m_State->SceneDocuments.end() - 1;
             }
 
+            a_Entry->Owner = &scene;
             a_Entry->Shown = true;
-            if (a_Entry->Asset != it_Component.Document || (a_Entry->Document != c_NoDocument && !HasDocument(a_Entry->Document)))
+            if (!l_World && a_Entry->View != *view)
             {
-                m_State->Remove(std::exchange(a_Entry->Document, c_NoDocument));
-                a_Entry->Asset = it_Component.Document;
-                if (a_Entry->Asset)
+                a_Entry->View = *view;
+                if (State::Document* l_Taken = m_State->FindDocument(a_Entry->Document))
                 {
-                    const AssetRecord* l_Record = l_Assets != nullptr ? l_Assets->Find(a_Entry->Asset) : nullptr;
-                    if (l_Record == nullptr || l_Record->Importer != UIAssets::c_DocumentType)
-                    {
-                        TR_CORE_WARN("GameUI: entity {} names {}, which {}, so its UIDocument shows nothing", l_EntityID, a_Entry->Asset, l_Record == nullptr ? "is not in the project" : "is not a UI document");
-                    }
-                    else if (l_World)
-                    {
-                        a_Entry->Document = m_State->Load(l_Record->Path, Renderer::c_MainView, Rml::Vector2i(1, 1));
-                    }
-                    else
-                    {
-                        a_Entry->Document = LoadDocument(l_Record->Path, *view);
-                    }
+                    l_Taken->View = *view;
                 }
             }
 
-            State::Document* l_Document = m_State->FindDocument(a_Entry->Document);
-            if (l_Document == nullptr)
-            {
-                continue;
-            }
-
-            SetVisible(l_Document->ID, it_Component.Visible);
-            SetSortOrder(l_Document->ID, it_Component.SortOrder);
-            l_Document->Panel = it_Component.Panel;
-            l_Document->World = l_World;
-            l_Document->WorldSettings = it_Component.World;
-            if (l_World)
+            State::Document* l_Document = Refresh(static_cast<std::size_t>(a_Entry - m_State->SceneDocuments.begin()), it_Component) ? m_State->FindDocument(a_Entry->Document) : nullptr;
+            if (l_Document == nullptr || l_World)
             {
                 continue;
             }
@@ -1296,6 +1450,145 @@ namespace Trinity
                 m_State->Sorted = false;
             }
         }
+    }
+
+    // A screen document over no view yet is loaded into a context of one pixel, which takes its view's size once a view takes it
+    bool GameUI::Refresh(std::size_t entry, const UIDocumentComponent& component)
+    {
+        State::SceneDocument& l_Entry = m_State->SceneDocuments[entry];
+        if (l_Entry.Asset != component.Document || (l_Entry.Document != c_NoDocument && !HasDocument(l_Entry.Document)))
+        {
+            m_State->Remove(std::exchange(l_Entry.Document, c_NoDocument));
+            l_Entry.Asset = component.Document;
+            if (l_Entry.Asset)
+            {
+                const AssetRegistry* l_Assets = AssetManager::GetRegistry();
+                const AssetRecord* l_Record = l_Assets != nullptr ? l_Assets->Find(l_Entry.Asset) : nullptr;
+                if (l_Record == nullptr || l_Record->Importer != UIAssets::c_DocumentType)
+                {
+                    TR_CORE_WARN("GameUI: entity {} names {}, which {}, so its UIDocument shows nothing", l_Entry.Entity, l_Entry.Asset, l_Record == nullptr ? "is not in the project" : "is not a UI document");
+                }
+                else if (l_Entry.World || l_Entry.View == c_NoView)
+                {
+                    l_Entry.Document = m_State->Load(l_Record->Path, l_Entry.View, Rml::Vector2i(1, 1));
+                }
+                else
+                {
+                    l_Entry.Document = LoadDocument(l_Record->Path, l_Entry.View);
+                }
+            }
+        }
+
+        State::Document* l_Document = m_State->FindDocument(l_Entry.Document);
+        if (l_Document == nullptr)
+        {
+            return false;
+        }
+
+        SetVisible(l_Document->ID, component.Visible);
+        SetSortOrder(l_Document->ID, component.SortOrder);
+        l_Document->Panel = component.Panel;
+        l_Document->World = l_Entry.World;
+        l_Document->WorldSettings = component.World;
+
+        return true;
+    }
+
+    // A view's document comes first, so a script reaches what the player sees
+    UIDocumentID GameUI::GetSceneDocument(Scene& scene, UUID entity)
+    {
+        const Entity l_Entity = m_State->Started ? scene.FindEntityByUUID(entity) : Entity();
+        const UIDocumentComponent* l_Component = l_Entity ? scene.GetRegistry().try_get<UIDocumentComponent>(l_Entity.GetHandle()) : nullptr;
+        if (l_Component == nullptr)
+        {
+            return c_NoDocument;
+        }
+
+        const MemoryTagScope l_Scope(MemoryTag::GameUI);
+        const bool l_World = l_Component->RenderMode == UIRenderMode::World;
+        auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.Entity == entity && entry.World == l_World && entry.Owner == &scene; });
+        if (a_Entry == m_State->SceneDocuments.end())
+        {
+            State::SceneDocument& l_New = m_State->SceneDocuments.emplace_back();
+            l_New.View = l_World ? Renderer::c_MainView : c_NoView;
+            l_New.Owner = &scene;
+            l_New.World = l_World;
+            l_New.Entity = entity;
+            a_Entry = m_State->SceneDocuments.end() - 1;
+        }
+
+        return Refresh(static_cast<std::size_t>(a_Entry - m_State->SceneDocuments.begin()), *l_Component) ? a_Entry->Document : c_NoDocument;
+    }
+
+    void GameUI::RetainScene(const Scene& scene)
+    {
+        const MemoryTagScope l_Scope(MemoryTag::GameUI);
+        const auto a_Retained = std::ranges::find(m_State->RetainedScenes, &scene, &std::pair<const Scene*, std::uint32_t>::first);
+        if (a_Retained != m_State->RetainedScenes.end())
+        {
+            ++a_Retained->second;
+        }
+        else
+        {
+            m_State->RetainedScenes.emplace_back(&scene, 1);
+        }
+    }
+
+    // Those a view shows stay with it, and the rest go, as the scene itself is about to
+    void GameUI::ReleaseScene(const Scene& scene)
+    {
+        const auto a_Retained = std::ranges::find(m_State->RetainedScenes, &scene, &std::pair<const Scene*, std::uint32_t>::first);
+        if (a_Retained == m_State->RetainedScenes.end() || --a_Retained->second != 0)
+        {
+            return;
+        }
+
+        const MemoryTagScope l_Scope(MemoryTag::GameUI);
+        m_State->RetainedScenes.erase(a_Retained);
+        std::erase_if(m_State->SceneDocuments, [this, &scene](const State::SceneDocument& entry)
+        {
+            if (entry.Owner != &scene || (entry.World ? entry.Shown : entry.View != c_NoView))
+            {
+                return false;
+            }
+
+            m_State->Remove(entry.Document);
+
+            return true;
+        });
+    }
+
+    std::size_t GameUI::GetEvents(const Scene& scene, std::uint64_t after, std::vector<UIQueuedEvent>& events) const
+    {
+        std::size_t l_Count = 0;
+        for (const State::QueuedEvent& it_Queued : m_State->Events)
+        {
+            if (it_Queued.Owner != &scene || it_Queued.Event.Sequence <= after)
+            {
+                continue;
+            }
+
+            if (l_Count == events.size())
+            {
+                events.emplace_back();
+            }
+
+            // Assigned into what is there, so a list kept from frame to frame allocates only as it grows
+            UIQueuedEvent& l_Event = events[l_Count++];
+            l_Event.Sequence = it_Queued.Event.Sequence;
+            l_Event.Entity = it_Queued.Event.Entity;
+            l_Event.Type = it_Queued.Event.Type;
+            l_Event.Target = it_Queued.Event.Target;
+            l_Event.Path.assign(it_Queued.Event.Path);
+            l_Event.Value.assign(it_Queued.Event.Value);
+        }
+
+        return l_Count;
+    }
+
+    std::uint64_t GameUI::GetEventSequence() const
+    {
+        return m_State->EventSequence;
     }
 
     void GameUI::ForgetScene(ViewID view)
@@ -1778,10 +2071,27 @@ namespace Trinity
         m_State->System.Advance(std::chrono::duration<double>(timestep.GetDuration()).count());
         m_State->Rendering.BeginFrame();
 
+        // Every runtime that ran since has taken the events of the frame before, and those of this frame wait for the next
+        std::erase_if(m_State->Events, [this](const State::QueuedEvent& queued) { return queued.Frame < m_State->FrameCount; });
+        ++m_State->FrameCount;
+
+        // A screen document of a scene whose scripts run stays for them over no view, and is taken by the next view to show the scene
         std::erase_if(m_State->SceneDocuments, [this](State::SceneDocument& entry)
         {
             if (std::exchange(entry.Shown, false))
             {
+                return false;
+            }
+
+            if (m_State->IsRetained(entry.Owner))
+            {
+                State::Document* l_Document = !entry.World ? m_State->FindDocument(entry.Document) : nullptr;
+                entry.View = entry.World ? entry.View : c_NoView;
+                if (l_Document != nullptr)
+                {
+                    l_Document->View = c_NoView;
+                }
+
                 return false;
             }
 
@@ -1794,7 +2104,7 @@ namespace Trinity
         for (std::size_t it_Index = m_State->Documents.size(); it_Index-- > 0;)
         {
             const State::Document& l_Document = m_State->Documents[it_Index];
-            if (!l_Document.World && !m_Renderer.HasView(l_Document.View))
+            if (!l_Document.World && l_Document.View != c_NoView && !m_Renderer.HasView(l_Document.View))
             {
                 TR_CORE_WARN("GameUI: view {} was destroyed, so {} is unloaded", l_Document.View, l_Document.Path);
                 m_State->Remove(l_Document.ID);
@@ -1862,7 +2172,38 @@ namespace Trinity
         l_Statistics.Commands = m_State->Commands;
         l_Statistics.DocumentReloads = m_State->DocumentReloads;
         l_Statistics.StyleSheetReloads = m_State->StyleSheetReloads;
+        l_Statistics.Elements = static_cast<std::uint32_t>(std::ranges::count_if(m_State->ElementSlots, [](const State::ElementSlot& slot) { return static_cast<bool>(slot.Element); }));
+        l_Statistics.QueuedEvents = static_cast<std::uint32_t>(m_State->Events.size());
 
         return l_Statistics;
+    }
+
+    GameUI* GameUIAccess::GetUI()
+    {
+        return s_Instance != nullptr && s_Instance->m_State->Started ? s_Instance : nullptr;
+    }
+
+    Rml::Element* GameUIAccess::Resolve(GameUI& ui, UIElement element)
+    {
+        return ui.m_State->Resolve(element);
+    }
+
+    UIElement GameUIAccess::Wrap(GameUI& ui, Rml::Element* element)
+    {
+        return ui.m_State->Wrap(element);
+    }
+
+    Rml::Element* GameUIAccess::GetBody(GameUI& ui, UIDocumentID document)
+    {
+        const GameUI::State::Document* l_Document = ui.m_State->FindDocument(document);
+
+        return l_Document != nullptr ? l_Document->Rml : nullptr;
+    }
+
+    Rml::Element* GameUIAccess::GetFocus(GameUI& ui, UIDocumentID document)
+    {
+        const GameUI::State::Document* l_Document = ui.m_State->FindDocument(document);
+
+        return l_Document != nullptr ? GameUI::State::GetFocusedElement(*l_Document) : nullptr;
     }
 }

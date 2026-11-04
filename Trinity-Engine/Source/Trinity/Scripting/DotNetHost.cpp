@@ -56,6 +56,7 @@ namespace Trinity
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* CheckTask)(std::intptr_t task, std::int32_t* met) = nullptr;
             void (CORECLR_DELEGATE_CALLTYPE* FreeTask)(std::intptr_t task) = nullptr;
             void (CORECLR_DELEGATE_CALLTYPE* RaiseInputEvents)() = nullptr;
+            std::int32_t(CORECLR_DELEGATE_CALLTYPE* InvokeUIHandler)(std::intptr_t handler, std::int32_t type, std::uint64_t element, std::uint64_t target, const char* value, std::int32_t length) = nullptr;
         };
 
         // Where ScriptCore's entry points are found by their type and method: through hostfxr once .NET has started, or through the export of a game's NativeAOT library
@@ -299,7 +300,7 @@ namespace Trinity
                 && GetEntryPoint(finder, c_ScriptHostType, "SetElement", l_Entry.SetElement, error) && GetEntryPoint(finder, c_ScriptHostType, "GetElement", l_Entry.GetElement, error)
                 && GetEntryPoint(finder, c_ScriptHostType, "Invoke", l_Entry.Invoke, error) && GetEntryPoint(finder, c_ScriptHostType, "InvokePhysics", l_Entry.InvokePhysics, error)
                 && GetEntryPoint(finder, c_ScriptHostType, "ResumeTask", l_Entry.ResumeTask, error) && GetEntryPoint(finder, c_ScriptHostType, "CheckTask", l_Entry.CheckTask, error) && GetEntryPoint(finder, c_ScriptHostType, "FreeTask", l_Entry.FreeTask, error)
-                && GetEntryPoint(finder, c_ScriptHostType, "RaiseInputEvents", l_Entry.RaiseInputEvents, error);
+                && GetEntryPoint(finder, c_ScriptHostType, "RaiseInputEvents", l_Entry.RaiseInputEvents, error) && GetEntryPoint(finder, c_ScriptHostType, "InvokeUIHandler", l_Entry.InvokeUIHandler, error);
             if (!l_Found)
             {
                 return false;
@@ -659,9 +660,14 @@ namespace Trinity
                 s_State.Entry.RaiseInputEvents();
             }
         }
+
+        bool InvokeUIHandler(std::intptr_t handler, std::int32_t type, std::uint64_t element, std::uint64_t target, std::string_view value)
+        {
+            return s_State.Started && s_State.Entry.InvokeUIHandler(handler, type, element, target, value.data(), static_cast<std::int32_t>(value.size())) == 0;
+        }
     }
 #else
-    namespace DotNetHost
+namespace DotNetHost
     {
         bool Start([[maybe_unused]] const std::filesystem::path& scriptingDirectory)
         {
@@ -777,6 +783,11 @@ namespace Trinity
         void RaiseInputEvents()
         {
 
+        }
+
+        bool InvokeUIHandler([[maybe_unused]] std::intptr_t handler, [[maybe_unused]] std::int32_t type, [[maybe_unused]] std::uint64_t element, [[maybe_unused]] std::uint64_t target, [[maybe_unused]] std::string_view value)
+        {
+            return false;
         }
     }
 #endif

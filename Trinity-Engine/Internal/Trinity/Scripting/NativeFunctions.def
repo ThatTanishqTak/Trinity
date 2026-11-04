@@ -236,3 +236,25 @@ TR_NATIVE(Screen_SetVSync, Void, (Bool vsync))
 
 // The game UI, as GameUI has it: a pointer a script drives in place of the mouse for the world documents, by its ray and whether its button is held, for the next frame
 TR_NATIVE(UI_SetWorldPointer, Void, (const Vector3* origin, const Vector3* direction, Bool pressed))
+// A UIDocument of the running scene by its entity, and the elements of its document by their handles, 0 for none, as UIDocument and UIElement have them. A handle to an element that has gone reaches nothing, logged once. Text crosses as Utf8, and text given back is valid until the next call that gives text, which C# copies at once. An element's text is numbered as its UIElementText and a flag as its UIElementFlag. Each reads as nothing, or does nothing, while no scene runs
+TR_NATIVE(UIDocument_IsValid, Bool, (EntityId entity))
+TR_NATIVE(UIDocument_GetElement, UInt64, (EntityId entity, Utf8 id))
+TR_NATIVE(UIDocument_Query, UInt64, (EntityId entity, Utf8 selector))
+TR_NATIVE(UIDocument_GetFocus, UInt64, (EntityId entity))
+TR_NATIVE(UIElement_IsValid, Bool, (UInt64 element))
+TR_NATIVE(UIElement_GetText, Utf8, (UInt64 element, Int32 text))
+TR_NATIVE(UIElement_SetText, Void, (UInt64 element, Int32 text, Utf8 value))
+TR_NATIVE(UIElement_GetFlag, Bool, (UInt64 element, Int32 flag))
+TR_NATIVE(UIElement_SetFlag, Bool, (UInt64 element, Int32 flag, Bool set))
+TR_NATIVE(UIElement_HasClass, Bool, (UInt64 element, Utf8 name))
+TR_NATIVE(UIElement_SetClass, Void, (UInt64 element, Utf8 name, Bool set))
+TR_NATIVE(UIElement_GetAttribute, Utf8, (UInt64 element, Utf8 name, Bool* found))
+TR_NATIVE(UIElement_SetAttribute, Void, (UInt64 element, Utf8 name, Utf8 value))
+TR_NATIVE(UIElement_RemoveAttribute, Void, (UInt64 element, Utf8 name))
+TR_NATIVE(UIElement_GetStyle, Utf8, (UInt64 element, Utf8 property))
+TR_NATIVE(UIElement_SetStyle, Bool, (UInt64 element, Utf8 property, Utf8 value))
+TR_NATIVE(UIElement_RemoveStyle, Void, (UInt64 element, Utf8 property))
+
+// A C# handler of a UIDocument's events, kept by the running scene's runtime as ScriptRuntime::AddUIHandler has it: the element by its ID, the type as a UIEventType, and the handler a GC handle to what ScriptCore calls it through, which is the script's that is running as it is added. 0, with the handler freed, while no scene runs, for a type that is none or for an empty ID, and its ID otherwise
+TR_NATIVE(UIDocument_AddHandler, UInt64, (EntityId entity, Utf8 element, Int32 type, Int64 handler))
+TR_NATIVE(UIDocument_RemoveHandler, Bool, (UInt64 handler))

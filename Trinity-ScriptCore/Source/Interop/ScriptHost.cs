@@ -319,6 +319,42 @@ namespace Trinity.Interop
             }
         }
 
+        // An event for a handler a UIDocument added, as plain numbers and text. 0 once it has run, and 1 when it threw, which removes it while play goes on
+        [UnmanagedCallersOnly]
+        public static int InvokeUIHandler(nint handler, int type, ulong element, ulong target, byte* value, int length)
+        {
+            UIHandler l_Handler = (UIHandler)GCHandle.FromIntPtr(handler).Target!;
+            try
+            {
+                l_Handler.Invoke((UIEventType)type, element, target, length > 0 ? Encoding.UTF8.GetString(value, length) : string.Empty);
+
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                NativeLog.Write(LogLevel.Error, $"Scripting: the {(UIEventType)type} handler of '{l_Handler.Element}' on entity {l_Handler.Document.Entity} threw, and is removed while play goes on: {exception}");
+
+                return 1;
+            }
+        }
+
+        // Held by a GC handle as a task is, which the engine frees through FreeTask, and at once while no scene runs
+        internal static ulong AddUIHandler(UIHandler handler, UIEventType type)
+        {
+            nint l_Handle = GCHandle.ToIntPtr(GCHandle.Alloc(handler));
+            s_Tasks.Add(l_Handle);
+            ulong l_ID;
+            using (Utf8String l_Element = new(handler.Element, stackalloc byte[Utf8String.c_StackBytes]))
+            {
+                fixed (byte* l_Data = l_Element.Bytes)
+                {
+                    l_ID = Native.UIDocument_AddHandler(handler.Document.Entity.ID, new Utf8(l_Data, l_Element.Bytes.Length), (int)type, l_Handle);
+                }
+            }
+
+            return l_ID != 0 ? l_ID : throw new InvalidOperationException($"A {type} handler of '{handler.Element}' was not added, since no scene runs");
+        }
+
         // Held by a GC handle the engine keeps until it frees it, which it does at once when no scene runs the script
         internal static ulong StartTask(ScriptTask task, TaskKind kind, TaskWait wait, float interval)
         {
@@ -516,7 +552,7 @@ namespace Trinity.Interop
 
             if (s_Tasks.Count != 0)
             {
-                NativeLog.Write(LogLevel.Warn, $"Scripting: {s_Tasks.Count} C# timer(s) and coroutine(s) were still held as {l_Name} unloaded, and were freed");
+                NativeLog.Write(LogLevel.Warn, $"Scripting: {s_Tasks.Count} C# timer(s), coroutine(s) and UI handler(s) were still held as {l_Name} unloaded, and were freed");
                 foreach (nint it_Task in s_Tasks)
                 {
                     GCHandle.FromIntPtr(it_Task).Free();

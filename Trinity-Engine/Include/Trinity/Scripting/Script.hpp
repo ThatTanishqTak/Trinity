@@ -8,6 +8,7 @@
 #include "Trinity/Scene/Prefab.hpp"
 #include "Trinity/Scripting/Coroutine.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
+#include "Trinity/UI/UIElement.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -88,6 +89,10 @@ namespace Trinity
         [[nodiscard]] AudioScene* GetAudio() const;
         // The project's mixer, which the running scene plays through, whose exposed values a script sets, reads and clears, and whose snapshots it moves to. Null while the scene's sounds play on no engine
         [[nodiscard]] AudioMixer* GetAudioMixer() const;
+
+        // The entity's UIDocument as the running scene's scripts reach it, whose elements and events it reaches. Its document is loaded at once when no view shows the scene yet, so OnCreate finds its elements. One that reaches nothing, while no scene runs the script or for an entity without a UIDocument
+        [[nodiscard]] UIDocument GetUIDocument(Entity entity) const;
+        [[nodiscard]] UIDocument GetUIDocument() const { return GetUIDocument(m_Entity); }
 
         // Invalid when the scene has no such entity
         [[nodiscard]] Entity FindEntity(UUID id) const;

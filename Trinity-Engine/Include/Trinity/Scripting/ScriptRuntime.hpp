@@ -7,6 +7,7 @@
 #include "Trinity/Scripting/Coroutine.hpp"
 #include "Trinity/Scripting/Script.hpp"
 #include "Trinity/Scripting/ScriptField.hpp"
+#include "Trinity/UI/UIElement.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -68,8 +69,9 @@ namespace Trinity
             std::uint32_t Unknown = 0;
             // Of the instances, those stopped since a call into them failed, such as a C# script that threw
             std::uint32_t Faulted = 0;
-            // Timers and coroutines waiting
+            // Timers and coroutines waiting, and handlers of UI events
             std::uint32_t Tasks = 0;
+            std::uint32_t UIHandlers = 0;
             LanguageStatistics Cpp;
             LanguageStatistics CSharp;
         };
@@ -90,8 +92,9 @@ namespace Trinity
             double MostMicroseconds = 0.0;
         };
 
+        // The scene is retained by the game's UI while the runtime lives, so the documents its scripts reach stay
         explicit ScriptRuntime(Scene& scene);
-        // OnDestroy on every script that had OnCreate, in the order they were made
+        // OnDestroy on every script that had OnCreate, in the order they were made, then every UI handler left goes
         ~ScriptRuntime();
 
         ScriptRuntime(const ScriptRuntime&) = delete;
@@ -119,6 +122,8 @@ namespace Trinity
         bool CreatePending();
         // After CreatePending and before the fixed steps: the input action handlers C# scripts added, for this frame's presses and releases, so those of a script made this frame are raised too
         void RaiseInputEvents();
+        // After RaiseInputEvents: the UI events of the scene's documents queued since the last call, in the order they happened, each to the handlers of its type for the element it happened on, then for each element around it with an ID for those that bubble, in the order they were added. One added meanwhile waits for the next event, and one that fails is removed
+        void RaiseUIEvents();
         void FixedUpdate(Timestep step);
         // A step's events, in the order they happened, to every script on both entities, but a character's hit to the character's scripts alone
         void DeliverEvents(std::span<const PhysicsEvent3D> events);
@@ -140,7 +145,12 @@ namespace Trinity
         std::uint32_t StopTasks(const void* owner, ScriptTaskKind kind);
         [[nodiscard]] bool IsTaskRunning(std::uint64_t id) const;
 
-        // The instances of the entities' scripts taken out, without OnDestroy, to go on in another runtime, with their timers and coroutines. An entity whose scripts have no instances yet is left out
+        // A handler of the UI events of that type on the element of the entity's UIDocument with that ID, as UIDocument::On adds it, freed through its calls once removed. It is the instance's that was running as it was added, a C++ Script or a C# GC handle, and goes with it, when a reload frees it too, or with the runtime when it was added outside any script's call. Every handler of a language goes as that language's code unloads. Its ID, never 0, or 0, with the handler freed, for an empty ID, which no element has
+        std::uint64_t AddUIHandler(UUID entity, std::string_view element, UIEventType type, const UIHandlerCalls& calls, void* handler);
+        // False when it had gone. One removed as it runs is freed once it returns
+        bool RemoveUIHandler(std::uint64_t id);
+
+        // The instances of the entities' scripts taken out, without OnDestroy, to go on in another runtime, with their timers, coroutines and UI handlers. An entity whose scripts have no instances yet is left out
         [[nodiscard]] ScriptCarry Extract(std::span<const UUID> entities);
         // Takes carried instances in, each entity now in this runtime's scene under the same UUID, before the first CreatePending, so none is made again or has OnCreate. A C++ script's GetEntity is its entity here, and an Entity it kept elsewhere is of the scene it left. Their timers and coroutines go on with what was left of their waits, on this runtime's clock. Those whose entity is not here are freed with the carry
         void Adopt(ScriptCarry& carry);

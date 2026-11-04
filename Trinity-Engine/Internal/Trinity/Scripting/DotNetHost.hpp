@@ -65,5 +65,7 @@ namespace Trinity
 
         // The Pressed and Released handlers C# scripts added to input actions, for the players whose press went down or up this frame. A handler that throws is logged by ScriptCore and removed
         void RaiseInputEvents();
+        // A C# handler of UI events, held by a GC handle, given an event: its type as a UIEventType, the handles of the element it was added for and of the target, and the value. False when it threw, which ScriptCore has logged. Freed as a task is, through FreeTask
+        [[nodiscard]] bool InvokeUIHandler(std::intptr_t handler, std::int32_t type, std::uint64_t element, std::uint64_t target, std::string_view value);
     }
 }

@@ -105,5 +105,6 @@
 #include "Trinity/UI/Icons.hpp"
 #include "Trinity/UI/ImGuiLayer.hpp"
 #include "Trinity/UI/UIAssets.hpp"
+#include "Trinity/UI/UIElement.hpp"
 #include "Trinity/UI/UIPanelSettings.hpp"
 #include "Trinity/UI/UIWorldSettings.hpp"

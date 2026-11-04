@@ -93,7 +93,7 @@ namespace Trinity
         RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()));
     }
 
-    // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Scripts added meanwhile that no call has given OnCreate, such as those of a Script component put on an entity directly, have it then, with the transform pass again, so it comes in the frame they were added in. Entities destroyed meanwhile go, then the sounds follow where everything now is, muffled by what the physics has between them and the listener, and the voices of sources gone stop, then rendering, which the caller does
+    // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then the UI events queued since the last frame go to their handlers, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Scripts added meanwhile that no call has given OnCreate, such as those of a Script component put on an entity directly, have it then, with the transform pass again, so it comes in the frame they were added in. Entities destroyed meanwhile go, then the sounds follow where everything now is, muffled by what the physics has between them and the listener, and the voices of sources gone stop, then rendering, which the caller does
     void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep timestep)
     {
         const bool l_WasReadingScene = Input::SetReadingScene(true);
@@ -101,6 +101,7 @@ namespace Trinity
         m_Scripts->BeginFrame(timestep, Timestep(m_Clock.GetStep()));
         static_cast<void>(m_Scripts->CreatePending());
         m_Scripts->RaiseInputEvents();
+        m_Scripts->RaiseUIEvents();
 
         // A scene that had no 3D or no 2D body as it started gets that world once it has one
         if (!m_Physics && PhysicsScene3D::IsNeeded(m_Scene))
