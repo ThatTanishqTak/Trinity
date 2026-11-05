@@ -279,5 +279,40 @@ namespace Trinity
 
             return l_Runtime != nullptr ? l_Runtime->GetTime().StepCount : 0;
         }
+
+        // 1 while no scene runs, which has no time scale to set
+        Float Time_GetTimeScale()
+        {
+            const ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+
+            return l_Runtime != nullptr ? l_Runtime->GetTime().TimeScale : 1.0f;
+        }
+
+        Bool Time_SetTimeScale(Float scale)
+        {
+            ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+            if (l_Runtime == nullptr)
+            {
+                TR_CORE_ERROR("Scripting: the time scale is the running scene's, and no scene runs");
+
+                return false;
+            }
+
+            return l_Runtime->SetTimeScale(scale);
+        }
+
+        Float Time_GetUnscaledDeltaTime()
+        {
+            const ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+
+            return l_Runtime != nullptr ? l_Runtime->GetTime().UnscaledDeltaTime : 0.0f;
+        }
+
+        Double Time_GetUnscaledElapsed()
+        {
+            const ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
+
+            return l_Runtime != nullptr ? l_Runtime->GetTime().UnscaledElapsed : 0.0;
+        }
     }
 }

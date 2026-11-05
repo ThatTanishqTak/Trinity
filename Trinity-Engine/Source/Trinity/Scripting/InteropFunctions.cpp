@@ -2,6 +2,8 @@
 
 #include "Trinity/Core/Application.hpp"
 #include "Trinity/Core/Log.hpp"
+#include "Trinity/Core/PlayerPrefs.hpp"
+#include "Trinity/Core/Random.hpp"
 #include "Trinity/Core/Screen.hpp"
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Renderer/DebugDraw.hpp"
@@ -298,8 +300,78 @@ namespace Trinity
             Screen::SetVSync(vsync);
         }
 
+        Void Random_InitState(Int32 seed)
+        {
+            Random::InitState(seed);
+        }
+
+        Float Random_GetValue()
+        {
+            return Random::Value();
+        }
+
+        Float Random_RangeFloat(Float min, Float max)
+        {
+            return Random::Range(min, max);
+        }
+
+        Int32 Random_RangeInt(Int32 min, Int32 max)
+        {
+            return Random::Range(min, max);
+        }
+
+        Void PlayerPrefs_SetInt(Utf8 key, Int32 value)
+        {
+            PlayerPrefs::SetInt(ToStringView(key), value);
+        }
+
+        Int32 PlayerPrefs_GetInt(Utf8 key, Int32 defaultValue)
+        {
+            return PlayerPrefs::GetInt(ToStringView(key), defaultValue);
+        }
+
+        Void PlayerPrefs_SetFloat(Utf8 key, Float value)
+        {
+            PlayerPrefs::SetFloat(ToStringView(key), value);
+        }
+
+        Float PlayerPrefs_GetFloat(Utf8 key, Float defaultValue)
+        {
+            return PlayerPrefs::GetFloat(ToStringView(key), defaultValue);
+        }
+
+        Void PlayerPrefs_SetString(Utf8 key, Utf8 value)
+        {
+            PlayerPrefs::SetString(ToStringView(key), ToStringView(value));
+        }
+
+        Utf8 PlayerPrefs_GetString(Utf8 key, Utf8 defaultValue)
+        {
+            return ToUtf8(PlayerPrefs::GetStringView(ToStringView(key), ToStringView(defaultValue)));
+        }
+
+        Bool PlayerPrefs_HasKey(Utf8 key)
+        {
+            return PlayerPrefs::HasKey(ToStringView(key));
+        }
+
+        Void PlayerPrefs_DeleteKey(Utf8 key)
+        {
+            PlayerPrefs::DeleteKey(ToStringView(key));
+        }
+
+        Void PlayerPrefs_DeleteAll()
+        {
+            PlayerPrefs::DeleteAll();
+        }
+
+        Bool PlayerPrefs_Save()
+        {
+            return PlayerPrefs::Save();
+        }
+
         // A game run without a UI has no world documents to point at
-        Void UI_SetWorldPointer(const Vector3 * origin, const Vector3 * direction, Bool pressed)
+        Void UI_SetWorldPointer(const Vector3* origin, const Vector3* direction, Bool pressed)
         {
             if (GameUI* l_UI = Application::Get().GetGameUI(); l_UI != nullptr)
             {

@@ -10,6 +10,7 @@
 #include "Trinity/Core/MainThread.hpp"
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/Core/Platform.hpp"
+#include "Trinity/Core/PlayerPrefs.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
@@ -401,9 +402,11 @@ namespace Trinity
         }
     }
 
+    // The game's PlayerPrefs are saved once its layers have gone, which may set them as they go
     Application::~Application()
     {
         m_LayerStack.Clear();
+        PlayerPrefs::Close();
         JobSystem::Wait(m_FrameJobs);
         DotNetHost::Stop();
         m_GameUI.reset();

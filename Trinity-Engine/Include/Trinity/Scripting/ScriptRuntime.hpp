@@ -53,6 +53,9 @@ namespace Trinity
     class TRINITY_API ScriptRuntime
     {
     public:
+        // As Unity's, the most the time scale may be
+        static constexpr float c_MaxTimeScale = 100.0f;
+
         // One language's share: its instances, its timers and coroutines waiting, and the time the last frame spent in its scripts, from the time each call into it began to the next call into the other language or the end of the runtime's work for that part of the frame. A call one language makes into the other's script counts to the language that made it
         struct LanguageStatistics
         {
@@ -106,8 +109,10 @@ namespace Trinity
         [[nodiscard]] Scene& GetScene();
         [[nodiscard]] const ScriptTime& GetTime() const { return m_Time; }
 
-        // As a frame begins, before CreatePending: its time, and the length of its fixed steps
-        void BeginFrame(Timestep timestep, Timestep step);
+        // As a frame begins, before CreatePending: its time as it came and as the time scale makes it, and the length of its fixed steps
+        void BeginFrame(Timestep unscaled, Timestep timestep, Timestep step);
+        // Script::SetTimeScale's, which SceneRuntime scales the next frame's time by. False, logged, for one outside 0 to c_MaxTimeScale
+        bool SetTimeScale(float scale);
 
         // The scene's physics worlds, which SceneRuntime hands over as it makes each, and null for one the scene has none for yet
         void SetPhysics(PhysicsScene3D* physics, PhysicsScene2D* physics2D);

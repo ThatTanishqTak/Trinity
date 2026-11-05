@@ -197,7 +197,7 @@ namespace Trinity
             return Unexpected{ l_Saved.GetError() };
         }
 
-        static_cast<void>(FileSystem::WriteText(std::format("{}/.gitignore", c_ProjectMount), "Cache/\nBuild/\nBuilds/\n"));
+        static_cast<void>(FileSystem::WriteText(std::format("{}/.gitignore", c_ProjectMount), "Cache/\nBuild/\nBuilds/\nSaved/\n"));
 
         TR_CORE_INFO("Project: created {} in {}", l_Project->m_Name, ToUtf8(l_Directory));
 

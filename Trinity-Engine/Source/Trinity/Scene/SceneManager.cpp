@@ -432,7 +432,7 @@ namespace Trinity
         Switch();
     }
 
-    // The kept subtrees are written out and their scripts taken before the old scene goes, so its scripts' OnDestroy still sees them. In the new scene any entity of a kept UUID gives way first, and each kept root goes last among the roots, where it was in the world. The old scene's assets are let go once the kept subtrees are in, so the prefabs their instances are of are there to make them from
+    // The kept subtrees are written out and their scripts taken before the old scene goes, so its scripts' OnDestroy still sees them. In the new scene any entity of a kept UUID gives way first, and each kept root goes last among the roots, where it was in the world. The old scene's assets are let go once the kept subtrees are in, so the prefabs their instances are of are there to make them from. The time scale and whether the sounds are paused carry over
     void SceneManager::Switch()
     {
         TR_PROFILE_FUNCTION();
@@ -453,6 +453,7 @@ namespace Trinity
         ScriptCarry l_Carry;
         AudioCarry l_Sounds;
         bool l_SoundsPaused = false;
+        float l_TimeScale = 1.0f;
         if (l_State.Current)
         {
             Scene& l_Old = *l_State.Current;
@@ -486,6 +487,7 @@ namespace Trinity
                 l_Carry = l_State.Runtime->GetScripts().Extract(l_KeptEntities);
                 l_Sounds = l_State.Runtime->GetAudio().Extract(l_KeptEntities);
                 l_SoundsPaused = l_State.Runtime->GetAudio().IsPaused();
+                l_TimeScale = l_State.Runtime->GetScripts().GetTime().TimeScale;
             }
         }
 
@@ -541,6 +543,7 @@ namespace Trinity
         l_State.Current->UpdateWorldTransforms();
         l_State.Runtime = CreateScope<SceneRuntime>(*l_State.Current, l_State.Settings, l_State.Audio, l_State.Mixing);
         l_State.Runtime->GetScripts().Adopt(l_Carry);
+        static_cast<void>(l_State.Runtime->GetScripts().SetTimeScale(l_TimeScale));
         l_State.Runtime->GetAudio().SetPaused(l_SoundsPaused);
         l_State.Runtime->GetAudio().Adopt(std::move(l_Sounds));
         ++l_State.Counts.Switches;

@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <format>
 #include <string>
 #include <utility>
@@ -65,7 +66,6 @@ namespace Trinity
         m_Scripts->SetPhysics(m_Physics.get(), m_Physics2D.get());
         m_Scripts->SetAudio(m_Audio.get());
         AddFixedStepSystem([this](Timestep step) { m_Scripts->FixedUpdate(step); });
-        AddFixedStepSystem([this](Timestep step) { m_Scripts->FixedUpdate(step); });
 
         // Sounds asked for before the scene ran are not its
         const GameUI* l_UI = GameUIAccess::GetUI();
@@ -83,12 +83,15 @@ namespace Trinity
         m_Systems.push_back(std::move(system));
     }
 
+    // The clock goes on by the frame's time scaled by the scripts' time scale, so at 0 it takes no step
     void SceneRuntime::Update(Timestep timestep)
     {
         TR_PROFILE_FUNCTION();
 
-        const std::uint32_t l_Steps = m_Clock.Advance(timestep.GetDuration());
-        RunSteps(l_Steps, m_Clock.GetInterpolation(), timestep);
+        const float l_TimeScale = m_Scripts->GetTime().TimeScale;
+        const Timestep l_Scaled = l_TimeScale == 1.0f ? timestep : Timestep(std::chrono::nanoseconds(std::llround(static_cast<double>(timestep.GetDuration().count()) * static_cast<double>(l_TimeScale))));
+        const std::uint32_t l_Steps = m_Clock.Advance(l_Scaled.GetDuration());
+        RunSteps(l_Steps, m_Clock.GetInterpolation(), timestep, l_Scaled);
     }
 
     void SceneRuntime::Step()
@@ -96,15 +99,15 @@ namespace Trinity
         TR_PROFILE_FUNCTION();
 
         m_Clock.TakeStep();
-        RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()));
+        RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()), Timestep(m_Clock.GetStep()));
     }
 
     // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then the sounds the UI's elements asked for since the last frame play, and the UI events queued since then go to their handlers, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Scripts added meanwhile that no call has given OnCreate, such as those of a Script component put on an entity directly, have it then, with the transform pass again, so it comes in the frame they were added in. Entities destroyed meanwhile go, then the sounds follow where everything now is, muffled by what the physics has between them and the listener, and the voices of sources gone stop, then rendering, which the caller does
-    void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep timestep)
+    void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep unscaled, Timestep timestep)
     {
         const bool l_WasReadingScene = Input::SetReadingScene(true);
-        InputActionsRuntime::Update(timestep);
-        m_Scripts->BeginFrame(timestep, Timestep(m_Clock.GetStep()));
+        InputActionsRuntime::Update(unscaled);
+        m_Scripts->BeginFrame(unscaled, timestep, Timestep(m_Clock.GetStep()));
         static_cast<void>(m_Scripts->CreatePending());
         m_Scripts->RaiseInputEvents();
         PlayUISounds();
@@ -197,7 +200,7 @@ namespace Trinity
         }
 
         m_Scripts->DestroyPending();
-        m_Audio->Update(timestep);
+        m_Audio->Update(unscaled);
         Input::SetReadingScene(l_WasReadingScene);
     }
 

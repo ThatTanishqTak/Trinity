@@ -66,6 +66,18 @@ namespace Trinity
         return m_Runtime != nullptr ? m_Runtime->GetTime() : c_NoTime;
     }
 
+    bool Script::SetTimeScale(float scale)
+    {
+        if (m_Runtime == nullptr)
+        {
+            TR_CORE_ERROR("Scripting: the time scale is the running scene's, and no scene runs this script");
+
+            return false;
+        }
+
+        return m_Runtime->SetTimeScale(scale);
+    }
+
     PhysicsScene3D* Script::GetPhysics() const
     {
         return m_Runtime != nullptr ? m_Runtime->GetPhysics() : nullptr;

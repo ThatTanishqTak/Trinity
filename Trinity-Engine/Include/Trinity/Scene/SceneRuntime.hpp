@@ -70,7 +70,8 @@ namespace Trinity
         [[nodiscard]] AudioScene& GetAudio() { return *m_Audio; }
 
     private:
-        void RunSteps(std::uint32_t steps, float interpolation, Timestep timestep);
+        // The input actions, the UI's sounds and the scene's sounds go on by the frame's time as it came, and the scripts by it as the time scale makes it
+        void RunSteps(std::uint32_t steps, float interpolation, Timestep unscaled, Timestep timestep);
         void PlayUISounds();
         void LogPhysicsEvents() const;
 

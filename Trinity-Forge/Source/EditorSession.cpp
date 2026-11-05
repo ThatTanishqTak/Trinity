@@ -35,6 +35,8 @@ namespace
     constexpr std::string_view c_BackupFile = "Editor/Backup/Scene.trscene";
     // The projects opened lately, per user, and the scenes, per project, ten of each
     constexpr std::string_view c_RecentProjectsPath = "/saves/RecentProjects.txt";
+    // As Unreal keeps a project's saves while it plays in its editor, in the project's own Saved folder, which new projects leave out of Git, so each project's PlayerPrefs are its own
+    constexpr std::string_view c_PlayerPrefsPath = "/project/Saved/PlayerPrefs.yaml";
     constexpr std::string_view c_RecentScenesFile = "Editor/RecentScenes.txt";
     constexpr std::size_t c_RecentLimit = 10;
     constexpr std::string_view c_BackupScenePrefix = "# Scene: ";
@@ -2546,7 +2548,7 @@ void EditorSession::UpdatePlay(Trinity::Timestep timestep)
     }
 }
 
-// The copy is the edited scene saved to the binary form a cooked game loads and read into a scene of its own, so it keeps every UUID and the selection carries over, with its instances still instances of their prefabs. A scene the serializer cannot read back is not played
+// The copy is the edited scene saved to the binary form a cooked game loads and read into a scene of its own, so it keeps every UUID and the selection carries over, with its instances still instances of their prefabs. A scene the serializer cannot read back is not played. Its PlayerPrefs are the project's
 void EditorSession::StartPlay()
 {
     if (m_Play || !m_Project || m_Stage)
@@ -2584,6 +2586,7 @@ void EditorSession::StartPlay()
     // The scene's sounds play on Forge's own output, through the project's mixer, which the engine already plays, from its start snapshot, with the project's voice limits, Doppler factor and occlusion
     m_EditMixerInPlay = false;
     ResetMixer();
+    Trinity::PlayerPrefs::SetPath(c_PlayerPrefsPath);
     m_Play = Trinity::CreateScope<Trinity::SceneManager>(m_Project->GetPhysicsSettings(), m_Registry.get(), m_Project->GetInputActions(), Trinity::Application::Get().GetAudioEngine(), m_Project->GetAudioSettings());
     m_Play->Run(std::move(l_Copy), GetSceneID());
     TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), l_Entities, l_Milliseconds);
@@ -2620,7 +2623,7 @@ void EditorSession::UpdateDebuggerWait()
     }
 }
 
-// The runtime goes before the scene it runs, and whichever scene plays goes, the copy or one a script switched to. The selection is kept when its entity is in the edited scene
+// The runtime goes before the scene it runs, and whichever scene plays goes, the copy or one a script switched to, then the PlayerPrefs it set are saved and let go. The selection is kept when its entity is in the edited scene
 void EditorSession::StopPlay()
 {
     m_DebuggerWait.reset();
@@ -2631,6 +2634,7 @@ void EditorSession::StopPlay()
     }
 
     m_Play.reset();
+    Trinity::PlayerPrefs::Close();
     ResetMixer();
     m_Paused = false;
     m_StepRequested = false;

@@ -37,7 +37,7 @@ namespace Trinity
         bool Is2D = false;
     };
 
-    // A running scene's clock as its scripts see it: this frame's time, which OnUpdate is given, the length of a fixed step, which OnFixedUpdate is given, the scene's time since it started running, and the frames and fixed steps it has run, each counted as it begins. Step in play mode is one frame of one step's time, with one fixed step
+    // A running scene's clock as its scripts see it: this frame's time, which OnUpdate is given, the length of a fixed step, which OnFixedUpdate is given, the scene's time since it started running, and the frames and fixed steps it has run, each counted as it begins. Step in play mode is one frame of one step's time, with one fixed step. The frame's time and the scene's are scaled by the time scale, as Unity's are, and the unscaled ones are as the frames came, for what goes on while the game is paused, such as its menus
     struct ScriptTime
     {
         float DeltaTime = 0.0f;
@@ -45,6 +45,9 @@ namespace Trinity
         double Elapsed = 0.0;
         std::uint64_t FrameCount = 0;
         std::uint64_t StepCount = 0;
+        float TimeScale = 1.0f;
+        float UnscaledDeltaTime = 0.0f;
+        double UnscaledElapsed = 0.0;
     };
 
     namespace Detail
@@ -82,6 +85,8 @@ namespace Trinity
         [[nodiscard]] Entity GetEntity() const { return m_Entity; }
         [[nodiscard]] Scene& GetScene() const;
         [[nodiscard]] const ScriptTime& GetTime() const;
+        // As Unity's Time.timeScale: how fast the running scene's clock goes from the next frame on, 1 at its own pace, 0 stopped, and up to ScriptRuntime::c_MaxTimeScale. Stopped, no fixed step is taken, so physics, OnFixedUpdate, timers and coroutines waiting on seconds hold where they are, and OnUpdate goes on with a DeltaTime of 0, for the game's menus and input, while the UI and sounds go on too. Kept as the scene switches, as Unity's is. False, logged, for a value outside 0 to c_MaxTimeScale, or not a number, and the scale stays as it was
+        bool SetTimeScale(float scale);
         // The running scene's physics, whose bodies a script pushes and queries, by its entities' UUIDs. Null while the scene has no body of that kind
         [[nodiscard]] PhysicsScene3D* GetPhysics() const;
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() const;

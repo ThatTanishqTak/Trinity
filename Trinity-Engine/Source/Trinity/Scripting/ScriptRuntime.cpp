@@ -971,12 +971,28 @@ namespace Trinity
         return m_State->TargetScene;
     }
 
-    void ScriptRuntime::BeginFrame(Timestep timestep, Timestep step)
+    void ScriptRuntime::BeginFrame(Timestep unscaled, Timestep timestep, Timestep step)
     {
         m_Time.DeltaTime = timestep.GetSeconds();
         m_Time.FixedDeltaTime = step.GetSeconds();
         m_Time.Elapsed += static_cast<double>(timestep.GetDuration().count()) * 1e-9;
+        m_Time.UnscaledDeltaTime = unscaled.GetSeconds();
+        m_Time.UnscaledElapsed += static_cast<double>(unscaled.GetDuration().count()) * 1e-9;
         ++m_Time.FrameCount;
+    }
+
+    bool ScriptRuntime::SetTimeScale(float scale)
+    {
+        if (!(scale >= 0.0f && scale <= c_MaxTimeScale))
+        {
+            TR_CORE_ERROR("Scripting: the time scale must be from 0 to {}, so {} is refused and it stays {}", c_MaxTimeScale, scale, m_Time.TimeScale);
+
+            return false;
+        }
+
+        m_Time.TimeScale = scale;
+
+        return true;
     }
 
     void ScriptRuntime::SetPhysics(PhysicsScene3D* physics, PhysicsScene2D* physics2D)

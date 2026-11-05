@@ -62,12 +62,16 @@ TR_NATIVE(SceneManager_LoadPath, Bool, (Utf8 path))
 TR_NATIVE(SceneManager_IsLoading, Bool, ())
 TR_NATIVE(SceneManager_GetScene, UInt64, ())
 
-// The running scene's clock, as ScriptTime has it
+// The running scene's clock, as ScriptTime has it, and its time scale, set as Script::SetTimeScale sets it
 TR_NATIVE(Time_GetDeltaTime, Float, ())
 TR_NATIVE(Time_GetFixedDeltaTime, Float, ())
 TR_NATIVE(Time_GetElapsed, Double, ())
 TR_NATIVE(Time_GetFrameCount, UInt64, ())
 TR_NATIVE(Time_GetStepCount, UInt64, ())
+TR_NATIVE(Time_GetTimeScale, Float, ())
+TR_NATIVE(Time_SetTimeScale, Bool, (Float scale))
+TR_NATIVE(Time_GetUnscaledDeltaTime, Float, ())
+TR_NATIVE(Time_GetUnscaledElapsed, Double, ())
 
 // Keys and mouse buttons by their KeyCode and MouseCode numbers
 TR_NATIVE(Input_IsKeyPressed, Bool, (Int32 key))
@@ -233,6 +237,24 @@ TR_NATIVE(Screen_IsVSync, Bool, ())
 TR_NATIVE(Screen_SetResolution, Void, (Int32 width, Int32 height, Int32 mode))
 TR_NATIVE(Screen_SetFullScreenMode, Void, (Int32 mode))
 TR_NATIVE(Screen_SetVSync, Void, (Bool vsync))
+
+// The game's random numbers, as Random has them, so C# draws from the one generator C++ does
+TR_NATIVE(Random_InitState, Void, (Int32 seed))
+TR_NATIVE(Random_GetValue, Float, ())
+TR_NATIVE(Random_RangeFloat, Float, (Float min, Float max))
+TR_NATIVE(Random_RangeInt, Int32, (Int32 min, Int32 max))
+
+// The game's PlayerPrefs, as PlayerPrefs has them, each by its key as Utf8. A string is given back where PlayerPrefs keeps it, or as the default given, valid until the values next change, which C# copies at once
+TR_NATIVE(PlayerPrefs_SetInt, Void, (Utf8 key, Int32 value))
+TR_NATIVE(PlayerPrefs_GetInt, Int32, (Utf8 key, Int32 defaultValue))
+TR_NATIVE(PlayerPrefs_SetFloat, Void, (Utf8 key, Float value))
+TR_NATIVE(PlayerPrefs_GetFloat, Float, (Utf8 key, Float defaultValue))
+TR_NATIVE(PlayerPrefs_SetString, Void, (Utf8 key, Utf8 value))
+TR_NATIVE(PlayerPrefs_GetString, Utf8, (Utf8 key, Utf8 defaultValue))
+TR_NATIVE(PlayerPrefs_HasKey, Bool, (Utf8 key))
+TR_NATIVE(PlayerPrefs_DeleteKey, Void, (Utf8 key))
+TR_NATIVE(PlayerPrefs_DeleteAll, Void, ())
+TR_NATIVE(PlayerPrefs_Save, Bool, ())
 
 // The game UI, as GameUI has it: a pointer a script drives in place of the mouse for the world documents, by its ray and whether its button is held, for the next frame
 TR_NATIVE(UI_SetWorldPointer, Void, (const Vector3* origin, const Vector3* direction, Bool pressed))
