@@ -5,8 +5,6 @@
 #include "Export/PackBuilder.hpp"
 #include "Modules/ModuleBuild.hpp"
 
-#include <algorithm>
-#include <array>
 #include <format>
 #include <string>
 #include <span>
@@ -18,9 +16,6 @@
 namespace
 {
     constexpr std::string_view c_PackFileName = "Game.trpak";
-    // Until the Build panel names them, as Unity's Player settings have them at first
-    constexpr std::string_view c_DefaultCompany = "DefaultCompany";
-    constexpr std::string_view c_DefaultVersion = "1.0";
 
     std::string ToUtf8(const std::filesystem::path& path)
     {
@@ -29,57 +24,63 @@ namespace
         return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
     }
 
-    // Every scene in the project, the start scene first and the rest by their paths, so the same project gives the same build
-    std::vector<Trinity::UUID> GatherScenes(const Trinity::Project& project, const Trinity::AssetRegistry& registry)
-    {
-        std::vector<const Trinity::AssetRecord*> l_Scenes = registry.GetRecords();
-        std::erase_if(l_Scenes, [](const Trinity::AssetRecord* record) { return record->Importer != "Scene"; });
-
-        std::ranges::sort(l_Scenes, {}, &Trinity::AssetRecord::Path);
-        std::vector<Trinity::UUID> l_Build;
-        if (project.GetStartScene() && registry.Find(project.GetStartScene()) != nullptr)
-        {
-            l_Build.push_back(project.GetStartScene());
-        }
-
-        for (const Trinity::AssetRecord* it_Scene : l_Scenes)
-        {
-            if (it_Scene->ID != project.GetStartScene())
-            {
-                l_Build.push_back(it_Scene->ID);
-            }
-        }
-
-        return l_Build;
-    }
-
     bool IsUnderway(BuildState state)
     {
         return state == BuildState::Pending || state == BuildState::Building;
     }
-
-    // The graphics APIs this build of Trinity has, its default first, as a player built with it tries them
-    std::vector<Trinity::GraphicsAPI> GetGraphicsAPIs()
-    {
-        std::vector<Trinity::GraphicsAPI> l_APIs{ Trinity::GetDefaultGraphicsAPI() };
-        for (const Trinity::GraphicsAPI it_API : { Trinity::GraphicsAPI::D3D12, Trinity::GraphicsAPI::Vulkan, Trinity::GraphicsAPI::Metal })
-        {
-            if (Trinity::IsGraphicsAPIAvailable(it_API) && std::ranges::find(l_APIs, it_API) == l_APIs.end())
-            {
-                l_APIs.push_back(it_API);
-            }
-        }
-
-        std::erase(l_APIs, Trinity::GraphicsAPI::None);
-
-        return l_APIs;
-    }
 }
 
-void PackCommand::Start(const std::filesystem::path& folder)
+void PackCommand::Start(const std::filesystem::path& folder, bool closeWhenDone)
 {
+    if (m_Folder)
+    {
+        return;
+    }
+
     m_Folder = folder;
+    m_CloseWhenDone = closeWhenDone;
+    m_Compiled.reset();
     TR_INFO("Pack: the project is written to {} once it has imported and built", ToUtf8(folder));
+}
+
+std::vector<std::string> PackCommand::CheckSettings(const Trinity::Project& project, const Trinity::AssetRegistry& registry)
+{
+    const Trinity::ExportSettings& l_Settings = project.GetExportSettings();
+    std::vector<std::string> l_Problems;
+    for (const Trinity::ExportScene& it_Scene : l_Settings.Scenes)
+    {
+        const Trinity::AssetRecord* l_Record = registry.Find(it_Scene.Scene);
+        if (l_Record == nullptr)
+        {
+            l_Problems.push_back(std::format("Scene {} of the build is missing: it was deleted, or its .meta file was. Remove it from the build or restore it", it_Scene.Scene));
+        }
+        else if (l_Record->Importer != "Scene")
+        {
+            l_Problems.push_back(std::format("{} of the build is not a scene. Remove it from the build", l_Record->Path));
+        }
+    }
+
+    if (l_Settings.GetBuildScenes().empty())
+    {
+        l_Problems.emplace_back("No scene of the build is ticked, so the game has none to start with");
+    }
+
+    if (l_Settings.Product.empty() || l_Settings.Company.empty())
+    {
+        l_Problems.emplace_back("The product and the company each need a name, since the game's saves and log go under them");
+    }
+
+    if (l_Settings.GraphicsAPIs.empty())
+    {
+        l_Problems.emplace_back("No graphics API is chosen, so the game could draw with none");
+    }
+
+    if (l_Settings.Output.empty())
+    {
+        l_Problems.emplace_back("No output folder is chosen");
+    }
+
+    return l_Problems;
 }
 
 // A project that did not open, or a module or scripts that did not build, ends it with the reason, as a failed write does. The scripts compile ahead of time once Forge's own build of them has ended, so the two never run at once
@@ -124,7 +125,10 @@ void PackCommand::Update()
         TR_INFO("Pack: wrote {}", ToUtf8(l_Folder / c_PackFileName));
     }
 
-    Trinity::Application::Get().Close();
+    if (m_CloseWhenDone)
+    {
+        Trinity::Application::Get().Close();
+    }
 }
 
 bool PackCommand::CompileScripts()
@@ -157,21 +161,28 @@ bool PackCommand::Write(const std::filesystem::path& folder)
     const Trinity::Project& l_Project = *m_Session.GetProject();
     const Trinity::AssetRegistry& l_Registry = *m_Session.GetRegistry();
 
+    const std::vector<std::string> l_Problems = CheckSettings(l_Project, l_Registry);
+    for (const std::string& it_Problem : l_Problems)
+    {
+        TR_ERROR("Pack: {}, so nothing is written", it_Problem);
+    }
+
+    if (!l_Problems.empty())
+    {
+        return false;
+    }
+
+    const Trinity::ExportSettings& l_Export = l_Project.GetExportSettings();
     Trinity::GameSettings l_Game;
-    l_Game.Product = l_Project.GetName();
-    l_Game.Company = c_DefaultCompany;
-    l_Game.Version = c_DefaultVersion;
-    l_Game.Scenes = GatherScenes(l_Project, l_Registry);
-    l_Game.GraphicsAPIs = GetGraphicsAPIs();
+    l_Game.Product = l_Export.Product;
+    l_Game.Company = l_Export.Company;
+    l_Game.Version = l_Export.Version;
+    l_Game.Scenes = l_Export.GetBuildScenes();
+    l_Game.GraphicsAPIs = l_Export.GraphicsAPIs;
+    l_Game.Window = l_Export.Window;
     l_Game.Physics = l_Project.GetPhysicsSettings();
     l_Game.Audio = l_Project.GetAudioSettings();
     l_Game.InputActions = l_Project.GetInputActions();
-    if (l_Game.Scenes.empty())
-    {
-        TR_ERROR("Pack: {} has no scene, so nothing is written", l_Project.GetName());
-
-        return false;
-    }
 
     const BuildContents l_Contents = BuildWalk::Gather(l_Project, l_Registry, l_Game.Scenes);
     // A UI file's link names a path, not an asset

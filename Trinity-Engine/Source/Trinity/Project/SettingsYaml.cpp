@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Log.hpp"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
@@ -272,6 +273,35 @@ namespace Trinity::SettingsYaml
         }
     }
 
+    bool ReadGraphicsAPIs(const YAML::Node& list, std::vector<GraphicsAPI>& apis)
+    {
+        constexpr std::array<GraphicsAPI, 3> c_GraphicsAPIs{ GraphicsAPI::D3D12, GraphicsAPI::Vulkan, GraphicsAPI::Metal };
+
+        if (!list)
+        {
+            return true;
+        }
+
+        if (!list.IsSequence())
+        {
+            return false;
+        }
+
+        bool l_Read = true;
+        for (const YAML::Node& it_API : list)
+        {
+            const std::string l_Name = it_API.IsScalar() ? it_API.Scalar() : std::string();
+            const auto a_Found = std::ranges::find_if(c_GraphicsAPIs, [&l_Name](GraphicsAPI api) { return ToString(api) == l_Name; });
+            l_Read &= a_Found != c_GraphicsAPIs.end();
+            if (a_Found != c_GraphicsAPIs.end() && std::ranges::find(apis, *a_Found) == apis.end())
+            {
+                apis.push_back(*a_Found);
+            }
+        }
+
+        return l_Read;
+    }
+
     void WritePhysicsSettings(YAML::Emitter& emitter, const PhysicsSettings& settings)
     {
         const CollisionLayers& l_Layers = settings.Layers;
@@ -335,5 +365,16 @@ namespace Trinity::SettingsYaml
         emitter << YAML::Key << "Height" << YAML::Value << settings.Height;
         emitter << YAML::Key << "VSync" << YAML::Value << settings.VSync;
         emitter << YAML::EndMap;
+    }
+
+    void WriteGraphicsAPIs(YAML::Emitter& emitter, std::span<const GraphicsAPI> apis)
+    {
+        emitter << YAML::Key << "GraphicsAPIs" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+        for (const GraphicsAPI it_API : apis)
+        {
+            emitter << std::string(ToString(it_API));
+        }
+
+        emitter << YAML::EndSeq;
     }
 }

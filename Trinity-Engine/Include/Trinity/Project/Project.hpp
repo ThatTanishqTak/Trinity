@@ -4,24 +4,60 @@
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Expected.hpp"
 #include "Trinity/Core/Export.hpp"
+#include "Trinity/Core/Screen.hpp"
 #include "Trinity/Core/UUID.hpp"
 #include "Trinity/Physics/PhysicsTypes.hpp"
+#include "Trinity/Renderer/GraphicsAPI.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace Trinity
 {
     class AssetRegistry;
 
+    // A scene of the build's list, by its asset, and whether it ships, as each scene of Unity's Scene List has a box
+    struct ExportScene
+    {
+        UUID Scene;
+        bool Enabled = true;
+
+        [[nodiscard]] bool operator==(const ExportScene&) const = default;
+    };
+
+    // What the project exports as a game, as Unity's Build Profiles and Player settings hold it: the scenes of its build in order, the ticked ones shipping and the first of those starting, the product, company and version its player is named for and keeps its saves and log under, its icon, one of the project's textures, the window it first opens with, the graphics APIs it tries in order, whether it is a Development Build, and the folder it is written to, from the project's folder unless it is a whole path
+    struct TRINITY_API ExportSettings
+    {
+        static constexpr std::string_view c_DefaultCompany = "DefaultCompany";
+        static constexpr std::string_view c_DefaultVersion = "1.0";
+        static constexpr std::string_view c_DefaultOutput = "Builds";
+
+        std::vector<ExportScene> Scenes;
+        std::string Product;
+        std::string Company{ c_DefaultCompany };
+        std::string Version{ c_DefaultVersion };
+        UUID Icon;
+        WindowSettings Window;
+        std::vector<GraphicsAPI> GraphicsAPIs{ GraphicsAPI::D3D12, GraphicsAPI::Vulkan };
+        bool Development = false;
+        std::string Output{ c_DefaultOutput };
+
+        // The ticked scenes in order, the first the one the game starts with
+        [[nodiscard]] std::vector<UUID> GetBuildScenes() const;
+
+        [[nodiscard]] bool operator==(const ExportSettings&) const = default;
+    };
+
     class TRINITY_API Project
     {
     public:
-        // Format 3 added the collision layers, which an older project opens without, every pair colliding, format 4 each world's gravity and the step rate, which an older project opens with their defaults, format 5 the C++ game module, format 6 the C# assembly, format 7 the default input actions asset, which an older project has none of, and format 8 the audio settings with the project's mixer, which an older project opens with their defaults and no mixer
-        static constexpr std::uint32_t c_FormatVersion = 8;
+        // Format 3 added the collision layers, which an older project opens without, every pair colliding, format 4 each world's gravity and the step rate, which an older project opens with their defaults, format 5 the C++ game module, format 6 the C# assembly, format 7 the default input actions asset, which an older project has none of, format 8 the audio settings with the project's mixer, which an older project opens with their defaults and no mixer, and format 9 the export settings, which an older project opens with their defaults, its name for the product and its start scene the only scene of its build
+        static constexpr std::uint32_t c_FormatVersion = 9;
         static constexpr std::string_view c_Extension = ".trproj";
         static constexpr std::string_view c_ProjectMount = "/project";
         static constexpr std::string_view c_AssetsMount = "/assets";
@@ -71,6 +107,12 @@ namespace Trinity
         // The input actions asset Play's scene reads, or invalid for none. Saved with the project, which the caller does
         [[nodiscard]] UUID GetInputActions() const { return m_InputActions; }
         void SetInputActions(UUID asset) { m_InputActions = asset; }
+
+        // What the project exports as a game, which Forge's Build panel edits. Saved with the project, which the caller does
+        [[nodiscard]] const ExportSettings& GetExportSettings() const { return m_Export; }
+        void SetExportSettings(ExportSettings settings) { m_Export = std::move(settings); }
+        // The export's output folder as a whole path, from the project's folder unless it is one already
+        [[nodiscard]] std::filesystem::path GetExportDirectory() const;
         // The project's name made into one, with what it cannot hold left out, or Game when nothing is left
         [[nodiscard]] static std::string MakeModuleName(std::string_view projectName);
 
@@ -103,6 +145,7 @@ namespace Trinity
         std::string m_AssemblyName;
         UUID m_InputActions;
         AudioSettings m_Audio;
+        ExportSettings m_Export;
         bool m_Mounted = false;
     };
 }

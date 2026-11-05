@@ -33,6 +33,103 @@ namespace Trinity
         {
             return std::format("{}/{}", Project::c_ProjectMount, ToUtf8(filePath.filename()));
         }
+
+        // True or false, or nothing
+        std::optional<bool> ReadBool(const YAML::Node & node)
+        {
+            const std::string l_Text = node && node.IsScalar() ? node.Scalar() : std::string();
+
+            return l_Text == "true" || l_Text == "false" ? std::optional<bool>(l_Text == "true") : std::nullopt;
+        }
+
+        // Each value that is missing keeps the one given, and each that cannot be read is reported and keeps it. A scene that cannot be one is left out, as is a scene listed again, which keeps its first place
+        void ReadExportSettings(const YAML::Node & node, std::string_view owner, ExportSettings & settings)
+        {
+            if (!node || !node.IsMap())
+            {
+                return;
+            }
+
+            bool l_Unread = false;
+            if (const YAML::Node l_Scenes = node["Scenes"])
+            {
+                l_Unread |= !l_Scenes.IsSequence();
+                settings.Scenes.clear();
+                for (std::size_t it_Index = 0; l_Scenes.IsSequence() && it_Index < l_Scenes.size(); ++it_Index)
+                {
+                    const YAML::Node l_Entry = l_Scenes[it_Index];
+                    const std::optional<UUID> l_Scene = l_Entry.IsMap() ? UUID::Parse(ReadString(l_Entry, "Scene", "")) : std::nullopt;
+                    const std::optional<bool> l_Enabled = l_Entry.IsMap() && l_Entry["Enabled"] ? ReadBool(l_Entry["Enabled"]) : std::optional<bool>(true);
+                    l_Unread |= !l_Scene || !l_Enabled;
+                    if (l_Scene && std::ranges::find(settings.Scenes, *l_Scene, &ExportScene::Scene) == settings.Scenes.end())
+                    {
+                        settings.Scenes.push_back({ *l_Scene, l_Enabled.value_or(true) });
+                    }
+                }
+            }
+
+            settings.Product = ReadString(node, "Product", settings.Product);
+            settings.Company = ReadString(node, "Company", settings.Company);
+            settings.Version = ReadString(node, "Version", settings.Version);
+            settings.Output = ReadString(node, "Output", settings.Output);
+            const std::string l_Icon = ReadString(node, "Icon", "");
+            const std::optional<UUID> l_IconID = UUID::Parse(l_Icon);
+            l_Unread |= !l_Icon.empty() && !l_IconID;
+            settings.Icon = l_Icon.empty() ? UUID() : l_IconID.value_or(settings.Icon);
+            SettingsYaml::ReadWindowSettings(node["Window"], owner, settings.Window);
+            if (const YAML::Node l_APIs = node["GraphicsAPIs"])
+            {
+                settings.GraphicsAPIs.clear();
+                l_Unread |= !SettingsYaml::ReadGraphicsAPIs(l_APIs, settings.GraphicsAPIs);
+            }
+
+            if (const YAML::Node l_Development = node["Development"])
+            {
+                const std::optional<bool> l_Read = ReadBool(l_Development);
+                l_Unread |= !l_Read;
+                settings.Development = l_Read.value_or(settings.Development);
+            }
+
+            if (l_Unread)
+            {
+                TR_CORE_WARN("{} has an export setting that cannot be read, a scene, the icon, a graphics API or a value, which is left out or keeps its default", owner);
+            }
+        }
+
+        void WriteExportSettings(YAML::Emitter & emitter, const ExportSettings & settings)
+        {
+            emitter << YAML::Key << "Export" << YAML::Value << YAML::BeginMap;
+            emitter << YAML::Key << "Scenes" << YAML::Value << YAML::BeginSeq;
+            for (const ExportScene& it_Scene : settings.Scenes)
+            {
+                emitter << YAML::Flow << YAML::BeginMap << YAML::Key << "Scene" << YAML::Value << YAML::DoubleQuoted << it_Scene.Scene.ToString() << YAML::Key << "Enabled" << YAML::Value << it_Scene.Enabled << YAML::EndMap;
+            }
+
+            emitter << YAML::EndSeq;
+            emitter << YAML::Key << "Product" << YAML::Value << YAML::DoubleQuoted << settings.Product;
+            emitter << YAML::Key << "Company" << YAML::Value << YAML::DoubleQuoted << settings.Company;
+            emitter << YAML::Key << "Version" << YAML::Value << YAML::DoubleQuoted << settings.Version;
+            emitter << YAML::Key << "Icon" << YAML::Value << YAML::DoubleQuoted << (settings.Icon ? settings.Icon.ToString() : std::string());
+            SettingsYaml::WriteWindowSettings(emitter, settings.Window);
+            SettingsYaml::WriteGraphicsAPIs(emitter, settings.GraphicsAPIs);
+            emitter << YAML::Key << "Development" << YAML::Value << settings.Development;
+            emitter << YAML::Key << "Output" << YAML::Value << YAML::DoubleQuoted << settings.Output;
+            emitter << YAML::EndMap;
+        }
+    }
+
+    std::vector<UUID> ExportSettings::GetBuildScenes() const
+    {
+        std::vector<UUID> l_Scenes;
+        for (const ExportScene& it_Scene : Scenes)
+        {
+            if (it_Scene.Enabled)
+            {
+                l_Scenes.push_back(it_Scene.Scene);
+            }
+        }
+
+        return l_Scenes;
     }
 
     Project::Project(std::filesystem::path directory, std::filesystem::path filePath) : m_Directory(std::move(directory)), m_FilePath(std::move(filePath))
@@ -88,6 +185,7 @@ namespace Trinity
         Scope<Project> l_Project(new Project(l_Directory, l_Directory / FromUtf8(l_Name + std::string(c_Extension))));
         l_Project->m_Name = l_Name;
         l_Project->m_EngineVersion = GetVersionString();
+        l_Project->m_Export.Product = l_Name;
 
         if (Expected<void, std::string> l_Mounted = l_Project->Mount(); !l_Mounted)
         {
@@ -99,7 +197,7 @@ namespace Trinity
             return Unexpected{ l_Saved.GetError() };
         }
 
-        static_cast<void>(FileSystem::WriteText(std::format("{}/.gitignore", c_ProjectMount), "Cache/\nBuild/\n"));
+        static_cast<void>(FileSystem::WriteText(std::format("{}/.gitignore", c_ProjectMount), "Cache/\nBuild/\nBuilds/\n"));
 
         TR_CORE_INFO("Project: created {} in {}", l_Project->m_Name, ToUtf8(l_Directory));
 
@@ -242,6 +340,17 @@ namespace Trinity
             SettingsYaml::ReadAudioSettings(l_Root["Audio"], l_Owner, l_Project->m_Audio);
         }
 
+        // An older project exports as a new one would, its name the product and its start scene the only scene of its build
+        l_Project->m_Export.Product = l_Project->m_Name;
+        if (l_Format >= 9)
+        {
+            ReadExportSettings(l_Root["Export"], l_Owner, l_Project->m_Export);
+        }
+        else if (l_Project->m_StartScene)
+        {
+            l_Project->m_Export.Scenes.push_back({ l_Project->m_StartScene, true });
+        }
+
         if (!l_Project->IsCurrentEngineVersion())
         {
             TR_CORE_WARN("Project: {} was made with Trinity {}, and this is Trinity {}. It is opened as it is", l_Project->m_Name, l_Project->m_EngineVersion.empty() ? "of an unknown version" : l_Project->m_EngineVersion, GetVersionString());
@@ -270,6 +379,7 @@ namespace Trinity
         l_Emitter << YAML::Key << "Actions" << YAML::Value << YAML::DoubleQuoted << (m_InputActions ? m_InputActions.ToString() : std::string());
         l_Emitter << YAML::EndMap;
         SettingsYaml::WriteAudioSettings(l_Emitter, m_Audio);
+        WriteExportSettings(l_Emitter, m_Export);
         l_Emitter << YAML::EndMap;
 
         const Expected<void, FileError> l_Written = FileSystem::WriteText(GetProjectFilePath(m_FilePath), std::string(l_Emitter.c_str()) + "\n");
@@ -286,7 +396,7 @@ namespace Trinity
         return m_EngineVersion == GetVersionString();
     }
 
-    // True once a format 1 start scene path is found in the registry and replaced by its UUID, after which the project should be saved
+    // True once a format 1 start scene path is found in the registry and replaced by its UUID, which becomes the only scene of its build, after which the project should be saved
     bool Project::ResolveStartScenePath(const AssetRegistry& registry)
     {
         if (m_StartScenePath.empty())
@@ -305,6 +415,10 @@ namespace Trinity
 
         m_StartScene = l_Record->ID;
         m_StartScenePath.clear();
+        if (m_Export.Scenes.empty())
+        {
+            m_Export.Scenes.push_back({ m_StartScene, true });
+        }
 
         return true;
     }
@@ -327,6 +441,13 @@ namespace Trinity
     std::filesystem::path Project::GetScriptsDirectory() const
     {
         return m_Directory / "Scripts";
+    }
+
+    std::filesystem::path Project::GetExportDirectory() const
+    {
+        const std::filesystem::path l_Output = FromUtf8(m_Export.Output);
+
+        return (l_Output.is_absolute() ? l_Output : m_Directory / l_Output).lexically_normal();
     }
 
     void Project::SetModuleName(std::string name)

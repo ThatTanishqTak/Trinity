@@ -45,6 +45,7 @@ public:
         SaveScene,
         SaveSceneAs,
         SetStartScene,
+        ChooseExportFolder,
         Refresh,
         CreateModule,
         BuildModule,
@@ -214,6 +215,8 @@ public:
     bool EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field);
     // As EditPhysicsSettings, but for the mixer, which the engine plays from the next frame, a scene playing included
     bool EditAudioSettings(const Trinity::AudioSettings& settings, std::string field);
+    // As EditPhysicsSettings, for what the project exports, which nothing playing reads
+    bool EditExportSettings(const Trinity::ExportSettings& settings, std::string field);
     [[nodiscard]] bool HasScenePath() const { return !m_ScenePath.empty(); }
     [[nodiscard]] Trinity::UUID GetSceneID() const;
     // The scene's file name without its extension, or Untitled for a scene never saved
@@ -554,6 +557,7 @@ private:
     void ImportAsset(const std::filesystem::path& file, const std::string& folder);
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
     bool WriteAudioSettings(const Trinity::AudioSettings& settings);
+    bool WriteExportSettings(const Trinity::ExportSettings& settings);
     void BeginPlay();
     void StartPlay();
     void StopPlay();

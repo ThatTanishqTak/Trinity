@@ -4,6 +4,7 @@
 #include "Export/PackCommand.hpp"
 #include "ImportTest.hpp"
 #include "Panels/AudioMixerPanel.hpp"
+#include "Panels/BuildPanel.hpp"
 #include "Panels/ConsolePanel.hpp"
 #include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/GamePanel.hpp"
@@ -78,6 +79,7 @@ private:
     GamePanel* m_GamePanel = nullptr;
     PropertiesPanel* m_PropertiesPanel = nullptr;
     ProjectSettingsPanel* m_ProjectSettings = nullptr;
+    BuildPanel* m_BuildPanel = nullptr;
     ContentBrowserPanel* m_ContentBrowser = nullptr;
     InputActionsPanel* m_InputActionsPanel = nullptr;
     AudioMixerPanel* m_AudioMixerPanel = nullptr;

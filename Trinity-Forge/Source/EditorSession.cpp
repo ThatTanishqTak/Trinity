@@ -1073,6 +1073,31 @@ void EditorSession::Run(Command command)
 
             break;
         }
+        // Kept from the project's folder while it is inside it, so the project takes it along when it moves, and as a whole path otherwise
+        case Command::ChooseExportFolder:
+        {
+            if (l_HasProject)
+            {
+                std::error_code l_Error;
+                const std::filesystem::path l_Current = m_Project->GetExportDirectory();
+                AskPath({ PathKind::Folder, "Choose the folder the game is built into",{}, std::filesystem::is_directory(l_Current, l_Error) ? l_Current : m_Project->GetDirectory(),{}, [this](const std::filesystem::path& path)
+                {
+                    if (!m_Project)
+                    {
+                        return;
+                    }
+
+                    const std::filesystem::path l_Chosen = path.lexically_normal();
+                    const std::filesystem::path l_Relative = l_Chosen.lexically_relative(m_Project->GetDirectory().lexically_normal());
+                    const bool l_Inside = !l_Relative.empty() && *l_Relative.begin() != "..";
+                    Trinity::ExportSettings l_Settings = m_Project->GetExportSettings();
+                    l_Settings.Output = ToUtf8(l_Inside ? l_Relative.generic_u8string() : l_Chosen.generic_u8string());
+                    static_cast<void>(EditExportSettings(l_Settings, "output folder"));
+                } });
+            }
+
+            break;
+        }
         case Command::Refresh:
         {
             if (l_HasProject)
@@ -1254,7 +1279,11 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
     RememberScene();
     if (const Trinity::AssetRecord* l_Record = m_Registry->FindByPath(l_StartScene))
     {
+        // The build holds the start scene alone, as Unity's new projects hold their sample scene
         m_Project->SetStartScene(l_Record->ID);
+        Trinity::ExportSettings l_Export = m_Project->GetExportSettings();
+        l_Export.Scenes = { { l_Record->ID, true } };
+        m_Project->SetExportSettings(std::move(l_Export));
         SaveProject();
         TR_INFO("Forge: created project {} in {}, with an empty start scene at {} ({})", m_Project->GetName(), ToUtf8(m_Project->GetDirectory()), m_ScenePath, l_Record->ID);
     }
@@ -4668,6 +4697,29 @@ bool EditorSession::WriteAudioSettings(const Trinity::AudioSettings& settings)
     }
 
     m_Project->SetAudioSettings(settings);
+    SaveProject();
+
+    return true;
+}
+
+bool EditorSession::EditExportSettings(const Trinity::ExportSettings& settings, std::string field)
+{
+    if (!m_Project)
+    {
+        return false;
+    }
+
+    return GetHistory().Execute(Trinity::CreateScope<SetExportSettingsCommand>([this](const Trinity::ExportSettings& written) { return WriteExportSettings(written); }, m_Project->GetExportSettings(), settings, std::move(field)));
+}
+
+bool EditorSession::WriteExportSettings(const Trinity::ExportSettings& settings)
+{
+    if (!m_Project)
+    {
+        return false;
+    }
+
+    m_Project->SetExportSettings(settings);
     SaveProject();
 
     return true;

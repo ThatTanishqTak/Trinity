@@ -1593,6 +1593,48 @@ bool SetAudioSettingsCommand::MergeWith(const EditorCommand& next)
     return true;
 }
 
+SetExportSettingsCommand::SetExportSettingsCommand(Writer writer, Trinity::ExportSettings before, Trinity::ExportSettings after, std::string field) : m_Writer(std::move(writer)), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::format("Edit build {}", m_Field))
+{
+
+}
+
+// An edit that changes nothing is no command
+bool SetExportSettingsCommand::Execute([[maybe_unused]] Trinity::Scene& scene)
+{
+    return m_Before != m_After && m_Writer(m_After);
+}
+
+void SetExportSettingsCommand::Undo([[maybe_unused]] Trinity::Scene& scene)
+{
+    static_cast<void>(m_Writer(m_Before));
+}
+
+bool SetExportSettingsCommand::MergeWith(const EditorCommand& next)
+{
+    const SetExportSettingsCommand* l_Next = dynamic_cast<const SetExportSettingsCommand*>(&next);
+    if (l_Next == nullptr || l_Next->m_Field != m_Field)
+    {
+        return false;
+    }
+
+    m_After = l_Next->m_After;
+
+    return true;
+}
+
+// The scenes, the APIs and the text are the parts that grow
+std::size_t SetExportSettingsCommand::GetMemorySize() const
+{
+    std::size_t l_Size = sizeof(*this) + m_Field.capacity() + m_Label.capacity();
+    for (const Trinity::ExportSettings* it_Settings : { &m_Before, &m_After })
+    {
+        l_Size += it_Settings->Scenes.capacity() * sizeof(Trinity::ExportScene) + it_Settings->GraphicsAPIs.capacity() * sizeof(Trinity::GraphicsAPI);
+        l_Size += it_Settings->Product.capacity() + it_Settings->Company.capacity() + it_Settings->Version.capacity() + it_Settings->Output.capacity();
+    }
+
+    return l_Size;
+}
+
 SetMaterialCommand::SetMaterialCommand(Writer writer, Trinity::UUID material, Trinity::MaterialData before, Trinity::MaterialData after, std::string field, std::string name) : m_Writer(std::move(writer)), m_Material(material), m_Before(std::move(before)), m_After(std::move(after)), m_Field(std::move(field)), m_Label(std::format("Edit {} of {}", m_Field, name))
 {
 

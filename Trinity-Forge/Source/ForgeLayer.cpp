@@ -145,10 +145,13 @@ void ForgeLayer::OnAttach()
     m_PropertiesPanel = l_Properties.get();
     m_Panels.push_back(std::move(l_Properties));
 
-    // Docked as a tab behind Properties
+    // Docked as a tab behind Properties, as is the Build panel, which builds through the same command as --pack
     Trinity::Scope<ProjectSettingsPanel> l_ProjectSettings = Trinity::CreateScope<ProjectSettingsPanel>(m_Session);
     m_ProjectSettings = l_ProjectSettings.get();
     m_Panels.push_back(std::move(l_ProjectSettings));
+    Trinity::Scope<BuildPanel> l_Build = Trinity::CreateScope<BuildPanel>(m_Session, m_PackCommand);
+    m_BuildPanel = l_Build.get();
+    m_Panels.push_back(std::move(l_Build));
     // A build's error opens where it is, in the script editor, on a double-click
     Trinity::Scope<ConsolePanel> l_Console = Trinity::CreateScope<ConsolePanel>();
     m_Console = l_Console.get();
@@ -587,6 +590,11 @@ void ForgeLayer::ReadShortcuts()
     {
         m_Session.Request(EditorSession::Command::SaveSceneAs);
     }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B) && m_Session.HasProject())
+    {
+        m_BuildPanel->SetOpen(true);
+        m_BuildPanel->RequestFocus();
+    }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
     {
         m_Session.Request(EditorSession::Command::SaveScene);
@@ -681,6 +689,13 @@ void ForgeLayer::DrawMenuBar()
         a_Item(Trinity::Icons::c_Save, "Save As...", "Ctrl+Shift+S", l_HasProject && !l_PrefabMode, EditorSession::Command::SaveSceneAs);
         a_Item(Trinity::Icons::c_Gear, "Set as Start Scene", nullptr, l_HasProject && m_Session.HasScenePath(), EditorSession::Command::SetStartScene);
         a_Item(Trinity::Icons::c_Refresh, "Refresh", "F5", l_HasProject, EditorSession::Command::Refresh);
+        ImGui::Separator();
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_PackageVariantClosed, "Build Settings...").c_str(), "Ctrl+Shift+B", false, l_HasProject))
+        {
+            m_BuildPanel->SetOpen(true);
+            m_BuildPanel->RequestFocus();
+        }
+
         ImGui::Separator();
         a_Item(Trinity::Icons::c_PowerOff, "Exit", "Alt+F4", true, EditorSession::Command::Exit);
 

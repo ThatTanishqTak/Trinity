@@ -7,7 +7,6 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
-#include <array>
 #include <charconv>
 #include <format>
 #include <optional>
@@ -19,14 +18,6 @@ namespace Trinity
     {
         constexpr std::string_view c_Owner = "Game: Game.trgame";
         constexpr std::string_view c_DisplayOwner = "Game: Display.yaml";
-        constexpr std::array<GraphicsAPI, 3> c_GraphicsAPIs{ GraphicsAPI::D3D12, GraphicsAPI::Vulkan, GraphicsAPI::Metal };
-
-        std::optional<GraphicsAPI> ParseGraphicsAPI(std::string_view name)
-        {
-            const auto a_Found = std::ranges::find_if(c_GraphicsAPIs, [name](GraphicsAPI api) { return ToString(api) == name; });
-
-            return a_Found != c_GraphicsAPIs.end() ? std::optional<GraphicsAPI>(*a_Found) : std::nullopt;
-        }
 
         // The file's settings, or the reason they cannot be read: text that is not YAML or holds no map, with no valid Format version, or of one newer than the reader's
         Expected<YAML::Node, std::string> LoadSettings(std::string_view text, std::string_view fileName, std::uint32_t formatVersion)
@@ -89,13 +80,7 @@ namespace Trinity
         l_Emitter << YAML::EndSeq;
         l_Emitter << YAML::Key << "Module" << YAML::Value << YAML::DoubleQuoted << settings.Module;
         l_Emitter << YAML::Key << "Scripts" << YAML::Value << YAML::DoubleQuoted << settings.Scripts;
-        l_Emitter << YAML::Key << "GraphicsAPIs" << YAML::Value << YAML::Flow << YAML::BeginSeq;
-        for (const GraphicsAPI it_API : settings.GraphicsAPIs)
-        {
-            l_Emitter << std::string(ToString(it_API));
-        }
-
-        l_Emitter << YAML::EndSeq;
+        SettingsYaml::WriteGraphicsAPIs(l_Emitter, settings.GraphicsAPIs);
         SettingsYaml::WriteWindowSettings(l_Emitter, settings.Window);
         SettingsYaml::WritePhysicsSettings(l_Emitter, settings.Physics);
         SettingsYaml::WriteAudioSettings(l_Emitter, settings.Audio);
@@ -164,18 +149,7 @@ namespace Trinity
             l_Unread |= !l_Scripts.empty();
         }
 
-        if (const YAML::Node l_APIs = l_Root["GraphicsAPIs"]; l_APIs && l_APIs.IsSequence())
-        {
-            for (const YAML::Node& it_API : l_APIs)
-            {
-                const std::optional<GraphicsAPI> l_API = it_API.IsScalar() ? ParseGraphicsAPI(it_API.Scalar()) : std::nullopt;
-                l_Unread |= !l_API;
-                if (l_API && std::ranges::find(l_Settings.GraphicsAPIs, *l_API) == l_Settings.GraphicsAPIs.end())
-                {
-                    l_Settings.GraphicsAPIs.push_back(*l_API);
-                }
-            }
-        }
+        l_Unread |= !SettingsYaml::ReadGraphicsAPIs(l_Root["GraphicsAPIs"], l_Settings.GraphicsAPIs);
 
         SettingsYaml::ReadWindowSettings(l_Root["Window"], c_Owner, l_Settings.Window);
         l_Settings.Physics.Layers = SettingsYaml::ReadCollisionLayers(l_Root["Physics"], c_Owner);

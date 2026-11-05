@@ -112,7 +112,31 @@ private:
     std::string m_Label;
 };
 
-// Last under the parent, or among the roots for none, at the position, which is the parent's own
+// As SetPhysicsSettingsCommand, for what the project exports, which the Build panel edits
+class SetExportSettingsCommand final : public EditorCommand
+{
+public:
+    using Writer = std::function<bool(const Trinity::ExportSettings&)>;
+
+    SetExportSettingsCommand(Writer writer, Trinity::ExportSettings before, Trinity::ExportSettings after, std::string field);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
+    [[nodiscard]] bool ChangesScene() const override { return false; }
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return {}; }
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    Writer m_Writer;
+    Trinity::ExportSettings m_Before;
+    Trinity::ExportSettings m_After;
+    std::string m_Field;
+    std::string m_Label;
+};
+
 class CreateSpriteCommand final : public EditorCommand
 {
 public:

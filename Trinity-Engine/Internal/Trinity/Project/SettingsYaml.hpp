@@ -3,13 +3,16 @@
 #include "Trinity/Audio/AudioSettings.hpp"
 #include "Trinity/Core/Screen.hpp"
 #include "Trinity/Physics/PhysicsTypes.hpp"
+#include "Trinity/Renderer/GraphicsAPI.hpp"
 
 #include <yaml-cpp/yaml.h>
 
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
-// The physics, audio and window settings as a project's file, a game's Game.trgame and its player's Display.yaml hold them. owner begins each warning, as Project: Name or Game: Game.trgame
+// The physics, audio, window and graphics API settings as a project's file, a game's Game.trgame and its player's Display.yaml hold them. owner begins each warning, as Project: Name or Game: Game.trgame
 namespace Trinity::SettingsYaml
 {
     // The key's text when it is a scalar, or the fallback
@@ -23,6 +26,8 @@ namespace Trinity::SettingsYaml
     void ReadAudioSettings(const YAML::Node& audio, std::string_view owner, AudioSettings& settings);
     // The mode, the size and vsync, each that is missing kept as it is, and each that cannot be read reported and kept as it is
     void ReadWindowSettings(const YAML::Node& window, std::string_view owner, WindowSettings& settings);
+    // The graphics APIs of a sequence by their names, in its order, each once, after those the list holds already. False when one cannot be one, which is left out for the caller to report
+    [[nodiscard]] bool ReadGraphicsAPIs(const YAML::Node& list, std::vector<GraphicsAPI>& apis);
 
     // A Physics map, of only the layer names that are not empty and the pairs that do not collide, so a new project's are short
     void WritePhysicsSettings(YAML::Emitter& emitter, const PhysicsSettings& settings);
@@ -30,4 +35,6 @@ namespace Trinity::SettingsYaml
     void WriteAudioSettings(YAML::Emitter& emitter, const AudioSettings& settings);
     // A Window map
     void WriteWindowSettings(YAML::Emitter& emitter, const WindowSettings& settings);
+    // A GraphicsAPIs sequence of their names, on one line
+    void WriteGraphicsAPIs(YAML::Emitter& emitter, std::span<const GraphicsAPI> apis);
 }
