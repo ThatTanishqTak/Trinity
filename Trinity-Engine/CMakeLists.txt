@@ -181,6 +181,12 @@ target_link_options(Trinity-Engine PRIVATE $<$<PLATFORM_ID:Linux>:LINKER:--exclu
 
 trinity_add_engine_library(Trinity-Engine-Static STATIC "${TRINITY_ENGINE_STATIC_CONFIG}")
 
+# RmlUi's debugger, which Debug and Release players open on F4, is never linked in Distribution, so the static engine names it only where Debug and Release use it too, and the game package never does
+target_link_libraries(Trinity-Engine PRIVATE "$<$<NOT:$<CONFIG:Distribution>>:rmlui_debugger>")
+if(NOT TRINITY_SHARED_ENGINE)
+    target_link_libraries(Trinity-Engine-Static PRIVATE "$<$<NOT:$<CONFIG:Distribution>>:rmlui_debugger>")
+endif()
+
 # What executables and modules link: the shared engine or the static one, depending on the configuration, and with the static one the libktx it chose
 add_library(Trinity-Engine-Link INTERFACE)
 add_library(Trinity::Engine ALIAS Trinity-Engine-Link)

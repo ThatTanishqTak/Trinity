@@ -1,3 +1,4 @@
+#include "DevelopmentOverlay.hpp"
 #include "RuntimeLayer.hpp"
 
 #include <Trinity/Core/EntryPoint.hpp>
@@ -47,15 +48,27 @@ namespace
     }
 }
 
-// The player. Its main, with the Agility SDK's exports, is in this file, so every player that links the runtime's objects has them, the prebuilt one and a game's alike. The display was read as the window was made
+// The player. Its main, with the Agility SDK's exports, is in this file, so every player that links the runtime's objects has them, the prebuilt one and a game's alike. The display was read as the window was made. A game that opened has, outside Distribution, the Development overlay over it, drawn by an ImGui that keeps no settings in the game's saves, draws nothing outside its window and keeps no input from the game
 class RuntimeApplication final : public Trinity::Application
 {
 public:
     RuntimeApplication(Trinity::ApplicationSpecification specification, std::optional<Trinity::GameSettings> game, std::filesystem::path gameDirectory, Trinity::Ref<Trinity::DisplaySettings> display) : Application(std::move(specification))
     {
+#if !defined(TR_DISTRIBUTION)
+        const bool l_Opened = game.has_value();
+#endif
         PushLayer<RuntimeLayer>(std::move(game), std::move(gameDirectory), std::move(*display));
+#if !defined(TR_DISTRIBUTION)
+        if (l_Opened)
+        {
+            Trinity::ImGuiLayer& l_ImGui = PushOverlay<Trinity::ImGuiLayer>(Trinity::ImGuiLayerSpecification{ .KeepSettings = false, .Viewports = false });
+            l_ImGui.SetSceneInput(true, true);
+            PushOverlay<DevelopmentOverlay>();
+        }
+#endif
     }
 };
+
 
 // The game's pack, Game.trpak beside the executable as an export leaves it, or the one --pack names, is opened before the application starts, so the game's saves and log go under its company and product, its window is named for it and opens as its player last left it, and its graphics APIs are tried in its order. A game that cannot be opened is reported, in a box unless headless, and the player closes at once without a window. C# scripts run in a player once their ahead-of-time library does, so .NET is not started
 Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args)

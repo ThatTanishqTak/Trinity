@@ -410,14 +410,14 @@ namespace Trinity
         std::uint32_t Output = 0;
     };
 
-    ImGuiLayer::ImGuiLayer() : Layer("ImGui")
+    ImGuiLayer::ImGuiLayer(ImGuiLayerSpecification specification) : Layer("ImGui"), m_Specification(specification)
     {
 
     }
 
     ImGuiLayer::~ImGuiLayer() = default;
 
-    // ImGui writes no files itself: its settings go through /saves, and are saved when ImGui asks and at shutdown
+    // ImGui writes no files itself: its settings go through /saves, and are saved when ImGui asks and at shutdown, unless the specification keeps none
     void ImGuiLayer::OnAttach()
     {
         ImGui::SetAllocatorFunctions(&AllocateUI, &FreeUI, nullptr);
@@ -456,7 +456,7 @@ namespace Trinity
         l_IO.ConfigViewportsNoTaskBarIcon = true;
 
         UpdateMonitors();
-        m_ViewportsSupported = l_Window.GetNativeHandle() != nullptr && !l_PlatformIO.Monitors.empty();
+        m_ViewportsSupported = m_Specification.Viewports && l_Window.GetNativeHandle() != nullptr && !l_PlatformIO.Monitors.empty();
         if (m_ViewportsSupported)
         {
             l_IO.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports | ImGuiBackendFlags_HasMouseHoveredViewport | ImGuiBackendFlags_RendererHasViewports;
@@ -481,7 +481,7 @@ namespace Trinity
             UpdateViewports();
         }
 
-        TR_CORE_INFO("ImGui: {} context created, with multi-viewport {}", IMGUI_VERSION, m_ViewportsSupported ? "available through ui.viewports" : "off, since this platform has no windows");
+        TR_CORE_INFO("ImGui: {} context created, with multi-viewport {}", IMGUI_VERSION, m_ViewportsSupported ? "available through ui.viewports" : !m_Specification.Viewports ? "off for this application" : "off, since this platform has no windows");
     }
 
     // Settings never loaded are not saved either, so a run with no frames leaves imgui.ini as it was
@@ -510,7 +510,7 @@ namespace Trinity
     {
         TR_PROFILE_FUNCTION();
 
-        if (!m_SettingsLoaded)
+        if (!m_SettingsLoaded && m_Specification.KeepSettings)
         {
             LoadSettings();
         }
@@ -539,7 +539,7 @@ namespace Trinity
             ImGui::UpdatePlatformWindows();
         }
 
-        if (l_IO.WantSaveIniSettings)
+        if (l_IO.WantSaveIniSettings && m_Specification.KeepSettings)
         {
             SaveSettings();
         }

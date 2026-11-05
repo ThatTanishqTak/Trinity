@@ -29,6 +29,13 @@ namespace Trinity
     // The ID to draw a texture asset with in ImGui: its bindless index, with c_ImGuiEncodeSrgb for an sRGB texture
     [[nodiscard]] TRINITY_API std::uint64_t GetImGuiTextureID(const TextureAsset& texture);
 
+    // What an application wants of its ImGui: Forge's windows keep their places in /saves/imgui.ini and may leave the main window as windows of their own, and a Development player's overlay does neither, so the game's saves are as the game left them and nothing is drawn outside its window
+    struct ImGuiLayerSpecification
+    {
+        bool KeepSettings = true;
+        bool Viewports = true;
+    };
+
     // Runs a Dear ImGui frame around every layer's OnImGuiRender, an application opts in by pushing it as an overlay, so programs without it never link ImGui
     class TRINITY_API ImGuiLayer final : public Layer
     {
@@ -37,7 +44,7 @@ namespace Trinity
         static constexpr float c_MinimumUserScale = 0.5f;
         static constexpr float c_MaximumUserScale = 4.0f;
 
-        ImGuiLayer();
+        explicit ImGuiLayer(ImGuiLayerSpecification specification = {});
         ~ImGuiLayer() override;
 
         void OnAttach() override;
@@ -67,6 +74,7 @@ namespace Trinity
         static void CreateViewportOutput(ImGuiViewport* viewport);
         static void DestroyViewportOutput(ImGuiViewport* viewport);
 
+        ImGuiLayerSpecification m_Specification;
         ImGuiContext* m_Context = nullptr;
         Scope<ImGuiRenderer> m_Renderer;
         std::string m_ClipboardText;

@@ -52,6 +52,17 @@ namespace Trinity
         std::uint32_t QueuedSounds = 0;
     };
 
+#if !defined(TR_DISTRIBUTION)
+    // Where RmlUi's debugger is: the document it inspects, 0 while it is closed, with the path it was read from, which lasts while the document does, and its place from 1 among the documents CycleDebugger goes through, of how many there are now
+    struct GameUIDebugger
+    {
+        UIDocumentID Document = 0;
+        std::string_view Path;
+        std::uint32_t Position = 0;
+        std::uint32_t Count = 0;
+    };
+#endif
+
     // A sound an element's sound-hover or sound-click attribute named, for the scene whose UIDocument's document the element is in to play through the component's Sound Output: the order it was asked for in, the entity of the UIDocument, and the clip or sound event
     struct UIQueuedSound
     {
@@ -127,6 +138,12 @@ namespace Trinity
         void Update(Timestep timestep);
 
         [[nodiscard]] GameUIStatistics GetStatistics() const;
+
+#if !defined(TR_DISTRIBUTION)
+        // RmlUi's debugger, over the view's documents in a context of its own, moved on to the next of the view's documents: its screen documents, the topmost first, then the world documents, hidden ones too, then closed after the last, as a Development player's F4 moves it. It takes the pointer and the presses where it has an element under it, before any document, and closes as the document it inspects is unloaded. The document it is now on, c_NoDocument once it closes or when the view has none. Not in Distribution, whose games have no debugger
+        UIDocumentID CycleDebugger(ViewID view = Renderer::c_MainView);
+        [[nodiscard]] GameUIDebugger GetDebugger() const;
+#endif
 
     private:
         struct State;

@@ -1,7 +1,7 @@
 # Libraries that belong to the editor alone. A game's Distribution build must carry none of their code, which their names in its RTTI and messages would show
 set(TRINITY_EDITOR_LIBRARIES fastgltf simdjson Assimp)
-# What a player must carry none of besides: the editor's UI and the texture encoder, which Forge links, and Slang, which only compiles shaders as Trinity builds. The script knows each by what its code leaves in a binary
-set(TRINITY_PLAYER_EXCLUDED_LIBRARIES ${TRINITY_EDITOR_LIBRARIES} ImGui ImGuizmo BasisEncoder Slang)
+# What a player must carry none of besides: the editor's UI and the texture encoder, which Forge links, Slang, which only compiles shaders as Trinity builds, and a Development player's overlay and RmlUi's debugger, which Distribution leaves out. The script knows each by what its code leaves in a binary
+set(TRINITY_PLAYER_EXCLUDED_LIBRARIES ${TRINITY_EDITOR_LIBRARIES} ImGui ImGuizmo BasisEncoder Slang DevelopmentOverlay RmlUiDebugger)
 # What every player must carry: RmlUi, which draws a game's UI, and the FreeType it draws text with
 set(TRINITY_PLAYER_REQUIRED_LIBRARIES RmlUi FreeType)
 set(TRINITY_EDITOR_LIBRARIES_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/TrinityCheckEditorLibraries.cmake")

@@ -8,6 +8,9 @@ set(pattern_ImGui "Debug##Default")
 set(pattern_ImGuizmo "deg .5.2f rad")
 set(pattern_BasisEncoder "basis_compressor::")
 set(pattern_Slang "@Slang@@|N5Slang")
+# The keys a Development player's overlay names under its mark, and the id RmlUi's debugger gives the hook it leaves in the document it inspects
+set(pattern_DevelopmentOverlay "F3 stats and log")
+set(pattern_RmlUiDebugger "rmlui-debug-hook")
 # RmlUi's warning for an element whose font is missing, which its layout always links, and the name FreeType's auto-hinter registers under
 set(pattern_RmlUi "No font face defined")
 set(pattern_FreeType "autofitter")

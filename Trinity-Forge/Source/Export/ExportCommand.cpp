@@ -33,7 +33,7 @@ namespace
     constexpr std::string_view c_ExecutableExtension = "";
     constexpr std::string_view c_EngineLibrary = "libTrinity-Engine.so";
 #endif
-    // Forge's own shaders and the RHI's tests, which Forge's CMakeLists names, are compiled beside the engine's, and no game draws with them. Nor does a Distribution player draw ImGui, which it has none of
+    // Forge's own shaders and the RHI's tests, which Forge's CMakeLists names, are compiled beside the engine's, and no game draws with them. Nor does a Distribution player draw ImGui, which it has none of, while a Development one draws its overlay with it
 #if defined(TR_UNSHIPPED_SHADERS)
     constexpr std::string_view c_UnshippedShaders = TR_UNSHIPPED_SHADERS;
 #else
@@ -81,10 +81,10 @@ namespace
     }
 
     // By the shader's name, before its entry point and extension
-    bool IsShipped(std::string_view fileName)
+    bool IsShipped(std::string_view fileName, bool development)
     {
         const std::string_view l_Name = fileName.substr(0, fileName.find('.'));
-        if (l_Name.empty() || l_Name == c_ImGuiShader)
+        if (l_Name.empty() || (l_Name == c_ImGuiShader && !development))
         {
             return false;
         }
@@ -649,10 +649,10 @@ void ExportCommand::StartPacking()
     {
         l_Packing->Result = l_Packing->Builder.Write(l_Packing->Output, l_Packing->Options);
         l_Packing->Done.store(true, std::memory_order_release);
-    }, & m_PackJobs);
+    }, &m_PackJobs);
 }
 
-// The player named for the product, with its icon and version on Windows, the scripts' library and the shaders for the export's graphics APIs, then on Windows the Agility SDK runtime where D3D12SDKPath points and GameInput's redistributable, which Microsoft asks a game to ship, all from Trinity's build of Distribution, or of Release for a Development Build, which also takes the shared engine and the module's build beside it, and on Windows nethost, which the engine links though a player never starts .NET, and the C++ runtime the engine and the module link
+// The player named for the product, with its icon and version on Windows, the scripts' library and the shaders for the export's graphics APIs, then on Windows the Agility SDK runtime where D3D12SDKPath points and GameInput's redistributable, which Microsoft asks a game to ship, all from Trinity's build of Distribution, or of Release for a Development Build, which also takes the shared engine and the module's build beside it, on Windows nethost, which the engine links though a player never starts .NET, and the C++ runtime the engine and the module link, and the ImGui shaders and fonts its overlay draws with
 bool ExportCommand::CopyFiles()
 {
     const Trinity::ExportSettings& l_Export = m_Session.GetProject()->GetExportSettings();
@@ -715,7 +715,7 @@ bool ExportCommand::CopyFiles()
         const std::string l_Name = ToUtf8(it_Entry->path().filename());
         const std::string l_Extension = ToUtf8(it_Entry->path().extension());
         const bool l_Drawn = std::ranges::any_of(l_Export.GraphicsAPIs, [&l_Extension](Trinity::GraphicsAPI api) { return GetShaderExtension(api) == l_Extension; });
-        if (l_Drawn && IsShipped(l_Name) && it_Entry->is_regular_file())
+        if (l_Drawn && IsShipped(l_Name, m_Development) && it_Entry->is_regular_file())
         {
             l_Found.push_back(it_Entry->path());
         }
@@ -734,6 +734,35 @@ bool ExportCommand::CopyFiles()
         if (!CopyFile(it_Shader, std::filesystem::path("Engine") / "shaders" / it_Shader.filename(), "Shaders"))
         {
             return false;
+        }
+    }
+
+    // The faces a Development player's overlay draws with, and the licence they are given under, which asks to go with them
+    if (m_Development)
+    {
+        const std::filesystem::path l_Fonts = l_Trinity / "Engine" / "fonts";
+        std::vector<std::filesystem::path> l_Faces;
+        for (std::filesystem::directory_iterator it_Entry(l_Fonts, l_Error), it_End; !l_Error && it_Entry != it_End; it_Entry.increment(l_Error))
+        {
+            const std::filesystem::path& l_Path = it_Entry->path();
+            if (it_Entry->is_regular_file() && (l_Path.extension() == ".ttf" || l_Path.filename() == "OFL.txt"))
+            {
+                l_Faces.push_back(l_Path);
+            }
+        }
+
+        if (l_Faces.empty())
+        {
+            TR_WARN("Export: Trinity's Release build has no fonts in {}, so the Development overlay draws with ImGui's own", ToUtf8(l_Fonts));
+        }
+
+        std::ranges::sort(l_Faces);
+        for (const std::filesystem::path& it_Face : l_Faces)
+        {
+            if (!CopyFile(it_Face, std::filesystem::path("Engine") / "fonts" / it_Face.filename(), "Fonts"))
+            {
+                return false;
+            }
         }
     }
 

@@ -39,6 +39,10 @@
 #include <RmlUi/Core/ID.h>
 #include <RmlUi/Core/StyleSheetContainer.h>
 
+#if !defined(TR_DISTRIBUTION)
+#include <RmlUi/Debugger.h>
+#endif
+
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_MODULE_H
@@ -48,6 +52,7 @@
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <span>
@@ -124,6 +129,10 @@ namespace Trinity
         constexpr std::array<std::pair<Rml::EventId, UIEventType>, c_UIEventTypeCount> c_ScriptEvents{ { { Rml::EventId::Click, UIEventType::Click },{ Rml::EventId::Change, UIEventType::Change },{ Rml::EventId::Submit, UIEventType::Submit },{ Rml::EventId::Mouseover, UIEventType::PointerEnter },{ Rml::EventId::Mouseout, UIEventType::PointerLeave },{ Rml::EventId::Focus, UIEventType::Focus },{ Rml::EventId::Blur, UIEventType::Blur } } };
         // The view of a screen document loaded for a scene's scripts while no view shows the scene, which is no view, so it draws nothing and takes no input
         constexpr ViewID c_NoView = std::numeric_limits<ViewID>::max();
+#if !defined(TR_DISTRIBUTION)
+        // RmlUi's debugger's own context, which no document's name is
+        constexpr const char* c_DebuggerContext = "Trinity Debugger";
+#endif
 
         enum class NavigateDirection : std::uint8_t
         {
@@ -595,6 +604,14 @@ namespace Trinity
         GameUIVector<std::string> UnknownSounds;
         GameUIVector<std::pair<const Scene*, std::uint32_t>> RetainedScenes;
         GameUIData Data;
+#if !defined(TR_DISTRIBUTION)
+        // RmlUi's debugger in a context of its own, made as it first opens and kept until the UI ends, over the view it was opened on, with what it drew at the last Update, the document it inspects, c_NoDocument while it is closed, and the pointer buttons pressed in it, whose releases it has too
+        Rml::Context* DebuggerHost = nullptr;
+        ViewID DebuggerView = Renderer::c_MainView;
+        GameUIDrawList DebuggerDrawList;
+        UIDocumentID DebuggerTarget = c_NoDocument;
+        std::array<bool, c_PointerButtons.size()> DebuggerPresses{};
+#endif
 
         // The element with the focus, but neither the document's body nor the context's root, which stand for none
         [[nodiscard]] static Rml::Element* GetFocusedElement(const Document& document)
@@ -649,6 +666,10 @@ namespace Trinity
                     it_Document.Context->ProcessMouseLeave();
                 }
             }
+
+#if !defined(TR_DISTRIBUTION)
+            ReleaseDebuggerPointer();
+#endif
         }
 
         // The running scene's world documents that drew last frame, on the quads the view's camera drew them on, as the entities' transforms still are as the scene's frame begins. Sprites go first, topmost first by layer, order and hierarchy, as Renderer2D draws them over everything else, then the rest from the nearest to the eye
@@ -1090,6 +1111,15 @@ namespace Trinity
                 return;
             }
 
+#if !defined(TR_DISTRIBUTION)
+            // The debugger closes with the document it inspects, its hook leaving the context first
+            if (document == DebuggerTarget)
+            {
+                Inspect(c_NoDocument, DebuggerView, {});
+                TR_CORE_INFO("GameUI: RmlUi's debugger closed, as {}, which it inspected, was unloaded", a_Document->Path);
+            }
+#endif
+
             Data.Detach(document);
             Rml::RemoveContext(GetContextName(document));
             Documents.erase(a_Document);
@@ -1132,9 +1162,17 @@ namespace Trinity
                 l_Needs = Needs::Color;
             }
 
+#if !defined(TR_DISTRIBUTION)
+            if (DrawsDebugger(view))
+            {
+                return DebuggerDrawList.ClipMask && Rendering.CanClip() ? Needs::ColorAndStencil : Needs::Color;
+            }
+#endif
+
             return l_Needs;
         }
 
+        // The view's documents in their order, then, outside Distribution, RmlUi's debugger over them all where it is open
         void Draw(RHI::CommandList& commands, ViewID view, std::uint32_t width, std::uint32_t height, bool stencil) override
         {
             for (const Document& it_Document : Documents)
@@ -1144,6 +1182,13 @@ namespace Trinity
                     Rendering.Draw(commands, it_Document.DrawList, width, height, stencil);
                 }
             }
+
+#if !defined(TR_DISTRIBUTION)
+            if (DrawsDebugger(view))
+            {
+                Rendering.Draw(commands, DebuggerDrawList, width, height, stencil);
+            }
+#endif
         }
 
         // One that recorded nothing at its last Update, such as a hidden one, or has no size, draws nothing, and so has no quad
@@ -1253,6 +1298,165 @@ namespace Trinity
         {
             return Rendering.CanDraw() && document.TextureSize.x != 0 && document.TextureSize.y != 0 && !document.DrawList.Commands.empty();
         }
+
+#if !defined(TR_DISTRIBUTION)
+        // Each document the debugger goes through over the view, in its order, until the visitor returns true: the view's screen documents, the topmost first, then the world documents as they draw, hidden ones too
+        template<typename Visitor>
+        void VisitDebuggable(ViewID view, Visitor && visitor) const
+        {
+            for (auto it_Document = Documents.rbegin(); it_Document != Documents.rend(); ++it_Document)
+            {
+                if (!it_Document->World && it_Document->View == view && visitor(*it_Document))
+                {
+                    return;
+                }
+            }
+
+            for (const Document& it_Document : Documents)
+            {
+                if (it_Document.World && visitor(it_Document))
+                {
+                    return;
+                }
+            }
+        }
+
+        // The debugger on the document, over the view, its context made of the view's size and RmlUi's debugger started in it the first time, or closed for c_NoDocument, when it is neither laid out nor drawn and takes no input, keeping its windows as they were for the next time it opens. False, logged, when the debugger cannot start, and it stays closed
+        bool Inspect(UIDocumentID document, ViewID view, Rml::Vector2i size)
+        {
+            const Document* l_Target = FindDocument(document);
+            if (l_Target == nullptr)
+            {
+                if (DebuggerHost != nullptr && DebuggerTarget != c_NoDocument)
+                {
+                    ReleaseDebuggerPointer();
+                    Rml::Debugger::SetContext(nullptr);
+                }
+
+                DebuggerTarget = c_NoDocument;
+                DebuggerDrawList.Clear();
+
+                return true;
+            }
+
+            if (DebuggerHost == nullptr)
+            {
+                Rml::Context* l_Host = Rml::CreateContext(c_DebuggerContext, size);
+                if (l_Host == nullptr || !Rml::Debugger::Initialise(l_Host))
+                {
+                    if (l_Host != nullptr)
+                    {
+                        Rml::RemoveContext(c_DebuggerContext);
+                    }
+
+                    TR_CORE_ERROR("GameUI: RmlUi's debugger could not start, so it is not shown");
+
+                    return false;
+                }
+
+                DebuggerHost = l_Host;
+            }
+
+            if (view != DebuggerView)
+            {
+                ReleaseDebuggerPointer();
+            }
+
+            DebuggerView = view;
+            DebuggerTarget = document;
+            Rml::Debugger::SetContext(l_Target->Context);
+            Rml::Debugger::SetVisible(true);
+
+            return true;
+        }
+
+        // The presses the debugger has end, and nothing in it is hovered
+        void ReleaseDebuggerPointer()
+        {
+            if (DebuggerHost == nullptr)
+            {
+                return;
+            }
+
+            for (std::size_t it_Button = 0; it_Button < DebuggerPresses.size(); ++it_Button)
+            {
+                if (std::exchange(DebuggerPresses[it_Button], false))
+                {
+                    DebuggerHost->ProcessMouseButtonUp(static_cast<int>(it_Button), 0);
+                }
+            }
+
+            DebuggerHost->ProcessMouseLeave();
+        }
+
+        // The pointer goes to the open debugger first, over the view it is open on: it has the pointer where it has an element under it, or while a press that began there is held, and takes that press and the wheel from the game and the documents. Whether it has the pointer
+        bool PointDebugger(ViewID view, int modifiers)
+        {
+            if (DebuggerHost == nullptr || DebuggerTarget == c_NoDocument || view != DebuggerView)
+            {
+                return false;
+            }
+
+            const MousePosition l_Mouse = Input::GetMousePosition();
+            DebuggerHost->ProcessMouseMove(static_cast<int>(std::floor(l_Mouse.X)), static_cast<int>(std::floor(l_Mouse.Y)), modifiers);
+            const Rml::Element* l_Hover = DebuggerHost->GetHoverElement();
+            const bool l_Over = l_Hover != nullptr && l_Hover != DebuggerHost->GetRootElement();
+            for (std::size_t it_Button = 0; it_Button < c_PointerButtons.size(); ++it_Button)
+            {
+                const MouseCode l_Button = c_PointerButtons[it_Button];
+                if (l_Over && Input::WasMouseButtonPressed(l_Button))
+                {
+                    DebuggerHost->ProcessMouseButtonDown(static_cast<int>(it_Button), modifiers);
+                    DebuggerPresses[it_Button] = true;
+                    Input::TakeMouseButton(l_Button);
+                }
+
+                if (Input::WasMouseButtonReleased(l_Button) && std::exchange(DebuggerPresses[it_Button], false))
+                {
+                    DebuggerHost->ProcessMouseButtonUp(static_cast<int>(it_Button), modifiers);
+                }
+            }
+
+            if (const glm::vec2 l_Scroll = Input::GetMouseScroll(); l_Over && (l_Scroll.x != 0.0f || l_Scroll.y != 0.0f))
+            {
+                DebuggerHost->ProcessMouseWheel(Rml::Vector2f(l_Scroll.x, -l_Scroll.y), modifiers);
+                Input::TakeMouseScroll();
+            }
+
+            return l_Over || std::ranges::any_of(DebuggerPresses, std::identity());
+        }
+
+        // Laid out over the view at the window's DPI scale once the documents are, the outlines and boxes it shows in the one it inspects having been drawn into that document's own list as it drew
+        void UpdateDebugger(Renderer & renderer, float dpiScale)
+        {
+            const std::uint32_t l_Width = DebuggerTarget != c_NoDocument && renderer.HasView(DebuggerView) ? renderer.GetSceneWidth(DebuggerView) : 0;
+            const std::uint32_t l_Height = l_Width != 0 ? renderer.GetSceneHeight(DebuggerView) : 0;
+            if (DebuggerHost == nullptr || l_Width == 0 || l_Height == 0)
+            {
+                DebuggerDrawList.Clear();
+
+                return;
+            }
+
+            const Rml::Vector2i l_Size(static_cast<int>(l_Width), static_cast<int>(l_Height));
+            if (DebuggerHost->GetDimensions() != l_Size)
+            {
+                DebuggerHost->SetDimensions(l_Size);
+            }
+
+            DebuggerHost->SetDensityIndependentPixelRatio(dpiScale);
+            DebuggerHost->Update();
+            Rendering.Begin(DebuggerDrawList);
+            DebuggerHost->Render();
+            Rendering.End();
+            Commands += static_cast<std::uint32_t>(DebuggerDrawList.Commands.size());
+        }
+
+        [[nodiscard]] bool DrawsDebugger(ViewID view) const
+        {
+            return Rendering.CanDraw() && DebuggerTarget != c_NoDocument && DebuggerView == view && !DebuggerDrawList.Commands.empty();
+        }
+#endif
     };
 
     GameUI::GameUI(Renderer& renderer, RHI::Device& device) : m_Renderer(renderer)
@@ -1766,7 +1970,7 @@ namespace Trinity
         return l_Focus != nullptr ? std::string(l_Focus->GetId()) : std::string();
     }
 
-    // The interactive view's documents: its screen documents, top first, then the world documents of the scene running there, as its camera last drew them. The pointer goes to the document a button pressed in while it is held, and otherwise to the topmost screen document with an element under it, the documents below losing it, and a press there is the UI's. Where no screen document has one, the cursor's ray through the view goes on into the scene, and the first world document it meets with an element under it takes the pointer, those sorted with the sprites tried topmost first and the rest from the nearest, one sorted by depth being hidden by a nearer collider or by the nearer surface the view's depth was read back at under the cursor. A pointer code gives drives the world documents in place of the mouse, with its own press, and the mouse then has the screen documents alone. A press on no element takes the focus away from every document. A text field with the focus takes every key and the text typed, and otherwise Navigate moves the focus: from none to the first element of the topmost screen document that has one, or with none, of the nearest world document in view, and past a world document's last element, or before its first, to the world document that way on the view. Submit presses what has the focus and Cancel sends it a cancel event, which takes the focus away unless the element or its document stops it. While an element has the focus, every source of the UI map is the UI's
+    // The interactive view's documents: its screen documents, top first, then the world documents of the scene running there, as its camera last drew them. The pointer goes to the document a button pressed in while it is held, and otherwise to the topmost screen document with an element under it, the documents below losing it, and a press there is the UI's. Where no screen document has one, the cursor's ray through the view goes on into the scene, and the first world document it meets with an element under it takes the pointer, those sorted with the sprites tried topmost first and the rest from the nearest, one sorted by depth being hidden by a nearer collider or by the nearer surface the view's depth was read back at under the cursor. A pointer code gives drives the world documents in place of the mouse, with its own press, and the mouse then has the screen documents alone. A press on no element takes the focus away from every document. A text field with the focus takes every key and the text typed, and otherwise Navigate moves the focus: from none to the first element of the topmost screen document that has one, or with none, of the nearest world document in view, and past a world document's last element, or before its first, to the world document that way on the view. Submit presses what has the focus and Cancel sends it a cancel event, which takes the focus away unless the element or its document stops it. While an element has the focus, every source of the UI map is the UI's. Outside Distribution, RmlUi's debugger, while it is open over the view, has the pointer before every document where it has an element under it
     void GameUI::ProcessInput(Timestep timestep)
     {
         if (!m_State->Started || !m_State->InputView)
@@ -1808,6 +2012,12 @@ namespace Trinity
         }
 
         const int l_Modifiers = GameUIInput::GetKeyModifiers();
+#if !defined(TR_DISTRIBUTION)
+        // Where RmlUi's debugger has the pointer, no document does, as if it had left the view
+        const bool l_Debugger = m_State->PointDebugger(l_View, l_Modifiers);
+#else
+        constexpr bool l_Debugger = false;
+#endif
         if (l_Documents.empty())
         {
             m_State->Captures.fill(c_NoDocument);
@@ -1819,7 +2029,7 @@ namespace Trinity
 
         const MousePosition l_Mouse = Input::GetMousePosition();
         const glm::vec2 l_Cursor(l_Mouse.X, l_Mouse.Y);
-        const bool l_Inside = l_Cursor.x >= 0.0f && l_Cursor.y >= 0.0f && l_Cursor.x < l_Size.x && l_Cursor.y < l_Size.y;
+        const bool l_Inside = !l_Debugger && l_Cursor.x >= 0.0f && l_Cursor.y >= 0.0f && l_Cursor.x < l_Size.x && l_Cursor.y < l_Size.y;
         State::Document* l_Captured = nullptr;
         for (const UIDocumentID it_Capture : m_State->Captures)
         {
@@ -1920,7 +2130,7 @@ namespace Trinity
         {
             const MouseCode l_Button = c_PointerButtons[it_Button];
             const int l_Index = static_cast<int>(it_Button);
-            if (Input::WasMouseButtonPressed(l_Button))
+            if (!l_Debugger && Input::WasMouseButtonPressed(l_Button))
             {
                 for (State::Document* it_Document : l_Documents)
                 {
@@ -1947,7 +2157,7 @@ namespace Trinity
             }
         }
 
-        if (const glm::vec2 l_Scroll = Input::GetMouseScroll(); l_Under != nullptr && (l_Scroll.x != 0.0f || l_Scroll.y != 0.0f))
+        if (const glm::vec2 l_Scroll = Input::GetMouseScroll(); !l_Debugger && l_Under != nullptr && (l_Scroll.x != 0.0f || l_Scroll.y != 0.0f))
         {
             l_Under->Context->ProcessMouseWheel(Rml::Vector2f(l_Scroll.x, -l_Scroll.y), l_Modifiers);
             Input::TakeMouseScroll();
@@ -2275,6 +2485,10 @@ namespace Trinity
             m_State->Rendering.End();
             m_State->Commands += static_cast<std::uint32_t>(it_Document.DrawList.Commands.size());
         }
+
+#if !defined(TR_DISTRIBUTION)
+        m_State->UpdateDebugger(m_Renderer, l_DpiScale);
+#endif
     }
 
     GameUIStatistics GameUI::GetStatistics() const
@@ -2302,6 +2516,67 @@ namespace Trinity
 
         return l_Statistics;
     }
+
+#if !defined(TR_DISTRIBUTION)
+    // From the one it is on to the next, or from closed to the first. Open over another view, it starts again from that view's first
+    UIDocumentID GameUI::CycleDebugger(ViewID view)
+    {
+        if (!m_State->Started)
+        {
+            return c_NoDocument;
+        }
+
+        const MemoryTagScope l_Scope(MemoryTag::GameUI);
+        m_State->Sort();
+        bool l_Passed = m_State->DebuggerTarget == c_NoDocument || m_State->DebuggerView != view;
+        UIDocumentID l_Next = c_NoDocument;
+        m_State->VisitDebuggable(view, [this, &l_Passed, &l_Next](const State::Document& document)
+        {
+            if (l_Passed)
+            {
+                l_Next = document.ID;
+
+                return true;
+            }
+
+            l_Passed = document.ID == m_State->DebuggerTarget;
+
+            return false;
+        });
+
+        const Rml::Vector2i l_Size(static_cast<int>(m_Renderer.HasView(view) ? m_Renderer.GetSceneWidth(view) : 0), static_cast<int>(m_Renderer.HasView(view) ? m_Renderer.GetSceneHeight(view) : 0));
+        if (!m_State->Inspect(l_Next, view, l_Size))
+        {
+            m_State->Inspect(c_NoDocument, view, l_Size);
+        }
+
+        return m_State->DebuggerTarget;
+    }
+
+    GameUIDebugger GameUI::GetDebugger() const
+    {
+        GameUIDebugger l_Debugger;
+        if (!m_State->Started)
+        {
+            return l_Debugger;
+        }
+
+        m_State->VisitDebuggable(m_State->DebuggerView, [this, &l_Debugger](const State::Document& document)
+        {
+            ++l_Debugger.Count;
+            if (document.ID == m_State->DebuggerTarget)
+            {
+                l_Debugger.Document = document.ID;
+                l_Debugger.Path = document.Path;
+                l_Debugger.Position = l_Debugger.Count;
+            }
+
+            return false;
+        });
+
+        return l_Debugger;
+    }
+#endif
 
     GameUI* GameUIAccess::GetUI()
     {
