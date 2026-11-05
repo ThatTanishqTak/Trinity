@@ -2462,6 +2462,14 @@ namespace Trinity
                 continue;
             }
 
+            // Over no view, as its scene's scripts hold it while no view shows the scene, it keeps its layout and draws nothing until a view takes it
+            if (it_Document.View == c_NoView)
+            {
+                it_Document.DrawList.Clear();
+
+                continue;
+            }
+
             const std::uint32_t l_Width = m_Renderer.GetSceneWidth(it_Document.View);
             const std::uint32_t l_Height = m_Renderer.GetSceneHeight(it_Document.View);
             if (l_Width == 0 || l_Height == 0)
