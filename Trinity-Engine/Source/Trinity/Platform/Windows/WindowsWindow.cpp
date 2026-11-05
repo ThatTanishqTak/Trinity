@@ -348,11 +348,20 @@ namespace Trinity
 
         if (s_WindowCount == 0)
         {
+            // A game's executable holds its icon as group 1, as Forge's export writes it, at the sizes the title bar and the taskbar want. Trinity's own programs have none, and take the one Windows gives every program
+            const auto a_LoadIcon = [l_Instance](int width, int height)
+            {
+                const HICON l_Icon = static_cast<HICON>(::LoadImageW(l_Instance, MAKEINTRESOURCEW(1), IMAGE_ICON, ::GetSystemMetrics(width), ::GetSystemMetrics(height), LR_SHARED));
+
+                return l_Icon != nullptr ? l_Icon : ::LoadIconW(nullptr, IDI_APPLICATION);
+            };
+
             WNDCLASSEXW l_WindowClass{};
             l_WindowClass.cbSize = sizeof(l_WindowClass);
             l_WindowClass.lpfnWndProc = &WindowsWindow::WindowProcedure;
             l_WindowClass.hInstance = l_Instance;
-            l_WindowClass.hIcon = ::LoadIconW(nullptr, IDI_APPLICATION);
+            l_WindowClass.hIcon = a_LoadIcon(SM_CXICON, SM_CYICON);
+            l_WindowClass.hIconSm = a_LoadIcon(SM_CXSMICON, SM_CYSMICON);
             l_WindowClass.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
             l_WindowClass.hbrBackground = static_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH));
             l_WindowClass.lpszClassName = c_WindowClassName;

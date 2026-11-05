@@ -21,7 +21,7 @@
 
 class EditorSession;
 
-// Exports the open project as a game a player runs with nothing installed, as its export settings say, from the Build panel or from Forge's --export=<folder>, which then closes Forge with exit code 0, or 1 when it failed. Once every import and Forge's own builds of the module and the scripts have ended, the player is made: a project with a C++ module has it linked into a Distribution player by CMake, against the package of Trinity's Distribution build, and one without takes that build's prebuilt Trinity-Runtime, which needs no compiler. Then its C# scripts are compiled ahead of time with NativeAOT, and BuildWalk gathers what the ticked scenes reach, cooking the scenes and prefabs, into Game.trpak with its Game.trgame, written on a job, each file's compressed bytes kept in the project's Build/Export cache by its content, so the next export compresses only what changed. The player goes in named for the product, with the scripts' library, the D3D12 Agility SDK runtime, the GameInput redistributable and the engine's shaders for the export's graphics APIs. Everything is written into a staging folder beside the output folder, which then replaces the output folder whole, so an export that fails or is cancelled leaves the last one as it was
+// Exports the open project as a game a player runs with nothing installed, as its export settings say, from the Build panel or from Forge's --export=<folder>, which then closes Forge with exit code 0, or 1 when it failed. Once every import and Forge's own builds of the module and the scripts have ended, the player is made: a project with a C++ module has it linked into a Distribution player by CMake, against the package of Trinity's Distribution build, and one without takes that build's prebuilt Trinity-Runtime, which needs no compiler. Then its C# scripts are compiled ahead of time with NativeAOT, and BuildWalk gathers what the ticked scenes reach, cooking the scenes and prefabs, into Game.trpak with its Game.trgame, written on a job, each file's compressed bytes kept in the project's Build/Export cache by its content, so the next export compresses only what changed. The player goes in named for the product, a Windows one with its icon and version written in, with the scripts' library, the D3D12 Agility SDK runtime, the GameInput redistributable and the engine's shaders for the export's graphics APIs. Everything is written into a staging folder beside the output folder, which then replaces the output folder whole, so an export that fails or is cancelled leaves the last one as it was
 class ExportCommand
 {
 public:
@@ -59,7 +59,7 @@ public:
     [[nodiscard]] std::optional<float> GetProgress() const;
     [[nodiscard]] double GetSeconds() const { return std::chrono::duration<double>(std::chrono::steady_clock::now() - m_Started).count(); }
 
-    // What stops the project's settings from making a game, each a sentence for the Build panel and the Console: a scene of the build that is missing or is not a scene, no scene ticked, no product or company, which its saves and log go under, no graphics API, or no output folder. Empty when nothing does
+    // What stops the project's settings from making a game, each a sentence for the Build panel and the Console: a scene of the build that is missing or is not a scene, no scene ticked, no product or company, which its saves and log go under, an icon that is missing or is not a texture, no graphics API, or an output folder that is missing or would replace the project's own files. Empty when nothing does
     [[nodiscard]] static std::vector<std::string> CheckSettings(const Trinity::Project& project, const Trinity::AssetRegistry& registry);
     // Trinity's Distribution build, beside Forge's own build in bin as Distribution-<platform>/Trinity, which holds the prebuilt player, the package a game's player is built against and the runtimes copied beside a game
     [[nodiscard]] static std::filesystem::path GetDistributionDirectory();
@@ -91,6 +91,7 @@ private:
     void StartPacking();
     // Once the pack is written: the player and what goes beside it, then the swap. False once it has failed, which it has said why
     [[nodiscard]] bool CopyFiles();
+    [[nodiscard]] bool CopyPlayer(const std::filesystem::path& to);
     [[nodiscard]] bool CopyFile(const std::filesystem::path& from, const std::filesystem::path& to, std::string kind);
     [[nodiscard]] bool ReplaceOutput();
     void Report(const PackSummary& pack) const;

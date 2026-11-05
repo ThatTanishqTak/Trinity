@@ -2,6 +2,8 @@
 
 #include "EditorSession.hpp"
 #include "Export/BuildWalk.hpp"
+#include "Export/PlayerResources.hpp"
+#include "Modules/PortableExecutable.hpp"
 
 #include <algorithm>
 #include <array>
@@ -192,6 +194,19 @@ std::vector<std::string> ExportCommand::CheckSettings(const Trinity::Project& pr
     if (l_Settings.Product.empty() || l_Settings.Company.empty())
     {
         l_Problems.emplace_back("The product and the company each need a name, since the game's saves and log go under them");
+    }
+
+    if (l_Settings.Icon)
+    {
+        const Trinity::AssetRecord* l_Icon = registry.Find(l_Settings.Icon);
+        if (l_Icon == nullptr)
+        {
+            l_Problems.push_back(std::format("The icon {} is missing: it was deleted, or its .meta file was. Choose another or clear it", l_Settings.Icon));
+        }
+        else if (l_Icon->Importer != Trinity::TextureAsset::c_AssetType)
+        {
+            l_Problems.push_back(std::format("{} is not a texture, so it cannot be the icon. Choose a texture or clear it", l_Icon->Path));
+        }
     }
 
     if (l_Settings.GraphicsAPIs.empty())
@@ -615,12 +630,12 @@ void ExportCommand::StartPacking()
     }, &m_PackJobs);
 }
 
-// The player named for the product, the scripts' library and the shaders for the export's graphics APIs, then on Windows the Agility SDK runtime where D3D12SDKPath points and GameInput's redistributable, which Microsoft asks a game to ship, all from Trinity's Distribution build
+// The player named for the product, with its icon and version on Windows, the scripts' library and the shaders for the export's graphics APIs, then on Windows the Agility SDK runtime where D3D12SDKPath points and GameInput's redistributable, which Microsoft asks a game to ship, all from Trinity's Distribution build
 bool ExportCommand::CopyFiles()
 {
     const Trinity::ExportSettings& l_Export = m_Session.GetProject()->GetExportSettings();
     const std::filesystem::path l_Distribution = GetDistributionDirectory();
-    if (!CopyFile(m_Player, FromUtf8(GetExecutableName(l_Export.Product)), "Player"))
+    if (!CopyPlayer(FromUtf8(GetExecutableName(l_Export.Product))))
     {
         return false;
     }
@@ -684,6 +699,65 @@ bool ExportCommand::CopyFiles()
         return false;
     }
 #endif
+
+    return true;
+}
+
+// A Windows player, a PE image, is given its version and the icon the settings name, which a player of another platform has no place for, so it goes in as it is
+bool ExportCommand::CopyPlayer(const std::filesystem::path& to)
+{
+    std::optional<std::vector<char>> l_Image = PortableExecutable::ReadImage(m_Player);
+    if (!l_Image)
+    {
+        Fail(std::format("the player {} could not be read", ToUtf8(m_Player)));
+
+        return false;
+    }
+
+    if (!PortableExecutable::IsImage(*l_Image))
+    {
+        return CopyFile(m_Player, to, "Player");
+    }
+
+    const Trinity::Project& l_Project = *m_Session.GetProject();
+    const Trinity::ExportSettings& l_Export = l_Project.GetExportSettings();
+    if (!PlayerResources::ParseVersion(l_Export.Version).Numeric)
+    {
+        TR_WARN("Export: the version {} does not start with a number, so Windows shows the file's version as 0.0.0.0. A version such as 1.0 or 1.2.3-beta gives its numbers", l_Export.Version);
+    }
+
+    std::vector<PortableExecutable::Resource> l_Resources{ PlayerResources::MakeVersion(l_Export, ToUtf8(to.filename())) };
+    if (l_Export.Icon)
+    {
+        // The settings were checked as the export began, so the icon is a texture of the project
+        const Trinity::AssetRecord& l_Record = *m_Session.GetRegistry()->Find(l_Export.Icon);
+        Trinity::Expected<std::vector<PortableExecutable::Resource>, std::string> l_Icon = PlayerResources::MakeIcon(l_Project.ToNativePath(l_Record.Path));
+        if (!l_Icon)
+        {
+            Fail(std::format("the icon {} could not be made: {}", l_Record.Path, l_Icon.GetError()));
+
+            return false;
+        }
+
+        l_Resources.insert(l_Resources.end(), std::make_move_iterator(l_Icon->begin()), std::make_move_iterator(l_Icon->end()));
+    }
+
+    const Trinity::Expected<void, std::string> l_Written = PortableExecutable::SetResources(*l_Image, l_Resources);
+    if (!l_Written)
+    {
+        Fail(std::format("the player's icon and version could not be written into {}: {}", ToUtf8(m_Player), l_Written.GetError()));
+
+        return false;
+    }
+
+    if (!PortableExecutable::WriteImage(m_Staging / to, *l_Image))
+    {
+        Fail(std::format("{} could not be written", ToUtf8(m_Staging / to)));
+
+        return false;
+    }
+
+    m_Written.push_back({ to, "Player" });
 
     return true;
 }
