@@ -209,14 +209,19 @@ trinity_add_agility_sdk(Trinity-AgilitySDK)
 add_dependencies(Trinity-Engine Trinity-AgilitySDK)
 add_dependencies(Trinity-Engine-Static Trinity-AgilitySDK)
 
-# The GameInput redistributable goes to bin/Distribution/Trinity/Redist, from where an export copies it beside a game
+# The GameInput redistributable goes to Redist in the Release and Distribution folders, from where an export copies it beside a game
 trinity_add_gameinput_redist(Trinity-GameInputRedist)
+add_dependencies(Trinity-Engine Trinity-GameInputRedist)
 add_dependencies(Trinity-Engine-Static Trinity-GameInputRedist)
 
 # nethost.dll beside every executable on Windows, which the engine finds the installed .NET runtime through
 trinity_add_dotnet_host_runtime(Trinity-NetHost)
 add_dependencies(Trinity-Engine Trinity-NetHost)
 add_dependencies(Trinity-Engine-Static Trinity-NetHost)
+
+# Microsoft's C++ runtime beside the Release build, from where a Development export copies it beside a game
+trinity_add_msvc_runtime(Trinity-MsvcRuntime)
+add_dependencies(Trinity-Engine Trinity-MsvcRuntime)
 
 # TrinityConfig.cmake and TrinityToolchain.cmake beside the shared engine, which a game module builds against
 include(TrinityPackage)

@@ -122,8 +122,8 @@ namespace Trinity
 
         TRINITY_API bool Mount(std::string_view mountPoint, Scope<FileSource> source, MountAccess access = MountAccess::ReadOnly);
         TRINITY_API bool MountDirectory(std::string_view mountPoint, const std::filesystem::path& nativeDirectory, MountAccess access = MountAccess::ReadOnly);
-        // A .trpak, always read-only. One that is cut short, corrupted or from a newer Trinity is refused with one error naming it
-        TRINITY_API bool MountPack(std::string_view mountPoint, const std::filesystem::path& nativePack);
+        // A .trpak, always read-only. One that is cut short, corrupted or from a newer Trinity is refused with one error naming it. With checkFiles, every file is also read and checked against its hash as it mounts, each that fails named, and the pack mounts all the same, a failed file failing as it is read. Distribution has no such check, as its games never make it
+        TRINITY_API bool MountPack(std::string_view mountPoint, const std::filesystem::path& nativePack, bool checkFiles = false);
         TRINITY_API std::size_t Unmount(std::string_view mountPoint);
 
         [[nodiscard]] TRINITY_API Expected<FileBuffer, FileError> ReadFile(std::string_view path);

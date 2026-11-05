@@ -23,8 +23,15 @@ namespace
     constexpr std::string_view c_PrebuiltPlayer = "Trinity-Runtime";
 #if defined(TR_PLATFORM_WINDOWS)
     constexpr std::string_view c_ExecutableExtension = ".exe";
+    constexpr std::string_view c_EngineLibrary = "Trinity-Engine.dll";
+    // Microsoft's C++ runtime, as Trinity's Release build copies it from Visual Studio's redistributable folder
+    constexpr std::array<std::string_view, 4> c_MsvcRuntimePrefixes{ "msvcp140", "vcruntime140", "concrt140", "vccorlib140" };
+#elif defined(TR_PLATFORM_MACOS)
+    constexpr std::string_view c_ExecutableExtension = "";
+    constexpr std::string_view c_EngineLibrary = "libTrinity-Engine.dylib";
 #else
     constexpr std::string_view c_ExecutableExtension = "";
+    constexpr std::string_view c_EngineLibrary = "libTrinity-Engine.so";
 #endif
     // Forge's own shaders and the RHI's tests, which Forge's CMakeLists names, are compiled beside the engine's, and no game draws with them. Nor does a Distribution player draw ImGui, which it has none of
 #if defined(TR_UNSHIPPED_SHADERS)
@@ -152,6 +159,7 @@ void ExportCommand::Start(const std::filesystem::path& folder, bool closeWhenDon
     m_Stage = Stage::Waiting;
     m_Started = std::chrono::steady_clock::now();
     m_Player.clear();
+    m_Module.clear();
     m_Compiled.clear();
     m_PackKinds.clear();
     m_Written.clear();
@@ -246,7 +254,7 @@ std::vector<std::string> ExportCommand::CheckSettings(const Trinity::Project& pr
     return l_Problems;
 }
 
-std::filesystem::path ExportCommand::GetDistributionDirectory()
+std::filesystem::path ExportCommand::GetTrinityDirectory(std::string_view configuration)
 {
     const std::filesystem::path l_Forge = Trinity::Process::GetExecutableDirectory();
     const std::filesystem::path l_Build = l_Forge.parent_path();
@@ -257,7 +265,7 @@ std::filesystem::path ExportCommand::GetDistributionDirectory()
         return l_Forge;
     }
 
-    return l_Build.parent_path() / FromUtf8(std::format("Distribution{}", std::string_view(l_Name).substr(l_Dash))) / l_Forge.filename();
+    return l_Build.parent_path() / FromUtf8(std::format("{}{}", configuration, std::string_view(l_Name).substr(l_Dash))) / l_Forge.filename();
 }
 
 std::string ExportCommand::GetExecutableName(std::string_view product)
@@ -312,7 +320,12 @@ std::string ExportCommand::GetStatus() const
         }
         case Stage::BuildingPlayer:
         {
-            return m_PlayerBuild.IsRunning() ? std::format("Building the Distribution player with {}", m_Session.GetProject()->GetModuleName()) : std::string("Taking the prebuilt player");
+            if (!m_PlayerBuild.IsRunning())
+            {
+                return "Taking the prebuilt player";
+            }
+
+            return m_Development ? std::format("Building {} for Release", m_Session.GetProject()->GetModuleName()) : std::format("Building the Distribution player with {}", m_Session.GetProject()->GetModuleName());
         }
         case Stage::CompilingScripts:
         {
@@ -394,10 +407,7 @@ void ExportCommand::Update()
                 return;
             }
 
-            if (l_Project.GetExportSettings().Development)
-            {
-                TR_WARN("Export: a Development Build cannot be exported yet, so {} is exported as players get it, in Distribution", l_Project.GetName());
-            }
+            m_Development = l_Project.GetExportSettings().Development;
 
             // What a failed export left beside the output folder goes first
             std::error_code l_Error;
@@ -427,12 +437,12 @@ void ExportCommand::Update()
 
                 if (!l_Built->Succeeded)
                 {
-                    Fail(std::format("{}'s player did not build", m_Session.GetProject()->GetName()));
+                    Fail(std::format("{}'s {} did not build", m_Session.GetProject()->GetName(), m_Development ? "C++ module" : "player"));
 
                     return;
                 }
 
-                m_Player = l_Built->Output;
+                (m_Development ? m_Module : m_Player) = l_Built->Output;
             }
 
             StartScripts();
@@ -500,25 +510,29 @@ void ExportCommand::Update()
     }
 }
 
-// The module linked into a Distribution player against Trinity's Distribution package, in its own build tree beside Forge's, or the prebuilt player for a project without one. Configuring Trinity writes the package whether or not Distribution was built, so the prebuilt player is what shows the build is there
+// A Distribution export links the module into a player against Trinity's Distribution package, in its own build tree beside Forge's, and a Development one builds the module for Release against Release's package, for the Release player with the shared engine to load beside the pack, as Forge loads it. A project without one takes the prebuilt player, which also shows that the build is there, as configuring Trinity writes its package whether or not the configuration was built
 void ExportCommand::StartPlayer()
 {
     m_Stage = Stage::BuildingPlayer;
     const Trinity::Project& l_Project = *m_Session.GetProject();
-    const std::filesystem::path l_Distribution = GetDistributionDirectory();
-    const std::filesystem::path l_Prebuilt = l_Distribution / FromUtf8(std::format("{}{}", c_PrebuiltPlayer, c_ExecutableExtension));
+    const std::string_view l_Configuration = m_Development ? "Release" : "Distribution";
+    const std::filesystem::path l_Trinity = GetTrinityDirectory(l_Configuration);
+    const std::filesystem::path l_Prebuilt = l_Trinity / FromUtf8(std::format("{}{}", c_PrebuiltPlayer, c_ExecutableExtension));
     std::error_code l_Error;
     if (!std::filesystem::exists(l_Prebuilt, l_Error))
     {
-        Fail(std::format("Trinity's Distribution build, which holds the players, is not at {}. Build Trinity's Distribution configuration", ToUtf8(l_Distribution)));
+        Fail(std::format("Trinity's {} build, which holds the {} player, is not at {}. Build Trinity's {} configuration", l_Configuration, m_Development ? "Development" : "Distribution", ToUtf8(l_Trinity), l_Configuration));
 
         return;
     }
 
-    if (!l_Project.HasModule())
+    if (!l_Project.HasModule() || m_Development)
     {
         m_Player = l_Prebuilt;
+    }
 
+    if (!l_Project.HasModule())
+    {
         return;
     }
 
@@ -526,10 +540,10 @@ void ExportCommand::StartPlayer()
     l_Request.Name = l_Project.GetModuleName();
     l_Request.ProjectDirectory = l_Project.GetDirectory();
     l_Request.SourceDirectory = l_Project.GetSourceDirectory();
-    l_Request.BuildDirectory = l_Project.GetBuildDirectory() / "Distribution";
-    l_Request.Configuration = "Distribution";
-    l_Request.EngineDirectory = l_Distribution;
-    l_Request.Output = l_Request.BuildDirectory / "Player" / FromUtf8(std::format("{}{}", l_Request.Name, c_ExecutableExtension));
+    l_Request.BuildDirectory = l_Project.GetBuildDirectory() / FromUtf8(l_Configuration);
+    l_Request.Configuration = l_Configuration;
+    l_Request.EngineDirectory = l_Trinity;
+    l_Request.Output = m_Development ? ModuleBuild::GetLibraryPath(l_Request.BuildDirectory, l_Request.Name) : l_Request.BuildDirectory / "Player" / FromUtf8(std::format("{}{}", l_Request.Name, c_ExecutableExtension));
     m_PlayerBuild.Start(std::move(l_Request));
 }
 
@@ -635,14 +649,14 @@ void ExportCommand::StartPacking()
     {
         l_Packing->Result = l_Packing->Builder.Write(l_Packing->Output, l_Packing->Options);
         l_Packing->Done.store(true, std::memory_order_release);
-    }, &m_PackJobs);
+    }, & m_PackJobs);
 }
 
-// The player named for the product, with its icon and version on Windows, the scripts' library and the shaders for the export's graphics APIs, then on Windows the Agility SDK runtime where D3D12SDKPath points and GameInput's redistributable, which Microsoft asks a game to ship, all from Trinity's Distribution build
+// The player named for the product, with its icon and version on Windows, the scripts' library and the shaders for the export's graphics APIs, then on Windows the Agility SDK runtime where D3D12SDKPath points and GameInput's redistributable, which Microsoft asks a game to ship, all from Trinity's build of Distribution, or of Release for a Development Build, which also takes the shared engine and the module's build beside it, and on Windows nethost, which the engine links though a player never starts .NET, and the C++ runtime the engine and the module link
 bool ExportCommand::CopyFiles()
 {
     const Trinity::ExportSettings& l_Export = m_Session.GetProject()->GetExportSettings();
-    const std::filesystem::path l_Distribution = GetDistributionDirectory();
+    const std::filesystem::path l_Trinity = GetTrinityDirectory(m_Development ? "Release" : "Distribution");
     if (!CopyPlayer(FromUtf8(GetExecutableName(l_Export.Product))))
     {
         return false;
@@ -653,9 +667,49 @@ bool ExportCommand::CopyFiles()
         return false;
     }
 
-    const std::filesystem::path l_Shaders = l_Distribution / "Engine" / "shaders";
-    std::vector<std::filesystem::path> l_Found;
     std::error_code l_Error;
+    if (m_Development)
+    {
+        if (!CopyFile(l_Trinity / FromUtf8(c_EngineLibrary), FromUtf8(c_EngineLibrary), "Engine") || (!m_Module.empty() && !CopyFile(m_Module, m_Module.filename(), "C++ module")))
+        {
+            return false;
+        }
+
+#if defined(TR_PLATFORM_WINDOWS)
+        if (!CopyFile(l_Trinity / "nethost.dll", "nethost.dll", "Engine"))
+        {
+            return false;
+        }
+
+        std::vector<std::filesystem::path> l_Runtime;
+        for (std::filesystem::directory_iterator it_Entry(l_Trinity, l_Error), it_End; !l_Error && it_Entry != it_End; it_Entry.increment(l_Error))
+        {
+            std::string l_Name = ToUtf8(it_Entry->path().filename());
+            std::ranges::transform(l_Name, l_Name.begin(), [](char character) { return static_cast<char>(std::tolower(static_cast<unsigned char>(character))); });
+            if (l_Name.ends_with(".dll") && std::ranges::any_of(c_MsvcRuntimePrefixes, [&l_Name](std::string_view prefix) { return l_Name.starts_with(prefix); }))
+            {
+                l_Runtime.push_back(it_Entry->path());
+            }
+        }
+
+        std::ranges::sort(l_Runtime);
+        for (const std::filesystem::path& it_Library : l_Runtime)
+        {
+            if (!CopyFile(it_Library, it_Library.filename(), "C++ runtime"))
+            {
+                return false;
+            }
+        }
+
+        if (l_Runtime.empty())
+        {
+            TR_WARN("Export: Trinity's Release build has no copy of Microsoft's C++ runtime in {}, so a Development player needs the Visual C++ Redistributable installed. Configure Trinity again with Visual Studio's C++ tools, which finds it", ToUtf8(l_Trinity));
+        }
+#endif
+    }
+
+    const std::filesystem::path l_Shaders = l_Trinity / "Engine" / "shaders";
+    std::vector<std::filesystem::path> l_Found;
     for (std::filesystem::directory_iterator it_Entry(l_Shaders, l_Error), it_End; !l_Error && it_Entry != it_End; it_Entry.increment(l_Error))
     {
         const std::string l_Name = ToUtf8(it_Entry->path().filename());
@@ -669,7 +723,7 @@ bool ExportCommand::CopyFiles()
 
     if (l_Found.empty())
     {
-        Fail(std::format("Trinity's Distribution build has no shaders for {} in {}", JoinAPIs(l_Export.GraphicsAPIs), ToUtf8(l_Shaders)));
+        Fail(std::format("Trinity's {} build has no shaders for {} in {}", m_Development ? "Release" : "Distribution", JoinAPIs(l_Export.GraphicsAPIs), ToUtf8(l_Shaders)));
 
         return false;
     }
@@ -686,10 +740,10 @@ bool ExportCommand::CopyFiles()
 #if defined(TR_PLATFORM_WINDOWS)
     if (std::ranges::find(l_Export.GraphicsAPIs, Trinity::GraphicsAPI::D3D12) != l_Export.GraphicsAPIs.end())
     {
-        const std::filesystem::path l_Agility = l_Distribution / "D3D12" / "D3D12Core.dll";
+        const std::filesystem::path l_Agility = l_Trinity / "D3D12" / "D3D12Core.dll";
         if (!std::filesystem::exists(l_Agility, l_Error))
         {
-            TR_WARN("Export: Trinity's Distribution build has no D3D12 Agility SDK runtime at {}, so the game draws with the D3D12 runtime Windows has. Scripts/Bootstrap.ps1 downloads it", ToUtf8(l_Agility));
+            TR_WARN("Export: Trinity's build has no D3D12 Agility SDK runtime at {}, so the game draws with the D3D12 runtime Windows has. Scripts/Bootstrap.ps1 downloads it", ToUtf8(l_Agility));
         }
         else if (!CopyFile(l_Agility, std::filesystem::path("D3D12") / "D3D12Core.dll", "D3D12 Agility SDK"))
         {
@@ -697,10 +751,10 @@ bool ExportCommand::CopyFiles()
         }
     }
 
-    const std::filesystem::path l_GameInput = l_Distribution / "Redist" / "GameInputRedist.msi";
+    const std::filesystem::path l_GameInput = l_Trinity / "Redist" / "GameInputRedist.msi";
     if (!std::filesystem::exists(l_GameInput, l_Error))
     {
-        TR_WARN("Export: Trinity's Distribution build has no GameInput redistributable at {}, so a player without GameInput installed has no gamepads. Scripts/Bootstrap.ps1 downloads it", ToUtf8(l_GameInput));
+        TR_WARN("Export: Trinity's build has no GameInput redistributable at {}, so a player without GameInput installed has no gamepads. Scripts/Bootstrap.ps1 downloads it", ToUtf8(l_GameInput));
     }
     else if (!CopyFile(l_GameInput, std::filesystem::path("Redist") / "GameInputRedist.msi", "GameInput redistributable"))
     {
@@ -857,7 +911,7 @@ void ExportCommand::Report(const PackSummary& pack) const
         l_Total += l_Bytes;
     }
 
-    TR_INFO("Export: {} exported to {} in {:.1f} s, {} file(s) in {}", m_Session.GetProject()->GetExportSettings().Product, ToUtf8(l_Output), GetSeconds(), m_Written.size(), Trinity::Memory::FormatBytes(l_Total));
+    TR_INFO("Export: {} exported to {} as {} in {:.1f} s, {} file(s) in {}", m_Session.GetProject()->GetExportSettings().Product, ToUtf8(l_Output), m_Development ? "a Development Build" : "players get it, in Distribution", GetSeconds(), m_Written.size(), Trinity::Memory::FormatBytes(l_Total));
     for (const auto& [it_Kind, it_Count] : l_Kinds)
     {
         TR_INFO("Export:   {}: {} in {} file(s)", it_Kind, Trinity::Memory::FormatBytes(it_Count.second), it_Count.first);

@@ -31,6 +31,11 @@ namespace Trinity
 
         [[nodiscard]] std::string Describe() const override;
 
+#if !defined(TR_DISTRIBUTION)
+        // Every file read whole and checked against its hash, as a whole read checks it but a ranged one does not, each that fails having said why as it does when read. How many failed. Not in Distribution, whose games never check every file
+        [[nodiscard]] std::size_t CheckFiles() const;
+#endif
+
     private:
         struct Entry
         {

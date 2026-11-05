@@ -10,6 +10,12 @@
 namespace
 {
     constexpr std::string_view c_PackFileName = "Game.trpak";
+    // A Development player reads every file of its pack as it mounts it, so a file changed since the export is named as the game starts, one only ever streamed too
+#if defined(TR_DISTRIBUTION)
+    constexpr bool c_CheckPackFiles = false;
+#else
+    constexpr bool c_CheckPackFiles = true;
+#endif
 
     std::filesystem::path FromUtf8(std::string_view text)
     {
@@ -26,7 +32,7 @@ namespace
     // The game's pack mounted at /cache, where every cooked asset is read, and the Game.trgame it holds
     Trinity::Expected<Trinity::GameSettings, std::string> OpenGame(const std::filesystem::path& pack)
     {
-        if (!Trinity::FileSystem::MountPack(Trinity::Project::c_CacheMount, pack))
+        if (!Trinity::FileSystem::MountPack(Trinity::Project::c_CacheMount, pack, c_CheckPackFiles))
         {
             return Trinity::Unexpected{ std::format("{} could not be opened as the game's pack", ToUtf8(pack)) };
         }

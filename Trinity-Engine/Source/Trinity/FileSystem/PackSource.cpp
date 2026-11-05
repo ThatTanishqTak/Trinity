@@ -385,4 +385,19 @@ namespace Trinity
     {
         return std::format("pack '{}' ({} file(s))", FileSystemUtilities::ToUtf8(m_NativePath), m_Entries.size());
     }
+
+#if !defined(TR_DISTRIBUTION)
+    std::size_t PackSource::CheckFiles() const
+    {
+        TR_PROFILE_FUNCTION();
+
+        std::size_t l_Failed = 0;
+        for (const Entry& it_Entry : m_Entries)
+        {
+            l_Failed += ReadWhole(it_Entry) ? 0 : 1;
+        }
+
+        return l_Failed;
+    }
+#endif
 }

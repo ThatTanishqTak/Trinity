@@ -22,7 +22,7 @@
 
 class EditorSession;
 
-// Exports the open project as a game a player runs with nothing installed, as its export settings say, from the Build panel or from Forge's --export=<folder>, which then closes Forge with exit code 0, or 1 when it failed. Once every import and Forge's own builds of the module and the scripts have ended, the player is made: a project with a C++ module has it linked into a Distribution player by CMake, against the package of Trinity's Distribution build, and one without takes that build's prebuilt Trinity-Runtime, which needs no compiler. Then its C# scripts are compiled ahead of time with NativeAOT, and BuildWalk gathers what the ticked scenes reach, cooking the scenes and prefabs, into Game.trpak with its Game.trgame, written on a job, each file's compressed bytes kept in the project's Build/Export cache by its content, so the next export compresses only what changed. The player goes in named for the product, a Windows one with its icon and version written in, with the scripts' library, the D3D12 Agility SDK runtime, the GameInput redistributable and the engine's shaders for the export's graphics APIs. Everything is written into a staging folder beside the output folder, which then replaces the output folder whole, so an export that fails or is cancelled leaves the last one as it was. Build And Run then starts the game, whose log the Console shows, and an export into the folder a game it started runs from closes that game first, as Windows will not replace the files of a program that runs
+// Exports the open project as a game a player runs with nothing installed, as its export settings say, from the Build panel or from Forge's --export=<folder>, which then closes Forge with exit code 0, or 1 when it failed. Once every import and Forge's own builds of the module and the scripts have ended, the player is made: a project with a C++ module has it linked into a Distribution player by CMake, against the package of Trinity's Distribution build, and one without takes that build's prebuilt Trinity-Runtime, which needs no compiler. A Development Build instead takes the prebuilt Release player, with its logs, asserts and profiler, beside the shared Release engine, and the module built for Release, which the player loads as Forge does. Then its C# scripts are compiled ahead of time with NativeAOT, and BuildWalk gathers what the ticked scenes reach, cooking the scenes and prefabs, into Game.trpak with its Game.trgame, written on a job, each file's compressed bytes kept in the project's Build/Export cache by its content, so the next export compresses only what changed. The player goes in named for the product, a Windows one with its icon and version written in, with the scripts' library, the D3D12 Agility SDK runtime, the GameInput redistributable and the engine's shaders for the export's graphics APIs. Everything is written into a staging folder beside the output folder, which then replaces the output folder whole, so an export that fails or is cancelled leaves the last one as it was. Build And Run then starts the game, whose log the Console shows, and an export into the folder a game it started runs from closes that game first, as Windows will not replace the files of a program that runs
 class ExportCommand
 {
 public:
@@ -65,8 +65,8 @@ public:
 
     // What stops the project's settings from making a game, each a sentence for the Build panel and the Console: a scene of the build that is missing or is not a scene, no scene ticked, no product or company, which its saves and log go under, an icon that is missing or is not a texture, no graphics API, or an output folder that is missing or would replace the project's own files. Empty when nothing does
     [[nodiscard]] static std::vector<std::string> CheckSettings(const Trinity::Project& project, const Trinity::AssetRegistry& registry);
-    // Trinity's Distribution build, beside Forge's own build in bin as Distribution-<platform>/Trinity, which holds the prebuilt player, the package a game's player is built against and the runtimes copied beside a game
-    [[nodiscard]] static std::filesystem::path GetDistributionDirectory();
+    // Trinity's build of a configuration, beside Forge's own build in bin as <configuration>-<platform>/Trinity. Distribution's holds the prebuilt player, the package a game's player is built against and the runtimes copied beside a game, and Release's the same for a Development Build, with the shared engine its player loads
+    [[nodiscard]] static std::filesystem::path GetTrinityDirectory(std::string_view configuration);
     // The product's name as the executable's, with .exe on Windows: without the characters Windows refuses in a file name, nor the dots and spaces it drops from the end, and never a device name such as CON. Game when nothing is left
     [[nodiscard]] static std::string GetExecutableName(std::string_view product);
 
@@ -108,11 +108,15 @@ private:
     std::optional<std::filesystem::path> m_Folder;
     std::filesystem::path m_Staging;
     bool m_CloseWhenDone = false;
+    // Read from the settings as the export begins
+    bool m_Development = false;
     bool m_RunWhenDone = false;
     Stage m_Stage = Stage::Waiting;
     std::chrono::steady_clock::time_point m_Started;
     ModuleBuild m_PlayerBuild;
     std::filesystem::path m_Player;
+    // A Development Build's module, built for Release, which its player loads from beside the pack
+    std::filesystem::path m_Module;
     AssemblyBuild m_Compiler;
     std::filesystem::path m_Compiled;
     std::unique_ptr<Packing> m_Packing;

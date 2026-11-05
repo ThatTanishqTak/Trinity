@@ -252,7 +252,7 @@ namespace Trinity
             return Mount(mountPoint, CreateScope<DirectorySource>(l_Root.lexically_normal()), access);
         }
 
-        bool MountPack(std::string_view mountPoint, const std::filesystem::path& nativePack)
+        bool MountPack(std::string_view mountPoint, const std::filesystem::path& nativePack, bool checkFiles)
         {
             Expected<Scope<PackSource>, std::string> l_Pack = PackSource::Load(nativePack);
             if (!l_Pack)
@@ -261,6 +261,15 @@ namespace Trinity
 
                 return false;
             }
+
+#if defined(TR_DISTRIBUTION)
+            static_cast<void>(checkFiles);
+#else
+            if (const std::size_t l_Failed = checkFiles ? (*l_Pack)->CheckFiles() : 0; l_Failed != 0)
+            {
+                TR_CORE_ERROR("{} file(s) of pack '{}' are not as it was written, and fail as they are read", l_Failed, FileSystemUtilities::ToUtf8(nativePack));
+            }
+#endif
 
             return Mount(mountPoint, std::move(*l_Pack));
         }
