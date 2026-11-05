@@ -61,6 +61,7 @@ private:
     void DrawStartScreen();
     void DrawNotice();
     void DrawExportPopup();
+    void BuildAndRun();
     void DrawStatusBar();
     void ReadStatusLine();
     void PauseOnError();

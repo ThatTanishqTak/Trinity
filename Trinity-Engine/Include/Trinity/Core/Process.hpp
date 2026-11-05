@@ -23,18 +23,19 @@ namespace Trinity
         using Environment = std::vector<std::pair<std::string, std::string>>;
     }
 
-    // How a program runs: the folder it starts in, this process's when empty, the environment it gets, this process's when there is none, a flag that ends it and everything it started once set, and what is handed each line it writes
+    // How a program runs: the folder it starts in, this process's when empty, the environment it gets, this process's when there is none, a flag that ends it and everything it started once set, one that instead stops reading it and leaves it running, as an editor closing leaves a game it started, and what is handed each line it writes
     struct ProcessOptions
     {
         std::filesystem::path WorkingDirectory;
         std::optional<Process::Environment> Environment;
         const std::atomic<bool>* Cancel = nullptr;
+        const std::atomic<bool>* Detach = nullptr;
         std::function<void(std::string_view line)> OnLine;
     };
 
     namespace Process
     {
-        // The program's exit code, or why it could not start. It is a program, not a script, so a batch file runs through cmd.exe. Its output and errors reach OnLine in the order written, a line at a time, in UTF-8 and without the line end. It ends when the program does, though a server it left running still holds its output
+        // The program's exit code, or why it could not start, or that it was left running once Detach was set. It is a program, not a script, so a batch file runs through cmd.exe. Its output and errors reach OnLine in the order written, a line at a time, in UTF-8 and without the line end. It ends when the program does, though a server it left running still holds its output
         [[nodiscard]] TRINITY_API Expected<int, std::string> Run(const std::filesystem::path& executable, std::span<const std::string> arguments, const ProcessOptions& options = {});
         // Starts the program and returns at once, neither waiting for it nor ending it as this process ends, with its output going nowhere. It is a program, as with Run, so a batch file runs through cmd.exe. Why it could not start, or nothing
         [[nodiscard]] TRINITY_API Expected<void, std::string> Start(const std::filesystem::path& executable, std::span<const std::string> arguments, const std::filesystem::path& workingDirectory = {});

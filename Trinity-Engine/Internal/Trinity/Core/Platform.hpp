@@ -72,6 +72,8 @@ namespace Trinity
             const EnvironmentVariables* Environment = nullptr;
             // Read now and then while it runs, and true ends it and every process it started
             const std::atomic<bool>* Cancel = nullptr;
+            // Read as Cancel is, and true stops reading its output and returns at once, leaving it running
+            const std::atomic<bool>* Detach = nullptr;
         };
 
         // A gamepad as one reading of the platform's input API left it: the buttons held, bit 1 << GamepadButton for each, and the axes by GamepadAxis, raw
@@ -116,7 +118,7 @@ namespace Trinity
         // This process's environment, names and values in UTF-8
         [[nodiscard]] EnvironmentVariables GetEnvironment();
 
-        // Runs the program to its end, blocking, and hands each line of its output and errors, in the order written, to onLine as UTF-8 without its line end. Its exit code, or none with the reason in error when it could not start. It counts as ended when the program itself ends, so a server it left running, such as MSVC's PDB server, cannot hold the call open
+        // Runs the program to its end, blocking, and hands each line of its output and errors, in the order written, to onLine as UTF-8 without its line end. Its exit code, or none with the reason in error when it could not start or was detached. It counts as ended when the program itself ends, so a server it left running, such as MSVC's PDB server, cannot hold the call open
         [[nodiscard]] std::optional<int> RunProcess(const ProcessRequest& request, const std::function<void(std::string_view line)>& onLine, std::string& error);
         // Starts the program to run on its own, neither waited for nor ended with this process, with its output going nowhere, such as an IDE opened at a file. Cancel is not read. False with the reason in error when it could not start
         [[nodiscard]] bool StartProcess(const ProcessRequest& request, std::string& error);

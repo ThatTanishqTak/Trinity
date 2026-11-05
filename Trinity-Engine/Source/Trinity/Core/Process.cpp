@@ -60,9 +60,15 @@ namespace Trinity
             l_Request.WorkingDirectory = options.WorkingDirectory;
             l_Request.Environment = options.Environment ? &*options.Environment : nullptr;
             l_Request.Cancel = options.Cancel;
+            l_Request.Detach = options.Detach;
 
             std::string l_Error;
             const std::optional<int> l_ExitCode = Platform::RunProcess(l_Request, options.OnLine, l_Error);
+            if (!l_ExitCode && options.Detach != nullptr && options.Detach->load(std::memory_order_relaxed))
+            {
+                return Unexpected{ std::format("{} was left running", ToUtf8(executable)) };
+            }
+
             if (!l_ExitCode)
             {
                 return Unexpected{ std::format("{} could not be run: {}", ToUtf8(executable), l_Error) };

@@ -8,11 +8,14 @@
 
 #include <string>
 
-// Unity's Build Profiles window, for the one platform a build is made for: the scenes in the build, dragged in from the Content Browser or added as the open scene, ticked to ship and dragged into their order, the first ticked one starting the game, and a scene the project no longer has shown as Missing. Then the player: its product, company and version, its icon, the window it first opens with and the graphics APIs it tries in order. Then Development Build, the output folder, and Build, which exports the game there or, when something stops it, says what. Each edit is a command in the history, so it undoes in one step, and is saved with the project as it is made. Text is one edit once its field is left
+// Unity's Build Profiles window, for the one platform a build is made for: the scenes in the build, dragged in from the Content Browser or added as the open scene, ticked to ship and dragged into their order, the first ticked one starting the game, and a scene the project no longer has shown as Missing. Then the player: its product, company and version, its icon, the window it first opens with and the graphics APIs it tries in order. Then Development Build, the output folder, and Build, which exports the game there or, when something stops it, says what, and Build And Run, which then starts it, with Stop Game while it runs. Each edit is a command in the history, so it undoes in one step, and is saved with the project as it is made. Text is one edit once its field is left
 class BuildPanel final : public Panel
 {
 public:
     BuildPanel(EditorSession& session, ExportCommand& exporter);
+
+    // What Build and Build And Run do, from the panel, the File menu or Ctrl+B: the settings checked, then the export started, or what stops it said in the panel and the Console. False when it is stopped, so the caller can bring the panel forward
+    bool Build(bool run);
 
 protected:
     void OnImGuiRender() override;

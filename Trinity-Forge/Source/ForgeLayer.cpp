@@ -403,6 +403,16 @@ void ForgeLayer::DrawExportPopup()
     ImGui::EndPopup();
 }
 
+// From the File menu or Ctrl+B, with the Build panel brought forward when the settings stop it, so what stops it shows
+void ForgeLayer::BuildAndRun()
+{
+    if (!m_BuildPanel->Build(true))
+    {
+        m_BuildPanel->SetOpen(true);
+        m_BuildPanel->RequestFocus();
+    }
+}
+
 // Unity's status bar along the main window's foot, before the dock space so the panels fit above it: the last line logged at Info or above in its level's colour, which brings the Console forward when clicked, and at the right end what runs in the background, with how far along it is
 void ForgeLayer::DrawStatusBar()
 {
@@ -641,6 +651,10 @@ void ForgeLayer::ReadShortcuts()
         m_BuildPanel->SetOpen(true);
         m_BuildPanel->RequestFocus();
     }
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_B) && m_Session.HasProject())
+    {
+        BuildAndRun();
+    }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
     {
         m_Session.Request(EditorSession::Command::SaveScene);
@@ -740,6 +754,11 @@ void ForgeLayer::DrawMenuBar()
         {
             m_BuildPanel->SetOpen(true);
             m_BuildPanel->RequestFocus();
+        }
+
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Play, "Build And Run").c_str(), "Ctrl+B", false, l_HasProject && !m_Export.IsRunning()))
+        {
+            BuildAndRun();
         }
 
         ImGui::Separator();

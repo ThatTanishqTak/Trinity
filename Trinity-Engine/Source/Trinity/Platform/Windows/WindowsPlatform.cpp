@@ -582,10 +582,21 @@ namespace Trinity
                 }
             };
 
-            // It counts as ended when the program does, with what it wrote before then read, since a server a compiler starts may hold the pipe for minutes
+            // It counts as ended when the program does, with what it wrote before then read, since a server a compiler starts may hold the pipe for minutes. Detached, it runs on unread, as its job does not end it as the job's handle closes
             bool l_Cancelled = false;
             while (true)
             {
+                if (!l_Cancelled && request.Detach != nullptr && request.Detach->load(std::memory_order_relaxed))
+                {
+                    l_Lines.Finish();
+                    CloseValidHandle(l_Process.hProcess);
+                    CloseValidHandle(l_Read);
+                    CloseValidHandle(l_Job);
+                    error = "it was left running";
+
+                    return std::nullopt;
+                }
+
                 if (!l_Cancelled && request.Cancel != nullptr && request.Cancel->load(std::memory_order_relaxed))
                 {
                     if (l_Job != nullptr)

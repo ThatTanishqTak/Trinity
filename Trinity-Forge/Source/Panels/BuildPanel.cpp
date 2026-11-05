@@ -567,7 +567,32 @@ void BuildPanel::DrawGraphicsAPIs(const Trinity::ExportSettings& settings)
     }
 }
 
-// Development Build, where the game is exported and Build, which exports it, or, when the settings stop it, says why in the panel and in the Console until nothing does
+bool BuildPanel::Build(bool run)
+{
+    if (!m_Session.HasProject() || m_Export.IsRunning())
+    {
+        return m_Session.HasProject();
+    }
+
+    const Trinity::Project& l_Project = *m_Session.GetProject();
+    const std::vector<std::string> l_Problems = ExportCommand::CheckSettings(l_Project, *m_Session.GetRegistry());
+    m_Refused = !l_Problems.empty();
+    for (const std::string& it_Problem : l_Problems)
+    {
+        TR_ERROR("Build: {}, so nothing is built", it_Problem);
+    }
+
+    if (m_Refused)
+    {
+        return false;
+    }
+
+    m_Export.Start(l_Project.GetExportDirectory(), false, run);
+
+    return true;
+}
+
+// Development Build, where the game is exported, Build, which exports it, and Build And Run, which then starts it, or, when the settings stop them, says why in the panel and in the Console until nothing does. While the game Build And Run started runs, Stop Game ends it
 void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
 {
     ImGui::SeparatorText("Build");
@@ -600,25 +625,38 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
 
     ImGui::Spacing();
     const bool l_Running = m_Export.IsRunning();
+    const float l_Height = ImGui::GetFrameHeight() * 1.5f;
     ImGui::BeginDisabled(l_Running);
     const std::string l_Label = l_Running ? std::format("{} Building...###Build", Trinity::Icons::c_Spinner) : std::format("{} Build###Build", Trinity::Icons::c_PackageVariantClosed);
-    if (ImGui::Button(l_Label.c_str(), ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 1.5f)))
+    if (ImGui::Button(l_Label.c_str(), ImVec2((ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f, l_Height)))
     {
-        const std::vector<std::string> l_Problems = ExportCommand::CheckSettings(l_Project, *m_Session.GetRegistry());
-        m_Refused = !l_Problems.empty();
-        for (const std::string& it_Problem : l_Problems)
-        {
-            TR_ERROR("Build: {}, so nothing is built", it_Problem);
-        }
+        static_cast<void>(Build(false));
+    }
 
-        if (!m_Refused)
-        {
-            m_Export.Start(l_Project.GetExportDirectory());
-        }
+    Tooltip(l_Running ? "Building once the project has imported and its scripts have built. The Console tells how it goes" : "Exports the game into the output folder, which it replaces whole: the player named for the product, its pack of what the ticked scenes reach, its compiled C# scripts and the runtimes it needs");
+    ImGui::SameLine();
+    if (ImGui::Button(std::format("{} Build And Run###BuildAndRun", Trinity::Icons::c_Play).c_str(), ImVec2(-FLT_MIN, l_Height)))
+    {
+        static_cast<void>(Build(true));
     }
 
     ImGui::EndDisabled();
-    Tooltip(l_Running ? "Building once the project has imported and its scripts have built. The Console tells how it goes" : "Exports the game into the output folder, which it replaces whole: the player named for the product, its pack of what the ticked scenes reach, its compiled C# scripts and the runtimes it needs");
+    Tooltip("Exports the game as Build does, then starts it, its log shown in the Console as Game: lines. Ctrl+B");
+
+    const GameRunner& l_Game = m_Export.GetGame();
+    if (l_Game.IsRunning())
+    {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(std::format("{} {} is running", Trinity::Icons::c_Play, l_Game.GetProduct()).c_str());
+        ImGui::SameLine();
+        if (ImGui::Button(std::format("{} Stop Game###StopGame", Trinity::Icons::c_Stop).c_str()))
+        {
+            m_Export.StopGame();
+        }
+
+        Tooltip("Ends the game Build And Run started, as closing its window does. Closing Forge leaves it running");
+    }
+
     if (m_Session.IsDirty())
     {
         ImGui::TextDisabled("The open scene's unsaved changes are not built until it is saved");

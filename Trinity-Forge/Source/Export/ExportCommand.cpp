@@ -137,7 +137,7 @@ ExportCommand::~ExportCommand()
     Stop();
 }
 
-void ExportCommand::Start(const std::filesystem::path& folder, bool closeWhenDone)
+void ExportCommand::Start(const std::filesystem::path& folder, bool closeWhenDone, bool run)
 {
     if (m_Folder)
     {
@@ -148,6 +148,7 @@ void ExportCommand::Start(const std::filesystem::path& folder, bool closeWhenDon
     const std::filesystem::path l_Folder = WithoutTrailingSeparator(std::filesystem::absolute(folder, l_Error).lexically_normal());
     m_Folder = l_Folder;
     m_CloseWhenDone = closeWhenDone;
+    m_RunWhenDone = run;
     m_Stage = Stage::Waiting;
     m_Started = std::chrono::steady_clock::now();
     m_Player.clear();
@@ -341,6 +342,7 @@ std::optional<float> ExportCommand::GetProgress() const
 // A project that did not open, a module or scripts that did not build, and settings that cannot make a game end it with the reason, as a failed stage does. Its own builds start once Forge's have ended, so the two never run at once
 void ExportCommand::Update()
 {
+    m_Game.Update();
     if (!m_Folder)
     {
         return;
@@ -485,6 +487,12 @@ void ExportCommand::Update()
             }
 
             Report(*l_Packed);
+            if (m_RunWhenDone)
+            {
+                const std::string& l_Product = m_Session.GetProject()->GetExportSettings().Product;
+                m_Game.Start(*m_Folder / FromUtf8(GetExecutableName(l_Product)), l_Product);
+            }
+
             Finish(true);
 
             return;
@@ -586,7 +594,7 @@ void ExportCommand::StartPacking()
     const auto a_Count = [this](std::string_view packPath, std::uint64_t size)
     {
         const std::size_t l_Slash = packPath.find('/');
-        std::pair<std::size_t, std::uint64_t>& l_Kind = m_PackKinds[l_Slash == std::string_view::npos ? std::string("Game") : std::string(packPath.substr(0, l_Slash))];
+        std::pair<std::size_t, std::uint64_t>& l_Kind = m_PackKinds[l_Slash == std::string_view::npos ? std::string("Top level") : std::string(packPath.substr(0, l_Slash))];
         ++l_Kind.first;
         l_Kind.second += size;
     };
@@ -779,10 +787,16 @@ bool ExportCommand::CopyFile(const std::filesystem::path& from, const std::files
     return true;
 }
 
-// The output folder is moved aside, the staging folder takes its place, and only then is the old one removed, so a rename that fails, as Windows refuses one while the game runs from the folder, puts the old one back
+// A game Build And Run started from the folder is closed first. The output folder is moved aside, the staging folder takes its place, and only then is the old one removed, so a rename that fails, as Windows refuses one while a game started some other way runs from the folder, puts the old one back
 bool ExportCommand::ReplaceOutput()
 {
     const std::filesystem::path& l_Output = *m_Folder;
+    if (m_Game.IsRunning() && m_Game.GetFolder().lexically_normal() == l_Output.lexically_normal())
+    {
+        TR_INFO("Export: {} is closed, as it runs from {}, which the export replaces", m_Game.GetProduct(), ToUtf8(l_Output));
+        m_Game.Stop();
+    }
+
     const std::filesystem::path l_Previous = Beside(l_Output, ".previous");
     std::error_code l_Error;
     std::filesystem::remove_all(l_Previous, l_Error);

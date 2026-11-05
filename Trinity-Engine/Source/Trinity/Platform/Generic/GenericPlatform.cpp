@@ -238,9 +238,10 @@ namespace Trinity
             }
         }
 
+        // A program whose output was a pipe that has closed, such as a game Forge started and then closed, goes on with its writes failing rather than ending at its next line
         void Initialize()
         {
-
+            ::signal(SIGPIPE, SIG_IGN);
         }
 
         void Shutdown()
@@ -492,6 +493,16 @@ namespace Trinity
             bool l_Cancelled = false;
             while (true)
             {
+                // Detached, it runs on unread in its own process group, and is reaped by whoever outlives this process
+                if (!l_Cancelled && request.Detach != nullptr && request.Detach->load(std::memory_order_relaxed))
+                {
+                    ::close(l_Pipe[0]);
+                    l_Lines.Finish();
+                    error = "it was left running";
+
+                    return std::nullopt;
+                }
+
                 if (!l_Cancelled && request.Cancel != nullptr && request.Cancel->load(std::memory_order_relaxed))
                 {
                     ::kill(-l_Child, SIGTERM);
