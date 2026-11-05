@@ -464,8 +464,9 @@ namespace Trinity
         return *s_Instance;
     }
 
-    void Application::Close()
+    void Application::Close(int exitCode)
     {
+        m_ExitCode = exitCode;
         m_Running = false;
     }
 
@@ -671,9 +672,11 @@ namespace Trinity
 
         Scope<Application> l_Application{ createApplication({ argc, argv }) };
         TR_CORE_ASSERT(l_Application != nullptr, "CreateApplication returned null.");
+        int l_ExitCode = 0;
         if (l_Application)
         {
             l_Application->Run();
+            l_ExitCode = l_Application->m_ExitCode;
         }
 
         l_Application.reset();
@@ -697,6 +700,6 @@ namespace Trinity
         Log::Shutdown();
         Platform::Shutdown();
 
-        return 0;
+        return l_ExitCode;
     }
 }

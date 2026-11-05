@@ -255,7 +255,7 @@ namespace
 #endif
         const std::string l_Generator = l_Ninja.empty() ? "Unix Makefiles" : "Ninja";
 
-        const std::filesystem::path l_Engine = Trinity::Process::GetExecutableDirectory();
+        const std::filesystem::path& l_Engine = request.EngineDirectory;
         std::error_code l_Error;
         if (!std::filesystem::exists(l_Engine / "TrinityConfig.cmake", l_Error))
         {
@@ -283,8 +283,8 @@ namespace
 
         if (NeedsConfigure(request.BuildDirectory, l_Engine, l_Generator))
         {
-            TR_INFO("Build: configuring {} for {} with {} {}.{}", request.Name, ModuleBuild::GetConfiguration(), ToUtf8(l_CMake), (*l_Version)[0], (*l_Version)[1]);
-            std::vector<std::string> l_Arguments{ "-S", ToUtf8(request.SourceDirectory), "-B", ToUtf8(request.BuildDirectory), "-G", l_Generator, std::format("-DCMAKE_BUILD_TYPE={}", ModuleBuild::GetConfiguration()), std::format("-DTrinity_DIR:PATH={}", ToGenericUtf8(l_Engine)), std::format("-DCMAKE_TOOLCHAIN_FILE={}", ToGenericUtf8(l_Engine / "TrinityToolchain.cmake")), "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" };
+            TR_INFO("Build: configuring {} for {} with {} {}.{}", request.Name, request.Configuration, ToUtf8(l_CMake), (*l_Version)[0], (*l_Version)[1]);
+            std::vector<std::string> l_Arguments{ "-S", ToUtf8(request.SourceDirectory), "-B", ToUtf8(request.BuildDirectory), "-G", l_Generator, std::format("-DCMAKE_BUILD_TYPE={}", request.Configuration), std::format("-DTrinity_DIR:PATH={}", ToGenericUtf8(l_Engine)), std::format("-DCMAKE_TOOLCHAIN_FILE={}", ToGenericUtf8(l_Engine / "TrinityToolchain.cmake")), "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" };
             if (!l_Ninja.empty())
             {
                 l_Arguments.push_back(std::format("-DCMAKE_MAKE_PROGRAM={}", ToGenericUtf8(l_Ninja)));
@@ -303,7 +303,7 @@ namespace
             l_Arguments.insert(l_Arguments.end(), { "--", "-k", "0" });
         }
 
-        TR_INFO("Build: building {} for {}", request.Name, ModuleBuild::GetConfiguration());
+        TR_INFO("Build: building {} for {}", request.Name, request.Configuration);
 
         return a_Run(l_Arguments);
     }
@@ -372,6 +372,11 @@ bool ModuleBuild::IsSupported()
 #endif
 }
 
+std::filesystem::path ModuleBuild::GetEngineDirectory()
+{
+    return Trinity::Process::GetExecutableDirectory();
+}
+
 std::filesystem::path ModuleBuild::GetBuildDirectory(const std::filesystem::path& projectBuildDirectory)
 {
     return projectBuildDirectory / FromUtf8(GetConfiguration());
@@ -401,8 +406,8 @@ void ModuleBuild::Run(Running& running)
     const bool l_Built = BuildModule(l_Request, running.Cancel, l_Output);
     Result& l_Result = running.Outcome;
     l_Result.Cancelled = running.Cancel.load(std::memory_order_relaxed);
-    l_Result.Library = GetLibraryPath(l_Request.BuildDirectory, l_Request.Name);
-    l_Result.Succeeded = l_Built && !l_Result.Cancelled && std::filesystem::exists(l_Result.Library, l_Error);
+    l_Result.Output = l_Request.Output;
+    l_Result.Succeeded = l_Built && !l_Result.Cancelled && std::filesystem::exists(l_Result.Output, l_Error);
     l_Result.Errors = l_Output.GetErrors();
     l_Result.Warnings = l_Output.GetWarnings();
     l_Result.Seconds = std::chrono::duration<double>(Clock::now() - l_Start).count();

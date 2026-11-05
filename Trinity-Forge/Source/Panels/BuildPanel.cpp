@@ -136,7 +136,7 @@ namespace
     }
 }
 
-BuildPanel::BuildPanel(EditorSession& session, PackCommand& pack) : Panel("Build", Trinity::Icons::c_PackageVariantClosed, DockSlot::Right), m_Session(session), m_Pack(pack)
+BuildPanel::BuildPanel(EditorSession& session, ExportCommand& exporter) : Panel("Build", Trinity::Icons::c_PackageVariantClosed, DockSlot::Right), m_Session(session), m_Export(exporter)
 {
 
 }
@@ -567,7 +567,7 @@ void BuildPanel::DrawGraphicsAPIs(const Trinity::ExportSettings& settings)
     }
 }
 
-// Development Build, where the game is written and Build, which writes it, or, when the settings stop it, says why in the panel and in the Console until nothing does
+// Development Build, where the game is exported and Build, which exports it, or, when the settings stop it, says why in the panel and in the Console until nothing does
 void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
 {
     ImGui::SeparatorText("Build");
@@ -590,7 +590,7 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
 
     const Trinity::Project& l_Project = *m_Session.GetProject();
     const std::u8string l_Directory = l_Project.GetExportDirectory().u8string();
-    const std::string l_Where = std::format("Where the game is written, from the project's folder unless it is a whole path: {}", std::string_view(reinterpret_cast<const char*>(l_Directory.data()), l_Directory.size()));
+    const std::string l_Where = std::format("Where the game is exported, from the project's folder unless it is a whole path. Each export replaces this folder whole, whatever it holds: {}", std::string_view(reinterpret_cast<const char*>(l_Directory.data()), l_Directory.size()));
     Tooltip(l_Where.c_str());
     ImGui::SameLine();
     if (ImGui::Button(l_Browse.c_str()))
@@ -599,12 +599,12 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
     }
 
     ImGui::Spacing();
-    const bool l_Running = m_Pack.IsRunning();
+    const bool l_Running = m_Export.IsRunning();
     ImGui::BeginDisabled(l_Running);
     const std::string l_Label = l_Running ? std::format("{} Building...###Build", Trinity::Icons::c_Spinner) : std::format("{} Build###Build", Trinity::Icons::c_PackageVariantClosed);
     if (ImGui::Button(l_Label.c_str(), ImVec2(-FLT_MIN, ImGui::GetFrameHeight() * 1.5f)))
     {
-        const std::vector<std::string> l_Problems = PackCommand::CheckSettings(l_Project, *m_Session.GetRegistry());
+        const std::vector<std::string> l_Problems = ExportCommand::CheckSettings(l_Project, *m_Session.GetRegistry());
         m_Refused = !l_Problems.empty();
         for (const std::string& it_Problem : l_Problems)
         {
@@ -613,12 +613,12 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
 
         if (!m_Refused)
         {
-            m_Pack.Start(l_Project.GetExportDirectory(), false);
+            m_Export.Start(l_Project.GetExportDirectory());
         }
     }
 
     ImGui::EndDisabled();
-    Tooltip(l_Running ? "Building once the project has imported and its scripts have built. The Console tells how it goes" : "Writes the game into the output folder: its pack of what the ticked scenes reach, its settings and its compiled C# scripts");
+    Tooltip(l_Running ? "Building once the project has imported and its scripts have built. The Console tells how it goes" : "Exports the game into the output folder, which it replaces whole: the player named for the product, its pack of what the ticked scenes reach, its compiled C# scripts and the runtimes it needs");
     if (m_Session.IsDirty())
     {
         ImGui::TextDisabled("The open scene's unsaved changes are not built until it is saved");
@@ -629,7 +629,7 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
         return;
     }
 
-    const std::vector<std::string> l_Problems = PackCommand::CheckSettings(l_Project, *m_Session.GetRegistry());
+    const std::vector<std::string> l_Problems = ExportCommand::CheckSettings(l_Project, *m_Session.GetRegistry());
     m_Refused = !l_Problems.empty();
     ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
     for (const std::string& it_Problem : l_Problems)

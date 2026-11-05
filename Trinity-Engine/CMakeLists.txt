@@ -193,6 +193,8 @@ endif()
 # Compiled shaders go to bin/<configuration>/Trinity/Engine/shaders, which the engine mounts read-only as /engine
 file(GLOB TRINITY_ENGINE_SHADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/*.slang")
 trinity_add_shaders(Trinity-Shaders ${TRINITY_ENGINE_SHADERS})
+# The RHI's tests, which only the Sandbox draws with, or nothing does, so Forge's export leaves them out of a game
+set_property(GLOBAL PROPERTY TRINITY_TEST_SHADERS ComputeTest LayeredTest QuadField RasterTest TexturedQuad Triangle)
 add_dependencies(Trinity-Engine Trinity-Shaders)
 add_dependencies(Trinity-Engine-Static Trinity-Shaders)
 
@@ -206,6 +208,10 @@ add_dependencies(Trinity-Engine-Static Trinity-Fonts)
 trinity_add_agility_sdk(Trinity-AgilitySDK)
 add_dependencies(Trinity-Engine Trinity-AgilitySDK)
 add_dependencies(Trinity-Engine-Static Trinity-AgilitySDK)
+
+# The GameInput redistributable goes to bin/Distribution/Trinity/Redist, from where an export copies it beside a game
+trinity_add_gameinput_redist(Trinity-GameInputRedist)
+add_dependencies(Trinity-Engine-Static Trinity-GameInputRedist)
 
 # nethost.dll beside every executable on Windows, which the engine finds the installed .NET runtime through
 trinity_add_dotnet_host_runtime(Trinity-NetHost)

@@ -88,7 +88,8 @@ namespace Trinity
             return static_cast<T&>(m_LayerStack.PushOverlay(CreateScope<T>(std::forward<Args>(args)...)));
         }
 
-        void Close();
+        // The exit code is what the process ends with, as a command-line run that failed ends with 1
+        void Close(int exitCode = 0);
         void RequestClose();
         // How a game ends, as a script's Application.Quit asks: the application closes once the frame ends, unless a handler is set, as Forge sets one to stop playing instead. Main thread only
         static void Quit();
@@ -132,6 +133,7 @@ namespace Trinity
         std::function<void()> m_QuitHandler;
         std::uint64_t m_FrameCount = 0;
         std::chrono::steady_clock::time_point m_LastFrameTime;
+        int m_ExitCode = 0;
         bool m_Running = true;
         bool m_Minimized = false;
 

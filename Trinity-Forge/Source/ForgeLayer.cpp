@@ -36,6 +36,8 @@ namespace
     // The status bar's progress bar, and how wide its tooltips wrap
     constexpr float c_StatusProgressWidthInFonts = 8.0f;
     constexpr float c_StatusTooltipWidthInFonts = 40.0f;
+    constexpr const char* c_ExportPopup = "Exporting###ExportProgress";
+    constexpr float c_ExportProgressWidthInFonts = 26.0f;
     constexpr std::array<ImGuiCol, 7> c_TintedColors{ ImGuiCol_WindowBg, ImGuiCol_PopupBg, ImGuiCol_MenuBarBg, ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg };
 
     std::string WithIcon(const char* icon, std::string_view text)
@@ -119,9 +121,9 @@ void ForgeLayer::OnAttach()
     else
     {
         m_Session.Start(l_Args);
-        if (const auto it_Folder = l_Args.GetOption("pack"); it_Folder && !it_Folder->empty())
+        if (const auto it_Folder = l_Args.GetOption("export"); it_Folder && !it_Folder->empty())
         {
-            m_PackCommand.Start(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(it_Folder->data()), it_Folder->size())));
+            m_Export.Start(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(it_Folder->data()), it_Folder->size())), true);
         }
     }
 
@@ -145,11 +147,11 @@ void ForgeLayer::OnAttach()
     m_PropertiesPanel = l_Properties.get();
     m_Panels.push_back(std::move(l_Properties));
 
-    // Docked as a tab behind Properties, as is the Build panel, which builds through the same command as --pack
+    // Docked as a tab behind Properties, as is the Build panel, which exports through the same command as --export
     Trinity::Scope<ProjectSettingsPanel> l_ProjectSettings = Trinity::CreateScope<ProjectSettingsPanel>(m_Session);
     m_ProjectSettings = l_ProjectSettings.get();
     m_Panels.push_back(std::move(l_ProjectSettings));
-    Trinity::Scope<BuildPanel> l_Build = Trinity::CreateScope<BuildPanel>(m_Session, m_PackCommand);
+    Trinity::Scope<BuildPanel> l_Build = Trinity::CreateScope<BuildPanel>(m_Session, m_Export);
     m_BuildPanel = l_Build.get();
     m_Panels.push_back(std::move(l_Build));
     // A build's error opens where it is, in the script editor, on a double-click
@@ -243,7 +245,7 @@ void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
 {
     m_Session.Update();
     m_ImportTest.Update();
-    m_PackCommand.Update();
+    m_Export.Update();
     m_Session.UpdatePlay(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
     m_GamePanel->ShowUI();
@@ -352,9 +354,53 @@ void ForgeLayer::OnImGuiRender()
     }
 
     m_Session.DrawPopups();
+    DrawExportPopup();
     m_Session.UpdateTitle();
     DrawNotice();
     ImGui::PopStyleColor(std::exchange(m_TintedColors, 0));
+}
+
+// Over everything while an export runs, as Unity's build progress is, so nothing it reads is edited under it: what it is doing, how far along where that can be told, how long it has taken, and Cancel or Escape, which leave the output folder as the last export left it. It waits for any other popup to close, since opening it would close that one, and comes back once a popup that took its place has closed
+void ForgeLayer::DrawExportPopup()
+{
+    const bool l_Running = m_Export.IsRunning();
+    if (!l_Running || (m_ExportPopupOpen && !ImGui::IsPopupOpen(c_ExportPopup)))
+    {
+        m_ExportPopupOpen = false;
+    }
+
+    if (l_Running && !m_ExportPopupOpen && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    {
+        ImGui::OpenPopup(c_ExportPopup);
+        m_ExportPopupOpen = true;
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_ExportPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    if (!l_Running)
+    {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    ImGui::TextUnformatted(m_Export.GetStatus().c_str());
+    const std::optional<float> l_Progress = m_Export.GetProgress();
+    const std::string l_Percent = l_Progress ? std::format("{:.0f}%", *l_Progress * 100.0f) : std::string();
+    ImGui::ProgressBar(l_Progress ? *l_Progress : -static_cast<float>(ImGui::GetTime()), ImVec2(ImGui::GetFontSize() * c_ExportProgressWidthInFonts, 0.0f), l_Percent.c_str());
+    ImGui::TextDisabled("%.0f s elapsed. The Console tells how it goes", m_Export.GetSeconds());
+    ImGui::Spacing();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    {
+        m_Export.Cancel();
+    }
+
+    ImGui::EndPopup();
 }
 
 // Unity's status bar along the main window's foot, before the dock space so the panels fit above it: the last line logged at Info or above in its level's colour, which brings the Console forward when clicked, and at the right end what runs in the background, with how far along it is

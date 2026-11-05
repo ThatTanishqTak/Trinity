@@ -1,18 +1,18 @@
 #pragma once
 
 #include "EditorSession.hpp"
-#include "Export/PackCommand.hpp"
+#include "Export/ExportCommand.hpp"
 #include "Panels/Panel.hpp"
 
 #include <Trinity.hpp>
 
 #include <string>
 
-// Unity's Build Profiles window, for the one platform a build is made for: the scenes in the build, dragged in from the Content Browser or added as the open scene, ticked to ship and dragged into their order, the first ticked one starting the game, and a scene the project no longer has shown as Missing. Then the player: its product, company and version, its icon, the window it first opens with and the graphics APIs it tries in order. Then Development Build, the output folder, and Build, which writes the game there or, when something stops it, says what. Each edit is a command in the history, so it undoes in one step, and is saved with the project as it is made. Text is one edit once its field is left
+// Unity's Build Profiles window, for the one platform a build is made for: the scenes in the build, dragged in from the Content Browser or added as the open scene, ticked to ship and dragged into their order, the first ticked one starting the game, and a scene the project no longer has shown as Missing. Then the player: its product, company and version, its icon, the window it first opens with and the graphics APIs it tries in order. Then Development Build, the output folder, and Build, which exports the game there or, when something stops it, says what. Each edit is a command in the history, so it undoes in one step, and is saved with the project as it is made. Text is one edit once its field is left
 class BuildPanel final : public Panel
 {
 public:
-    BuildPanel(EditorSession& session, PackCommand& pack);
+    BuildPanel(EditorSession& session, ExportCommand& exporter);
 
 protected:
     void OnImGuiRender() override;
@@ -39,7 +39,7 @@ private:
     [[nodiscard]] static bool TextField(const char* id, TextBuffer& buffer, const std::string& value);
 
     EditorSession& m_Session;
-    PackCommand& m_Pack;
+    ExportCommand& m_Export;
     TextBuffer m_Product;
     TextBuffer m_Company;
     TextBuffer m_Version;

@@ -20,6 +20,15 @@ file(GLOB TRINITY_FORGE_SHADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/S
 trinity_add_shaders(Trinity-Forge-Shaders ${TRINITY_FORGE_SHADERS})
 add_dependencies(${TARGET_NAME} Trinity-Forge-Shaders)
 
+# The export leaves out of a game the shaders no game draws with, knowing them by their names: these, and the RHI's tests, which the engine's CMakeLists names
+get_property(TRINITY_UNSHIPPED_SHADERS GLOBAL PROPERTY TRINITY_TEST_SHADERS)
+foreach(shader IN LISTS TRINITY_FORGE_SHADERS)
+    cmake_path(GET shader STEM name)
+    list(APPEND TRINITY_UNSHIPPED_SHADERS "${name}")
+endforeach()
+list(JOIN TRINITY_UNSHIPPED_SHADERS "," TRINITY_UNSHIPPED_SHADERS)
+target_compile_definitions(${TARGET_NAME} PRIVATE TR_UNSHIPPED_SHADERS="${TRINITY_UNSHIPPED_SHADERS}")
+
 trinity_configure_executable(${TARGET_NAME})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_FORGE_HEADERS} ${TRINITY_FORGE_SOURCES})
 

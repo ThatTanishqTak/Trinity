@@ -9,6 +9,7 @@
 #include <ios>
 #include <limits>
 #include <memory>
+#include <set>
 #include <system_error>
 #include <utility>
 
@@ -21,6 +22,14 @@ namespace
         void operator()(ZSTD_CCtx* context) const
         {
             ZSTD_freeCCtx(context);
+        }
+    };
+
+    struct DecompressionContextDeleter
+    {
+        void operator()(ZSTD_DCtx* context) const
+        {
+            ZSTD_freeDCtx(context);
         }
     };
 
@@ -59,6 +68,69 @@ namespace
     void WriteBytes(std::ofstream& stream, std::span<const std::byte> bytes)
     {
         stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+
+    // The cache's folder for this zstd at this level, since another version or level compresses into other bytes
+    std::filesystem::path GetCacheFolder(const std::filesystem::path & cacheDirectory)
+    {
+        return cacheDirectory / std::format("zstd-{}-{}", ZSTD_versionString(), PackBuilder::c_CompressionLevel);
+    }
+
+    // A file's entry, by its content's hash and size: its compressed bytes, or an empty file saying it is stored as it is, since compressing it saves too little
+    std::filesystem::path GetCachePath(const std::filesystem::path & folder, std::uint64_t hash, std::uint64_t size, bool stored)
+    {
+        return folder / std::format("{:016x}-{:x}.{}", hash, size, stored ? "stored" : "zst");
+    }
+
+    // Written beside its place and renamed into it, so an entry is whole or missing. One that cannot be written is left out, and the file is compressed again next time
+    void WriteCacheEntry(const std::filesystem::path & path, std::span<const std::byte> bytes)
+    {
+        std::filesystem::path l_Temporary = path;
+        l_Temporary += std::format(".{}.tmp", Trinity::UUID::Generate());
+        std::error_code l_Error;
+        {
+            std::ofstream l_Stream(l_Temporary, std::ios::binary | std::ios::trunc);
+            WriteBytes(l_Stream, bytes);
+            l_Stream.flush();
+            if (!l_Stream)
+            {
+                l_Stream.close();
+                std::filesystem::remove(l_Temporary, l_Error);
+
+                return;
+            }
+        }
+
+        std::filesystem::rename(l_Temporary, path, l_Error);
+        if (l_Error)
+        {
+            std::filesystem::remove(l_Temporary, l_Error);
+        }
+    }
+
+    // Every entry this write did not use goes, with the folders of other zstd versions and levels
+    void PruneCache(const std::filesystem::path & cacheDirectory, const std::vector<std::filesystem::path>&used)
+    {
+        const std::filesystem::path l_Folder = GetCacheFolder(cacheDirectory);
+        const std::set<std::filesystem::path> l_Used(used.begin(), used.end());
+        std::error_code l_Error;
+        for (std::filesystem::directory_iterator it_Entry(cacheDirectory, l_Error), it_End; !l_Error && it_Entry != it_End; it_Entry.increment(l_Error))
+        {
+            std::error_code l_Ignored;
+            if (it_Entry->path() != l_Folder)
+            {
+                std::filesystem::remove_all(it_Entry->path(), l_Ignored);
+            }
+        }
+
+        for (std::filesystem::directory_iterator it_Entry(l_Folder, l_Error), it_End; !l_Error && it_Entry != it_End; it_Entry.increment(l_Error))
+        {
+            std::error_code l_Ignored;
+            if (!l_Used.contains(it_Entry->path()))
+            {
+                std::filesystem::remove_all(it_Entry->path(), l_Ignored);
+            }
+        }
     }
 }
 
@@ -120,7 +192,7 @@ bool PackBuilder::AddData(std::string_view packPath, std::span<const std::byte> 
     return true;
 }
 
-Trinity::Expected<PackSummary, std::string> PackBuilder::Write(const std::filesystem::path& output) const
+Trinity::Expected<PackSummary, std::string> PackBuilder::Write(const std::filesystem::path& output, const PackWriteOptions& options) const
 {
     TR_PROFILE_FUNCTION();
 
@@ -137,12 +209,18 @@ Trinity::Expected<PackSummary, std::string> PackBuilder::Write(const std::filesy
     std::filesystem::path l_Temporary = output;
     l_Temporary += std::format(".{}.tmp", Trinity::UUID::Generate());
 
-    Trinity::Expected<PackSummary, std::string> l_Summary = WriteTo(l_Temporary);
+    std::vector<std::filesystem::path> l_CacheFiles;
+    Trinity::Expected<PackSummary, std::string> l_Summary = WriteTo(l_Temporary, options, l_CacheFiles);
     if (l_Summary)
     {
         std::filesystem::rename(l_Temporary, output, l_Error);
         if (!l_Error)
         {
+            if (!options.CacheDirectory.empty())
+            {
+                PruneCache(options.CacheDirectory, l_CacheFiles);
+            }
+
             return l_Summary;
         }
 
@@ -155,7 +233,7 @@ Trinity::Expected<PackSummary, std::string> PackBuilder::Write(const std::filesy
     return l_Summary;
 }
 
-Trinity::Expected<PackSummary, std::string> PackBuilder::WriteTo(const std::filesystem::path& path) const
+Trinity::Expected<PackSummary, std::string> PackBuilder::WriteTo(const std::filesystem::path& path, const PackWriteOptions& options, std::vector<std::filesystem::path>& cacheFiles) const
 {
     if (m_Files.size() > std::numeric_limits<std::uint32_t>::max())
     {
@@ -169,9 +247,23 @@ Trinity::Expected<PackSummary, std::string> PackBuilder::WriteTo(const std::file
     }
 
     const std::unique_ptr<ZSTD_CCtx, CompressionContextDeleter> l_Context(ZSTD_createCCtx());
-    if (l_Context == nullptr)
+    const std::unique_ptr<ZSTD_DCtx, DecompressionContextDeleter> l_Checker(ZSTD_createDCtx());
+    if (l_Context == nullptr || l_Checker == nullptr)
     {
         return Trinity::Unexpected{ std::string("zstd could not start") };
+    }
+
+    // A cache that cannot be made is not used
+    std::filesystem::path l_CacheFolder;
+    if (!options.CacheDirectory.empty())
+    {
+        std::error_code l_Error;
+        l_CacheFolder = GetCacheFolder(options.CacheDirectory);
+        std::filesystem::create_directories(l_CacheFolder, l_Error);
+        if (l_Error)
+        {
+            l_CacheFolder.clear();
+        }
     }
 
     // The header goes in last, once the table's place and hash are known
@@ -185,9 +277,15 @@ Trinity::Expected<PackSummary, std::string> PackBuilder::WriteTo(const std::file
     PackSummary l_Summary;
     Bytes l_Read;
     Bytes l_Compressed;
+    Bytes l_Checked;
 
     for (const auto& [it_Path, it_Source] : m_Files)
     {
+        if (options.Cancel != nullptr && options.Cancel->load(std::memory_order_relaxed))
+        {
+            return Trinity::Unexpected{ std::string("it was cancelled") };
+        }
+
         std::span<const std::byte> l_Bytes;
         if (const std::filesystem::path* l_NativePath = std::get_if<std::filesystem::path>(&it_Source))
         {
@@ -217,19 +315,67 @@ Trinity::Expected<PackSummary, std::string> PackBuilder::WriteTo(const std::file
         l_Entry.PathSize = static_cast<std::uint32_t>(it_Path.size());
         l_Paths += it_Path;
 
+        // From the cache when it holds the file's content, an entry being checked by decompressing it, since a pack made from a damaged one would be damaged too. Otherwise compressed, and kept there
         std::span<const std::byte> l_Stored = l_Bytes;
         if (!l_Bytes.empty())
         {
-            l_Compressed.resize(ZSTD_compressBound(l_Bytes.size()));
-            const std::size_t l_CompressedSize = ZSTD_compressCCtx(l_Context.get(), l_Compressed.data(), l_Compressed.size(), l_Bytes.data(), l_Bytes.size(), c_CompressionLevel);
-            if (ZSTD_isError(l_CompressedSize))
+            std::error_code l_Error;
+            const std::filesystem::path l_StoredEntry = l_CacheFolder.empty() ? std::filesystem::path() : GetCachePath(l_CacheFolder, l_Entry.Hash, l_Entry.Size, true);
+            const std::filesystem::path l_CompressedEntry = l_CacheFolder.empty() ? std::filesystem::path() : GetCachePath(l_CacheFolder, l_Entry.Hash, l_Entry.Size, false);
+            std::optional<std::size_t> l_CompressedSize;
+            bool l_Cached = false;
+            if (!l_CacheFolder.empty() && std::filesystem::exists(l_StoredEntry, l_Error))
             {
-                return Trinity::Unexpected{ std::format("'{}' could not be compressed: {}", it_Path, ZSTD_getErrorName(l_CompressedSize)) };
+                l_Cached = true;
+            }
+            else if (!l_CacheFolder.empty() && std::filesystem::exists(l_CompressedEntry, l_Error))
+            {
+                Trinity::Expected<Bytes, std::string> l_Cache = ReadNativeFile(l_CompressedEntry);
+                if (l_Cache)
+                {
+                    l_Checked.resize(l_Bytes.size());
+                    const std::size_t l_Size = ZSTD_decompressDCtx(l_Checker.get(), l_Checked.data(), l_Checked.size(), l_Cache->data(), l_Cache->size());
+                    if (!ZSTD_isError(l_Size) && l_Size == l_Bytes.size() && std::memcmp(l_Checked.data(), l_Bytes.data(), l_Size) == 0)
+                    {
+                        l_Compressed = std::move(*l_Cache);
+                        l_CompressedSize = l_Compressed.size();
+                        l_Cached = true;
+                    }
+                }
             }
 
-            if (Trinity::PackLayout::IsWorthCompressing(l_Bytes.size(), l_CompressedSize))
+            if (!l_Cached)
             {
-                l_Stored = std::span<const std::byte>(l_Compressed).first(l_CompressedSize);
+                l_Compressed.resize(ZSTD_compressBound(l_Bytes.size()));
+                const std::size_t l_Size = ZSTD_compressCCtx(l_Context.get(), l_Compressed.data(), l_Compressed.size(), l_Bytes.data(), l_Bytes.size(), c_CompressionLevel);
+                if (ZSTD_isError(l_Size))
+                {
+                    return Trinity::Unexpected{ std::format("'{}' could not be compressed: {}", it_Path, ZSTD_getErrorName(l_Size)) };
+                }
+
+                if (Trinity::PackLayout::IsWorthCompressing(l_Bytes.size(), l_Size))
+                {
+                    l_CompressedSize = l_Size;
+                }
+
+                if (!l_CacheFolder.empty())
+                {
+                    WriteCacheEntry(l_CompressedSize ? l_CompressedEntry : l_StoredEntry, l_CompressedSize ? std::span<const std::byte>(l_Compressed).first(l_Size) : std::span<const std::byte>());
+                }
+            }
+            else
+            {
+                ++l_Summary.Cached;
+            }
+
+            if (!l_CacheFolder.empty())
+            {
+                cacheFiles.push_back(l_CompressedSize ? l_CompressedEntry : l_StoredEntry);
+            }
+
+            if (l_CompressedSize && Trinity::PackLayout::IsWorthCompressing(l_Bytes.size(), *l_CompressedSize))
+            {
+                l_Stored = std::span<const std::byte>(l_Compressed).first(*l_CompressedSize);
                 l_Entry.Compression = Trinity::PackCompression::Zstd;
                 ++l_Summary.Compressed;
             }
@@ -248,6 +394,10 @@ Trinity::Expected<PackSummary, std::string> PackBuilder::WriteTo(const std::file
 
         ++l_Summary.Files;
         l_Summary.Bytes += l_Entry.Size;
+        if (options.Written != nullptr)
+        {
+            options.Written->fetch_add(1, std::memory_order_relaxed);
+        }
     }
 
     const std::size_t l_EntriesSize = l_Entries.size() * sizeof(Trinity::PackEntry);

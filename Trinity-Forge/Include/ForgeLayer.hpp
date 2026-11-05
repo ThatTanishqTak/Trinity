@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EditorSession.hpp"
-#include "Export/PackCommand.hpp"
+#include "Export/ExportCommand.hpp"
 #include "ImportTest.hpp"
 #include "Panels/AudioMixerPanel.hpp"
 #include "Panels/BuildPanel.hpp"
@@ -60,6 +60,7 @@ private:
     void DrawAboutWindow();
     void DrawStartScreen();
     void DrawNotice();
+    void DrawExportPopup();
     void DrawStatusBar();
     void ReadStatusLine();
     void PauseOnError();
@@ -71,7 +72,7 @@ private:
     Trinity::ImGuiLayer& m_ImGui;
     EditorSession m_Session;
     ImportTest m_ImportTest{ m_Session };
-    PackCommand m_PackCommand{ m_Session };
+    ExportCommand m_Export{ m_Session };
     PreferencesWindow m_PreferencesWindow{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
@@ -92,6 +93,8 @@ private:
     std::uint64_t m_StatusSequence = 0;
     // The sequence after the last line Error Pause looked at
     std::uint64_t m_ErrorScanSequence = 0;
+    // Whether the export's popup was opened, so one that another popup closed opens again once that one has
+    bool m_ExportPopupOpen = false;
     bool m_ShowDemoWindow = false;
     bool m_ShowAbout = false;
     bool m_ResetLayout = false;

@@ -201,7 +201,7 @@ void ModuleHost::Update()
 
         if (l_Result->Succeeded)
         {
-            Load(l_Result->Library);
+            Load(l_Result->Output);
         }
     }
 
@@ -312,6 +312,9 @@ void ModuleHost::StartBuild()
     l_Request.ProjectDirectory = m_Project->GetDirectory();
     l_Request.SourceDirectory = m_Project->GetSourceDirectory();
     l_Request.BuildDirectory = ModuleBuild::GetBuildDirectory(m_Project->GetBuildDirectory());
+    l_Request.Configuration = ModuleBuild::GetConfiguration();
+    l_Request.EngineDirectory = ModuleBuild::GetEngineDirectory();
+    l_Request.Output = ModuleBuild::GetLibraryPath(l_Request.BuildDirectory, l_Request.Name);
     m_RunningFirstLine = Trinity::LogHistory::GetNextSequence();
     m_Build.Start(std::move(l_Request));
 }
