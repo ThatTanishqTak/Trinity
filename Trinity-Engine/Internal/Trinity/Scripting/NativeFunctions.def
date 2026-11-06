@@ -29,6 +29,8 @@ TR_NATIVE(Entity_GetNextSibling, EntityId, (EntityId entity))
 TR_NATIVE(Entity_GetChildCount, UInt32, (EntityId entity))
 TR_NATIVE(Transform_GetWorld, Bool, (EntityId entity, Vector3* position, Quaternion* rotation, Vector3* scale))
 TR_NATIVE(Transform_SetWorld, Bool, (EntityId entity, const Vector3* position, const Quaternion* rotation, const Vector3* scale))
+// Where the entity is drawn, as Scene::ComputeDrawnTransform has it: a running body's entity at its physics pose between its last two steps
+TR_NATIVE(Transform_GetDrawn, Bool, (EntityId entity, Vector3* position, Quaternion* rotation))
 
 // The components of ScriptComponents.def, by their number there, and each property by its number across the list. Each Int32 result is an Interop::AccessResult
 TR_NATIVE(Component_Has, Bool, (EntityId entity, Int32 component))

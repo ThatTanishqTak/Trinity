@@ -182,6 +182,21 @@ namespace Trinity
             return true;
         }
 
+        Bool Transform_GetDrawn(EntityId entity, Vector3* position, Quaternion* rotation)
+        {
+            const Entity l_Entity = FindEntity(entity);
+            if (!l_Entity)
+            {
+                return false;
+            }
+
+            const TransformComponent l_Drawn = l_Entity.GetScene()->ComputeDrawnTransform(l_Entity);
+            *position = l_Drawn.Position;
+            *rotation = l_Drawn.Rotation;
+
+            return true;
+        }
+
         // Each part not given stays as the world has it
         Bool Transform_SetWorld(EntityId entity, const Vector3* position, const Quaternion* rotation, const Vector3* scale)
         {

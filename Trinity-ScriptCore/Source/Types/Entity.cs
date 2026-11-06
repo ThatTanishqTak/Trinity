@@ -206,6 +206,27 @@ namespace Trinity
             }
         }
 
+        // In the world as it is drawn this frame: a running body's entity, and what is below it, between the body's last two physics steps, where its transform holds the last step. What a camera that follows a body reads in OnLateUpdate, so it moves as smoothly as the body is drawn whatever the frame rate. The same as WorldPosition and WorldRotation where no body moves
+        public Vector3 DrawnPosition
+        {
+            get
+            {
+                GetDrawn(out Vector3 l_Position, out _);
+
+                return l_Position;
+            }
+        }
+
+        public Quaternion DrawnRotation
+        {
+            get
+            {
+                GetDrawn(out _, out Quaternion l_Rotation);
+
+                return l_Rotation;
+            }
+        }
+
         public bool Has<T>() where T : struct, IComponent<T> => Native.Component_Has(ID, T.TypeId);
 
         // Its component, which reads and writes the engine's own. Throws when it has none
@@ -329,6 +350,19 @@ namespace Trinity
             position = l_Position;
             rotation = l_Rotation;
             scale = l_Scale;
+        }
+
+        private unsafe void GetDrawn(out Vector3 position, out Quaternion rotation)
+        {
+            Vector3 l_Position;
+            Quaternion l_Rotation;
+            if (!Native.Transform_GetDrawn(ID, &l_Position, &l_Rotation))
+            {
+                ThrowMissing();
+            }
+
+            position = l_Position;
+            rotation = l_Rotation;
         }
 
         private object? GetInstance(int index)
