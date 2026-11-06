@@ -761,9 +761,10 @@ namespace Trinity
 
     struct AudioScene::State
     {
+        // Room for as many voices as are mixed at once, so the scene's first sounds, and the UI's carried into it, find it there, and what the scene holds does not hang on how many were still playing as it began
         State(Scene& scene, AudioEngine* engine, const AudioSettings& settings) : TheScene(scene), Engine(engine), Settings(settings)
         {
-
+            Voices.reserve(Settings.RealVoices);
         }
 
         void UpdateListener(float seconds);
