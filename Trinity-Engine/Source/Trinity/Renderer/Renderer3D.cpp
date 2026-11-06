@@ -118,8 +118,21 @@ namespace Trinity
             std::uint32_t Padding = 0;
         };
 
+        // Laid out as Sky.slang reads it: the inverse of the projection times the view's turn alone as four columns, the specular cubemap and its sampler, and the environment's intensity and the cosine and sine of its turn
+        struct SkyPushData
+        {
+            std::array<glm::vec4, 4> InverseViewProjection{};
+            std::array<std::uint32_t, 2> Environment{};
+            std::array<std::uint32_t, 2> Sampler{};
+            float Intensity = 1.0f;
+            float Cosine = 1.0f;
+            float Sine = 0.0f;
+            float Padding = 0.0f;
+        };
+
         static_assert(sizeof(PushData) == 32);
         static_assert(sizeof(WorldUIPushData) == 88);
+        static_assert(sizeof(SkyPushData) == 96);
         static_assert(sizeof(FrameData) == 400);
         static_assert(sizeof(ShadowHeader) == 48);
         static_assert(sizeof(ShadowRecord) == 80);
@@ -698,6 +711,17 @@ namespace Trinity
             m_WorldUIPickPixelShader = std::move(*l_WorldUIPickPixel);
         }
 
+        // Without these, a scene's environment lights it but shows no sky, which is reported once there is one
+        Expected<FileBuffer, FileError> l_SkyVertex = FileSystem::ReadFile(std::format("/engine/shaders/Sky.VertexMain.{}", l_Extension));
+        Expected<FileBuffer, FileError> l_SkyPixel = FileSystem::ReadFile(std::format("/engine/shaders/Sky.PixelMain.{}", l_Extension));
+        Expected<FileBuffer, FileError> l_SkyPickPixel = FileSystem::ReadFile(std::format("/engine/shaders/Sky.PickPixelMain.{}", l_Extension));
+        if (l_SkyVertex && l_SkyPixel && l_SkyPickPixel)
+        {
+            m_SkyVertexShader = std::move(*l_SkyVertex);
+            m_SkyPixelShader = std::move(*l_SkyPixel);
+            m_SkyPickPixelShader = std::move(*l_SkyPickPixel);
+        }
+
         const RHI::TextureUsage l_IDUsage = RHI::TextureUsage::RenderTarget | RHI::TextureUsage::ShaderResource;
         m_EntityIDSupport = { m_Device.IsFormatSupported(c_EntityIDFormat, l_IDUsage, 1), m_Device.IsFormatSupported(c_EntityIDFormat, l_IDUsage, c_SampleCount) };
 
@@ -735,7 +759,12 @@ namespace Trinity
             m_Device.DestroyPipeline(it_Entry.Pipeline);
         }
 
-        for (const WorldUIPipeline& it_Entry : m_WorldUIPipelines)
+        for (const TargetPipeline& it_Entry : m_WorldUIPipelines)
+        {
+            m_Device.DestroyPipeline(it_Entry.Pipeline);
+        }
+
+        for (const TargetPipeline& it_Entry : m_SkyPipelines)
         {
             m_Device.DestroyPipeline(it_Entry.Pipeline);
         }
@@ -1402,6 +1431,7 @@ namespace Trinity
         }, [this, l_List, l_Format, l_WriteIDs, l_Samples, l_Width, l_Height, a_Shading](const FrameGraphContext& context)
         {
             RecordDraws(context.GetCommands(), *l_List, l_List->Draws, l_Format, MeshPass::Opaque, l_WriteIDs, l_Samples, l_Width, l_Height, a_Shading(context));
+            DrawSky(context.GetCommands(), *l_List, l_Format, l_WriteIDs, l_Samples, l_Width, l_Height);
         });
 
         if (l_Blended)
@@ -1602,7 +1632,7 @@ namespace Trinity
     // Unlit and seen from both sides, tested against the opaque depth as a blended submesh is, writing none, and blending its straight alpha. Made the first time each is needed, and a failed one is kept, so it is not tried again every frame
     RHI::PipelineHandle Renderer3D::GetWorldUIPipeline(RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount)
     {
-        const auto a_Found = std::ranges::find_if(m_WorldUIPipelines, [&](const WorldUIPipeline& entry) { return entry.Format == colorFormat && entry.EntityIDs == entityIDs && entry.SampleCount == sampleCount; });
+        const auto a_Found = std::ranges::find_if(m_WorldUIPipelines, [&](const TargetPipeline& entry) { return entry.Format == colorFormat && entry.EntityIDs == entityIDs && entry.SampleCount == sampleCount; });
         if (a_Found != m_WorldUIPipelines.end())
         {
             return a_Found->Pipeline;
@@ -1641,6 +1671,88 @@ namespace Trinity
         }
 
         m_WorldUIPipelines.push_back({ colorFormat, entityIDs, sampleCount, l_Pipeline });
+
+        return l_Pipeline;
+    }
+
+    // An orthographic view looks one way through every pixel, so it would show one colour of the sky, and shows the clear colour instead, as a scene whose environment has not loaded does
+    void Renderer3D::DrawSky(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height)
+    {
+        const EnvironmentAsset* l_Environment = list.Environment;
+        if (l_Environment == nullptr || list.View.Orthographic || width == 0 || height == 0)
+        {
+            return;
+        }
+
+        const RHI::PipelineHandle l_Pipeline = GetSkyPipeline(colorFormat, entityIDs, sampleCount);
+        if (!l_Pipeline)
+        {
+            return;
+        }
+
+        // The view's turn alone, so the near plane's point through a pixel is the way the eye looks through it
+        const glm::mat4 l_Inverse = glm::inverse(list.View.Projection * glm::mat4(glm::mat3(list.View.View)));
+        const float l_Angle = glm::radians(list.EnvironmentRotation);
+        SkyPushData l_Push;
+        for (glm::length_t it_Column = 0; it_Column < 4; ++it_Column)
+        {
+            l_Push.InverseViewProjection[static_cast<std::size_t>(it_Column)] = l_Inverse[it_Column];
+        }
+
+        l_Push.Environment = { l_Environment->GetShaderResourceIndex(EnvironmentImage::Specular), 0 };
+        l_Push.Sampler = { m_Device.GetSamplerIndex(m_LinearSampler), 0 };
+        l_Push.Intensity = list.EnvironmentIntensity;
+        l_Push.Cosine = std::cos(l_Angle);
+        l_Push.Sine = std::sin(l_Angle);
+
+        commands.SetViewport({ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f });
+        commands.SetScissor({ 0, 0, width, height });
+        commands.SetPipeline(l_Pipeline);
+        commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
+        commands.Draw(3, 1, 0, 0);
+        ++m_Statistics.PipelineChanges;
+    }
+
+    // One triangle over the whole target at the far depth, tested with the opaque pass's equal test against the depth the pre-pass left, so it shows only where that is still the cleared far depth, and writing none. Made the first time each is needed, and a failed one is kept, so it is not tried again every frame
+    RHI::PipelineHandle Renderer3D::GetSkyPipeline(RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount)
+    {
+        const auto a_Found = std::ranges::find_if(m_SkyPipelines, [&](const TargetPipeline& entry) { return entry.Format == colorFormat && entry.EntityIDs == entityIDs && entry.SampleCount == sampleCount; });
+        if (a_Found != m_SkyPipelines.end())
+        {
+            return a_Found->Pipeline;
+        }
+
+        if (m_SkyVertexShader.empty() || m_SkyPixelShader.empty() || m_SkyPickPixelShader.empty())
+        {
+            if (!std::exchange(m_ReportedNoSkyShaders, true))
+            {
+                TR_CORE_ERROR("Renderer3D: the Sky shaders are missing from /engine/shaders, so environments light scenes but show no sky");
+            }
+
+            return {};
+        }
+
+        const std::array<RHI::Format, 2> l_ColorFormats{ colorFormat, c_EntityIDFormat };
+
+        RHI::GraphicsPipelineDescription l_Description;
+        l_Description.VertexShader = { m_SkyVertexShader, "VertexMain" };
+        l_Description.PixelShader = entityIDs ? RHI::ShaderDescription{ m_SkyPickPixelShader, "PickPixelMain" } : RHI::ShaderDescription{ m_SkyPixelShader, "PixelMain" };
+        l_Description.ColorFormats = std::span<const RHI::Format>(l_ColorFormats).first(entityIDs ? 2 : 1);
+        l_Description.DepthFormat = c_DepthFormat;
+        l_Description.SampleCount = sampleCount;
+        l_Description.Cull = RHI::CullMode::None;
+        l_Description.DepthTest = true;
+        l_Description.DepthWrite = false;
+        l_Description.DepthCompare = c_OpaqueCompare;
+        l_Description.DebugName = "Sky";
+
+        const RHI::PipelineHandle l_Pipeline = m_Device.CreateGraphicsPipeline(l_Description);
+        if (!l_Pipeline)
+        {
+            TR_CORE_ERROR("Renderer3D: the sky pipeline for {} targets with {} sample(s) could not be created", RHI::ToString(colorFormat), sampleCount);
+        }
+
+        m_SkyPipelines.push_back({ colorFormat, entityIDs, sampleCount, l_Pipeline });
 
         return l_Pipeline;
     }

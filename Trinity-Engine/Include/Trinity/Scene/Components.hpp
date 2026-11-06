@@ -232,7 +232,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const LightComponent&) const = default;
     };
 
-    // Image-based lighting from an HDR environment, for the whole scene, from the first entity in hierarchy order that has one. Intensity scales its radiance, and Rotation turns it about +Y in degrees as glTF Sample Viewer does, which at 90 puts the middle of the panorama towards +Z
+    // Image-based lighting from an HDR environment, for the whole scene, from the first entity in hierarchy order that has one, and the sky a perspective camera sees behind everything. Intensity scales its radiance, and Rotation turns it about +Y in degrees as glTF Sample Viewer does, which at 90 puts the middle of the panorama towards +Z
     struct EnvironmentComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.Environment";

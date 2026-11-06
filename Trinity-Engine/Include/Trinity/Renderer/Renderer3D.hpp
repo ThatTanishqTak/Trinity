@@ -321,7 +321,7 @@ namespace Trinity
         // Each cluster's light count, which may pass c_MaxLights, then its first c_MaxLights lights, as the cluster pass sorts them, for checking it against
         static void BuildClustersReference(const SceneDrawList& list, std::vector<std::uint32_t>& counts, std::vector<std::uint32_t>& lights);
 
-        // When anything casts a shadow, a pass that draws every shadow map into the atlas, then a depth pre-pass into a depth texture the size of the target, then, when there are point or spot lights, a compute pass that sorts them into clusters, then the opaque pass, which clears the target and draws again with an equal depth test, then the blended submeshes over it, then any overlay. Multisampled, they draw into textures of their own, resolved into the target by the last. The list must last until the graph has run
+        // When anything casts a shadow, a pass that draws every shadow map into the atlas, then a depth pre-pass into a depth texture the size of the target, then, when there are point or spot lights, a compute pass that sorts them into clusters, then the opaque pass, which clears the target and draws again with an equal depth test, and for a perspective view of a scene with an environment draws its sky where nothing else was, then the blended submeshes over it, then any overlay. Multisampled, they draw into textures of their own, resolved into the target by the last. The list must last until the graph has run
         Passes AddPasses(FrameGraph& graph, const SceneDrawList& list, FrameGraphTexture target, const RHI::TextureDescription& targetDescription, const std::array<float, 4>& clearColor, const SceneOptions& options = {});
 
         [[nodiscard]] const Statistics& GetStatistics() const { return m_Statistics; }
@@ -347,8 +347,8 @@ namespace Trinity
             Shadow
         };
 
-        // A world UI document's quad, for one colour format and sample count, writing entity IDs or not
-        struct WorldUIPipeline
+        // What a forward pass draws without a mesh, a world UI document's quad or the sky, for one colour format and sample count, writing entity IDs or not
+        struct TargetPipeline
         {
             RHI::Format Format = RHI::Format::Unknown;
             bool EntityIDs = false;
@@ -395,6 +395,9 @@ namespace Trinity
         void RecordBlended(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height, const LightInputs& lights);
         void DrawWorldUI(RHI::CommandList& commands, const SceneDrawList& list, const WorldUIDraw& draw, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount);
         [[nodiscard]] RHI::PipelineHandle GetWorldUIPipeline(RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount);
+        // The environment behind what the opaque pass drew, for a perspective view of a scene with one that has loaded
+        void DrawSky(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height);
+        [[nodiscard]] RHI::PipelineHandle GetSkyPipeline(RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount);
         // Each draw's record into the upload ring, then the draws with the pipeline each needs, which reports false when the mesh shaders are missing
         [[nodiscard]] bool DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass, bool entityIDs, std::uint32_t sampleCount);
         void ReadClusterStatistics();
@@ -410,8 +413,13 @@ namespace Trinity
         FileBuffer m_WorldUIPixelShader;
         FileBuffer m_WorldUIPickPixelShader;
         const WorldUISource* m_WorldUI = nullptr;
-        std::vector<WorldUIPipeline, TaggedAllocator<WorldUIPipeline, MemoryTag::Renderer>> m_WorldUIPipelines;
+        std::vector<TargetPipeline, TaggedAllocator<TargetPipeline, MemoryTag::Renderer>> m_WorldUIPipelines;
         bool m_ReportedNoWorldUIShaders = false;
+        FileBuffer m_SkyVertexShader;
+        FileBuffer m_SkyPixelShader;
+        FileBuffer m_SkyPickPixelShader;
+        std::vector<TargetPipeline, TaggedAllocator<TargetPipeline, MemoryTag::Renderer>> m_SkyPipelines;
+        bool m_ReportedNoSkyShaders = false;
         RHI::PipelineHandle m_ClusterPipeline;
         std::array<RHI::BufferHandle, RHI::c_FramesInFlight> m_ClusterReadbacks{};
         std::array<bool, RHI::c_FramesInFlight> m_ClusterReadbackWritten{};

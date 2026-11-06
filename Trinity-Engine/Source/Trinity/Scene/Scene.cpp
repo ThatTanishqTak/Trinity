@@ -262,6 +262,16 @@ namespace Trinity
         return l_World;
     }
 
+    TransformComponent Scene::ComputeDrawnTransform(Entity entity) const
+    {
+        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: ComputeDrawnTransform was given an entity of another scene, or one already destroyed");
+
+        TransformComponent l_World;
+        l_World.SetMatrix(ComputeDrawn(entity.GetHandle()));
+
+        return l_World;
+    }
+
     void Scene::SetWorldTransform(Entity entity, const TransformComponent& world)
     {
         TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: SetWorldTransform was given an entity of another scene, or one already destroyed");
@@ -360,6 +370,17 @@ namespace Trinity
         }
 
         return l_World;
+    }
+
+    // From the root down, as UpdateWorldTransforms places each entity
+    glm::mat4 Scene::ComputeDrawn(entt::entity entity) const
+    {
+        const entt::entity l_Parent = m_Registry.get<RelationshipComponent>(entity).Parent;
+        const glm::mat4 l_Local = m_Registry.get<TransformComponent>(entity).GetMatrix();
+        const glm::mat4 l_World = l_Parent == entt::null ? l_Local : ComputeDrawn(l_Parent) * l_Local;
+        const PhysicsPoseComponent* l_Pose = m_Registry.try_get<PhysicsPoseComponent>(entity);
+
+        return l_Pose != nullptr ? PlaceAtPose(l_World, *l_Pose) : l_World;
     }
 
     bool Scene::Move(Entity entity, entt::entity parent, entt::entity before, bool keepWorldTransform)

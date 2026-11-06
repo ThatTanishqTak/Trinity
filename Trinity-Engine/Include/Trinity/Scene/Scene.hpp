@@ -52,6 +52,8 @@ namespace Trinity
         [[nodiscard]] glm::mat4 ComputeWorldMatrix(Entity entity) const;
         // The entity's place in the world, from its transform and its parents', with any shear dropped
         [[nodiscard]] TransformComponent ComputeWorldTransform(Entity entity) const;
+        // The entity's place in the world as it is drawn, with each running body's entity among it and its parents at its physics pose between its last two steps, as UpdateWorldTransforms places them, and any shear dropped. What a camera that follows a body reads in OnLateUpdate, as the transform holds the body's last step. The same as ComputeWorldTransform where no body moves
+        [[nodiscard]] TransformComponent ComputeDrawnTransform(Entity entity) const;
         // Puts the entity at a place in the world by setting its transform relative to its parent, as Entity::Replace does, so a running scene's physics teleports its body
         void SetWorldTransform(Entity entity, const TransformComponent& world);
 
@@ -82,6 +84,7 @@ namespace Trinity
         [[nodiscard]] entt::entity GetNext(entt::entity entity, entt::entity root) const;
         [[nodiscard]] bool IsSelfOrAncestor(entt::entity entity, entt::entity descendant) const;
         [[nodiscard]] glm::mat4 ComputeWorld(entt::entity entity) const;
+        [[nodiscard]] glm::mat4 ComputeDrawn(entt::entity entity) const;
         bool Move(Entity entity, entt::entity parent, entt::entity before, bool keepWorldTransform);
         void Link(entt::entity entity, entt::entity parent, entt::entity before);
         void Unlink(entt::entity entity);
