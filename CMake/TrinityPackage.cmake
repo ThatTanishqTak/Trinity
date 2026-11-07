@@ -108,6 +108,8 @@ function(trinity_add_version_package target engine runtime)
     # The libraries the engine links from outside Trinity's build, which TrinityDotNet.cmake and TrinityGameInput.cmake add to this property as the engine links them
     get_property(libraries GLOBAL PROPERTY TRINITY_PACKAGE_LIBRARIES)
     list(REMOVE_DUPLICATES libraries)
+    # The RHI's test shaders, which only the Sandbox draws, so Scripts/Package.cmake leaves them out of a version as Forge's export leaves them out of a game
+    get_property(test_shaders GLOBAL PROPERTY TRINITY_TEST_SHADERS)
 
     # A path outside Trinity's build is one the game package must not name once it is written
     set(foreign_roots "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
@@ -139,6 +141,7 @@ set(TRINITY_PACKAGE_PLAYER_CHECKS [==[${player_checks}]==])
 set(TRINITY_PACKAGE_LIBRARIES [==[${libraries}]==])
 set(TRINITY_PACKAGE_EXPORT [==[${CMAKE_BINARY_DIR}/Package/TrinityGameExport.cmake]==])
 set(TRINITY_PACKAGE_FOREIGN_ROOTS [==[${foreign_roots}]==])
+set(TRINITY_PACKAGE_TEST_SHADERS [==[${test_shaders}]==])
 " TARGET ${runtime})
 
     add_custom_target(${target} ALL
