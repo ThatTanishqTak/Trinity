@@ -17,10 +17,10 @@ namespace
     constexpr ImGuiWindowFlags c_ShellFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 }
 
-HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path installsDirectory) : Layer("Hub"), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(installsDirectory))
+HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path installsDirectory, std::string releasesUrl) : Layer("Hub"), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(installsDirectory)), m_Releases(std::move(releasesUrl))
 {
     m_Pages.push_back(Trinity::CreateScope<ProjectsPage>());
-    m_Pages.push_back(Trinity::CreateScope<InstallsPage>(m_Installs, m_Settings, m_PathPrompt, m_DefaultInstallsDirectory));
+    m_Pages.push_back(Trinity::CreateScope<InstallsPage>(m_Installs, m_Releases, m_Settings, m_PathPrompt, m_DefaultInstallsDirectory));
     m_Pages.push_back(Trinity::CreateScope<SettingsPage>(m_Settings, m_PathPrompt, m_Directory, m_DefaultInstallsDirectory));
 }
 
@@ -31,6 +31,7 @@ void HubLayer::OnAttach()
     m_Settings.Apply();
     HubInstaller::CleanUp(m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory));
     m_Installs.Load();
+    m_Releases.Load();
 
     Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
     l_Renderer.SetSceneCopy(false);
@@ -44,6 +45,7 @@ void HubLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
 {
     m_PathPrompt.Update();
     m_Installs.Update();
+    m_Releases.Update();
     for (const Trinity::Scope<HubPage>& it_Page : m_Pages)
     {
         it_Page->Update();

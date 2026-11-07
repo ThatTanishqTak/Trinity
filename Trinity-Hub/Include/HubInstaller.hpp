@@ -1,5 +1,7 @@
 #pragma once
 
+#include "HubReleases.hpp"
+
 #include <Trinity.hpp>
 
 #include <atomic>
@@ -11,13 +13,14 @@
 #include <utility>
 #include <vector>
 
-// Installs a version from its zip, or deletes an installed one's files, on a job, one at a time. An install checks the zip against the .sha256 beside it, when there is one, reads its manifest and checks every file it holds before it unpacks anything, then unpacks it into a staging folder beside the version's, which is renamed to the version's only once every file is there, so a failed or cancelled install leaves nothing behind, and one over a version already installed keeps that version until the new one is whole
+// Installs a version from its zip, which it may download from GitHub first, or deletes an installed one's files, on a job, one at a time. A download is checked against the release's .sha256, or GitHub's digest of it, as it arrives. An install checks the zip against the .sha256 beside it, when there is one, reads its manifest and checks every file it holds before it unpacks anything, then unpacks it into a staging folder beside the version's, which is renamed to the version's only once every file is there, so a failed or cancelled install leaves nothing behind, and one over a version already installed keeps that version until the new one is whole
 class HubInstaller
 {
 public:
     enum class Stage : std::uint8_t
     {
         Idle,
+        Downloading,
         Checking,
         Reading,
         // A version is installed in the folder already, and the person is asked whether to replace it
@@ -45,6 +48,8 @@ public:
 
     // installed names, as Trinity-<version>-<platform>-<architecture>, the folders of the versions installed already, so a version installed elsewhere is replaced where it is
     void Install(std::filesystem::path zip, std::filesystem::path installsDirectory, std::vector<std::pair<std::string, std::filesystem::path>> installed);
+    // Into a folder beside the versions, which is deleted once the install is done, whatever came of it, and then installed as a zip from the disk is
+    void Download(const HubRelease& release, std::filesystem::path installsDirectory, std::vector<std::pair<std::string, std::filesystem::path>> installed);
     // While Asking: unpacks over the version installed, or leaves it
     void Replace();
     void KeepInstalled();
@@ -62,13 +67,17 @@ public:
     // What is being done, in one line
     [[nodiscard]] std::string Describe() const;
 
-    // What an install or delete cut short by Hub ending left in the folder: a staging folder, which is deleted, and a version moved aside to be replaced, which is put back when its replacement never took its place, and otherwise deleted
+    // What an install or delete cut short by Hub ending left in the folder: a download or a staging folder, which is deleted, and a version moved aside to be replaced, which is put back when its replacement never took its place, and otherwise deleted
     static void CleanUp(const std::filesystem::path& installsDirectory);
 
 private:
     struct Running
     {
         std::filesystem::path Zip;
+        std::optional<HubRelease> Release;
+        std::filesystem::path DownloadFolder;
+        // Checked against its hash already, as it downloaded
+        bool Verified = false;
         std::filesystem::path InstallsDirectory;
         std::vector<std::pair<std::string, std::filesystem::path>> Installed;
         std::filesystem::path Destination;
@@ -87,6 +96,7 @@ private:
         Result Outcome;
     };
 
+    static void Receive(Running& running);
     static void Prepare(Running& running);
     static void Unpack(Running& running);
     static void Remove(Running& running);

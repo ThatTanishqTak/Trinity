@@ -38,6 +38,17 @@ namespace
         return GetSavesOption(args).value_or(GetTrinityDataDirectory() / "Hub");
     }
 
+    // Where Hub asks for Trinity's releases: GitHub's API, or the stand-in --releases-url names, serving GitHub's replies, as a check does
+    std::string GetReleasesUrl(const Trinity::ApplicationCommandLineArgs& args)
+    {
+        if (const std::optional<std::string_view> l_Url = args.GetOption("releases-url"); l_Url && !l_Url->empty())
+        {
+            return std::string(*l_Url);
+        }
+
+        return HubReleases::GetDefaultUrl();
+    }
+
     // Where Hub installs versions unless its settings name another: Versions beside Hub's own folder, or in the folder --saves names, for the same reason
     std::filesystem::path GetInstallsDirectory(const Trinity::ApplicationCommandLineArgs& args)
     {
@@ -55,7 +66,7 @@ public:
     {
         // One window, so ImGui keeps no imgui.ini and never leaves it
         PushOverlay<Trinity::ImGuiLayer>(Trinity::ImGuiLayerSpecification{ .KeepSettings = false, .Viewports = false });
-        PushLayer<HubLayer>(GetSpecification().SavesDirectory, GetInstallsDirectory(GetSpecification().CommandLineArgs));
+        PushLayer<HubLayer>(GetSpecification().SavesDirectory, GetInstallsDirectory(GetSpecification().CommandLineArgs), GetReleasesUrl(GetSpecification().CommandLineArgs));
     }
 
 private:

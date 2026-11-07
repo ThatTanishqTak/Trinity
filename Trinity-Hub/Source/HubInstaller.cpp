@@ -15,6 +15,8 @@ namespace
     constexpr std::string_view c_StagingSuffix = ".staging";
     constexpr std::string_view c_ReplacedSuffix = ".old";
     constexpr std::string_view c_DeletingSuffix = ".removing";
+    constexpr std::string_view c_DownloadSuffix = ".download";
+    constexpr std::size_t c_HashFileLimit = 4096;
     // Left free beyond what a version unpacks to, for what else is writing to the disk meanwhile
     constexpr std::uint64_t c_SpareBytes = 64ull * 1024 * 1024;
     constexpr std::size_t c_HashReadSize = 1024 * 1024;
@@ -69,22 +71,17 @@ namespace
     }
 
     // The first word of a .sha256, as sha256sum and Package.cmake write one, in lowercase, or empty when it is no SHA-256
-    std::string ReadExpectedHash(const std::filesystem::path& path)
+    std::string ParseExpectedHash(std::string_view text)
     {
-        std::ifstream l_File(path, std::ios::binary);
-        std::string l_Text(256, '\0');
-        l_File.read(l_Text.data(), static_cast<std::streamsize>(l_Text.size()));
-        l_Text.resize(static_cast<std::size_t>(std::max<std::streamsize>(l_File.gcount(), 0)));
-
-        const std::size_t l_Start = l_Text.find_first_not_of(" \t\r\n");
-        if (l_Start == std::string::npos || l_Text.size() - l_Start < c_HashLength)
+        const std::size_t l_Start = text.find_first_not_of(" \t\r\n");
+        if (l_Start == std::string::npos || text.size() - l_Start < c_HashLength)
         {
             return {};
         }
 
-        std::string l_Hash = l_Text.substr(l_Start, c_HashLength);
+        std::string l_Hash(text.substr(l_Start, c_HashLength));
         const bool l_Hex = std::ranges::all_of(l_Hash, [](char character) { return std::isxdigit(static_cast<unsigned char>(character)) != 0; });
-        const bool l_Ends = l_Text.size() - l_Start == c_HashLength || std::isspace(static_cast<unsigned char>(l_Text[l_Start + c_HashLength])) != 0;
+        const bool l_Ends = text.size() - l_Start == c_HashLength || std::isspace(static_cast<unsigned char>(text[l_Start + c_HashLength])) != 0;
         if (!l_Hex || !l_Ends)
         {
             return {};
@@ -93,6 +90,16 @@ namespace
         std::ranges::transform(l_Hash, l_Hash.begin(), [](char character) { return static_cast<char>(std::tolower(static_cast<unsigned char>(character))); });
 
         return l_Hash;
+    }
+
+    std::string ReadExpectedHash(const std::filesystem::path& path)
+    {
+        std::ifstream l_File(path, std::ios::binary);
+        std::string l_Text(256, '\0');
+        l_File.read(l_Text.data(), static_cast<std::streamsize>(l_Text.size()));
+        l_Text.resize(static_cast<std::size_t>(std::max<std::streamsize>(l_File.gcount(), 0)));
+
+        return ParseExpectedHash(l_Text);
     }
 
     using HubText::ToUtf8;
@@ -104,6 +111,13 @@ HubInstaller::~HubInstaller()
     {
         m_Running->Stop.store(true, std::memory_order_relaxed);
         Trinity::JobSystem::Wait(m_Jobs);
+        if (!m_Running->DownloadFolder.empty())
+        {
+            // Closed first, as Windows deletes no file still open
+            m_Running->Archive = Trinity::ZipArchive();
+            std::error_code l_Error;
+            std::filesystem::remove_all(m_Running->DownloadFolder, l_Error);
+        }
     }
 }
 
@@ -116,6 +130,20 @@ void HubInstaller::Install(std::filesystem::path zip, std::filesystem::path inst
     m_Running->InstallsDirectory = std::move(installsDirectory);
     m_Running->Installed = std::move(installed);
     Submit(&Prepare);
+}
+
+void HubInstaller::Download(const HubRelease& release, std::filesystem::path installsDirectory, std::vector<std::pair<std::string, std::filesystem::path>> installed)
+{
+    TR_ASSERT(!m_Running, "Hub is installing or deleting a version already");
+
+    m_Running = std::make_unique<Running>();
+    m_Running->Release = release;
+    m_Running->Zip = HubText::FromUtf8(release.ZipName);
+    m_Running->DownloadFolder = installsDirectory / HubText::FromUtf8(std::format(".{}{}", release.ZipName, c_DownloadSuffix));
+    m_Running->InstallsDirectory = std::move(installsDirectory);
+    m_Running->Installed = std::move(installed);
+    m_Running->Current.store(Stage::Downloading);
+    Submit(&Receive);
 }
 
 void HubInstaller::Replace()
@@ -181,6 +209,14 @@ std::optional<HubInstaller::Result> HubInstaller::Update()
 
     Trinity::JobSystem::Wait(m_Jobs);
     Result l_Result = std::move(m_Running->Outcome);
+    if (!m_Running->DownloadFolder.empty())
+    {
+        // Closed first, as Windows deletes no file still open
+        m_Running->Archive = Trinity::ZipArchive();
+        std::error_code l_Error;
+        std::filesystem::remove_all(m_Running->DownloadFolder, l_Error);
+    }
+
     m_Running.reset();
 
     return l_Result;
@@ -218,6 +254,14 @@ std::string HubInstaller::Describe() const
     const std::string l_Zip = ToUtf8(m_Running->Zip.filename());
     switch (m_Running->Current.load())
     {
+        case Stage::Downloading:
+        {
+            const std::uint64_t l_Total = m_Running->Total.load(std::memory_order_relaxed);
+            const std::string_view l_Url = m_Running->Release ? std::string_view(m_Running->Release->ZipUrl) : std::string_view();
+            const std::string_view l_Host = l_Url.substr(l_Url.find("://") == std::string_view::npos ? 0 : l_Url.find("://") + 3);
+
+            return std::format("Downloading {} from {}{}", l_Zip, l_Host.substr(0, l_Host.find('/')), l_Total > 0 ? std::format(", {} of {}", Trinity::Memory::FormatBytes(m_Running->Done.load(std::memory_order_relaxed)), Trinity::Memory::FormatBytes(l_Total)) : std::string());
+        }
         case Stage::Checking:
         {
             return std::format("Checking {} against its .sha256", l_Zip);
@@ -254,7 +298,7 @@ void HubInstaller::CleanUp(const std::filesystem::path& installsDirectory)
     for (std::filesystem::directory_iterator it_Entry(installsDirectory, l_Error); !l_Error && it_Entry != std::filesystem::directory_iterator(); it_Entry.increment(l_Error))
     {
         const std::string l_Name = ToUtf8(it_Entry->path().filename());
-        if (l_Name.starts_with('.') && (l_Name.ends_with(c_StagingSuffix) || l_Name.ends_with(c_ReplacedSuffix) || l_Name.ends_with(c_DeletingSuffix)))
+        if (l_Name.starts_with('.') && (l_Name.ends_with(c_StagingSuffix) || l_Name.ends_with(c_ReplacedSuffix) || l_Name.ends_with(c_DeletingSuffix) || l_Name.ends_with(c_DownloadSuffix)))
         {
             l_Left.push_back(it_Entry->path());
         }
@@ -287,6 +331,151 @@ void HubInstaller::Submit(void (*work)(Running&))
     Trinity::JobSystem::Submit([l_Running, work] { work(*l_Running); }, &m_Jobs);
 }
 
+// The release's .sha256 first, when it has one, then its zip, hashed as it arrives, which goes on to be installed only when it matches. GitHub serves a release's files by a redirect, which is followed
+void HubInstaller::Receive(Running& running)
+{
+    const HubRelease& l_Release = *running.Release;
+    const std::string& l_Zip = l_Release.ZipName;
+    const auto l_Finish = [&running](std::string message, bool cancelled = false)
+    {
+        running.Outcome.Message = std::move(message);
+        running.Outcome.Cancelled = cancelled;
+        running.Finished.store(true, std::memory_order_release);
+    };
+
+    const auto l_Failed = [&l_Finish, &l_Zip](const Trinity::HttpError& error, std::string_view what)
+    {
+        if (error.Failure == Trinity::HttpFailure::Cancelled)
+        {
+            l_Finish(std::format("Downloading {} was cancelled, and nothing was installed", l_Zip), true);
+
+            return;
+        }
+
+        l_Finish(std::format("{} was not downloaded, as {} could not be{}: {}", l_Zip, what, error.Failure == Trinity::HttpFailure::Unreachable ? ", as this machine may be offline" : "", error.Reason));
+    };
+
+    std::error_code l_Error;
+    std::filesystem::remove_all(running.DownloadFolder, l_Error);
+    if (!std::filesystem::create_directories(running.DownloadFolder, l_Error) || l_Error)
+    {
+        l_Finish(std::format("{} was not downloaded, as {} could not be made: {}", l_Zip, ToUtf8(running.DownloadFolder), l_Error.message()));
+
+        return;
+    }
+
+    std::string l_Expected = l_Release.Digest;
+    std::string l_Source = "GitHub's digest of it";
+    if (!l_Release.Sha256Url.empty())
+    {
+        Trinity::HttpRequest l_Request;
+        l_Request.Url = l_Release.Sha256Url;
+        l_Request.UserAgent = HubReleases::GetUserAgent();
+        l_Request.BodyLimit = c_HashFileLimit;
+        l_Request.Cancel = &running.Stop;
+        const Trinity::Expected<Trinity::HttpResponse, Trinity::HttpError> l_Response = Trinity::Http::Get(l_Request);
+        if (!l_Response)
+        {
+            l_Failed(l_Response.GetError(), "its .sha256");
+
+            return;
+        }
+
+        if (l_Response->Status != 200)
+        {
+            l_Finish(std::format("{} was not downloaded, as its .sha256 was answered with {}", l_Zip, l_Response->Status));
+
+            return;
+        }
+
+        l_Expected = ParseExpectedHash(l_Response->Body);
+        l_Source = std::format("{}.sha256", l_Zip);
+        if (l_Expected.empty())
+        {
+            l_Finish(std::format("{} was not downloaded, as its .sha256 holds no SHA-256", l_Zip));
+
+            return;
+        }
+    }
+
+    const std::filesystem::path l_Path = running.DownloadFolder / HubText::FromUtf8(l_Zip);
+    std::ofstream l_File(l_Path, std::ios::binary | std::ios::trunc);
+    if (!l_File)
+    {
+        l_Finish(std::format("{} was not downloaded, as {} could not be written", l_Zip, ToUtf8(l_Path)));
+
+        return;
+    }
+
+    running.Total.store(l_Release.ZipSize, std::memory_order_relaxed);
+    running.Done.store(0, std::memory_order_relaxed);
+    Trinity::Hash::Sha256 l_Hash;
+    bool l_WriteFailed = false;
+    Trinity::HttpRequest l_Request;
+    l_Request.Url = l_Release.ZipUrl;
+    l_Request.UserAgent = HubReleases::GetUserAgent();
+    l_Request.Cancel = &running.Stop;
+    l_Request.OnBody = [&running, &l_File, &l_Hash, &l_WriteFailed](std::span<const std::byte> piece)
+    {
+        l_File.write(reinterpret_cast<const char*>(piece.data()), static_cast<std::streamsize>(piece.size()));
+        if (!l_File)
+        {
+            l_WriteFailed = true;
+
+            return false;
+        }
+
+        l_Hash.Update(piece);
+        running.Done.fetch_add(piece.size(), std::memory_order_relaxed);
+
+        return true;
+    };
+
+    const Trinity::Expected<Trinity::HttpResponse, Trinity::HttpError> l_Response = Trinity::Http::Get(l_Request);
+    l_File.close();
+    if (l_WriteFailed || (l_Response && l_File.fail()))
+    {
+        l_Finish(std::format("{} was not downloaded, as {} could not be written, perhaps for want of space", l_Zip, ToUtf8(l_Path)));
+
+        return;
+    }
+
+    if (!l_Response)
+    {
+        l_Failed(l_Response.GetError(), "it");
+
+        return;
+    }
+
+    if (l_Response->Status != 200)
+    {
+        l_Finish(std::format("{} was not downloaded, as it was answered with {}", l_Zip, l_Response->Status));
+
+        return;
+    }
+
+    const std::uint64_t l_Received = running.Done.load(std::memory_order_relaxed);
+    if (l_Release.ZipSize != 0 && l_Received != l_Release.ZipSize)
+    {
+        l_Finish(std::format("{} was not installed, as {} of the {} bytes GitHub gives came, so the download was cut short", l_Zip, l_Received, l_Release.ZipSize));
+
+        return;
+    }
+
+    const std::string l_Actual = Trinity::Hash::Sha256::ToHex(l_Hash.Finish());
+    if (l_Actual != l_Expected)
+    {
+        l_Finish(std::format("{} was downloaded, but not installed, as it does not match {}, so it was damaged on its way: it hashes to {}, and {} was expected", l_Zip, l_Source, l_Actual, l_Expected));
+
+        return;
+    }
+
+    running.Zip = l_Path;
+    running.Verified = true;
+    running.Current.store(Stage::Reading);
+    Prepare(running);
+}
+
 // Everything that can refuse the zip does so here, before a file is unpacked
 void HubInstaller::Prepare(Running& running)
 {
@@ -301,7 +490,7 @@ void HubInstaller::Prepare(Running& running)
     std::error_code l_Error;
     std::filesystem::path l_HashPath = running.Zip;
     l_HashPath += ".sha256";
-    if (std::filesystem::is_regular_file(l_HashPath, l_Error))
+    if (!running.Verified && std::filesystem::is_regular_file(l_HashPath, l_Error))
     {
         const std::string l_Expected = ReadExpectedHash(l_HashPath);
         if (l_Expected.empty())

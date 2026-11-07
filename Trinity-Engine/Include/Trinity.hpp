@@ -31,6 +31,7 @@
 #include "Trinity/Core/FileLock.hpp"
 #include "Trinity/Core/FrameAllocator.hpp"
 #include "Trinity/Core/Hash.hpp"
+#include "Trinity/Core/Http.hpp"
 #include "Trinity/Core/JobSystem.hpp"
 #include "Trinity/Core/Layer.hpp"
 #include "Trinity/Core/Log.hpp"

@@ -6,7 +6,9 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <format>
 #include <system_error>
 #include <utility>
@@ -39,7 +41,7 @@ namespace
     }
 }
 
-InstallsPage::InstallsPage(HubInstalls& installs, HubSettings& settings, HubPathPrompt& prompt, std::filesystem::path defaultInstallsDirectory) : m_Installs(installs), m_Settings(settings), m_Prompt(prompt), m_DefaultInstallsDirectory(std::move(defaultInstallsDirectory))
+InstallsPage::InstallsPage(HubInstalls& installs, HubReleases& releases, HubSettings& settings, HubPathPrompt& prompt, std::filesystem::path defaultInstallsDirectory) : m_Installs(installs), m_Releases(releases), m_Settings(settings), m_Prompt(prompt), m_DefaultInstallsDirectory(std::move(defaultInstallsDirectory))
 {
 
 }
@@ -49,10 +51,11 @@ const char* InstallsPage::GetIcon() const
     return Trinity::Icons::c_Cube;
 }
 
-// A build tree built again since shows its new commit
+// A build tree built again since shows its new commit, and GitHub is asked for its releases, unless it was within the last minute
 void InstallsPage::OnShow()
 {
     m_Installs.Refresh();
+    m_Releases.Refresh();
 }
 
 void InstallsPage::Update()
@@ -78,17 +81,36 @@ void InstallsPage::Update()
 void InstallsPage::Draw()
 {
     HubPages::DrawTitle("Installs");
-    DrawToolbar();
     DrawStatus();
     ImGui::Spacing();
 
-    if (m_Installs.GetInstalls().empty())
+    if (ImGui::BeginTabBar("##InstallsTabs"))
     {
-        HubPages::DrawEmpty("No engine versions yet", "Install a version from its zip, or locate one, such as a build tree's bin. Each is listed here, with the platforms it exports games to.");
-    }
-    else
-    {
-        DrawList();
+        if (ImGui::BeginTabItem("Installed"))
+        {
+            ImGui::Spacing();
+            DrawToolbar();
+            ImGui::Spacing();
+            if (m_Installs.GetInstalls().empty())
+            {
+                HubPages::DrawEmpty("No engine versions yet", "Install a version from its zip, or locate one, such as a build tree's bin. Each is listed here, with the platforms it exports games to.");
+            }
+            else
+            {
+                DrawList();
+            }
+
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Releases"))
+        {
+            ImGui::Spacing();
+            DrawReleases();
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
     }
 
     DrawDeletePopup();
@@ -143,17 +165,29 @@ void InstallsPage::InstallFromFile(const std::filesystem::path& zip)
         return;
     }
 
-    std::vector<std::pair<std::string, std::filesystem::path>> l_Installed;
-    for (const HubInstall& it_Install : m_Installs.GetInstalls())
+    m_Message.clear();
+    m_Installer.Install(zip, m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory), GetInstalledFolders());
+}
+
+// Downloaded, checked against its hash, then installed as a zip from the disk is, so one already installed is asked about first
+void InstallsPage::DownloadRelease(const HubRelease& release)
+{
+    if (m_Installer.IsBusy())
     {
-        if (it_Install.Source == HubInstall::Origin::Installed && !it_Install.Missing)
-        {
-            l_Installed.emplace_back(HubInstalls::GetInstallName(it_Install.Manifest), it_Install.Directory);
-        }
+        Report(std::format("{} was not downloaded, as Hub is installing or deleting another version, one at a time", release.ZipName), true);
+
+        return;
+    }
+
+    if (!release.CanCheck())
+    {
+        Report(std::format("{} was not downloaded, as GitHub gives neither a .sha256 nor a digest for it, so Hub could not check it", release.ZipName), true);
+
+        return;
     }
 
     m_Message.clear();
-    m_Installer.Install(zip, m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory), std::move(l_Installed));
+    m_Installer.Download(release, m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory), GetInstalledFolders());
 }
 
 // A located version, or one whose folder is gone, leaves the list at once. An installed one's files are deleted, once asked
@@ -451,6 +485,199 @@ void InstallsPage::DrawDeletePopup()
     }
 
     ImGui::EndPopup();
+}
+
+// GitHub's releases with a zip for this platform, newest first, pre-releases only when asked for. Refresh asks again, at most once a minute, and a list GitHub could not give says why, with the last one kept
+void InstallsPage::DrawReleases()
+{
+    const bool l_Fetching = m_Releases.IsFetching();
+    const std::chrono::seconds l_Wait = m_Releases.GetWait();
+    ImGui::BeginDisabled(l_Fetching || l_Wait.count() > 0);
+    const std::string l_Refresh = l_Wait.count() > 0 && !l_Fetching ? std::format("{} Refresh in {} s###Refresh", Trinity::Icons::c_Refresh, l_Wait.count()) : std::format("{} Refresh###Refresh", Trinity::Icons::c_Refresh);
+    if (ImGui::Button(l_Refresh.c_str()))
+    {
+        m_Releases.Refresh();
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("GitHub answers 60 requests an hour without a token, so Hub asks it at most once a minute");
+    }
+
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::Checkbox("Show pre-releases", &m_ShowPrereleases);
+
+    const std::optional<std::chrono::sys_seconds> l_Fetched = HubText::ParseTime(m_Releases.GetFetchedAt());
+    if (l_Fetching)
+    {
+        ImGui::TextDisabled("Asking GitHub for Trinity's releases...");
+    }
+    else if (!m_Releases.GetNote().empty())
+    {
+        HubPages::DrawWarning(l_Fetched ? std::format("{}. This is the list from {}", m_Releases.GetNote(), HubText::DescribeTime(*l_Fetched)) : m_Releases.GetNote());
+    }
+    else if (l_Fetched)
+    {
+        ImGui::TextDisabled("%s", std::format("The releases of {} on GitHub, as of {}", HubReleases::c_Repository, HubText::DescribeTime(*l_Fetched)).c_str());
+    }
+
+    ImGui::Spacing();
+
+    std::vector<const HubRelease*> l_Shown;
+    std::size_t l_Hidden = 0;
+    for (const HubRelease& it_Release : m_Releases.GetReleases())
+    {
+        if (it_Release.Prerelease && !m_ShowPrereleases)
+        {
+            ++l_Hidden;
+
+            continue;
+        }
+
+        l_Shown.push_back(&it_Release);
+    }
+
+    std::string l_Footer;
+    if (l_Hidden > 0)
+    {
+        l_Footer = std::format("{} pre-release{} hidden", l_Hidden, l_Hidden == 1 ? "" : "s");
+    }
+
+    if (m_Releases.GetOtherReleases() > 0)
+    {
+        l_Footer += std::format("{}{} release{} with no zip for {} on {}", l_Footer.empty() ? "" : ", and ", m_Releases.GetOtherReleases(), m_Releases.GetOtherReleases() == 1 ? "" : "s", Trinity::GetBuildPlatform(), Trinity::GetBuildArchitecture());
+    }
+
+    if (!l_Shown.empty())
+    {
+        DrawReleaseList(l_Shown);
+    }
+    else if (l_Fetched)
+    {
+        HubPages::DrawEmpty(std::format("No releases for {} on {} yet", Trinity::GetBuildPlatform(), Trinity::GetBuildArchitecture()), std::format("Each release of {} on GitHub with a Trinity-<version>-{}-{}.zip is listed here, to download and install.{}", HubReleases::c_Repository, Trinity::GetBuildPlatform(), Trinity::GetBuildArchitecture(), l_Footer.empty() ? std::string() : std::format(" GitHub has {}.", l_Footer)));
+
+        return;
+    }
+
+    if (!l_Footer.empty())
+    {
+        ImGui::Spacing();
+        ImGui::TextDisabled("%s", l_Footer.c_str());
+    }
+}
+
+void InstallsPage::DrawReleaseList(const std::vector<const HubRelease*>& releases)
+{
+    constexpr ImGuiTableFlags c_Flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_PadOuterX;
+    const float l_Footer = ImGui::GetTextLineHeightWithSpacing() * 2.0f;
+    if (!ImGui::BeginTable("##Releases", 6, c_Flags, ImVec2(0.0f, std::max(ImGui::GetContentRegionAvail().y - l_Footer, ImGui::GetFrameHeightWithSpacing() * 3.0f))))
+    {
+        return;
+    }
+
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("Version");
+    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("Published");
+    ImGui::TableSetupColumn("Size");
+    ImGui::TableSetupColumn("State");
+    ImGui::TableSetupColumn("##Actions");
+    ImGui::TableHeadersRow();
+
+    const bool l_Busy = m_Installer.IsBusy();
+    std::optional<HubRelease> l_Download;
+    for (std::size_t it_Index = 0; it_Index < releases.size(); ++it_Index)
+    {
+        const HubRelease& l_Release = *releases[it_Index];
+        ImGui::PushID(static_cast<int>(it_Index));
+        ImGui::TableNextRow(ImGuiTableRowFlags_None, ImGui::GetFrameHeightWithSpacing());
+
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
+        ImGui::TextUnformatted(l_Release.Version.c_str());
+        ImGui::PopFont();
+
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        HubPages::DrawClipped(l_Release.Name);
+
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(HubText::FormatDate(l_Release.PublishedAt).c_str());
+
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(l_Release.ZipSize > 0 ? Trinity::Memory::FormatBytes(l_Release.ZipSize).c_str() : "-");
+
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        const bool l_Installed = IsInstalled(l_Release);
+        const std::string l_State = std::format("{}{}{}", l_Installed ? "Installed" : "", l_Installed && l_Release.Prerelease ? ", " : "", l_Release.Prerelease ? "Pre-release" : "");
+        ImGui::TextDisabled("%s", l_State.c_str());
+
+        ImGui::TableNextColumn();
+        ImGui::BeginDisabled(l_Busy || !l_Release.CanCheck());
+        if (ImGui::Button(std::format("{} Download", Trinity::Icons::c_Download).c_str()))
+        {
+            l_Download = l_Release;
+        }
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("%s", l_Release.CanCheck() ? std::format("Downloads {}, {}, checks it against {}, and installs it", l_Release.ZipName, Trinity::Memory::FormatBytes(l_Release.ZipSize), l_Release.Sha256Url.empty() ? "GitHub's digest of it" : "the .sha256 beside it").c_str() : "GitHub gives neither a .sha256 nor a digest for its zip, so Hub could not check it");
+        }
+
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(l_Release.Page.empty());
+        if (ImGui::Button(Trinity::Icons::c_Globe))
+        {
+            if (const Trinity::Expected<void, std::string> l_Opened = Trinity::Process::OpenWithSystem(std::filesystem::path(l_Release.Page)); !l_Opened)
+            {
+                Report(l_Opened.GetError(), true);
+            }
+        }
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("Its release notes on GitHub");
+        }
+
+        ImGui::EndDisabled();
+        ImGui::PopID();
+    }
+
+    ImGui::EndTable();
+
+    // Once the table is drawn, as the release is copied before the list could change
+    if (l_Download)
+    {
+        DownloadRelease(*l_Download);
+    }
+}
+
+bool InstallsPage::IsInstalled(const HubRelease& release) const
+{
+    return std::ranges::any_of(m_Installs.GetInstalls(), [&release](const HubInstall& install)
+    {
+        return !install.Missing && install.Manifest.Version == release.Version && install.Manifest.Platform == Trinity::GetBuildPlatform() && install.Manifest.Architecture == Trinity::GetBuildArchitecture();
+    });
+}
+
+std::vector<std::pair<std::string, std::filesystem::path>> InstallsPage::GetInstalledFolders() const
+{
+    std::vector<std::pair<std::string, std::filesystem::path>> l_Installed;
+    for (const HubInstall& it_Install : m_Installs.GetInstalls())
+    {
+        if (it_Install.Source == HubInstall::Origin::Installed && !it_Install.Missing)
+        {
+            l_Installed.emplace_back(HubInstalls::GetInstallName(it_Install.Manifest), it_Install.Directory);
+        }
+    }
+
+    return l_Installed;
 }
 
 // Shown on the page, and logged

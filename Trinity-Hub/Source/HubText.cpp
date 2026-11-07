@@ -37,4 +37,42 @@ namespace HubText
 
         return std::format("{} {} {}", l_Day, s_Months[static_cast<std::size_t>(l_Month - 1)], l_Year);
     }
+
+    std::optional<std::chrono::sys_seconds> ParseTime(std::string_view text)
+    {
+        const auto l_Read = [text](std::size_t offset, std::size_t length, int& value)
+        {
+            return offset + length <= text.size() && std::from_chars(text.data() + offset, text.data() + offset + length, value).ec == std::errc();
+        };
+
+        int l_Year = 0;
+        int l_Month = 0;
+        int l_Day = 0;
+        int l_Hour = 0;
+        int l_Minute = 0;
+        int l_Second = 0;
+        if (text.size() != 20 || text[4] != '-' || text[7] != '-' || text[10] != 'T' || text[13] != ':' || text[16] != ':' || text[19] != 'Z'
+            || !l_Read(0, 4, l_Year) || !l_Read(5, 2, l_Month) || !l_Read(8, 2, l_Day) || !l_Read(11, 2, l_Hour) || !l_Read(14, 2, l_Minute) || !l_Read(17, 2, l_Second))
+        {
+            return std::nullopt;
+        }
+
+        const std::chrono::year_month_day l_Date{ std::chrono::year(l_Year), std::chrono::month(static_cast<unsigned>(l_Month)), std::chrono::day(static_cast<unsigned>(l_Day)) };
+        if (!l_Date.ok() || l_Hour > 23 || l_Minute > 59 || l_Second > 60)
+        {
+            return std::nullopt;
+        }
+
+        return std::chrono::sys_days(l_Date) + std::chrono::hours(l_Hour) + std::chrono::minutes(l_Minute) + std::chrono::seconds(l_Second);
+    }
+
+    std::string FormatTime(std::chrono::sys_seconds time)
+    {
+        return std::format("{:%Y-%m-%dT%H:%M:%SZ}", time);
+    }
+
+    std::string DescribeTime(std::chrono::sys_seconds time)
+    {
+        return std::format("{} at {:%H:%M} UTC", FormatDate(FormatTime(time)), time);
+    }
 }

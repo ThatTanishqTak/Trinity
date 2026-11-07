@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/Core/FileDialog.hpp"
+#include "Trinity/Core/Http.hpp"
 #include "Trinity/Input/GamepadCodes.hpp"
 
 #include <array>
@@ -132,6 +133,11 @@ namespace Trinity
         void ReleaseFileLock(void* lock);
         // What a locked file's holder wrote in it, or none when it cannot be read
         [[nodiscard]] std::optional<std::string> ReadLockedFile(const std::filesystem::path& path);
+
+        // Whether HttpGet can make requests here: always on Windows, and elsewhere where libcurl could be loaded
+        [[nodiscard]] bool HasHttp();
+        // One GET, following redirects, with the body to sink piece by piece, which false stops. The response holds the final answer's status and headers, and no body
+        [[nodiscard]] Expected<HttpResponse, HttpError> HttpGet(const HttpRequest& request, const std::function<bool(std::span<const std::byte>)>& sink);
 
         // A folder and everything below it, watched without blocking. Null on failure, with the reason in error. Each read appends the paths that changed since the last one, relative to the folder, and returns true when more changed than it could tell, so everything should be looked at again
         [[nodiscard]] void* OpenDirectoryWatch(const std::filesystem::path& directory, std::string& error);
