@@ -15,6 +15,7 @@
 #include "Panels/SoundEventPanel.hpp"
 #include "Panels/ViewportPanel.hpp"
 #include "PreferencesWindow.hpp"
+#include "SceneCapture.hpp"
 
 #include <Trinity.hpp>
 
@@ -74,6 +75,7 @@ private:
     EditorSession m_Session;
     ImportTest m_ImportTest{ m_Session };
     ExportCommand m_Export{ m_Session };
+    SceneCapture m_Capture{ m_Session };
     PreferencesWindow m_PreferencesWindow{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;

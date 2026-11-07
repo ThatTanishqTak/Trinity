@@ -1,0 +1,9 @@
+Format: 1
+Name: "3D"
+Description: "A perspective camera with an AudioListener, a sun with shadows, a generated sky, and a ground and a cube with colliders, the starter input actions with Gameplay and UI maps, a mixer with Music, SFX and UI groups, and its scene ticked in the build"
+Thumbnail: "Thumbnail.png"
+ProjectFormat: 10
+View: 3D
+StartScene: "Scenes/Main.trscene"
+InputActions: "Input/Starter Actions.trinput"
+Mixer: "Audio/Main Mixer.trmixer"

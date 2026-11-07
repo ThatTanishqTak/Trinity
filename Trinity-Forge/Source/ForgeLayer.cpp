@@ -125,6 +125,11 @@ void ForgeLayer::OnAttach()
         {
             m_Export.Start(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(it_Folder->data()), it_Folder->size())), true);
         }
+
+        if (const auto it_File = l_Args.GetOption("capture"); it_File && !it_File->empty())
+        {
+            m_Capture.Start(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(it_File->data()), it_File->size())));
+        }
     }
 
     // The scene is shown in the Scene and Game panels, so the window gets no copy of it under the UI
@@ -246,6 +251,7 @@ void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
     m_Session.Update();
     m_ImportTest.Update();
     m_Export.Update();
+    m_Capture.Update();
     m_Session.UpdatePlay(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
     m_GamePanel->ShowUI();
@@ -278,7 +284,7 @@ void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& com
     Trinity::Application::Get().GetRenderer().SetToneMapping(GetSceneToneMapping(m_Session.GetScene()));
     m_ViewportPanel->PrepareScene();
     m_GamePanel->PrepareScene();
-    m_GamePanel->PrepareScene();
+    m_Capture.Prepare();
     m_ContentBrowser->PrepareThumbnails();
 }
 

@@ -68,6 +68,14 @@ namespace Trinity
         glm::mat4 ViewProjection{ 1.0f };
     };
 
+    // A view's picture as a frame drew it, in sRGB-encoded RGBA8 rows from the top, as Forge's --capture writes a template's thumbnail from it
+    struct ViewCapture
+    {
+        std::uint32_t Width = 0;
+        std::uint32_t Height = 0;
+        std::vector<std::byte> Pixels;
+    };
+
     // Each frame is a frame graph that draws every view in turn, the main view first. A view has scene and display targets of its own, a size, tone mapping, and a scene submitted to it with its options, ID targets and picks. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. In the main view, layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns each view's scene into a display target of sRGB-encoded 8-bit values. The output pass copies the main view's to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space, where it can show any view's display target. A scene that asks for entity IDs also has its sprites' drawn after the scene pass, a pixel picked from them and read back without waiting, and its selection outlined over the tonemapped image. The depth its meshes leave in a pixel can be read back the same way, whatever its options. A view overlay, such as a game's UI, draws over each view's display target last. A world UI source's documents are drawn into their textures before any view, for the scenes' quads to show. Each added output gets a pass of its own
     class TRINITY_API Renderer
     {
@@ -101,6 +109,9 @@ namespace Trinity
         // The depth in a pixel of the view, read in the next frame that draws its scene's meshes and handed back as a pick is, c_FramesInFlight frames later. Before the frame graph is built, and the last asked for wins. A device that cannot read the scene's depth answers none
         void RequestDepthPick(glm::uvec2 pixel, ViewID view = c_MainView);
         [[nodiscard]] std::optional<DepthPickResult> TakeDepthPick(ViewID view = c_MainView);
+        // The view's display target as the next frame that draws a scene into it leaves it, copied after everything drawn over it, and handed back as a pick is, c_FramesInFlight frames later. Before the frame graph is built
+        void RequestCapture(ViewID view = c_MainView);
+        [[nodiscard]] std::optional<ViewCapture> TakeCapture(ViewID view = c_MainView);
         void SetTitle(std::string_view title);
         void SetSceneCopy(bool enabled) { m_SceneCopy = enabled; }
         void SetSceneSize(std::uint32_t width, std::uint32_t height, ViewID view = c_MainView);
@@ -184,6 +195,11 @@ namespace Trinity
             std::array<RHI::BufferHandle, RHI::c_FramesInFlight> DepthReadbacks{};
             std::array<std::optional<DepthPickResult>, RHI::c_FramesInFlight> DepthPicks{};
             std::optional<DepthPickResult> Depth;
+            // The same for a capture of the display: whether one is asked for, and the readback of each slot's frame with the size it was copied at, until it is read
+            bool CaptureWanted = false;
+            std::array<RHI::BufferHandle, RHI::c_FramesInFlight> CaptureReadbacks{};
+            std::array<std::optional<glm::uvec2>, RHI::c_FramesInFlight> CaptureSizes{};
+            std::optional<ViewCapture> Captured;
         };
 
         void FollowWindow();
@@ -201,12 +217,14 @@ namespace Trinity
         void AddOutlinePass(FrameGraph& graph, const View& view, const EntityTargets& targets, FrameGraphTexture display);
         void AddDepthPickPass(FrameGraph& graph, View& view, const Renderer3D::Passes& passes);
         void AddOverlayPass(FrameGraph& graph, const View& view, FrameGraphTexture display, ViewOverlay::Needs needs);
+        void AddCapturePass(FrameGraph& graph, View& view, FrameGraphTexture display);
 #if TR_DEBUG_DRAW
         void PrepareDebugLines();
         void AddDebugLinePass(FrameGraph& graph, const View& view, FrameGraphTexture display, const Renderer3D::Passes& passes);
 #endif
         void ReadPick(View& view);
         void ReadDepthPick(View& view);
+        void ReadCapture(View& view);
         void AddOutputPass(FrameGraphTexture display, RHI::TextureHandle output, LayerStack& layers);
         void AddAddedOutputPasses();
         void DestroyOutput(Output& output);

@@ -1,0 +1,37 @@
+Format: 1
+Groups:
+  - ID: 6d00c38e51d131f8
+    Name: Master
+    Volume: 0
+    Pitch: 1
+    Mute: false
+    Solo: false
+    Bypass: false
+  - ID: b8d502da0d756d21
+    Name: Music
+    Parent: 6d00c38e51d131f8
+    Volume: 0
+    Pitch: 1
+    Mute: false
+    Solo: false
+    Bypass: false
+  - ID: 6130e63a588fbebe
+    Name: SFX
+    Parent: 6d00c38e51d131f8
+    Volume: 0
+    Pitch: 1
+    Mute: false
+    Solo: false
+    Bypass: false
+  - ID: 940c67bb2ad26de5
+    Name: UI
+    Parent: 6d00c38e51d131f8
+    Volume: 0
+    Pitch: 1
+    Mute: false
+    Solo: false
+    Bypass: false
+Snapshots:
+  - ID: 75dc79316bfd8b74
+    Name: Snapshot
+StartSnapshot: 75dc79316bfd8b74

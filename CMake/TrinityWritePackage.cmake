@@ -1,4 +1,4 @@
-# Run with cmake -P by the build as each configuration's build ends, given TRINITY_PACKAGE_FILES, which CMake/TrinityPackage.cmake writes for the configuration. Copies into the version what its packages name, each file only when it differs, and removes what the version no longer holds: the headers into Include, the allocations source into Source, and in Distribution the player's main objects into RuntimeMain, the checks a player's build makes into CMake and the libraries from outside Trinity's build beside the static engine, then writes TrinityGameTargets.cmake there from CMake's export of the static engine, naming only what the version holds
+# Run with cmake -P by the build as each configuration's build ends, given TRINITY_PACKAGE_FILES, which CMake/TrinityPackage.cmake writes for the configuration. Copies into the version what its packages name, each file only when it differs, and removes what the version no longer holds: the headers into Include, the allocations source into Source, the project templates into Templates, and in Distribution the player's main objects into RuntimeMain, the checks a player's build makes into CMake and the libraries from outside Trinity's build beside the static engine, then writes TrinityGameTargets.cmake there from CMake's export of the static engine, naming only what the version holds
 cmake_minimum_required(VERSION 3.30...4.2)
 
 include("${TRINITY_PACKAGE_FILES}")
@@ -93,6 +93,17 @@ foreach(source IN LISTS TRINITY_PACKAGE_SOURCES)
     list(APPEND sources "${TRINITY_PACKAGE_ROOT}/Source/${source_name}")
 endforeach()
 trinity_remove_others("${TRINITY_PACKAGE_ROOT}/Source" ${sources})
+
+# The project templates whole, which Forge's --template and Hub's New Project find in the version
+set(templates "")
+if(IS_DIRECTORY "${TRINITY_PACKAGE_TEMPLATES}")
+    file(GLOB_RECURSE template_files LIST_DIRECTORIES false RELATIVE "${TRINITY_PACKAGE_TEMPLATES}" "${TRINITY_PACKAGE_TEMPLATES}/*")
+    foreach(template_file IN LISTS template_files)
+        trinity_copy_if_different("${TRINITY_PACKAGE_TEMPLATES}/${template_file}" "${TRINITY_PACKAGE_ROOT}/Templates/${template_file}")
+        list(APPEND templates "${TRINITY_PACKAGE_ROOT}/Templates/${template_file}")
+    endforeach()
+endif()
+trinity_remove_others("${TRINITY_PACKAGE_ROOT}/Templates" ${templates})
 
 if(NOT TRINITY_PACKAGE_GAME)
     return()

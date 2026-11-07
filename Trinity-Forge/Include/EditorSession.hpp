@@ -31,6 +31,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 class EditorSession
@@ -166,8 +167,8 @@ public:
     EditorSession& operator=(const EditorSession&) = delete;
 
     void Start(const Trinity::ApplicationCommandLineArgs& args);
-    // In the language its scripts are written in, which it keeps
-    void CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language);
+    // In the language its scripts are written in, which it keeps, with a template's assets and settings, or else with an empty start scene alone
+    void CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language, const Trinity::ProjectTemplate* projectTemplate = nullptr);
     // language answers for a project older than format 10 with both a C++ module and a C# project, or neither, which without one is asked about first
     void OpenProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language = std::nullopt);
     void ScanAssets();
@@ -431,6 +432,8 @@ public:
     // Where the Scene panel's camera looks, which the panel sets each frame with whether it shows the scene in 3D: the 3D camera's focus, or the 2D camera's centre at Z 0
     [[nodiscard]] glm::vec3 GetSpawnPoint() const { return m_SpawnPoint; }
     [[nodiscard]] bool IsSceneView3D() const { return m_SceneView3D; }
+    // Whether the Scene panel shows a scene it has kept no view of in 3D, as a project made from a template asks, once
+    [[nodiscard]] std::optional<bool> TakeStartView3D() { return std::exchange(m_StartView3D, std::nullopt); }
     void SetSpawnPoint(glm::vec3 point, bool view3D)
     {
         m_SpawnPoint = point;
@@ -491,6 +494,9 @@ private:
         std::string Name;
         bool HasModule = false;
         bool HasAssembly = false;
+        // A new project's choice of the version's templates, 0 for none and each after it one of them in turn
+        std::vector<Trinity::ProjectTemplate> Templates;
+        std::size_t Template = 0;
     };
 
     // What Copy took, with where the original was and its place in the world, which a paste away from that parent keeps
@@ -529,6 +535,8 @@ private:
     void CloseProject();
     // The lock on the project a path names, Cache/Forge.lock, taken before any of it opens. None when another Forge has it open, which is brought forward, and one not held when it could not be had for another reason, which is warned of, or the path names no project, which opening it says
     [[nodiscard]] std::optional<Trinity::FileLock> LockProject(const std::filesystem::path& path);
+    // The template's settings, once its assets are in the project and scanned: its start scene, which becomes the build's only scene and is opened, its input actions and its mixer
+    void ApplyTemplate(const Trinity::ProjectTemplate& projectTemplate);
     void ReadPreferences(const Trinity::ApplicationCommandLineArgs& args);
     void WritePreferences();
     void ReadRecentProjects();
@@ -624,6 +632,7 @@ private:
     SoundEventSelection m_SoundEventSelection;
     glm::vec3 m_SpawnPoint{ 0.0f };
     bool m_SceneView3D = false;
+    std::optional<bool> m_StartView3D;
     TextureReimporter m_Reimporter;
     TextureImportBatch m_Imports;
     ModelImportBatch m_ModelImports;

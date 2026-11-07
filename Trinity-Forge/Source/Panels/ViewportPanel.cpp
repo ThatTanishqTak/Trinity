@@ -753,6 +753,15 @@ void ViewportPanel::FollowScene()
         m_Camera3D.Reset(m_Session.GetPreferences().CameraSpeed);
     }
 
+    // A project made from a template opens its start scene in the template's view
+    if (!l_Kept)
+    {
+        if (const std::optional<bool> l_View3D = m_Session.TakeStartView3D())
+        {
+            m_Mode3D = *l_View3D;
+        }
+    }
+
     if (l_Prefab && !l_Kept)
     {
         m_FrameRequest = false;

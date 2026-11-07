@@ -135,6 +135,7 @@ set(TRINITY_PACKAGE_HEADERS
     [==[${CMAKE_SOURCE_DIR}/Vendor/imgui/misc/cpp]==] [==[Include/Vendor/imgui/misc/cpp]==] OFF
 )
 set(TRINITY_PACKAGE_SOURCES [==[${CMAKE_SOURCE_DIR}/Trinity-Engine/Source/Trinity/Core/GlobalAllocations.cpp]==])
+set(TRINITY_PACKAGE_TEMPLATES [==[${CMAKE_SOURCE_DIR}/Templates]==])
 set(TRINITY_PACKAGE_GAME $<BOOL:$<CONFIG:Distribution>>)
 set(TRINITY_PACKAGE_OBJECTS [==[$<$<CONFIG:Distribution>:$<TARGET_OBJECTS:${runtime}>>]==])
 set(TRINITY_PACKAGE_PLAYER_CHECKS [==[${player_checks}]==])

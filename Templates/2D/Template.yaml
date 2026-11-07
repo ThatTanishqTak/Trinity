@@ -1,0 +1,9 @@
+Format: 1
+Name: "2D"
+Description: "An orthographic camera with an AudioListener and a sprite, the starter input actions with Gameplay and UI maps, a mixer with Music, SFX and UI groups, and its scene ticked in the build"
+Thumbnail: "Thumbnail.png"
+ProjectFormat: 10
+View: 2D
+StartScene: "Scenes/Main.trscene"
+InputActions: "Input/Starter Actions.trinput"
+Mixer: "Audio/Main Mixer.trmixer"

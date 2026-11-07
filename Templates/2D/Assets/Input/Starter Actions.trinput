@@ -1,0 +1,83 @@
+Format: 2
+Maps:
+  - Name: Gameplay
+    Actions:
+      - Name: Move
+        Type: Vector2
+        Bindings:
+          - Composite: Vector2
+            Up: Keyboard/W
+            Down: Keyboard/S
+            Left: Keyboard/A
+            Right: Keyboard/D
+            Processors:
+              - Kind: Normalize
+          - Composite: Vector2
+            Up: Keyboard/Up
+            Down: Keyboard/Down
+            Left: Keyboard/Left
+            Right: Keyboard/Right
+            Processors:
+              - Kind: Normalize
+          - Source: Gamepad/LeftStick
+            Processors:
+              - Kind: RadialDeadzone
+                Min: 0.125
+                Max: 0.925
+      - Name: Look
+        Type: Vector2
+        Bindings:
+          - Source: Mouse/Delta
+          - Source: Gamepad/RightStick
+            Processors:
+              - Kind: RadialDeadzone
+                Min: 0.125
+                Max: 0.925
+      - Name: Jump
+        Type: Button
+        Bindings:
+          - Source: Keyboard/Space
+          - Source: Gamepad/A
+  - Name: UI
+    Actions:
+      - Name: Navigate
+        Type: Vector2
+        Bindings:
+          - Composite: Vector2
+            Up: Keyboard/W
+            Down: Keyboard/S
+            Left: Keyboard/A
+            Right: Keyboard/D
+            Processors:
+              - Kind: Normalize
+          - Composite: Vector2
+            Up: Keyboard/Up
+            Down: Keyboard/Down
+            Left: Keyboard/Left
+            Right: Keyboard/Right
+            Processors:
+              - Kind: Normalize
+          - Source: Gamepad/LeftStick
+            Processors:
+              - Kind: RadialDeadzone
+                Min: 0.125
+                Max: 0.925
+          - Composite: Vector2
+            Up: Gamepad/DpadUp
+            Down: Gamepad/DpadDown
+            Left: Gamepad/DpadLeft
+            Right: Gamepad/DpadRight
+            Processors:
+              - Kind: Normalize
+      - Name: Submit
+        Type: Button
+        Bindings:
+          - Source: Keyboard/Enter
+          - Source: Keyboard/KeypadEnter
+          - Source: Keyboard/Space
+          - Source: Gamepad/A
+      - Name: Cancel
+        Type: Button
+        Bindings:
+          - Source: Keyboard/Escape
+          - Source: Gamepad/B

@@ -905,13 +905,38 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
 
     if (const auto it_Directory = args.GetOption("new-project"))
     {
-        if (l_Language)
+        // A template of this Forge's own version, by its folder's name, or none for an empty project
+        std::optional<Trinity::ProjectTemplate> l_Template;
+        bool l_Found = true;
+        if (const auto it_Template = args.GetOption("template"))
         {
-            CreateProject(FromUtf8(*it_Directory), *l_Language);
+            const std::filesystem::path l_Root = Trinity::Process::GetExecutableDirectory().parent_path().parent_path();
+            std::vector<Trinity::ProjectTemplate> l_Templates = Trinity::FindProjectTemplates(l_Root);
+            const auto a_Template = std::ranges::find(l_Templates, *it_Template, &Trinity::ProjectTemplate::Name);
+            l_Found = a_Template != l_Templates.end();
+            if (l_Found)
+            {
+                l_Template = std::move(*a_Template);
+            }
+            else
+            {
+                std::string l_Names;
+                for (const Trinity::ProjectTemplate& it_Known : l_Templates)
+                {
+                    l_Names += std::format("{}{}", l_Names.empty() ? "" : ", ", it_Known.Name);
+                }
+
+                TR_ERROR("Forge: this version of Trinity in {} has no template '{}', but {}, so no project was made", ToUtf8(l_Root), *it_Template, l_Names.empty() ? std::string("none") : l_Names);
+            }
         }
-        else
+
+        if (!l_Language)
         {
             TR_ERROR("Forge: --new-project needs --language=CSharp or --language=Cpp, the language the project's scripts are written in, which it keeps, so no project was made");
+        }
+        else if (l_Found)
+        {
+            CreateProject(FromUtf8(*it_Directory), *l_Language, l_Template ? &*l_Template : nullptr);
         }
     }
     else if (const auto it_Project = args.GetOption("project"))
@@ -1073,7 +1098,7 @@ void EditorSession::Run(Command command)
             {
                 AskPath({ PathKind::Folder, "Choose an empty folder for the new project",{},{},{}, [this](const std::filesystem::path& path)
                 {
-                    m_LanguageQuestion = LanguageQuestion{ .Path = path, .NewProject = true, .Name = {}, .HasModule = false, .HasAssembly = false };
+                    m_LanguageQuestion = LanguageQuestion{ .Path = path, .NewProject = true, .Name = {}, .HasModule = false, .HasAssembly = false, .Templates = Trinity::FindProjectTemplates(Trinity::Process::GetExecutableDirectory().parent_path().parent_path()), .Template = 0 };
                     m_OpenLanguagePopup = true;
                 } });
             });
@@ -1338,8 +1363,8 @@ bool EditorSession::SettleUnappliedEdits(Action& then)
     return true;
 }
 
-// A new project opens on its empty start scene, saved and given a UUID at once so the project file never names a missing scene
-void EditorSession::CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language)
+// A new project opens on its start scene: its template's, or else an empty one, saved and given a UUID at once so the project file never names a missing scene
+void EditorSession::CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language, const Trinity::ProjectTemplate* projectTemplate)
 {
     CloseProject();
     NewScene();
@@ -1360,12 +1385,29 @@ void EditorSession::CreateProject(const std::filesystem::path& directory, Trinit
     }
 
     Trinity::ScriptRuntime::SetLanguage(m_Project->GetLanguage());
+    // A template's assets go in before the registry first scans, so they keep the UUIDs in their .meta files that its scenes name them by
+    if (projectTemplate != nullptr)
+    {
+        std::error_code l_Error;
+        std::filesystem::copy(projectTemplate->GetAssetsDirectory(), m_Project->GetAssetsDirectory(), std::filesystem::copy_options::recursive, l_Error);
+        if (l_Error)
+        {
+            TR_ERROR("Forge: the {} template's assets could not all be copied into {}: {}", projectTemplate->Name, ToUtf8(m_Project->GetAssetsDirectory()), l_Error.message());
+        }
+    }
+
     AttachRegistry();
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
     DebuggerSettings::Write(*m_Project);
     RememberProject();
     ReadRecentScenes();
+    if (projectTemplate != nullptr)
+    {
+        ApplyTemplate(*projectTemplate);
+
+        return;
+    }
 
     const std::string l_StartScene = std::format("{}/{}", Trinity::Project::c_AssetsMount, Trinity::Project::c_DefaultStartScene);
     if (!WriteScene(l_StartScene))
@@ -1387,6 +1429,50 @@ void EditorSession::CreateProject(const std::filesystem::path& directory, Trinit
     }
 }
 
+// The settings are found by the paths Template.yaml gives, each one missing reported and left unset
+void EditorSession::ApplyTemplate(const Trinity::ProjectTemplate& projectTemplate)
+{
+    const auto a_Find = [this, &projectTemplate](std::string_view path) -> const Trinity::AssetRecord*
+    {
+        if (path.empty())
+        {
+            return nullptr;
+        }
+
+        const Trinity::AssetRecord* l_Record = m_Registry->FindByPath(std::format("{}/{}", Trinity::Project::c_AssetsMount, path));
+        if (l_Record == nullptr)
+        {
+            TR_WARN("Forge: the {} template names {}, which its assets do not hold, so the project has none in its place", projectTemplate.Name, path);
+        }
+
+        return l_Record;
+    };
+
+    const Trinity::AssetRecord* l_StartScene = a_Find(projectTemplate.StartScene);
+    const Trinity::AssetRecord* l_InputActions = a_Find(projectTemplate.InputActions);
+    const Trinity::AssetRecord* l_Mixer = a_Find(projectTemplate.Mixer);
+    Trinity::ExportSettings l_Export = m_Project->GetExportSettings();
+    l_Export.Scenes.clear();
+    if (l_StartScene != nullptr)
+    {
+        m_Project->SetStartScene(l_StartScene->ID);
+        l_Export.Scenes.push_back({ l_StartScene->ID, true });
+    }
+
+    m_Project->SetExportSettings(std::move(l_Export));
+    m_Project->SetInputActions(l_InputActions != nullptr ? l_InputActions->ID : Trinity::UUID());
+    Trinity::AudioSettings l_Audio = m_Project->GetAudioSettings();
+    l_Audio.Mixer = l_Mixer != nullptr ? l_Mixer->ID : Trinity::UUID();
+    m_Project->SetAudioSettings(l_Audio);
+    SaveProject();
+    m_StartView3D = projectTemplate.View3D;
+    TR_INFO("Forge: created project {} in {} from the {} template, its scripts in {}", m_Project->GetName(), ToUtf8(m_Project->GetDirectory()), projectTemplate.Title, GetScriptLanguageLabel(m_Project->GetLanguage()));
+    if (l_StartScene != nullptr)
+    {
+        OpenScene(l_StartScene->Path);
+    }
+}
+
 // Locked before the open project closes, so asking for one another Forge has open leaves this one's open. One older than format 10 with both languages or neither is asked about first, and once answered is saved in the language chosen, so it is asked about once
 void EditorSession::OpenProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language)
 {
@@ -1396,7 +1482,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path, std::optional
     if (l_Choose && !language)
     {
         TR_INFO("Forge: {} was made before a project had one language, and has {}, so it opens once its language is chosen", l_Info->Name, l_Info->HasModule ? "a C++ module and a C# project" : "no scripts yet");
-        m_LanguageQuestion = LanguageQuestion{ .Path = *l_File, .NewProject = false, .Name = l_Info->Name, .HasModule = l_Info->HasModule, .HasAssembly = l_Info->HasAssembly };
+        m_LanguageQuestion = LanguageQuestion{ .Path = *l_File, .NewProject = false, .Name = l_Info->Name, .HasModule = l_Info->HasModule, .HasAssembly = l_Info->HasAssembly, .Templates = {}, .Template = 0 };
         m_OpenLanguagePopup = true;
 
         return;
@@ -5504,6 +5590,27 @@ void EditorSession::DrawLanguagePopup()
     ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
     if (l_Question.NewProject)
     {
+        // What the project starts with: one of the version's templates, or nothing but an empty start scene
+        const std::string l_Shown = l_Question.Template == 0 ? std::string("Empty") : l_Question.Templates[l_Question.Template - 1].Title;
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Template");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+        if (ImGui::BeginCombo("##Template", l_Shown.c_str()))
+        {
+            for (std::size_t it_Index = 0; it_Index <= l_Question.Templates.size(); ++it_Index)
+            {
+                if (ImGui::Selectable(it_Index == 0 ? "Empty" : l_Question.Templates[it_Index - 1].Title.c_str(), it_Index == l_Question.Template))
+                {
+                    m_LanguageQuestion->Template = it_Index;
+                }
+            }
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::TextDisabled("%s", l_Question.Template == 0 ? "An empty start scene, and nothing else" : l_Question.Templates[l_Question.Template - 1].Description.c_str());
+        ImGui::Spacing();
         ImGui::TextUnformatted(std::format("Which language are {}'s scripts written in?", ToUtf8(l_Question.Path.filename())).c_str());
         ImGui::TextDisabled("It is chosen once, as the project is made, and cannot change later. Forge shows only that language's menus, templates and scripts, and builds only it.");
     }
@@ -5550,7 +5657,7 @@ void EditorSession::DrawLanguagePopup()
         {
             if (l_Asked.NewProject)
             {
-                CreateProject(l_Asked.Path, l_Language);
+                CreateProject(l_Asked.Path, l_Language, l_Asked.Template == 0 ? nullptr : &l_Asked.Templates[l_Asked.Template - 1]);
             }
             else
             {

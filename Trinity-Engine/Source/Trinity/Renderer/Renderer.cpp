@@ -253,6 +253,7 @@ namespace Trinity
         {
             ReadPick(*it_View);
             ReadDepthPick(*it_View);
+            ReadCapture(*it_View);
         }
 
         m_TextureLoader->RecordUploads(l_Commands);
@@ -438,9 +439,49 @@ namespace Trinity
             {
                 AddOverlayPass(graph, view, l_Display, l_Overlay);
             }
+
+            if (l_Submitted && view.CaptureWanted)
+            {
+                AddCapturePass(graph, view, l_Display);
+            }
         }
 
         return l_Display;
+    }
+
+    // Into a readback buffer of this frame's slot, made for the display's size, which the slot's next frame reads and lets go of
+    void Renderer::AddCapturePass(FrameGraph& graph, View& view, FrameGraphTexture display)
+    {
+        const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
+        const std::uint32_t l_Width = view.DisplayDescription.Width;
+        const std::uint32_t l_Height = view.DisplayDescription.Height;
+        const std::uint64_t l_Size = RHI::GetTextureCopySize(view.DisplayDescription.TextureFormat, l_Width, l_Height);
+        m_Device.DestroyBuffer(view.CaptureReadbacks[l_Slot]);
+
+        RHI::BufferDescription l_Description;
+        l_Description.Size = l_Size;
+        l_Description.Memory = RHI::MemoryType::Readback;
+        l_Description.DebugName = "View capture readback";
+        view.CaptureReadbacks[l_Slot] = m_Device.CreateBuffer(l_Description);
+        view.CaptureWanted = false;
+        if (!view.CaptureReadbacks[l_Slot])
+        {
+            TR_CORE_ERROR("Renderer: no buffer could be made to read view {} back into, so it is not captured", view.Id);
+
+            return;
+        }
+
+        view.CaptureSizes[l_Slot] = glm::uvec2(l_Width, l_Height);
+        const FrameGraphBuffer l_Readback = graph.ImportBuffer("View capture readback", view.CaptureReadbacks[l_Slot], l_Size, RHI::ResourceState::CopyDestination, RHI::ResourceState::CopyDestination);
+        graph.AddPass("View capture", FrameGraphPassType::Copy, [display, l_Readback](FrameGraphPassBuilder& builder)
+        {
+            builder.Read(display, RHI::ResourceState::CopySource);
+            builder.Write(l_Readback, RHI::ResourceState::CopyDestination);
+            builder.SetSideEffect();
+        }, [display, l_Readback](const FrameGraphContext& context)
+        {
+            context.GetCommands().CopyTextureToBuffer(context.GetTexture(display), 0, 0, context.GetBuffer(l_Readback), 0);
+        });
     }
 
     void Renderer::SubmitScene(Scene& scene, const RenderView& camera, const SceneOptions& options, ViewID view)
@@ -756,6 +797,49 @@ namespace Trinity
         view.Depth = l_Pick;
     }
 
+    // The rows packed tight, as the copy left each one aligned. The display is always RGBA8Unorm
+    void Renderer::ReadCapture(View& view)
+    {
+        const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
+        const std::optional<glm::uvec2> l_Size = std::exchange(view.CaptureSizes[l_Slot], std::nullopt);
+        if (!l_Size)
+        {
+            return;
+        }
+
+        const std::span<const std::byte> l_Data = m_Device.GetMappedData(view.CaptureReadbacks[l_Slot]);
+        const std::uint64_t l_Pitch = RHI::GetTextureCopyRowPitch(c_DisplayFormat, l_Size->x);
+        const std::size_t l_Row = static_cast<std::size_t>(l_Size->x) * 4;
+        if (l_Data.size() >= l_Pitch * l_Size->y)
+        {
+            ViewCapture l_Capture{ l_Size->x, l_Size->y, std::vector<std::byte>(l_Row * l_Size->y) };
+            for (std::uint32_t it_Row = 0; it_Row < l_Size->y; ++it_Row)
+            {
+                std::memcpy(l_Capture.Pixels.data() + l_Row * it_Row, l_Data.data() + l_Pitch * it_Row, l_Row);
+            }
+
+            view.Captured = std::move(l_Capture);
+        }
+
+        m_Device.DestroyBuffer(view.CaptureReadbacks[l_Slot]);
+        view.CaptureReadbacks[l_Slot] = {};
+    }
+
+    void Renderer::RequestCapture(ViewID view)
+    {
+        if (View* l_View = FindView(view))
+        {
+            l_View->CaptureWanted = true;
+        }
+    }
+
+    std::optional<ViewCapture> Renderer::TakeCapture(ViewID view)
+    {
+        View* l_View = FindView(view);
+
+        return l_View != nullptr ? std::exchange(l_View->Captured, std::nullopt) : std::nullopt;
+    }
+
     void Renderer::RequestDepthPick(glm::uvec2 pixel, ViewID view)
     {
         if (View* l_View = FindView(view))
@@ -1055,6 +1139,12 @@ namespace Trinity
         }
 
         for (RHI::BufferHandle& it_Readback : view.DepthReadbacks)
+        {
+            m_Device.DestroyBuffer(it_Readback);
+            it_Readback = {};
+        }
+
+        for (RHI::BufferHandle& it_Readback : view.CaptureReadbacks)
         {
             m_Device.DestroyBuffer(it_Readback);
             it_Readback = {};

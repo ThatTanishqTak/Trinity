@@ -1,0 +1,9 @@
+Format: 2
+ID: f25f74782755eb67
+Importer: Texture
+Settings:
+  Srgb: true
+  NormalMap: false
+  GenerateMips: true
+  UastcLevel: 2
+  Filter: Linear

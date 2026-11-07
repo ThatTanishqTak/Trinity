@@ -366,7 +366,7 @@ endforeach()
 trinity_take_folder("${TRINITY_VERSION_ROOT}/Include" "${stage}/Include" Headers)
 trinity_take_folder("${TRINITY_VERSION_ROOT}/Source" "${stage}/Source" Packages)
 foreach(template IN LISTS TRINITY_VERSION_TEMPLATES)
-    trinity_take_folder("${root}/Templates/${template}" "${stage}/Templates/${template}" Templates)
+    trinity_take_folder("${TRINITY_VERSION_ROOT}/Templates/${template}" "${stage}/Templates/${template}" Templates)
 endforeach()
 
 include("${CMAKE_CURRENT_LIST_DIR}/PackageNotices.cmake")

@@ -1,0 +1,11 @@
+Format: 1
+BaseColorFactor: [0.26, 0.3, 0.24, 1]
+MetallicFactor: 0
+RoughnessFactor: 0.9
+EmissiveFactor: [0, 0, 0]
+EmissiveStrength: 1
+NormalScale: 1
+OcclusionStrength: 1
+AlphaMode: Opaque
+AlphaCutoff: 0.5
+DoubleSided: false

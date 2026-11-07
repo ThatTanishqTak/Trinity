@@ -136,6 +136,9 @@ namespace Trinity
                 }
             }
 
+            const std::string l_Platform = ReadString(node, "Platform", settings.Platform);
+            l_Unread |= TargetPlatforms::Find(l_Platform) == nullptr;
+            settings.Platform = TargetPlatforms::Find(l_Platform) != nullptr ? l_Platform : settings.Platform;
             settings.Product = ReadString(node, "Product", settings.Product);
             settings.Company = ReadString(node, "Company", settings.Company);
             settings.Version = ReadString(node, "Version", settings.Version);

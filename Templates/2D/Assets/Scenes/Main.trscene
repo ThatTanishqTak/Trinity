@@ -1,0 +1,33 @@
+Format: 2
+Entities:
+  - Entity: cc2d01951bd1167b
+    Trinity.Tag: Main Camera
+    Trinity.Transform:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0, 1]
+      Scale: [1, 1, 1]
+    Trinity.Camera:
+      Projection: Orthographic
+      OrthographicSize: 10
+      Near: -1
+      Far: 1
+      FieldOfView: 60
+      PerspectiveNear: 0.1
+      Primary: true
+      ExposureEV100: -0.2630344
+      Tonemapper: PBRNeutral
+    Trinity.AudioListener:
+  - Entity: f97809cea3c2362c
+    Trinity.Tag: Sprite
+    Trinity.Transform:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0, 1]
+      Scale: [4, 4, 1]
+    Trinity.SpriteRenderer:
+      Texture: f25f74782755eb67
+      Tint: [1, 1, 1, 1]
+      FlipX: false
+      FlipY: false
+      UVRect: [0, 0, 1, 1]
+      SortingLayer: 0
+      OrderInLayer: 0

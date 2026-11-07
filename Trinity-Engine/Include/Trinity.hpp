@@ -88,6 +88,7 @@
 #include "Trinity/Project/LastExport.hpp"
 #include "Trinity/Project/Project.hpp"
 #include "Trinity/Project/ProjectList.hpp"
+#include "Trinity/Project/ProjectTemplate.hpp"
 #include "Trinity/Project/TargetPlatform.hpp"
 
 #include "Trinity/Scene/ComponentType.hpp"

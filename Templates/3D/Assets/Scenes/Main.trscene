@@ -1,0 +1,98 @@
+Format: 2
+Entities:
+  - Entity: 32f20270b62f867c
+    Trinity.Tag: Main Camera
+    Trinity.Transform:
+      Position: [0, 2.5, 7]
+      Rotation: [-0.1305262, 0, 0, 0.9914449]
+      Scale: [1, 1, 1]
+    Trinity.Camera:
+      Projection: Perspective
+      OrthographicSize: 10
+      Near: -1
+      Far: 1
+      FieldOfView: 60
+      PerspectiveNear: 0.1
+      Primary: true
+      ExposureEV100: -0.2630344
+      Tonemapper: PBRNeutral
+    Trinity.AudioListener:
+  - Entity: cd5fb69f6074f267
+    Trinity.Tag: Sun
+    Trinity.Transform:
+      Position: [0, 0, 0]
+      Rotation: [-0.4030582, 0.272532, 0.12708376, 0.86436105]
+      Scale: [1, 1, 1]
+    Trinity.Light:
+      Type: Directional
+      Color: [1, 1, 1]
+      Intensity: 3.1415927
+      Range: 0
+      InnerConeAngle: 0
+      OuterConeAngle: 45
+      CastShadows: true
+  - Entity: 9daee9c1c0c9fdaa
+    Trinity.Tag: Environment
+    Trinity.Transform:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0, 1]
+      Scale: [1, 1, 1]
+    Trinity.Environment:
+      Environment: dc188bdd7da98490
+      Intensity: 1
+      Rotation: 90
+  - Entity: 21375641adbddddc
+    Trinity.Tag: Ground
+    Trinity.Transform:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0, 1]
+      Scale: [10, 1, 10]
+    Trinity.MeshRenderer:
+      Mesh: 7472696e69747905
+      Materials:
+        - e8bfd06f73e59f3f
+      CastShadows: true
+    Trinity.BoxCollider:
+      Offset: [0, -0.05, 0]
+      OffsetRotation: [0, 0, 0, 1]
+      Friction: 0.5
+      Restitution: 0
+      Trigger: false
+      Layer: 0
+      HalfExtents: [5, 0.05, 5]
+  - Entity: feea23d6c9b8b1a9
+    Trinity.Tag: Cube
+    Trinity.Transform:
+      Position: [0, 0.5, 0]
+      Rotation: [0, 0.25881904, 0, 0.9659258]
+      Scale: [1, 1, 1]
+    Trinity.MeshRenderer:
+      Mesh: 7472696e69747901
+      Materials:
+        - 3a5339b99dd027dd
+      CastShadows: true
+    Trinity.RigidBody:
+      Motion: Dynamic
+      Mass: 1
+      LinearDamping: 0
+      AngularDamping: 0.05
+      GravityFactor: 1
+      ContinuousCollision: false
+      LockPositionX: false
+      LockPositionY: false
+      LockPositionZ: false
+      LockRotationX: false
+      LockRotationY: false
+      LockRotationZ: false
+      InitialLinearVelocity: [0, 0, 0]
+      InitialAngularVelocity: [0, 0, 0]
+      StartAsleep: false
+      CanSleep: true
+    Trinity.BoxCollider:
+      Offset: [0, 0, 0]
+      OffsetRotation: [0, 0, 0, 1]
+      Friction: 0.5
+      Restitution: 0
+      Trigger: false
+      Layer: 0
+      HalfExtents: [0.5, 0.5, 0.5]
