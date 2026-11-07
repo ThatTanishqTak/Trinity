@@ -13,6 +13,7 @@
 #include "Trinity/Core/PlayerPrefs.hpp"
 #include "Trinity/Core/Profiler.hpp"
 #include "Trinity/Core/Timestep.hpp"
+#include "Trinity/Core/Version.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Input/InputActionsRuntime.hpp"
@@ -240,11 +241,6 @@ namespace Trinity
 
             return l_Specification;
         }
-    }
-
-    const char* GetVersionString()
-    {
-        return TR_VERSION_STRING;
     }
 
     std::string_view ApplicationCommandLineArgs::operator[](int index) const
@@ -671,7 +667,7 @@ namespace Trinity
         AudioLoaders::Register();
         InputActionsRuntime::Initialize();
 
-        TR_CORE_INFO("Trinity {} - {} {}", GetVersionString(), Platform::GetName(), c_ConfigurationName);
+        TR_CORE_INFO("Trinity {} - {} {}", GetVersionDescription(), Platform::GetName(), c_ConfigurationName);
 
         Scope<Application> l_Application{ createApplication({ argc, argv }) };
         TR_CORE_ASSERT(l_Application != nullptr, "CreateApplication returned null.");

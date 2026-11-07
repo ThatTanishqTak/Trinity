@@ -12,7 +12,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 include(TrinityConfigurations)
 trinity_declare_configurations()
 
-project(Trinity VERSION 0.1.0 DESCRIPTION "Trinity game engine, Forge editor, Hub launcher, Runtime player and Sandbox" LANGUAGES C CXX)
+project(Trinity VERSION 0.1.1 DESCRIPTION "Trinity game engine, Forge editor, Hub launcher, Runtime player and Sandbox" LANGUAGES C CXX)
 
 trinity_setup_configuration_flags()
 
@@ -53,12 +53,16 @@ elseif(ARCH_NAME MATCHES "aarch64|arm64")
 endif()
 
 # Output directory
-set(OUTPUT_BASE "${PROJECT_SOURCE_DIR}/bin/$<CONFIG>-${CMAKE_SYSTEM_NAME}-${ARCH_NAME}/${PROJECT_NAME}")
+set(TRINITY_BIN_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+set(OUTPUT_BASE "${TRINITY_BIN_DIRECTORY}/$<CONFIG>-${CMAKE_SYSTEM_NAME}-${ARCH_NAME}/${PROJECT_NAME}")
 
 # One output tree for every target so executables find each other and their runtime files.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_BASE}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_BASE}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_BASE}")
+
+# The version, the commit each build reads from git, and the manifest written beside the configurations' folders
+include(TrinityVersion)
 
 add_subdirectory(Vendor)
 add_subdirectory(Trinity-Engine)
@@ -74,6 +78,9 @@ if(TRINITY_DOTNET_FOUND)
     add_subdirectory(Trinity-ScriptGenerator)
     add_dependencies(Trinity-Forge Trinity-ScriptCore Trinity-ScriptGenerator)
 endif()
+
+# Trinity.trversion, once a configuration's programs are built
+trinity_add_version_manifest(Trinity-Manifest Trinity-Forge Trinity-Hub Trinity-Sandbox Trinity-Runtime)
 
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT Trinity-Sandbox)
 

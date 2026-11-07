@@ -4,6 +4,7 @@
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Base.hpp"
 #include "Trinity/Core/Log.hpp"
+#include "Trinity/Core/Version.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/FileSystem/FileSystemUtilities.hpp"
 #include "Trinity/Project/SettingsYaml.hpp"

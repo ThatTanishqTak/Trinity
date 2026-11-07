@@ -1567,7 +1567,7 @@ void ForgeLayer::DrawStartScreen()
     ImGui::End();
 }
 
-// The version, the graphics backend and adapter, and the fonts and scale the UI is drawn with
+// The version and the commit it was built from, the graphics backend and adapter, and the fonts and scale the UI is drawn with
 void ForgeLayer::DrawAboutWindow()
 {
     if (!ImGui::Begin(m_AboutTitle.c_str(), &m_ShowAbout, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
@@ -1585,6 +1585,13 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::PopFont();
 
     TextLine(std::format("Version {}", Trinity::GetVersionString()));
+    const std::string_view l_Commit = Trinity::GetBuildCommit();
+    TextLine(l_Commit.empty() ? std::string("Commit none, as it was built outside a git checkout") : std::format("Commit {}{}", l_Commit, Trinity::IsBuildModified() ? ", with changes not committed" : ""));
+    if (const std::string_view l_Date = Trinity::GetBuildDate(); !l_Date.empty())
+    {
+        TextLine(std::format("Committed {}", l_Date));
+    }
+
     TextLine(std::format("Backend {}", Trinity::ToString(l_Device.API)));
     TextLine(std::format("Adapter {}{}", l_Device.AdapterName.empty() ? "none" : l_Device.AdapterName, l_Device.VideoMemoryBytes > 0 ? std::format(", {} video memory", Trinity::Memory::FormatBytes(l_Device.VideoMemoryBytes)) : ""));
     TextLine(std::format("Dear ImGui {}, multi-viewport {}", IMGUI_VERSION, l_Viewports ? "on" : "off"));

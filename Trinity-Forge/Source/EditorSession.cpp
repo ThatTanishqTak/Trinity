@@ -949,10 +949,11 @@ void EditorSession::DrawPopups()
     DrawRecoveryPopup();
 }
 
-// The project, the scene and an asterisk while unsaved. The renderer adds the backend and frame rate
+// The project, the scene and an asterisk while unsaved, then Forge's version and commit. The renderer adds the backend and frame rate
 void EditorSession::UpdateTitle()
 {
-    const std::string l_Title = m_Project ? std::format("{} - {}{} - {}", m_Project->GetName(), GetSceneName(), IsDirty() ? "*" : "", c_ApplicationTitle) : std::string(c_ApplicationTitle);
+    const std::string l_Forge = std::format("{} {}", c_ApplicationTitle, Trinity::GetVersionDescription());
+    const std::string l_Title = m_Project ? std::format("{} - {}{} - {}", m_Project->GetName(), GetSceneName(), IsDirty() ? "*" : "", l_Forge) : l_Forge;
     if (l_Title != m_Title)
     {
         m_Title = l_Title;

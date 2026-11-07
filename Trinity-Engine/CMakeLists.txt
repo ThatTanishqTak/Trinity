@@ -111,9 +111,11 @@ function(trinity_add_engine_library target type active_config)
         PRIVATE "$<IF:${active_config},${CMAKE_CURRENT_SOURCE_DIR}/Internal/TrinityPCH.hpp,<cstddef$<ANGLE-R>>"
     )
 
+    # The version and commit are in TrinityBuildInfo.hpp, which only Version.cpp includes, so a new commit compiles that one file again
+    trinity_use_version_info(${target})
+
     target_compile_definitions(${target}
         PRIVATE
-            TR_VERSION_STRING="${PROJECT_VERSION}"
             $<$<BOOL:${TRINITY_TRACK_GLOBAL_ALLOCATIONS}>:TR_TRACK_GLOBAL_ALLOCATIONS>
             TR_PHYSICS_AVX2=$<BOOL:${TRINITY_PHYSICS_AVX2}>
         PUBLIC

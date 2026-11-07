@@ -42,6 +42,4 @@ namespace Trinity
     {
         return std::make_shared<T>(std::forward<Args>(args)...);
     }
-
-    [[nodiscard]] TRINITY_API const char* GetVersionString();
 }
