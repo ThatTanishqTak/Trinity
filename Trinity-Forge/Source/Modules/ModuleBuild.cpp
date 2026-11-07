@@ -200,7 +200,7 @@ namespace
         return std::nullopt;
     }
 
-    // A tree configured with another generator is made again, since CMake will not change one in place. A tree for another Forge's engine, or one whose configuring failed, is configured again
+    // A tree configured with another generator, or against another folder's engine, is made again, since CMake will not change either in place. One whose configuring failed is configured again
     bool NeedsConfigure(const std::filesystem::path& buildDirectory, const std::filesystem::path& engineDirectory, std::string_view generator)
     {
         std::error_code l_Error;
@@ -217,10 +217,16 @@ namespace
             return true;
         }
 
+        // A tree configured against another folder's engine, a version moved or another version, is made afresh, as its cache holds that folder's toolchain and paths
         const std::optional<std::string> l_Engine = ReadCacheValue(l_Cache, "Trinity_DIR:PATH");
-        const bool l_Generated = std::filesystem::exists(buildDirectory / (generator == "Ninja" ? "build.ninja" : "Makefile"), l_Error);
+        if (!l_Engine || FromUtf8(*l_Engine).lexically_normal() != engineDirectory.lexically_normal())
+        {
+            std::filesystem::remove_all(buildDirectory, l_Error);
 
-        return !l_Engine || FromUtf8(*l_Engine).lexically_normal() != engineDirectory.lexically_normal() || !l_Generated;
+            return true;
+        }
+
+        return !std::filesystem::exists(buildDirectory / (generator == "Ninja" ? "build.ninja" : "Makefile"), l_Error);
     }
 
     // The tools, then configuring when the tree needs it, then the build. False at the first step that fails, which has said why

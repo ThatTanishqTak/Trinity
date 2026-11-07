@@ -158,6 +158,7 @@ void ExportCommand::Start(const std::filesystem::path& folder, bool closeWhenDon
     m_RunWhenDone = run;
     m_Stage = Stage::Waiting;
     m_Started = std::chrono::steady_clock::now();
+    m_Trinity.clear();
     m_Player.clear();
     m_Module.clear();
     m_Compiled.clear();
@@ -254,18 +255,22 @@ std::vector<std::string> ExportCommand::CheckSettings(const Trinity::Project& pr
     return l_Problems;
 }
 
-std::filesystem::path ExportCommand::GetTrinityDirectory(std::string_view configuration)
+// Read again for each export, since Trinity's build of another configuration may finish while Forge runs
+Trinity::Expected<std::filesystem::path, std::string> ExportCommand::GetTrinityDirectory(std::string_view configuration)
 {
-    const std::filesystem::path l_Forge = Trinity::Process::GetExecutableDirectory();
-    const std::filesystem::path l_Build = l_Forge.parent_path();
-    const std::string l_Name = ToUtf8(l_Build.filename());
-    const std::size_t l_Dash = l_Name.find('-');
-    if (l_Dash == std::string::npos)
+    const std::filesystem::path l_Version = Trinity::Process::GetExecutableDirectory().parent_path().parent_path();
+    const Trinity::Expected<Trinity::EngineManifest, std::string> l_Manifest = Trinity::ReadEngineManifest(l_Version);
+    if (!l_Manifest)
     {
-        return l_Forge;
+        return Trinity::Unexpected{ std::format("Forge cannot find Trinity's {} build: {}. A whole build of Trinity's {} configuration writes {}", configuration, l_Manifest.GetError(), ModuleBuild::GetConfiguration(), Trinity::EngineManifest::c_FileName) };
     }
 
-    return l_Build.parent_path() / FromUtf8(std::format("{}{}", configuration, std::string_view(l_Name).substr(l_Dash))) / l_Forge.filename();
+    if (!l_Manifest->HasConfiguration(configuration))
+    {
+        return Trinity::Unexpected{ std::format("Trinity {} in {} holds no {} build, which the {} player comes from. Build Trinity's {} configuration", l_Manifest->Version, ToUtf8(l_Version), configuration, configuration == "Release" ? "Development" : "Distribution", configuration) };
+    }
+
+    return l_Manifest->GetConfigurationDirectory(l_Version, configuration);
 }
 
 std::string ExportCommand::GetExecutableName(std::string_view product)
@@ -516,12 +521,21 @@ void ExportCommand::StartPlayer()
     m_Stage = Stage::BuildingPlayer;
     const Trinity::Project& l_Project = *m_Session.GetProject();
     const std::string_view l_Configuration = m_Development ? "Release" : "Distribution";
-    const std::filesystem::path l_Trinity = GetTrinityDirectory(l_Configuration);
+    const Trinity::Expected<std::filesystem::path, std::string> l_Found = GetTrinityDirectory(l_Configuration);
+    if (!l_Found)
+    {
+        Fail(l_Found.GetError());
+
+        return;
+    }
+
+    m_Trinity = *l_Found;
+    const std::filesystem::path& l_Trinity = m_Trinity;
     const std::filesystem::path l_Prebuilt = l_Trinity / FromUtf8(std::format("{}{}", c_PrebuiltPlayer, c_ExecutableExtension));
     std::error_code l_Error;
     if (!std::filesystem::exists(l_Prebuilt, l_Error))
     {
-        Fail(std::format("Trinity's {} build, which holds the {} player, is not at {}. Build Trinity's {} configuration", l_Configuration, m_Development ? "Development" : "Distribution", ToUtf8(l_Trinity), l_Configuration));
+        Fail(std::format("Trinity's {} build in {} has no {} player. Build Trinity's {} configuration", l_Configuration, ToUtf8(l_Trinity), m_Development ? "Development" : "Distribution", l_Configuration));
 
         return;
     }
@@ -656,7 +670,7 @@ void ExportCommand::StartPacking()
 bool ExportCommand::CopyFiles()
 {
     const Trinity::ExportSettings& l_Export = m_Session.GetProject()->GetExportSettings();
-    const std::filesystem::path l_Trinity = GetTrinityDirectory(m_Development ? "Release" : "Distribution");
+    const std::filesystem::path& l_Trinity = m_Trinity;
     if (!CopyPlayer(FromUtf8(GetExecutableName(l_Export.Product))))
     {
         return false;

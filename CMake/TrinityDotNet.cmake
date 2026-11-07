@@ -55,9 +55,14 @@ function(trinity_link_dotnet_host target)
     if(WIN32)
         target_link_libraries(${target} PRIVATE "$<IF:$<CONFIG:Distribution>,${TRINITY_NETHOST_DIRECTORY}/libnethost.lib,${TRINITY_NETHOST_DIRECTORY}/nethost.lib>")
         target_compile_definitions(${target} PRIVATE "$<$<CONFIG:Distribution>:NETHOST_USE_AS_STATIC>")
+        set(libraries "${TRINITY_NETHOST_DIRECTORY}/libnethost.lib" "${TRINITY_NETHOST_DIRECTORY}/nethost.lib")
     else()
         target_link_libraries(${target} PRIVATE "${TRINITY_NETHOST_DIRECTORY}/libnethost.a")
+        set(libraries "${TRINITY_NETHOST_DIRECTORY}/libnethost.a")
     endif()
+
+    # The static engine names them in the game package, so a version holds them, which CMake/TrinityPackage.cmake copies
+    set_property(GLOBAL APPEND PROPERTY TRINITY_PACKAGE_LIBRARIES ${libraries})
 endfunction()
 
 # nethost.dll to bin/<configuration>/Trinity, beside every executable, on Windows, but for Distribution, which links nethost statically

@@ -61,8 +61,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_BASE}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_BASE}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_BASE}")
 
-# The version, the commit each build reads from git, and the manifest written beside the configurations' folders
+# The version, the commit each build reads from git, and the manifest written beside the configurations' folders, then the packages a version holds
 include(TrinityVersion)
+include(TrinityPackage)
 
 add_subdirectory(Vendor)
 add_subdirectory(Trinity-Engine)
@@ -79,8 +80,10 @@ if(TRINITY_DOTNET_FOUND)
     add_dependencies(Trinity-Forge Trinity-ScriptCore Trinity-ScriptGenerator)
 endif()
 
-# Trinity.trversion, once a configuration's programs are built
-trinity_add_version_manifest(Trinity-Manifest Trinity-Forge Trinity-Hub Trinity-Sandbox Trinity-Runtime)
+# What the packages name, copied into the version once the player is built, which Forge builds modules against, then Trinity.trversion once a configuration's programs are built
+trinity_add_version_package(Trinity-Package Trinity-Engine Trinity-RuntimeMain Trinity-Runtime)
+add_dependencies(Trinity-Forge Trinity-Package)
+trinity_add_version_manifest(Trinity-Manifest Trinity-Forge Trinity-Hub Trinity-Sandbox Trinity-Runtime Trinity-Package)
 
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT Trinity-Sandbox)
 

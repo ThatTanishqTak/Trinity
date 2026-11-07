@@ -1,4 +1,4 @@
-# Trinity's engine, for a game module. Trinity's build writes this beside the shared engine of one configuration. A module's CMakeLists.txt finds it with find_package(Trinity CONFIG REQUIRED), given Trinity_DIR, and makes its library with trinity_add_game_module. Forge's own builds also hand it TrinityToolchain.cmake from this folder, so the module is compiled as the engine was
+# Trinity's engine, for a game module. Trinity's build writes this beside the shared engine of one configuration, in a version's <Configuration>-<System>-<Architecture>/Trinity folder, and everything it names is in that version, found from this file's own folder, so the version works wherever it is. A module's CMakeLists.txt finds it with find_package(Trinity CONFIG REQUIRED), given Trinity_DIR, and makes its library with trinity_add_game_module. Forge's own builds also hand it TrinityToolchain.cmake from this folder, so the module is compiled as the engine was
 include_guard(GLOBAL)
 
 set(TRINITY_VERSION "@PROJECT_VERSION@")
@@ -8,7 +8,14 @@ set(TRINITY_CXX_STANDARD @TRINITY_CXX_STANDARD@)
 set(TRINITY_CXX_COMPILER_ID "@CMAKE_CXX_COMPILER_ID@")
 set(TRINITY_CXX_COMPILER_VERSION "@CMAKE_CXX_COMPILER_VERSION@")
 set(TRINITY_TRACK_GLOBAL_ALLOCATIONS @TRINITY_TRACK_GLOBAL_ALLOCATIONS@)
-set(TRINITY_GLOBAL_ALLOCATIONS_SOURCE [==[@TRINITY_ENGINE_GLOBAL_ALLOCATIONS@]==])
+# The version's folder, which holds the headers and the allocations source every configuration shares
+get_filename_component(TRINITY_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(TRINITY_GLOBAL_ALLOCATIONS_SOURCE "${TRINITY_ROOT}/Source/GlobalAllocations.cpp")
+if(NOT EXISTS "${TRINITY_ROOT}/Include/Trinity.hpp" OR NOT EXISTS "${TRINITY_GLOBAL_ALLOCATIONS_SOURCE}")
+    set(Trinity_FOUND FALSE)
+    set(Trinity_NOT_FOUND_MESSAGE "${CMAKE_CURRENT_LIST_DIR} is one configuration of a version of Trinity, and ${TRINITY_ROOT} around it holds no Include and Source. Move the whole version, with its Trinity.trversion, rather than one configuration's folder")
+    return()
+endif()
 
 # A module shares the engine's C++ runtime and standard library, so its compiler must be the engine's kind, at the same major version
 string(REGEX MATCH "^[0-9]+" _trinity_engine_major "${TRINITY_CXX_COMPILER_VERSION}")
@@ -27,9 +34,9 @@ endif()
 if(NOT TARGET Trinity::Engine)
     add_library(Trinity::Engine SHARED IMPORTED)
     set_target_properties(Trinity::Engine PROPERTIES
-        IMPORTED_LOCATION [==[$<TARGET_FILE:Trinity-Engine>]==]
-        IMPORTED_IMPLIB [==[$<TARGET_LINKER_FILE:Trinity-Engine>]==]
-        INTERFACE_INCLUDE_DIRECTORIES [==[$<TARGET_PROPERTY:Trinity-Engine,INTERFACE_INCLUDE_DIRECTORIES>]==]
+        IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/$<TARGET_FILE_NAME:Trinity-Engine>"
+        IMPORTED_IMPLIB "${CMAKE_CURRENT_LIST_DIR}/$<TARGET_LINKER_FILE_NAME:Trinity-Engine>"
+        INTERFACE_INCLUDE_DIRECTORIES "@TRINITY_PACKAGE_INCLUDE_DIRECTORIES@"
         INTERFACE_COMPILE_DEFINITIONS [==[$<TARGET_PROPERTY:Trinity-Engine,INTERFACE_COMPILE_DEFINITIONS>]==]
         INTERFACE_COMPILE_OPTIONS [==[$<TARGET_PROPERTY:Trinity-Engine,INTERFACE_COMPILE_OPTIONS>]==]
     )

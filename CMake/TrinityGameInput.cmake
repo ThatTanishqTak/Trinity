@@ -24,6 +24,8 @@ function(trinity_link_gameinput target)
         target_include_directories(${target} SYSTEM PRIVATE "${TRINITY_GAMEINPUT_DIRECTORY}/include")
         target_link_libraries(${target} PRIVATE "${TRINITY_GAMEINPUT_DIRECTORY}/lib/${TRINITY_GAMEINPUT_ARCHITECTURE}/GameInput.lib")
         target_compile_definitions(${target} PRIVATE TR_GAMEINPUT)
+        # The static engine names it in the game package, so a version holds it, which CMake/TrinityPackage.cmake copies
+        set_property(GLOBAL APPEND PROPERTY TRINITY_PACKAGE_LIBRARIES "${TRINITY_GAMEINPUT_DIRECTORY}/lib/${TRINITY_GAMEINPUT_ARCHITECTURE}/GameInput.lib")
     endif()
 endfunction()
 

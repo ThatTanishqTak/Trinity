@@ -65,8 +65,8 @@ public:
 
     // What stops the project's settings from making a game, each a sentence for the Build panel and the Console: a scene of the build that is missing or is not a scene, no scene ticked, no product or company, which its saves and log go under, an icon that is missing or is not a texture, no graphics API, or an output folder that is missing or would replace the project's own files. Empty when nothing does
     [[nodiscard]] static std::vector<std::string> CheckSettings(const Trinity::Project& project, const Trinity::AssetRegistry& registry);
-    // Trinity's build of a configuration, beside Forge's own build in bin as <configuration>-<platform>/Trinity. Distribution's holds the prebuilt player, the package a game's player is built against and the runtimes copied beside a game, and Release's the same for a Development Build, with the shared engine its player loads
-    [[nodiscard]] static std::filesystem::path GetTrinityDirectory(std::string_view configuration);
+    // Trinity's build of a configuration in the version Forge is part of, whose folder is two above Forge's own and whose Trinity.trversion names the configurations it holds, or why there is none. Distribution's holds the prebuilt player, the package a game's player is built against and the runtimes copied beside a game, and Release's the same for a Development Build, with the shared engine its player loads
+    [[nodiscard]] static Trinity::Expected<std::filesystem::path, std::string> GetTrinityDirectory(std::string_view configuration);
     // The product's name as the executable's, with .exe on Windows: without the characters Windows refuses in a file name, nor the dots and spaces it drops from the end, and never a device name such as CON. Game when nothing is left
     [[nodiscard]] static std::string GetExecutableName(std::string_view product);
 
@@ -114,6 +114,8 @@ private:
     Stage m_Stage = Stage::Waiting;
     std::chrono::steady_clock::time_point m_Started;
     ModuleBuild m_PlayerBuild;
+    // Trinity's build of the configuration the player comes from, found as the player's build starts
+    std::filesystem::path m_Trinity;
     std::filesystem::path m_Player;
     // A Development Build's module, built for Release, which its player loads from beside the pack
     std::filesystem::path m_Module;

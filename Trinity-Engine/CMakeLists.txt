@@ -232,6 +232,5 @@ trinity_add_msvc_runtime(Trinity-MsvcRuntime)
 add_dependencies(Trinity-Engine Trinity-MsvcRuntime)
 
 # TrinityConfig.cmake and TrinityToolchain.cmake beside the shared engine, which a game module builds against
-include(TrinityPackage)
 set(TRINITY_PACKAGE_MSVC_RUNTIME "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 trinity_write_engine_package(Trinity-Engine)

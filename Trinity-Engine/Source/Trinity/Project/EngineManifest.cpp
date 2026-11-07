@@ -216,6 +216,7 @@ namespace Trinity
 
         return l_Manifest;
     }
+
     Expected<EngineManifest, std::string> ReadEngineManifest(const std::filesystem::path& root)
     {
         const std::filesystem::path l_Path = root / FromUtf8(EngineManifest::c_FileName);
