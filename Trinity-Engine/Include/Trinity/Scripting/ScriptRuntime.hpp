@@ -49,7 +49,7 @@ namespace Trinity
         Data* m_Data = nullptr;
     };
 
-    // Every script instance of a running scene, made from its Script components through each language's backend and called in a fixed order: by when each script was added, which for the scene's own is hierarchy order, and in list order on each entity. A script whose class no loaded code has is kept in its component and does not run, with one warning a class, and one whose call failed, such as a C# script that threw, is called no more while play goes on. SceneRuntime owns one and drives it, and C# reaches the scene of the one made last that still lives. Main thread only
+    // Every script instance of a running scene, made from its Script components through each language's backend and called in a fixed order: by when each script was added, which for the scene's own is hierarchy order, and in list order on each entity. A script whose class no loaded code has is kept in its component and does not run, with one warning a class, or one note for all of them when it is in another language than the project's, and one whose call failed, such as a C# script that threw, is called no more while play goes on. SceneRuntime owns one and drives it, and C# reaches the scene of the one made last that still lives. Main thread only
     class TRINITY_API ScriptRuntime
     {
     public:
@@ -105,6 +105,9 @@ namespace Trinity
 
         // The runtime made last that still lives, whose scene C# scripts reach, or null
         [[nodiscard]] static ScriptRuntime* GetActive();
+        // The language the project's or game's scripts are written in, as Forge opens a project and a player starts, or none for either. A script in the other language, as a scene pasted in from another project brings, is kept with its values and does not run, told of once a runtime rather than once a class
+        static void SetLanguage(std::optional<ScriptLanguage> language);
+        [[nodiscard]] static std::optional<ScriptLanguage> GetLanguage();
 
         [[nodiscard]] Scene& GetScene();
         [[nodiscard]] const ScriptTime& GetTime() const { return m_Time; }

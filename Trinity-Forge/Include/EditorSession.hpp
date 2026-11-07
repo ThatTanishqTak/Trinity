@@ -166,8 +166,10 @@ public:
     EditorSession& operator=(const EditorSession&) = delete;
 
     void Start(const Trinity::ApplicationCommandLineArgs& args);
-    void CreateProject(const std::filesystem::path& directory);
-    void OpenProject(const std::filesystem::path& path);
+    // In the language its scripts are written in, which it keeps
+    void CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language);
+    // language answers for a project older than format 10 with both a C++ module and a C# project, or neither, which without one is asked about first
+    void OpenProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language = std::nullopt);
     void ScanAssets();
     ImportReport WaitForImports();
 
@@ -480,6 +482,17 @@ private:
         PathAction OnChosen;
     };
 
+    // What the language popup asks for: the folder a new project is made in, or a project older than format 10 with both a C++ module and a C# project, or neither, which opens once its language is chosen
+    struct LanguageQuestion
+    {
+        std::filesystem::path Path;
+        bool NewProject = false;
+        // Of the project opened
+        std::string Name;
+        bool HasModule = false;
+        bool HasAssembly = false;
+    };
+
     // What Copy took, with where the original was and its place in the world, which a paste away from that parent keeps
     struct CopiedEntity
     {
@@ -582,6 +595,7 @@ private:
     void DrawImportPopup();
     void DrawDebuggerPopup();
     void DrawRecoveryPopup();
+    void DrawLanguagePopup();
 
     Trinity::Scope<Trinity::Project> m_Project;
     // Held while the project is open, so no second Forge opens it beside this one
@@ -642,6 +656,8 @@ private:
     bool m_HasBackup = false;
     std::optional<Recovery> m_Recovery;
     bool m_OpenRecoveryPopup = false;
+    std::optional<LanguageQuestion> m_LanguageQuestion;
+    bool m_OpenLanguagePopup = false;
     bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;

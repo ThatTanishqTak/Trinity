@@ -67,6 +67,8 @@ public:
     [[nodiscard]] static std::vector<std::string> CheckSettings(const Trinity::Project& project, const Trinity::AssetRegistry& registry);
     // Trinity's build of a configuration in the version Forge is part of, whose folder is two above Forge's own and whose Trinity.trversion names the configurations it holds, or why there is none. Distribution's holds the prebuilt player, the package a game's player is built against and the runtimes copied beside a game, and Release's the same for a Development Build, with the shared engine its player loads
     [[nodiscard]] static Trinity::Expected<std::filesystem::path, std::string> GetTrinityDirectory(std::string_view configuration);
+    // The platforms this version of Trinity builds games for, as its manifest lists them, which are the one it runs on until it cross-compiles, or that one alone when it has no manifest to read
+    [[nodiscard]] static std::vector<std::string> GetPlatforms();
     // The product's name as the executable's, with .exe on Windows: without the characters Windows refuses in a file name, nor the dots and spaces it drops from the end, and never a device name such as CON. Game when nothing is left
     [[nodiscard]] static std::string GetExecutableName(std::string_view product);
 

@@ -16,6 +16,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <utility>
 
 namespace
@@ -119,10 +120,17 @@ namespace
         return l_Root != nullptr && l_Root->Path == path;
     }
 
-    // Assets always, and Scripts and Source once the project has them
+    // Assets always, and Scripts in a C# project and Source in a C++ one once it has them, so the other language's folder left on disk is not shown
     bool IsShown(const Root& root, const Trinity::Project& project)
     {
-        return root.Path == Trinity::Project::c_AssetsMount || std::filesystem::is_directory(project.ToNativePath(root.Path));
+        if (root.Path == Trinity::Project::c_AssetsMount)
+        {
+            return true;
+        }
+
+        const Trinity::ScriptLanguage l_Language = root.Path == EditorSession::c_ScriptsFolder ? Trinity::ScriptLanguage::CSharp : Trinity::ScriptLanguage::Cpp;
+
+        return project.GetLanguage() == l_Language && std::filesystem::is_directory(project.ToNativePath(root.Path));
     }
 
     // A file a script editor opens, by its extension, or a module's CMakeLists.txt
@@ -131,6 +139,27 @@ namespace
         constexpr std::array<std::string_view, 9> c_Extensions{ ".cs", ".cpp", ".hpp", ".h", ".inl", ".csproj", ".props", ".targets", ".cmake" };
 
         return name == "CMakeLists.txt" || std::ranges::any_of(c_Extensions, [name](std::string_view extension) { return name.ends_with(extension); });
+    }
+
+    // The language a script file belongs to, by its extension, or none for a file of neither
+    std::optional<Trinity::ScriptLanguage> GetScriptFileLanguage(std::string_view name)
+    {
+        constexpr std::array<std::string_view, 4> c_CSharp{ ".cs", ".csproj", ".props", ".targets" };
+        constexpr std::array<std::string_view, 5> c_Cpp{ ".cpp", ".hpp", ".h", ".inl", ".cmake" };
+        if (std::ranges::any_of(c_CSharp, [name](std::string_view extension) { return name.ends_with(extension); }))
+        {
+            return Trinity::ScriptLanguage::CSharp;
+        }
+
+        return name == "CMakeLists.txt" || std::ranges::any_of(c_Cpp, [name](std::string_view extension) { return name.ends_with(extension); }) ? std::optional(Trinity::ScriptLanguage::Cpp) : std::nullopt;
+    }
+
+    // A script file of the language the project's scripts are not written in, as a .cs file left in a C++ project, which is shown greyed and not dragged onto an entity, though it can still be opened, moved or deleted
+    std::optional<Trinity::ScriptLanguage> GetOtherLanguage(const Trinity::AssetRecord* record, std::string_view name, const Trinity::Project* project)
+    {
+        const std::optional<Trinity::ScriptLanguage> l_Language = record == nullptr && project != nullptr ? GetScriptFileLanguage(name) : std::nullopt;
+
+        return l_Language && *l_Language != project->GetLanguage() ? l_Language : std::nullopt;
     }
 
     // A script file that holds a class, which Find References In Scene finds by the class it is named after
@@ -656,7 +685,8 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
         ImGui::EndPopup();
     }
 
-    if (ImGui::BeginDragDropSource())
+    const std::optional<Trinity::ScriptLanguage> l_Other = GetOtherLanguage(item.Record, item.Name, m_Session.GetProject());
+    if (!l_Other && ImGui::BeginDragDropSource())
     {
         if (item.Folder)
         {
@@ -690,6 +720,11 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
             l_DrawList.AddRectFilled(l_Min, l_Max, ImGui::GetColorU32(item.Path == m_Selected ? ImGuiCol_Header : ImGuiCol_HeaderHovered), l_Style.FrameRounding);
         }
 
+        if (l_Other)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        }
+
         DrawPicture(item, ImVec2(l_Min.x + l_Padding, l_Min.y + l_Padding), l_PictureSize);
 
         // Shown while the item is hovered or its clip plays, on a disc that keeps it clear of the waveform under it
@@ -720,7 +755,16 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
             ImGui::RenderTextEllipsis(&l_DrawList, ImVec2(l_TextX, l_TextY), ImVec2(l_LabelMaxX, l_Max.y), l_LabelMaxX, item.Name.c_str(), nullptr, &l_TextSize);
         }
 
-        if (l_Hovered && !ImGui::IsDragDropActive())
+        if (l_Other)
+        {
+            ImGui::PopStyleColor();
+        }
+
+        if (l_Hovered && !ImGui::IsDragDropActive() && l_Other)
+        {
+            ImGui::SetItemTooltip("%s", std::format("{}\nA {} file, which this {} project does not build", item.Path, GetScriptLanguageLabel(*l_Other), GetScriptLanguageLabel(m_Session.GetProject()->GetLanguage())).c_str());
+        }
+        else if (l_Hovered && !ImGui::IsDragDropActive())
         {
             ImGui::SetItemTooltip("%s", l_OnPlay ? (l_Previewing ? "Stop" : "Play") : item.Path.c_str());
         }
@@ -1004,8 +1048,15 @@ void ContentBrowserPanel::DrawCreateMenu(const Item* item)
         }
     };
 
-    a_ScriptItem(Trinity::ScriptLanguage::CSharp, EditorSession::c_ScriptsFolder, "C#", l_Project != nullptr && l_Project->HasAssembly(), "Create C# Project");
-    a_ScriptItem(Trinity::ScriptLanguage::Cpp, EditorSession::c_SourceFolder, "C++", l_Project != nullptr && l_Project->HasModule(), "Create C++ Module");
+    // The project's own language alone
+    if (l_Project == nullptr || l_Project->GetLanguage() == Trinity::ScriptLanguage::CSharp)
+    {
+        a_ScriptItem(Trinity::ScriptLanguage::CSharp, EditorSession::c_ScriptsFolder, "C#", l_Project != nullptr && l_Project->HasAssembly(), "Create C# Project");
+    }
+    else
+    {
+        a_ScriptItem(Trinity::ScriptLanguage::Cpp, EditorSession::c_SourceFolder, "C++", l_Project->HasModule(), "Create C++ Module");
+    }
 }
 
 // Enter or clicking away renames. Escape puts the text back, so nothing changes

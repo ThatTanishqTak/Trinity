@@ -8,6 +8,7 @@
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/FileSystem/FileSystemUtilities.hpp"
 #include "Trinity/Project/SettingsYaml.hpp"
+#include "Trinity/Project/TargetPlatform.hpp"
 
 #include <yaml-cpp/yaml.h>
 
@@ -16,6 +17,7 @@
 #include <format>
 #include <fstream>
 #include <optional>
+#include <span>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -44,8 +46,72 @@ namespace Trinity
             return l_Text == "true" || l_Text == "false" ? std::optional<bool>(l_Text == "true") : std::nullopt;
         }
 
-        // Each value that is missing keeps the one given, and each that cannot be read is reported and keeps it. A scene that cannot be one is left out, as is a scene listed again, which keeps its first place
-        void ReadExportSettings(const YAML::Node & node, std::string_view owner, ExportSettings & settings)
+        // The platform's APIs of those listed, in their order, each the platform lacks left out and reported, as a warning for one its own list names and as what happens for an older project's one list
+        std::vector<GraphicsAPI> KeepPlatformAPIs(const TargetPlatform& platform, std::span<const GraphicsAPI> apis, std::string_view owner, bool older)
+        {
+            std::vector<GraphicsAPI> l_Kept;
+            for (const GraphicsAPI it_API : apis)
+            {
+                if (std::ranges::find(platform.GraphicsAPIs, it_API) != platform.GraphicsAPIs.end())
+                {
+                    l_Kept.push_back(it_API);
+                }
+                else if (older)
+                {
+                    TR_CORE_INFO("{} listed {}, which {} games cannot draw with, so it builds for {} without it", owner, ToString(it_API), platform.DisplayName, platform.DisplayName);
+                }
+                else
+                {
+                    TR_CORE_WARN("{} lists {} for {}, which {} games cannot draw with, so it is left out", owner, ToString(it_API), platform.DisplayName, platform.DisplayName);
+                }
+            }
+
+            return l_Kept;
+        }
+
+        // Format 10's map of each platform's order, or format 9's one list, which was the order on the platform the project now builds for
+        void ReadGraphicsAPIs(const YAML::Node& node, std::uint32_t format, std::string_view owner, ExportSettings& settings, bool& unread)
+        {
+            if (!node)
+            {
+                return;
+            }
+
+            settings.GraphicsAPIs.clear();
+            if (format < 10)
+            {
+                std::vector<GraphicsAPI> l_APIs;
+                unread |= !SettingsYaml::ReadGraphicsAPIs(node, l_APIs);
+                const TargetPlatform* l_Platform = TargetPlatforms::Find(settings.Platform);
+                if (std::vector<GraphicsAPI> l_Kept = l_Platform != nullptr ? KeepPlatformAPIs(*l_Platform, l_APIs, owner, true) : std::vector<GraphicsAPI>(); !l_Kept.empty())
+                {
+                    settings.GraphicsAPIs.emplace(settings.Platform, std::move(l_Kept));
+                }
+
+                return;
+            }
+
+            unread |= !node.IsMap();
+            for (auto it_Entry = node.begin(); node.IsMap() && it_Entry != node.end(); ++it_Entry)
+            {
+                const std::string l_Name = it_Entry->first.IsScalar() ? it_Entry->first.Scalar() : std::string();
+                const TargetPlatform* l_Platform = TargetPlatforms::Find(l_Name);
+                std::vector<GraphicsAPI> l_APIs;
+                unread |= l_Platform == nullptr || !SettingsYaml::ReadGraphicsAPIs(it_Entry->second, l_APIs);
+                if (l_Platform == nullptr)
+                {
+                    continue;
+                }
+
+                if (std::vector<GraphicsAPI> l_Kept = KeepPlatformAPIs(*l_Platform, l_APIs, owner, false); !l_Kept.empty())
+                {
+                    settings.GraphicsAPIs.insert_or_assign(std::string(l_Platform->Name), std::move(l_Kept));
+                }
+            }
+        }
+
+        // Each value that is missing keeps the one given, and each that cannot be read is reported and keeps it. A scene that cannot be one is left out, as is a scene listed again, which keeps its first place, and a platform Trinity has never heard of keeps the one given
+        void ReadExportSettings(const YAML::Node& node, std::uint32_t format, std::string_view owner, ExportSettings& settings)
         {
             if (!node || !node.IsMap())
             {
@@ -79,11 +145,7 @@ namespace Trinity
             l_Unread |= !l_Icon.empty() && !l_IconID;
             settings.Icon = l_Icon.empty() ? UUID() : l_IconID.value_or(settings.Icon);
             SettingsYaml::ReadWindowSettings(node["Window"], owner, settings.Window);
-            if (const YAML::Node l_APIs = node["GraphicsAPIs"])
-            {
-                settings.GraphicsAPIs.clear();
-                l_Unread |= !SettingsYaml::ReadGraphicsAPIs(l_APIs, settings.GraphicsAPIs);
-            }
+            ReadGraphicsAPIs(node["GraphicsAPIs"], format, owner, settings, l_Unread);
 
             if (const YAML::Node l_Development = node["Development"])
             {
@@ -94,7 +156,7 @@ namespace Trinity
 
             if (l_Unread)
             {
-                TR_CORE_WARN("{} has an export setting that cannot be read, a scene, the icon, a graphics API or a value, which is left out or keeps its default", owner);
+                TR_CORE_WARN("{} has an export setting that cannot be read, a scene, the platform, the icon, a graphics API or a value, which is left out or keeps its default", owner);
             }
         }
 
@@ -108,15 +170,50 @@ namespace Trinity
             }
 
             emitter << YAML::EndSeq;
+            emitter << YAML::Key << "Platform" << YAML::Value << settings.Platform;
             emitter << YAML::Key << "Product" << YAML::Value << YAML::DoubleQuoted << settings.Product;
             emitter << YAML::Key << "Company" << YAML::Value << YAML::DoubleQuoted << settings.Company;
             emitter << YAML::Key << "Version" << YAML::Value << YAML::DoubleQuoted << settings.Version;
             emitter << YAML::Key << "Icon" << YAML::Value << YAML::DoubleQuoted << (settings.Icon ? settings.Icon.ToString() : std::string());
             SettingsYaml::WriteWindowSettings(emitter, settings.Window);
-            SettingsYaml::WriteGraphicsAPIs(emitter, settings.GraphicsAPIs);
+            emitter << YAML::Key << "GraphicsAPIs" << YAML::Value;
+            if (settings.GraphicsAPIs.empty())
+            {
+                emitter << YAML::Flow;
+            }
+
+            emitter << YAML::BeginMap;
+            for (const auto& [it_Platform, it_APIs] : settings.GraphicsAPIs)
+            {
+                emitter << YAML::Key << it_Platform << YAML::Value << YAML::Flow << YAML::BeginSeq;
+                for (const GraphicsAPI it_API : it_APIs)
+                {
+                    emitter << std::string(ToString(it_API));
+                }
+
+                emitter << YAML::EndSeq;
+            }
+
+            emitter << YAML::EndMap;
             emitter << YAML::Key << "Development" << YAML::Value << settings.Development;
             emitter << YAML::Key << "Output" << YAML::Value << YAML::DoubleQuoted << settings.Output;
             emitter << YAML::EndMap;
+        }
+
+        // The language format 10 names, or for an older file the one of a module and an assembly it has, and none for both or neither
+        std::optional<ScriptLanguage> FindLanguage(std::uint32_t format, const YAML::Node& scripting, bool hasModule, bool hasAssembly)
+        {
+            if (format >= 10)
+            {
+                return scripting && scripting.IsMap() ? ParseScriptLanguage(ReadString(scripting, "Language", "")) : std::nullopt;
+            }
+
+            if (hasModule == hasAssembly)
+            {
+                return std::nullopt;
+            }
+
+            return hasModule ? ScriptLanguage::Cpp : ScriptLanguage::CSharp;
         }
     }
 
@@ -132,6 +229,18 @@ namespace Trinity
         }
 
         return l_Scenes;
+    }
+
+    std::vector<GraphicsAPI> ExportSettings::GetGraphicsAPIs() const
+    {
+        if (const auto a_Found = GraphicsAPIs.find(Platform); a_Found != GraphicsAPIs.end())
+        {
+            return a_Found->second;
+        }
+
+        const TargetPlatform* l_Platform = TargetPlatforms::Find(Platform);
+
+        return l_Platform != nullptr ? std::vector<GraphicsAPI>(l_Platform->GraphicsAPIs.begin(), l_Platform->GraphicsAPIs.end()) : std::vector<GraphicsAPI>();
     }
 
     Project::Project(std::filesystem::path directory, std::filesystem::path filePath) : m_Directory(std::move(directory)), m_FilePath(std::move(filePath))
@@ -153,7 +262,7 @@ namespace Trinity
     }
 
     // The folder takes the project's name, and must be new or empty
-    Expected<Scope<Project>, std::string> Project::Create(const std::filesystem::path& directory)
+    Expected<Scope<Project>, std::string> Project::Create(const std::filesystem::path& directory, ScriptLanguage language)
     {
         std::error_code l_Error;
         std::filesystem::path l_Directory = std::filesystem::absolute(directory, l_Error).lexically_normal();
@@ -187,6 +296,7 @@ namespace Trinity
         Scope<Project> l_Project(new Project(l_Directory, l_Directory / FromUtf8(l_Name + std::string(c_Extension))));
         l_Project->m_Name = l_Name;
         l_Project->m_EngineVersion = GetVersionString();
+        l_Project->m_Language = language;
         l_Project->m_Export.Product = l_Name;
 
         if (Expected<void, std::string> l_Mounted = l_Project->Mount(); !l_Mounted)
@@ -201,7 +311,7 @@ namespace Trinity
 
         static_cast<void>(FileSystem::WriteText(std::format("{}/.gitignore", c_ProjectMount), "Cache/\nBuild/\nBuilds/\nSaved/\n"));
 
-        TR_CORE_INFO("Project: created {} in {}", l_Project->m_Name, ToUtf8(l_Directory));
+        TR_CORE_INFO("Project: created {} in {}, its scripts in {}", l_Project->m_Name, ToUtf8(l_Directory), language == ScriptLanguage::CSharp ? "C#" : "C++");
 
         return l_Project;
     }
@@ -289,10 +399,12 @@ namespace Trinity
             l_Info.HasAssembly = l_Info.Format >= 6 && !ReadString(l_Scripting, "Assembly", "").empty();
         }
 
+        l_Info.Language = FindLanguage(l_Info.Format, l_Scripting, l_Info.HasModule, l_Info.HasAssembly);
+
         return l_Info;
     }
 
-    Expected<Scope<Project>, std::string> Project::Open(const std::filesystem::path& path)
+    Expected<Scope<Project>, std::string> Project::Open(const std::filesystem::path& path, std::optional<ScriptLanguage> olderLanguage)
     {
         const Expected<std::filesystem::path, std::string> l_Found = FindFile(path);
         if (!l_Found)
@@ -388,6 +500,31 @@ namespace Trinity
             }
         }
 
+        // Only the language's own module or assembly is named, so the other language's files are left on disk unbuilt
+        const YAML::Node l_Scripting = l_Root["Scripting"];
+        std::optional<ScriptLanguage> l_Language = FindLanguage(l_Format, l_Scripting, !l_Project->m_ModuleName.empty(), !l_Project->m_AssemblyName.empty());
+        if (!l_Language && l_Format >= 10)
+        {
+            return Unexpected{ std::format("{} names no language its scripts are written in, CSharp or Cpp", ToUtf8(l_File)) };
+        }
+
+        if (!l_Language && !olderLanguage)
+        {
+            return Unexpected{ std::format("{} has {}, so it opens once the language it keeps is chosen", ToUtf8(l_File), l_Project->m_ModuleName.empty() ? "no C++ module and no C# project" : "a C++ module and a C# project") };
+        }
+
+        l_Project->m_Language = l_Language ? *l_Language : *olderLanguage;
+        if (l_Project->m_Language == ScriptLanguage::CSharp && !l_Project->m_ModuleName.empty())
+        {
+            TR_CORE_INFO("Project: {}'s scripts are C#, so its C++ module {} is left in Source unbuilt", l_Project->m_Name, l_Project->m_ModuleName);
+            l_Project->m_ModuleName.clear();
+        }
+        else if (l_Project->m_Language == ScriptLanguage::Cpp && !l_Project->m_AssemblyName.empty())
+        {
+            TR_CORE_INFO("Project: {}'s scripts are C++, so its C# project {} is left in Scripts unbuilt", l_Project->m_Name, l_Project->m_AssemblyName);
+            l_Project->m_AssemblyName.clear();
+        }
+
         // An asset that cannot be one is reported and left out, so the project opens with none
         if (l_Format >= 7)
         {
@@ -412,7 +549,7 @@ namespace Trinity
         l_Project->m_Export.Product = l_Project->m_Name;
         if (l_Format >= 9)
         {
-            ReadExportSettings(l_Root["Export"], l_Owner, l_Project->m_Export);
+            ReadExportSettings(l_Root["Export"], l_Format, l_Owner, l_Project->m_Export);
         }
         else if (l_Project->m_StartScene)
         {
@@ -440,8 +577,16 @@ namespace Trinity
 
         SettingsYaml::WritePhysicsSettings(l_Emitter, m_Physics);
         l_Emitter << YAML::Key << "Scripting" << YAML::Value << YAML::BeginMap;
-        l_Emitter << YAML::Key << "Module" << YAML::Value << YAML::DoubleQuoted << m_ModuleName;
-        l_Emitter << YAML::Key << "Assembly" << YAML::Value << YAML::DoubleQuoted << m_AssemblyName;
+        l_Emitter << YAML::Key << "Language" << YAML::Value << std::string(ToString(m_Language));
+        if (m_Language == ScriptLanguage::Cpp)
+        {
+            l_Emitter << YAML::Key << "Module" << YAML::Value << YAML::DoubleQuoted << m_ModuleName;
+        }
+        else
+        {
+            l_Emitter << YAML::Key << "Assembly" << YAML::Value << YAML::DoubleQuoted << m_AssemblyName;
+        }
+
         l_Emitter << YAML::EndMap;
         l_Emitter << YAML::Key << "Input" << YAML::Value << YAML::BeginMap;
         l_Emitter << YAML::Key << "Actions" << YAML::Value << YAML::DoubleQuoted << (m_InputActions ? m_InputActions.ToString() : std::string());
@@ -526,6 +671,7 @@ namespace Trinity
     void Project::SetModuleName(std::string name)
     {
         TR_CORE_ASSERT(name.empty() || IsValidModuleName(name), "'{}' is not a name a module can have", name);
+        TR_CORE_ASSERT(name.empty() || m_Language == ScriptLanguage::Cpp, "{}'s scripts are C#, so it has no C++ module", m_Name);
 
         m_ModuleName = std::move(name);
     }
@@ -533,6 +679,7 @@ namespace Trinity
     void Project::SetAssemblyName(std::string name)
     {
         TR_CORE_ASSERT(name.empty() || IsValidModuleName(name), "'{}' is not a name an assembly can have here", name);
+        TR_CORE_ASSERT(name.empty() || m_Language == ScriptLanguage::CSharp, "{}'s scripts are C++, so it has no C# project", m_Name);
 
         m_AssemblyName = std::move(name);
     }

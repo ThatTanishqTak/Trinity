@@ -31,6 +31,7 @@ namespace
     constexpr const char* c_ImportPopup = "Importing Textures###ForgeImport";
     constexpr const char* c_DebuggerPopup = "Waiting for a Debugger###ForgeDebugger";
     constexpr const char* c_RecoveryPopup = "Recover Scene###ForgeRecoverScene";
+    constexpr const char* c_LanguagePopup = "Project Language###ForgeLanguage";
     // The open scene's backup, under the project's Cache, which is never committed. Its first lines name the scene and when it was written, as YAML comments the scene's reader passes over
     constexpr std::string_view c_BackupFile = "Editor/Backup/Scene.trscene";
     // The projects Forge opened lately, which it kept itself until Hub kept one list for every version, and which it moves into Hub's once. The start screen shows ten projects, and ten scenes are kept per project
@@ -891,9 +892,27 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     m_ProjectListFile = GetProjectListFile(args);
     TakeOverRecentProjects();
     ReadRecentProjects();
+    // The language a new project's scripts are written in, or the one an older project with both languages or neither keeps
+    std::optional<Trinity::ScriptLanguage> l_Language;
+    if (const auto it_Language = args.GetOption("language"))
+    {
+        l_Language = Trinity::ParseScriptLanguage(*it_Language);
+        if (!l_Language)
+        {
+            TR_ERROR("Forge: --language={} is not one, which is CSharp or Cpp", *it_Language);
+        }
+    }
+
     if (const auto it_Directory = args.GetOption("new-project"))
     {
-        CreateProject(FromUtf8(*it_Directory));
+        if (l_Language)
+        {
+            CreateProject(FromUtf8(*it_Directory), *l_Language);
+        }
+        else
+        {
+            TR_ERROR("Forge: --new-project needs --language=CSharp or --language=Cpp, the language the project's scripts are written in, which it keeps, so no project was made");
+        }
     }
     else if (const auto it_Project = args.GetOption("project"))
     {
@@ -905,7 +924,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
             return;
         }
 
-        OpenProject(FromUtf8(*it_Project));
+        OpenProject(FromUtf8(*it_Project), l_Language);
     }
     else
     {
@@ -1002,6 +1021,7 @@ void EditorSession::DrawPopups()
     DrawImportPopup();
     DrawDebuggerPopup();
     DrawRecoveryPopup();
+    DrawLanguagePopup();
 }
 
 // The project, the scene and an asterisk while unsaved, then Forge's version and commit. The renderer adds the backend and frame rate
@@ -1051,7 +1071,11 @@ void EditorSession::Run(Command command)
         {
             ConfirmCloseProject([this]
             {
-                AskPath({ PathKind::Folder, "Choose an empty folder for the new project",{},{},{}, [this](const std::filesystem::path& path) { CreateProject(path); } });
+                AskPath({ PathKind::Folder, "Choose an empty folder for the new project",{},{},{}, [this](const std::filesystem::path& path)
+                {
+                    m_LanguageQuestion = LanguageQuestion{ .Path = path, .NewProject = true, .Name = {}, .HasModule = false, .HasAssembly = false };
+                    m_OpenLanguagePopup = true;
+                } });
             });
             break;
         }
@@ -1165,9 +1189,14 @@ void EditorSession::Run(Command command)
 
             break;
         }
+        // Only in the project's own language, which the Scripts menu offers alone
         case Command::CreateModule:
         {
-            if (l_HasProject && m_Module.Create(*m_Project))
+            if (l_HasProject && m_Project->GetLanguage() != Trinity::ScriptLanguage::Cpp)
+            {
+                TR_ERROR("Forge: {}'s scripts are C#, so it has no C++ module", m_Project->GetName());
+            }
+            else if (l_HasProject && m_Module.Create(*m_Project))
             {
                 SaveProject();
                 DebuggerSettings::Write(*m_Project);
@@ -1183,7 +1212,11 @@ void EditorSession::Run(Command command)
         }
         case Command::CreateAssembly:
         {
-            if (l_HasProject && m_Assembly.Create(*m_Project))
+            if (l_HasProject && m_Project->GetLanguage() != Trinity::ScriptLanguage::CSharp)
+            {
+                TR_ERROR("Forge: {}'s scripts are C++, so it has no C# project", m_Project->GetName());
+            }
+            else if (l_HasProject && m_Assembly.Create(*m_Project))
             {
                 SaveProject();
                 DebuggerSettings::Write(*m_Project);
@@ -1306,12 +1339,12 @@ bool EditorSession::SettleUnappliedEdits(Action& then)
 }
 
 // A new project opens on its empty start scene, saved and given a UUID at once so the project file never names a missing scene
-void EditorSession::CreateProject(const std::filesystem::path& directory)
+void EditorSession::CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language)
 {
     CloseProject();
     NewScene();
 
-    Trinity::Expected<Trinity::Scope<Trinity::Project>, std::string> l_Project = Trinity::Project::Create(directory);
+    Trinity::Expected<Trinity::Scope<Trinity::Project>, std::string> l_Project = Trinity::Project::Create(directory, language);
     if (!l_Project)
     {
         TR_ERROR("Forge: the project could not be created: {}", l_Project.GetError());
@@ -1326,6 +1359,7 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
         m_ProjectLock = std::move(*l_Lock);
     }
 
+    Trinity::ScriptRuntime::SetLanguage(m_Project->GetLanguage());
     AttachRegistry();
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
@@ -1353,9 +1387,21 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
     }
 }
 
-// Locked before the open project closes, so asking for one another Forge has open leaves this one's open
-void EditorSession::OpenProject(const std::filesystem::path& path)
+// Locked before the open project closes, so asking for one another Forge has open leaves this one's open. One older than format 10 with both languages or neither is asked about first, and once answered is saved in the language chosen, so it is asked about once
+void EditorSession::OpenProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language)
 {
+    const Trinity::Expected<std::filesystem::path, std::string> l_File = Trinity::Project::FindFile(path);
+    const Trinity::Expected<Trinity::ProjectFileInfo, std::string> l_Info = l_File ? Trinity::Project::ReadInfo(*l_File) : Trinity::Expected<Trinity::ProjectFileInfo, std::string>(Trinity::Unexpected{ l_File.GetError() });
+    const bool l_Choose = l_Info && !l_Info->Language && l_Info->Format < Trinity::Project::c_FormatVersion;
+    if (l_Choose && !language)
+    {
+        TR_INFO("Forge: {} was made before a project had one language, and has {}, so it opens once its language is chosen", l_Info->Name, l_Info->HasModule ? "a C++ module and a C# project" : "no scripts yet");
+        m_LanguageQuestion = LanguageQuestion{ .Path = *l_File, .NewProject = false, .Name = l_Info->Name, .HasModule = l_Info->HasModule, .HasAssembly = l_Info->HasAssembly };
+        m_OpenLanguagePopup = true;
+
+        return;
+    }
+
     std::optional<Trinity::FileLock> l_Lock = LockProject(path);
     if (!l_Lock)
     {
@@ -1365,7 +1411,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
     CloseProject();
     NewScene();
 
-    Trinity::Expected<Trinity::Scope<Trinity::Project>, std::string> l_Project = Trinity::Project::Open(path);
+    Trinity::Expected<Trinity::Scope<Trinity::Project>, std::string> l_Project = Trinity::Project::Open(path, language);
     if (!l_Project)
     {
         TR_ERROR("Forge: the project could not be opened: {}", l_Project.GetError());
@@ -1375,6 +1421,13 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
 
     m_Project = std::move(*l_Project);
     m_ProjectLock = std::move(*l_Lock);
+    if (l_Choose)
+    {
+        SaveProject();
+        TR_INFO("Forge: {}'s scripts are {} from now on", m_Project->GetName(), m_Project->GetLanguage() == Trinity::ScriptLanguage::CSharp ? "C#" : "C++");
+    }
+
+    Trinity::ScriptRuntime::SetLanguage(m_Project->GetLanguage());
     AttachRegistry();
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
@@ -1481,6 +1534,7 @@ void EditorSession::CloseProject()
 
     m_Project.reset();
     m_ProjectLock.Release();
+    Trinity::ScriptRuntime::SetLanguage(std::nullopt);
 }
 
 std::optional<Trinity::FileLock> EditorSession::LockProject(const std::filesystem::path& path)
@@ -3078,6 +3132,13 @@ std::optional<std::string> EditorSession::CreateScript(std::string_view folder, 
     const bool l_CSharp = language == Trinity::ScriptLanguage::CSharp;
     const std::string_view l_Language = l_CSharp ? "C#" : "C++";
     const std::string_view l_Root = l_CSharp ? c_ScriptsFolder : c_SourceFolder;
+    if (language != m_Project->GetLanguage())
+    {
+        TR_ERROR("Forge: {}'s scripts are {}, so no {} script was made", m_Project->GetName(), GetScriptLanguageLabel(m_Project->GetLanguage()), l_Language);
+
+        return std::nullopt;
+    }
+
     if (!IsSameOrInside(folder, l_Root))
     {
         TR_ERROR("Forge: a {} script goes in {} or a folder in it, so none was made in {}", l_Language, l_Root, folder);
@@ -4691,6 +4752,13 @@ bool EditorSession::AddScript(Trinity::UUID entity, std::string_view path)
 
     const std::filesystem::path l_File = FromUtf8(path);
     const Trinity::ScriptLanguage l_Language = l_File.extension() == ".cs" ? Trinity::ScriptLanguage::CSharp : Trinity::ScriptLanguage::Cpp;
+    if (m_Project && l_Language != m_Project->GetLanguage())
+    {
+        Notify(std::format("{} is a {} script, and {}'s scripts are {}, so it is not added", path, GetScriptLanguageLabel(l_Language), m_Project->GetName(), GetScriptLanguageLabel(m_Project->GetLanguage())));
+
+        return false;
+    }
+
     const std::string l_Name = ToUtf8(l_File.stem());
     const std::vector<const Trinity::ScriptClassDescription*> l_Classes = Trinity::ScriptClassRegistry::GetClasses();
     const auto a_Class = std::ranges::find_if(l_Classes, [l_Language, &l_Name](const Trinity::ScriptClassDescription* description)
@@ -5404,6 +5472,92 @@ void EditorSession::DrawRecoveryPopup()
         m_Recovery.reset();
         static_cast<void>(Trinity::FileSystem::RemoveFile(GetBackupPath()));
         TR_INFO("Forge: discarded the scene backup");
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+// Picked once, as the project is made or first opened in one language, and never changed, as the popup says. Cancel makes or opens nothing
+void EditorSession::DrawLanguagePopup()
+{
+    if (std::exchange(m_OpenLanguagePopup, false))
+    {
+        ImGui::OpenPopup(c_LanguagePopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_LanguagePopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    if (!m_LanguageQuestion)
+    {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    const LanguageQuestion& l_Question = *m_LanguageQuestion;
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+    if (l_Question.NewProject)
+    {
+        ImGui::TextUnformatted(std::format("Which language are {}'s scripts written in?", ToUtf8(l_Question.Path.filename())).c_str());
+        ImGui::TextDisabled("It is chosen once, as the project is made, and cannot change later. Forge shows only that language's menus, templates and scripts, and builds only it.");
+    }
+    else
+    {
+        ImGui::TextUnformatted(std::format("{} was made before a project had one language, and has {}.", l_Question.Name, l_Question.HasModule ? "both a C++ module and a C# project" : "no scripts yet").c_str());
+        ImGui::TextDisabled(l_Question.HasModule ? "Pick the language it keeps, which cannot change later. The other language's files stay on disk, unbuilt, and its scripts in scenes are kept with their values and do not run." : "Pick the language its scripts will be written in, which cannot change later.");
+    }
+
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+
+    std::optional<Trinity::ScriptLanguage> l_Chosen;
+    if (ImGui::Button("C#"))
+    {
+        l_Chosen = Trinity::ScriptLanguage::CSharp;
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("C++"))
+    {
+        l_Chosen = Trinity::ScriptLanguage::Cpp;
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    {
+        if (l_Question.NewProject)
+        {
+            TR_INFO("Forge: no project was made in {}, as no language was chosen", ToUtf8(l_Question.Path));
+        }
+        else
+        {
+            TR_INFO("Forge: {} was not opened, as no language was chosen", l_Question.Name);
+        }
+
+        m_LanguageQuestion.reset();
+        ImGui::CloseCurrentPopup();
+    }
+
+    if (l_Chosen)
+    {
+        m_Pending.push_back([this, l_Asked = std::move(*m_LanguageQuestion), l_Language = *l_Chosen]
+        {
+            if (l_Asked.NewProject)
+            {
+                CreateProject(l_Asked.Path, l_Language);
+            }
+            else
+            {
+                OpenProject(l_Asked.Path, l_Language);
+            }
+        });
+        m_LanguageQuestion.reset();
         ImGui::CloseCurrentPopup();
     }
 

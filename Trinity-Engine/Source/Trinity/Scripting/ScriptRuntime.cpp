@@ -166,6 +166,7 @@ namespace Trinity
         };
 
         ScriptRuntime* s_Active = nullptr;
+        std::optional<ScriptLanguage> s_Language;
         // Across every runtime, so a task or a handler carried into another keeps the ID its script holds
         std::uint64_t s_NextTask = 0;
         std::uint64_t s_NextUIHandler = 0;
@@ -231,6 +232,17 @@ namespace Trinity
 
         void WarnUnknown(const ScriptEntry& entry)
         {
+            if (s_Language && entry.Language != *s_Language)
+            {
+                if (!NotedOtherLanguage)
+                {
+                    NotedOtherLanguage = true;
+                    TR_CORE_INFO("Scripting: the scene's {} scripts are kept with their values and do not run, as the project's scripts are {}", entry.Language == ScriptLanguage::CSharp ? "C#" : "C++", *s_Language == ScriptLanguage::CSharp ? "C#" : "C++");
+                }
+
+                return;
+            }
+
             const std::string l_Key = std::format("{} {}", ToString(entry.Language), std::string_view(entry.ClassName));
             if (std::ranges::find(Warned, std::string_view(l_Key), [](const TaggedString<MemoryTag::Scripting>& warned) { return std::string_view(warned); }) != Warned.end())
             {
@@ -799,6 +811,7 @@ namespace Trinity
         std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scripting>> PendingDestroy;
         std::vector<Removal, TaggedAllocator<Removal, MemoryTag::Scripting>> PendingRemove;
         std::vector<TaggedString<MemoryTag::Scripting>, TaggedAllocator<TaggedString<MemoryTag::Scripting>, MemoryTag::Scripting>> Warned;
+        bool NotedOtherLanguage = false;
         std::vector<InstancingTime, TaggedAllocator<InstancingTime, MemoryTag::Scripting>> Instancing;
         // Prefabs an instance of was refused, each logged once
         std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scripting>> Refused;
@@ -964,6 +977,16 @@ namespace Trinity
     ScriptRuntime* ScriptRuntime::GetActive()
     {
         return s_Active;
+    }
+
+    void ScriptRuntime::SetLanguage(std::optional<ScriptLanguage> language)
+    {
+        s_Language = language;
+    }
+
+    std::optional<ScriptLanguage> ScriptRuntime::GetLanguage()
+    {
+        return s_Language;
     }
 
     Scene& ScriptRuntime::GetScene()

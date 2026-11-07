@@ -1622,14 +1622,18 @@ bool SetExportSettingsCommand::MergeWith(const EditorCommand& next)
     return true;
 }
 
-// The scenes, the APIs and the text are the parts that grow
+// The scenes, each platform's APIs and the text are the parts that grow
 std::size_t SetExportSettingsCommand::GetMemorySize() const
 {
     std::size_t l_Size = sizeof(*this) + m_Field.capacity() + m_Label.capacity();
     for (const Trinity::ExportSettings* it_Settings : { &m_Before, &m_After })
     {
-        l_Size += it_Settings->Scenes.capacity() * sizeof(Trinity::ExportScene) + it_Settings->GraphicsAPIs.capacity() * sizeof(Trinity::GraphicsAPI);
-        l_Size += it_Settings->Product.capacity() + it_Settings->Company.capacity() + it_Settings->Version.capacity() + it_Settings->Output.capacity();
+        l_Size += it_Settings->Scenes.capacity() * sizeof(Trinity::ExportScene);
+        l_Size += it_Settings->Platform.capacity() + it_Settings->Product.capacity() + it_Settings->Company.capacity() + it_Settings->Version.capacity() + it_Settings->Output.capacity();
+        for (const auto& [it_Platform, it_APIs] : it_Settings->GraphicsAPIs)
+        {
+            l_Size += sizeof(std::pair<const std::string, std::vector<Trinity::GraphicsAPI>>) + it_Platform.capacity() + it_APIs.capacity() * sizeof(Trinity::GraphicsAPI);
+        }
     }
 
     return l_Size;

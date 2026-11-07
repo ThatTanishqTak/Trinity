@@ -1817,14 +1817,12 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
                 CharacterLine("2D", l_Physics.Characters2D);
             }
 
-            // The last frame's time in each language's scripts, and what each has running, as the runtime counts them
+            // The last frame's time in the project's language's scripts, and what they have running, as the runtime counts them. Those of the other language are among the scripts without loaded code
             const Trinity::ScriptRuntime::Statistics l_Scripts = l_Runtime->GetScripts().GetStatistics();
-            TextLine(std::format("Scripts: {:.2f} ms in C++, {:.2f} ms in C#", l_Scripts.Cpp.Milliseconds, l_Scripts.CSharp.Milliseconds));
-            for (const auto& [it_Name, it_Language] : { std::pair<const char*, const Trinity::ScriptRuntime::LanguageStatistics*>("C++", &l_Scripts.Cpp), std::pair<const char*, const Trinity::ScriptRuntime::LanguageStatistics*>("C#", &l_Scripts.CSharp) })
-            {
-                TextLine(std::format("  {}: {} instance(s), {} timer(s), {} coroutine(s)", it_Name, it_Language->Instances, it_Language->Timers, it_Language->Coroutines));
-            }
-
+            const bool l_CSharp = m_Session.GetProject() == nullptr || m_Session.GetProject()->GetLanguage() == Trinity::ScriptLanguage::CSharp;
+            const Trinity::ScriptRuntime::LanguageStatistics& l_Language = l_CSharp ? l_Scripts.CSharp : l_Scripts.Cpp;
+            TextLine(std::format("Scripts: {:.2f} ms in {}", l_Language.Milliseconds, l_CSharp ? "C#" : "C++"));
+            TextLine(std::format("  {} instance(s), {} timer(s), {} coroutine(s)", l_Language.Instances, l_Language.Timers, l_Language.Coroutines));
             if (l_Scripts.Unknown > 0 || l_Scripts.Faulted > 0)
             {
                 TextLine(std::format("  {} without loaded code, {} stopped by a failed call", l_Scripts.Unknown, l_Scripts.Faulted));

@@ -844,7 +844,7 @@ namespace
     };
 
     // What the entity can be given that the search matches, a component's spaced name or its type, and a script's class or label, in category order and by name within each
-    std::vector<ComponentChoice> GetComponentChoices(Trinity::Entity entity, std::string_view filter)
+    std::vector<ComponentChoice> GetComponentChoices(Trinity::Entity entity, std::string_view filter, const Trinity::Project* project)
     {
         std::vector<ComponentChoice> l_Choices;
         for (const std::string_view it_Name : Trinity::SceneSerializer::GetComponentNames())
@@ -862,8 +862,14 @@ namespace
             }
         }
 
+        // The project's own language alone
         for (const Trinity::ScriptClassDescription* it_Class : Trinity::ScriptClassRegistry::GetClasses())
         {
+            if (project == nullptr || it_Class->Language != project->GetLanguage())
+            {
+                continue;
+            }
+
             const std::string_view l_Name(it_Class->Name);
             const std::size_t l_Separator = l_Name.find_last_of(".:");
             std::string l_Label = std::format("{} ({})", l_Separator == std::string_view::npos ? l_Name : l_Name.substr(l_Separator + 1), GetScriptLanguageLabel(it_Class->Language));
@@ -3334,7 +3340,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
     ImGui::SetNextItemWidth(l_PopupWidth);
     const bool l_Enter = ImGui::InputTextWithHint("##Filter", std::format("{} Search components and scripts", Trinity::Icons::c_Search).c_str(), &m_ComponentFilter, l_Flags, &PropertiesPanel::OnComponentFilterEdit, this);
 
-    const std::vector<ComponentChoice> l_Choices = GetComponentChoices(entity, m_ComponentFilter);
+    const std::vector<ComponentChoice> l_Choices = GetComponentChoices(entity, m_ComponentFilter, m_Session.GetProject());
     const bool l_Searching = !m_ComponentFilter.empty();
     m_ComponentHighlight = l_Choices.empty() ? 0 : std::clamp(m_ComponentHighlight, 0, static_cast<int>(l_Choices.size()) - 1);
     std::optional<std::size_t> l_Picked = l_Enter && !l_Choices.empty() ? std::optional(static_cast<std::size_t>(m_ComponentHighlight)) : std::nullopt;
@@ -3396,7 +3402,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
         ImGui::EndChild();
     }
 
-    // A new script by the name typed, in each language the project has scripts in, unless a loaded class already has that name
+    // A new script by the name typed, in the project's language once it has a C# project or a C++ module, unless a loaded class already has that name
     std::optional<Trinity::ScriptLanguage> l_NewScript;
     const Trinity::Project* l_Project = m_Session.GetProject();
     if (l_Searching && l_Project != nullptr && EditorSession::IsClassName(m_ComponentFilter))
@@ -3406,7 +3412,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
         {
             const bool l_CSharp = it_Language == Trinity::ScriptLanguage::CSharp;
             const bool l_Taken = Trinity::ScriptClassRegistry::Find(it_Language, m_Session.GetScriptClassName(it_Language, m_ComponentFilter)) != nullptr;
-            if ((l_CSharp ? !l_Project->HasAssembly() : !l_Project->HasModule()) || l_Taken)
+            if (it_Language != l_Project->GetLanguage() || (l_CSharp ? !l_Project->HasAssembly() : !l_Project->HasModule()) || l_Taken)
             {
                 continue;
             }
@@ -4017,7 +4023,10 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
     {
         Trinity::ScriptEntry& l_Entry = l_Value.Scripts[it_Index];
         const std::string l_Label = GetScriptLabel(l_Entry);
-        const bool l_Known = Trinity::ScriptClassRegistry::Find(l_Entry.Language, l_Entry.ClassName) != nullptr;
+        // One in the other language, as a scene pasted in from another project brings, is kept and never runs, whatever is loaded
+        const Trinity::Project* l_Project = m_Session.GetProject();
+        const bool l_Other = l_Project != nullptr && l_Entry.Language != l_Project->GetLanguage();
+        const bool l_Known = !l_Other && Trinity::ScriptClassRegistry::Find(l_Entry.Language, l_Entry.ClassName) != nullptr;
         const bool l_Stopped = l_Runtime != nullptr && l_Runtime->GetScripts().IsFaulted(entity, it_Index);
         const float l_RowRight = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
 
@@ -4041,11 +4050,18 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             const std::string_view l_Name(l_Entry.ClassName);
-            ImGui::SetTooltip("%s", (l_Known ? std::format("{}, in {}. Double-click to edit it", l_Name, GetScriptLanguageLabel(l_Entry.Language)) : std::format("{}, in {}. No loaded code has this class, so its values are kept as they were read. Double-click to edit it", l_Name, GetScriptLanguageLabel(l_Entry.Language))).c_str());
+            if (l_Other)
+            {
+                ImGui::SetTooltip("%s", std::format("{}, in {}. This project's scripts are {}, so it is kept with its values as they were read and does not run", l_Name, GetScriptLanguageLabel(l_Entry.Language), GetScriptLanguageLabel(l_Project->GetLanguage())).c_str());
+            }
+            else
+            {
+                ImGui::SetTooltip("%s", (l_Known ? std::format("{}, in {}. Double-click to edit it", l_Name, GetScriptLanguageLabel(l_Entry.Language)) : std::format("{}, in {}. No loaded code has this class, so its values are kept as they were read. Double-click to edit it", l_Name, GetScriptLanguageLabel(l_Entry.Language))).c_str());
+            }
         }
 
         // As Unity opens a script from its component, the two clicks leaving the header open or closed as it was
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        if (!l_Other && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
         {
             l_Edit = std::pair(l_Entry.Language, std::string(std::string_view(l_Entry.ClassName)));
         }
@@ -4193,14 +4209,16 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
     }
 }
 
-// A known class's fields in its order, each with its type's editor, then those the entry keeps that the class lacks or now types otherwise, greyed, with a button that drops them. An unknown class's fields are greyed as they were read
+// A known class's fields in its order, each with its type's editor, then those the entry keeps that the class lacks or now types otherwise, greyed, with a button that drops them. An unknown class's fields are greyed as they were read, as are those of a script in another language than the project's
 void PropertiesPanel::DrawScriptFields(Trinity::ScriptEntry& entry, std::string& change)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
-    const Trinity::ScriptClassDescription* l_Class = Trinity::ScriptClassRegistry::Find(entry.Language, entry.ClassName);
+    const Trinity::Project* l_Project = m_Session.GetProject();
+    const bool l_Other = l_Project != nullptr && entry.Language != l_Project->GetLanguage();
+    const Trinity::ScriptClassDescription* l_Class = l_Other ? nullptr : Trinity::ScriptClassRegistry::Find(entry.Language, entry.ClassName);
     if (l_Class == nullptr)
     {
-        ImGui::TextDisabled("Not loaded, so its values are kept as they were read");
+        ImGui::TextDisabled("%s", l_Other ? std::format("A {} script, which this {} project keeps with its values and does not run", GetScriptLanguageLabel(entry.Language), GetScriptLanguageLabel(l_Project->GetLanguage())).c_str() : "Not loaded, so its values are kept as they were read");
         for (const Trinity::ScriptEntry::Field& it_Field : entry.Fields)
         {
             DrawReadOnlyField(l_Scene, m_Session.GetRegistry(), it_Field.Name.c_str(), it_Field.Value);

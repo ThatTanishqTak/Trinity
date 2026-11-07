@@ -137,6 +137,20 @@ namespace
 
         return l_Text;
     }
+
+    // By the names the Build panel shows them by
+    std::string JoinNames(std::span<const std::string> platforms)
+    {
+        std::string l_Text;
+        for (const std::string& it_Name : platforms)
+        {
+            const Trinity::TargetPlatform* l_Platform = Trinity::TargetPlatforms::Find(it_Name);
+            l_Text += l_Text.empty() ? "" : " and ";
+            l_Text += l_Platform != nullptr ? l_Platform->DisplayName : std::string_view(it_Name);
+        }
+
+        return l_Text;
+    }
 }
 
 ExportCommand::~ExportCommand()
@@ -219,9 +233,17 @@ std::vector<std::string> ExportCommand::CheckSettings(const Trinity::Project& pr
         }
     }
 
-    if (l_Settings.GraphicsAPIs.empty())
+    // A platform this version carries no player for cannot be built, which a project made in another version, or with a platform of a later milestone written in, can name
+    const Trinity::TargetPlatform* l_Platform = Trinity::TargetPlatforms::Find(l_Settings.Platform);
+    const std::vector<std::string> l_Platforms = GetPlatforms();
+    if (std::ranges::find(l_Platforms, l_Settings.Platform) == l_Platforms.end())
     {
-        l_Problems.emplace_back("No graphics API is chosen, so the game could draw with none");
+        l_Problems.push_back(std::format("This version of Trinity builds games for {} only, not for {}. Pick a platform it builds in the Build panel", JoinNames(l_Platforms), l_Platform != nullptr ? l_Platform->DisplayName : std::string_view(l_Settings.Platform)));
+    }
+
+    if (l_Settings.GetGraphicsAPIs().empty())
+    {
+        l_Problems.push_back(std::format("No graphics API is chosen for {}, so the game could draw with none", l_Platform != nullptr ? l_Platform->DisplayName : std::string_view(l_Settings.Platform)));
     }
 
     if (l_Settings.Output.empty())
@@ -271,6 +293,17 @@ Trinity::Expected<std::filesystem::path, std::string> ExportCommand::GetTrinityD
     }
 
     return l_Manifest->GetConfigurationDirectory(l_Version, configuration);
+}
+
+std::vector<std::string> ExportCommand::GetPlatforms()
+{
+    const Trinity::Expected<Trinity::EngineManifest, std::string> l_Manifest = Trinity::ReadEngineManifest(Trinity::Process::GetExecutableDirectory().parent_path().parent_path());
+    if (!l_Manifest || l_Manifest->Exports.empty())
+    {
+        return { std::string(Trinity::GetBuildPlatform()) };
+    }
+
+    return l_Manifest->Exports;
 }
 
 std::string ExportCommand::GetExecutableName(std::string_view product)
@@ -597,7 +630,7 @@ void ExportCommand::StartPacking()
     l_Game.Company = l_Export.Company;
     l_Game.Version = l_Export.Version;
     l_Game.Scenes = l_Export.GetBuildScenes();
-    l_Game.GraphicsAPIs = l_Export.GraphicsAPIs;
+    l_Game.GraphicsAPIs = l_Export.GetGraphicsAPIs();
     l_Game.Window = l_Export.Window;
     l_Game.Physics = l_Project.GetPhysicsSettings();
     l_Game.Audio = l_Project.GetAudioSettings();
@@ -730,12 +763,13 @@ bool ExportCommand::CopyFiles()
     }
 
     const std::filesystem::path l_Shaders = l_Trinity / "Engine" / "shaders";
+    const std::vector<Trinity::GraphicsAPI> l_APIs = l_Export.GetGraphicsAPIs();
     std::vector<std::filesystem::path> l_Found;
     for (std::filesystem::directory_iterator it_Entry(l_Shaders, l_Error), it_End; !l_Error && it_Entry != it_End; it_Entry.increment(l_Error))
     {
         const std::string l_Name = ToUtf8(it_Entry->path().filename());
         const std::string l_Extension = ToUtf8(it_Entry->path().extension());
-        const bool l_Drawn = std::ranges::any_of(l_Export.GraphicsAPIs, [&l_Extension](Trinity::GraphicsAPI api) { return GetShaderExtension(api) == l_Extension; });
+        const bool l_Drawn = std::ranges::any_of(l_APIs, [&l_Extension](Trinity::GraphicsAPI api) { return GetShaderExtension(api) == l_Extension; });
         if (l_Drawn && IsShipped(l_Name, m_Development) && it_Entry->is_regular_file())
         {
             l_Found.push_back(it_Entry->path());
@@ -744,7 +778,7 @@ bool ExportCommand::CopyFiles()
 
     if (l_Found.empty())
     {
-        Fail(std::format("Trinity's {} build has no shaders for {} in {}", m_Development ? "Release" : "Distribution", JoinAPIs(l_Export.GraphicsAPIs), ToUtf8(l_Shaders)));
+        Fail(std::format("Trinity's {} build has no shaders for {} in {}", m_Development ? "Release" : "Distribution", JoinAPIs(l_APIs), ToUtf8(l_Shaders)));
 
         return false;
     }
@@ -788,7 +822,7 @@ bool ExportCommand::CopyFiles()
     }
 
 #if defined(TR_PLATFORM_WINDOWS)
-    if (std::ranges::find(l_Export.GraphicsAPIs, Trinity::GraphicsAPI::D3D12) != l_Export.GraphicsAPIs.end())
+    if (const std::vector<Trinity::GraphicsAPI> l_APIs = l_Export.GetGraphicsAPIs(); std::ranges::find(l_APIs, Trinity::GraphicsAPI::D3D12) != l_APIs.end())
     {
         const std::filesystem::path l_Agility = l_Trinity / "D3D12" / "D3D12Core.dll";
         if (!std::filesystem::exists(l_Agility, l_Error))

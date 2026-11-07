@@ -3,7 +3,7 @@ set(TRINITY_MANIFEST_FORMAT 1)
 set(TRINITY_MANIFEST_FILE "Trinity.trversion")
 
 # The file formats this version reads and writes, which Hub compares between versions. Version.cpp checks each against the engine's own constant, so raising one there fails to compile until it is raised here too
-set(TRINITY_FORMAT_PROJECT 9)
+set(TRINITY_FORMAT_PROJECT 10)
 set(TRINITY_FORMAT_SCENE 2)
 set(TRINITY_FORMAT_PREFAB 2)
 set(TRINITY_FORMAT_INPUT_ACTIONS 2)

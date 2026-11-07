@@ -950,7 +950,10 @@ void ForgeLayer::DrawBuildStatus()
 
         ImGui::PushStyleColor(ImGuiCol_Text, l_Color);
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-        const bool l_Clicked = ImGui::Button(std::format("{}###Build{}", a_Text(it_Indicator), it_Indicator.Label).c_str());
+        // By its language rather than by a ### suffix, which after C# would read as ## and cut the label short at C
+        ImGui::PushID(it_Indicator.Label);
+        const bool l_Clicked = ImGui::Button(a_Text(it_Indicator).c_str());
+        ImGui::PopID();
         ImGui::PopStyleColor(2);
         ImGui::SetItemTooltip("%s", l_Tooltip.c_str());
         if (l_Clicked && l_Status.State == BuildState::Failed)
@@ -1215,77 +1218,86 @@ void ForgeLayer::DrawRecentScenesMenu()
     }
 }
 
-// A Forge with a static engine cannot build or load a module, and one without .NET has no C#, and each says why when its items are hovered
+// Only the project's language: a C++ project's module, or a C# project's own project and solution. A Forge with a static engine cannot build or load a module, and one without .NET has no C#, and each says why when its items are hovered
 void ForgeLayer::DrawScriptsMenu()
 {
     const Trinity::Project* l_Project = m_Session.GetProject();
-    const ModuleHost& l_Module = m_Session.GetModule();
-    const bool l_Supported = ModuleHost::IsSupported();
-    const bool l_HasModule = l_Project != nullptr && l_Project->HasModule();
-    const auto a_Explain = [l_Supported]
+    if (l_Project == nullptr)
     {
-        if (!l_Supported)
+        ImGui::TextDisabled("A project's scripts are here once it is open");
+    }
+    else if (l_Project->GetLanguage() == Trinity::ScriptLanguage::Cpp)
+    {
+        const ModuleHost& l_Module = m_Session.GetModule();
+        const bool l_Supported = ModuleHost::IsSupported();
+        const bool l_HasModule = l_Project->HasModule();
+        const auto a_Explain = [l_Supported]
         {
-            ImGui::SetItemTooltip("This Forge's engine is linked statically, so it cannot build or load C++ modules. Use a Debug or Release Forge");
-        }
-    };
+            if (!l_Supported)
+            {
+                ImGui::SetItemTooltip("This Forge's engine is linked statically, so it cannot build or load C++ modules. Use a Debug or Release Forge");
+            }
+        };
 
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_File, "Create C++ Module").c_str(), nullptr, false, l_Supported && l_Project != nullptr && !l_HasModule))
-    {
-        m_Session.Request(EditorSession::Command::CreateModule);
-    }
-
-    a_Explain();
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Refresh, l_Module.IsBuilding() ? "Building C++ Module..." : "Build C++ Module").c_str(), nullptr, false, l_Supported && l_HasModule && !l_Module.IsBuilding()))
-    {
-        m_Session.Request(EditorSession::Command::BuildModule);
-    }
-
-    a_Explain();
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_FileCode, "Open C++ Module in IDE").c_str(), nullptr, false, l_HasModule))
-    {
-        static_cast<void>(m_Session.OpenModuleFolder());
-    }
-
-    if (l_HasModule)
-    {
-        ImGui::TextDisabled("%s: %s", l_Project->GetModuleName().c_str(), l_Module.IsBuilding() ? "building" : l_Module.IsLoaded() ? "loaded" : "not loaded");
-    }
-
-    // C# works in every configuration, unless .NET did not start
-    ImGui::Separator();
-    const AssemblyHost& l_Assembly = m_Session.GetAssembly();
-    const bool l_DotNet = AssemblyHost::IsSupported();
-    const bool l_HasAssembly = l_Project != nullptr && l_Project->HasAssembly();
-    const auto a_ExplainDotNet = [l_DotNet]
-    {
-        if (!l_DotNet)
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_File, "Create C++ Module").c_str(), nullptr, false, l_Supported && !l_HasModule))
         {
-            ImGui::SetItemTooltip("C# is off, since .NET did not start. The log says why");
+            m_Session.Request(EditorSession::Command::CreateModule);
         }
-    };
 
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_File, "Create C# Project").c_str(), nullptr, false, l_DotNet && l_Project != nullptr && !l_HasAssembly))
+        a_Explain();
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Refresh, l_Module.IsBuilding() ? "Building C++ Module..." : "Build C++ Module").c_str(), nullptr, false, l_Supported && l_HasModule && !l_Module.IsBuilding()))
+        {
+            m_Session.Request(EditorSession::Command::BuildModule);
+        }
+
+        a_Explain();
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_FileCode, "Open C++ Module in IDE").c_str(), nullptr, false, l_HasModule))
+        {
+            static_cast<void>(m_Session.OpenModuleFolder());
+        }
+
+        if (l_HasModule)
+        {
+            ImGui::TextDisabled("%s: %s", l_Project->GetModuleName().c_str(), l_Module.IsBuilding() ? "building" : l_Module.IsLoaded() ? "loaded" : "not loaded");
+        }
+    }
+    else
     {
-        m_Session.Request(EditorSession::Command::CreateAssembly);
+        // C# works in every configuration, unless .NET did not start
+        const AssemblyHost& l_Assembly = m_Session.GetAssembly();
+        const bool l_DotNet = AssemblyHost::IsSupported();
+        const bool l_HasAssembly = l_Project->HasAssembly();
+        const auto a_ExplainDotNet = [l_DotNet]
+        {
+            if (!l_DotNet)
+            {
+                ImGui::SetItemTooltip("C# is off, since .NET did not start. The log says why");
+            }
+        };
+
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_File, "Create C# Project").c_str(), nullptr, false, l_DotNet && !l_HasAssembly))
+        {
+            m_Session.Request(EditorSession::Command::CreateAssembly);
+        }
+
+        a_ExplainDotNet();
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Refresh, l_Assembly.IsBuilding() ? "Building C# Project..." : "Build C# Project").c_str(), nullptr, false, l_DotNet && l_HasAssembly && !l_Assembly.IsBuilding()))
+        {
+            m_Session.Request(EditorSession::Command::BuildAssembly);
+        }
+
+        a_ExplainDotNet();
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_FileCode, "Open C# Solution in IDE").c_str(), nullptr, false, l_HasAssembly))
+        {
+            static_cast<void>(m_Session.OpenSolution());
+        }
+
+        if (l_HasAssembly)
+        {
+            ImGui::TextDisabled("%s: %s", l_Project->GetAssemblyName().c_str(), l_Assembly.IsBuilding() ? "building" : l_Assembly.IsLoaded() ? "loaded" : "not loaded");
+        }
     }
 
-    a_ExplainDotNet();
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Refresh, l_Assembly.IsBuilding() ? "Building C# Project..." : "Build C# Project").c_str(), nullptr, false, l_DotNet && l_HasAssembly && !l_Assembly.IsBuilding()))
-    {
-        m_Session.Request(EditorSession::Command::BuildAssembly);
-    }
-
-    a_ExplainDotNet();
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_FileCode, "Open C# Solution in IDE").c_str(), nullptr, false, l_HasAssembly))
-    {
-        static_cast<void>(m_Session.OpenSolution());
-    }
-
-    if (l_HasAssembly)
-    {
-        ImGui::TextDisabled("%s: %s", l_Project->GetAssemblyName().c_str(), l_Assembly.IsBuilding() ? "building" : l_Assembly.IsLoaded() ? "loaded" : "not loaded");
-    }
 
     // An IDE not found on this machine is greyed, and saying so is all its item does
     ImGui::Separator();

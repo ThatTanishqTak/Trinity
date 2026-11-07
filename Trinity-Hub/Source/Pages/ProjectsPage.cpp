@@ -33,12 +33,13 @@ namespace
             return "-";
         }
 
-        if (project.Info->HasAssembly && project.Info->HasModule)
+        if (project.Info->Language)
         {
-            return "C# and C++";
+            return *project.Info->Language == Trinity::ScriptLanguage::CSharp ? "C#" : "C++";
         }
 
-        return project.Info->HasAssembly ? "C#" : project.Info->HasModule ? "C++" : "None";
+        // Older than format 10, so its language is asked for as it opens
+        return project.Info->HasAssembly && project.Info->HasModule ? "C# and C++" : "None yet";
     }
 
     // This machine's versions that can open a project, installed or located, and not missing or unreadable

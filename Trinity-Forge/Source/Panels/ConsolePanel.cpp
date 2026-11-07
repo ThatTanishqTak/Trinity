@@ -317,7 +317,7 @@ void ConsolePanel::DrawLog(float footerHeight)
             ImGui::MarkIniSettingsDirty();
         }
 
-        ImGui::SetItemTooltip("Empties the log as a C++ or C# build starts, unless the other is still building");
+        ImGui::SetItemTooltip("Empties the log as the project's scripts start building");
         ImGui::EndPopup();
     }
 

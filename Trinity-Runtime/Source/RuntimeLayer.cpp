@@ -180,6 +180,8 @@ bool RuntimeLayer::OpenAssets()
     }
 
     Trinity::AssetManager::SetRegistry(m_Registry.get());
+    // A game ships one language's scripts, as its project has, so a script of the other kept in a scene is told of once
+    Trinity::ScriptRuntime::SetLanguage(!m_Game->Scripts.empty() ? std::optional(Trinity::ScriptLanguage::CSharp) : !m_Game->Module.empty() ? std::optional(Trinity::ScriptLanguage::Cpp) : std::nullopt);
     LoadModule();
     LoadScripts();
     m_Mixer = Trinity::AssetRef<Trinity::AudioMixerAsset>(m_Game->Audio.Mixer);

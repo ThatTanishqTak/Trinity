@@ -7,13 +7,13 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
-#include <array>
 #include <cfloat>
 #include <cstdint>
 #include <cstring>
 #include <format>
 #include <iterator>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -25,8 +25,6 @@ namespace
     constexpr const char* c_BuildScenePayload = "TRINITY_BUILD_SCENE";
     constexpr const char* c_IconPickerPopup = "##IconPicker";
     constexpr std::string_view c_SceneType = "Scene";
-    // The graphics APIs a build for Windows can try, as Unity's lists them
-    constexpr std::array<Trinity::GraphicsAPI, 2> c_GraphicsAPIs{ Trinity::GraphicsAPI::D3D12, Trinity::GraphicsAPI::Vulkan };
     constexpr std::size_t c_MinimumRows = 3;
     constexpr std::size_t c_MaximumRows = 10;
 
@@ -122,6 +120,45 @@ namespace
         settings.Scenes.insert(settings.Scenes.begin() + static_cast<std::ptrdiff_t>(std::min(row, settings.Scenes.size())), scene);
     }
 
+    // What a platform's row says while hovered: what picking it does, or for one this version of Trinity cannot build, what brings it, and for the project's own such platform, that Build refuses it
+    std::string DescribePlatform(const Trinity::TargetPlatform& platform, bool buildable, bool picked)
+    {
+        const Trinity::TargetPlatform* l_Running = Trinity::TargetPlatforms::Find(Trinity::GetBuildPlatform());
+        const std::string_view l_Here = l_Running != nullptr ? l_Running->DisplayName : Trinity::GetBuildPlatform();
+        std::string l_Tip;
+        if (buildable)
+        {
+            l_Tip = picked ? std::format("The game is built for {}", platform.DisplayName) : std::format("Builds the game for {}, its graphics APIs in the order {} keeps", platform.DisplayName, platform.DisplayName);
+        }
+        else if (platform.Console)
+        {
+            l_Tip = std::format("{} comes with {}, once the platform holder's SDK is to hand", platform.DisplayName, platform.Milestone);
+        }
+        else if (!platform.Milestone.empty())
+        {
+            l_Tip = std::format("{} comes with {}, built with a {} version of Trinity. This one runs on {}", platform.DisplayName, platform.Milestone, platform.DisplayName, l_Here);
+        }
+        else
+        {
+            l_Tip = std::format("{} games are built with a {} version of Trinity, and this one runs on {}", platform.DisplayName, platform.DisplayName, l_Here);
+        }
+
+        if (picked && !buildable)
+        {
+            l_Tip += ". It is the project's platform, which this version cannot build, so pick one it builds";
+        }
+
+        return l_Tip;
+    }
+
+    // The platform's own order, made from its defaults the first time it changes
+    std::vector<Trinity::GraphicsAPI>& GetOrder(Trinity::ExportSettings& settings)
+    {
+        std::vector<Trinity::GraphicsAPI> l_Current = settings.GetGraphicsAPIs();
+
+        return settings.GraphicsAPIs.try_emplace(settings.Platform, std::move(l_Current)).first->second;
+    }
+
     // A row moved to take another's place
     void MoveRow(Trinity::ExportSettings& settings, std::size_t from, std::size_t to)
     {
@@ -182,6 +219,7 @@ void BuildPanel::OnImGuiRender()
 
     // A copy, as an edit replaces what the project holds
     const Trinity::ExportSettings l_Settings = l_Project->GetExportSettings();
+    DrawPlatforms(l_Settings);
     DrawScenes(l_Settings);
     DrawPlayer(l_Settings);
     DrawWindow(l_Settings);
@@ -192,6 +230,37 @@ void BuildPanel::OnImGuiRender()
     if (!ImGui::IsAnyItemActive())
     {
         m_Session.GetHistory().EndMerge();
+    }
+}
+
+// Every platform, as Unity's Build Profiles lists them: one this version of Trinity has players for is picked as one command, and the others are greyed, saying what brings them. A project whose platform this version cannot build, as one made in another version has, shows it so, and Build refuses it
+void BuildPanel::DrawPlatforms(const Trinity::ExportSettings& settings)
+{
+    if (!m_Platforms)
+    {
+        m_Platforms = ExportCommand::GetPlatforms();
+    }
+
+    ImGui::SeparatorText("Platform");
+    for (const Trinity::TargetPlatform& it_Platform : Trinity::TargetPlatforms::GetAll())
+    {
+        const bool l_Buildable = std::ranges::find(*m_Platforms, it_Platform.Name) != m_Platforms->end();
+        const bool l_Picked = settings.Platform == it_Platform.Name;
+        ImGui::PushID(it_Platform.Name.data(), it_Platform.Name.data() + it_Platform.Name.size());
+        ImGui::BeginDisabled(!l_Buildable);
+        const std::string l_Label = l_Picked && !l_Buildable ? std::format("{} {}", Trinity::Icons::c_Warning, it_Platform.DisplayName) : std::string(it_Platform.DisplayName);
+        if (ImGui::Selectable(l_Label.c_str(), l_Picked) && !l_Picked)
+        {
+            Edit("platform", [&it_Platform](Trinity::ExportSettings& changed) { changed.Platform = it_Platform.Name; });
+        }
+
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("%s", DescribePlatform(it_Platform, l_Buildable, l_Picked).c_str());
+        }
+
+        ImGui::PopID();
     }
 }
 
@@ -505,48 +574,57 @@ void BuildPanel::DrawWindow(const Trinity::ExportSettings& settings)
     Tooltip("Each frame waits for the display's refresh, so the game runs at its rate without tearing");
 }
 
-// In the order the player tries them, each the player was built without or the machine cannot run passed over, as Unity's Graphics APIs list. One is always left
+// In the order the player tries them, each the player was built without or the machine cannot run passed over, as Unity's Graphics APIs list, of those the platform has. Each platform keeps its own order, made from its defaults by the first change. One is always left
 void BuildPanel::DrawGraphicsAPIs(const Trinity::ExportSettings& settings)
 {
+    const Trinity::TargetPlatform* l_Platform = Trinity::TargetPlatforms::Find(settings.Platform);
+    const std::vector<Trinity::GraphicsAPI> l_APIs = settings.GetGraphicsAPIs();
     ImGui::SeparatorText("Graphics APIs");
-    ImGui::TextDisabled("Tried in this order, each the machine cannot run passed over");
-    for (std::size_t it_API = 0; it_API < settings.GraphicsAPIs.size(); ++it_API)
+    if (l_Platform == nullptr || l_Platform->GraphicsAPIs.empty())
+    {
+        ImGui::TextDisabled("%s", std::format("Trinity has no graphics API for {} yet", l_Platform != nullptr ? l_Platform->DisplayName : std::string_view(settings.Platform)).c_str());
+
+        return;
+    }
+
+    ImGui::TextDisabled("%s", std::format("Tried in this order on {}, each the machine cannot run passed over", l_Platform->DisplayName).c_str());
+    for (std::size_t it_API = 0; it_API < l_APIs.size(); ++it_API)
     {
         ImGui::PushID(static_cast<int>(it_API));
         const float l_Button = ImGui::GetFrameHeight();
         const float l_Right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
         ImGui::AlignTextToFramePadding();
-        ImGui::Text("%zu. %s", it_API + 1, std::string(Trinity::ToString(settings.GraphicsAPIs[it_API])).c_str());
+        ImGui::Text("%zu. %s", it_API + 1, std::string(Trinity::ToString(l_APIs[it_API])).c_str());
         ImGui::SameLine(std::max(l_Right - l_Button * 3.0f - ImGui::GetStyle().ItemSpacing.x * 2.0f, ImGui::GetFontSize() * c_LabelWidthInFonts));
         ImGui::BeginDisabled(it_API == 0);
         if (ImGui::Button(Trinity::Icons::c_ArrowUp, ImVec2(l_Button, 0.0f)))
         {
-            Edit("graphics API order", [it_API](Trinity::ExportSettings& changed) { std::swap(changed.GraphicsAPIs[it_API], changed.GraphicsAPIs[it_API - 1]); });
+            Edit("graphics API order", [it_API](Trinity::ExportSettings& changed) { std::vector<Trinity::GraphicsAPI>& l_Order = GetOrder(changed); std::swap(l_Order[it_API], l_Order[it_API - 1]); });
         }
 
         ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::BeginDisabled(it_API + 1 >= settings.GraphicsAPIs.size());
+        ImGui::BeginDisabled(it_API + 1 >= l_APIs.size());
         if (ImGui::Button(Trinity::Icons::c_ArrowDown, ImVec2(l_Button, 0.0f)))
         {
-            Edit("graphics API order", [it_API](Trinity::ExportSettings& changed) { std::swap(changed.GraphicsAPIs[it_API], changed.GraphicsAPIs[it_API + 1]); });
+            Edit("graphics API order", [it_API](Trinity::ExportSettings& changed) { std::vector<Trinity::GraphicsAPI>& l_Order = GetOrder(changed); std::swap(l_Order[it_API], l_Order[it_API + 1]); });
         }
 
         ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::BeginDisabled(settings.GraphicsAPIs.size() <= 1);
+        ImGui::BeginDisabled(l_APIs.size() <= 1);
         if (ImGui::Button(Trinity::Icons::c_TimesCircle, ImVec2(l_Button, 0.0f)))
         {
-            Edit("graphics API removed", [it_API](Trinity::ExportSettings& changed) { changed.GraphicsAPIs.erase(changed.GraphicsAPIs.begin() + static_cast<std::ptrdiff_t>(it_API)); });
+            Edit("graphics API removed", [it_API](Trinity::ExportSettings& changed) { std::vector<Trinity::GraphicsAPI>& l_Order = GetOrder(changed); l_Order.erase(l_Order.begin() + static_cast<std::ptrdiff_t>(it_API)); });
         }
 
         ImGui::EndDisabled();
-        Tooltip(settings.GraphicsAPIs.size() <= 1 ? "The game needs one to draw with" : "Remove from the list");
+        Tooltip(l_APIs.size() <= 1 ? "The game needs one to draw with" : "Remove from the list");
         ImGui::PopID();
     }
 
     std::vector<Trinity::GraphicsAPI> l_Missing;
-    std::ranges::copy_if(c_GraphicsAPIs, std::back_inserter(l_Missing), [&settings](Trinity::GraphicsAPI api) { return std::ranges::find(settings.GraphicsAPIs, api) == settings.GraphicsAPIs.end(); });
+    std::ranges::copy_if(l_Platform->GraphicsAPIs, std::back_inserter(l_Missing), [&l_APIs](Trinity::GraphicsAPI api) { return std::ranges::find(l_APIs, api) == l_APIs.end(); });
     if (l_Missing.empty())
     {
         return;
@@ -559,7 +637,7 @@ void BuildPanel::DrawGraphicsAPIs(const Trinity::ExportSettings& settings)
         {
             if (ImGui::Selectable(std::string(Trinity::ToString(it_API)).c_str()))
             {
-                Edit("graphics API added", [it_API](Trinity::ExportSettings& changed) { changed.GraphicsAPIs.push_back(it_API); });
+                Edit("graphics API added", [it_API](Trinity::ExportSettings& changed) { GetOrder(changed).push_back(it_API); });
             }
         }
 
@@ -633,7 +711,8 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
         static_cast<void>(Build(false));
     }
 
-    Tooltip(l_Running ? "Building once the project has imported and its scripts have built. The Console tells how it goes" : "Exports the game into the output folder, which it replaces whole: the player named for the product, its pack of what the ticked scenes reach, its compiled C# scripts and the runtimes it needs");
+    const std::string l_Exports = std::format("Exports the game into the output folder, which it replaces whole: the player named for the product, its pack of what the ticked scenes reach, {} and the runtimes it needs", l_Project.GetLanguage() == Trinity::ScriptLanguage::CSharp ? "its C# scripts compiled ahead of time" : "its C++ module built into it");
+    Tooltip(l_Running ? "Building once the project has imported and its scripts have built. The Console tells how it goes" : l_Exports.c_str());
     ImGui::SameLine();
     if (ImGui::Button(std::format("{} Build And Run###BuildAndRun", Trinity::Icons::c_Play).c_str(), ImVec2(-FLT_MIN, l_Height)))
     {

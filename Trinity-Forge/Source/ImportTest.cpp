@@ -373,7 +373,7 @@ bool ImportTest::OpenProject(const std::filesystem::path& directory)
         }
     }
 
-    m_Session.CreateProject(directory);
+    m_Session.CreateProject(directory, Trinity::ScriptLanguage::CSharp);
 
     return m_Session.HasProject();
 }
