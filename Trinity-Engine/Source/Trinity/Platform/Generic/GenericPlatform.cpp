@@ -629,6 +629,125 @@ namespace Trinity
             return true;
         }
 
+        // What a watched program is held by: its ID, and its exit code once waitpid has seen it end
+        struct WatchedProcess
+        {
+            pid_t ID = 0;
+            std::optional<int> ExitCode;
+        };
+
+        // One fork, where StartProcess forks twice, so the program is this process's child and its end can be waited for. It still starts a session of its own, so it is not ended with this process's terminal. Whether it could start is told through a pipe that its exec closes
+        void* StartWatchedProcess(const ProcessRequest& request, std::uint32_t& processID, std::string& error)
+        {
+            Program l_Program;
+            if (!PrepareProgram(request, l_Program, error))
+            {
+                return nullptr;
+            }
+
+            std::array<int, 2> l_Pipe{ -1, -1 };
+            if (::pipe(l_Pipe.data()) != 0)
+            {
+                error = std::format("no pipe to hear from it: {}", std::strerror(errno));
+
+                return nullptr;
+            }
+
+            ::fcntl(l_Pipe[0], F_SETFD, FD_CLOEXEC);
+            ::fcntl(l_Pipe[1], F_SETFD, FD_CLOEXEC);
+
+            const pid_t l_Child = ::fork();
+            if (l_Child < 0)
+            {
+                error = std::strerror(errno);
+                ::close(l_Pipe[0]);
+                ::close(l_Pipe[1]);
+
+                return nullptr;
+            }
+
+            if (l_Child == 0)
+            {
+                ::setsid();
+                const int l_Null = ::open("/dev/null", O_RDWR | O_CLOEXEC);
+                if (l_Null >= 0)
+                {
+                    ::dup2(l_Null, STDIN_FILENO);
+                    ::dup2(l_Null, STDOUT_FILENO);
+                    ::dup2(l_Null, STDERR_FILENO);
+                }
+
+                if (l_Program.Directory.empty() || ::chdir(l_Program.Directory.c_str()) == 0)
+                {
+                    ::execve(l_Program.Executable.c_str(), l_Program.Arguments.data(), l_Program.Environment);
+                }
+
+                const int l_Failure = errno;
+                static_cast<void>(::write(l_Pipe[1], &l_Failure, sizeof(l_Failure)));
+                ::_exit(127);
+            }
+
+            ::close(l_Pipe[1]);
+            int l_Failure = 0;
+            ssize_t l_Read = 0;
+            do
+            {
+                l_Read = ::read(l_Pipe[0], &l_Failure, sizeof(l_Failure));
+            } while (l_Read < 0 && errno == EINTR);
+
+            ::close(l_Pipe[0]);
+            if (l_Read == static_cast<ssize_t>(sizeof(l_Failure)))
+            {
+                int l_Status = 0;
+                while (::waitpid(l_Child, &l_Status, 0) < 0 && errno == EINTR)
+                {
+
+                }
+
+                error = std::strerror(l_Failure);
+
+                return nullptr;
+            }
+
+            processID = static_cast<std::uint32_t>(l_Child);
+
+            return new WatchedProcess{ l_Child, std::nullopt };
+        }
+
+        // A program ended by a signal gives 128 and the signal, as a shell reports it
+        std::optional<int> PollProcess(void* process)
+        {
+            WatchedProcess& l_Process = *static_cast<WatchedProcess*>(process);
+            if (l_Process.ExitCode)
+            {
+                return l_Process.ExitCode;
+            }
+
+            int l_Status = 0;
+            pid_t l_Ended = 0;
+            do
+            {
+                l_Ended = ::waitpid(l_Process.ID, &l_Status, WNOHANG);
+            } while (l_Ended < 0 && errno == EINTR);
+
+            if (l_Ended == l_Process.ID)
+            {
+                l_Process.ExitCode = WIFEXITED(l_Status) ? WEXITSTATUS(l_Status) : 128 + (WIFSIGNALED(l_Status) ? WTERMSIG(l_Status) : 0);
+            }
+            else if (l_Ended < 0)
+            {
+                // Waited for by something else already, so its exit code is not known
+                l_Process.ExitCode = -1;
+            }
+
+            return l_Process.ExitCode;
+        }
+
+        void ReleaseProcess(void* process)
+        {
+            delete static_cast<WatchedProcess*>(process);
+        }
+
         // Until Linux and macOS have windows, in M13 and M14, there is none to bring forward
         bool BringProcessToFront([[maybe_unused]] std::uint32_t processID)
         {

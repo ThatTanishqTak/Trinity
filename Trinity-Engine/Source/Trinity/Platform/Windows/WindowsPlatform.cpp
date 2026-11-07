@@ -631,8 +631,15 @@ namespace Trinity
             return static_cast<int>(l_ExitCode);
         }
 
+        // What a watched program is held by: its handle, which keeps its exit code readable once it has ended
+        struct WatchedProcess
+        {
+            HANDLE Process = nullptr;
+            std::optional<int> ExitCode;
+        };
+
         // Inheriting no handle of Forge's, without a console window, and in a process group of its own, so it outlives Forge and a Ctrl+C in Forge's console never reaches it
-        bool StartProcess(const ProcessRequest& request, std::string& error)
+        void* StartWatchedProcess(const ProcessRequest& request, std::uint32_t& processID, std::string& error)
         {
             std::wstring l_CommandLine = QuoteArgument(request.Executable.wstring());
             for (const std::string& it_Argument : request.Arguments)
@@ -651,11 +658,45 @@ namespace Trinity
             {
                 error = GetErrorMessage(::GetLastError());
 
-                return false;
+                return nullptr;
             }
 
             CloseValidHandle(l_Process.hThread);
-            CloseValidHandle(l_Process.hProcess);
+            processID = static_cast<std::uint32_t>(l_Process.dwProcessId);
+
+            return new WatchedProcess{ l_Process.hProcess, std::nullopt };
+        }
+
+        std::optional<int> PollProcess(void* process)
+        {
+            WatchedProcess& l_Process = *static_cast<WatchedProcess*>(process);
+            if (!l_Process.ExitCode && ::WaitForSingleObject(l_Process.Process, 0) == WAIT_OBJECT_0)
+            {
+                DWORD l_Code = 0;
+                l_Process.ExitCode = ::GetExitCodeProcess(l_Process.Process, &l_Code) ? static_cast<int>(l_Code) : -1;
+            }
+
+            return l_Process.ExitCode;
+        }
+
+        void ReleaseProcess(void* process)
+        {
+            WatchedProcess* l_Process = static_cast<WatchedProcess*>(process);
+            CloseValidHandle(l_Process->Process);
+            delete l_Process;
+        }
+
+        // A watched program let go of at once, as Windows keeps nothing of an ended program its parent has no handle to
+        bool StartProcess(const ProcessRequest& request, std::string& error)
+        {
+            std::uint32_t l_ID = 0;
+            void* l_Process = StartWatchedProcess(request, l_ID, error);
+            if (l_Process == nullptr)
+            {
+                return false;
+            }
+
+            ReleaseProcess(l_Process);
 
             return true;
         }

@@ -85,6 +85,7 @@
 
 #include "Trinity/Project/EngineManifest.hpp"
 #include "Trinity/Project/GameSettings.hpp"
+#include "Trinity/Project/LastExport.hpp"
 #include "Trinity/Project/Project.hpp"
 #include "Trinity/Project/ProjectList.hpp"
 

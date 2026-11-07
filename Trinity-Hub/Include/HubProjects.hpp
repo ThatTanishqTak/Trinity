@@ -21,6 +21,8 @@ struct HubProject
     bool Missing = false;
     // Why its file could not be read, though it is there
     std::string Problem;
+    // Its last export, from Cache/LastExport.yaml, while the game it made is there to run
+    std::optional<Trinity::LastExport> Build;
     // Its name and folder in lowercase, which the search looks in
     std::string SearchText;
 
@@ -28,7 +30,7 @@ struct HubProject
     [[nodiscard]] const std::string& GetEngineVersion() const { return Info ? Info->EngineVersion : Entry.EngineVersion; }
 };
 
-// Hub's view of the projects list, Projects.yaml in its folder, read on a job with each project's file, which never mounts a project. While the Projects page is shown, the list's file is looked at once a second and read again once it changes, as when a Forge opens a project
+// Hub's view of the projects list, Projects.yaml in its folder, read on a job with each project's file and last export, which never mounts a project. While the Projects page is shown, the list's file is looked at once a second and read again once it changes, as when a Forge opens a project
 class HubProjects
 {
 public:

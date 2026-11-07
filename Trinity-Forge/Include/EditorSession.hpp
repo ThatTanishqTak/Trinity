@@ -514,6 +514,8 @@ private:
     [[nodiscard]] bool SettleUnappliedEdits(Action& then);
 
     void CloseProject();
+    // The lock on the project a path names, Cache/Forge.lock, taken before any of it opens. None when another Forge has it open, which is brought forward, and one not held when it could not be had for another reason, which is warned of, or the path names no project, which opening it says
+    [[nodiscard]] std::optional<Trinity::FileLock> LockProject(const std::filesystem::path& path);
     void ReadPreferences(const Trinity::ApplicationCommandLineArgs& args);
     void WritePreferences();
     void ReadRecentProjects();
@@ -582,6 +584,8 @@ private:
     void DrawRecoveryPopup();
 
     Trinity::Scope<Trinity::Project> m_Project;
+    // Held while the project is open, so no second Forge opens it beside this one
+    Trinity::FileLock m_ProjectLock;
     Trinity::Scope<Trinity::AssetRegistry> m_Registry;
     Trinity::Scene m_Scene;
     Trinity::Scope<Trinity::SceneManager> m_Play;

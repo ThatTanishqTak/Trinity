@@ -19,8 +19,16 @@ namespace
 
 HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path installsDirectory, std::string releasesUrl) : Layer("Hub"), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(installsDirectory)), m_Releases(std::move(releasesUrl)), m_Projects(m_Directory / std::filesystem::path(Trinity::ProjectList::c_FileName))
 {
-    m_Pages.push_back(Trinity::CreateScope<ProjectsPage>(m_Projects, m_Installs, m_PathPrompt));
-    m_Pages.push_back(Trinity::CreateScope<InstallsPage>(m_Installs, m_Releases, m_Settings, m_PathPrompt, m_DefaultInstallsDirectory));
+    Trinity::Scope<InstallsPage> l_Installs = Trinity::CreateScope<InstallsPage>(m_Installs, m_Releases, m_Settings, m_PathPrompt, m_DefaultInstallsDirectory);
+    InstallsPage* l_InstallsPage = l_Installs.get();
+    // A version a project names, downloaded from the project's offer, is installed by the Installs page, which is shown so the download can be watched
+    m_Pages.push_back(Trinity::CreateScope<ProjectsPage>(m_Projects, m_Installs, m_Releases, m_PathPrompt, m_Directory, [this, l_InstallsPage](const HubRelease& release)
+    {
+        l_InstallsPage->DownloadRelease(release);
+        m_Page = 1;
+        l_InstallsPage->OnShow();
+    }));
+    m_Pages.push_back(std::move(l_Installs));
     m_Pages.push_back(Trinity::CreateScope<SettingsPage>(m_Settings, m_PathPrompt, m_Directory, m_DefaultInstallsDirectory));
 }
 

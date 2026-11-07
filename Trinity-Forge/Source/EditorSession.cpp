@@ -897,6 +897,14 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     }
     else if (const auto it_Project = args.GetOption("project"))
     {
+        // Started for a project another Forge has open, as Hub or a shortcut to the project starts one, it brings that one forward and has nothing left to do. One asked to export it fails, as the export cannot be made
+        if (!LockProject(FromUtf8(*it_Project)))
+        {
+            Trinity::Application::Get().Close(args.HasOption("export") ? 1 : 0);
+
+            return;
+        }
+
         OpenProject(FromUtf8(*it_Project));
     }
     else
@@ -1312,6 +1320,12 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
     }
 
     m_Project = std::move(*l_Project);
+    // Nothing else can have a project just made open, so it is locked once it is there, its folder having had to be empty
+    if (std::optional<Trinity::FileLock> l_Lock = LockProject(m_Project->GetFilePath()))
+    {
+        m_ProjectLock = std::move(*l_Lock);
+    }
+
     AttachRegistry();
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
@@ -1339,8 +1353,15 @@ void EditorSession::CreateProject(const std::filesystem::path& directory)
     }
 }
 
+// Locked before the open project closes, so asking for one another Forge has open leaves this one's open
 void EditorSession::OpenProject(const std::filesystem::path& path)
 {
+    std::optional<Trinity::FileLock> l_Lock = LockProject(path);
+    if (!l_Lock)
+    {
+        return;
+    }
+
     CloseProject();
     NewScene();
 
@@ -1353,6 +1374,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path)
     }
 
     m_Project = std::move(*l_Project);
+    m_ProjectLock = std::move(*l_Lock);
     AttachRegistry();
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
@@ -1458,6 +1480,41 @@ void EditorSession::CloseProject()
     }
 
     m_Project.reset();
+    m_ProjectLock.Release();
+}
+
+std::optional<Trinity::FileLock> EditorSession::LockProject(const std::filesystem::path& path)
+{
+    const Trinity::Expected<std::filesystem::path, std::string> l_File = Trinity::Project::FindFile(path);
+    if (!l_File)
+    {
+        return Trinity::FileLock();
+    }
+
+    // This Forge's own, opened again
+    if (m_Project && m_ProjectLock.IsHeld() && Trinity::ProjectList::IsSameFile(*l_File, m_Project->GetFilePath()))
+    {
+        return std::move(m_ProjectLock);
+    }
+
+    Trinity::Expected<Trinity::FileLock, Trinity::FileLockRefusal> l_Lock = Trinity::FileLock::TryAcquire(Trinity::Project::GetLockFile(l_File->parent_path()));
+    if (l_Lock)
+    {
+        return std::move(*l_Lock);
+    }
+
+    const Trinity::FileLockRefusal& l_Refusal = l_Lock.GetError();
+    if (!l_Refusal.Held)
+    {
+        TR_WARN("Forge: {}, so another Forge could open {} beside this one", l_Refusal.Reason, ToUtf8(l_File->parent_path()));
+
+        return Trinity::FileLock();
+    }
+
+    const bool l_Forward = l_Refusal.HolderID != 0 && Trinity::Process::BringToFront(l_Refusal.HolderID);
+    TR_WARN("Forge: {} is open in another Forge{}, so it is not opened here{}", ToUtf8(l_File->parent_path()), l_Refusal.HolderID != 0 ? std::format(", process {}", l_Refusal.HolderID) : std::string(), l_Forward ? ", and that one is brought forward" : "");
+
+    return std::nullopt;
 }
 
 void EditorSession::AttachRegistry()

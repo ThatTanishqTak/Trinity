@@ -506,6 +506,11 @@ namespace Trinity
         return m_Directory / "Build";
     }
 
+    std::filesystem::path Project::GetLockFile(const std::filesystem::path& directory)
+    {
+        return directory / "Cache" / "Forge.lock";
+    }
+
     std::filesystem::path Project::GetScriptsDirectory() const
     {
         return m_Directory / "Scripts";

@@ -82,6 +82,8 @@ namespace Trinity
         [[nodiscard]] static Expected<std::filesystem::path, std::string> FindFile(const std::filesystem::path& path);
         // What the file says of the project, read from the disk without mounting anything, ignoring what it does not know. Refused only for a file that cannot be read or is not a project's YAML
         [[nodiscard]] static Expected<ProjectFileInfo, std::string> ReadInfo(const std::filesystem::path& file);
+        // Cache/Forge.lock in the project's folder, which the Forge that has the project open holds, so a second Forge, or Hub, finds that one and brings it forward rather than opening the project twice
+        [[nodiscard]] static std::filesystem::path GetLockFile(const std::filesystem::path& directory);
 
         ~Project();
 

@@ -124,6 +124,10 @@ void HubProjects::Read(Reading& reading)
         else if (Trinity::Expected<Trinity::ProjectFileInfo, std::string> l_Info = Trinity::Project::ReadInfo(l_Project.Entry.File))
         {
             l_Project.Info = std::move(*l_Info);
+            if (Trinity::Expected<Trinity::LastExport, std::string> l_Build = Trinity::ReadLastExport(l_Project.Entry.File.parent_path()); l_Build && std::filesystem::is_regular_file(l_Build->Executable, l_Error))
+            {
+                l_Project.Build = std::move(*l_Build);
+            }
         }
         else
         {

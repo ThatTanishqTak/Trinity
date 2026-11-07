@@ -502,10 +502,17 @@ void ExportCommand::Update()
             }
 
             Report(*l_Packed);
+            const std::string& l_Product = m_Session.GetProject()->GetExportSettings().Product;
+            const std::filesystem::path l_Executable = *m_Folder / FromUtf8(GetExecutableName(l_Product));
+            // For Hub's Run Build, which runs the game the project's last export made
+            if (const Trinity::Expected<void, std::string> l_Recorded = Trinity::WriteLastExport(m_Session.GetProject()->GetDirectory(), { l_Executable, l_Product, m_Development,{} }); !l_Recorded)
+            {
+                TR_WARN("Export: the export is not recorded for Hub to run: {}", l_Recorded.GetError());
+            }
+
             if (m_RunWhenDone)
             {
-                const std::string& l_Product = m_Session.GetProject()->GetExportSettings().Product;
-                m_Game.Start(*m_Folder / FromUtf8(GetExecutableName(l_Product)), l_Product);
+                m_Game.Start(l_Executable, l_Product);
             }
 
             Finish(true);

@@ -64,4 +64,35 @@ namespace Trinity
         // A modal error box, for a failure the program cannot start past, as a game's that cannot find its pack. Nothing where the platform has no windows, so the caller logs the message too
         TRINITY_API void ShowErrorMessage(std::string_view title, std::string_view message);
     }
+
+    // A program started as Process::Start starts one, to run on its own, but kept hold of, so whether it has ended, and with what exit code, can be asked, as Hub asks of a Forge it opened a project in. Letting go of it leaves it running. On Linux one let go of before it has ended is a zombie once it ends, until this process ends, so it is asked until it ends
+    class TRINITY_API StartedProcess
+    {
+    public:
+        StartedProcess() = default;
+        ~StartedProcess();
+
+        StartedProcess(StartedProcess&& other) noexcept;
+        StartedProcess& operator=(StartedProcess&& other) noexcept;
+
+        StartedProcess(const StartedProcess&) = delete;
+        StartedProcess& operator=(const StartedProcess&) = delete;
+
+        // Why it could not start, as Process::Start says
+        [[nodiscard]] static Expected<StartedProcess, std::string> Start(const std::filesystem::path& executable, std::span<const std::string> arguments, const std::filesystem::path& workingDirectory = {});
+
+        // Its exit code once it has ended, or none while it runs, without waiting
+        [[nodiscard]] std::optional<int> Poll();
+
+        [[nodiscard]] bool IsValid() const { return m_Handle != nullptr; }
+        [[nodiscard]] std::uint32_t GetID() const { return m_ID; }
+
+    private:
+        StartedProcess(void* handle, std::uint32_t id);
+
+        void Release();
+
+        void* m_Handle = nullptr;
+        std::uint32_t m_ID = 0;
+    };
 }

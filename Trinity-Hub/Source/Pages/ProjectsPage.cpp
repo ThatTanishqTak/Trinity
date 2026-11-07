@@ -17,6 +17,7 @@
 namespace
 {
     constexpr std::array<Trinity::FileDialogFilter, 1> c_ProjectFilters{ { { "Trinity project", "trproj" } } };
+    constexpr const char* c_OfferPopup = "Version Not Installed###HubOffer";
 
     std::string ToLower(std::string text)
     {
@@ -45,9 +46,45 @@ namespace
     {
         return !install.Missing && install.Problem.empty() && install.Manifest.Platform == Trinity::GetBuildPlatform() && install.Manifest.Architecture == Trinity::GetBuildArchitecture();
     }
+
+    // The usable version a project naming this one opens in: the one built last when two are of it, as a build tree built again beside the version installed from its zip, and the installed one when both were built at once. Dates are all written alike, so their text sorts as they do
+    const HubInstall* FindInstall(const HubInstalls& installs, std::string_view version)
+    {
+        const HubInstall* l_Chosen = nullptr;
+        for (const HubInstall& it_Install : installs.GetInstalls())
+        {
+            if (!IsUsable(it_Install) || it_Install.Manifest.Version != version)
+            {
+                continue;
+            }
+
+            if (l_Chosen == nullptr || it_Install.Manifest.Date > l_Chosen->Manifest.Date || (it_Install.Manifest.Date == l_Chosen->Manifest.Date && it_Install.Source == HubInstall::Origin::Installed && l_Chosen->Source == HubInstall::Origin::Located))
+            {
+                l_Chosen = &it_Install;
+            }
+        }
+
+        return l_Chosen;
+    }
+
+    // Why a project cannot be opened, or empty when it can
+    std::string_view GetOpenRefusal(const HubProject& project)
+    {
+        if (project.Missing)
+        {
+            return "Its folder is gone";
+        }
+
+        if (!project.Problem.empty())
+        {
+            return "Its project file could not be read";
+        }
+
+        return project.GetEngineVersion().empty() ? "Its project file names no engine version" : std::string_view();
+    }
 }
 
-ProjectsPage::ProjectsPage(HubProjects& projects, const HubInstalls& installs, HubPathPrompt& prompt) : m_Projects(projects), m_Installs(installs), m_Prompt(prompt)
+ProjectsPage::ProjectsPage(HubProjects& projects, const HubInstalls& installs, HubReleases& releases, HubPathPrompt& prompt, std::filesystem::path hubDirectory, std::function<void(const HubRelease& release)> download) : m_Projects(projects), m_Installs(installs), m_Releases(releases), m_Prompt(prompt), m_Launcher(std::move(hubDirectory)), m_Download(std::move(download))
 {
 
 }
@@ -60,6 +97,20 @@ const char* ProjectsPage::GetIcon() const
 void ProjectsPage::OnShow()
 {
     m_Projects.Refresh();
+}
+
+// A Forge started here that ended, or recorded an export, may have changed what the list shows
+void ProjectsPage::Update()
+{
+    if (std::optional<HubLauncher::Report> l_Report = m_Launcher.Update())
+    {
+        Report(std::move(l_Report->Message), l_Report->Failed);
+    }
+
+    if (m_Launcher.TakeChanged())
+    {
+        m_Projects.Refresh();
+    }
 }
 
 void ProjectsPage::Draw()
@@ -101,6 +152,7 @@ void ProjectsPage::Draw()
     }
 
     DrawList();
+    DrawOfferPopup();
 }
 
 // Listed with what its file says, and as never opened, until a Forge opens it
@@ -137,9 +189,8 @@ void ProjectsPage::AddProject(const std::filesystem::path& path)
 
 void ProjectsPage::RemoveProject(const std::filesystem::path& file)
 {
-    const auto a_Project = std::ranges::find_if(m_Projects.GetProjects(), [&file](const HubProject& project) { return project.Entry.File == file; });
-    const bool l_Found = a_Project != m_Projects.GetProjects().end();
-    const std::string l_Name = l_Found ? a_Project->GetName() : HubText::ToUtf8(file.stem());
+    const HubProject* l_Project = FindProject(file);
+    const std::string l_Name = l_Project != nullptr ? l_Project->GetName() : HubText::ToUtf8(file.stem());
     if (const Trinity::Expected<void, std::string> l_Removed = Trinity::ProjectList::Remove(m_Projects.GetFile(), file); !l_Removed)
     {
         Report(std::format("{} was not taken off the list, as {}", l_Name, l_Removed.GetError()), true);
@@ -148,8 +199,30 @@ void ProjectsPage::RemoveProject(const std::filesystem::path& file)
     }
 
     const std::string l_Folder = HubText::ToUtf8(file.parent_path());
-    Report(l_Found && a_Project->Missing ? std::format("Took {} off the list, whose folder {} is gone", l_Name, l_Folder) : std::format("Took {} off the list, and left its files in {} as they are", l_Name, l_Folder), false);
+    Report(l_Project != nullptr && l_Project->Missing ? std::format("Took {} off the list, whose folder {} is gone", l_Name, l_Folder) : std::format("Took {} off the list, and left its files in {} as they are", l_Name, l_Folder), false);
     m_Projects.Refresh();
+}
+
+void ProjectsPage::OpenProject(const std::filesystem::path& file)
+{
+    const HubProject* l_Project = FindProject(file);
+    if (l_Project == nullptr || !GetOpenRefusal(*l_Project).empty())
+    {
+        return;
+    }
+
+    if (const HubInstall* l_Install = FindInstall(m_Installs, l_Project->GetEngineVersion()))
+    {
+        HubLauncher::Report l_Report = m_Launcher.Open(*l_Project, *l_Install);
+        Report(std::move(l_Report.Message), l_Report.Failed);
+
+        return;
+    }
+
+    // GitHub asked again, at most once a minute, so a release made since Hub last asked is offered
+    m_Releases.Refresh();
+    m_Offer = file;
+    m_OpenOfferPopup = true;
 }
 
 void ProjectsPage::DrawToolbar()
@@ -224,6 +297,7 @@ void ProjectsPage::DrawList()
     ImGui::TableHeadersRow();
 
     const std::vector<HubProject>& l_Projects = m_Projects.GetProjects();
+    std::optional<std::filesystem::path> l_Open;
     std::optional<std::filesystem::path> l_Remove;
     ImGuiListClipper l_Clipper;
     l_Clipper.Begin(static_cast<int>(m_Order.size()), ImGui::GetFrameHeightWithSpacing());
@@ -295,32 +369,7 @@ void ProjectsPage::DrawList()
             HubPages::DrawClipped(HubText::ToUtf8(l_Project.Entry.File.parent_path()));
 
             ImGui::TableNextColumn();
-            ImGui::BeginDisabled(l_Project.Missing);
-            if (ImGui::Button(Trinity::Icons::c_FolderOpen))
-            {
-                if (const Trinity::Expected<void, std::string> l_Opened = Trinity::Process::OpenWithSystem(l_Project.Entry.File.parent_path()); !l_Opened)
-                {
-                    Report(l_Opened.GetError(), true);
-                }
-            }
-
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            {
-                ImGui::SetTooltip("Show in the file manager");
-            }
-
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (ImGui::Button(Trinity::Icons::c_TimesCircle))
-            {
-                l_Remove = l_Project.Entry.File;
-            }
-
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            {
-                ImGui::SetTooltip("Remove from List, leaving its files as they are");
-            }
-
+            DrawActions(l_Project, l_Open, l_Remove);
             ImGui::PopID();
         }
     }
@@ -332,11 +381,180 @@ void ProjectsPage::DrawList()
         ImGui::TextDisabled("%s", std::format("No project's name or folder holds \"{}\"", m_Search).c_str());
     }
 
-    // Once the table is drawn, as it changes the list
+    // Once the table is drawn, as they change the list or open a popup
+    if (l_Open)
+    {
+        OpenProject(*l_Open);
+    }
+
     if (l_Remove)
     {
         RemoveProject(*l_Remove);
     }
+}
+
+// Each button says in its tooltip what it does, or why it cannot
+void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::filesystem::path>& open, std::optional<std::filesystem::path>& remove)
+{
+    constexpr ImGuiHoveredFlags c_Tooltip = ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled;
+
+    const std::string_view l_Refusal = GetOpenRefusal(project);
+    ImGui::BeginDisabled(!l_Refusal.empty());
+    if (ImGui::Button("Open"))
+    {
+        open = project.Entry.File;
+    }
+
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(c_Tooltip))
+    {
+        ImGui::SetTooltip("%s", l_Refusal.empty() ? std::format("Open in Forge, in Trinity {}", project.GetEngineVersion()).c_str() : std::string(l_Refusal).c_str());
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!project.Build);
+    if (ImGui::Button(Trinity::Icons::c_Gamepad))
+    {
+        HubLauncher::Report l_Report = HubLauncher::RunBuild(project);
+        Report(std::move(l_Report.Message), l_Report.Failed);
+    }
+
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(c_Tooltip))
+    {
+        if (project.Build)
+        {
+            const std::optional<std::chrono::sys_seconds> l_Finished = HubText::ParseTime(project.Build->FinishedAt);
+            ImGui::SetTooltip("%s", std::format("Run Build: {}{}{}", project.Build->Product, project.Build->Development ? ", a Development Build" : "", l_Finished ? std::format(", exported {}", HubText::DescribeAge(*l_Finished)) : std::string()).c_str());
+        }
+        else
+        {
+            ImGui::SetTooltip("Run Build: none yet, until an export from Forge's Build panel finishes");
+        }
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(project.Missing);
+    if (ImGui::Button(Trinity::Icons::c_FolderOpen))
+    {
+        if (const Trinity::Expected<void, std::string> l_Opened = Trinity::Process::OpenWithSystem(project.Entry.File.parent_path()); !l_Opened)
+        {
+            Report(l_Opened.GetError(), true);
+        }
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Show in the file manager");
+    }
+
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(Trinity::Icons::c_TimesCircle))
+    {
+        remove = project.Entry.File;
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Remove from List, leaving its files as they are");
+    }
+}
+
+// The offer closes by itself once the list is read again without the project
+void ProjectsPage::DrawOfferPopup()
+{
+    if (std::exchange(m_OpenOfferPopup, false))
+    {
+        ImGui::OpenPopup(c_OfferPopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_OfferPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    const HubProject* l_Project = m_Offer ? FindProject(*m_Offer) : nullptr;
+    if (l_Project == nullptr)
+    {
+        m_Offer.reset();
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    const std::string& l_Version = l_Project->GetEngineVersion();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+    ImGui::TextUnformatted(std::format("{} opens in Trinity {}, which is not installed here.", l_Project->GetName(), l_Version).c_str());
+    ImGui::Spacing();
+
+    const auto a_Release = std::ranges::find_if(m_Releases.GetReleases(), [&l_Version](const HubRelease& release) { return release.Version == l_Version; });
+    if (a_Release != m_Releases.GetReleases().end())
+    {
+        if (ImGui::Button(std::format("{} Download Trinity {}", Trinity::Icons::c_Download, l_Version).c_str()))
+        {
+            m_Download(*a_Release);
+            m_Offer.reset();
+            ImGui::CloseCurrentPopup();
+        }
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("%s", std::format("{} from GitHub, {}, installed on the Installs page", a_Release->ZipName, Trinity::Memory::FormatBytes(a_Release->ZipSize)).c_str());
+        }
+    }
+    else if (m_Releases.IsFetching())
+    {
+        ImGui::TextDisabled("Asking GitHub for Trinity's releases...");
+    }
+    else
+    {
+        const std::string l_Why = m_Releases.GetNote().empty() ? std::format("No release of Trinity {} for {} is on GitHub.", l_Version, Trinity::GetBuildPlatform()) : std::format("Hub could not ask GitHub for Trinity's releases: {}", m_Releases.GetNote());
+        ImGui::TextDisabled("%s", std::format("{} A build of it can be listed with Locate on the Installs page.", l_Why).c_str());
+    }
+
+    HubPages::DrawSection("Open With");
+    bool l_Any = false;
+    for (const HubInstall& it_Install : m_Installs.GetInstalls())
+    {
+        if (!IsUsable(it_Install))
+        {
+            continue;
+        }
+
+        l_Any = true;
+        ImGui::BeginDisabled();
+        ImGui::Selectable(std::format("{}  ({})##{}", HubInstalls::Describe(it_Install.Manifest), it_Install.Source == HubInstall::Origin::Installed ? "Installed" : "Located", HubText::ToUtf8(it_Install.Directory)).c_str());
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Opening a project in a version other than the one it names, which moves it to that version, is not here yet");
+        }
+    }
+
+    if (!l_Any)
+    {
+        ImGui::TextDisabled("No version is installed here");
+    }
+
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    if (ImGui::Button("Close") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    {
+        m_Offer.reset();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+const HubProject* ProjectsPage::FindProject(const std::filesystem::path& file) const
+{
+    const auto a_Project = std::ranges::find_if(m_Projects.GetProjects(), [&file](const HubProject& project) { return project.Entry.File == file; });
+
+    return a_Project != m_Projects.GetProjects().end() ? &*a_Project : nullptr;
 }
 
 // Each project's name and folder were made lowercase as the list was read, so the search is one look into each, and a thousand projects are searched and sorted well within a frame

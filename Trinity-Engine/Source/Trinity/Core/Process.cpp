@@ -10,6 +10,7 @@
 #include <format>
 #include <ranges>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace Trinity
@@ -237,6 +238,64 @@ namespace Trinity
             }
 
             return {};
+        }
+    }
+
+    StartedProcess::StartedProcess(void* handle, std::uint32_t id) : m_Handle(handle), m_ID(id)
+    {
+
+    }
+
+    StartedProcess::~StartedProcess()
+    {
+        Release();
+    }
+
+    StartedProcess::StartedProcess(StartedProcess&& other) noexcept : m_Handle(std::exchange(other.m_Handle, nullptr)), m_ID(std::exchange(other.m_ID, 0))
+    {
+
+    }
+
+    StartedProcess& StartedProcess::operator=(StartedProcess&& other) noexcept
+    {
+        if (this != &other)
+        {
+            Release();
+            m_Handle = std::exchange(other.m_Handle, nullptr);
+            m_ID = std::exchange(other.m_ID, 0);
+        }
+
+        return *this;
+    }
+
+    Expected<StartedProcess, std::string> StartedProcess::Start(const std::filesystem::path& executable, std::span<const std::string> arguments, const std::filesystem::path& workingDirectory)
+    {
+        Platform::ProcessRequest l_Request;
+        l_Request.Executable = executable;
+        l_Request.Arguments = arguments;
+        l_Request.WorkingDirectory = workingDirectory;
+
+        std::string l_Error;
+        std::uint32_t l_ID = 0;
+        void* l_Handle = Platform::StartWatchedProcess(l_Request, l_ID, l_Error);
+        if (l_Handle == nullptr)
+        {
+            return Unexpected{ std::format("{} could not be started: {}", ToUtf8(executable), l_Error) };
+        }
+
+        return StartedProcess(l_Handle, l_ID);
+    }
+
+    std::optional<int> StartedProcess::Poll()
+    {
+        return m_Handle != nullptr ? Platform::PollProcess(m_Handle) : std::nullopt;
+    }
+
+    void StartedProcess::Release()
+    {
+        if (m_Handle != nullptr)
+        {
+            Platform::ReleaseProcess(std::exchange(m_Handle, nullptr));
         }
     }
 }

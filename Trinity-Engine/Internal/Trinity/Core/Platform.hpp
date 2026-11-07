@@ -123,6 +123,11 @@ namespace Trinity
         [[nodiscard]] std::optional<int> RunProcess(const ProcessRequest& request, const std::function<void(std::string_view line)>& onLine, std::string& error);
         // Starts the program to run on its own, neither waited for nor ended with this process, with its output going nowhere, such as an IDE opened at a file. Cancel is not read. False with the reason in error when it could not start
         [[nodiscard]] bool StartProcess(const ProcessRequest& request, std::string& error);
+        // Started as StartProcess starts one, but kept hold of, so whether it has ended, and with what exit code, can be asked. Null with the reason in error when it could not start
+        [[nodiscard]] void* StartWatchedProcess(const ProcessRequest& request, std::uint32_t& processID, std::string& error);
+        // Its exit code once it has ended, or none while it runs. On Linux an ended program is let go of by the call that sees it end
+        [[nodiscard]] std::optional<int> PollProcess(void* process);
+        void ReleaseProcess(void* process);
         // The file or folder opened as the desktop would open it, with the program it has for that kind of file, or a folder in its file manager. False with the reason in error
         [[nodiscard]] bool OpenWithSystem(const std::filesystem::path& path, std::string& error);
         // Brings the process's own window to the front, restored when minimized. False where the platform has no windows, or the process shows none
