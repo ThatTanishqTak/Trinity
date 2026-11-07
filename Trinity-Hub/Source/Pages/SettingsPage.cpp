@@ -1,5 +1,7 @@
 #include "Pages/SettingsPage.hpp"
 
+#include "HubText.hpp"
+
 #include <Trinity.hpp>
 
 #include <imgui.h>
@@ -8,6 +10,7 @@
 #include <cmath>
 #include <format>
 #include <string>
+#include <system_error>
 #include <utility>
 
 namespace
@@ -16,16 +19,9 @@ namespace
     {
         return std::format("{}%", static_cast<int>(std::lround(scale * 100.0f)));
     }
-
-    std::string ToUtf8(const std::filesystem::path& path)
-    {
-        const std::u8string l_Text = path.u8string();
-
-        return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
-    }
 }
 
-SettingsPage::SettingsPage(HubSettings& settings, std::filesystem::path directory) : m_Settings(settings), m_Directory(std::move(directory))
+SettingsPage::SettingsPage(HubSettings& settings, HubPathPrompt& prompt, std::filesystem::path directory, std::filesystem::path defaultInstallsDirectory) : m_Settings(settings), m_Prompt(prompt), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(defaultInstallsDirectory))
 {
 
 }
@@ -39,6 +35,7 @@ void SettingsPage::Draw()
 {
     HubPages::DrawTitle("Settings");
     DrawAppearance();
+    DrawInstalls();
     DrawFolders();
     DrawAbout();
 }
@@ -87,10 +84,49 @@ void SettingsPage::DrawAppearance()
     }
 }
 
+// As Unity Hub's Installs location: where Install from File puts versions from now on, those installed already staying where they are
+void SettingsPage::DrawInstalls()
+{
+    HubPages::DrawSection("Installs");
+    HubPages::DrawLabel("Location");
+    const std::filesystem::path l_Directory = m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory);
+    ImGui::TextUnformatted(HubText::ToUtf8(l_Directory).c_str());
+    ImGui::SameLine();
+    if (ImGui::Button("Change..."))
+    {
+        m_Prompt.Ask({ HubPathPrompt::Kind::Folder, "The folder Hub installs versions in",{}, l_Directory, [this](const std::filesystem::path& path)
+        {
+            std::error_code l_Error;
+            const std::filesystem::path l_Absolute = std::filesystem::absolute(path, l_Error);
+            m_Settings.InstallsDirectory = HubText::ToUtf8(l_Error ? path : l_Absolute);
+            Change();
+        } });
+    }
+
+    if (!m_Settings.InstallsDirectory.empty())
+    {
+        ImGui::SameLine();
+        if (ImGui::Button("Use Default"))
+        {
+            m_Settings.InstallsDirectory.clear();
+            Change();
+        }
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("%s", HubText::ToUtf8(m_DefaultInstallsDirectory).c_str());
+        }
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Versions installed from now on go here, each in a folder of its own name. Those installed already stay where they are.");
+    ImGui::PopStyleColor();
+}
+
 void SettingsPage::DrawFolders()
 {
     HubPages::DrawSection("Hub's Folder");
-    const std::string l_Directory = ToUtf8(m_Directory);
+    const std::string l_Directory = HubText::ToUtf8(m_Directory);
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("Hub keeps its lists of projects and engine versions, and these settings, in");
     ImGui::PopStyleColor();

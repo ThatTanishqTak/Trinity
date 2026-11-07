@@ -51,6 +51,7 @@
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/FileSystem/MemorySource.hpp"
 #include "Trinity/FileSystem/PackFormat.hpp"
+#include "Trinity/FileSystem/ZipArchive.hpp"
 
 #include "Trinity/Events/ApplicationEvent.hpp"
 #include "Trinity/Events/Event.hpp"

@@ -1,5 +1,7 @@
 #include "HubLayer.hpp"
 
+#include "HubInstaller.hpp"
+#include "HubText.hpp"
 #include "Pages/InstallsPage.hpp"
 #include "Pages/ProjectsPage.hpp"
 #include "Pages/SettingsPage.hpp"
@@ -13,33 +15,39 @@
 namespace
 {
     constexpr ImGuiWindowFlags c_ShellFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
-
-    std::string ToUtf8(const std::filesystem::path& path)
-    {
-        const std::u8string l_Text = path.u8string();
-
-        return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
-    }
 }
 
-HubLayer::HubLayer(std::filesystem::path directory) : Layer("Hub"), m_Directory(std::move(directory))
+HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path installsDirectory) : Layer("Hub"), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(installsDirectory))
 {
     m_Pages.push_back(Trinity::CreateScope<ProjectsPage>());
-    m_Pages.push_back(Trinity::CreateScope<InstallsPage>());
-    m_Pages.push_back(Trinity::CreateScope<SettingsPage>(m_Settings, m_Directory));
+    m_Pages.push_back(Trinity::CreateScope<InstallsPage>(m_Installs, m_Settings, m_PathPrompt, m_DefaultInstallsDirectory));
+    m_Pages.push_back(Trinity::CreateScope<SettingsPage>(m_Settings, m_PathPrompt, m_Directory, m_DefaultInstallsDirectory));
 }
 
-// Only the UI is drawn, so the window gets no scene under it
+// Only the UI is drawn, so the window gets no scene under it. What an install cut short by Hub ending left is cleared before the versions are listed
 void HubLayer::OnAttach()
 {
     m_Settings = HubSettings::Load();
     m_Settings.Apply();
+    HubInstaller::CleanUp(m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory));
+    m_Installs.Load();
 
     Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
     l_Renderer.SetSceneCopy(false);
     l_Renderer.SetTitle("Trinity Hub");
 
-    TR_INFO("Hub: keeping its lists and settings in {}", ToUtf8(m_Directory));
+    TR_INFO("Hub: keeping its lists and settings in {}, and installing versions in {}", HubText::ToUtf8(m_Directory), HubText::ToUtf8(m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory)));
+}
+
+// A dialog asked for opens here, between frames, and every page takes what its jobs finished, chosen or not
+void HubLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
+{
+    m_PathPrompt.Update();
+    m_Installs.Update();
+    for (const Trinity::Scope<HubPage>& it_Page : m_Pages)
+    {
+        it_Page->Update();
+    }
 }
 
 // One window over the whole of the main one, the sidebar down its left and the page beside it
@@ -67,6 +75,7 @@ void HubLayer::OnImGuiRender()
 
         ImGui::EndChild();
         ImGui::PopStyleVar();
+        m_PathPrompt.Draw();
     }
 
     ImGui::End();
@@ -89,16 +98,42 @@ void HubLayer::DrawSidebar()
 
         const float l_Row = ImGui::GetFrameHeight() * 1.4f;
         ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
-        for (std::size_t it_Index = 0; it_Index < m_Pages.size(); ++it_Index)
+
+        // Main navigation: Projects and Installs
+        for (std::size_t it_Index = 0; it_Index + 1 < m_Pages.size(); ++it_Index)
         {
             const HubPage& l_Page = *m_Pages[it_Index];
             const std::string l_Label = std::format("{}  {}###HubPage{}", l_Page.GetIcon(), l_Page.GetName(), it_Index);
-            if (ImGui::Selectable(l_Label.c_str(), it_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row)))
+            if (ImGui::Selectable(l_Label.c_str(), it_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row)) && it_Index != m_Page)
             {
                 m_Page = it_Index;
+                m_Pages[m_Page]->OnShow();
             }
         }
 
+        // Bottom navigation: Settings
+        if (!m_Pages.empty())
+        {
+            const std::size_t l_Index = m_Pages.size() - 1;
+            const HubPage& l_Page = *m_Pages[l_Index];
+
+            const float l_FooterHeight = ImGui::GetTextLineHeight();
+            const float l_Spacing = ImGui::GetStyle().ItemSpacing.y;
+
+            const float l_SettingsY = ImGui::GetWindowHeight() - l_Padding - l_FooterHeight - l_Spacing * 2.0f - l_Row;
+
+            if (l_SettingsY > ImGui::GetCursorPosY())
+            {
+                ImGui::SetCursorPosY(l_SettingsY);
+            }
+
+            const std::string l_Label = std::format("{}  {}###HubPage{}", l_Page.GetIcon(), l_Page.GetName(), l_Index);
+
+            if (ImGui::Selectable(l_Label.c_str(), l_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row)))
+            {
+                m_Page = l_Index;
+            }
+        }
         ImGui::PopStyleVar();
 
         const std::string l_Engine = std::format("Trinity {}", Trinity::GetVersionDescription());

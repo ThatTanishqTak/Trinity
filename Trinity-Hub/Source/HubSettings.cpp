@@ -1,5 +1,7 @@
 #include "HubSettings.hpp"
 
+#include "HubText.hpp"
+
 #include <Trinity.hpp>
 
 #include <yaml-cpp/yaml.h>
@@ -82,7 +84,22 @@ HubSettings HubSettings::Load()
         }
     }
 
+    l_Settings.InstallsDirectory = ReadScalar(l_Root, "InstallsDirectory");
+
     return l_Settings;
+}
+
+std::filesystem::path HubSettings::GetInstallsDirectory(const std::filesystem::path& defaultDirectory) const
+{
+    if (InstallsDirectory.empty())
+    {
+        return defaultDirectory;
+    }
+
+    std::filesystem::path l_Directory = HubText::FromUtf8(InstallsDirectory);
+    l_Directory.make_preferred();
+
+    return l_Directory;
 }
 
 void HubSettings::Save() const
@@ -92,6 +109,7 @@ void HubSettings::Save() const
     l_Emitter << YAML::Key << "Format" << YAML::Value << c_FormatVersion;
     l_Emitter << YAML::Key << "Theme" << YAML::Value << ThemeKey;
     l_Emitter << YAML::Key << "Scale" << YAML::Value << Scale;
+    l_Emitter << YAML::Key << "InstallsDirectory" << YAML::Value << YAML::DoubleQuoted << InstallsDirectory;
     l_Emitter << YAML::EndMap;
 
     const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(c_Path, std::string(l_Emitter.c_str()) + "\n");

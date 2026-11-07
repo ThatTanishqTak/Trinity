@@ -15,6 +15,9 @@ namespace Trinity
     [[nodiscard]] TRINITY_API bool IsBuildModified();
     // The commit's date in UTC, as 2026-11-06T12:53:00Z, or empty for none
     [[nodiscard]] TRINITY_API std::string_view GetBuildDate();
+    // The platform this build runs on, as TRINITY_PLATFORM names it, such as Windows or Linux, and its architecture as CMake names it, such as x86_64, which a version's manifest names too, so Hub knows which versions this machine can run
+    [[nodiscard]] TRINITY_API std::string_view GetBuildPlatform();
+    [[nodiscard]] TRINITY_API std::string_view GetBuildArchitecture();
 
     // How many of the commit's characters name it where it is shown short, as git and GitHub show it
     constexpr std::size_t c_ShortCommitLength = 7;

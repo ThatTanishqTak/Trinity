@@ -15,17 +15,35 @@ namespace
     // How often Hub draws while it is behind another window or minimized, so left open it costs next to nothing
     constexpr float c_BackgroundFrameRate = 10.0f;
 
-    // Where Hub keeps its lists, settings and lock: Hub in Trinity's folder of the user's data, or the folder --saves names, as every program's saves go there, so a check run with saves of its own never meets the person's Hub
-    std::filesystem::path GetHubDirectory(const Trinity::ApplicationCommandLineArgs& args)
+    std::optional<std::filesystem::path> GetSavesOption(const Trinity::ApplicationCommandLineArgs& args)
     {
         if (const std::optional<std::string_view> l_Saves = args.GetOption("saves"); l_Saves && !l_Saves->empty())
         {
             return std::filesystem::path(*l_Saves);
         }
 
+        return std::nullopt;
+    }
+
+    std::filesystem::path GetTrinityDataDirectory()
+    {
         const std::filesystem::path l_Base = Trinity::Process::GetUserDataDirectory();
 
-        return (l_Base.empty() ? std::filesystem::path("UserData") : l_Base) / "Trinity" / "Hub";
+        return (l_Base.empty() ? std::filesystem::path("UserData") : l_Base) / "Trinity";
+    }
+
+    // Where Hub keeps its lists, settings and lock: Hub in Trinity's folder of the user's data, or the folder --saves names, as every program's saves go there, so a check run with saves of its own never meets the person's Hub
+    std::filesystem::path GetHubDirectory(const Trinity::ApplicationCommandLineArgs& args)
+    {
+        return GetSavesOption(args).value_or(GetTrinityDataDirectory() / "Hub");
+    }
+
+    // Where Hub installs versions unless its settings name another: Versions beside Hub's own folder, or in the folder --saves names, for the same reason
+    std::filesystem::path GetInstallsDirectory(const Trinity::ApplicationCommandLineArgs& args)
+    {
+        const std::optional<std::filesystem::path> l_Saves = GetSavesOption(args);
+
+        return l_Saves ? *l_Saves / "Versions" : GetTrinityDataDirectory() / "Versions";
     }
 }
 
@@ -37,7 +55,7 @@ public:
     {
         // One window, so ImGui keeps no imgui.ini and never leaves it
         PushOverlay<Trinity::ImGuiLayer>(Trinity::ImGuiLayerSpecification{ .KeepSettings = false, .Viewports = false });
-        PushLayer<HubLayer>(GetSpecification().SavesDirectory);
+        PushLayer<HubLayer>(GetSpecification().SavesDirectory, GetInstallsDirectory(GetSpecification().CommandLineArgs));
     }
 
 private:

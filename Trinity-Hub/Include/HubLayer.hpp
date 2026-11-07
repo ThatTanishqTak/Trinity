@@ -1,5 +1,7 @@
 #pragma once
 
+#include "HubInstalls.hpp"
+#include "HubPathPrompt.hpp"
 #include "HubSettings.hpp"
 #include "Pages/HubPage.hpp"
 
@@ -13,16 +15,22 @@
 class HubLayer final : public Trinity::Layer
 {
 public:
-    explicit HubLayer(std::filesystem::path directory);
+    // directory is the folder Hub keeps its lists in, and installsDirectory where it installs versions unless its settings name another
+    HubLayer(std::filesystem::path directory, std::filesystem::path installsDirectory);
 
     void OnAttach() override;
+    void OnUpdate(Trinity::Timestep timestep) override;
     void OnImGuiRender() override;
 
 private:
     void DrawSidebar();
 
     std::filesystem::path m_Directory;
+    std::filesystem::path m_DefaultInstallsDirectory;
     HubSettings m_Settings;
+    HubInstalls m_Installs;
+    HubPathPrompt m_PathPrompt;
+    // After what they are given, so they go first
     std::vector<Trinity::Scope<HubPage>> m_Pages;
     std::size_t m_Page = 0;
 };

@@ -57,4 +57,21 @@ namespace HubPages
         ImGui::TextUnformatted(label.data(), label.data() + label.size());
         ImGui::SameLine(ImGui::GetFontSize() * 10.0f);
     }
+
+    void DrawWarning(std::string_view text)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_PlotHistogram));
+        ImGui::TextWrapped("%.*s", static_cast<int>(text.size()), text.data());
+        ImGui::PopStyleColor();
+    }
+
+    void DrawClipped(std::string_view text)
+    {
+        const float l_Available = ImGui::GetContentRegionAvail().x;
+        ImGui::TextUnformatted(text.data(), text.data() + text.size());
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && ImGui::CalcTextSize(text.data(), text.data() + text.size()).x > l_Available)
+        {
+            ImGui::SetTooltip("%.*s", static_cast<int>(text.size()), text.data());
+        }
+    }
 }

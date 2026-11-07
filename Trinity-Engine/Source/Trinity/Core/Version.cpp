@@ -46,6 +46,16 @@ namespace Trinity
         return TR_BUILD_DATE;
     }
 
+    std::string_view GetBuildPlatform()
+    {
+        return TR_BUILD_PLATFORM;
+    }
+
+    std::string_view GetBuildArchitecture()
+    {
+        return TR_BUILD_ARCHITECTURE;
+    }
+
     std::string GetBuildCommitDescription()
     {
         const std::string_view l_Commit = GetBuildCommit();

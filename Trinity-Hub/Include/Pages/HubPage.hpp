@@ -10,6 +10,10 @@ public:
 
     [[nodiscard]] virtual std::string_view GetName() const = 0;
     [[nodiscard]] virtual const char* GetIcon() const = 0;
+    // Each time the sidebar chooses it
+    virtual void OnShow() {}
+    // Once a frame between frames, whether it is chosen or not, so what it started finishes while another page is shown
+    virtual void Update() {}
     virtual void Draw() = 0;
 };
 
@@ -23,4 +27,8 @@ namespace HubPages
     void DrawSection(std::string_view title);
     // A setting's label, with what follows it on the same line, after a column every label shares
     void DrawLabel(std::string_view label);
+    // A line of text in the colour of a warning, which the theme gives as its plot's
+    void DrawWarning(std::string_view text);
+    // The text, and the whole of it in a tooltip while hovered, for a column too narrow to show it all
+    void DrawClipped(std::string_view text);
 }
