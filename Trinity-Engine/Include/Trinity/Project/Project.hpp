@@ -53,6 +53,18 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ExportSettings&) const = default;
     };
 
+    // What a project file says of itself, read without opening the project, as Hub lists projects: its format, its name and engine version, and whether it has a C++ module or a C# assembly. A format newer than this engine reads is given as it is, so the caller can say so
+    struct ProjectFileInfo
+    {
+        std::uint32_t Format = 0;
+        std::string Name;
+        std::string EngineVersion;
+        bool HasModule = false;
+        bool HasAssembly = false;
+
+        [[nodiscard]] bool operator==(const ProjectFileInfo&) const = default;
+    };
+
     class TRINITY_API Project
     {
     public:
@@ -66,6 +78,10 @@ namespace Trinity
 
         [[nodiscard]] static Expected<Scope<Project>, std::string> Create(const std::filesystem::path& directory);
         [[nodiscard]] static Expected<Scope<Project>, std::string> Open(const std::filesystem::path& path);
+        // The project file a path names, as a whole path: a .trproj, or the one .trproj in a folder
+        [[nodiscard]] static Expected<std::filesystem::path, std::string> FindFile(const std::filesystem::path& path);
+        // What the file says of the project, read from the disk without mounting anything, ignoring what it does not know. Refused only for a file that cannot be read or is not a project's YAML
+        [[nodiscard]] static Expected<ProjectFileInfo, std::string> ReadInfo(const std::filesystem::path& file);
 
         ~Project();
 

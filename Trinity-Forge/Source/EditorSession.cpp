@@ -33,7 +33,7 @@ namespace
     constexpr const char* c_RecoveryPopup = "Recover Scene###ForgeRecoverScene";
     // The open scene's backup, under the project's Cache, which is never committed. Its first lines name the scene and when it was written, as YAML comments the scene's reader passes over
     constexpr std::string_view c_BackupFile = "Editor/Backup/Scene.trscene";
-    // The projects opened lately, per user, and the scenes, per project, ten of each
+    // The projects Forge opened lately, which it kept itself until Hub kept one list for every version, and which it moves into Hub's once. The start screen shows ten projects, and ten scenes are kept per project
     constexpr std::string_view c_RecentProjectsPath = "/saves/RecentProjects.txt";
     // As Unreal keeps a project's saves while it plays in its editor, in the project's own Saved folder, which new projects leave out of Git, so each project's PlayerPrefs are its own
     constexpr std::string_view c_PlayerPrefsPath = "/project/Saved/PlayerPrefs.yaml";
@@ -138,6 +138,51 @@ namespace
     std::filesystem::path FromUtf8(std::string_view text)
     {
         return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(text.data()), text.size()));
+    }
+
+    // Hub's list of projects: in the folder --hub names, or in Hub beside a check's own saves, so a check never writes to the person's list, and otherwise in Hub's own folder
+    std::filesystem::path GetProjectListFile(const Trinity::ApplicationCommandLineArgs& args)
+    {
+        const std::filesystem::path l_Name(Trinity::ProjectList::c_FileName);
+        if (const std::optional<std::string_view> l_Hub = args.GetOption("hub"); l_Hub && !l_Hub->empty())
+        {
+            return FromUtf8(*l_Hub) / l_Name;
+        }
+
+        if (const std::optional<std::string_view> l_Saves = args.GetOption("saves"); l_Saves && !l_Saves->empty())
+        {
+            return FromUtf8(*l_Saves) / "Hub" / l_Name;
+        }
+
+        return Trinity::ProjectList::GetHubDirectory() / l_Name;
+    }
+
+    // A time in UTC as the list writes one, 2026-11-07T05:41:29Z, or none
+    std::optional<std::chrono::system_clock::time_point> ParseListTime(std::string_view text)
+    {
+        int l_Year = 0;
+        unsigned l_Month = 0;
+        unsigned l_Day = 0;
+        int l_Hour = 0;
+        int l_Minute = 0;
+        int l_Second = 0;
+        const auto l_Read = [text](std::size_t offset, std::size_t length, auto& value)
+        {
+            return offset + length <= text.size() && std::from_chars(text.data() + offset, text.data() + offset + length, value).ec == std::errc();
+        };
+
+        if (text.size() != 20 || !l_Read(0, 4, l_Year) || !l_Read(5, 2, l_Month) || !l_Read(8, 2, l_Day) || !l_Read(11, 2, l_Hour) || !l_Read(14, 2, l_Minute) || !l_Read(17, 2, l_Second))
+        {
+            return std::nullopt;
+        }
+
+        const std::chrono::year_month_day l_Date{ std::chrono::year(l_Year), std::chrono::month(l_Month), std::chrono::day(l_Day) };
+        if (!l_Date.ok())
+        {
+            return std::nullopt;
+        }
+
+        return std::chrono::sys_days(l_Date) + std::chrono::hours(l_Hour) + std::chrono::minutes(l_Minute) + std::chrono::seconds(l_Second);
     }
 
     std::string ToUtf8(const std::filesystem::path& path)
@@ -843,6 +888,8 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
         static_cast<void>(l_Engine->SetDevice(m_Preferences.AudioDevice));
     }
 
+    m_ProjectListFile = GetProjectListFile(args);
+    TakeOverRecentProjects();
     ReadRecentProjects();
     if (const auto it_Directory = args.GetOption("new-project"))
     {
@@ -2051,11 +2098,13 @@ void EditorSession::RequestClosePrefab()
     m_Pending.push_back([this] { ConfirmClosePrefab([] {}); });
 }
 
+// Off Hub's list too, which Hub shows at its next look
 void EditorSession::RemoveRecentProject(const std::filesystem::path& path)
 {
-    if (std::erase_if(m_RecentProjects, [&path](const RecentProject& project) { return project.Path == path; }) > 0)
+    std::erase_if(m_RecentProjects, [&path](const RecentProject& project) { return project.Path == path; });
+    if (const Trinity::Expected<void, std::string> l_Removed = Trinity::ProjectList::Remove(m_ProjectListFile, path); !l_Removed)
     {
-        WriteRecentProjects();
+        TR_WARN("Forge: {} could not be taken off the projects list: {}", ToUtf8(path), l_Removed.GetError());
     }
 }
 
@@ -2090,23 +2139,44 @@ std::string EditorSession::FormatAge(std::chrono::system_clock::time_point time)
     return l_Seconds < 86400 ? a_Count(l_Seconds / 3600, "hour") : a_Count(l_Seconds / 86400, "day");
 }
 
-// A line a project, newest first: when it was opened, in seconds since 1970, its name and its file, apart by tabs. A line that cannot be read is left out
+// The ten opened lately, newest first, from Hub's list, which every Forge adds to and Hub's Projects page shows whole. Those Hub listed and no Forge has opened since are not recent, and are left to Hub
 void EditorSession::ReadRecentProjects()
 {
     m_RecentProjects.clear();
+    const Trinity::Expected<std::vector<Trinity::ProjectListEntry>, std::string> l_List = Trinity::ProjectList::Read(m_ProjectListFile);
+    if (!l_List)
+    {
+        TR_WARN("Forge: the projects list could not be read, so the start screen shows none: {}", l_List.GetError());
+
+        return;
+    }
+
+    for (const Trinity::ProjectListEntry& it_Entry : *l_List)
+    {
+        const std::optional<std::chrono::system_clock::time_point> l_OpenedAt = ParseListTime(it_Entry.LastOpened);
+        if (m_RecentProjects.size() == c_RecentLimit || !l_OpenedAt)
+        {
+            break;
+        }
+
+        std::error_code l_Error;
+        const bool l_Missing = !std::filesystem::is_regular_file(it_Entry.File, l_Error);
+        m_RecentProjects.push_back({ .Path = it_Entry.File, .Name = it_Entry.Name, .OpenedAt = *l_OpenedAt, .Missing = l_Missing });
+    }
+}
+
+// A line a project of the file Forge kept before Hub's list: when it was opened, in seconds since 1970, its name and its file, apart by tabs. Each goes into Hub's list unless it is there and opened since, and the file goes once they are in, so this happens once
+void EditorSession::TakeOverRecentProjects()
+{
     const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(c_RecentProjectsPath);
     if (!l_Text)
     {
         return;
     }
 
+    std::vector<Trinity::ProjectListEntry> l_Kept;
     for (const std::string_view it_Line : SplitLines(*l_Text))
     {
-        if (m_RecentProjects.size() == c_RecentLimit)
-        {
-            break;
-        }
-
         const std::size_t l_NameStart = it_Line.find('\t');
         const std::size_t l_PathStart = l_NameStart == std::string_view::npos ? std::string_view::npos : it_Line.find('\t', l_NameStart + 1);
         std::int64_t l_Seconds = 0;
@@ -2115,38 +2185,55 @@ void EditorSession::ReadRecentProjects()
             continue;
         }
 
-        std::filesystem::path l_Path = FromUtf8(it_Line.substr(l_PathStart + 1));
-        std::error_code l_Error;
-        const bool l_Missing = !std::filesystem::is_regular_file(l_Path, l_Error);
-        m_RecentProjects.push_back({ .Path = std::move(l_Path), .Name = std::string(it_Line.substr(l_NameStart + 1, l_PathStart - l_NameStart - 1)), .OpenedAt = std::chrono::system_clock::time_point(std::chrono::seconds(l_Seconds)), .Missing = l_Missing });
+        const std::chrono::sys_seconds l_OpenedAt{ std::chrono::seconds(l_Seconds) };
+        l_Kept.push_back({ FromUtf8(it_Line.substr(l_PathStart + 1)), std::string(it_Line.substr(l_NameStart + 1, l_PathStart - l_NameStart - 1)),{}, std::format("{:%Y-%m-%dT%H:%M:%SZ}", l_OpenedAt) });
     }
+
+    const Trinity::Expected<void, std::string> l_Changed = Trinity::ProjectList::Change(m_ProjectListFile, [&l_Kept](std::vector<Trinity::ProjectListEntry>& entries)
+    {
+        for (const Trinity::ProjectListEntry& it_Kept : l_Kept)
+        {
+            const auto a_Listed = std::ranges::find_if(entries, [&it_Kept](const Trinity::ProjectListEntry& entry) { return Trinity::ProjectList::IsSameFile(entry.File, it_Kept.File); });
+            if (a_Listed == entries.end())
+            {
+                entries.push_back(it_Kept);
+            }
+            else if (a_Listed->LastOpened < it_Kept.LastOpened)
+            {
+                a_Listed->LastOpened = it_Kept.LastOpened;
+            }
+        }
+    });
+
+    if (!l_Changed)
+    {
+        TR_WARN("Forge: {} is kept, as the projects list could not take its projects: {}", c_RecentProjectsPath, l_Changed.GetError());
+
+        return;
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Removed = Trinity::FileSystem::RemoveFile(c_RecentProjectsPath); !l_Removed)
+    {
+        TR_WARN("Forge: {} could not be deleted once its projects were in the projects list, so they are added again as Forge next starts, which changes nothing: {}", c_RecentProjectsPath, Trinity::ToString(l_Removed.GetError()));
+    }
+
+    TR_INFO("Forge: moved {} project(s) from {} into the projects list, {}", l_Kept.size(), c_RecentProjectsPath, ToUtf8(m_ProjectListFile));
 }
 
-void EditorSession::WriteRecentProjects() const
-{
-    std::string l_Text;
-    for (const RecentProject& it_Project : m_RecentProjects)
-    {
-        l_Text += std::format("{}\t{}\t{}\n", std::chrono::duration_cast<std::chrono::seconds>(it_Project.OpenedAt.time_since_epoch()).count(), it_Project.Name, ToUtf8(it_Project.Path));
-    }
-
-    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(c_RecentProjectsPath, l_Text); !l_Written)
-    {
-        TR_WARN("Forge: the recent projects could not be saved: {}", Trinity::ToString(l_Written.GetError()));
-    }
-}
-
-// The open project goes first, once, and the eleventh is let go
+// Into Hub's list, as opened now, and first on the start screen, once, with the eleventh let go
 void EditorSession::RememberProject()
 {
+    if (const Trinity::Expected<void, std::string> l_Recorded = Trinity::ProjectList::RecordOpened(m_ProjectListFile, { m_Project->GetFilePath(), m_Project->GetName(), m_Project->GetEngineVersion(),{} }); !l_Recorded)
+    {
+        TR_WARN("Forge: {} could not be added to the projects list: {}", m_Project->GetName(), l_Recorded.GetError());
+    }
+
     std::erase_if(m_RecentProjects, [this](const RecentProject& project) { return project.Path == m_Project->GetFilePath(); });
     m_RecentProjects.insert(m_RecentProjects.begin(), { .Path = m_Project->GetFilePath(), .Name = m_Project->GetName(), .OpenedAt = std::chrono::system_clock::now(), .Missing = false });
     if (m_RecentProjects.size() > c_RecentLimit)
     {
         m_RecentProjects.resize(c_RecentLimit);
     }
-
-    WriteRecentProjects();
 }
 
 // A line a scene, newest first: its UUID and the path it had, apart by a tab, in the project's Cache, per user as Unity keeps its recent scenes

@@ -517,7 +517,7 @@ private:
     void ReadPreferences(const Trinity::ApplicationCommandLineArgs& args);
     void WritePreferences();
     void ReadRecentProjects();
-    void WriteRecentProjects() const;
+    void TakeOverRecentProjects();
     void RememberProject();
     void ReadRecentScenes();
     void WriteRecentScenes() const;
@@ -596,6 +596,8 @@ private:
     PrefabTemplateCache m_Prefabs;
     // The prefab prefab mode has open, or null while the scene is edited
     Trinity::Scope<PrefabStage> m_Stage;
+    // Hub's list of projects, which every Forge adds to, and the start screen shows the ten newest of
+    std::filesystem::path m_ProjectListFile;
     std::vector<RecentProject> m_RecentProjects;
     std::vector<RecentScene> m_RecentScenes;
     std::unordered_map<Trinity::UUID, InputActionsFile> m_InputActionsFiles;

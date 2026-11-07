@@ -17,6 +17,8 @@ namespace HubText
     // A time in UTC as manifests, GitHub and Hub's own files write one, 2026-11-07T05:41:29Z
     [[nodiscard]] std::optional<std::chrono::sys_seconds> ParseTime(std::string_view text);
     [[nodiscard]] std::string FormatTime(std::chrono::sys_seconds time);
-    // The day and the minute, as 7 Nov 2026 at 05:41 UTC
+    // The day and the minute
     [[nodiscard]] std::string DescribeTime(std::chrono::sys_seconds time);
+    // How long ago, as Forge's start screen says it: less than a minute ago, then in minutes, hours and days
+    [[nodiscard]] std::string DescribeAge(std::chrono::sys_seconds time);
 }

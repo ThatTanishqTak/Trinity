@@ -25,17 +25,10 @@ namespace
         return std::nullopt;
     }
 
-    std::filesystem::path GetTrinityDataDirectory()
-    {
-        const std::filesystem::path l_Base = Trinity::Process::GetUserDataDirectory();
-
-        return (l_Base.empty() ? std::filesystem::path("UserData") : l_Base) / "Trinity";
-    }
-
-    // Where Hub keeps its lists, settings and lock: Hub in Trinity's folder of the user's data, or the folder --saves names, as every program's saves go there, so a check run with saves of its own never meets the person's Hub
+    // Where Hub keeps its lists, settings and lock: Hub in Trinity's folder of the user's data, where every Forge finds its projects list, or the folder --saves names, as every program's saves go there, so a check run with saves of its own never meets the person's Hub
     std::filesystem::path GetHubDirectory(const Trinity::ApplicationCommandLineArgs& args)
     {
-        return GetSavesOption(args).value_or(GetTrinityDataDirectory() / "Hub");
+        return GetSavesOption(args).value_or(Trinity::ProjectList::GetHubDirectory());
     }
 
     // Where Hub asks for Trinity's releases: GitHub's API, or the stand-in --releases-url names, serving GitHub's replies, as a check does
@@ -54,7 +47,7 @@ namespace
     {
         const std::optional<std::filesystem::path> l_Saves = GetSavesOption(args);
 
-        return l_Saves ? *l_Saves / "Versions" : GetTrinityDataDirectory() / "Versions";
+        return l_Saves ? *l_Saves / "Versions" : Trinity::ProjectList::GetHubDirectory().parent_path() / "Versions";
     }
 }
 

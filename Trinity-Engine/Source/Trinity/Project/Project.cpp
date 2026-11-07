@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <charconv>
 #include <format>
+#include <fstream>
 #include <optional>
 #include <system_error>
 #include <utility>
@@ -206,7 +207,7 @@ namespace Trinity
     }
 
     // A project file, or a folder holding exactly one
-    Expected<Scope<Project>, std::string> Project::Open(const std::filesystem::path& path)
+    Expected<std::filesystem::path, std::string> Project::FindFile(const std::filesystem::path& path)
     {
         std::error_code l_Error;
         std::filesystem::path l_File = std::filesystem::absolute(path, l_Error).lexically_normal();
@@ -234,6 +235,72 @@ namespace Trinity
             return Unexpected{ std::format("{} is not a {} file", ToUtf8(l_File), c_Extension) };
         }
 
+        return l_File;
+    }
+
+    // Read as it lies on the disk, as Open reads it once mounted, for its format, name, version and scripting alone
+    Expected<ProjectFileInfo, std::string> Project::ReadInfo(const std::filesystem::path& file)
+    {
+        constexpr std::uintmax_t c_Limit = 4 * 1024 * 1024;
+        std::error_code l_Error;
+        const std::uintmax_t l_Size = std::filesystem::file_size(file, l_Error);
+        if (l_Error)
+        {
+            return Unexpected{ std::format("{} could not be read: {}", ToUtf8(file), l_Error.message()) };
+        }
+
+        if (l_Size > c_Limit)
+        {
+            return Unexpected{ std::format("{} is {} bytes, more than a project file can be", ToUtf8(file), l_Size) };
+        }
+
+        std::ifstream l_Stream(file, std::ios::binary);
+        std::string l_Text(static_cast<std::size_t>(l_Size), '\0');
+        l_Stream.read(l_Text.data(), static_cast<std::streamsize>(l_Text.size()));
+        if (!l_Stream)
+        {
+            return Unexpected{ std::format("{} could not be read", ToUtf8(file)) };
+        }
+
+        YAML::Node l_Root;
+        try
+        {
+            l_Root = YAML::Load(l_Text);
+        }
+        catch (const YAML::Exception& exception)
+        {
+            return Unexpected{ std::format("{} is not valid YAML: {}", ToUtf8(file), exception.what()) };
+        }
+
+        ProjectFileInfo l_Info;
+        const std::string l_FormatText = l_Root.IsMap() ? ReadString(l_Root, "Format", "") : std::string();
+        const std::from_chars_result l_Parsed = std::from_chars(l_FormatText.data(), l_FormatText.data() + l_FormatText.size(), l_Info.Format);
+        if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_FormatText.data() + l_FormatText.size() || l_Info.Format == 0)
+        {
+            return Unexpected{ std::format("{} has no valid Format version", ToUtf8(file)) };
+        }
+
+        l_Info.Name = ReadString(l_Root, "Name", ToUtf8(file.stem()));
+        l_Info.EngineVersion = ReadString(l_Root, "EngineVersion", "");
+        const YAML::Node l_Scripting = l_Root["Scripting"];
+        if (l_Info.Format >= 5 && l_Scripting && l_Scripting.IsMap())
+        {
+            l_Info.HasModule = !ReadString(l_Scripting, "Module", "").empty();
+            l_Info.HasAssembly = l_Info.Format >= 6 && !ReadString(l_Scripting, "Assembly", "").empty();
+        }
+
+        return l_Info;
+    }
+
+    Expected<Scope<Project>, std::string> Project::Open(const std::filesystem::path& path)
+    {
+        const Expected<std::filesystem::path, std::string> l_Found = FindFile(path);
+        if (!l_Found)
+        {
+            return Unexpected{ l_Found.GetError() };
+        }
+
+        const std::filesystem::path& l_File = *l_Found;
         Scope<Project> l_Project(new Project(l_File.parent_path(), l_File));
         l_Project->m_Name = ToUtf8(l_File.stem());
         if (Expected<void, std::string> l_Mounted = l_Project->Mount(); !l_Mounted)

@@ -1,7 +1,9 @@
 #include "HubText.hpp"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdint>
 #include <format>
 #include <system_error>
 
@@ -74,5 +76,22 @@ namespace HubText
     std::string DescribeTime(std::chrono::sys_seconds time)
     {
         return std::format("{} at {:%H:%M} UTC", FormatDate(FormatTime(time)), time);
+    }
+
+    std::string DescribeAge(std::chrono::sys_seconds time)
+    {
+        const std::int64_t l_Seconds = std::max<std::int64_t>(0, (std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()) - time).count());
+        const auto l_Count = [](std::int64_t count, std::string_view unit) { return std::format("{} {}{} ago", count, unit, count == 1 ? "" : "s"); };
+        if (l_Seconds < 60)
+        {
+            return "less than a minute ago";
+        }
+
+        if (l_Seconds < 3600)
+        {
+            return l_Count(l_Seconds / 60, "minute");
+        }
+
+        return l_Seconds < 86400 ? l_Count(l_Seconds / 3600, "hour") : l_Count(l_Seconds / 86400, "day");
     }
 }

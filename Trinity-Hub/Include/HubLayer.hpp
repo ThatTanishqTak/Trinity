@@ -2,6 +2,7 @@
 
 #include "HubInstalls.hpp"
 #include "HubPathPrompt.hpp"
+#include "HubProjects.hpp"
 #include "HubReleases.hpp"
 #include "HubSettings.hpp"
 #include "Pages/HubPage.hpp"
@@ -32,6 +33,7 @@ private:
     HubSettings m_Settings;
     HubInstalls m_Installs;
     HubReleases m_Releases;
+    HubProjects m_Projects;
     HubPathPrompt m_PathPrompt;
     // After what they are given, so they go first
     std::vector<Trinity::Scope<HubPage>> m_Pages;

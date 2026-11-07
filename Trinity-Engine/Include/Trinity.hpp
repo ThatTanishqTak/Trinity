@@ -86,6 +86,7 @@
 #include "Trinity/Project/EngineManifest.hpp"
 #include "Trinity/Project/GameSettings.hpp"
 #include "Trinity/Project/Project.hpp"
+#include "Trinity/Project/ProjectList.hpp"
 
 #include "Trinity/Scene/ComponentType.hpp"
 #include "Trinity/Scene/Components.hpp"
