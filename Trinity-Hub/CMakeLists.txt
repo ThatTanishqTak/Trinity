@@ -19,5 +19,8 @@ trinity_configure_executable(${TARGET_NAME})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_HUB_HEADERS} ${TRINITY_HUB_SOURCES})
 
 target_include_directories(${TARGET_NAME} PRIVATE Include)
-target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine)
-trinity_check_editor_libraries(${TARGET_NAME} absent)
+# yaml-cpp reads and writes Hub's own files, as the engine's are
+target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine yaml-cpp::yaml-cpp)
+# Hub draws its pages with the engine's ImGui, whose text FreeType renders, which the check finds where they are, and carries none of the editor's other libraries, nor Slang
+trinity_check_editor_libraries(${TARGET_NAME} absent ${TRINITY_EDITOR_LIBRARIES} ImGuizmo BasisEncoder Slang)
+trinity_check_editor_libraries(${TARGET_NAME} present ImGui FreeType)

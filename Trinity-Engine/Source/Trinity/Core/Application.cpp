@@ -34,6 +34,7 @@
 #include <ranges>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace Trinity
@@ -172,12 +173,16 @@ namespace Trinity
             return directory / std::filesystem::path(l_Stem).concat(extension);
         }
 
-        void MountSaveDirectory(const ApplicationCommandLineArgs& args, std::string_view company, std::string_view applicationName)
+        void MountSaveDirectory(const ApplicationCommandLineArgs& args, std::string_view company, std::string_view applicationName, const std::filesystem::path& savesDirectory)
         {
             std::filesystem::path l_Directory;
             if (const std::optional<std::string_view> l_Override = args.GetOption("saves"); l_Override && !l_Override->empty())
             {
                 l_Directory = std::filesystem::path(*l_Override);
+            }
+            else if (!savesDirectory.empty())
+            {
+                l_Directory = savesDirectory;
             }
             else
             {
@@ -356,7 +361,7 @@ namespace Trinity
 
         TR_CORE_INFO("Starting '{}' (graphics: {}{})", m_Specification.Name, ToString(m_Specification.Graphics), m_Specification.Window.Headless ? ", headless" : "");
 
-        MountSaveDirectory(l_Args, m_Specification.Company, m_Specification.Name);
+        MountSaveDirectory(l_Args, m_Specification.Company, m_Specification.Name, m_Specification.SavesDirectory);
         if (m_Specification.ConfigureWindow)
         {
             m_Specification.ConfigureWindow(m_Specification.Window);
@@ -515,9 +520,17 @@ namespace Trinity
     {
         m_LastFrameTime = std::chrono::steady_clock::now();
 
+        // A window behind another or minimized draws only as often as the application's background rate lets it, which a counted run or one without a window never waits for
+        const bool l_Background = m_Specification.BackgroundFrameRate > 0.0f && m_Specification.MaxFrames == 0 && m_Window->GetNativeHandle() != nullptr;
+        const auto l_BackgroundFrame = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(1.0 / (l_Background ? m_Specification.BackgroundFrameRate : 1.0f)));
         while (m_Running)
         {
+            const auto l_FrameStart = std::chrono::steady_clock::now();
             RunFrame(true);
+            if (l_Background && m_Running && (m_Minimized || m_Window->IsMinimized() || !m_Window->IsFocused()))
+            {
+                std::this_thread::sleep_until(l_FrameStart + l_BackgroundFrame);
+            }
         }
 
         JobSystem::Wait(m_FrameJobs);
@@ -669,8 +682,13 @@ namespace Trinity
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionDescription(), Platform::GetName(), c_ConfigurationName);
 
+        // A program may decide not to start, as a second Hub does once it has brought the first forward, and then ends at once with exit code 0
         Scope<Application> l_Application{ createApplication({ argc, argv }) };
-        TR_CORE_ASSERT(l_Application != nullptr, "CreateApplication returned null.");
+        if (!l_Application)
+        {
+            TR_CORE_INFO("The program chose not to start");
+        }
+
         int l_ExitCode = 0;
         if (l_Application)
         {

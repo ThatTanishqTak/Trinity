@@ -16,6 +16,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <span>
@@ -51,6 +52,8 @@ namespace Trinity
         std::vector<GraphicsAPI> GraphicsOrder;
 
         std::uint64_t MaxFrames = 0;
+        // Frames a second at most while the window is behind another or minimized, so a program left open in the background, such as Hub, draws little. 0 leaves every frame to vsync, and a run given --frames or without a window is never held back
+        float BackgroundFrameRate = 0.0f;
         std::size_t FrameAllocatorCapacity = 4 * 1024 * 1024;
 
         // .NET starts as the application does, for C# scripts, from Scripting beside the executable. An application with no scripts, such as Hub, never starts it
@@ -59,6 +62,9 @@ namespace Trinity
         bool StartAudio = true;
         // RmlUi starts as the application does, for a game's UI. An application that shows none, such as Hub, never starts it
         bool StartGameUI = true;
+
+        // The folder /saves mounts, unless --saves names another, as Hub keeps its lists in Hub in Trinity's folder of the user's data. Empty for the application's own folder there
+        std::filesystem::path SavesDirectory;
 
         ApplicationCommandLineArgs CommandLineArgs;
     };

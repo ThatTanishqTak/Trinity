@@ -49,6 +49,10 @@ namespace Trinity
         TRINITY_API void SetVariable(Environment& environment, std::string_view name, std::string_view value);
         // A program by its name in the folders of the environment's PATH, or this process's with none, trying the extensions Windows runs when the name has none, or a path to one as it is. Empty when there is none
         [[nodiscard]] TRINITY_API std::filesystem::path FindExecutable(std::string_view name, const Environment* environment = nullptr);
+        // The folder the user's own data goes in, which Trinity's programs keep theirs under Trinity in: the local application data on Windows, ~/Library/Application Support on macOS, and $XDG_DATA_HOME or ~/.local/share elsewhere. Empty when there is none
+        [[nodiscard]] TRINITY_API std::filesystem::path GetUserDataDirectory();
+        // Brings the process's own window to the front, restored when minimized, as a second Hub brings the first forward. False where the platform has no windows, or the process shows none
+        TRINITY_API bool BringToFront(std::uint32_t processID);
         // The folder this process's executable is in, where Trinity's build puts the engine and what is built beside it
         [[nodiscard]] TRINITY_API std::filesystem::path GetExecutableDirectory();
         // This process's executable itself, which a debugger launches or attaches to

@@ -674,6 +674,118 @@ namespace Trinity
             return true;
         }
 
+        // The first visible window of the process that no other window owns, which is its main window. Restoring it first and letting its process take the foreground too lets it come forward from behind, as Windows lets the program the person just started do
+        bool BringProcessToFront(std::uint32_t processID)
+        {
+            struct Search
+            {
+                DWORD ProcessID = 0;
+                HWND Window = nullptr;
+            };
+
+            Search l_Search{ static_cast<DWORD>(processID), nullptr };
+            ::EnumWindows([](HWND window, LPARAM parameter) -> BOOL
+            {
+                Search& l_Found = *reinterpret_cast<Search*>(parameter);
+                DWORD l_Owner = 0;
+                ::GetWindowThreadProcessId(window, &l_Owner);
+                if (l_Owner == l_Found.ProcessID && ::IsWindowVisible(window) && ::GetWindow(window, GW_OWNER) == nullptr)
+                {
+                    l_Found.Window = window;
+
+                    return FALSE;
+                }
+
+                return TRUE;
+            }, reinterpret_cast<LPARAM>(&l_Search));
+
+            if (l_Search.Window == nullptr)
+            {
+                return false;
+            }
+
+            if (::IsIconic(l_Search.Window))
+            {
+                ::ShowWindow(l_Search.Window, SW_RESTORE);
+            }
+
+            ::AllowSetForegroundWindow(static_cast<DWORD>(processID));
+
+            return ::SetForegroundWindow(l_Search.Window) != FALSE;
+        }
+
+        // Windows' locks keep other processes from reading what they cover, so the lock is on one byte far past any text, and the text at the start stays readable. The file is opened shared, so another process opening it is never mistaken for one holding it
+        constexpr DWORD c_LockedByteHigh = 0x7FFFFFFF;
+
+        void* TryLockFile(const std::filesystem::path& path, std::string_view text, std::string& error)
+        {
+            error.clear();
+            const HANDLE l_File = ::CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (l_File == INVALID_HANDLE_VALUE)
+            {
+                error = GetErrorMessage(::GetLastError());
+
+                return nullptr;
+            }
+
+            OVERLAPPED l_Region{};
+            l_Region.OffsetHigh = c_LockedByteHigh;
+            if (!::LockFileEx(l_File, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &l_Region))
+            {
+                const DWORD l_Error = ::GetLastError();
+                ::CloseHandle(l_File);
+                if (l_Error != ERROR_LOCK_VIOLATION)
+                {
+                    error = GetErrorMessage(l_Error);
+                }
+
+                return nullptr;
+            }
+
+            DWORD l_Written = 0;
+            const LARGE_INTEGER l_Start{};
+            if (!::SetFilePointerEx(l_File, l_Start, nullptr, FILE_BEGIN) || !::SetEndOfFile(l_File) || !::WriteFile(l_File, text.data(), static_cast<DWORD>(text.size()), &l_Written, nullptr) || l_Written != text.size())
+            {
+                error = GetErrorMessage(::GetLastError());
+                ::UnlockFileEx(l_File, 0, 1, 0, &l_Region);
+                ::CloseHandle(l_File);
+
+                return nullptr;
+            }
+
+            ::FlushFileBuffers(l_File);
+
+            return l_File;
+        }
+
+        void ReleaseFileLock(void* lock)
+        {
+            OVERLAPPED l_Region{};
+            l_Region.OffsetHigh = c_LockedByteHigh;
+            ::UnlockFileEx(static_cast<HANDLE>(lock), 0, 1, 0, &l_Region);
+            ::CloseHandle(static_cast<HANDLE>(lock));
+        }
+
+        std::optional<std::string> ReadLockedFile(const std::filesystem::path& path)
+        {
+            const HANDLE l_File = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (l_File == INVALID_HANDLE_VALUE)
+            {
+                return std::nullopt;
+            }
+
+            std::array<char, 256> l_Buffer{};
+            DWORD l_Read = 0;
+            const BOOL l_Done = ::ReadFile(l_File, l_Buffer.data(), static_cast<DWORD>(l_Buffer.size()), &l_Read, nullptr);
+            ::CloseHandle(l_File);
+            if (!l_Done)
+            {
+                return std::nullopt;
+            }
+
+            return std::string(l_Buffer.data(), l_Read);
+        }
+
         // Watched through the folder's handle, opened so the files in it can still be changed, renamed and deleted
         void* OpenDirectoryWatch(const std::filesystem::path& directory, std::string& error)
         {

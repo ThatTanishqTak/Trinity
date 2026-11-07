@@ -109,6 +109,16 @@ namespace Trinity
             return Platform::GetEnvironment();
         }
 
+        std::filesystem::path GetUserDataDirectory()
+        {
+            return Platform::GetUserDataDirectory();
+        }
+
+        bool BringToFront(std::uint32_t processID)
+        {
+            return Platform::BringProcessToFront(processID);
+        }
+
         std::filesystem::path GetExecutableDirectory()
         {
             return Platform::GetExecutableDirectory();

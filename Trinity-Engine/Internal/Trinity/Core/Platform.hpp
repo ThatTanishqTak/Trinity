@@ -124,6 +124,14 @@ namespace Trinity
         [[nodiscard]] bool StartProcess(const ProcessRequest& request, std::string& error);
         // The file or folder opened as the desktop would open it, with the program it has for that kind of file, or a folder in its file manager. False with the reason in error
         [[nodiscard]] bool OpenWithSystem(const std::filesystem::path& path, std::string& error);
+        // Brings the process's own window to the front, restored when minimized. False where the platform has no windows, or the process shows none
+        bool BringProcessToFront(std::uint32_t processID);
+
+        // Locks a file, made when missing, for this process alone, until it is released or the process ends, killed or not, when the system lets go of it. text replaces what the file held, for another process to read with ReadLockedFile while the lock is held. Null with error empty when another process holds the lock, or with the reason when the file could not be locked
+        [[nodiscard]] void* TryLockFile(const std::filesystem::path& path, std::string_view text, std::string& error);
+        void ReleaseFileLock(void* lock);
+        // What a locked file's holder wrote in it, or none when it cannot be read
+        [[nodiscard]] std::optional<std::string> ReadLockedFile(const std::filesystem::path& path);
 
         // A folder and everything below it, watched without blocking. Null on failure, with the reason in error. Each read appends the paths that changed since the last one, relative to the folder, and returns true when more changed than it could tell, so everything should be looked at again
         [[nodiscard]] void* OpenDirectoryWatch(const std::filesystem::path& directory, std::string& error);

@@ -6,6 +6,7 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <format>
@@ -20,6 +21,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <sys/file.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -625,6 +627,73 @@ namespace Trinity
             }
 
             return true;
+        }
+
+        // Until Linux and macOS have windows, in M13 and M14, there is none to bring forward
+        bool BringProcessToFront([[maybe_unused]] std::uint32_t processID)
+        {
+            return false;
+        }
+
+        // flock's lock belongs to the open file, which the system closes as the process ends, and is not handed to the programs this one starts, as the file is opened close-on-exec. The handle is the descriptor plus one, so descriptor 0 is not null
+        void* TryLockFile(const std::filesystem::path& path, std::string_view text, std::string& error)
+        {
+            error.clear();
+            const int l_File = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+            if (l_File < 0)
+            {
+                error = std::strerror(errno);
+
+                return nullptr;
+            }
+
+            if (::flock(l_File, LOCK_EX | LOCK_NB) != 0)
+            {
+                const int l_Error = errno;
+                ::close(l_File);
+                if (l_Error != EWOULDBLOCK)
+                {
+                    error = std::strerror(l_Error);
+                }
+
+                return nullptr;
+            }
+
+            if (::ftruncate(l_File, 0) != 0 || ::pwrite(l_File, text.data(), text.size(), 0) != static_cast<ssize_t>(text.size()))
+            {
+                error = std::strerror(errno);
+                ::close(l_File);
+
+                return nullptr;
+            }
+
+            return reinterpret_cast<void*>(static_cast<std::intptr_t>(l_File) + 1);
+        }
+
+        void ReleaseFileLock(void* lock)
+        {
+            const int l_File = static_cast<int>(reinterpret_cast<std::intptr_t>(lock) - 1);
+            ::flock(l_File, LOCK_UN);
+            ::close(l_File);
+        }
+
+        std::optional<std::string> ReadLockedFile(const std::filesystem::path& path)
+        {
+            const int l_File = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+            if (l_File < 0)
+            {
+                return std::nullopt;
+            }
+
+            std::array<char, 256> l_Buffer{};
+            const ssize_t l_Read = ::read(l_File, l_Buffer.data(), l_Buffer.size());
+            ::close(l_File);
+            if (l_Read < 0)
+            {
+                return std::nullopt;
+            }
+
+            return std::string(l_Buffer.data(), static_cast<std::size_t>(l_Read));
         }
 
         // Through the desktop's own opener, open on macOS and xdg-open elsewhere

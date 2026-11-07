@@ -28,6 +28,7 @@
 #include "Trinity/Core/ConsoleVariable.hpp"
 #include "Trinity/Core/Expected.hpp"
 #include "Trinity/Core/FileDialog.hpp"
+#include "Trinity/Core/FileLock.hpp"
 #include "Trinity/Core/FrameAllocator.hpp"
 #include "Trinity/Core/Hash.hpp"
 #include "Trinity/Core/JobSystem.hpp"
