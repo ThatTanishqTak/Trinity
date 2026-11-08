@@ -7,6 +7,7 @@
 #include "Trinity/Core/Version.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
 #include "Trinity/FileSystem/FileSystemUtilities.hpp"
+#include "Trinity/Project/ProjectTemplate.hpp"
 #include "Trinity/Project/SettingsYaml.hpp"
 #include "Trinity/Project/TargetPlatform.hpp"
 
@@ -36,6 +37,36 @@ namespace Trinity
         std::string GetProjectFilePath(const std::filesystem::path& filePath)
         {
             return std::format("{}/{}", Project::c_ProjectMount, ToUtf8(filePath.filename()));
+        }
+
+        // What Project::Create made, taken away again: the folder itself when Create made it, and else everything in it, as it was empty. The parents Create made on the way stay, being where the person chose to put it
+        void RemoveCreated(const std::filesystem::path& directory, bool existed)
+        {
+            std::error_code l_Error;
+            if (!existed)
+            {
+                std::filesystem::remove_all(directory, l_Error);
+            }
+            else
+            {
+                std::vector<std::filesystem::path> l_Entries;
+                for (const std::filesystem::directory_entry& it_Entry : std::filesystem::directory_iterator(directory, l_Error))
+                {
+                    l_Entries.push_back(it_Entry.path());
+                }
+
+                for (const std::filesystem::path& it_Entry : l_Entries)
+                {
+                    std::error_code l_EntryError;
+                    std::filesystem::remove_all(it_Entry, l_EntryError);
+                    l_Error = l_Error ? l_Error : l_EntryError;
+                }
+            }
+
+            if (l_Error)
+            {
+                TR_CORE_WARN("Project: what was made in {} could not all be removed again: {}", ToUtf8(directory), l_Error.message());
+            }
         }
 
         // True or false, or nothing
@@ -264,8 +295,8 @@ namespace Trinity
         }
     }
 
-    // The folder takes the project's name, and must be new or empty
-    Expected<Scope<Project>, std::string> Project::Create(const std::filesystem::path& directory, ScriptLanguage language)
+    // The folder takes the project's name, and must be new or empty. A template's assets go in before anything reads the project, so they keep the UUIDs in their .meta files that its scenes name them by. One that fails part way takes away what it made, so a folder it made is gone again and one that was empty is empty again
+    Expected<Scope<Project>, std::string> Project::Create(const std::filesystem::path& directory, ScriptLanguage language, const ProjectTemplate* projectTemplate)
     {
         std::error_code l_Error;
         std::filesystem::path l_Directory = std::filesystem::absolute(directory, l_Error).lexically_normal();
@@ -280,7 +311,8 @@ namespace Trinity
             return Unexpected{ std::format("{} cannot name a project", ToUtf8(directory)) };
         }
 
-        if (std::filesystem::exists(l_Directory, l_Error) && !std::filesystem::is_empty(l_Directory, l_Error))
+        const bool l_Existed = std::filesystem::exists(l_Directory, l_Error);
+        if (l_Existed && !std::filesystem::is_empty(l_Directory, l_Error))
         {
             return Unexpected{ std::format("{} is not empty", ToUtf8(l_Directory)) };
         }
@@ -293,7 +325,20 @@ namespace Trinity
 
         if (l_Error)
         {
+            RemoveCreated(l_Directory, l_Existed);
+
             return Unexpected{ std::format("{} could not be created: {}", ToUtf8(l_Directory), l_Error.message()) };
+        }
+
+        if (projectTemplate != nullptr)
+        {
+            std::filesystem::copy(projectTemplate->GetAssetsDirectory(), l_Directory / "Assets", std::filesystem::copy_options::recursive, l_Error);
+            if (l_Error)
+            {
+                RemoveCreated(l_Directory, l_Existed);
+
+                return Unexpected{ std::format("the {} template's assets in {} could not be copied into {}: {}", projectTemplate->Name, ToUtf8(projectTemplate->GetAssetsDirectory()), ToUtf8(l_Directory), l_Error.message()) };
+            }
         }
 
         Scope<Project> l_Project(new Project(l_Directory, l_Directory / FromUtf8(l_Name + std::string(c_Extension))));
@@ -302,14 +347,19 @@ namespace Trinity
         l_Project->m_Language = language;
         l_Project->m_Export.Product = l_Name;
 
-        if (Expected<void, std::string> l_Mounted = l_Project->Mount(); !l_Mounted)
+        // Closed before what it made is taken away, so nothing still has its folder open
+        Expected<void, std::string> l_Made = l_Project->Mount();
+        if (l_Made)
         {
-            return Unexpected{ l_Mounted.GetError() };
+            l_Made = l_Project->Save();
         }
 
-        if (Expected<void, std::string> l_Saved = l_Project->Save(); !l_Saved)
+        if (!l_Made)
         {
-            return Unexpected{ l_Saved.GetError() };
+            l_Project.reset();
+            RemoveCreated(l_Directory, l_Existed);
+
+            return Unexpected{ l_Made.GetError() };
         }
 
         static_cast<void>(FileSystem::WriteText(std::format("{}/.gitignore", c_ProjectMount), "Cache/\nBuild/\nBuilds/\nSaved/\n"));

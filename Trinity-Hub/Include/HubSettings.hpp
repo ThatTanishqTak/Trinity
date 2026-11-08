@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-// What Hub keeps of the person's choices, in Settings.yaml in its folder, which /saves mounts: the theme and the scale Hub is drawn at, which go to the engine's UI through ui.theme and ui.scale, as Forge's preferences do, and the folder it installs versions in
+// What Hub keeps of the person's choices, in Settings.yaml in its folder, which /saves mounts: the theme and the scale Hub is drawn at, which go to the engine's UI through ui.theme and ui.scale, as Forge's preferences do, the folder it installs versions in, and the one New Project makes projects in
 struct HubSettings
 {
     static constexpr std::uint32_t c_FormatVersion = 1;
@@ -26,8 +26,11 @@ struct HubSettings
     float Scale = 1.0f;
     // Where Install from File puts the versions it unpacks, each in a folder of its own name, as UTF-8. Empty for Hub's default, Versions beside Hub's own folder. A version installed already stays where it is when this changes
     std::string InstallsDirectory;
+    // Where New Project starts a project's location, as Unity Hub's default projects location, as UTF-8. Empty for Hub's default, Trinity Projects in the person's Documents. Browse on the page changes it for one project alone
+    std::string ProjectsDirectory;
 
     [[nodiscard]] std::filesystem::path GetInstallsDirectory(const std::filesystem::path& defaultDirectory) const;
+    [[nodiscard]] std::filesystem::path GetProjectsDirectory(const std::filesystem::path& defaultDirectory) const;
 
     // The settings in /saves, each one missing keeping its default, and each that cannot be read told once and kept at its default
     [[nodiscard]] static HubSettings Load();

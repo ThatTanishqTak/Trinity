@@ -115,6 +115,11 @@ namespace Trinity
             return Platform::GetUserDataDirectory();
         }
 
+        std::filesystem::path GetDocumentsDirectory()
+        {
+            return Platform::GetDocumentsDirectory();
+        }
+
         bool BringToFront(std::uint32_t processID)
         {
             return Platform::BringProcessToFront(processID);

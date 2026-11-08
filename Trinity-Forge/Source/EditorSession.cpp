@@ -934,9 +934,13 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
         {
             TR_ERROR("Forge: --new-project needs --language=CSharp or --language=Cpp, the language the project's scripts are written in, which it keeps, so no project was made");
         }
-        else if (l_Found)
+
+        // Started to make a project, as Hub's New Project starts it, it ends with 1 when none was made, so whoever started it knows
+        if (!l_Language || !l_Found || !CreateProject(FromUtf8(*it_Directory), *l_Language, l_Template ? &*l_Template : nullptr))
         {
-            CreateProject(FromUtf8(*it_Directory), *l_Language, l_Template ? &*l_Template : nullptr);
+            Trinity::Application::Get().Close(1);
+
+            return;
         }
     }
     else if (const auto it_Project = args.GetOption("project"))
@@ -1363,18 +1367,18 @@ bool EditorSession::SettleUnappliedEdits(Action& then)
     return true;
 }
 
-// A new project opens on its start scene: its template's, or else an empty one, saved and given a UUID at once so the project file never names a missing scene
-void EditorSession::CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language, const Trinity::ProjectTemplate* projectTemplate)
+// A new project opens on its start scene: its template's, or else an empty one, saved and given a UUID at once so the project file never names a missing scene, with its C# project or C++ module made. The template's assets are copied in by Project::Create, which takes away what it made when it fails
+bool EditorSession::CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language, const Trinity::ProjectTemplate* projectTemplate)
 {
     CloseProject();
     NewScene();
 
-    Trinity::Expected<Trinity::Scope<Trinity::Project>, std::string> l_Project = Trinity::Project::Create(directory, language);
+    Trinity::Expected<Trinity::Scope<Trinity::Project>, std::string> l_Project = Trinity::Project::Create(directory, language, projectTemplate);
     if (!l_Project)
     {
-        TR_ERROR("Forge: the project could not be created: {}", l_Project.GetError());
+        TR_ERROR("Forge: the project could not be created, and nothing of it is left: {}", l_Project.GetError());
 
-        return;
+        return false;
     }
 
     m_Project = std::move(*l_Project);
@@ -1385,20 +1389,10 @@ void EditorSession::CreateProject(const std::filesystem::path& directory, Trinit
     }
 
     Trinity::ScriptRuntime::SetLanguage(m_Project->GetLanguage());
-    // A template's assets go in before the registry first scans, so they keep the UUIDs in their .meta files that its scenes name them by
-    if (projectTemplate != nullptr)
-    {
-        std::error_code l_Error;
-        std::filesystem::copy(projectTemplate->GetAssetsDirectory(), m_Project->GetAssetsDirectory(), std::filesystem::copy_options::recursive, l_Error);
-        if (l_Error)
-        {
-            TR_ERROR("Forge: the {} template's assets could not all be copied into {}: {}", projectTemplate->Name, ToUtf8(m_Project->GetAssetsDirectory()), l_Error.message());
-        }
-    }
-
     AttachRegistry();
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
+    CreateScripts();
     DebuggerSettings::Write(*m_Project);
     RememberProject();
     ReadRecentScenes();
@@ -1406,13 +1400,13 @@ void EditorSession::CreateProject(const std::filesystem::path& directory, Trinit
     {
         ApplyTemplate(*projectTemplate);
 
-        return;
+        return true;
     }
 
     const std::string l_StartScene = std::format("{}/{}", Trinity::Project::c_AssetsMount, Trinity::Project::c_DefaultStartScene);
     if (!WriteScene(l_StartScene))
     {
-        return;
+        return false;
     }
 
     m_ScenePath = l_StartScene;
@@ -1427,6 +1421,35 @@ void EditorSession::CreateProject(const std::filesystem::path& directory, Trinit
         SaveProject();
         TR_INFO("Forge: created project {} in {}, with an empty start scene at {} ({})", m_Project->GetName(), ToUtf8(m_Project->GetDirectory()), m_ScenePath, l_Record->ID);
     }
+
+    return true;
+}
+
+// Saved with the project by whoever made it. A Forge that cannot build the language, as one without .NET or one linked statically, leaves it for the Scripts menu, and the project is made all the same
+void EditorSession::CreateScripts()
+{
+    if (m_Project->GetLanguage() == Trinity::ScriptLanguage::CSharp)
+    {
+        if (!AssemblyHost::IsSupported())
+        {
+            TR_WARN("Forge: {} has no C# project yet, as this Forge has no .NET to build one with. Scripts > Create C# Project makes it once it has", m_Project->GetName());
+
+            return;
+        }
+
+        static_cast<void>(m_Assembly.Create(*m_Project));
+
+        return;
+    }
+
+    if (!ModuleHost::IsSupported())
+    {
+        TR_WARN("Forge: {} has no C++ module yet, as this Forge's engine is linked statically. Scripts > Create C++ Module in a Debug or Release Forge makes it", m_Project->GetName());
+
+        return;
+    }
+
+    static_cast<void>(m_Module.Create(*m_Project));
 }
 
 // The settings are found by the paths Template.yaml gives, each one missing reported and left unset

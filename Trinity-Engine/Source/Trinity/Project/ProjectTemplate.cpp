@@ -32,8 +32,9 @@ namespace Trinity
         }
     }
 
-    Expected<ProjectTemplate, std::string> ReadProjectTemplate(const std::filesystem::path& directory)
+    Expected<ProjectTemplate, std::string> ReadProjectTemplate(const std::filesystem::path& directory, std::uint32_t projectFormat)
     {
+        const std::uint32_t l_ProjectFormat = projectFormat != 0 ? projectFormat : Project::c_FormatVersion;
         const std::filesystem::path l_File = directory / FromUtf8(ProjectTemplate::c_FileName);
         std::ifstream l_Stream(l_File, std::ios::binary);
         if (!l_Stream)
@@ -75,9 +76,9 @@ namespace Trinity
         l_Template.InputActions = ReadString(l_Root, "InputActions", "");
         l_Template.Mixer = ReadString(l_Root, "Mixer", "");
         l_Template.View3D = ReadString(l_Root, "View", "2D") == "3D";
-        if (l_Template.ProjectFormat == 0 || l_Template.ProjectFormat > Project::c_FormatVersion)
+        if (l_Template.ProjectFormat == 0 || l_Template.ProjectFormat > l_ProjectFormat)
         {
-            return Unexpected{ std::format("{} is written for project format {}, and this Trinity reads format {} and older", ToUtf8(l_File), l_Template.ProjectFormat, Project::c_FormatVersion) };
+            return Unexpected{ std::format("{} is written for project format {}, and its version of Trinity reads format {} and older", ToUtf8(l_File), l_Template.ProjectFormat, l_ProjectFormat) };
         }
 
         std::error_code l_Error;
@@ -94,7 +95,7 @@ namespace Trinity
         return l_Template;
     }
 
-    std::vector<ProjectTemplate> FindProjectTemplates(const std::filesystem::path& root)
+    std::vector<ProjectTemplate> FindProjectTemplates(const std::filesystem::path& root, std::uint32_t projectFormat)
     {
         std::vector<ProjectTemplate> l_Templates;
         std::error_code l_Error;

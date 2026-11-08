@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <fstream>
 #include <map>
 #include <optional>
 #include <string>
@@ -297,6 +298,49 @@ namespace Trinity
 #endif
 
             return {};
+        }
+
+        // On Linux the one xdg-user-dirs names, in its environment variable or in user-dirs.dirs as "$HOME/Documents" or a whole path, which a desktop in another language names in that language, and ~/Documents where neither names one
+        std::filesystem::path GetDocumentsDirectory()
+        {
+            const char* l_Home = std::getenv("HOME");
+            if (l_Home == nullptr || *l_Home == '\0')
+            {
+                return {};
+            }
+
+            const std::filesystem::path l_HomeDirectory(l_Home);
+#if !defined(TR_PLATFORM_MACOS)
+            if (const char* l_Documents = std::getenv("XDG_DOCUMENTS_DIR"); l_Documents != nullptr && std::filesystem::path(l_Documents).is_absolute())
+            {
+                return l_Documents;
+            }
+
+            const char* l_ConfigHome = std::getenv("XDG_CONFIG_HOME");
+            const std::filesystem::path l_Config = l_ConfigHome != nullptr && std::filesystem::path(l_ConfigHome).is_absolute() ? std::filesystem::path(l_ConfigHome) : l_HomeDirectory / ".config";
+            std::ifstream l_Stream(l_Config / "user-dirs.dirs");
+            for (std::string l_Line; std::getline(l_Stream, l_Line);)
+            {
+                constexpr std::string_view c_Key = "XDG_DOCUMENTS_DIR=\"";
+                if (!l_Line.starts_with(c_Key) || l_Line.size() <= c_Key.size() || !l_Line.ends_with('"'))
+                {
+                    continue;
+                }
+
+                std::string l_Value = l_Line.substr(c_Key.size(), l_Line.size() - c_Key.size() - 1);
+                if (l_Value.starts_with("$HOME"))
+                {
+                    l_Value = std::string(l_Home) + l_Value.substr(5);
+                }
+
+                if (std::filesystem::path(l_Value).is_absolute())
+                {
+                    return l_Value;
+                }
+            }
+#endif
+
+            return l_HomeDirectory / "Documents";
         }
 
         std::filesystem::path GetExecutableDirectory()

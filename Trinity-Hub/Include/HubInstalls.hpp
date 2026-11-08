@@ -57,6 +57,10 @@ public:
     [[nodiscard]] const HubInstall* Find(const std::filesystem::path& directory) const;
     // The installed version of this name, as Trinity-<version>-<platform>-<architecture>, wherever it is
     [[nodiscard]] const HubInstall* FindInstalled(std::string_view name) const;
+    // The usable version a project naming this one opens in: the one built last when two are of it, as a build tree built again beside the version installed from its zip, and the installed one when both were built at once. None when no usable one is of it
+    [[nodiscard]] const HubInstall* FindUsable(std::string_view version) const;
+    // The one of the newest version that is usable, as FindUsable chooses among those of one version, which New Project offers first. None when no version is usable
+    [[nodiscard]] const HubInstall* FindNewestUsable() const;
 
     // Replaces the version listed in the same folder, if one is, and saves
     void Add(const std::filesystem::path& directory, HubInstall::Origin origin, Trinity::EngineManifest manifest);
@@ -68,6 +72,8 @@ public:
     [[nodiscard]] static std::string Describe(const Trinity::EngineManifest& manifest);
     // Two folders are the same where both are there and are one on the disk, and otherwise when their paths are, so a version is listed once however its folder was named
     [[nodiscard]] static bool IsSameFolder(const std::filesystem::path& left, const std::filesystem::path& right);
+    // One that can open and make projects on this machine: installed or located, not missing or unreadable, and built for this platform and architecture
+    [[nodiscard]] static bool IsUsable(const HubInstall& install);
 
 private:
     struct SizeCount

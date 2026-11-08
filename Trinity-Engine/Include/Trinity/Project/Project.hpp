@@ -24,6 +24,7 @@
 namespace Trinity
 {
     class AssetRegistry;
+    struct ProjectTemplate;
 
     // A scene of the build's list, by its asset, and whether it ships, as each scene of Unity's Scene List has a box
     struct ExportScene
@@ -87,8 +88,8 @@ namespace Trinity
         static constexpr std::string_view c_CacheMount = "/cache";
         static constexpr std::string_view c_DefaultStartScene = "Scenes/Main.trscene";
 
-        // In the language its scripts are written in, which it keeps
-        [[nodiscard]] static Expected<Scope<Project>, std::string> Create(const std::filesystem::path& directory, ScriptLanguage language);
+        // In the language its scripts are written in, which it keeps, with a template's assets when one is given
+        [[nodiscard]] static Expected<Scope<Project>, std::string> Create(const std::filesystem::path& directory, ScriptLanguage language, const ProjectTemplate* projectTemplate = nullptr);
         // olderLanguage is the language a project older than format 10 with both a module and an assembly, or neither, takes, and without one such a project is refused, as ReadInfo tells beforehand
         [[nodiscard]] static Expected<Scope<Project>, std::string> Open(const std::filesystem::path& path, std::optional<ScriptLanguage> olderLanguage = std::nullopt);
         // The project file a path names, as a whole path: a .trproj, or the one .trproj in a folder

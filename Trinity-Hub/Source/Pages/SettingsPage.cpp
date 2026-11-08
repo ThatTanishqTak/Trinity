@@ -21,7 +21,7 @@ namespace
     }
 }
 
-SettingsPage::SettingsPage(HubSettings& settings, HubPathPrompt& prompt, std::filesystem::path directory, std::filesystem::path defaultInstallsDirectory) : m_Settings(settings), m_Prompt(prompt), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(defaultInstallsDirectory))
+SettingsPage::SettingsPage(HubSettings& settings, HubPathPrompt& prompt, std::filesystem::path directory, std::filesystem::path defaultInstallsDirectory, std::filesystem::path defaultProjectsDirectory) : m_Settings(settings), m_Prompt(prompt), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(defaultInstallsDirectory)), m_DefaultProjectsDirectory(std::move(defaultProjectsDirectory))
 {
 
 }
@@ -35,7 +35,8 @@ void SettingsPage::Draw()
 {
     HubPages::DrawTitle("Settings");
     DrawAppearance();
-    DrawInstalls();
+    DrawLocation("Installs", m_Settings.InstallsDirectory, m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory), m_DefaultInstallsDirectory, "The folder Hub installs versions in", "Versions installed from now on go here, each in a folder of its own name. Those installed already stay where they are.");
+    DrawLocation("Projects", m_Settings.ProjectsDirectory, m_Settings.GetProjectsDirectory(m_DefaultProjectsDirectory), m_DefaultProjectsDirectory, "The folder New Project makes projects in", "New Project makes projects here, each in a folder of its own name, unless its Browse names another for one project.");
     DrawFolders();
     DrawAbout();
 }
@@ -84,43 +85,45 @@ void SettingsPage::DrawAppearance()
     }
 }
 
-// As Unity Hub's Installs location: where Install from File puts versions from now on, those installed already staying where they are
-void SettingsPage::DrawInstalls()
+// The buttons come first and the folder below them, so a long path never pushes them out of the page. The setting is a member of m_Settings, so the folder chosen is kept in it when the dialog answers, between frames
+void SettingsPage::DrawLocation(std::string_view section, std::string& setting, const std::filesystem::path& directory, const std::filesystem::path& defaultDirectory, std::string_view prompt, std::string_view note)
 {
-    HubPages::DrawSection("Installs");
+    ImGui::PushID(section.data(), section.data() + section.size());
+    HubPages::DrawSection(section);
     HubPages::DrawLabel("Location");
-    const std::filesystem::path l_Directory = m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory);
-    ImGui::TextUnformatted(HubText::ToUtf8(l_Directory).c_str());
-    ImGui::SameLine();
     if (ImGui::Button("Change..."))
     {
-        m_Prompt.Ask({ HubPathPrompt::Kind::Folder, "The folder Hub installs versions in",{}, l_Directory, [this](const std::filesystem::path& path)
+        m_Prompt.Ask({ HubPathPrompt::Kind::Folder, std::string(prompt),{}, directory, [this, &setting](const std::filesystem::path& path)
         {
             std::error_code l_Error;
             const std::filesystem::path l_Absolute = std::filesystem::absolute(path, l_Error);
-            m_Settings.InstallsDirectory = HubText::ToUtf8(l_Error ? path : l_Absolute);
+            setting = HubText::ToUtf8(l_Error ? path : l_Absolute);
             Change();
         } });
     }
 
-    if (!m_Settings.InstallsDirectory.empty())
+    if (!setting.empty())
     {
         ImGui::SameLine();
         if (ImGui::Button("Use Default"))
         {
-            m_Settings.InstallsDirectory.clear();
+            setting.clear();
             Change();
         }
 
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
-            ImGui::SetTooltip("%s", HubText::ToUtf8(m_DefaultInstallsDirectory).c_str());
+            ImGui::SetTooltip("%s", HubText::ToUtf8(defaultDirectory).c_str());
         }
     }
 
+    // In the column the labels' fields start at, as DrawLabel places them
+    ImGui::SetCursorPosX(ImGui::GetFontSize() * 10.0f);
+    ImGui::TextWrapped("%s", HubText::ToUtf8(directory).c_str());
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Versions installed from now on go here, each in a folder of its own name. Those installed already stay where they are.");
+    ImGui::TextWrapped("%.*s", static_cast<int>(note.size()), note.data());
     ImGui::PopStyleColor();
+    ImGui::PopID();
 }
 
 void SettingsPage::DrawFolders()

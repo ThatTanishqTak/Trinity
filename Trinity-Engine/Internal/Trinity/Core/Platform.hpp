@@ -104,6 +104,7 @@ namespace Trinity
         void Free(void* memory);
 
         [[nodiscard]] std::filesystem::path GetUserDataDirectory();
+        [[nodiscard]] std::filesystem::path GetDocumentsDirectory();
         [[nodiscard]] std::filesystem::path GetExecutableDirectory();
         [[nodiscard]] std::filesystem::path GetExecutablePath();
 

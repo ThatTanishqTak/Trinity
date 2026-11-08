@@ -11,6 +11,7 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -109,14 +110,14 @@ HubLauncher::Report HubLauncher::Open(const HubProject& project, const HubInstal
     const std::filesystem::path l_Directory = project.Entry.File.parent_path();
     const std::string l_Version = HubInstalls::Describe(install.Manifest);
     const auto l_Now = std::chrono::steady_clock::now();
-    const bool l_Opening = std::ranges::any_of(m_Launched, [&project, l_Now](Launched& launched)
+    const auto a_Opening = std::ranges::find_if(m_Launched, [&project, l_Now](Launched& launched)
     {
         return l_Now - launched.StartedAt < c_StartWindow && !launched.Process.Poll() && Trinity::ProjectList::IsSameFile(launched.ProjectFile, project.Entry.File);
     });
 
-    if (l_Opening)
+    if (a_Opening != m_Launched.end())
     {
-        return { std::format("{} is opening in Forge already", l_Name), false };
+        return { std::format("{} is {} in Forge already", l_Name, a_Opening->Creating ? "being made" : "opening"), false };
     }
 
     if (const Trinity::Expected<Trinity::FileLock, Trinity::FileLockRefusal> l_Lock = Trinity::FileLock::TryAcquire(Trinity::Project::GetLockFile(l_Directory)); !l_Lock && l_Lock.GetError().Held)
@@ -149,6 +150,50 @@ HubLauncher::Report HubLauncher::Open(const HubProject& project, const HubInstal
     m_Launched.push_back({ project.Entry.File, l_Name, std::move(*l_Process), l_Now, l_Log, l_LogTime, GetWriteTime(Trinity::GetLastExportPath(l_Directory)) });
 
     return { std::format("Opening {} in {}, process {}", l_Name, l_Version, l_ID), false };
+}
+
+// Started in Hub's own folder, logging into its Logs, as the project's folder must be new or empty for Forge to make it. Forge adds the project to the list as it makes it, through --hub, and opens it once made
+HubLauncher::Report HubLauncher::Create(const Creation& creation, const HubInstall& install)
+{
+    const std::string l_Name = HubText::ToUtf8(creation.Directory.filename());
+    const std::string l_Folder = HubText::ToUtf8(creation.Directory);
+    const std::string l_Version = HubInstalls::Describe(install.Manifest);
+    std::error_code l_Error;
+    const bool l_Existed = std::filesystem::exists(creation.Directory, l_Error);
+    if (l_Existed && (!std::filesystem::is_directory(creation.Directory, l_Error) || !std::filesystem::is_empty(creation.Directory, l_Error)))
+    {
+        return { std::format("{} was not made, as {} is there already and is not an empty folder", l_Name, l_Folder), true };
+    }
+
+    const std::filesystem::path l_Forge = FindForge(install);
+    if (l_Forge.empty())
+    {
+        return { std::format("{} was not made, as {} in {} has no Forge in its Release, Debug or Distribution build", l_Name, l_Version, HubText::ToUtf8(install.Directory)), true };
+    }
+
+    const std::filesystem::path l_Logs = m_HubDirectory / std::filesystem::path(c_LogsFolder);
+    std::vector<std::string> l_Arguments{ std::format("--new-project={}", l_Folder), std::format("--language={}", Trinity::ToString(creation.Language)), std::format("--log-dir={}", HubText::ToUtf8(l_Logs)), std::format("--hub={}", HubText::ToUtf8(m_HubDirectory)) };
+    if (!creation.Template.empty())
+    {
+        l_Arguments.push_back(std::format("--template={}", creation.Template));
+    }
+
+    std::filesystem::path l_Log = l_Logs / l_Forge.stem();
+    l_Log += ".log";
+    const std::optional<std::filesystem::file_time_type> l_LogTime = GetWriteTime(l_Log);
+    Trinity::Expected<Trinity::StartedProcess, std::string> l_Process = Trinity::StartedProcess::Start(l_Forge, l_Arguments, m_HubDirectory);
+    if (!l_Process)
+    {
+        return { std::format("{} was not made, as {}", l_Name, l_Process.GetError()), true };
+    }
+
+    const std::uint32_t l_ID = l_Process->GetID();
+    std::filesystem::path l_File = creation.Directory / HubText::FromUtf8(l_Name);
+    l_File += Trinity::Project::c_Extension;
+    m_Launched.push_back({ std::move(l_File), l_Name, std::move(*l_Process), std::chrono::steady_clock::now(), l_Log, l_LogTime, std::nullopt, true, !l_Existed });
+    const std::string l_Language = creation.Language == Trinity::ScriptLanguage::CSharp ? "C#" : "C++";
+
+    return { std::format("Making {} in {}, {}, its scripts in {}, in {}, process {}", l_Name, l_Folder, creation.Template.empty() ? std::string("as an empty project") : std::format("from the {} template", creation.Template), l_Language, l_Version, l_ID), false };
 }
 
 // Read again as it is asked for, since the list may be older than the last export
@@ -215,7 +260,7 @@ std::optional<HubLauncher::Report> HubLauncher::Update()
         m_Changed = true;
         if (*l_ExitCode != 0 && l_Now - launched.StartedAt < c_StartWindow)
         {
-            l_Report = Report{ DescribeFailure(launched, *l_ExitCode), true };
+            l_Report = Report{ DescribeFailure(launched, *l_ExitCode) + (launched.Creating ? RemoveFailedCreation(launched) : std::string()), true };
         }
         else
         {
@@ -237,13 +282,43 @@ bool HubLauncher::TakeChanged()
 std::string HubLauncher::DescribeFailure(const Launched& launched, int exitCode)
 {
     const std::string l_Code = DescribeExitCode(exitCode);
+    const std::string_view l_Doing = launched.Creating ? "make" : "open";
     const std::optional<std::filesystem::file_time_type> l_LogTime = GetWriteTime(launched.Log);
     if (!l_LogTime || l_LogTime == launched.LogTime)
     {
-        return std::format("Forge ended with exit code {} before it could open {}, and wrote no log", l_Code, launched.Name);
+        return std::format("Forge ended with exit code {} before it could {} {}, and wrote no log", l_Code, l_Doing, launched.Name);
     }
 
     const std::string l_Error = FindLastError(launched.Log);
 
-    return std::format("Forge could not open {}, and ended with exit code {}{}. Its log is {}", launched.Name, l_Code, l_Error.empty() ? std::string() : std::format(": {}", l_Error), HubText::ToUtf8(launched.Log));
+    return std::format("Forge could not {} {}, and ended with exit code {}{}. Its log is {}", l_Doing, launched.Name, l_Code, l_Error.empty() ? std::string() : std::format(": {}", l_Error), HubText::ToUtf8(launched.Log));
+}
+
+// A Forge that failed by itself took away what it made, so a folder still there is what one that crashed left. Only a folder that was not there before Create is taken away, so nothing the person had is touched, and the project comes off the list, which Forge may have added it to
+std::string HubLauncher::RemoveFailedCreation(const Launched& launched) const
+{
+    const std::filesystem::path l_Directory = launched.ProjectFile.parent_path();
+    std::error_code l_Error;
+    if (!std::filesystem::exists(l_Directory, l_Error))
+    {
+        return std::string();
+    }
+
+    if (!launched.RemoveOnFailure)
+    {
+        return std::format(". What it made is left in {}, which was there before", HubText::ToUtf8(l_Directory));
+    }
+
+    std::filesystem::remove_all(l_Directory, l_Error);
+    if (l_Error)
+    {
+        return std::format(". What it left in {} could not all be taken away: {}", HubText::ToUtf8(l_Directory), l_Error.message());
+    }
+
+    if (const Trinity::Expected<void, std::string> l_Removed = Trinity::ProjectList::Remove(m_HubDirectory / std::filesystem::path(Trinity::ProjectList::c_FileName), launched.ProjectFile); !l_Removed)
+    {
+        TR_WARN("Hub: {} was not taken off the list, as {}", launched.Name, l_Removed.GetError());
+    }
+
+    return std::format(". Hub took away what it left in {}", HubText::ToUtf8(l_Directory));
 }

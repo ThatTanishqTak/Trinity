@@ -51,6 +51,8 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::filesystem::path FindExecutable(std::string_view name, const Environment* environment = nullptr);
         // The folder the user's own data goes in, which Trinity's programs keep theirs under Trinity in: the local application data on Windows, ~/Library/Application Support on macOS, and $XDG_DATA_HOME or ~/.local/share elsewhere. Empty when there is none
         [[nodiscard]] TRINITY_API std::filesystem::path GetUserDataDirectory();
+        // The person's Documents folder, where Hub makes new projects unless its settings name another: the one Windows knows, wherever it was moved, ~/Documents on macOS, and the one xdg-user-dirs names elsewhere, else ~/Documents. Empty when there is none
+        [[nodiscard]] TRINITY_API std::filesystem::path GetDocumentsDirectory();
         // Brings the process's own window to the front, restored when minimized, as a second Hub brings the first forward. False where the platform has no windows, or the process shows none
         TRINITY_API bool BringToFront(std::uint32_t processID);
         // The folder this process's executable is in, where Trinity's build puts the engine and what is built beside it

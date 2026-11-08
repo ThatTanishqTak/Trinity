@@ -3,6 +3,7 @@
 #include "HubInstaller.hpp"
 #include "HubText.hpp"
 #include "Pages/InstallsPage.hpp"
+#include "Pages/NewProjectPage.hpp"
 #include "Pages/ProjectsPage.hpp"
 #include "Pages/SettingsPage.hpp"
 
@@ -10,26 +11,51 @@
 
 #include <format>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
 
 namespace
 {
     constexpr ImGuiWindowFlags c_ShellFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+    // As Unity Hub's default projects location, in the person's Documents, or in Hub's working folder where there are none
+    constexpr std::string_view c_ProjectsFolder = "Trinity Projects";
 }
 
-HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path installsDirectory, std::string releasesUrl) : Layer("Hub"), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(installsDirectory)), m_Releases(std::move(releasesUrl)), m_Projects(m_Directory / std::filesystem::path(Trinity::ProjectList::c_FileName))
+HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path installsDirectory, std::string releasesUrl) : Layer("Hub"), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(installsDirectory)), m_DefaultProjectsDirectory(Trinity::Process::GetDocumentsDirectory() / std::filesystem::path(c_ProjectsFolder)), m_Releases(std::move(releasesUrl)), m_Projects(m_Directory / std::filesystem::path(Trinity::ProjectList::c_FileName)), m_Launcher(m_Directory)
 {
+    std::error_code l_Error;
+    m_DefaultProjectsDirectory = std::filesystem::absolute(m_DefaultProjectsDirectory, l_Error);
     Trinity::Scope<InstallsPage> l_Installs = Trinity::CreateScope<InstallsPage>(m_Installs, m_Releases, m_Settings, m_PathPrompt, m_DefaultInstallsDirectory);
     InstallsPage* l_InstallsPage = l_Installs.get();
     // A version a project names, downloaded from the project's offer, is installed by the Installs page, which is shown so the download can be watched
-    m_Pages.push_back(Trinity::CreateScope<ProjectsPage>(m_Projects, m_Installs, m_Releases, m_PathPrompt, m_Directory, [this, l_InstallsPage](const HubRelease& release)
+    Trinity::Scope<ProjectsPage> l_Projects = Trinity::CreateScope<ProjectsPage>(m_Projects, m_Installs, m_Releases, m_PathPrompt, m_Launcher, [this, l_InstallsPage](const HubRelease& release)
     {
         l_InstallsPage->DownloadRelease(release);
-        m_Page = 1;
-        l_InstallsPage->OnShow();
-    }));
+        ShowPage(1);
+    }, [this]
+    {
+        m_NewProjectShown = true;
+        m_NewProject->OnShow();
+    });
+    ProjectsPage* l_ProjectsPage = l_Projects.get();
+    // A project New Project started making is told of on the Projects page, where it is listed once its Forge has added it
+    m_NewProject = Trinity::CreateScope<NewProjectPage>(m_Installs, m_Settings, m_PathPrompt, m_Launcher, m_DefaultProjectsDirectory, [this, l_ProjectsPage](HubLauncher::Report report)
+    {
+        l_ProjectsPage->ShowReport(std::move(report));
+        ShowPage(0);
+    }, [this] { ShowPage(0); });
+    m_Pages.push_back(std::move(l_Projects));
     m_Pages.push_back(std::move(l_Installs));
-    m_Pages.push_back(Trinity::CreateScope<SettingsPage>(m_Settings, m_PathPrompt, m_Directory, m_DefaultInstallsDirectory));
+    m_Pages.push_back(Trinity::CreateScope<SettingsPage>(m_Settings, m_PathPrompt, m_Directory, m_DefaultInstallsDirectory, m_DefaultProjectsDirectory));
+}
+
+// New Project is left for any page the sidebar chooses, the Projects page included
+void HubLayer::ShowPage(std::size_t page)
+{
+    m_NewProjectShown = false;
+    m_Page = page;
+    m_Pages[m_Page]->OnShow();
 }
 
 // Only the UI is drawn, so the window gets no scene under it. What an install cut short by Hub ending left is cleared before the versions are listed
@@ -60,6 +86,8 @@ void HubLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
     {
         it_Page->Update();
     }
+
+    m_NewProject->Update();
 }
 
 // One window over the whole of the main one, the sidebar down its left and the page beside it
@@ -82,7 +110,7 @@ void HubLayer::OnImGuiRender()
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(l_Padding, l_Padding));
         if (ImGui::BeginChild("##HubPage", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding))
         {
-            m_Pages[m_Page]->Draw();
+            (m_NewProjectShown ? *m_NewProject : *m_Pages[m_Page]).Draw();
         }
 
         ImGui::EndChild();
@@ -116,10 +144,9 @@ void HubLayer::DrawSidebar()
         {
             const HubPage& l_Page = *m_Pages[it_Index];
             const std::string l_Label = std::format("{}  {}###HubPage{}", l_Page.GetIcon(), l_Page.GetName(), it_Index);
-            if (ImGui::Selectable(l_Label.c_str(), it_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row)) && it_Index != m_Page)
+            if (ImGui::Selectable(l_Label.c_str(), it_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row)) && (it_Index != m_Page || m_NewProjectShown))
             {
-                m_Page = it_Index;
-                m_Pages[m_Page]->OnShow();
+                ShowPage(it_Index);
             }
         }
 
@@ -143,7 +170,7 @@ void HubLayer::DrawSidebar()
 
             if (ImGui::Selectable(l_Label.c_str(), l_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row)))
             {
-                m_Page = l_Index;
+                ShowPage(l_Index);
             }
         }
         ImGui::PopStyleVar();

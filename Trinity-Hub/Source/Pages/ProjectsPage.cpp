@@ -42,32 +42,6 @@ namespace
         return project.Info->HasAssembly && project.Info->HasModule ? "C# and C++" : "None yet";
     }
 
-    // This machine's versions that can open a project, installed or located, and not missing or unreadable
-    bool IsUsable(const HubInstall& install)
-    {
-        return !install.Missing && install.Problem.empty() && install.Manifest.Platform == Trinity::GetBuildPlatform() && install.Manifest.Architecture == Trinity::GetBuildArchitecture();
-    }
-
-    // The usable version a project naming this one opens in: the one built last when two are of it, as a build tree built again beside the version installed from its zip, and the installed one when both were built at once. Dates are all written alike, so their text sorts as they do
-    const HubInstall* FindInstall(const HubInstalls& installs, std::string_view version)
-    {
-        const HubInstall* l_Chosen = nullptr;
-        for (const HubInstall& it_Install : installs.GetInstalls())
-        {
-            if (!IsUsable(it_Install) || it_Install.Manifest.Version != version)
-            {
-                continue;
-            }
-
-            if (l_Chosen == nullptr || it_Install.Manifest.Date > l_Chosen->Manifest.Date || (it_Install.Manifest.Date == l_Chosen->Manifest.Date && it_Install.Source == HubInstall::Origin::Installed && l_Chosen->Source == HubInstall::Origin::Located))
-            {
-                l_Chosen = &it_Install;
-            }
-        }
-
-        return l_Chosen;
-    }
-
     // Why a project cannot be opened, or empty when it can
     std::string_view GetOpenRefusal(const HubProject& project)
     {
@@ -85,7 +59,7 @@ namespace
     }
 }
 
-ProjectsPage::ProjectsPage(HubProjects& projects, const HubInstalls& installs, HubReleases& releases, HubPathPrompt& prompt, std::filesystem::path hubDirectory, std::function<void(const HubRelease& release)> download) : m_Projects(projects), m_Installs(installs), m_Releases(releases), m_Prompt(prompt), m_Launcher(std::move(hubDirectory)), m_Download(std::move(download))
+ProjectsPage::ProjectsPage(HubProjects& projects, const HubInstalls& installs, HubReleases& releases, HubPathPrompt& prompt, HubLauncher& launcher, std::function<void(const HubRelease& release)> download, std::function<void()> newProject) : m_Projects(projects), m_Installs(installs), m_Releases(releases), m_Prompt(prompt), m_Launcher(launcher), m_Download(std::move(download)), m_NewProject(std::move(newProject))
 {
 
 }
@@ -147,7 +121,7 @@ void ProjectsPage::Draw()
     ImGui::Spacing();
     if (m_Projects.GetProjects().empty())
     {
-        HubPages::DrawEmpty("No projects yet", "Every project opened or created with Trinity is listed here, with the engine version it opens in. Add lists one already on the disk, by its folder or its .trproj.");
+        HubPages::DrawEmpty("No projects yet", "Every project opened or created with Trinity is listed here, with the engine version it opens in. New Project makes one from a template, and Add lists one already on the disk, by its folder or its .trproj.");
 
         return;
     }
@@ -212,7 +186,7 @@ void ProjectsPage::OpenProject(const std::filesystem::path& file)
         return;
     }
 
-    if (const HubInstall* l_Install = FindInstall(m_Installs, l_Project->GetEngineVersion()))
+    if (const HubInstall* l_Install = m_Installs.FindUsable(l_Project->GetEngineVersion()))
     {
         HubLauncher::Report l_Report = m_Launcher.Open(*l_Project, *l_Install);
         Report(std::move(l_Report.Message), l_Report.Failed);
@@ -226,9 +200,21 @@ void ProjectsPage::OpenProject(const std::filesystem::path& file)
     m_OpenOfferPopup = true;
 }
 
+// New Project first, as Unity Hub's is, then Add, the search and the count
 void ProjectsPage::DrawToolbar()
 {
-    if (ImGui::Button(std::format("{} Add", Trinity::Icons::c_Plus).c_str()))
+    if (ImGui::Button(std::format("{} New Project", Trinity::Icons::c_Plus).c_str()))
+    {
+        m_NewProject();
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Make a project from one of a version's templates, in its own Forge");
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button(std::format("{} Add", Trinity::Icons::c_FolderOpen).c_str()))
     {
         ImGui::OpenPopup("##AddProject");
     }
@@ -520,7 +506,7 @@ void ProjectsPage::DrawOfferPopup()
     bool l_Any = false;
     for (const HubInstall& it_Install : m_Installs.GetInstalls())
     {
-        if (!IsUsable(it_Install))
+        if (!HubInstalls::IsUsable(it_Install))
         {
             continue;
         }
@@ -641,7 +627,7 @@ std::string ProjectsPage::DescribeState(const HubProject& project, bool& warning
     const HubInstall* l_Newest = nullptr;
     for (const HubInstall& it_Install : m_Installs.GetInstalls())
     {
-        if (!IsUsable(it_Install))
+        if (!HubInstalls::IsUsable(it_Install))
         {
             continue;
         }
@@ -665,6 +651,11 @@ std::string ProjectsPage::DescribeState(const HubProject& project, bool& warning
     }
 
     return "Not installed";
+}
+
+void ProjectsPage::ShowReport(HubLauncher::Report report)
+{
+    Report(std::move(report.Message), report.Failed);
 }
 
 // Shown on the page, and logged

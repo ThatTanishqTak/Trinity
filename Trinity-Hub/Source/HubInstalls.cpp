@@ -326,6 +326,34 @@ const HubInstall* HubInstalls::FindInstalled(std::string_view name) const
     return a_Install != m_Installs.end() ? &*a_Install : nullptr;
 }
 
+// Dates are all written alike, so their text sorts as they do
+const HubInstall* HubInstalls::FindUsable(std::string_view version) const
+{
+    const HubInstall* l_Chosen = nullptr;
+    for (const HubInstall& it_Install : m_Installs)
+    {
+        if (!IsUsable(it_Install) || it_Install.Manifest.Version != version)
+        {
+            continue;
+        }
+
+        if (l_Chosen == nullptr || it_Install.Manifest.Date > l_Chosen->Manifest.Date || (it_Install.Manifest.Date == l_Chosen->Manifest.Date && it_Install.Source == HubInstall::Origin::Installed && l_Chosen->Source == HubInstall::Origin::Located))
+        {
+            l_Chosen = &it_Install;
+        }
+    }
+
+    return l_Chosen;
+}
+
+// The list is kept newest first, so the first usable one is of the newest version
+const HubInstall* HubInstalls::FindNewestUsable() const
+{
+    const auto a_Install = std::ranges::find_if(m_Installs, &HubInstalls::IsUsable);
+
+    return a_Install != m_Installs.end() ? FindUsable(a_Install->Manifest.Version) : nullptr;
+}
+
 void HubInstalls::Add(const std::filesystem::path& directory, HubInstall::Origin origin, Trinity::EngineManifest manifest)
 {
     auto a_Install = std::ranges::find_if(m_Installs, [&directory](const HubInstall& install) { return IsSameFolder(install.Directory, directory); });
@@ -379,6 +407,11 @@ bool HubInstalls::IsSameFolder(const std::filesystem::path& left, const std::fil
     }
 
     return Normalize(left) == Normalize(right);
+}
+
+bool HubInstalls::IsUsable(const HubInstall& install)
+{
+    return !install.Missing && install.Problem.empty() && install.Manifest.Platform == Trinity::GetBuildPlatform() && install.Manifest.Architecture == Trinity::GetBuildArchitecture();
 }
 
 void HubInstalls::Save() const

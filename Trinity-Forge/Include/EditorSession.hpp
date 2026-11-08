@@ -167,8 +167,8 @@ public:
     EditorSession& operator=(const EditorSession&) = delete;
 
     void Start(const Trinity::ApplicationCommandLineArgs& args);
-    // In the language its scripts are written in, which it keeps, with a template's assets and settings, or else with an empty start scene alone
-    void CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language, const Trinity::ProjectTemplate* projectTemplate = nullptr);
+    // In the language its scripts are written in, which it keeps, with a template's assets and settings, or else with an empty start scene alone. False when it could not be made
+    bool CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language, const Trinity::ProjectTemplate* projectTemplate = nullptr);
     // language answers for a project older than format 10 with both a C++ module and a C# project, or neither, which without one is asked about first
     void OpenProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language = std::nullopt);
     void ScanAssets();
@@ -535,6 +535,8 @@ private:
     void CloseProject();
     // The lock on the project a path names, Cache/Forge.lock, taken before any of it opens. None when another Forge has it open, which is brought forward, and one not held when it could not be had for another reason, which is warned of, or the path names no project, which opening it says
     [[nodiscard]] std::optional<Trinity::FileLock> LockProject(const std::filesystem::path& path);
+    // A new project's C# project and solution, or its C++ module, in the language chosen for it, which builds as the project opens, as Hub's New Project makes a project ready to script
+    void CreateScripts();
     // The template's settings, once its assets are in the project and scanned: its start scene, which becomes the build's only scene and is opened, its input actions and its mixer
     void ApplyTemplate(const Trinity::ProjectTemplate& projectTemplate);
     void ReadPreferences(const Trinity::ApplicationCommandLineArgs& args);

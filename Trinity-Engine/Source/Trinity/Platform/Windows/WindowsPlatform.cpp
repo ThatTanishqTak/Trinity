@@ -405,6 +405,21 @@ namespace Trinity
             return l_Result;
         }
 
+        // Wherever the person has moved it, as into OneDrive
+        std::filesystem::path GetDocumentsDirectory()
+        {
+            PWSTR l_Folder = nullptr;
+            std::filesystem::path l_Result;
+            if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &l_Folder)))
+            {
+                l_Result = l_Folder;
+            }
+
+            ::CoTaskMemFree(l_Folder);
+
+            return l_Result;
+        }
+
         std::filesystem::path GetExecutableDirectory()
         {
             return GetExecutablePath().parent_path();

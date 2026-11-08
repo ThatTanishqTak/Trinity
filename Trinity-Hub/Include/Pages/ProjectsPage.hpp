@@ -16,12 +16,12 @@
 #include <string>
 #include <vector>
 
-// The person's projects from Projects.yaml, which every Forge adds to: each with its name, folder, language, the engine version it opens in with whether that version is installed, and when it was last opened, searched by name or folder and sorted by any column. Open opens one in a Forge of the version it names, or offers to download that version when it is not here, Run Build runs the game its last export made, Add lists a project already on the disk, by its folder or its .trproj, Remove from List takes one off and leaves its files as they are, and one whose folder is gone shows as Missing
+// The person's projects from Projects.yaml, which every Forge adds to: each with its name, folder, language, the engine version it opens in with whether that version is installed, and when it was last opened, searched by name or folder and sorted by any column. New Project makes one, Open opens one in a Forge of the version it names, or offers to download that version when it is not here, Run Build runs the game its last export made, Add lists a project already on the disk, by its folder or its .trproj, Remove from List takes one off and leaves its files as they are, and one whose folder is gone shows as Missing
 class ProjectsPage final : public HubPage
 {
 public:
-    // hubDirectory is the folder each Forge Hub starts adds to the list in, and download is what an offer's Download does with the release, which the Installs page installs
-    ProjectsPage(HubProjects& projects, const HubInstalls& installs, HubReleases& releases, HubPathPrompt& prompt, std::filesystem::path hubDirectory, std::function<void(const HubRelease& release)> download);
+    // launcher is shared with New Project, so each Forge either started is told of here as it ends. download is what an offer's Download does with the release, which the Installs page installs, and newProject what the New Project button does
+    ProjectsPage(HubProjects& projects, const HubInstalls& installs, HubReleases& releases, HubPathPrompt& prompt, HubLauncher& launcher, std::function<void(const HubRelease& release)> download, std::function<void()> newProject);
 
     [[nodiscard]] std::string_view GetName() const override { return "Projects"; }
     [[nodiscard]] const char* GetIcon() const override;
@@ -34,6 +34,8 @@ public:
     void RemoveProject(const std::filesystem::path& file);
     // In a Forge of the version the project names, or, with that version not here, an offer of it
     void OpenProject(const std::filesystem::path& file);
+    // What another page started, as New Project's Create, shown at the top of the list
+    void ShowReport(HubLauncher::Report report);
 
 private:
     // By the column the table sorts by
@@ -64,8 +66,9 @@ private:
     const HubInstalls& m_Installs;
     HubReleases& m_Releases;
     HubPathPrompt& m_Prompt;
-    HubLauncher m_Launcher;
+    HubLauncher& m_Launcher;
     std::function<void(const HubRelease& release)> m_Download;
+    std::function<void()> m_NewProject;
 
     std::string m_Search;
     std::vector<std::size_t> m_Order;

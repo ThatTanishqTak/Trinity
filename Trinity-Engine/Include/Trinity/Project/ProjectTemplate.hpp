@@ -38,8 +38,8 @@ namespace Trinity
         [[nodiscard]] std::filesystem::path GetAssetsDirectory() const { return Directory / c_AssetsFolder; }
     };
 
-    // Refused for a folder without Template.yaml or Assets, a file of a newer format or written for a newer project format than this engine reads, or naming a start scene its Assets lack
-    [[nodiscard]] TRINITY_API Expected<ProjectTemplate, std::string> ReadProjectTemplate(const std::filesystem::path& directory);
+    // Refused for a folder without Template.yaml or Assets, a file of a newer format, one written for a newer project format than the version it is in reads, or naming a start scene its Assets lack. projectFormat is the newest project format of that version, as its manifest gives it to Hub, or 0 for this engine's own
+    [[nodiscard]] TRINITY_API Expected<ProjectTemplate, std::string> ReadProjectTemplate(const std::filesystem::path& directory, std::uint32_t projectFormat = 0);
     // Each template in the Templates folder of the version whose folder is root, by name, each that cannot be read reported and left out
-    [[nodiscard]] TRINITY_API std::vector<ProjectTemplate> FindProjectTemplates(const std::filesystem::path& root);
+    [[nodiscard]] TRINITY_API std::vector<ProjectTemplate> FindProjectTemplates(const std::filesystem::path& root, std::uint32_t projectFormat = 0);
 }

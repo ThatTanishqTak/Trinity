@@ -19,6 +19,20 @@ namespace
 
         return l_Value && l_Value.IsScalar() ? l_Value.Scalar() : std::string();
     }
+
+    // A folder a setting names, in the platform's own separators, or the default where it names none
+    std::filesystem::path GetDirectory(const std::string& setting, const std::filesystem::path& defaultDirectory)
+    {
+        if (setting.empty())
+        {
+            return defaultDirectory;
+        }
+
+        std::filesystem::path l_Directory = HubText::FromUtf8(setting);
+        l_Directory.make_preferred();
+
+        return l_Directory;
+    }
 }
 
 HubSettings HubSettings::Load()
@@ -85,21 +99,19 @@ HubSettings HubSettings::Load()
     }
 
     l_Settings.InstallsDirectory = ReadScalar(l_Root, "InstallsDirectory");
+    l_Settings.ProjectsDirectory = ReadScalar(l_Root, "ProjectsDirectory");
 
     return l_Settings;
 }
 
 std::filesystem::path HubSettings::GetInstallsDirectory(const std::filesystem::path& defaultDirectory) const
 {
-    if (InstallsDirectory.empty())
-    {
-        return defaultDirectory;
-    }
+    return GetDirectory(InstallsDirectory, defaultDirectory);
+}
 
-    std::filesystem::path l_Directory = HubText::FromUtf8(InstallsDirectory);
-    l_Directory.make_preferred();
-
-    return l_Directory;
+std::filesystem::path HubSettings::GetProjectsDirectory(const std::filesystem::path& defaultDirectory) const
+{
+    return GetDirectory(ProjectsDirectory, defaultDirectory);
 }
 
 void HubSettings::Save() const
@@ -110,6 +122,7 @@ void HubSettings::Save() const
     l_Emitter << YAML::Key << "Theme" << YAML::Value << ThemeKey;
     l_Emitter << YAML::Key << "Scale" << YAML::Value << Scale;
     l_Emitter << YAML::Key << "InstallsDirectory" << YAML::Value << YAML::DoubleQuoted << InstallsDirectory;
+    l_Emitter << YAML::Key << "ProjectsDirectory" << YAML::Value << YAML::DoubleQuoted << ProjectsDirectory;
     l_Emitter << YAML::EndMap;
 
     const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(c_Path, std::string(l_Emitter.c_str()) + "\n");
