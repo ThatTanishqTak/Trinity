@@ -169,8 +169,10 @@ public:
     void Start(const Trinity::ApplicationCommandLineArgs& args);
     // In the language its scripts are written in, which it keeps, with a template's assets and settings, or else with an empty start scene alone. False when it could not be made
     bool CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language, const Trinity::ProjectTemplate* projectTemplate = nullptr);
-    // language answers for a project older than format 10 with both a C++ module and a C# project, or neither, which without one is asked about first
+    // One of an older version or format is asked about first, and opens once backed up and moved to this version. language answers in that question for a project older than format 10 with both a C++ module and a C# project, or neither
     void OpenProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language = std::nullopt);
+    // As the question's Back Up and Open, without asking, as --upgrade-project does when Hub's Open With starts a newer version's Forge. One of this version opens as it is. False, logged, for one of a newer version, one older than format 10 with both languages or neither given none, and one that could not be backed up or opened
+    bool UpgradeProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language);
     void ScanAssets();
     ImportReport WaitForImports();
 
@@ -485,18 +487,22 @@ private:
         PathAction OnChosen;
     };
 
-    // What the language popup asks for: the folder a new project is made in, or a project older than format 10 with both a C++ module and a C# project, or neither, which opens once its language is chosen
+    // What the language popup asks for: the folder a new project is made in, and its template, which it is made from once its language is chosen
     struct LanguageQuestion
     {
         std::filesystem::path Path;
-        bool NewProject = false;
-        // Of the project opened
-        std::string Name;
-        bool HasModule = false;
-        bool HasAssembly = false;
-        // A new project's choice of the version's templates, 0 for none and each after it one of them in turn
+        // The version's templates, 0 for none and each after it one of them in turn
         std::vector<Trinity::ProjectTemplate> Templates;
         std::size_t Template = 0;
+    };
+
+    // What the upgrade popup asks before a project of an older version or format opens here: its file, what the file says, the backup it would be given, and for one older than format 10 with both languages or neither, the language it keeps, which must be picked
+    struct UpgradeQuestion
+    {
+        std::filesystem::path File;
+        Trinity::ProjectFileInfo Info;
+        std::filesystem::path Backup;
+        std::optional<Trinity::ScriptLanguage> Language;
     };
 
     // What Copy took, with where the original was and its place in the world, which a paste away from that parent keeps
@@ -535,6 +541,10 @@ private:
     void CloseProject();
     // The lock on the project a path names, Cache/Forge.lock, taken before any of it opens. None when another Forge has it open, which is brought forward, and one not held when it could not be had for another reason, which is warned of, or the path names no project, which opening it says
     [[nodiscard]] std::optional<Trinity::FileLock> LockProject(const std::filesystem::path& path);
+    // The project opened once locked. upgrade backs it up first, before anything of it changes, and moves it to this version as it opens
+    bool LoadProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language, bool upgrade);
+    // Why a project of a newer version or format is not opened, logged
+    static void ReportNewer(const Trinity::ProjectFileInfo& info);
     // A new project's C# project and solution, or its C++ module, in the language chosen for it, which builds as the project opens, as Hub's New Project makes a project ready to script
     void CreateScripts();
     // The template's settings, once its assets are in the project and scanned: its start scene, which becomes the build's only scene and is opened, its input actions and its mixer
@@ -606,6 +616,7 @@ private:
     void DrawDebuggerPopup();
     void DrawRecoveryPopup();
     void DrawLanguagePopup();
+    void DrawUpgradePopup();
 
     Trinity::Scope<Trinity::Project> m_Project;
     // Held while the project is open, so no second Forge opens it beside this one
@@ -669,6 +680,8 @@ private:
     bool m_OpenRecoveryPopup = false;
     std::optional<LanguageQuestion> m_LanguageQuestion;
     bool m_OpenLanguagePopup = false;
+    std::optional<UpgradeQuestion> m_UpgradeQuestion;
+    bool m_OpenUpgradePopup = false;
     bool m_TexturesAfterModels = false;
     bool m_ImportAgain = false;
     bool m_ImportPopupOpen = false;

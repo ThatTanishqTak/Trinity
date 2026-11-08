@@ -103,39 +103,64 @@ std::filesystem::path HubLauncher::FindForge(const HubInstall& install)
     return {};
 }
 
-// The lock is only looked at, and let go of at once, so the Forge started takes it. One Hub started moments ago may not have taken it yet, so that one is asked after too
+
 HubLauncher::Report HubLauncher::Open(const HubProject& project, const HubInstall& install)
+{
+    return Start(project, install, Purpose::Open, { std::format("--project={}", HubText::ToUtf8(project.Entry.File)) });
+}
+
+// Forge backs the project up before anything of it changes, and ends with an error, the project as it was, when it cannot, and when one older than format 10 with both languages or neither is given none
+HubLauncher::Report HubLauncher::Upgrade(const HubProject& project, const HubInstall& install, std::optional<Trinity::ScriptLanguage> language)
+{
+    std::vector<std::string> l_Options{ std::format("--upgrade-project={}", HubText::ToUtf8(project.Entry.File)) };
+    if (language)
+    {
+        l_Options.push_back(std::format("--language={}", Trinity::ToString(*language)));
+    }
+
+    return Start(project, install, Purpose::Upgrade, std::move(l_Options));
+}
+
+// The lock is only looked at, and let go of at once, so the Forge started takes it. One Hub started moments ago may not have taken it yet, so that one is asked after too. A project open in a Forge is not moved, as that Forge has it in its own version
+HubLauncher::Report HubLauncher::Start(const HubProject& project, const HubInstall& install, Purpose purpose, std::vector<std::string> options)
 {
     const std::string& l_Name = project.GetName();
     const std::filesystem::path l_Directory = project.Entry.File.parent_path();
     const std::string l_Version = HubInstalls::Describe(install.Manifest);
+    const bool l_Upgrade = purpose == Purpose::Upgrade;
+    const std::string_view l_Done = l_Upgrade ? "moved" : "opened";
     const auto l_Now = std::chrono::steady_clock::now();
     const auto a_Opening = std::ranges::find_if(m_Launched, [&project, l_Now](Launched& launched)
     {
-        return l_Now - launched.StartedAt < c_StartWindow && !launched.Process.Poll() && Trinity::ProjectList::IsSameFile(launched.ProjectFile, project.Entry.File);
+        return (l_Now - launched.StartedAt < c_StartWindow || IsUnmoved(launched)) && !launched.Process.Poll() && Trinity::ProjectList::IsSameFile(launched.ProjectFile, project.Entry.File);
     });
 
     if (a_Opening != m_Launched.end())
     {
-        return { std::format("{} is {} in Forge already", l_Name, a_Opening->Creating ? "being made" : "opening"), false };
+        const std::string_view l_Doing = a_Opening->Doing == Purpose::Create ? "being made" : a_Opening->Doing == Purpose::Upgrade ? "being moved to a newer version" : "opening";
+
+        return { std::format("{} is {} in Forge already", l_Name, l_Doing), false };
     }
 
     if (const Trinity::Expected<Trinity::FileLock, Trinity::FileLockRefusal> l_Lock = Trinity::FileLock::TryAcquire(Trinity::Project::GetLockFile(l_Directory)); !l_Lock && l_Lock.GetError().Held)
     {
         const std::uint32_t l_Holder = l_Lock.GetError().HolderID;
         const bool l_Forward = l_Holder != 0 && Trinity::Process::BringToFront(l_Holder);
+        const std::string l_Open = std::format("{} is open in Forge already{}{}", l_Name, l_Holder != 0 ? std::format(", process {}", l_Holder) : std::string(), l_Forward ? ", which is brought forward" : "");
 
-        return { std::format("{} is open in Forge already{}{}", l_Name, l_Holder != 0 ? std::format(", process {}", l_Holder) : std::string(), l_Forward ? ", which is brought forward" : ""), false };
+        return l_Upgrade ? Report{ std::format("{}, so it is not moved to {} until that Forge closes it", l_Open, l_Version), true } : Report{ l_Open, false };
     }
 
     const std::filesystem::path l_Forge = FindForge(install);
     if (l_Forge.empty())
     {
-        return { std::format("{} was not opened, as {} in {} has no Forge in its Release, Debug or Distribution build", l_Name, l_Version, HubText::ToUtf8(install.Directory)), true };
+        return { std::format("{} was not {}, as {} in {} has no Forge in its Release, Debug or Distribution build", l_Name, l_Done, l_Version, HubText::ToUtf8(install.Directory)), true };
     }
 
     const std::filesystem::path l_Logs = l_Directory / "Cache" / "Logs";
-    const std::array<std::string, 3> l_Arguments{ std::format("--project={}", HubText::ToUtf8(project.Entry.File)), std::format("--log-dir={}", HubText::ToUtf8(l_Logs)), std::format("--hub={}", HubText::ToUtf8(m_HubDirectory)) };
+    std::vector<std::string> l_Arguments = std::move(options);
+    l_Arguments.push_back(std::format("--log-dir={}", HubText::ToUtf8(l_Logs)));
+    l_Arguments.push_back(std::format("--hub={}", HubText::ToUtf8(m_HubDirectory)));
     std::filesystem::path l_Log = l_Logs / l_Forge.stem();
     l_Log += ".log";
     const std::optional<std::filesystem::file_time_type> l_LogTime = GetWriteTime(l_Log);
@@ -143,11 +168,18 @@ HubLauncher::Report HubLauncher::Open(const HubProject& project, const HubInstal
     Trinity::Expected<Trinity::StartedProcess, std::string> l_Process = Trinity::StartedProcess::Start(l_Forge, l_Arguments, l_Directory);
     if (!l_Process)
     {
-        return { std::format("{} was not opened, as {}", l_Name, l_Process.GetError()), true };
+        return { std::format("{} was not {}, as {}", l_Name, l_Done, l_Process.GetError()), true };
     }
 
     const std::uint32_t l_ID = l_Process->GetID();
-    m_Launched.push_back({ project.Entry.File, l_Name, std::move(*l_Process), l_Now, l_Log, l_LogTime, GetWriteTime(Trinity::GetLastExportPath(l_Directory)) });
+    m_Launched.push_back({ project.Entry.File, l_Name, std::move(*l_Process), l_Now, l_Log, l_LogTime, GetWriteTime(Trinity::GetLastExportPath(l_Directory)), purpose, false, l_Upgrade ? project.GetEngineVersion() : std::string() });
+    if (l_Upgrade)
+    {
+        const std::string l_From = project.GetEngineVersion().empty() ? std::string(", which names no version,") : std::format(" from Trinity {}", project.GetEngineVersion());
+
+        return { std::format("Moving {}{} to {}, backing it up first, process {}", l_Name, l_From, l_Version, l_ID), false };
+    }
+
 
     return { std::format("Opening {} in {}, process {}", l_Name, l_Version, l_ID), false };
 }
@@ -190,7 +222,7 @@ HubLauncher::Report HubLauncher::Create(const Creation& creation, const HubInsta
     const std::uint32_t l_ID = l_Process->GetID();
     std::filesystem::path l_File = creation.Directory / HubText::FromUtf8(l_Name);
     l_File += Trinity::Project::c_Extension;
-    m_Launched.push_back({ std::move(l_File), l_Name, std::move(*l_Process), std::chrono::steady_clock::now(), l_Log, l_LogTime, std::nullopt, true, !l_Existed });
+    m_Launched.push_back({ std::move(l_File), l_Name, std::move(*l_Process), std::chrono::steady_clock::now(), l_Log, l_LogTime, std::nullopt, Purpose::Create, !l_Existed, std::string() });
     const std::string l_Language = creation.Language == Trinity::ScriptLanguage::CSharp ? "C#" : "C++";
 
     return { std::format("Making {} in {}, {}, its scripts in {}, in {}, process {}", l_Name, l_Folder, creation.Template.empty() ? std::string("as an empty project") : std::format("from the {} template", creation.Template), l_Language, l_Version, l_ID), false };
@@ -223,7 +255,7 @@ HubLauncher::Report HubLauncher::RunBuild(const HubProject& project)
     return { std::format("Running {}{}, exported {}from {}", l_Export->Product, l_Export->Development ? ", a Development Build" : "", l_Finished ? std::format("{} ", HubText::DescribeAge(*l_Finished)) : std::string(), HubText::ToUtf8(l_Folder)), false };
 }
 
-// Each Forge is asked every frame, which costs a call to the system, and the exports they record are looked at once a second
+// Each Forge is asked every frame, which costs a call to the system, and the exports they record are looked at once a second. One moving a project fails until the project names its new version, as its backup may take far longer than the first seconds
 std::optional<HubLauncher::Report> HubLauncher::Update()
 {
     if (m_Launched.empty())
@@ -258,9 +290,9 @@ std::optional<HubLauncher::Report> HubLauncher::Update()
         }
 
         m_Changed = true;
-        if (*l_ExitCode != 0 && l_Now - launched.StartedAt < c_StartWindow)
+        if (*l_ExitCode != 0 && (l_Now - launched.StartedAt < c_StartWindow || IsUnmoved(launched)))
         {
-            l_Report = Report{ DescribeFailure(launched, *l_ExitCode) + (launched.Creating ? RemoveFailedCreation(launched) : std::string()), true };
+            l_Report = Report{ DescribeFailure(launched, *l_ExitCode) + (launched.Doing == Purpose::Create ? RemoveFailedCreation(launched) : std::string()), true };
         }
         else
         {
@@ -282,16 +314,31 @@ bool HubLauncher::TakeChanged()
 std::string HubLauncher::DescribeFailure(const Launched& launched, int exitCode)
 {
     const std::string l_Code = DescribeExitCode(exitCode);
-    const std::string_view l_Doing = launched.Creating ? "make" : "open";
+    const std::string_view l_Doing = launched.Doing == Purpose::Create ? "make" : launched.Doing == Purpose::Upgrade ? "move" : "open";
+    const std::string l_Left = launched.Doing == Purpose::Upgrade && IsUnmoved(launched) ? std::format(". {} is left as it was, {}", launched.Name, launched.FromVersion.empty() ? std::string("naming no version") : std::format("in Trinity {}", launched.FromVersion)) : std::string();
     const std::optional<std::filesystem::file_time_type> l_LogTime = GetWriteTime(launched.Log);
     if (!l_LogTime || l_LogTime == launched.LogTime)
     {
-        return std::format("Forge ended with exit code {} before it could {} {}, and wrote no log", l_Code, l_Doing, launched.Name);
+        return std::format("Forge ended with exit code {} before it could {} {}, and wrote no log{}", l_Code, l_Doing, launched.Name, l_Left);
     }
 
     const std::string l_Error = FindLastError(launched.Log);
 
-    return std::format("Forge could not {} {}, and ended with exit code {}{}. Its log is {}", l_Doing, launched.Name, l_Code, l_Error.empty() ? std::string() : std::format(": {}", l_Error), HubText::ToUtf8(launched.Log));
+
+    return std::format("Forge could not {} {}, and ended with exit code {}{}{}. Its log is {}", l_Doing, launched.Name, l_Code, l_Error.empty() ? std::string() : std::format(": {}", l_Error), l_Left, HubText::ToUtf8(launched.Log));
+}
+
+// Read from the disk as it ends, since the Forge writes the project's file with its new version once it is backed up and opened
+bool HubLauncher::IsUnmoved(const Launched& launched)
+{
+    if (launched.Doing != Purpose::Upgrade)
+    {
+        return false;
+    }
+
+    const Trinity::Expected<Trinity::ProjectFileInfo, std::string> l_Info = Trinity::Project::ReadInfo(launched.ProjectFile);
+
+    return l_Info && l_Info->EngineVersion == launched.FromVersion;
 }
 
 // A Forge that failed by itself took away what it made, so a folder still there is what one that crashed left. Only a folder that was not there before Create is taken away, so nothing the person had is touched, and the project comes off the list, which Forge may have added it to

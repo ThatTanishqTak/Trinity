@@ -10,14 +10,37 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <compare>
+#include <cstdint>
 #include <format>
 #include <optional>
+#include <string_view>
 #include <utility>
 
 namespace
 {
     constexpr std::array<Trinity::FileDialogFilter, 1> c_ProjectFilters{ { { "Trinity project", "trproj" } } };
     constexpr const char* c_OfferPopup = "Version Not Installed###HubOffer";
+    constexpr const char* c_UpgradePopup = "Open in a Newer Version###HubUpgrade";
+    constexpr const char* c_OpenWithPopup = "##OpenWith";
+
+    // The files Forge saves again as it moves a project, by the format each version's manifest names for them
+    struct FormatKind
+    {
+        std::string_view Name;
+        std::uint32_t Trinity::EngineFormats::* Format;
+    };
+
+    constexpr std::array<FormatKind, 6> c_SavedAgain{ { { "scenes", &Trinity::EngineFormats::Scene },{ "prefabs", &Trinity::EngineFormats::Prefab },{ "input actions", &Trinity::EngineFormats::InputActions },{ "mixers", &Trinity::EngineFormats::AudioMixer },{ "sound events", &Trinity::EngineFormats::SoundEvent },{ ".meta files", &Trinity::EngineFormats::Meta } } };
+
+    // How a version stands to a project: the one it names, newer, which moves it there once asked, or older, which never opens it, as a project never moves to an older version. One naming no version, as before versions were kept, is older than every version, and one of a project format newer than a version reads is newer than that version, whatever it names
+    enum class VersionFit : std::uint8_t
+    {
+        Its,
+        Newer,
+        Older
+    };
+
 
     std::string ToLower(std::string text)
     {
@@ -42,20 +65,112 @@ namespace
         return project.Info->HasAssembly && project.Info->HasModule ? "C# and C++" : "None yet";
     }
 
-    // Why a project cannot be opened, or empty when it can
-    std::string_view GetOpenRefusal(const HubProject& project)
+    // Why a project cannot be opened in any version, or empty when it can
+    std::string_view GetOpenWithRefusal(const HubProject& project)
     {
         if (project.Missing)
         {
             return "Its folder is gone";
         }
 
-        if (!project.Problem.empty())
+        return project.Problem.empty() ? std::string_view() : "Its project file could not be read";
+    }
+
+    // Why a project cannot be opened in the version it names, or empty when it can
+    std::string_view GetOpenRefusal(const HubProject& project)
+    {
+        if (const std::string_view l_Refusal = GetOpenWithRefusal(project); !l_Refusal.empty())
         {
-            return "Its project file could not be read";
+            return l_Refusal;
         }
 
-        return project.GetEngineVersion().empty() ? "Its project file names no engine version" : std::string_view();
+        return project.GetEngineVersion().empty() ? "Its project file names no engine version, so Open With picks the one it moves to" : std::string_view();
+    }
+
+    VersionFit GetFit(const HubProject& project, const HubInstall& install)
+    {
+        const std::uint32_t l_Reads = install.Manifest.Formats.Project;
+        if (project.Info && l_Reads != 0 && project.Info->Format > l_Reads)
+        {
+            return VersionFit::Older;
+        }
+
+        if (project.GetEngineVersion().empty())
+        {
+            return VersionFit::Newer;
+        }
+
+        const std::strong_ordering l_Order = Trinity::CompareVersions(install.Manifest.Version, project.GetEngineVersion());
+
+        return l_Order == 0 ? VersionFit::Its : l_Order > 0 ? VersionFit::Newer : VersionFit::Older;
+    }
+
+    // What choosing the version does, or why it cannot be chosen
+    std::string DescribeFit(const HubProject& project, const HubInstall& install, VersionFit fit)
+    {
+        const std::string& l_Name = project.GetName();
+        const std::string& l_Version = install.Manifest.Version;
+        switch (fit)
+        {
+            case VersionFit::Its:
+            {
+                return std::format("Open {} in Trinity {}, the version it names", l_Name, l_Version);
+            }
+            case VersionFit::Newer:
+            {
+                const std::string l_From = project.GetEngineVersion().empty() ? std::string("names no version") : std::format("was made with Trinity {}", project.GetEngineVersion());
+
+                return std::format("{} {}. Opening it here moves it to Trinity {}, which asks first, then backs it up and saves its files in that version's formats", l_Name, l_From, l_Version);
+            }
+            default:
+            {
+                if (!project.GetEngineVersion().empty() && Trinity::CompareVersions(l_Version, project.GetEngineVersion()) < 0)
+                {
+                    return std::format("Trinity {} is older than Trinity {}, which {} was made with, and a project never moves to an older version", l_Version, project.GetEngineVersion(), l_Name);
+                }
+
+                return std::format("Trinity {} reads project format {} and older, and {} is of format {}, which a newer version wrote", l_Version, install.Manifest.Formats.Project, l_Name, project.Info ? project.Info->Format : 0);
+            }
+        }
+    }
+
+    // A build of the version the project names, whose manifest says the formats it wrote, or none when none is here
+    const HubInstall* FindFormats(const HubInstalls& installs, std::string_view version)
+    {
+        const auto a_Install = std::ranges::find_if(installs.GetInstalls(), [version](const HubInstall& install)
+        {
+            return !version.empty() && install.Manifest.Formats.Project != 0 && Trinity::CompareVersions(install.Manifest.Version, version) == 0;
+        });
+
+        return a_Install != installs.GetInstalls().end() ? &*a_Install : nullptr;
+    }
+
+    // The project file's format, from what its file says, and each other's from the manifest of the version the project names, where a build of it is here to say
+    std::string DescribeFormatChanges(const HubProject& project, const HubInstall* from, const HubInstall& to)
+    {
+        const Trinity::EngineFormats& l_To = to.Manifest.Formats;
+        std::string l_Changes;
+        const auto l_Add = [&l_Changes](std::string_view name, std::uint32_t before, std::uint32_t after)
+        {
+            if (before != 0 && after != 0 && before != after)
+            {
+                l_Changes += std::format("{}{} from format {} to {}", l_Changes.empty() ? "" : ", ", name, before, after);
+            }
+        };
+
+        l_Add("its project file", project.Info ? project.Info->Format : 0, l_To.Project);
+        for (const FormatKind& it_Kind : c_SavedAgain)
+        {
+            l_Add(it_Kind.Name, from != nullptr ? from->Manifest.Formats.*it_Kind.Format : 0, l_To.*it_Kind.Format);
+        }
+
+        std::string l_Text = l_Changes.empty() ? std::string("No format of its files changes that Hub can see") : std::format("The formats that change: {}", l_Changes);
+        if (from == nullptr)
+        {
+            l_Text += project.GetEngineVersion().empty() ? std::string(". It names no version, so Hub cannot say which formats its other files are in") : std::format(". No build of Trinity {} is here to say which formats its other files are in", project.GetEngineVersion());
+        }
+
+        return l_Text + ".";
     }
 }
 
@@ -128,6 +243,7 @@ void ProjectsPage::Draw()
 
     DrawList();
     DrawOfferPopup();
+    DrawUpgradePopup();
 }
 
 // Listed with what its file says, and as never opened, until a Forge opens it
@@ -198,6 +314,41 @@ void ProjectsPage::OpenProject(const std::filesystem::path& file)
     m_Releases.Refresh();
     m_Offer = file;
     m_OpenOfferPopup = true;
+}
+
+// A version greyed in the list never gets here, though one chosen as the list changed is refused all the same
+void ProjectsPage::OpenWith(const std::filesystem::path& file, const std::filesystem::path& install)
+{
+    const HubProject* l_Project = FindProject(file);
+    const HubInstall* l_Install = m_Installs.Find(install);
+    if (l_Project == nullptr || l_Install == nullptr || !HubInstalls::IsUsable(*l_Install) || !GetOpenWithRefusal(*l_Project).empty())
+    {
+        return;
+    }
+
+    switch (const VersionFit l_Fit = GetFit(*l_Project, *l_Install))
+    {
+        case VersionFit::Its:
+        {
+            HubLauncher::Report l_Report = m_Launcher.Open(*l_Project, *l_Install);
+            Report(std::move(l_Report.Message), l_Report.Failed);
+
+            break;
+        }
+        case VersionFit::Newer:
+        {
+            m_Upgrade = UpgradeQuestion{ file, install, l_Project->Info ? l_Project->Info->Language : std::nullopt };
+            m_OpenUpgradePopup = true;
+
+            break;
+        }
+        default:
+        {
+            Report(std::format("{} was not opened, as {}", l_Project->GetName(), DescribeFit(*l_Project, *l_Install, l_Fit)), true);
+
+            break;
+        }
+    }
 }
 
 // New Project first, as Unity Hub's is, then Add, the search and the count
@@ -285,6 +436,7 @@ void ProjectsPage::DrawList()
 
     const std::vector<HubProject>& l_Projects = m_Projects.GetProjects();
     std::optional<std::filesystem::path> l_Open;
+    std::optional<Choice> l_OpenWith;
     std::optional<std::filesystem::path> l_Remove;
     ImGuiListClipper l_Clipper;
     l_Clipper.Begin(static_cast<int>(m_Order.size()), ImGui::GetFrameHeightWithSpacing());
@@ -356,7 +508,7 @@ void ProjectsPage::DrawList()
             HubPages::DrawClipped(HubText::ToUtf8(l_Project.Entry.File.parent_path()));
 
             ImGui::TableNextColumn();
-            DrawActions(l_Project, l_Open, l_Remove);
+            DrawActions(l_Project, l_Open, l_OpenWith, l_Remove);
             ImGui::PopID();
         }
     }
@@ -374,6 +526,11 @@ void ProjectsPage::DrawList()
         OpenProject(*l_Open);
     }
 
+    if (l_OpenWith)
+    {
+        OpenWith(l_OpenWith->File, l_OpenWith->Install);
+    }
+
     if (l_Remove)
     {
         RemoveProject(*l_Remove);
@@ -381,7 +538,7 @@ void ProjectsPage::DrawList()
 }
 
 // Each button says in its tooltip what it does, or why it cannot
-void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::filesystem::path>& open, std::optional<std::filesystem::path>& remove)
+void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::filesystem::path>& open, std::optional<Choice>& openWith, std::optional<std::filesystem::path>& remove)
 {
     constexpr ImGuiHoveredFlags c_Tooltip = ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled;
 
@@ -396,6 +553,28 @@ void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::fil
     if (ImGui::IsItemHovered(c_Tooltip))
     {
         ImGui::SetTooltip("%s", l_Refusal.empty() ? std::format("Open in Forge, in Trinity {}", project.GetEngineVersion()).c_str() : std::string(l_Refusal).c_str());
+    }
+
+    const std::string_view l_WithRefusal = GetOpenWithRefusal(project);
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    ImGui::BeginDisabled(!l_WithRefusal.empty());
+    if (ImGui::Button(std::format("{}##OpenWith", Trinity::Icons::c_ChevronDown).c_str()))
+    {
+        ImGui::OpenPopup(c_OpenWithPopup);
+    }
+
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(c_Tooltip))
+    {
+        ImGui::SetTooltip("%s", l_WithRefusal.empty() ? "Open With: one of the versions here, its own or a newer one, which moves it to that version" : std::string(l_WithRefusal).c_str());
+    }
+
+    if (ImGui::BeginPopup(c_OpenWithPopup))
+    {
+        ImGui::TextDisabled("Open With");
+        ImGui::Separator();
+        DrawVersions(project, openWith);
+        ImGui::EndPopup();
     }
 
     ImGui::SameLine();
@@ -503,6 +682,28 @@ void ProjectsPage::DrawOfferPopup()
     }
 
     HubPages::DrawSection("Open With");
+    std::optional<Choice> l_Chosen;
+    DrawVersions(*l_Project, l_Chosen);
+
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    if (ImGui::Button("Close") || ImGui::IsKeyPressed(ImGuiKey_Escape) || l_Chosen)
+    {
+        m_Offer.reset();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+
+    // Once the offer is closed, as a newer version opens the upgrade popup in its place
+    if (l_Chosen)
+    {
+        OpenWith(l_Chosen->File, l_Chosen->Install);
+    }
+}
+
+void ProjectsPage::DrawVersions(const HubProject& project, std::optional<Choice>& chosen) const
+{
     bool l_Any = false;
     for (const HubInstall& it_Install : m_Installs.GetInstalls())
     {
@@ -512,12 +713,19 @@ void ProjectsPage::DrawOfferPopup()
         }
 
         l_Any = true;
-        ImGui::BeginDisabled();
-        ImGui::Selectable(std::format("{}  ({})##{}", HubInstalls::Describe(it_Install.Manifest), it_Install.Source == HubInstall::Origin::Installed ? "Installed" : "Located", HubText::ToUtf8(it_Install.Directory)).c_str());
+        const VersionFit l_Fit = GetFit(project, it_Install);
+        const std::string_view l_Source = it_Install.Source == HubInstall::Origin::Installed ? "Installed" : "Located";
+        const std::string_view l_Stands = l_Fit == VersionFit::Its ? "its version" : l_Fit == VersionFit::Newer ? "newer, moves it" : "older";
+        ImGui::BeginDisabled(l_Fit == VersionFit::Older);
+        if (ImGui::Selectable(std::format("{}   {}, {}##{}", HubInstalls::Describe(it_Install.Manifest), l_Source, l_Stands, HubText::ToUtf8(it_Install.Directory)).c_str()))
+        {
+            chosen = Choice{ project.Entry.File, it_Install.Directory };
+        }
+
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Opening a project in a version other than the one it names, which moves it to that version, is not here yet");
+            ImGui::SetTooltip("%s", std::format("{}\n{}", DescribeFit(project, it_Install, l_Fit), HubText::ToUtf8(it_Install.Directory)).c_str());
         }
     }
 
@@ -525,12 +733,87 @@ void ProjectsPage::DrawOfferPopup()
     {
         ImGui::TextDisabled("No version is installed here");
     }
+}
+
+// What Back Up and Open starts is told of on the page, and a Forge that fails to move the project, before the project names its new version, is told of as it ends
+void ProjectsPage::DrawUpgradePopup()
+{
+    if (std::exchange(m_OpenUpgradePopup, false))
+    {
+        ImGui::OpenPopup(c_UpgradePopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_UpgradePopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    const HubProject* l_Project = m_Upgrade ? FindProject(m_Upgrade->File) : nullptr;
+    const HubInstall* l_Install = m_Upgrade ? m_Installs.Find(m_Upgrade->Install) : nullptr;
+    if (l_Project == nullptr || l_Install == nullptr || !l_Project->Info)
+    {
+        m_Upgrade.reset();
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    const Trinity::ProjectFileInfo& l_Info = *l_Project->Info;
+    const std::string l_Old = l_Project->GetEngineVersion().empty() ? std::string("an unknown version") : std::format("Trinity {}", l_Project->GetEngineVersion());
+    const std::string& l_New = l_Install->Manifest.Version;
+    const bool l_AskLanguage = !l_Info.Language;
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 34.0f);
+    ImGui::TextUnformatted(std::format("{} was made with {}. Opening it in {} moves it to that version:", l_Project->GetName(), l_Old, HubInstalls::Describe(l_Install->Manifest)).c_str());
+    ImGui::Spacing();
+    // Bullet and text rather than BulletText, which does not wrap
+    ImGui::Bullet();
+    ImGui::TextUnformatted("It is backed up first, as a zip beside its folder named for its version and the day, holding everything but Cache, Build and Builds.");
+    ImGui::Bullet();
+    ImGui::TextUnformatted(std::format("{} Every scene, prefab, input actions asset, mixer and sound event is saved again in Trinity {}'s formats, those already in them left as they are, and its scripts are built again.", DescribeFormatChanges(*l_Project, FindFormats(m_Installs, l_Project->GetEngineVersion()), *l_Install), l_New).c_str());
+    ImGui::Bullet();
+    ImGui::TextUnformatted(std::format("{} cannot open it afterwards.", l_Old).c_str());
+    if (l_AskLanguage)
+    {
+        ImGui::Spacing();
+        ImGui::TextUnformatted(std::format("It was made before a project had one language, and has {}. Which language does it keep?", l_Info.HasModule ? "both a C++ module and a C# project" : "no scripts yet").c_str());
+        ImGui::TextDisabled(l_Info.HasModule ? "It cannot change later. The other language's files stay on disk, unbuilt, and its scripts in scenes are kept with their values and do not run." : "It cannot change later.");
+        if (ImGui::RadioButton("C#", m_Upgrade->Language == Trinity::ScriptLanguage::CSharp))
+        {
+            m_Upgrade->Language = Trinity::ScriptLanguage::CSharp;
+        }
+
+        ImGui::SameLine();
+        if (ImGui::RadioButton("C++", m_Upgrade->Language == Trinity::ScriptLanguage::Cpp))
+        {
+            m_Upgrade->Language = Trinity::ScriptLanguage::Cpp;
+        }
+    }
 
     ImGui::PopTextWrapPos();
     ImGui::Spacing();
-    if (ImGui::Button("Close") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+
+    ImGui::BeginDisabled(!m_Upgrade->Language);
+    const bool l_Move = ImGui::Button("Back Up and Open");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled) && !m_Upgrade->Language)
     {
-        m_Offer.reset();
+        ImGui::SetTooltip("Pick the language it keeps first");
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    {
+        Report(std::format("{} was left as it is, as moving it to Trinity {} was declined", l_Project->GetName(), l_New), false);
+        m_Upgrade.reset();
+        ImGui::CloseCurrentPopup();
+    }
+    else if (l_Move)
+    {
+        HubLauncher::Report l_Report = m_Launcher.Upgrade(*l_Project, *l_Install, l_AskLanguage ? m_Upgrade->Language : std::nullopt);
+        Report(std::move(l_Report.Message), l_Report.Failed);
+        m_Upgrade.reset();
         ImGui::CloseCurrentPopup();
     }
 
@@ -577,7 +860,7 @@ void ProjectsPage::Order()
             }
             case Column::Engine:
             {
-                return CompareEngineVersions(l_Left.GetEngineVersion(), l_Right.GetEngineVersion()) < 0;
+                return Trinity::CompareVersions(l_Left.GetEngineVersion(), l_Right.GetEngineVersion()) < 0;
             }
             case Column::LastOpened:
             {
@@ -639,13 +922,13 @@ std::string ProjectsPage::DescribeState(const HubProject& project, bool& warning
             return "Installed";
         }
 
-        if (l_Newest == nullptr || CompareEngineVersions(it_Install.Manifest.Version, l_Newest->Manifest.Version) > 0)
+        if (l_Newest == nullptr || Trinity::CompareVersions(it_Install.Manifest.Version, l_Newest->Manifest.Version) > 0)
         {
             l_Newest = &it_Install;
         }
     }
 
-    if (l_Newest != nullptr && CompareEngineVersions(l_Version, l_Newest->Manifest.Version) > 0)
+    if (l_Newest != nullptr && Trinity::CompareVersions(l_Version, l_Newest->Manifest.Version) > 0)
     {
         return "Newer than any installed";
     }

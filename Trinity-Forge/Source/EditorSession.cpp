@@ -2,6 +2,7 @@
 
 #include "EditorCommands.hpp"
 #include "Modules/DebuggerSettings.hpp"
+#include "ProjectMigration.hpp"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -32,6 +33,7 @@ namespace
     constexpr const char* c_DebuggerPopup = "Waiting for a Debugger###ForgeDebugger";
     constexpr const char* c_RecoveryPopup = "Recover Scene###ForgeRecoverScene";
     constexpr const char* c_LanguagePopup = "Project Language###ForgeLanguage";
+    constexpr const char* c_UpgradePopup = "Open in This Version###ForgeUpgrade";
     // The open scene's backup, under the project's Cache, which is never committed. Its first lines name the scene and when it was written, as YAML comments the scene's reader passes over
     constexpr std::string_view c_BackupFile = "Editor/Backup/Scene.trscene";
     // The projects Forge opened lately, which it kept itself until Hub kept one list for every version, and which it moves into Hub's once. The start screen shows ten projects, and ten scenes are kept per project
@@ -943,6 +945,16 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
             return;
         }
     }
+    else if (const auto it_Upgrade = args.GetOption("upgrade-project"))
+    {
+        // Started to move a project to this version, as Hub's Open With starts a newer version's Forge, it ends with 1 when the project was not moved and opened, so whoever started it knows
+        if (!UpgradeProject(FromUtf8(*it_Upgrade), l_Language))
+        {
+            Trinity::Application::Get().Close(1);
+
+            return;
+        }
+    }
     else if (const auto it_Project = args.GetOption("project"))
     {
         // Started for a project another Forge has open, as Hub or a shortcut to the project starts one, it brings that one forward and has nothing left to do. One asked to export it fails, as the export cannot be made
@@ -951,6 +963,28 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
             Trinity::Application::Get().Close(args.HasOption("export") ? 1 : 0);
 
             return;
+        }
+
+        // An export waits on no question, so a project of another version is refused for it, one of an older version to be moved first with --upgrade-project
+        if (args.HasOption("export"))
+        {
+            const Trinity::Expected<std::filesystem::path, std::string> l_File = Trinity::Project::FindFile(FromUtf8(*it_Project));
+            const Trinity::Expected<Trinity::ProjectFileInfo, std::string> l_Info = l_File ? Trinity::Project::ReadInfo(*l_File) : Trinity::Expected<Trinity::ProjectFileInfo, std::string>(Trinity::Unexpected{ l_File.GetError() });
+            if (l_Info && Trinity::Project::GetAge(*l_Info) != Trinity::ProjectAge::Current)
+            {
+                if (Trinity::Project::GetAge(*l_Info) == Trinity::ProjectAge::Newer)
+                {
+                    ReportNewer(*l_Info);
+                }
+                else
+                {
+                    TR_ERROR("Forge: {} was made with Trinity {}, so it is not exported until it is moved to Trinity {}, as --upgrade-project moves it", l_Info->Name, l_Info->EngineVersion.empty() ? std::string("of an unknown version") : l_Info->EngineVersion, Trinity::GetVersionString());
+                }
+
+                Trinity::Application::Get().Close(1);
+
+                return;
+            }
         }
 
         OpenProject(FromUtf8(*it_Project), l_Language);
@@ -1051,6 +1085,7 @@ void EditorSession::DrawPopups()
     DrawDebuggerPopup();
     DrawRecoveryPopup();
     DrawLanguagePopup();
+    DrawUpgradePopup();
 }
 
 // The project, the scene and an asterisk while unsaved, then Forge's version and commit. The renderer adds the backend and frame rate
@@ -1102,7 +1137,7 @@ void EditorSession::Run(Command command)
             {
                 AskPath({ PathKind::Folder, "Choose an empty folder for the new project",{},{},{}, [this](const std::filesystem::path& path)
                 {
-                    m_LanguageQuestion = LanguageQuestion{ .Path = path, .NewProject = true, .Name = {}, .HasModule = false, .HasAssembly = false, .Templates = Trinity::FindProjectTemplates(Trinity::Process::GetExecutableDirectory().parent_path().parent_path()), .Template = 0 };
+                    m_LanguageQuestion = LanguageQuestion{ .Path = path, .Templates = Trinity::FindProjectTemplates(Trinity::Process::GetExecutableDirectory().parent_path().parent_path()), .Template = 0 };
                     m_OpenLanguagePopup = true;
                 } });
             });
@@ -1496,26 +1531,128 @@ void EditorSession::ApplyTemplate(const Trinity::ProjectTemplate& projectTemplat
     }
 }
 
-// Locked before the open project closes, so asking for one another Forge has open leaves this one's open. One older than format 10 with both languages or neither is asked about first, and once answered is saved in the language chosen, so it is asked about once
+// Locked before the open project closes, so asking for one another Forge has open leaves this one's open. One of an older version or format is asked about first, as Unity asks before it opens a project of an older editor, and opens once backed up and moved to this version, its language picked there when it is older than format 10 with both languages or neither. One of a newer version is refused, as this Forge cannot know what it holds
 void EditorSession::OpenProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language)
 {
     const Trinity::Expected<std::filesystem::path, std::string> l_File = Trinity::Project::FindFile(path);
     const Trinity::Expected<Trinity::ProjectFileInfo, std::string> l_Info = l_File ? Trinity::Project::ReadInfo(*l_File) : Trinity::Expected<Trinity::ProjectFileInfo, std::string>(Trinity::Unexpected{ l_File.GetError() });
-    const bool l_Choose = l_Info && !l_Info->Language && l_Info->Format < Trinity::Project::c_FormatVersion;
-    if (l_Choose && !language)
+    const Trinity::ProjectAge l_Age = l_Info ? Trinity::Project::GetAge(*l_Info) : Trinity::ProjectAge::Current;
+    if (l_Age == Trinity::ProjectAge::Newer)
     {
-        TR_INFO("Forge: {} was made before a project had one language, and has {}, so it opens once its language is chosen", l_Info->Name, l_Info->HasModule ? "a C++ module and a C# project" : "no scripts yet");
-        m_LanguageQuestion = LanguageQuestion{ .Path = *l_File, .NewProject = false, .Name = l_Info->Name, .HasModule = l_Info->HasModule, .HasAssembly = l_Info->HasAssembly, .Templates = {}, .Template = 0 };
-        m_OpenLanguagePopup = true;
+        ReportNewer(*l_Info);
 
         return;
     }
 
+    if (l_Age == Trinity::ProjectAge::Older)
+    {
+        // Asked only once no other Forge has it open, which is brought forward
+        if (!LockProject(*l_File))
+        {
+            return;
+        }
+
+        TR_INFO("Forge: {} was made with Trinity {}, so it opens here once it is backed up and moved to Trinity {}", l_Info->Name, l_Info->EngineVersion.empty() ? std::string("of an unknown version") : l_Info->EngineVersion, Trinity::GetVersionString());
+        m_UpgradeQuestion = UpgradeQuestion{ .File = *l_File, .Info = *l_Info, .Backup = ProjectMigration::GetBackupPath(l_File->parent_path(), l_Info->EngineVersion), .Language = l_Info->Language ? l_Info->Language : language };
+        m_OpenUpgradePopup = true;
+
+        return;
+    }
+
+    static_cast<void>(LoadProject(path, std::nullopt, false));
+}
+
+// Of this version already, it opens as it is. One older than format 10 with both languages or neither cannot be moved without being given its language, as Hub gives it
+bool EditorSession::UpgradeProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language)
+{
+    const Trinity::Expected<std::filesystem::path, std::string> l_File = Trinity::Project::FindFile(path);
+    const Trinity::Expected<Trinity::ProjectFileInfo, std::string> l_Info = l_File ? Trinity::Project::ReadInfo(*l_File) : Trinity::Expected<Trinity::ProjectFileInfo, std::string>(Trinity::Unexpected{ l_File.GetError() });
+    if (!l_Info)
+    {
+        TR_ERROR("Forge: the project could not be moved to this version: {}", l_Info.GetError());
+
+        return false;
+    }
+
+    switch (Trinity::Project::GetAge(*l_Info))
+    {
+        case Trinity::ProjectAge::Newer:
+        {
+            ReportNewer(*l_Info);
+
+            return false;
+        }
+        case Trinity::ProjectAge::Current:
+        {
+            TR_INFO("Forge: {} is a project of Trinity {} already, so it opens as it is", l_Info->Name, Trinity::GetVersionString());
+
+            return LoadProject(*l_File, std::nullopt, false);
+        }
+        case Trinity::ProjectAge::Older:
+        {
+            break;
+        }
+    }
+
+    const std::optional<Trinity::ScriptLanguage> l_Language = l_Info->Language ? l_Info->Language : language;
+    if (!l_Language)
+    {
+        TR_ERROR("Forge: {} was made before a project had one language, and has {}, so it is moved to this version only with --language=CSharp or --language=Cpp, the language it keeps, and is left as it is", l_Info->Name, l_Info->HasModule ? "both a C++ module and a C# project" : "no scripts yet");
+
+        return false;
+    }
+
+    return LoadProject(*l_File, l_Language, true);
+}
+
+void EditorSession::ReportNewer(const Trinity::ProjectFileInfo& info)
+{
+    if (info.Format > Trinity::Project::c_FormatVersion)
+    {
+        TR_ERROR("Forge: {} is of project format {}, which a newer Trinity wrote, and this Trinity {} reads format {} and older, so it is not opened", info.Name, info.Format, Trinity::GetVersionString(), Trinity::Project::c_FormatVersion);
+
+
+        return;
+    }
+
+
+    TR_ERROR("Forge: {} was made with Trinity {}, newer than this Trinity {}, so it is not opened, as a project never moves to an older version. Open it with Trinity {} or newer", info.Name, info.EngineVersion, Trinity::GetVersionString(), info.EngineVersion);
+}
+
+// Moving it, the backup comes first, while the lock is held and before anything of the project changes, and nothing of the project is touched when it fails. Its files this version writes are saved again once the registry knows them and before any opens, and its scripts are built again against this version, which imports as ever what an importer of this version cooks otherwise
+bool EditorSession::LoadProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language, bool upgrade)
+{
     std::optional<Trinity::FileLock> l_Lock = LockProject(path);
     if (!l_Lock)
     {
-        return;
+        return false;
     }
+
+    std::optional<Trinity::ProjectFileInfo> l_Before;
+    if (upgrade)
+    {
+        const Trinity::Expected<std::filesystem::path, std::string> l_File = Trinity::Project::FindFile(path);
+        Trinity::Expected<Trinity::ProjectFileInfo, std::string> l_Info = l_File ? Trinity::Project::ReadInfo(*l_File) : Trinity::Expected<Trinity::ProjectFileInfo, std::string>(Trinity::Unexpected{ l_File.GetError() });
+        if (!l_Info)
+        {
+            TR_ERROR("Forge: the project could not be moved to this version: {}", l_Info.GetError());
+
+            return false;
+        }
+
+        const std::filesystem::path l_Directory = l_File->parent_path();
+        const std::filesystem::path l_Backup = ProjectMigration::GetBackupPath(l_Directory, l_Info->EngineVersion);
+        if (const Trinity::Expected<void, std::string> l_BackedUp = ProjectMigration::BackUp(l_Directory, l_Backup); !l_BackedUp)
+        {
+            TR_ERROR("Forge: {} could not be backed up, so it is left as it is and not opened: {}", l_Info->Name, l_BackedUp.GetError());
+
+            return false;
+        }
+
+        TR_INFO("Forge: backed {} up as {}, holding all of it but Cache, Build and Builds", l_Info->Name, ToUtf8(l_Backup));
+        l_Before = std::move(*l_Info);
+    }
+
 
     CloseProject();
     NewScene();
@@ -1525,21 +1662,39 @@ void EditorSession::OpenProject(const std::filesystem::path& path, std::optional
     {
         TR_ERROR("Forge: the project could not be opened: {}", l_Project.GetError());
 
-        return;
+        return false;
     }
 
     m_Project = std::move(*l_Project);
     m_ProjectLock = std::move(*l_Lock);
-    if (l_Choose)
+    if (l_Before)
     {
+        m_Project->TakeCurrentEngineVersion();
         SaveProject();
-        TR_INFO("Forge: {}'s scripts are {} from now on", m_Project->GetName(), m_Project->GetLanguage() == Trinity::ScriptLanguage::CSharp ? "C#" : "C++");
+        TR_INFO("Forge: {} is a project of Trinity {} from now on, saved in project format {} from format {}, its scripts {}", m_Project->GetName(), Trinity::GetVersionString(), Trinity::Project::c_FormatVersion, l_Before->Format, GetScriptLanguageLabel(m_Project->GetLanguage()));
     }
 
     Trinity::ScriptRuntime::SetLanguage(m_Project->GetLanguage());
     AttachRegistry();
+    if (l_Before)
+    {
+        const ProjectMigration::Report l_Report = ProjectMigration::SaveAgain(*m_Registry);
+        if (l_Report.Failed != 0)
+        {
+            TR_WARN("Forge: {} file(s) of {} could not be saved in this version's formats and are left as they were, as the log says above. The backup holds the project as it was", l_Report.Failed, m_Project->GetName());
+        }
+
+        TR_INFO("Forge: saved {}'s files in Trinity {}'s formats: {} rewritten, {} already as it writes them, {} that could not be, left as they were", m_Project->GetName(), Trinity::GetVersionString(), l_Report.Rewritten, l_Report.Unchanged, l_Report.Failed);
+    }
+
     m_Module.Open(*m_Project);
     m_Assembly.Open(*m_Project);
+    if (l_Before)
+    {
+        m_Module.RequestBuild();
+        m_Assembly.RequestBuild();
+    }
+
     DebuggerSettings::Write(*m_Project);
     RememberProject();
     ReadRecentScenes();
@@ -1560,10 +1715,12 @@ void EditorSession::OpenProject(const std::filesystem::path& path, std::optional
     {
         TR_INFO("Forge: {} has {}, so it opens on a new scene", m_Project->GetName(), l_StartScene ? std::format("no asset {} for its start scene", l_StartScene) : std::string("no start scene"));
 
-        return;
+        return true;
     }
 
     OpenScene(l_Record->Path);
+
+    return true;
 }
 
 // The registry goes before the project unmounts /assets, and the asset manager lets go of it first
@@ -5611,37 +5768,29 @@ void EditorSession::DrawLanguagePopup()
 
     const LanguageQuestion& l_Question = *m_LanguageQuestion;
     ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
-    if (l_Question.NewProject)
+    // What the project starts with: one of the version's templates, or nothing but an empty start scene
+    const std::string l_Shown = l_Question.Template == 0 ? std::string("Empty") : l_Question.Templates[l_Question.Template - 1].Title;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Template");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+    if (ImGui::BeginCombo("##Template", l_Shown.c_str()))
     {
-        // What the project starts with: one of the version's templates, or nothing but an empty start scene
-        const std::string l_Shown = l_Question.Template == 0 ? std::string("Empty") : l_Question.Templates[l_Question.Template - 1].Title;
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Template");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
-        if (ImGui::BeginCombo("##Template", l_Shown.c_str()))
+        for (std::size_t it_Index = 0; it_Index <= l_Question.Templates.size(); ++it_Index)
         {
-            for (std::size_t it_Index = 0; it_Index <= l_Question.Templates.size(); ++it_Index)
+            if (ImGui::Selectable(it_Index == 0 ? "Empty" : l_Question.Templates[it_Index - 1].Title.c_str(), it_Index == l_Question.Template))
             {
-                if (ImGui::Selectable(it_Index == 0 ? "Empty" : l_Question.Templates[it_Index - 1].Title.c_str(), it_Index == l_Question.Template))
-                {
-                    m_LanguageQuestion->Template = it_Index;
-                }
+                m_LanguageQuestion->Template = it_Index;
             }
-
-            ImGui::EndCombo();
         }
 
-        ImGui::TextDisabled("%s", l_Question.Template == 0 ? "An empty start scene, and nothing else" : l_Question.Templates[l_Question.Template - 1].Description.c_str());
-        ImGui::Spacing();
-        ImGui::TextUnformatted(std::format("Which language are {}'s scripts written in?", ToUtf8(l_Question.Path.filename())).c_str());
-        ImGui::TextDisabled("It is chosen once, as the project is made, and cannot change later. Forge shows only that language's menus, templates and scripts, and builds only it.");
+        ImGui::EndCombo();
     }
-    else
-    {
-        ImGui::TextUnformatted(std::format("{} was made before a project had one language, and has {}.", l_Question.Name, l_Question.HasModule ? "both a C++ module and a C# project" : "no scripts yet").c_str());
-        ImGui::TextDisabled(l_Question.HasModule ? "Pick the language it keeps, which cannot change later. The other language's files stay on disk, unbuilt, and its scripts in scenes are kept with their values and do not run." : "Pick the language its scripts will be written in, which cannot change later.");
-    }
+
+    ImGui::TextDisabled("%s", l_Question.Template == 0 ? "An empty start scene, and nothing else" : l_Question.Templates[l_Question.Template - 1].Description.c_str());
+    ImGui::Spacing();
+    ImGui::TextUnformatted(std::format("Which language are {}'s scripts written in?", ToUtf8(l_Question.Path.filename())).c_str());
+    ImGui::TextDisabled("It is chosen once, as the project is made, and cannot change later. Forge shows only that language's menus, templates and scripts, and builds only it.");
 
     ImGui::PopTextWrapPos();
     ImGui::Spacing();
@@ -5661,15 +5810,7 @@ void EditorSession::DrawLanguagePopup()
     ImGui::SameLine();
     if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
     {
-        if (l_Question.NewProject)
-        {
-            TR_INFO("Forge: no project was made in {}, as no language was chosen", ToUtf8(l_Question.Path));
-        }
-        else
-        {
-            TR_INFO("Forge: {} was not opened, as no language was chosen", l_Question.Name);
-        }
-
+        TR_INFO("Forge: no project was made in {}, as no language was chosen", ToUtf8(l_Question.Path));
         m_LanguageQuestion.reset();
         ImGui::CloseCurrentPopup();
     }
@@ -5678,16 +5819,89 @@ void EditorSession::DrawLanguagePopup()
     {
         m_Pending.push_back([this, l_Asked = std::move(*m_LanguageQuestion), l_Language = *l_Chosen]
         {
-            if (l_Asked.NewProject)
-            {
-                CreateProject(l_Asked.Path, l_Language, l_Asked.Template == 0 ? nullptr : &l_Asked.Templates[l_Asked.Template - 1]);
-            }
-            else
-            {
-                OpenProject(l_Asked.Path, l_Language);
-            }
+            CreateProject(l_Asked.Path, l_Language, l_Asked.Template == 0 ? nullptr : &l_Asked.Templates[l_Asked.Template - 1]);
         });
         m_LanguageQuestion.reset();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+// As Unity asks before opening a project of an older editor: what moving it does, and the language it keeps when it has both or neither, which must be picked before it moves. Cancel leaves every file of it as it is
+void EditorSession::DrawUpgradePopup()
+{
+    if (std::exchange(m_OpenUpgradePopup, false))
+    {
+        ImGui::OpenPopup(c_UpgradePopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_UpgradePopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    if (!m_UpgradeQuestion)
+    {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    UpgradeQuestion& l_Question = *m_UpgradeQuestion;
+    const Trinity::ProjectFileInfo& l_Info = l_Question.Info;
+    const std::string l_Old = l_Info.EngineVersion.empty() ? std::string("an unknown version") : std::format("Trinity {}", l_Info.EngineVersion);
+    const bool l_AskLanguage = !l_Info.Language;
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 34.0f);
+    ImGui::TextUnformatted(std::format("{} was made with {}, and this is Trinity {}.", l_Info.Name, l_Old, Trinity::GetVersionString()).c_str());
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Opening it here moves it to this version:");
+    // Bullet and text rather than BulletText, which does not wrap
+    ImGui::Bullet();
+    ImGui::TextUnformatted(std::format("It is backed up first, as {} beside its folder, holding everything but Cache, Build and Builds.", ToUtf8(l_Question.Backup.filename())).c_str());
+    ImGui::Bullet();
+    ImGui::TextUnformatted(std::format("Its project file, from format {} to {}, and every scene, prefab, input actions asset, mixer and sound event are saved in this version's formats, and its scripts are built again.", l_Info.Format, Trinity::Project::c_FormatVersion).c_str());
+    ImGui::Bullet();
+    ImGui::TextUnformatted(std::format("{} cannot open it afterwards.", l_Old).c_str());
+    if (l_AskLanguage)
+    {
+        ImGui::Spacing();
+        ImGui::TextUnformatted(std::format("It was made before a project had one language, and has {}. Which language does it keep?", l_Info.HasModule ? "both a C++ module and a C# project" : "no scripts yet").c_str());
+        ImGui::TextDisabled(l_Info.HasModule ? "It cannot change later. The other language's files stay on disk, unbuilt, and its scripts in scenes are kept with their values and do not run." : "It cannot change later.");
+        if (ImGui::RadioButton("C#", l_Question.Language == Trinity::ScriptLanguage::CSharp))
+        {
+            l_Question.Language = Trinity::ScriptLanguage::CSharp;
+        }
+
+        ImGui::SameLine();
+        if (ImGui::RadioButton("C++", l_Question.Language == Trinity::ScriptLanguage::Cpp))
+        {
+            l_Question.Language = Trinity::ScriptLanguage::Cpp;
+        }
+    }
+
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+
+    ImGui::BeginDisabled(!l_Question.Language);
+    const bool l_Move = ImGui::Button("Back Up and Open");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    {
+        TR_INFO("Forge: {} was left as it is, as moving it to Trinity {} was declined", l_Info.Name, Trinity::GetVersionString());
+        m_UpgradeQuestion.reset();
+        ImGui::CloseCurrentPopup();
+    }
+    else if (l_Move)
+    {
+        m_Pending.push_back([this, l_File = l_Question.File, l_Language = l_Question.Language]
+        {
+            static_cast<void>(LoadProject(l_File, l_Language, true));
+        });
+        m_UpgradeQuestion.reset();
         ImGui::CloseCurrentPopup();
     }
 

@@ -106,7 +106,7 @@ namespace Trinity
                 continue;
             }
 
-            if (Expected<ProjectTemplate, std::string> l_Template = ReadProjectTemplate(it_Entry.path()))
+            if (Expected<ProjectTemplate, std::string> l_Template = ReadProjectTemplate(it_Entry.path(), projectFormat))
             {
                 l_Templates.push_back(std::move(*l_Template));
             }

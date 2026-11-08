@@ -609,11 +609,6 @@ namespace Trinity
             l_Project->m_Export.Scenes.push_back({ l_Project->m_StartScene, true });
         }
 
-        if (!l_Project->IsCurrentEngineVersion())
-        {
-            TR_CORE_WARN("Project: {} was made with Trinity {}, and this is Trinity {}. It is opened as it is", l_Project->m_Name, l_Project->m_EngineVersion.empty() ? "of an unknown version" : l_Project->m_EngineVersion, GetVersionString());
-        }
-
         TR_CORE_INFO("Project: opened {} from {}", l_Project->m_Name, ToUtf8(l_File));
 
         return l_Project;
@@ -655,6 +650,17 @@ namespace Trinity
         }
 
         return {};
+    }
+
+    ProjectAge Project::GetAge(const ProjectFileInfo& info)
+    {
+        const std::strong_ordering l_Version = info.EngineVersion.empty() ? std::strong_ordering::less : CompareVersions(info.EngineVersion, GetVersionString());
+        if (info.Format > c_FormatVersion || l_Version > 0)
+        {
+            return ProjectAge::Newer;
+        }
+
+        return info.Format < c_FormatVersion || l_Version < 0 ? ProjectAge::Older : ProjectAge::Current;
     }
 
     bool Project::IsCurrentEngineVersion() const

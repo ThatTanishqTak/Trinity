@@ -2,6 +2,7 @@
 
 #include "Trinity/Core/Export.hpp"
 
+#include <compare>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -26,4 +27,7 @@ namespace Trinity
     [[nodiscard]] TRINITY_API std::string GetBuildCommitDescription();
     // The version with its commit, as 0.11.0 (209a33d), which titles and logs show
     [[nodiscard]] TRINITY_API std::string GetVersionDescription();
+
+    // Versions as Semantic Versioning orders them: major, minor and patch by number, a pre-release, whose version carries a hyphen, before its release, and its identifiers each by number or text. Hub orders its versions by it, and Forge refuses a project of a version newer than its own
+    [[nodiscard]] TRINITY_API std::strong_ordering CompareVersions(std::string_view left, std::string_view right);
 }

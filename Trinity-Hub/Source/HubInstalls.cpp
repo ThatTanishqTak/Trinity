@@ -71,104 +71,6 @@ namespace
 
         return l_Path;
     }
-
-    bool IsNumber(std::string_view text)
-    {
-        return !text.empty() && std::ranges::all_of(text, [](char character) { return character >= '0' && character <= '9'; });
-    }
-
-    // By value, however long, without reading them into an integer that could overflow
-    std::strong_ordering CompareNumbers(std::string_view left, std::string_view right)
-    {
-        const auto l_Trim = [](std::string_view text)
-        {
-            const std::size_t l_First = text.find_first_not_of('0');
-
-            return l_First == std::string_view::npos ? std::string_view() : text.substr(l_First);
-        };
-
-        left = l_Trim(left);
-        right = l_Trim(right);
-        if (left.size() != right.size())
-        {
-            return left.size() <=> right.size();
-        }
-
-        return left <=> right;
-    }
-
-    // A number before text, as Semantic Versioning orders identifiers
-    std::strong_ordering CompareIdentifiers(std::string_view left, std::string_view right)
-    {
-        const bool l_LeftNumber = IsNumber(left);
-        const bool l_RightNumber = IsNumber(right);
-        if (l_LeftNumber && l_RightNumber)
-        {
-            return CompareNumbers(left, right);
-        }
-
-        if (l_LeftNumber != l_RightNumber)
-        {
-            return l_LeftNumber ? std::strong_ordering::less : std::strong_ordering::greater;
-        }
-
-        return left <=> right;
-    }
-
-    std::vector<std::string_view> Split(std::string_view text, char separator)
-    {
-        std::vector<std::string_view> l_Parts;
-        while (true)
-        {
-            const std::size_t l_End = text.find(separator);
-            l_Parts.push_back(text.substr(0, l_End));
-            if (l_End == std::string_view::npos)
-            {
-                return l_Parts;
-            }
-
-            text.remove_prefix(l_End + 1);
-        }
-    }
-}
-
-std::strong_ordering CompareEngineVersions(std::string_view left, std::string_view right)
-{
-    left = left.substr(0, left.find('+'));
-    right = right.substr(0, right.find('+'));
-    const std::size_t l_LeftHyphen = left.find('-');
-    const std::size_t l_RightHyphen = right.find('-');
-
-    const std::vector<std::string_view> l_LeftCore = Split(left.substr(0, l_LeftHyphen), '.');
-    const std::vector<std::string_view> l_RightCore = Split(right.substr(0, l_RightHyphen), '.');
-    for (std::size_t it_Part = 0; it_Part < std::max(l_LeftCore.size(), l_RightCore.size()); ++it_Part)
-    {
-        const std::string_view l_Left = it_Part < l_LeftCore.size() ? l_LeftCore[it_Part] : std::string_view("0");
-        const std::string_view l_Right = it_Part < l_RightCore.size() ? l_RightCore[it_Part] : std::string_view("0");
-        if (const std::strong_ordering l_Order = CompareIdentifiers(l_Left, l_Right); l_Order != 0)
-        {
-            return l_Order;
-        }
-    }
-
-    const bool l_LeftRelease = l_LeftHyphen == std::string_view::npos;
-    const bool l_RightRelease = l_RightHyphen == std::string_view::npos;
-    if (l_LeftRelease || l_RightRelease)
-    {
-        return l_LeftRelease == l_RightRelease ? std::strong_ordering::equal : (l_LeftRelease ? std::strong_ordering::greater : std::strong_ordering::less);
-    }
-
-    const std::vector<std::string_view> l_LeftPre = Split(left.substr(l_LeftHyphen + 1), '.');
-    const std::vector<std::string_view> l_RightPre = Split(right.substr(l_RightHyphen + 1), '.');
-    for (std::size_t it_Part = 0; it_Part < std::min(l_LeftPre.size(), l_RightPre.size()); ++it_Part)
-    {
-        if (const std::strong_ordering l_Order = CompareIdentifiers(l_LeftPre[it_Part], l_RightPre[it_Part]); l_Order != 0)
-        {
-            return l_Order;
-        }
-    }
-
-    return l_LeftPre.size() <=> l_RightPre.size();
 }
 
 // A size still being counted is let finish its folder and dropped
@@ -486,7 +388,7 @@ void HubInstalls::Sort()
 {
     std::ranges::stable_sort(m_Installs, [](const HubInstall& left, const HubInstall& right)
     {
-        if (const std::strong_ordering l_Order = CompareEngineVersions(left.Manifest.Version, right.Manifest.Version); l_Order != 0)
+        if (const std::strong_ordering l_Order = Trinity::CompareVersions(left.Manifest.Version, right.Manifest.Version); l_Order != 0)
         {
             return l_Order > 0;
         }

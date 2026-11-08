@@ -77,6 +77,14 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ProjectFileInfo&) const = default;
     };
 
+    // How a project stands to this engine, as its file says: of this version and format, of an older one, which moves to this version once asked and backed up, or of a newer one, which this engine cannot open
+    enum class ProjectAge : std::uint8_t
+    {
+        Current,
+        Older,
+        Newer
+    };
+
     class TRINITY_API Project
     {
     public:
@@ -96,6 +104,8 @@ namespace Trinity
         [[nodiscard]] static Expected<std::filesystem::path, std::string> FindFile(const std::filesystem::path& path);
         // What the file says of the project, read from the disk without mounting anything, ignoring what it does not know. Refused only for a file that cannot be read or is not a project's YAML
         [[nodiscard]] static Expected<ProjectFileInfo, std::string> ReadInfo(const std::filesystem::path& file);
+        // A version or format newer than this engine's makes it Newer, and either older, or no version named, as before versions were kept, makes it Older
+        [[nodiscard]] static ProjectAge GetAge(const ProjectFileInfo& info);
         // Cache/Forge.lock in the project's folder, which the Forge that has the project open holds, so a second Forge, or Hub, finds that one and brings it forward rather than opening the project twice
         [[nodiscard]] static std::filesystem::path GetLockFile(const std::filesystem::path& directory);
 
@@ -109,6 +119,8 @@ namespace Trinity
         [[nodiscard]] const std::string& GetName() const { return m_Name; }
         [[nodiscard]] const std::string& GetEngineVersion() const { return m_EngineVersion; }
         [[nodiscard]] bool IsCurrentEngineVersion() const;
+        // From now on it names this engine's version, as moving it to this version does, which Save writes
+        void TakeCurrentEngineVersion() { m_EngineVersion = GetVersionString(); }
 
         [[nodiscard]] UUID GetStartScene() const { return m_StartScene; }
         void SetStartScene(UUID scene) { m_StartScene = scene; }

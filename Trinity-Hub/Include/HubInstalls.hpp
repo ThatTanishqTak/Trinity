@@ -3,7 +3,6 @@
 #include <Trinity.hpp>
 
 #include <atomic>
-#include <compare>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -97,6 +96,3 @@ private:
     bool m_CountAgain = false;
     Trinity::JobCounter m_Jobs;
 };
-
-// Versions as Semantic Versioning orders them: major, minor and patch by number, a pre-release, whose version carries a hyphen, before its release, and its identifiers each by number or text
-[[nodiscard]] std::strong_ordering CompareEngineVersions(std::string_view left, std::string_view right);

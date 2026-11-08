@@ -258,7 +258,7 @@ Trinity::Expected<std::vector<HubRelease>, std::string> HubReleases::Parse(std::
 
     std::ranges::stable_sort(l_Releases, [](const HubRelease& left, const HubRelease& right)
     {
-        if (const std::strong_ordering l_Order = CompareEngineVersions(left.Version, right.Version); l_Order != 0)
+        if (const std::strong_ordering l_Order = Trinity::CompareVersions(left.Version, right.Version); l_Order != 0)
         {
             return l_Order > 0;
         }

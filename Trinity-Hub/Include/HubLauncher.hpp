@@ -6,13 +6,14 @@
 #include <Trinity.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-// Opens projects in Forge, each in the engine version it names, as Unity Hub opens each in its own editor, makes new ones in the Forge of the version chosen, and runs the game a project's last export made. A Forge is started on the project, with its log in the project's Cache/Logs and Hub's folder for the projects list, and is kept hold of until it ends, so one that ends with an error in its first seconds, as one that cannot open its project does, is told of with what its log says
+// Opens projects in Forge, each in the engine version it names, as Unity Hub opens each in its own editor, or in a newer one it moves to, makes new ones in the Forge of the version chosen, and runs the game a project's last export made. A Forge is started on the project, with its log in the project's Cache/Logs and Hub's folder for the projects list, and is kept hold of until it ends, so one that ends with an error in its first seconds, as one that cannot open its project does, or before the project it moves names its version, is told of with what its log says
 class HubLauncher
 {
 public:
@@ -43,6 +44,8 @@ public:
 
     // In the version's Forge, unless a Forge has it open already, which is brought forward
     [[nodiscard]] Report Open(const HubProject& project, const HubInstall& install);
+    // In a newer version's Forge, as --upgrade-project, which backs the project up and moves it to that version as it opens it, unless a Forge has it open already, which is brought forward and must close it first. language is what one older than format 10 with both a C++ module and a C# project, or neither, keeps, and is given only for one of those
+    [[nodiscard]] Report Upgrade(const HubProject& project, const HubInstall& install, std::optional<Trinity::ScriptLanguage> language);
     // By the version's Forge, as --new-project, which writes every file in that version's formats and then opens it, unless its folder is there and not empty
     [[nodiscard]] Report Create(const Creation& creation, const HubInstall& install);
     // The game the project's last export made, from the folder it was exported to
@@ -54,6 +57,14 @@ public:
     [[nodiscard]] bool TakeChanged();
 
 private:
+    // What a Forge was started to do
+    enum class Purpose : std::uint8_t
+    {
+        Open,
+        Upgrade,
+        Create
+    };
+
     struct Launched
     {
         std::filesystem::path ProjectFile;
@@ -64,12 +75,18 @@ private:
         // When its log and the project's last export were written as it started, so a log it never wrote is not read for its error, and an export it records is seen
         std::optional<std::filesystem::file_time_type> LogTime;
         std::optional<std::filesystem::file_time_type> ExportTime;
-        // Started to make the project rather than open it, and whether its folder was not there before, so Hub may take it away again when this Forge fails without doing so itself
-        bool Creating = false;
+        // Whether the folder of a project it makes was not there before, so Hub may take it away again when this Forge fails without doing so itself
+        Purpose Doing = Purpose::Open;
         bool RemoveOnFailure = false;
+        // The version a project it moves named, so one ending with an error while the project names it still failed to move it, however long its backup took
+        std::string FromVersion;
     };
 
+    // Open's and Upgrade's: the Forge started with options, then its log and Hub's folder
+    [[nodiscard]] Report Start(const HubProject& project, const HubInstall& install, Purpose purpose, std::vector<std::string> options);
     [[nodiscard]] static std::string DescribeFailure(const Launched& launched, int exitCode);
+    // A Forge started to move a project that ended while the project names the version it was moved from, so it never moved
+    [[nodiscard]] static bool IsUnmoved(const Launched& launched);
     // What a Forge that failed to make its project left, taken away and off the list when its folder was new, said after the failure
     [[nodiscard]] std::string RemoveFailedCreation(const Launched& launched) const;
 
