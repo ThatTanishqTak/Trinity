@@ -2,6 +2,8 @@
 
 #include "Modules/BuildOutput.hpp"
 
+#include <Trinity/Tools/BuildTools.hpp>
+
 #include <chrono>
 #include <format>
 #include <string>
@@ -23,33 +25,6 @@ namespace
         const std::u8string l_Text = path.u8string();
 
         return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
-    }
-
-    // On the PATH, then where DOTNET_ROOT points, then where the installers put it
-    std::filesystem::path FindDotNet(const Trinity::Process::Environment& environment)
-    {
-        if (std::filesystem::path l_Found = Trinity::Process::FindExecutable("dotnet", &environment); !l_Found.empty())
-        {
-            return l_Found;
-        }
-
-#if defined(TR_PLATFORM_WINDOWS)
-        constexpr std::string_view c_Executable = "dotnet.exe";
-        const std::vector<std::filesystem::path> l_Folders{ FromUtf8(Trinity::Process::FindVariable(environment, "DOTNET_ROOT").value_or("")), FromUtf8(Trinity::Process::FindVariable(environment, "ProgramFiles").value_or("C:\\Program Files")) / "dotnet" };
-#else
-        constexpr std::string_view c_Executable = "dotnet";
-        const std::vector<std::filesystem::path> l_Folders{ FromUtf8(Trinity::Process::FindVariable(environment, "DOTNET_ROOT").value_or("")), "/usr/local/share/dotnet", "/usr/share/dotnet", "/usr/lib/dotnet" };
-#endif
-        std::error_code l_Error;
-        for (const std::filesystem::path& it_Folder : l_Folders)
-        {
-            if (!it_Folder.empty() && std::filesystem::exists(it_Folder / c_Executable, l_Error))
-            {
-                return it_Folder / c_Executable;
-            }
-        }
-
-        return {};
     }
 
     // This Forge's own platform, which a player built beside it runs on
@@ -79,11 +54,9 @@ namespace
     bool BuildAssembly(const AssemblyBuild::Request& request, const std::atomic<bool>& cancel, BuildOutput& output)
     {
         Trinity::Process::Environment l_Environment = Trinity::Process::GetEnvironment();
-        Trinity::Process::SetVariable(l_Environment, "DOTNET_NOLOGO", "1");
-        Trinity::Process::SetVariable(l_Environment, "DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1");
-        Trinity::Process::SetVariable(l_Environment, "DOTNET_CLI_UI_LANGUAGE", "en");
+        Trinity::Tools::SetDotNetVariables(l_Environment);
 
-        const std::filesystem::path l_DotNet = FindDotNet(l_Environment);
+        const std::filesystem::path l_DotNet = Trinity::Tools::FindDotNet(l_Environment);
         if (l_DotNet.empty())
         {
             output.LogError(std::format("Build: the .NET 10 SDK was not found, so the C# scripts cannot be built. Install it from https://dotnet.microsoft.com/download/dotnet/10.0, or point DOTNET_ROOT at it"));

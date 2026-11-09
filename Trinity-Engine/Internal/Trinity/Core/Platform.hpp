@@ -173,6 +173,8 @@ namespace Trinity
         void PollGamepads(GamepadListener& listener, bool resync);
         // Each motor from 0 to 1, held until changed. Nothing for a slot with no pad
         void SetGamepadRumble(std::uint32_t slot, float lowFrequency, float highFrequency);
+        // Whether the platform's gamepad API is there to read pads through: the one Initialize found, or else one made and let go of at once. True where the platform has nothing to install
+        [[nodiscard]] bool HasGamepadRuntime();
 
         // A modal error box, for a failure the application cannot start past. Nothing where the platform has no windows, so the caller logs the message too
         void ShowErrorMessage(std::string_view title, std::string_view message);

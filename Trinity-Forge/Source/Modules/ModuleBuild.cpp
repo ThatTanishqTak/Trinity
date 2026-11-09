@@ -2,13 +2,12 @@
 
 #include "Modules/BuildOutput.hpp"
 
-#include <algorithm>
-#include <array>
+#include <Trinity/Tools/BuildTools.hpp>
+
 #include <chrono>
 #include <format>
 #include <fstream>
 #include <mutex>
-#include <regex>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -17,9 +16,6 @@
 namespace
 {
     using Clock = std::chrono::steady_clock;
-
-    // The oldest CMake Trinity builds with
-    constexpr std::array<int, 2> c_MinimumCMake{ 3, 30 };
 
     std::filesystem::path FromUtf8(std::string_view text)
     {
@@ -41,93 +37,17 @@ namespace
         return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
     }
 
-#if defined(TR_PLATFORM_WINDOWS)
-    // The Visual Studio Forge was built with, found from its compiler's path, at the toolset it was built with. Otherwise the latest with the C++ tools, which vswhere finds. Its environment is what vcvars64.bat leaves, read from a batch file that runs it then lists every variable
-    Trinity::Expected<Trinity::Process::Environment, std::string> FindMsvcEnvironment(const std::atomic<bool>* cancel)
+    // The compiler Forge was built with, whose Visual Studio builds its modules while it is there, as a version's toolchain names the same one
+    std::filesystem::path GetForgeCompiler()
     {
-        std::filesystem::path l_VcVars;
-        std::string l_Toolset;
 #if defined(TR_FORGE_CXX_COMPILER)
-        // Forge's compiler is <Visual Studio>/VC/Tools/MSVC/<toolset>/bin/Hostx64/x64/cl.exe
-        const std::filesystem::path l_Compiler = FromUtf8(TR_FORGE_CXX_COMPILER);
-        for (std::filesystem::path it_Folder = l_Compiler.parent_path(); it_Folder.has_relative_path(); it_Folder = it_Folder.parent_path())
-        {
-            const std::filesystem::path l_Tools = it_Folder.parent_path();
-            if (l_Tools.filename() == "MSVC" && l_Tools.parent_path().filename() == "Tools" && l_Tools.parent_path().parent_path().filename() == "VC")
-            {
-                l_Toolset = ToUtf8(it_Folder.filename());
-                l_VcVars = l_Tools.parent_path().parent_path() / "Auxiliary" / "Build" / "vcvars64.bat";
-
-                break;
-            }
-        }
+        return FromUtf8(TR_FORGE_CXX_COMPILER);
+#else
+        return {};
 #endif
-
-        std::error_code l_Error;
-        const Trinity::Process::Environment l_Environment = Trinity::Process::GetEnvironment();
-        if (l_VcVars.empty() || !std::filesystem::exists(l_VcVars, l_Error))
-        {
-            l_Toolset.clear();
-            const std::string l_ProgramFiles = Trinity::Process::FindVariable(l_Environment, "ProgramFiles(x86)").value_or("C:\\Program Files (x86)");
-            const std::filesystem::path l_VsWhere = FromUtf8(l_ProgramFiles) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe";
-            std::string l_Installation;
-            Trinity::ProcessOptions l_Options;
-            l_Options.Cancel = cancel;
-            l_Options.OnLine = [&l_Installation](std::string_view line)
-            {
-                if (l_Installation.empty() && !line.empty())
-                {
-                    l_Installation = line;
-                }
-            };
-
-            const std::vector<std::string> l_Arguments{ "-latest", "-prerelease", "-products", "*", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property", "installationPath" };
-            if (!std::filesystem::exists(l_VsWhere, l_Error) || !Trinity::Process::Run(l_VsWhere, l_Arguments, l_Options) || l_Installation.empty())
-            {
-                return Trinity::Unexpected{ std::string("Visual Studio with its C++ tools was not found, so the module cannot be built. Install the Desktop development with C++ workload") };
-            }
-
-            l_VcVars = FromUtf8(l_Installation) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat";
-        }
-
-        const std::filesystem::path l_Batch = std::filesystem::temp_directory_path(l_Error) / "TrinityModuleEnvironment.bat";
-        {
-            std::ofstream l_File(l_Batch, std::ios::binary | std::ios::trunc);
-            l_File << "@call \"" << ToUtf8(l_VcVars) << "\"" << (l_Toolset.empty() ? std::string() : " -vcvars_ver=" + l_Toolset) << " >nul\r\n@if errorlevel 1 exit /b 1\r\n@set\r\n";
-            if (!l_File)
-            {
-                return Trinity::Unexpected{ std::format("{} could not be written", ToUtf8(l_Batch)) };
-            }
-        }
-
-        Trinity::Process::Environment l_Result;
-        Trinity::ProcessOptions l_Options;
-        l_Options.Cancel = cancel;
-        l_Options.OnLine = [&l_Result](std::string_view line)
-        {
-            const std::size_t l_Equals = line.find('=');
-            if (l_Equals != std::string_view::npos && l_Equals != 0)
-            {
-                l_Result.emplace_back(line.substr(0, l_Equals), line.substr(l_Equals + 1));
-            }
-        };
-
-        const std::filesystem::path l_Shell = FromUtf8(Trinity::Process::FindVariable(l_Environment, "ComSpec").value_or("C:\\Windows\\System32\\cmd.exe"));
-        const std::vector<std::string> l_Arguments{ "/d", "/c", ToUtf8(l_Batch) };
-        const Trinity::Expected<int, std::string> l_Ran = Trinity::Process::Run(l_Shell, l_Arguments, l_Options);
-        std::filesystem::remove(l_Batch, l_Error);
-        if (!l_Ran || *l_Ran != 0 || !Trinity::Process::FindVariable(l_Result, "INCLUDE"))
-        {
-            return Trinity::Unexpected{ std::format("{} did not set up the compiler{}", ToUtf8(l_VcVars), l_Ran ? std::string() : ": " + l_Ran.GetError()) };
-        }
-
-        TR_INFO("Build: using the compiler environment of {}{}", ToUtf8(l_VcVars), l_Toolset.empty() ? std::string() : std::format(" at toolset {}", l_Toolset));
-
-        return l_Result;
     }
-#endif
 
-    // Found once a session, since vcvars64.bat takes seconds, with Visual Studio's messages asked for in English, which the output is read in
+    // Found once a session, since vcvars64.bat takes seconds: the Visual Studio of the compiler Forge was built with, at its toolset, while it is there, as Hub checks for each version
     Trinity::Expected<Trinity::Process::Environment, std::string> GetBuildEnvironment(const std::atomic<bool>* cancel)
     {
         static std::mutex s_Mutex;
@@ -136,47 +56,21 @@ namespace
         std::lock_guard l_Lock(s_Mutex);
         if (!s_Environment)
         {
-#if defined(TR_PLATFORM_WINDOWS)
-            Trinity::Expected<Trinity::Process::Environment, std::string> l_Found = FindMsvcEnvironment(cancel);
+            Trinity::Expected<Trinity::Tools::BuildEnvironment, std::string> l_Found = Trinity::Tools::FindBuildEnvironment(GetForgeCompiler(), cancel);
             if (!l_Found)
             {
-                return l_Found;
+                return Trinity::Unexpected{ l_Found.GetError() };
             }
 
-            s_Environment = std::move(*l_Found);
-#else
-            static_cast<void>(cancel);
-            s_Environment = Trinity::Process::GetEnvironment();
-#endif
-            Trinity::Process::SetVariable(*s_Environment, "VSLANG", "1033");
+            if (!l_Found->VcVars.empty())
+            {
+                TR_INFO("Build: using the compiler environment of {}{}", ToUtf8(l_Found->VcVars), l_Found->Toolset.empty() ? std::string() : std::format(" at toolset {}", l_Found->Toolset));
+            }
+
+            s_Environment = std::move(l_Found->Variables);
         }
 
         return *s_Environment;
-    }
-
-    // CMake's major and minor version, from the first line of cmake --version
-    std::optional<std::array<int, 2>> ReadCMakeVersion(const std::filesystem::path& cmake, const Trinity::Process::Environment& environment)
-    {
-        std::optional<std::array<int, 2>> l_Version;
-        Trinity::ProcessOptions l_Options;
-        l_Options.Environment = environment;
-        l_Options.OnLine = [&l_Version](std::string_view line)
-        {
-            static const std::regex c_Version(R"(^cmake version (\d+)\.(\d+).*$)");
-            std::match_results<std::string_view::const_iterator> l_Match;
-            if (!l_Version && std::regex_match(line.begin(), line.end(), l_Match, c_Version))
-            {
-                l_Version = std::array<int, 2>{ std::stoi(l_Match[1].str()), std::stoi(l_Match[2].str()) };
-            }
-        };
-
-        const std::vector<std::string> l_Arguments{ "--version" };
-        if (!Trinity::Process::Run(cmake, l_Arguments, l_Options))
-        {
-            return std::nullopt;
-        }
-
-        return l_Version;
     }
 
     // A value CMakeCache.txt holds, by its name and type, or nothing
@@ -241,10 +135,11 @@ namespace
         }
 
         const std::filesystem::path l_CMake = Trinity::Process::FindExecutable("cmake", &*l_Environment);
-        const std::optional<std::array<int, 2>> l_Version = l_CMake.empty() ? std::nullopt : ReadCMakeVersion(l_CMake, *l_Environment);
-        if (!l_Version || *l_Version < c_MinimumCMake)
+        const std::optional<std::string> l_Version = l_CMake.empty() ? std::nullopt : Trinity::Tools::ReadCMakeVersion(l_CMake, *l_Environment, &cancel);
+        if (!l_Version || Trinity::CompareVersions(*l_Version, Trinity::Tools::c_MinimumCMake) < 0)
         {
-            output.LogError(std::format("Build: CMake {}.{} or newer must be on the PATH to build C++ modules, and {}", c_MinimumCMake[0], c_MinimumCMake[1], l_CMake.empty() ? std::string("none was found") : l_Version ? std::format("{} is {}.{}", ToUtf8(l_CMake), (*l_Version)[0], (*l_Version)[1]) : std::format("{} did not say its version", ToUtf8(l_CMake))));
+            output.LogError(std::format("Build: CMake {} or newer must be on the PATH to build C++ modules, and {}", Trinity::Tools::c_MinimumCMake, l_CMake.empty() ? std::string("none was found") : l_Version ? std::format("{} is {}", ToUtf8(l_CMake), *l_Version) : std::format("{} did not say its version", ToUtf8(l_CMake))));
+
 
             return false;
         }
@@ -289,7 +184,7 @@ namespace
 
         if (NeedsConfigure(request.BuildDirectory, l_Engine, l_Generator))
         {
-            TR_INFO("Build: configuring {} for {} with {} {}.{}", request.Name, request.Configuration, ToUtf8(l_CMake), (*l_Version)[0], (*l_Version)[1]);
+            TR_INFO("Build: configuring {} for {} with {} {}", request.Name, request.Configuration, ToUtf8(l_CMake), *l_Version);
             std::vector<std::string> l_Arguments{ "-S", ToUtf8(request.SourceDirectory), "-B", ToUtf8(request.BuildDirectory), "-G", l_Generator, std::format("-DCMAKE_BUILD_TYPE={}", request.Configuration), std::format("-DTrinity_DIR:PATH={}", ToGenericUtf8(l_Engine)), std::format("-DCMAKE_TOOLCHAIN_FILE={}", ToGenericUtf8(l_Engine / "TrinityToolchain.cmake")), "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" };
             if (!l_Ninja.empty())
             {

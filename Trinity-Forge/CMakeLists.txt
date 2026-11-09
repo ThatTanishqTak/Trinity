@@ -33,12 +33,12 @@ trinity_configure_executable(${TARGET_NAME})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_FORGE_HEADERS} ${TRINITY_FORGE_SOURCES})
 
 target_include_directories(${TARGET_NAME} PRIVATE Include)
-# The model importer's glTF, FBX, OBJ and COLLADA reading and mesh ordering stay in the editor, so no game links them
-target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine ktx zstd::headers stb::stb ImGuizmo::ImGuizmo fastgltf::fastgltf meshoptimizer assimp::assimp)
+# The model importer's glTF, FBX, OBJ and COLLADA reading and mesh ordering stay in the editor, so no game links them, and the tools a module and the scripts build with are found as Hub finds them
+target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine Trinity::Tools ktx zstd::headers stb::stb ImGuizmo::ImGuizmo fastgltf::fastgltf meshoptimizer assimp::assimp)
 trinity_check_editor_libraries(${TARGET_NAME} present ${TRINITY_EDITOR_LIBRARIES} ImGui ImGuizmo BasisEncoder)
 
-# ImGuizmo's own code keeps its own warnings, and reads ImGui before any precompiled header could
-set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/ImGuizmoUnit.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/W0,-w>")
+# ImGuizmo's own code keeps its own warnings, and reads ImGui before any precompiled header could. MSVC hides them with /external:W0, as ImGuizmo's folder is a system one, so it needs no /W0 of its own, which would only override /W4 with a warning of its own
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/ImGuizmoUnit.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>")
 
 # Forge builds a project's C++ module with its own compiler, and on Windows finds that compiler's Visual Studio from its path
 target_compile_definitions(${TARGET_NAME} PRIVATE TR_FORGE_CXX_COMPILER="${CMAKE_CXX_COMPILER}")

@@ -17,6 +17,7 @@
 namespace
 {
     constexpr const char* c_DeletePopup = "Delete Version###HubDeleteVersion";
+    constexpr const char* c_NeedsPopup = "What This Version Needs###HubNeeds";
     constexpr std::array<Trinity::FileDialogFilter, 1> c_ZipFilters{ { { "Trinity version", "zip" } } };
 
     std::string JoinNames(const std::vector<std::string>& names)
@@ -41,7 +42,7 @@ namespace
     }
 }
 
-InstallsPage::InstallsPage(HubInstalls& installs, HubReleases& releases, HubSettings& settings, HubPathPrompt& prompt, std::filesystem::path defaultInstallsDirectory) : m_Installs(installs), m_Releases(releases), m_Settings(settings), m_Prompt(prompt), m_DefaultInstallsDirectory(std::move(defaultInstallsDirectory))
+InstallsPage::InstallsPage(HubInstalls& installs, HubReleases& releases, HubSettings& settings, HubPathPrompt& prompt, HubRequirements& requirements, std::filesystem::path defaultInstallsDirectory) : m_Installs(installs), m_Releases(releases), m_Settings(settings), m_Prompt(prompt), m_Requirements(requirements), m_DefaultInstallsDirectory(std::move(defaultInstallsDirectory))
 {
 
 }
@@ -114,6 +115,7 @@ void InstallsPage::Draw()
     }
 
     DrawDeletePopup();
+    DrawNeedsPopup();
 }
 
 // The folder's manifest is read as it is chosen, and must be of a version this machine runs
@@ -308,7 +310,7 @@ void InstallsPage::DrawStatus()
 void InstallsPage::DrawList()
 {
     constexpr ImGuiTableFlags c_Flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_PadOuterX;
-    if (!ImGui::BeginTable("##Installs", 9, c_Flags))
+    if (!ImGui::BeginTable("##Installs", 10, c_Flags))
     {
         return;
     }
@@ -320,6 +322,7 @@ void InstallsPage::DrawList()
     ImGui::TableSetupColumn("Date");
     ImGui::TableSetupColumn("Configurations");
     ImGui::TableSetupColumn("Exports");
+    ImGui::TableSetupColumn("Needs");
     ImGui::TableSetupColumn("Size");
     ImGui::TableSetupColumn("Folder", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableSetupColumn("##Actions");
@@ -382,6 +385,10 @@ void InstallsPage::DrawList()
 
         ImGui::TableNextColumn();
         ImGui::AlignTextToFramePadding();
+        DrawNeeds(l_Install);
+
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
         if (l_Install.Missing)
         {
             ImGui::TextDisabled("-");
@@ -438,6 +445,181 @@ void InstallsPage::DrawList()
     {
         Remove(*l_Remove);
     }
+}
+
+// Ready, or what is missing in the colour of a warning, either opening the popup, and nothing for a version this machine cannot run
+void InstallsPage::DrawNeeds(const HubInstall& install)
+{
+    if (!HubInstalls::IsUsable(install))
+    {
+        ImGui::TextDisabled("-");
+
+        return;
+    }
+
+    const std::optional<HubRequirements::Report> l_Report = m_Requirements.GetReport(install);
+    if (!l_Report)
+    {
+        ImGui::TextDisabled("%s", std::format("{} Checking", Trinity::Icons::c_Spinner).c_str());
+
+        return;
+    }
+
+    std::vector<std::string> l_Missing;
+    for (const HubRequirements::Row& it_Row : l_Report->Rows)
+    {
+        if (!it_Row.Found)
+        {
+            l_Missing.push_back(it_Row.Name);
+        }
+    }
+
+    const bool l_Ready = l_Missing.empty();
+    ImGui::PushStyleColor(ImGuiCol_Text, l_Ready ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : ImGui::GetStyleColorVec4(ImGuiCol_PlotHistogram));
+    const std::string l_Label = l_Ready ? std::format("{} Ready", Trinity::Icons::c_CheckCircle) : std::format("{} {}", Trinity::Icons::c_Warning, JoinNames(l_Missing));
+    if (ImGui::Selectable(std::format("{}##Needs", l_Label).c_str(), false, ImGuiSelectableFlags_None, ImVec2(ImGui::CalcTextSize(l_Label.c_str()).x, 0.0f)))
+    {
+        m_Needs = install.Directory;
+        m_OpenNeedsPopup = true;
+    }
+
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        std::string l_Tooltip = l_Ready ? std::string("This machine has every tool this version's projects build with") : std::string("This machine is missing what this version's projects need");
+        for (const std::string* it_Refusal : { &l_Report->CSharpRefusal, &l_Report->CppRefusal })
+        {
+            if (!it_Refusal->empty())
+            {
+                l_Tooltip += std::format("\n{}", *it_Refusal);
+            }
+        }
+
+        ImGui::SetTooltip("%s", std::format("{}\nClick for each tool, where it was found or where to get it", l_Tooltip).c_str());
+    }
+}
+
+// Closes by itself once the version is off the list, and shows the last look while another is running
+void InstallsPage::DrawNeedsPopup()
+{
+    if (std::exchange(m_OpenNeedsPopup, false))
+    {
+        ImGui::OpenPopup(c_NeedsPopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(ImGui::GetFontSize() * 40.0f, 0.0f), ImVec2(ImGui::GetMainViewport()->WorkSize.x * 0.9f, ImGui::GetMainViewport()->WorkSize.y * 0.9f));
+    if (!ImGui::BeginPopupModal(c_NeedsPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    const HubInstall* l_Install = m_Needs ? m_Installs.Find(*m_Needs) : nullptr;
+    if (l_Install == nullptr || !HubInstalls::IsUsable(*l_Install))
+    {
+        m_Needs.reset();
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    const float l_Wrap = ImGui::GetFontSize() * 52.0f;
+    ImGui::PushTextWrapPos(l_Wrap);
+    ImGui::TextUnformatted(std::format("What {} needs on this machine, found as its Forge finds it", HubInstalls::Describe(l_Install->Manifest)).c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+
+    const std::optional<HubRequirements::Report> l_Report = m_Requirements.GetReport(*l_Install);
+    if (!l_Report)
+    {
+        ImGui::TextDisabled("%s", std::format("{} Looking for the tools, which takes a few seconds", Trinity::Icons::c_Spinner).c_str());
+    }
+    else if (ImGui::BeginTable("##NeedsRows", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_PadOuterX, ImVec2(l_Wrap, 0.0f)))
+    {
+        ImGui::TableSetupColumn("Tool");
+        ImGui::TableSetupColumn("Needs");
+        ImGui::TableSetupColumn("On this machine", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+        for (const HubRequirements::Row& it_Row : l_Report->Rows)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
+            ImGui::TextUnformatted(it_Row.Name.c_str());
+            ImGui::PopFont();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            {
+                ImGui::SetTooltip("%s", it_Row.Purpose.c_str());
+            }
+
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(it_Row.Wanted.c_str());
+
+            ImGui::TableNextColumn();
+            ImGui::PushTextWrapPos(0.0f);
+            if (it_Row.Found)
+            {
+                ImGui::TextWrapped("%s", std::format("{} {}", Trinity::Icons::c_CheckCircle, it_Row.Detail).c_str());
+                if (!it_Row.Note.empty())
+                {
+                    ImGui::TextDisabled("%s", it_Row.Note.c_str());
+                }
+            }
+            else
+            {
+                HubPages::DrawWarning(std::format("{} {}", Trinity::Icons::c_TimesCircle, it_Row.Detail));
+                // What it stops, or what it is for where it stops neither language, then where to get one
+                const std::string l_Lead = it_Row.StopsCSharp ? std::string("Without it C# scripts do not build") : it_Row.StopsCpp ? std::string("Without it C++ modules do not build") : it_Row.Purpose;
+                ImGui::TextDisabled("%s", std::format("{}. {}", l_Lead, it_Row.Remedy).c_str());
+            }
+
+            ImGui::PopTextWrapPos();
+        }
+
+        ImGui::EndTable();
+
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(l_Wrap);
+        for (const Trinity::ScriptLanguage it_Language : { Trinity::ScriptLanguage::CSharp, Trinity::ScriptLanguage::Cpp })
+        {
+            const std::string& l_Refusal = l_Report->GetRefusal(it_Language);
+            const std::string_view l_Name = it_Language == Trinity::ScriptLanguage::CSharp ? "C#" : "C++";
+            if (!l_Refusal.empty())
+            {
+                HubPages::DrawWarning(std::format("{} projects: New Project cannot make them with this version here. {}", l_Name, l_Refusal));
+            }
+            else
+            {
+                const bool l_Note = it_Language == Trinity::ScriptLanguage::CSharp && !l_Report->CSharpExportNote.empty();
+                ImGui::TextUnformatted(std::format("{} projects: ready{}", l_Name, l_Note ? std::format(". {}", l_Report->CSharpExportNote) : std::string()).c_str());
+            }
+        }
+
+        ImGui::PopTextWrapPos();
+    }
+
+    ImGui::Spacing();
+    ImGui::BeginDisabled(m_Requirements.IsChecking());
+    if (ImGui::Button(m_Requirements.IsChecking() ? std::format("{} Checking", Trinity::Icons::c_Spinner).c_str() : std::format("{} Check Again", Trinity::Icons::c_Refresh).c_str()))
+    {
+        m_Requirements.Check(m_Installs);
+    }
+
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Looks for every tool again, as after installing one");
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Close") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    {
+        m_Needs.reset();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
 }
 
 void InstallsPage::DrawDeletePopup()

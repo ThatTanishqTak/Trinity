@@ -3,6 +3,7 @@
 #include "HubInstalls.hpp"
 #include "HubLauncher.hpp"
 #include "HubPathPrompt.hpp"
+#include "HubRequirements.hpp"
 #include "HubSettings.hpp"
 #include "Pages/HubPage.hpp"
 
@@ -20,12 +21,12 @@
 struct ImTextureData;
 struct ImVec2;
 
-// Unity Hub's New project: one of the versions here, the newest at first, its templates as cards with their thumbnails and an Empty card after them, then the project's name, the folder it goes in, and its language, which must be picked and never changes. The folder the project is made in is shown before Create, which starts that version's Forge to make it, so the version's own code writes every file in its own formats, and a folder there already that is not empty is refused. Hub picks no platform, as the Build panel does that. Reached from the Projects page, whose place in the sidebar stays lit
+// Unity Hub's New project: one of the versions here, the newest at first, its templates as cards with their thumbnails and an Empty card after them, then the project's name, the folder it goes in, and its language, which must be picked and never changes, a language the version cannot build on this machine greyed with why. The folder the project is made in is shown before Create, which starts that version's Forge to make it, so the version's own code writes every file in its own formats, and a folder there already that is not empty is refused. Hub picks no platform, as the Build panel does that. Reached from the Projects page, whose place in the sidebar stays lit
 class NewProjectPage final : public HubPage
 {
 public:
     // created is handed what Create started, or why it could not, and cancelled is told the page was left without making one
-    NewProjectPage(const HubInstalls& installs, const HubSettings& settings, HubPathPrompt& prompt, HubLauncher& launcher, std::filesystem::path defaultProjectsDirectory, std::function<void(HubLauncher::Report report)> created, std::function<void()> cancelled);
+    NewProjectPage(const HubInstalls& installs, const HubSettings& settings, HubPathPrompt& prompt, HubLauncher& launcher, const HubRequirements& requirements, std::filesystem::path defaultProjectsDirectory, std::function<void(HubLauncher::Report report)> created, std::function<void()> cancelled);
     ~NewProjectPage() override;
 
     NewProjectPage(const NewProjectPage&) = delete;
@@ -52,6 +53,8 @@ private:
     void DrawCard(std::size_t index, float width);
     void DrawDetails();
     void DrawSettings();
+    // The two languages, each greyed with why when the version cannot build it here, and what this machine lacks for the one picked
+    void DrawLanguage();
     // A card's thumbnail, scaled to fit and centred between the corners given, or its icon where it has none
     static void DrawPicture(const Card& card, const ImVec2& minimum, const ImVec2& maximum);
 
@@ -73,6 +76,7 @@ private:
     const HubSettings& m_Settings;
     HubPathPrompt& m_Prompt;
     HubLauncher& m_Launcher;
+    const HubRequirements& m_Requirements;
     std::filesystem::path m_DefaultProjectsDirectory;
     std::function<void(HubLauncher::Report report)> m_Created;
     std::function<void()> m_Cancelled;

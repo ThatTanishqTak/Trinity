@@ -5,6 +5,7 @@
 #include "HubPathPrompt.hpp"
 #include "HubProjects.hpp"
 #include "HubReleases.hpp"
+#include "HubRequirements.hpp"
 #include "HubSettings.hpp"
 #include "Pages/HubPage.hpp"
 
@@ -40,6 +41,8 @@ private:
     HubPathPrompt m_PathPrompt;
     // Each Forge Hub starts, from the Projects page or New Project, kept hold of until it ends
     HubLauncher m_Launcher;
+    // What this machine has for each version, which the Installs page shows and New Project greys languages by
+    HubRequirements m_Requirements;
     // After what they are given, so they go first
     std::vector<Trinity::Scope<HubPage>> m_Pages;
     Trinity::Scope<HubPage> m_NewProject;

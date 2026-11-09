@@ -72,6 +72,8 @@ namespace Trinity
         static void SetGamepadRumble(std::uint32_t gamepad, float lowFrequency, float highFrequency);
         // Every pad's, as when a SceneManager ends, so stopping play in Forge leaves no pad rumbling
         static void StopGamepadRumble();
+        // Whether this machine has what pads are read through, the GameInput runtime on Windows, without which no pad is read, as Hub's Installs page says. True where there is nothing to install
+        [[nodiscard]] static bool HasGamepadRuntime();
 
         // Taken as the frame ends, so the scene's next frame reads by it, and kept until it is set again
         static void SetSceneFilter(const SceneInputFilter& filter);

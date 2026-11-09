@@ -67,6 +67,7 @@ include(TrinityPackage)
 
 add_subdirectory(Vendor)
 add_subdirectory(Trinity-Engine)
+add_subdirectory(Trinity-Tools)
 add_subdirectory(Trinity-Forge)
 add_subdirectory(Trinity-Hub)
 add_subdirectory(Trinity-Sandbox)

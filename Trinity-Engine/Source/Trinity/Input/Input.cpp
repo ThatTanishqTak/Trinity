@@ -521,6 +521,11 @@ namespace Trinity
         Platform::InitializeGamepads();
     }
 
+    bool Input::HasGamepadRuntime()
+    {
+        return Platform::HasGamepadRuntime();
+    }
+
     // Stops every pad's rumble, with no events, since the layers are gone
     void Input::ShutdownGamepads()
     {

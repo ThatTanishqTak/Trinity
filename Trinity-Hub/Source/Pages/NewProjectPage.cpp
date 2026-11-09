@@ -104,7 +104,7 @@ namespace
     }
 }
 
-NewProjectPage::NewProjectPage(const HubInstalls& installs, const HubSettings& settings, HubPathPrompt& prompt, HubLauncher& launcher, std::filesystem::path defaultProjectsDirectory, std::function<void(HubLauncher::Report report)> created, std::function<void()> cancelled) : m_Installs(installs), m_Settings(settings), m_Prompt(prompt), m_Launcher(launcher), m_DefaultProjectsDirectory(std::move(defaultProjectsDirectory)), m_Created(std::move(created)), m_Cancelled(std::move(cancelled))
+NewProjectPage::NewProjectPage(const HubInstalls& installs, const HubSettings& settings, HubPathPrompt& prompt, HubLauncher& launcher, const HubRequirements& requirements, std::filesystem::path defaultProjectsDirectory, std::function<void(HubLauncher::Report report)> created, std::function<void()> cancelled) : m_Installs(installs), m_Settings(settings), m_Prompt(prompt), m_Launcher(launcher), m_Requirements(requirements), m_DefaultProjectsDirectory(std::move(defaultProjectsDirectory)), m_Created(std::move(created)), m_Cancelled(std::move(cancelled))
 {
 
 }
@@ -340,6 +340,60 @@ void NewProjectPage::DrawDetails()
     ImGui::PopStyleColor();
 }
 
+// Until the tools are looked for, neither is greyed, and Forge says what is missing as it builds
+void NewProjectPage::DrawLanguage()
+{
+    const HubInstall* l_Version = GetVersion();
+    const std::optional<HubRequirements::Report> l_Report = l_Version != nullptr ? m_Requirements.GetReport(*l_Version) : std::nullopt;
+    constexpr std::array<std::pair<Trinity::ScriptLanguage, const char*>, 2> c_Languages{ { { Trinity::ScriptLanguage::CSharp, "C#" },{ Trinity::ScriptLanguage::Cpp, "C++" } } };
+    DrawField("Language");
+    for (const auto& [it_Language, it_Label] : c_Languages)
+    {
+        if (it_Language != c_Languages.front().first)
+        {
+            ImGui::SameLine();
+        }
+
+        const std::string l_Refusal = l_Report ? l_Report->GetRefusal(it_Language) : std::string();
+        ImGui::BeginDisabled(!l_Refusal.empty());
+        if (ImGui::RadioButton(it_Label, m_Language == it_Language))
+        {
+            m_Language = it_Language;
+        }
+
+        ImGui::EndDisabled();
+        if (!l_Refusal.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("%s", l_Refusal.c_str());
+        }
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Picked once, as the project is made, and never changed. Forge shows only that language's menus, templates and scripts, and builds only it. Its platform is picked in Forge's Build panel.");
+    ImGui::PopStyleColor();
+    if (!l_Report)
+    {
+        ImGui::TextDisabled("%s", std::format("{} Looking for the tools this version's projects build with", Trinity::Icons::c_Spinner).c_str());
+
+        return;
+    }
+
+    for (const auto& [it_Language, it_Label] : c_Languages)
+    {
+        if (const std::string& l_Refusal = l_Report->GetRefusal(it_Language); !l_Refusal.empty())
+        {
+            HubPages::DrawWarning(std::format("{} {} is greyed: {}. The Installs page says what this version needs and where to get it", Trinity::Icons::c_Warning, it_Label, l_Refusal));
+        }
+    }
+
+    if (m_Language == Trinity::ScriptLanguage::CSharp && l_Report->CSharpRefusal.empty() && !l_Report->CSharpExportNote.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", std::format("{} Its scripts build here. {}. The Installs page says where to get it", Trinity::Icons::c_InfoCircle, l_Report->CSharpExportNote).c_str());
+        ImGui::PopStyleColor();
+    }
+}
+
 // The name, the folder it goes in and the language, then the folder the project is made in, or why it cannot be, and Create
 void NewProjectPage::DrawSettings()
 {
@@ -363,21 +417,7 @@ void NewProjectPage::DrawSettings()
         m_Prompt.Ask({ HubPathPrompt::Kind::Folder, "The folder the project is made in",{}, m_Location, [this](const std::filesystem::path& path) { m_Location = path; } });
     }
 
-    DrawField("Language");
-    if (ImGui::RadioButton("C#", m_Language == Trinity::ScriptLanguage::CSharp))
-    {
-        m_Language = Trinity::ScriptLanguage::CSharp;
-    }
-
-    ImGui::SameLine();
-    if (ImGui::RadioButton("C++", m_Language == Trinity::ScriptLanguage::Cpp))
-    {
-        m_Language = Trinity::ScriptLanguage::Cpp;
-    }
-
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Picked once, as the project is made, and never changed. Forge shows only that language's menus, templates and scripts, and builds only it. Its platform is picked in Forge's Build panel.");
-    ImGui::PopStyleColor();
+    DrawLanguage();
 
     ImGui::Spacing();
     std::string l_Refusal;
@@ -492,6 +532,15 @@ std::optional<HubLauncher::Creation> NewProjectPage::GetCreation(std::string& re
     if (!m_Language)
     {
         refusal = "Pick the language its scripts are written in";
+
+        return std::nullopt;
+    }
+
+    // Picked before the version was changed, or before the tools were looked for
+    const HubInstall* l_Version = GetVersion();
+    if (const std::optional<HubRequirements::Report> l_Report = l_Version != nullptr ? m_Requirements.GetReport(*l_Version) : std::nullopt; l_Report && !l_Report->GetRefusal(*m_Language).empty())
+    {
+        refusal = std::format("Pick the other language, or another version, as {} is greyed for {} here", *m_Language == Trinity::ScriptLanguage::CSharp ? "C#" : "C++", HubInstalls::Describe(l_Version->Manifest));
 
         return std::nullopt;
     }

@@ -822,7 +822,7 @@ bool ExportCommand::CopyFiles()
     }
 
 #if defined(TR_PLATFORM_WINDOWS)
-    if (const std::vector<Trinity::GraphicsAPI> l_APIs = l_Export.GetGraphicsAPIs(); std::ranges::find(l_APIs, Trinity::GraphicsAPI::D3D12) != l_APIs.end())
+    if (std::ranges::find(l_APIs, Trinity::GraphicsAPI::D3D12) != l_APIs.end())
     {
         const std::filesystem::path l_Agility = l_Trinity / "D3D12" / "D3D12Core.dll";
         if (!std::filesystem::exists(l_Agility, l_Error))

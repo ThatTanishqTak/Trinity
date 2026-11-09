@@ -221,6 +221,19 @@ namespace Trinity
             }
         }
 
+        // An application with no window reads no pads, so it asks GameInput.lib once, as InitializeGamepads would
+        bool HasGamepadRuntime()
+        {
+            if (s_State.Api)
+            {
+                return true;
+            }
+
+            ComPtr<IGameInput> l_Api;
+
+            return SUCCEEDED(GameInputCreate(&l_Api));
+        }
+
         // Unregistering waits for a callback already running, so nothing touches the pads after
         void ShutdownGamepads()
         {
@@ -349,6 +362,12 @@ namespace Trinity
         void InitializeGamepads()
         {
             TR_CORE_WARN("This build has no GameInput, so there are no gamepads. Run Scripts/Bootstrap.ps1 and build again to add them");
+        }
+
+        // This build reads no pads, whatever the machine has
+        bool HasGamepadRuntime()
+        {
+            return false;
         }
 
         void ShutdownGamepads()

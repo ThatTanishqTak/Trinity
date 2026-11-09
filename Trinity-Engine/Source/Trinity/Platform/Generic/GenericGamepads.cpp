@@ -25,4 +25,10 @@ namespace Trinity
 
         }
     }
+
+    // Nothing is installed for them here
+    bool HasGamepadRuntime()
+    {
+        return true;
+    }
 }

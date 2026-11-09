@@ -26,7 +26,7 @@ HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path instal
 {
     std::error_code l_Error;
     m_DefaultProjectsDirectory = std::filesystem::absolute(m_DefaultProjectsDirectory, l_Error);
-    Trinity::Scope<InstallsPage> l_Installs = Trinity::CreateScope<InstallsPage>(m_Installs, m_Releases, m_Settings, m_PathPrompt, m_DefaultInstallsDirectory);
+    Trinity::Scope<InstallsPage> l_Installs = Trinity::CreateScope<InstallsPage>(m_Installs, m_Releases, m_Settings, m_PathPrompt, m_Requirements, m_DefaultInstallsDirectory);
     InstallsPage* l_InstallsPage = l_Installs.get();
     // A version a project names, downloaded from the project's offer, is installed by the Installs page, which is shown so the download can be watched
     Trinity::Scope<ProjectsPage> l_Projects = Trinity::CreateScope<ProjectsPage>(m_Projects, m_Installs, m_Releases, m_PathPrompt, m_Launcher, [this, l_InstallsPage](const HubRelease& release)
@@ -40,7 +40,7 @@ HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path instal
     });
     ProjectsPage* l_ProjectsPage = l_Projects.get();
     // A project New Project started making is told of on the Projects page, where it is listed once its Forge has added it
-    m_NewProject = Trinity::CreateScope<NewProjectPage>(m_Installs, m_Settings, m_PathPrompt, m_Launcher, m_DefaultProjectsDirectory, [this, l_ProjectsPage](HubLauncher::Report report)
+    m_NewProject = Trinity::CreateScope<NewProjectPage>(m_Installs, m_Settings, m_PathPrompt, m_Launcher, m_Requirements, m_DefaultProjectsDirectory, [this, l_ProjectsPage](HubLauncher::Report report)
     {
         l_ProjectsPage->ShowReport(std::move(report));
         ShowPage(0);
@@ -58,13 +58,14 @@ void HubLayer::ShowPage(std::size_t page)
     m_Pages[m_Page]->OnShow();
 }
 
-// Only the UI is drawn, so the window gets no scene under it. What an install cut short by Hub ending left is cleared before the versions are listed
+// Only the UI is drawn, so the window gets no scene under it. What an install cut short by Hub ending left is cleared before the versions are listed, and the tools their projects build with are looked for once they are
 void HubLayer::OnAttach()
 {
     m_Settings = HubSettings::Load();
     m_Settings.Apply();
     HubInstaller::CleanUp(m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory));
     m_Installs.Load();
+    m_Requirements.Check(m_Installs);
     m_Releases.Load();
     m_Projects.Refresh();
 
@@ -80,6 +81,7 @@ void HubLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
 {
     m_PathPrompt.Update();
     m_Installs.Update();
+    m_Requirements.Update(m_Installs);
     m_Releases.Update();
     m_Projects.Update();
     for (const Trinity::Scope<HubPage>& it_Page : m_Pages)
