@@ -36,6 +36,8 @@ public:
         bool Deleted = false;
         // What happened, in one line, naming why when it failed
         std::string Message;
+        // It failed as the zip's manifest is of a format newer than this Hub reads
+        bool NeedsNewerHub = false;
         std::filesystem::path Directory;
         Trinity::EngineManifest Manifest;
     };

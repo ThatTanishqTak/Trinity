@@ -14,6 +14,9 @@ trinity_declare_configurations()
 
 project(Trinity VERSION 0.1.1 DESCRIPTION "Trinity game engine, Forge editor, Hub launcher, Runtime player and Sandbox" LANGUAGES C CXX)
 
+# Hub is versioned on its own, from 0.1.0, as its zip is released apart from the engine's versions and every Hub opens every version. Raised whenever Hub changes, whatever the engine's version does
+set(TRINITY_HUB_VERSION 0.1.0)
+
 trinity_setup_configuration_flags()
 
 # Options come before the includes

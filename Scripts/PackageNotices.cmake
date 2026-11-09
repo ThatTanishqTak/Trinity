@@ -1,4 +1,4 @@
-# The third-party notice of a version, ThirdPartyNotices.txt, which Scripts/Package.cmake includes: every library of Scripts/Vendor.lock, the code those libraries bundle that Trinity's build compiles in, and what a version carries from outside the submodules, each with the licence it is used under, by its SPDX identifier, and that licence's text as the project gives it. A library of Vendor.lock without an entry here, or an entry's file that is missing, stops the packaging, so the notice never leaves one out. A text given before is named rather than given again
+# The third-party notice of a version, ThirdPartyNotices.txt, which Scripts/Package.cmake includes: every library of Scripts/Vendor.lock, the code those libraries bundle that Trinity's build compiles in, and what a version carries from outside the submodules, each with the licence it is used under, by its SPDX identifier, and that licence's text as the project gives it. A library of Vendor.lock without an entry here, or an entry's file that is missing, stops the packaging, so the notice never leaves one out. A text given before in the same file is named rather than given again
 
 # Adds one project to the notice: its title, its licence's SPDX identifier, where it comes from, its folder, under the repository unless it is a whole path, and its licence's files there. A file written as <file>:<lines> gives only its first lines, for a licence kept in a source file's opening comment. With no files, where says where its terms are
 function(trinity_notice title spdx where folder)
@@ -51,6 +51,7 @@ function(trinity_notice title spdx where folder)
             string(APPEND text "${file}: the same text as ${given}, above.\n\n")
         else()
             set_property(GLOBAL PROPERTY TRINITY_NOTICE_GIVEN_${hash} "${title}'s ${file}")
+            set_property(GLOBAL APPEND PROPERTY TRINITY_NOTICE_HASHES "${hash}")
             string(APPEND text "${licence}\n")
         endif()
     endforeach()
@@ -77,8 +78,21 @@ function(trinity_bundled_notice title library spdx folder)
     trinity_notice("${title}, in ${library}" "${spdx}" "Bundled with ${library}, in its ${folder}" "Vendor/${library}/${folder}" ${ARGN})
 endfunction()
 
+# The notice as a file, every text in it given there, as each file is read apart from any other. HUB writes Hub's, headed with Hub's own version, and without Microsoft's C++ runtime, whose DLLs Hub does not carry
 function(trinity_write_notices path)
-    set_property(GLOBAL PROPERTY TRINITY_NOTICE_TEXT "Third-party notices for Trinity ${TRINITY_VERSION}\n\nTrinity's programs, libraries and headers in this version include code of the projects below. Each is listed with the licence it is used under, by its SPDX identifier, and that licence's text as the project gives it. Where a project offers a choice of licences, the first is the one used.\n\n")
+    cmake_parse_arguments(PARSE_ARGV 1 notices "HUB" "" "")
+    get_property(given_hashes GLOBAL PROPERTY TRINITY_NOTICE_HASHES)
+    foreach(hash IN LISTS given_hashes)
+        set_property(GLOBAL PROPERTY TRINITY_NOTICE_GIVEN_${hash} "")
+    endforeach()
+    set_property(GLOBAL PROPERTY TRINITY_NOTICE_HASHES "")
+
+    set(heading "Third-party notices for Trinity ${TRINITY_VERSION}\n\nTrinity's programs, libraries and headers in this version include code of the projects below.")
+    if(notices_HUB)
+        set(heading "Third-party notices for Trinity Hub ${TRINITY_HUB_VERSION}\n\nTrinity Hub, built on Trinity ${TRINITY_VERSION}, includes code of the projects below, as every library of the engine is linked into it.")
+    endif()
+
+    set_property(GLOBAL PROPERTY TRINITY_NOTICE_TEXT "${heading} Each is listed with the licence it is used under, by its SPDX identifier, and that licence's text as the project gives it. Where a project offers a choice of licences, the first is the one used.\n\n")
     set_property(GLOBAL PROPERTY TRINITY_NOTICE_VENDORS "")
 
     # Each line of the lock: name, fork, commit, then the tag or branch it is pinned at
@@ -162,7 +176,7 @@ function(trinity_write_notices path)
         endforeach()
 
         file(GLOB msvc_runtime "${release_from}/msvcp140*.dll" "${release_from}/vcruntime140*.dll")
-        if(msvc_runtime)
+        if(msvc_runtime AND NOT notices_HUB)
             trinity_notice("Microsoft Visual C++ runtime" "LicenseRef-Microsoft-Visual-Studio-Distributable-Code" "Visual Studio's redistributable folder. Its DLLs beside Release's programs are Distributable Code under the Microsoft Visual Studio license terms, which let a program carry them" "")
         endif()
     endif()

@@ -1,6 +1,7 @@
 #include "Pages/SettingsPage.hpp"
 
 #include "HubText.hpp"
+#include "HubVersion.hpp"
 
 #include <Trinity.hpp>
 
@@ -150,7 +151,7 @@ void SettingsPage::DrawAbout()
     HubPages::DrawSection("About");
     const Trinity::RHI::DeviceInfo& l_Device = Trinity::Application::Get().GetDevice().GetInfo();
     HubPages::DrawLabel("Hub");
-    ImGui::TextUnformatted(std::format("Trinity Hub, on Trinity {}", Trinity::GetVersionDescription()).c_str());
+    ImGui::TextUnformatted(std::format("Trinity Hub {}, built on Trinity {}", HubVersion::c_Version, Trinity::GetVersionDescription()).c_str());
     HubPages::DrawLabel("Graphics");
     ImGui::TextUnformatted(std::format("{}, {}", Trinity::ToString(l_Device.API), l_Device.AdapterName.empty() ? std::string("no adapter") : l_Device.AdapterName).c_str());
 }

@@ -1,4 +1,4 @@
-# Run by cmake -P after a player's build on Windows, with BINARY, DUMPBIN and CONFIGURATION. Only Distribution is checked. Every DLL the player imports, delay-loaded ones too, must be Windows' own, in System32 or one of its API sets, and none of the C runtime's, which Distribution links statically, so the player starts on a machine with nothing installed but Windows and a graphics driver. The Agility SDK's D3D12Core.dll is loaded by d3d12.dll, never imported
+# Run by cmake -P after a player's or Hub's build on Windows, with BINARY, DUMPBIN and CONFIGURATION. Only Distribution is checked. Every DLL the program imports, delay-loaded ones too, must be Windows' own, in System32 or one of its API sets, and none of the C runtime's, which Distribution links statically, so it starts on a machine with nothing installed but Windows and a graphics driver. The Agility SDK's D3D12Core.dll is loaded by d3d12.dll, never imported
 if(NOT CONFIGURATION STREQUAL "Distribution")
     return()
 endif()
@@ -37,5 +37,5 @@ endforeach()
 
 if(refused)
     list(JOIN refused "; " text)
-    message(FATAL_ERROR "${binary_name} imports ${text}, so it would not start on a machine without them. Something the player links has pulled them in")
+    message(FATAL_ERROR "${binary_name} imports ${text}, so it would not start on a machine without them. Something it links has pulled them in")
 endif()

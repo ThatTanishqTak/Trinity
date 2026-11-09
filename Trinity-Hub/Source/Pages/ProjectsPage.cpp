@@ -65,6 +65,12 @@ namespace
         return project.Info->HasAssembly && project.Info->HasModule ? "C# and C++" : "None yet";
     }
 
+    // Its project file is of a format newer than this Hub reads, which the version it names reads
+    bool IsNewerProject(const HubProject& project)
+    {
+        return project.Info && project.Info->Format > Trinity::Project::c_FormatVersion;
+    }
+
     // Why a project cannot be opened in any version, or empty when it can
     std::string_view GetOpenWithRefusal(const HubProject& project)
     {
@@ -209,9 +215,17 @@ void ProjectsPage::Draw()
     HubPages::DrawTitle("Projects");
     DrawToolbar();
 
-    if (!m_Projects.GetProblem().empty())
+    if (m_Projects.IsFromNewerHub())
+    {
+        HubPages::DrawNeedsNewerHub(m_Projects.GetProblem());
+    }
+    else if (!m_Projects.GetProblem().empty())
     {
         HubPages::DrawWarning(m_Projects.GetProblem());
+    }
+    else if (const std::size_t l_Newer = static_cast<std::size_t>(std::ranges::count_if(m_Projects.GetProjects(), &IsNewerProject)); l_Newer > 0 && m_Message.empty())
+    {
+        HubPages::DrawNeedsNewerHub(l_Newer == 1 ? std::string("A project listed here is of a project format a newer Trinity wrote, which this Hub does not read, so what it shows of it may be wrong, though the version it names opens it") : std::format("{} projects listed here are of a project format a newer Trinity wrote, which this Hub does not read, so what it shows of them may be wrong, though the versions they name open them", l_Newer));
     }
     else if (!m_Message.empty())
     {
@@ -486,6 +500,10 @@ void ProjectsPage::DrawList()
             if (!l_Project.Problem.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             {
                 ImGui::SetTooltip("%s", l_Project.Problem.c_str());
+            }
+            else if (l_Project.Problem.empty() && IsNewerProject(l_Project) && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            {
+                ImGui::SetTooltip("%s", std::format("Its project file is of format {}, and this Hub reads format {} and older", l_Project.Info->Format, Trinity::Project::c_FormatVersion).c_str());
             }
 
             ImGui::TableNextColumn();
@@ -896,9 +914,9 @@ std::string ProjectsPage::DescribeState(const HubProject& project, bool& warning
         return "Unreadable";
     }
 
-    if (project.Info && project.Info->Format > Trinity::Project::c_FormatVersion)
+    if (IsNewerProject(project))
     {
-        return std::format("Format {}, newer than this Hub reads ({})", project.Info->Format, Trinity::Project::c_FormatVersion);
+        return "Needs a newer Hub";
     }
 
     const std::string& l_Version = project.GetEngineVersion();

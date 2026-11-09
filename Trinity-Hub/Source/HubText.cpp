@@ -1,11 +1,21 @@
 #include "HubText.hpp"
 
+#include <yaml-cpp/yaml.h>
+
 #include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstdint>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <system_error>
+
+namespace
+{
+    // More than any manifest, project file or list Hub reads holds
+    constexpr std::uintmax_t c_FormatFileLimit = 4 * 1024 * 1024;
+}
 
 namespace HubText
 {
@@ -93,5 +103,58 @@ namespace HubText
         }
 
         return l_Seconds < 86400 ? l_Count(l_Seconds / 3600, "hour") : l_Count(l_Seconds / 86400, "day");
+    }
+
+    std::optional<std::uint32_t> ReadFormat(std::string_view text)
+    {
+        YAML::Node l_Root;
+        try
+        {
+            l_Root = YAML::Load(std::string(text));
+        }
+        catch (const YAML::Exception&)
+        {
+            return std::nullopt;
+        }
+
+        const YAML::Node l_Format = l_Root.IsMap() ? l_Root["Format"] : YAML::Node();
+        if (!l_Format || !l_Format.IsScalar())
+        {
+            return std::nullopt;
+        }
+
+        std::uint32_t l_Value = 0;
+        const std::string& l_Text = l_Format.Scalar();
+        const std::from_chars_result l_Parsed = std::from_chars(l_Text.data(), l_Text.data() + l_Text.size(), l_Value);
+        if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_Text.data() + l_Text.size() || l_Value == 0)
+        {
+            return std::nullopt;
+        }
+
+        return l_Value;
+    }
+
+    std::optional<std::uint32_t> ReadFormat(const std::filesystem::path& file)
+    {
+        std::error_code l_Error;
+        const std::uintmax_t l_Size = std::filesystem::file_size(file, l_Error);
+        if (l_Error || l_Size > c_FormatFileLimit)
+        {
+            return std::nullopt;
+        }
+
+        std::ifstream l_File(file, std::ios::binary);
+        if (!l_File)
+        {
+            return std::nullopt;
+        }
+
+        const std::string l_Text{ std::istreambuf_iterator<char>(l_File), std::istreambuf_iterator<char>() };
+        if (l_File.bad())
+        {
+            return std::nullopt;
+        }
+
+        return ReadFormat(std::string_view(l_Text));
     }
 }

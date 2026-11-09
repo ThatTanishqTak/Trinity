@@ -28,6 +28,8 @@ struct HubInstall
     bool Missing = false;
     // Why its manifest could not be read, though its folder is there
     std::string Problem;
+    // Its manifest is of a format newer than this Hub reads, which a newer Hub does
+    bool NeedsNewerHub = false;
     // What every file under its folder holds, once counted
     std::optional<std::uint64_t> Size;
 };
@@ -53,6 +55,8 @@ public:
     void Update();
 
     [[nodiscard]] const std::vector<HubInstall>& GetInstalls() const { return m_Installs; }
+    // Installs.yaml was written by a newer Hub, so it lists no version here, and none located or installed is kept in it
+    [[nodiscard]] bool IsFromNewerHub() const { return !m_Writable; }
     [[nodiscard]] const HubInstall* Find(const std::filesystem::path& directory) const;
     // The installed version of this name, as Trinity-<version>-<platform>-<architecture>, wherever it is
     [[nodiscard]] const HubInstall* FindInstalled(std::string_view name) const;

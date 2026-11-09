@@ -23,12 +23,13 @@ namespace Trinity
         void SetGamepadRumble(std::uint32_t, float, float)
         {
 
-        }
-    }
 
-    // Nothing is installed for them here
-    bool HasGamepadRuntime()
-    {
-        return true;
+        }
+
+        // Nothing is installed for them here
+        bool HasGamepadRuntime()
+        {
+            return true;
+        }
     }
 }

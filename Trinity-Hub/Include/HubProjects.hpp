@@ -53,6 +53,8 @@ public:
     [[nodiscard]] std::uint64_t GetGeneration() const { return m_Generation; }
     // Why the list could not be read, or empty when it was
     [[nodiscard]] const std::string& GetProblem() const { return m_Problem; }
+    // It could not be read as a newer Hub wrote it, in a format this one does not read
+    [[nodiscard]] bool IsFromNewerHub() const { return m_FromNewerHub; }
     [[nodiscard]] const std::filesystem::path& GetFile() const { return m_File; }
 
 private:
@@ -66,6 +68,7 @@ private:
         std::optional<std::filesystem::file_time_type> Time;
         std::vector<HubProject> Projects;
         std::string Problem;
+        bool FromNewerHub = false;
     };
 
     static void Read(Reading& reading);
@@ -74,6 +77,7 @@ private:
     std::vector<HubProject> m_Projects;
     std::uint64_t m_Generation = 0;
     std::string m_Problem;
+    bool m_FromNewerHub = false;
 
     // When the list's file was written, as the last read found it
     std::optional<std::filesystem::file_time_type> m_ReadTime;

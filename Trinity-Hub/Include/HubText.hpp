@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -21,4 +22,8 @@ namespace HubText
     [[nodiscard]] std::string DescribeTime(std::chrono::sys_seconds time);
     // How long ago, as Forge's start screen says it: less than a minute ago, then in minutes, hours and days
     [[nodiscard]] std::string DescribeAge(std::chrono::sys_seconds time);
+
+    // The Format a manifest, project file or list of Trinity's or Hub's gives at its top, read apart from the rest, so one a newer Trinity or Hub wrote is told apart from one that cannot be read. None when it is not YAML or gives no Format
+    [[nodiscard]] std::optional<std::uint32_t> ReadFormat(std::string_view text);
+    [[nodiscard]] std::optional<std::uint32_t> ReadFormat(const std::filesystem::path& file);
 }

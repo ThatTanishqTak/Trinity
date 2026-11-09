@@ -2,6 +2,7 @@
 
 #include "HubInstalls.hpp"
 #include "HubText.hpp"
+#include "HubVersion.hpp"
 
 #include <yaml-cpp/yaml.h>
 
@@ -172,10 +173,15 @@ std::string HubReleases::GetDefaultUrl()
 
 std::string HubReleases::GetUserAgent()
 {
-    return std::format("Trinity-Hub/{}", Trinity::GetVersionString());
+    return std::format("Trinity-Hub/{}", HubVersion::c_Version);
 }
 
-// Drafts are left out, and so is a zip of another platform or a name that is no plain file name. Of two releases of one version, the newer is kept
+std::string HubReleases::GetReleasesPage()
+{
+    return std::format("https://github.com/{}/releases", c_Repository);
+}
+
+// Drafts and Hub's own releases are left out, and so is a zip of another platform or a name that is no plain file name. Of two releases of one version, the newer is kept
 Trinity::Expected<std::vector<HubRelease>, std::string> HubReleases::Parse(std::string_view json, std::string_view platform, std::string_view architecture, std::size_t* others)
 {
     YAML::Node l_Root;
@@ -198,7 +204,7 @@ Trinity::Expected<std::vector<HubRelease>, std::string> HubReleases::Parse(std::
     std::size_t l_Others = 0;
     for (const YAML::Node& it_Item : l_Root)
     {
-        if (!it_Item.IsMap() || ReadScalar(it_Item, "draft") == "true")
+        if (!it_Item.IsMap() || ReadScalar(it_Item, "draft") == "true" || ReadScalar(it_Item, "tag_name").starts_with(c_HubTagPrefix))
         {
             continue;
         }

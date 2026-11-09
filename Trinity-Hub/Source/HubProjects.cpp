@@ -60,6 +60,7 @@ void HubProjects::Update()
     }
 
     m_Problem = std::move(m_Reading->Problem);
+    m_FromNewerHub = m_Reading->FromNewerHub;
     m_ReadTime = m_Reading->Time;
     ++m_Generation;
     m_Reading.reset();
@@ -102,6 +103,7 @@ void HubProjects::Read(Reading& reading)
     if (!l_List)
     {
         reading.Problem = l_List.GetError();
+        reading.FromNewerHub = HubText::ReadFormat(reading.File).value_or(0) > Trinity::ProjectList::c_FormatVersion;
         reading.Done.store(true, std::memory_order_release);
 
         return;

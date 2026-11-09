@@ -2,6 +2,7 @@
 
 #include "HubInstaller.hpp"
 #include "HubText.hpp"
+#include "HubVersion.hpp"
 #include "Pages/InstallsPage.hpp"
 #include "Pages/NewProjectPage.hpp"
 #include "Pages/ProjectsPage.hpp"
@@ -71,8 +72,9 @@ void HubLayer::OnAttach()
 
     Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
     l_Renderer.SetSceneCopy(false);
-    l_Renderer.SetTitle("Trinity Hub");
+    l_Renderer.SetTitle(std::format("Trinity Hub {}", HubVersion::c_Version));
 
+    TR_INFO("Hub: Trinity Hub {}, built on Trinity {}", HubVersion::c_Version, Trinity::GetVersionDescription());
     TR_INFO("Hub: keeping its lists and settings in {}, and installing versions in {}", HubText::ToUtf8(m_Directory), HubText::ToUtf8(m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory)));
 }
 
@@ -123,7 +125,7 @@ void HubLayer::OnImGuiRender()
     ImGui::End();
 }
 
-// The pages by icon and name, the chosen one lit, under Hub's name, and the engine Hub runs on at the foot
+// The pages by icon and name, the chosen one lit, under Hub's name, and Hub's own version at the foot, with the engine it is built on when hovered
 void HubLayer::DrawSidebar()
 {
     const float l_Width = ImGui::GetFontSize() * 13.0f;
@@ -177,7 +179,7 @@ void HubLayer::DrawSidebar()
         }
         ImGui::PopStyleVar();
 
-        const std::string l_Engine = std::format("Trinity {}", Trinity::GetVersionDescription());
+        const std::string l_Hub = std::format("Trinity Hub {}", HubVersion::c_Version);
         const float l_Foot = ImGui::GetWindowHeight() - l_Padding - ImGui::GetTextLineHeight();
         if (l_Foot > ImGui::GetCursorPosY())
         {
@@ -185,8 +187,12 @@ void HubLayer::DrawSidebar()
         }
 
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextUnformatted(l_Engine.c_str());
+        ImGui::TextUnformatted(l_Hub.c_str());
         ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("%s", std::format("Built on Trinity {}", Trinity::GetVersionDescription()).c_str());
+        }
     }
 
     ImGui::EndChild();

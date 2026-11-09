@@ -27,14 +27,19 @@ function(trinity_check_editor_libraries target expect)
     )
 endfunction()
 
-# After each Distribution build of a player: none of the code a game never needs, all the code every game does, and on Windows no DLL imported but Windows' own, so it starts on a machine with nothing installed
-function(trinity_check_player target)
-    trinity_check_editor_libraries(${target} absent ${TRINITY_PLAYER_EXCLUDED_LIBRARIES})
-    trinity_check_editor_libraries(${target} required ${TRINITY_PLAYER_REQUIRED_LIBRARIES})
+# After each Distribution build on Windows: no DLL imported but Windows' own, so the program starts on a machine with nothing installed, as a player and Hub must
+function(trinity_check_imports target)
     if(WIN32)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND "${CMAKE_COMMAND}" "-DBINARY=$<TARGET_FILE:${target}>" "-DDUMPBIN=${TRINITY_DUMPBIN}" "-DCONFIGURATION=$<CONFIG>" -P "${TRINITY_PLAYER_IMPORTS_SCRIPT}"
             VERBATIM
         )
     endif()
+endfunction()
+
+# After each Distribution build of a player: none of the code a game never needs, all the code every game does, and on Windows no DLL imported but Windows' own, so it starts on a machine with nothing installed
+function(trinity_check_player target)
+    trinity_check_editor_libraries(${target} absent ${TRINITY_PLAYER_EXCLUDED_LIBRARIES})
+    trinity_check_editor_libraries(${target} required ${TRINITY_PLAYER_REQUIRED_LIBRARIES})
+    trinity_check_imports(${target})
 endfunction()

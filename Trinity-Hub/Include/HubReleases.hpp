@@ -44,6 +44,8 @@ public:
     static constexpr std::uint32_t c_FormatVersion = 1;
     static constexpr std::string_view c_Path = "/saves/Releases.yaml";
     static constexpr std::string_view c_Repository = "ThatTanishqTak/Trinity";
+    // Hub's own releases are tagged so, as hub-v0.1.0, and hold a TrinityHub zip, which is no engine version, so the list leaves them out and does not count them
+    static constexpr std::string_view c_HubTagPrefix = "hub-v";
     static constexpr std::chrono::seconds c_Interval{ 60 };
 
     // url is GitHub's list of the repository's releases, or a stand-in serving GitHub's replies, as --releases-url names one
@@ -54,8 +56,10 @@ public:
     HubReleases& operator=(const HubReleases&) = delete;
 
     [[nodiscard]] static std::string GetDefaultUrl();
-    // As GitHub requires of every request, naming Hub and its version
+    // As GitHub requires of every request, naming Hub and Hub's own version
     [[nodiscard]] static std::string GetUserAgent();
+    // The repository's Releases page on GitHub, where the latest Hub's zip is got from, as Hub never updates itself
+    [[nodiscard]] static std::string GetReleasesPage();
     // The releases in GitHub's JSON with a zip for this platform and architecture, newest first, and how many have none
     [[nodiscard]] static Trinity::Expected<std::vector<HubRelease>, std::string> Parse(std::string_view json, std::string_view platform, std::string_view architecture, std::size_t* others = nullptr);
 

@@ -1,10 +1,16 @@
 #include "Pages/HubPage.hpp"
 
+#include "HubReleases.hpp"
+#include "HubVersion.hpp"
+
 #include <Trinity.hpp>
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <format>
+#include <string>
 
 namespace HubPages
 {
@@ -72,6 +78,23 @@ namespace HubPages
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && ImGui::CalcTextSize(text.data(), text.data() + text.size()).x > l_Available)
         {
             ImGui::SetTooltip("%.*s", static_cast<int>(text.size()), text.data());
+        }
+    }
+
+    void DrawNeedsNewerHub(std::string_view text)
+    {
+        DrawWarning(std::format("{}. Trinity Hub {} needs updating", text, HubVersion::c_Version));
+        if (ImGui::Button(std::format("{} Get the Latest Hub", Trinity::Icons::c_Globe).c_str()))
+        {
+            if (const Trinity::Expected<void, std::string> l_Opened = Trinity::Process::OpenWithSystem(std::filesystem::path(HubReleases::GetReleasesPage())); !l_Opened)
+            {
+                TR_WARN("Hub: {}", l_Opened.GetError());
+            }
+        }
+
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        {
+            ImGui::SetTooltip("%s", std::format("Opens {}, where each Hub's TrinityHub-<version>-{}-{}.zip is, to unpack in place of this one", HubReleases::GetReleasesPage(), Trinity::GetBuildPlatform(), Trinity::GetBuildArchitecture()).c_str());
         }
     }
 }

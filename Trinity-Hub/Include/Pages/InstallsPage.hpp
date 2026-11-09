@@ -43,7 +43,10 @@ private:
     void DrawNeeds(const HubInstall& install);
     // Every tool the version needs, found or not, what each is for and where to get one, what that comes to for each language, and Check Again
     void DrawNeedsPopup();
-    void Report(std::string message, bool failed);
+    // needsNewerHub when it failed on something a newer Trinity or Hub wrote, so Get the Latest Hub is offered beneath it
+    void Report(std::string message, bool failed, bool needsNewerHub = false);
+    // What is listed here that this Hub cannot read, with Get the Latest Hub
+    void DrawNewerNotice();
     // Installed or located here, and not missing
     [[nodiscard]] bool IsInstalled(const HubRelease& release) const;
     // Each installed version by the name its folder takes, so one installed again replaces it where it is
@@ -60,6 +63,7 @@ private:
     // What the last thing done came to, until the next is done or it is dismissed
     std::string m_Message;
     bool m_MessageFailed = false;
+    bool m_MessageNeedsNewerHub = false;
 
     std::optional<std::filesystem::path> m_ConfirmDelete;
     bool m_OpenDeletePopup = false;

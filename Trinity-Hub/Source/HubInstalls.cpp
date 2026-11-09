@@ -365,6 +365,7 @@ void HubInstalls::Read(HubInstall& install) const
     {
         install.Missing = true;
         install.Problem.clear();
+        install.NeedsNewerHub = false;
         install.Size.reset();
 
         return;
@@ -375,11 +376,13 @@ void HubInstalls::Read(HubInstall& install) const
     if (!l_Manifest)
     {
         install.Problem = l_Manifest.GetError();
+        install.NeedsNewerHub = HubText::ReadFormat(install.Directory / HubText::FromUtf8(Trinity::EngineManifest::c_FileName)).value_or(0) > Trinity::EngineManifest::c_FormatVersion;
 
         return;
     }
 
     install.Problem.clear();
+    install.NeedsNewerHub = false;
     install.Manifest = std::move(*l_Manifest);
 }
 

@@ -76,12 +76,13 @@ void InstallsPage::Update()
         m_Installs.Add(l_Result->Directory, HubInstall::Origin::Installed, std::move(l_Result->Manifest));
     }
 
-    Report(std::move(l_Result->Message), !l_Result->Succeeded && !l_Result->Cancelled);
+    Report(std::move(l_Result->Message), !l_Result->Succeeded && !l_Result->Cancelled, l_Result->NeedsNewerHub);
 }
 
 void InstallsPage::Draw()
 {
     HubPages::DrawTitle("Installs");
+    DrawNewerNotice();
     DrawStatus();
     ImGui::Spacing();
 
@@ -133,7 +134,7 @@ void InstallsPage::Locate(const std::filesystem::path& directory)
     Trinity::Expected<Trinity::EngineManifest, std::string> l_Manifest = Trinity::ReadEngineManifest(directory);
     if (!l_Manifest)
     {
-        Report(std::format("Nothing was located, as {}", l_Manifest.GetError()), true);
+        Report(std::format("Nothing was located, as {}", l_Manifest.GetError()), true, HubText::ReadFormat(directory / HubText::FromUtf8(Trinity::EngineManifest::c_FileName)).value_or(0) > Trinity::EngineManifest::c_FormatVersion);
 
         return;
     }
@@ -297,7 +298,11 @@ void InstallsPage::DrawStatus()
     }
 
     ImGui::SameLine();
-    if (m_MessageFailed)
+    if (m_MessageNeedsNewerHub)
+    {
+        HubPages::DrawNeedsNewerHub(m_Message);
+    }
+    else if (m_MessageFailed)
     {
         HubPages::DrawWarning(m_Message);
     }
@@ -305,6 +310,27 @@ void InstallsPage::DrawStatus()
     {
         ImGui::TextWrapped("%s", m_Message.c_str());
     }
+}
+
+// Installs.yaml a newer Hub wrote, which lists nothing here, or versions whose manifests a newer Trinity wrote
+void InstallsPage::DrawNewerNotice()
+{
+    if (m_Installs.IsFromNewerHub())
+    {
+        HubPages::DrawNeedsNewerHub("Installs.yaml was written by a newer Hub, in a format this one does not read, so no version is listed from it, and it is left as it is, keeping none located or installed here");
+        ImGui::Spacing();
+
+        return;
+    }
+
+    const std::size_t l_Newer = static_cast<std::size_t>(std::ranges::count_if(m_Installs.GetInstalls(), &HubInstall::NeedsNewerHub));
+    if (l_Newer == 0)
+    {
+        return;
+    }
+
+    HubPages::DrawNeedsNewerHub(l_Newer == 1 ? std::string("A version listed here has a manifest a newer Trinity wrote, in a format this Hub does not read, so it cannot be used") : std::format("{} versions listed here have manifests a newer Trinity wrote, in a format this Hub does not read, so they cannot be used", l_Newer));
+    ImGui::Spacing();
 }
 
 void InstallsPage::DrawList()
@@ -356,7 +382,7 @@ void InstallsPage::DrawList()
         }
         else if (!l_Install.Problem.empty())
         {
-            HubPages::DrawWarning("Unreadable");
+            HubPages::DrawWarning(l_Install.NeedsNewerHub ? "Needs a newer Hub" : "Unreadable");
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             {
                 ImGui::SetTooltip("%s", l_Install.Problem.c_str());
@@ -863,7 +889,7 @@ std::vector<std::pair<std::string, std::filesystem::path>> InstallsPage::GetInst
 }
 
 // Shown on the page, and logged
-void InstallsPage::Report(std::string message, bool failed)
+void InstallsPage::Report(std::string message, bool failed, bool needsNewerHub)
 {
     if (failed)
     {
@@ -876,4 +902,5 @@ void InstallsPage::Report(std::string message, bool failed)
 
     m_Message = std::move(message);
     m_MessageFailed = failed;
+    m_MessageNeedsNewerHub = needsNewerHub;
 }

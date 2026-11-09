@@ -583,6 +583,7 @@ void HubInstaller::Prepare(Running& running)
     Trinity::Expected<Trinity::EngineManifest, std::string> l_Manifest = Trinity::ParseEngineManifest(*l_ManifestText, std::format("{} in {}", Trinity::EngineManifest::c_FileName, l_Zip));
     if (!l_Manifest)
     {
+        running.Outcome.NeedsNewerHub = HubText::ReadFormat(std::string_view(*l_ManifestText)).value_or(0) > Trinity::EngineManifest::c_FormatVersion;
         l_Finish(std::format("{} was not installed: {}", l_Zip, l_Manifest.GetError()));
 
         return;

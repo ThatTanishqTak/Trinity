@@ -31,4 +31,6 @@ namespace HubPages
     void DrawWarning(std::string_view text);
     // The text, and the whole of it in a tooltip while hovered, for a column too narrow to show it all
     void DrawClipped(std::string_view text);
+    // What a newer Trinity or Hub wrote that this Hub cannot read, in one line without its full stop, as a warning that says this Hub, by its version, needs updating, and Get the Latest Hub beneath it, which opens Hub's releases on GitHub, as Hub never updates itself
+    void DrawNeedsNewerHub(std::string_view text);
 }
