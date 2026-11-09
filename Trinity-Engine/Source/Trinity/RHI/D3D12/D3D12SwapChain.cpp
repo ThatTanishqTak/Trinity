@@ -2,7 +2,7 @@
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
-#include "Trinity/RHI/D3D12/D3D12Device.hpp"
+#include "Trinity/RHI/D3D12/D3D12Context.hpp"
 #include "Trinity/RHI/D3D12/D3D12Utilities.hpp"
 
 namespace Trinity
@@ -42,7 +42,7 @@ namespace Trinity
             }
         }
 
-        Scope<D3D12SwapChain> D3D12SwapChain::Create(D3D12Device& device, const SwapChainSpecification& specification)
+        Scope<D3D12SwapChain> D3D12SwapChain::Create(D3D12Context& device, const SwapChainSpecification& specification)
         {
             Scope<D3D12SwapChain> l_SwapChain = CreateScope<D3D12SwapChain>(device, specification);
             if (!l_SwapChain->Initialize())
@@ -53,7 +53,7 @@ namespace Trinity
             return l_SwapChain;
         }
 
-        D3D12SwapChain::D3D12SwapChain(D3D12Device& device, const SwapChainSpecification& specification) : m_Device(device), m_Specification(specification)
+        D3D12SwapChain::D3D12SwapChain(D3D12Context& device, const SwapChainSpecification& specification) : m_Device(device), m_Specification(specification)
         {
 
         }

@@ -12,15 +12,15 @@ namespace Trinity
 {
     namespace RHI
     {
-        class VulkanDevice;
+        class VulkanContext;
 
         class VulkanSwapChain final : public SwapChain
         {
         public:
             // Null, with the reason logged, when the window cannot be presented to
-            [[nodiscard]] static Scope<VulkanSwapChain> Create(VulkanDevice& device, const SwapChainSpecification& specification);
+            [[nodiscard]] static Scope<VulkanSwapChain> Create(VulkanContext& device, const SwapChainSpecification& specification);
 
-            VulkanSwapChain(VulkanDevice& device, const SwapChainSpecification& specification);
+            VulkanSwapChain(VulkanContext& device, const SwapChainSpecification& specification);
             ~VulkanSwapChain() override;
 
             [[nodiscard]] TextureHandle AcquireNextTexture() override;
@@ -40,7 +40,7 @@ namespace Trinity
             void RemoveImages();
             void Report(VkResult result, const char* operation);
 
-            VulkanDevice& m_Device;
+            VulkanContext& m_Device;
             SwapChainSpecification m_Specification;
 
             VkSurfaceKHR m_Surface = VK_NULL_HANDLE;

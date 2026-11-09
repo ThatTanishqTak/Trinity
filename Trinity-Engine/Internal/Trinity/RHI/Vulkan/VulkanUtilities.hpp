@@ -21,5 +21,6 @@ namespace Trinity
 
         [[nodiscard]] VkFormat ToVkFormat(Format format);
         [[nodiscard]] std::string FormatResult(VkResult result);
+        [[nodiscard]] VkImageAspectFlags GetAspect(Format format);
     }
 }

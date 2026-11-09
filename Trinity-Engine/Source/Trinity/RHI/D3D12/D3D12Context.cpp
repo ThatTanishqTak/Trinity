@@ -1,4 +1,4 @@
-#include "Trinity/RHI/D3D12/D3D12Device.hpp"
+#include "Trinity/RHI/D3D12/D3D12Context.hpp"
 #include "Trinity/RHI/D3D12/D3D12SwapChain.hpp"
 #include "Trinity/RHI/D3D12/D3D12Utilities.hpp"
 
@@ -208,19 +208,6 @@ namespace Trinity
             constexpr std::uint32_t c_RenderTargetViewCapacity = 2048;
             constexpr std::uint32_t c_DepthStencilViewCapacity = 512;
 
-            // The descriptor of one mip of one layer, or c_NoDescriptor when the texture has no such view
-            std::uint32_t GetAttachmentView(const D3D12DescriptorIndices& views, const D3D12Texture& texture, std::uint32_t mipLevel, std::uint32_t arrayLayer)
-            {
-                if (mipLevel >= texture.MipLevels || arrayLayer >= texture.ArrayLayers)
-                {
-                    return c_NoDescriptor;
-                }
-
-                const std::size_t l_Index = GetSubresourceIndex(mipLevel, arrayLayer, texture.MipLevels);
-
-                return l_Index < views.size() ? views[l_Index] : c_NoDescriptor;
-            }
-
             D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage)
             {
                 D3D12_RESOURCE_FLAGS l_Flags = D3D12_RESOURCE_FLAG_NONE;
@@ -252,98 +239,6 @@ namespace Trinity
                 {
                     resource->SetName(ToWide(name).c_str());
                 }
-            }
-
-            struct D3D12State
-            {
-                D3D12_BARRIER_SYNC Sync = D3D12_BARRIER_SYNC_NONE;
-                D3D12_BARRIER_ACCESS Access = D3D12_BARRIER_ACCESS_NO_ACCESS;
-                D3D12_BARRIER_LAYOUT Layout = D3D12_BARRIER_LAYOUT_UNDEFINED;
-            };
-
-            D3D12State ToD3D12State(ResourceState state)
-            {
-                switch (state)
-                {
-                    case ResourceState::Undefined:
-                    {
-                        return { D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_UNDEFINED };
-                    }
-                    case ResourceState::Present:
-                    {
-                        return { D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_PRESENT };
-                    }
-                    case ResourceState::RenderTarget:
-                    {
-                        return { D3D12_BARRIER_SYNC_RENDER_TARGET, D3D12_BARRIER_ACCESS_RENDER_TARGET, D3D12_BARRIER_LAYOUT_RENDER_TARGET };
-                    }
-                    case ResourceState::ResolveDestination:
-                    {
-                        return { D3D12_BARRIER_SYNC_RESOLVE, D3D12_BARRIER_ACCESS_RESOLVE_DEST, D3D12_BARRIER_LAYOUT_RESOLVE_DEST };
-                    }
-                    case ResourceState::DepthWrite:
-                    {
-                        return { D3D12_BARRIER_SYNC_DEPTH_STENCIL, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE };
-                    }
-                    case ResourceState::DepthRead:
-                    {
-                        return { D3D12_BARRIER_SYNC_DEPTH_STENCIL | D3D12_BARRIER_SYNC_ALL_SHADING, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ | D3D12_BARRIER_ACCESS_SHADER_RESOURCE, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ };
-                    }
-                    case ResourceState::ShaderResource:
-                    {
-                        return { D3D12_BARRIER_SYNC_ALL_SHADING, D3D12_BARRIER_ACCESS_SHADER_RESOURCE, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE };
-                    }
-                    case ResourceState::UnorderedAccess:
-                    {
-                        return { D3D12_BARRIER_SYNC_ALL_SHADING, D3D12_BARRIER_ACCESS_UNORDERED_ACCESS, D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS };
-                    }
-                    case ResourceState::CopySource:
-                    {
-                        return { D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_SOURCE, D3D12_BARRIER_LAYOUT_COPY_SOURCE };
-                    }
-                    case ResourceState::CopyDestination:
-                    {
-                        return { D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_COPY_DEST };
-                    }
-                    case ResourceState::IndexBuffer:
-                    {
-                        return { D3D12_BARRIER_SYNC_INDEX_INPUT, D3D12_BARRIER_ACCESS_INDEX_BUFFER, D3D12_BARRIER_LAYOUT_UNDEFINED };
-                    }
-                    case ResourceState::IndirectArgument:
-                    {
-                        return { D3D12_BARRIER_SYNC_EXECUTE_INDIRECT, D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT, D3D12_BARRIER_LAYOUT_UNDEFINED };
-                    }
-                    case ResourceState::Geometry:
-                    {
-                        return { D3D12_BARRIER_SYNC_ALL_SHADING | D3D12_BARRIER_SYNC_INDEX_INPUT, D3D12_BARRIER_ACCESS_SHADER_RESOURCE | D3D12_BARRIER_ACCESS_INDEX_BUFFER, D3D12_BARRIER_LAYOUT_UNDEFINED };
-                    }
-                }
-
-                return {};
-            }
-
-            D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE ToBeginningAccess(LoadOp load)
-            {
-                switch (load)
-                {
-                    case LoadOp::Load:
-                    {
-                        return D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
-                    }
-                    case LoadOp::Clear:
-                    {
-                        return D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
-                    }
-                    default:
-                    {
-                        return D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
-                    }
-                }
-            }
-
-            D3D12_RENDER_PASS_ENDING_ACCESS_TYPE ToEndingAccess(StoreOp store)
-            {
-                return store == StoreOp::Store ? D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE : D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_DISCARD;
             }
 
             D3D12_PRIMITIVE_TOPOLOGY_TYPE ToTopologyType(PrimitiveTopology topology)
@@ -507,12 +402,6 @@ namespace Trinity
                     }
                 }
             }
-
-            // A footprint of a compressed format covers whole blocks, even where the mip edge cuts one
-            UINT RoundUpToBlock(std::uint32_t size, std::uint32_t block)
-            {
-                return (size + block - 1) / block * block;
-            }
         }
 
         DXGI_FORMAT ToDXGIFormat(Format format)
@@ -615,479 +504,9 @@ namespace Trinity
             return std::format("HRESULT 0x{:08X}", static_cast<std::uint32_t>(result));
         }
 
-        bool D3D12DescriptorHeap::Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shaderVisible)
+        Scope<D3D12Context> D3D12Context::Create(const DeviceSpecification& specification, std::string& error)
         {
-            D3D12_DESCRIPTOR_HEAP_DESC l_Description{};
-            l_Description.Type = type;
-            l_Description.NumDescriptors = capacity;
-            l_Description.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-            if (FAILED(device->CreateDescriptorHeap(&l_Description, IID_PPV_ARGS(&m_Heap))))
-            {
-                return false;
-            }
-
-            m_Start = m_Heap->GetCPUDescriptorHandleForHeapStart();
-            m_Increment = device->GetDescriptorHandleIncrementSize(type);
-            m_Indices.Reset(capacity);
-
-            return true;
-        }
-
-        void D3D12DescriptorHeap::Reset()
-        {
-            m_Heap.Reset();
-        }
-
-        std::uint32_t D3D12DescriptorHeap::Allocate()
-        {
-            return m_Indices.Allocate();
-        }
-
-        void D3D12DescriptorHeap::Free(std::uint32_t index)
-        {
-            m_Indices.Free(index);
-        }
-
-        D3D12_CPU_DESCRIPTOR_HANDLE D3D12DescriptorHeap::GetHandle(std::uint32_t index) const
-        {
-            return { m_Start.ptr + static_cast<SIZE_T>(index) * m_Increment };
-        }
-
-        D3D12CommandList::D3D12CommandList(D3D12Device& device) : m_Device(device)
-        {
-
-        }
-
-        void D3D12CommandList::Begin(ID3D12GraphicsCommandList7* commandList)
-        {
-            m_CommandList = commandList;
-            m_Rendering = false;
-            m_HasPipeline = false;
-            m_HasComputePipeline = false;
-            m_HasIndexBuffer = false;
-
-            const std::array<ID3D12DescriptorHeap*, 2> l_Heaps{ m_Device.GetResourceHeap(), m_Device.GetSamplerHeap() };
-            m_CommandList->SetDescriptorHeaps(static_cast<UINT>(l_Heaps.size()), l_Heaps.data());
-            m_CommandList->SetGraphicsRootSignature(m_Device.GetRootSignature());
-            m_CommandList->SetComputeRootSignature(m_Device.GetRootSignature());
-            m_CommandList->OMSetStencilRef(0);
-        }
-
-        void D3D12CommandList::End()
-        {
-            TR_CORE_ASSERT(!m_Rendering, "The frame ended inside BeginRendering.");
-
-            m_CommandList->Close();
-            m_CommandList = nullptr;
-        }
-
-        // Moving out of Undefined discards the contents, which also counts as the first write a render target or depth texture needs
-        void D3D12CommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
-            TR_CORE_ASSERT(after != ResourceState::Undefined, "A texture cannot move into the undefined state.");
-
-            const D3D12Texture* l_Texture = m_Device.GetTexture(texture);
-            TR_CORE_ASSERT(l_Texture != nullptr, "TextureBarrier on a destroyed or invalid texture.");
-            if (l_Texture == nullptr)
-            {
-                return;
-            }
-
-            TR_CORE_ASSERT(IsRangeInsideTexture(range, l_Texture->MipLevels, l_Texture->ArrayLayers), "TextureBarrier on mips or layers that a texture with {} mip(s) and {} layer(s) lacks.", l_Texture->MipLevels, l_Texture->ArrayLayers);
-
-            const D3D12State l_Before = ToD3D12State(before);
-            const D3D12State l_After = ToD3D12State(after);
-
-            D3D12_TEXTURE_BARRIER l_Barrier{};
-            l_Barrier.SyncBefore = l_Before.Sync;
-            l_Barrier.SyncAfter = l_After.Sync;
-            l_Barrier.AccessBefore = l_Before.Access;
-            l_Barrier.AccessAfter = l_After.Access;
-            l_Barrier.LayoutBefore = l_Before.Layout;
-            l_Barrier.LayoutAfter = l_After.Layout;
-            l_Barrier.pResource = l_Texture->Resource;
-            if (range.IsWhole())
-            {
-                l_Barrier.Subresources.IndexOrFirstMipLevel = 0xFFFFFFFF;
-            }
-            else
-            {
-                l_Barrier.Subresources.IndexOrFirstMipLevel = range.BaseMipLevel;
-                l_Barrier.Subresources.NumMipLevels = range.MipLevelCount == c_RemainingSubresources ? l_Texture->MipLevels - range.BaseMipLevel : range.MipLevelCount;
-                l_Barrier.Subresources.FirstArraySlice = range.BaseArrayLayer;
-                l_Barrier.Subresources.NumArraySlices = range.ArrayLayerCount == c_RemainingSubresources ? l_Texture->ArrayLayers - range.BaseArrayLayer : range.ArrayLayerCount;
-                l_Barrier.Subresources.FirstPlane = 0;
-                l_Barrier.Subresources.NumPlanes = HasStencil(l_Texture->TextureFormat) ? 2 : 1;
-            }
-
-            l_Barrier.Flags = before == ResourceState::Undefined ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
-
-            D3D12_BARRIER_GROUP l_Group{};
-            l_Group.Type = D3D12_BARRIER_TYPE_TEXTURE;
-            l_Group.NumBarriers = 1;
-            l_Group.pTextureBarriers = &l_Barrier;
-            m_CommandList->Barrier(1, &l_Group);
-        }
-
-        void D3D12CommandList::BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
-
-            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(buffer);
-            TR_CORE_ASSERT(l_Buffer != nullptr, "BufferBarrier on a destroyed or invalid buffer.");
-            if (l_Buffer == nullptr)
-            {
-                return;
-            }
-
-            const D3D12State l_Before = ToD3D12State(before);
-            const D3D12State l_After = ToD3D12State(after);
-
-            D3D12_BUFFER_BARRIER l_Barrier{};
-            l_Barrier.SyncBefore = l_Before.Sync;
-            l_Barrier.SyncAfter = l_After.Sync;
-            l_Barrier.AccessBefore = l_Before.Access;
-            l_Barrier.AccessAfter = l_After.Access;
-            l_Barrier.pResource = l_Buffer->Allocation->GetResource();
-            l_Barrier.Offset = 0;
-            l_Barrier.Size = UINT64_MAX;
-
-            D3D12_BARRIER_GROUP l_Group{};
-            l_Group.Type = D3D12_BARRIER_TYPE_BUFFER;
-            l_Group.NumBarriers = 1;
-            l_Group.pBufferBarriers = &l_Barrier;
-            m_CommandList->Barrier(1, &l_Group);
-        }
-
-        // A render pass clears whole attachments, so the render area only matters to Vulkan
-        void D3D12CommandList::BeginRendering(const RenderingDescription& description)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "BeginRendering is called once within a frame, before EndRendering.");
-            TR_CORE_ASSERT(description.ColorAttachments.size() <= c_MaxColorAttachments, "Too many color attachments.");
-
-            std::array<D3D12_RENDER_PASS_RENDER_TARGET_DESC, c_MaxColorAttachments> l_Targets{};
-            UINT l_TargetCount = 0;
-            for (const ColorAttachment& it_Attachment : description.ColorAttachments)
-            {
-                const D3D12Texture* l_Texture = m_Device.GetTexture(it_Attachment.Texture);
-                const std::uint32_t l_View = l_Texture != nullptr ? GetAttachmentView(l_Texture->RenderTargetViews, *l_Texture, it_Attachment.MipLevel, it_Attachment.ArrayLayer) : c_NoDescriptor;
-                TR_CORE_ASSERT(l_View != c_NoDescriptor, "BeginRendering with a destroyed texture, one without RenderTarget usage, or a mip or layer it lacks.");
-                if (l_View == c_NoDescriptor || l_TargetCount == c_MaxColorAttachments)
-                {
-                    continue;
-                }
-
-                D3D12_RENDER_PASS_RENDER_TARGET_DESC& l_Target = l_Targets[l_TargetCount++];
-                l_Target.cpuDescriptor = m_Device.GetRenderTargetView(l_View);
-                l_Target.BeginningAccess.Type = ToBeginningAccess(it_Attachment.Load);
-                l_Target.BeginningAccess.Clear.ClearValue.Format = ToDXGIFormat(l_Texture->TextureFormat);
-                for (std::size_t it_Channel = 0; it_Channel < it_Attachment.ClearColor.size(); ++it_Channel)
-                {
-                    l_Target.BeginningAccess.Clear.ClearValue.Color[it_Channel] = it_Attachment.ClearColor[it_Channel];
-                }
-
-                l_Target.EndingAccess.Type = ToEndingAccess(it_Attachment.Store);
-                if (it_Attachment.ResolveTexture)
-                {
-                    const D3D12Texture* l_Resolve = m_Device.GetTexture(it_Attachment.ResolveTexture);
-                    const bool l_Resolvable = l_Resolve != nullptr && !l_Resolve->RenderTargetViews.empty() && l_Texture->SampleCount > 1 && l_Resolve->SampleCount == 1 && l_Resolve->TextureFormat == l_Texture->TextureFormat && l_Resolve->TextureFormat != Format::R32Uint;
-                    TR_CORE_ASSERT(l_Resolvable, "BeginRendering resolving into a destroyed texture, one without RenderTarget usage, or one whose format or sample count does not fit.");
-                    if (l_Resolvable)
-                    {
-                        D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS& l_Parameters = m_ResolveParameters[l_TargetCount - 1];
-                        l_Parameters = {};
-                        l_Parameters.SrcRect = { 0, 0, static_cast<LONG>(l_Texture->Width), static_cast<LONG>(l_Texture->Height) };
-
-                        l_Target.EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE;
-                        l_Target.EndingAccess.Resolve.pSrcResource = l_Texture->Resource;
-                        l_Target.EndingAccess.Resolve.pDstResource = l_Resolve->Resource;
-                        l_Target.EndingAccess.Resolve.SubresourceCount = 1;
-                        l_Target.EndingAccess.Resolve.pSubresourceParameters = &l_Parameters;
-                        l_Target.EndingAccess.Resolve.Format = ToDXGIFormat(l_Texture->TextureFormat);
-                        l_Target.EndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_AVERAGE;
-                        l_Target.EndingAccess.Resolve.PreserveResolveSource = it_Attachment.Store == StoreOp::Store ? TRUE : FALSE;
-                    }
-                }
-            }
-
-            D3D12_RENDER_PASS_DEPTH_STENCIL_DESC l_Depth{};
-            const D3D12Texture* l_DepthTexture = description.Depth.Texture ? m_Device.GetTexture(description.Depth.Texture) : nullptr;
-            const std::uint32_t l_DepthView = l_DepthTexture != nullptr ? GetAttachmentView(l_DepthTexture->DepthStencilViews, *l_DepthTexture, description.Depth.MipLevel, description.Depth.ArrayLayer) : c_NoDescriptor;
-            TR_CORE_ASSERT(!description.Depth.Texture || l_DepthView != c_NoDescriptor, "BeginRendering with a destroyed depth texture, one without DepthStencil usage, or a mip or layer it lacks.");
-            const bool l_HasDepth = l_DepthView != c_NoDescriptor;
-            if (l_HasDepth)
-            {
-                l_Depth.cpuDescriptor = m_Device.GetDepthStencilView(l_DepthView);
-                l_Depth.DepthBeginningAccess.Type = ToBeginningAccess(description.Depth.Load);
-                l_Depth.DepthBeginningAccess.Clear.ClearValue.Format = ToDXGIFormat(l_DepthTexture->TextureFormat);
-                l_Depth.DepthBeginningAccess.Clear.ClearValue.DepthStencil = { description.Depth.ClearDepth, description.Depth.ClearStencil };
-                l_Depth.DepthEndingAccess.Type = ToEndingAccess(description.Depth.Store);
-                if (HasStencil(l_DepthTexture->TextureFormat))
-                {
-                    l_Depth.StencilBeginningAccess = l_Depth.DepthBeginningAccess;
-                    l_Depth.StencilEndingAccess.Type = l_Depth.DepthEndingAccess.Type;
-                }
-                else
-                {
-                    l_Depth.StencilBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_NO_ACCESS;
-                    l_Depth.StencilEndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_NO_ACCESS;
-                }
-                l_Depth.StencilEndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_NO_ACCESS;
-            }
-
-            m_CommandList->BeginRenderPass(l_TargetCount, l_Targets.data(), l_HasDepth ? &l_Depth : nullptr, D3D12_RENDER_PASS_FLAG_NONE);
-            m_Rendering = true;
-            m_HasComputePipeline = false;
-        }
-
-        void D3D12CommandList::EndRendering()
-        {
-            TR_CORE_ASSERT(m_Rendering, "EndRendering without BeginRendering.");
-
-            m_CommandList->EndRenderPass();
-            m_Rendering = false;
-            m_HasPipeline = false;
-            m_HasIndexBuffer = false;
-        }
-
-        // Graphics and compute share one pipeline state slot, so setting either replaces the other
-        void D3D12CommandList::SetPipeline(PipelineHandle pipeline)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr, "SetPipeline is recorded within a frame.");
-
-            const D3D12Pipeline* l_Pipeline = m_Device.GetPipeline(pipeline);
-            TR_CORE_ASSERT(l_Pipeline != nullptr, "SetPipeline with a destroyed or invalid pipeline.");
-            if (l_Pipeline == nullptr)
-            {
-                return;
-            }
-
-            TR_CORE_ASSERT(l_Pipeline->Compute != m_Rendering, "A graphics pipeline is set inside rendering, and a compute pipeline outside it.");
-
-            m_CommandList->SetPipelineState(l_Pipeline->State.Get());
-            if (l_Pipeline->Compute)
-            {
-                m_HasComputePipeline = true;
-            }
-            else
-            {
-                m_CommandList->IASetPrimitiveTopology(l_Pipeline->Topology);
-                m_HasPipeline = true;
-            }
-        }
-
-        void D3D12CommandList::SetViewport(const Viewport& viewport)
-        {
-            TR_CORE_ASSERT(m_Rendering, "SetViewport is recorded inside rendering.");
-
-            const D3D12_VIEWPORT l_Viewport{ viewport.X, viewport.Y, viewport.Width, viewport.Height, viewport.MinDepth, viewport.MaxDepth };
-            m_CommandList->RSSetViewports(1, &l_Viewport);
-        }
-
-        void D3D12CommandList::SetScissor(const Rect& scissor)
-        {
-            TR_CORE_ASSERT(m_Rendering, "SetScissor is recorded inside rendering.");
-
-            const D3D12_RECT l_Scissor{ static_cast<LONG>(scissor.X), static_cast<LONG>(scissor.Y), static_cast<LONG>(scissor.X) + static_cast<LONG>(scissor.Width), static_cast<LONG>(scissor.Y) + static_cast<LONG>(scissor.Height) };
-            m_CommandList->RSSetScissorRects(1, &l_Scissor);
-        }
-
-        void D3D12CommandList::SetStencilReference(std::uint32_t reference)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr, "SetStencilReference is recorded within a frame.");
-
-            m_CommandList->OMSetStencilRef(reference);
-        }
-
-        // The push constants are root constants at b0, the first parameter of the shared root signature. Graphics and compute keep their own, so they go to whichever pipeline the commands are recorded for
-        void D3D12CommandList::PushConstants(std::span<const std::byte> data)
-        {
-            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a graphics pipeline inside rendering, or a compute pipeline outside it.");
-            TR_CORE_ASSERT(data.size() <= c_MaxPushConstantSize && data.size() % 4 == 0, "Push constants are whole 32-bit values, at most c_MaxPushConstantSize bytes.");
-
-            if (m_Rendering)
-            {
-                m_CommandList->SetGraphicsRoot32BitConstants(0, static_cast<UINT>(data.size() / 4), data.data(), 0);
-            }
-            else
-            {
-                m_CommandList->SetComputeRoot32BitConstants(0, static_cast<UINT>(data.size() / 4), data.data(), 0);
-            }
-        }
-
-        void D3D12CommandList::Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance)
-        {
-            TR_CORE_ASSERT(m_HasPipeline, "Draw needs a pipeline.");
-
-            m_CommandList->DrawInstanced(vertexCount, instanceCount, firstVertex, firstInstance);
-        }
-
-        void D3D12CommandList::SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format)
-        {
-            TR_CORE_ASSERT(m_Rendering, "SetIndexBuffer is recorded inside rendering.");
-
-            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(buffer);
-            TR_CORE_ASSERT(l_Buffer != nullptr, "SetIndexBuffer with a destroyed or invalid buffer.");
-            TR_CORE_ASSERT(l_Buffer == nullptr || (offset < l_Buffer->Size && offset % GetIndexSize(format) == 0), "SetIndexBuffer at offset {}, which is past the end of the buffer or not a multiple of the index size.", offset);
-            if (l_Buffer == nullptr || offset >= l_Buffer->Size)
-            {
-                return;
-            }
-
-            D3D12_INDEX_BUFFER_VIEW l_View{};
-            l_View.BufferLocation = l_Buffer->Allocation->GetResource()->GetGPUVirtualAddress() + offset;
-            l_View.SizeInBytes = static_cast<UINT>(std::min<std::uint64_t>(l_Buffer->Size - offset, UINT_MAX));
-            l_View.Format = format == IndexFormat::UInt16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
-            m_CommandList->IASetIndexBuffer(&l_View);
-            m_HasIndexBuffer = true;
-        }
-
-        void D3D12CommandList::DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance)
-        {
-            TR_CORE_ASSERT(m_HasPipeline && m_HasIndexBuffer, "DrawIndexed needs a pipeline and an index buffer.");
-
-            m_CommandList->DrawIndexedInstanced(indexCount, instanceCount, firstIndex, 0, firstInstance);
-        }
-
-        void D3D12CommandList::Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering && m_HasComputePipeline, "Dispatch is recorded outside rendering, with a compute pipeline set.");
-
-            m_CommandList->Dispatch(groupCountX, groupCountY, groupCountZ);
-        }
-
-        void D3D12CommandList::WriteTimestamp(QueryPoolHandle pool, std::uint32_t index)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr, "WriteTimestamp is recorded within a frame.");
-
-            const D3D12QueryPool* l_Pool = m_Device.GetQueryPool(pool);
-            TR_CORE_ASSERT(l_Pool != nullptr && index < l_Pool->Count, "WriteTimestamp with a destroyed query pool, or an index past its end.");
-            if (l_Pool == nullptr || index >= l_Pool->Count)
-            {
-                return;
-            }
-
-            m_CommandList->EndQuery(l_Pool->Heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, index);
-        }
-
-        void D3D12CommandList::ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "ResolveTimestamps is recorded within a frame and outside rendering.");
-
-            const D3D12QueryPool* l_Pool = m_Device.GetQueryPool(pool);
-            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(destination);
-            TR_CORE_ASSERT(l_Pool != nullptr && l_Buffer != nullptr, "ResolveTimestamps with a destroyed query pool or buffer.");
-            if (l_Pool == nullptr || l_Buffer == nullptr)
-            {
-                return;
-            }
-
-            TR_CORE_ASSERT(count != 0 && std::uint64_t{ first } + count <= l_Pool->Count, "ResolveTimestamps with a range past the end of a pool of {}.", l_Pool->Count);
-            TR_CORE_ASSERT(destinationOffset % 8 == 0 && destinationOffset + std::uint64_t{ count } * 8 <= l_Buffer->Size, "ResolveTimestamps at an offset that is not a multiple of 8, or past the end of the buffer.");
-
-            m_CommandList->ResolveQueryData(l_Pool->Heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, first, count, l_Buffer->Allocation->GetResource(), destinationOffset);
-        }
-
-        void D3D12CommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
-
-            const D3D12Buffer* l_Source = m_Device.GetBuffer(source);
-            const D3D12Buffer* l_Destination = m_Device.GetBuffer(destination);
-            TR_CORE_ASSERT(l_Source != nullptr && l_Destination != nullptr, "CopyBuffer with a destroyed or invalid buffer.");
-            if (l_Source == nullptr || l_Destination == nullptr)
-            {
-                return;
-            }
-
-            TR_CORE_ASSERT(sourceOffset + size <= l_Source->Size && destinationOffset + size <= l_Destination->Size, "CopyBuffer reaches past the end of a buffer.");
-
-            m_CommandList->CopyBufferRegion(l_Destination->Allocation->GetResource(), destinationOffset, l_Source->Allocation->GetResource(), sourceOffset, size);
-        }
-
-        // The whole mip, laid out in the buffer as CopyBufferToTexture reads it: rows of texels or blocks GetTextureCopyRowPitch apart
-        void D3D12CommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
-
-            const D3D12Texture* l_Texture = m_Device.GetTexture(source);
-            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(destination);
-            TR_CORE_ASSERT(l_Texture != nullptr && l_Buffer != nullptr, "CopyTextureToBuffer with a destroyed or invalid resource.");
-            if (l_Texture == nullptr || l_Buffer == nullptr)
-            {
-                return;
-            }
-
-            const std::uint32_t l_Width = GetMipSize(l_Texture->Width, mipLevel);
-            const std::uint32_t l_Height = GetMipSize(l_Texture->Height, mipLevel);
-            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Width);
-            [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, l_Width, l_Height);
-            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && arrayLayer < l_Texture->ArrayLayers, "CopyTextureToBuffer from mip {} of layer {} of a texture with {} mip(s) and {} layer(s).", mipLevel, arrayLayer, l_Texture->MipLevels, l_Texture->ArrayLayers);
-            TR_CORE_ASSERT(destinationOffset % c_TextureCopyOffsetAlignment == 0, "CopyTextureToBuffer writes to offset {}, which is not a multiple of {}.", destinationOffset, c_TextureCopyOffsetAlignment);
-            TR_CORE_ASSERT(destinationOffset + l_Size <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes from offset {}, and the buffer has {}.", l_Size, destinationOffset, l_Buffer->Size);
-
-            D3D12_TEXTURE_COPY_LOCATION l_Source{};
-            l_Source.pResource = l_Texture->Resource;
-            l_Source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            l_Source.SubresourceIndex = GetSubresourceIndex(mipLevel, arrayLayer, l_Texture->MipLevels);
-
-            const std::uint32_t l_Block = GetFormatBlockDimension(l_Texture->TextureFormat);
-            D3D12_TEXTURE_COPY_LOCATION l_Destination{};
-            l_Destination.pResource = l_Buffer->Allocation->GetResource();
-            l_Destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            l_Destination.PlacedFootprint.Offset = destinationOffset;
-            l_Destination.PlacedFootprint.Footprint.Format = l_Texture->ResourceFormat;
-            l_Destination.PlacedFootprint.Footprint.Width = RoundUpToBlock(l_Width, l_Block);
-            l_Destination.PlacedFootprint.Footprint.Height = RoundUpToBlock(l_Height, l_Block);
-            l_Destination.PlacedFootprint.Footprint.Depth = 1;
-            l_Destination.PlacedFootprint.Footprint.RowPitch = static_cast<UINT>(l_RowPitch);
-
-            m_CommandList->CopyTextureRegion(&l_Destination, 0, 0, 0, &l_Source, nullptr);
-        }
-
-        void D3D12CommandList::CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region)
-        {
-            TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
-
-            const D3D12Buffer* l_Buffer = m_Device.GetBuffer(source);
-            const D3D12Texture* l_Texture = m_Device.GetTexture(destination);
-            TR_CORE_ASSERT(l_Buffer != nullptr && l_Texture != nullptr, "CopyBufferToTexture with a destroyed or invalid resource.");
-            if (l_Buffer == nullptr || l_Texture == nullptr)
-            {
-                return;
-            }
-
-            const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width);
-            [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, region.Width, region.Height);
-            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region outside mip {} of a {}x{} texture with {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
-            TR_CORE_ASSERT(arrayLayer < l_Texture->ArrayLayers, "CopyBufferToTexture into layer {} of a texture with {} layer(s).", arrayLayer, l_Texture->ArrayLayers);
-            TR_CORE_ASSERT(IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region of {} that does not start on a block or cover whole blocks.", ToString(l_Texture->TextureFormat));
-            TR_CORE_ASSERT(sourceOffset % c_TextureCopyOffsetAlignment == 0, "CopyBufferToTexture reads from offset {}, which is not a multiple of {}.", sourceOffset, c_TextureCopyOffsetAlignment);
-            TR_CORE_ASSERT(sourceOffset + l_Size <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_Size, sourceOffset, l_Buffer->Size);
-
-            const std::uint32_t l_Block = GetFormatBlockDimension(l_Texture->TextureFormat);
-            D3D12_TEXTURE_COPY_LOCATION l_Source{};
-            l_Source.pResource = l_Buffer->Allocation->GetResource();
-            l_Source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            l_Source.PlacedFootprint.Offset = sourceOffset;
-            l_Source.PlacedFootprint.Footprint.Format = l_Texture->ResourceFormat;
-            l_Source.PlacedFootprint.Footprint.Width = RoundUpToBlock(region.Width, l_Block);
-            l_Source.PlacedFootprint.Footprint.Height = RoundUpToBlock(region.Height, l_Block);
-            l_Source.PlacedFootprint.Footprint.Depth = 1;
-            l_Source.PlacedFootprint.Footprint.RowPitch = static_cast<UINT>(l_RowPitch);
-
-            D3D12_TEXTURE_COPY_LOCATION l_Destination{};
-            l_Destination.pResource = l_Texture->Resource;
-            l_Destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            l_Destination.SubresourceIndex = GetSubresourceIndex(mipLevel, arrayLayer, l_Texture->MipLevels);
-
-            m_CommandList->CopyTextureRegion(&l_Destination, static_cast<UINT>(region.X), static_cast<UINT>(region.Y), 0, &l_Source, nullptr);
-        }
-
-        Scope<D3D12Device> D3D12Device::Create(const DeviceSpecification& specification, std::string& error)
-        {
-            Scope<D3D12Device> l_Device = CreateScope<D3D12Device>();
+            Scope<D3D12Context> l_Device = CreateScope<D3D12Context>();
             if (!l_Device->Initialize(specification, error))
             {
                 return nullptr;
@@ -1096,12 +515,12 @@ namespace Trinity
             return l_Device;
         }
 
-        D3D12Device::D3D12Device() : m_CommandList(*this)
+        D3D12Context::D3D12Context() : m_CommandList(*this)
         {
 
         }
 
-        D3D12Device::~D3D12Device()
+        D3D12Context::~D3D12Context()
         {
             if (m_Fence && m_Queue)
             {
@@ -1159,7 +578,7 @@ namespace Trinity
             }
         }
 
-        bool D3D12Device::Initialize(const DeviceSpecification& specification, std::string& error)
+        bool D3D12Context::Initialize(const DeviceSpecification& specification, std::string& error)
         {
             m_Validation = specification.EnableValidation;
 
@@ -1247,7 +666,7 @@ namespace Trinity
             return CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
         }
 
-        bool D3D12Device::CreateAllocator(std::string& error)
+        bool D3D12Context::CreateAllocator(std::string& error)
         {
             D3D12MA::ALLOCATOR_DESC l_Description{};
             // D3D12MemoryAllocator's flag operators are global, and RHI's own operator| hides them in here
@@ -1267,7 +686,7 @@ namespace Trinity
             return true;
         }
 
-        bool D3D12Device::CreateFrames(std::string& error)
+        bool D3D12Context::CreateFrames(std::string& error)
         {
             D3D12_COMMAND_QUEUE_DESC l_QueueDescription{};
             l_QueueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -1313,7 +732,7 @@ namespace Trinity
         }
 
         // Shaders index the two heaps directly, so every pipeline shares one root signature that holds only the push constants
-        bool D3D12Device::CreateBindless(std::string& error)
+        bool D3D12Context::CreateBindless(std::string& error)
         {
             if (!m_ResourceHeap.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, c_BindlessResourceCapacity, true) || !m_SamplerHeap.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, c_BindlessSamplerCapacity, true))
             {
@@ -1358,7 +777,7 @@ namespace Trinity
             return true;
         }
 
-        void D3D12Device::EnableDebugMessages()
+        void D3D12Context::EnableDebugMessages()
         {
             if (!m_Validation)
             {
@@ -1372,7 +791,7 @@ namespace Trinity
                 return;
             }
 
-            if (FAILED(m_InfoQueue->RegisterMessageCallback(&D3D12Device::OnDebugMessage, D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &m_MessageCallbackCookie)))
+            if (FAILED(m_InfoQueue->RegisterMessageCallback(&D3D12Context::OnDebugMessage, D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &m_MessageCallbackCookie)))
             {
                 TR_CORE_WARN("D3D12: the debug layer message callback could not be registered, so messages only reach an attached debugger");
                 m_InfoQueue.Reset();
@@ -1380,9 +799,9 @@ namespace Trinity
         }
 
         // The debug layer calls this from whichever thread made the call it reports on
-        void CALLBACK D3D12Device::OnDebugMessage([[maybe_unused]] D3D12_MESSAGE_CATEGORY category, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID id, LPCSTR description, void* context)
+        void CALLBACK D3D12Context::OnDebugMessage([[maybe_unused]] D3D12_MESSAGE_CATEGORY category, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID id, LPCSTR description, void* context)
         {
-            D3D12Device* l_Device = static_cast<D3D12Device*>(context);
+            D3D12Context* l_Device = static_cast<D3D12Context*>(context);
 
             switch (severity)
             {
@@ -1412,7 +831,7 @@ namespace Trinity
         }
 
         // Says which D3D12Core.dll the process loaded: the Agility SDK's beside the executable, or the one built into Windows
-        void D3D12Device::LogRuntime() const
+        void D3D12Context::LogRuntime() const
         {
             const std::filesystem::path l_Path = GetModulePath(::GetModuleHandleW(L"D3D12Core.dll"));
 
@@ -1434,7 +853,7 @@ namespace Trinity
         }
 
         // Runs after every D3D12 and DXGI object of the device is released, so anything still reported is a leak
-        void D3D12Device::ReportLiveObjects() const
+        void D3D12Context::ReportLiveObjects() const
         {
             ComPtr<IDXGIDebug1> l_Debug;
             ComPtr<IDXGIInfoQueue> l_Queue;
@@ -1468,7 +887,7 @@ namespace Trinity
         }
 
         // Buffers always start in the undefined layout under enhanced barriers. Upload and Readback heaps are coherent and stay mapped
-        BufferHandle D3D12Device::CreateBuffer(const BufferDescription& description)
+        BufferHandle D3D12Context::CreateBuffer(const BufferDescription& description)
         {
             TR_CORE_ASSERT(description.Size != 0, "Buffer '{}' has no size.", description.DebugName);
 
@@ -1519,7 +938,7 @@ namespace Trinity
             return m_Buffers.Add(std::move(l_Buffer));
         }
 
-        void D3D12Device::DestroyBuffer(BufferHandle buffer)
+        void D3D12Context::DestroyBuffer(BufferHandle buffer)
         {
             if (!buffer)
             {
@@ -1539,7 +958,7 @@ namespace Trinity
             }
         }
 
-        std::span<std::byte> D3D12Device::GetMappedData(BufferHandle buffer)
+        std::span<std::byte> D3D12Context::GetMappedData(BufferHandle buffer)
         {
             const D3D12Buffer* l_Buffer = m_Buffers.Get(buffer);
             TR_CORE_ASSERT(l_Buffer != nullptr, "GetMappedData on a destroyed or invalid buffer.");
@@ -1553,7 +972,7 @@ namespace Trinity
         }
 
         // Every usage asked for must be in the format's support. Shaders read a depth texture through an R32_FLOAT view, so that is the format to check for reading
-        bool D3D12Device::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
+        bool D3D12Context::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
             const DXGI_FORMAT l_Format = ToDXGIFormat(format);
             if (l_Format == DXGI_FORMAT_UNKNOWN || (HasStencil(format) && usage != TextureUsage::DepthStencil))
@@ -1622,7 +1041,7 @@ namespace Trinity
         }
 
         // A depth texture that shaders also read is typeless, so a shader view can read it as R32_FLOAT
-        TextureHandle D3D12Device::CreateTexture(const TextureDescription& description)
+        TextureHandle D3D12Context::CreateTexture(const TextureDescription& description)
         {
             TR_CORE_ASSERT(description.Width != 0 && description.Height != 0 && description.MipLevels != 0, "Texture '{}' has a zero size or no mips.", description.DebugName);
             TR_CORE_ASSERT(description.TextureFormat != Format::Unknown, "Texture '{}' has no format.", description.DebugName);
@@ -1693,7 +1112,7 @@ namespace Trinity
             return m_Textures.Add(std::move(l_Texture));
         }
 
-        void D3D12Device::DestroyTexture(TextureHandle texture)
+        void D3D12Context::DestroyTexture(TextureHandle texture)
         {
             if (!texture)
             {
@@ -1716,7 +1135,7 @@ namespace Trinity
         }
 
         // A view per mip of each layer, as a single 2D texture for a Texture2D and as one slice of an array otherwise
-        void D3D12Device::CreateViews(D3D12Texture& texture)
+        void D3D12Context::CreateViews(D3D12Texture& texture)
         {
             const bool l_Depth = IsDepthFormat(texture.TextureFormat);
             const bool l_Array = texture.Dimension != TextureDimension::Texture2D;
@@ -1774,7 +1193,7 @@ namespace Trinity
         }
 
         // Buffers get raw views, which is what a ByteAddressBuffer reads and writes
-        void D3D12Device::CreateShaderViews(D3D12Buffer& buffer, BufferUsage usage)
+        void D3D12Context::CreateShaderViews(D3D12Buffer& buffer, BufferUsage usage)
         {
             ID3D12Resource* l_Resource = buffer.Allocation->GetResource();
             const UINT l_Elements = static_cast<UINT>(buffer.Size / 4);
@@ -1812,7 +1231,7 @@ namespace Trinity
         }
 
         // The shader resource view covers every mip and layer, and the unordered access view mip 0 of every layer, a cube's faces as an array since there are no cube unordered access views
-        void D3D12Device::CreateShaderViews(D3D12Texture& texture, TextureUsage usage)
+        void D3D12Context::CreateShaderViews(D3D12Texture& texture, TextureUsage usage)
         {
             if (HasFlag(usage, TextureUsage::ShaderResource))
             {
@@ -1872,7 +1291,7 @@ namespace Trinity
         }
 
         // An index is only handed out again once the frames that could read it have finished
-        void D3D12Device::Release(D3D12Release& release)
+        void D3D12Context::Release(D3D12Release& release)
         {
             for (const std::uint32_t it_View : release.RenderTargetViews)
             {
@@ -1892,7 +1311,7 @@ namespace Trinity
             release.Allocation.Reset();
         }
 
-        TextureHandle D3D12Device::AddSwapChainBuffer(ID3D12Resource* resource, Format format, DXGI_FORMAT resourceFormat, std::uint32_t width, std::uint32_t height)
+        TextureHandle D3D12Context::AddSwapChainBuffer(ID3D12Resource* resource, Format format, DXGI_FORMAT resourceFormat, std::uint32_t width, std::uint32_t height)
         {
             D3D12Texture l_Texture;
             l_Texture.Resource = resource;
@@ -1908,7 +1327,7 @@ namespace Trinity
         }
 
         // The swap chain waits for the device to be idle first, so the view is free at once
-        void D3D12Device::RemoveSwapChainBuffer(TextureHandle texture)
+        void D3D12Context::RemoveSwapChainBuffer(TextureHandle texture)
         {
             const std::optional<D3D12Texture> l_Texture = m_Textures.Remove(texture);
             if (l_Texture)
@@ -1917,7 +1336,7 @@ namespace Trinity
             }
         }
 
-        void D3D12Device::WaitForFence(std::uint64_t value)
+        void D3D12Context::WaitForFence(std::uint64_t value)
         {
             if (m_Fence->GetCompletedValue() < value && SUCCEEDED(m_Fence->SetEventOnCompletion(value, m_FenceEvent)))
             {
@@ -1926,13 +1345,13 @@ namespace Trinity
         }
 
         // Presents go on the queue after the frame's signal, so waiting for that signal alone can leave a swap chain buffer in use. A new signal comes after them
-        void D3D12Device::WaitForQueue()
+        void D3D12Context::WaitForQueue()
         {
             m_Queue->Signal(m_Fence.Get(), ++m_FenceValue);
             WaitForFence(m_FenceValue);
         }
 
-        std::uint32_t D3D12Device::GetShaderResourceIndex(BufferHandle buffer)
+        std::uint32_t D3D12Context::GetShaderResourceIndex(BufferHandle buffer)
         {
             const D3D12Buffer* l_Buffer = m_Buffers.Get(buffer);
             TR_CORE_ASSERT(l_Buffer != nullptr, "GetShaderResourceIndex on a destroyed or invalid buffer.");
@@ -1940,7 +1359,7 @@ namespace Trinity
             return l_Buffer != nullptr ? l_Buffer->ShaderResourceIndex : c_NoBindlessIndex;
         }
 
-        std::uint32_t D3D12Device::GetUnorderedAccessIndex(BufferHandle buffer)
+        std::uint32_t D3D12Context::GetUnorderedAccessIndex(BufferHandle buffer)
         {
             const D3D12Buffer* l_Buffer = m_Buffers.Get(buffer);
             TR_CORE_ASSERT(l_Buffer != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid buffer.");
@@ -1948,7 +1367,7 @@ namespace Trinity
             return l_Buffer != nullptr ? l_Buffer->UnorderedAccessIndex : c_NoBindlessIndex;
         }
 
-        std::uint32_t D3D12Device::GetShaderResourceIndex(TextureHandle texture)
+        std::uint32_t D3D12Context::GetShaderResourceIndex(TextureHandle texture)
         {
             const D3D12Texture* l_Texture = m_Textures.Get(texture);
             TR_CORE_ASSERT(l_Texture != nullptr, "GetShaderResourceIndex on a destroyed or invalid texture.");
@@ -1956,7 +1375,7 @@ namespace Trinity
             return l_Texture != nullptr ? l_Texture->ShaderResourceIndex : c_NoBindlessIndex;
         }
 
-        std::uint32_t D3D12Device::GetUnorderedAccessIndex(TextureHandle texture)
+        std::uint32_t D3D12Context::GetUnorderedAccessIndex(TextureHandle texture)
         {
             const D3D12Texture* l_Texture = m_Textures.Get(texture);
             TR_CORE_ASSERT(l_Texture != nullptr, "GetUnorderedAccessIndex on a destroyed or invalid texture.");
@@ -1965,7 +1384,7 @@ namespace Trinity
         }
 
         // The comparison function only matters to comparison filters, and NEVER is valid on every runtime
-        SamplerHandle D3D12Device::CreateSampler(const SamplerDescription& description)
+        SamplerHandle D3D12Context::CreateSampler(const SamplerDescription& description)
         {
             D3D12Sampler l_Sampler;
             l_Sampler.Index = m_SamplerHeap.Allocate();
@@ -1991,7 +1410,7 @@ namespace Trinity
             return m_Samplers.Add(l_Sampler);
         }
 
-        void D3D12Device::DestroySampler(SamplerHandle sampler)
+        void D3D12Context::DestroySampler(SamplerHandle sampler)
         {
             if (!sampler)
             {
@@ -2009,7 +1428,7 @@ namespace Trinity
             }
         }
 
-        std::uint32_t D3D12Device::GetSamplerIndex(SamplerHandle sampler)
+        std::uint32_t D3D12Context::GetSamplerIndex(SamplerHandle sampler)
         {
             const D3D12Sampler* l_Sampler = m_Samplers.Get(sampler);
             TR_CORE_ASSERT(l_Sampler != nullptr, "GetSamplerIndex on a destroyed or invalid sampler.");
@@ -2017,7 +1436,7 @@ namespace Trinity
             return l_Sampler != nullptr ? l_Sampler->Index : c_NoBindlessIndex;
         }
 
-        PipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDescription& description)
+        PipelineHandle D3D12Context::CreateGraphicsPipeline(const GraphicsPipelineDescription& description)
         {
             TR_CORE_ASSERT(!description.VertexShader.Code.empty() && !description.PixelShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
             TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
@@ -2089,7 +1508,7 @@ namespace Trinity
             return m_Pipelines.Add(std::move(l_Pipeline));
         }
 
-        QueryPoolHandle D3D12Device::CreateQueryPool(const QueryPoolDescription& description)
+        QueryPoolHandle D3D12Context::CreateQueryPool(const QueryPoolDescription& description)
         {
             TR_CORE_ASSERT(description.Count != 0, "Query pool '{}' has no queries.", description.DebugName);
 
@@ -2115,7 +1534,7 @@ namespace Trinity
             return m_QueryPools.Add(std::move(l_Pool));
         }
 
-        void D3D12Device::DestroyQueryPool(QueryPoolHandle pool)
+        void D3D12Context::DestroyQueryPool(QueryPoolHandle pool)
         {
             if (!pool)
             {
@@ -2133,14 +1552,14 @@ namespace Trinity
             }
         }
 
-        std::uint64_t D3D12Device::GetTimestampFrequency() const
+        std::uint64_t D3D12Context::GetTimestampFrequency() const
         {
             UINT64 l_Frequency = 0;
 
             return m_Queue && SUCCEEDED(m_Queue->GetTimestampFrequency(&l_Frequency)) ? l_Frequency : 0;
         }
 
-        PipelineHandle D3D12Device::CreateComputePipeline(const ComputePipelineDescription& description)
+        PipelineHandle D3D12Context::CreateComputePipeline(const ComputePipelineDescription& description)
         {
             TR_CORE_ASSERT(!description.ComputeShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
 
@@ -2166,7 +1585,7 @@ namespace Trinity
             return m_Pipelines.Add(std::move(l_Pipeline));
         }
 
-        void D3D12Device::DestroyPipeline(PipelineHandle pipeline)
+        void D3D12Context::DestroyPipeline(PipelineHandle pipeline)
         {
             if (!pipeline)
             {
@@ -2184,13 +1603,13 @@ namespace Trinity
             }
         }
 
-        Scope<SwapChain> D3D12Device::CreateSwapChain(const SwapChainSpecification& specification)
+        Scope<SwapChain> D3D12Context::CreateSwapChain(const SwapChainSpecification& specification)
         {
             return D3D12SwapChain::Create(*this, specification);
         }
 
         // Waits until the frame c_FramesInFlight before this one, which used the same command allocator, has finished on the GPU
-        CommandList& D3D12Device::BeginFrame()
+        CommandList& D3D12Context::BeginFrame()
         {
             TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
 
@@ -2208,7 +1627,7 @@ namespace Trinity
             return m_CommandList;
         }
 
-        void D3D12Device::EndFrame()
+        void D3D12Context::EndFrame()
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
@@ -2227,7 +1646,7 @@ namespace Trinity
             m_InFrame = false;
         }
 
-        void D3D12Device::WaitIdle()
+        void D3D12Context::WaitIdle()
         {
             WaitForQueue();
             m_Releases.ReleaseIdle([this](D3D12Release& release) { Release(release); });

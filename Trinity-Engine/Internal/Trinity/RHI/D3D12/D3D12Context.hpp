@@ -2,6 +2,8 @@
 
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/RHI/Bindless.hpp"
+#include "Trinity/RHI/D3D12/D3D12CommandList.hpp"
+#include "Trinity/RHI/D3D12/D3D12DescriptorHeap.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
@@ -20,8 +22,6 @@ namespace Trinity
 {
     namespace RHI
     {
-        class D3D12Device;
-
         constexpr std::uint32_t c_NoDescriptor = c_NoBindlessIndex;
 
         using D3D12DescriptorIndices = std::vector<std::uint32_t, TaggedAllocator<std::uint32_t, MemoryTag::Renderer>>;
@@ -73,76 +73,14 @@ namespace Trinity
             std::uint32_t Index = c_NoDescriptor;
         };
 
-        // A heap of descriptors handed out a slot at a time, CPU-only for render target and depth views and shader-visible for the bindless heaps
-        class D3D12DescriptorHeap
-        {
-        public:
-            [[nodiscard]] bool Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shaderVisible);
-            void Reset();
-
-            [[nodiscard]] std::uint32_t Allocate();
-            void Free(std::uint32_t index);
-
-            [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE GetHandle(std::uint32_t index) const;
-            [[nodiscard]] ID3D12DescriptorHeap* GetHeap() const { return m_Heap.Get(); }
-
-        private:
-            Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_Heap;
-            D3D12_CPU_DESCRIPTOR_HANDLE m_Start{};
-            std::uint32_t m_Increment = 0;
-            IndexAllocator m_Indices;
-        };
-
-        class D3D12CommandList final : public CommandList
-        {
-        public:
-            explicit D3D12CommandList(D3D12Device& device);
-
-            void Begin(ID3D12GraphicsCommandList7* commandList);
-            void End();
-
-            void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range) override;
-            void BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after) override;
-
-            void BeginRendering(const RenderingDescription& description) override;
-            void EndRendering() override;
-
-            void SetPipeline(PipelineHandle pipeline) override;
-            void SetViewport(const Viewport& viewport) override;
-            void SetScissor(const Rect& scissor) override;
-            void SetStencilReference(std::uint32_t reference) override;
-            void PushConstants(std::span<const std::byte> data) override;
-            void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance) override;
-            void SetIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format) override;
-            void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex, std::uint32_t firstInstance) override;
-            void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) override;
-
-            void WriteTimestamp(QueryPoolHandle pool, std::uint32_t index) override;
-            void ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset) override;
-
-            void CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size) override;
-            void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) override;
-            void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) override;
-
-        private:
-            D3D12Device& m_Device;
-            ID3D12GraphicsCommandList7* m_CommandList = nullptr;
-            // What each resolving attachment's ending access points to, so it lives until EndRenderPass
-            std::array<D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS, c_MaxColorAttachments> m_ResolveParameters{};
-            bool m_Rendering = false;
-            bool m_HasPipeline = false;
-            bool m_HasComputePipeline = false;
-            bool m_HasIndexBuffer = false;
-        };
-
-        class D3D12Device final : public Device
+        class D3D12Context final : public Device
         {
         public:
             // Null, with the reason in error, when no adapter can run the engine
-            [[nodiscard]] static Scope<D3D12Device> Create(const DeviceSpecification& specification, std::string& error);
+            [[nodiscard]] static Scope<D3D12Context> Create(const DeviceSpecification& specification, std::string& error);
 
-            D3D12Device();
-            ~D3D12Device() override;
+            D3D12Context();
+            ~D3D12Context() override;
 
             [[nodiscard]] const DeviceInfo& GetInfo() const override { return m_Info; }
 

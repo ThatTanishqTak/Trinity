@@ -11,15 +11,15 @@ namespace Trinity
 {
     namespace RHI
     {
-        class D3D12Device;
+        class D3D12Context;
 
         class D3D12SwapChain final : public SwapChain
         {
         public:
             // Null, with the reason logged, when the window cannot be presented to
-            [[nodiscard]] static Scope<D3D12SwapChain> Create(D3D12Device& device, const SwapChainSpecification& specification);
+            [[nodiscard]] static Scope<D3D12SwapChain> Create(D3D12Context& device, const SwapChainSpecification& specification);
 
-            D3D12SwapChain(D3D12Device& device, const SwapChainSpecification& specification);
+            D3D12SwapChain(D3D12Context& device, const SwapChainSpecification& specification);
             ~D3D12SwapChain() override;
 
             [[nodiscard]] TextureHandle AcquireNextTexture() override;
@@ -37,7 +37,7 @@ namespace Trinity
             [[nodiscard]] bool AddBuffers();
             void RemoveBuffers();
 
-            D3D12Device& m_Device;
+            D3D12Context& m_Device;
             SwapChainSpecification m_Specification;
 
             Microsoft::WRL::ComPtr<IDXGISwapChain3> m_SwapChain;

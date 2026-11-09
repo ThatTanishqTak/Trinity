@@ -3,11 +3,11 @@
 #include "Trinity/RHI/Null/NullDevice.hpp"
 
 #if defined(TR_RHI_D3D12)
-#include "Trinity/RHI/D3D12/D3D12Device.hpp"
+#include "Trinity/RHI/D3D12/D3D12Context.hpp"
 #endif
 
 #if defined(TR_RHI_VULKAN)
-#include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
+#include "Trinity/RHI/Vulkan/VulkanContext.hpp"
 #endif
 
 #include "Trinity/Core/Log.hpp"
@@ -79,7 +79,7 @@ namespace Trinity
                 {
 #if defined(TR_RHI_D3D12)
                     std::string l_Error;
-                    if (Scope<D3D12Device> l_Device = D3D12Device::Create(specification, l_Error))
+                    if (Scope<D3D12Context> l_Device = D3D12Context::Create(specification, l_Error))
                     {
                         return Scope<Device>(std::move(l_Device));
                     }
@@ -93,7 +93,7 @@ namespace Trinity
                 {
 #if defined(TR_RHI_VULKAN)
                     std::string l_Error;
-                    if (Scope<VulkanDevice> l_Device = VulkanDevice::Create(specification, l_Error))
+                    if (Scope<VulkanContext> l_Device = VulkanContext::Create(specification, l_Error))
                     {
                         return Scope<Device>(std::move(l_Device));
                     }

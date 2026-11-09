@@ -2,7 +2,7 @@
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
-#include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
+#include "Trinity/RHI/Vulkan/VulkanContext.hpp"
 #include "Trinity/RHI/Vulkan/VulkanUtilities.hpp"
 
 #include <algorithm>
@@ -57,7 +57,7 @@ namespace Trinity
             }
         }
 
-        Scope<VulkanSwapChain> VulkanSwapChain::Create(VulkanDevice& device, const SwapChainSpecification& specification)
+        Scope<VulkanSwapChain> VulkanSwapChain::Create(VulkanContext& device, const SwapChainSpecification& specification)
         {
             Scope<VulkanSwapChain> l_SwapChain = CreateScope<VulkanSwapChain>(device, specification);
             if (!l_SwapChain->Initialize())
@@ -68,7 +68,7 @@ namespace Trinity
             return l_SwapChain;
         }
 
-        VulkanSwapChain::VulkanSwapChain(VulkanDevice& device, const SwapChainSpecification& specification) : m_Device(device), m_Specification(specification)
+        VulkanSwapChain::VulkanSwapChain(VulkanContext& device, const SwapChainSpecification& specification) : m_Device(device), m_Specification(specification)
         {
 
         }
