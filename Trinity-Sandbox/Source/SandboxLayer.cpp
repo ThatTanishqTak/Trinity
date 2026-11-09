@@ -192,20 +192,54 @@ div, img { position: absolute; display: block; }
 
     static_assert(sizeof(RasterPushData) == 64);
 
-    // FNV-1a over the texels of each row of a readback, leaving out the padding after each row
-    std::uint64_t HashRows(std::span<const std::byte> data, std::uint64_t rowPitch, std::uint64_t rowSize, std::uint32_t rows)
+    // FNV-1a over every byte a check reads back that is the same on every run, logged as "Readback: <check> <hash>" as the check returns, after its own line and whether it passed or not, so M12's split of the backends can show it changed nothing. A check that adds nothing logs nothing, as on the null device, which reads nothing back
+    class ReadbackHash
     {
-        std::uint64_t l_Hash = 14695981039346656037ull;
-        for (std::uint32_t it_Row = 0; it_Row < rows && (it_Row * rowPitch + rowSize) <= data.size(); ++it_Row)
+    public:
+        explicit ReadbackHash(std::string_view check) : m_Check(check)
         {
-            for (const std::byte it_Byte : data.subspan(static_cast<std::size_t>(it_Row* rowPitch), static_cast<std::size_t>(rowSize)))
+
+        }
+
+        ~ReadbackHash()
+        {
+            if (m_Added)
             {
-                l_Hash = (l_Hash ^ std::to_integer<std::uint64_t>(it_Byte)) * 1099511628211ull;
+                TR_INFO("Readback: {} 0x{:016x}", m_Check, m_Hash);
             }
         }
 
-        return l_Hash;
-    }
+        ReadbackHash(const ReadbackHash&) = delete;
+        ReadbackHash& operator=(const ReadbackHash&) = delete;
+
+        void Add(std::span<const std::byte> data)
+        {
+            for (const std::byte it_Byte : data)
+            {
+                m_Hash = (m_Hash ^ std::to_integer<std::uint64_t>(it_Byte)) * 1099511628211ull;
+            }
+
+            m_Added = true;
+        }
+
+        // The texels of each row of a readback from an offset, leaving out the padding after each row
+        void AddRows(std::span<const std::byte> data, std::uint64_t rowPitch, std::uint64_t rowSize, std::uint32_t rows, std::uint64_t offset = 0)
+        {
+            for (std::uint32_t it_Row = 0; it_Row < rows && offset + it_Row * rowPitch + rowSize <= data.size(); ++it_Row)
+            {
+                Add(data.subspan(static_cast<std::size_t>(offset + it_Row * rowPitch), static_cast<std::size_t>(rowSize)));
+            }
+
+            m_Added = true;
+        }
+
+        [[nodiscard]] std::uint64_t Get() const { return m_Hash; }
+
+    private:
+        std::string_view m_Check;
+        std::uint64_t m_Hash = 14695981039346656037ull;
+        bool m_Added = false;
+    };
 
     // A hue in [0, 1) at saturation 0.6 and value 0.5, so the window never gets too bright to look at
     std::array<float, 4> HueToColor(float hue)
@@ -918,6 +952,11 @@ void SandboxLayer::TestCompute()
     const std::span<const std::byte> l_TextureData = l_Device.GetMappedData(l_TextureReadback);
     const std::span<const std::byte> l_TargetData = l_Device.GetMappedData(l_TargetReadback);
 
+    ReadbackHash l_Hash("Compute");
+    l_Hash.Add(l_BufferData);
+    l_Hash.AddRows(l_TextureData, l_RowPitch, std::uint64_t{ c_ComputeTextureSize } * 4, c_ComputeTextureSize);
+    l_Hash.AddRows(l_TargetData, l_RowPitch, std::uint64_t{ c_ComputeTextureSize } * 4, c_ComputeTextureSize);
+
     std::string l_Wrong;
     const auto a_Mismatch = [&l_Wrong](std::string message) { l_Wrong += std::format("{}{}", l_Wrong.empty() ? "" : "; ", message); };
     if (const std::optional<std::size_t> l_Word = FindWrongWord(l_BufferData, l_Words))
@@ -1113,6 +1152,7 @@ void SandboxLayer::TestLayeredTextures()
     const std::span<const std::byte> l_Texels = l_Device.GetMappedData(l_Readback);
     const std::span<const std::byte> l_ReadWords = l_Device.GetMappedData(l_WordsReadback);
 
+    ReadbackHash l_Hash("Layers");
     std::string l_Wrong;
     l_Slot = 0;
     for (const Layered& it_Texture : l_Textures)
@@ -1126,6 +1166,7 @@ void SandboxLayer::TestLayeredTextures()
                 const std::uint32_t l_Height = Trinity::RHI::GetMipSize(it_Texture.Height, it_Mip);
                 const std::uint64_t l_RowPitch = Trinity::RHI::GetTextureCopyRowPitch(c_Format, l_Width);
                 const std::uint64_t l_Base = l_Slot * l_SlotSize;
+                l_Hash.AddRows(l_Texels, l_RowPitch, std::uint64_t{ l_Width } * 4, l_Height, l_Base);
 
                 bool l_Cleared = l_Texels.size() >= l_Base + l_RowPitch * l_Height;
                 for (std::uint32_t it_Y = 0; it_Y < l_Height && l_Cleared; ++it_Y)
@@ -1150,6 +1191,7 @@ void SandboxLayer::TestLayeredTextures()
         }
     }
 
+    l_Hash.Add(l_ReadWords);
     a_Destroy();
 
     if (!l_Wrong.empty())
@@ -1411,6 +1453,12 @@ void SandboxLayer::TestRasterState()
     }
 
     const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+
+    ReadbackHash l_Hash("Raster");
+    l_Hash.AddRows(l_Data, l_RowPitch, std::uint64_t{ c_Width } * 4, c_RasterCellSize);
+    l_Hash.AddRows(l_Data, Trinity::RHI::GetTextureCopyRowPitch(Trinity::RHI::Format::R11G11B10Float, c_RasterFloatSize), std::uint64_t{ c_RasterFloatSize } * 4, c_RasterFloatSize, l_SmallFloatOffset);
+    l_Hash.AddRows(l_Data, Trinity::RHI::GetTextureCopyRowPitch(Trinity::RHI::Format::RGBA16Float, c_RasterFloatSize), std::uint64_t{ c_RasterFloatSize } * 8, c_RasterFloatSize, l_HalfFloatOffset);
+
     std::string l_Wrong;
     for (const Probe& it_Probe : c_Probes)
     {
@@ -1589,6 +1637,9 @@ void SandboxLayer::TestMultisampling()
     }
 
     const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+    ReadbackHash l_Hash("Multisampling");
+    l_Hash.AddRows(l_Data, l_RowPitch, std::uint64_t{ c_Size } * 4, c_Size);
+
     const auto a_Channel = [&l_Data, l_RowPitch](std::uint32_t x, std::uint32_t y, std::uint32_t channel) { return std::to_integer<std::int32_t>(l_Data[static_cast<std::size_t>(y * l_RowPitch + x * 4 + channel)]); };
 
     std::string l_Wrong;
@@ -1951,6 +2002,9 @@ void SandboxLayer::TestFrameGraph()
     }
 
     const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+    ReadbackHash l_Hash("Frame graph");
+    l_Hash.AddRows(l_Data, l_RowPitch, std::uint64_t{ c_Size } * 4, c_Size);
+
     std::string l_Wrong;
     for (const Probe& it_Probe : l_Probes)
     {
@@ -2107,6 +2161,9 @@ void SandboxLayer::TestToneMapping()
     }
 
     const std::span<const std::byte> l_Data = l_Device.GetMappedData(l_Readback);
+    ReadbackHash l_Hash("Tone mapping");
+    l_Hash.AddRows(l_Data, l_OutputStride, std::uint64_t{ c_Width } * 4, static_cast<std::uint32_t>(c_Settings.size()));
+
     std::string l_Wrong;
     std::uint32_t l_MidGrey = 0;
     for (std::size_t it_Setting = 0; it_Setting < c_Settings.size(); ++it_Setting)
@@ -2170,6 +2227,12 @@ void SandboxLayer::CheckRendererGraph()
     }
 
     const Trinity::FrameGraph::Statistics& l_Statistics = l_Graph.GetStatistics();
+
+    // The graph's own shape, the passes in order with those culled and its barriers, which no GPU changes
+    const std::string l_Shape = std::format("{}; {} barriers", l_Passes, l_Statistics.Barriers);
+    ReadbackHash l_Hash("Renderer graph");
+    l_Hash.Add(std::as_bytes(std::span(l_Shape)));
+
     if (!l_Scene || !l_Output || !l_UnusedCulled || l_Statistics.CulledPasses != 1)
     {
         TR_ERROR("Renderer graph: the first frame's passes were {}, where Scene and Output run and only {} is culled", l_Passes, c_UnusedPassName);
@@ -2262,7 +2325,7 @@ void SandboxLayer::UpdateResizes()
     ++m_Resizes;
 }
 
-// Entities with MeshRenderers holding none to three materials, some invalid, an invalid mesh and shadows on and off, saved, loaded and saved again: the two files match, and every component comes back equal
+// Entities with MeshRenderers holding none to three materials, some invalid, an invalid mesh and shadows on and off, saved, loaded and saved again: the two files match, and every component comes back equal. Every UUID and position comes from c_MeshSeed, so the first file's hash is the same on every run
 void SandboxLayer::TestMeshRendererScene()
 {
     TR_PROFILE_FUNCTION();
@@ -2274,19 +2337,26 @@ void SandboxLayer::TestMeshRendererScene()
     Trinity::Scene l_Scene;
     std::mt19937 l_Random(c_MeshSeed);
     std::uniform_real_distribution<float> l_Position(-10.0f, 10.0f);
+    // The UUIDs come from the seed as well, so the file holds the same bytes on every run. mt19937_64 gives the same numbers in every standard library, and none of these is 0
+    std::mt19937_64 l_IDs(c_MeshSeed);
     std::vector<Trinity::UUID> l_Entities;
     Trinity::Entity l_Parent;
     for (std::uint32_t it_Entity = 0; it_Entity < c_EntityCount; ++it_Entity)
     {
-        const std::string l_Name = std::format("Mesh {}", it_Entity);
-        Trinity::Entity l_Entity = it_Entity % 4 == 1 ? l_Scene.CreateEntity(l_Name, l_Parent) : l_Scene.CreateEntity(l_Name);
+        Trinity::Entity l_Entity = l_Scene.CreateEntityWithUUID(Trinity::UUID(l_IDs()));
+        l_Entity.Add<Trinity::TagComponent>().Tag = std::format("Mesh {}", it_Entity);
+        if (it_Entity % 4 == 1)
+        {
+            static_cast<void>(l_Scene.SetParent(l_Entity, l_Parent, false));
+        }
+
         l_Entity.Get<Trinity::TransformComponent>().Position = { l_Position(l_Random), l_Position(l_Random), l_Position(l_Random) };
 
         Trinity::MeshRendererComponent& l_Renderer = l_Entity.Add<Trinity::MeshRendererComponent>();
-        l_Renderer.Mesh = it_Entity % 5 == 4 ? Trinity::UUID() : Trinity::UUID::Generate();
+        l_Renderer.Mesh = it_Entity % 5 == 4 ? Trinity::UUID() : Trinity::UUID(l_IDs());
         for (std::uint32_t it_Material = 0; it_Material < it_Entity % 4; ++it_Material)
         {
-            l_Renderer.Materials.push_back(it_Material == 1 ? Trinity::UUID() : Trinity::UUID::Generate());
+            l_Renderer.Materials.push_back(it_Material == 1 ? Trinity::UUID() : Trinity::UUID(l_IDs()));
         }
 
         l_Renderer.CastShadows = it_Entity % 3 != 0;
@@ -2308,6 +2378,13 @@ void SandboxLayer::TestMeshRendererScene()
     const Trinity::Expected<std::string, Trinity::FileError> l_First = Trinity::FileSystem::ReadText(c_FirstPath);
     const Trinity::Expected<std::string, Trinity::FileError> l_Second = Trinity::FileSystem::ReadText(c_SecondPath);
     const bool l_Same = l_First && l_Second && *l_First == *l_Second;
+
+    ReadbackHash l_Hash("Mesh scene");
+    if (l_First)
+    {
+        l_Hash.Add(std::as_bytes(std::span(*l_First)));
+    }
+
     const std::size_t l_Equal = static_cast<std::size_t>(std::ranges::count_if(l_Entities, [&l_Scene, &l_Loaded](Trinity::UUID id)
     {
         const Trinity::Entity l_Original = l_Scene.FindEntityByUUID(id);
@@ -2533,6 +2610,7 @@ void SandboxLayer::CheckMeshReadbacks()
     l_Device.WaitIdle();
 
     const Trinity::GraphicsAPI l_API = l_Device.GetInfo().API;
+    ReadbackHash l_Hash("Meshes");
     std::string l_Wrong;
     std::uint64_t l_Vertices = 0;
     std::uint64_t l_Indices = 0;
@@ -2558,6 +2636,11 @@ void SandboxLayer::CheckMeshReadbacks()
         }
 
         const std::span<const std::byte> l_Gpu = l_Device.GetMappedData(m_MeshReadbacks[it_Mesh]);
+        if (l_API != Trinity::GraphicsAPI::None)
+        {
+            l_Hash.Add(l_Gpu);
+        }
+
         const bool l_ReadBack = l_API == Trinity::GraphicsAPI::None || (l_Gpu.size() >= l_File->Data.size() && std::memcmp(l_Gpu.data(), l_File->Data.data(), l_File->Data.size()) == 0);
         const std::string l_Decoded = CompareMesh(l_Test.Data, l_File->Layout, l_API == Trinity::GraphicsAPI::None ? l_File->Data : l_Gpu);
         if (!l_Matches || !l_Bounds || !l_ReadBack || !l_Decoded.empty())
@@ -2983,7 +3066,11 @@ void SandboxLayer::CheckSpriteReadback()
         }
     }
 
-    const std::uint64_t l_Hash = l_Check ? HashRows(l_Data, l_RowPitch, std::uint64_t{ c_SpriteReadbackSize } * 4, c_SpriteReadbackSize) : 0;
+    ReadbackHash l_Hash("Sprites");
+    if (l_Check)
+    {
+        l_Hash.AddRows(l_Data, l_RowPitch, std::uint64_t{ c_SpriteReadbackSize } * 4, c_SpriteReadbackSize);
+    }
 
     l_Device.DestroyBuffer(m_SpriteReadback);
     m_SpriteReadback = {};
@@ -3002,7 +3089,7 @@ void SandboxLayer::CheckSpriteReadback()
         return;
     }
 
-    TR_INFO("Sprites: {} drew 9 sprites in one draw call{}", Trinity::ToString(l_Info.API), l_Check ? std::format(", and all {} probes for sort order, transforms, flips, filtering, blending in linear light and the sRGB round trip hold the expected colour, with the readback hashing to 0x{:016x}", c_Probes.size(), l_Hash) : "");
+    TR_INFO("Sprites: {} drew 9 sprites in one draw call{}", Trinity::ToString(l_Info.API), l_Check ? std::format(", and all {} probes for sort order, transforms, flips, filtering, blending in linear light and the sRGB round trip hold the expected colour, with the readback hashing to 0x{:016x}", c_Probes.size(), l_Hash.Get()) : "");
 }
 
 // Whether Renderer memory moved between sprite frame c_SpriteCheckFrame and c_SpriteReportFrame, or the last frame when the run ends sooner
@@ -3148,6 +3235,9 @@ void SandboxLayer::CheckGameUI()
         return;
     }
 
+    ReadbackHash l_Hash("Game UI");
+    l_Hash.AddRows(l_Data, l_RowPitch, std::uint64_t{ c_UIProbeSize } * 4, c_UIProbeSize);
+
     const auto a_Channel = [&l_Data, l_RowPitch](std::uint32_t x, std::uint32_t y, std::size_t channel) { return std::to_integer<std::int32_t>(l_Data[static_cast<std::size_t>(y * l_RowPitch + x * 4 + channel)]); };
 
     std::string l_Wrong;
@@ -3186,7 +3276,7 @@ void SandboxLayer::CheckGameUI()
         return;
     }
 
-    TR_INFO("Game UI: {} drew the reference document in {} draw command(s), and all {} probes for a border, images, the sRGB round trip, blending, a scissor and a turned box's clip mask hold the expected colour within one 8-bit step, with {} white text pixels and the readback hashing to 0x{:016x}", Trinity::ToString(l_Info.API), m_UICommands, c_Probes.size(), l_TextPixels, HashRows(l_Data, l_RowPitch, std::uint64_t{ c_UIProbeSize } * 4, c_UIProbeSize));
+    TR_INFO("Game UI: {} drew the reference document in {} draw command(s), and all {} probes for a border, images, the sRGB round trip, blending, a scissor and a turned box's clip mask hold the expected colour within one 8-bit step, with {} white text pixels and the readback hashing to 0x{:016x}", Trinity::ToString(l_Info.API), m_UICommands, c_Probes.size(), l_TextPixels, l_Hash.Get());
 }
 
 void SandboxLayer::EndGameUI()

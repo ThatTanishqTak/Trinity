@@ -13,14 +13,14 @@ namespace Trinity
         constexpr std::array<GraphicsAPI, 2> c_MacAPIs{ GraphicsAPI::Vulkan, GraphicsAPI::Metal };
         constexpr std::array<GraphicsAPI, 1> c_XboxAPIs{ GraphicsAPI::D3D12 };
 
-        // PlayStation's API is its own, which the engine has no backend for until M15
+        // PlayStation's API is its own, which the engine has no backend for until M16
         constexpr std::array<TargetPlatform, 6> c_Platforms{ {
             { "Windows", "Windows",{}, c_WindowsAPIs, false },
-            { "Linux", "Linux", "M13", c_VulkanAPIs, false },
-            { "macOS", "macOS", "M14", c_MacAPIs, false },
-            { "Xbox", "Xbox Series", "M15", c_XboxAPIs, true },
-            { "PlayStation", "PlayStation 5", "M15",{}, true },
-            { "Switch", "Nintendo Switch", "M15", c_VulkanAPIs, true }
+            { "Linux", "Linux", "M14", c_VulkanAPIs, false },
+            { "macOS", "macOS", "M15", c_MacAPIs, false },
+            { "Xbox", "Xbox Series", "M16", c_XboxAPIs, true },
+            { "PlayStation", "PlayStation 5", "M16",{}, true },
+            { "Switch", "Nintendo Switch", "M16", c_VulkanAPIs, true }
         } };
     }
 
