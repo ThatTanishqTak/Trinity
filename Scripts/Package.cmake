@@ -488,6 +488,10 @@ endif()
 trinity_summarize(${zip_size} "${OUTPUT}/${name}.zip, Trinity ${TRINITY_VERSION} (${short_commit}${modified_text}) for ${TRINITY_VERSION_PLATFORM} ${TRINITY_VERSION_ARCHITECTURE}" ${kinds})
 
 set(uploads "${OUTPUT}/${name}.zip" "${OUTPUT}/${name}.zip.sha256")
+if(symbols_size GREATER 0)
+    trinity_format_bytes(${symbols_size} symbols_text)
+    message(STATUS "Package: ${OUTPUT}/${name}-symbols.zip, the Release programs' debug symbols in ${symbols_text}, to unzip over the version when debugging Forge itself")
+    list(APPEND uploads "${OUTPUT}/${name}-symbols.zip" "${OUTPUT}/${name}-symbols.zip.sha256")
 endif()
 
 # The release on GitHub, whose tag is the version's, made at the commit it was built from. A version with a hyphen is a pre-release
