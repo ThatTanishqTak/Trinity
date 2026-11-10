@@ -6,6 +6,7 @@
 #include "Trinity/RHI/HandlePool.hpp"
 #include "Trinity/RHI/ReleaseQueue.hpp"
 #include "Trinity/RHI/Vulkan/VulkanCommandList.hpp"
+#include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
 #include "Trinity/RHI/Vulkan/VulkanInstance.hpp"
 
@@ -79,7 +80,7 @@ namespace Trinity
             VulkanContext();
             ~VulkanContext() override;
 
-            [[nodiscard]] const DeviceInfo& GetInfo() const override { return m_Info; }
+            [[nodiscard]] const DeviceInfo& GetInfo() const override { return m_Device.GetInfo(); }
 
             [[nodiscard]] BufferHandle CreateBuffer(const BufferDescription& description) override;
             void DestroyBuffer(BufferHandle buffer) override;
@@ -126,14 +127,14 @@ namespace Trinity
             void SignalSemaphore(VkSemaphore semaphore);
 
             [[nodiscard]] VkInstance GetInstance() const { return m_Instance.GetHandle(); }
-            [[nodiscard]] VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
-            [[nodiscard]] VkDevice GetHandle() const { return m_Device; }
-            [[nodiscard]] VkQueue GetQueue() const { return m_Queue; }
-            [[nodiscard]] std::uint32_t GetQueueFamily() const { return m_QueueFamily; }
+            [[nodiscard]] VkPhysicalDevice GetPhysicalDevice() const { return m_Device.GetPhysicalDevice(); }
+            [[nodiscard]] VkDevice GetHandle() const { return m_Device.GetHandle(); }
+            [[nodiscard]] VkQueue GetQueue() const { return m_Device.GetQueue(); }
+            [[nodiscard]] std::uint32_t GetQueueFamily() const { return m_Device.GetQueueFamily(); }
             [[nodiscard]] std::uint32_t GetFrameSlot() const { return static_cast<std::uint32_t>(m_FrameNumber % c_FramesInFlight); }
             [[nodiscard]] bool IsInFrame() const { return m_InFrame; }
 
-            void SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const;
+            void SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const { m_Device.SetDebugName(type, handle, name); }
 
         private:
             struct VulkanRelease
@@ -159,7 +160,6 @@ namespace Trinity
             };
 
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
-            [[nodiscard]] bool CreateLogicalDevice(std::string& error);
             [[nodiscard]] bool CreateAllocator(std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
@@ -172,16 +172,8 @@ namespace Trinity
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanSampler& sampler);
             void Release(const VulkanRelease& release);
 
-            DeviceInfo m_Info;
-            bool m_TextureCompressionBC = false;
-            bool m_TimestampsSupported = false;
-            float m_TimestampPeriod = 1.0f;
-
             VulkanInstance m_Instance;
-            VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
-            VkDevice m_Device = VK_NULL_HANDLE;
-            VkQueue m_Queue = VK_NULL_HANDLE;
-            std::uint32_t m_QueueFamily = 0;
+            VulkanDevice m_Device;
             VmaAllocator m_Allocator = nullptr;
 
             HandlePool<VulkanBuffer, BufferHandle> m_Buffers;

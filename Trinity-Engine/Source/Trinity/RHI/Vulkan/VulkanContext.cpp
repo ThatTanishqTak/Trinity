@@ -20,90 +20,6 @@ namespace Trinity
     {
         namespace
         {
-            template<typename T>
-            struct RequiredFeature
-            {
-                std::string_view Name;
-                VkBool32 T::* Member;
-            };
-
-            // What the backend is built on. Descriptor indexing is for the bindless tables, shader draw parameters is what Slang's SV_VertexID needs, depth clamp and bias clamp are for shadow maps, and independent blend is for an integer target beside a blended one
-            constexpr std::array<RequiredFeature<VkPhysicalDeviceFeatures>, 3> c_Required10
-            { {
-                { "depthClamp", &VkPhysicalDeviceFeatures::depthClamp },
-                { "depthBiasClamp", &VkPhysicalDeviceFeatures::depthBiasClamp },
-                { "independentBlend", &VkPhysicalDeviceFeatures::independentBlend }
-            } };
-
-            constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan11Features>, 1> c_Required11
-            { {
-                { "shaderDrawParameters", &VkPhysicalDeviceVulkan11Features::shaderDrawParameters }
-            } };
-
-            constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan12Features>, 11> c_Required12
-            { {
-                { "timelineSemaphore", &VkPhysicalDeviceVulkan12Features::timelineSemaphore },
-                { "hostQueryReset", &VkPhysicalDeviceVulkan12Features::hostQueryReset },
-                { "runtimeDescriptorArray", &VkPhysicalDeviceVulkan12Features::runtimeDescriptorArray },
-                { "descriptorBindingPartiallyBound", &VkPhysicalDeviceVulkan12Features::descriptorBindingPartiallyBound },
-                { "descriptorBindingUpdateUnusedWhilePending", &VkPhysicalDeviceVulkan12Features::descriptorBindingUpdateUnusedWhilePending },
-                { "descriptorBindingSampledImageUpdateAfterBind", &VkPhysicalDeviceVulkan12Features::descriptorBindingSampledImageUpdateAfterBind },
-                { "descriptorBindingStorageImageUpdateAfterBind", &VkPhysicalDeviceVulkan12Features::descriptorBindingStorageImageUpdateAfterBind },
-                { "descriptorBindingStorageBufferUpdateAfterBind", &VkPhysicalDeviceVulkan12Features::descriptorBindingStorageBufferUpdateAfterBind },
-                { "shaderSampledImageArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderSampledImageArrayNonUniformIndexing },
-                { "shaderStorageImageArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderStorageImageArrayNonUniformIndexing },
-                { "shaderStorageBufferArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderStorageBufferArrayNonUniformIndexing }
-            } };
-
-            // A shader's discard is a demotion to a helper invocation in SPIR-V 1.6, which every Vulkan 1.3 device supports
-            constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan13Features>, 3> c_Required13
-            { {
-                { "dynamicRendering", &VkPhysicalDeviceVulkan13Features::dynamicRendering },
-                { "synchronization2", &VkPhysicalDeviceVulkan13Features::synchronization2 },
-                { "shaderDemoteToHelperInvocation", &VkPhysicalDeviceVulkan13Features::shaderDemoteToHelperInvocation }
-            } };
-
-            // The Vulkan 1.1 to 1.3 feature structures, chained to each other. It points into itself, so it is never copied
-            struct DeviceFeatures
-            {
-                VkPhysicalDeviceFeatures2 Features = MakeInfo<VkPhysicalDeviceFeatures2>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2);
-                VkPhysicalDeviceVulkan11Features Vulkan11 = MakeInfo<VkPhysicalDeviceVulkan11Features>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES);
-                VkPhysicalDeviceVulkan12Features Vulkan12 = MakeInfo<VkPhysicalDeviceVulkan12Features>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES);
-                VkPhysicalDeviceVulkan13Features Vulkan13 = MakeInfo<VkPhysicalDeviceVulkan13Features>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES);
-
-                DeviceFeatures()
-                {
-                    Features.pNext = &Vulkan11;
-                    Vulkan11.pNext = &Vulkan12;
-                    Vulkan12.pNext = &Vulkan13;
-                }
-
-                DeviceFeatures(const DeviceFeatures&) = delete;
-                DeviceFeatures& operator=(const DeviceFeatures&) = delete;
-            };
-
-            template<typename T, std::size_t N>
-            void AddMissing(const T& features, const std::array<RequiredFeature<T>, N>& required, std::string& missing)
-            {
-                for (const RequiredFeature<T>& it_Feature : required)
-                {
-                    if (features.*(it_Feature.Member) != VK_TRUE)
-                    {
-                        missing += missing.empty() ? "" : ", ";
-                        missing += it_Feature.Name;
-                    }
-                }
-            }
-
-            template<typename T, std::size_t N>
-            void Enable(T& features, const std::array<RequiredFeature<T>, N>& required)
-            {
-                for (const RequiredFeature<T>& it_Feature : required)
-                {
-                    features.*(it_Feature.Member) = VK_TRUE;
-                }
-            }
-
             std::string_view ToString(VkResult result)
             {
                 switch (result)
@@ -149,88 +65,6 @@ namespace Trinity
                         return "another VkResult";
                     }
                 }
-            }
-
-            std::string_view ToString(VkPhysicalDeviceType type)
-            {
-                switch (type)
-                {
-                    case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
-                    {
-                        return "discrete GPU";
-                    }
-                    case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
-                    {
-                        return "integrated GPU";
-                    }
-                    case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
-                    {
-                        return "virtual GPU";
-                    }
-                    case VK_PHYSICAL_DEVICE_TYPE_CPU:
-                    {
-                        return "CPU";
-                    }
-                    default:
-                    {
-                        return "other device";
-                    }
-                }
-            }
-
-            // Higher is preferred: a CPU device such as lavapipe is only picked when nothing else qualifies
-            int GetTypeRank(VkPhysicalDeviceType type)
-            {
-                switch (type)
-                {
-                    case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
-                    {
-                        return 4;
-                    }
-                    case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
-                    {
-                        return 3;
-                    }
-                    case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
-                    {
-                        return 2;
-                    }
-                    case VK_PHYSICAL_DEVICE_TYPE_CPU:
-                    {
-                        return 1;
-                    }
-                    default:
-                    {
-                        return 0;
-                    }
-                }
-            }
-
-            std::vector<VkExtensionProperties> GetDeviceExtensions(VkPhysicalDevice device)
-            {
-                std::uint32_t l_Count = 0;
-                vkEnumerateDeviceExtensionProperties(device, nullptr, &l_Count, nullptr);
-                std::vector<VkExtensionProperties> l_Extensions(l_Count);
-                vkEnumerateDeviceExtensionProperties(device, nullptr, &l_Count, l_Extensions.data());
-
-                return l_Extensions;
-            }
-
-            std::uint64_t GetVideoMemory(VkPhysicalDevice device)
-            {
-                VkPhysicalDeviceMemoryProperties l_Memory{};
-                vkGetPhysicalDeviceMemoryProperties(device, &l_Memory);
-
-                std::uint64_t l_Largest = 0;
-                for (std::uint32_t it_Heap = 0; it_Heap < l_Memory.memoryHeapCount; ++it_Heap)
-                {
-                    if ((l_Memory.memoryHeaps[it_Heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0)
-                    {
-                        l_Largest = std::max<std::uint64_t>(l_Largest, l_Memory.memoryHeaps[it_Heap].size);
-                    }
-                }
-
-                return l_Largest;
             }
 
             // VulkanMemoryAllocator's bookkeeping, and what the driver allocates for the objects it creates through it, counted under the Renderer tag
@@ -614,17 +448,19 @@ namespace Trinity
             return l_Device;
         }
 
-        VulkanContext::VulkanContext() : m_CommandList(*this)
+        VulkanContext::VulkanContext() : m_Device(m_Instance), m_CommandList(*this)
         {
 
         }
 
         VulkanContext::~VulkanContext()
         {
+            const bool l_Report = m_Instance.IsValidationEnabled() && m_Device.GetHandle() != VK_NULL_HANDLE;
+
             // The validation layer reports objects still alive in vkDestroyDevice and vkDestroyInstance, so the messenger outlives the device
-            if (m_Device != VK_NULL_HANDLE)
+            if (m_Device.GetHandle() != VK_NULL_HANDLE)
             {
-                vkDeviceWaitIdle(m_Device);
+                vkDeviceWaitIdle(m_Device.GetHandle());
                 m_UploadRing.Shutdown();
 
                 if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0 || m_QueryPools.GetCount() != 0)
@@ -635,32 +471,32 @@ namespace Trinity
                 m_Releases.ReleaseAll([this](const VulkanRelease& release) { Release(release); });
                 m_Buffers.ForEach([this](const VulkanBuffer& buffer) { Release(ToRelease(buffer)); });
                 m_Textures.ForEach([this](const VulkanTexture& texture) { Release(ToRelease(texture)); });
-                m_Pipelines.ForEach([this](const VulkanPipeline& pipeline) { vkDestroyPipeline(m_Device, pipeline.Pipeline, nullptr); });
+                m_Pipelines.ForEach([this](const VulkanPipeline& pipeline) { vkDestroyPipeline(m_Device.GetHandle(), pipeline.Pipeline, nullptr); });
                 m_Samplers.ForEach([this](const VulkanSampler& sampler) { Release(ToRelease(sampler)); });
-                m_QueryPools.ForEach([this](const VulkanQueryPool& pool) { vkDestroyQueryPool(m_Device, pool.Pool, nullptr); });
+                m_QueryPools.ForEach([this](const VulkanQueryPool& pool) { vkDestroyQueryPool(m_Device.GetHandle(), pool.Pool, nullptr); });
 
-                vkDestroyPipelineLayout(m_Device, m_PipelineLayout, nullptr);
-                vkDestroyDescriptorPool(m_Device, m_BindlessPool, nullptr);
-                vkDestroyDescriptorSetLayout(m_Device, m_BindlessLayout, nullptr);
+                vkDestroyPipelineLayout(m_Device.GetHandle(), m_PipelineLayout, nullptr);
+                vkDestroyDescriptorPool(m_Device.GetHandle(), m_BindlessPool, nullptr);
+                vkDestroyDescriptorSetLayout(m_Device.GetHandle(), m_BindlessLayout, nullptr);
 
                 for (const FrameContext& it_Frame : m_Frames)
                 {
-                    vkDestroyCommandPool(m_Device, it_Frame.CommandPool, nullptr);
+                    vkDestroyCommandPool(m_Device.GetHandle(), it_Frame.CommandPool, nullptr);
                 }
 
-                vkDestroySemaphore(m_Device, m_FrameTimeline, nullptr);
+                vkDestroySemaphore(m_Device.GetHandle(), m_FrameTimeline, nullptr);
 
                 if (m_Allocator != nullptr)
                 {
                     vmaDestroyAllocator(m_Allocator);
                 }
 
-                vkDestroyDevice(m_Device, nullptr);
+                m_Device.Destroy();
             }
 
             m_Instance.Destroy();
 
-            if (m_Instance.IsValidationEnabled() && m_Device != VK_NULL_HANDLE)
+            if (l_Report)
             {
                 TR_CORE_INFO("Vulkan validation: {} warning(s) or error(s) while the device lived", m_Instance.GetMessageCount());
             }
@@ -668,149 +504,14 @@ namespace Trinity
 
         bool VulkanContext::Initialize(const DeviceSpecification& specification, std::string& error)
         {
-            return m_Instance.Initialize(specification, error) && CreateLogicalDevice(error) && CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
-        }
-
-        bool VulkanContext::CreateLogicalDevice(std::string& error)
-        {
-            std::uint32_t l_Count = 0;
-            vkEnumeratePhysicalDevices(m_Instance.GetHandle(), &l_Count, nullptr);
-            std::vector<VkPhysicalDevice> l_PhysicalDevices(l_Count);
-            vkEnumeratePhysicalDevices(m_Instance.GetHandle(), &l_Count, l_PhysicalDevices.data());
-
-            std::string l_Skipped;
-            int l_BestRank = -1;
-            for (VkPhysicalDevice it_PhysicalDevice : l_PhysicalDevices)
-            {
-                VkPhysicalDeviceProperties l_Properties{};
-                vkGetPhysicalDeviceProperties(it_PhysicalDevice, &l_Properties);
-                const std::string_view l_Name = l_Properties.deviceName;
-
-                const auto a_Skip = [&l_Skipped, l_Name](std::string_view reason)
-                {
-                    l_Skipped += std::format("{}{}: {}", l_Skipped.empty() ? "" : "; ", l_Name, reason);
-                };
-
-                if (l_Properties.apiVersion < VK_API_VERSION_1_3)
-                {
-                    a_Skip(std::format("Vulkan {}, and the engine needs 1.3", FormatVersion(l_Properties.apiVersion)));
-
-                    continue;
-                }
-
-                std::uint32_t l_FamilyCount = 0;
-                vkGetPhysicalDeviceQueueFamilyProperties(it_PhysicalDevice, &l_FamilyCount, nullptr);
-                std::vector<VkQueueFamilyProperties> l_Families(l_FamilyCount);
-                vkGetPhysicalDeviceQueueFamilyProperties(it_PhysicalDevice, &l_FamilyCount, l_Families.data());
-
-                const auto a_Graphics = std::ranges::find_if(l_Families, [](const VkQueueFamilyProperties& family) { return (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0 && (family.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0; });
-                if (a_Graphics == l_Families.end())
-                {
-                    a_Skip("no graphics and compute queue");
-
-                    continue;
-                }
-
-                DeviceFeatures l_Features;
-                vkGetPhysicalDeviceFeatures2(it_PhysicalDevice, &l_Features.Features);
-
-                std::string l_Missing;
-                AddMissing(l_Features.Features.features, c_Required10, l_Missing);
-                AddMissing(l_Features.Vulkan11, c_Required11, l_Missing);
-                AddMissing(l_Features.Vulkan12, c_Required12, l_Missing);
-                AddMissing(l_Features.Vulkan13, c_Required13, l_Missing);
-                if (!l_Missing.empty())
-                {
-                    a_Skip(std::format("no {}", l_Missing));
-
-                    continue;
-                }
-
-                const int l_Rank = GetTypeRank(l_Properties.deviceType);
-                if (l_Rank > l_BestRank)
-                {
-                    l_BestRank = l_Rank;
-                    m_PhysicalDevice = it_PhysicalDevice;
-                    m_QueueFamily = static_cast<std::uint32_t>(std::distance(l_Families.begin(), a_Graphics));
-                }
-            }
-
-            if (m_PhysicalDevice == VK_NULL_HANDLE)
-            {
-                error = l_Skipped.empty() ? std::string("no physical device was found") : std::format("no physical device has what the engine needs ({})", l_Skipped);
-
-                return false;
-            }
-
-            VkPhysicalDeviceVulkan12Properties l_DriverProperties = MakeInfo<VkPhysicalDeviceVulkan12Properties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES);
-            VkPhysicalDeviceProperties2 l_Properties = MakeInfo<VkPhysicalDeviceProperties2>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2);
-            l_Properties.pNext = &l_DriverProperties;
-            vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &l_Properties);
-
-            // Optional: without valid timestamp bits on the queue, CreateQueryPool refuses with an error
-            std::uint32_t l_FamilyCount = 0;
-            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &l_FamilyCount, nullptr);
-            std::vector<VkQueueFamilyProperties> l_Families(l_FamilyCount);
-            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &l_FamilyCount, l_Families.data());
-            m_TimestampsSupported = m_QueueFamily < l_Families.size() && l_Families[m_QueueFamily].timestampValidBits != 0 && l_Properties.properties.limits.timestampPeriod > 0.0f;
-            m_TimestampPeriod = l_Properties.properties.limits.timestampPeriod;
-
-            DeviceFeatures l_Enabled;
-            Enable(l_Enabled.Features.features, c_Required10);
-            Enable(l_Enabled.Vulkan11, c_Required11);
-            Enable(l_Enabled.Vulkan12, c_Required12);
-            Enable(l_Enabled.Vulkan13, c_Required13);
-
-            // Optional: without it, IsFormatSupported reports every BC format as unsupported and textures fall back to RGBA8
-            DeviceFeatures l_Available;
-            vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &l_Available.Features);
-            m_TextureCompressionBC = l_Available.Features.features.textureCompressionBC == VK_TRUE;
-            l_Enabled.Features.features.textureCompressionBC = l_Available.Features.features.textureCompressionBC;
-
-            std::vector<const char*> l_Extensions;
-            if (HasExtension(GetDeviceExtensions(m_PhysicalDevice), VK_KHR_SWAPCHAIN_EXTENSION_NAME))
-            {
-                l_Extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-            }
-
-            const float l_Priority = 1.0f;
-            VkDeviceQueueCreateInfo l_Queue = MakeInfo<VkDeviceQueueCreateInfo>(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO);
-            l_Queue.queueFamilyIndex = m_QueueFamily;
-            l_Queue.queueCount = 1;
-            l_Queue.pQueuePriorities = &l_Priority;
-
-            VkDeviceCreateInfo l_Create = MakeInfo<VkDeviceCreateInfo>(VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO);
-            l_Create.pNext = &l_Enabled.Features;
-            l_Create.queueCreateInfoCount = 1;
-            l_Create.pQueueCreateInfos = &l_Queue;
-            l_Create.enabledExtensionCount = static_cast<std::uint32_t>(l_Extensions.size());
-            l_Create.ppEnabledExtensionNames = l_Extensions.data();
-
-            const VkResult l_Result = vkCreateDevice(m_PhysicalDevice, &l_Create, nullptr, &m_Device);
-            if (l_Result != VK_SUCCESS)
-            {
-                error = std::format("vkCreateDevice on {} failed with {}", l_Properties.properties.deviceName, FormatResult(l_Result));
-
-                return false;
-            }
-
-            volkLoadDevice(m_Device);
-            vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
-
-            m_Info.API = GraphicsAPI::Vulkan;
-            m_Info.AdapterName = l_Properties.properties.deviceName;
-            m_Info.VideoMemoryBytes = GetVideoMemory(m_PhysicalDevice);
-
-            TR_CORE_INFO("Vulkan: {} ({}) with {} of video memory: Vulkan {}, {} {}, dynamic rendering, synchronization2, descriptor indexing, timeline semaphores{}", m_Info.AdapterName, ToString(l_Properties.properties.deviceType), Memory::FormatBytes(m_Info.VideoMemoryBytes), FormatVersion(l_Properties.properties.apiVersion), l_DriverProperties.driverName, l_DriverProperties.driverInfo, m_TextureCompressionBC ? ", BC textures" : "");
-
-            return true;
+            return m_Instance.Initialize(specification, error) && m_Device.Initialize(error) && CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool VulkanContext::CreateAllocator(std::string& error)
         {
             VmaAllocatorCreateInfo l_Create{};
-            l_Create.physicalDevice = m_PhysicalDevice;
-            l_Create.device = m_Device;
+            l_Create.physicalDevice = m_Device.GetPhysicalDevice();
+            l_Create.device = m_Device.GetHandle();
             l_Create.instance = m_Instance.GetHandle();
             l_Create.vulkanApiVersion = VK_API_VERSION_1_3;
             l_Create.pAllocationCallbacks = &c_HostAllocator;
@@ -825,7 +526,7 @@ namespace Trinity
 
             if (l_Result != VK_SUCCESS)
             {
-                error = std::format("VulkanMemoryAllocator could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+                error = std::format("VulkanMemoryAllocator could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
 
                 return false;
             }
@@ -841,7 +542,7 @@ namespace Trinity
             VkSemaphoreCreateInfo l_Semaphore = MakeInfo<VkSemaphoreCreateInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO);
             l_Semaphore.pNext = &l_Timeline;
 
-            VkResult l_Result = vkCreateSemaphore(m_Device, &l_Semaphore, nullptr, &m_FrameTimeline);
+            VkResult l_Result = vkCreateSemaphore(m_Device.GetHandle(), &l_Semaphore, nullptr, &m_FrameTimeline);
             for (FrameContext& it_Frame : m_Frames)
             {
                 if (l_Result != VK_SUCCESS)
@@ -851,8 +552,8 @@ namespace Trinity
 
                 VkCommandPoolCreateInfo l_Pool = MakeInfo<VkCommandPoolCreateInfo>(VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO);
                 l_Pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-                l_Pool.queueFamilyIndex = m_QueueFamily;
-                l_Result = vkCreateCommandPool(m_Device, &l_Pool, nullptr, &it_Frame.CommandPool);
+                l_Pool.queueFamilyIndex = m_Device.GetQueueFamily();
+                l_Result = vkCreateCommandPool(m_Device.GetHandle(), &l_Pool, nullptr, &it_Frame.CommandPool);
                 if (l_Result != VK_SUCCESS)
                 {
                     break;
@@ -862,12 +563,12 @@ namespace Trinity
                 l_Allocate.commandPool = it_Frame.CommandPool;
                 l_Allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
                 l_Allocate.commandBufferCount = 1;
-                l_Result = vkAllocateCommandBuffers(m_Device, &l_Allocate, &it_Frame.CommandBuffer);
+                l_Result = vkAllocateCommandBuffers(m_Device.GetHandle(), &l_Allocate, &it_Frame.CommandBuffer);
             }
 
             if (l_Result != VK_SUCCESS)
             {
-                error = std::format("the frame command pools and timeline semaphore could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+                error = std::format("the frame command pools and timeline semaphore could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
 
                 return false;
             }
@@ -881,7 +582,7 @@ namespace Trinity
             VkPhysicalDeviceVulkan12Properties l_Limits = MakeInfo<VkPhysicalDeviceVulkan12Properties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES);
             VkPhysicalDeviceProperties2 l_Properties = MakeInfo<VkPhysicalDeviceProperties2>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2);
             l_Properties.pNext = &l_Limits;
-            vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &l_Properties);
+            vkGetPhysicalDeviceProperties2(m_Device.GetPhysicalDevice(), &l_Properties);
 
             const std::array<BindlessLimit, 5> l_Checks
             { {
@@ -896,7 +597,7 @@ namespace Trinity
             {
                 if (it_Check.Allowed < it_Check.Needed)
                 {
-                    error = std::format("{} allows {} bindless {}, and the engine needs {}", m_Info.AdapterName, it_Check.Allowed, it_Check.Name, it_Check.Needed);
+                    error = std::format("{} allows {} bindless {}, and the engine needs {}", m_Device.GetInfo().AdapterName, it_Check.Allowed, it_Check.Name, it_Check.Needed);
 
                     return false;
                 }
@@ -924,7 +625,7 @@ namespace Trinity
             l_Layout.bindingCount = static_cast<std::uint32_t>(l_Bindings.size());
             l_Layout.pBindings = l_Bindings.data();
 
-            VkResult l_Result = vkCreateDescriptorSetLayout(m_Device, &l_Layout, nullptr, &m_BindlessLayout);
+            VkResult l_Result = vkCreateDescriptorSetLayout(m_Device.GetHandle(), &l_Layout, nullptr, &m_BindlessLayout);
             if (l_Result == VK_SUCCESS)
             {
                 const std::array<VkDescriptorPoolSize, 4> l_Sizes
@@ -940,7 +641,7 @@ namespace Trinity
                 l_Pool.maxSets = 1;
                 l_Pool.poolSizeCount = static_cast<std::uint32_t>(l_Sizes.size());
                 l_Pool.pPoolSizes = l_Sizes.data();
-                l_Result = vkCreateDescriptorPool(m_Device, &l_Pool, nullptr, &m_BindlessPool);
+                l_Result = vkCreateDescriptorPool(m_Device.GetHandle(), &l_Pool, nullptr, &m_BindlessPool);
             }
 
             if (l_Result == VK_SUCCESS)
@@ -949,7 +650,7 @@ namespace Trinity
                 l_Allocate.descriptorPool = m_BindlessPool;
                 l_Allocate.descriptorSetCount = 1;
                 l_Allocate.pSetLayouts = &m_BindlessLayout;
-                l_Result = vkAllocateDescriptorSets(m_Device, &l_Allocate, &m_BindlessSet);
+                l_Result = vkAllocateDescriptorSets(m_Device.GetHandle(), &l_Allocate, &m_BindlessSet);
             }
 
             if (l_Result == VK_SUCCESS)
@@ -961,12 +662,12 @@ namespace Trinity
                 l_PipelineLayout.pSetLayouts = &m_BindlessLayout;
                 l_PipelineLayout.pushConstantRangeCount = 1;
                 l_PipelineLayout.pPushConstantRanges = &l_PushConstants;
-                l_Result = vkCreatePipelineLayout(m_Device, &l_PipelineLayout, nullptr, &m_PipelineLayout);
+                l_Result = vkCreatePipelineLayout(m_Device.GetHandle(), &l_PipelineLayout, nullptr, &m_PipelineLayout);
             }
 
             if (l_Result != VK_SUCCESS)
             {
-                error = std::format("the bindless descriptor set could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+                error = std::format("the bindless descriptor set could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
 
                 return false;
             }
@@ -987,7 +688,7 @@ namespace Trinity
             l_Create.subresourceRange = { GetAspect(format), baseMipLevel, mipLevels, baseArrayLayer, arrayLayers };
 
             VkImageView l_View = VK_NULL_HANDLE;
-            const VkResult l_Result = vkCreateImageView(m_Device, &l_Create, nullptr, &l_View);
+            const VkResult l_Result = vkCreateImageView(m_Device.GetHandle(), &l_Create, nullptr, &l_View);
             if (l_Result != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Vulkan: a view of {} mip(s) and {} layer(s) of a {} image could not be created ({})", mipLevels, arrayLayers, ToString(format), FormatResult(l_Result));
@@ -1017,7 +718,7 @@ namespace Trinity
             l_Write.descriptorCount = 1;
             l_Write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             l_Write.pBufferInfo = &l_Info;
-            vkUpdateDescriptorSets(m_Device, 1, &l_Write, 0, nullptr);
+            vkUpdateDescriptorSets(m_Device.GetHandle(), 1, &l_Write, 0, nullptr);
 
             return l_Index;
         }
@@ -1046,7 +747,7 @@ namespace Trinity
             l_Write.descriptorCount = 1;
             l_Write.descriptorType = type;
             l_Write.pImageInfo = &l_Info;
-            vkUpdateDescriptorSets(m_Device, 1, &l_Write, 0, nullptr);
+            vkUpdateDescriptorSets(m_Device.GetHandle(), 1, &l_Write, 0, nullptr);
 
             return l_Index;
         }
@@ -1098,29 +799,29 @@ namespace Trinity
 
             if (release.Sampler != VK_NULL_HANDLE)
             {
-                vkDestroySampler(m_Device, release.Sampler, nullptr);
+                vkDestroySampler(m_Device.GetHandle(), release.Sampler, nullptr);
             }
 
             if (release.Pipeline != VK_NULL_HANDLE)
             {
-                vkDestroyPipeline(m_Device, release.Pipeline, nullptr);
+                vkDestroyPipeline(m_Device.GetHandle(), release.Pipeline, nullptr);
             }
 
             if (release.QueryPool != VK_NULL_HANDLE)
             {
-                vkDestroyQueryPool(m_Device, release.QueryPool, nullptr);
+                vkDestroyQueryPool(m_Device.GetHandle(), release.QueryPool, nullptr);
             }
 
             if (release.SampledView != VK_NULL_HANDLE)
             {
-                vkDestroyImageView(m_Device, release.SampledView, nullptr);
+                vkDestroyImageView(m_Device.GetHandle(), release.SampledView, nullptr);
             }
 
             for (VkImageView it_View : release.Views)
             {
                 if (it_View != VK_NULL_HANDLE)
                 {
-                    vkDestroyImageView(m_Device, it_View, nullptr);
+                    vkDestroyImageView(m_Device.GetHandle(), it_View, nullptr);
                 }
             }
 
@@ -1133,23 +834,6 @@ namespace Trinity
             {
                 vmaDestroyImage(m_Allocator, release.Image, release.Allocation);
             }
-        }
-
-        // Debug utils is only on with validation, and then the layer's messages name the object
-        void VulkanContext::SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const
-        {
-            if (!m_Instance.IsValidationEnabled() || name.empty())
-            {
-                return;
-            }
-
-            const std::string l_Name(name);
-
-            VkDebugUtilsObjectNameInfoEXT l_Info = MakeInfo<VkDebugUtilsObjectNameInfoEXT>(VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT);
-            l_Info.objectType = type;
-            l_Info.objectHandle = handle;
-            l_Info.pObjectName = l_Name.c_str();
-            vkSetDebugUtilsObjectNameEXT(m_Device, &l_Info);
         }
 
         BufferHandle VulkanContext::CreateBuffer(const BufferDescription& description)
@@ -1252,13 +936,13 @@ namespace Trinity
         bool VulkanContext::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
             const VkFormat l_Format = ToVkFormat(format);
-            if (l_Format == VK_FORMAT_UNDEFINED || (IsCompressedFormat(format) && !m_TextureCompressionBC) || (HasStencil(format) && usage != TextureUsage::DepthStencil))
+            if (l_Format == VK_FORMAT_UNDEFINED || (IsCompressedFormat(format) && !m_Device.HasTextureCompressionBC()) || (HasStencil(format) && usage != TextureUsage::DepthStencil))
             {
                 return false;
             }
 
             VkFormatProperties l_Properties{};
-            vkGetPhysicalDeviceFormatProperties(m_PhysicalDevice, l_Format, &l_Properties);
+            vkGetPhysicalDeviceFormatProperties(m_Device.GetPhysicalDevice(), l_Format, &l_Properties);
 
             constexpr std::array<std::pair<TextureUsage, VkFormatFeatureFlags>, 6> c_Needs{ {
                 { TextureUsage::ShaderResource, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT },
@@ -1281,7 +965,7 @@ namespace Trinity
 
             const VkImageUsageFlags l_Usage = ToVkImageUsage(usage);
             VkImageFormatProperties l_ImageProperties{};
-            if (l_Usage == 0 || vkGetPhysicalDeviceImageFormatProperties(m_PhysicalDevice, l_Format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, l_Usage, 0, &l_ImageProperties) != VK_SUCCESS)
+            if (l_Usage == 0 || vkGetPhysicalDeviceImageFormatProperties(m_Device.GetPhysicalDevice(), l_Format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, l_Usage, 0, &l_ImageProperties) != VK_SUCCESS)
             {
                 return false;
             }
@@ -1399,7 +1083,7 @@ namespace Trinity
             const std::optional<VulkanTexture> l_Texture = m_Textures.Remove(texture);
             if (l_Texture)
             {
-                vkDestroyImageView(m_Device, l_Texture->AttachmentViews.front(), nullptr);
+                vkDestroyImageView(m_Device.GetHandle(), l_Texture->AttachmentViews.front(), nullptr);
             }
         }
 
@@ -1467,7 +1151,7 @@ namespace Trinity
             l_Create.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
 
             VulkanSampler l_Sampler;
-            const VkResult l_Result = vkCreateSampler(m_Device, &l_Create, nullptr, &l_Sampler.Sampler);
+            const VkResult l_Result = vkCreateSampler(m_Device.GetHandle(), &l_Create, nullptr, &l_Sampler.Sampler);
             if (l_Result != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Vulkan: sampler '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
@@ -1479,7 +1163,7 @@ namespace Trinity
             if (l_Sampler.Index == c_NoBindlessIndex)
             {
                 TR_CORE_ERROR("Vulkan: sampler '{}' could not be created, since all {} bindless sampler indices are in use", description.DebugName, c_BindlessSamplerCapacity);
-                vkDestroySampler(m_Device, l_Sampler.Sampler, nullptr);
+                vkDestroySampler(m_Device.GetHandle(), l_Sampler.Sampler, nullptr);
 
                 return {};
             }
@@ -1495,7 +1179,7 @@ namespace Trinity
             l_Write.descriptorCount = 1;
             l_Write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
             l_Write.pImageInfo = &l_Info;
-            vkUpdateDescriptorSets(m_Device, 1, &l_Write, 0, nullptr);
+            vkUpdateDescriptorSets(m_Device.GetHandle(), 1, &l_Write, 0, nullptr);
 
             return m_Samplers.Add(l_Sampler);
         }
@@ -1544,7 +1228,7 @@ namespace Trinity
                 VkShaderModuleCreateInfo l_Module = MakeInfo<VkShaderModuleCreateInfo>(VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO);
                 l_Module.codeSize = l_Code.size();
                 l_Module.pCode = reinterpret_cast<const std::uint32_t*>(l_Code.data());
-                l_Result = vkCreateShaderModule(m_Device, &l_Module, nullptr, &l_Modules[it_Stage]);
+                l_Result = vkCreateShaderModule(m_Device.GetHandle(), &l_Module, nullptr, &l_Modules[it_Stage]);
 
                 l_EntryPoints[it_Stage] = l_Shaders[it_Stage]->EntryPoint;
                 l_Stages[it_Stage] = MakeInfo<VkPipelineShaderStageCreateInfo>(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO);
@@ -1636,12 +1320,12 @@ namespace Trinity
             VulkanPipeline l_Pipeline;
             if (l_Result == VK_SUCCESS)
             {
-                l_Result = vkCreateGraphicsPipelines(m_Device, VK_NULL_HANDLE, 1, &l_Create, nullptr, &l_Pipeline.Pipeline);
+                l_Result = vkCreateGraphicsPipelines(m_Device.GetHandle(), VK_NULL_HANDLE, 1, &l_Create, nullptr, &l_Pipeline.Pipeline);
             }
 
             for (VkShaderModule it_Module : l_Modules)
             {
-                vkDestroyShaderModule(m_Device, it_Module, nullptr);
+                vkDestroyShaderModule(m_Device.GetHandle(), it_Module, nullptr);
             }
 
             if (l_Result != VK_SUCCESS)
@@ -1660,9 +1344,9 @@ namespace Trinity
         QueryPoolHandle VulkanContext::CreateQueryPool(const QueryPoolDescription& description)
         {
             TR_CORE_ASSERT(description.Count != 0, "Query pool '{}' has no queries.", description.DebugName);
-            if (!m_TimestampsSupported)
+            if (!m_Device.HasTimestamps())
             {
-                TR_CORE_ERROR("Vulkan: query pool '{}' could not be created, since {} has no timestamps on its graphics queue", description.DebugName, m_Info.AdapterName);
+                TR_CORE_ERROR("Vulkan: query pool '{}' could not be created, since {} has no timestamps on its graphics queue", description.DebugName, m_Device.GetInfo().AdapterName);
 
                 return {};
             }
@@ -1673,7 +1357,7 @@ namespace Trinity
 
             VulkanQueryPool l_Pool;
             l_Pool.Count = description.Count;
-            const VkResult l_Result = vkCreateQueryPool(m_Device, &l_Create, nullptr, &l_Pool.Pool);
+            const VkResult l_Result = vkCreateQueryPool(m_Device.GetHandle(), &l_Create, nullptr, &l_Pool.Pool);
             if (l_Result != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Vulkan: query pool '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
@@ -1681,7 +1365,7 @@ namespace Trinity
                 return {};
             }
 
-            vkResetQueryPool(m_Device, l_Pool.Pool, 0, description.Count);
+            vkResetQueryPool(m_Device.GetHandle(), l_Pool.Pool, 0, description.Count);
             SetDebugName(VK_OBJECT_TYPE_QUERY_POOL, reinterpret_cast<std::uint64_t>(l_Pool.Pool), description.DebugName);
 
             return m_QueryPools.Add(l_Pool);
@@ -1708,7 +1392,7 @@ namespace Trinity
         // Vulkan gives nanoseconds per tick
         std::uint64_t VulkanContext::GetTimestampFrequency() const
         {
-            return static_cast<std::uint64_t>(std::llround(1000000000.0 / static_cast<double>(m_TimestampPeriod)));
+            return static_cast<std::uint64_t>(std::llround(1000000000.0 / static_cast<double>(m_Device.GetTimestampPeriod())));
         }
 
         PipelineHandle VulkanContext::CreateComputePipeline(const ComputePipelineDescription& description)
@@ -1722,7 +1406,7 @@ namespace Trinity
             l_Module.pCode = reinterpret_cast<const std::uint32_t*>(l_Code.data());
 
             VkShaderModule l_ShaderModule = VK_NULL_HANDLE;
-            VkResult l_Result = vkCreateShaderModule(m_Device, &l_Module, nullptr, &l_ShaderModule);
+            VkResult l_Result = vkCreateShaderModule(m_Device.GetHandle(), &l_Module, nullptr, &l_ShaderModule);
 
             const std::string l_EntryPoint(description.ComputeShader.EntryPoint);
 
@@ -1737,10 +1421,10 @@ namespace Trinity
             l_Pipeline.BindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
             if (l_Result == VK_SUCCESS)
             {
-                l_Result = vkCreateComputePipelines(m_Device, VK_NULL_HANDLE, 1, &l_Create, nullptr, &l_Pipeline.Pipeline);
+                l_Result = vkCreateComputePipelines(m_Device.GetHandle(), VK_NULL_HANDLE, 1, &l_Create, nullptr, &l_Pipeline.Pipeline);
             }
 
-            vkDestroyShaderModule(m_Device, l_ShaderModule, nullptr);
+            vkDestroyShaderModule(m_Device.GetHandle(), l_ShaderModule, nullptr);
 
             if (l_Result != VK_SUCCESS)
             {
@@ -1789,14 +1473,14 @@ namespace Trinity
                 l_Wait.semaphoreCount = 1;
                 l_Wait.pSemaphores = &m_FrameTimeline;
                 l_Wait.pValues = &l_Frame.CompletionValue;
-                vkWaitSemaphores(m_Device, &l_Wait, UINT64_MAX);
+                vkWaitSemaphores(m_Device.GetHandle(), &l_Wait, UINT64_MAX);
             }
 
             m_InFrame = true;
             m_Releases.BeginFrame([this](const VulkanRelease& release) { Release(release); });
             m_UploadRing.BeginFrame();
 
-            vkResetCommandPool(m_Device, l_Frame.CommandPool, 0);
+            vkResetCommandPool(m_Device.GetHandle(), l_Frame.CommandPool, 0);
             m_FrameWaits.clear();
             m_FrameSignals.clear();
             m_CommandList.Begin(l_Frame.CommandBuffer);
@@ -1827,7 +1511,7 @@ namespace Trinity
             l_Submit.signalSemaphoreInfoCount = static_cast<std::uint32_t>(m_FrameSignals.size());
             l_Submit.pSignalSemaphoreInfos = m_FrameSignals.data();
 
-            const VkResult l_Result = vkQueueSubmit2(m_Queue, 1, &l_Submit, VK_NULL_HANDLE);
+            const VkResult l_Result = vkQueueSubmit2(m_Device.GetQueue(), 1, &l_Submit, VK_NULL_HANDLE);
             if (l_Result != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Vulkan: frame {} could not be submitted ({})", m_FrameNumber, FormatResult(l_Result));
@@ -1840,9 +1524,9 @@ namespace Trinity
 
         void VulkanContext::WaitIdle()
         {
-            if (m_Device != VK_NULL_HANDLE)
+            if (m_Device.GetHandle() != VK_NULL_HANDLE)
             {
-                vkDeviceWaitIdle(m_Device);
+                vkDeviceWaitIdle(m_Device.GetHandle());
                 m_Releases.ReleaseIdle([this](const VulkanRelease& release) { Release(release); });
             }
         }

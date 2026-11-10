@@ -7,13 +7,11 @@
 #include "Trinity/Core/Memory.hpp"
 
 #include <algorithm>
-#include <array>
 #include <format>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace Trinity
 {
@@ -22,28 +20,6 @@ namespace Trinity
         namespace
         {
             using Microsoft::WRL::ComPtr;
-
-            struct AdapterSupport
-            {
-                D3D_FEATURE_LEVEL FeatureLevel = D3D_FEATURE_LEVEL_12_0;
-                D3D_SHADER_MODEL ShaderModel = D3D_SHADER_MODEL_5_1;
-                D3D12_RESOURCE_BINDING_TIER BindingTier = D3D12_RESOURCE_BINDING_TIER_1;
-                bool EnhancedBarriers = false;
-            };
-
-            std::string ToUtf8(std::wstring_view text)
-            {
-                if (text.empty())
-                {
-                    return {};
-                }
-
-                const int l_Size = ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-                std::string l_Result(static_cast<std::size_t>(l_Size), '\0');
-                ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size, nullptr, nullptr);
-
-                return l_Result;
-            }
 
             std::wstring ToWide(std::string_view text)
             {
@@ -57,94 +33,6 @@ namespace Trinity
                 ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size);
 
                 return l_Result;
-            }
-
-            std::string FormatFeatureLevel(D3D_FEATURE_LEVEL level)
-            {
-                const std::uint32_t l_Level = static_cast<std::uint32_t>(level);
-
-                return std::format("{}_{}", l_Level >> 12, (l_Level >> 8) & 0xF);
-            }
-
-            std::string FormatShaderModel(D3D_SHADER_MODEL model)
-            {
-                const std::uint32_t l_Model = static_cast<std::uint32_t>(model);
-
-                return std::format("{}.{}", l_Model >> 4, l_Model & 0xF);
-            }
-
-            AdapterSupport QuerySupport(ID3D12Device* device)
-            {
-                AdapterSupport l_Support;
-
-                const std::array<D3D_FEATURE_LEVEL, 3> l_RequestedLevels{ D3D_FEATURE_LEVEL_12_0, D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_2 };
-                D3D12_FEATURE_DATA_FEATURE_LEVELS l_Levels{};
-                l_Levels.NumFeatureLevels = static_cast<UINT>(l_RequestedLevels.size());
-                l_Levels.pFeatureLevelsRequested = l_RequestedLevels.data();
-                if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS, &l_Levels, sizeof(l_Levels))))
-                {
-                    l_Support.FeatureLevel = l_Levels.MaxSupportedFeatureLevel;
-                }
-
-                // A runtime rejects shader models newer than it knows, so start at the newest these headers know and step down
-                for (std::uint32_t it_Model = static_cast<std::uint32_t>(D3D_HIGHEST_SHADER_MODEL); it_Model >= static_cast<std::uint32_t>(D3D_SHADER_MODEL_6_0); --it_Model)
-                {
-                    D3D12_FEATURE_DATA_SHADER_MODEL l_ShaderModel{ static_cast<D3D_SHADER_MODEL>(it_Model) };
-                    const HRESULT l_Result = device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &l_ShaderModel, sizeof(l_ShaderModel));
-                    if (SUCCEEDED(l_Result))
-                    {
-                        l_Support.ShaderModel = l_ShaderModel.HighestShaderModel;
-
-                        break;
-                    }
-
-                    if (l_Result != E_INVALIDARG)
-                    {
-                        break;
-                    }
-                }
-
-                D3D12_FEATURE_DATA_D3D12_OPTIONS l_Options{};
-                if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &l_Options, sizeof(l_Options))))
-                {
-                    l_Support.BindingTier = l_Options.ResourceBindingTier;
-                }
-
-                D3D12_FEATURE_DATA_D3D12_OPTIONS12 l_Options12{};
-                if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &l_Options12, sizeof(l_Options12))))
-                {
-                    l_Support.EnhancedBarriers = l_Options12.EnhancedBarriersSupported != FALSE;
-                }
-
-                return l_Support;
-            }
-
-            // Empty when the adapter has everything the engine is built on
-            std::string GetMissingFeatures(const AdapterSupport& support)
-            {
-                std::string l_Missing;
-                const auto a_Add = [&l_Missing](std::string_view feature)
-                {
-                    l_Missing += l_Missing.empty() ? "" : ", ";
-                    l_Missing += feature;
-                };
-
-                if (support.ShaderModel < D3D_SHADER_MODEL_6_6)
-                {
-                    a_Add("Shader Model 6.6");
-                }
-
-                if (support.BindingTier < D3D12_RESOURCE_BINDING_TIER_3)
-                {
-                    a_Add("resource binding tier 3");
-                }
-
-                if (!support.EnhancedBarriers)
-                {
-                    a_Add("enhanced barriers");
-                }
-
-                return l_Missing;
             }
 
             // D3D12MemoryAllocator's bookkeeping, counted under the Renderer tag, what the driver allocates is out of reach, since D3D12 takes no allocator
@@ -490,7 +378,7 @@ namespace Trinity
             return l_Device;
         }
 
-        D3D12Context::D3D12Context() : m_CommandList(*this)
+        D3D12Context::D3D12Context() : m_Device(m_Factory), m_CommandList(*this)
         {
 
         }
@@ -534,82 +422,25 @@ namespace Trinity
                 ::CloseHandle(m_FenceEvent);
             }
 
-            if (m_InfoQueue && m_MessageCallbackCookie != 0)
-            {
-                m_InfoQueue->UnregisterMessageCallback(m_MessageCallbackCookie);
-            }
+            const bool l_Report = m_Factory.IsValidationEnabled() && m_Device.GetHandle() != nullptr;
 
-            const bool l_Report = m_Factory.IsValidationEnabled() && m_Device;
-
-            m_InfoQueue.Reset();
             m_Device.Reset();
             m_Factory.Reset();
 
             if (l_Report)
             {
-                TR_CORE_INFO("D3D12 debug layer: {} warning(s) or error(s) while the device lived", m_MessageCount.load());
-                ReportLiveObjects();
+                TR_CORE_INFO("D3D12 debug layer: {} warning(s) or error(s) while the device lived", m_Device.GetMessageCount());
+                m_Device.ReportLiveObjects();
             }
         }
 
         bool D3D12Context::Initialize(const DeviceSpecification& specification, std::string& error)
         {
-            if (!m_Factory.Initialize(specification, error))
+            if (!m_Factory.Initialize(specification, error) || !m_Device.Initialize(error))
             {
                 return false;
             }
 
-            std::string l_Skipped;
-            ComPtr<IDXGIAdapter1> l_Adapter;
-            for (UINT it_Index = 0; m_Factory.EnumerateAdapter(it_Index, l_Adapter); ++it_Index)
-            {
-                DXGI_ADAPTER_DESC1 l_Description{};
-                l_Adapter->GetDesc1(&l_Description);
-                if ((l_Description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0)
-                {
-                    continue;
-                }
-
-                const std::string l_Name = ToUtf8(l_Description.Description);
-
-                ComPtr<ID3D12Device10> l_Device;
-                const HRESULT l_Result = ::D3D12CreateDevice(l_Adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&l_Device));
-                if (FAILED(l_Result))
-                {
-                    l_Skipped += std::format("{}{}: no feature level 12_0 device ({})", l_Skipped.empty() ? "" : "; ", l_Name, FormatResult(l_Result));
-
-                    continue;
-                }
-
-                const AdapterSupport l_Support = QuerySupport(l_Device.Get());
-                const std::string l_Missing = GetMissingFeatures(l_Support);
-                if (!l_Missing.empty())
-                {
-                    l_Skipped += std::format("{}{}: no {}", l_Skipped.empty() ? "" : "; ", l_Name, l_Missing);
-
-                    continue;
-                }
-
-                m_Factory.SetAdapter(l_Adapter);
-                m_Device = l_Device;
-
-                m_Info.API = GraphicsAPI::D3D12;
-                m_Info.AdapterName = l_Name;
-                m_Info.VideoMemoryBytes = l_Description.DedicatedVideoMemory;
-
-                TR_CORE_INFO("D3D12: {} with {} of video memory: feature level {}, Shader Model {}, resource binding tier {}, enhanced barriers", l_Name, Memory::FormatBytes(m_Info.VideoMemoryBytes), FormatFeatureLevel(l_Support.FeatureLevel), FormatShaderModel(l_Support.ShaderModel), static_cast<int>(l_Support.BindingTier));
-
-                break;
-            }
-
-            if (!m_Device)
-            {
-                error = l_Skipped.empty() ? std::string("no hardware adapter was found") : std::format("no adapter has what the engine needs ({})", l_Skipped);
-
-                return false;
-            }
-
-            EnableDebugMessages();
             m_Factory.LogRuntime();
 
             return CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
@@ -620,14 +451,14 @@ namespace Trinity
             D3D12MA::ALLOCATOR_DESC l_Description{};
             // D3D12MemoryAllocator's flag operators are global, and RHI's own operator| hides them in here
             l_Description.Flags = static_cast<D3D12MA::ALLOCATOR_FLAGS>(D3D12MA_RECOMMENDED_ALLOCATOR_FLAGS);
-            l_Description.pDevice = m_Device.Get();
+            l_Description.pDevice = m_Device.GetHandle();
             l_Description.pAdapter = m_Factory.GetAdapter();
             l_Description.pAllocationCallbacks = &c_HostAllocator;
 
             const HRESULT l_Result = D3D12MA::CreateAllocator(&l_Description, &m_Allocator);
             if (FAILED(l_Result))
             {
-                error = std::format("D3D12MemoryAllocator could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+                error = std::format("D3D12MemoryAllocator could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
 
                 return false;
             }
@@ -640,33 +471,33 @@ namespace Trinity
             D3D12_COMMAND_QUEUE_DESC l_QueueDescription{};
             l_QueueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-            HRESULT l_Result = m_Device->CreateCommandQueue(&l_QueueDescription, IID_PPV_ARGS(&m_Queue));
+            HRESULT l_Result = m_Device.GetHandle()->CreateCommandQueue(&l_QueueDescription, IID_PPV_ARGS(&m_Queue));
             for (std::size_t it_Index = 0; SUCCEEDED(l_Result) && it_Index < m_Frames.size(); ++it_Index)
             {
-                l_Result = m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_Frames[it_Index].Allocator));
+                l_Result = m_Device.GetHandle()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_Frames[it_Index].Allocator));
             }
 
             if (SUCCEEDED(l_Result))
             {
-                l_Result = m_Device->CreateCommandList1(0, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_FLAG_NONE, IID_PPV_ARGS(&m_GraphicsList));
+                l_Result = m_Device.GetHandle()->CreateCommandList1(0, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_FLAG_NONE, IID_PPV_ARGS(&m_GraphicsList));
             }
 
             if (SUCCEEDED(l_Result))
             {
-                l_Result = m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_Fence));
+                l_Result = m_Device.GetHandle()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_Fence));
             }
 
             if (FAILED(l_Result))
             {
-                error = std::format("the command queue, command lists and fence could not be created on {} ({})", m_Info.AdapterName, FormatResult(l_Result));
+                error = std::format("the command queue, command lists and fence could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
 
                 return false;
             }
 
             m_FenceEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-            if (m_FenceEvent == nullptr || !m_RenderTargetViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, c_RenderTargetViewCapacity, false) || !m_DepthStencilViews.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, c_DepthStencilViewCapacity, false))
+            if (m_FenceEvent == nullptr || !m_RenderTargetViews.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, c_RenderTargetViewCapacity, false) || !m_DepthStencilViews.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, c_DepthStencilViewCapacity, false))
             {
-                error = std::format("the fence event and view heaps could not be created on {}", m_Info.AdapterName);
+                error = std::format("the fence event and view heaps could not be created on {}", m_Device.GetInfo().AdapterName);
 
                 return false;
             }
@@ -680,9 +511,9 @@ namespace Trinity
         // Shaders index the two heaps directly, so every pipeline shares one root signature that holds only the push constants
         bool D3D12Context::CreateBindless(std::string& error)
         {
-            if (!m_ResourceHeap.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, c_BindlessResourceCapacity, true) || !m_SamplerHeap.Initialize(m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, c_BindlessSamplerCapacity, true))
+            if (!m_ResourceHeap.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, c_BindlessResourceCapacity, true) || !m_SamplerHeap.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, c_BindlessSamplerCapacity, true))
             {
-                error = std::format("the shader-visible descriptor heaps could not be created on {}", m_Info.AdapterName);
+                error = std::format("the shader-visible descriptor heaps could not be created on {}", m_Device.GetInfo().AdapterName);
 
                 return false;
             }
@@ -705,13 +536,13 @@ namespace Trinity
             HRESULT l_Result = ::D3D12SerializeVersionedRootSignature(&l_Description, &l_Blob, &l_Errors);
             if (SUCCEEDED(l_Result))
             {
-                l_Result = m_Device->CreateRootSignature(0, l_Blob->GetBufferPointer(), l_Blob->GetBufferSize(), IID_PPV_ARGS(&m_RootSignature));
+                l_Result = m_Device.GetHandle()->CreateRootSignature(0, l_Blob->GetBufferPointer(), l_Blob->GetBufferSize(), IID_PPV_ARGS(&m_RootSignature));
             }
 
             if (FAILED(l_Result))
             {
                 const std::string_view l_Reason = l_Errors ? std::string_view(static_cast<const char*>(l_Errors->GetBufferPointer()), l_Errors->GetBufferSize()) : std::string_view();
-                error = std::format("the bindless root signature could not be created on {} ({}{}{})", m_Info.AdapterName, FormatResult(l_Result), l_Reason.empty() ? "" : ": ", l_Reason);
+                error = std::format("the bindless root signature could not be created on {} ({}{}{})", m_Device.GetInfo().AdapterName, FormatResult(l_Result), l_Reason.empty() ? "" : ": ", l_Reason);
 
                 return false;
             }
@@ -721,93 +552,6 @@ namespace Trinity
             m_RootSignature->SetName(L"Trinity bindless root signature");
 
             return true;
-        }
-
-        void D3D12Context::EnableDebugMessages()
-        {
-            if (!m_Factory.IsValidationEnabled())
-            {
-                return;
-            }
-
-            if (FAILED(m_Device.As(&m_InfoQueue)))
-            {
-                TR_CORE_WARN("D3D12: this runtime has no ID3D12InfoQueue1, so debug layer messages only reach an attached debugger");
-
-                return;
-            }
-
-            if (FAILED(m_InfoQueue->RegisterMessageCallback(&D3D12Context::OnDebugMessage, D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &m_MessageCallbackCookie)))
-            {
-                TR_CORE_WARN("D3D12: the debug layer message callback could not be registered, so messages only reach an attached debugger");
-                m_InfoQueue.Reset();
-            }
-        }
-
-        // The debug layer calls this from whichever thread made the call it reports on
-        void CALLBACK D3D12Context::OnDebugMessage([[maybe_unused]] D3D12_MESSAGE_CATEGORY category, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID id, LPCSTR description, void* context)
-        {
-            D3D12Context* l_Device = static_cast<D3D12Context*>(context);
-
-            switch (severity)
-            {
-                case D3D12_MESSAGE_SEVERITY_CORRUPTION:
-                case D3D12_MESSAGE_SEVERITY_ERROR:
-                {
-                    l_Device->m_MessageCount.fetch_add(1, std::memory_order_relaxed);
-                    TR_CORE_ERROR("D3D12 debug layer: {} (message {})", description, static_cast<int>(id));
-
-                    break;
-                }
-                case D3D12_MESSAGE_SEVERITY_WARNING:
-                {
-                    l_Device->m_MessageCount.fetch_add(1, std::memory_order_relaxed);
-                    TR_CORE_WARN("D3D12 debug layer: {} (message {})", description, static_cast<int>(id));
-
-                    break;
-                }
-                case D3D12_MESSAGE_SEVERITY_INFO:
-                case D3D12_MESSAGE_SEVERITY_MESSAGE:
-                {
-                    TR_CORE_TRACE("D3D12 debug layer: {}", description);
-
-                    break;
-                }
-            }
-        }
-
-        // Runs after every D3D12 and DXGI object of the device is released, so anything still reported is a leak
-        void D3D12Context::ReportLiveObjects() const
-        {
-            ComPtr<IDXGIDebug1> l_Debug;
-            ComPtr<IDXGIInfoQueue> l_Queue;
-            if (FAILED(::DXGIGetDebugInterface1(0, IID_PPV_ARGS(&l_Debug))) || FAILED(::DXGIGetDebugInterface1(0, IID_PPV_ARGS(&l_Queue))))
-            {
-                return;
-            }
-
-            l_Debug->ReportLiveObjects(DXGI_DEBUG_ALL, static_cast<DXGI_DEBUG_RLO_FLAGS>(DXGI_DEBUG_RLO_DETAIL | DXGI_DEBUG_RLO_IGNORE_INTERNAL));
-
-            const UINT64 l_Count = l_Queue->GetNumStoredMessages(DXGI_DEBUG_ALL);
-            for (UINT64 it_Index = 0; it_Index < l_Count; ++it_Index)
-            {
-                SIZE_T l_Size = 0;
-                l_Queue->GetMessage(DXGI_DEBUG_ALL, it_Index, nullptr, &l_Size);
-
-                std::vector<std::byte> l_Storage(l_Size);
-                DXGI_INFO_QUEUE_MESSAGE* l_Message = reinterpret_cast<DXGI_INFO_QUEUE_MESSAGE*>(l_Storage.data());
-                if (SUCCEEDED(l_Queue->GetMessage(DXGI_DEBUG_ALL, it_Index, l_Message, &l_Size)))
-                {
-                    TR_CORE_WARN("DXGI debug: {}", std::string_view(l_Message->pDescription, l_Message->DescriptionByteLength > 0 ? l_Message->DescriptionByteLength - 1 : 0));
-                }
-            }
-
-            l_Queue->ClearStoredMessages(DXGI_DEBUG_ALL);
-
-            if (l_Count == 0)
-            {
-                TR_CORE_INFO("D3D12: no live objects after the device was destroyed");
-            }
         }
 
         // Buffers always start in the undefined layout under enhanced barriers. Upload and Readback heaps are coherent and stay mapped
@@ -907,7 +651,7 @@ namespace Trinity
             const auto a_Query = [this](DXGI_FORMAT queried) -> D3D12_FORMAT_SUPPORT1
             {
                 D3D12_FEATURE_DATA_FORMAT_SUPPORT l_Data{ queried, D3D12_FORMAT_SUPPORT1_NONE, D3D12_FORMAT_SUPPORT2_NONE };
-                if (FAILED(m_Device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &l_Data, sizeof(l_Data))))
+                if (FAILED(m_Device.GetHandle()->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &l_Data, sizeof(l_Data))))
                 {
                     return D3D12_FORMAT_SUPPORT1_NONE;
                 }
@@ -961,7 +705,7 @@ namespace Trinity
 
             D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS l_Levels{ l_Format, sampleCount, D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE, 0 };
 
-            return SUCCEEDED(m_Device->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &l_Levels, sizeof(l_Levels))) && l_Levels.NumQualityLevels > 0;
+            return SUCCEEDED(m_Device.GetHandle()->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &l_Levels, sizeof(l_Levels))) && l_Levels.NumQualityLevels > 0;
         }
 
         // A depth texture that shaders also read is typeless, so a shader view can read it as R32_FLOAT
@@ -1094,7 +838,7 @@ namespace Trinity
                             l_Description.Texture2D.MipSlice = it_Mip;
                         }
 
-                        m_Device->CreateDepthStencilView(texture.Resource, &l_Description, l_Heap.GetHandle(l_View));
+                        m_Device.GetHandle()->CreateDepthStencilView(texture.Resource, &l_Description, l_Heap.GetHandle(l_View));
                     }
                     else
                     {
@@ -1110,7 +854,7 @@ namespace Trinity
                             l_Description.Texture2D.MipSlice = it_Mip;
                         }
 
-                        m_Device->CreateRenderTargetView(texture.Resource, &l_Description, l_Heap.GetHandle(l_View));
+                        m_Device.GetHandle()->CreateRenderTargetView(texture.Resource, &l_Description, l_Heap.GetHandle(l_View));
                     }
                 }
             }
@@ -1134,7 +878,7 @@ namespace Trinity
                     l_View.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
                     l_View.Buffer.NumElements = l_Elements;
                     l_View.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
-                    m_Device->CreateShaderResourceView(l_Resource, &l_View, m_ResourceHeap.GetHandle(buffer.ShaderResourceIndex));
+                    m_Device.GetHandle()->CreateShaderResourceView(l_Resource, &l_View, m_ResourceHeap.GetHandle(buffer.ShaderResourceIndex));
                 }
             }
 
@@ -1149,7 +893,7 @@ namespace Trinity
                     l_View.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
                     l_View.Buffer.NumElements = l_Elements;
                     l_View.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-                    m_Device->CreateUnorderedAccessView(l_Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(buffer.UnorderedAccessIndex));
+                    m_Device.GetHandle()->CreateUnorderedAccessView(l_Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(buffer.UnorderedAccessIndex));
                 }
             }
         }
@@ -1191,7 +935,7 @@ namespace Trinity
                             break;
                         }
                     }
-                    m_Device->CreateShaderResourceView(texture.Resource, &l_View, m_ResourceHeap.GetHandle(texture.ShaderResourceIndex));
+                    m_Device.GetHandle()->CreateShaderResourceView(texture.Resource, &l_View, m_ResourceHeap.GetHandle(texture.ShaderResourceIndex));
                 }
             }
 
@@ -1209,7 +953,7 @@ namespace Trinity
                         l_View.Texture2DArray.ArraySize = texture.ArrayLayers;
                     }
 
-                    m_Device->CreateUnorderedAccessView(texture.Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(texture.UnorderedAccessIndex));
+                    m_Device.GetHandle()->CreateUnorderedAccessView(texture.Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(texture.UnorderedAccessIndex));
                 }
             }
         }
@@ -1329,7 +1073,7 @@ namespace Trinity
             l_Description.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
             l_Description.MinLOD = description.MinLod;
             l_Description.MaxLOD = description.MaxLod >= c_LodUnclamped ? D3D12_FLOAT32_MAX : description.MaxLod;
-            m_Device->CreateSampler(&l_Description, m_SamplerHeap.GetHandle(l_Sampler.Index));
+            m_Device.GetHandle()->CreateSampler(&l_Description, m_SamplerHeap.GetHandle(l_Sampler.Index));
 
             return m_Samplers.Add(l_Sampler);
         }
@@ -1416,7 +1160,7 @@ namespace Trinity
 
             D3D12Pipeline l_Pipeline;
             l_Pipeline.Topology = ToD3DTopology(description.Topology);
-            const HRESULT l_Result = m_Device->CreateGraphicsPipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
+            const HRESULT l_Result = m_Device.GetHandle()->CreateGraphicsPipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
             if (FAILED(l_Result))
             {
                 TR_CORE_ERROR("D3D12: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
@@ -1442,7 +1186,7 @@ namespace Trinity
 
             D3D12QueryPool l_Pool;
             l_Pool.Count = description.Count;
-            const HRESULT l_Result = m_Device->CreateQueryHeap(&l_Description, IID_PPV_ARGS(&l_Pool.Heap));
+            const HRESULT l_Result = m_Device.GetHandle()->CreateQueryHeap(&l_Description, IID_PPV_ARGS(&l_Pool.Heap));
             if (FAILED(l_Result))
             {
                 TR_CORE_ERROR("D3D12: query pool '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
@@ -1493,7 +1237,7 @@ namespace Trinity
 
             D3D12Pipeline l_Pipeline;
             l_Pipeline.Compute = true;
-            const HRESULT l_Result = m_Device->CreateComputePipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
+            const HRESULT l_Result = m_Device.GetHandle()->CreateComputePipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
             if (FAILED(l_Result))
             {
                 TR_CORE_ERROR("D3D12: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));

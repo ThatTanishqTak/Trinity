@@ -4,6 +4,7 @@
 #include "Trinity/RHI/Bindless.hpp"
 #include "Trinity/RHI/D3D12/D3D12CommandList.hpp"
 #include "Trinity/RHI/D3D12/D3D12DescriptorHeap.hpp"
+#include "Trinity/RHI/D3D12/D3D12Device.hpp"
 #include "Trinity/RHI/D3D12/D3D12Factory.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 #include "Trinity/RHI/Device.hpp"
@@ -11,7 +12,6 @@
 #include "Trinity/RHI/ReleaseQueue.hpp"
 
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -83,7 +83,7 @@ namespace Trinity
             D3D12Context();
             ~D3D12Context() override;
 
-            [[nodiscard]] const DeviceInfo& GetInfo() const override { return m_Info; }
+            [[nodiscard]] const DeviceInfo& GetInfo() const override { return m_Device.GetInfo(); }
 
             [[nodiscard]] BufferHandle CreateBuffer(const BufferDescription& description) override;
             void DestroyBuffer(BufferHandle buffer) override;
@@ -154,14 +154,10 @@ namespace Trinity
                 std::uint64_t CompletionValue = 0;
             };
 
-            static void CALLBACK OnDebugMessage(D3D12_MESSAGE_CATEGORY category, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID id, LPCSTR description, void* context);
-
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateAllocator(std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
-            void EnableDebugMessages();
-            void ReportLiveObjects() const;
 
             void CreateViews(D3D12Texture& texture);
             void CreateShaderViews(D3D12Buffer& buffer, BufferUsage usage);
@@ -170,13 +166,8 @@ namespace Trinity
             void WaitForFence(std::uint64_t value);
             void WaitForQueue();
 
-            DeviceInfo m_Info;
-
             D3D12Factory m_Factory;
-            Microsoft::WRL::ComPtr<ID3D12Device10> m_Device;
-            Microsoft::WRL::ComPtr<ID3D12InfoQueue1> m_InfoQueue;
-            DWORD m_MessageCallbackCookie = 0;
-            std::atomic<std::uint32_t> m_MessageCount{ 0 };
+            D3D12Device m_Device;
             Microsoft::WRL::ComPtr<D3D12MA::Allocator> m_Allocator;
 
             HandlePool<D3D12Buffer, BufferHandle> m_Buffers;
