@@ -4,11 +4,12 @@
 #include "Trinity/RHI/Bindless.hpp"
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
-#include "Trinity/RHI/ReleaseQueue.hpp"
+#include "Trinity/RHI/Vulkan/VulkanAllocator.hpp"
 #include "Trinity/RHI/Vulkan/VulkanCommandList.hpp"
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
 #include "Trinity/RHI/Vulkan/VulkanInstance.hpp"
+#include "Trinity/RHI/Vulkan/VulkanReleaseQueue.hpp"
 
 #include <array>
 #include <cstddef>
@@ -31,8 +32,6 @@ namespace Trinity
             std::uint32_t ShaderResourceIndex = c_NoBindlessIndex;
             std::uint32_t UnorderedAccessIndex = c_NoBindlessIndex;
         };
-
-        using VulkanImageViews = std::vector<VkImageView, TaggedAllocator<VkImageView, MemoryTag::Renderer>>;
 
         // Swap chain images have no allocation, since the swap chain owns them. A render target or depth texture has an attachment view per mip of each layer, numbered by GetSubresourceIndex
         struct VulkanTexture
@@ -137,21 +136,6 @@ namespace Trinity
             void SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const { m_Device.SetDebugName(type, handle, name); }
 
         private:
-            struct VulkanRelease
-            {
-                VkBuffer Buffer = VK_NULL_HANDLE;
-                VkImage Image = VK_NULL_HANDLE;
-                VulkanImageViews Views;
-                VmaAllocation Allocation = nullptr;
-                VkImageView SampledView = VK_NULL_HANDLE;
-                VkPipeline Pipeline = VK_NULL_HANDLE;
-                VkSampler Sampler = VK_NULL_HANDLE;
-                VkQueryPool QueryPool = VK_NULL_HANDLE;
-                std::uint32_t ShaderResourceIndex = c_NoBindlessIndex;
-                std::uint32_t UnorderedAccessIndex = c_NoBindlessIndex;
-                std::uint32_t SamplerIndex = c_NoBindlessIndex;
-            };
-
             struct FrameContext
             {
                 VkCommandPool CommandPool = VK_NULL_HANDLE;
@@ -160,7 +144,6 @@ namespace Trinity
             };
 
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
-            [[nodiscard]] bool CreateAllocator(std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
 
@@ -170,18 +153,16 @@ namespace Trinity
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanBuffer& buffer);
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanTexture& texture);
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanSampler& sampler);
-            void Release(const VulkanRelease& release);
 
             VulkanInstance m_Instance;
             VulkanDevice m_Device;
-            VmaAllocator m_Allocator = nullptr;
+            VulkanAllocator m_Allocator;
 
             HandlePool<VulkanBuffer, BufferHandle> m_Buffers;
             HandlePool<VulkanTexture, TextureHandle> m_Textures;
             HandlePool<VulkanPipeline, PipelineHandle> m_Pipelines;
             HandlePool<VulkanSampler, SamplerHandle> m_Samplers;
             HandlePool<VulkanQueryPool, QueryPoolHandle> m_QueryPools;
-            ReleaseQueue<VulkanRelease> m_Releases;
 
             VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;
             VkDescriptorPool m_BindlessPool = VK_NULL_HANDLE;
@@ -189,6 +170,7 @@ namespace Trinity
             VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
             IndexAllocator m_ResourceIndices;
             IndexAllocator m_SamplerIndices;
+            VulkanReleaseQueue m_Releases;
 
             std::array<FrameContext, c_FramesInFlight> m_Frames{};
             VkSemaphore m_FrameTimeline = VK_NULL_HANDLE;

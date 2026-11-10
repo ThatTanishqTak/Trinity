@@ -2,14 +2,15 @@
 
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/RHI/Bindless.hpp"
+#include "Trinity/RHI/D3D12/D3D12Allocator.hpp"
 #include "Trinity/RHI/D3D12/D3D12CommandList.hpp"
 #include "Trinity/RHI/D3D12/D3D12DescriptorHeap.hpp"
 #include "Trinity/RHI/D3D12/D3D12Device.hpp"
 #include "Trinity/RHI/D3D12/D3D12Factory.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
+#include "Trinity/RHI/D3D12/D3D12ReleaseQueue.hpp"
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
-#include "Trinity/RHI/ReleaseQueue.hpp"
 
 #include <array>
 #include <cstddef>
@@ -23,10 +24,6 @@ namespace Trinity
 {
     namespace RHI
     {
-        constexpr std::uint32_t c_NoDescriptor = c_NoBindlessIndex;
-
-        using D3D12DescriptorIndices = std::vector<std::uint32_t, TaggedAllocator<std::uint32_t, MemoryTag::Renderer>>;
-
         struct D3D12Buffer
         {
             Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
@@ -136,18 +133,6 @@ namespace Trinity
             [[nodiscard]] bool IsInFrame() const { return m_InFrame; }
 
         private:
-            struct D3D12Release
-            {
-                Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
-                Microsoft::WRL::ComPtr<ID3D12PipelineState> Pipeline;
-                Microsoft::WRL::ComPtr<ID3D12QueryHeap> QueryHeap;
-                D3D12DescriptorIndices RenderTargetViews;
-                D3D12DescriptorIndices DepthStencilViews;
-                std::uint32_t ShaderResourceIndex = c_NoDescriptor;
-                std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
-                std::uint32_t SamplerIndex = c_NoDescriptor;
-            };
-
             struct FrameContext
             {
                 Microsoft::WRL::ComPtr<ID3D12CommandAllocator> Allocator;
@@ -155,32 +140,30 @@ namespace Trinity
             };
 
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
-            [[nodiscard]] bool CreateAllocator(std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
 
             void CreateViews(D3D12Texture& texture);
             void CreateShaderViews(D3D12Buffer& buffer, BufferUsage usage);
             void CreateShaderViews(D3D12Texture& texture, TextureUsage usage);
-            void Release(D3D12Release& release);
             void WaitForFence(std::uint64_t value);
             void WaitForQueue();
 
             D3D12Factory m_Factory;
             D3D12Device m_Device;
-            Microsoft::WRL::ComPtr<D3D12MA::Allocator> m_Allocator;
+            D3D12Allocator m_Allocator;
 
             HandlePool<D3D12Buffer, BufferHandle> m_Buffers;
             HandlePool<D3D12Texture, TextureHandle> m_Textures;
             HandlePool<D3D12Pipeline, PipelineHandle> m_Pipelines;
             HandlePool<D3D12Sampler, SamplerHandle> m_Samplers;
             HandlePool<D3D12QueryPool, QueryPoolHandle> m_QueryPools;
-            ReleaseQueue<D3D12Release> m_Releases;
             D3D12DescriptorHeap m_RenderTargetViews;
             D3D12DescriptorHeap m_DepthStencilViews;
             D3D12DescriptorHeap m_ResourceHeap;
             D3D12DescriptorHeap m_SamplerHeap;
             Microsoft::WRL::ComPtr<ID3D12RootSignature> m_RootSignature;
+            D3D12ReleaseQueue m_Releases;
 
             Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_Queue;
             Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> m_GraphicsList;

@@ -35,19 +35,6 @@ namespace Trinity
                 return l_Result;
             }
 
-            // D3D12MemoryAllocator's bookkeeping, counted under the Renderer tag, what the driver allocates is out of reach, since D3D12 takes no allocator
-            void* AllocateHostMemory(std::size_t size, std::size_t alignment, [[maybe_unused]] void* userData)
-            {
-                return Memory::TryAllocate(size, MemoryTag::Renderer, alignment);
-            }
-
-            void FreeHostMemory(void* memory, [[maybe_unused]] void* userData)
-            {
-                Memory::Free(memory);
-            }
-
-            constexpr D3D12MA::ALLOCATION_CALLBACKS c_HostAllocator{ &AllocateHostMemory, &FreeHostMemory, nullptr };
-
             D3D12_HEAP_TYPE ToHeapType(MemoryType memory)
             {
                 switch (memory)
@@ -378,7 +365,7 @@ namespace Trinity
             return l_Device;
         }
 
-        D3D12Context::D3D12Context() : m_Device(m_Factory), m_CommandList(*this)
+        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_CommandList(*this)
         {
 
         }
@@ -397,7 +384,7 @@ namespace Trinity
                 TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s), {} sampler(s) and {} query pool(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
             }
 
-            m_Releases.ReleaseAll([this](D3D12Release& release) { Release(release); });
+            m_Releases.ReleaseAll();
             m_Buffers.ForEach([](D3D12Buffer& buffer) { buffer.Allocation.Reset(); });
             m_Textures.ForEach([](D3D12Texture& texture) { texture.Allocation.Reset(); });
             m_Pipelines.ForEach([](D3D12Pipeline& pipeline) { pipeline.State.Reset(); });
@@ -443,27 +430,7 @@ namespace Trinity
 
             m_Factory.LogRuntime();
 
-            return CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
-        }
-
-        bool D3D12Context::CreateAllocator(std::string& error)
-        {
-            D3D12MA::ALLOCATOR_DESC l_Description{};
-            // D3D12MemoryAllocator's flag operators are global, and RHI's own operator| hides them in here
-            l_Description.Flags = static_cast<D3D12MA::ALLOCATOR_FLAGS>(D3D12MA_RECOMMENDED_ALLOCATOR_FLAGS);
-            l_Description.pDevice = m_Device.GetHandle();
-            l_Description.pAdapter = m_Factory.GetAdapter();
-            l_Description.pAllocationCallbacks = &c_HostAllocator;
-
-            const HRESULT l_Result = D3D12MA::CreateAllocator(&l_Description, &m_Allocator);
-            if (FAILED(l_Result))
-            {
-                error = std::format("D3D12MemoryAllocator could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
-
-                return false;
-            }
-
-            return true;
+            return m_Allocator.Initialize(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool D3D12Context::CreateFrames(std::string& error)
@@ -574,7 +541,7 @@ namespace Trinity
             l_Resource.Flags = HasFlag(description.Usage, BufferUsage::UnorderedAccess) ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
 
             D3D12Buffer l_Buffer;
-            HRESULT l_Result = m_Allocator->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0, nullptr, &l_Buffer.Allocation, IID_NULL, nullptr);
+            HRESULT l_Result = m_Allocator.GetHandle()->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0, nullptr, &l_Buffer.Allocation, IID_NULL, nullptr);
             if (FAILED(l_Result))
             {
                 TR_CORE_ERROR("D3D12: buffer '{}' of {} could not be created ({})", description.DebugName, Memory::FormatBytes(description.Size), FormatResult(l_Result));
@@ -751,7 +718,7 @@ namespace Trinity
             }
 
             D3D12Texture l_Texture;
-            const HRESULT l_Result = m_Allocator->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_COMMON, l_OptimizedClear, 0, nullptr, &l_Texture.Allocation, IID_NULL, nullptr);
+            const HRESULT l_Result = m_Allocator.GetHandle()->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_COMMON, l_OptimizedClear, 0, nullptr, &l_Texture.Allocation, IID_NULL, nullptr);
             if (FAILED(l_Result))
             {
                 TR_CORE_ERROR("D3D12: texture '{}' ({}x{} {}) could not be created ({})", description.DebugName, description.Width, description.Height, ToString(description.TextureFormat), FormatResult(l_Result));
@@ -956,27 +923,6 @@ namespace Trinity
                     m_Device.GetHandle()->CreateUnorderedAccessView(texture.Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(texture.UnorderedAccessIndex));
                 }
             }
-        }
-
-        // An index is only handed out again once the frames that could read it have finished
-        void D3D12Context::Release(D3D12Release& release)
-        {
-            for (const std::uint32_t it_View : release.RenderTargetViews)
-            {
-                m_RenderTargetViews.Free(it_View);
-            }
-
-            for (const std::uint32_t it_View : release.DepthStencilViews)
-            {
-                m_DepthStencilViews.Free(it_View);
-            }
-
-            m_ResourceHeap.Free(release.ShaderResourceIndex);
-            m_ResourceHeap.Free(release.UnorderedAccessIndex);
-            m_SamplerHeap.Free(release.SamplerIndex);
-            release.Pipeline.Reset();
-            release.QueryHeap.Reset();
-            release.Allocation.Reset();
         }
 
         TextureHandle D3D12Context::AddSwapChainBuffer(ID3D12Resource* resource, Format format, DXGI_FORMAT resourceFormat, std::uint32_t width, std::uint32_t height)
@@ -1285,7 +1231,7 @@ namespace Trinity
             WaitForFence(l_Frame.CompletionValue);
 
             m_InFrame = true;
-            m_Releases.BeginFrame([this](D3D12Release& release) { Release(release); });
+            m_Releases.BeginFrame();
             m_UploadRing.BeginFrame();
 
             l_Frame.Allocator->Reset();
@@ -1317,7 +1263,7 @@ namespace Trinity
         void D3D12Context::WaitIdle()
         {
             WaitForQueue();
-            m_Releases.ReleaseIdle([this](D3D12Release& release) { Release(release); });
+            m_Releases.ReleaseIdle();
         }
     }
 }

@@ -9,6 +9,8 @@ namespace Trinity
 {
     namespace RHI
     {
+        constexpr std::uint32_t c_NoDescriptor = c_NoBindlessIndex;
+
         // A heap of descriptors handed out a slot at a time, CPU-only for render target and depth views and shader-visible for the bindless heaps
         class D3D12DescriptorHeap
         {

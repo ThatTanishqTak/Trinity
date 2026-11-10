@@ -67,24 +67,6 @@ namespace Trinity
                 }
             }
 
-            // VulkanMemoryAllocator's bookkeeping, and what the driver allocates for the objects it creates through it, counted under the Renderer tag
-            void* VKAPI_PTR AllocateHostMemory([[maybe_unused]] void* userData, std::size_t size, std::size_t alignment, [[maybe_unused]] VkSystemAllocationScope scope)
-            {
-                return Memory::TryAllocate(size, MemoryTag::Renderer, alignment);
-            }
-
-            void* VKAPI_PTR ReallocateHostMemory([[maybe_unused]] void* userData, void* original, std::size_t size, std::size_t alignment, [[maybe_unused]] VkSystemAllocationScope scope)
-            {
-                return Memory::Reallocate(original, size, MemoryTag::Renderer, alignment);
-            }
-
-            void VKAPI_PTR FreeHostMemory([[maybe_unused]] void* userData, void* memory)
-            {
-                Memory::Free(memory);
-            }
-
-            constexpr VkAllocationCallbacks c_HostAllocator{ nullptr, &AllocateHostMemory, &ReallocateHostMemory, &FreeHostMemory, nullptr, nullptr };
-
             VkBufferUsageFlags ToVkBufferUsage(BufferUsage usage, MemoryType memory)
             {
                 VkBufferUsageFlags l_Flags = 0;
@@ -448,7 +430,7 @@ namespace Trinity
             return l_Device;
         }
 
-        VulkanContext::VulkanContext() : m_Device(m_Instance), m_CommandList(*this)
+        VulkanContext::VulkanContext() : m_Device(m_Instance), m_Allocator(m_Instance, m_Device), m_Releases(m_Device, m_Allocator, m_ResourceIndices, m_SamplerIndices), m_CommandList(*this)
         {
 
         }
@@ -468,11 +450,11 @@ namespace Trinity
                     TR_CORE_WARN("Vulkan: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s), {} sampler(s) and {} query pool(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
                 }
 
-                m_Releases.ReleaseAll([this](const VulkanRelease& release) { Release(release); });
-                m_Buffers.ForEach([this](const VulkanBuffer& buffer) { Release(ToRelease(buffer)); });
-                m_Textures.ForEach([this](const VulkanTexture& texture) { Release(ToRelease(texture)); });
+                m_Releases.ReleaseAll();
+                m_Buffers.ForEach([this](const VulkanBuffer& buffer) { m_Releases.Release(ToRelease(buffer)); });
+                m_Textures.ForEach([this](const VulkanTexture& texture) { m_Releases.Release(ToRelease(texture)); });
                 m_Pipelines.ForEach([this](const VulkanPipeline& pipeline) { vkDestroyPipeline(m_Device.GetHandle(), pipeline.Pipeline, nullptr); });
-                m_Samplers.ForEach([this](const VulkanSampler& sampler) { Release(ToRelease(sampler)); });
+                m_Samplers.ForEach([this](const VulkanSampler& sampler) { m_Releases.Release(ToRelease(sampler)); });
                 m_QueryPools.ForEach([this](const VulkanQueryPool& pool) { vkDestroyQueryPool(m_Device.GetHandle(), pool.Pool, nullptr); });
 
                 vkDestroyPipelineLayout(m_Device.GetHandle(), m_PipelineLayout, nullptr);
@@ -486,11 +468,7 @@ namespace Trinity
 
                 vkDestroySemaphore(m_Device.GetHandle(), m_FrameTimeline, nullptr);
 
-                if (m_Allocator != nullptr)
-                {
-                    vmaDestroyAllocator(m_Allocator);
-                }
-
+                m_Allocator.Destroy();
                 m_Device.Destroy();
             }
 
@@ -504,34 +482,7 @@ namespace Trinity
 
         bool VulkanContext::Initialize(const DeviceSpecification& specification, std::string& error)
         {
-            return m_Instance.Initialize(specification, error) && m_Device.Initialize(error) && CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
-        }
-
-        bool VulkanContext::CreateAllocator(std::string& error)
-        {
-            VmaAllocatorCreateInfo l_Create{};
-            l_Create.physicalDevice = m_Device.GetPhysicalDevice();
-            l_Create.device = m_Device.GetHandle();
-            l_Create.instance = m_Instance.GetHandle();
-            l_Create.vulkanApiVersion = VK_API_VERSION_1_3;
-            l_Create.pAllocationCallbacks = &c_HostAllocator;
-
-            VmaVulkanFunctions l_Functions{};
-            VkResult l_Result = vmaImportVulkanFunctionsFromVolk(&l_Create, &l_Functions);
-            if (l_Result == VK_SUCCESS)
-            {
-                l_Create.pVulkanFunctions = &l_Functions;
-                l_Result = vmaCreateAllocator(&l_Create, &m_Allocator);
-            }
-
-            if (l_Result != VK_SUCCESS)
-            {
-                error = std::format("VulkanMemoryAllocator could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
-
-                return false;
-            }
-
-            return true;
+            return m_Instance.Initialize(specification, error) && m_Device.Initialize(error) && m_Allocator.Initialize(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool VulkanContext::CreateFrames(std::string& error)
@@ -752,7 +703,7 @@ namespace Trinity
             return l_Index;
         }
 
-        VulkanContext::VulkanRelease VulkanContext::ToRelease(const VulkanBuffer& buffer)
+        VulkanRelease VulkanContext::ToRelease(const VulkanBuffer& buffer)
         {
             VulkanRelease l_Release;
             l_Release.Buffer = buffer.Buffer;
@@ -763,7 +714,7 @@ namespace Trinity
             return l_Release;
         }
 
-        VulkanContext::VulkanRelease VulkanContext::ToRelease(const VulkanTexture& texture)
+        VulkanRelease VulkanContext::ToRelease(const VulkanTexture& texture)
         {
             VulkanRelease l_Release;
             l_Release.Image = texture.Image;
@@ -781,59 +732,13 @@ namespace Trinity
             return l_Release;
         }
 
-        VulkanContext::VulkanRelease VulkanContext::ToRelease(const VulkanSampler& sampler)
+        VulkanRelease VulkanContext::ToRelease(const VulkanSampler& sampler)
         {
             VulkanRelease l_Release;
             l_Release.Sampler = sampler.Sampler;
             l_Release.SamplerIndex = sampler.Index;
 
             return l_Release;
-        }
-
-        // An index is only handed out again once the frames that could read it have finished
-        void VulkanContext::Release(const VulkanRelease& release)
-        {
-            m_ResourceIndices.Free(release.ShaderResourceIndex);
-            m_ResourceIndices.Free(release.UnorderedAccessIndex);
-            m_SamplerIndices.Free(release.SamplerIndex);
-
-            if (release.Sampler != VK_NULL_HANDLE)
-            {
-                vkDestroySampler(m_Device.GetHandle(), release.Sampler, nullptr);
-            }
-
-            if (release.Pipeline != VK_NULL_HANDLE)
-            {
-                vkDestroyPipeline(m_Device.GetHandle(), release.Pipeline, nullptr);
-            }
-
-            if (release.QueryPool != VK_NULL_HANDLE)
-            {
-                vkDestroyQueryPool(m_Device.GetHandle(), release.QueryPool, nullptr);
-            }
-
-            if (release.SampledView != VK_NULL_HANDLE)
-            {
-                vkDestroyImageView(m_Device.GetHandle(), release.SampledView, nullptr);
-            }
-
-            for (VkImageView it_View : release.Views)
-            {
-                if (it_View != VK_NULL_HANDLE)
-                {
-                    vkDestroyImageView(m_Device.GetHandle(), it_View, nullptr);
-                }
-            }
-
-            if (release.Buffer != VK_NULL_HANDLE)
-            {
-                vmaDestroyBuffer(m_Allocator, release.Buffer, release.Allocation);
-            }
-
-            if (release.Image != VK_NULL_HANDLE && release.Allocation != nullptr)
-            {
-                vmaDestroyImage(m_Allocator, release.Image, release.Allocation);
-            }
         }
 
         BufferHandle VulkanContext::CreateBuffer(const BufferDescription& description)
@@ -877,7 +782,7 @@ namespace Trinity
 
             VulkanBuffer l_Buffer;
             VmaAllocationInfo l_Info{};
-            const VkResult l_Result = vmaCreateBuffer(m_Allocator, &l_Create, &l_Allocation, &l_Buffer.Buffer, &l_Buffer.Allocation, &l_Info);
+            const VkResult l_Result = vmaCreateBuffer(m_Allocator.GetHandle(), &l_Create, &l_Allocation, &l_Buffer.Buffer, &l_Buffer.Allocation, &l_Info);
             if (l_Result != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Vulkan: buffer '{}' of {} could not be created ({})", description.DebugName, Memory::FormatBytes(description.Size), FormatResult(l_Result));
@@ -1001,7 +906,7 @@ namespace Trinity
             l_Allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
             VulkanTexture l_Texture;
-            const VkResult l_Result = vmaCreateImage(m_Allocator, &l_Create, &l_Allocation, &l_Texture.Image, &l_Texture.Allocation, nullptr);
+            const VkResult l_Result = vmaCreateImage(m_Allocator.GetHandle(), &l_Create, &l_Allocation, &l_Texture.Image, &l_Texture.Allocation, nullptr);
             if (l_Result != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Vulkan: texture '{}' ({}x{} {}) could not be created ({})", description.DebugName, description.Width, description.Height, ToString(description.TextureFormat), FormatResult(l_Result));
@@ -1477,7 +1382,7 @@ namespace Trinity
             }
 
             m_InFrame = true;
-            m_Releases.BeginFrame([this](const VulkanRelease& release) { Release(release); });
+            m_Releases.BeginFrame();
             m_UploadRing.BeginFrame();
 
             vkResetCommandPool(m_Device.GetHandle(), l_Frame.CommandPool, 0);
@@ -1527,7 +1432,7 @@ namespace Trinity
             if (m_Device.GetHandle() != VK_NULL_HANDLE)
             {
                 vkDeviceWaitIdle(m_Device.GetHandle());
-                m_Releases.ReleaseIdle([this](const VulkanRelease& release) { Release(release); });
+                m_Releases.ReleaseIdle();
             }
         }
     }
