@@ -3,7 +3,10 @@
 #include "Trinity/RHI/Types.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
 
+#include <cstdint>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -22,5 +25,7 @@ namespace Trinity
         [[nodiscard]] VkFormat ToVkFormat(Format format);
         [[nodiscard]] std::string FormatResult(VkResult result);
         [[nodiscard]] VkImageAspectFlags GetAspect(Format format);
+        [[nodiscard]] std::string FormatVersion(std::uint32_t version);
+        [[nodiscard]] bool HasExtension(const std::vector<VkExtensionProperties>& extensions, std::string_view name);
     }
 }

@@ -7,9 +7,9 @@
 #include "Trinity/RHI/ReleaseQueue.hpp"
 #include "Trinity/RHI/Vulkan/VulkanCommandList.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
+#include "Trinity/RHI/Vulkan/VulkanInstance.hpp"
 
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -125,7 +125,7 @@ namespace Trinity
             void WaitForSemaphore(VkSemaphore semaphore);
             void SignalSemaphore(VkSemaphore semaphore);
 
-            [[nodiscard]] VkInstance GetInstance() const { return m_Instance; }
+            [[nodiscard]] VkInstance GetInstance() const { return m_Instance.GetHandle(); }
             [[nodiscard]] VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
             [[nodiscard]] VkDevice GetHandle() const { return m_Device; }
             [[nodiscard]] VkQueue GetQueue() const { return m_Queue; }
@@ -158,10 +158,7 @@ namespace Trinity
                 std::uint64_t CompletionValue = 0;
             };
 
-            static VKAPI_ATTR VkBool32 VKAPI_CALL OnDebugMessage(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* context);
-
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
-            [[nodiscard]] bool CreateInstance(const DeviceSpecification& specification, std::uint32_t loaderVersion, std::string& error);
             [[nodiscard]] bool CreateLogicalDevice(std::string& error);
             [[nodiscard]] bool CreateAllocator(std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
@@ -176,14 +173,11 @@ namespace Trinity
             void Release(const VulkanRelease& release);
 
             DeviceInfo m_Info;
-            bool m_Validation = false;
             bool m_TextureCompressionBC = false;
             bool m_TimestampsSupported = false;
             float m_TimestampPeriod = 1.0f;
-            std::atomic<std::uint32_t> m_MessageCount{ 0 };
 
-            VkInstance m_Instance = VK_NULL_HANDLE;
-            VkDebugUtilsMessengerEXT m_Messenger = VK_NULL_HANDLE;
+            VulkanInstance m_Instance;
             VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
             VkDevice m_Device = VK_NULL_HANDLE;
             VkQueue m_Queue = VK_NULL_HANDLE;

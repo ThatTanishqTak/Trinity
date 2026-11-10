@@ -4,6 +4,7 @@
 #include "Trinity/RHI/Bindless.hpp"
 #include "Trinity/RHI/D3D12/D3D12CommandList.hpp"
 #include "Trinity/RHI/D3D12/D3D12DescriptorHeap.hpp"
+#include "Trinity/RHI/D3D12/D3D12Factory.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
@@ -129,9 +130,9 @@ namespace Trinity
             [[nodiscard]] TextureHandle AddSwapChainBuffer(ID3D12Resource* resource, Format format, DXGI_FORMAT resourceFormat, std::uint32_t width, std::uint32_t height);
             void RemoveSwapChainBuffer(TextureHandle texture);
 
-            [[nodiscard]] IDXGIFactory6* GetFactory() const { return m_Factory.Get(); }
+            [[nodiscard]] IDXGIFactory6* GetFactory() const { return m_Factory.GetHandle(); }
             [[nodiscard]] ID3D12CommandQueue* GetQueue() const { return m_Queue.Get(); }
-            [[nodiscard]] bool IsTearingSupported() const { return m_TearingSupported; }
+            [[nodiscard]] bool IsTearingSupported() const { return m_Factory.IsTearingSupported(); }
             [[nodiscard]] bool IsInFrame() const { return m_InFrame; }
 
         private:
@@ -160,7 +161,6 @@ namespace Trinity
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
             void EnableDebugMessages();
-            void LogRuntime() const;
             void ReportLiveObjects() const;
 
             void CreateViews(D3D12Texture& texture);
@@ -171,10 +171,8 @@ namespace Trinity
             void WaitForQueue();
 
             DeviceInfo m_Info;
-            bool m_Validation = false;
 
-            Microsoft::WRL::ComPtr<IDXGIFactory6> m_Factory;
-            Microsoft::WRL::ComPtr<IDXGIAdapter1> m_Adapter;
+            D3D12Factory m_Factory;
             Microsoft::WRL::ComPtr<ID3D12Device10> m_Device;
             Microsoft::WRL::ComPtr<ID3D12InfoQueue1> m_InfoQueue;
             DWORD m_MessageCallbackCookie = 0;
@@ -200,7 +198,6 @@ namespace Trinity
             HANDLE m_FenceEvent = nullptr;
             std::uint64_t m_FrameNumber = 0;
             std::uint64_t m_FenceValue = 0;
-            bool m_TearingSupported = false;
 
             D3D12CommandList m_CommandList;
             bool m_InFrame = false;

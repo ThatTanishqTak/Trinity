@@ -5,16 +5,13 @@
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
-#include "Trinity/Core/Platform.hpp"
 
 #include <algorithm>
 #include <array>
-#include <filesystem>
 #include <format>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -74,28 +71,6 @@ namespace Trinity
                 const std::uint32_t l_Model = static_cast<std::uint32_t>(model);
 
                 return std::format("{}.{}", l_Model >> 4, l_Model & 0xF);
-            }
-
-            std::filesystem::path GetModulePath(HMODULE module)
-            {
-                std::wstring l_Path(MAX_PATH, L'\0');
-                while (true)
-                {
-                    const DWORD l_Length = ::GetModuleFileNameW(module, l_Path.data(), static_cast<DWORD>(l_Path.size()));
-                    if (l_Length == 0)
-                    {
-                        return {};
-                    }
-
-                    if (l_Length < l_Path.size())
-                    {
-                        l_Path.resize(l_Length);
-
-                        return l_Path;
-                    }
-
-                    l_Path.resize(l_Path.size() * 2);
-                }
             }
 
             AdapterSupport QuerySupport(ID3D12Device* device)
@@ -564,11 +539,10 @@ namespace Trinity
                 m_InfoQueue->UnregisterMessageCallback(m_MessageCallbackCookie);
             }
 
-            const bool l_Report = m_Validation && m_Device;
+            const bool l_Report = m_Factory.IsValidationEnabled() && m_Device;
 
             m_InfoQueue.Reset();
             m_Device.Reset();
-            m_Adapter.Reset();
             m_Factory.Reset();
 
             if (l_Report)
@@ -580,39 +554,14 @@ namespace Trinity
 
         bool D3D12Context::Initialize(const DeviceSpecification& specification, std::string& error)
         {
-            m_Validation = specification.EnableValidation;
-
-            // The debug layer must be on before the device exists
-            UINT l_FactoryFlags = 0;
-            if (m_Validation)
+            if (!m_Factory.Initialize(specification, error))
             {
-                ComPtr<ID3D12Debug1> l_Debug;
-                if (SUCCEEDED(::D3D12GetDebugInterface(IID_PPV_ARGS(&l_Debug))))
-                {
-                    l_Debug->EnableDebugLayer();
-                    l_Debug->SetEnableGPUBasedValidation(specification.EnableGPUValidation ? TRUE : FALSE);
-                    l_FactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-
-                    TR_CORE_INFO("D3D12: debug layer on{}", specification.EnableGPUValidation ? ", with GPU-based validation" : "");
-                }
-                else
-                {
-                    TR_CORE_WARN("D3D12: the debug layer is missing, so validation is off. Add the Graphics Tools optional feature in Windows settings");
-                    m_Validation = false;
-                }
-            }
-
-            HRESULT l_Result = ::CreateDXGIFactory2(l_FactoryFlags, IID_PPV_ARGS(&m_Factory));
-            if (FAILED(l_Result))
-            {
-                error = std::format("CreateDXGIFactory2 failed with {}", FormatResult(l_Result));
-
                 return false;
             }
 
             std::string l_Skipped;
             ComPtr<IDXGIAdapter1> l_Adapter;
-            for (UINT it_Index = 0; m_Factory->EnumAdapterByGpuPreference(it_Index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&l_Adapter)) != DXGI_ERROR_NOT_FOUND; ++it_Index)
+            for (UINT it_Index = 0; m_Factory.EnumerateAdapter(it_Index, l_Adapter); ++it_Index)
             {
                 DXGI_ADAPTER_DESC1 l_Description{};
                 l_Adapter->GetDesc1(&l_Description);
@@ -624,7 +573,7 @@ namespace Trinity
                 const std::string l_Name = ToUtf8(l_Description.Description);
 
                 ComPtr<ID3D12Device10> l_Device;
-                l_Result = ::D3D12CreateDevice(l_Adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&l_Device));
+                const HRESULT l_Result = ::D3D12CreateDevice(l_Adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&l_Device));
                 if (FAILED(l_Result))
                 {
                     l_Skipped += std::format("{}{}: no feature level 12_0 device ({})", l_Skipped.empty() ? "" : "; ", l_Name, FormatResult(l_Result));
@@ -641,7 +590,7 @@ namespace Trinity
                     continue;
                 }
 
-                m_Adapter = l_Adapter;
+                m_Factory.SetAdapter(l_Adapter);
                 m_Device = l_Device;
 
                 m_Info.API = GraphicsAPI::D3D12;
@@ -661,7 +610,7 @@ namespace Trinity
             }
 
             EnableDebugMessages();
-            LogRuntime();
+            m_Factory.LogRuntime();
 
             return CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
         }
@@ -672,7 +621,7 @@ namespace Trinity
             // D3D12MemoryAllocator's flag operators are global, and RHI's own operator| hides them in here
             l_Description.Flags = static_cast<D3D12MA::ALLOCATOR_FLAGS>(D3D12MA_RECOMMENDED_ALLOCATOR_FLAGS);
             l_Description.pDevice = m_Device.Get();
-            l_Description.pAdapter = m_Adapter.Get();
+            l_Description.pAdapter = m_Factory.GetAdapter();
             l_Description.pAllocationCallbacks = &c_HostAllocator;
 
             const HRESULT l_Result = D3D12MA::CreateAllocator(&l_Description, &m_Allocator);
@@ -725,9 +674,6 @@ namespace Trinity
             m_Queue->SetName(L"Trinity direct queue");
             m_GraphicsList->SetName(L"Trinity frame commands");
 
-            BOOL l_Tearing = FALSE;
-            m_TearingSupported = SUCCEEDED(m_Factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &l_Tearing, sizeof(l_Tearing))) && l_Tearing == TRUE;
-
             return true;
         }
 
@@ -779,7 +725,7 @@ namespace Trinity
 
         void D3D12Context::EnableDebugMessages()
         {
-            if (!m_Validation)
+            if (!m_Factory.IsValidationEnabled())
             {
                 return;
             }
@@ -828,28 +774,6 @@ namespace Trinity
                     break;
                 }
             }
-        }
-
-        // Says which D3D12Core.dll the process loaded: the Agility SDK's beside the executable, or the one built into Windows
-        void D3D12Context::LogRuntime() const
-        {
-            const std::filesystem::path l_Path = GetModulePath(::GetModuleHandleW(L"D3D12Core.dll"));
-
-            std::error_code l_Error;
-            [[maybe_unused]] const bool l_Agility = !l_Path.empty() && std::filesystem::equivalent(l_Path.parent_path(), Platform::GetExecutableDirectory() / "D3D12", l_Error);
-
-#if defined(TR_AGILITY_SDK_VERSION)
-            if (l_Agility)
-            {
-                TR_CORE_INFO("D3D12: Agility SDK {} runtime loaded from '{}'", TR_AGILITY_SDK_VERSION, l_Path.string());
-            }
-            else
-            {
-                TR_CORE_WARN("D3D12: the Agility SDK {} runtime beside the executable was not loaded, so the Windows runtime at '{}' is in use", TR_AGILITY_SDK_VERSION, l_Path.string());
-            }
-#else
-            TR_CORE_INFO("D3D12: this build has no Agility SDK, so the Windows runtime at '{}' is in use", l_Path.string());
-#endif
         }
 
         // Runs after every D3D12 and DXGI object of the device is released, so anything still reported is a leak

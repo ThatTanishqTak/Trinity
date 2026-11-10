@@ -9,8 +9,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstring>
-#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -22,8 +20,6 @@ namespace Trinity
     {
         namespace
         {
-            constexpr const char* c_ValidationLayer = "VK_LAYER_KHRONOS_validation";
-
             template<typename T>
             struct RequiredFeature
             {
@@ -155,11 +151,6 @@ namespace Trinity
                 }
             }
 
-            std::string FormatVersion(std::uint32_t version)
-            {
-                return std::format("{}.{}.{}", VK_API_VERSION_MAJOR(version), VK_API_VERSION_MINOR(version), VK_API_VERSION_PATCH(version));
-            }
-
             std::string_view ToString(VkPhysicalDeviceType type)
             {
                 switch (type)
@@ -215,21 +206,6 @@ namespace Trinity
                 }
             }
 
-            bool HasExtension(const std::vector<VkExtensionProperties>& extensions, std::string_view name)
-            {
-                return std::ranges::any_of(extensions, [name](const VkExtensionProperties& extension) { return name == extension.extensionName; });
-            }
-
-            std::vector<VkExtensionProperties> GetInstanceExtensions(const char* layer)
-            {
-                std::uint32_t l_Count = 0;
-                vkEnumerateInstanceExtensionProperties(layer, &l_Count, nullptr);
-                std::vector<VkExtensionProperties> l_Extensions(l_Count);
-                vkEnumerateInstanceExtensionProperties(layer, &l_Count, l_Extensions.data());
-
-                return l_Extensions;
-            }
-
             std::vector<VkExtensionProperties> GetDeviceExtensions(VkPhysicalDevice device)
             {
                 std::uint32_t l_Count = 0;
@@ -238,16 +214,6 @@ namespace Trinity
                 vkEnumerateDeviceExtensionProperties(device, nullptr, &l_Count, l_Extensions.data());
 
                 return l_Extensions;
-            }
-
-            bool HasValidationLayer()
-            {
-                std::uint32_t l_Count = 0;
-                vkEnumerateInstanceLayerProperties(&l_Count, nullptr);
-                std::vector<VkLayerProperties> l_Layers(l_Count);
-                vkEnumerateInstanceLayerProperties(&l_Count, l_Layers.data());
-
-                return std::ranges::any_of(l_Layers, [](const VkLayerProperties& layer) { return std::strcmp(layer.layerName, c_ValidationLayer) == 0; });
             }
 
             std::uint64_t GetVideoMemory(VkPhysicalDevice device)
@@ -627,6 +593,16 @@ namespace Trinity
             return IsDepthFormat(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
         }
 
+        std::string FormatVersion(std::uint32_t version)
+        {
+            return std::format("{}.{}.{}", VK_API_VERSION_MAJOR(version), VK_API_VERSION_MINOR(version), VK_API_VERSION_PATCH(version));
+        }
+
+        bool HasExtension(const std::vector<VkExtensionProperties>& extensions, std::string_view name)
+        {
+            return std::ranges::any_of(extensions, [name](const VkExtensionProperties& extension) { return name == extension.extensionName; });
+        }
+
         Scope<VulkanContext> VulkanContext::Create(const DeviceSpecification& specification, std::string& error)
         {
             Scope<VulkanContext> l_Device = CreateScope<VulkanContext>();
@@ -682,149 +658,25 @@ namespace Trinity
                 vkDestroyDevice(m_Device, nullptr);
             }
 
-            if (m_Messenger != VK_NULL_HANDLE)
-            {
-                vkDestroyDebugUtilsMessengerEXT(m_Instance, m_Messenger, nullptr);
-            }
+            m_Instance.Destroy();
 
-            if (m_Instance != VK_NULL_HANDLE)
+            if (m_Instance.IsValidationEnabled() && m_Device != VK_NULL_HANDLE)
             {
-                vkDestroyInstance(m_Instance, nullptr);
-            }
-
-            if (m_Validation && m_Device != VK_NULL_HANDLE)
-            {
-                TR_CORE_INFO("Vulkan validation: {} warning(s) or error(s) while the device lived", m_MessageCount.load());
+                TR_CORE_INFO("Vulkan validation: {} warning(s) or error(s) while the device lived", m_Instance.GetMessageCount());
             }
         }
 
         bool VulkanContext::Initialize(const DeviceSpecification& specification, std::string& error)
         {
-            if (volkInitialize() != VK_SUCCESS)
-            {
-                error = "no Vulkan loader was found";
-
-                return false;
-            }
-
-            const std::uint32_t l_LoaderVersion = volkGetInstanceVersion();
-            if (l_LoaderVersion < VK_API_VERSION_1_3)
-            {
-                error = std::format("the Vulkan loader is {}, and the engine needs 1.3", FormatVersion(l_LoaderVersion));
-
-                return false;
-            }
-
-            return CreateInstance(specification, l_LoaderVersion, error) && CreateLogicalDevice(error) && CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
-        }
-
-        bool VulkanContext::CreateInstance(const DeviceSpecification& specification, std::uint32_t loaderVersion, std::string& error)
-        {
-            const std::vector<VkExtensionProperties> l_Available = GetInstanceExtensions(nullptr);
-
-            std::vector<const char*> l_Extensions;
-            std::vector<const char*> l_Layers;
-            std::vector<const char*> l_SurfaceExtensions{ VK_KHR_SURFACE_EXTENSION_NAME };
-#if defined(VK_USE_PLATFORM_WIN32_KHR)
-            l_SurfaceExtensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-#endif
-            for (const char* it_Extension : l_SurfaceExtensions)
-            {
-                if (HasExtension(l_Available, it_Extension))
-                {
-                    l_Extensions.push_back(it_Extension);
-                }
-            }
-
-            m_Validation = specification.EnableValidation;
-            bool l_GPUValidation = false;
-            if (m_Validation)
-            {
-                const std::vector<VkExtensionProperties> l_LayerExtensions = HasValidationLayer() ? GetInstanceExtensions(c_ValidationLayer) : std::vector<VkExtensionProperties>{};
-                if (!HasValidationLayer() || !(HasExtension(l_Available, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) || HasExtension(l_LayerExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)))
-                {
-                    TR_CORE_WARN("Vulkan: the Khronos validation layer is missing, so validation is off. It comes with the Vulkan SDK");
-                    m_Validation = false;
-                }
-                else
-                {
-                    l_Layers.push_back(c_ValidationLayer);
-                    l_Extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-
-                    if (specification.EnableGPUValidation)
-                    {
-                        if (HasExtension(l_LayerExtensions, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME))
-                        {
-                            l_Extensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
-                            l_GPUValidation = true;
-                        }
-                        else
-                        {
-                            TR_CORE_WARN("Vulkan: the validation layer has no VK_EXT_validation_features, so GPU-assisted validation is off");
-                        }
-                    }
-
-                    TR_CORE_INFO("Vulkan: validation layer on{}", l_GPUValidation ? ", with GPU-assisted validation" : "");
-                }
-            }
-
-            VkApplicationInfo l_Application = MakeInfo<VkApplicationInfo>(VK_STRUCTURE_TYPE_APPLICATION_INFO);
-            l_Application.pApplicationName = "Trinity";
-            l_Application.pEngineName = "Trinity";
-            l_Application.apiVersion = loaderVersion >= VK_API_VERSION_1_4 ? VK_API_VERSION_1_4 : VK_API_VERSION_1_3;
-
-            // Chained into instance creation as well, so messages from vkCreateInstance and vkDestroyInstance reach the log too
-            VkDebugUtilsMessengerCreateInfoEXT l_Messenger = MakeInfo<VkDebugUtilsMessengerCreateInfoEXT>(VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT);
-            l_Messenger.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-            l_Messenger.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-            l_Messenger.pfnUserCallback = &VulkanContext::OnDebugMessage;
-            l_Messenger.pUserData = this;
-
-            const VkValidationFeatureEnableEXT l_GPUAssisted = VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT;
-            VkValidationFeaturesEXT l_ValidationFeatures = MakeInfo<VkValidationFeaturesEXT>(VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT);
-            l_ValidationFeatures.enabledValidationFeatureCount = 1;
-            l_ValidationFeatures.pEnabledValidationFeatures = &l_GPUAssisted;
-            if (l_GPUValidation)
-            {
-                l_Messenger.pNext = &l_ValidationFeatures;
-            }
-
-            VkInstanceCreateInfo l_Create = MakeInfo<VkInstanceCreateInfo>(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO);
-            l_Create.pNext = m_Validation ? &l_Messenger : nullptr;
-            l_Create.pApplicationInfo = &l_Application;
-            l_Create.enabledLayerCount = static_cast<std::uint32_t>(l_Layers.size());
-            l_Create.ppEnabledLayerNames = l_Layers.data();
-            l_Create.enabledExtensionCount = static_cast<std::uint32_t>(l_Extensions.size());
-            l_Create.ppEnabledExtensionNames = l_Extensions.data();
-
-            const VkResult l_Result = vkCreateInstance(&l_Create, nullptr, &m_Instance);
-            if (l_Result != VK_SUCCESS)
-            {
-                error = std::format("vkCreateInstance failed with {}", FormatResult(l_Result));
-
-                return false;
-            }
-
-            volkLoadInstanceOnly(m_Instance);
-
-            if (m_Validation)
-            {
-                l_Messenger.pNext = nullptr;
-                if (vkCreateDebugUtilsMessengerEXT(m_Instance, &l_Messenger, nullptr, &m_Messenger) != VK_SUCCESS)
-                {
-                    TR_CORE_WARN("Vulkan: the debug messenger could not be created, so validation messages are lost");
-                }
-            }
-
-            return true;
+            return m_Instance.Initialize(specification, error) && CreateLogicalDevice(error) && CreateAllocator(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool VulkanContext::CreateLogicalDevice(std::string& error)
         {
             std::uint32_t l_Count = 0;
-            vkEnumeratePhysicalDevices(m_Instance, &l_Count, nullptr);
+            vkEnumeratePhysicalDevices(m_Instance.GetHandle(), &l_Count, nullptr);
             std::vector<VkPhysicalDevice> l_PhysicalDevices(l_Count);
-            vkEnumeratePhysicalDevices(m_Instance, &l_Count, l_PhysicalDevices.data());
+            vkEnumeratePhysicalDevices(m_Instance.GetHandle(), &l_Count, l_PhysicalDevices.data());
 
             std::string l_Skipped;
             int l_BestRank = -1;
@@ -959,7 +811,7 @@ namespace Trinity
             VmaAllocatorCreateInfo l_Create{};
             l_Create.physicalDevice = m_PhysicalDevice;
             l_Create.device = m_Device;
-            l_Create.instance = m_Instance;
+            l_Create.instance = m_Instance.GetHandle();
             l_Create.vulkanApiVersion = VK_API_VERSION_1_3;
             l_Create.pAllocationCallbacks = &c_HostAllocator;
 
@@ -1286,7 +1138,7 @@ namespace Trinity
         // Debug utils is only on with validation, and then the layer's messages name the object
         void VulkanContext::SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const
         {
-            if (!m_Validation || name.empty())
+            if (!m_Instance.IsValidationEnabled() || name.empty())
             {
                 return;
             }
@@ -1993,29 +1845,6 @@ namespace Trinity
                 vkDeviceWaitIdle(m_Device);
                 m_Releases.ReleaseIdle([this](const VulkanRelease& release) { Release(release); });
             }
-        }
-
-        VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::OnDebugMessage(VkDebugUtilsMessageSeverityFlagBitsEXT severity, [[maybe_unused]] VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* context)
-        {
-            VulkanContext* l_Device = static_cast<VulkanContext*>(context);
-            const std::string_view l_Message = data != nullptr && data->pMessage != nullptr ? data->pMessage : "";
-
-            if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0)
-            {
-                l_Device->m_MessageCount.fetch_add(1, std::memory_order_relaxed);
-                TR_CORE_ERROR("Vulkan validation: {}", l_Message);
-            }
-            else if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0)
-            {
-                l_Device->m_MessageCount.fetch_add(1, std::memory_order_relaxed);
-                TR_CORE_WARN("Vulkan validation: {}", l_Message);
-            }
-            else
-            {
-                TR_CORE_TRACE("Vulkan validation: {}", l_Message);
-            }
-
-            return VK_FALSE;
         }
     }
 }
