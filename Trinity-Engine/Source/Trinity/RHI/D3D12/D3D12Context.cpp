@@ -365,7 +365,7 @@ namespace Trinity
             return l_Device;
         }
 
-        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_CommandList(*this)
+        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_RootSignature(m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_CommandList(*this)
         {
 
         }
@@ -485,38 +485,13 @@ namespace Trinity
                 return false;
             }
 
-            D3D12_ROOT_PARAMETER1 l_PushConstants{};
-            l_PushConstants.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-            l_PushConstants.Constants.ShaderRegister = 0;
-            l_PushConstants.Constants.RegisterSpace = 0;
-            l_PushConstants.Constants.Num32BitValues = c_MaxPushConstantSize / 4;
-            l_PushConstants.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-
-            D3D12_VERSIONED_ROOT_SIGNATURE_DESC l_Description{};
-            l_Description.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
-            l_Description.Desc_1_1.NumParameters = 1;
-            l_Description.Desc_1_1.pParameters = &l_PushConstants;
-            l_Description.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED | D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED;
-
-            ComPtr<ID3DBlob> l_Blob;
-            ComPtr<ID3DBlob> l_Errors;
-            HRESULT l_Result = ::D3D12SerializeVersionedRootSignature(&l_Description, &l_Blob, &l_Errors);
-            if (SUCCEEDED(l_Result))
+            if (!m_RootSignature.Initialize(error))
             {
-                l_Result = m_Device.GetHandle()->CreateRootSignature(0, l_Blob->GetBufferPointer(), l_Blob->GetBufferSize(), IID_PPV_ARGS(&m_RootSignature));
-            }
-
-            if (FAILED(l_Result))
-            {
-                const std::string_view l_Reason = l_Errors ? std::string_view(static_cast<const char*>(l_Errors->GetBufferPointer()), l_Errors->GetBufferSize()) : std::string_view();
-                error = std::format("the bindless root signature could not be created on {} ({}{}{})", m_Device.GetInfo().AdapterName, FormatResult(l_Result), l_Reason.empty() ? "" : ": ", l_Reason);
-
                 return false;
             }
 
             m_ResourceHeap.GetHeap()->SetName(L"Trinity bindless resources");
             m_SamplerHeap.GetHeap()->SetName(L"Trinity bindless samplers");
-            m_RootSignature->SetName(L"Trinity bindless root signature");
 
             return true;
         }
@@ -1057,7 +1032,7 @@ namespace Trinity
             TR_CORE_ASSERT(!description.StencilTest || HasStencil(description.DepthFormat), "Pipeline '{}' tests stencil without a depth format that has it.", description.DebugName);
 
             D3D12_GRAPHICS_PIPELINE_STATE_DESC l_Description{};
-            l_Description.pRootSignature = m_RootSignature.Get();
+            l_Description.pRootSignature = m_RootSignature.GetHandle();
             l_Description.VS = { description.VertexShader.Code.data(), description.VertexShader.Code.size() };
             l_Description.PS = { description.PixelShader.Code.data(), description.PixelShader.Code.size() };
             l_Description.SampleMask = UINT_MAX;
@@ -1178,7 +1153,7 @@ namespace Trinity
             TR_CORE_ASSERT(!description.ComputeShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
 
             D3D12_COMPUTE_PIPELINE_STATE_DESC l_Description{};
-            l_Description.pRootSignature = m_RootSignature.Get();
+            l_Description.pRootSignature = m_RootSignature.GetHandle();
             l_Description.CS = { description.ComputeShader.Code.data(), description.ComputeShader.Code.size() };
 
             D3D12Pipeline l_Pipeline;

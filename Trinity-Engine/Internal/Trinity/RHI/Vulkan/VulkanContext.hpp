@@ -5,6 +5,7 @@
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
 #include "Trinity/RHI/Vulkan/VulkanAllocator.hpp"
+#include "Trinity/RHI/Vulkan/VulkanBindless.hpp"
 #include "Trinity/RHI/Vulkan/VulkanCommandList.hpp"
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
@@ -116,8 +117,8 @@ namespace Trinity
             [[nodiscard]] VulkanTexture* GetTexture(TextureHandle texture) { return m_Textures.Get(texture); }
             [[nodiscard]] VulkanPipeline* GetPipeline(PipelineHandle pipeline) { return m_Pipelines.Get(pipeline); }
             [[nodiscard]] VulkanQueryPool* GetQueryPool(QueryPoolHandle pool) { return m_QueryPools.Get(pool); }
-            [[nodiscard]] VkPipelineLayout GetPipelineLayout() const { return m_PipelineLayout; }
-            [[nodiscard]] VkDescriptorSet GetBindlessSet() const { return m_BindlessSet; }
+            [[nodiscard]] VkPipelineLayout GetPipelineLayout() const { return m_Bindless.GetPipelineLayout(); }
+            [[nodiscard]] VkDescriptorSet GetBindlessSet() const { return m_Bindless.GetSet(); }
 
             // For the swap chain: its images become textures, and its semaphores join this frame's submission
             [[nodiscard]] TextureHandle AddSwapChainImage(VkImage image, Format format, std::uint32_t width, std::uint32_t height);
@@ -145,11 +146,8 @@ namespace Trinity
 
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
-            [[nodiscard]] bool CreateBindless(std::string& error);
 
             [[nodiscard]] VkImageView CreateView(VkImage image, Format format, VkImageViewType type, std::uint32_t baseMipLevel, std::uint32_t mipLevels, std::uint32_t baseArrayLayer, std::uint32_t arrayLayers);
-            [[nodiscard]] std::uint32_t AddBufferDescriptor(VkBuffer buffer);
-            [[nodiscard]] std::uint32_t AddImageDescriptor(std::uint32_t binding, VkDescriptorType type, VkImageView view, VkImageLayout layout);
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanBuffer& buffer);
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanTexture& texture);
             [[nodiscard]] static VulkanRelease ToRelease(const VulkanSampler& sampler);
@@ -164,12 +162,7 @@ namespace Trinity
             HandlePool<VulkanSampler, SamplerHandle> m_Samplers;
             HandlePool<VulkanQueryPool, QueryPoolHandle> m_QueryPools;
 
-            VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;
-            VkDescriptorPool m_BindlessPool = VK_NULL_HANDLE;
-            VkDescriptorSet m_BindlessSet = VK_NULL_HANDLE;
-            VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
-            IndexAllocator m_ResourceIndices;
-            IndexAllocator m_SamplerIndices;
+            VulkanBindless m_Bindless;
             VulkanReleaseQueue m_Releases;
 
             std::array<FrameContext, c_FramesInFlight> m_Frames{};

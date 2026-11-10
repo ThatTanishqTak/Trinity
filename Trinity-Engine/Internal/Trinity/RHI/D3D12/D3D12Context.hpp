@@ -9,6 +9,7 @@
 #include "Trinity/RHI/D3D12/D3D12Factory.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 #include "Trinity/RHI/D3D12/D3D12ReleaseQueue.hpp"
+#include "Trinity/RHI/D3D12/D3D12RootSignature.hpp"
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
 
@@ -117,7 +118,7 @@ namespace Trinity
             [[nodiscard]] D3D12Texture* GetTexture(TextureHandle texture) { return m_Textures.Get(texture); }
             [[nodiscard]] D3D12Pipeline* GetPipeline(PipelineHandle pipeline) { return m_Pipelines.Get(pipeline); }
             [[nodiscard]] D3D12QueryPool* GetQueryPool(QueryPoolHandle pool) { return m_QueryPools.Get(pool); }
-            [[nodiscard]] ID3D12RootSignature* GetRootSignature() const { return m_RootSignature.Get(); }
+            [[nodiscard]] ID3D12RootSignature* GetRootSignature() const { return m_RootSignature.GetHandle(); }
             [[nodiscard]] ID3D12DescriptorHeap* GetResourceHeap() const { return m_ResourceHeap.GetHeap(); }
             [[nodiscard]] ID3D12DescriptorHeap* GetSamplerHeap() const { return m_SamplerHeap.GetHeap(); }
             [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE GetRenderTargetView(std::uint32_t view) const { return m_RenderTargetViews.GetHandle(view); }
@@ -162,7 +163,7 @@ namespace Trinity
             D3D12DescriptorHeap m_DepthStencilViews;
             D3D12DescriptorHeap m_ResourceHeap;
             D3D12DescriptorHeap m_SamplerHeap;
-            Microsoft::WRL::ComPtr<ID3D12RootSignature> m_RootSignature;
+            D3D12RootSignature m_RootSignature;
             D3D12ReleaseQueue m_Releases;
 
             Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_Queue;

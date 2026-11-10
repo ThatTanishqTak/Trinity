@@ -1,5 +1,6 @@
 #include "Trinity/RHI/Vulkan/VulkanReleaseQueue.hpp"
 #include "Trinity/RHI/Vulkan/VulkanAllocator.hpp"
+#include "Trinity/RHI/Vulkan/VulkanBindless.hpp"
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
 
 #include <utility>
@@ -8,7 +9,7 @@ namespace Trinity
 {
     namespace RHI
     {
-        VulkanReleaseQueue::VulkanReleaseQueue(const VulkanDevice& device, const VulkanAllocator& allocator, IndexAllocator& resourceIndices, IndexAllocator& samplerIndices) : m_Device(device), m_Allocator(allocator), m_ResourceIndices(resourceIndices), m_SamplerIndices(samplerIndices)
+        VulkanReleaseQueue::VulkanReleaseQueue(const VulkanDevice& device, const VulkanAllocator& allocator, VulkanBindless& bindless) : m_Device(device), m_Allocator(allocator), m_Bindless(bindless)
         {
 
         }
@@ -41,9 +42,9 @@ namespace Trinity
         // An index is only handed out again once the frames that could read it have finished
         void VulkanReleaseQueue::Release(const VulkanRelease& release)
         {
-            m_ResourceIndices.Free(release.ShaderResourceIndex);
-            m_ResourceIndices.Free(release.UnorderedAccessIndex);
-            m_SamplerIndices.Free(release.SamplerIndex);
+            m_Bindless.FreeResourceIndex(release.ShaderResourceIndex);
+            m_Bindless.FreeResourceIndex(release.UnorderedAccessIndex);
+            m_Bindless.FreeSamplerIndex(release.SamplerIndex);
 
             if (release.Sampler != VK_NULL_HANDLE)
             {

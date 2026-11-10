@@ -13,6 +13,7 @@ namespace Trinity
     namespace RHI
     {
         class VulkanAllocator;
+        class VulkanBindless;
         class VulkanDevice;
 
         using VulkanImageViews = std::vector<VkImageView, TaggedAllocator<VkImageView, MemoryTag::Renderer>>;
@@ -37,7 +38,7 @@ namespace Trinity
         class VulkanReleaseQueue
         {
         public:
-            VulkanReleaseQueue(const VulkanDevice& device, const VulkanAllocator& allocator, IndexAllocator& resourceIndices, IndexAllocator& samplerIndices);
+            VulkanReleaseQueue(const VulkanDevice& device, const VulkanAllocator& allocator, VulkanBindless& bindless);
 
             void Push(VulkanRelease release);
             // Once the frame c_FramesInFlight before this one has finished on the GPU
@@ -52,8 +53,7 @@ namespace Trinity
         private:
             const VulkanDevice& m_Device;
             const VulkanAllocator& m_Allocator;
-            IndexAllocator& m_ResourceIndices;
-            IndexAllocator& m_SamplerIndices;
+            VulkanBindless& m_Bindless;
 
             ReleaseQueue<VulkanRelease> m_Releases;
         };
