@@ -4,7 +4,6 @@
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
-#include "Trinity/Core/Memory.hpp"
 
 #include <algorithm>
 #include <array>
@@ -63,92 +62,6 @@ namespace Trinity
                     default:
                     {
                         return "another VkResult";
-                    }
-                }
-            }
-
-            VkBufferUsageFlags ToVkBufferUsage(BufferUsage usage, MemoryType memory)
-            {
-                VkBufferUsageFlags l_Flags = 0;
-                if (HasFlag(usage, BufferUsage::ShaderResource) || HasFlag(usage, BufferUsage::UnorderedAccess))
-                {
-                    l_Flags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                }
-
-                if (HasFlag(usage, BufferUsage::Index))
-                {
-                    l_Flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-                }
-
-                if (HasFlag(usage, BufferUsage::Indirect))
-                {
-                    l_Flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-                }
-
-                if (HasFlag(usage, BufferUsage::CopySource) || memory == MemoryType::Upload)
-                {
-                    l_Flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-                }
-
-                if (HasFlag(usage, BufferUsage::CopyDestination) || memory == MemoryType::Readback)
-                {
-                    l_Flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-                }
-
-                return l_Flags;
-            }
-
-            VkImageUsageFlags ToVkImageUsage(TextureUsage usage)
-            {
-                VkImageUsageFlags l_Flags = 0;
-                if (HasFlag(usage, TextureUsage::ShaderResource))
-                {
-                    l_Flags |= VK_IMAGE_USAGE_SAMPLED_BIT;
-                }
-
-                if (HasFlag(usage, TextureUsage::UnorderedAccess))
-                {
-                    l_Flags |= VK_IMAGE_USAGE_STORAGE_BIT;
-                }
-
-                if (HasFlag(usage, TextureUsage::RenderTarget))
-                {
-                    l_Flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-                }
-
-                if (HasFlag(usage, TextureUsage::DepthStencil))
-                {
-                    l_Flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-                }
-
-                if (HasFlag(usage, TextureUsage::CopySource))
-                {
-                    l_Flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-                }
-
-                if (HasFlag(usage, TextureUsage::CopyDestination))
-                {
-                    l_Flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-                }
-
-                return l_Flags;
-            }
-
-            VkImageViewType ToVkSampledViewType(TextureDimension dimension)
-            {
-                switch (dimension)
-                {
-                    case TextureDimension::Texture2DArray:
-                    {
-                        return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-                    }
-                    case TextureDimension::TextureCube:
-                    {
-                        return VK_IMAGE_VIEW_TYPE_CUBE;
-                    }
-                    default:
-                    {
-                        return VK_IMAGE_VIEW_TYPE_2D;
                     }
                 }
             }
@@ -257,30 +170,6 @@ namespace Trinity
                     default:
                     {
                         return VK_STENCIL_OP_KEEP;
-                    }
-                }
-            }
-
-            VkFilter ToVkFilter(Filter filter)
-            {
-                return filter == Filter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
-            }
-
-            VkSamplerAddressMode ToVkAddressMode(AddressMode address)
-            {
-                switch (address)
-                {
-                    case AddressMode::MirroredRepeat:
-                    {
-                        return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
-                    }
-                    case AddressMode::ClampToEdge:
-                    {
-                        return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                    }
-                    default:
-                    {
-                        return VK_SAMPLER_ADDRESS_MODE_REPEAT;
                     }
                 }
             }
@@ -438,10 +327,10 @@ namespace Trinity
                 }
 
                 m_Releases.ReleaseAll();
-                m_Buffers.ForEach([this](const VulkanBuffer& buffer) { m_Releases.Release(ToRelease(buffer)); });
-                m_Textures.ForEach([this](const VulkanTexture& texture) { m_Releases.Release(ToRelease(texture)); });
+                m_Buffers.ForEach([this](const VulkanBuffer& buffer) { m_Releases.Release(buffer.ToRelease()); });
+                m_Textures.ForEach([this](const VulkanTexture& texture) { m_Releases.Release(texture.ToRelease()); });
                 m_Pipelines.ForEach([this](const VulkanPipeline& pipeline) { vkDestroyPipeline(m_Device.GetHandle(), pipeline.Pipeline, nullptr); });
-                m_Samplers.ForEach([this](const VulkanSampler& sampler) { m_Releases.Release(ToRelease(sampler)); });
+                m_Samplers.ForEach([this](const VulkanSampler& sampler) { m_Releases.Release(sampler.ToRelease()); });
                 m_QueryPools.ForEach([this](const VulkanQueryPool& pool) { vkDestroyQueryPool(m_Device.GetHandle(), pool.Pool, nullptr); });
 
                 m_Bindless.Destroy();
@@ -512,129 +401,15 @@ namespace Trinity
             return true;
         }
 
-        VkImageView VulkanContext::CreateView(VkImage image, Format format, VkImageViewType type, std::uint32_t baseMipLevel, std::uint32_t mipLevels, std::uint32_t baseArrayLayer, std::uint32_t arrayLayers)
-        {
-            VkImageViewCreateInfo l_Create = MakeInfo<VkImageViewCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO);
-            l_Create.image = image;
-            l_Create.viewType = type;
-            l_Create.format = ToVkFormat(format);
-            l_Create.subresourceRange = { GetAspect(format), baseMipLevel, mipLevels, baseArrayLayer, arrayLayers };
-
-            VkImageView l_View = VK_NULL_HANDLE;
-            const VkResult l_Result = vkCreateImageView(m_Device.GetHandle(), &l_Create, nullptr, &l_View);
-            if (l_Result != VK_SUCCESS)
-            {
-                TR_CORE_ERROR("Vulkan: a view of {} mip(s) and {} layer(s) of a {} image could not be created ({})", mipLevels, arrayLayers, ToString(format), FormatResult(l_Result));
-
-                return VK_NULL_HANDLE;
-            }
-
-            return l_View;
-        }
-
-        VulkanRelease VulkanContext::ToRelease(const VulkanBuffer& buffer)
-        {
-            VulkanRelease l_Release;
-            l_Release.Buffer = buffer.Buffer;
-            l_Release.Allocation = buffer.Allocation;
-            l_Release.ShaderResourceIndex = buffer.ShaderResourceIndex;
-            l_Release.UnorderedAccessIndex = buffer.UnorderedAccessIndex;
-
-            return l_Release;
-        }
-
-        VulkanRelease VulkanContext::ToRelease(const VulkanTexture& texture)
-        {
-            VulkanRelease l_Release;
-            l_Release.Image = texture.Image;
-            l_Release.Views = texture.AttachmentViews;
-            if (texture.StorageView != VK_NULL_HANDLE)
-            {
-                l_Release.Views.push_back(texture.StorageView);
-            }
-
-            l_Release.Allocation = texture.Allocation;
-            l_Release.SampledView = texture.SampledView;
-            l_Release.ShaderResourceIndex = texture.ShaderResourceIndex;
-            l_Release.UnorderedAccessIndex = texture.UnorderedAccessIndex;
-
-            return l_Release;
-        }
-
-        VulkanRelease VulkanContext::ToRelease(const VulkanSampler& sampler)
-        {
-            VulkanRelease l_Release;
-            l_Release.Sampler = sampler.Sampler;
-            l_Release.SamplerIndex = sampler.Index;
-
-            return l_Release;
-        }
-
         BufferHandle VulkanContext::CreateBuffer(const BufferDescription& description)
         {
-            TR_CORE_ASSERT(description.Size != 0, "Buffer '{}' has no size.", description.DebugName);
-
-            VkBufferCreateInfo l_Create = MakeInfo<VkBufferCreateInfo>(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO);
-            l_Create.size = description.Size;
-            l_Create.usage = ToVkBufferUsage(description.Usage, description.Memory);
-            l_Create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            TR_CORE_ASSERT(l_Create.usage != 0, "Buffer '{}' has no usage.", description.DebugName);
-
-            // Upload and Readback memory is coherent, so writes and reads through the mapping need no flush or invalidate
-            VmaAllocationCreateInfo l_Allocation{};
-            switch (description.Memory)
+            const std::optional<VulkanBuffer> l_Buffer = VulkanBuffer::Create(m_Device, m_Allocator, m_Bindless, description);
+            if (!l_Buffer)
             {
-                case MemoryType::GPU:
-                {
-                    l_Allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-                    break;
-                }
-                case MemoryType::Upload:
-                {
-                    l_Allocation.usage = VMA_MEMORY_USAGE_AUTO;
-                    l_Allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-                    l_Allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-                    break;
-                }
-                case MemoryType::Readback:
-                {
-                    l_Allocation.usage = VMA_MEMORY_USAGE_AUTO;
-                    l_Allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-                    l_Allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-                    l_Allocation.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-
-                    break;
-                }
-            }
-
-            VulkanBuffer l_Buffer;
-            VmaAllocationInfo l_Info{};
-            const VkResult l_Result = vmaCreateBuffer(m_Allocator.GetHandle(), &l_Create, &l_Allocation, &l_Buffer.Buffer, &l_Buffer.Allocation, &l_Info);
-            if (l_Result != VK_SUCCESS)
-            {
-                TR_CORE_ERROR("Vulkan: buffer '{}' of {} could not be created ({})", description.DebugName, Memory::FormatBytes(description.Size), FormatResult(l_Result));
-
                 return {};
             }
 
-            l_Buffer.Mapped = static_cast<std::byte*>(l_Info.pMappedData);
-            l_Buffer.Size = description.Size;
-            SetDebugName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(l_Buffer.Buffer), description.DebugName);
-
-            // Both views of a buffer are the same storage buffer descriptor, and Slang marks the read-only one NonWritable
-            if (HasFlag(description.Usage, BufferUsage::ShaderResource))
-            {
-                l_Buffer.ShaderResourceIndex = m_Bindless.AddBufferDescriptor(l_Buffer.Buffer);
-            }
-
-            if (HasFlag(description.Usage, BufferUsage::UnorderedAccess))
-            {
-                l_Buffer.UnorderedAccessIndex = m_Bindless.AddBufferDescriptor(l_Buffer.Buffer);
-            }
-
-            return m_Buffers.Add(l_Buffer);
+            return m_Buffers.Add(*l_Buffer);
         }
 
         void VulkanContext::DestroyBuffer(BufferHandle buffer)
@@ -649,7 +424,7 @@ namespace Trinity
 
             if (l_Buffer)
             {
-                m_Releases.Push(ToRelease(*l_Buffer));
+                m_Releases.Push(l_Buffer->ToRelease());
             }
         }
 
@@ -666,45 +441,9 @@ namespace Trinity
             return { l_Buffer->Mapped, static_cast<std::size_t>(l_Buffer->Size) };
         }
 
-        // The driver's optimal-tiling features for the format must cover every usage asked for
         bool VulkanContext::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
-            const VkFormat l_Format = ToVkFormat(format);
-            if (l_Format == VK_FORMAT_UNDEFINED || (IsCompressedFormat(format) && !m_Device.HasTextureCompressionBC()) || (HasStencil(format) && usage != TextureUsage::DepthStencil))
-            {
-                return false;
-            }
-
-            VkFormatProperties l_Properties{};
-            vkGetPhysicalDeviceFormatProperties(m_Device.GetPhysicalDevice(), l_Format, &l_Properties);
-
-            constexpr std::array<std::pair<TextureUsage, VkFormatFeatureFlags>, 6> c_Needs{ {
-                { TextureUsage::ShaderResource, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT },
-                { TextureUsage::UnorderedAccess, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT },
-                { TextureUsage::RenderTarget, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT },
-                { TextureUsage::DepthStencil, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT },
-                { TextureUsage::CopySource, VK_FORMAT_FEATURE_TRANSFER_SRC_BIT },
-                { TextureUsage::CopyDestination, VK_FORMAT_FEATURE_TRANSFER_DST_BIT }
-            } };
-
-            if (!std::ranges::all_of(c_Needs, [usage, &l_Properties](const auto& need) { return !HasFlag(usage, need.first) || (l_Properties.optimalTilingFeatures & need.second) != 0; }))
-            {
-                return false;
-            }
-
-            if (sampleCount == 1)
-            {
-                return true;
-            }
-
-            const VkImageUsageFlags l_Usage = ToVkImageUsage(usage);
-            VkImageFormatProperties l_ImageProperties{};
-            if (l_Usage == 0 || vkGetPhysicalDeviceImageFormatProperties(m_Device.GetPhysicalDevice(), l_Format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, l_Usage, 0, &l_ImageProperties) != VK_SUCCESS)
-            {
-                return false;
-            }
-
-            return (l_ImageProperties.sampleCounts & sampleCount) != 0;
+            return VulkanTexture::IsFormatSupported(m_Device, format, usage, sampleCount);
         }
 
         TextureHandle VulkanContext::CreateTexture(const TextureDescription& description)
@@ -717,68 +456,13 @@ namespace Trinity
                 return {};
             }
 
-            VkImageCreateInfo l_Create = MakeInfo<VkImageCreateInfo>(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO);
-            l_Create.imageType = VK_IMAGE_TYPE_2D;
-            l_Create.format = ToVkFormat(description.TextureFormat);
-            l_Create.flags = description.Dimension == TextureDimension::TextureCube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
-            l_Create.extent = { description.Width, description.Height, 1 };
-            l_Create.mipLevels = description.MipLevels;
-            l_Create.arrayLayers = description.ArrayLayers;
-            l_Create.samples = static_cast<VkSampleCountFlagBits>(description.SampleCount);
-            l_Create.tiling = VK_IMAGE_TILING_OPTIMAL;
-            l_Create.usage = ToVkImageUsage(description.Usage);
-            l_Create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            l_Create.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            TR_CORE_ASSERT(l_Create.usage != 0, "Texture '{}' has no usage.", description.DebugName);
-
-            VmaAllocationCreateInfo l_Allocation{};
-            l_Allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-            VulkanTexture l_Texture;
-            const VkResult l_Result = vmaCreateImage(m_Allocator.GetHandle(), &l_Create, &l_Allocation, &l_Texture.Image, &l_Texture.Allocation, nullptr);
-            if (l_Result != VK_SUCCESS)
+            std::optional<VulkanTexture> l_Texture = VulkanTexture::Create(m_Device, m_Allocator, m_Bindless, description);
+            if (!l_Texture)
             {
-                TR_CORE_ERROR("Vulkan: texture '{}' ({}x{} {}) could not be created ({})", description.DebugName, description.Width, description.Height, ToString(description.TextureFormat), FormatResult(l_Result));
-
                 return {};
             }
 
-            l_Texture.TextureFormat = description.TextureFormat;
-            l_Texture.Dimension = description.Dimension;
-            l_Texture.Width = description.Width;
-            l_Texture.Height = description.Height;
-            l_Texture.MipLevels = description.MipLevels;
-            l_Texture.ArrayLayers = description.ArrayLayers;
-            l_Texture.SampleCount = description.SampleCount;
-            SetDebugName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(l_Texture.Image), description.DebugName);
-
-            if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil))
-            {
-                l_Texture.AttachmentViews.reserve(std::size_t{ description.MipLevels } * description.ArrayLayers);
-                for (std::uint32_t it_Layer = 0; it_Layer < description.ArrayLayers; ++it_Layer)
-                {
-                    for (std::uint32_t it_Mip = 0; it_Mip < description.MipLevels; ++it_Mip)
-                    {
-                        l_Texture.AttachmentViews.push_back(CreateView(l_Texture.Image, description.TextureFormat, VK_IMAGE_VIEW_TYPE_2D, it_Mip, 1, it_Layer, 1));
-                    }
-                }
-            }
-
-            if (HasFlag(description.Usage, TextureUsage::ShaderResource))
-            {
-                l_Texture.SampledView = CreateView(l_Texture.Image, description.TextureFormat, ToVkSampledViewType(description.Dimension), 0, description.MipLevels, 0, description.ArrayLayers);
-                l_Texture.ShaderResourceIndex = m_Bindless.AddImageDescriptor(c_SampledImageBinding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, l_Texture.SampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            }
-
-            // Storage images are written one mip at a time, and a cube's faces as the layers of an array, since a storage view cannot be a cube
-            if (HasFlag(description.Usage, TextureUsage::UnorderedAccess))
-            {
-                const VkImageViewType l_Type = description.Dimension == TextureDimension::Texture2D ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-                l_Texture.StorageView = CreateView(l_Texture.Image, description.TextureFormat, l_Type, 0, 1, 0, description.ArrayLayers);
-                l_Texture.UnorderedAccessIndex = m_Bindless.AddImageDescriptor(c_StorageImageBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, l_Texture.StorageView, VK_IMAGE_LAYOUT_GENERAL);
-            }
-
-            return m_Textures.Add(std::move(l_Texture));
+            return m_Textures.Add(std::move(*l_Texture));
         }
 
         void VulkanContext::DestroyTexture(TextureHandle texture)
@@ -793,22 +477,13 @@ namespace Trinity
 
             if (l_Texture)
             {
-                m_Releases.Push(ToRelease(*l_Texture));
+                m_Releases.Push(l_Texture->ToRelease());
             }
         }
 
         TextureHandle VulkanContext::AddSwapChainImage(VkImage image, Format format, std::uint32_t width, std::uint32_t height)
         {
-            VulkanTexture l_Texture;
-            l_Texture.Image = image;
-            l_Texture.AttachmentViews.push_back(CreateView(image, format, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1));
-            l_Texture.TextureFormat = format;
-            l_Texture.Width = width;
-            l_Texture.Height = height;
-            l_Texture.MipLevels = 1;
-            l_Texture.ArrayLayers = 1;
-
-            return m_Textures.Add(std::move(l_Texture));
+            return m_Textures.Add(VulkanTexture::FromSwapChainImage(m_Device, image, format, width, height));
         }
 
         // The swap chain waits for the device to be idle first, so the view goes at once
@@ -817,7 +492,7 @@ namespace Trinity
             const std::optional<VulkanTexture> l_Texture = m_Textures.Remove(texture);
             if (l_Texture)
             {
-                vkDestroyImageView(m_Device.GetHandle(), l_Texture->AttachmentViews.front(), nullptr);
+                l_Texture->DestroySwapChainView(m_Device);
             }
         }
 
@@ -869,42 +544,15 @@ namespace Trinity
             return l_Texture != nullptr ? l_Texture->UnorderedAccessIndex : c_NoBindlessIndex;
         }
 
-        // Shaders read samplers from their own array at c_SamplerBinding, indexed separately from resources
         SamplerHandle VulkanContext::CreateSampler(const SamplerDescription& description)
         {
-            VkSamplerCreateInfo l_Create = MakeInfo<VkSamplerCreateInfo>(VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO);
-            l_Create.magFilter = ToVkFilter(description.MagFilter);
-            l_Create.minFilter = ToVkFilter(description.MinFilter);
-            l_Create.mipmapMode = description.MipFilter == Filter::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
-            l_Create.addressModeU = ToVkAddressMode(description.AddressU);
-            l_Create.addressModeV = ToVkAddressMode(description.AddressV);
-            l_Create.addressModeW = ToVkAddressMode(description.AddressW);
-            l_Create.mipLodBias = description.MipLodBias;
-            l_Create.minLod = description.MinLod;
-            l_Create.maxLod = description.MaxLod >= c_LodUnclamped ? VK_LOD_CLAMP_NONE : description.MaxLod;
-            l_Create.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-
-            VulkanSampler l_Sampler;
-            const VkResult l_Result = vkCreateSampler(m_Device.GetHandle(), &l_Create, nullptr, &l_Sampler.Sampler);
-            if (l_Result != VK_SUCCESS)
+            const std::optional<VulkanSampler> l_Sampler = VulkanSampler::Create(m_Device, m_Bindless, description);
+            if (!l_Sampler)
             {
-                TR_CORE_ERROR("Vulkan: sampler '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
-
                 return {};
             }
 
-            l_Sampler.Index = m_Bindless.AddSamplerDescriptor(l_Sampler.Sampler);
-            if (l_Sampler.Index == c_NoBindlessIndex)
-            {
-                TR_CORE_ERROR("Vulkan: sampler '{}' could not be created, since all {} bindless sampler indices are in use", description.DebugName, c_BindlessSamplerCapacity);
-                vkDestroySampler(m_Device.GetHandle(), l_Sampler.Sampler, nullptr);
-
-                return {};
-            }
-
-            SetDebugName(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<std::uint64_t>(l_Sampler.Sampler), description.DebugName);
-
-            return m_Samplers.Add(l_Sampler);
+            return m_Samplers.Add(*l_Sampler);
         }
 
         void VulkanContext::DestroySampler(SamplerHandle sampler)
@@ -919,7 +567,7 @@ namespace Trinity
 
             if (l_Sampler)
             {
-                m_Releases.Push(ToRelease(*l_Sampler));
+                m_Releases.Push(l_Sampler->ToRelease());
             }
         }
 

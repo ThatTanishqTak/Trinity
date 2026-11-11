@@ -3,6 +3,7 @@
 #include "Trinity/Core/Memory.hpp"
 #include "Trinity/RHI/Bindless.hpp"
 #include "Trinity/RHI/D3D12/D3D12Allocator.hpp"
+#include "Trinity/RHI/D3D12/D3D12Buffer.hpp"
 #include "Trinity/RHI/D3D12/D3D12CommandList.hpp"
 #include "Trinity/RHI/D3D12/D3D12DescriptorHeap.hpp"
 #include "Trinity/RHI/D3D12/D3D12Device.hpp"
@@ -10,6 +11,8 @@
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 #include "Trinity/RHI/D3D12/D3D12ReleaseQueue.hpp"
 #include "Trinity/RHI/D3D12/D3D12RootSignature.hpp"
+#include "Trinity/RHI/D3D12/D3D12Sampler.hpp"
+#include "Trinity/RHI/D3D12/D3D12Texture.hpp"
 #include "Trinity/RHI/Device.hpp"
 #include "Trinity/RHI/HandlePool.hpp"
 
@@ -25,34 +28,6 @@ namespace Trinity
 {
     namespace RHI
     {
-        struct D3D12Buffer
-        {
-            Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
-            std::byte* Mapped = nullptr;
-            std::uint64_t Size = 0;
-            std::uint32_t ShaderResourceIndex = c_NoDescriptor;
-            std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
-        };
-
-        // Swap chain buffers have no allocation, since the swap chain owns them. A render target or depth texture has a view per mip of each layer, numbered by GetSubresourceIndex
-        struct D3D12Texture
-        {
-            Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
-            ID3D12Resource* Resource = nullptr;
-            Format TextureFormat = Format::Unknown;
-            DXGI_FORMAT ResourceFormat = DXGI_FORMAT_UNKNOWN;
-            TextureDimension Dimension = TextureDimension::Texture2D;
-            std::uint32_t Width = 0;
-            std::uint32_t Height = 0;
-            std::uint32_t MipLevels = 0;
-            std::uint32_t ArrayLayers = 0;
-            std::uint32_t SampleCount = 1;
-            D3D12DescriptorIndices RenderTargetViews;
-            D3D12DescriptorIndices DepthStencilViews;
-            std::uint32_t ShaderResourceIndex = c_NoDescriptor;
-            std::uint32_t UnorderedAccessIndex = c_NoDescriptor;
-        };
-
         struct D3D12Pipeline
         {
             Microsoft::WRL::ComPtr<ID3D12PipelineState> State;
@@ -64,12 +39,6 @@ namespace Trinity
         {
             Microsoft::WRL::ComPtr<ID3D12QueryHeap> Heap;
             std::uint32_t Count = 0;
-        };
-
-        // A sampler is only its descriptor in the shader-visible sampler heap
-        struct D3D12Sampler
-        {
-            std::uint32_t Index = c_NoDescriptor;
         };
 
         class D3D12Context final : public Device
@@ -144,9 +113,6 @@ namespace Trinity
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
 
-            void CreateViews(D3D12Texture& texture);
-            void CreateShaderViews(D3D12Buffer& buffer, BufferUsage usage);
-            void CreateShaderViews(D3D12Texture& texture, TextureUsage usage);
             void WaitForFence(std::uint64_t value);
             void WaitForQueue();
 

@@ -6,11 +6,14 @@
 #include "Trinity/RHI/HandlePool.hpp"
 #include "Trinity/RHI/Vulkan/VulkanAllocator.hpp"
 #include "Trinity/RHI/Vulkan/VulkanBindless.hpp"
+#include "Trinity/RHI/Vulkan/VulkanBuffer.hpp"
 #include "Trinity/RHI/Vulkan/VulkanCommandList.hpp"
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
 #include "Trinity/RHI/Vulkan/VulkanInstance.hpp"
 #include "Trinity/RHI/Vulkan/VulkanReleaseQueue.hpp"
+#include "Trinity/RHI/Vulkan/VulkanSampler.hpp"
+#include "Trinity/RHI/Vulkan/VulkanTexture.hpp"
 
 #include <array>
 #include <cstddef>
@@ -24,35 +27,6 @@ namespace Trinity
 {
     namespace RHI
     {
-        struct VulkanBuffer
-        {
-            VkBuffer Buffer = VK_NULL_HANDLE;
-            VmaAllocation Allocation = nullptr;
-            std::byte* Mapped = nullptr;
-            std::uint64_t Size = 0;
-            std::uint32_t ShaderResourceIndex = c_NoBindlessIndex;
-            std::uint32_t UnorderedAccessIndex = c_NoBindlessIndex;
-        };
-
-        // Swap chain images have no allocation, since the swap chain owns them. A render target or depth texture has an attachment view per mip of each layer, numbered by GetSubresourceIndex
-        struct VulkanTexture
-        {
-            VkImage Image = VK_NULL_HANDLE;
-            VmaAllocation Allocation = nullptr;
-            VulkanImageViews AttachmentViews;
-            VkImageView SampledView = VK_NULL_HANDLE;
-            VkImageView StorageView = VK_NULL_HANDLE;
-            Format TextureFormat = Format::Unknown;
-            TextureDimension Dimension = TextureDimension::Texture2D;
-            std::uint32_t Width = 0;
-            std::uint32_t Height = 0;
-            std::uint32_t MipLevels = 0;
-            std::uint32_t ArrayLayers = 0;
-            std::uint32_t SampleCount = 1;
-            std::uint32_t ShaderResourceIndex = c_NoBindlessIndex;
-            std::uint32_t UnorderedAccessIndex = c_NoBindlessIndex;
-        };
-
         struct VulkanPipeline
         {
             VkPipeline Pipeline = VK_NULL_HANDLE;
@@ -63,12 +37,6 @@ namespace Trinity
         {
             VkQueryPool Pool = VK_NULL_HANDLE;
             std::uint32_t Count = 0;
-        };
-
-        struct VulkanSampler
-        {
-            VkSampler Sampler = VK_NULL_HANDLE;
-            std::uint32_t Index = c_NoBindlessIndex;
         };
 
         class VulkanContext final : public Device
@@ -146,11 +114,6 @@ namespace Trinity
 
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
-
-            [[nodiscard]] VkImageView CreateView(VkImage image, Format format, VkImageViewType type, std::uint32_t baseMipLevel, std::uint32_t mipLevels, std::uint32_t baseArrayLayer, std::uint32_t arrayLayers);
-            [[nodiscard]] static VulkanRelease ToRelease(const VulkanBuffer& buffer);
-            [[nodiscard]] static VulkanRelease ToRelease(const VulkanTexture& texture);
-            [[nodiscard]] static VulkanRelease ToRelease(const VulkanSampler& sampler);
 
             VulkanInstance m_Instance;
             VulkanDevice m_Device;

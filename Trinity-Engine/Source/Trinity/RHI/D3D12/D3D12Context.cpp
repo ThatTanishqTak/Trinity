@@ -4,7 +4,6 @@
 
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
-#include "Trinity/Core/Memory.hpp"
 
 #include <algorithm>
 #include <format>
@@ -21,75 +20,9 @@ namespace Trinity
         {
             using Microsoft::WRL::ComPtr;
 
-            std::wstring ToWide(std::string_view text)
-            {
-                if (text.empty())
-                {
-                    return {};
-                }
-
-                const int l_Size = ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-                std::wstring l_Result(static_cast<std::size_t>(l_Size), L'\0');
-                ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size);
-
-                return l_Result;
-            }
-
-            D3D12_HEAP_TYPE ToHeapType(MemoryType memory)
-            {
-                switch (memory)
-                {
-                    case MemoryType::Upload:
-                    {
-                        return D3D12_HEAP_TYPE_UPLOAD;
-                    }
-                    case MemoryType::Readback:
-                    {
-                        return D3D12_HEAP_TYPE_READBACK;
-                    }
-                    default:
-                    {
-                        return D3D12_HEAP_TYPE_DEFAULT;
-                    }
-                }
-            }
-
             // CPU-only heaps, so a large capacity costs little. A layered or mipped render target takes a view per mip of each layer
             constexpr std::uint32_t c_RenderTargetViewCapacity = 2048;
             constexpr std::uint32_t c_DepthStencilViewCapacity = 512;
-
-            D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage)
-            {
-                D3D12_RESOURCE_FLAGS l_Flags = D3D12_RESOURCE_FLAG_NONE;
-                if (HasFlag(usage, TextureUsage::UnorderedAccess))
-                {
-                    l_Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-                }
-
-                if (HasFlag(usage, TextureUsage::RenderTarget))
-                {
-                    l_Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-                }
-
-                if (HasFlag(usage, TextureUsage::DepthStencil))
-                {
-                    l_Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-                    if (!HasFlag(usage, TextureUsage::ShaderResource))
-                    {
-                        l_Flags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
-                    }
-                }
-
-                return l_Flags;
-            }
-
-            void SetDebugName(ID3D12Resource* resource, std::string_view name)
-            {
-                if (!name.empty())
-                {
-                    resource->SetName(ToWide(name).c_str());
-                }
-            }
 
             D3D12_PRIMITIVE_TOPOLOGY_TYPE ToTopologyType(PrimitiveTopology topology)
             {
@@ -217,41 +150,6 @@ namespace Trinity
                     }
                 }
             }
-
-            D3D12_FILTER_TYPE ToFilterType(Filter filter)
-            {
-                return filter == Filter::Linear ? D3D12_FILTER_TYPE_LINEAR : D3D12_FILTER_TYPE_POINT;
-            }
-
-            // What D3D12_ENCODE_BASIC_FILTER builds, without its C-style casts
-            D3D12_FILTER ToD3D12Filter(const SamplerDescription& description)
-            {
-                const UINT l_Min = static_cast<UINT>(ToFilterType(description.MinFilter)) << D3D12_MIN_FILTER_SHIFT;
-                const UINT l_Mag = static_cast<UINT>(ToFilterType(description.MagFilter)) << D3D12_MAG_FILTER_SHIFT;
-                const UINT l_Mip = static_cast<UINT>(ToFilterType(description.MipFilter)) << D3D12_MIP_FILTER_SHIFT;
-                const UINT l_Reduction = static_cast<UINT>(D3D12_FILTER_REDUCTION_TYPE_STANDARD) << D3D12_FILTER_REDUCTION_TYPE_SHIFT;
-
-                return static_cast<D3D12_FILTER>(l_Min | l_Mag | l_Mip | l_Reduction);
-            }
-
-            D3D12_TEXTURE_ADDRESS_MODE ToD3D12AddressMode(AddressMode address)
-            {
-                switch (address)
-                {
-                    case AddressMode::MirroredRepeat:
-                    {
-                        return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
-                    }
-                    case AddressMode::ClampToEdge:
-                    {
-                        return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-                    }
-                    default:
-                    {
-                        return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-                    }
-                }
-            }
         }
 
         DXGI_FORMAT ToDXGIFormat(Format format)
@@ -352,6 +250,28 @@ namespace Trinity
         std::string FormatResult(HRESULT result)
         {
             return std::format("HRESULT 0x{:08X}", static_cast<std::uint32_t>(result));
+        }
+
+        std::wstring ToWide(std::string_view text)
+        {
+            if (text.empty())
+            {
+                return {};
+            }
+
+            const int l_Size = ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+            std::wstring l_Result(static_cast<std::size_t>(l_Size), L'\0');
+            ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size);
+
+            return l_Result;
+        }
+
+        void SetDebugName(ID3D12Resource* resource, std::string_view name)
+        {
+            if (!name.empty())
+            {
+                resource->SetName(ToWide(name).c_str());
+            }
         }
 
         Scope<D3D12Context> D3D12Context::Create(const DeviceSpecification& specification, std::string& error)
@@ -496,56 +416,15 @@ namespace Trinity
             return true;
         }
 
-        // Buffers always start in the undefined layout under enhanced barriers. Upload and Readback heaps are coherent and stay mapped
         BufferHandle D3D12Context::CreateBuffer(const BufferDescription& description)
         {
-            TR_CORE_ASSERT(description.Size != 0, "Buffer '{}' has no size.", description.DebugName);
-
-            D3D12MA::ALLOCATION_DESC l_Allocation{};
-            l_Allocation.HeapType = ToHeapType(description.Memory);
-
-            D3D12_RESOURCE_DESC1 l_Resource{};
-            l_Resource.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            l_Resource.Width = description.Size;
-            l_Resource.Height = 1;
-            l_Resource.DepthOrArraySize = 1;
-            l_Resource.MipLevels = 1;
-            l_Resource.Format = DXGI_FORMAT_UNKNOWN;
-            l_Resource.SampleDesc.Count = 1;
-            l_Resource.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-            l_Resource.Flags = HasFlag(description.Usage, BufferUsage::UnorderedAccess) ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
-
-            D3D12Buffer l_Buffer;
-            HRESULT l_Result = m_Allocator.GetHandle()->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0, nullptr, &l_Buffer.Allocation, IID_NULL, nullptr);
-            if (FAILED(l_Result))
+            std::optional<D3D12Buffer> l_Buffer = D3D12Buffer::Create(m_Device, m_Allocator, m_ResourceHeap, description);
+            if (!l_Buffer)
             {
-                TR_CORE_ERROR("D3D12: buffer '{}' of {} could not be created ({})", description.DebugName, Memory::FormatBytes(description.Size), FormatResult(l_Result));
-
                 return {};
             }
 
-            ID3D12Resource* l_Native = l_Buffer.Allocation->GetResource();
-            if (description.Memory != MemoryType::GPU)
-            {
-                // The CPU only writes Upload buffers, so mapping one says nothing will be read
-                const D3D12_RANGE l_NoRead{ 0, 0 };
-                void* l_Mapped = nullptr;
-                l_Result = l_Native->Map(0, description.Memory == MemoryType::Upload ? &l_NoRead : nullptr, &l_Mapped);
-                if (FAILED(l_Result))
-                {
-                    TR_CORE_ERROR("D3D12: buffer '{}' could not be mapped ({})", description.DebugName, FormatResult(l_Result));
-
-                    return {};
-                }
-
-                l_Buffer.Mapped = static_cast<std::byte*>(l_Mapped);
-            }
-
-            l_Buffer.Size = description.Size;
-            SetDebugName(l_Native, description.DebugName);
-            CreateShaderViews(l_Buffer, description.Usage);
-
-            return m_Buffers.Add(std::move(l_Buffer));
+            return m_Buffers.Add(std::move(*l_Buffer));
         }
 
         void D3D12Context::DestroyBuffer(BufferHandle buffer)
@@ -560,11 +439,7 @@ namespace Trinity
 
             if (l_Buffer)
             {
-                D3D12Release l_Release;
-                l_Release.Allocation = std::move(l_Buffer->Allocation);
-                l_Release.ShaderResourceIndex = l_Buffer->ShaderResourceIndex;
-                l_Release.UnorderedAccessIndex = l_Buffer->UnorderedAccessIndex;
-                m_Releases.Push(std::move(l_Release));
+                m_Releases.Push(l_Buffer->ToRelease());
             }
         }
 
@@ -581,76 +456,11 @@ namespace Trinity
             return { l_Buffer->Mapped, static_cast<std::size_t>(l_Buffer->Size) };
         }
 
-        // Every usage asked for must be in the format's support. Shaders read a depth texture through an R32_FLOAT view, so that is the format to check for reading
         bool D3D12Context::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
-            const DXGI_FORMAT l_Format = ToDXGIFormat(format);
-            if (l_Format == DXGI_FORMAT_UNKNOWN || (HasStencil(format) && usage != TextureUsage::DepthStencil))
-            {
-                return false;
-            }
-
-            const auto a_Query = [this](DXGI_FORMAT queried) -> D3D12_FORMAT_SUPPORT1
-            {
-                D3D12_FEATURE_DATA_FORMAT_SUPPORT l_Data{ queried, D3D12_FORMAT_SUPPORT1_NONE, D3D12_FORMAT_SUPPORT2_NONE };
-                if (FAILED(m_Device.GetHandle()->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &l_Data, sizeof(l_Data))))
-                {
-                    return D3D12_FORMAT_SUPPORT1_NONE;
-                }
-
-                return l_Data.Support1;
-            };
-
-            const D3D12_FORMAT_SUPPORT1 l_Support = a_Query(l_Format);
-            const D3D12_FORMAT_SUPPORT1 l_ReadSupport = format == Format::D32Float ? a_Query(DXGI_FORMAT_R32_FLOAT) : l_Support;
-
-            const auto a_Has = [](D3D12_FORMAT_SUPPORT1 support, D3D12_FORMAT_SUPPORT1 needed)
-            {
-                return (support & needed) == needed;
-            };
-
-            if (!a_Has(l_Support, D3D12_FORMAT_SUPPORT1_TEXTURE2D))
-            {
-                return false;
-            }
-
-            if (HasFlag(usage, TextureUsage::ShaderResource) && !a_Has(l_ReadSupport, D3D12_FORMAT_SUPPORT1_SHADER_LOAD))
-            {
-                return false;
-            }
-
-            if (HasFlag(usage, TextureUsage::UnorderedAccess) && !a_Has(l_Support, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW))
-            {
-                return false;
-            }
-
-            if (HasFlag(usage, TextureUsage::RenderTarget) && !a_Has(l_Support, D3D12_FORMAT_SUPPORT1_RENDER_TARGET))
-            {
-                return false;
-            }
-
-            if (HasFlag(usage, TextureUsage::DepthStencil) && !a_Has(l_Support, D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL))
-            {
-                return false;
-            }
-
-            if (sampleCount == 1)
-            {
-                return true;
-            }
-
-            const bool l_Attachment = HasFlag(usage, TextureUsage::RenderTarget) || HasFlag(usage, TextureUsage::DepthStencil);
-            if ((l_Attachment && !a_Has(l_Support, D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET)) || (HasFlag(usage, TextureUsage::ShaderResource) && !a_Has(l_ReadSupport, D3D12_FORMAT_SUPPORT1_MULTISAMPLE_LOAD)))
-            {
-                return false;
-            }
-
-            D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS l_Levels{ l_Format, sampleCount, D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE, 0 };
-
-            return SUCCEEDED(m_Device.GetHandle()->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &l_Levels, sizeof(l_Levels))) && l_Levels.NumQualityLevels > 0;
+            return D3D12Texture::IsFormatSupported(m_Device, format, usage, sampleCount);
         }
 
-        // A depth texture that shaders also read is typeless, so a shader view can read it as R32_FLOAT
         TextureHandle D3D12Context::CreateTexture(const TextureDescription& description)
         {
             TR_CORE_ASSERT(description.Width != 0 && description.Height != 0 && description.MipLevels != 0, "Texture '{}' has a zero size or no mips.", description.DebugName);
@@ -661,65 +471,13 @@ namespace Trinity
                 return {};
             }
 
-            const bool l_TypelessDepth = description.TextureFormat == Format::D32Float && HasFlag(description.Usage, TextureUsage::ShaderResource);
-
-            D3D12MA::ALLOCATION_DESC l_Allocation{};
-            l_Allocation.HeapType = D3D12_HEAP_TYPE_DEFAULT;
-
-            D3D12_RESOURCE_DESC1 l_Resource{};
-            l_Resource.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-            l_Resource.Width = description.Width;
-            l_Resource.Height = description.Height;
-            l_Resource.DepthOrArraySize = static_cast<UINT16>(description.ArrayLayers);
-            l_Resource.MipLevels = static_cast<UINT16>(description.MipLevels);
-            l_Resource.Format = l_TypelessDepth ? DXGI_FORMAT_R32_TYPELESS : ToDXGIFormat(description.TextureFormat);
-            l_Resource.SampleDesc.Count = description.SampleCount;
-            l_Resource.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-            l_Resource.Flags = ToResourceFlags(description.Usage);
-
-            D3D12_CLEAR_VALUE l_ClearValue{};
-            const D3D12_CLEAR_VALUE* l_OptimizedClear = nullptr;
-            if (description.OptimizedClear && HasFlag(description.Usage, TextureUsage::RenderTarget))
+            std::optional<D3D12Texture> l_Texture = D3D12Texture::Create(m_Device, m_Allocator, m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, description);
+            if (!l_Texture)
             {
-                l_ClearValue.Format = ToDXGIFormat(description.TextureFormat);
-                std::ranges::copy(description.ClearColor, l_ClearValue.Color);
-                l_OptimizedClear = &l_ClearValue;
-            }
-            else if (description.OptimizedClear && HasFlag(description.Usage, TextureUsage::DepthStencil))
-            {
-                l_ClearValue.Format = ToDXGIFormat(description.TextureFormat);
-                l_ClearValue.DepthStencil.Depth = description.ClearDepth;
-                l_OptimizedClear = &l_ClearValue;
-            }
-
-            D3D12Texture l_Texture;
-            const HRESULT l_Result = m_Allocator.GetHandle()->CreateResource3(&l_Allocation, &l_Resource, D3D12_BARRIER_LAYOUT_COMMON, l_OptimizedClear, 0, nullptr, &l_Texture.Allocation, IID_NULL, nullptr);
-            if (FAILED(l_Result))
-            {
-                TR_CORE_ERROR("D3D12: texture '{}' ({}x{} {}) could not be created ({})", description.DebugName, description.Width, description.Height, ToString(description.TextureFormat), FormatResult(l_Result));
-
                 return {};
             }
 
-            l_Texture.Resource = l_Texture.Allocation->GetResource();
-            l_Texture.TextureFormat = description.TextureFormat;
-            l_Texture.ResourceFormat = l_Resource.Format;
-            l_Texture.Dimension = description.Dimension;
-            l_Texture.Width = description.Width;
-            l_Texture.Height = description.Height;
-            l_Texture.MipLevels = description.MipLevels;
-            l_Texture.ArrayLayers = description.ArrayLayers;
-            l_Texture.SampleCount = description.SampleCount;
-            SetDebugName(l_Texture.Resource, description.DebugName);
-
-            if (HasFlag(description.Usage, TextureUsage::RenderTarget) || HasFlag(description.Usage, TextureUsage::DepthStencil))
-            {
-                CreateViews(l_Texture);
-            }
-
-            CreateShaderViews(l_Texture, description.Usage);
-
-            return m_Textures.Add(std::move(l_Texture));
+            return m_Textures.Add(std::move(*l_Texture));
         }
 
         void D3D12Context::DestroyTexture(TextureHandle texture)
@@ -734,185 +492,13 @@ namespace Trinity
 
             if (l_Texture)
             {
-                D3D12Release l_Release;
-                l_Release.Allocation = std::move(l_Texture->Allocation);
-                l_Release.RenderTargetViews = std::move(l_Texture->RenderTargetViews);
-                l_Release.DepthStencilViews = std::move(l_Texture->DepthStencilViews);
-                l_Release.ShaderResourceIndex = l_Texture->ShaderResourceIndex;
-                l_Release.UnorderedAccessIndex = l_Texture->UnorderedAccessIndex;
-                m_Releases.Push(std::move(l_Release));
-            }
-        }
-
-        // A view per mip of each layer, as a single 2D texture for a Texture2D and as one slice of an array otherwise
-        void D3D12Context::CreateViews(D3D12Texture& texture)
-        {
-            const bool l_Depth = IsDepthFormat(texture.TextureFormat);
-            const bool l_Array = texture.Dimension != TextureDimension::Texture2D;
-            const bool l_Multisampled = texture.SampleCount > 1;
-            D3D12DescriptorIndices& l_Views = l_Depth ? texture.DepthStencilViews : texture.RenderTargetViews;
-            D3D12DescriptorHeap& l_Heap = l_Depth ? m_DepthStencilViews : m_RenderTargetViews;
-
-            l_Views.reserve(std::size_t{ texture.MipLevels } * texture.ArrayLayers);
-            for (std::uint32_t it_Layer = 0; it_Layer < texture.ArrayLayers; ++it_Layer)
-            {
-                for (std::uint32_t it_Mip = 0; it_Mip < texture.MipLevels; ++it_Mip)
-                {
-                    const std::uint32_t l_View = l_Heap.Allocate();
-                    TR_CORE_ASSERT(l_View != c_NoDescriptor, "Out of {} views.", l_Depth ? "depth stencil" : "render target");
-                    l_Views.push_back(l_View);
-                    if (l_View == c_NoDescriptor)
-                    {
-                        continue;
-                    }
-
-                    if (l_Depth)
-                    {
-                        D3D12_DEPTH_STENCIL_VIEW_DESC l_Description{};
-                        l_Description.Format = ToDXGIFormat(texture.TextureFormat);
-                        l_Description.ViewDimension = l_Array ? D3D12_DSV_DIMENSION_TEXTURE2DARRAY : l_Multisampled ? D3D12_DSV_DIMENSION_TEXTURE2DMS : D3D12_DSV_DIMENSION_TEXTURE2D;
-                        if (l_Array)
-                        {
-                            l_Description.Texture2DArray = { it_Mip, it_Layer, 1 };
-                        }
-                        else
-                        {
-                            l_Description.Texture2D.MipSlice = it_Mip;
-                        }
-
-                        m_Device.GetHandle()->CreateDepthStencilView(texture.Resource, &l_Description, l_Heap.GetHandle(l_View));
-                    }
-                    else
-                    {
-                        D3D12_RENDER_TARGET_VIEW_DESC l_Description{};
-                        l_Description.Format = ToDXGIFormat(texture.TextureFormat);
-                        l_Description.ViewDimension = l_Array ? D3D12_RTV_DIMENSION_TEXTURE2DARRAY : l_Multisampled ? D3D12_RTV_DIMENSION_TEXTURE2DMS : D3D12_RTV_DIMENSION_TEXTURE2D;
-                        if (l_Array)
-                        {
-                            l_Description.Texture2DArray = { it_Mip, it_Layer, 1, 0 };
-                        }
-                        else
-                        {
-                            l_Description.Texture2D.MipSlice = it_Mip;
-                        }
-
-                        m_Device.GetHandle()->CreateRenderTargetView(texture.Resource, &l_Description, l_Heap.GetHandle(l_View));
-                    }
-                }
-            }
-        }
-
-        // Buffers get raw views, which is what a ByteAddressBuffer reads and writes
-        void D3D12Context::CreateShaderViews(D3D12Buffer& buffer, BufferUsage usage)
-        {
-            ID3D12Resource* l_Resource = buffer.Allocation->GetResource();
-            const UINT l_Elements = static_cast<UINT>(buffer.Size / 4);
-
-            if (HasFlag(usage, BufferUsage::ShaderResource))
-            {
-                buffer.ShaderResourceIndex = m_ResourceHeap.Allocate();
-                TR_CORE_ASSERT(buffer.ShaderResourceIndex != c_NoDescriptor, "Out of bindless resource indices.");
-                if (buffer.ShaderResourceIndex != c_NoDescriptor)
-                {
-                    D3D12_SHADER_RESOURCE_VIEW_DESC l_View{};
-                    l_View.Format = DXGI_FORMAT_R32_TYPELESS;
-                    l_View.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-                    l_View.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-                    l_View.Buffer.NumElements = l_Elements;
-                    l_View.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
-                    m_Device.GetHandle()->CreateShaderResourceView(l_Resource, &l_View, m_ResourceHeap.GetHandle(buffer.ShaderResourceIndex));
-                }
-            }
-
-            if (HasFlag(usage, BufferUsage::UnorderedAccess))
-            {
-                buffer.UnorderedAccessIndex = m_ResourceHeap.Allocate();
-                TR_CORE_ASSERT(buffer.UnorderedAccessIndex != c_NoDescriptor, "Out of bindless resource indices.");
-                if (buffer.UnorderedAccessIndex != c_NoDescriptor)
-                {
-                    D3D12_UNORDERED_ACCESS_VIEW_DESC l_View{};
-                    l_View.Format = DXGI_FORMAT_R32_TYPELESS;
-                    l_View.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-                    l_View.Buffer.NumElements = l_Elements;
-                    l_View.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-                    m_Device.GetHandle()->CreateUnorderedAccessView(l_Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(buffer.UnorderedAccessIndex));
-                }
-            }
-        }
-
-        // The shader resource view covers every mip and layer, and the unordered access view mip 0 of every layer, a cube's faces as an array since there are no cube unordered access views
-        void D3D12Context::CreateShaderViews(D3D12Texture& texture, TextureUsage usage)
-        {
-            if (HasFlag(usage, TextureUsage::ShaderResource))
-            {
-                texture.ShaderResourceIndex = m_ResourceHeap.Allocate();
-                TR_CORE_ASSERT(texture.ShaderResourceIndex != c_NoDescriptor, "Out of bindless resource indices.");
-                if (texture.ShaderResourceIndex != c_NoDescriptor)
-                {
-                    D3D12_SHADER_RESOURCE_VIEW_DESC l_View{};
-                    l_View.Format = texture.ResourceFormat == DXGI_FORMAT_R32_TYPELESS ? DXGI_FORMAT_R32_FLOAT : texture.ResourceFormat;
-                    l_View.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-                    switch (texture.Dimension)
-                    {
-                        case TextureDimension::Texture2DArray:
-                        {
-                            l_View.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
-                            l_View.Texture2DArray.MipLevels = texture.MipLevels;
-                            l_View.Texture2DArray.ArraySize = texture.ArrayLayers;
-
-                            break;
-                        }
-                        case TextureDimension::TextureCube:
-                        {
-                            l_View.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
-                            l_View.TextureCube.MipLevels = texture.MipLevels;
-
-                            break;
-                        }
-                        default:
-                        {
-                            l_View.ViewDimension = texture.SampleCount > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DMS : D3D12_SRV_DIMENSION_TEXTURE2D;
-                            l_View.Texture2D.MipLevels = texture.MipLevels;
-
-                            break;
-                        }
-                    }
-                    m_Device.GetHandle()->CreateShaderResourceView(texture.Resource, &l_View, m_ResourceHeap.GetHandle(texture.ShaderResourceIndex));
-                }
-            }
-
-            if (HasFlag(usage, TextureUsage::UnorderedAccess))
-            {
-                texture.UnorderedAccessIndex = m_ResourceHeap.Allocate();
-                TR_CORE_ASSERT(texture.UnorderedAccessIndex != c_NoDescriptor, "Out of bindless resource indices.");
-                if (texture.UnorderedAccessIndex != c_NoDescriptor)
-                {
-                    D3D12_UNORDERED_ACCESS_VIEW_DESC l_View{};
-                    l_View.Format = texture.ResourceFormat;
-                    l_View.ViewDimension = texture.Dimension == TextureDimension::Texture2D ? D3D12_UAV_DIMENSION_TEXTURE2D : D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
-                    if (texture.Dimension != TextureDimension::Texture2D)
-                    {
-                        l_View.Texture2DArray.ArraySize = texture.ArrayLayers;
-                    }
-
-                    m_Device.GetHandle()->CreateUnorderedAccessView(texture.Resource, nullptr, &l_View, m_ResourceHeap.GetHandle(texture.UnorderedAccessIndex));
-                }
+                m_Releases.Push(l_Texture->ToRelease());
             }
         }
 
         TextureHandle D3D12Context::AddSwapChainBuffer(ID3D12Resource* resource, Format format, DXGI_FORMAT resourceFormat, std::uint32_t width, std::uint32_t height)
         {
-            D3D12Texture l_Texture;
-            l_Texture.Resource = resource;
-            l_Texture.TextureFormat = format;
-            l_Texture.ResourceFormat = resourceFormat;
-            l_Texture.Width = width;
-            l_Texture.Height = height;
-            l_Texture.MipLevels = 1;
-            l_Texture.ArrayLayers = 1;
-            CreateViews(l_Texture);
-
-            return m_Textures.Add(std::move(l_Texture));
+            return m_Textures.Add(D3D12Texture::FromSwapChainBuffer(m_Device, m_RenderTargetViews, m_DepthStencilViews, resource, format, resourceFormat, width, height));
         }
 
         // The swap chain waits for the device to be idle first, so the view is free at once
@@ -972,31 +558,15 @@ namespace Trinity
             return l_Texture != nullptr ? l_Texture->UnorderedAccessIndex : c_NoBindlessIndex;
         }
 
-        // The comparison function only matters to comparison filters, and NEVER is valid on every runtime
         SamplerHandle D3D12Context::CreateSampler(const SamplerDescription& description)
         {
-            D3D12Sampler l_Sampler;
-            l_Sampler.Index = m_SamplerHeap.Allocate();
-            if (l_Sampler.Index == c_NoDescriptor)
+            const std::optional<D3D12Sampler> l_Sampler = D3D12Sampler::Create(m_Device, m_SamplerHeap, description);
+            if (!l_Sampler)
             {
-                TR_CORE_ERROR("D3D12: sampler '{}' could not be created, since all {} bindless sampler indices are in use", description.DebugName, c_BindlessSamplerCapacity);
-
                 return {};
             }
 
-            D3D12_SAMPLER_DESC l_Description{};
-            l_Description.Filter = ToD3D12Filter(description);
-            l_Description.AddressU = ToD3D12AddressMode(description.AddressU);
-            l_Description.AddressV = ToD3D12AddressMode(description.AddressV);
-            l_Description.AddressW = ToD3D12AddressMode(description.AddressW);
-            l_Description.MipLODBias = description.MipLodBias;
-            l_Description.MaxAnisotropy = 1;
-            l_Description.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-            l_Description.MinLOD = description.MinLod;
-            l_Description.MaxLOD = description.MaxLod >= c_LodUnclamped ? D3D12_FLOAT32_MAX : description.MaxLod;
-            m_Device.GetHandle()->CreateSampler(&l_Description, m_SamplerHeap.GetHandle(l_Sampler.Index));
-
-            return m_Samplers.Add(l_Sampler);
+            return m_Samplers.Add(*l_Sampler);
         }
 
         void D3D12Context::DestroySampler(SamplerHandle sampler)
@@ -1011,9 +581,7 @@ namespace Trinity
 
             if (l_Sampler)
             {
-                D3D12Release l_Release;
-                l_Release.SamplerIndex = l_Sampler->Index;
-                m_Releases.Push(std::move(l_Release));
+                m_Releases.Push(l_Sampler->ToRelease());
             }
         }
 
