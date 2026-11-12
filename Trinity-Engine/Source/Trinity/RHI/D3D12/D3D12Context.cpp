@@ -5,7 +5,6 @@
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 
-#include <algorithm>
 #include <format>
 #include <optional>
 #include <string>
@@ -23,133 +22,6 @@ namespace Trinity
             // CPU-only heaps, so a large capacity costs little. A layered or mipped render target takes a view per mip of each layer
             constexpr std::uint32_t c_RenderTargetViewCapacity = 2048;
             constexpr std::uint32_t c_DepthStencilViewCapacity = 512;
-
-            D3D12_PRIMITIVE_TOPOLOGY_TYPE ToTopologyType(PrimitiveTopology topology)
-            {
-                switch (topology)
-                {
-                    case PrimitiveTopology::LineList:
-                    {
-                        return D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-                    }
-                    case PrimitiveTopology::PointList:
-                    {
-                        return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
-                    }
-                    default:
-                    {
-                        return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-                    }
-                }
-            }
-
-            D3D_PRIMITIVE_TOPOLOGY ToD3DTopology(PrimitiveTopology topology)
-            {
-                switch (topology)
-                {
-                    case PrimitiveTopology::TriangleStrip:
-                    {
-                        return D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
-                    }
-                    case PrimitiveTopology::LineList:
-                    {
-                        return D3D_PRIMITIVE_TOPOLOGY_LINELIST;
-                    }
-                    case PrimitiveTopology::PointList:
-                    {
-                        return D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
-                    }
-                    default:
-                    {
-                        return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-                    }
-                }
-            }
-
-            D3D12_CULL_MODE ToCullMode(CullMode cull)
-            {
-                switch (cull)
-                {
-                    case CullMode::Front:
-                    {
-                        return D3D12_CULL_MODE_FRONT;
-                    }
-                    case CullMode::Back:
-                    {
-                        return D3D12_CULL_MODE_BACK;
-                    }
-                    default:
-                    {
-                        return D3D12_CULL_MODE_NONE;
-                    }
-                }
-            }
-
-            D3D12_COMPARISON_FUNC ToComparisonFunc(CompareOp compare)
-            {
-                switch (compare)
-                {
-                    case CompareOp::Never:
-                    {
-                        return D3D12_COMPARISON_FUNC_NEVER;
-                    }
-                    case CompareOp::Less:
-                    {
-                        return D3D12_COMPARISON_FUNC_LESS;
-                    }
-                    case CompareOp::Equal:
-                    {
-                        return D3D12_COMPARISON_FUNC_EQUAL;
-                    }
-                    case CompareOp::LessOrEqual:
-                    {
-                        return D3D12_COMPARISON_FUNC_LESS_EQUAL;
-                    }
-                    case CompareOp::Greater:
-                    {
-                        return D3D12_COMPARISON_FUNC_GREATER;
-                    }
-                    case CompareOp::NotEqual:
-                    {
-                        return D3D12_COMPARISON_FUNC_NOT_EQUAL;
-                    }
-                    case CompareOp::GreaterOrEqual:
-                    {
-                        return D3D12_COMPARISON_FUNC_GREATER_EQUAL;
-                    }
-                    default:
-                    {
-                        return D3D12_COMPARISON_FUNC_ALWAYS;
-                    }
-                }
-            }
-
-            D3D12_STENCIL_OP ToStencilOp(StencilOp operation)
-            {
-                switch (operation)
-                {
-                    case StencilOp::Zero:
-                    {
-                        return D3D12_STENCIL_OP_ZERO;
-                    }
-                    case StencilOp::Replace:
-                    {
-                        return D3D12_STENCIL_OP_REPLACE;
-                    }
-                    case StencilOp::IncrementClamp:
-                    {
-                        return D3D12_STENCIL_OP_INCR_SAT;
-                    }
-                    case StencilOp::DecrementClamp:
-                    {
-                        return D3D12_STENCIL_OP_DECR_SAT;
-                    }
-                    default:
-                    {
-                        return D3D12_STENCIL_OP_KEEP;
-                    }
-                }
-            }
         }
 
         DXGI_FORMAT ToDXGIFormat(Format format)
@@ -595,100 +467,24 @@ namespace Trinity
 
         PipelineHandle D3D12Context::CreateGraphicsPipeline(const GraphicsPipelineDescription& description)
         {
-            TR_CORE_ASSERT(!description.VertexShader.Code.empty() && !description.PixelShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
-            TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
-            TR_CORE_ASSERT(!description.StencilTest || HasStencil(description.DepthFormat), "Pipeline '{}' tests stencil without a depth format that has it.", description.DebugName);
-
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC l_Description{};
-            l_Description.pRootSignature = m_RootSignature.GetHandle();
-            l_Description.VS = { description.VertexShader.Code.data(), description.VertexShader.Code.size() };
-            l_Description.PS = { description.PixelShader.Code.data(), description.PixelShader.Code.size() };
-            l_Description.SampleMask = UINT_MAX;
-            l_Description.PrimitiveTopologyType = ToTopologyType(description.Topology);
-            l_Description.SampleDesc.Count = description.SampleCount;
-
-            // An integer target is never blended, so blending is set for each target
-            l_Description.NumRenderTargets = static_cast<UINT>(std::min<std::size_t>(description.ColorFormats.size(), c_MaxColorAttachments));
-            l_Description.BlendState.IndependentBlendEnable = TRUE;
-            for (UINT it_Target = 0; it_Target < l_Description.NumRenderTargets; ++it_Target)
+            std::optional<D3D12Pipeline> l_Pipeline = D3D12Pipeline::CreateGraphics(m_Device, m_RootSignature, description);
+            if (!l_Pipeline)
             {
-                D3D12_RENDER_TARGET_BLEND_DESC& l_Blend = l_Description.BlendState.RenderTarget[it_Target];
-                l_Blend.BlendEnable = description.AlphaBlend && !IsIntegerFormat(description.ColorFormats[it_Target]) ? TRUE : FALSE;
-                l_Blend.SrcBlend = description.PremultipliedAlpha ? D3D12_BLEND_ONE : D3D12_BLEND_SRC_ALPHA;
-                l_Blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-                l_Blend.BlendOp = D3D12_BLEND_OP_ADD;
-                l_Blend.SrcBlendAlpha = D3D12_BLEND_ONE;
-                l_Blend.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
-                l_Blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-                l_Blend.LogicOp = D3D12_LOGIC_OP_NOOP;
-                l_Blend.RenderTargetWriteMask = description.ColorWrite ? D3D12_COLOR_WRITE_ENABLE_ALL : 0;
-
-                l_Description.RTVFormats[it_Target] = ToDXGIFormat(description.ColorFormats[it_Target]);
-            }
-
-            l_Description.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-            l_Description.RasterizerState.CullMode = ToCullMode(description.Cull);
-            l_Description.RasterizerState.FrontCounterClockwise = description.FrontCounterClockwise ? TRUE : FALSE;
-            l_Description.RasterizerState.DepthBias = description.DepthBiasConstant;
-            l_Description.RasterizerState.SlopeScaledDepthBias = description.DepthBiasSlope;
-            l_Description.RasterizerState.DepthBiasClamp = description.DepthBiasClamp;
-
-            // D3D12 always clamps depth to the viewport's range, so turning clipping off is what Vulkan's depth clamp does
-            l_Description.RasterizerState.DepthClipEnable = description.DepthClamp ? FALSE : TRUE;
-
-            // Vulkan never writes depth without the depth test, so neither does this
-            l_Description.DepthStencilState.DepthEnable = description.DepthTest ? TRUE : FALSE;
-            l_Description.DepthStencilState.DepthWriteMask = description.DepthWrite ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
-            l_Description.DepthStencilState.DepthFunc = ToComparisonFunc(description.DepthCompare);
-            l_Description.DepthStencilState.StencilEnable = description.StencilTest ? TRUE : FALSE;
-            l_Description.DepthStencilState.StencilReadMask = description.StencilReadMask;
-            l_Description.DepthStencilState.StencilWriteMask = description.StencilWriteMask;
-            l_Description.DepthStencilState.FrontFace = { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, ToStencilOp(description.StencilPass), ToComparisonFunc(description.StencilCompare) };
-            l_Description.DepthStencilState.BackFace = l_Description.DepthStencilState.FrontFace;
-            l_Description.DSVFormat = description.DepthFormat != Format::Unknown ? ToDXGIFormat(description.DepthFormat) : DXGI_FORMAT_UNKNOWN;
-
-            D3D12Pipeline l_Pipeline;
-            l_Pipeline.Topology = ToD3DTopology(description.Topology);
-            const HRESULT l_Result = m_Device.GetHandle()->CreateGraphicsPipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
-            if (FAILED(l_Result))
-            {
-                TR_CORE_ERROR("D3D12: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
-
                 return {};
             }
 
-            if (!description.DebugName.empty())
-            {
-                l_Pipeline.State->SetName(ToWide(description.DebugName).c_str());
-            }
-
-            return m_Pipelines.Add(std::move(l_Pipeline));
+            return m_Pipelines.Add(std::move(*l_Pipeline));
         }
 
         QueryPoolHandle D3D12Context::CreateQueryPool(const QueryPoolDescription& description)
         {
-            TR_CORE_ASSERT(description.Count != 0, "Query pool '{}' has no queries.", description.DebugName);
-
-            D3D12_QUERY_HEAP_DESC l_Description{};
-            l_Description.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-            l_Description.Count = description.Count;
-
-            D3D12QueryPool l_Pool;
-            l_Pool.Count = description.Count;
-            const HRESULT l_Result = m_Device.GetHandle()->CreateQueryHeap(&l_Description, IID_PPV_ARGS(&l_Pool.Heap));
-            if (FAILED(l_Result))
+            std::optional<D3D12QueryPool> l_Pool = D3D12QueryPool::Create(m_Device, description);
+            if (!l_Pool)
             {
-                TR_CORE_ERROR("D3D12: query pool '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
-
                 return {};
             }
 
-            if (!description.DebugName.empty())
-            {
-                l_Pool.Heap->SetName(ToWide(description.DebugName).c_str());
-            }
-
-            return m_QueryPools.Add(std::move(l_Pool));
+            return m_QueryPools.Add(std::move(*l_Pool));
         }
 
         void D3D12Context::DestroyQueryPool(QueryPoolHandle pool)
@@ -703,43 +499,24 @@ namespace Trinity
 
             if (l_Pool)
             {
-                D3D12Release l_Release;
-                l_Release.QueryHeap = std::move(l_Pool->Heap);
-                m_Releases.Push(std::move(l_Release));
+                m_Releases.Push(l_Pool->ToRelease());
             }
         }
 
         std::uint64_t D3D12Context::GetTimestampFrequency() const
         {
-            UINT64 l_Frequency = 0;
-
-            return m_Queue && SUCCEEDED(m_Queue->GetTimestampFrequency(&l_Frequency)) ? l_Frequency : 0;
+            return D3D12QueryPool::GetTimestampFrequency(m_Queue.Get());
         }
 
         PipelineHandle D3D12Context::CreateComputePipeline(const ComputePipelineDescription& description)
         {
-            TR_CORE_ASSERT(!description.ComputeShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
-
-            D3D12_COMPUTE_PIPELINE_STATE_DESC l_Description{};
-            l_Description.pRootSignature = m_RootSignature.GetHandle();
-            l_Description.CS = { description.ComputeShader.Code.data(), description.ComputeShader.Code.size() };
-
-            D3D12Pipeline l_Pipeline;
-            l_Pipeline.Compute = true;
-            const HRESULT l_Result = m_Device.GetHandle()->CreateComputePipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
-            if (FAILED(l_Result))
+            std::optional<D3D12Pipeline> l_Pipeline = D3D12Pipeline::CreateCompute(m_Device, m_RootSignature, description);
+            if (!l_Pipeline)
             {
-                TR_CORE_ERROR("D3D12: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
-
                 return {};
             }
 
-            if (!description.DebugName.empty())
-            {
-                l_Pipeline.State->SetName(ToWide(description.DebugName).c_str());
-            }
-
-            return m_Pipelines.Add(std::move(l_Pipeline));
+            return m_Pipelines.Add(std::move(*l_Pipeline));
         }
 
         void D3D12Context::DestroyPipeline(PipelineHandle pipeline)
@@ -754,9 +531,7 @@ namespace Trinity
 
             if (l_Pipeline)
             {
-                D3D12Release l_Release;
-                l_Release.Pipeline = std::move(l_Pipeline->State);
-                m_Releases.Push(std::move(l_Release));
+                m_Releases.Push(l_Pipeline->ToRelease());
             }
         }
 

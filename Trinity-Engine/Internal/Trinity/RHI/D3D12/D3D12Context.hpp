@@ -9,6 +9,8 @@
 #include "Trinity/RHI/D3D12/D3D12Device.hpp"
 #include "Trinity/RHI/D3D12/D3D12Factory.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
+#include "Trinity/RHI/D3D12/D3D12Pipeline.hpp"
+#include "Trinity/RHI/D3D12/D3D12QueryPool.hpp"
 #include "Trinity/RHI/D3D12/D3D12ReleaseQueue.hpp"
 #include "Trinity/RHI/D3D12/D3D12RootSignature.hpp"
 #include "Trinity/RHI/D3D12/D3D12Sampler.hpp"
@@ -28,19 +30,6 @@ namespace Trinity
 {
     namespace RHI
     {
-        struct D3D12Pipeline
-        {
-            Microsoft::WRL::ComPtr<ID3D12PipelineState> State;
-            D3D_PRIMITIVE_TOPOLOGY Topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
-            bool Compute = false;
-        };
-
-        struct D3D12QueryPool
-        {
-            Microsoft::WRL::ComPtr<ID3D12QueryHeap> Heap;
-            std::uint32_t Count = 0;
-        };
-
         class D3D12Context final : public Device
         {
         public:

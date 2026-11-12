@@ -87,8 +87,8 @@ Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args
 
     ApplicationSpecification l_Specification;
     l_Specification.Name = "Trinity Hub";
-    l_Specification.Window.Width = 1100;
-    l_Specification.Window.Height = 700;
+    l_Specification.Window.Width = 1920; 
+    l_Specification.Window.Height = 1080;
     l_Specification.CommandLineArgs = args;
     l_Specification.StartDotNet = false;
     l_Specification.StartAudio = false;

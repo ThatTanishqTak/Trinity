@@ -11,6 +11,8 @@
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
 #include "Trinity/RHI/Vulkan/VulkanInstance.hpp"
+#include "Trinity/RHI/Vulkan/VulkanPipeline.hpp"
+#include "Trinity/RHI/Vulkan/VulkanQueryPool.hpp"
 #include "Trinity/RHI/Vulkan/VulkanReleaseQueue.hpp"
 #include "Trinity/RHI/Vulkan/VulkanSampler.hpp"
 #include "Trinity/RHI/Vulkan/VulkanTexture.hpp"
@@ -27,18 +29,6 @@ namespace Trinity
 {
     namespace RHI
     {
-        struct VulkanPipeline
-        {
-            VkPipeline Pipeline = VK_NULL_HANDLE;
-            VkPipelineBindPoint BindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        };
-
-        struct VulkanQueryPool
-        {
-            VkQueryPool Pool = VK_NULL_HANDLE;
-            std::uint32_t Count = 0;
-        };
-
         class VulkanContext final : public Device
         {
         public:
