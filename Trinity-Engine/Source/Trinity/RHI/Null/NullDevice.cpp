@@ -24,11 +24,13 @@ namespace Trinity
             m_HasPipeline = false;
             m_HasComputePipeline = false;
             m_HasIndexBuffer = false;
+            m_LabelDepth = 0;
         }
 
         void NullCommandList::End()
         {
             TR_CORE_ASSERT(!m_Rendering, "The frame ended inside BeginRendering.");
+            TR_CORE_ASSERT(m_LabelDepth == 0, "The frame ended with {} label(s) still open.", m_LabelDepth);
 
             m_Recording = false;
         }
@@ -166,6 +168,20 @@ namespace Trinity
             TR_CORE_ASSERT(m_Recording && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyBufferToTexture with a destroyed or invalid resource.");
             TR_CORE_ASSERT(m_Device.IsCopyRegionValid(source, sourceOffset, destination, mipLevel, arrayLayer, region), "CopyBufferToTexture with a layer the texture lacks, a misaligned offset, a region outside the mip, or a buffer too small for it.");
+        }
+
+        void NullCommandList::BeginLabel([[maybe_unused]] std::string_view name)
+        {
+            TR_CORE_ASSERT(m_Recording, "BeginLabel is recorded within a frame.");
+
+            ++m_LabelDepth;
+        }
+
+        void NullCommandList::EndLabel()
+        {
+            TR_CORE_ASSERT(m_Recording && m_LabelDepth != 0, "EndLabel is recorded within a frame, after its BeginLabel.");
+
+            m_LabelDepth = m_LabelDepth != 0 ? m_LabelDepth - 1 : 0;
         }
 
         NullSwapChain::NullSwapChain(NullDevice& device, const SwapChainSpecification& specification) : m_Device(device), m_Specification(specification)

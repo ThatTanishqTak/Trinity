@@ -4,10 +4,12 @@
 
 #include "Trinity/Core/Assert.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace Trinity
 {
@@ -528,6 +530,32 @@ namespace Trinity
             l_Region.imageOffset = { region.X, region.Y, 0 };
             l_Region.imageExtent = { region.Width, region.Height, 1 };
             vkCmdCopyBufferToImage(m_CommandBuffer, l_Buffer->Buffer, l_Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &l_Region);
+        }
+
+        // Without debug utils a label records nothing. The name is copied with its terminator into a buffer on the stack, cut at 255 bytes, so a label allocates nothing
+        void VulkanCommandList::BeginLabel(std::string_view name)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE, "BeginLabel is recorded within a frame.");
+            if (!m_Device.HasDebugUtils())
+            {
+                return;
+            }
+
+            std::array<char, 256> l_Name{};
+            std::copy_n(name.data(), std::min(name.size(), l_Name.size() - 1), l_Name.data());
+
+            VkDebugUtilsLabelEXT l_Label = MakeInfo<VkDebugUtilsLabelEXT>(VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT);
+            l_Label.pLabelName = l_Name.data();
+            vkCmdBeginDebugUtilsLabelEXT(m_CommandBuffer, &l_Label);
+        }
+
+        void VulkanCommandList::EndLabel()
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE, "EndLabel is recorded within a frame.");
+            if (m_Device.HasDebugUtils())
+            {
+                vkCmdEndDebugUtilsLabelEXT(m_CommandBuffer);
+            }
         }
     }
 }

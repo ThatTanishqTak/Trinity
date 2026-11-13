@@ -150,6 +150,8 @@ namespace Trinity
         {
             EnvironmentAsset::Image& l_Image = l_Environment.m_Images[it_Image];
 
+            // The description only views its name, so the name lives here until the texture is created
+            const std::string l_DebugName = std::format("Environment {}", c_ImageNames[it_Image]);
             RHI::TextureDescription l_Description;
             l_Description.Width = l_Image.Size;
             l_Description.Height = l_Image.Size;
@@ -158,7 +160,7 @@ namespace Trinity
             l_Description.Dimension = l_Image.Faces == 6 ? RHI::TextureDimension::TextureCube : RHI::TextureDimension::Texture2D;
             l_Description.TextureFormat = c_Format;
             l_Description.Usage = RHI::TextureUsage::ShaderResource | RHI::TextureUsage::CopyDestination;
-            l_Description.DebugName = std::format("Environment {}", c_ImageNames[it_Image]);
+            l_Description.DebugName = l_DebugName;
 
             l_Image.Texture = m_Device.CreateTexture(l_Description);
             if (!l_Image.Texture)

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace Trinity
 {
@@ -46,6 +47,9 @@ namespace Trinity
             void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) override;
             void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) override;
 
+            void BeginLabel(std::string_view name) override;
+            void EndLabel() override;
+
         private:
             NullDevice& m_Device;
             bool m_Recording = false;
@@ -53,6 +57,7 @@ namespace Trinity
             bool m_HasPipeline = false;
             bool m_HasComputePipeline = false;
             bool m_HasIndexBuffer = false;
+            std::uint32_t m_LabelDepth = 0;
         };
 
         class NullSwapChain final : public SwapChain

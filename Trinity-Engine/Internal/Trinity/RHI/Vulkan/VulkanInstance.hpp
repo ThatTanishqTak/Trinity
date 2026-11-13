@@ -28,6 +28,8 @@ namespace Trinity
 
             [[nodiscard]] VkInstance GetHandle() const { return m_Instance; }
             [[nodiscard]] bool IsValidationEnabled() const { return m_Validation; }
+            // On with validation, and outside Distribution whenever the loader has it, for labels and object names in RenderDoc and the layer's messages
+            [[nodiscard]] bool HasDebugUtils() const { return m_DebugUtils; }
             [[nodiscard]] std::uint32_t GetMessageCount() const { return m_MessageCount.load(); }
 
         private:
@@ -36,6 +38,7 @@ namespace Trinity
             [[nodiscard]] bool Create(const DeviceSpecification& specification, std::uint32_t loaderVersion, std::string& error);
 
             bool m_Validation = false;
+            bool m_DebugUtils = false;
             std::atomic<std::uint32_t> m_MessageCount{ 0 };
 
             VkInstance m_Instance = VK_NULL_HANDLE;

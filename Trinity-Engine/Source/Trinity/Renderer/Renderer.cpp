@@ -256,13 +256,16 @@ namespace Trinity
             ReadCapture(*it_View);
         }
 
-        m_TextureLoader->RecordUploads(l_Commands);
-        m_MaterialLoader->RecordUploads(l_Commands);
-        m_MeshLoader->RecordUploads(l_Commands);
-        m_EnvironmentLoader->RecordUploads(l_Commands);
-        if (m_Overlay != nullptr)
         {
-            m_Overlay->RecordUploads(l_Commands);
+            TR_GPU_LABEL(l_Commands, "Uploads");
+            m_TextureLoader->RecordUploads(l_Commands);
+            m_MaterialLoader->RecordUploads(l_Commands);
+            m_MeshLoader->RecordUploads(l_Commands);
+            m_EnvironmentLoader->RecordUploads(l_Commands);
+            if (m_Overlay != nullptr)
+            {
+                m_Overlay->RecordUploads(l_Commands);
+            }
         }
 
         m_Renderer2D->BeginFrame();
@@ -272,6 +275,7 @@ namespace Trinity
             TR_PROFILE_SCOPE("LayerStack::OnPrepareRender");
             for (const Scope<Layer>& it_Layer : layers)
             {
+                TR_GPU_LABEL(l_Commands, it_Layer->GetName());
                 it_Layer->OnPrepareRender(l_Commands);
             }
         }
@@ -916,6 +920,7 @@ namespace Trinity
             }
         }, [l_Overlay, l_View, l_Width, l_Height, l_Stencil](const FrameGraphContext& context)
         {
+            TR_GPU_LABEL(context.GetCommands(), "Game UI");
             l_Overlay->Draw(context.GetCommands(), l_View, l_Width, l_Height, static_cast<bool>(l_Stencil));
         });
     }
@@ -954,6 +959,7 @@ namespace Trinity
             TR_PROFILE_SCOPE("LayerStack::OnRenderUI");
             for (const Scope<Layer>& it_Layer : layers)
             {
+                TR_GPU_LABEL(l_Commands, it_Layer->GetName());
                 it_Layer->OnRenderUI(l_Commands);
             }
         });

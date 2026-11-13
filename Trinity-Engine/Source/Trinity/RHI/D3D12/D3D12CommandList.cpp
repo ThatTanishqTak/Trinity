@@ -11,6 +11,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
+#include <string_view>
 
 namespace Trinity
 {
@@ -579,6 +581,22 @@ namespace Trinity
             l_Destination.SubresourceIndex = GetSubresourceIndex(mipLevel, arrayLayer, l_Texture->MipLevels);
 
             m_CommandList->CopyTextureRegion(&l_Destination, static_cast<UINT>(region.X), static_cast<UINT>(region.Y), 0, &l_Source, nullptr);
+        }
+
+        // PIX's Unicode encoding, metadata 0 and a null-terminated wide string, which PIX and RenderDoc read with no package
+        void D3D12CommandList::BeginLabel(std::string_view name)
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr, "BeginLabel is recorded within a frame.");
+
+            const std::wstring l_Name = ToWide(name);
+            m_CommandList->BeginEvent(0, l_Name.c_str(), static_cast<UINT>((l_Name.size() + 1) * sizeof(wchar_t)));
+        }
+
+        void D3D12CommandList::EndLabel()
+        {
+            TR_CORE_ASSERT(m_CommandList != nullptr, "EndLabel is recorded within a frame.");
+
+            m_CommandList->EndEvent();
         }
     }
 }

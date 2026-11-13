@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace Trinity
 {
@@ -91,8 +92,42 @@ namespace Trinity
             virtual void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) = 0;
             virtual void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) = 0;
 
+            // A named region of commands for RenderDoc and PIX, which nests and ends with EndLabel within the same frame. TR_GPU_LABEL begins one for the rest of a scope
+            virtual void BeginLabel(std::string_view name) = 0;
+            virtual void EndLabel() = 0;
+
         protected:
             CommandList() = default;
         };
+
+        // Begins a label and ends it when it goes out of scope
+        class LabelScope
+        {
+        public:
+            LabelScope(CommandList& commands, std::string_view name) : m_Commands(commands)
+            {
+                m_Commands.BeginLabel(name);
+            }
+
+            ~LabelScope()
+            {
+                m_Commands.EndLabel();
+            }
+
+            LabelScope(const LabelScope&) = delete;
+            LabelScope& operator=(const LabelScope&) = delete;
+
+        private:
+            CommandList& m_Commands;
+        };
     }
 }
+
+// Labels the commands recorded in the rest of the scope. Distribution compiles each one out, so no label text reaches a player
+#if defined(TR_DISTRIBUTION)
+#define TR_GPU_LABEL(commands, name) ((void)0)
+#else
+#define TR_INTERNAL_GPU_LABEL_CONCAT_IMPL(a, b) a##b
+#define TR_INTERNAL_GPU_LABEL_CONCAT(a, b) TR_INTERNAL_GPU_LABEL_CONCAT_IMPL(a, b)
+#define TR_GPU_LABEL(commands, name) const ::Trinity::RHI::LabelScope TR_INTERNAL_GPU_LABEL_CONCAT(l_GpuLabel, __LINE__)(commands, name)
+#endif

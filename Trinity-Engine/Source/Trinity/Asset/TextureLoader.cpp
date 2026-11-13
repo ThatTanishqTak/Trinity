@@ -237,7 +237,7 @@ namespace Trinity
         l_Description.MipLevels = texture.m_MipLevels;
         l_Description.TextureFormat = texture.m_Format;
         l_Description.Usage = c_TextureUsage;
-        l_Description.DebugName = std::string(debugName);
+        l_Description.DebugName = debugName;
 
         texture.m_Texture = m_Device.CreateTexture(l_Description);
         if (!texture.m_Texture)

@@ -86,6 +86,7 @@ namespace Trinity
             void SignalSemaphore(VkSemaphore semaphore);
 
             [[nodiscard]] VkInstance GetInstance() const { return m_Instance.GetHandle(); }
+            [[nodiscard]] bool HasDebugUtils() const { return m_Instance.HasDebugUtils(); }
             [[nodiscard]] VkPhysicalDevice GetPhysicalDevice() const { return m_Device.GetPhysicalDevice(); }
             [[nodiscard]] VkDevice GetHandle() const { return m_Device.GetHandle(); }
             [[nodiscard]] VkQueue GetQueue() const { return m_Device.GetQueue(); }

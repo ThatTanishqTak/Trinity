@@ -95,6 +95,7 @@ namespace Trinity
                 {
                     l_Layers.push_back(c_ValidationLayer);
                     l_Extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+                    m_DebugUtils = true;
 
                     if (specification.EnableGPUValidation)
                     {
@@ -112,6 +113,14 @@ namespace Trinity
                     TR_CORE_INFO("Vulkan: validation layer on{}", l_GPUValidation ? ", with GPU-assisted validation" : "");
                 }
             }
+
+#if !defined(TR_DISTRIBUTION)
+            if (!m_DebugUtils && HasExtension(l_Available, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+            {
+                l_Extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+                m_DebugUtils = true;
+            }
+#endif
 
             VkApplicationInfo l_Application = MakeInfo<VkApplicationInfo>(VK_STRUCTURE_TYPE_APPLICATION_INFO);
             l_Application.pApplicationName = "Trinity";

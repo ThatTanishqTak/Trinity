@@ -364,10 +364,10 @@ namespace Trinity
             vkDeviceWaitIdle(m_Device);
         }
 
-        // Debug utils is only on with validation, and then the layer's messages name the object
+        // Debug utils is on with validation, and outside Distribution whenever the loader has it, so RenderDoc and the layer's messages name the object
         void VulkanDevice::SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const
         {
-            if (!m_Instance.IsValidationEnabled() || name.empty())
+            if (!m_Instance.HasDebugUtils() || name.empty())
             {
                 return;
             }

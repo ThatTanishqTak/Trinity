@@ -778,6 +778,8 @@ namespace Trinity
             }
         }
 
+        // The pass's barriers go inside its label, so a capture shows each pass with what it waited for
+        TR_GPU_LABEL(commands, l_Pass.Name);
         for (const State::Access& it_Access : a_Accesses)
         {
             if (it_Access.Buffer)
