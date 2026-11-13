@@ -15,7 +15,8 @@ namespace Trinity
         class D3D12DescriptorHeap
         {
         public:
-            [[nodiscard]] bool Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shaderVisible);
+            // False when the heap cannot be created. A name, when there is one, is for the debug layer and PIX
+            [[nodiscard]] bool Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shaderVisible, const wchar_t* name = nullptr);
             void Reset();
 
             [[nodiscard]] std::uint32_t Allocate();

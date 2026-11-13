@@ -27,6 +27,8 @@ namespace Trinity
             [[nodiscard]] bool Initialize(std::string& error);
             // The logical device, once everything made on it is gone. Does nothing a second time
             void Destroy();
+            // Blocks until every queue has finished all its work
+            void WaitIdle() const;
 
             void SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const;
 

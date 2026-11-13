@@ -5,186 +5,13 @@
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 
-#include <algorithm>
 #include <optional>
 #include <string>
-#include <string_view>
-#include <vector>
 
 namespace Trinity
 {
     namespace RHI
     {
-        namespace
-        {
-            std::string_view ToString(VkResult result)
-            {
-                switch (result)
-                {
-                    case VK_SUCCESS:
-                    {
-                        return "VK_SUCCESS";
-                    }
-                    case VK_ERROR_OUT_OF_HOST_MEMORY:
-                    {
-                        return "VK_ERROR_OUT_OF_HOST_MEMORY";
-                    }
-                    case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-                    {
-                        return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-                    }
-                    case VK_ERROR_INITIALIZATION_FAILED:
-                    {
-                        return "VK_ERROR_INITIALIZATION_FAILED";
-                    }
-                    case VK_ERROR_LAYER_NOT_PRESENT:
-                    {
-                        return "VK_ERROR_LAYER_NOT_PRESENT";
-                    }
-                    case VK_ERROR_EXTENSION_NOT_PRESENT:
-                    {
-                        return "VK_ERROR_EXTENSION_NOT_PRESENT";
-                    }
-                    case VK_ERROR_FEATURE_NOT_PRESENT:
-                    {
-                        return "VK_ERROR_FEATURE_NOT_PRESENT";
-                    }
-                    case VK_ERROR_INCOMPATIBLE_DRIVER:
-                    {
-                        return "VK_ERROR_INCOMPATIBLE_DRIVER";
-                    }
-                    case VK_ERROR_DEVICE_LOST:
-                    {
-                        return "VK_ERROR_DEVICE_LOST";
-                    }
-                    default:
-                    {
-                        return "another VkResult";
-                    }
-                }
-            }
-        }
-
-        VkFormat ToVkFormat(Format format)
-        {
-            switch (format)
-            {
-                case Format::RGBA8Unorm:
-                {
-                    return VK_FORMAT_R8G8B8A8_UNORM;
-                }
-                case Format::RGBA8Srgb:
-                {
-                    return VK_FORMAT_R8G8B8A8_SRGB;
-                }
-                case Format::BGRA8Unorm:
-                {
-                    return VK_FORMAT_B8G8R8A8_UNORM;
-                }
-                case Format::BGRA8Srgb:
-                {
-                    return VK_FORMAT_B8G8R8A8_SRGB;
-                }
-                case Format::RGBA16Float:
-                {
-                    return VK_FORMAT_R16G16B16A16_SFLOAT;
-                }
-                case Format::R11G11B10Float:
-                {
-                    return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
-                }
-                case Format::R32Float:
-                {
-                    return VK_FORMAT_R32_SFLOAT;
-                }
-                case Format::R32Uint:
-                {
-                    return VK_FORMAT_R32_UINT;
-                }
-                case Format::RG32Float:
-                {
-                    return VK_FORMAT_R32G32_SFLOAT;
-                }
-                case Format::RGB32Float:
-                {
-                    return VK_FORMAT_R32G32B32_SFLOAT;
-                }
-                case Format::RGBA32Float:
-                {
-                    return VK_FORMAT_R32G32B32A32_SFLOAT;
-                }
-                case Format::D32Float:
-                {
-                    return VK_FORMAT_D32_SFLOAT;
-                }
-                case Format::D32FloatS8:
-                {
-                    return VK_FORMAT_D32_SFLOAT_S8_UINT;
-                }
-                case Format::BC1Unorm:
-                {
-                    return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
-                }
-                case Format::BC1Srgb:
-                {
-                    return VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
-                }
-                case Format::BC3Unorm:
-                {
-                    return VK_FORMAT_BC3_UNORM_BLOCK;
-                }
-                case Format::BC3Srgb:
-                {
-                    return VK_FORMAT_BC3_SRGB_BLOCK;
-                }
-                case Format::BC4Unorm:
-                {
-                    return VK_FORMAT_BC4_UNORM_BLOCK;
-                }
-                case Format::BC5Unorm:
-                {
-                    return VK_FORMAT_BC5_UNORM_BLOCK;
-                }
-                case Format::BC7Unorm:
-                {
-                    return VK_FORMAT_BC7_UNORM_BLOCK;
-                }
-                case Format::BC7Srgb:
-                {
-                    return VK_FORMAT_BC7_SRGB_BLOCK;
-                }
-                default:
-                {
-                    return VK_FORMAT_UNDEFINED;
-                }
-            }
-        }
-
-        std::string FormatResult(VkResult result)
-        {
-            return std::format("{} ({})", ToString(result), static_cast<int>(result));
-        }
-
-        VkImageAspectFlags GetAspect(Format format)
-        {
-            if (HasStencil(format))
-            {
-                return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-            }
-
-            return IsDepthFormat(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-        }
-
-        std::string FormatVersion(std::uint32_t version)
-        {
-            return std::format("{}.{}.{}", VK_API_VERSION_MAJOR(version), VK_API_VERSION_MINOR(version), VK_API_VERSION_PATCH(version));
-        }
-
-        bool HasExtension(const std::vector<VkExtensionProperties>& extensions, std::string_view name)
-        {
-            return std::ranges::any_of(extensions, [name](const VkExtensionProperties& extension) { return name == extension.extensionName; });
-        }
-
         Scope<VulkanContext> VulkanContext::Create(const DeviceSpecification& specification, std::string& error)
         {
             Scope<VulkanContext> l_Device = CreateScope<VulkanContext>();
@@ -196,7 +23,7 @@ namespace Trinity
             return l_Device;
         }
 
-        VulkanContext::VulkanContext() : m_Device(m_Instance), m_Allocator(m_Instance, m_Device), m_Bindless(m_Device), m_Releases(m_Device, m_Allocator, m_Bindless), m_CommandList(*this)
+        VulkanContext::VulkanContext() : m_Device(m_Instance), m_Allocator(m_Instance, m_Device), m_Bindless(m_Device), m_Releases(m_Device, m_Allocator, m_Bindless), m_FrameSync(m_Device), m_CommandList(*this)
         {
 
         }
@@ -208,7 +35,7 @@ namespace Trinity
             // The validation layer reports objects still alive in vkDestroyDevice and vkDestroyInstance, so the messenger outlives the device
             if (m_Device.GetHandle() != VK_NULL_HANDLE)
             {
-                vkDeviceWaitIdle(m_Device.GetHandle());
+                m_Device.WaitIdle();
                 m_UploadRing.Shutdown();
 
                 if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0 || m_QueryPools.GetCount() != 0)
@@ -219,19 +46,18 @@ namespace Trinity
                 m_Releases.ReleaseAll();
                 m_Buffers.ForEach([this](const VulkanBuffer& buffer) { m_Releases.Release(buffer.ToRelease()); });
                 m_Textures.ForEach([this](const VulkanTexture& texture) { m_Releases.Release(texture.ToRelease()); });
-                m_Pipelines.ForEach([this](const VulkanPipeline& pipeline) { vkDestroyPipeline(m_Device.GetHandle(), pipeline.Pipeline, nullptr); });
+                m_Pipelines.ForEach([this](const VulkanPipeline& pipeline) { m_Releases.Release(pipeline.ToRelease()); });
                 m_Samplers.ForEach([this](const VulkanSampler& sampler) { m_Releases.Release(sampler.ToRelease()); });
-                m_QueryPools.ForEach([this](const VulkanQueryPool& pool) { vkDestroyQueryPool(m_Device.GetHandle(), pool.Pool, nullptr); });
+                m_QueryPools.ForEach([this](const VulkanQueryPool& pool) { m_Releases.Release(pool.ToRelease()); });
 
                 m_Bindless.Destroy();
 
-                for (const FrameContext& it_Frame : m_Frames)
+                for (const VulkanCommandPool& it_Pool : m_CommandPools)
                 {
-                    vkDestroyCommandPool(m_Device.GetHandle(), it_Frame.CommandPool, nullptr);
+                    it_Pool.Destroy(m_Device);
                 }
 
-                vkDestroySemaphore(m_Device.GetHandle(), m_FrameTimeline, nullptr);
-
+                m_FrameSync.Destroy();
                 m_Allocator.Destroy();
                 m_Device.Destroy();
             }
@@ -251,34 +77,16 @@ namespace Trinity
 
         bool VulkanContext::CreateFrames(std::string& error)
         {
-            VkSemaphoreTypeCreateInfo l_Timeline = MakeInfo<VkSemaphoreTypeCreateInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO);
-            l_Timeline.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-
-            VkSemaphoreCreateInfo l_Semaphore = MakeInfo<VkSemaphoreCreateInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO);
-            l_Semaphore.pNext = &l_Timeline;
-
-            VkResult l_Result = vkCreateSemaphore(m_Device.GetHandle(), &l_Semaphore, nullptr, &m_FrameTimeline);
-            for (FrameContext& it_Frame : m_Frames)
+            VkResult l_Result = m_FrameSync.Initialize();
+            for (VulkanCommandPool& it_Pool : m_CommandPools)
             {
                 if (l_Result != VK_SUCCESS)
                 {
                     break;
                 }
 
-                VkCommandPoolCreateInfo l_Pool = MakeInfo<VkCommandPoolCreateInfo>(VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO);
-                l_Pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-                l_Pool.queueFamilyIndex = m_Device.GetQueueFamily();
-                l_Result = vkCreateCommandPool(m_Device.GetHandle(), &l_Pool, nullptr, &it_Frame.CommandPool);
-                if (l_Result != VK_SUCCESS)
-                {
-                    break;
-                }
 
-                VkCommandBufferAllocateInfo l_Allocate = MakeInfo<VkCommandBufferAllocateInfo>(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO);
-                l_Allocate.commandPool = it_Frame.CommandPool;
-                l_Allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                l_Allocate.commandBufferCount = 1;
-                l_Result = vkAllocateCommandBuffers(m_Device.GetHandle(), &l_Allocate, &it_Frame.CommandBuffer);
+                l_Result = it_Pool.Create(m_Device);
             }
 
             if (l_Result != VK_SUCCESS)
@@ -388,18 +196,12 @@ namespace Trinity
 
         void VulkanContext::WaitForSemaphore(VkSemaphore semaphore)
         {
-            VkSemaphoreSubmitInfo l_Wait = MakeInfo<VkSemaphoreSubmitInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO);
-            l_Wait.semaphore = semaphore;
-            l_Wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            m_FrameWaits.push_back(l_Wait);
+            m_FrameSync.WaitForSemaphore(semaphore);
         }
 
         void VulkanContext::SignalSemaphore(VkSemaphore semaphore)
         {
-            VkSemaphoreSubmitInfo l_Signal = MakeInfo<VkSemaphoreSubmitInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO);
-            l_Signal.semaphore = semaphore;
-            l_Signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            m_FrameSignals.push_back(l_Signal);
+            m_FrameSync.SignalSemaphore(semaphore);
         }
 
         std::uint32_t VulkanContext::GetShaderResourceIndex(BufferHandle buffer)
@@ -550,24 +352,16 @@ namespace Trinity
         {
             TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
 
-            FrameContext& l_Frame = m_Frames[GetFrameSlot()];
-            if (l_Frame.CompletionValue != 0)
-            {
-                VkSemaphoreWaitInfo l_Wait = MakeInfo<VkSemaphoreWaitInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO);
-                l_Wait.semaphoreCount = 1;
-                l_Wait.pSemaphores = &m_FrameTimeline;
-                l_Wait.pValues = &l_Frame.CompletionValue;
-                vkWaitSemaphores(m_Device.GetHandle(), &l_Wait, UINT64_MAX);
-            }
+            const VulkanCommandPool& l_Pool = m_CommandPools[GetFrameSlot()];
+            m_FrameSync.WaitForTimeline(l_Pool.CompletionValue);
 
             m_InFrame = true;
             m_Releases.BeginFrame();
             m_UploadRing.BeginFrame();
 
-            vkResetCommandPool(m_Device.GetHandle(), l_Frame.CommandPool, 0);
-            m_FrameWaits.clear();
-            m_FrameSignals.clear();
-            m_CommandList.Begin(l_Frame.CommandBuffer);
+            l_Pool.Reset(m_Device);
+            m_FrameSync.BeginFrame();
+            m_CommandList.Begin(l_Pool.CommandBuffer);
 
             return m_CommandList;
         }
@@ -576,26 +370,12 @@ namespace Trinity
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
-            FrameContext& l_Frame = m_Frames[GetFrameSlot()];
+            VulkanCommandPool& l_Pool = m_CommandPools[GetFrameSlot()];
             m_UploadRing.EndFrame();
             m_CommandList.End();
 
-            l_Frame.CompletionValue = m_FrameNumber + 1;
-            SignalSemaphore(m_FrameTimeline);
-            m_FrameSignals.back().value = l_Frame.CompletionValue;
-
-            VkCommandBufferSubmitInfo l_Commands = MakeInfo<VkCommandBufferSubmitInfo>(VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO);
-            l_Commands.commandBuffer = l_Frame.CommandBuffer;
-
-            VkSubmitInfo2 l_Submit = MakeInfo<VkSubmitInfo2>(VK_STRUCTURE_TYPE_SUBMIT_INFO_2);
-            l_Submit.waitSemaphoreInfoCount = static_cast<std::uint32_t>(m_FrameWaits.size());
-            l_Submit.pWaitSemaphoreInfos = m_FrameWaits.data();
-            l_Submit.commandBufferInfoCount = 1;
-            l_Submit.pCommandBufferInfos = &l_Commands;
-            l_Submit.signalSemaphoreInfoCount = static_cast<std::uint32_t>(m_FrameSignals.size());
-            l_Submit.pSignalSemaphoreInfos = m_FrameSignals.data();
-
-            const VkResult l_Result = vkQueueSubmit2(m_Device.GetQueue(), 1, &l_Submit, VK_NULL_HANDLE);
+            l_Pool.CompletionValue = m_FrameNumber + 1;
+            const VkResult l_Result = m_FrameSync.Submit(l_Pool.CommandBuffer, l_Pool.CompletionValue);
             if (l_Result != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Vulkan: frame {} could not be submitted ({})", m_FrameNumber, FormatResult(l_Result));
@@ -610,7 +390,7 @@ namespace Trinity
         {
             if (m_Device.GetHandle() != VK_NULL_HANDLE)
             {
-                vkDeviceWaitIdle(m_Device.GetHandle());
+                m_Device.WaitIdle();
                 m_Releases.ReleaseIdle();
             }
         }

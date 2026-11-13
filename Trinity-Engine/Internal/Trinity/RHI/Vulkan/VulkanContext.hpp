@@ -8,7 +8,9 @@
 #include "Trinity/RHI/Vulkan/VulkanBindless.hpp"
 #include "Trinity/RHI/Vulkan/VulkanBuffer.hpp"
 #include "Trinity/RHI/Vulkan/VulkanCommandList.hpp"
+#include "Trinity/RHI/Vulkan/VulkanCommandPool.hpp"
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
+#include "Trinity/RHI/Vulkan/VulkanFrameSync.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
 #include "Trinity/RHI/Vulkan/VulkanInstance.hpp"
 #include "Trinity/RHI/Vulkan/VulkanPipeline.hpp"
@@ -23,7 +25,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace Trinity
 {
@@ -95,13 +96,6 @@ namespace Trinity
             void SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const { m_Device.SetDebugName(type, handle, name); }
 
         private:
-            struct FrameContext
-            {
-                VkCommandPool CommandPool = VK_NULL_HANDLE;
-                VkCommandBuffer CommandBuffer = VK_NULL_HANDLE;
-                std::uint64_t CompletionValue = 0;
-            };
-
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
 
@@ -118,11 +112,9 @@ namespace Trinity
             VulkanBindless m_Bindless;
             VulkanReleaseQueue m_Releases;
 
-            std::array<FrameContext, c_FramesInFlight> m_Frames{};
-            VkSemaphore m_FrameTimeline = VK_NULL_HANDLE;
+            std::array<VulkanCommandPool, c_FramesInFlight> m_CommandPools{};
+            VulkanFrameSync m_FrameSync;
             std::uint64_t m_FrameNumber = 0;
-            std::vector<VkSemaphoreSubmitInfo> m_FrameWaits;
-            std::vector<VkSemaphoreSubmitInfo> m_FrameSignals;
 
             VulkanCommandList m_CommandList;
             bool m_InFrame = false;

@@ -4,7 +4,7 @@ namespace Trinity
 {
     namespace RHI
     {
-        bool D3D12DescriptorHeap::Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shaderVisible)
+        bool D3D12DescriptorHeap::Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shaderVisible, const wchar_t* name)
         {
             D3D12_DESCRIPTOR_HEAP_DESC l_Description{};
             l_Description.Type = type;
@@ -18,6 +18,10 @@ namespace Trinity
             m_Start = m_Heap->GetCPUDescriptorHandleForHeapStart();
             m_Increment = device->GetDescriptorHandleIncrementSize(type);
             m_Indices.Reset(capacity);
+            if (name != nullptr)
+            {
+                m_Heap->SetName(name);
+            }
 
             return true;
         }

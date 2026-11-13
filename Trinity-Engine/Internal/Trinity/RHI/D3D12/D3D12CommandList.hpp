@@ -13,14 +13,22 @@ namespace Trinity
     namespace RHI
     {
         class D3D12Context;
+        class D3D12Device;
 
         class D3D12CommandList final : public CommandList
         {
         public:
             explicit D3D12CommandList(D3D12Context& device);
 
-            void Begin(ID3D12GraphicsCommandList7* commandList);
+            // S_OK, or the failure creating the one graphics list every frame records into
+            [[nodiscard]] HRESULT Initialize(const D3D12Device& device);
+            void Reset();
+
+            // Resets the frame's allocator, which the frame c_FramesInFlight before this one has finished with, and the list onto it
+            void Begin(ID3D12CommandAllocator* allocator);
             void End();
+
+            [[nodiscard]] ID3D12GraphicsCommandList7* GetHandle() const { return m_GraphicsList.Get(); }
 
             void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range) override;
             void BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after) override;
@@ -47,6 +55,8 @@ namespace Trinity
 
         private:
             D3D12Context& m_Device;
+            Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> m_GraphicsList;
+            // The graphics list while a frame records into it, and null outside one
             ID3D12GraphicsCommandList7* m_CommandList = nullptr;
             // What each resolving attachment's ending access points to, so it lives until EndRenderPass
             std::array<D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS, c_MaxColorAttachments> m_ResolveParameters{};

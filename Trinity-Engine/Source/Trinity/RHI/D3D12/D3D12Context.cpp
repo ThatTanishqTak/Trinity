@@ -8,7 +8,6 @@
 #include <format>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <utility>
 
 namespace Trinity
@@ -24,128 +23,6 @@ namespace Trinity
             constexpr std::uint32_t c_DepthStencilViewCapacity = 512;
         }
 
-        DXGI_FORMAT ToDXGIFormat(Format format)
-        {
-            switch (format)
-            {
-                case Format::RGBA8Unorm:
-                {
-                    return DXGI_FORMAT_R8G8B8A8_UNORM;
-                }
-                case Format::RGBA8Srgb:
-                {
-                    return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-                }
-                case Format::BGRA8Unorm:
-                {
-                    return DXGI_FORMAT_B8G8R8A8_UNORM;
-                }
-                case Format::BGRA8Srgb:
-                {
-                    return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-                }
-                case Format::RGBA16Float:
-                {
-                    return DXGI_FORMAT_R16G16B16A16_FLOAT;
-                }
-                case Format::R11G11B10Float:
-                {
-                    return DXGI_FORMAT_R11G11B10_FLOAT;
-                }
-                case Format::R32Float:
-                {
-                    return DXGI_FORMAT_R32_FLOAT;
-                }
-                case Format::R32Uint:
-                {
-                    return DXGI_FORMAT_R32_UINT;
-                }
-                case Format::RG32Float:
-                {
-                    return DXGI_FORMAT_R32G32_FLOAT;
-                }
-                case Format::RGB32Float:
-                {
-                    return DXGI_FORMAT_R32G32B32_FLOAT;
-                }
-                case Format::RGBA32Float:
-                {
-                    return DXGI_FORMAT_R32G32B32A32_FLOAT;
-                }
-                case Format::D32Float:
-                {
-                    return DXGI_FORMAT_D32_FLOAT;
-                }
-                case Format::D32FloatS8:
-                {
-                    return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
-                }
-                case Format::BC1Unorm:
-                {
-                    return DXGI_FORMAT_BC1_UNORM;
-                }
-                case Format::BC1Srgb:
-                {
-                    return DXGI_FORMAT_BC1_UNORM_SRGB;
-                }
-                case Format::BC3Unorm:
-                {
-                    return DXGI_FORMAT_BC3_UNORM;
-                }
-                case Format::BC3Srgb:
-                {
-                    return DXGI_FORMAT_BC3_UNORM_SRGB;
-                }
-                case Format::BC4Unorm:
-                {
-                    return DXGI_FORMAT_BC4_UNORM;
-                }
-                case Format::BC5Unorm:
-                {
-                    return DXGI_FORMAT_BC5_UNORM;
-                }
-                case Format::BC7Unorm:
-                {
-                    return DXGI_FORMAT_BC7_UNORM;
-                }
-                case Format::BC7Srgb:
-                {
-                    return DXGI_FORMAT_BC7_UNORM_SRGB;
-                }
-                default:
-                {
-                    return DXGI_FORMAT_UNKNOWN;
-                }
-            }
-        }
-
-        std::string FormatResult(HRESULT result)
-        {
-            return std::format("HRESULT 0x{:08X}", static_cast<std::uint32_t>(result));
-        }
-
-        std::wstring ToWide(std::string_view text)
-        {
-            if (text.empty())
-            {
-                return {};
-            }
-
-            const int l_Size = ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-            std::wstring l_Result(static_cast<std::size_t>(l_Size), L'\0');
-            ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), l_Result.data(), l_Size);
-
-            return l_Result;
-        }
-
-        void SetDebugName(ID3D12Resource* resource, std::string_view name)
-        {
-            if (!name.empty())
-            {
-                resource->SetName(ToWide(name).c_str());
-            }
-        }
-
         Scope<D3D12Context> D3D12Context::Create(const DeviceSpecification& specification, std::string& error)
         {
             Scope<D3D12Context> l_Device = CreateScope<D3D12Context>();
@@ -157,16 +34,16 @@ namespace Trinity
             return l_Device;
         }
 
-        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_RootSignature(m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_CommandList(*this)
+        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_RootSignature(m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_Queue(m_Device), m_CommandList(*this)
         {
 
         }
 
         D3D12Context::~D3D12Context()
         {
-            if (m_Fence && m_Queue)
+            if (m_Queue.IsReady())
             {
-                WaitForQueue();
+                m_Queue.WaitIdle();
             }
 
             m_UploadRing.Shutdown();
@@ -187,19 +64,14 @@ namespace Trinity
             m_SamplerHeap.Reset();
             m_RenderTargetViews.Reset();
             m_DepthStencilViews.Reset();
-            m_GraphicsList.Reset();
+            m_CommandList.Reset();
 
-            for (FrameContext& it_Frame : m_Frames)
+            for (D3D12CommandAllocator& it_Allocator : m_CommandAllocators)
             {
-                it_Frame.Allocator.Reset();
+                it_Allocator.Allocator.Reset();
             }
 
-            m_Fence.Reset();
             m_Queue.Reset();
-            if (m_FenceEvent != nullptr)
-            {
-                ::CloseHandle(m_FenceEvent);
-            }
 
             const bool l_Report = m_Factory.IsValidationEnabled() && m_Device.GetHandle() != nullptr;
 
@@ -227,23 +99,15 @@ namespace Trinity
 
         bool D3D12Context::CreateFrames(std::string& error)
         {
-            D3D12_COMMAND_QUEUE_DESC l_QueueDescription{};
-            l_QueueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-
-            HRESULT l_Result = m_Device.GetHandle()->CreateCommandQueue(&l_QueueDescription, IID_PPV_ARGS(&m_Queue));
-            for (std::size_t it_Index = 0; SUCCEEDED(l_Result) && it_Index < m_Frames.size(); ++it_Index)
+            HRESULT l_Result = m_Queue.Initialize();
+            for (std::size_t it_Index = 0; SUCCEEDED(l_Result) && it_Index < m_CommandAllocators.size(); ++it_Index)
             {
-                l_Result = m_Device.GetHandle()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_Frames[it_Index].Allocator));
+                l_Result = m_CommandAllocators[it_Index].Create(m_Device);
             }
 
             if (SUCCEEDED(l_Result))
             {
-                l_Result = m_Device.GetHandle()->CreateCommandList1(0, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_FLAG_NONE, IID_PPV_ARGS(&m_GraphicsList));
-            }
-
-            if (SUCCEEDED(l_Result))
-            {
-                l_Result = m_Device.GetHandle()->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_Fence));
+                l_Result = m_CommandList.Initialize(m_Device);
             }
 
             if (FAILED(l_Result))
@@ -253,16 +117,12 @@ namespace Trinity
                 return false;
             }
 
-            m_FenceEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-            if (m_FenceEvent == nullptr || !m_RenderTargetViews.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, c_RenderTargetViewCapacity, false) || !m_DepthStencilViews.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, c_DepthStencilViewCapacity, false))
+            if (!m_Queue.CreateFenceEvent() || !m_RenderTargetViews.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, c_RenderTargetViewCapacity, false) || !m_DepthStencilViews.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, c_DepthStencilViewCapacity, false))
             {
                 error = std::format("the fence event and view heaps could not be created on {}", m_Device.GetInfo().AdapterName);
 
                 return false;
             }
-
-            m_Queue->SetName(L"Trinity direct queue");
-            m_GraphicsList->SetName(L"Trinity frame commands");
 
             return true;
         }
@@ -270,7 +130,7 @@ namespace Trinity
         // Shaders index the two heaps directly, so every pipeline shares one root signature that holds only the push constants
         bool D3D12Context::CreateBindless(std::string& error)
         {
-            if (!m_ResourceHeap.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, c_BindlessResourceCapacity, true) || !m_SamplerHeap.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, c_BindlessSamplerCapacity, true))
+            if (!m_ResourceHeap.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, c_BindlessResourceCapacity, true, L"Trinity bindless resources") || !m_SamplerHeap.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, c_BindlessSamplerCapacity, true, L"Trinity bindless samplers"))
             {
                 error = std::format("the shader-visible descriptor heaps could not be created on {}", m_Device.GetInfo().AdapterName);
 
@@ -281,9 +141,6 @@ namespace Trinity
             {
                 return false;
             }
-
-            m_ResourceHeap.GetHeap()->SetName(L"Trinity bindless resources");
-            m_SamplerHeap.GetHeap()->SetName(L"Trinity bindless samplers");
 
             return true;
         }
@@ -381,21 +238,6 @@ namespace Trinity
             {
                 m_RenderTargetViews.Free(l_Texture->RenderTargetViews.front());
             }
-        }
-
-        void D3D12Context::WaitForFence(std::uint64_t value)
-        {
-            if (m_Fence->GetCompletedValue() < value && SUCCEEDED(m_Fence->SetEventOnCompletion(value, m_FenceEvent)))
-            {
-                ::WaitForSingleObject(m_FenceEvent, INFINITE);
-            }
-        }
-
-        // Presents go on the queue after the frame's signal, so waiting for that signal alone can leave a swap chain buffer in use. A new signal comes after them
-        void D3D12Context::WaitForQueue()
-        {
-            m_Queue->Signal(m_Fence.Get(), ++m_FenceValue);
-            WaitForFence(m_FenceValue);
         }
 
         std::uint32_t D3D12Context::GetShaderResourceIndex(BufferHandle buffer)
@@ -505,7 +347,7 @@ namespace Trinity
 
         std::uint64_t D3D12Context::GetTimestampFrequency() const
         {
-            return D3D12QueryPool::GetTimestampFrequency(m_Queue.Get());
+            return D3D12QueryPool::GetTimestampFrequency(m_Queue.GetHandle());
         }
 
         PipelineHandle D3D12Context::CreateComputePipeline(const ComputePipelineDescription& description)
@@ -545,16 +387,13 @@ namespace Trinity
         {
             TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
 
-            FrameContext& l_Frame = m_Frames[m_FrameNumber % c_FramesInFlight];
-            WaitForFence(l_Frame.CompletionValue);
+            const D3D12CommandAllocator& l_Allocator = m_CommandAllocators[m_FrameNumber % c_FramesInFlight];
+            m_Queue.WaitForFence(l_Allocator.CompletionValue);
 
             m_InFrame = true;
             m_Releases.BeginFrame();
             m_UploadRing.BeginFrame();
-
-            l_Frame.Allocator->Reset();
-            m_GraphicsList->Reset(l_Frame.Allocator.Get(), nullptr);
-            m_CommandList.Begin(m_GraphicsList.Get());
+            m_CommandList.Begin(l_Allocator.Allocator.Get());
 
             return m_CommandList;
         }
@@ -563,15 +402,11 @@ namespace Trinity
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
-            FrameContext& l_Frame = m_Frames[m_FrameNumber % c_FramesInFlight];
+            D3D12CommandAllocator& l_Allocator = m_CommandAllocators[m_FrameNumber % c_FramesInFlight];
             m_UploadRing.EndFrame();
             m_CommandList.End();
 
-            ID3D12CommandList* const l_Lists[] = { m_GraphicsList.Get() };
-            m_Queue->ExecuteCommandLists(1, l_Lists);
-
-            l_Frame.CompletionValue = ++m_FenceValue;
-            m_Queue->Signal(m_Fence.Get(), l_Frame.CompletionValue);
+            l_Allocator.CompletionValue = m_Queue.Submit(m_CommandList.GetHandle());
 
             ++m_FrameNumber;
             m_Releases.EndFrame();
@@ -580,7 +415,7 @@ namespace Trinity
 
         void D3D12Context::WaitIdle()
         {
-            WaitForQueue();
+            m_Queue.WaitIdle();
             m_Releases.ReleaseIdle();
         }
     }

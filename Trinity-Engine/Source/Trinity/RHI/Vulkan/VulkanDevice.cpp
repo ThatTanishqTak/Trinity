@@ -359,6 +359,11 @@ namespace Trinity
             }
         }
 
+        void VulkanDevice::WaitIdle() const
+        {
+            vkDeviceWaitIdle(m_Device);
+        }
+
         // Debug utils is only on with validation, and then the layer's messages name the object
         void VulkanDevice::SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const
         {

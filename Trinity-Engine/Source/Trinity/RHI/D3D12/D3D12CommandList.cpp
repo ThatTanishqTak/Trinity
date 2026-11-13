@@ -1,5 +1,6 @@
 #include "Trinity/RHI/D3D12/D3D12CommandList.hpp"
 #include "Trinity/RHI/D3D12/D3D12Context.hpp"
+#include "Trinity/RHI/D3D12/D3D12Device.hpp"
 #include "Trinity/RHI/D3D12/D3D12Utilities.hpp"
 
 #include "Trinity/Core/Assert.hpp"
@@ -134,9 +135,28 @@ namespace Trinity
 
         }
 
-        void D3D12CommandList::Begin(ID3D12GraphicsCommandList7* commandList)
+        HRESULT D3D12CommandList::Initialize(const D3D12Device& device)
         {
-            m_CommandList = commandList;
+            const HRESULT l_Result = device.GetHandle()->CreateCommandList1(0, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_FLAG_NONE, IID_PPV_ARGS(&m_GraphicsList));
+            if (SUCCEEDED(l_Result))
+            {
+                m_GraphicsList->SetName(L"Trinity frame commands");
+            }
+
+            return l_Result;
+        }
+
+        void D3D12CommandList::Reset()
+        {
+            m_GraphicsList.Reset();
+        }
+
+        void D3D12CommandList::Begin(ID3D12CommandAllocator* allocator)
+        {
+            allocator->Reset();
+            m_GraphicsList->Reset(allocator, nullptr);
+
+            m_CommandList = m_GraphicsList.Get();
             m_Rendering = false;
             m_HasPipeline = false;
             m_HasComputePipeline = false;

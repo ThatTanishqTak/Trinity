@@ -4,7 +4,9 @@
 #include "Trinity/RHI/Bindless.hpp"
 #include "Trinity/RHI/D3D12/D3D12Allocator.hpp"
 #include "Trinity/RHI/D3D12/D3D12Buffer.hpp"
+#include "Trinity/RHI/D3D12/D3D12CommandAllocator.hpp"
 #include "Trinity/RHI/D3D12/D3D12CommandList.hpp"
+#include "Trinity/RHI/D3D12/D3D12CommandQueue.hpp"
 #include "Trinity/RHI/D3D12/D3D12DescriptorHeap.hpp"
 #include "Trinity/RHI/D3D12/D3D12Device.hpp"
 #include "Trinity/RHI/D3D12/D3D12Factory.hpp"
@@ -87,23 +89,14 @@ namespace Trinity
             void RemoveSwapChainBuffer(TextureHandle texture);
 
             [[nodiscard]] IDXGIFactory6* GetFactory() const { return m_Factory.GetHandle(); }
-            [[nodiscard]] ID3D12CommandQueue* GetQueue() const { return m_Queue.Get(); }
+            [[nodiscard]] ID3D12CommandQueue* GetQueue() const { return m_Queue.GetHandle(); }
             [[nodiscard]] bool IsTearingSupported() const { return m_Factory.IsTearingSupported(); }
             [[nodiscard]] bool IsInFrame() const { return m_InFrame; }
 
         private:
-            struct FrameContext
-            {
-                Microsoft::WRL::ComPtr<ID3D12CommandAllocator> Allocator;
-                std::uint64_t CompletionValue = 0;
-            };
-
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
-
-            void WaitForFence(std::uint64_t value);
-            void WaitForQueue();
 
             D3D12Factory m_Factory;
             D3D12Device m_Device;
@@ -121,13 +114,9 @@ namespace Trinity
             D3D12RootSignature m_RootSignature;
             D3D12ReleaseQueue m_Releases;
 
-            Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_Queue;
-            Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> m_GraphicsList;
-            std::array<FrameContext, c_FramesInFlight> m_Frames{};
-            Microsoft::WRL::ComPtr<ID3D12Fence> m_Fence;
-            HANDLE m_FenceEvent = nullptr;
+            D3D12CommandQueue m_Queue;
+            std::array<D3D12CommandAllocator, c_FramesInFlight> m_CommandAllocators{};
             std::uint64_t m_FrameNumber = 0;
-            std::uint64_t m_FenceValue = 0;
 
             D3D12CommandList m_CommandList;
             bool m_InFrame = false;
