@@ -11,14 +11,28 @@
 #endif
 
 #include "Trinity/Core/Log.hpp"
+#include "Trinity/Core/Memory.hpp"
 
 #include <format>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace Trinity
 {
     namespace RHI
     {
+        std::string DescribeMemoryHeap(const MemoryHeapBudget& heap)
+        {
+            const std::string_view l_Kind = heap.DeviceLocal ? "Video memory" : "System memory";
+            if (!heap.FromDriver)
+            {
+                return std::format("{}: {} heap", l_Kind, Memory::FormatBytes(heap.Size));
+            }
+
+            return std::format("{}: {} of {} budget, {} heap", l_Kind, Memory::FormatBytes(heap.Usage), Memory::FormatBytes(heap.Budget), Memory::FormatBytes(heap.Size));
+        }
+
         UploadAllocation Device::AllocateUpload(std::uint64_t size, std::uint64_t alignment)
         {
             return m_UploadRing.Allocate(size, alignment);

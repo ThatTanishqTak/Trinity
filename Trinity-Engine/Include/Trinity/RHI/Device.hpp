@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace Trinity
 {
@@ -34,6 +35,16 @@ namespace Trinity
             std::uint64_t VideoMemoryBytes = 0;
         };
 
+        // A heap of GPU memory, with how much of it the process may use before the driver starts moving memory out and how much it uses. Without FromDriver the driver reports neither, and only the size is known
+        struct MemoryHeapBudget
+        {
+            std::uint64_t Size = 0;
+            std::uint64_t Budget = 0;
+            std::uint64_t Usage = 0;
+            bool DeviceLocal = false;
+            bool FromDriver = false;
+        };
+
         class TRINITY_API Device
         {
         public:
@@ -43,6 +54,8 @@ namespace Trinity
             Device& operator=(const Device&) = delete;
 
             [[nodiscard]] virtual const DeviceInfo& GetInfo() const = 0;
+            // Each heap's budget and use, which the device fetches from the driver once a frame. Null reports none
+            [[nodiscard]] virtual std::vector<MemoryHeapBudget> GetMemoryBudget() const = 0;
 
             [[nodiscard]] virtual BufferHandle CreateBuffer(const BufferDescription& description) = 0;
             virtual void DestroyBuffer(BufferHandle buffer) = 0;
@@ -96,5 +109,7 @@ namespace Trinity
         };
 
         [[nodiscard]] TRINITY_API Expected<Scope<Device>, std::string> CreateDevice(const DeviceSpecification& specification);
+        // One line for a statistics overlay, such as "Video memory: 1.25 GiB of 6.50 GiB budget, 8.00 GiB heap", or the heap's size alone without the driver's numbers
+        [[nodiscard]] TRINITY_API std::string DescribeMemoryHeap(const MemoryHeapBudget& heap);
     }
 }

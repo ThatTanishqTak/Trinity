@@ -357,6 +357,7 @@ namespace Trinity
 
             m_InFrame = true;
             m_Releases.BeginFrame();
+            m_Allocator.BeginFrame(m_FrameNumber);
             m_UploadRing.BeginFrame();
 
             l_Pool.Reset(m_Device);

@@ -5,9 +5,12 @@
 
 #include "Trinity/Core/Memory.hpp"
 
+#include <array>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <string>
+#include <vector>
 
 namespace Trinity
 {
@@ -52,6 +55,9 @@ namespace Trinity
             l_Create.instance = m_Instance.GetHandle();
             l_Create.vulkanApiVersion = VK_API_VERSION_1_3;
             l_Create.pAllocationCallbacks = &c_HostAllocator;
+            // D3D12MemoryAllocator's block size, so an allocation over 32 MiB gets memory of its own on both APIs and goes back to the driver when it is released
+            l_Create.preferredLargeHeapBlockSize = 64ull * 1024 * 1024;
+            l_Create.flags = m_Device.HasMemoryBudget() ? VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT : 0;
 
             VmaVulkanFunctions l_Functions{};
             VkResult l_Result = vmaImportVulkanFunctionsFromVolk(&l_Create, &l_Functions);
@@ -78,6 +84,37 @@ namespace Trinity
                 vmaDestroyAllocator(m_Allocator);
                 m_Allocator = nullptr;
             }
+        }
+
+        void VulkanAllocator::BeginFrame(std::uint64_t frame)
+        {
+            vmaSetCurrentFrameIndex(m_Allocator, static_cast<std::uint32_t>(frame));
+        }
+
+        // Without the extension VulkanMemoryAllocator only guesses the budget, so the heap's size is all it reports
+        std::vector<MemoryHeapBudget> VulkanAllocator::GetMemoryBudget() const
+        {
+            const VkPhysicalDeviceMemoryProperties* l_Properties = nullptr;
+            vmaGetMemoryProperties(m_Allocator, &l_Properties);
+
+            std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> l_Budgets{};
+            vmaGetHeapBudgets(m_Allocator, l_Budgets.data());
+
+            std::vector<MemoryHeapBudget> l_Heaps(l_Properties->memoryHeapCount);
+            for (std::uint32_t it_Heap = 0; it_Heap < l_Properties->memoryHeapCount; ++it_Heap)
+            {
+                MemoryHeapBudget& l_Heap = l_Heaps[it_Heap];
+                l_Heap.Size = l_Properties->memoryHeaps[it_Heap].size;
+                l_Heap.DeviceLocal = (l_Properties->memoryHeaps[it_Heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0;
+                l_Heap.FromDriver = m_Device.HasMemoryBudget();
+                if (l_Heap.FromDriver)
+                {
+                    l_Heap.Budget = l_Budgets[it_Heap].budget;
+                    l_Heap.Usage = l_Budgets[it_Heap].usage;
+                }
+            }
+
+            return l_Heaps;
         }
     }
 }

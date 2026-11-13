@@ -1,8 +1,11 @@
 #pragma once
 
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
+#include "Trinity/RHI/Device.hpp"
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace Trinity
 {
@@ -21,6 +24,11 @@ namespace Trinity
             [[nodiscard]] bool Initialize(std::string& error);
             // Once every allocation made through it is released
             void Reset();
+            // Fetches the budget for the frame, as D3D12MemoryAllocator asks to be told once a frame
+            void BeginFrame(std::uint64_t frame);
+
+            // Video memory and, on a discrete GPU, the system memory it reaches, with QueryVideoMemoryInfo's budget and use
+            [[nodiscard]] std::vector<MemoryHeapBudget> GetMemoryBudget() const;
 
             [[nodiscard]] D3D12MA::Allocator* GetHandle() const { return m_Allocator.Get(); }
 

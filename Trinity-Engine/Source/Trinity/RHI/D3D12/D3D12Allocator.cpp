@@ -6,8 +6,10 @@
 #include "Trinity/Core/Memory.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <string>
+#include <vector>
 
 namespace Trinity
 {
@@ -57,6 +59,34 @@ namespace Trinity
         void D3D12Allocator::Reset()
         {
             m_Allocator.Reset();
+        }
+
+        void D3D12Allocator::BeginFrame(std::uint64_t frame)
+        {
+            m_Allocator->SetCurrentFrameIndex(static_cast<UINT>(frame));
+        }
+
+        // An integrated GPU has one segment for everything, and the system memory segment is then empty and left out
+        std::vector<MemoryHeapBudget> D3D12Allocator::GetMemoryBudget() const
+        {
+            D3D12MA::Budget l_Local{};
+            D3D12MA::Budget l_NonLocal{};
+            m_Allocator->GetBudget(&l_Local, &l_NonLocal);
+
+            std::vector<MemoryHeapBudget> l_Heaps;
+            const auto a_Add = [this, &l_Heaps](DXGI_MEMORY_SEGMENT_GROUP segment, const D3D12MA::Budget& budget)
+            {
+                const std::uint64_t l_Size = m_Allocator->GetMemoryCapacity(segment);
+                if (l_Size != 0)
+                {
+                    l_Heaps.push_back({ l_Size, budget.BudgetBytes, budget.UsageBytes, segment == DXGI_MEMORY_SEGMENT_GROUP_LOCAL, true });
+                }
+            };
+
+            a_Add(DXGI_MEMORY_SEGMENT_GROUP_LOCAL, l_Local);
+            a_Add(DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, l_NonLocal);
+
+            return l_Heaps;
         }
     }
 }

@@ -25,6 +25,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -40,6 +41,7 @@ namespace Trinity
             ~VulkanContext() override;
 
             [[nodiscard]] const DeviceInfo& GetInfo() const override { return m_Device.GetInfo(); }
+            [[nodiscard]] std::vector<MemoryHeapBudget> GetMemoryBudget() const override { return m_Allocator.GetMemoryBudget(); }
 
             [[nodiscard]] BufferHandle CreateBuffer(const BufferDescription& description) override;
             void DestroyBuffer(BufferHandle buffer) override;

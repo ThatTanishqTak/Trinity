@@ -39,6 +39,7 @@ namespace Trinity
             [[nodiscard]] std::uint32_t GetQueueFamily() const { return m_QueueFamily; }
             [[nodiscard]] bool HasTextureCompressionBC() const { return m_TextureCompressionBC; }
             [[nodiscard]] bool HasTimestamps() const { return m_TimestampsSupported; }
+            [[nodiscard]] bool HasMemoryBudget() const { return m_MemoryBudget; }
             [[nodiscard]] float GetTimestampPeriod() const { return m_TimestampPeriod; }
 
         private:
@@ -47,6 +48,7 @@ namespace Trinity
             DeviceInfo m_Info;
             bool m_TextureCompressionBC = false;
             bool m_TimestampsSupported = false;
+            bool m_MemoryBudget = false;
             float m_TimestampPeriod = 1.0f;
 
             VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;

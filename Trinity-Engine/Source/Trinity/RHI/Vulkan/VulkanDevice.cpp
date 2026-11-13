@@ -293,10 +293,18 @@ namespace Trinity
             m_TextureCompressionBC = l_Available.Features.features.textureCompressionBC == VK_TRUE;
             l_Enabled.Features.features.textureCompressionBC = l_Available.Features.features.textureCompressionBC;
 
+            const std::vector<VkExtensionProperties> l_DeviceExtensions = GetDeviceExtensions(m_PhysicalDevice);
             std::vector<const char*> l_Extensions;
-            if (HasExtension(GetDeviceExtensions(m_PhysicalDevice), VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+            if (HasExtension(l_DeviceExtensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME))
             {
                 l_Extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+            }
+
+            // Optional: without it the memory budget shows each heap's size alone
+            m_MemoryBudget = HasExtension(l_DeviceExtensions, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+            if (m_MemoryBudget)
+            {
+                l_Extensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
             }
 
             const float l_Priority = 1.0f;

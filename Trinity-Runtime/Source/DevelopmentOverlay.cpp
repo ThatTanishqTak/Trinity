@@ -224,7 +224,7 @@ void DevelopmentOverlay::DrawMark(const ImGuiViewport& viewport) const
     ImGui::End();
 }
 
-// In the top left corner, under the debugger's menu while it is open: the frame rate and time ImGui averages, the device and the view's size, what the last frame drew, and the sound
+// In the top left corner, under the debugger's menu while it is open: the frame rate and time ImGui averages, the device and the view's size, each GPU memory heap's budget and use, what the last frame drew, and the sound
 void DevelopmentOverlay::DrawStats(const ImGuiViewport& viewport) const
 {
     Trinity::Application& l_Application = Trinity::Application::Get();
@@ -237,6 +237,10 @@ void DevelopmentOverlay::DrawStats(const ImGuiViewport& viewport) const
         const Trinity::RHI::DeviceInfo& l_Device = l_Application.GetDevice().GetInfo();
         Line(std::format("{:.0f} fps, {:.2f} ms a frame", l_IO.Framerate, l_IO.Framerate > 0.0f ? 1000.0f / l_IO.Framerate : 0.0f));
         Line(std::format("{} on {}, {}x{}", Trinity::ToString(l_Device.API), l_Device.AdapterName.empty() ? std::string_view("no adapter") : std::string_view(l_Device.AdapterName), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight()));
+        for (const Trinity::RHI::MemoryHeapBudget& it_Heap : l_Application.GetDevice().GetMemoryBudget())
+        {
+            Line(Trinity::RHI::DescribeMemoryHeap(it_Heap));
+        }
 
         const Trinity::Renderer3D::Statistics& l_3D = l_Renderer.GetRenderer3D().GetStatistics();
         Line(std::format("3D: {} of {} submeshes, {} draws, {} in {} shadow maps, {}", l_3D.Visible, l_3D.Submeshes, l_3D.PrePassDraws + l_3D.OpaqueDraws + l_3D.TransparentDraws + l_3D.WorldUIDraws, l_3D.ShadowDraws, l_3D.ShadowMaps, CountOf(l_3D.Lights, "light")));

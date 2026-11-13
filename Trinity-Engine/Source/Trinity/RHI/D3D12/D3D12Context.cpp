@@ -392,6 +392,7 @@ namespace Trinity
 
             m_InFrame = true;
             m_Releases.BeginFrame();
+            m_Allocator.BeginFrame(m_FrameNumber);
             m_UploadRing.BeginFrame();
             m_CommandList.Begin(l_Allocator.Allocator.Get());
 

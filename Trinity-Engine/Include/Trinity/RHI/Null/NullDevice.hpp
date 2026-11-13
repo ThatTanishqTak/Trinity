@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -92,6 +93,7 @@ namespace Trinity
             ~NullDevice() override;
 
             [[nodiscard]] const DeviceInfo& GetInfo() const override { return m_Info; }
+            [[nodiscard]] std::vector<MemoryHeapBudget> GetMemoryBudget() const override { return {}; }
 
             [[nodiscard]] BufferHandle CreateBuffer(const BufferDescription& description) override;
             void DestroyBuffer(BufferHandle buffer) override;

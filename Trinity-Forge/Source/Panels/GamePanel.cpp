@@ -524,6 +524,11 @@ void GamePanel::DrawStats(ImVec2 start, ImVec2 available) const
     const ImGuiStyle& l_Style = ImGui::GetStyle();
     const Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
     std::vector<std::string> l_Lines{ std::format("{:.0f} fps, {:.2f} ms", l_IO.Framerate, l_IO.Framerate > 0.0f ? 1000.0f / l_IO.Framerate : 0.0f), std::format("Game {}x{}", l_Renderer.GetSceneWidth(m_View), l_Renderer.GetSceneHeight(m_View)), std::format("Shown at {:.1f}x in {}x{}", GetScale(), m_AreaWidth, m_AreaHeight) };
+    for (const Trinity::RHI::MemoryHeapBudget& it_Heap : Trinity::Application::Get().GetDevice().GetMemoryBudget())
+    {
+        l_Lines.push_back(Trinity::RHI::DescribeMemoryHeap(it_Heap));
+    }
+
     Trinity::SceneRuntime* l_Runtime = m_Session.GetRuntime();
     AppendAudioStats(l_Lines, Trinity::Application::Get().GetAudioEngine(), l_Runtime != nullptr ? &l_Runtime->GetAudio() : nullptr);
 
