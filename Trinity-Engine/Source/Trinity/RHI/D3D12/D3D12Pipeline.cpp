@@ -1,15 +1,23 @@
 #include "Trinity/RHI/D3D12/D3D12Pipeline.hpp"
-#include "Trinity/RHI/D3D12/D3D12Device.hpp"
+#include "Trinity/RHI/D3D12/D3D12PipelineLibrary.hpp"
 #include "Trinity/RHI/D3D12/D3D12RootSignature.hpp"
 #include "Trinity/RHI/D3D12/D3D12Utilities.hpp"
 
 #include "Trinity/Core/Assert.hpp"
+#include "Trinity/Core/Hash.hpp"
 #include "Trinity/Core/Log.hpp"
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <format>
+#include <initializer_list>
 #include <optional>
+#include <span>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Trinity
 {
@@ -143,9 +151,41 @@ namespace Trinity
                     }
                 }
             }
+
+            template<typename... Values>
+            void Append(std::vector<std::byte>& bytes, const Values&... values)
+            {
+                (bytes.insert(bytes.end(), reinterpret_cast<const std::byte*>(&values), reinterpret_cast<const std::byte*>(&values) + sizeof(Values)), ...);
+            }
+
+            std::span<const std::byte> ToBytes(std::string_view text)
+            {
+                return std::as_bytes(std::span(text.data(), text.size()));
+            }
+
+            // The name a pipeline state has in the pipeline library, from the hash of everything it is made from, each part's hash seeding the next, so two pipeline states share a name only when they are the same
+            std::wstring GetLibraryName(std::string_view kind, std::initializer_list<std::span<const std::byte>> parts)
+            {
+                std::uint64_t l_Hash = 0;
+                for (const std::span<const std::byte> it_Part : parts)
+                {
+                    l_Hash = Hash::XXHash64(it_Part, l_Hash);
+                }
+
+                return ToWide(std::format("{} {:016x}", kind, l_Hash));
+            }
+
+            std::wstring GetLibraryName(const GraphicsPipelineDescription& description)
+            {
+                std::vector<std::byte> l_State;
+                Append(l_State, description.DepthFormat, description.SampleCount, description.Topology, description.Cull, description.FrontCounterClockwise, description.DepthTest, description.DepthWrite, description.DepthCompare, description.DepthBiasConstant, description.DepthBiasSlope, description.DepthBiasClamp, description.DepthClamp);
+                Append(l_State, description.StencilTest, description.StencilCompare, description.StencilPass, description.StencilReadMask, description.StencilWriteMask, description.AlphaBlend, description.PremultipliedAlpha, description.ColorWrite);
+
+                return GetLibraryName("Graphics", { description.VertexShader.Code, ToBytes(description.VertexShader.EntryPoint), description.PixelShader.Code, ToBytes(description.PixelShader.EntryPoint), std::as_bytes(description.ColorFormats), l_State });
+            }
         }
 
-        std::optional<D3D12Pipeline> D3D12Pipeline::CreateGraphics(const D3D12Device& device, const D3D12RootSignature& rootSignature, const GraphicsPipelineDescription& description)
+        std::optional<D3D12Pipeline> D3D12Pipeline::CreateGraphics(const D3D12RootSignature& rootSignature, D3D12PipelineLibrary& library, const GraphicsPipelineDescription& description)
         {
             TR_CORE_ASSERT(!description.VertexShader.Code.empty() && !description.PixelShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
             TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
@@ -201,7 +241,7 @@ namespace Trinity
 
             D3D12Pipeline l_Pipeline;
             l_Pipeline.Topology = ToD3DTopology(description.Topology);
-            const HRESULT l_Result = device.GetHandle()->CreateGraphicsPipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
+            const HRESULT l_Result = library.CreateGraphics(GetLibraryName(description), l_Description, l_Pipeline.State);
             if (FAILED(l_Result))
             {
                 TR_CORE_ERROR("D3D12: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));
@@ -217,7 +257,7 @@ namespace Trinity
             return l_Pipeline;
         }
 
-        std::optional<D3D12Pipeline> D3D12Pipeline::CreateCompute(const D3D12Device& device, const D3D12RootSignature& rootSignature, const ComputePipelineDescription& description)
+        std::optional<D3D12Pipeline> D3D12Pipeline::CreateCompute(const D3D12RootSignature& rootSignature, D3D12PipelineLibrary& library, const ComputePipelineDescription& description)
         {
             TR_CORE_ASSERT(!description.ComputeShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
 
@@ -227,7 +267,7 @@ namespace Trinity
 
             D3D12Pipeline l_Pipeline;
             l_Pipeline.Compute = true;
-            const HRESULT l_Result = device.GetHandle()->CreateComputePipelineState(&l_Description, IID_PPV_ARGS(&l_Pipeline.State));
+            const HRESULT l_Result = library.CreateCompute(GetLibraryName("Compute", { description.ComputeShader.Code, ToBytes(description.ComputeShader.EntryPoint) }), l_Description, l_Pipeline.State);
             if (FAILED(l_Result))
             {
                 TR_CORE_ERROR("D3D12: pipeline '{}' could not be created ({})", description.DebugName, FormatResult(l_Result));

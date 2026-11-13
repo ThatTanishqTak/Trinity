@@ -405,6 +405,12 @@ namespace Trinity
             return l_Result;
         }
 
+        // Windows has no folder of its own for caches, so they go in the local application data, which never roams
+        std::filesystem::path GetUserCacheDirectory()
+        {
+            return GetUserDataDirectory();
+        }
+
         // Wherever the person has moved it, as into OneDrive
         std::filesystem::path GetDocumentsDirectory()
         {

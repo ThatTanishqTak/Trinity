@@ -34,7 +34,7 @@ namespace Trinity
             return l_Device;
         }
 
-        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_RootSignature(m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_Queue(m_Device), m_CommandList(*this)
+        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_RootSignature(m_Device), m_PipelineLibrary(m_Factory, m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_Queue(m_Device), m_CommandList(*this)
         {
 
         }
@@ -58,6 +58,7 @@ namespace Trinity
             m_Textures.ForEach([](D3D12Texture& texture) { texture.Allocation.Reset(); });
             m_Pipelines.ForEach([](D3D12Pipeline& pipeline) { pipeline.State.Reset(); });
             m_QueryPools.ForEach([](D3D12QueryPool& pool) { pool.Heap.Reset(); });
+            m_PipelineLibrary.Destroy();
             m_Allocator.Reset();
             m_RootSignature.Reset();
             m_ResourceHeap.Reset();
@@ -94,7 +95,7 @@ namespace Trinity
 
             m_Factory.LogRuntime();
 
-            return m_Allocator.Initialize(error) && CreateFrames(error) && CreateBindless(error) && m_UploadRing.Initialize(*this, error);
+            return m_Allocator.Initialize(error) && CreateFrames(error) && CreateBindless(error) && m_PipelineLibrary.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool D3D12Context::CreateFrames(std::string& error)
@@ -309,7 +310,7 @@ namespace Trinity
 
         PipelineHandle D3D12Context::CreateGraphicsPipeline(const GraphicsPipelineDescription& description)
         {
-            std::optional<D3D12Pipeline> l_Pipeline = D3D12Pipeline::CreateGraphics(m_Device, m_RootSignature, description);
+            std::optional<D3D12Pipeline> l_Pipeline = D3D12Pipeline::CreateGraphics(m_RootSignature, m_PipelineLibrary, description);
             if (!l_Pipeline)
             {
                 return {};
@@ -352,7 +353,7 @@ namespace Trinity
 
         PipelineHandle D3D12Context::CreateComputePipeline(const ComputePipelineDescription& description)
         {
-            std::optional<D3D12Pipeline> l_Pipeline = D3D12Pipeline::CreateCompute(m_Device, m_RootSignature, description);
+            std::optional<D3D12Pipeline> l_Pipeline = D3D12Pipeline::CreateCompute(m_RootSignature, m_PipelineLibrary, description);
             if (!l_Pipeline)
             {
                 return {};

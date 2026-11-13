@@ -15,6 +15,7 @@
 #include "Trinity/Core/Timestep.hpp"
 #include "Trinity/Core/Version.hpp"
 #include "Trinity/FileSystem/FileSystem.hpp"
+#include "Trinity/FileSystem/FileSystemUtilities.hpp"
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Input/InputActionsRuntime.hpp"
 #include "Trinity/Physics/CollisionShapeLoaders.hpp"
@@ -51,6 +52,9 @@ namespace Trinity
 
         ConsoleVariable<bool> s_GPUValidationVariable("renderer.gpu_validation", false, "Adds GPU-based validation to the graphics debug layer in Debug builds. Much slower", ConsoleVariableFlags::ReadOnly);
         ConsoleVariable<std::int32_t> s_FrameCapacityVariable("memory.frame_capacity", 0, "Frame allocator capacity per buffer in KiB; 0 uses the application's default", ConsoleVariableFlags::ReadOnly);
+
+        // The user's cache folder, apart from a project's own /cache
+        constexpr std::string_view c_UserCacheMount = "/usercache";
 
         std::size_t GetFrameAllocatorCapacity(const ApplicationSpecification& specification)
         {
@@ -165,12 +169,16 @@ namespace Trinity
             return l_Directory;
         }
 
+        // The executable's name without its extension, which each program's own files in a shared folder are named for
+        std::filesystem::path GetProgramName(const ApplicationCommandLineArgs& args)
+        {
+            return args.Count > 0 && args.Args != nullptr && args.Args[0] != nullptr ? std::filesystem::path(args.Args[0]).stem() : std::filesystem::path("Trinity");
+        }
+
         // Named for the executable, so each program's is its own in a shared folder
         std::filesystem::path GetLogFile(const std::filesystem::path& directory, const ApplicationCommandLineArgs& args, std::string_view extension)
         {
-            const std::filesystem::path l_Stem = args.Count > 0 && args.Args != nullptr && args.Args[0] != nullptr ? std::filesystem::path(args.Args[0]).stem() : std::filesystem::path("Trinity");
-
-            return directory / std::filesystem::path(l_Stem).concat(extension);
+            return directory / GetProgramName(args).concat(extension);
         }
 
         void MountSaveDirectory(const ApplicationCommandLineArgs& args, std::string_view company, std::string_view applicationName, const std::filesystem::path& savesDirectory)
@@ -208,6 +216,39 @@ namespace Trinity
             }
 
             FileSystem::MountDirectory("/saves", l_Directory, MountAccess::ReadWrite);
+        }
+
+        // What a program can make again, as its pipeline caches, under --cache-dir when given, or else in the user's cache folder under the names its logs go under. Without either nothing is kept between runs
+        void MountCacheDirectory(const ApplicationCommandLineArgs& args, std::string_view company, std::string_view applicationName)
+        {
+            std::filesystem::path l_Directory;
+            if (const std::optional<std::string_view> l_Override = args.GetOption("cache-dir"); l_Override && !l_Override->empty())
+            {
+                l_Directory = std::filesystem::path(*l_Override);
+            }
+            else
+            {
+                const std::filesystem::path l_Base = Platform::GetUserCacheDirectory();
+                if (l_Base.empty())
+                {
+                    TR_CORE_WARN("No per-user cache folder was found, so nothing is cached between runs");
+
+                    return;
+                }
+
+                l_Directory = GetUserFolder(l_Base, company, applicationName) / "Cache";
+            }
+
+            std::error_code l_Error;
+            std::filesystem::create_directories(l_Directory, l_Error);
+            if (l_Error)
+            {
+                TR_CORE_WARN("Could not create the cache folder '{}', so nothing is cached between runs: {}", l_Directory.string(), l_Error.message());
+
+                return;
+            }
+
+            FileSystem::MountDirectory(c_UserCacheMount, l_Directory, MountAccess::ReadWrite);
         }
 
         std::optional<std::uint64_t> ParseUnsigned(std::string_view text)
@@ -362,6 +403,7 @@ namespace Trinity
         TR_CORE_INFO("Starting '{}' (graphics: {}{})", m_Specification.Name, ToString(m_Specification.Graphics), m_Specification.Window.Headless ? ", headless" : "");
 
         MountSaveDirectory(l_Args, m_Specification.Company, m_Specification.Name, m_Specification.SavesDirectory);
+        MountCacheDirectory(l_Args, m_Specification.Company, m_Specification.Name);
         if (m_Specification.ConfigureWindow)
         {
             m_Specification.ConfigureWindow(m_Specification.Window);
@@ -442,9 +484,14 @@ namespace Trinity
             l_APIs.push_back(GraphicsAPI::None);
         }
 
+        const bool l_Cached = FileSystem::Exists(c_UserCacheMount);
+        const std::string l_Program = FileSystemUtilities::ToUtf8(GetProgramName(m_Specification.CommandLineArgs));
+
         for (std::size_t it_Index = 0; it_Index < l_APIs.size(); ++it_Index)
         {
             l_Specification.API = l_APIs[it_Index];
+            // One file for each program and API, as a driver's data in it is only for its own API
+            l_Specification.PipelineCachePath = l_Cached && l_Specification.API != GraphicsAPI::None ? std::format("{}/{}.{}.cache", c_UserCacheMount, l_Program, ToString(l_Specification.API)) : std::string();
             Expected<Scope<RHI::Device>, std::string> l_Device = RHI::CreateDevice(l_Specification);
             if (l_Device || it_Index + 1 == l_APIs.size())
             {

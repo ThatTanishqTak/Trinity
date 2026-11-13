@@ -12,6 +12,7 @@
 #include "Trinity/RHI/D3D12/D3D12Factory.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 #include "Trinity/RHI/D3D12/D3D12Pipeline.hpp"
+#include "Trinity/RHI/D3D12/D3D12PipelineLibrary.hpp"
 #include "Trinity/RHI/D3D12/D3D12QueryPool.hpp"
 #include "Trinity/RHI/D3D12/D3D12ReleaseQueue.hpp"
 #include "Trinity/RHI/D3D12/D3D12RootSignature.hpp"
@@ -113,6 +114,7 @@ namespace Trinity
             D3D12DescriptorHeap m_ResourceHeap;
             D3D12DescriptorHeap m_SamplerHeap;
             D3D12RootSignature m_RootSignature;
+            D3D12PipelineLibrary m_PipelineLibrary;
             D3D12ReleaseQueue m_Releases;
 
             D3D12CommandQueue m_Queue;

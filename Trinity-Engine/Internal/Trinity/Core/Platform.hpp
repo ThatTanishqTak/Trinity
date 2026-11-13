@@ -104,6 +104,8 @@ namespace Trinity
         void Free(void* memory);
 
         [[nodiscard]] std::filesystem::path GetUserDataDirectory();
+        // Where files a program can make again go, which the system may clear: the local application data on Windows, ~/Library/Caches on macOS, and $XDG_CACHE_HOME or ~/.cache elsewhere. Empty when there is none
+        [[nodiscard]] std::filesystem::path GetUserCacheDirectory();
         [[nodiscard]] std::filesystem::path GetDocumentsDirectory();
         [[nodiscard]] std::filesystem::path GetExecutableDirectory();
         [[nodiscard]] std::filesystem::path GetExecutablePath();

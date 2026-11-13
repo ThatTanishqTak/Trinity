@@ -1,6 +1,7 @@
 #include "Trinity/RHI/Vulkan/VulkanPipeline.hpp"
 #include "Trinity/RHI/Vulkan/VulkanBindless.hpp"
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
+#include "Trinity/RHI/Vulkan/VulkanPipelineCache.hpp"
 #include "Trinity/RHI/Vulkan/VulkanUtilities.hpp"
 
 #include "Trinity/Core/Assert.hpp"
@@ -129,7 +130,7 @@ namespace Trinity
             }
         }
 
-        std::optional<VulkanPipeline> VulkanPipeline::CreateGraphics(const VulkanDevice& device, const VulkanBindless& bindless, const GraphicsPipelineDescription& description)
+        std::optional<VulkanPipeline> VulkanPipeline::CreateGraphics(const VulkanDevice& device, const VulkanBindless& bindless, VulkanPipelineCache& cache, const GraphicsPipelineDescription& description)
         {
             TR_CORE_ASSERT(!description.VertexShader.Code.empty() && !description.PixelShader.Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
             TR_CORE_ASSERT(description.ColorFormats.size() <= c_MaxColorAttachments, "Pipeline '{}' has too many color formats.", description.DebugName);
@@ -241,7 +242,7 @@ namespace Trinity
             VulkanPipeline l_Pipeline;
             if (l_Result == VK_SUCCESS)
             {
-                l_Result = vkCreateGraphicsPipelines(device.GetHandle(), VK_NULL_HANDLE, 1, &l_Create, nullptr, &l_Pipeline.Pipeline);
+                l_Result = cache.CreateGraphics(l_Create, l_Pipeline.Pipeline);
             }
 
             for (VkShaderModule it_Module : l_Modules)
@@ -261,7 +262,7 @@ namespace Trinity
             return l_Pipeline;
         }
 
-        std::optional<VulkanPipeline> VulkanPipeline::CreateCompute(const VulkanDevice& device, const VulkanBindless& bindless, const ComputePipelineDescription& description)
+        std::optional<VulkanPipeline> VulkanPipeline::CreateCompute(const VulkanDevice& device, const VulkanBindless& bindless, VulkanPipelineCache& cache, const ComputePipelineDescription& description)
         {
             const std::span<const std::byte> l_Code = description.ComputeShader.Code;
             TR_CORE_ASSERT(!l_Code.empty(), "Pipeline '{}' is missing shader code.", description.DebugName);
@@ -287,7 +288,7 @@ namespace Trinity
             l_Pipeline.BindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
             if (l_Result == VK_SUCCESS)
             {
-                l_Result = vkCreateComputePipelines(device.GetHandle(), VK_NULL_HANDLE, 1, &l_Create, nullptr, &l_Pipeline.Pipeline);
+                l_Result = cache.CreateCompute(l_Create, l_Pipeline.Pipeline);
             }
 
             vkDestroyShaderModule(device.GetHandle(), l_ShaderModule, nullptr);

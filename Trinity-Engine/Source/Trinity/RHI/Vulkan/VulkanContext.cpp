@@ -23,7 +23,7 @@ namespace Trinity
             return l_Device;
         }
 
-        VulkanContext::VulkanContext() : m_Device(m_Instance), m_Allocator(m_Instance, m_Device), m_Bindless(m_Device), m_Releases(m_Device, m_Allocator, m_Bindless), m_FrameSync(m_Device), m_CommandList(*this)
+        VulkanContext::VulkanContext() : m_Device(m_Instance), m_Allocator(m_Instance, m_Device), m_Bindless(m_Device), m_PipelineCache(m_Device), m_Releases(m_Device, m_Allocator, m_Bindless), m_FrameSync(m_Device), m_CommandList(*this)
         {
 
         }
@@ -50,6 +50,7 @@ namespace Trinity
                 m_Samplers.ForEach([this](const VulkanSampler& sampler) { m_Releases.Release(sampler.ToRelease()); });
                 m_QueryPools.ForEach([this](const VulkanQueryPool& pool) { m_Releases.Release(pool.ToRelease()); });
 
+                m_PipelineCache.Destroy();
                 m_Bindless.Destroy();
 
                 for (const VulkanCommandPool& it_Pool : m_CommandPools)
@@ -72,7 +73,7 @@ namespace Trinity
 
         bool VulkanContext::Initialize(const DeviceSpecification& specification, std::string& error)
         {
-            return m_Instance.Initialize(specification, error) && m_Device.Initialize(error) && m_Allocator.Initialize(error) && CreateFrames(error) && m_Bindless.Initialize(error) && m_UploadRing.Initialize(*this, error);
+            return m_Instance.Initialize(specification, error) && m_Device.Initialize(error) && m_Allocator.Initialize(error) && CreateFrames(error) && m_Bindless.Initialize(error) && m_PipelineCache.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool VulkanContext::CreateFrames(std::string& error)
@@ -273,7 +274,7 @@ namespace Trinity
 
         PipelineHandle VulkanContext::CreateGraphicsPipeline(const GraphicsPipelineDescription& description)
         {
-            const std::optional<VulkanPipeline> l_Pipeline = VulkanPipeline::CreateGraphics(m_Device, m_Bindless, description);
+            const std::optional<VulkanPipeline> l_Pipeline = VulkanPipeline::CreateGraphics(m_Device, m_Bindless, m_PipelineCache, description);
             if (!l_Pipeline)
             {
                 return {};
@@ -317,7 +318,7 @@ namespace Trinity
 
         PipelineHandle VulkanContext::CreateComputePipeline(const ComputePipelineDescription& description)
         {
-            const std::optional<VulkanPipeline> l_Pipeline = VulkanPipeline::CreateCompute(m_Device, m_Bindless, description);
+            const std::optional<VulkanPipeline> l_Pipeline = VulkanPipeline::CreateCompute(m_Device, m_Bindless, m_PipelineCache, description);
             if (!l_Pipeline)
             {
                 return {};

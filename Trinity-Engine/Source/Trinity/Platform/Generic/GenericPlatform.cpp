@@ -300,6 +300,30 @@ namespace Trinity
             return {};
         }
 
+        std::filesystem::path GetUserCacheDirectory()
+        {
+            const char* l_Home = std::getenv("HOME");
+            const bool l_HasHome = l_Home != nullptr && *l_Home != '\0';
+#if defined(TR_PLATFORM_MACOS)
+            if (l_HasHome)
+            {
+                return std::filesystem::path(l_Home) / "Library" / "Caches";
+            }
+#else
+            if (const char* l_CacheHome = std::getenv("XDG_CACHE_HOME"); l_CacheHome != nullptr && std::filesystem::path(l_CacheHome).is_absolute())
+            {
+                return l_CacheHome;
+            }
+
+            if (l_HasHome)
+            {
+                return std::filesystem::path(l_Home) / ".cache";
+            }
+#endif
+
+            return {};
+        }
+
         // On Linux the one xdg-user-dirs names, in its environment variable or in user-dirs.dirs as "$HOME/Documents" or a whole path, which a desktop in another language names in that language, and ~/Documents where neither names one
         std::filesystem::path GetDocumentsDirectory()
         {

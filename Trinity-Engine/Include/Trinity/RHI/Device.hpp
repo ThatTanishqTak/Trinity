@@ -26,6 +26,9 @@ namespace Trinity
 
             bool EnableValidation = false;
             bool EnableGPUValidation = false;
+
+            // The file in the virtual file system the device keeps its pipeline cache in between runs, or none
+            std::string PipelineCachePath;
         };
 
         struct DeviceInfo

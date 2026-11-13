@@ -14,6 +14,7 @@
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
 #include "Trinity/RHI/Vulkan/VulkanInstance.hpp"
 #include "Trinity/RHI/Vulkan/VulkanPipeline.hpp"
+#include "Trinity/RHI/Vulkan/VulkanPipelineCache.hpp"
 #include "Trinity/RHI/Vulkan/VulkanQueryPool.hpp"
 #include "Trinity/RHI/Vulkan/VulkanReleaseQueue.hpp"
 #include "Trinity/RHI/Vulkan/VulkanSampler.hpp"
@@ -113,6 +114,7 @@ namespace Trinity
             HandlePool<VulkanQueryPool, QueryPoolHandle> m_QueryPools;
 
             VulkanBindless m_Bindless;
+            VulkanPipelineCache m_PipelineCache;
             VulkanReleaseQueue m_Releases;
 
             std::array<VulkanCommandPool, c_FramesInFlight> m_CommandPools{};
