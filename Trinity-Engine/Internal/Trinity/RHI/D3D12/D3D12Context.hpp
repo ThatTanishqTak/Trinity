@@ -73,6 +73,8 @@ namespace Trinity
             [[nodiscard]] Scope<SwapChain> CreateSwapChain(const SwapChainSpecification& specification) override;
 
             [[nodiscard]] CommandList& BeginFrame() override;
+            [[nodiscard]] CommandList& GetUploadCommands() override;
+            void SubmitUploads() override;
             void EndFrame() override;
             void WaitIdle() override;
 
@@ -98,6 +100,7 @@ namespace Trinity
         private:
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
+            [[nodiscard]] bool CreateUploads(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
 
             D3D12Factory m_Factory;
@@ -123,6 +126,14 @@ namespace Trinity
 
             D3D12CommandList m_CommandList;
             bool m_InFrame = false;
+
+            // The copy queue with an allocator for each frame, or none when renderer.copy_queue is off and uploads go into the frame's list
+            D3D12CommandQueue m_CopyQueue;
+            std::array<D3D12CommandAllocator, c_FramesInFlight> m_UploadAllocators{};
+            D3D12CommandList m_UploadList;
+            bool m_UploadsEnabled = false;
+            bool m_UploadsRecording = false;
+            bool m_UploadsSubmitted = false;
         };
     }
 }

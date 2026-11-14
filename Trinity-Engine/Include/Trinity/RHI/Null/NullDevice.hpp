@@ -123,6 +123,9 @@ namespace Trinity
             [[nodiscard]] Scope<SwapChain> CreateSwapChain(const SwapChainSpecification& specification) override;
 
             [[nodiscard]] CommandList& BeginFrame() override;
+            // Uploads go into the frame's list, which has no queue to send them to
+            [[nodiscard]] CommandList& GetUploadCommands() override { return m_CommandList; }
+            void SubmitUploads() override {}
             void EndFrame() override;
             void WaitIdle() override;
 

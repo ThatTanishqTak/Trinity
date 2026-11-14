@@ -12,7 +12,6 @@ namespace Trinity
     {
         class D3D12PipelineLibrary;
         class D3D12RootSignature;
-        class D3D12RootSignature;
 
         // A graphics or compute pipeline state on the bindless root signature, with the topology command lists draw it with
         struct D3D12Pipeline

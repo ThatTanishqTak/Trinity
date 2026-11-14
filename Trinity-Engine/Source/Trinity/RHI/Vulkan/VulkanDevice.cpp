@@ -197,7 +197,7 @@ namespace Trinity
             Destroy();
         }
 
-        bool VulkanDevice::Initialize(std::string& error)
+        bool VulkanDevice::Initialize(const DeviceSpecification& specification, std::string& error)
         {
             std::uint32_t l_Count = 0;
             vkEnumeratePhysicalDevices(m_Instance.GetHandle(), &l_Count, nullptr);
@@ -307,16 +307,29 @@ namespace Trinity
                 l_Extensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
             }
 
+            // A family of its own for transfers and one for compute, the transfer one taking the uploads when renderer.copy_queue is on and the compute one not used yet
+            const auto a_Find = [&l_Families](VkQueueFlags wanted, VkQueueFlags unwanted)
+            {
+                return std::ranges::find_if(l_Families, [wanted, unwanted](const VkQueueFamilyProperties& family) { return (family.queueFlags & wanted) != 0 && (family.queueFlags & unwanted) == 0; });
+            };
+
+            const auto a_Transfer = a_Find(VK_QUEUE_TRANSFER_BIT, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
+            m_TransferFamily = specification.EnableCopyQueue && a_Transfer != l_Families.end() ? static_cast<std::uint32_t>(std::distance(l_Families.begin(), a_Transfer)) : m_QueueFamily;
+
             const float l_Priority = 1.0f;
-            VkDeviceQueueCreateInfo l_Queue = MakeInfo<VkDeviceQueueCreateInfo>(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO);
-            l_Queue.queueFamilyIndex = m_QueueFamily;
-            l_Queue.queueCount = 1;
-            l_Queue.pQueuePriorities = &l_Priority;
+            std::array<VkDeviceQueueCreateInfo, 2> l_Queues{};
+            for (std::size_t it_Index = 0; it_Index < l_Queues.size(); ++it_Index)
+            {
+                l_Queues[it_Index] = MakeInfo<VkDeviceQueueCreateInfo>(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO);
+                l_Queues[it_Index].queueFamilyIndex = it_Index == 0 ? m_QueueFamily : m_TransferFamily;
+                l_Queues[it_Index].queueCount = 1;
+                l_Queues[it_Index].pQueuePriorities = &l_Priority;
+            }
 
             VkDeviceCreateInfo l_Create = MakeInfo<VkDeviceCreateInfo>(VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO);
             l_Create.pNext = &l_Enabled.Features;
-            l_Create.queueCreateInfoCount = 1;
-            l_Create.pQueueCreateInfos = &l_Queue;
+            l_Create.queueCreateInfoCount = m_TransferFamily != m_QueueFamily ? 2 : 1;
+            l_Create.pQueueCreateInfos = l_Queues.data();
             l_Create.enabledExtensionCount = static_cast<std::uint32_t>(l_Extensions.size());
             l_Create.ppEnabledExtensionNames = l_Extensions.data();
 
@@ -330,6 +343,7 @@ namespace Trinity
 
             volkLoadDevice(m_Device);
             vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
+            vkGetDeviceQueue(m_Device, m_TransferFamily, 0, &m_TransferQueue);
 
             m_Info.API = GraphicsAPI::Vulkan;
             m_Info.AdapterName = l_Properties.properties.deviceName;
@@ -337,12 +351,7 @@ namespace Trinity
 
             TR_CORE_INFO("Vulkan: {} ({}) with {} of video memory: Vulkan {}, {} {}, dynamic rendering, synchronization2, descriptor indexing, timeline semaphores{}", m_Info.AdapterName, ToString(l_Properties.properties.deviceType), Memory::FormatBytes(m_Info.VideoMemoryBytes), FormatVersion(l_Properties.properties.apiVersion), l_DriverProperties.driverName, l_DriverProperties.driverInfo, m_TextureCompressionBC ? ", BC textures" : "");
 
-            // A family of its own for transfers and one for compute, found for the copy and compute queues and not used yet, each named with its queue count
-            const auto a_Find = [&l_Families](VkQueueFlags wanted, VkQueueFlags unwanted)
-            {
-                return std::ranges::find_if(l_Families, [wanted, unwanted](const VkQueueFamilyProperties& family) { return (family.queueFlags & wanted) != 0 && (family.queueFlags & unwanted) == 0; });
-            };
-
+            // Each family named with its queue count
             const auto a_Describe = [&l_Families](std::vector<VkQueueFamilyProperties>::const_iterator family) -> std::string
             {
                 if (family == l_Families.cend())
@@ -354,6 +363,19 @@ namespace Trinity
             };
 
             TR_CORE_INFO("Vulkan: queue families: graphics and compute {}, dedicated transfer {}, dedicated compute {}", a_Describe(l_Families.cbegin() + m_QueueFamily), a_Describe(a_Find(VK_QUEUE_TRANSFER_BIT, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)), a_Describe(a_Find(VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT)));
+
+            if (!specification.EnableCopyQueue)
+            {
+                TR_CORE_INFO("Vulkan: uploads are recorded into the frame's commands, as renderer.copy_queue is off");
+            }
+            else if (m_TransferFamily != m_QueueFamily)
+            {
+                TR_CORE_INFO("Vulkan: uploads go to the transfer queue of family {}, and every buffer is shared by it and the graphics family", m_TransferFamily);
+            }
+            else
+            {
+                TR_CORE_INFO("Vulkan: uploads go to the graphics queue in a submission of their own, as no family is for transfers alone");
+            }
 
             return true;
         }

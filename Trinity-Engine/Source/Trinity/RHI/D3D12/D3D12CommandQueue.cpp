@@ -12,10 +12,10 @@ namespace Trinity
 
         }
 
-        HRESULT D3D12CommandQueue::Initialize()
+        HRESULT D3D12CommandQueue::Initialize(D3D12_COMMAND_LIST_TYPE type)
         {
             D3D12_COMMAND_QUEUE_DESC l_QueueDescription{};
-            l_QueueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+            l_QueueDescription.Type = type;
 
             HRESULT l_Result = m_Device.GetHandle()->CreateCommandQueue(&l_QueueDescription, IID_PPV_ARGS(&m_Queue));
             if (SUCCEEDED(l_Result))
@@ -25,7 +25,7 @@ namespace Trinity
 
             if (SUCCEEDED(l_Result))
             {
-                m_Queue->SetName(L"Trinity direct queue");
+                m_Queue->SetName(type == D3D12_COMMAND_LIST_TYPE_COPY ? L"Trinity copy queue" : L"Trinity direct queue");
             }
 
             return l_Result;
@@ -72,6 +72,11 @@ namespace Trinity
             m_Queue->Signal(m_Fence.Get(), l_Value);
 
             return l_Value;
+        }
+
+        void D3D12CommandQueue::Wait(const D3D12CommandQueue& other, std::uint64_t value)
+        {
+            m_Queue->Wait(other.m_Fence.Get(), value);
         }
     }
 }

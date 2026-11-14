@@ -256,16 +256,22 @@ namespace Trinity
             ReadCapture(*it_View);
         }
 
+
+        // The loaders' uploads go to the copy queue, sent at once so they run while the frame is recorded, and the overlay's, which change every frame, stay in the frame's list
         {
-            TR_GPU_LABEL(l_Commands, "Uploads");
-            m_TextureLoader->RecordUploads(l_Commands);
-            m_MaterialLoader->RecordUploads(l_Commands);
-            m_MeshLoader->RecordUploads(l_Commands);
-            m_EnvironmentLoader->RecordUploads(l_Commands);
-            if (m_Overlay != nullptr)
-            {
-                m_Overlay->RecordUploads(l_Commands);
-            }
+            RHI::CommandList& l_Uploads = m_Device.GetUploadCommands();
+            TR_GPU_LABEL(l_Uploads, "Uploads");
+            m_TextureLoader->RecordUploads(l_Uploads);
+            m_MaterialLoader->RecordUploads(l_Uploads);
+            m_MeshLoader->RecordUploads(l_Uploads);
+            m_EnvironmentLoader->RecordUploads(l_Uploads);
+        }
+
+        m_Device.SubmitUploads();
+        if (m_Overlay != nullptr)
+        {
+            TR_GPU_LABEL(l_Commands, "Overlay uploads");
+            m_Overlay->RecordUploads(l_Commands);
         }
 
         m_Renderer2D->BeginFrame();

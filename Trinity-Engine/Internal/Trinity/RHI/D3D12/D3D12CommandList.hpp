@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -16,18 +17,26 @@ namespace Trinity
         class D3D12Context;
         class D3D12Device;
 
+        // The frame's commands on the direct queue, or with uploads the copies the loaders record for the copy queue
         class D3D12CommandList final : public CommandList
         {
         public:
-            explicit D3D12CommandList(D3D12Context& device);
+            explicit D3D12CommandList(D3D12Context& device, bool uploads = false);
 
-            // S_OK, or the failure creating the one graphics list every frame records into
+            // S_OK, or the failure creating the one list every frame records into, a direct list or with uploads a copy list
             [[nodiscard]] HRESULT Initialize(const D3D12Device& device);
             void Reset();
 
             // Resets the frame's allocator, which the frame c_FramesInFlight before this one has finished with, and the list onto it
             void Begin(ID3D12CommandAllocator* allocator);
             void End();
+
+            // Whether a copy or handoff was recorded since Begin, so the list is worth submitting
+            [[nodiscard]] bool HasCommands() const { return m_HasCommands; }
+            // Whether the uploads write something the frame before may still be reading, so they wait for it
+            [[nodiscard]] bool WaitsForGraphics() const { return m_WaitsForGraphics; }
+            // The barriers after the uploads' copies into the frame's list, which waits for the uploads before it runs
+            void RecordHandoffs(D3D12CommandList& frame);
 
             [[nodiscard]] ID3D12GraphicsCommandList7* GetHandle() const { return m_GraphicsList.Get(); }
 
@@ -68,6 +77,11 @@ namespace Trinity
             bool m_HasPipeline = false;
             bool m_HasComputePipeline = false;
             bool m_HasIndexBuffer = false;
+
+            const bool m_Uploads = false;
+            bool m_HasCommands = false;
+            bool m_WaitsForGraphics = false;
+            std::vector<D3D12_TEXTURE_BARRIER> m_TextureHandoffs;
         };
     }
 }

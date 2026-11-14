@@ -5,8 +5,10 @@
 #include "Trinity/Core/Assert.hpp"
 #include "Trinity/Core/Log.hpp"
 
+#include <format>
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace Trinity
 {
@@ -23,7 +25,7 @@ namespace Trinity
             return l_Device;
         }
 
-        VulkanContext::VulkanContext() : m_Device(m_Instance), m_Allocator(m_Instance, m_Device), m_Bindless(m_Device), m_PipelineCache(m_Device), m_Releases(m_Device, m_Allocator, m_Bindless), m_FrameSync(m_Device), m_CommandList(*this)
+        VulkanContext::VulkanContext() : m_Device(m_Instance), m_Allocator(m_Instance, m_Device), m_Bindless(m_Device), m_PipelineCache(m_Device), m_Releases(m_Device, m_Allocator, m_Bindless), m_FrameSync(m_Device), m_CommandList(*this), m_UploadList(*this, true)
         {
 
         }
@@ -53,6 +55,11 @@ namespace Trinity
                 m_PipelineCache.Destroy();
                 m_Bindless.Destroy();
 
+                for (const VulkanCommandPool& it_Pool : m_UploadPools)
+                {
+                    it_Pool.Destroy(m_Device);
+                }
+
                 for (const VulkanCommandPool& it_Pool : m_CommandPools)
                 {
                     it_Pool.Destroy(m_Device);
@@ -73,7 +80,7 @@ namespace Trinity
 
         bool VulkanContext::Initialize(const DeviceSpecification& specification, std::string& error)
         {
-            return m_Instance.Initialize(specification, error) && m_Device.Initialize(error) && m_Allocator.Initialize(error) && CreateFrames(error) && m_Bindless.Initialize(error) && m_PipelineCache.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
+            return m_Instance.Initialize(specification, error) && m_Device.Initialize(specification, error) && m_Allocator.Initialize(error) && CreateFrames(error) && CreateUploads(specification, error) && m_Bindless.Initialize(error) && m_PipelineCache.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool VulkanContext::CreateFrames(std::string& error)
@@ -87,12 +94,37 @@ namespace Trinity
                 }
 
 
-                l_Result = it_Pool.Create(m_Device);
+                l_Result = it_Pool.Create(m_Device, m_Device.GetQueueFamily());
             }
 
             if (l_Result != VK_SUCCESS)
             {
                 error = std::format("the frame command pools and timeline semaphore could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
+
+                return false;
+            }
+
+            return true;
+        }
+
+        bool VulkanContext::CreateUploads(const DeviceSpecification& specification, std::string& error)
+        {
+            m_UploadsEnabled = specification.EnableCopyQueue;
+
+            VkResult l_Result = VK_SUCCESS;
+            for (VulkanCommandPool& it_Pool : m_UploadPools)
+            {
+                if (!m_UploadsEnabled || l_Result != VK_SUCCESS)
+                {
+                    break;
+                }
+
+                l_Result = it_Pool.Create(m_Device, m_Device.GetTransferFamily());
+            }
+
+            if (l_Result != VK_SUCCESS)
+            {
+                error = std::format("the upload command pools could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
 
                 return false;
             }
@@ -364,13 +396,64 @@ namespace Trinity
             l_Pool.Reset(m_Device);
             m_FrameSync.BeginFrame();
             m_CommandList.Begin(l_Pool.CommandBuffer);
+            m_UploadsRecording = false;
+            m_UploadsSubmitted = false;
 
             return m_CommandList;
+        }
+
+        // Begun at the first call in a frame, on the pool of the frame c_FramesInFlight before, whose commands waited for its uploads
+        CommandList& VulkanContext::GetUploadCommands()
+        {
+            TR_CORE_ASSERT(m_InFrame && !m_UploadsSubmitted, "GetUploadCommands is called between BeginFrame and SubmitUploads.");
+
+            if (!m_UploadsEnabled)
+            {
+                return m_CommandList;
+            }
+
+            if (!m_UploadsRecording)
+            {
+                const VulkanCommandPool& l_Pool = m_UploadPools[GetFrameSlot()];
+                l_Pool.Reset(m_Device);
+                m_UploadList.Begin(l_Pool.CommandBuffer);
+                m_UploadsRecording = true;
+            }
+
+            return m_UploadList;
+        }
+
+        // Uploads that write what the frame before may still read wait for it, at the timeline value its number names
+        void VulkanContext::SubmitUploads()
+        {
+            TR_CORE_ASSERT(m_InFrame, "SubmitUploads is called within a frame.");
+
+            m_UploadsSubmitted = true;
+            if (!std::exchange(m_UploadsRecording, false))
+            {
+                return;
+            }
+
+            m_UploadList.End();
+            if (!m_UploadList.HasCommands())
+            {
+                return;
+            }
+
+            const VkResult l_Result = m_FrameSync.SubmitUploads(m_UploadPools[GetFrameSlot()].CommandBuffer, m_UploadList.WaitsForGraphics() ? m_FrameNumber : 0);
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: frame {}'s uploads could not be submitted ({})", m_FrameNumber, FormatResult(l_Result));
+            }
+
+            m_UploadList.RecordHandoffs(m_CommandList);
         }
 
         void VulkanContext::EndFrame()
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
+
+            SubmitUploads();
 
             VulkanCommandPool& l_Pool = m_CommandPools[GetFrameSlot()];
             m_UploadRing.EndFrame();

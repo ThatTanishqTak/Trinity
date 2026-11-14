@@ -13,6 +13,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -130,19 +131,25 @@ namespace Trinity
             {
                 return (size + block - 1) / block * block;
             }
+
+            // Out of any other state than these, a resource may still be read by the frame before
+            bool IsInUse(ResourceState state)
+            {
+                return state != ResourceState::Undefined && state != ResourceState::CopySource && state != ResourceState::CopyDestination;
+            }
         }
 
-        D3D12CommandList::D3D12CommandList(D3D12Context& device) : m_Device(device)
+        D3D12CommandList::D3D12CommandList(D3D12Context& device, bool uploads) : m_Device(device), m_Uploads(uploads)
         {
 
         }
 
         HRESULT D3D12CommandList::Initialize(const D3D12Device& device)
         {
-            const HRESULT l_Result = device.GetHandle()->CreateCommandList1(0, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_FLAG_NONE, IID_PPV_ARGS(&m_GraphicsList));
+            const HRESULT l_Result = device.GetHandle()->CreateCommandList1(0, m_Uploads ? D3D12_COMMAND_LIST_TYPE_COPY : D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_FLAG_NONE, IID_PPV_ARGS(&m_GraphicsList));
             if (SUCCEEDED(l_Result))
             {
-                m_GraphicsList->SetName(L"Trinity frame commands");
+                m_GraphicsList->SetName(m_Uploads ? L"Trinity upload commands" : L"Trinity frame commands");
             }
 
             return l_Result;
@@ -163,6 +170,13 @@ namespace Trinity
             m_HasPipeline = false;
             m_HasComputePipeline = false;
             m_HasIndexBuffer = false;
+            m_HasCommands = false;
+            m_WaitsForGraphics = false;
+            m_TextureHandoffs.clear();
+            if (m_Uploads)
+            {
+                return;
+            }
 
             const std::array<ID3D12DescriptorHeap*, 2> l_Heaps{ m_Device.GetResourceHeap(), m_Device.GetSamplerHeap() };
             m_CommandList->SetDescriptorHeaps(static_cast<UINT>(l_Heaps.size()), l_Heaps.data());
@@ -179,7 +193,21 @@ namespace Trinity
             m_CommandList = nullptr;
         }
 
-        // Moving out of Undefined discards the contents, which also counts as the first write a render target or depth texture needs
+        void D3D12CommandList::RecordHandoffs(D3D12CommandList& frame)
+        {
+            if (!m_TextureHandoffs.empty())
+            {
+                D3D12_BARRIER_GROUP l_Group{};
+                l_Group.Type = D3D12_BARRIER_TYPE_TEXTURE;
+                l_Group.NumBarriers = static_cast<UINT32>(m_TextureHandoffs.size());
+                l_Group.pTextureBarriers = m_TextureHandoffs.data();
+                frame.m_CommandList->Barrier(1, &l_Group);
+            }
+
+            m_TextureHandoffs.clear();
+        }
+
+        // Moving out of Undefined discards the contents, which also counts as the first write a render target or depth texture needs. A copy queue makes no layout transitions and keeps a texture in the common layout it was created in, so an upload list records none, and a texture moves on from the common layout in the frame's list, which waits for the uploads
         void D3D12CommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
@@ -220,6 +248,22 @@ namespace Trinity
             }
 
             l_Barrier.Flags = before == ResourceState::Undefined ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
+            if (m_Uploads)
+            {
+                TR_CORE_ASSERT(!IsInUse(before), "An uploaded texture is new, so it moves into a copy state from Undefined.");
+                m_WaitsForGraphics = m_WaitsForGraphics || IsInUse(before);
+                if (after != ResourceState::CopySource && after != ResourceState::CopyDestination)
+                {
+                    l_Barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
+                    l_Barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+                    l_Barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_COMMON;
+                    l_Barrier.Flags = D3D12_TEXTURE_BARRIER_FLAG_NONE;
+                    m_TextureHandoffs.push_back(l_Barrier);
+                    m_HasCommands = true;
+                }
+
+                return;
+            }
 
             D3D12_BARRIER_GROUP l_Group{};
             l_Group.Type = D3D12_BARRIER_TYPE_TEXTURE;
@@ -228,9 +272,16 @@ namespace Trinity
             m_CommandList->Barrier(1, &l_Group);
         }
 
+        // An upload list's copies need no barrier, and the fence orders them before the frame. Out of a state the frame before may be reading, the uploads wait for it
         void D3D12CommandList::BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
+            if (m_Uploads)
+            {
+                m_WaitsForGraphics = m_WaitsForGraphics || IsInUse(before);
+
+                return;
+            }
 
             const D3D12Buffer* l_Buffer = m_Device.GetBuffer(buffer);
             TR_CORE_ASSERT(l_Buffer != nullptr, "BufferBarrier on a destroyed or invalid buffer.");
@@ -262,6 +313,7 @@ namespace Trinity
         void D3D12CommandList::BeginRendering(const RenderingDescription& description)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "BeginRendering is called once within a frame, before EndRendering.");
+            TR_CORE_ASSERT(!m_Uploads, "An upload list only copies.");
             TR_CORE_ASSERT(description.ColorAttachments.size() <= c_MaxColorAttachments, "Too many color attachments.");
 
             std::array<D3D12_RENDER_PASS_RENDER_TARGET_DESC, c_MaxColorAttachments> l_Targets{};
@@ -353,6 +405,7 @@ namespace Trinity
         void D3D12CommandList::SetPipeline(PipelineHandle pipeline)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr, "SetPipeline is recorded within a frame.");
+            TR_CORE_ASSERT(!m_Uploads, "An upload list only copies.");
 
             const D3D12Pipeline* l_Pipeline = m_Device.GetPipeline(pipeline);
             TR_CORE_ASSERT(l_Pipeline != nullptr, "SetPipeline with a destroyed or invalid pipeline.");
@@ -490,6 +543,7 @@ namespace Trinity
         void D3D12CommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
+            m_HasCommands = true;
 
             const D3D12Buffer* l_Source = m_Device.GetBuffer(source);
             const D3D12Buffer* l_Destination = m_Device.GetBuffer(destination);
@@ -508,6 +562,7 @@ namespace Trinity
         void D3D12CommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
+            m_HasCommands = true;
 
             const D3D12Texture* l_Texture = m_Device.GetTexture(source);
             const D3D12Buffer* l_Buffer = m_Device.GetBuffer(destination);
@@ -547,6 +602,7 @@ namespace Trinity
         void D3D12CommandList::CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
+            m_HasCommands = true;
 
             const D3D12Buffer* l_Buffer = m_Device.GetBuffer(source);
             const D3D12Texture* l_Texture = m_Device.GetTexture(destination);

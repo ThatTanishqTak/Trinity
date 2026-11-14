@@ -34,7 +34,7 @@ namespace Trinity
             return l_Device;
         }
 
-        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_RootSignature(m_Device), m_PipelineLibrary(m_Factory, m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_Queue(m_Device), m_CommandList(*this)
+        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_RootSignature(m_Device), m_PipelineLibrary(m_Factory, m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_Queue(m_Device), m_CommandList(*this), m_CopyQueue(m_Device), m_UploadList(*this, true)
         {
 
         }
@@ -44,6 +44,11 @@ namespace Trinity
             if (m_Queue.IsReady())
             {
                 m_Queue.WaitIdle();
+            }
+
+            if (m_CopyQueue.IsReady())
+            {
+                m_CopyQueue.WaitIdle();
             }
 
             m_UploadRing.Shutdown();
@@ -65,6 +70,13 @@ namespace Trinity
             m_SamplerHeap.Reset();
             m_RenderTargetViews.Reset();
             m_DepthStencilViews.Reset();
+            m_UploadList.Reset();
+            for (D3D12CommandAllocator& it_Allocator : m_UploadAllocators)
+            {
+                it_Allocator.Allocator.Reset();
+            }
+
+            m_CopyQueue.Reset();
             m_CommandList.Reset();
 
             for (D3D12CommandAllocator& it_Allocator : m_CommandAllocators)
@@ -95,7 +107,7 @@ namespace Trinity
 
             m_Factory.LogRuntime();
 
-            return m_Allocator.Initialize(error) && CreateFrames(error) && CreateBindless(error) && m_PipelineLibrary.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
+            return m_Allocator.Initialize(error) && CreateFrames(error) && CreateUploads(specification, error) && CreateBindless(error) && m_PipelineLibrary.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool D3D12Context::CreateFrames(std::string& error)
@@ -124,6 +136,39 @@ namespace Trinity
 
                 return false;
             }
+
+            return true;
+        }
+
+        bool D3D12Context::CreateUploads(const DeviceSpecification& specification, std::string& error)
+        {
+            m_UploadsEnabled = specification.EnableCopyQueue;
+            if (!m_UploadsEnabled)
+            {
+                TR_CORE_INFO("D3D12: uploads are recorded into the frame's commands, as renderer.copy_queue is off");
+
+                return true;
+            }
+
+            HRESULT l_Result = m_CopyQueue.Initialize(D3D12_COMMAND_LIST_TYPE_COPY);
+            for (std::size_t it_Index = 0; SUCCEEDED(l_Result) && it_Index < m_UploadAllocators.size(); ++it_Index)
+            {
+                l_Result = m_UploadAllocators[it_Index].Create(m_Device, D3D12_COMMAND_LIST_TYPE_COPY);
+            }
+
+            if (SUCCEEDED(l_Result))
+            {
+                l_Result = m_UploadList.Initialize(m_Device);
+            }
+
+            if (FAILED(l_Result) || !m_CopyQueue.CreateFenceEvent())
+            {
+                error = std::format("the copy queue and its command lists could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
+
+                return false;
+            }
+
+            TR_CORE_INFO("D3D12: uploads go to a copy queue of their own");
 
             return true;
         }
@@ -396,13 +441,62 @@ namespace Trinity
             m_Allocator.BeginFrame(m_FrameNumber);
             m_UploadRing.BeginFrame();
             m_CommandList.Begin(l_Allocator.Allocator.Get());
+            m_UploadsRecording = false;
+            m_UploadsSubmitted = false;
 
             return m_CommandList;
+        }
+
+        // Begun at the first call in a frame, on the allocator of the frame c_FramesInFlight before, whose commands waited for its uploads
+        CommandList& D3D12Context::GetUploadCommands()
+        {
+            TR_CORE_ASSERT(m_InFrame && !m_UploadsSubmitted, "GetUploadCommands is called between BeginFrame and SubmitUploads.");
+
+            if (!m_UploadsEnabled)
+            {
+                return m_CommandList;
+            }
+
+            if (!m_UploadsRecording)
+            {
+                m_UploadList.Begin(m_UploadAllocators[m_FrameNumber % c_FramesInFlight].Allocator.Get());
+                m_UploadsRecording = true;
+            }
+
+            return m_UploadList;
+        }
+
+        // Uploads that write what the frame before may still read wait for everything the direct queue was given before them
+        void D3D12Context::SubmitUploads()
+        {
+            TR_CORE_ASSERT(m_InFrame, "SubmitUploads is called within a frame.");
+
+            m_UploadsSubmitted = true;
+            if (!std::exchange(m_UploadsRecording, false))
+            {
+                return;
+            }
+
+            m_UploadList.End();
+            if (!m_UploadList.HasCommands())
+            {
+                return;
+            }
+
+            if (m_UploadList.WaitsForGraphics())
+            {
+                m_CopyQueue.Wait(m_Queue, m_Queue.GetSubmittedValue());
+            }
+
+            m_Queue.Wait(m_CopyQueue, m_CopyQueue.Submit(m_UploadList.GetHandle()));
+            m_UploadList.RecordHandoffs(m_CommandList);
         }
 
         void D3D12Context::EndFrame()
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
+
+            SubmitUploads();
 
             D3D12CommandAllocator& l_Allocator = m_CommandAllocators[m_FrameNumber % c_FramesInFlight];
             m_UploadRing.EndFrame();
@@ -418,6 +512,11 @@ namespace Trinity
         void D3D12Context::WaitIdle()
         {
             m_Queue.WaitIdle();
+            if (m_CopyQueue.IsReady())
+            {
+                m_CopyQueue.WaitIdle();
+            }
+
             m_Releases.ReleaseIdle();
         }
     }

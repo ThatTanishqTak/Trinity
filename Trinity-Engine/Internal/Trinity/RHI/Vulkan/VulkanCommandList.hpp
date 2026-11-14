@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace Trinity
 {
@@ -14,13 +15,21 @@ namespace Trinity
     {
         class VulkanContext;
 
+        // The frame's commands on the graphics queue, or with uploads the copies and barriers the loaders record for the transfer queue
         class VulkanCommandList final : public CommandList
         {
         public:
-            explicit VulkanCommandList(VulkanContext& device);
+            explicit VulkanCommandList(VulkanContext& device, bool uploads = false);
 
             void Begin(VkCommandBuffer commandBuffer);
             void End();
+
+            // Whether a copy or barrier was recorded since Begin, so the list is worth submitting
+            [[nodiscard]] bool HasCommands() const { return m_HasCommands; }
+            // Whether the uploads write something the frame before may still be reading, so they wait for it
+            [[nodiscard]] bool WaitsForGraphics() const { return m_WaitsForGraphics; }
+            // The barriers after the uploads' copies into the frame's list, which waits for the uploads before it runs
+            void RecordHandoffs(VulkanCommandList& frame);
 
             void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range) override;
             void BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after) override;
@@ -49,12 +58,21 @@ namespace Trinity
             void EndLabel() override;
 
         private:
+            template<typename Barrier>
+            [[nodiscard]] bool HandOff(Barrier& barrier, ResourceState before, ResourceState after, std::vector<Barrier>& handoffs);
+
             VulkanContext& m_Device;
             VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
             bool m_Rendering = false;
             bool m_HasPipeline = false;
             bool m_HasComputePipeline = false;
             bool m_HasIndexBuffer = false;
+
+            const bool m_Uploads = false;
+            bool m_HasCommands = false;
+            bool m_WaitsForGraphics = false;
+            std::vector<VkImageMemoryBarrier2> m_ImageHandoffs;
+            std::vector<VkBufferMemoryBarrier2> m_BufferHandoffs;
         };
     }
 }

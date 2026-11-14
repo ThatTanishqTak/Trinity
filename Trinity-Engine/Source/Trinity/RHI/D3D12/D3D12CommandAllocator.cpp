@@ -5,9 +5,9 @@ namespace Trinity
 {
     namespace RHI
     {
-        HRESULT D3D12CommandAllocator::Create(const D3D12Device& device)
+        HRESULT D3D12CommandAllocator::Create(const D3D12Device& device, D3D12_COMMAND_LIST_TYPE type)
         {
-            return device.GetHandle()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&Allocator));
+            return device.GetHandle()->CreateCommandAllocator(type, IID_PPV_ARGS(&Allocator));
         }
     }
 }

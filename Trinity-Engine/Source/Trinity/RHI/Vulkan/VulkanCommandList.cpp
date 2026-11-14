@@ -10,6 +10,8 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <type_traits>
+#include <vector>
 
 namespace Trinity
 {
@@ -125,13 +127,19 @@ namespace Trinity
             {
                 return store == StoreOp::Store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
             }
+
+            bool IsCopyState(ResourceState state)
+            {
+                return state == ResourceState::CopySource || state == ResourceState::CopyDestination;
+            }
         }
 
-        VulkanCommandList::VulkanCommandList(VulkanContext& device) : m_Device(device)
+        VulkanCommandList::VulkanCommandList(VulkanContext& device, bool uploads) : m_Device(device), m_Uploads(uploads)
         {
 
         }
 
+        // A transfer family's commands bind no descriptors, so uploads begin with nothing bound
         void VulkanCommandList::Begin(VkCommandBuffer commandBuffer)
         {
             VkCommandBufferBeginInfo l_Begin = MakeInfo<VkCommandBufferBeginInfo>(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
@@ -143,6 +151,14 @@ namespace Trinity
             m_HasPipeline = false;
             m_HasComputePipeline = false;
             m_HasIndexBuffer = false;
+            m_HasCommands = false;
+            m_WaitsForGraphics = false;
+            m_ImageHandoffs.clear();
+            m_BufferHandoffs.clear();
+            if (m_Uploads)
+            {
+                return;
+            }
 
             const VkDescriptorSet l_Set = m_Device.GetBindlessSet();
             vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
@@ -156,6 +172,71 @@ namespace Trinity
 
             vkEndCommandBuffer(m_CommandBuffer);
             m_CommandBuffer = VK_NULL_HANDLE;
+        }
+
+        void VulkanCommandList::RecordHandoffs(VulkanCommandList& frame)
+        {
+            if (!m_ImageHandoffs.empty() || !m_BufferHandoffs.empty())
+            {
+                VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
+                l_Dependency.imageMemoryBarrierCount = static_cast<std::uint32_t>(m_ImageHandoffs.size());
+                l_Dependency.pImageMemoryBarriers = m_ImageHandoffs.data();
+                l_Dependency.bufferMemoryBarrierCount = static_cast<std::uint32_t>(m_BufferHandoffs.size());
+                l_Dependency.pBufferMemoryBarriers = m_BufferHandoffs.data();
+                vkCmdPipelineBarrier2(frame.m_CommandBuffer, &l_Dependency);
+            }
+
+            m_ImageHandoffs.clear();
+            m_BufferHandoffs.clear();
+        }
+
+        // An upload list makes the moves into copy states itself, and leaves the move after its copies to the frame's list, whose stages a transfer queue lacks. An image is handed over from a transfer family of its own, released here and acquired there, while buffers are shared by both families. Out of a state the frame before may be reading, the uploads wait for it instead, which is all the order a buffer needs. False when the barrier is recorded here as it is
+        template<typename Barrier>
+        bool VulkanCommandList::HandOff(Barrier& barrier, ResourceState before, ResourceState after, std::vector<Barrier>& handoffs)
+        {
+            if (!m_Uploads)
+            {
+                return false;
+            }
+
+            m_HasCommands = true;
+            if (IsCopyState(after))
+            {
+                if (before == ResourceState::Undefined || IsCopyState(before))
+                {
+                    return false;
+                }
+
+                m_WaitsForGraphics = true;
+                barrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+                barrier.srcAccessMask = VK_ACCESS_2_NONE;
+
+                return std::is_same_v<Barrier, VkBufferMemoryBarrier2>;
+            }
+
+            if constexpr (std::is_same_v<Barrier, VkImageMemoryBarrier2>)
+            {
+                if (m_Device.GetTransferFamily() != m_Device.GetQueueFamily())
+                {
+                    barrier.srcQueueFamilyIndex = m_Device.GetTransferFamily();
+                    barrier.dstQueueFamilyIndex = m_Device.GetQueueFamily();
+
+                    VkImageMemoryBarrier2 l_Release = barrier;
+                    l_Release.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+                    l_Release.dstAccessMask = VK_ACCESS_2_NONE;
+
+                    VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
+                    l_Dependency.imageMemoryBarrierCount = 1;
+                    l_Dependency.pImageMemoryBarriers = &l_Release;
+                    vkCmdPipelineBarrier2(m_CommandBuffer, &l_Dependency);
+
+                    barrier.srcAccessMask = VK_ACCESS_2_NONE;
+                }
+            }
+
+            handoffs.push_back(barrier);
+
+            return true;
         }
 
         void VulkanCommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range)
@@ -186,6 +267,11 @@ namespace Trinity
             l_Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             l_Barrier.image = l_Texture->Image;
             l_Barrier.subresourceRange = { GetAspect(l_Texture->TextureFormat), range.BaseMipLevel, range.MipLevelCount == c_RemainingSubresources ? VK_REMAINING_MIP_LEVELS : range.MipLevelCount, range.BaseArrayLayer, range.ArrayLayerCount == c_RemainingSubresources ? VK_REMAINING_ARRAY_LAYERS : range.ArrayLayerCount };
+            TR_CORE_ASSERT(!m_Uploads || !IsCopyState(after) || before == ResourceState::Undefined || IsCopyState(before), "An uploaded texture is new, so it moves into a copy state from Undefined.");
+            if (HandOff(l_Barrier, before, after, m_ImageHandoffs))
+            {
+                return;
+            }
 
             VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
             l_Dependency.imageMemoryBarrierCount = 1;
@@ -217,6 +303,10 @@ namespace Trinity
             l_Barrier.buffer = l_Buffer->Buffer;
             l_Barrier.offset = 0;
             l_Barrier.size = VK_WHOLE_SIZE;
+            if (HandOff(l_Barrier, before, after, m_BufferHandoffs))
+            {
+                return;
+            }
 
             VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
             l_Dependency.bufferMemoryBarrierCount = 1;
@@ -227,6 +317,7 @@ namespace Trinity
         void VulkanCommandList::BeginRendering(const RenderingDescription& description)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "BeginRendering is called once within a frame, before EndRendering.");
+            TR_CORE_ASSERT(!m_Uploads, "An upload list only copies.");
             TR_CORE_ASSERT(description.ColorAttachments.size() <= c_MaxColorAttachments, "Too many color attachments.");
 
             std::array<VkRenderingAttachmentInfo, c_MaxColorAttachments> l_Colors{};
@@ -317,6 +408,7 @@ namespace Trinity
         void VulkanCommandList::SetPipeline(PipelineHandle pipeline)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE, "SetPipeline is recorded within a frame.");
+            TR_CORE_ASSERT(!m_Uploads, "An upload list only copies.");
 
             const VulkanPipeline* l_Pipeline = m_Device.GetPipeline(pipeline);
             TR_CORE_ASSERT(l_Pipeline != nullptr, "SetPipeline with a destroyed or invalid pipeline.");
@@ -446,6 +538,7 @@ namespace Trinity
         void VulkanCommandList::CopyBuffer(BufferHandle source, std::uint64_t sourceOffset, BufferHandle destination, std::uint64_t destinationOffset, std::uint64_t size)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
+            m_HasCommands = true;
 
             const VulkanBuffer* l_Source = m_Device.GetBuffer(source);
             const VulkanBuffer* l_Destination = m_Device.GetBuffer(destination);
@@ -465,6 +558,7 @@ namespace Trinity
         void VulkanCommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
+            m_HasCommands = true;
 
             const VulkanTexture* l_Texture = m_Device.GetTexture(source);
             const VulkanBuffer* l_Buffer = m_Device.GetBuffer(destination);
@@ -500,6 +594,7 @@ namespace Trinity
         void VulkanCommandList::CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
+            m_HasCommands = true;
 
             const VulkanBuffer* l_Buffer = m_Device.GetBuffer(source);
             const VulkanTexture* l_Texture = m_Device.GetTexture(destination);

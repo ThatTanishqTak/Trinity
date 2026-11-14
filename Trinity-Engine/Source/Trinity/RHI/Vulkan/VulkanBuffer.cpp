@@ -8,6 +8,8 @@
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 
+#include <array>
+#include <cstdint>
 #include <optional>
 
 namespace Trinity
@@ -57,6 +59,15 @@ namespace Trinity
             l_Create.usage = ToVkBufferUsage(description.Usage, description.Memory);
             l_Create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             TR_CORE_ASSERT(l_Create.usage != 0, "Buffer '{}' has no usage.", description.DebugName);
+
+            // A transfer queue of its own writes buffers frames are reading, as the material table, and reads the upload ring, so every buffer is shared by both families and none is handed from one to the other
+            const std::array<std::uint32_t, 2> l_Families{ device.GetQueueFamily(), device.GetTransferFamily() };
+            if (l_Families[0] != l_Families[1])
+            {
+                l_Create.sharingMode = VK_SHARING_MODE_CONCURRENT;
+                l_Create.queueFamilyIndexCount = static_cast<std::uint32_t>(l_Families.size());
+                l_Create.pQueueFamilyIndices = l_Families.data();
+            }
 
             // Upload and Readback memory is coherent, so writes and reads through the mapping need no flush or invalidate
             VmaAllocationCreateInfo l_Allocation{};

@@ -72,6 +72,8 @@ namespace Trinity
             [[nodiscard]] Scope<SwapChain> CreateSwapChain(const SwapChainSpecification& specification) override;
 
             [[nodiscard]] CommandList& BeginFrame() override;
+            [[nodiscard]] CommandList& GetUploadCommands() override;
+            void SubmitUploads() override;
             void EndFrame() override;
             void WaitIdle() override;
 
@@ -94,6 +96,7 @@ namespace Trinity
             [[nodiscard]] VkDevice GetHandle() const { return m_Device.GetHandle(); }
             [[nodiscard]] VkQueue GetQueue() const { return m_Device.GetQueue(); }
             [[nodiscard]] std::uint32_t GetQueueFamily() const { return m_Device.GetQueueFamily(); }
+            [[nodiscard]] std::uint32_t GetTransferFamily() const { return m_Device.GetTransferFamily(); }
             [[nodiscard]] std::uint32_t GetFrameSlot() const { return static_cast<std::uint32_t>(m_FrameNumber % c_FramesInFlight); }
             [[nodiscard]] bool IsInFrame() const { return m_InFrame; }
 
@@ -102,6 +105,7 @@ namespace Trinity
         private:
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
+            [[nodiscard]] bool CreateUploads(const DeviceSpecification& specification, std::string& error);
 
             VulkanInstance m_Instance;
             VulkanDevice m_Device;
@@ -123,6 +127,13 @@ namespace Trinity
 
             VulkanCommandList m_CommandList;
             bool m_InFrame = false;
+
+            // A pool for each frame on the transfer family, or none when renderer.copy_queue is off and uploads go into the frame's list
+            std::array<VulkanCommandPool, c_FramesInFlight> m_UploadPools{};
+            VulkanCommandList m_UploadList;
+            bool m_UploadsEnabled = false;
+            bool m_UploadsRecording = false;
+            bool m_UploadsSubmitted = false;
         };
     }
 }

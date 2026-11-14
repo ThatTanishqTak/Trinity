@@ -2,15 +2,17 @@
 #include "Trinity/RHI/Vulkan/VulkanDevice.hpp"
 #include "Trinity/RHI/Vulkan/VulkanUtilities.hpp"
 
+#include <cstdint>
+
 namespace Trinity
 {
     namespace RHI
     {
-        VkResult VulkanCommandPool::Create(const VulkanDevice& device)
+        VkResult VulkanCommandPool::Create(const VulkanDevice& device, std::uint32_t queueFamily)
         {
             VkCommandPoolCreateInfo l_Pool = MakeInfo<VkCommandPoolCreateInfo>(VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO);
             l_Pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-            l_Pool.queueFamilyIndex = device.GetQueueFamily();
+            l_Pool.queueFamilyIndex = queueFamily;
             const VkResult l_Result = vkCreateCommandPool(device.GetHandle(), &l_Pool, nullptr, &Pool);
             if (l_Result != VK_SUCCESS)
             {

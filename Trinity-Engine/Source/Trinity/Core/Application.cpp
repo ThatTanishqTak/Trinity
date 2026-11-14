@@ -51,6 +51,7 @@ namespace Trinity
 #endif
 
         ConsoleVariable<bool> s_GPUValidationVariable("renderer.gpu_validation", false, "Adds GPU-based validation to the graphics debug layer in Debug builds. Much slower", ConsoleVariableFlags::ReadOnly);
+        ConsoleVariable<bool> s_CopyQueueVariable("renderer.copy_queue", true, "Sends the loaders' uploads to a copy queue of their own, or to the graphics queue in a submission of their own where the GPU has none. Off records them into the frame's commands", ConsoleVariableFlags::ReadOnly);
         ConsoleVariable<std::int32_t> s_FrameCapacityVariable("memory.frame_capacity", 0, "Frame allocator capacity per buffer in KiB; 0 uses the application's default", ConsoleVariableFlags::ReadOnly);
 
         // The user's cache folder, apart from a project's own /cache
@@ -465,6 +466,7 @@ namespace Trinity
     void Application::CreateDevice(std::span<const GraphicsAPI> fallbacks)
     {
         RHI::DeviceSpecification l_Specification;
+        l_Specification.EnableCopyQueue = s_CopyQueueVariable.Get();
 #if defined(TR_DEBUG)
         l_Specification.EnableValidation = true;
         l_Specification.EnableGPUValidation = s_GPUValidationVariable.Get();

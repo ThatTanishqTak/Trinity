@@ -26,6 +26,8 @@ namespace Trinity
 
             bool EnableValidation = false;
             bool EnableGPUValidation = false;
+            // Uploads go to a copy queue of their own where the GPU has one, or else to the graphics queue in a submission of their own. Off records them into the frame's commands
+            bool EnableCopyQueue = true;
 
             // The file in the virtual file system the device keeps its pipeline cache in between runs, or none
             std::string PipelineCachePath;
@@ -98,6 +100,11 @@ namespace Trinity
             [[nodiscard]] std::uint64_t GetUploadCapacity() const;
 
             [[nodiscard]] virtual CommandList& BeginFrame() = 0;
+
+            // The list the loaders record their uploads into, from BeginFrame until SubmitUploads: the copy queue's, or the frame's own when renderer.copy_queue is off. Only copies and barriers, and what follows a copy, as a texture moving on to ShaderResource, the frame's list records once the uploads are submitted
+            [[nodiscard]] virtual CommandList& GetUploadCommands() = 0;
+            // Sends the uploads to their queue now, so they run while the rest of the frame is recorded, and has the frame's commands wait for them. EndFrame does it when this was not called, and a frame that uploaded nothing submits nothing
+            virtual void SubmitUploads() = 0;
 
             virtual void EndFrame() = 0;
             virtual void WaitIdle() = 0;

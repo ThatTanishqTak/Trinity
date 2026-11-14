@@ -11,13 +11,13 @@ namespace Trinity
     {
         class VulkanDevice;
 
-        // The timeline semaphore each frame signals as its commands finish, and the semaphores the swap chains have the frame's submission wait on and signal
+        // The timeline semaphore each frame signals as its commands finish, the one each frame's uploads signal, and the semaphores the swap chains have the frame's submission wait on and signal
         class VulkanFrameSync
         {
         public:
             explicit VulkanFrameSync(const VulkanDevice& device);
 
-            // VK_SUCCESS, or the result creating the timeline semaphore
+            // VK_SUCCESS, or the result creating the timeline semaphores
             [[nodiscard]] VkResult Initialize();
             void Destroy();
 
@@ -29,11 +29,15 @@ namespace Trinity
             void SignalSemaphore(VkSemaphore semaphore);
             // The frame's commands on the graphics queue with its waits and signals, the timeline reaching the value once they have finished
             [[nodiscard]] VkResult Submit(VkCommandBuffer commandBuffer, std::uint64_t value);
+            // The frame's uploads on the transfer queue, after the graphics timeline reaches the value when it is not 0, and the frame's commands waiting for them
+            [[nodiscard]] VkResult SubmitUploads(VkCommandBuffer commandBuffer, std::uint64_t graphicsValue);
 
         private:
             const VulkanDevice& m_Device;
 
             VkSemaphore m_Timeline = VK_NULL_HANDLE;
+            VkSemaphore m_UploadTimeline = VK_NULL_HANDLE;
+            std::uint64_t m_UploadValue = 0;
             std::vector<VkSemaphoreSubmitInfo> m_Waits;
             std::vector<VkSemaphoreSubmitInfo> m_Signals;
         };
