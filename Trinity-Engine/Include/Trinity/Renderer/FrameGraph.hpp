@@ -34,12 +34,13 @@ namespace Trinity
         constexpr explicit operator bool() const { return IsValid(); }
     };
 
-    // A raster pass runs inside rendering that the graph begins and ends, a compute or copy pass outside it
+    // A raster pass runs inside rendering that the graph begins and ends, a compute or copy pass outside it. An async compute pass is a compute pass the compute queue runs, alongside the graphics work it does not depend on, where the device has one
     enum class FrameGraphPassType : std::uint8_t
     {
         Raster,
         Compute,
-        Copy
+        Copy,
+        AsyncCompute
     };
 
     // Whether the contents are stored is up to the graph: they are when the texture is imported or a later pass uses it
@@ -175,7 +176,7 @@ namespace Trinity
             SetPassCallback(l_Pass, l_Memory, [](void* callable, const FrameGraphContext& context) { (*static_cast<Callable*>(callable))(context); }, [](void* callable) { static_cast<Callable*>(callable)->~Callable(); });
         }
 
-        // Once per Reset, between the device's BeginFrame and EndFrame
+        // Once per Reset, between the device's BeginFrame and EndFrame. Async compute passes record into the device's compute list, which goes before the first graphics pass that uses what they used
         void Execute(RHI::CommandList& commands);
 
         [[nodiscard]] const Statistics& GetStatistics() const;
@@ -183,7 +184,7 @@ namespace Trinity
         [[nodiscard]] std::string_view GetPassName(std::uint32_t pass) const;
         [[nodiscard]] bool IsPassCulled(std::uint32_t pass) const;
 
-        // The GPU time of each pass that ran, in the order of the latest timed execution, and of all of them together, averaged over 30 executions and published once every 30. A pass's time includes the barriers before it. An execution's timestamps are read back c_FramesInFlight executions later, so a graph executes at most once per device frame, and the times stay empty until the first 30 are in
+        // The GPU time of each pass that ran, in the order of the latest timed execution, and of all of them together, averaged over 30 executions and published once every 30. A pass's time includes the barriers before it, and an async compute pass's is timed on the queue it ran on. An execution's timestamps are read back c_FramesInFlight executions later, so a graph executes at most once per device frame, and the times stay empty until the first 30 are in
         [[nodiscard]] std::span<const PassTime> GetPassTimes() const;
         [[nodiscard]] float GetGpuMilliseconds() const;
 
@@ -205,14 +206,19 @@ namespace Trinity
 
         void CullPasses();
         void AcquireResources();
+        [[nodiscard]] bool MoveToCompute(std::uint32_t pass);
+        [[nodiscard]] bool UsesPendingCompute(std::uint32_t pass) const;
+        void MarkGraphics(std::uint32_t pass);
+        void SendCompute(bool afterGraphics);
         void RecordPass(RHI::CommandList& commands, std::uint32_t pass);
         void TransitionTexture(RHI::CommandList& commands, std::uint32_t texture, RHI::ResourceState state);
         void TransitionBuffer(RHI::CommandList& commands, std::uint32_t buffer, RHI::ResourceState state);
         void ReleaseResources();
 
-        void BeginTimestamps(RHI::CommandList& commands);
-        void WritePassTimestamp(RHI::CommandList& commands, std::uint32_t pass);
-        void EndTimestamps(RHI::CommandList& commands);
+        [[nodiscard]] std::uint32_t BeginTimestamps(RHI::CommandList& commands);
+        [[nodiscard]] std::uint32_t WriteTimestamp(RHI::CommandList& commands, RHI::QueueType queue);
+        [[nodiscard]] std::uint32_t WritePassTimestamp(RHI::CommandList& commands, std::uint32_t pass, RHI::QueueType queue, std::uint32_t begin);
+        void EndTimestamps(RHI::CommandList& commands, std::uint32_t lastGraphics);
         void ReadTimestamps(std::uint32_t slot);
         void PublishTimes(std::uint32_t slot);
 

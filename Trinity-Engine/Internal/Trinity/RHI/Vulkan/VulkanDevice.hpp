@@ -40,6 +40,10 @@ namespace Trinity
             // The dedicated transfer family's queue when renderer.copy_queue is on and the device has one, and otherwise the graphics queue, where uploads go in a submission of their own
             [[nodiscard]] VkQueue GetTransferQueue() const { return m_TransferQueue; }
             [[nodiscard]] std::uint32_t GetTransferFamily() const { return m_TransferFamily; }
+            // The dedicated compute family's queue when renderer.async_compute is on and the device has one, and otherwise the graphics queue, where compute queue passes go in submissions of their own
+            [[nodiscard]] VkQueue GetComputeQueue() const { return m_ComputeQueue; }
+            [[nodiscard]] std::uint32_t GetComputeFamily() const { return m_ComputeFamily; }
+            [[nodiscard]] bool HasComputeTimestamps() const { return m_ComputeTimestamps; }
             [[nodiscard]] bool HasTextureCompressionBC() const { return m_TextureCompressionBC; }
             [[nodiscard]] bool HasTimestamps() const { return m_TimestampsSupported; }
             [[nodiscard]] bool HasMemoryBudget() const { return m_MemoryBudget; }
@@ -60,6 +64,9 @@ namespace Trinity
             std::uint32_t m_QueueFamily = 0;
             VkQueue m_TransferQueue = VK_NULL_HANDLE;
             std::uint32_t m_TransferFamily = 0;
+            VkQueue m_ComputeQueue = VK_NULL_HANDLE;
+            std::uint32_t m_ComputeFamily = 0;
+            bool m_ComputeTimestamps = false;
         };
     }
 }

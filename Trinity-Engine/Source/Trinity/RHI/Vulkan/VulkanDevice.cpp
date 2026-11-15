@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <format>
 #include <iterator>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -307,7 +308,7 @@ namespace Trinity
                 l_Extensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
             }
 
-            // A family of its own for transfers and one for compute, the transfer one taking the uploads when renderer.copy_queue is on and the compute one not used yet
+            // A family of its own for transfers and one for compute, the transfer one taking the uploads when renderer.copy_queue is on and the compute one the compute queue passes when renderer.async_compute is on
             const auto a_Find = [&l_Families](VkQueueFlags wanted, VkQueueFlags unwanted)
             {
                 return std::ranges::find_if(l_Families, [wanted, unwanted](const VkQueueFamilyProperties& family) { return (family.queueFlags & wanted) != 0 && (family.queueFlags & unwanted) == 0; });
@@ -315,20 +316,29 @@ namespace Trinity
 
             const auto a_Transfer = a_Find(VK_QUEUE_TRANSFER_BIT, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
             m_TransferFamily = specification.EnableCopyQueue && a_Transfer != l_Families.end() ? static_cast<std::uint32_t>(std::distance(l_Families.begin(), a_Transfer)) : m_QueueFamily;
+            const auto a_Compute = a_Find(VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT);
+            m_ComputeFamily = specification.EnableAsyncCompute && a_Compute != l_Families.end() ? static_cast<std::uint32_t>(std::distance(l_Families.begin(), a_Compute)) : m_QueueFamily;
+            m_ComputeTimestamps = m_TimestampsSupported && l_Families[m_ComputeFamily].timestampValidBits != 0;
 
+            // One queue from each family used, which a family serving two of them gives once
             const float l_Priority = 1.0f;
-            std::array<VkDeviceQueueCreateInfo, 2> l_Queues{};
-            for (std::size_t it_Index = 0; it_Index < l_Queues.size(); ++it_Index)
+            std::array<VkDeviceQueueCreateInfo, 3> l_Queues{};
+            std::uint32_t l_QueueCount = 0;
+            for (const std::uint32_t it_Family : { m_QueueFamily, m_TransferFamily, m_ComputeFamily })
             {
-                l_Queues[it_Index] = MakeInfo<VkDeviceQueueCreateInfo>(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO);
-                l_Queues[it_Index].queueFamilyIndex = it_Index == 0 ? m_QueueFamily : m_TransferFamily;
-                l_Queues[it_Index].queueCount = 1;
-                l_Queues[it_Index].pQueuePriorities = &l_Priority;
+                if (std::ranges::none_of(std::span(l_Queues.data(), l_QueueCount), [it_Family](const VkDeviceQueueCreateInfo& queue) { return queue.queueFamilyIndex == it_Family; }))
+                {
+                    VkDeviceQueueCreateInfo& l_Queue = l_Queues[l_QueueCount++];
+                    l_Queue = MakeInfo<VkDeviceQueueCreateInfo>(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO);
+                    l_Queue.queueFamilyIndex = it_Family;
+                    l_Queue.queueCount = 1;
+                    l_Queue.pQueuePriorities = &l_Priority;
+                }
             }
 
             VkDeviceCreateInfo l_Create = MakeInfo<VkDeviceCreateInfo>(VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO);
             l_Create.pNext = &l_Enabled.Features;
-            l_Create.queueCreateInfoCount = m_TransferFamily != m_QueueFamily ? 2 : 1;
+            l_Create.queueCreateInfoCount = l_QueueCount;
             l_Create.pQueueCreateInfos = l_Queues.data();
             l_Create.enabledExtensionCount = static_cast<std::uint32_t>(l_Extensions.size());
             l_Create.ppEnabledExtensionNames = l_Extensions.data();
@@ -344,6 +354,7 @@ namespace Trinity
             volkLoadDevice(m_Device);
             vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
             vkGetDeviceQueue(m_Device, m_TransferFamily, 0, &m_TransferQueue);
+            vkGetDeviceQueue(m_Device, m_ComputeFamily, 0, &m_ComputeQueue);
 
             m_Info.API = GraphicsAPI::Vulkan;
             m_Info.AdapterName = l_Properties.properties.deviceName;
@@ -375,6 +386,20 @@ namespace Trinity
             else
             {
                 TR_CORE_INFO("Vulkan: uploads go to the graphics queue in a submission of their own, as no family is for transfers alone");
+            }
+
+
+            if (!specification.EnableAsyncCompute)
+            {
+                TR_CORE_INFO("Vulkan: compute queue passes are recorded into the frame's commands, as renderer.async_compute is off");
+            }
+            else if (m_ComputeFamily != m_QueueFamily)
+            {
+                TR_CORE_INFO("Vulkan: compute queue passes go to the compute queue of family {}, which shares every buffer too{}", m_ComputeFamily, m_ComputeTimestamps ? "" : " and has no timestamps, so their GPU times are not measured");
+            }
+            else
+            {
+                TR_CORE_INFO("Vulkan: compute queue passes go to the graphics queue in submissions of their own, as no family is for compute alone");
             }
 
             return true;

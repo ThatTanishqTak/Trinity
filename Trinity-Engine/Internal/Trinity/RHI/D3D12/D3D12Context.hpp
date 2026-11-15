@@ -64,7 +64,7 @@ namespace Trinity
 
             [[nodiscard]] QueryPoolHandle CreateQueryPool(const QueryPoolDescription& description) override;
             void DestroyQueryPool(QueryPoolHandle pool) override;
-            [[nodiscard]] std::uint64_t GetTimestampFrequency() const override;
+            [[nodiscard]] std::uint64_t GetTimestampFrequency(QueueType queue) const override;
 
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             [[nodiscard]] PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) override;
@@ -75,6 +75,9 @@ namespace Trinity
             [[nodiscard]] CommandList& BeginFrame() override;
             [[nodiscard]] CommandList& GetUploadCommands() override;
             void SubmitUploads() override;
+            [[nodiscard]] CommandList& GetComputeCommands() override;
+            void TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, QueueType from) override;
+            void SubmitCompute(bool afterGraphics) override;
             void EndFrame() override;
             void WaitIdle() override;
 
@@ -101,6 +104,7 @@ namespace Trinity
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateUploads(const DeviceSpecification& specification, std::string& error);
+            [[nodiscard]] bool CreateCompute(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateBindless(std::string& error);
 
             D3D12Factory m_Factory;
@@ -123,6 +127,8 @@ namespace Trinity
             D3D12CommandQueue m_Queue;
             std::array<D3D12CommandAllocator, c_FramesInFlight> m_CommandAllocators{};
             std::uint64_t m_FrameNumber = 0;
+            // The fence value of the frame before's last submission, which compute work that writes what it may still use waits for
+            std::uint64_t m_LastFrameValue = 0;
 
             D3D12CommandList m_CommandList;
             bool m_InFrame = false;
@@ -134,6 +140,13 @@ namespace Trinity
             bool m_UploadsEnabled = false;
             bool m_UploadsRecording = false;
             bool m_UploadsSubmitted = false;
+
+            // The compute queue with an allocator for each frame, or none when renderer.async_compute is off and compute queue passes go into the frame's list
+            D3D12CommandQueue m_ComputeQueue;
+            std::array<D3D12CommandAllocator, c_FramesInFlight> m_ComputeAllocators{};
+            D3D12CommandList m_ComputeList;
+            bool m_ComputeEnabled = false;
+            bool m_ComputeRecording = false;
         };
     }
 }

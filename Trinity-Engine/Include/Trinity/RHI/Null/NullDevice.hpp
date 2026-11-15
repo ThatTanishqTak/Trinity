@@ -114,7 +114,7 @@ namespace Trinity
 
             [[nodiscard]] QueryPoolHandle CreateQueryPool(const QueryPoolDescription& description) override;
             void DestroyQueryPool(QueryPoolHandle pool) override;
-            [[nodiscard]] std::uint64_t GetTimestampFrequency() const override { return 1000000000; }
+            [[nodiscard]] std::uint64_t GetTimestampFrequency(QueueType) const override { return 1000000000; }
 
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             [[nodiscard]] PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) override;
@@ -126,6 +126,10 @@ namespace Trinity
             // Uploads go into the frame's list, which has no queue to send them to
             [[nodiscard]] CommandList& GetUploadCommands() override { return m_CommandList; }
             void SubmitUploads() override {}
+            // Compute queue passes go into the frame's list too, where a texture's move is an ordinary barrier
+            [[nodiscard]] CommandList& GetComputeCommands() override { return m_CommandList; }
+            void TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, QueueType) override { m_CommandList.TextureBarrier(texture, before, after, {}); }
+            void SubmitCompute(bool) override {}
             void EndFrame() override;
             void WaitIdle() override;
 

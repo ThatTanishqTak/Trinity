@@ -20,6 +20,13 @@ namespace Trinity
 {
     namespace RHI
     {
+        // The queues a frame's work runs on: graphics, and compute, which runs alongside it where the GPU has a compute queue of its own
+        enum class QueueType : std::uint8_t
+        {
+            Graphics,
+            Compute
+        };
+
         struct DeviceSpecification
         {
             GraphicsAPI API = GraphicsAPI::None;
@@ -28,6 +35,8 @@ namespace Trinity
             bool EnableGPUValidation = false;
             // Uploads go to a copy queue of their own where the GPU has one, or else to the graphics queue in a submission of their own. Off records them into the frame's commands
             bool EnableCopyQueue = true;
+            // Frame graph passes that ask for it run on a compute queue of their own where the GPU has one, or else on the graphics queue in submissions of their own. Off records them into the frame's commands
+            bool EnableAsyncCompute = true;
 
             // The file in the virtual file system the device keeps its pipeline cache in between runs, or none
             std::string PipelineCachePath;
@@ -86,8 +95,8 @@ namespace Trinity
             [[nodiscard]] virtual QueryPoolHandle CreateQueryPool(const QueryPoolDescription& description) = 0;
             virtual void DestroyQueryPool(QueryPoolHandle pool) = 0;
 
-            // Timestamp ticks per second
-            [[nodiscard]] virtual std::uint64_t GetTimestampFrequency() const = 0;
+            // Timestamp ticks per second on the queue, which on D3D12 each queue has its own of. 0 when the queue has no timestamps
+            [[nodiscard]] virtual std::uint64_t GetTimestampFrequency(QueueType queue = QueueType::Graphics) const = 0;
 
             [[nodiscard]] virtual PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) = 0;
             [[nodiscard]] virtual PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) = 0;
@@ -105,6 +114,13 @@ namespace Trinity
             [[nodiscard]] virtual CommandList& GetUploadCommands() = 0;
             // Sends the uploads to their queue now, so they run while the rest of the frame is recorded, and has the frame's commands wait for them. EndFrame does it when this was not called, and a frame that uploaded nothing submits nothing
             virtual void SubmitUploads() = 0;
+
+            // The list compute queue passes record into within a frame: the compute queue's, or the frame's own when renderer.async_compute is off. Buffers go from queue to queue as they are, and a texture through TransferTexture
+            [[nodiscard]] virtual CommandList& GetComputeCommands() = 0;
+            // A texture that keeps its contents going to the other queue, moving from before to after on the way: what lets it go is recorded in the list it leaves, now, and what takes it in, in the list it joins, now for the compute list and once SubmitCompute sends the compute work for the frame's
+            virtual void TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, QueueType from) = 0;
+            // Sends what the compute list recorded since the last time, after the frame before on the graphics queue and, with afterGraphics, after the frame's commands so far too. Those commands go first in a submission of their own, which never waits for the compute work, and the frame's commands recorded from now on wait for it. EndFrame sends what is left
+            virtual void SubmitCompute(bool afterGraphics) = 0;
 
             virtual void EndFrame() = 0;
             virtual void WaitIdle() = 0;

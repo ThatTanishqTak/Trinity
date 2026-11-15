@@ -10,7 +10,7 @@ namespace Trinity
     {
         class D3D12Device;
 
-        // The direct queue or the copy queue, with the fence its submissions signal and the event a wait for the fence blocks on
+        // The direct, copy or compute queue, with the fence its submissions signal and the event a wait for the fence blocks on
         class D3D12CommandQueue
         {
         public:

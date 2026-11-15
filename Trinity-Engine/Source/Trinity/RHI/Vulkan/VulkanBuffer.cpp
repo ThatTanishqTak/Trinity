@@ -8,6 +8,7 @@
 #include "Trinity/Core/Log.hpp"
 #include "Trinity/Core/Memory.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -60,12 +61,21 @@ namespace Trinity
             l_Create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             TR_CORE_ASSERT(l_Create.usage != 0, "Buffer '{}' has no usage.", description.DebugName);
 
-            // A transfer queue of its own writes buffers frames are reading, as the material table, and reads the upload ring, so every buffer is shared by both families and none is handed from one to the other
-            const std::array<std::uint32_t, 2> l_Families{ device.GetQueueFamily(), device.GetTransferFamily() };
-            if (l_Families[0] != l_Families[1])
+            // A transfer queue of its own writes buffers frames are reading, as the material table, and reads the upload ring, and a compute queue of its own writes what the graphics queue reads, so every buffer is shared by every family in use and none is handed from one to another
+            std::array<std::uint32_t, 3> l_Families{ device.GetQueueFamily() };
+            std::uint32_t l_FamilyCount = 1;
+            for (const std::uint32_t it_Family : { device.GetTransferFamily(), device.GetComputeFamily() })
+            {
+                if (std::ranges::find(l_Families.begin(), l_Families.begin() + l_FamilyCount, it_Family) == l_Families.begin() + l_FamilyCount)
+                {
+                    l_Families[l_FamilyCount++] = it_Family;
+                }
+            }
+
+            if (l_FamilyCount > 1)
             {
                 l_Create.sharingMode = VK_SHARING_MODE_CONCURRENT;
-                l_Create.queueFamilyIndexCount = static_cast<std::uint32_t>(l_Families.size());
+                l_Create.queueFamilyIndexCount = l_FamilyCount;
                 l_Create.pQueueFamilyIndices = l_Families.data();
             }
 

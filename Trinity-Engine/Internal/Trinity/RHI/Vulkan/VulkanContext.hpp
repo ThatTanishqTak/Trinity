@@ -63,7 +63,7 @@ namespace Trinity
 
             [[nodiscard]] QueryPoolHandle CreateQueryPool(const QueryPoolDescription& description) override;
             void DestroyQueryPool(QueryPoolHandle pool) override;
-            [[nodiscard]] std::uint64_t GetTimestampFrequency() const override;
+            [[nodiscard]] std::uint64_t GetTimestampFrequency(QueueType queue) const override;
 
             [[nodiscard]] PipelineHandle CreateGraphicsPipeline(const GraphicsPipelineDescription& description) override;
             [[nodiscard]] PipelineHandle CreateComputePipeline(const ComputePipelineDescription& description) override;
@@ -74,6 +74,9 @@ namespace Trinity
             [[nodiscard]] CommandList& BeginFrame() override;
             [[nodiscard]] CommandList& GetUploadCommands() override;
             void SubmitUploads() override;
+            [[nodiscard]] CommandList& GetComputeCommands() override;
+            void TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, QueueType from) override;
+            void SubmitCompute(bool afterGraphics) override;
             void EndFrame() override;
             void WaitIdle() override;
 
@@ -106,6 +109,7 @@ namespace Trinity
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
             [[nodiscard]] bool CreateFrames(std::string& error);
             [[nodiscard]] bool CreateUploads(const DeviceSpecification& specification, std::string& error);
+            [[nodiscard]] bool CreateCompute(const DeviceSpecification& specification, std::string& error);
 
             VulkanInstance m_Instance;
             VulkanDevice m_Device;
@@ -125,15 +129,34 @@ namespace Trinity
             VulkanFrameSync m_FrameSync;
             std::uint64_t m_FrameNumber = 0;
 
+            // The frame's list, with the command buffer it records into, the frame's first or the one after its last split
             VulkanCommandList m_CommandList;
+            VkCommandBuffer m_FrameCommandBuffer = VK_NULL_HANDLE;
             bool m_InFrame = false;
 
             // A pool for each frame on the transfer family, or none when renderer.copy_queue is off and uploads go into the frame's list
             std::array<VulkanCommandPool, c_FramesInFlight> m_UploadPools{};
             VulkanCommandList m_UploadList;
+            VkCommandBuffer m_UploadCommandBuffer = VK_NULL_HANDLE;
             bool m_UploadsEnabled = false;
             bool m_UploadsRecording = false;
             bool m_UploadsSubmitted = false;
+
+            // A texture the compute list let go, which the frame's list takes in once the compute work is sent
+            struct TextureTransfer
+            {
+                TextureHandle Texture;
+                ResourceState Before = ResourceState::Undefined;
+                ResourceState After = ResourceState::Undefined;
+            };
+
+            // A pool for each frame on the compute family, or none when renderer.async_compute is off and compute queue passes go into the frame's list
+            std::array<VulkanCommandPool, c_FramesInFlight> m_ComputePools{};
+            VulkanCommandList m_ComputeList;
+            VkCommandBuffer m_ComputeCommandBuffer = VK_NULL_HANDLE;
+            std::vector<TextureTransfer> m_ComputeTransfers;
+            bool m_ComputeEnabled = false;
+            bool m_ComputeRecording = false;
         };
     }
 }

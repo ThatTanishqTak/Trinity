@@ -1344,7 +1344,8 @@ namespace Trinity
             l_Push.Perspective = list.Clusters.Perspective ? 1 : 0;
 
             const RHI::PipelineHandle l_Pipeline = m_ClusterPipeline;
-            graph.AddPass("Light clusters", FrameGraphPassType::Compute, [l_Counts, l_Lights](FrameGraphPassBuilder& builder)
+            // On the compute queue, alongside the shadows and the depth pre-pass, which it does not depend on
+            graph.AddPass("Light clusters", FrameGraphPassType::AsyncCompute, [l_Counts, l_Lights](FrameGraphPassBuilder& builder)
             {
                 builder.Write(l_Counts, RHI::ResourceState::UnorderedAccess);
                 builder.Write(l_Lights, RHI::ResourceState::UnorderedAccess);

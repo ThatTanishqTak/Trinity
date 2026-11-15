@@ -34,7 +34,7 @@ namespace Trinity
             return l_Device;
         }
 
-        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_RootSignature(m_Device), m_PipelineLibrary(m_Factory, m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_Queue(m_Device), m_CommandList(*this), m_CopyQueue(m_Device), m_UploadList(*this, true)
+        D3D12Context::D3D12Context() : m_Device(m_Factory), m_Allocator(m_Factory, m_Device), m_RootSignature(m_Device), m_PipelineLibrary(m_Factory, m_Device), m_Releases(m_RenderTargetViews, m_DepthStencilViews, m_ResourceHeap, m_SamplerHeap), m_Queue(m_Device), m_CommandList(*this), m_CopyQueue(m_Device), m_UploadList(*this, CommandListRole::Uploads), m_ComputeQueue(m_Device), m_ComputeList(*this, CommandListRole::Compute)
         {
 
         }
@@ -49,6 +49,11 @@ namespace Trinity
             if (m_CopyQueue.IsReady())
             {
                 m_CopyQueue.WaitIdle();
+            }
+
+            if (m_ComputeQueue.IsReady())
+            {
+                m_ComputeQueue.WaitIdle();
             }
 
             m_UploadRing.Shutdown();
@@ -70,6 +75,13 @@ namespace Trinity
             m_SamplerHeap.Reset();
             m_RenderTargetViews.Reset();
             m_DepthStencilViews.Reset();
+            m_ComputeList.Reset();
+            for (D3D12CommandAllocator& it_Allocator : m_ComputeAllocators)
+            {
+                it_Allocator.Allocator.Reset();
+            }
+
+            m_ComputeQueue.Reset();
             m_UploadList.Reset();
             for (D3D12CommandAllocator& it_Allocator : m_UploadAllocators)
             {
@@ -107,7 +119,7 @@ namespace Trinity
 
             m_Factory.LogRuntime();
 
-            return m_Allocator.Initialize(error) && CreateFrames(error) && CreateUploads(specification, error) && CreateBindless(error) && m_PipelineLibrary.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
+            return m_Allocator.Initialize(error) && CreateFrames(error) && CreateUploads(specification, error) && CreateCompute(specification, error) && CreateBindless(error) && m_PipelineLibrary.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool D3D12Context::CreateFrames(std::string& error)
@@ -169,6 +181,39 @@ namespace Trinity
             }
 
             TR_CORE_INFO("D3D12: uploads go to a copy queue of their own");
+
+            return true;
+        }
+
+        bool D3D12Context::CreateCompute(const DeviceSpecification& specification, std::string& error)
+        {
+            m_ComputeEnabled = specification.EnableAsyncCompute;
+            if (!m_ComputeEnabled)
+            {
+                TR_CORE_INFO("D3D12: compute queue passes are recorded into the frame's commands, as renderer.async_compute is off");
+
+                return true;
+            }
+
+            HRESULT l_Result = m_ComputeQueue.Initialize(D3D12_COMMAND_LIST_TYPE_COMPUTE);
+            for (std::size_t it_Index = 0; SUCCEEDED(l_Result) && it_Index < m_ComputeAllocators.size(); ++it_Index)
+            {
+                l_Result = m_ComputeAllocators[it_Index].Create(m_Device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
+            }
+
+            if (SUCCEEDED(l_Result))
+            {
+                l_Result = m_ComputeList.Initialize(m_Device);
+            }
+
+            if (FAILED(l_Result) || !m_ComputeQueue.CreateFenceEvent())
+            {
+                error = std::format("the compute queue and its command lists could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
+
+                return false;
+            }
+
+            TR_CORE_INFO("D3D12: compute queue passes go to a compute queue of their own");
 
             return true;
         }
@@ -391,9 +436,10 @@ namespace Trinity
             }
         }
 
-        std::uint64_t D3D12Context::GetTimestampFrequency() const
+        // Each queue counts its own ticks. Compute queue passes are timed on the direct queue while renderer.async_compute is off
+        std::uint64_t D3D12Context::GetTimestampFrequency(QueueType queue) const
         {
-            return D3D12QueryPool::GetTimestampFrequency(m_Queue.GetHandle());
+            return D3D12QueryPool::GetTimestampFrequency(queue == QueueType::Compute && m_ComputeEnabled ? m_ComputeQueue.GetHandle() : m_Queue.GetHandle());
         }
 
         PipelineHandle D3D12Context::CreateComputePipeline(const ComputePipelineDescription& description)
@@ -443,6 +489,10 @@ namespace Trinity
             m_CommandList.Begin(l_Allocator.Allocator.Get());
             m_UploadsRecording = false;
             m_UploadsSubmitted = false;
+            if (m_ComputeEnabled)
+            {
+                m_ComputeAllocators[m_FrameNumber % c_FramesInFlight].Allocator->Reset();
+            }
 
             return m_CommandList;
         }
@@ -492,17 +542,69 @@ namespace Trinity
             m_UploadList.RecordHandoffs(m_CommandList);
         }
 
+        // Recorded from when a frame first asks for it, and again after each SubmitCompute, on the allocator of the frame c_FramesInFlight before, which has finished
+        CommandList& D3D12Context::GetComputeCommands()
+        {
+            TR_CORE_ASSERT(m_InFrame, "GetComputeCommands is called within a frame.");
+
+            if (!m_ComputeEnabled)
+            {
+                return m_CommandList;
+            }
+
+            if (!m_ComputeRecording)
+            {
+                m_ComputeList.Continue(m_ComputeAllocators[m_FrameNumber % c_FramesInFlight].Allocator.Get());
+                m_ComputeRecording = true;
+            }
+
+            return m_ComputeList;
+        }
+
+        // The direct and compute queues share the layouts both have, which are the only ones a compute queue pass uses, so a texture's move is an ordinary barrier where it leaves and the fences between the queues do the rest
+        void D3D12Context::TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, QueueType from)
+        {
+            TR_CORE_ASSERT(m_InFrame && (!m_ComputeEnabled || m_ComputeRecording), "TransferTexture is called within a frame, while the compute list records.");
+
+            if (before != after)
+            {
+                (from == QueueType::Compute && m_ComputeEnabled ? m_ComputeList : m_CommandList).TextureBarrier(texture, before, after, {});
+            }
+        }
+
+        // The frame's commands so far go first in a submission of their own, so they never wait for the compute work, and the list records on into the same allocator. The compute work waits for the frame before, which may still use what it writes, and with afterGraphics for the frame's commands so far too, and everything the direct queue is given from now on waits for it
+        void D3D12Context::SubmitCompute(bool afterGraphics)
+        {
+            TR_CORE_ASSERT(m_InFrame, "SubmitCompute is called within a frame.");
+
+            if (!std::exchange(m_ComputeRecording, false))
+            {
+                return;
+            }
+
+            m_ComputeList.End();
+            m_CommandList.End();
+
+            const std::uint64_t l_Graphics = m_Queue.Submit(m_CommandList.GetHandle());
+            m_CommandList.Continue(m_CommandAllocators[m_FrameNumber % c_FramesInFlight].Allocator.Get());
+
+            m_ComputeQueue.Wait(m_Queue, afterGraphics ? l_Graphics : m_LastFrameValue);
+            m_Queue.Wait(m_ComputeQueue, m_ComputeQueue.Submit(m_ComputeList.GetHandle()));
+        }
+
         void D3D12Context::EndFrame()
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
             SubmitUploads();
+            SubmitCompute(true);
 
             D3D12CommandAllocator& l_Allocator = m_CommandAllocators[m_FrameNumber % c_FramesInFlight];
             m_UploadRing.EndFrame();
             m_CommandList.End();
 
             l_Allocator.CompletionValue = m_Queue.Submit(m_CommandList.GetHandle());
+            m_LastFrameValue = l_Allocator.CompletionValue;
 
             ++m_FrameNumber;
             m_Releases.EndFrame();
@@ -515,6 +617,11 @@ namespace Trinity
             if (m_CopyQueue.IsReady())
             {
                 m_CopyQueue.WaitIdle();
+            }
+
+            if (m_ComputeQueue.IsReady())
+            {
+                m_ComputeQueue.WaitIdle();
             }
 
             m_Releases.ReleaseIdle();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/RHI/CommandList.hpp"
+#include "Trinity/RHI/CommandListRole.hpp"
 #include "Trinity/RHI/Vulkan/VulkanHeaders.hpp"
 
 #include <cstddef>
@@ -15,11 +16,11 @@ namespace Trinity
     {
         class VulkanContext;
 
-        // The frame's commands on the graphics queue, or with uploads the copies and barriers the loaders record for the transfer queue
+        // The frame's commands on the graphics queue, the copies and barriers the loaders record for the transfer queue, or the compute queue's passes
         class VulkanCommandList final : public CommandList
         {
         public:
-            explicit VulkanCommandList(VulkanContext& device, bool uploads = false);
+            explicit VulkanCommandList(VulkanContext& device, CommandListRole role = CommandListRole::Frame);
 
             void Begin(VkCommandBuffer commandBuffer);
             void End();
@@ -30,6 +31,8 @@ namespace Trinity
             [[nodiscard]] bool WaitsForGraphics() const { return m_WaitsForGraphics; }
             // The barriers after the uploads' copies into the frame's list, which waits for the uploads before it runs
             void RecordHandoffs(VulkanCommandList& frame);
+            // The release of a whole texture leaving for another queue family, or the acquire of one joining from it, moving it from before to after
+            void TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, std::uint32_t sourceFamily, std::uint32_t destinationFamily, bool release);
 
             void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range) override;
             void BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after) override;
@@ -68,7 +71,7 @@ namespace Trinity
             bool m_HasComputePipeline = false;
             bool m_HasIndexBuffer = false;
 
-            const bool m_Uploads = false;
+            const CommandListRole m_Role = CommandListRole::Frame;
             bool m_HasCommands = false;
             bool m_WaitsForGraphics = false;
             std::vector<VkImageMemoryBarrier2> m_ImageHandoffs;

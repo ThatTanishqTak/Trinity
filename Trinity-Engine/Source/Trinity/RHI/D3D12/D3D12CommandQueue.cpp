@@ -25,7 +25,7 @@ namespace Trinity
 
             if (SUCCEEDED(l_Result))
             {
-                m_Queue->SetName(type == D3D12_COMMAND_LIST_TYPE_COPY ? L"Trinity copy queue" : L"Trinity direct queue");
+                m_Queue->SetName(type == D3D12_COMMAND_LIST_TYPE_COPY ? L"Trinity copy queue" : type == D3D12_COMMAND_LIST_TYPE_COMPUTE ? L"Trinity compute queue" : L"Trinity direct queue");
             }
 
             return l_Result;

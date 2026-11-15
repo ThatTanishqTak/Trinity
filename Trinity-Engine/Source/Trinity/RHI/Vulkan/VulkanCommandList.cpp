@@ -28,6 +28,8 @@ namespace Trinity
 
             constexpr VkPipelineStageFlags2 c_ShaderStages = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             constexpr VkPipelineStageFlags2 c_DepthStages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            constexpr VkPipelineStageFlags2 c_ComputeStages = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            constexpr VkAccessFlags2 c_ComputeAccess = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
 
             // Undefined waits on all earlier writes, since the layout change that discards the contents is itself a write, and covering all commands also chains it onto a swap chain's acquire semaphore
             VulkanState ToVulkanState(ResourceState state)
@@ -132,14 +134,28 @@ namespace Trinity
             {
                 return state == ResourceState::CopySource || state == ResourceState::CopyDestination;
             }
+
+            // A compute queue has no vertex, fragment, attachment or index stages, so a compute list keeps what its queue has of each side of a barrier. A side left with none, which only the graphics queue reached, waits for nothing here, as the semaphore between the queues orders it
+            template<typename Barrier>
+            void KeepComputeStages(Barrier& barrier)
+            {
+                const auto a_Keep = [](VkPipelineStageFlags2& stage, VkAccessFlags2& access)
+                {
+                    stage &= c_ComputeStages;
+                    access = stage == VK_PIPELINE_STAGE_2_NONE ? VK_ACCESS_2_NONE : access & c_ComputeAccess;
+                };
+
+                a_Keep(barrier.srcStageMask, barrier.srcAccessMask);
+                a_Keep(barrier.dstStageMask, barrier.dstAccessMask);
+            }
         }
 
-        VulkanCommandList::VulkanCommandList(VulkanContext& device, bool uploads) : m_Device(device), m_Uploads(uploads)
+        VulkanCommandList::VulkanCommandList(VulkanContext& device, CommandListRole role) : m_Device(device), m_Role(role)
         {
 
         }
 
-        // A transfer family's commands bind no descriptors, so uploads begin with nothing bound
+        // A transfer family's commands bind no descriptors and a compute family's no graphics ones, so uploads begin with nothing bound and compute work with the compute set alone
         void VulkanCommandList::Begin(VkCommandBuffer commandBuffer)
         {
             VkCommandBufferBeginInfo l_Begin = MakeInfo<VkCommandBufferBeginInfo>(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
@@ -155,14 +171,19 @@ namespace Trinity
             m_WaitsForGraphics = false;
             m_ImageHandoffs.clear();
             m_BufferHandoffs.clear();
-            if (m_Uploads)
+            if (m_Role == CommandListRole::Uploads)
             {
                 return;
             }
 
             const VkDescriptorSet l_Set = m_Device.GetBindlessSet();
-            vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
             vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
+            if (m_Role == CommandListRole::Compute)
+            {
+                return;
+            }
+
+            vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Device.GetPipelineLayout(), 0, 1, &l_Set, 0, nullptr);
             vkCmdSetStencilReference(m_CommandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
         }
 
@@ -190,11 +211,48 @@ namespace Trinity
             m_BufferHandoffs.clear();
         }
 
+        // Vulkan's queue family ownership transfer: the release in the list the texture leaves, with nothing after it there, and the matching acquire in the list it joins, after everything before it, which the semaphore between the two submissions orders
+        void VulkanCommandList::TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, std::uint32_t sourceFamily, std::uint32_t destinationFamily, bool release)
+        {
+            TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Transfers are recorded within a frame and outside rendering.");
+
+            const VulkanTexture* l_Texture = m_Device.GetTexture(texture);
+            TR_CORE_ASSERT(l_Texture != nullptr, "TransferTexture on a destroyed or invalid texture.");
+            if (l_Texture == nullptr)
+            {
+                return;
+            }
+
+            const VulkanState l_Before = ToVulkanState(before);
+            const VulkanState l_After = ToVulkanState(after);
+
+            VkImageMemoryBarrier2 l_Barrier = MakeInfo<VkImageMemoryBarrier2>(VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2);
+            l_Barrier.srcStageMask = release ? l_Before.Stage : VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            l_Barrier.srcAccessMask = release ? l_Before.Access : VK_ACCESS_2_NONE;
+            l_Barrier.dstStageMask = release ? VK_PIPELINE_STAGE_2_NONE : l_After.Stage;
+            l_Barrier.dstAccessMask = release ? VK_ACCESS_2_NONE : l_After.Access;
+            l_Barrier.oldLayout = l_Before.Layout;
+            l_Barrier.newLayout = l_After.Layout;
+            l_Barrier.srcQueueFamilyIndex = sourceFamily;
+            l_Barrier.dstQueueFamilyIndex = destinationFamily;
+            l_Barrier.image = l_Texture->Image;
+            l_Barrier.subresourceRange = { GetAspect(l_Texture->TextureFormat), 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS };
+            if (m_Role == CommandListRole::Compute)
+            {
+                KeepComputeStages(l_Barrier);
+            }
+
+            VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
+            l_Dependency.imageMemoryBarrierCount = 1;
+            l_Dependency.pImageMemoryBarriers = &l_Barrier;
+            vkCmdPipelineBarrier2(m_CommandBuffer, &l_Dependency);
+        }
+
         // An upload list makes the moves into copy states itself, and leaves the move after its copies to the frame's list, whose stages a transfer queue lacks. An image is handed over from a transfer family of its own, released here and acquired there, while buffers are shared by both families. Out of a state the frame before may be reading, the uploads wait for it instead, which is all the order a buffer needs. False when the barrier is recorded here as it is
         template<typename Barrier>
         bool VulkanCommandList::HandOff(Barrier& barrier, ResourceState before, ResourceState after, std::vector<Barrier>& handoffs)
         {
-            if (!m_Uploads)
+            if (m_Role != CommandListRole::Uploads)
             {
                 return false;
             }
@@ -267,10 +325,15 @@ namespace Trinity
             l_Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             l_Barrier.image = l_Texture->Image;
             l_Barrier.subresourceRange = { GetAspect(l_Texture->TextureFormat), range.BaseMipLevel, range.MipLevelCount == c_RemainingSubresources ? VK_REMAINING_MIP_LEVELS : range.MipLevelCount, range.BaseArrayLayer, range.ArrayLayerCount == c_RemainingSubresources ? VK_REMAINING_ARRAY_LAYERS : range.ArrayLayerCount };
-            TR_CORE_ASSERT(!m_Uploads || !IsCopyState(after) || before == ResourceState::Undefined || IsCopyState(before), "An uploaded texture is new, so it moves into a copy state from Undefined.");
+            TR_CORE_ASSERT(m_Role != CommandListRole::Uploads || !IsCopyState(after) || before == ResourceState::Undefined || IsCopyState(before), "An uploaded texture is new, so it moves into a copy state from Undefined.");
             if (HandOff(l_Barrier, before, after, m_ImageHandoffs))
             {
                 return;
+            }
+
+            if (m_Role == CommandListRole::Compute)
+            {
+                KeepComputeStages(l_Barrier);
             }
 
             VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
@@ -308,6 +371,11 @@ namespace Trinity
                 return;
             }
 
+            if (m_Role == CommandListRole::Compute)
+            {
+                KeepComputeStages(l_Barrier);
+            }
+
             VkDependencyInfo l_Dependency = MakeInfo<VkDependencyInfo>(VK_STRUCTURE_TYPE_DEPENDENCY_INFO);
             l_Dependency.bufferMemoryBarrierCount = 1;
             l_Dependency.pBufferMemoryBarriers = &l_Barrier;
@@ -317,7 +385,7 @@ namespace Trinity
         void VulkanCommandList::BeginRendering(const RenderingDescription& description)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "BeginRendering is called once within a frame, before EndRendering.");
-            TR_CORE_ASSERT(!m_Uploads, "An upload list only copies.");
+            TR_CORE_ASSERT(m_Role == CommandListRole::Frame, "Only the frame's list renders.");
             TR_CORE_ASSERT(description.ColorAttachments.size() <= c_MaxColorAttachments, "Too many color attachments.");
 
             std::array<VkRenderingAttachmentInfo, c_MaxColorAttachments> l_Colors{};
@@ -408,7 +476,7 @@ namespace Trinity
         void VulkanCommandList::SetPipeline(PipelineHandle pipeline)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE, "SetPipeline is recorded within a frame.");
-            TR_CORE_ASSERT(!m_Uploads, "An upload list only copies.");
+            TR_CORE_ASSERT(m_Role != CommandListRole::Uploads, "An upload list only copies.");
 
             const VulkanPipeline* l_Pipeline = m_Device.GetPipeline(pipeline);
             TR_CORE_ASSERT(l_Pipeline != nullptr, "SetPipeline with a destroyed or invalid pipeline.");

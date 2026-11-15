@@ -27,6 +27,7 @@ namespace Trinity
         constexpr std::uint32_t c_TimingWindow = 30;
         constexpr std::uint32_t c_MinimumTimestamps = 32;
         constexpr std::uint64_t c_TimestampSize = 8;
+        constexpr std::uint32_t c_NoTimestamp = UINT32_MAX;
 
         template<typename T>
         using RendererVector = std::vector<T, TaggedAllocator<T, MemoryTag::Renderer>>;
@@ -132,6 +133,15 @@ namespace Trinity
             }
         }
 
+        // Which queue last used a resource in this execution: the graphics queue, or the compute queue in work not sent yet or already sent
+        enum class QueueUse : std::uint8_t
+        {
+            None,
+            Graphics,
+            PendingCompute,
+            Compute
+        };
+
         // Everything CreateTexture is given, including the optimized clear, so a pooled texture never clears to a value it was not made for
         bool IsSameTexture(const RHI::TextureDescription& left, const RHI::TextureDescription& right)
         {
@@ -181,6 +191,7 @@ namespace Trinity
             RHI::ResourceState FinalState = RHI::ResourceState::Undefined;
             RHI::ResourceState CurrentState = RHI::ResourceState::Undefined;
             std::uint32_t LastPass = c_NoIndex;
+            QueueUse Queue = QueueUse::None;
             bool Imported = false;
             bool Needed = false;
         };
@@ -195,6 +206,7 @@ namespace Trinity
             RHI::ResourceState FinalState = RHI::ResourceState::Undefined;
             RHI::ResourceState CurrentState = RHI::ResourceState::Undefined;
             std::uint32_t LastPass = c_NoIndex;
+            QueueUse Queue = QueueUse::None;
             bool Imported = false;
             bool Needed = false;
         };
@@ -222,15 +234,25 @@ namespace Trinity
             std::size_t Size = 0;
         };
 
-        // One per frame in flight. A slot is read back when the graph comes round to it again, by when the device has finished the frame that wrote it. Timestamp 0 is before the first pass, and timestamp n + 1 after pass n
+        // A timed pass's timestamps before and after it, both on the queue it ran on
+        struct PassStamps
+        {
+            std::uint32_t Begin = 0;
+            std::uint32_t End = 0;
+            RHI::QueueType Queue = RHI::QueueType::Graphics;
+        };
+
+        // One per frame in flight. A slot is read back when the graph comes round to it again, by when the device has finished the frame that wrote it. Timestamp 0 is before the first pass, a graphics pass is timed from the graphics timestamp before it, and an async compute pass from one written just before it on the compute queue
         struct TimingSlot
         {
             RHI::QueryPoolHandle Pool;
             RHI::BufferHandle Readback;
             std::uint32_t Capacity = 0;
             std::uint32_t Timestamps = 0;
+            std::uint32_t LastGraphics = 0;
             std::uint32_t PassCount = 0;
             RendererVector<RendererString> PassNames;
+            RendererVector<PassStamps> Stamps;
         };
 
         // Occurrence tells apart passes that share a name, such as one per added output
@@ -473,15 +495,49 @@ namespace Trinity
 
         CullPasses();
         AcquireResources();
-        BeginTimestamps(commands);
+        std::uint32_t l_LastGraphics = BeginTimestamps(commands);
 
+        // An async compute pass records into the device's compute list, unless that is the frame's own, and the compute work goes before the first graphics pass that uses what it used, or after the last pass
+        bool l_ComputePending = false;
+        bool l_AfterGraphics = false;
         for (std::uint32_t it_Pass = 0; it_Pass < l_State.Passes.size(); ++it_Pass)
         {
-            if (!l_State.Passes[it_Pass].Culled)
+            const State::Pass& l_Pass = l_State.Passes[it_Pass];
+            if (l_Pass.Culled)
             {
-                RecordPass(commands, it_Pass);
-                WritePassTimestamp(commands, it_Pass);
+                continue;
             }
+
+            if (l_Pass.Type == FrameGraphPassType::AsyncCompute)
+            {
+                RHI::CommandList& l_Compute = m_Device.GetComputeCommands();
+                if (&l_Compute != &commands)
+                {
+                    l_AfterGraphics = MoveToCompute(it_Pass) || l_AfterGraphics;
+                    const std::uint32_t l_Begin = WriteTimestamp(l_Compute, RHI::QueueType::Compute);
+                    RecordPass(l_Compute, it_Pass);
+                    static_cast<void>(WritePassTimestamp(l_Compute, it_Pass, RHI::QueueType::Compute, l_Begin));
+                    l_ComputePending = true;
+
+                    continue;
+                }
+            }
+
+            if (l_ComputePending && UsesPendingCompute(it_Pass))
+            {
+                SendCompute(l_AfterGraphics);
+                l_ComputePending = false;
+                l_AfterGraphics = false;
+            }
+
+            MarkGraphics(it_Pass);
+            RecordPass(commands, it_Pass);
+            l_LastGraphics = WritePassTimestamp(commands, it_Pass, RHI::QueueType::Graphics, l_LastGraphics);
+        }
+
+        if (l_ComputePending)
+        {
+            SendCompute(l_AfterGraphics);
         }
 
         for (std::uint32_t it_Texture = 0; it_Texture < l_State.Textures.size(); ++it_Texture)
@@ -502,7 +558,7 @@ namespace Trinity
             }
         }
 
-        EndTimestamps(commands);
+        EndTimestamps(commands, l_LastGraphics);
         ReleaseResources();
         DestroyCallbacks();
     }
@@ -567,6 +623,7 @@ namespace Trinity
         State::Pass& l_Pass = l_State.Passes[pass];
         TR_CORE_ASSERT(resource < (buffer ? l_State.Buffers.size() : l_State.Textures.size()), "Pass '{}' uses a {} that is not part of this graph.", l_Pass.Name, buffer ? "buffer" : "texture");
         TR_CORE_ASSERT(state != RHI::ResourceState::Undefined, "Pass '{}' uses a resource in the Undefined state.", l_Pass.Name);
+        TR_CORE_ASSERT(l_Pass.Type != FrameGraphPassType::AsyncCompute || state == RHI::ResourceState::ShaderResource || state == RHI::ResourceState::UnorderedAccess || state == RHI::ResourceState::CopySource || state == RHI::ResourceState::CopyDestination || state == RHI::ResourceState::IndirectArgument, "Pass '{}' runs on the compute queue, which uses resources only to read and write in shaders, copy and read indirect arguments.", l_Pass.Name);
         if (resource >= (buffer ? l_State.Buffers.size() : l_State.Textures.size()))
         {
             return;
@@ -760,6 +817,85 @@ namespace Trinity
         }
     }
 
+    // An async compute pass waits for the frame's graphics work so far when it uses something that work used, and a texture whose contents the graphics queue holds goes over to the compute queue in the state the pass needs
+    bool FrameGraph::MoveToCompute(std::uint32_t pass)
+    {
+        State& l_State = *m_State;
+        const State::Pass& l_Pass = l_State.Passes[pass];
+        bool l_AfterGraphics = false;
+        for (const State::Access& it_Access : std::span(l_State.Accesses).subspan(l_Pass.FirstAccess, l_Pass.AccessCount))
+        {
+            if (it_Access.Buffer)
+            {
+                State::Buffer& l_Buffer = l_State.Buffers[it_Access.Resource];
+                l_AfterGraphics = l_AfterGraphics || l_Buffer.Queue == QueueUse::Graphics;
+                l_Buffer.Queue = QueueUse::PendingCompute;
+
+                continue;
+            }
+
+            State::Texture& l_Texture = l_State.Textures[it_Access.Resource];
+            l_AfterGraphics = l_AfterGraphics || l_Texture.Queue == QueueUse::Graphics;
+            if (l_Texture.Queue != QueueUse::PendingCompute && l_Texture.CurrentState != RHI::ResourceState::Undefined && l_Texture.Handle)
+            {
+                m_Device.TransferTexture(l_Texture.Handle, l_Texture.CurrentState, it_Access.ResourceState, RHI::QueueType::Graphics);
+                l_Texture.CurrentState = it_Access.ResourceState;
+                ++l_State.Stats.Barriers;
+                l_AfterGraphics = true;
+            }
+
+            l_Texture.Queue = QueueUse::PendingCompute;
+        }
+
+        return l_AfterGraphics;
+    }
+
+    bool FrameGraph::UsesPendingCompute(std::uint32_t pass) const
+    {
+        const State& l_State = *m_State;
+        const State::Pass& l_Pass = l_State.Passes[pass];
+
+        return std::ranges::any_of(std::span(l_State.Accesses).subspan(l_Pass.FirstAccess, l_Pass.AccessCount), [&l_State](const State::Access& access) { return (access.Buffer ? l_State.Buffers[access.Resource].Queue : l_State.Textures[access.Resource].Queue) == QueueUse::PendingCompute; });
+    }
+
+    void FrameGraph::MarkGraphics(std::uint32_t pass)
+    {
+        State& l_State = *m_State;
+        const State::Pass& l_Pass = l_State.Passes[pass];
+        for (const State::Access& it_Access : std::span(l_State.Accesses).subspan(l_Pass.FirstAccess, l_Pass.AccessCount))
+        {
+            (it_Access.Buffer ? l_State.Buffers[it_Access.Resource].Queue : l_State.Textures[it_Access.Resource].Queue) = QueueUse::Graphics;
+        }
+    }
+
+    // Every texture the compute work used goes back to the graphics queue as it is, so the graphics queue holds every texture between compute work, and the buffers count as sent
+    void FrameGraph::SendCompute(bool afterGraphics)
+    {
+        State& l_State = *m_State;
+        for (State::Texture& it_Texture : l_State.Textures)
+        {
+            if (it_Texture.Queue == QueueUse::PendingCompute)
+            {
+                if (it_Texture.Handle && it_Texture.CurrentState != RHI::ResourceState::Undefined)
+                {
+                    m_Device.TransferTexture(it_Texture.Handle, it_Texture.CurrentState, it_Texture.CurrentState, RHI::QueueType::Compute);
+                }
+
+                it_Texture.Queue = QueueUse::Graphics;
+            }
+        }
+
+        for (State::Buffer& it_Buffer : l_State.Buffers)
+        {
+            if (it_Buffer.Queue == QueueUse::PendingCompute)
+            {
+                it_Buffer.Queue = QueueUse::Compute;
+            }
+        }
+
+        m_Device.SubmitCompute(afterGraphics);
+    }
+
     // Barriers first, then for a raster pass the attachments, stored only when the texture is imported or a later pass uses it, and a viewport and scissor over the render area
     void FrameGraph::RecordPass(RHI::CommandList& commands, std::uint32_t pass)
     {
@@ -907,15 +1043,20 @@ namespace Trinity
         l_State.Stats.PooledBuffers = static_cast<std::uint32_t>(l_State.BufferPool.size());
     }
 
-    // Reads what this slot timed last, makes room for a timestamp before the first pass and one after each pass that runs, and writes the first. A slot whose pool or readback could not be created times nothing
-    void FrameGraph::BeginTimestamps(RHI::CommandList& commands)
+    // Reads what this slot timed last, makes room for a timestamp before the first pass, one after each pass that runs and one before each async compute pass, and writes the first. A slot whose pool or readback could not be created times nothing
+    std::uint32_t FrameGraph::BeginTimestamps(RHI::CommandList& commands)
     {
         State& l_State = *m_State;
         const std::uint32_t l_Slot = static_cast<std::uint32_t>(l_State.Executions % RHI::c_FramesInFlight);
         ReadTimestamps(l_Slot);
 
         State::TimingSlot& l_Timing = l_State.TimingSlots[l_Slot];
-        const std::uint32_t l_Needed = l_State.Stats.Passes - l_State.Stats.CulledPasses + 1;
+        std::uint32_t l_Needed = 1;
+        for (const State::Pass& it_Pass : l_State.Passes)
+        {
+            l_Needed += it_Pass.Culled ? 0 : it_Pass.Type == FrameGraphPassType::AsyncCompute ? 2 : 1;
+        }
+
         if (l_Timing.Capacity < l_Needed)
         {
             m_Device.DestroyQueryPool(l_Timing.Pool);
@@ -942,49 +1083,68 @@ namespace Trinity
 
         l_Timing.Timestamps = 0;
         l_Timing.PassCount = 0;
-        if (l_Timing.Pool)
-        {
-            commands.WriteTimestamp(l_Timing.Pool, l_Timing.Timestamps++);
-        }
+
+        return WriteTimestamp(commands, RHI::QueueType::Graphics);
     }
 
-    void FrameGraph::WritePassTimestamp(RHI::CommandList& commands, std::uint32_t pass)
+    // The timestamp written, or c_NoTimestamp when the slot times nothing or the queue has no timestamps
+    std::uint32_t FrameGraph::WriteTimestamp(RHI::CommandList& commands, RHI::QueueType queue)
+    {
+        State& l_State = *m_State;
+        State::TimingSlot& l_Timing = l_State.TimingSlots[l_State.Executions % RHI::c_FramesInFlight];
+        if (!l_Timing.Pool || m_Device.GetTimestampFrequency(queue) == 0)
+        {
+            return c_NoTimestamp;
+        }
+
+        commands.WriteTimestamp(l_Timing.Pool, l_Timing.Timestamps);
+
+        return l_Timing.Timestamps++;
+    }
+
+    // Times the pass from begin, a timestamp on the same queue, to one written now, which it returns
+    std::uint32_t FrameGraph::WritePassTimestamp(RHI::CommandList& commands, std::uint32_t pass, RHI::QueueType queue, std::uint32_t begin)
     {
         State& l_State = *m_State;
         State::TimingSlot& l_Timing = l_State.TimingSlots[l_State.Executions % RHI::c_FramesInFlight];
         if (!l_Timing.Pool)
         {
-            return;
+            return c_NoTimestamp;
         }
 
-        commands.WriteTimestamp(l_Timing.Pool, l_Timing.Timestamps++);
+        const std::uint32_t l_End = WriteTimestamp(commands, queue);
         if (l_Timing.PassNames.size() <= l_Timing.PassCount)
         {
             l_Timing.PassNames.emplace_back();
+            l_Timing.Stamps.emplace_back();
         }
 
-        l_Timing.PassNames[l_Timing.PassCount++].assign(l_State.Passes[pass].Name);
+        l_Timing.PassNames[l_Timing.PassCount].assign(l_State.Passes[pass].Name);
+        l_Timing.Stamps[l_Timing.PassCount++] = { begin, l_End, queue };
+
+        return l_End;
     }
 
-    // After the final transitions, so the last pass's time leaves them out
-    void FrameGraph::EndTimestamps(RHI::CommandList& commands)
+    // After the final transitions, so the last pass's time leaves them out, and after the compute work, whose timestamps the frame's commands wait for
+    void FrameGraph::EndTimestamps(RHI::CommandList& commands, std::uint32_t lastGraphics)
     {
         State& l_State = *m_State;
-        const State::TimingSlot& l_Timing = l_State.TimingSlots[l_State.Executions % RHI::c_FramesInFlight];
+        State::TimingSlot& l_Timing = l_State.TimingSlots[l_State.Executions % RHI::c_FramesInFlight];
+        l_Timing.LastGraphics = lastGraphics;
         if (l_Timing.Pool && l_Timing.Timestamps > 0)
         {
             commands.ResolveTimestamps(l_Timing.Pool, 0, l_Timing.Timestamps, l_Timing.Readback, 0);
         }
     }
 
-    // Adds each pass's time to its sum, and publishes once the window is full
+    // Adds each pass's time, in its queue's ticks, to its sum, and publishes once the window is full. The total is the graphics queue's, from before the first pass to after the last graphics pass
     void FrameGraph::ReadTimestamps(std::uint32_t slot)
     {
         State& l_State = *m_State;
         State::TimingSlot& l_Timing = l_State.TimingSlots[slot];
-        const std::uint64_t l_Frequency = m_Device.GetTimestampFrequency();
+        const std::array<std::uint64_t, 2> l_Frequencies{ m_Device.GetTimestampFrequency(RHI::QueueType::Graphics), m_Device.GetTimestampFrequency(RHI::QueueType::Compute) };
         const std::span<const std::byte> l_Data = l_Timing.Readback ? m_Device.GetMappedData(l_Timing.Readback) : std::span<const std::byte>{};
-        if (l_Timing.Timestamps == 0 || l_Frequency == 0 || l_Data.size() < l_Timing.Timestamps * c_TimestampSize)
+        if (l_Timing.Timestamps == 0 || l_Frequencies[0] == 0 || l_Data.size() < l_Timing.Timestamps * c_TimestampSize)
         {
             return;
         }
@@ -997,7 +1157,13 @@ namespace Trinity
             return l_Ticks;
         };
 
-        const auto a_Milliseconds = [l_Frequency](std::uint64_t begin, std::uint64_t end) { return end > begin ? static_cast<double>(end - begin) * 1000.0 / static_cast<double>(l_Frequency) : 0.0; };
+        const auto a_Milliseconds = [&a_Ticks](std::uint32_t begin, std::uint32_t end, std::uint64_t frequency)
+        {
+            const std::uint64_t l_Begin = a_Ticks(begin);
+            const std::uint64_t l_End = a_Ticks(end);
+
+            return l_End > l_Begin ? static_cast<double>(l_End - l_Begin) * 1000.0 / static_cast<double>(frequency) : 0.0;
+        };
 
         for (std::uint32_t it_Pass = 0; it_Pass < l_Timing.PassCount; ++it_Pass)
         {
@@ -1010,11 +1176,15 @@ namespace Trinity
                 a_Timing = l_State.Timings.end() - 1;
             }
 
-            a_Timing->Milliseconds += a_Milliseconds(a_Ticks(it_Pass), a_Ticks(it_Pass + 1));
-            ++a_Timing->Samples;
+            const State::PassStamps& l_Stamps = l_Timing.Stamps[it_Pass];
+            if (l_Stamps.Begin != c_NoTimestamp && l_Stamps.End != c_NoTimestamp)
+            {
+                a_Timing->Milliseconds += a_Milliseconds(l_Stamps.Begin, l_Stamps.End, l_Frequencies[static_cast<std::size_t>(l_Stamps.Queue)]);
+                ++a_Timing->Samples;
+            }
         }
 
-        l_State.TotalMilliseconds += a_Milliseconds(a_Ticks(0), a_Ticks(l_Timing.Timestamps - 1));
+        l_State.TotalMilliseconds += a_Milliseconds(0, l_Timing.LastGraphics, l_Frequencies[0]);
         ++l_State.TimingSamples;
         if (l_State.TimingSamples == c_TimingWindow)
         {

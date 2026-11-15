@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Trinity/RHI/CommandList.hpp"
+#include "Trinity/RHI/CommandListRole.hpp"
 #include "Trinity/RHI/D3D12/D3D12Headers.hpp"
 
 #include <array>
@@ -17,18 +18,20 @@ namespace Trinity
         class D3D12Context;
         class D3D12Device;
 
-        // The frame's commands on the direct queue, or with uploads the copies the loaders record for the copy queue
+        // The frame's commands on the direct queue, the copies the loaders record for the copy queue, or the compute queue's passes
         class D3D12CommandList final : public CommandList
         {
         public:
-            explicit D3D12CommandList(D3D12Context& device, bool uploads = false);
+            explicit D3D12CommandList(D3D12Context& device, CommandListRole role = CommandListRole::Frame);
 
-            // S_OK, or the failure creating the one list every frame records into, a direct list or with uploads a copy list
+            // S_OK, or the failure creating the one list every frame records into, a direct, copy or compute list for the role
             [[nodiscard]] HRESULT Initialize(const D3D12Device& device);
             void Reset();
 
             // Resets the frame's allocator, which the frame c_FramesInFlight before this one has finished with, and the list onto it
             void Begin(ID3D12CommandAllocator* allocator);
+            // Resets the list onto the allocator as it is, after what the list recorded on it before, which may still be running
+            void Continue(ID3D12CommandAllocator* allocator);
             void End();
 
             // Whether a copy or handoff was recorded since Begin, so the list is worth submitting
@@ -78,7 +81,7 @@ namespace Trinity
             bool m_HasComputePipeline = false;
             bool m_HasIndexBuffer = false;
 
-            const bool m_Uploads = false;
+            const CommandListRole m_Role = CommandListRole::Frame;
             bool m_HasCommands = false;
             bool m_WaitsForGraphics = false;
             std::vector<D3D12_TEXTURE_BARRIER> m_TextureHandoffs;

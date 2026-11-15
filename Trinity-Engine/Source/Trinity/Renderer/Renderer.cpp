@@ -256,7 +256,6 @@ namespace Trinity
             ReadCapture(*it_View);
         }
 
-
         // The loaders' uploads go to the copy queue, sent at once so they run while the frame is recorded, and the overlay's, which change every frame, stay in the frame's list
         {
             RHI::CommandList& l_Uploads = m_Device.GetUploadCommands();

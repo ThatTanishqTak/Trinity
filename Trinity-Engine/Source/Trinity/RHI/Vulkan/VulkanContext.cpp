@@ -25,7 +25,7 @@ namespace Trinity
             return l_Device;
         }
 
-        VulkanContext::VulkanContext() : m_Device(m_Instance), m_Allocator(m_Instance, m_Device), m_Bindless(m_Device), m_PipelineCache(m_Device), m_Releases(m_Device, m_Allocator, m_Bindless), m_FrameSync(m_Device), m_CommandList(*this), m_UploadList(*this, true)
+        VulkanContext::VulkanContext() : m_Device(m_Instance), m_Allocator(m_Instance, m_Device), m_Bindless(m_Device), m_PipelineCache(m_Device), m_Releases(m_Device, m_Allocator, m_Bindless), m_FrameSync(m_Device), m_CommandList(*this), m_UploadList(*this, CommandListRole::Uploads), m_ComputeList(*this, CommandListRole::Compute)
         {
 
         }
@@ -55,6 +55,11 @@ namespace Trinity
                 m_PipelineCache.Destroy();
                 m_Bindless.Destroy();
 
+                for (const VulkanCommandPool& it_Pool : m_ComputePools)
+                {
+                    it_Pool.Destroy(m_Device);
+                }
+
                 for (const VulkanCommandPool& it_Pool : m_UploadPools)
                 {
                     it_Pool.Destroy(m_Device);
@@ -80,7 +85,7 @@ namespace Trinity
 
         bool VulkanContext::Initialize(const DeviceSpecification& specification, std::string& error)
         {
-            return m_Instance.Initialize(specification, error) && m_Device.Initialize(specification, error) && m_Allocator.Initialize(error) && CreateFrames(error) && CreateUploads(specification, error) && m_Bindless.Initialize(error) && m_PipelineCache.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
+            return m_Instance.Initialize(specification, error) && m_Device.Initialize(specification, error) && m_Allocator.Initialize(error) && CreateFrames(error) && CreateUploads(specification, error) && CreateCompute(specification, error) && m_Bindless.Initialize(error) && m_PipelineCache.Initialize(specification.PipelineCachePath, error) && m_UploadRing.Initialize(*this, error);
         }
 
         bool VulkanContext::CreateFrames(std::string& error)
@@ -92,7 +97,6 @@ namespace Trinity
                 {
                     break;
                 }
-
 
                 l_Result = it_Pool.Create(m_Device, m_Device.GetQueueFamily());
             }
@@ -125,6 +129,31 @@ namespace Trinity
             if (l_Result != VK_SUCCESS)
             {
                 error = std::format("the upload command pools could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
+
+                return false;
+            }
+
+            return true;
+        }
+
+        bool VulkanContext::CreateCompute(const DeviceSpecification& specification, std::string& error)
+        {
+            m_ComputeEnabled = specification.EnableAsyncCompute;
+
+            VkResult l_Result = VK_SUCCESS;
+            for (VulkanCommandPool& it_Pool : m_ComputePools)
+            {
+                if (!m_ComputeEnabled || l_Result != VK_SUCCESS)
+                {
+                    break;
+                }
+
+                l_Result = it_Pool.Create(m_Device, m_Device.GetComputeFamily());
+            }
+
+            if (l_Result != VK_SUCCESS)
+            {
+                error = std::format("the compute command pools could not be created on {} ({})", m_Device.GetInfo().AdapterName, FormatResult(l_Result));
 
                 return false;
             }
@@ -343,9 +372,10 @@ namespace Trinity
             }
         }
 
-        std::uint64_t VulkanContext::GetTimestampFrequency() const
+        // Every queue counts on one clock, though a family without timestamp bits writes none
+        std::uint64_t VulkanContext::GetTimestampFrequency(QueueType queue) const
         {
-            return VulkanQueryPool::GetTimestampFrequency(m_Device);
+            return queue == QueueType::Compute && !m_Device.HasComputeTimestamps() ? 0 : VulkanQueryPool::GetTimestampFrequency(m_Device);
         }
 
         PipelineHandle VulkanContext::CreateComputePipeline(const ComputePipelineDescription& description)
@@ -385,7 +415,7 @@ namespace Trinity
         {
             TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
 
-            const VulkanCommandPool& l_Pool = m_CommandPools[GetFrameSlot()];
+            VulkanCommandPool& l_Pool = m_CommandPools[GetFrameSlot()];
             m_FrameSync.WaitForTimeline(l_Pool.CompletionValue);
 
             m_InFrame = true;
@@ -395,9 +425,14 @@ namespace Trinity
 
             l_Pool.Reset(m_Device);
             m_FrameSync.BeginFrame();
-            m_CommandList.Begin(l_Pool.CommandBuffer);
+            m_FrameCommandBuffer = l_Pool.Next(m_Device);
+            m_CommandList.Begin(m_FrameCommandBuffer);
             m_UploadsRecording = false;
             m_UploadsSubmitted = false;
+            if (m_ComputeEnabled)
+            {
+                m_ComputePools[GetFrameSlot()].Reset(m_Device);
+            }
 
             return m_CommandList;
         }
@@ -414,16 +449,17 @@ namespace Trinity
 
             if (!m_UploadsRecording)
             {
-                const VulkanCommandPool& l_Pool = m_UploadPools[GetFrameSlot()];
+                VulkanCommandPool& l_Pool = m_UploadPools[GetFrameSlot()];
                 l_Pool.Reset(m_Device);
-                m_UploadList.Begin(l_Pool.CommandBuffer);
+                m_UploadCommandBuffer = l_Pool.Next(m_Device);
+                m_UploadList.Begin(m_UploadCommandBuffer);
                 m_UploadsRecording = true;
             }
 
             return m_UploadList;
         }
 
-        // Uploads that write what the frame before may still read wait for it, at the timeline value its number names
+        // Uploads that write what the frame before may still read wait for it, at the timeline value its last submission signalled
         void VulkanContext::SubmitUploads()
         {
             TR_CORE_ASSERT(m_InFrame, "SubmitUploads is called within a frame.");
@@ -440,7 +476,7 @@ namespace Trinity
                 return;
             }
 
-            const VkResult l_Result = m_FrameSync.SubmitUploads(m_UploadPools[GetFrameSlot()].CommandBuffer, m_UploadList.WaitsForGraphics() ? m_FrameNumber : 0);
+            const VkResult l_Result = m_FrameSync.SubmitUploads(m_UploadCommandBuffer, m_UploadList.WaitsForGraphics() ? m_FrameSync.GetFrameValue() : 0);
             if (l_Result != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Vulkan: frame {}'s uploads could not be submitted ({})", m_FrameNumber, FormatResult(l_Result));
@@ -449,18 +485,104 @@ namespace Trinity
             m_UploadList.RecordHandoffs(m_CommandList);
         }
 
+        // Begun when a frame first asks for it, and again after each SubmitCompute, on the pool of the frame c_FramesInFlight before, which has finished
+        CommandList& VulkanContext::GetComputeCommands()
+        {
+            TR_CORE_ASSERT(m_InFrame, "GetComputeCommands is called within a frame.");
+
+            if (!m_ComputeEnabled)
+            {
+                return m_CommandList;
+            }
+
+            if (!m_ComputeRecording)
+            {
+                m_ComputeCommandBuffer = m_ComputePools[GetFrameSlot()].Next(m_Device);
+                TR_CORE_ASSERT(m_ComputeCommandBuffer != VK_NULL_HANDLE, "No compute command buffer could be allocated.");
+                m_ComputeList.Begin(m_ComputeCommandBuffer);
+                m_ComputeRecording = true;
+            }
+
+            return m_ComputeList;
+        }
+
+        // A family of its own for compute owns what it uses, so a texture that keeps its contents goes through a release and an acquire. With one family for both queues, or the switch off, its move is an ordinary barrier where it leaves
+        void VulkanContext::TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, QueueType from)
+        {
+            TR_CORE_ASSERT(m_InFrame && (!m_ComputeEnabled || m_ComputeRecording), "TransferTexture is called within a frame, while the compute list records.");
+
+            if (!m_ComputeEnabled || m_Device.GetComputeFamily() == m_Device.GetQueueFamily())
+            {
+                if (before != after)
+                {
+                    (from == QueueType::Compute && m_ComputeEnabled ? m_ComputeList : m_CommandList).TextureBarrier(texture, before, after, {});
+                }
+
+                return;
+            }
+
+            const std::uint32_t l_Graphics = m_Device.GetQueueFamily();
+            const std::uint32_t l_Compute = m_Device.GetComputeFamily();
+            if (from == QueueType::Graphics)
+            {
+                m_CommandList.TransferTexture(texture, before, after, l_Graphics, l_Compute, true);
+                m_ComputeList.TransferTexture(texture, before, after, l_Graphics, l_Compute, false);
+            }
+            else
+            {
+                m_ComputeList.TransferTexture(texture, before, after, l_Compute, l_Graphics, true);
+                m_ComputeTransfers.push_back({ texture, before, after });
+            }
+        }
+
+        // The frame's commands so far go first in a submission of their own, so they never wait for the compute work, and its later commands, in a command buffer of their own, wait for it and take in the textures it let go. The compute work waits for the frame before on the graphics queue, which may still use what it writes, and with afterGraphics for the frame's commands so far too
+        void VulkanContext::SubmitCompute(bool afterGraphics)
+        {
+            TR_CORE_ASSERT(m_InFrame, "SubmitCompute is called within a frame.");
+
+            if (!std::exchange(m_ComputeRecording, false))
+            {
+                return;
+            }
+
+            m_ComputeList.End();
+            m_CommandList.End();
+
+            VkResult l_Result = m_FrameSync.Submit(m_FrameCommandBuffer, false);
+            if (l_Result == VK_SUCCESS)
+            {
+                l_Result = m_FrameSync.SubmitCompute(m_ComputeCommandBuffer, afterGraphics ? m_FrameSync.GetSubmittedValue() : m_FrameSync.GetFrameValue());
+            }
+
+            if (l_Result != VK_SUCCESS)
+            {
+                TR_CORE_ERROR("Vulkan: frame {}'s compute work could not be submitted ({})", m_FrameNumber, FormatResult(l_Result));
+            }
+
+            m_FrameCommandBuffer = m_CommandPools[GetFrameSlot()].Next(m_Device);
+            TR_CORE_ASSERT(m_FrameCommandBuffer != VK_NULL_HANDLE, "No command buffer could be allocated for the rest of the frame.");
+            m_CommandList.Begin(m_FrameCommandBuffer);
+            for (const TextureTransfer& it_Transfer : m_ComputeTransfers)
+            {
+                m_CommandList.TransferTexture(it_Transfer.Texture, it_Transfer.Before, it_Transfer.After, m_Device.GetComputeFamily(), m_Device.GetQueueFamily(), false);
+            }
+
+            m_ComputeTransfers.clear();
+        }
+
         void VulkanContext::EndFrame()
         {
             TR_CORE_ASSERT(m_InFrame, "EndFrame without BeginFrame.");
 
             SubmitUploads();
+            SubmitCompute(true);
 
             VulkanCommandPool& l_Pool = m_CommandPools[GetFrameSlot()];
             m_UploadRing.EndFrame();
             m_CommandList.End();
 
-            l_Pool.CompletionValue = m_FrameNumber + 1;
-            const VkResult l_Result = m_FrameSync.Submit(l_Pool.CommandBuffer, l_Pool.CompletionValue);
+            const VkResult l_Result = m_FrameSync.Submit(m_FrameCommandBuffer, true);
+            l_Pool.CompletionValue = m_FrameSync.GetSubmittedValue();
             if (l_Result != VK_SUCCESS)
             {
                 TR_CORE_ERROR("Vulkan: frame {} could not be submitted ({})", m_FrameNumber, FormatResult(l_Result));

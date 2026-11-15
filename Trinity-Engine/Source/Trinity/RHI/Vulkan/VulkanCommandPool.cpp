@@ -19,17 +19,41 @@ namespace Trinity
                 return l_Result;
             }
 
+            // The first command buffer now, which every frame records into, and the rest when a frame first splits into more submissions
+            return Allocate(device);
+        }
+
+        VkResult VulkanCommandPool::Allocate(const VulkanDevice& device)
+        {
             VkCommandBufferAllocateInfo l_Allocate = MakeInfo<VkCommandBufferAllocateInfo>(VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO);
             l_Allocate.commandPool = Pool;
             l_Allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             l_Allocate.commandBufferCount = 1;
 
-            return vkAllocateCommandBuffers(device.GetHandle(), &l_Allocate, &CommandBuffer);
+            VkCommandBuffer l_CommandBuffer = VK_NULL_HANDLE;
+            const VkResult l_Result = vkAllocateCommandBuffers(device.GetHandle(), &l_Allocate, &l_CommandBuffer);
+            if (l_Result == VK_SUCCESS)
+            {
+                CommandBuffers.push_back(l_CommandBuffer);
+            }
+
+            return l_Result;
         }
 
-        void VulkanCommandPool::Reset(const VulkanDevice& device) const
+        VkCommandBuffer VulkanCommandPool::Next(const VulkanDevice& device)
+        {
+            if (Used == CommandBuffers.size() && Allocate(device) != VK_SUCCESS)
+            {
+                return VK_NULL_HANDLE;
+            }
+
+            return CommandBuffers[Used++];
+        }
+
+        void VulkanCommandPool::Reset(const VulkanDevice& device)
         {
             vkResetCommandPool(device.GetHandle(), Pool, 0);
+            Used = 0;
         }
 
         void VulkanCommandPool::Destroy(const VulkanDevice& device) const

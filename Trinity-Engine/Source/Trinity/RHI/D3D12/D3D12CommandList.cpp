@@ -137,19 +137,40 @@ namespace Trinity
             {
                 return state != ResourceState::Undefined && state != ResourceState::CopySource && state != ResourceState::CopyDestination;
             }
+
+            // The states whose layouts a compute queue may move a texture into and out of
+            bool IsComputeState(ResourceState state)
+            {
+                return state == ResourceState::Undefined || state == ResourceState::ShaderResource || state == ResourceState::UnorderedAccess || state == ResourceState::CopySource || state == ResourceState::CopyDestination;
+            }
+
+            // A compute list synchronizes with and accesses only what a compute queue has, so it keeps that of each side of a barrier. A side left with none, which only the direct queue reached, waits for nothing here, as the fence between the queues orders it
+            void KeepComputeSyncs(D3D12_BARRIER_SYNC& sync, D3D12_BARRIER_ACCESS& access)
+            {
+                const D3D12_BARRIER_SYNC l_Syncs = D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_COMPUTE_SHADING | D3D12_BARRIER_SYNC_COPY | D3D12_BARRIER_SYNC_EXECUTE_INDIRECT | D3D12_BARRIER_SYNC_ALL_SHADING | D3D12_BARRIER_SYNC_NON_PIXEL_SHADING;
+                const D3D12_BARRIER_ACCESS l_Access = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS | D3D12_BARRIER_ACCESS_SHADER_RESOURCE | D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT | D3D12_BARRIER_ACCESS_COPY_DEST | D3D12_BARRIER_ACCESS_COPY_SOURCE;
+                sync = sync & l_Syncs;
+                access = access & l_Access;
+                if (sync == D3D12_BARRIER_SYNC_NONE || access == D3D12_BARRIER_ACCESS_COMMON)
+                {
+                    sync = D3D12_BARRIER_SYNC_NONE;
+                    access = D3D12_BARRIER_ACCESS_NO_ACCESS;
+                }
+            }
         }
 
-        D3D12CommandList::D3D12CommandList(D3D12Context& device, bool uploads) : m_Device(device), m_Uploads(uploads)
+        D3D12CommandList::D3D12CommandList(D3D12Context& device, CommandListRole role) : m_Device(device), m_Role(role)
         {
 
         }
 
         HRESULT D3D12CommandList::Initialize(const D3D12Device& device)
         {
-            const HRESULT l_Result = device.GetHandle()->CreateCommandList1(0, m_Uploads ? D3D12_COMMAND_LIST_TYPE_COPY : D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_FLAG_NONE, IID_PPV_ARGS(&m_GraphicsList));
+            const D3D12_COMMAND_LIST_TYPE l_Type = m_Role == CommandListRole::Uploads ? D3D12_COMMAND_LIST_TYPE_COPY : m_Role == CommandListRole::Compute ? D3D12_COMMAND_LIST_TYPE_COMPUTE : D3D12_COMMAND_LIST_TYPE_DIRECT;
+            const HRESULT l_Result = device.GetHandle()->CreateCommandList1(0, l_Type, D3D12_COMMAND_LIST_FLAG_NONE, IID_PPV_ARGS(&m_GraphicsList));
             if (SUCCEEDED(l_Result))
             {
-                m_GraphicsList->SetName(m_Uploads ? L"Trinity upload commands" : L"Trinity frame commands");
+                m_GraphicsList->SetName(m_Role == CommandListRole::Uploads ? L"Trinity upload commands" : m_Role == CommandListRole::Compute ? L"Trinity compute commands" : L"Trinity frame commands");
             }
 
             return l_Result;
@@ -163,6 +184,12 @@ namespace Trinity
         void D3D12CommandList::Begin(ID3D12CommandAllocator* allocator)
         {
             allocator->Reset();
+            Continue(allocator);
+        }
+
+        // A copy list sets no descriptors and a compute list no graphics state, so uploads begin with nothing set and compute work with the heaps and the compute root signature alone
+        void D3D12CommandList::Continue(ID3D12CommandAllocator* allocator)
+        {
             m_GraphicsList->Reset(allocator, nullptr);
 
             m_CommandList = m_GraphicsList.Get();
@@ -173,15 +200,20 @@ namespace Trinity
             m_HasCommands = false;
             m_WaitsForGraphics = false;
             m_TextureHandoffs.clear();
-            if (m_Uploads)
+            if (m_Role == CommandListRole::Uploads)
             {
                 return;
             }
 
             const std::array<ID3D12DescriptorHeap*, 2> l_Heaps{ m_Device.GetResourceHeap(), m_Device.GetSamplerHeap() };
             m_CommandList->SetDescriptorHeaps(static_cast<UINT>(l_Heaps.size()), l_Heaps.data());
-            m_CommandList->SetGraphicsRootSignature(m_Device.GetRootSignature());
             m_CommandList->SetComputeRootSignature(m_Device.GetRootSignature());
+            if (m_Role == CommandListRole::Compute)
+            {
+                return;
+            }
+
+            m_CommandList->SetGraphicsRootSignature(m_Device.GetRootSignature());
             m_CommandList->OMSetStencilRef(0);
         }
 
@@ -207,7 +239,7 @@ namespace Trinity
             m_TextureHandoffs.clear();
         }
 
-        // Moving out of Undefined discards the contents, which also counts as the first write a render target or depth texture needs. A copy queue makes no layout transitions and keeps a texture in the common layout it was created in, so an upload list records none, and a texture moves on from the common layout in the frame's list, which waits for the uploads
+        // Moving out of Undefined discards the contents, which also counts as the first write a render target or depth texture needs. A copy queue makes no layout transitions and keeps a texture in the common layout it was created in, so an upload list records none, and a texture moves on from the common layout in the frame's list, which waits for the uploads. A compute list moves a texture only among the layouts its queue has
         void D3D12CommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
@@ -248,7 +280,7 @@ namespace Trinity
             }
 
             l_Barrier.Flags = before == ResourceState::Undefined ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
-            if (m_Uploads)
+            if (m_Role == CommandListRole::Uploads)
             {
                 TR_CORE_ASSERT(!IsInUse(before), "An uploaded texture is new, so it moves into a copy state from Undefined.");
                 m_WaitsForGraphics = m_WaitsForGraphics || IsInUse(before);
@@ -265,6 +297,13 @@ namespace Trinity
                 return;
             }
 
+            if (m_Role == CommandListRole::Compute)
+            {
+                TR_CORE_ASSERT(IsComputeState(before) && IsComputeState(after), "A compute list moves a texture only among Undefined, ShaderResource, UnorderedAccess, CopySource and CopyDestination.");
+                KeepComputeSyncs(l_Barrier.SyncBefore, l_Barrier.AccessBefore);
+                KeepComputeSyncs(l_Barrier.SyncAfter, l_Barrier.AccessAfter);
+            }
+
             D3D12_BARRIER_GROUP l_Group{};
             l_Group.Type = D3D12_BARRIER_TYPE_TEXTURE;
             l_Group.NumBarriers = 1;
@@ -276,7 +315,7 @@ namespace Trinity
         void D3D12CommandList::BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
-            if (m_Uploads)
+            if (m_Role == CommandListRole::Uploads)
             {
                 m_WaitsForGraphics = m_WaitsForGraphics || IsInUse(before);
 
@@ -301,6 +340,11 @@ namespace Trinity
             l_Barrier.pResource = l_Buffer->Allocation->GetResource();
             l_Barrier.Offset = 0;
             l_Barrier.Size = UINT64_MAX;
+            if (m_Role == CommandListRole::Compute)
+            {
+                KeepComputeSyncs(l_Barrier.SyncBefore, l_Barrier.AccessBefore);
+                KeepComputeSyncs(l_Barrier.SyncAfter, l_Barrier.AccessAfter);
+            }
 
             D3D12_BARRIER_GROUP l_Group{};
             l_Group.Type = D3D12_BARRIER_TYPE_BUFFER;
@@ -313,7 +357,7 @@ namespace Trinity
         void D3D12CommandList::BeginRendering(const RenderingDescription& description)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "BeginRendering is called once within a frame, before EndRendering.");
-            TR_CORE_ASSERT(!m_Uploads, "An upload list only copies.");
+            TR_CORE_ASSERT(m_Role == CommandListRole::Frame, "Only the frame's list renders.");
             TR_CORE_ASSERT(description.ColorAttachments.size() <= c_MaxColorAttachments, "Too many color attachments.");
 
             std::array<D3D12_RENDER_PASS_RENDER_TARGET_DESC, c_MaxColorAttachments> l_Targets{};
@@ -405,7 +449,7 @@ namespace Trinity
         void D3D12CommandList::SetPipeline(PipelineHandle pipeline)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr, "SetPipeline is recorded within a frame.");
-            TR_CORE_ASSERT(!m_Uploads, "An upload list only copies.");
+            TR_CORE_ASSERT(m_Role != CommandListRole::Uploads, "An upload list only copies.");
 
             const D3D12Pipeline* l_Pipeline = m_Device.GetPipeline(pipeline);
             TR_CORE_ASSERT(l_Pipeline != nullptr, "SetPipeline with a destroyed or invalid pipeline.");
