@@ -388,7 +388,6 @@ namespace Trinity
                 TR_CORE_INFO("Vulkan: uploads go to the graphics queue in a submission of their own, as no family is for transfers alone");
             }
 
-
             if (!specification.EnableAsyncCompute)
             {
                 TR_CORE_INFO("Vulkan: compute queue passes are recorded into the frame's commands, as renderer.async_compute is off");

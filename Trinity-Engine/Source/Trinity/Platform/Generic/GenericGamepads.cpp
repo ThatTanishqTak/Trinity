@@ -4,7 +4,7 @@ namespace Trinity
 {
     namespace Platform
     {
-        // No gamepads until the Linux platform layer, in M13, and the macOS one, in M14, read them
+        // No gamepads until the Linux platform layer, in M15, and the macOS one, in M16, read them
         void InitializeGamepads()
         {
 
