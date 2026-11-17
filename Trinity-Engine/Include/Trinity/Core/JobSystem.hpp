@@ -15,7 +15,7 @@ namespace Trinity
 {
     struct JobCounterAccess;
 
-    // Counts submitted jobs that have not finished yet. It must outlive every job submitted with it
+    // Must outlive every job submitted with it
     class TRINITY_API JobCounter
     {
     public:
@@ -34,7 +34,7 @@ namespace Trinity
         std::atomic<std::uint32_t> m_Pending{ 0 };
     };
 
-    // A move-only callable stored inline, so submitting a job never allocates
+    // Stored inline, so submitting a job never allocates
     class Job
     {
     public:
@@ -47,7 +47,7 @@ namespace Trinity
         Job(F&& function)
         {
             using Function = std::decay_t<F>;
-            static_assert(sizeof(Function) <= c_StorageSize, "Job captures are limited to Job::c_StorageSize bytes: capture a pointer or reference to your data instead.");
+            static_assert(sizeof(Function) <= c_StorageSize, "Job captures exceed Job::c_StorageSize bytes: capture a pointer or reference");
             static_assert(alignof(Function) <= alignof(std::max_align_t), "Job captures cannot be over-aligned.");
             static_assert(std::is_nothrow_move_constructible_v<Function>, "Job captures must be nothrow move constructible.");
 
@@ -131,7 +131,7 @@ namespace Trinity
         template<typename F>
         void ParallelFor(std::size_t count, const F& body, std::size_t batchSize = 0)
         {
-            static_assert(std::invocable<const F&, std::size_t, std::size_t>, "ParallelFor runs one body on several threads at once, so it must be callable as const: remove 'mutable' and keep shared results in atomics or per-batch locals");
+            static_assert(std::invocable<const F&, std::size_t, std::size_t>, "ParallelFor's body runs on several threads at once: it must be callable as const");
 
             ParallelForRanges(count, [](const void* context, std::size_t begin, std::size_t end) { (*static_cast<const F*>(context))(begin, end); }, std::addressof(body), batchSize);
         }

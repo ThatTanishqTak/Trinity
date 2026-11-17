@@ -7,7 +7,6 @@
 
 namespace Trinity
 {
-    // Work handed to the main thread from anywhere
     namespace MainThread
     {
         using Task = std::move_only_function<void()>;

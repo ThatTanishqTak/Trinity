@@ -53,9 +53,9 @@ namespace Trinity
         [[nodiscard]] TRINITY_API void* Allocate(std::size_t size, MemoryTag tag, std::size_t alignment = alignof(std::max_align_t));
         TRINITY_API void Free(void* memory);
 
-        // What global new allocates: under the tag of the innermost MemoryTagScope on this thread, and untagged outside one
+        // Counted under the innermost MemoryTagScope on this thread, or untagged outside one
         [[nodiscard]] TRINITY_API void* AllocateGlobal(std::size_t size, std::size_t alignment) noexcept;
-        // What global new allocated under a MemoryTagScope of the tag, and is still live, is counted as untagged from now on, as a library's statics are, which it keeps past its own shutdown until the process ends. What was moved, by bytes and allocations
+        // Recounts the tag's live scoped allocations as untagged, and returns what was moved
         TRINITY_API MemoryTagStats UntagScopedAllocations(MemoryTag tag);
         [[nodiscard]] TRINITY_API void* TryAllocate(std::size_t size, MemoryTag tag, std::size_t alignment = alignof(std::max_align_t)) noexcept;
         [[nodiscard]] TRINITY_API void* Reallocate(void* memory, std::size_t size, MemoryTag tag, std::size_t alignment = alignof(std::max_align_t)) noexcept;
@@ -107,7 +107,7 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::string FormatBytes(std::uint64_t bytes);
     }
 
-    // While one lives, what its thread allocates through global new is counted under its tag, as a library a system calls allocates on that system's behalf. Each such allocation is linked, so Memory::UntagScopedAllocations can find what the library still holds once it has shut down. Scopes nest, each giving the one before back as it ends. Global new is only counted where allocations are tracked, and a game module's is always its own
+    // Global new on this thread counts under the tag while one lives. Scopes nest
     class TRINITY_API MemoryTagScope
     {
     public:

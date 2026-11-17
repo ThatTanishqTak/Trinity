@@ -22,17 +22,16 @@ namespace Trinity
 {
     namespace
     {
-        // Lines below warnings reach the file within this long too, so a crash loses little of what led up to it
+        // Lines below warnings reach the file within this long, so a crash loses little
         constexpr std::chrono::seconds c_FlushInterval{ 1 };
 
-        // What a run logs before its file opens, past which lines wait no more and are counted instead
+        // Lines logged before the file opens wait in this much memory, and are counted past it
         constexpr std::size_t c_PendingCapacity = 1024 * 1024;
 
-        // The log file, opened once the application knows its folder. Until then each line waits, formatted as the file has it, so the file starts with the run's first line. Both loggers share it, under its own lock
+        // Lines wait until the file opens, so it starts with the run's first line. Both loggers share it
         class DeferredFileSink final : public spdlog::sinks::base_sink<std::mutex>
         {
         public:
-            // The file opened, after what waited, or the reason it was not
             [[nodiscard]] std::string Open(const std::filesystem::path& path)
             {
                 std::scoped_lock l_Lock(mutex_);
@@ -286,7 +285,7 @@ namespace Trinity
         spdlog::flush_every(c_FlushInterval);
     }
 
-    // The last run's log is kept beside the new one, as Unity keeps Editor-prev.log, so what led up to a crash is still there after the restart
+    // The last run's log is kept beside the new one, so what led to a crash survives the restart
     void Log::OpenFile(const std::filesystem::path& logFile)
     {
         if (s_FileSink == nullptr || !s_FilePath.empty())
@@ -332,7 +331,7 @@ namespace Trinity
         TR_CORE_INFO("Logging to {}", s_FilePath.string());
         if (l_KeepError)
         {
-            TR_CORE_WARN("The last run's log could not be kept as {}, so it was written over: {}", l_Previous.string(), l_KeepError.message());
+            TR_CORE_WARN("Could not keep the last run's log as {}, it was overwritten: {}", l_Previous.string(), l_KeepError.message());
         }
     }
 
@@ -407,7 +406,7 @@ namespace Trinity
         return GetEntry(index);
     }
 
-    // After Memory starts, so the history counts under its tag, and lines written before then are not kept
+    // After Memory starts, so the history counts under its tag
     void LogHistory::Initialize()
     {
         std::scoped_lock l_Lock(s_History.Mutex);
@@ -436,7 +435,7 @@ namespace Trinity
         return Reader(std::unique_lock(s_History.Mutex));
     }
 
-    // Moves on with every line added and every clear, so a reader can tell the history changed without taking the lock
+    // Moves on with every add and clear, so a reader can tell the history changed without the lock
     std::uint64_t LogHistory::GetNextSequence()
     {
         return s_History.NextSequence.load(std::memory_order_acquire);
@@ -451,7 +450,7 @@ namespace Trinity
         s_History.NextSequence.fetch_add(1, std::memory_order_release);
     }
 
-    // The sequence is taken under the lock, so lines from different threads keep the order they were written in
+    // The sequence is taken under the lock, so lines from different threads keep their order
     void LogHistory::Add(LogChannel channel, LogLevel level, std::chrono::system_clock::time_point time, std::string_view text)
     {
         std::scoped_lock l_Lock(s_History.Mutex);

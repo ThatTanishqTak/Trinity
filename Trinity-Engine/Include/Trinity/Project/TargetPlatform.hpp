@@ -8,7 +8,7 @@
 
 namespace Trinity
 {
-    // A platform a game can be built for, by the name TRINITY_PLATFORM gives it, which a version's manifest lists the ones it exports to by: what the Build panel shows it as, the milestone that brings it, and the graphics APIs a game there can draw with, the first of them tried first until the project orders its own
+    // Named as TRINITY_PLATFORM names it. The first graphics API is tried first
     struct TargetPlatform
     {
         std::string_view Name;

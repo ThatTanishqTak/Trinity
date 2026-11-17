@@ -13,7 +13,7 @@ namespace Trinity
 {
     namespace
     {
-        // libcurl's own numbers for what this uses, as curl.h gives them, so it is loaded where it is installed without its headers at build time. Its options and results have kept these numbers since they were added
+        // libcurl's numbers from curl.h, which never change, so it loads without its headers at build time
         constexpr int c_OptionWriteData = 10001;
         constexpr int c_OptionUrl = 10002;
         constexpr int c_OptionErrorBuffer = 10010;
@@ -45,7 +45,7 @@ namespace Trinity
         constexpr int c_ResultTimedOut = 28;
         constexpr int c_ResultAbortedByCallback = 42;
 
-        // A transfer that sends nothing for this long is taken as no answer, as when the network goes away part way
+        // A transfer that sends nothing for this long is taken as no answer
         constexpr long c_ConnectSeconds = 15;
         constexpr long c_StallSeconds = 30;
 
@@ -73,7 +73,7 @@ namespace Trinity
             return function != nullptr;
         }
 
-        // Loaded once, the first time it is needed, and kept until the process ends, as libcurl's global state must be. Each platform's usual names for it are tried in turn
+        // Loaded once and kept until the process ends, as libcurl's global state must be
         const Curl* LoadCurl()
         {
             static const Curl s_Curl = []
@@ -148,7 +148,7 @@ namespace Trinity
             return text.substr(l_First, text.find_last_not_of(" \t\r\n") - l_First + 1);
         }
 
-        // Each answer's status line begins its headers again, so only the final answer's are kept after redirects
+        // Each answer's status line begins its headers again, so only the final answer's are kept
         std::size_t OnHeader(char* data, std::size_t size, std::size_t count, void* user)
         {
             Transfer& l_Transfer = *static_cast<Transfer*>(user);
@@ -165,7 +165,7 @@ namespace Trinity
             return size * count;
         }
 
-        // Called now and then even while nothing arrives, so Cancel ends a transfer that has stalled too
+        // Called even while nothing arrives, so Cancel ends a stalled transfer too
         int OnProgress(void* user, std::int64_t, std::int64_t, std::int64_t, std::int64_t)
         {
             const Transfer& l_Transfer = *static_cast<const Transfer*>(user);
@@ -186,7 +186,7 @@ namespace Trinity
             const Curl* l_Curl = LoadCurl();
             if (l_Curl == nullptr)
             {
-                return Unexpected{ HttpError{ HttpFailure::Failed, "libcurl, which Trinity reaches the network through on this platform, is not installed" } };
+                return Unexpected{ HttpError{ HttpFailure::Failed, "libcurl is not installed" } };
             }
 
             void* l_Handle = l_Curl->EasyInit();

@@ -212,7 +212,7 @@ namespace Trinity
         ChangedCallback m_OnChanged;
     };
 
-    // A console command, which runs a function with whatever follows its name on the line. Defined as a static, like a variable, and reachable by name as soon as it exists
+    // Defined as a static, and reachable by name as soon as it exists
     class TRINITY_API ConsoleCommand
     {
     public:
@@ -244,18 +244,18 @@ namespace Trinity
 
     namespace ConsoleVariables
     {
-        // Applies every --set=name=value on the command line; read-only variables may be set here and nowhere else.
+        // Applies each --set=name=value. Only here can a read-only variable be set
         TRINITY_API void Initialize(const ApplicationCommandLineArgs& args);
         TRINITY_API void Shutdown();
 
         [[nodiscard]] TRINITY_API ConsoleVariableBase* Find(std::string_view name);
 
-        // The path a console or config file takes: logs the outcome and refuses read-only variables.
+        // Logs the outcome, and refuses read-only variables
         TRINITY_API bool Set(std::string_view name, std::string_view value);
 
         TRINITY_API void LogAll();
 
-        // A console's command line: a command's name runs it with the rest of the line, "name" shows a variable, "name value" sets it through Set, "help" lists every command and variable and "help name" describes one
+        // "name" shows a variable, "name value" sets it, a command's name runs it, "help" lists all
         TRINITY_API bool Execute(std::string_view line);
     }
 }

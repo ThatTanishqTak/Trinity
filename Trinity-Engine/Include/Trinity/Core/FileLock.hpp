@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-    // Why a FileLock was not had: another process holds it, named by the ID it wrote, 0 when that could not be read, or the file could not be locked, for the reason given
+    // HolderID is 0 when the holder's ID could not be read
     struct FileLockRefusal
     {
         bool Held = false;
@@ -17,7 +17,7 @@ namespace Trinity
         std::string Reason;
     };
 
-    // A file one process at a time holds, as one Hub runs at a time, until it is released or its holder ends, killed or not, when the system lets go of it, so the next to ask takes over a lock left behind. The holder writes its process ID into the file, by which another names it and brings it forward
+    // The system releases it when its holder ends, killed or not. The file holds the holder's ID
     class TRINITY_API FileLock
     {
     public:
@@ -30,7 +30,7 @@ namespace Trinity
         FileLock(const FileLock&) = delete;
         FileLock& operator=(const FileLock&) = delete;
 
-        // Takes the lock, making the file and its folder when they are missing, without waiting
+        // Makes the file and its folder when missing. Never waits
         [[nodiscard]] static Expected<FileLock, FileLockRefusal> TryAcquire(const std::filesystem::path& path);
 
         void Release();

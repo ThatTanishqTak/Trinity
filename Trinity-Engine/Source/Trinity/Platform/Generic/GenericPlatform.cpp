@@ -55,7 +55,7 @@ namespace Trinity
 #endif
             }
 
-            // A file's size and last write, or zeros for a folder, whose own time changes with what is in it
+            // Zeros for a folder, whose own time changes with what is in it
             struct WatchedEntry
             {
                 std::uintmax_t Size = 0;
@@ -66,7 +66,7 @@ namespace Trinity
 
             using WatchedTree = std::map<std::filesystem::path, WatchedEntry>;
 
-            // Without a notification the system offers everywhere, the folder is walked again at most this often and compared with the last walk
+            // No notification exists everywhere, so the folder is walked again at most this often
             constexpr std::chrono::milliseconds c_WatchInterval{ 500 };
 
             struct DirectoryWatch
@@ -76,7 +76,7 @@ namespace Trinity
                 std::chrono::steady_clock::time_point NextScan;
             };
 
-            // Everything below the folder, by its path relative to it. One that goes while it is walked is left out, as it would be next time
+            // Paths are relative to the folder. An entry that goes during the walk is left out
             WatchedTree ScanDirectory(const std::filesystem::path& directory)
             {
                 WatchedTree l_Entries;
@@ -100,7 +100,6 @@ namespace Trinity
                 return l_Entries;
             }
 
-            // Bytes from a process gathered into lines, each handed on without its line end once it is whole
             class LineReader
             {
             public:
@@ -152,7 +151,7 @@ namespace Trinity
                 std::string m_Line;
             };
 
-            // What execve takes, all made before a fork, since a process with threads may only make the few calls that are safe between the fork and the program running
+            // Made before the fork: a process with threads may make only async-signal-safe calls after it
             struct Program
             {
                 std::string Executable;
@@ -163,7 +162,7 @@ namespace Trinity
                 char** Environment = nullptr;
             };
 
-            // The program checked, so one that cannot start says why rather than failing in the child. Its strings point into the request and into itself, so it is not copied
+            // Its strings point into the request and into itself, so it is not copied
             [[nodiscard]] bool PrepareProgram(const ProcessRequest& request, Program& program, std::string& error)
             {
                 program.Executable = request.Executable.string();
@@ -215,7 +214,6 @@ namespace Trinity
                 return true;
             }
 
-            // A program by its name in the folders of this process's PATH, or empty
             [[nodiscard]] std::filesystem::path FindOnPath(std::string_view name)
             {
                 const char* l_Path = std::getenv("PATH");
@@ -241,7 +239,7 @@ namespace Trinity
             }
         }
 
-        // A program whose output was a pipe that has closed, such as a game Forge started and then closed, goes on with its writes failing rather than ending at its next line
+        // With SIGPIPE ignored, a program whose output pipe closed goes on, its writes failing
         void Initialize()
         {
             ::signal(SIGPIPE, SIG_IGN);
@@ -324,7 +322,7 @@ namespace Trinity
             return {};
         }
 
-        // On Linux the one xdg-user-dirs names, in its environment variable or in user-dirs.dirs as "$HOME/Documents" or a whole path, which a desktop in another language names in that language, and ~/Documents where neither names one
+        // On Linux xdg-user-dirs names it, in the desktop's own language, else ~/Documents
         std::filesystem::path GetDocumentsDirectory()
         {
             const char* l_Home = std::getenv("HOME");
@@ -397,7 +395,7 @@ namespace Trinity
             return static_cast<std::uint32_t>(::getpid());
         }
 
-        // On Linux the status file is read whole, since /proc makes it as it is read, and its TracerPid line names the process tracing this one, or 0
+        // /proc makes the status file as it is read, so it is read whole. TracerPid is 0 for none
         bool IsDebuggerAttached()
         {
 #if defined(TR_PLATFORM_MACOS)
@@ -480,7 +478,7 @@ namespace Trinity
         }
 
 
-        // Everything the child needs is made before it is forked, since a process with threads may only make the few calls that are safe until the child runs the program. The child leads a process group of its own, so cancelling ends everything it started
+        // The child leads a process group of its own, so cancelling ends everything it started
         std::optional<int> RunProcess(const ProcessRequest& request, const std::function<void(std::string_view line)>& onLine, std::string& error)
         {
             Program l_Program;
@@ -563,7 +561,7 @@ namespace Trinity
             bool l_Cancelled = false;
             while (true)
             {
-                // Detached, it runs on unread in its own process group, and is reaped by whoever outlives this process
+                // Detached, it runs on in its own process group, and is reaped by whoever outlives this process
                 if (!l_Cancelled && request.Detach != nullptr && request.Detach->load(std::memory_order_relaxed))
                 {
                     ::close(l_Pipe[0]);
@@ -590,7 +588,7 @@ namespace Trinity
 
                 if (l_Waited == l_Child || l_Waited < 0)
                 {
-                    // What it wrote before it ended is read, and nothing a process it left running writes later
+                    // Reads what it wrote before it ended, and nothing a process it left running writes later
                     static_cast<void>(a_Drain());
 
                     break;
@@ -608,7 +606,7 @@ namespace Trinity
             return WIFSIGNALED(l_Status) ? 128 + WTERMSIG(l_Status) : -1;
         }
 
-        // Forked twice, so the program is no child of this process and is never waited for, in a session of its own so it outlives it, and with nothing of this process's open but /dev/null. Why it could not run comes back through a pipe that closes as it runs
+        // Forked twice, so the program is no child of this process, and in a session of its own
         bool StartProcess(const ProcessRequest& request, std::string& error)
         {
             Program l_Program;
@@ -697,14 +695,13 @@ namespace Trinity
             return true;
         }
 
-        // What a watched program is held by: its ID, and its exit code once waitpid has seen it end
         struct WatchedProcess
         {
             pid_t ID = 0;
             std::optional<int> ExitCode;
         };
 
-        // One fork, where StartProcess forks twice, so the program is this process's child and its end can be waited for. It still starts a session of its own, so it is not ended with this process's terminal. Whether it could start is told through a pipe that its exec closes
+        // Forked once, so its end can be waited for. Its own session keeps it clear of this terminal
         void* StartWatchedProcess(const ProcessRequest& request, std::uint32_t& processID, std::string& error)
         {
             Program l_Program;
@@ -822,7 +819,7 @@ namespace Trinity
             return false;
         }
 
-        // flock's lock belongs to the open file, which the system closes as the process ends, and is not handed to the programs this one starts, as the file is opened close-on-exec. The handle is the descriptor plus one, so descriptor 0 is not null
+        // flock's lock goes with the open file, closed at exit. The handle is the descriptor plus one
         void* TryLockFile(const std::filesystem::path& path, std::string_view text, std::string& error)
         {
             error.clear();
@@ -883,7 +880,7 @@ namespace Trinity
             return std::string(l_Buffer.data(), static_cast<std::size_t>(l_Read));
         }
 
-        // Through the desktop's own opener, open on macOS and xdg-open elsewhere
+        // open on macOS, and xdg-open elsewhere
         bool OpenWithSystem(const std::filesystem::path& path, std::string& error)
         {
 #if defined(TR_PLATFORM_MACOS)
@@ -893,7 +890,7 @@ namespace Trinity
 #endif
             if (l_Opener.empty())
             {
-                error = "there is no xdg-open on the PATH, which opens files as the desktop does";
+                error = "xdg-open is not on the PATH";
 
                 return false;
             }
@@ -924,7 +921,7 @@ namespace Trinity
             return l_Watch;
         }
 
-        // Every path added, removed, or changed in size or time since the last walk. A walk tells everything, so it never overflows
+        // A walk tells everything, so it never overflows
         bool ReadDirectoryWatch(void* watch, std::vector<std::filesystem::path>& changed)
         {
             DirectoryWatch& l_Watch = *static_cast<DirectoryWatch*>(watch);
@@ -972,7 +969,7 @@ namespace Trinity
             Memory::Delete(static_cast<DirectoryWatch*>(watch));
         }
 
-        // No system clipboard until the Linux platform layer exists, so copy and paste work within the process only
+        // No system clipboard until the Linux platform layer exists, so copy and paste stay in the process
         std::string GetClipboardText()
         {
             return s_Clipboard;

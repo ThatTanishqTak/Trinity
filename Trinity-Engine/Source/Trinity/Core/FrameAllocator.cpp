@@ -65,7 +65,7 @@ namespace Trinity
         if (l_Overflow != 0)
         {
             ++m_OverflowFrameCount;
-            TR_CORE_WARN("Frame allocator overflowed: the frame used {} of a {} buffer, {} of it from the heap", Memory::FormatBytes(l_Used), Memory::FormatBytes(m_Capacity), Memory::FormatBytes(l_Overflow));
+            TR_CORE_WARN("Frame allocator overflowed: used {} of {}, {} from the heap", Memory::FormatBytes(l_Used), Memory::FormatBytes(m_Capacity), Memory::FormatBytes(l_Overflow));
         }
 
         m_CurrentBuffer = (m_CurrentBuffer + 1) % m_Buffers.size();

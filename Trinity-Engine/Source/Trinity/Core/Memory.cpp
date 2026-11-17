@@ -28,7 +28,7 @@ namespace Trinity
 
         static_assert(sizeof(AllocationHeader) == 16);
 
-        // Links every live allocation global new made under a MemoryTagScope, so what a library keeps in its statics past its own shutdown can be counted as untagged, as every other static's memory is
+        // Links every live scoped allocation, so what a library holds after its shutdown can be untagged
         struct ScopedLink
         {
             ScopedLink* Previous = nullptr;
@@ -65,7 +65,7 @@ namespace Trinity
             return (l_Prefix + alignment - 1) & ~(alignment - 1);
         }
 
-        // Made with the first scoped allocation, which no static a scope makes can come before, so it ends after every one of them
+        // Made with the first scoped allocation, so it is destroyed after every static a scope makes
         std::mutex& GetScopedMutex()
         {
             static std::mutex s_Mutex;

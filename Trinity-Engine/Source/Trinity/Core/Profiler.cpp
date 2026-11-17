@@ -255,7 +255,7 @@ namespace Trinity
 #else
             if (specification.LogSummary || !specification.CapturePath.empty())
             {
-                TR_CORE_WARN("Profiling is not compiled into this build; ignoring --profile and --profile-capture");
+                TR_CORE_WARN("Profiling is not in this build, ignoring --profile and --profile-capture");
             }
 #endif
         }

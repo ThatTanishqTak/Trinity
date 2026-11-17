@@ -12,7 +12,7 @@ namespace Trinity
     {
         using State = std::array<std::uint32_t, 4>;
 
-        // Each 64-bit step of SplitMix64 fills two words, so even a seed of 0 gives a state that is not all zero
+        // Each SplitMix64 step fills two words, so even a seed of 0 gives a state that is not all zero
         State Spread(std::uint64_t seed)
         {
             State l_State{};
@@ -64,7 +64,7 @@ namespace Trinity
         return l_Result;
     }
 
-    // The top 24 bits, which a float holds exactly, over the largest of them, so both 0 and 1 come up
+    // The top 24 bits, which a float holds exactly, over the largest of them, so 0 and 1 both come up
     float Random::Value()
     {
         return static_cast<float>(NextUInt() >> 8) / 16777215.0f;
@@ -81,7 +81,7 @@ namespace Trinity
         return std::clamp(min + (max - min) * Value(), min, max);
     }
 
-    // Lemire's multiply and shift, drawing again for the few values that would make some results likelier than others
+    // Lemire's multiply and shift, drawing again for the few values that would bias the result
     std::int32_t Random::Range(std::int32_t min, std::int32_t max)
     {
         if (max <= min)

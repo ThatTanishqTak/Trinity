@@ -38,16 +38,16 @@ namespace Trinity
         [[nodiscard]] bool operator==(const WindowPosition&) const = default;
     };
 
-    // Width and Height size the client area. A window with an owner stays above it, and hides and closes with it
+    // Width and Height size the client area. An owned window stays above its owner, and closes with it
     struct WindowSpecification
     {
         std::string Title;
         std::uint32_t Width = 1600;
         std::uint32_t Height = 900;
         std::optional<WindowPosition> Position;
-        // The monitor a game's window opens on, by the name the system gives it. A window that names one, or opens fullscreen, keeps its position only where that is on a monitor, and otherwise opens centred on the one named, or the primary when that one is not connected. Empty leaves a window with no position where the system places it
+        // The monitor to open on, by the system's name. Empty leaves the placement to the system
         std::string Monitor;
-        // Borderless over the whole of its monitor, as SetFullscreen has it, from its first frame
+        // Borderless over its whole monitor from the first frame
         bool Fullscreen = false;
         Window* Owner = nullptr;
         bool Resizable = true;
@@ -80,10 +80,10 @@ namespace Trinity
         virtual void SetPosition(WindowPosition position) = 0;
         virtual void SetSize(std::uint32_t width, std::uint32_t height) = 0;
 
-        // Without its frame over the whole of the monitor it is on most, at the monitor's own size, which the flip model presents as fast as exclusive fullscreen, or back to the frame, place and size it had before
+        // Borderless over the monitor it is mostly on, or back to the frame, place and size it had
         virtual void SetFullscreen(bool fullscreen) = 0;
         [[nodiscard]] virtual bool IsFullscreen() const = 0;
-        // The monitor the window is on most, by the name the system gives it, or empty where there are no monitors
+        // The monitor the window is mostly on, or empty where there are none
         [[nodiscard]] virtual std::string GetMonitor() const = 0;
 
         virtual void Show(bool focus) = 0;

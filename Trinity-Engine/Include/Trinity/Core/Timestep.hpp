@@ -5,7 +5,6 @@
 
 namespace Trinity
 {
-    // A frame's time, exact in nanoseconds as Application measures it, and in seconds for code that only needs those
     class Timestep
     {
     public:

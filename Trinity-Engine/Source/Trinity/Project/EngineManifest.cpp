@@ -18,7 +18,6 @@ namespace Trinity
         using FileSystemUtilities::FromUtf8;
         using FileSystemUtilities::ToUtf8;
 
-        // The key's text when it is a scalar, or empty
         std::string ReadScalar(const YAML::Node& map, const char* key)
         {
             if (!map || !map.IsMap())
@@ -31,7 +30,7 @@ namespace Trinity
             return l_Value && l_Value.IsScalar() ? l_Value.Scalar() : std::string();
         }
 
-        // A whole number, or 0 for one missing or not a number
+        // 0 for one missing or not a number
         std::uint32_t ReadFormat(const YAML::Node& formats, const char* key)
         {
             const std::string l_Text = ReadScalar(formats, key);
@@ -41,7 +40,6 @@ namespace Trinity
             return l_Parsed.ec == std::errc() && l_Parsed.ptr == l_Text.data() + l_Text.size() ? l_Value : 0;
         }
 
-        // The sequence's names in order, each once
         std::vector<std::string> ReadNames(const YAML::Node& map, const char* key)
         {
             std::vector<std::string> l_Names;
@@ -62,7 +60,7 @@ namespace Trinity
             return l_Names;
         }
 
-        // On one line, each name quoted when it is free text rather than one of a known set
+        // Names are quoted when they are free text rather than one of a known set
         void WriteNames(YAML::Emitter& emitter, const char* key, const std::vector<std::string>& names, bool quoted)
         {
             emitter << YAML::Key << key << YAML::Value << YAML::Flow << YAML::BeginSeq;
@@ -90,7 +88,7 @@ namespace Trinity
         return root / FromUtf8(std::format("{}-{}-{}", configuration, System, Architecture)) / FromUtf8(c_ProgramFolder);
     }
 
-    // Key for key the text CMake/TrinityWriteVersion.cmake writes, so a manifest the build writes saves again as the same bytes
+    // Key for key what CMake/TrinityWriteVersion.cmake writes, so a manifest saves as the same bytes
     std::string WriteEngineManifest(const EngineManifest& manifest)
     {
         YAML::Emitter l_Emitter;
@@ -161,7 +159,7 @@ namespace Trinity
 
         if (l_Format > EngineManifest::c_FormatVersion)
         {
-            return Unexpected{ std::format("{} was written in format {} by a newer Trinity, and this build reads format {} and older", name, l_Format, EngineManifest::c_FormatVersion) };
+            return Unexpected{ std::format("{} is format {}, from a newer Trinity. This build reads up to {}", name, l_Format, EngineManifest::c_FormatVersion) };
         }
 
         EngineManifest l_Manifest;
@@ -184,14 +182,14 @@ namespace Trinity
         l_Manifest.Architecture = ReadScalar(l_Root, "Architecture");
         if (l_Manifest.Platform.empty() || l_Manifest.System.empty() || l_Manifest.Architecture.empty())
         {
-            return Unexpected{ std::format("{} does not name the platform, system and architecture its builds run on", name) };
+            return Unexpected{ std::format("{} does not name its platform, system and architecture", name) };
         }
 
         l_Manifest.Exports = ReadNames(l_Root, "Exports");
         l_Manifest.Configurations = ReadNames(l_Root, "Configurations");
         if (l_Manifest.Configurations.empty())
         {
-            return Unexpected{ std::format("{} names no configuration, so its folder holds no build of Trinity", name) };
+            return Unexpected{ std::format("{} names no configuration, so it holds no build of Trinity", name) };
         }
 
         const YAML::Node l_Compiler = l_Root["Compiler"];

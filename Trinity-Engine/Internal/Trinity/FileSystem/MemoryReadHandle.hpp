@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-    // Ranged reads of bytes held in memory, which it shares, so it reads the bytes it opened even after their source replaces or drops them
+    // Shares the bytes, so it reads what it opened even after their source replaces or drops them
     class MemoryReadHandle final : public FileReadHandle
     {
     public:

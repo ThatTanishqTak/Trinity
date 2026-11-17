@@ -64,7 +64,7 @@ namespace Trinity
 
         constexpr std::array<std::uint32_t, 256> c_CrcTable = MakeCrcTable();
 
-        // The first 32 bits of the fractional parts of the cube roots of the first 64 primes, and of the square roots of the first 8, as FIPS 180-4 gives them
+        // As FIPS 180-4 gives them
         constexpr std::array<std::uint32_t, 64> c_ShaRounds
         {
             0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
@@ -197,7 +197,7 @@ namespace Trinity
             }
         }
 
-        // Padded with a 1 bit, then zeros, then the length in bits as 64 bits big-endian, which ends a block
+        // Padded with a 1 bit, then zeros, then the length in bits as 64 bits big-endian
         Sha256::Digest Sha256::Finish()
         {
             const std::uint64_t l_Bits = m_Length * 8;

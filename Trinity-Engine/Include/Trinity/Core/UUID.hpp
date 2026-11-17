@@ -14,7 +14,7 @@
 
 namespace Trinity
 {
-    // A random 64-bit identifier. Zero is reserved as the invalid UUID
+    // Zero is reserved as the invalid UUID
     class TRINITY_API UUID
     {
     public:

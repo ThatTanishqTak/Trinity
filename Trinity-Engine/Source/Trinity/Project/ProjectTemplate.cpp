@@ -61,7 +61,7 @@ namespace Trinity
 
         if (l_Format > ProjectTemplate::c_FormatVersion)
         {
-            return Unexpected{ std::format("{} was written in format {} by a newer Trinity, and this one reads format {} and older", ToUtf8(l_File), l_Format, ProjectTemplate::c_FormatVersion) };
+            return Unexpected{ std::format("{} is format {}, from a newer Trinity. This one reads up to {}", ToUtf8(l_File), l_Format, ProjectTemplate::c_FormatVersion) };
         }
 
         ProjectTemplate l_Template;
@@ -78,7 +78,7 @@ namespace Trinity
         l_Template.View3D = ReadString(l_Root, "View", "2D") == "3D";
         if (l_Template.ProjectFormat == 0 || l_Template.ProjectFormat > l_ProjectFormat)
         {
-            return Unexpected{ std::format("{} is written for project format {}, and its version of Trinity reads format {} and older", ToUtf8(l_File), l_Template.ProjectFormat, l_ProjectFormat) };
+            return Unexpected{ std::format("{} is for project format {}, and its Trinity reads up to {}", ToUtf8(l_File), l_Template.ProjectFormat, l_ProjectFormat) };
         }
 
         std::error_code l_Error;
@@ -112,7 +112,7 @@ namespace Trinity
             }
             else
             {
-                TR_CORE_WARN("Project: the template in {} is left out, as {}", ToUtf8(it_Entry.path()), l_Template.GetError());
+                TR_CORE_WARN("Project: template in {} left out: {}", ToUtf8(it_Entry.path()), l_Template.GetError());
             }
         }
 

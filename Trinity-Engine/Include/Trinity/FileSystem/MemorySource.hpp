@@ -30,7 +30,7 @@ namespace Trinity
         [[nodiscard]] bool IsDirectory(std::string_view relativePath) const;
         [[nodiscard]] FileError GetMissingError(std::string_view relativePath) const;
 
-        // Shared with the read handles opened on each file, so a handle reads the bytes it opened even after the file is replaced
+        // Shared with open read handles, so a handle reads the bytes it opened even after a replace
         std::map<std::string, std::shared_ptr<const FileBuffer>, std::less<>> m_Files;
         std::string m_Description;
     };

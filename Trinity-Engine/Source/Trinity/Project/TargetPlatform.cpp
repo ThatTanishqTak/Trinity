@@ -9,7 +9,7 @@ namespace Trinity
     {
         constexpr std::array<GraphicsAPI, 2> c_WindowsAPIs{ GraphicsAPI::D3D12, GraphicsAPI::Vulkan };
         constexpr std::array<GraphicsAPI, 1> c_VulkanAPIs{ GraphicsAPI::Vulkan };
-        // MoltenVK first, then Metal of its own, as the roadmap has it
+        // MoltenVK first, then Metal of its own
         constexpr std::array<GraphicsAPI, 2> c_MacAPIs{ GraphicsAPI::Vulkan, GraphicsAPI::Metal };
         constexpr std::array<GraphicsAPI, 1> c_XboxAPIs{ GraphicsAPI::D3D12 };
 

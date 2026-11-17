@@ -9,7 +9,7 @@
 #include "Trinity/Scene/Prefab.hpp"
 #include "Trinity/Scene/SceneSerializer.hpp"
 
-// The build writes it into its own folder for each configuration, from CMake/TrinityVersion.cmake and git
+// Written by the build into its own folder, from CMake/TrinityVersion.cmake and git
 #include "TrinityBuildInfo.hpp"
 
 #include <algorithm>
@@ -80,7 +80,7 @@ namespace Trinity
         }
     }
 
-    // Trinity.trversion names the formats CMake/TrinityVersion.cmake lists, which must be the ones this engine reads and writes
+    // Trinity.trversion names these formats, so they must be the ones this engine reads and writes
     static_assert(Project::c_FormatVersion == TR_FORMAT_PROJECT, "Raise TRINITY_FORMAT_PROJECT in CMake/TrinityVersion.cmake to the project format");
     static_assert(SceneSerializer::c_FormatVersion == TR_FORMAT_SCENE, "Raise TRINITY_FORMAT_SCENE in CMake/TrinityVersion.cmake to the scene format");
     static_assert(Prefab::c_FormatVersion == TR_FORMAT_PREFAB, "Raise TRINITY_FORMAT_PREFAB in CMake/TrinityVersion.cmake to the prefab format");
@@ -136,7 +136,7 @@ namespace Trinity
         return std::format("{} ({})", GetVersionString(), GetBuildCommitDescription());
     }
 
-    // Build metadata after a plus is no part of the order, and a missing part counts as 0, so 0.11 and 0.11.0 are the same version
+    // Build metadata after a plus is ignored, and a missing part is 0, so 0.11 equals 0.11.0
     std::strong_ordering CompareVersions(std::string_view left, std::string_view right)
     {
         left = left.substr(0, left.find('+'));

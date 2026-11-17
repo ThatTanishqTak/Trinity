@@ -15,7 +15,7 @@ namespace Trinity
 {
     namespace
     {
-        // The holder writes its ID just after it takes the lock, so a file read in between is empty for a moment
+        // The holder writes its ID just after taking the lock, so the file may be empty for a moment
         std::uint32_t ReadHolder(const std::filesystem::path& path)
         {
             for (int it_Try = 0; it_Try < 5; ++it_Try)

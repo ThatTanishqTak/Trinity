@@ -68,7 +68,7 @@ namespace Trinity
             return std::nullopt;
         }
 
-        // What the newest mount holding the path gives, falling through to older mounts only while they do not have it, as an overlay does
+        // The newest mount holding the path wins, falling through to older ones, as an overlay does
         template<typename T, typename Function>
         Expected<T, FileError> FromNewestMount(std::string_view path, const Function& function)
         {
@@ -267,7 +267,7 @@ namespace Trinity
 #else
             if (const std::size_t l_Failed = checkFiles ? (*l_Pack)->CheckFiles() : 0; l_Failed != 0)
             {
-                TR_CORE_ERROR("{} file(s) of pack '{}' are not as it was written, and fail as they are read", l_Failed, FileSystemUtilities::ToUtf8(nativePack));
+                TR_CORE_ERROR("{} file(s) of pack '{}' failed their hash, and fail when read", l_Failed, FileSystemUtilities::ToUtf8(nativePack));
             }
 #endif
 

@@ -8,7 +8,7 @@
 
 namespace Trinity
 {
-    // As Unity's PlayerPrefs: small values a game keeps on the player's machine from one run to the next, each an int, a float or a string under a key, held in memory under the Engine tag and written to their file on Save and as the application closes. A key holds one kind at a time, setting it as another replaces it, and reading it as another gives the default. The file is read as the values are first used, and one that cannot be read is logged and taken as empty, and left as it is until something is saved. A player keeps them in its saves, and Forge's Play in the project's Saved folder, so each project has its own. Main thread only
+    // Read on first use, written on Save and as the application closes. Main thread only
     class TRINITY_API PlayerPrefs
     {
     public:
@@ -22,17 +22,17 @@ namespace Trinity
         [[nodiscard]] static float GetFloat(std::string_view key, float defaultValue = 0.0f);
         static void SetString(std::string_view key, std::string_view value);
         [[nodiscard]] static std::string GetString(std::string_view key, std::string_view defaultValue = {});
-        // GetString's text where PlayerPrefs keeps it, or the default given, valid until the values next change, so it is read without a copy
+        // Valid until the values next change
         [[nodiscard]] static std::string_view GetStringView(std::string_view key, std::string_view defaultValue = {});
         [[nodiscard]] static bool HasKey(std::string_view key);
         static void DeleteKey(std::string_view key);
         static void DeleteAll();
 
-        // Writes the file now when anything changed since it was read or last written. False, logged, when it cannot be written, and the values stay to be saved again
+        // Writes only when something changed. False, logged, when the file cannot be written
         static bool Save();
-        // The file in the virtual file system the values are read from and saved to from now on, c_DefaultPath until set: what changed is saved to the last one first, and the new one is read as the values are next used
+        // Saves changes to the old path first. The new file is read on the next use
         static void SetPath(std::string_view path);
-        // Saves what changed and lets every value go, with the path back at c_DefaultPath, as the application closes and Forge's Play stops, so nothing is held after and the next use reads the file again
+        // Saves what changed, drops every value and puts the path back to c_DefaultPath
         static void Close();
     };
 }

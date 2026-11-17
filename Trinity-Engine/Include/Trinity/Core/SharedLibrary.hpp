@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-    // A library loaded at runtime, such as a game module, unloaded when destroyed. Load and unload on the main thread
+    // Unloaded when destroyed. Load and unload on the main thread
     class TRINITY_API SharedLibrary
     {
     public:

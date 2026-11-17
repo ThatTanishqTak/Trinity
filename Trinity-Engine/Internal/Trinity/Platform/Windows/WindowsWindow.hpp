@@ -75,7 +75,7 @@ namespace Trinity
         bool m_Counted = false;
         bool m_FocusOnClick = true;
         bool m_MousePassthrough = false;
-        // Where and how the window was before it went fullscreen, and its frame's style, which it gets back
+        // The placement and frame style from before fullscreen, which it gets back
         WINDOWPLACEMENT m_WindowedPlacement{};
         LONG_PTR m_WindowedStyle = 0;
         bool m_Fullscreen = false;

@@ -26,7 +26,6 @@ namespace Trinity
     class AssetRegistry;
     struct ProjectTemplate;
 
-    // A scene of the build's list, by its asset, and whether it ships, as each scene of Unity's Scene List has a box
     struct ExportScene
     {
         UUID Scene;
@@ -35,7 +34,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ExportScene&) const = default;
     };
 
-    // What the project exports as a game, as Unity's Build Profiles and Player settings hold it: the scenes of its build in order, the ticked ones shipping and the first of those starting, the platform it is built for, the product, company and version its player is named for and keeps its saves and log under, its icon, one of the project's textures, the window it first opens with, the graphics APIs it tries in order on each platform, whether it is a Development Build, and the folder it is written to, from the project's folder unless it is a whole path
+    // Edited by Forge's Build panel. Output is from the project's folder unless it is a whole path
     struct TRINITY_API ExportSettings
     {
         static constexpr std::string_view c_DefaultCompany = "DefaultCompany";
@@ -43,19 +42,19 @@ namespace Trinity
         static constexpr std::string_view c_DefaultOutput = "Builds";
 
         std::vector<ExportScene> Scenes;
-        // By the name TRINITY_PLATFORM gives it, the platform this engine runs on until another is picked
+        // As TRINITY_PLATFORM names it. This engine's own until another is picked
         std::string Platform{ GetBuildPlatform() };
         std::string Product;
         std::string Company{ c_DefaultCompany };
         std::string Version{ c_DefaultVersion };
         UUID Icon;
         WindowSettings Window;
-        // Each platform's own order, as Unity keeps player settings for each, for the platforms whose order was changed. One without tries the APIs it has in TargetPlatform's order
+        // Only the platforms whose order was changed. The others take TargetPlatform's order
         std::map<std::string, std::vector<GraphicsAPI>, std::less<>> GraphicsAPIs;
         bool Development = false;
         std::string Output{ c_DefaultOutput };
 
-        // The ticked scenes in order, the first the one the game starts with
+        // The ticked scenes in order. The game starts with the first
         [[nodiscard]] std::vector<UUID> GetBuildScenes() const;
         // The order the game on Platform tries
         [[nodiscard]] std::vector<GraphicsAPI> GetGraphicsAPIs() const;
@@ -63,13 +62,13 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ExportSettings&) const = default;
     };
 
-    // What a project file says of itself, read without opening the project, as Hub lists projects: its format, its name and engine version, its language, and whether it has a C++ module or a C# assembly. A format newer than this engine reads is given as it is, so the caller can say so
+    // Read without opening the project, as Hub lists projects. A newer format is given as it is
     struct ProjectFileInfo
     {
         std::uint32_t Format = 0;
         std::string Name;
         std::string EngineVersion;
-        // The language its file names, or for a project older than format 10 the one of the two it has, and none for one with both or neither, whose language is asked for as it opens
+        // None for a project older than format 10 with both a module and an assembly, or neither
         std::optional<ScriptLanguage> Language;
         bool HasModule = false;
         bool HasAssembly = false;
@@ -77,7 +76,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ProjectFileInfo&) const = default;
     };
 
-    // How a project stands to this engine, as its file says: of this version and format, of an older one, which moves to this version once asked and backed up, or of a newer one, which this engine cannot open
+    // Older moves to this version once asked and backed up. Newer cannot be opened
     enum class ProjectAge : std::uint8_t
     {
         Current,
@@ -88,7 +87,7 @@ namespace Trinity
     class TRINITY_API Project
     {
     public:
-        // Format 3 added the collision layers, which an older project opens without, every pair colliding, format 4 each world's gravity and the step rate, which an older project opens with their defaults, format 5 the C++ game module, format 6 the C# assembly, format 7 the default input actions asset, which an older project has none of, format 8 the audio settings with the project's mixer, which an older project opens with their defaults and no mixer, format 9 the export settings, which an older project opens with their defaults, its name for the product and its start scene the only scene of its build, and format 10 the project's one language and its target platform, each platform with its own graphics API order. An older project opens in the language of the module or assembly it has, or the one it is given when it has both or neither, keeping the other's name no more, and for the platform this engine runs on, with the graphics APIs it had that the platform has
+        // 3 layers, 4 gravity, 5 C++, 6 C#, 7 input actions, 8 audio, 9 export, 10 language and platform
         static constexpr std::uint32_t c_FormatVersion = 10;
         static constexpr std::string_view c_Extension = ".trproj";
         static constexpr std::string_view c_ProjectMount = "/project";
@@ -96,17 +95,17 @@ namespace Trinity
         static constexpr std::string_view c_CacheMount = "/cache";
         static constexpr std::string_view c_DefaultStartScene = "Scenes/Main.trscene";
 
-        // In the language its scripts are written in, which it keeps, with a template's assets when one is given
+        // With a template's assets when one is given
         [[nodiscard]] static Expected<Scope<Project>, std::string> Create(const std::filesystem::path& directory, ScriptLanguage language, const ProjectTemplate* projectTemplate = nullptr);
-        // olderLanguage is the language a project older than format 10 with both a module and an assembly, or neither, takes, and without one such a project is refused, as ReadInfo tells beforehand
+        // olderLanguage settles a project older than format 10 with both languages or neither
         [[nodiscard]] static Expected<Scope<Project>, std::string> Open(const std::filesystem::path& path, std::optional<ScriptLanguage> olderLanguage = std::nullopt);
-        // The project file a path names, as a whole path: a .trproj, or the one .trproj in a folder
+        // A .trproj, or the one .trproj in a folder
         [[nodiscard]] static Expected<std::filesystem::path, std::string> FindFile(const std::filesystem::path& path);
-        // What the file says of the project, read from the disk without mounting anything, ignoring what it does not know. Refused only for a file that cannot be read or is not a project's YAML
+        // Reads the disk without mounting anything. Refused only when unreadable or not a project's YAML
         [[nodiscard]] static Expected<ProjectFileInfo, std::string> ReadInfo(const std::filesystem::path& file);
-        // A version or format newer than this engine's makes it Newer, and either older, or no version named, as before versions were kept, makes it Older
+        // A project that names no version is Older
         [[nodiscard]] static ProjectAge GetAge(const ProjectFileInfo& info);
-        // Cache/Forge.lock in the project's folder, which the Forge that has the project open holds, so a second Forge, or Hub, finds that one and brings it forward rather than opening the project twice
+        // Cache/Forge.lock, held by the Forge that has the project open, so a second finds the first
         [[nodiscard]] static std::filesystem::path GetLockFile(const std::filesystem::path& directory);
 
         ~Project();
@@ -119,8 +118,8 @@ namespace Trinity
         [[nodiscard]] const std::string& GetName() const { return m_Name; }
         [[nodiscard]] const std::string& GetEngineVersion() const { return m_EngineVersion; }
         [[nodiscard]] bool IsCurrentEngineVersion() const;
-        // From now on it names this engine's version, as moving it to this version does, which Save writes
-        void TakeCurrentEngineVersion() { m_EngineVersion = GetVersionString(); }
+        // Save then writes this engine's version
+        void SetCurrentEngineVersion() { m_EngineVersion = GetVersionString(); }
 
         [[nodiscard]] UUID GetStartScene() const { return m_StartScene; }
         void SetStartScene(UUID scene) { m_StartScene = scene; }
@@ -131,49 +130,49 @@ namespace Trinity
         void SetPhysicsSettings(const PhysicsSettings& settings) { m_Physics = settings; }
         [[nodiscard]] const CollisionLayers& GetCollisionLayers() const { return m_Physics.Layers; }
 
-        // The language every script of the project is written in, which only builds and loads, chosen as the project is made and never changed
+        // Chosen as the project is made, and never changed
         [[nodiscard]] ScriptLanguage GetLanguage() const { return m_Language; }
 
-        // The C++ game module built from Source, by its target and library name, or empty for none, as a C# project always has. Saved with the project, which the caller does
+        // Empty for none, as in a C# project. Saved with the project, which the caller does
         [[nodiscard]] const std::string& GetModuleName() const { return m_ModuleName; }
         void SetModuleName(std::string name);
         [[nodiscard]] bool HasModule() const { return !m_ModuleName.empty(); }
 
-        // The C# assembly built from Scripts, by its project, assembly and root namespace name, or empty for none, as a C++ project always has. Saved with the project, which the caller does
+        // Empty for none, as in a C++ project. Saved with the project, which the caller does
         [[nodiscard]] const std::string& GetAssemblyName() const { return m_AssemblyName; }
         void SetAssemblyName(std::string name);
         [[nodiscard]] bool HasAssembly() const { return !m_AssemblyName.empty(); }
 
-        // A name a module's target, library and C++ identifiers can all take: a letter, then letters, digits and underscores, up to 64 of them. A C# assembly's name is one too, so it is a namespace as well
+        // A letter, then letters, digits and underscores, 64 in all at most, so it is an identifier too
         [[nodiscard]] static bool IsValidModuleName(std::string_view name);
 
-        // The project's mixer, its voice limits, its Doppler factor and what occludes a sound. Saved with the project, which the caller does
+        // Saved with the project, which the caller does
         [[nodiscard]] const AudioSettings& GetAudioSettings() const { return m_Audio; }
         void SetAudioSettings(const AudioSettings& settings) { m_Audio = settings; }
 
-        // The input actions asset Play's scene reads, or invalid for none. Saved with the project, which the caller does
+        // Invalid for none. Saved with the project, which the caller does
         [[nodiscard]] UUID GetInputActions() const { return m_InputActions; }
         void SetInputActions(UUID asset) { m_InputActions = asset; }
 
-        // What the project exports as a game, which Forge's Build panel edits. Saved with the project, which the caller does
+        // Saved with the project, which the caller does
         [[nodiscard]] const ExportSettings& GetExportSettings() const { return m_Export; }
         void SetExportSettings(ExportSettings settings) { m_Export = std::move(settings); }
-        // The export's output folder as a whole path, from the project's folder unless it is one already
+        // A whole path, from the project's folder unless it is one already
         [[nodiscard]] std::filesystem::path GetExportDirectory() const;
-        // The project's name made into one, with what it cannot hold left out, or Game when nothing is left
+        // Leaves out what a module name cannot hold. Game when nothing is left
         [[nodiscard]] static std::string MakeModuleName(std::string_view projectName);
 
         [[nodiscard]] const std::filesystem::path& GetDirectory() const { return m_Directory; }
         [[nodiscard]] const std::filesystem::path& GetFilePath() const { return m_FilePath; }
         [[nodiscard]] std::filesystem::path GetAssetsDirectory() const;
-        // The module's sources and CMakeLists.txt, and its build trees, one for each configuration, which .gitignore leaves out
+        // Holds the module's sources, its CMakeLists.txt and a build tree for each configuration
         [[nodiscard]] std::filesystem::path GetSourceDirectory() const;
         [[nodiscard]] std::filesystem::path GetBuildDirectory() const;
-        // The C# project and its sources, which build into Build/Scripts
+        // Builds into Build/Scripts
         [[nodiscard]] std::filesystem::path GetScriptsDirectory() const;
 
         [[nodiscard]] std::optional<std::string> ToAssetPath(const std::filesystem::path& nativePath) const;
-        // A path under /assets, /project or /cache as the files where they lie. One with none of them is relative to Assets
+        // Takes a path under /assets, /project or /cache. One with none of them is relative to Assets
         [[nodiscard]] std::filesystem::path ToNativePath(std::string_view assetPath) const;
 
     private:

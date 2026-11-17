@@ -41,7 +41,7 @@ namespace Trinity
             // More pads can be connected than there are slots, and those without one wait until a slot is free
             constexpr std::size_t c_DeviceCapacity = 16;
 
-            // The pad in a slot, the reading it was last read up to and the rumble it was last given. The ID is of the pad that had the slot last, so the same pad gets it back
+            // ID is of the pad that had the slot last, so the same pad gets it back
             struct GamepadSlot
             {
                 ComPtr<IGameInputDevice> Device;
@@ -58,7 +58,7 @@ namespace Trinity
                 GameInputCallbackToken Callback = 0;
                 std::array<GamepadSlot, Input::c_MaxGamepads> Slots;
 
-                // The pads connected now, as GameInput's callback keeps them from a thread of its own
+                // Kept by GameInput's callback, from a thread of its own
                 std::mutex Mutex;
                 std::array<ComPtr<IGameInputDevice>, c_DeviceCapacity> Connected;
                 bool Overflowed = false;
@@ -66,7 +66,7 @@ namespace Trinity
 
             GamepadState s_State;
 
-            // Also called for each pad already connected as the callback is registered. Changes to a pad's other status flags are left out
+            // Also called for each pad already connected as the callback is registered
             void CALLBACK OnDeviceStatus(GameInputCallbackToken, void*, IGameInputDevice* device, std::uint64_t, GameInputDeviceStatus currentStatus, GameInputDeviceStatus previousStatus)
             {
                 const bool l_Connected = (currentStatus & GameInputDeviceConnected) != 0;
@@ -99,7 +99,7 @@ namespace Trinity
                 }
                 else if (!std::exchange(s_State.Overflowed, true))
                 {
-                    TR_CORE_WARN("More than {} gamepads are connected, so the rest are left out", c_DeviceCapacity);
+                    TR_CORE_WARN("More than {} gamepads connected, the rest are left out", c_DeviceCapacity);
                 }
             }
 
@@ -156,7 +156,7 @@ namespace Trinity
                 listener.OnGamepadReading(slot, l_Reading);
             }
 
-            // Every reading after the one last read up to. Without one, or once GameInput no longer keeps the readings after it, the reading now alone
+            // Every reading since the last. Once GameInput has dropped those, only the reading now
             void ReadSlot(GamepadListener& listener, std::uint32_t slot, GamepadSlot& state)
             {
                 while (state.Reading)
@@ -200,14 +200,14 @@ namespace Trinity
             }
         }
 
-        // GameInput.lib finds the newest runtime installed, the GameInput redistributable or the one Windows has, and fails when neither is there
+        // GameInput.lib finds the newest runtime installed, and fails when there is none
         void InitializeGamepads()
         {
             const HRESULT l_Result = GameInputCreate(&s_State.Api);
             if (FAILED(l_Result))
             {
                 s_State.Api.Reset();
-                TR_CORE_WARN("GameInput is not installed (0x{:08X}), so there are no gamepads. The GameInput redistributable installs it", static_cast<std::uint32_t>(l_Result));
+                TR_CORE_WARN("GameInput is not installed (0x{:08X}), no gamepads. Install its redistributable", static_cast<std::uint32_t>(l_Result));
 
                 return;
             }
@@ -217,11 +217,11 @@ namespace Trinity
             if (FAILED(l_Registered))
             {
                 s_State.Api.Reset();
-                TR_CORE_WARN("GameInput could not report gamepads (0x{:08X}), so there are none", static_cast<std::uint32_t>(l_Registered));
+                TR_CORE_WARN("GameInput could not report gamepads (0x{:08X}), there are none", static_cast<std::uint32_t>(l_Registered));
             }
         }
 
-        // An application with no window reads no pads, so it asks GameInput.lib once, as InitializeGamepads would
+        // An application with no window never initializes gamepads, so this asks GameInput.lib once
         bool HasGamepadRuntime()
         {
             if (s_State.Api)
@@ -361,7 +361,7 @@ namespace Trinity
         // Built without the GameInput package, which Scripts/Bootstrap.ps1 downloads
         void InitializeGamepads()
         {
-            TR_CORE_WARN("This build has no GameInput, so there are no gamepads. Run Scripts/Bootstrap.ps1 and build again to add them");
+            TR_CORE_WARN("No GameInput in this build, no gamepads. Run Scripts/Bootstrap.ps1 and rebuild");
         }
 
         // This build reads no pads, whatever the machine has

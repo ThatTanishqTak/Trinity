@@ -23,7 +23,7 @@ namespace Trinity
 #if TR_CPU_X64
         namespace
         {
-            // EAX, EBX, ECX and EDX for a leaf and subleaf, all zero for a leaf past the highest the processor has
+            // All zero for a leaf past the highest the processor has
             std::array<std::uint32_t, 4> GetCpuid(std::uint32_t leaf, std::uint32_t subleaf)
             {
                 std::array<std::uint32_t, 4> l_Registers{};
@@ -53,7 +53,7 @@ namespace Trinity
             }
 
 #if TR_PHYSICS_AVX2
-            // The register state the operating system saves on a thread switch, which must include the YMM registers for AVX code to be safe
+            // The operating system must save the YMM registers for AVX code to be safe
             std::uint64_t GetEnabledRegisterState()
             {
 #if defined(_MSC_VER)
@@ -74,7 +74,7 @@ namespace Trinity
             }
         }
 
-        // As Jolt's build has them: SSE4.1, SSE4.2 and POPCNT for every build, and AVX, AVX2, FMA, F16C, LZCNT and TZCNT, which is BMI1, for an AVX2 build, with the operating system saving the AVX registers
+        // As Jolt's build: SSE4.1, SSE4.2 and POPCNT always, and AVX2, FMA, F16C, LZCNT, BMI1 for AVX2
         std::string GetMissingPhysicsInstructions()
         {
             const std::array<std::uint32_t, 4> l_Features = GetCpuid(1, 0);

@@ -1669,7 +1669,7 @@ bool EditorSession::LoadProject(const std::filesystem::path& path, std::optional
     m_ProjectLock = std::move(*l_Lock);
     if (l_Before)
     {
-        m_Project->TakeCurrentEngineVersion();
+        m_Project->SetCurrentEngineVersion();
         SaveProject();
         TR_INFO("Forge: {} is a project of Trinity {} from now on, saved in project format {} from format {}, its scripts {}", m_Project->GetName(), Trinity::GetVersionString(), Trinity::Project::c_FormatVersion, l_Before->Format, GetScriptLanguageLabel(m_Project->GetLanguage()));
     }

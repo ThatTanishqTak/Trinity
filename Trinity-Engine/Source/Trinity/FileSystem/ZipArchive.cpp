@@ -21,17 +21,17 @@ namespace Trinity
         constexpr std::size_t c_CentralHeaderSize = 46;
         constexpr std::size_t c_EndSize = 22;
         constexpr std::size_t c_Zip64LocatorSize = 20;
-        // The end record's comment is at most this long, so the record is somewhere in the file's last 64 KB and 22 bytes
+        // The end record's comment is at most this long, so the record is in the file's last 64 KB + 22
         constexpr std::size_t c_MaximumComment = 0xFFFF;
         constexpr std::uint16_t c_Stored = 0;
         constexpr std::uint16_t c_Deflated = 8;
-        // The host of version made by that gives its external attributes' upper half as a Unix mode
+        // The "version made by" host whose external attributes carry a Unix mode
         constexpr std::uint8_t c_UnixHost = 3;
         constexpr std::uint16_t c_EncryptedFlag = 1;
         constexpr std::uint32_t c_Zip64Marker = 0xFFFFFFFFu;
 
         constexpr std::size_t c_ReadSize = 64 * 1024;
-        // Deflate refers back at most 32 KB, so the window holds that much behind what is being written, and as much again
+        // Deflate refers back at most 32 KB. The window holds that and as much again
         constexpr std::size_t c_WindowSize = 32 * 1024;
 
         std::uint16_t Read16(const std::byte* data)
@@ -58,7 +58,7 @@ namespace Trinity
             return "it is a Zip64 zip, which holds a file of 4 GB or more or more than 65535 files, and Trinity reads no Zip64";
         }
 
-        // An entry's deflated bytes as bits, least significant first, read from the zip as they are needed and never past the entry's end
+        // Least significant bit first. Never reads past the entry's end
         class BitReader
         {
         public:
@@ -82,7 +82,7 @@ namespace Trinity
                 }
             }
 
-            // The next count bits, at most 16. Past the entry's end it gives zeros and is cut short from then on
+            // At most 16 bits. Past the entry's end it gives zeros
             std::uint32_t Take(int count)
             {
                 Fill(count);
@@ -154,7 +154,7 @@ namespace Trinity
             bool m_ReadFailed = false;
         };
 
-        // What has been inflated, handed on 32 KB at a time once the window fills, keeping the 32 KB before it for what refers back
+        // Handed on 32 KB at a time, keeping the 32 KB before it for back references
         class InflateOutput
         {
         public:
@@ -171,7 +171,7 @@ namespace Trinity
                 return m_Position < m_Window.size() || Slide();
             }
 
-            // False for a distance further back than anything written, which the caller tells apart by IsStopped
+            // False for a distance further back than anything written
             bool Copy(std::size_t distance, std::size_t length)
             {
                 if (distance == 0 || distance > m_Position)
@@ -240,19 +240,19 @@ namespace Trinity
         };
 
         constexpr int c_MaximumBits = 15;
-        // Codes this long or shorter are decoded by one look into a table, and longer ones a bit at a time
+        // Codes this long or shorter decode with one table look, longer ones a bit at a time
         constexpr int c_FastBits = 9;
 
-        // A canonical Huffman code as deflate gives it, by its lengths, as RFC 1951 and zlib's puff decode it
+        // A canonical Huffman code by its lengths, as RFC 1951 and zlib's puff decode it
         struct HuffmanTable
         {
             std::array<std::uint16_t, c_MaximumBits + 1> Count{};
             std::array<std::uint16_t, 288> Symbol{};
-            // Each code of at most c_FastBits bits, at every index whose low bits are the code as it arrives: its symbol shifted left by 4, and its length. 0 for none
+            // Indexed by a code's bits as they arrive: its symbol shifted left by 4, and its length. 0 is none
             std::array<std::uint16_t, 1u << c_FastBits> Fast{};
         };
 
-        // How many codes the lengths leave unused, negative when they give more codes than there are. Deflate allows an unused code only where one code is given alone
+        // Returns how many codes are unused, negative when the lengths give too many
         int BuildTable(HuffmanTable& table, std::span<const std::uint8_t> lengths)
         {
             table.Count.fill(0);
@@ -329,7 +329,7 @@ namespace Trinity
             return left == 0 || (left > 0 && count == static_cast<std::size_t>(table.Count[0]) + table.Count[1]);
         }
 
-        // The next symbol, or -1 for bits that are no code or run past the entry's end
+        // -1 for bits that are no code, or that run past the entry's end
         int Decode(BitReader& bits, const HuffmanTable& table)
         {
             bits.Fill(c_FastBits);
@@ -392,7 +392,6 @@ namespace Trinity
             return bits.IsCutShort() ? InflateResult::CutShort : InflateResult::Damaged;
         }
 
-        // A block's literals and the lengths and distances that copy what came before, up to its end code
         InflateResult InflateCodes(BitReader& bits, InflateOutput& output, const HuffmanTable& literals, const HuffmanTable& distances)
         {
             while (true)
@@ -478,7 +477,7 @@ namespace Trinity
             return s_Tables;
         }
 
-        // A block of type 2, which gives its own codes first, as lengths coded with a code of their own
+        // Type 2 gives its own codes first, as lengths coded with a code of their own
         InflateResult InflateDynamic(BitReader& bits, InflateOutput& output)
         {
             const std::size_t l_LiteralCount = bits.Take(5) + 257;
@@ -576,7 +575,6 @@ namespace Trinity
             return InflateCodes(bits, output, l_Literals, l_Distances);
         }
 
-        // RFC 1951's blocks one after another, up to the one marked last
         InflateResult Inflate(BitReader& bits, InflateOutput& output)
         {
             bool l_Last = false;
@@ -652,7 +650,7 @@ namespace Trinity
         }
     }
 
-    // The end record is found from the end of the file, since the comment before it may hold anything, and the central directory it points to names every entry
+    // Searched from the end of the file, as the comment before the end record may hold anything
     Expected<ZipArchive, std::string> ZipArchive::Open(const std::filesystem::path& path)
     {
         ZipArchive l_Archive;
@@ -695,7 +693,7 @@ namespace Trinity
 
         if (!l_End)
         {
-            return Unexpected{ std::string("it is not a zip, or is cut short, as it has no end of central directory") };
+            return Unexpected{ std::string("it has no end of central directory: not a zip, or cut short") };
         }
 
         const std::byte* l_Record = &l_Tail[*l_End];
@@ -713,12 +711,12 @@ namespace Trinity
 
         if (l_Disk != 0 || l_DirectoryDisk != 0 || l_DiskEntries != l_EntryCount)
         {
-            return Unexpected{ std::string("it is split across several files, and Trinity reads only a zip that is whole") };
+            return Unexpected{ std::string("it is split across several files, which is not supported") };
         }
 
         if (static_cast<std::uint64_t>(l_DirectoryOffset) + l_DirectorySize > l_TailStart + *l_End)
         {
-            return Unexpected{ std::string("it is cut short, as its central directory runs past where it ends") };
+            return Unexpected{ std::string("it is cut short: its central directory runs past its end") };
         }
 
         std::vector<std::byte> l_Directory(l_DirectorySize);
@@ -767,17 +765,17 @@ namespace Trinity
 
             if ((Read16(l_Header + 8) & c_EncryptedFlag) != 0)
             {
-                return Unexpected{ std::format("{} in it is encrypted, and Trinity reads no encrypted zip", l_Entry.Name) };
+                return Unexpected{ std::format("{} in it is encrypted, which is not supported", l_Entry.Name) };
             }
 
             if (l_Entry.Method != c_Stored && l_Entry.Method != c_Deflated)
             {
-                return Unexpected{ std::format("{} in it is compressed with method {}, and Trinity reads only stored and deflated files", l_Entry.Name, l_Entry.Method) };
+                return Unexpected{ std::format("{} in it uses method {}, and only stored and deflated are supported", l_Entry.Name, l_Entry.Method) };
             }
 
             if (l_Entry.Method == c_Stored && l_Entry.CompressedSize != l_Entry.Size)
             {
-                return Unexpected{ std::format("{} in it is damaged, as it is stored, and its two sizes differ", l_Entry.Name) };
+                return Unexpected{ std::format("{} in it is damaged: it is stored, and its two sizes differ", l_Entry.Name) };
             }
 
             l_Archive.m_Entries.push_back(std::move(l_Entry));
@@ -794,19 +792,19 @@ namespace Trinity
         return a_Entry != m_Entries.end() ? &*a_Entry : nullptr;
     }
 
-    // The local header gives the lengths of its own name and extra field, which can differ from the central directory's, and the bytes follow them
+    // The local header's name and extra lengths can differ from the central directory's
     Expected<void, std::string> ZipArchive::Extract(const ZipEntry& entry, const Sink& sink)
     {
         std::array<std::byte, c_LocalHeaderSize> l_Header{};
         if (!ReadAt(m_File, entry.LocalHeaderOffset, l_Header) || Read32(l_Header.data()) != c_LocalHeaderSignature)
         {
-            return Unexpected{ std::format("{} is damaged, as its local header is missing", entry.Name) };
+            return Unexpected{ std::format("{} is damaged: its local header is missing", entry.Name) };
         }
 
         const std::uint64_t l_Start = entry.LocalHeaderOffset + c_LocalHeaderSize + Read16(&l_Header[26]) + Read16(&l_Header[28]);
         if (l_Start + entry.CompressedSize > m_DirectoryOffset)
         {
-            return Unexpected{ std::format("{} is cut short, as it runs past where the zip's files end", entry.Name) };
+            return Unexpected{ std::format("{} is cut short: it runs past the end of the zip's files", entry.Name) };
         }
 
         m_File.clear();
@@ -851,11 +849,11 @@ namespace Trinity
                 }
                 case InflateResult::CutShort:
                 {
-                    return Unexpected{ l_Bits.HasReadFailed() ? std::format("{} could not be read", entry.Name) : std::format("{} is damaged, as its deflated bytes end too soon", entry.Name) };
+                    return Unexpected{ l_Bits.HasReadFailed() ? std::format("{} could not be read", entry.Name) : std::format("{} is damaged: its deflated bytes end too soon", entry.Name) };
                 }
                 case InflateResult::Damaged:
                 {
-                    return Unexpected{ std::format("{} is damaged, as its deflated bytes are not deflate's", entry.Name) };
+                    return Unexpected{ std::format("{} is damaged: its bytes are not deflate's", entry.Name) };
                 }
             }
 
@@ -865,12 +863,12 @@ namespace Trinity
 
         if (l_Written != entry.Size)
         {
-            return Unexpected{ std::format("{} is damaged, as it unpacks to {} bytes, and the zip gives {}", entry.Name, l_Written, entry.Size) };
+            return Unexpected{ std::format("{} is damaged: it unpacks to {} bytes, and the zip gives {}", entry.Name, l_Written, entry.Size) };
         }
 
         if (l_Crc != entry.Crc)
         {
-            return Unexpected{ std::format("{} is damaged, as its CRC-32 is {:08x}, and the zip gives {:08x}", entry.Name, l_Crc, entry.Crc) };
+            return Unexpected{ std::format("{} is damaged: its CRC-32 is {:08x}, and the zip gives {:08x}", entry.Name, l_Crc, entry.Crc) };
         }
 
         return {};

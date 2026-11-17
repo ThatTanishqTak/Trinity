@@ -12,11 +12,11 @@ namespace Trinity
 {
     class PackFile;
 
-    // A .trpak, read-only, with its table held in memory and its files read from disk as they are asked for. A stored file is read in ranges straight from the pack, and a compressed one is decompressed whole as it opens
+    // The table is held in memory. A stored file is read in ranges, a compressed one whole
     class TRINITY_API PackSource final : public FileSource
     {
     public:
-        // Reads and checks the header and table, so a pack that was cut short, is corrupted or is from a newer Trinity is refused before it mounts
+        // Refuses a pack that is cut short, corrupted or from a newer Trinity
         [[nodiscard]] static Expected<Scope<PackSource>, std::string> Load(const std::filesystem::path& nativePath);
 
         ~PackSource() override;
@@ -32,7 +32,7 @@ namespace Trinity
         [[nodiscard]] std::string Describe() const override;
 
 #if !defined(TR_DISTRIBUTION)
-        // Every file read whole and checked against its hash, as a whole read checks it but a ranged one does not, each that fails having said why as it does when read. How many failed. Not in Distribution, whose games never check every file
+        // Returns how many files failed their hash, which a ranged read never checks. Not in Distribution
         [[nodiscard]] std::size_t CheckFiles() const;
 #endif
 
@@ -49,11 +49,11 @@ namespace Trinity
         [[nodiscard]] const Entry* Find(std::string_view relativePath) const;
         [[nodiscard]] bool IsDirectory(std::string_view relativePath) const;
         [[nodiscard]] FileError GetMissingError(std::string_view relativePath) const;
-        // The whole file, decompressed and checked against its hash
+        // Decompressed and checked against its hash
         [[nodiscard]] Expected<FileBuffer, FileError> ReadWhole(const Entry& entry) const;
 
         std::filesystem::path m_NativePath;
-        // Shared with the read handles opened on stored files, so they read on after the pack is unmounted
+        // Shared with read handles on stored files, so they read on after the pack is unmounted
         Ref<PackFile> m_File;
         FileBuffer m_Table;
         std::vector<Entry, TaggedAllocator<Entry, MemoryTag::FileSystem>> m_Entries;

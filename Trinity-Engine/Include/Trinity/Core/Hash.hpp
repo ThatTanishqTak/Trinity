@@ -12,13 +12,12 @@ namespace Trinity
 {
     namespace Hash
     {
-        // XXH64, as xxHash's specification defines it, so a pack's hashes can be checked by any tool that has it
+        // XXH64 as xxHash's specification defines it
         [[nodiscard]] TRINITY_API std::uint64_t XXHash64(std::span<const std::byte> data, std::uint64_t seed = 0);
 
-        // CRC-32 as zip, gzip and PNG compute it, continuing from the CRC of what came before, so data can be fed in pieces. 0 begins
+        // As zip, gzip and PNG compute it. Pass the CRC of what came before to continue, 0 to begin
         [[nodiscard]] TRINITY_API std::uint32_t Crc32(std::span<const std::byte> data, std::uint32_t crc = 0);
 
-        // SHA-256 as FIPS 180-4 defines it, fed in pieces of any size, as a version's .sha256 holds it for its zip
         class TRINITY_API Sha256
         {
         public:
@@ -28,10 +27,10 @@ namespace Trinity
             Sha256();
 
             void Update(std::span<const std::byte> data);
-            // The digest of everything fed since it began, after which it begins again
+            // Begins a new digest afterwards
             [[nodiscard]] Digest Finish();
 
-            // In lowercase, as sha256sum and CMake's file(SHA256) write it
+            // Lowercase, as sha256sum writes it
             [[nodiscard]] static std::string ToHex(const Digest& digest);
 
         private:

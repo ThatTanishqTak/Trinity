@@ -27,10 +27,10 @@ namespace Trinity
         std::vector<HttpHeader> Headers;
         // Servers such as GitHub's API refuse a request without one
         std::string UserAgent = "Trinity";
-        // Each piece of the body as it arrives, which false stops, failing as cancelled. Without one, the body is kept in the response, up to BodyLimit
+        // Returning false cancels. Without one the body is kept in the response, up to BodyLimit
         std::function<bool(std::span<const std::byte>)> OnBody;
         std::size_t BodyLimit = 16 * 1024 * 1024;
-        // Read now and then while it runs, and true ends it, failing as cancelled
+        // Polled while the request runs. True cancels it
         const std::atomic<bool>* Cancel = nullptr;
     };
 
@@ -42,16 +42,16 @@ namespace Trinity
         // Only when the request gave no OnBody
         std::string Body;
 
-        // By its name, in any case, as HTTP's header names are
+        // Matches the name in any case
         [[nodiscard]] std::optional<std::string_view> FindHeader(std::string_view name) const;
     };
 
     enum class HttpFailure : std::uint8_t
     {
-        // No answer came: the host could not be found or reached, or stopped answering, as when the machine is offline
+        // No answer: the host was not found or reached, as when offline
         Unreachable,
         Cancelled,
-        // Anything else, such as a URL that is none, or a certificate that does not hold
+        // Anything else, such as a bad URL or certificate
         Failed
     };
 
@@ -61,10 +61,10 @@ namespace Trinity
         std::string Reason;
     };
 
-    // GET over HTTP and HTTPS through the platform's own client: WinHTTP on Windows, through the system's proxy, and libcurl elsewhere, loaded where it is installed, through the proxy the environment names. Redirects are followed, and a status of any kind is an answer, so only a request that got none fails
+    // WinHTTP on Windows, libcurl elsewhere. Redirects are followed, and any status is an answer
     namespace Http
     {
-        // Always on Windows, and elsewhere where libcurl is installed
+        // False where libcurl is not installed. Always true on Windows
         [[nodiscard]] TRINITY_API bool IsAvailable();
         [[nodiscard]] TRINITY_API Expected<HttpResponse, HttpError> Get(const HttpRequest& request);
     }

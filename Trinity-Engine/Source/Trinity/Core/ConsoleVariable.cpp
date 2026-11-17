@@ -28,7 +28,7 @@ namespace Trinity
         {
             if (!s_Variables.emplace(variable->GetName(), variable).second)
             {
-                TR_CORE_ERROR("Console variable '{}' is defined more than once; only one definition is reachable by name", variable->GetName());
+                TR_CORE_ERROR("Console variable '{}' is defined more than once, only one is reachable", variable->GetName());
             }
         }
 
@@ -44,7 +44,7 @@ namespace Trinity
 
             if (!allowReadOnly && HasFlag(l_Variable->GetFlags(), ConsoleVariableFlags::ReadOnly))
             {
-                TR_CORE_WARN("Console variable '{}' is read-only; set it on the command line with --set={}=<value>", name, name);
+                TR_CORE_WARN("Console variable '{}' is read-only, set it with --set={}=<value>", name, name);
 
                 return false;
             }
@@ -79,7 +79,6 @@ namespace Trinity
                 return;
             }
 
-            // By name, as the variables are listed
             std::map<std::string_view, const ConsoleCommand*> l_Commands;
             for (const ConsoleCommand* it_Command = ConsoleCommand::GetFirst(); it_Command != nullptr; it_Command = it_Command->GetNext())
             {
@@ -131,7 +130,7 @@ namespace Trinity
     {
         s_First = this;
 
-        // Variables that exist at startup are indexed by Initialize; one from a module loaded later is indexed here
+        // Initialize indexes what exists at startup. One from a module loaded later is indexed here
         if (s_Initialized)
         {
             Register(this);
@@ -315,7 +314,7 @@ namespace Trinity
             }
         }
 
-        // The line is echoed first, so its outcome reads as the answer to it. Everything after the name is the value, spaces included
+        // The line is echoed first. Everything after the name is the value, spaces included
         bool Execute(std::string_view line)
         {
             const std::string_view l_Line = Trim(line);
@@ -334,7 +333,7 @@ namespace Trinity
             {
                 if (l_Argument.empty())
                 {
-                    TR_CORE_INFO("Type a command and what it takes to run it, a name to see a variable, a name and a value to set it, or help and a name to describe either");
+                    TR_CORE_INFO("Usage: <command> [arguments], <variable>, <variable> <value>, help <name>");
                     LogCommands();
                     LogAll();
 

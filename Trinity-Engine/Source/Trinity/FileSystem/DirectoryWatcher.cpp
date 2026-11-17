@@ -60,7 +60,7 @@ namespace Trinity
         }
     }
 
-    // Windows tells of a file saved once several times over, so each path is kept the first time only
+    // Windows reports one save several times, so each path is kept the first time only
     DirectoryChanges DirectoryWatcher::Poll()
     {
         DirectoryChanges l_Changes;

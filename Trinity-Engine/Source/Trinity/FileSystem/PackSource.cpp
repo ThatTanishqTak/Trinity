@@ -21,7 +21,7 @@
 
 namespace Trinity
 {
-    // The pack's open file, shared by its source and every read handle on a stored file. The stream has one position, so each read holds the lock from its seek to its read
+    // Shared by the source and its read handles. Each read holds the lock from its seek to its read
     class PackFile
     {
     public:
@@ -35,7 +35,7 @@ namespace Trinity
             return m_Size;
         }
 
-        // Fills destination from offset, which the caller keeps inside the pack
+        // The caller keeps offset inside the pack
         [[nodiscard]] bool ReadAt(std::uint64_t offset, std::span<std::byte> destination) const
         {
             TR_PROFILE_SCOPE("PackFile::ReadAt");
@@ -61,7 +61,6 @@ namespace Trinity
 
     namespace
     {
-        // A stored file, read in ranges straight from the pack
         class PackReadHandle final : public FileReadHandle
         {
         public:
@@ -158,7 +157,7 @@ namespace Trinity
 
         if (l_Header.PackSize != l_Size)
         {
-            return Unexpected{ std::format("it is {} bytes long where it was written {} long, so it was cut short or changed", l_Size, l_Header.PackSize) };
+            return Unexpected{ std::format("it is {} bytes, not the {} it was written as", l_Size, l_Header.PackSize) };
         }
 
         const std::uint64_t l_EntriesSize = std::uint64_t{ l_Header.FileCount } * sizeof(PackEntry);
@@ -184,7 +183,7 @@ namespace Trinity
         const std::byte* l_Entries = l_Source->m_Table.data();
         const std::string_view l_Paths(reinterpret_cast<const char*>(l_Entries) + l_EntriesSize, l_Source->m_Table.size() - static_cast<std::size_t>(l_EntriesSize));
 
-        // The hash matched, so a bad entry can only come from a writer with a bug, and is refused rather than read outside the pack
+        // The hash matched, so a bad entry can only come from a writer's bug, and is refused
         l_Source->m_Entries.reserve(l_Header.FileCount);
         for (std::size_t it_Index = 0; it_Index < l_Header.FileCount; ++it_Index)
         {
@@ -327,7 +326,7 @@ namespace Trinity
             return Ref<FileReadHandle>(std::allocate_shared<PackReadHandle>(TaggedAllocator<PackReadHandle, MemoryTag::FileSystem>(), m_File, l_Entry->File.Offset, l_Entry->File.Size));
         }
 
-        // A compressed file cannot be read in ranges, so it is decompressed whole, and checked, as it opens
+        // A compressed file cannot be read in ranges, so it is decompressed whole as it opens
         TR_PROFILE_SCOPE("PackSource::Open");
 
         Expected<FileBuffer, FileError> l_Data = ReadWhole(*l_Entry);

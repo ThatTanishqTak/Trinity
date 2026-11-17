@@ -29,20 +29,19 @@ namespace Trinity
         Critical
     };
 
-    // As the console and the log file name them
     [[nodiscard]] TRINITY_API std::string_view ToString(LogChannel channel);
     [[nodiscard]] TRINITY_API std::string_view ToString(LogLevel level);
 
     class TRINITY_API Log
     {
     public:
-        // The console and the history from the first line, and the file once OpenFile names it, which is given every line logged until then
+        // Lines logged before OpenFile are kept, and written to the file once it opens
         static void Initialize();
-        // Opens this run's file, keeping the last run's beside it, and writes into it first every line logged so far, so it starts with the run's first line wherever it is. Once, as the application starts and knows the folder it logs in
+        // Keeps the last run's file beside this one. Call once, as the application starts
         static void OpenFile(const std::filesystem::path& logFile);
         static void Shutdown();
 
-        // The file this run logs to, and the last run's kept beside it, as Unity keeps Editor.log and Editor-prev.log. Empty when the file could not be opened, or there was no last run
+        // Empty when the file could not be opened, or there was no last run
         [[nodiscard]] static const std::filesystem::path& GetFilePath();
         [[nodiscard]] static const std::filesystem::path& GetPreviousFilePath();
 
@@ -50,7 +49,7 @@ namespace Trinity
         static void Write(LogChannel channel, LogLevel level, std::string_view message);
         static void Flush();
 
-        // Local time as HH:MM:SS.mmm, as the console shows it
+        // Local time as HH:MM:SS.mmm
         [[nodiscard]] static std::string FormatTime(std::chrono::system_clock::time_point time);
 
         template<typename... Args>
@@ -72,7 +71,7 @@ namespace Trinity
         std::string_view Text;
     };
 
-    // The last lines written on any thread, in the order they were written. Its memory is set aside once, under the Log tag, and the oldest lines drop out as it fills
+    // Allocated once under the Log tag. The oldest lines drop out as it fills
     class TRINITY_API LogHistory
     {
     public:
@@ -80,7 +79,7 @@ namespace Trinity
         static constexpr std::size_t c_TextCapacity = 1024 * 1024;
         static constexpr std::size_t c_MaximumLineSize = 8 * 1024;
 
-        // Holds the history's lock while it lives, so lines written meanwhile wait, and every entry's text stays valid
+        // Holds the history's lock while it lives, so every entry's text stays valid
         class TRINITY_API Reader
         {
         public:
@@ -106,12 +105,10 @@ namespace Trinity
     };
 }
 
-// Engine-side logging.
 #define TR_CORE_WARN(...) ::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Warn, __VA_ARGS__)
 #define TR_CORE_ERROR(...) ::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Error, __VA_ARGS__)
 #define TR_CORE_CRITICAL(...) ::Trinity::Log::Print(::Trinity::LogChannel::Core, ::Trinity::LogLevel::Critical, __VA_ARGS__)
 
-// Application-side logging.
 #define TR_WARN(...) ::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Warn, __VA_ARGS__)
 #define TR_ERROR(...) ::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Error, __VA_ARGS__)
 #define TR_CRITICAL(...) ::Trinity::Log::Print(::Trinity::LogChannel::Client, ::Trinity::LogLevel::Critical, __VA_ARGS__)

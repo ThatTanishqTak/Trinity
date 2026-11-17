@@ -22,20 +22,20 @@ namespace Trinity
         constexpr std::uint32_t c_Zip64EndSignature = 0x06064B50u;
         constexpr std::uint32_t c_Zip64LocatorSignature = 0x07064B50u;
         constexpr std::uint16_t c_Zip64Extra = 0x0001u;
-        // Info-ZIP's extended timestamp, which holds the time in UTC as Unix does, where DOS's has no zone
+        // Info-ZIP's extended timestamp, in UTC. DOS's time has no zone
         constexpr std::uint16_t c_TimeExtra = 0x5455u;
         // Names are UTF-8
         constexpr std::uint16_t c_Utf8Flag = 0x0800u;
         constexpr std::uint16_t c_Version = 20;
         constexpr std::uint16_t c_Zip64Version = 45;
-        // Made on Unix, so tools read the permissions from the upper half of an entry's external attributes, wherever the zip was made
+        // Made on Unix, so tools read permissions from the external attributes' upper half
         constexpr std::uint16_t c_MadeBy = (3u << 8) | c_Zip64Version;
         constexpr std::uint32_t c_DirectoryAttribute = 0x10u;
         constexpr std::uint32_t c_FileType = 0100000u;
         constexpr std::uint32_t c_DirectoryType = 0040000u;
         constexpr std::uint64_t c_Max32 = 0xFFFFFFFFu;
         constexpr std::uint64_t c_Max16 = 0xFFFFu;
-        // Where the CRC-32 is in a local header, written there again once the file is read
+        // The CRC-32's place in a local header, rewritten once the file is read
         constexpr std::uint64_t c_LocalCrcOffset = 14;
         constexpr std::size_t c_PieceSize = std::size_t{ 1 } << 20;
 
@@ -69,7 +69,7 @@ namespace Trinity
             std::vector<std::byte> m_Data;
         };
 
-        // DOS's time, to two seconds, from 1980 to 2107, and Unix's, each read as UTC
+        // DOS's time is to two seconds, from 1980 to 2107
         void SetTime(std::filesystem::file_time_type time, std::uint16_t& dosTime, std::uint16_t& dosDate, std::uint32_t& unixTime)
         {
             const std::chrono::sys_seconds l_Seconds = std::chrono::floor<std::chrono::seconds>(std::chrono::clock_cast<std::chrono::system_clock>(time));
@@ -141,7 +141,7 @@ namespace Trinity
         return {};
     }
 
-    // Read once, its bytes written as they are read, and its CRC-32 written back into its header once known, so the file is read but once
+    // The CRC-32 is written back into the header afterwards, so the file is read only once
     Expected<void, std::string> ZipWriter::AddFile(std::string_view name, const std::filesystem::path& file)
     {
         std::error_code l_Error;
@@ -182,7 +182,7 @@ namespace Trinity
 
         if (l_Input.bad() || l_Read != l_Size)
         {
-            return Unexpected{ std::format("{} was {} bytes as it was read, not {}, as it changed or could not all be read", ToUtf8(file), l_Read, l_Size) };
+            return Unexpected{ std::format("{} read as {} bytes, not {}: it changed, or could not all be read", ToUtf8(file), l_Read, l_Size) };
         }
 
         const std::streampos l_End = m_File.tellp();
@@ -202,12 +202,12 @@ namespace Trinity
         return {};
     }
 
-    // A size of 4 GB or more is given in a Zip64 field, its 32-bit fields holding all ones
+    // A size of 4 GB or more goes in a Zip64 field, its 32-bit fields holding all ones
     Expected<void, std::string> ZipWriter::WriteLocalHeader(const Entry& entry)
     {
         if (entry.Name.empty() || entry.Name.size() > c_Max16)
         {
-            return Unexpected{ std::format("an entry of {} has a name {} bytes long, where a zip takes from 1 to {}", ToUtf8(m_Path), entry.Name.size(), c_Max16) };
+            return Unexpected{ std::format("an entry of {} has a {}-byte name, and a zip takes 1 to {}", ToUtf8(m_Path), entry.Name.size(), c_Max16) };
         }
 
         const bool l_Zip64 = entry.Size >= c_Max32;
@@ -250,7 +250,7 @@ namespace Trinity
         return {};
     }
 
-    // Zip64's end records go before the classic one once the zip holds more than 65535 entries or its directory starts or ends past 4 GB
+    // Zip64's end records precede the classic one past 65535 entries or 4 GB
     Expected<void, std::string> ZipWriter::Finish()
     {
         const std::uint64_t l_DirectoryOffset = m_Offset;

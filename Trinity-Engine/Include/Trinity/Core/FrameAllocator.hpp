@@ -17,7 +17,7 @@
 
 namespace Trinity
 {
-    // Memory handed out during frame N stays valid until the start of frame N + 2, Nothing is destructed
+    // Memory from frame N stays valid until frame N + 2 starts. Nothing is destructed
     class TRINITY_API FrameAllocator
     {
     public:

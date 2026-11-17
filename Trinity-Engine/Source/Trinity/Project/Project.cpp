@@ -39,7 +39,7 @@ namespace Trinity
             return std::format("{}/{}", Project::c_ProjectMount, ToUtf8(filePath.filename()));
         }
 
-        // What Project::Create made, taken away again: the folder itself when Create made it, and else everything in it, as it was empty. The parents Create made on the way stay, being where the person chose to put it
+        // Removes the folder when Create made it, and else its contents. Parents made on the way stay
         void RemoveCreated(const std::filesystem::path& directory, bool existed)
         {
             std::error_code l_Error;
@@ -65,11 +65,10 @@ namespace Trinity
 
             if (l_Error)
             {
-                TR_CORE_WARN("Project: what was made in {} could not all be removed again: {}", ToUtf8(directory), l_Error.message());
+                TR_CORE_WARN("Project: could not remove everything made in {}: {}", ToUtf8(directory), l_Error.message());
             }
         }
 
-        // True or false, or nothing
         std::optional<bool> ReadBool(const YAML::Node & node)
         {
             const std::string l_Text = node && node.IsScalar() ? node.Scalar() : std::string();
@@ -77,8 +76,8 @@ namespace Trinity
             return l_Text == "true" || l_Text == "false" ? std::optional<bool>(l_Text == "true") : std::nullopt;
         }
 
-        // The platform's APIs of those listed, in their order, each the platform lacks left out and reported, as a warning for one its own list names and as what happens for an older project's one list
-        std::vector<GraphicsAPI> KeepPlatformAPIs(const TargetPlatform& platform, std::span<const GraphicsAPI> apis, std::string_view owner, bool older)
+        // Leaves out and reports each API the platform lacks
+        std::vector<GraphicsAPI> FilterPlatformAPIs(const TargetPlatform& platform, std::span<const GraphicsAPI> apis, std::string_view owner, bool older)
         {
             std::vector<GraphicsAPI> l_Kept;
             for (const GraphicsAPI it_API : apis)
@@ -89,18 +88,18 @@ namespace Trinity
                 }
                 else if (older)
                 {
-                    TR_CORE_INFO("{} listed {}, which {} games cannot draw with, so it builds for {} without it", owner, ToString(it_API), platform.DisplayName, platform.DisplayName);
+                    TR_CORE_INFO("{} listed {}, which {} lacks, so it builds for {} without it", owner, ToString(it_API), platform.DisplayName, platform.DisplayName);
                 }
                 else
                 {
-                    TR_CORE_WARN("{} lists {} for {}, which {} games cannot draw with, so it is left out", owner, ToString(it_API), platform.DisplayName, platform.DisplayName);
+                    TR_CORE_WARN("{} lists {} for {}, which {} lacks, left out", owner, ToString(it_API), platform.DisplayName, platform.DisplayName);
                 }
             }
 
             return l_Kept;
         }
 
-        // Format 10's map of each platform's order, or format 9's one list, which was the order on the platform the project now builds for
+        // Format 10 has a map of each platform's order. Format 9 had one list, for the current platform
         void ReadGraphicsAPIs(const YAML::Node& node, std::uint32_t format, std::string_view owner, ExportSettings& settings, bool& unread)
         {
             if (!node)
@@ -114,7 +113,7 @@ namespace Trinity
                 std::vector<GraphicsAPI> l_APIs;
                 unread |= !SettingsYaml::ReadGraphicsAPIs(node, l_APIs);
                 const TargetPlatform* l_Platform = TargetPlatforms::Find(settings.Platform);
-                if (std::vector<GraphicsAPI> l_Kept = l_Platform != nullptr ? KeepPlatformAPIs(*l_Platform, l_APIs, owner, true) : std::vector<GraphicsAPI>(); !l_Kept.empty())
+                if (std::vector<GraphicsAPI> l_Kept = l_Platform != nullptr ? FilterPlatformAPIs(*l_Platform, l_APIs, owner, true) : std::vector<GraphicsAPI>(); !l_Kept.empty())
                 {
                     settings.GraphicsAPIs.emplace(settings.Platform, std::move(l_Kept));
                 }
@@ -134,14 +133,14 @@ namespace Trinity
                     continue;
                 }
 
-                if (std::vector<GraphicsAPI> l_Kept = KeepPlatformAPIs(*l_Platform, l_APIs, owner, false); !l_Kept.empty())
+                if (std::vector<GraphicsAPI> l_Kept = FilterPlatformAPIs(*l_Platform, l_APIs, owner, false); !l_Kept.empty())
                 {
                     settings.GraphicsAPIs.insert_or_assign(std::string(l_Platform->Name), std::move(l_Kept));
                 }
             }
         }
 
-        // Each value that is missing keeps the one given, and each that cannot be read is reported and keeps it. A scene that cannot be one is left out, as is a scene listed again, which keeps its first place, and a platform Trinity has never heard of keeps the one given
+        // A missing value keeps the one given. One that cannot be read is reported, and keeps it too
         void ReadExportSettings(const YAML::Node& node, std::uint32_t format, std::string_view owner, ExportSettings& settings)
         {
             if (!node || !node.IsMap())
@@ -190,7 +189,7 @@ namespace Trinity
 
             if (l_Unread)
             {
-                TR_CORE_WARN("{} has an export setting that cannot be read, a scene, the platform, the icon, a graphics API or a value, which is left out or keeps its default", owner);
+                TR_CORE_WARN("{} has an unreadable export setting, left out or kept at its default", owner);
             }
         }
 
@@ -234,7 +233,7 @@ namespace Trinity
             emitter << YAML::EndMap;
         }
 
-        // The language format 10 names, or for an older file the one of a module and an assembly it has, and none for both or neither
+        // For a file older than format 10, the one of a module and an assembly it has, or none
         std::optional<ScriptLanguage> FindLanguage(std::uint32_t format, const YAML::Node& scripting, bool hasModule, bool hasAssembly)
         {
             if (format >= 10)
@@ -295,7 +294,7 @@ namespace Trinity
         }
     }
 
-    // The folder takes the project's name, and must be new or empty. A template's assets go in before anything reads the project, so they keep the UUIDs in their .meta files that its scenes name them by. One that fails part way takes away what it made, so a folder it made is gone again and one that was empty is empty again
+    // A template's assets go in before anything reads the project, so they keep their .meta UUIDs
     Expected<Scope<Project>, std::string> Project::Create(const std::filesystem::path& directory, ScriptLanguage language, const ProjectTemplate* projectTemplate)
     {
         std::error_code l_Error;
@@ -369,7 +368,6 @@ namespace Trinity
         return l_Project;
     }
 
-    // A project file, or a folder holding exactly one
     Expected<std::filesystem::path, std::string> Project::FindFile(const std::filesystem::path& path)
     {
         std::error_code l_Error;
@@ -401,7 +399,6 @@ namespace Trinity
         return l_File;
     }
 
-    // Read as it lies on the disk, as Open reads it once mounted, for its format, name, version and scripting alone
     Expected<ProjectFileInfo, std::string> Project::ReadInfo(const std::filesystem::path& file)
     {
         constexpr std::uintmax_t c_Limit = 4 * 1024 * 1024;
@@ -499,12 +496,12 @@ namespace Trinity
 
         if (l_Format > c_FormatVersion)
         {
-            return Unexpected{ std::format("{} was written in format {} by a newer Trinity, and this build reads format {} and older", ToUtf8(l_File), l_Format, c_FormatVersion) };
+            return Unexpected{ std::format("{} is format {}, from a newer Trinity. This build reads up to {}", ToUtf8(l_File), l_Format, c_FormatVersion) };
         }
 
         l_Project->m_Name = ReadString(l_Root, "Name", ToUtf8(l_File.stem()));
         l_Project->m_EngineVersion = ReadString(l_Root, "EngineVersion", "");
-        // Format 1 named the start scene by its path under Assets, which only the asset registry can turn into a UUID
+        // Format 1 named the start scene by path, which only the asset registry can turn into a UUID
         const std::string l_StartScene = ReadString(l_Root, "StartScene", "");
         if (l_Format == 1)
         {
@@ -528,7 +525,7 @@ namespace Trinity
             SettingsYaml::ReadWorldSettings(l_Root["Physics"], l_Owner, l_Project->m_Physics);
         }
 
-        // A module or assembly name that cannot be one is reported and left out, so the project opens with none
+        // A name that cannot be one is reported and left out, so the project opens with none
         if (l_Format >= 5)
         {
             const YAML::Node l_Scripting = l_Root["Scripting"];
@@ -539,7 +536,7 @@ namespace Trinity
             }
             else if (!l_Module.empty())
             {
-                TR_CORE_WARN("Project: {} names its C++ module '{}', which is not a name a module can have, so it opens with none", l_Project->m_Name, l_Module);
+                TR_CORE_WARN("Project: {} has an invalid C++ module name '{}', opening with none", l_Project->m_Name, l_Module);
             }
 
             const std::string l_Assembly = l_Format >= 6 && l_Scripting && l_Scripting.IsMap() ? ReadString(l_Scripting, "Assembly", "") : std::string();
@@ -549,16 +546,16 @@ namespace Trinity
             }
             else if (!l_Assembly.empty())
             {
-                TR_CORE_WARN("Project: {} names its C# assembly '{}', which is not a name an assembly can have here, so it opens with none", l_Project->m_Name, l_Assembly);
+                TR_CORE_WARN("Project: {} has an invalid C# assembly name '{}', opening with none", l_Project->m_Name, l_Assembly);
             }
         }
 
-        // Only the language's own module or assembly is named, so the other language's files are left on disk unbuilt
+        // Only the language's own module or assembly is named. The other's files stay on disk unbuilt
         const YAML::Node l_Scripting = l_Root["Scripting"];
         std::optional<ScriptLanguage> l_Language = FindLanguage(l_Format, l_Scripting, !l_Project->m_ModuleName.empty(), !l_Project->m_AssemblyName.empty());
         if (!l_Language && l_Format >= 10)
         {
-            return Unexpected{ std::format("{} names no language its scripts are written in, CSharp or Cpp", ToUtf8(l_File)) };
+            return Unexpected{ std::format("{} names no script language, CSharp or Cpp", ToUtf8(l_File)) };
         }
 
         if (!l_Language && !olderLanguage)
@@ -569,12 +566,12 @@ namespace Trinity
         l_Project->m_Language = l_Language ? *l_Language : *olderLanguage;
         if (l_Project->m_Language == ScriptLanguage::CSharp && !l_Project->m_ModuleName.empty())
         {
-            TR_CORE_INFO("Project: {}'s scripts are C#, so its C++ module {} is left in Source unbuilt", l_Project->m_Name, l_Project->m_ModuleName);
+            TR_CORE_INFO("Project: {} is C#, its C++ module {} stays in Source unbuilt", l_Project->m_Name, l_Project->m_ModuleName);
             l_Project->m_ModuleName.clear();
         }
         else if (l_Project->m_Language == ScriptLanguage::Cpp && !l_Project->m_AssemblyName.empty())
         {
-            TR_CORE_INFO("Project: {}'s scripts are C++, so its C# project {} is left in Scripts unbuilt", l_Project->m_Name, l_Project->m_AssemblyName);
+            TR_CORE_INFO("Project: {} is C++, its C# project {} stays in Scripts unbuilt", l_Project->m_Name, l_Project->m_AssemblyName);
             l_Project->m_AssemblyName.clear();
         }
 
@@ -589,7 +586,7 @@ namespace Trinity
             }
             else if (!l_Actions.empty())
             {
-                TR_CORE_WARN("Project: {} names its input actions '{}', which is not an asset's UUID, so it opens with none", l_Project->m_Name, l_Actions);
+                TR_CORE_WARN("Project: {} has invalid input actions '{}', opening with none", l_Project->m_Name, l_Actions);
             }
         }
 
@@ -598,7 +595,7 @@ namespace Trinity
             SettingsYaml::ReadAudioSettings(l_Root["Audio"], l_Owner, l_Project->m_Audio);
         }
 
-        // An older project exports as a new one would, its name the product and its start scene the only scene of its build
+        // An older project exports its name as the product, and its start scene as the only scene
         l_Project->m_Export.Product = l_Project->m_Name;
         if (l_Format >= 9)
         {
@@ -668,7 +665,7 @@ namespace Trinity
         return m_EngineVersion == GetVersionString();
     }
 
-    // True once a format 1 start scene path is found in the registry and replaced by its UUID, which becomes the only scene of its build, after which the project should be saved
+    // True once a format 1 start scene path is replaced by its UUID. The project should then be saved
     bool Project::ResolveStartScenePath(const AssetRegistry& registry)
     {
         if (m_StartScenePath.empty())
@@ -679,7 +676,7 @@ namespace Trinity
         const AssetRecord* l_Record = registry.FindByPath(m_StartScenePath);
         if (l_Record == nullptr)
         {
-            TR_CORE_WARN("Project: the start scene {} named by {} is not in the project's assets", m_StartScenePath, m_Name);
+            TR_CORE_WARN("Project: start scene {} named by {} is not in the assets", m_StartScenePath, m_Name);
             m_StartScenePath.clear();
 
             return false;
@@ -729,16 +726,16 @@ namespace Trinity
 
     void Project::SetModuleName(std::string name)
     {
-        TR_CORE_ASSERT(name.empty() || IsValidModuleName(name), "'{}' is not a name a module can have", name);
-        TR_CORE_ASSERT(name.empty() || m_Language == ScriptLanguage::Cpp, "{}'s scripts are C#, so it has no C++ module", m_Name);
+        TR_CORE_ASSERT(name.empty() || IsValidModuleName(name), "'{}' is not a valid module name", name);
+        TR_CORE_ASSERT(name.empty() || m_Language == ScriptLanguage::Cpp, "{} is C#, it has no C++ module", m_Name);
 
         m_ModuleName = std::move(name);
     }
 
     void Project::SetAssemblyName(std::string name)
     {
-        TR_CORE_ASSERT(name.empty() || IsValidModuleName(name), "'{}' is not a name an assembly can have here", name);
-        TR_CORE_ASSERT(name.empty() || m_Language == ScriptLanguage::CSharp, "{}'s scripts are C++, so it has no C# project", m_Name);
+        TR_CORE_ASSERT(name.empty() || IsValidModuleName(name), "'{}' is not a valid assembly name", name);
+        TR_CORE_ASSERT(name.empty() || m_Language == ScriptLanguage::CSharp, "{} is C++, it has no C# project", m_Name);
 
         m_AssemblyName = std::move(name);
     }
@@ -792,7 +789,7 @@ namespace Trinity
         return std::format("{}/{}", c_AssetsMount, std::string_view(reinterpret_cast<const char*>(l_Generic.data()), l_Generic.size()));
     }
 
-    // Under whichever of the project's mounts it names, so the project's own files, such as its scripts, are found as its assets are. A path naming no mount is taken as relative to Assets
+    // A path naming no mount is taken as relative to Assets
     std::filesystem::path Project::ToNativePath(std::string_view assetPath) const
     {
         const auto a_Under = [assetPath](std::string_view mount) -> std::optional<std::string_view>
@@ -832,7 +829,7 @@ namespace Trinity
             return Unexpected{ std::string("another project is already open") };
         }
 
-        // Cache holds only what Forge can make again, so git never keeps it, and a project cloned or unzipped without it gets an empty one instead of being refused
+        // Cache holds only what Forge can make again, so a project cloned without it gets an empty one
         std::error_code l_Error;
         if (std::filesystem::is_directory(m_Directory, l_Error))
         {

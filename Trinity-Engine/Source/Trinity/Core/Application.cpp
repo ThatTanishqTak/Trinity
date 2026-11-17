@@ -86,7 +86,6 @@ namespace Trinity
             return std::nullopt;
         }
 
-        // Keeps an application name usable as one directory name on every platform
         std::string ToDirectoryName(std::string_view name)
         {
             std::string l_Result;
@@ -104,18 +103,16 @@ namespace Trinity
             return l_Result.empty() ? std::string("Application") : l_Result;
         }
 
-        // One line per monitor, to compare with Windows' display settings
         void LogMonitors()
         {
             const std::vector<Platform::MonitorInfo> l_Monitors = Platform::GetMonitors();
             for (std::size_t it_Index = 0; it_Index < l_Monitors.size(); ++it_Index)
             {
                 const Platform::MonitorInfo& l_Monitor = l_Monitors[it_Index];
-                TR_CORE_INFO("Monitor {} of {}: {}{}, {}x{} at ({}, {}), work area {}x{} at ({}, {}), {:.0f}% scale", it_Index + 1, l_Monitors.size(), l_Monitor.Name, l_Monitor.Primary ? " (primary)" : "", l_Monitor.Area.Width, l_Monitor.Area.Height, l_Monitor.Area.X, l_Monitor.Area.Y, l_Monitor.WorkArea.Width, l_Monitor.WorkArea.Height, l_Monitor.WorkArea.X, l_Monitor.WorkArea.Y, l_Monitor.DpiScale * 100.0f);
+                TR_CORE_INFO("Monitor {} of {}: {}{}, {}x{} at ({}, {}), work {}x{} at ({}, {}), {:.0f}% scale", it_Index + 1, l_Monitors.size(), l_Monitor.Name, l_Monitor.Primary ? " (primary)" : "", l_Monitor.Area.Width, l_Monitor.Area.Height, l_Monitor.Area.X, l_Monitor.Area.Y, l_Monitor.WorkArea.Width, l_Monitor.WorkArea.Height, l_Monitor.WorkArea.X, l_Monitor.WorkArea.Y, l_Monitor.DpiScale * 100.0f);
             }
         }
 
-        // Engine data, the compiled shaders and the fonts, sits beside the executable
         void MountEngineDirectory()
         {
             const std::filesystem::path l_Directory = Platform::GetExecutableDirectory() / "Engine";
@@ -138,13 +135,13 @@ namespace Trinity
             return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(l_Name.data()), l_Name.size()));
         }
 
-        // Where an application keeps its own files in the user's folder: a game under its company's and product's names, as Unity's are, and Trinity's own programs under Trinity
+        // A game under Company/Name, and Trinity's own programs under Trinity
         std::filesystem::path GetUserFolder(const std::filesystem::path& base, std::string_view company, std::string_view name)
         {
             return company.empty() ? base / "Trinity" : base / ToDirectoryPath(company) / ToDirectoryPath(name);
         }
 
-        // Every program logs under --log-dir when given, or else in a folder of the user's own, as Unity keeps Editor.log and a game's Player.log, so its log is in one place however it was started and can be written wherever it is installed. A folder the log library cannot name, as one the system's code page cannot spell, gives way to Logs under the working directory
+        // --log-dir, else the user's folder. A folder spdlog cannot name gives way to ./Logs
         std::filesystem::path GetLogDirectory(const ApplicationCommandLineArgs& args, std::string_view company = {}, std::string_view name = {})
         {
             if (const std::optional<std::string_view> l_Override = args.GetOption("log-dir"); l_Override && !l_Override->empty())
@@ -171,7 +168,6 @@ namespace Trinity
             return l_Directory;
         }
 
-        // The executable's name without its extension, which each program's own files in a shared folder are named for
         std::filesystem::path GetProgramName(const ApplicationCommandLineArgs& args)
         {
             return args.Count > 0 && args.Args != nullptr && args.Args[0] != nullptr ? std::filesystem::path(args.Args[0]).stem() : std::filesystem::path("Trinity");
@@ -199,7 +195,7 @@ namespace Trinity
                 std::filesystem::path l_Base = Platform::GetUserDataDirectory();
                 if (l_Base.empty())
                 {
-                    TR_CORE_WARN("No per-user data folder was found; saving under the working directory instead");
+                    TR_CORE_WARN("No per-user data folder, saving under the working directory");
                     l_Base = "UserData";
                 }
 
@@ -220,7 +216,7 @@ namespace Trinity
             FileSystem::MountDirectory("/saves", l_Directory, MountAccess::ReadWrite);
         }
 
-        // What a program can make again, as its pipeline caches, under --cache-dir when given, or else in the user's cache folder under the names its logs go under. Without either nothing is kept between runs
+        // --cache-dir, else the user's cache folder. Without either nothing is kept between runs
         void MountCacheDirectory(const ApplicationCommandLineArgs& args, std::string_view company, std::string_view applicationName)
         {
             std::filesystem::path l_Directory;
@@ -233,7 +229,7 @@ namespace Trinity
                 const std::filesystem::path l_Base = Platform::GetUserCacheDirectory();
                 if (l_Base.empty())
                 {
-                    TR_CORE_WARN("No per-user cache folder was found, so nothing is cached between runs");
+                    TR_CORE_WARN("No per-user cache folder, nothing is cached between runs");
 
                     return;
                 }
@@ -245,7 +241,7 @@ namespace Trinity
             std::filesystem::create_directories(l_Directory, l_Error);
             if (l_Error)
             {
-                TR_CORE_WARN("Could not create the cache folder '{}', so nothing is cached between runs: {}", l_Directory.string(), l_Error.message());
+                TR_CORE_WARN("Could not create the cache folder '{}', nothing is cached: {}", l_Directory.string(), l_Error.message());
 
                 return;
             }
@@ -339,7 +335,6 @@ namespace Trinity
 
         const ApplicationCommandLineArgs& l_Args = m_Specification.CommandLineArgs;
 
-        // The log opens in the application's own folder, with every line before it first
         const std::filesystem::path l_LogFile = GetLogFile(GetLogDirectory(l_Args, m_Specification.Company, m_Specification.Name), l_Args, ".log");
         Log::OpenFile(l_LogFile);
         FileSystem::MountDirectory("/logs", l_LogFile.parent_path());
@@ -361,7 +356,7 @@ namespace Trinity
             }
         }
 
-        // The order's first this build has, unless an option picks one, with the rest of it to fall back on
+        // The first of the order this build has, unless an option picks one. The rest are fallbacks
         std::vector<GraphicsAPI> l_Fallbacks;
         if (!l_Args.HasOption("d3d12") && !l_Args.HasOption("vulkan"))
         {
@@ -393,7 +388,7 @@ namespace Trinity
         {
             const GraphicsAPI l_Fallback = GetDefaultGraphicsAPI();
 
-            TR_CORE_WARN("{} is not available in this build; using {} instead.", ToString(m_Specification.Graphics), ToString(l_Fallback));
+            TR_CORE_WARN("{} is not in this build, using {}", ToString(m_Specification.Graphics), ToString(l_Fallback));
             m_Specification.Graphics = l_Fallback;
         }
 
@@ -447,7 +442,7 @@ namespace Trinity
         }
     }
 
-    // The game's PlayerPrefs are saved once its layers have gone, which may set them as they go
+    // PlayerPrefs are saved after the layers go, as a layer may set them as it goes
     Application::~Application()
     {
         m_LayerStack.Clear();
@@ -463,7 +458,7 @@ namespace Trinity
         s_Instance = nullptr;
     }
 
-    // The specification's graphics API, then each fallback in turn while a device cannot be made, and None last
+    // The specification's API, then each fallback while a device cannot be made, and None last
     void Application::CreateDevice(std::span<const GraphicsAPI> fallbacks)
     {
         RHI::DeviceSpecification l_Specification;
@@ -571,7 +566,7 @@ namespace Trinity
     {
         m_LastFrameTime = std::chrono::steady_clock::now();
 
-        // A window behind another or minimized draws only as often as the application's background rate lets it, which a counted run or one without a window never waits for
+        // A counted run, or one without a window, is never held to the background rate
         const bool l_Background = m_Specification.BackgroundFrameRate > 0.0f && m_Specification.MaxFrames == 0 && m_Window->GetNativeHandle() != nullptr;
         const auto l_BackgroundFrame = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(1.0 / (l_Background ? m_Specification.BackgroundFrameRate : 1.0f)));
         while (m_Running)
@@ -590,7 +585,7 @@ namespace Trinity
         TR_CORE_INFO("Frame allocator peak {} of {} per frame, {} overflowing frame(s)", Memory::FormatBytes(m_FrameAllocator.GetPeakUsed()), Memory::FormatBytes(m_FrameAllocator.GetCapacity()), m_FrameAllocator.GetOverflowFrameCount());
     }
 
-    // The window also calls this while Win32's drag and resize loop holds the thread inside PollEvents, so those frames skip polling, and the timestep is taken after it
+    // Also called from inside Win32's drag and resize loop, with PollEvents still on the stack
     void Application::RunFrame(bool pollEvents)
     {
         TR_PROFILE_FRAME();
@@ -631,7 +626,6 @@ namespace Trinity
                 it_Layer->OnUpdate(l_Timestep);
             }
 
-            // What the layers changed in the UI this frame is laid out and drawn in it
             if (m_GameUI)
             {
                 m_GameUI->Update(l_Timestep);
@@ -691,15 +685,14 @@ namespace Trinity
     {
         Platform::Initialize();
 
-        // The log file opens as the application starts, in its folder, and the lines before then wait for it. A profile capture goes in Trinity's
         const std::filesystem::path l_LogDirectory = GetLogDirectory({ argc, argv });
         const std::filesystem::path l_CaptureFile = GetLogFile(l_LogDirectory, { argc, argv }, ".trace.json");
         Log::Initialize();
 
-        // The physics libraries are built for instructions some processors lack. Nothing built for them has run yet, so a processor without them stops here with the reason, rather than crashing once a scene starts running
+        // Checked before any physics code runs, so a processor lacking them stops with the reason
         if (const std::string l_Missing = CpuFeatures::GetMissingPhysicsInstructions(); !l_Missing.empty())
         {
-            const std::string l_Message = std::format("This processor does not support {}, which Trinity's physics is built for, so it cannot run here.", l_Missing);
+            const std::string l_Message = std::format("This processor lacks {}, which Trinity's physics is built for", l_Missing);
             TR_CORE_CRITICAL("{}", l_Message);
             Log::OpenFile(GetLogFile(l_LogDirectory, { argc, argv }, ".log"));
             if (!ApplicationCommandLineArgs{ argc, argv }.HasOption("headless"))
@@ -733,7 +726,7 @@ namespace Trinity
 
         TR_CORE_INFO("Trinity {} - {} {}", GetVersionDescription(), Platform::GetName(), c_ConfigurationName);
 
-        // A program may decide not to start, as a second Hub does once it has brought the first forward, and then ends at once with exit code 0
+        // A program may decide not to start, as a second Hub does, and ends with exit code 0
         Scope<Application> l_Application{ createApplication({ argc, argv }) };
         if (!l_Application)
         {

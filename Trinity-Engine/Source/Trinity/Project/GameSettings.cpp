@@ -19,7 +19,6 @@ namespace Trinity
         constexpr std::string_view c_Owner = "Game: Game.trgame";
         constexpr std::string_view c_DisplayOwner = "Game: Display.yaml";
 
-        // The file's settings, or the reason they cannot be read: text that is not YAML or holds no map, with no valid Format version, or of one newer than the reader's
         Expected<YAML::Node, std::string> LoadSettings(std::string_view text, std::string_view fileName, std::uint32_t formatVersion)
         {
             YAML::Node l_Root;
@@ -47,7 +46,7 @@ namespace Trinity
 
             if (l_Format > formatVersion)
             {
-                return Unexpected{ std::format("{} was written in format {} by a newer Trinity, and this player reads format {} and older", fileName, l_Format, formatVersion) };
+                return Unexpected{ std::format("{} is format {}, from a newer Trinity. This player reads up to {}", fileName, l_Format, formatVersion) };
             }
 
             return l_Root;
@@ -107,7 +106,7 @@ namespace Trinity
         l_Settings.Version = SettingsYaml::ReadString(l_Root, "Version", "");
         if (l_Settings.Product.empty() || l_Settings.Company.empty())
         {
-            return Unexpected{ std::format("{} names no product or no company, which a game's saves and log go under", GameSettings::c_FileName) };
+            return Unexpected{ std::format("{} names no product or no company", GameSettings::c_FileName) };
         }
 
         bool l_Unread = false;
@@ -169,7 +168,7 @@ namespace Trinity
 
         if (l_Unread)
         {
-            TR_CORE_WARN("{} names a scene, module, assembly, graphics API or input actions that cannot be one, which is left out", c_Owner);
+            TR_CORE_WARN("{} has an invalid scene, module, assembly, API or input actions, left out", c_Owner);
         }
 
         return l_Settings;
@@ -231,7 +230,7 @@ namespace Trinity
             }
             else
             {
-                TR_CORE_WARN("{} has a window position that cannot be read, which is left out", c_DisplayOwner);
+                TR_CORE_WARN("{} has an unreadable window position, left out", c_DisplayOwner);
             }
         }
 

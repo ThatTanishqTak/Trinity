@@ -11,7 +11,7 @@
 
 namespace Trinity
 {
-    // A project to start from, as Unity Hub's templates are: Templates/<Name> in a version's folder, holding a project's Assets, which a new project is given whole, and Template.yaml, which says what Hub's New Project shows of it, the project format its files were written at, and which of its assets are the project's start scene, its default input actions and its mixer. It holds no scripts, so it serves both languages. Read from the disk where it lies, so Hub reads any version's
+    // Templates/<Name> in a version's folder: a project's Assets and Template.yaml, with no scripts
     struct ProjectTemplate
     {
         static constexpr std::uint32_t c_FormatVersion = 1;
@@ -25,7 +25,7 @@ namespace Trinity
         // As Hub's New Project shows it
         std::string Title;
         std::string Description;
-        // A picture of its scene beside Template.yaml as a whole path, or empty for none
+        // A whole path, or empty for none
         std::filesystem::path Thumbnail;
         std::uint32_t ProjectFormat = 0;
         // Each a path under Assets, as Scenes/Main.trscene, or empty for none
@@ -38,8 +38,8 @@ namespace Trinity
         [[nodiscard]] std::filesystem::path GetAssetsDirectory() const { return Directory / c_AssetsFolder; }
     };
 
-    // Refused for a folder without Template.yaml or Assets, a file of a newer format, one written for a newer project format than the version it is in reads, or naming a start scene its Assets lack. projectFormat is the newest project format of that version, as its manifest gives it to Hub, or 0 for this engine's own
+    // projectFormat is the version's newest project format, or 0 for this engine's own
     [[nodiscard]] TRINITY_API Expected<ProjectTemplate, std::string> ReadProjectTemplate(const std::filesystem::path& directory, std::uint32_t projectFormat = 0);
-    // Each template in the Templates folder of the version whose folder is root, by name, each that cannot be read reported and left out
+    // By name. One that cannot be read is reported and left out
     [[nodiscard]] TRINITY_API std::vector<ProjectTemplate> FindProjectTemplates(const std::filesystem::path& root, std::uint32_t projectFormat = 0);
 }

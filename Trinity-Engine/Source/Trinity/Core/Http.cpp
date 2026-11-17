@@ -26,7 +26,7 @@ namespace Trinity
             return Platform::HasHttp();
         }
 
-        // Without a sink of its own, the body is gathered up to its limit, past which it fails rather than holding what a server sent without end
+        // Without a sink, the body is gathered up to BodyLimit, and fails past it
         Expected<HttpResponse, HttpError> Get(const HttpRequest& request)
         {
             if (request.OnBody)

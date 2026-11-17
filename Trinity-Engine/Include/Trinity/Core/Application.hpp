@@ -41,29 +41,26 @@ namespace Trinity
     struct ApplicationSpecification
     {
         std::string Name = "Trinity Application";
-        // A game's company. Its saves and log go under it and the name in the user's folder, as Unity's do, and without one under Trinity, as Trinity's own programs' do
+        // Saves and logs go under Company/Name in the user's folder, or under Trinity when empty
         std::string Company;
         WindowSpecification Window;
-        // Called once the saves are mounted at /saves, before the window is made, so a game's window opens as its player last left it
+        // Called once /saves is mounted, before the window is made
         std::function<void(WindowSpecification& window)> ConfigureWindow;
 
         GraphicsAPI Graphics = GetDefaultGraphicsAPI();
-        // Tried in this order when no --d3d12 or --vulkan picks one, skipping any this build lacks, each in turn while its device cannot be made, as a game's export lists them. Empty tries Graphics alone
+        // Tried in order when no --d3d12 or --vulkan is given. Empty tries Graphics alone
         std::vector<GraphicsAPI> GraphicsOrder;
 
         std::uint64_t MaxFrames = 0;
-        // Frames a second at most while the window is behind another or minimized, so a program left open in the background, such as Hub, draws little. 0 leaves every frame to vsync, and a run given --frames or without a window is never held back
+        // Frames a second while the window is behind another or minimized. 0 leaves it to vsync
         float BackgroundFrameRate = 0.0f;
         std::size_t FrameAllocatorCapacity = 4 * 1024 * 1024;
 
-        // .NET starts as the application does, for C# scripts, from Scripting beside the executable. An application with no scripts, such as Hub, never starts it
         bool StartDotNet = true;
-        // Audio starts as the application does, on the system's default output, or silent with --headless, which opens no device. An application with no sound, such as Hub, never starts it
         bool StartAudio = true;
-        // RmlUi starts as the application does, for a game's UI. An application that shows none, such as Hub, never starts it
         bool StartGameUI = true;
 
-        // The folder /saves mounts, unless --saves names another, as Hub keeps its lists in Hub in Trinity's folder of the user's data. Empty for the application's own folder there
+        // Mounted at /saves unless --saves names another. Empty is the application's own folder
         std::filesystem::path SavesDirectory;
 
         ApplicationCommandLineArgs CommandLineArgs;
@@ -94,16 +91,15 @@ namespace Trinity
             return static_cast<T&>(m_LayerStack.PushOverlay(CreateScope<T>(std::forward<Args>(args)...)));
         }
 
-        // The exit code is what the process ends with, as a command-line run that failed ends with 1
         void Close(int exitCode = 0);
         void RequestClose();
-        // How a game ends, as a script's Application.Quit asks: the application closes once the frame ends, unless a handler is set, as Forge sets one to stop playing instead. Main thread only
+        // Closes once the frame ends, unless a quit handler is set. Main thread only
         static void Quit();
-        // What Quit does in place of closing, or none to close again
+        // Runs in place of closing. Null closes again
         void SetQuitHandler(std::function<void()> handler);
         void SubmitFrameJob(Job job);
 
-        // Also how events from windows other than the main one, such as ImGui's viewports, reach Input and the layers
+        // Also takes events from windows other than the main one, such as ImGui's viewports
         void OnEvent(Event& event);
 
         [[nodiscard]] Window& GetWindow() { return *m_Window; }
@@ -148,7 +144,7 @@ namespace Trinity
         friend TRINITY_API int Main(int argc, char** argv, CreateApplicationFunction createApplication);
     };
 
-    // Defined by each executable, never by the engine, and handed to Main by EntryPoint.hpp
+    // Defined by each executable, and handed to Main by EntryPoint.hpp
     Application* CreateApplication(ApplicationCommandLineArgs args);
 
     TRINITY_API int Main(int argc, char** argv, CreateApplicationFunction createApplication);

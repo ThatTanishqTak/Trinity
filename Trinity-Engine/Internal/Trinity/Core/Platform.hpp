@@ -64,27 +64,27 @@ namespace Trinity
 
         using EnvironmentVariables = std::vector<std::pair<std::string, std::string>>;
 
-        // A program to run: its full path, its arguments, the folder it starts in, empty for this process's, and the environment it gets, this process's when there is none. A script is not a program, so a batch file runs through cmd.exe
+        // A batch file is not a program, and must run through cmd.exe
         struct ProcessRequest
         {
             std::filesystem::path Executable;
             std::span<const std::string> Arguments;
             std::filesystem::path WorkingDirectory;
             const EnvironmentVariables* Environment = nullptr;
-            // Read now and then while it runs, and true ends it and every process it started
+            // Polled while it runs. True ends it and every process it started
             const std::atomic<bool>* Cancel = nullptr;
-            // Read as Cancel is, and true stops reading its output and returns at once, leaving it running
+            // Polled as Cancel is. True stops reading its output and returns, leaving it running
             const std::atomic<bool>* Detach = nullptr;
         };
 
-        // A gamepad as one reading of the platform's input API left it: the buttons held, bit 1 << GamepadButton for each, and the axes by GamepadAxis, raw
+        // Buttons is bit 1 << GamepadButton for each button held. Axes are raw, by GamepadAxis
         struct GamepadReading
         {
             std::uint32_t Buttons = 0;
             std::array<float, std::to_underlying(GamepadAxis::Count)> Axes{};
         };
 
-        // What PollGamepads reports, each pad by its slot, below Input::c_MaxGamepads. A name is valid during the call
+        // Slots are below Input::c_MaxGamepads. A name is valid only during the call
         class GamepadListener
         {
         public:
@@ -104,14 +104,14 @@ namespace Trinity
         void Free(void* memory);
 
         [[nodiscard]] std::filesystem::path GetUserDataDirectory();
-        // Where files a program can make again go, which the system may clear: the local application data on Windows, ~/Library/Caches on macOS, and $XDG_CACHE_HOME or ~/.cache elsewhere. Empty when there is none
+        // Local AppData on Windows, ~/Library/Caches on macOS, XDG_CACHE_HOME elsewhere, or empty
         [[nodiscard]] std::filesystem::path GetUserCacheDirectory();
         [[nodiscard]] std::filesystem::path GetDocumentsDirectory();
         [[nodiscard]] std::filesystem::path GetExecutableDirectory();
         [[nodiscard]] std::filesystem::path GetExecutablePath();
 
         [[nodiscard]] std::uint32_t GetProcessID();
-        // A native debugger: the one Windows reports, the tracer Linux names in /proc, or the flag macOS sets on a traced process
+        // Native debuggers only
         [[nodiscard]] bool IsDebuggerAttached();
 
         // Null on failure, with the reason in error
@@ -119,35 +119,33 @@ namespace Trinity
         [[nodiscard]] void* GetSharedLibrarySymbol(void* library, const char* name);
         void UnloadSharedLibrary(void* library);
 
-        // This process's environment, names and values in UTF-8
+        // Names and values in UTF-8
         [[nodiscard]] EnvironmentVariables GetEnvironment();
 
-        // Runs the program to its end, blocking, and hands each line of its output and errors, in the order written, to onLine as UTF-8 without its line end. Its exit code, or none with the reason in error when it could not start or was detached. It counts as ended when the program itself ends, so a server it left running, such as MSVC's PDB server, cannot hold the call open
+        // Blocks. Ends when the program itself does, so a server it left running cannot hold the call open
         [[nodiscard]] std::optional<int> RunProcess(const ProcessRequest& request, const std::function<void(std::string_view line)>& onLine, std::string& error);
-        // Starts the program to run on its own, neither waited for nor ended with this process, with its output going nowhere, such as an IDE opened at a file. Cancel is not read. False with the reason in error when it could not start
+        // Neither waited for nor ended with this process. Cancel is not read
         [[nodiscard]] bool StartProcess(const ProcessRequest& request, std::string& error);
-        // Started as StartProcess starts one, but kept hold of, so whether it has ended, and with what exit code, can be asked. Null with the reason in error when it could not start
+        // Null with the reason in error when it could not start
         [[nodiscard]] void* StartWatchedProcess(const ProcessRequest& request, std::uint32_t& processID, std::string& error);
-        // Its exit code once it has ended, or none while it runs. On Linux an ended program is let go of by the call that sees it end
+        // On Linux the call that sees the program end also reaps it
         [[nodiscard]] std::optional<int> PollProcess(void* process);
         void ReleaseProcess(void* process);
-        // The file or folder opened as the desktop would open it, with the program it has for that kind of file, or a folder in its file manager. False with the reason in error
         [[nodiscard]] bool OpenWithSystem(const std::filesystem::path& path, std::string& error);
-        // Brings the process's own window to the front, restored when minimized. False where the platform has no windows, or the process shows none
+        // False where the platform has no windows, or the process shows none
         bool BringProcessToFront(std::uint32_t processID);
 
-        // Locks a file, made when missing, for this process alone, until it is released or the process ends, killed or not, when the system lets go of it. text replaces what the file held, for another process to read with ReadLockedFile while the lock is held. Null with error empty when another process holds the lock, or with the reason when the file could not be locked
+        // Null with error empty when another process holds the lock. The system releases it at exit
         [[nodiscard]] void* TryLockFile(const std::filesystem::path& path, std::string_view text, std::string& error);
         void ReleaseFileLock(void* lock);
-        // What a locked file's holder wrote in it, or none when it cannot be read
         [[nodiscard]] std::optional<std::string> ReadLockedFile(const std::filesystem::path& path);
 
-        // Whether HttpGet can make requests here: always on Windows, and elsewhere where libcurl could be loaded
+        // Always on Windows, and elsewhere where libcurl could be loaded
         [[nodiscard]] bool HasHttp();
-        // One GET, following redirects, with the body to sink piece by piece, which false stops. The response holds the final answer's status and headers, and no body
+        // Follows redirects. Returning false from sink stops it. The response carries no body
         [[nodiscard]] Expected<HttpResponse, HttpError> HttpGet(const HttpRequest& request, const std::function<bool(std::span<const std::byte>)>& sink);
 
-        // A folder and everything below it, watched without blocking. Null on failure, with the reason in error. Each read appends the paths that changed since the last one, relative to the folder, and returns true when more changed than it could tell, so everything should be looked at again
+        // Null on failure. A read returns true when more changed than it could tell, so rescan everything
         [[nodiscard]] void* OpenDirectoryWatch(const std::filesystem::path& directory, std::string& error);
         [[nodiscard]] bool ReadDirectoryWatch(void* watch, std::vector<std::filesystem::path>& changed);
         void CloseDirectoryWatch(void* watch);
@@ -165,23 +163,23 @@ namespace Trinity
         // Native window handles, null for none. GetWindowAt skips windows that let the mouse pass through
         [[nodiscard]] void* GetWindowAt(ScreenPoint point);
         [[nodiscard]] void* GetFocusedWindow();
-        // Whether the focused window is one of this process's, which Input reads gamepads only while it is. False where the platform has no windows
+        // False where the platform has no windows. Input reads gamepads only while it is true
         [[nodiscard]] bool IsForeground();
 
-        // Gamepads, through the platform's own input API. Each keeps its slot while it is connected, and gets the same one back when it reconnects where the API can tell it is the same pad. Where the platform has none yet, Initialize does nothing, and where its API is missing it logs one line, so every call after it finds no pads
+        // A pad keeps its slot while connected. Where the platform's API is missing, one line is logged
         void InitializeGamepads();
         void ShutdownGamepads();
-        // Main thread only. Reports the pads that went, then those that came, then each pad's readings since the last poll, oldest first, so a press and a release between two polls are both seen. With resync, each pad reports only its reading now, as when the application has the focus again
+        // Main thread only. Reports pads gone, then pads come, then readings oldest first
         void PollGamepads(GamepadListener& listener, bool resync);
-        // Each motor from 0 to 1, held until changed. Nothing for a slot with no pad
+        // Each motor from 0 to 1, held until changed
         void SetGamepadRumble(std::uint32_t slot, float lowFrequency, float highFrequency);
-        // Whether the platform's gamepad API is there to read pads through: the one Initialize found, or else one made and let go of at once. True where the platform has nothing to install
+        // True where the platform has nothing to install
         [[nodiscard]] bool HasGamepadRuntime();
 
-        // A modal error box, for a failure the application cannot start past. Nothing where the platform has no windows, so the caller logs the message too
+        // Modal. Does nothing where the platform has no windows, so log the message too
         void ShowErrorMessage(std::string_view title, std::string_view message);
 
-        // Blocks until the person chooses or cancels. Empty when cancelled, or where the platform has no dialogs
+        // The dialogs block until the person chooses or cancels, and return empty when cancelled
         [[nodiscard]] bool HasFileDialogs();
         [[nodiscard]] std::optional<std::filesystem::path> ShowFileDialog(const FileDialogRequest& request);
     }

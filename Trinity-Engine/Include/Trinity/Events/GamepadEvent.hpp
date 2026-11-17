@@ -7,7 +7,7 @@
 
 namespace Trinity
 {
-    // A gamepad that came or went, by its slot in Input, and its name as the pad gives it, valid while the event is handled
+    // The name is valid only while the event is handled
     class TRINITY_API GamepadEvent : public Event
     {
     public:

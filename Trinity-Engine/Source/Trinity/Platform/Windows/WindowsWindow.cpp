@@ -69,7 +69,7 @@ namespace Trinity
             return TRUE;
         }
 
-        // The monitor Windows gives that name, as Platform's monitors have it, or the primary when none has it
+        // The primary when no monitor has the name
         HMONITOR FindMonitor(std::string_view name)
         {
             MonitorSearch l_Search{ ToWide(name) };
@@ -348,7 +348,7 @@ namespace Trinity
 
         if (s_WindowCount == 0)
         {
-            // A game's executable holds its icon as group 1, as Forge's export writes it, at the sizes the title bar and the taskbar want. Trinity's own programs have none, and take the one Windows gives every program
+            // A game's executable holds its icon as group 1, as Forge's export writes it
             const auto a_LoadIcon = [l_Instance](int width, int height)
             {
                 const HICON l_Icon = static_cast<HICON>(::LoadImageW(l_Instance, MAKEINTRESOURCEW(1), IMAGE_ICON, ::GetSystemMetrics(width), ::GetSystemMetrics(height), LR_SHARED));
@@ -370,7 +370,7 @@ namespace Trinity
             TR_CORE_ASSERT(l_Atom != 0, "RegisterClassExW failed with error {}", ::GetLastError());
         }
 
-        // Undecorated windows are bare popups. An owned window without a taskbar entry is a tool window, which Windows also leaves out of Alt+Tab
+        // An owned window without a taskbar entry is a tool window, which also leaves Alt+Tab
         DWORD l_Style = specification.Decorated ? WS_OVERLAPPEDWINDOW : WS_POPUP;
         if (specification.Decorated && !specification.Resizable)
         {
@@ -391,7 +391,7 @@ namespace Trinity
         int l_Left = specification.Position ? l_Rectangle.left : CW_USEDEFAULT;
         int l_Top = specification.Position ? l_Rectangle.top : CW_USEDEFAULT;
 
-        // A game's window, which names its monitor or opens fullscreen, must land on a monitor, so a place left on one that is gone gives way to the centre of the one named, or of the primary
+        // A place on a monitor that is gone gives way to the centre of the one named, or the primary
         if (!specification.Monitor.empty() || specification.Fullscreen)
         {
             if (specification.Position && ::MonitorFromRect(&l_Rectangle, MONITOR_DEFAULTTONULL) == nullptr)
@@ -519,7 +519,7 @@ namespace Trinity
         ::SetWindowPos(m_Handle, nullptr, 0, 0, l_Frame.right - l_Frame.left, l_Frame.bottom - l_Frame.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
     }
 
-    // The frame's style goes, but for whether the window shows, and comes back with the place, size and maximized state the window had, as Raymond Chen's fullscreen toggle has them
+    // As Raymond Chen's fullscreen toggle: the frame's style goes, and comes back with the placement
     void WindowsWindow::SetFullscreen(bool fullscreen)
     {
         if (fullscreen == m_Fullscreen || m_Handle == nullptr)
@@ -573,7 +573,7 @@ namespace Trinity
         return ToUtf8(l_Info.szDevice);
     }
 
-    // The whole of the monitor the window is on most, taskbar included, which Windows then leaves behind the window while it has the focus
+    // The whole monitor, taskbar included, which Windows keeps behind a focused window
     void WindowsWindow::FitToMonitor()
     {
         MONITORINFO l_Info{};
@@ -587,7 +587,7 @@ namespace Trinity
         ::SetWindowPos(m_Handle, HWND_TOP, l_Area.left, l_Area.top, l_Area.right - l_Area.left, l_Area.bottom - l_Area.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
     }
 
-    // The frame around a client rectangle, with borders sized for the monitor the window is on
+    // Borders are sized for the monitor the window is on
     RECT WindowsWindow::GetFrame(const RECT& client) const
     {
         RECT l_Frame = client;
@@ -596,7 +596,7 @@ namespace Trinity
         return l_Frame;
     }
 
-    // Showing an owned window brings its owner forward too, even with SW_SHOWNA, so the owner is detached while it shows
+    // Showing an owned window brings its owner forward, even with SW_SHOWNA, so it is detached first
     void WindowsWindow::Show(bool focus)
     {
         const HWND l_Owner = ::GetWindow(m_Handle, GW_OWNER);
@@ -614,7 +614,7 @@ namespace Trinity
         }
     }
 
-    // Windows can refuse the foreground to a process the user is not using, and then flashes its taskbar entry instead
+    // Windows can refuse the foreground to a process the user is not using, and flashes its entry
     void WindowsWindow::Focus()
     {
         ::BringWindowToTop(m_Handle);
@@ -669,7 +669,7 @@ namespace Trinity
         }
     }
 
-    // Runs a frame from inside Win32's drag and resize loop, which holds the thread until the mouse is released
+    // Runs a frame from inside Win32's drag and resize loop, which holds the thread until release
     void WindowsWindow::Refresh()
     {
         if (!m_RefreshCallback || m_Refreshing)
@@ -696,7 +696,7 @@ namespace Trinity
         }
         else
         {
-            // Capture handed over from a window that closed mid-drag is released here too, though this window counted no press
+            // Capture handed over from a window that closed mid-drag is released here too
             if (m_MouseButtonsDown > 0)
             {
                 --m_MouseButtonsDown;
@@ -834,7 +834,7 @@ namespace Trinity
             }
             case WM_DPICHANGED:
             {
-                // Windows suggests a size for the new scale, which a fullscreen window has no use for, since it keeps its monitor's
+                // Windows suggests a size for the new scale, which a fullscreen window ignores
                 if (m_Fullscreen)
                 {
                     FitToMonitor();
@@ -892,7 +892,7 @@ namespace Trinity
 
                 break;
             }
-            // Alt+Enter is the application's, as a player's switch between windowed and fullscreen, and Windows would beep for it as a menu key with no menu
+            // Alt+Enter is the application's. Windows would beep for it as a menu key with no menu
             case WM_SYSCHAR:
             {
                 if (wParam == VK_RETURN)

@@ -97,7 +97,7 @@ namespace Trinity
                 handle = nullptr;
             }
 
-            // Quoted so the C runtime and CommandLineToArgvW read it back as it was: whole within quotes when it holds a space, a tab or a quote, each quote escaped, and the backslashes before a quote doubled
+            // Quoted so the C runtime and CommandLineToArgvW read it back as it was
             std::wstring QuoteArgument(std::wstring_view argument)
             {
                 if (!argument.empty() && argument.find_first_of(L" \t\n\v\"") == std::wstring_view::npos)
@@ -127,7 +127,7 @@ namespace Trinity
                 return l_Quoted;
             }
 
-            // A block of name=value entries sorted by name without regard to case, as CreateProcessW expects one
+            // Sorted by name without regard to case, as CreateProcessW expects
             std::wstring MakeEnvironmentBlock(const EnvironmentVariables& variables)
             {
                 std::vector<std::pair<std::wstring, std::wstring>> l_Variables;
@@ -153,7 +153,7 @@ namespace Trinity
                 return l_Block;
             }
 
-            // A line as a program wrote it: UTF-8 when it is valid UTF-8, and otherwise in the console's code page, which compilers write in when their output is not a console
+            // UTF-8 when valid, else the console's code page, which compilers write when not on a console
             std::string DecodeOutputLine(std::string_view line)
             {
                 if (line.empty() || ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, line.data(), static_cast<int>(line.size()), nullptr, 0) != 0)
@@ -168,7 +168,6 @@ namespace Trinity
                 return ToUtf8(l_Wide);
             }
 
-            // Bytes from a process gathered into lines, each handed on without its line end once it is whole
             class LineReader
             {
             public:
@@ -220,7 +219,7 @@ namespace Trinity
                 std::string m_Line;
             };
 
-            // A watched folder and the read Windows fills in the background, whose buffer must stay where it is until the read ends
+            // The buffer must stay where it is until the background read ends
             struct DirectoryWatch
             {
                 HANDLE Directory = INVALID_HANDLE_VALUE;
@@ -359,7 +358,7 @@ namespace Trinity
             bool s_ComInitialized = false;
         }
 
-        // The main thread joins a single-threaded apartment before anything else uses COM, as the file dialogs and ShellExecute want. Audio would otherwise put it in the multithreaded apartment as it starts, and leaves a thread that already has one as it is
+        // The main thread joins an STA before anything else uses COM, or audio would put it in the MTA
         void Initialize()
         {
             ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -405,7 +404,7 @@ namespace Trinity
             return l_Result;
         }
 
-        // Windows has no folder of its own for caches, so they go in the local application data, which never roams
+        // Windows has no cache folder of its own, so the local application data, which never roams
         std::filesystem::path GetUserCacheDirectory()
         {
             return GetUserDataDirectory();
@@ -510,7 +509,7 @@ namespace Trinity
             return l_Variables;
         }
 
-        // Started suspended in a job of its own, so cancelling ends everything it started, and handed only its output pipe and NUL for its input, so no other handle Forge has open leaks into it. Without a console window, which also keeps a compiler from opening one
+        // Started suspended in a job, so cancelling ends all it started. It inherits only its output pipe
         std::optional<int> RunProcess(const ProcessRequest& request, const std::function<void(std::string_view line)>& onLine, std::string& error)
         {
             std::wstring l_CommandLine = QuoteArgument(request.Executable.wstring());
@@ -603,7 +602,7 @@ namespace Trinity
                 }
             };
 
-            // It counts as ended when the program does, with what it wrote before then read, since a server a compiler starts may hold the pipe for minutes. Detached, it runs on unread, as its job does not end it as the job's handle closes
+            // Ended when the program is: a server a compiler starts may hold the pipe for minutes
             bool l_Cancelled = false;
             while (true)
             {
@@ -652,14 +651,14 @@ namespace Trinity
             return static_cast<int>(l_ExitCode);
         }
 
-        // What a watched program is held by: its handle, which keeps its exit code readable once it has ended
+        // Its handle keeps the exit code readable once it has ended
         struct WatchedProcess
         {
             HANDLE Process = nullptr;
             std::optional<int> ExitCode;
         };
 
-        // Inheriting no handle of Forge's, without a console window, and in a process group of its own, so it outlives Forge and a Ctrl+C in Forge's console never reaches it
+        // Inherits no handle and has its own process group, so Ctrl+C in Forge's console never reaches it
         void* StartWatchedProcess(const ProcessRequest& request, std::uint32_t& processID, std::string& error)
         {
             std::wstring l_CommandLine = QuoteArgument(request.Executable.wstring());
@@ -707,7 +706,7 @@ namespace Trinity
             delete l_Process;
         }
 
-        // A watched program let go of at once, as Windows keeps nothing of an ended program its parent has no handle to
+        // Let go of at once, as Windows keeps nothing of an ended program its parent has no handle to
         bool StartProcess(const ProcessRequest& request, std::string& error)
         {
             std::uint32_t l_ID = 0;
@@ -722,7 +721,6 @@ namespace Trinity
             return true;
         }
 
-        // As Explorer opens it, so a folder opens in Explorer and a file in the program set for its type
         bool OpenWithSystem(const std::filesystem::path& path, std::string& error)
         {
             const HINSTANCE l_Result = ::ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -736,7 +734,7 @@ namespace Trinity
             return true;
         }
 
-        // The first visible window of the process that no other window owns, which is its main window. Restoring it first and letting its process take the foreground too lets it come forward from behind, as Windows lets the program the person just started do
+        // The first visible unowned window is the main one. Restoring it first lets it come forward
         bool BringProcessToFront(std::uint32_t processID)
         {
             struct Search
@@ -776,7 +774,7 @@ namespace Trinity
             return ::SetForegroundWindow(l_Search.Window) != FALSE;
         }
 
-        // Windows' locks keep other processes from reading what they cover, so the lock is on one byte far past any text, and the text at the start stays readable. The file is opened shared, so another process opening it is never mistaken for one holding it
+        // Windows' locks block reads, so the lock is on one byte far past the text, which stays readable
         constexpr DWORD c_LockedByteHigh = 0x7FFFFFFF;
 
         void* TryLockFile(const std::filesystem::path& path, std::string_view text, std::string& error)
@@ -848,7 +846,7 @@ namespace Trinity
             return std::string(l_Buffer.data(), l_Read);
         }
 
-        // Watched through the folder's handle, opened so the files in it can still be changed, renamed and deleted
+        // Opened so the files in it can still be changed, renamed and deleted
         void* OpenDirectoryWatch(const std::filesystem::path& directory, std::string& error)
         {
             const HANDLE l_Directory = ::CreateFileW(directory.c_str(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
@@ -874,7 +872,7 @@ namespace Trinity
             return l_Watch;
         }
 
-        // A read that finished is taken and the next started. Windows tells of an overflow by a read with nothing in it, or by failing the read, and a read that could not be started loses what happens until the next, so each counts as one
+        // Windows reports an overflow as an empty or failed read. A read that could not start is one too
         bool ReadDirectoryWatch(void* watch, std::vector<std::filesystem::path>& changed)
         {
             DirectoryWatch& l_Watch = *static_cast<DirectoryWatch*>(watch);
@@ -916,7 +914,7 @@ namespace Trinity
             return l_Overflowed;
         }
 
-        // A read still running is cancelled and waited for, since Windows writes into the buffer until it ends
+        // A read still running is cancelled and waited for, as Windows writes into the buffer until then
         void CloseDirectoryWatch(void* watch)
         {
             DirectoryWatch* l_Watch = static_cast<DirectoryWatch*>(watch);
@@ -952,7 +950,7 @@ namespace Trinity
             return l_Text;
         }
 
-        // The active window owns the clipboard, since a clipboard opened without an owner can refuse SetClipboardData
+        // The active window owns the clipboard: one opened without an owner can refuse SetClipboardData
         void SetClipboardText(std::string_view text)
         {
             const std::wstring l_Wide = ToWide(text);
@@ -1001,7 +999,7 @@ namespace Trinity
             return ScreenPoint{ l_Point.x, l_Point.y };
         }
 
-        // WindowFromPoint asks each window with WM_NCHITTEST, so a window answering HTTRANSPARENT is skipped
+        // WindowFromPoint asks each window with WM_NCHITTEST, so one answering HTTRANSPARENT is skipped
         void* GetWindowAt(ScreenPoint point)
         {
             return ::WindowFromPoint({ point.X, point.Y });
@@ -1031,7 +1029,7 @@ namespace Trinity
             return true;
         }
 
-        // The dialogs need a single-threaded apartment. A thread that already has a different one still tries, and leaves it as it was
+        // The dialogs need an STA. A thread that already has a different apartment still tries
         std::optional<std::filesystem::path> ShowFileDialog(const FileDialogRequest& request)
         {
             const HRESULT l_Com = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);

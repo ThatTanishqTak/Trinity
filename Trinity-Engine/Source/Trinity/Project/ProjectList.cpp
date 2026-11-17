@@ -24,11 +24,11 @@ namespace Trinity
         using FileSystemUtilities::ToUtf8;
         using SettingsYaml::ReadString;
 
-        // A writer holds the lock for as long as one read and one write take, so a wait this long is for one that is stuck, or a lock that cannot be had
+        // A writer holds the lock for one read and one write, so a wait this long means it is stuck
         constexpr std::chrono::seconds c_LockWait{ 10 };
         constexpr std::chrono::milliseconds c_LongestPause{ 4 };
 
-        // Held while the list is read, merged and written, and let go by the system too when its holder ends, killed or not
+        // The system lets go of it too when its holder ends, killed or not
         class ListLock
         {
         public:
@@ -49,8 +49,8 @@ namespace Trinity
                 }
             }
 
-            // Waited for while another reader or writer holds it, a pause longer each try
-            static Expected<ListLock, std::string> Take(const std::filesystem::path& file)
+            // Waits while another holds it, a longer pause each try
+            static Expected<ListLock, std::string> Acquire(const std::filesystem::path& file)
             {
                 std::error_code l_Error;
                 std::filesystem::create_directories(file.parent_path(), l_Error);
@@ -104,7 +104,6 @@ namespace Trinity
             return std::format("{:%Y-%m-%dT%H:%M:%SZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
         }
 
-        // The opened ones newest first, then those never opened, each kept in its order otherwise
         void Sort(std::vector<ProjectListEntry>& entries)
         {
             std::ranges::stable_sort(entries, [](const ProjectListEntry& left, const ProjectListEntry& right)
@@ -118,7 +117,7 @@ namespace Trinity
             });
         }
 
-        // Read while the lock is held. A list not there yet is empty, and one that cannot be read is refused, so nothing writes over it
+        // A list that cannot be read is refused, so nothing writes over it
         Expected<std::vector<ProjectListEntry>, std::string> ReadList(const std::filesystem::path& file)
         {
             std::error_code l_Error;
@@ -141,7 +140,7 @@ namespace Trinity
             }
             catch (const YAML::Exception& exception)
             {
-                return Unexpected{ std::format("{} is not valid YAML, so it is left as it is until it is mended or deleted: {}", ToUtf8(file), exception.what()) };
+                return Unexpected{ std::format("{} is not valid YAML, and is left as it is: {}", ToUtf8(file), exception.what()) };
             }
 
             if (l_Root.IsNull())
@@ -154,12 +153,12 @@ namespace Trinity
             const std::from_chars_result l_Parsed = std::from_chars(l_FormatText.data(), l_FormatText.data() + l_FormatText.size(), l_Format);
             if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_FormatText.data() + l_FormatText.size() || l_Format == 0)
             {
-                return Unexpected{ std::format("{} has no valid Format version, so it is left as it is until it is mended or deleted", ToUtf8(file)) };
+                return Unexpected{ std::format("{} has no valid Format version, and is left as it is", ToUtf8(file)) };
             }
 
             if (l_Format > ProjectList::c_FormatVersion)
             {
-                return Unexpected{ std::format("{} was written in format {} by a newer Hub, and this one reads format {} and older, so it is left as it is", ToUtf8(file), l_Format, ProjectList::c_FormatVersion) };
+                return Unexpected{ std::format("{} is format {}, from a newer Hub. This one reads up to {}, so it is left alone", ToUtf8(file), l_Format, ProjectList::c_FormatVersion) };
             }
 
             std::vector<ProjectListEntry> l_Entries;
@@ -189,7 +188,7 @@ namespace Trinity
             return l_Entries;
         }
 
-        // Into a file beside it first, which then takes its place, so a reader never meets a list half written
+        // Written beside the file and renamed over it, so a reader never meets half a list
         Expected<void, std::string> WriteList(const std::filesystem::path& file, const std::vector<ProjectListEntry>& entries)
         {
             YAML::Emitter l_Emitter;
@@ -233,7 +232,7 @@ namespace Trinity
             return {};
         }
 
-        // The same path is the same project at once, and the disk is asked only of one by the same name, so a long list is searched without a call to the disk for each entry
+        // The disk is asked only about an entry of the same file name, so a long list stays cheap
         bool IsListed(const ProjectListEntry& entry, const std::filesystem::path& project)
         {
             if (Normalize(entry.File) == project)
@@ -256,7 +255,7 @@ namespace Trinity
 
         Expected<std::vector<ProjectListEntry>, std::string> Read(const std::filesystem::path& file)
         {
-            Expected<ListLock, std::string> l_Lock = ListLock::Take(file);
+            Expected<ListLock, std::string> l_Lock = ListLock::Acquire(file);
             if (!l_Lock)
             {
                 return Unexpected{ l_Lock.GetError() };
@@ -273,7 +272,7 @@ namespace Trinity
 
         Expected<void, std::string> Change(const std::filesystem::path& file, const std::function<void(std::vector<ProjectListEntry>&)>& change)
         {
-            Expected<ListLock, std::string> l_Lock = ListLock::Take(file);
+            Expected<ListLock, std::string> l_Lock = ListLock::Acquire(file);
             if (!l_Lock)
             {
                 return Unexpected{ l_Lock.GetError() };

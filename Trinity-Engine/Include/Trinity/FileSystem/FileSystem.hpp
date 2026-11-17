@@ -78,7 +78,7 @@ namespace Trinity
 
     using ReadCallback = std::move_only_function<void(Expected<FileBuffer, FileError> result)>;
 
-    // A file opened for reads at any offset, such as a stream's pages, without reading the rest of it. It keeps what it reads from, so it stays valid after its source is unmounted. Reads may come from any thread
+    // Stays valid after its source is unmounted. Reads may come from any thread
     class TRINITY_API FileReadHandle
     {
     public:
@@ -86,7 +86,7 @@ namespace Trinity
 
         [[nodiscard]] virtual std::uint64_t GetSize() const = 0;
 
-        // Reads from offset into destination, and gives the number of bytes read, fewer than asked only at the end of the file
+        // Reads fewer bytes than asked only at the end of the file
         [[nodiscard]] virtual Expected<std::size_t, FileError> Read(std::uint64_t offset, std::span<std::byte> destination) const = 0;
     };
 
@@ -96,7 +96,6 @@ namespace Trinity
         virtual ~FileSource() = default;
 
         [[nodiscard]] virtual Expected<FileBuffer, FileError> Read(std::string_view relativePath) const = 0;
-        // A handle for ranged reads, which directories, memory and packs all give
         [[nodiscard]] virtual Expected<Ref<FileReadHandle>, FileError> Open(std::string_view relativePath) const = 0;
         [[nodiscard]] virtual Expected<FileType, FileError> Stat(std::string_view relativePath) const = 0;
         [[nodiscard]] virtual Expected<std::vector<DirectoryEntry>, FileError> List(std::string_view relativeDirectory) const = 0;
@@ -122,12 +121,11 @@ namespace Trinity
 
         TRINITY_API bool Mount(std::string_view mountPoint, Scope<FileSource> source, MountAccess access = MountAccess::ReadOnly);
         TRINITY_API bool MountDirectory(std::string_view mountPoint, const std::filesystem::path& nativeDirectory, MountAccess access = MountAccess::ReadOnly);
-        // A .trpak, always read-only. One that is cut short, corrupted or from a newer Trinity is refused with one error naming it. With checkFiles, every file is also read and checked against its hash as it mounts, each that fails named, and the pack mounts all the same, a failed file failing as it is read. Distribution has no such check, as its games never make it
+        // Read-only. With checkFiles every file is hashed as it mounts. Distribution has no such check
         TRINITY_API bool MountPack(std::string_view mountPoint, const std::filesystem::path& nativePack, bool checkFiles = false);
         TRINITY_API std::size_t Unmount(std::string_view mountPoint);
 
         [[nodiscard]] TRINITY_API Expected<FileBuffer, FileError> ReadFile(std::string_view path);
-        // A handle for reading parts of a file, from the mount ReadFile would read it from
         [[nodiscard]] TRINITY_API Expected<Ref<FileReadHandle>, FileError> OpenFile(std::string_view path);
         [[nodiscard]] TRINITY_API Expected<std::string, FileError> ReadText(std::string_view path);
         [[nodiscard]] TRINITY_API bool Exists(std::string_view path);

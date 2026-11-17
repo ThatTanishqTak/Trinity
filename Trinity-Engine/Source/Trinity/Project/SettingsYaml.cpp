@@ -29,7 +29,6 @@ namespace Trinity::SettingsYaml
             return l_Layer;
         }
 
-        // Each number of the sequence, as many as there are, or nothing when it is not that long a sequence of numbers
         template<std::size_t Count>
         std::optional<std::array<float, Count>> ReadFloats(const YAML::Node& node)
         {
@@ -52,7 +51,7 @@ namespace Trinity::SettingsYaml
             return l_Values;
         }
 
-        // A number the whole text is, and finite, or nothing
+        // The whole text must be a finite number
         template<typename T>
         std::optional<T> ReadNumber(const YAML::Node& node)
         {
@@ -134,7 +133,7 @@ namespace Trinity::SettingsYaml
 
         if (l_Unread)
         {
-            TR_CORE_WARN("{} names a collision layer past the last, or one that is not a number, which is left out", owner);
+            TR_CORE_WARN("{} has an invalid collision layer, left out", owner);
         }
 
         return l_Layers;
@@ -174,7 +173,7 @@ namespace Trinity::SettingsYaml
 
         if (l_Unread)
         {
-            TR_CORE_WARN("{} has a gravity or step rate that cannot be read, which keeps its default", owner);
+            TR_CORE_WARN("{} has an unreadable gravity or step rate, default kept", owner);
         }
     }
 
@@ -228,7 +227,7 @@ namespace Trinity::SettingsYaml
 
         if (l_Unread)
         {
-            TR_CORE_WARN("{} has an audio setting that cannot be read, which keeps its default", owner);
+            TR_CORE_WARN("{} has an unreadable audio setting, default kept", owner);
         }
     }
 
@@ -269,7 +268,7 @@ namespace Trinity::SettingsYaml
 
         if (l_Unread)
         {
-            TR_CORE_WARN("{} has a window setting that cannot be read, which keeps its default", owner);
+            TR_CORE_WARN("{} has an unreadable window setting, default kept", owner);
         }
     }
 

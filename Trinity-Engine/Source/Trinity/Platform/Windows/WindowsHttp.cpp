@@ -15,7 +15,7 @@ namespace Trinity
 {
     namespace
     {
-        // A transfer that sends nothing for this long is taken as no answer, as when the network goes away part way
+        // A transfer that sends nothing for this long is taken as no answer
         constexpr int c_ConnectMilliseconds = 15000;
         constexpr int c_StallMilliseconds = 30000;
         constexpr DWORD c_ReadSize = 64 * 1024;
@@ -79,7 +79,7 @@ namespace Trinity
             return Unexpected{ HttpError{ IsUnreachable(error) ? HttpFailure::Unreachable : HttpFailure::Failed, GetHttpErrorMessage(error) } };
         }
 
-        // Closed as it goes out of scope, the request before its connection and the connection before its session
+        // Closed in scope order: the request before its connection, the connection before its session
         class HttpHandle
         {
         public:
@@ -106,7 +106,6 @@ namespace Trinity
             HINTERNET m_Handle = nullptr;
         };
 
-        // The headers as one block, the status line first and each header after it on a line of its own
         std::vector<HttpHeader> ReadHeaders(HINTERNET request)
         {
             std::vector<HttpHeader> l_Headers;
@@ -163,7 +162,7 @@ namespace Trinity
             return true;
         }
 
-        // Synchronous WinHTTP, whose reads return as soon as anything arrives, so Cancel is read between pieces. Redirects are followed by WinHTTP itself, except from HTTPS to HTTP
+        // Synchronous WinHTTP reads return as soon as anything arrives, so Cancel is read between pieces
         Expected<HttpResponse, HttpError> HttpGet(const HttpRequest& request, const std::function<bool(std::span<const std::byte>)>& sink)
         {
             const std::wstring l_Url = Widen(request.Url);
@@ -182,7 +181,7 @@ namespace Trinity
             const std::wstring l_Path = std::wstring(l_Parts.lpszUrlPath, l_Parts.dwUrlPathLength) + std::wstring(l_Parts.lpszExtraInfo, l_Parts.dwExtraInfoLength);
             const std::wstring l_Agent = Widen(request.UserAgent);
 
-            // The system's proxy as Windows' settings give it, where Windows is 8.1 or later, and WinHTTP's own setting before
+            // The system's proxy on Windows 8.1 or later, and WinHTTP's own setting before
             HINTERNET l_Opened = ::WinHttpOpen(l_Agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
             if (l_Opened == nullptr)
             {

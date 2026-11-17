@@ -24,7 +24,6 @@ namespace Trinity
         using FileSystemUtilities::FromUtf8;
         using FileSystemUtilities::ToUtf8;
 
-        // Opens a regular file at its start and gives its size
         Expected<std::uint64_t, FileError> OpenForReading(const std::filesystem::path& path, std::ifstream& file)
         {
             std::error_code l_Error;
@@ -50,7 +49,7 @@ namespace Trinity
             return static_cast<std::uint64_t>(l_Size);
         }
 
-        // One open file, read at any offset. The stream has one position, so each read holds the lock from its seek to its read
+        // The stream has one position, so each read holds the lock from its seek to its read
         class DirectoryReadHandle final : public FileReadHandle
         {
         public:

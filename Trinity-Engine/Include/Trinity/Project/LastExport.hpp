@@ -10,13 +10,13 @@
 
 namespace Trinity
 {
-    // The project's export that finished last, Cache/LastExport.yaml in its folder, which Forge writes as each export finishes and Hub reads from the disk, without opening the project, to run the game it made
+    // Cache/LastExport.yaml: Forge writes it after each export, and Hub reads it to run the game
     struct LastExport
     {
         static constexpr std::uint32_t c_FormatVersion = 1;
         static constexpr std::string_view c_FileName = "LastExport.yaml";
 
-        // The game's executable as a whole path, in the folder it was exported to, which it is run from
+        // A whole path
         std::filesystem::path Executable;
         std::string Product;
         // With the profiler and the console, as a Development Build has them
@@ -28,8 +28,8 @@ namespace Trinity
     };
 
     [[nodiscard]] TRINITY_API std::filesystem::path GetLastExportPath(const std::filesystem::path& projectDirectory);
-    // Refused for a project with none yet, a file that is not YAML, of a newer format, or without an executable
+    // Refused for a project with none yet, or a file that is not YAML, newer or without an executable
     [[nodiscard]] TRINITY_API Expected<LastExport, std::string> ReadLastExport(const std::filesystem::path& projectDirectory);
-    // As finished now, whatever FinishedAt it is given. Into a file beside it first, which then takes its place, so Hub never reads one half written
+    // Stamps FinishedAt itself. Written beside the file and renamed, so Hub never reads half of one
     [[nodiscard]] TRINITY_API Expected<void, std::string> WriteLastExport(const std::filesystem::path& projectDirectory, LastExport record);
 }

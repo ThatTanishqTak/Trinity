@@ -29,7 +29,7 @@ namespace Trinity
 #endif
         }
 
-        // A file that runs: on Windows any file, its extension having been chosen from PATHEXT, and elsewhere one with a permission to run
+        // On Windows any file runs, its extension chosen from PATHEXT. Elsewhere it needs the permission
         bool IsProgram(const std::filesystem::path& path)
         {
             std::error_code l_Error;

@@ -12,29 +12,26 @@
 #include <string_view>
 #include <vector>
 
-// The physics, audio, window and graphics API settings as a project's file, a game's Game.trgame and its player's Display.yaml hold them. owner begins each warning, as Project: Name or Game: Game.trgame
+// owner begins each warning, as Project: Name or Game: Game.trgame
 namespace Trinity::SettingsYaml
 {
-    // The key's text when it is a scalar, or the fallback
     [[nodiscard]] std::string ReadString(const YAML::Node& map, const char* key, std::string_view fallback);
 
-    // The names given, by layer, which are all a layer has when there are any, so a name taken away stays away, and the pairs that do not collide, each lower layer first. A layer's name or pair that cannot be read is left out, and reported
+    // The names given are all a layer has, so one taken away stays away. Unreadable ones are reported
     [[nodiscard]] CollisionLayers ReadCollisionLayers(const YAML::Node& physics, std::string_view owner);
-    // Each world's gravity and the step rate, any missing kept at its default, and any that cannot be read reported and kept at its default
+    // A missing setting keeps its default. One that cannot be read is reported, and keeps it too
     void ReadWorldSettings(const YAML::Node& physics, std::string_view owner, PhysicsSettings& settings);
-    // The mixer, the voice limits, the Doppler factor and occlusion, each that is missing kept at its default, and each that cannot be read reported and kept at its default. The occlusion layers are listed by number
+    // As ReadWorldSettings. The occlusion layers are listed by number
     void ReadAudioSettings(const YAML::Node& audio, std::string_view owner, AudioSettings& settings);
-    // The mode, the size and vsync, each that is missing kept as it is, and each that cannot be read reported and kept as it is
+    // A missing or unreadable setting is kept as it is
     void ReadWindowSettings(const YAML::Node& window, std::string_view owner, WindowSettings& settings);
-    // The graphics APIs of a sequence by their names, in its order, each once, after those the list holds already. False when one cannot be one, which is left out for the caller to report
+    // Appends each once. False when a name is no API, which is left out for the caller to report
     [[nodiscard]] bool ReadGraphicsAPIs(const YAML::Node& list, std::vector<GraphicsAPI>& apis);
 
-    // A Physics map, of only the layer names that are not empty and the pairs that do not collide, so a new project's are short
+    // Writes only the layer names that are not empty and the pairs that do not collide
     void WritePhysicsSettings(YAML::Emitter& emitter, const PhysicsSettings& settings);
-    // An Audio map
     void WriteAudioSettings(YAML::Emitter& emitter, const AudioSettings& settings);
-    // A Window map
     void WriteWindowSettings(YAML::Emitter& emitter, const WindowSettings& settings);
-    // A GraphicsAPIs sequence of their names, on one line
+    // On one line
     void WriteGraphicsAPIs(YAML::Emitter& emitter, std::span<const GraphicsAPI> apis);
 }

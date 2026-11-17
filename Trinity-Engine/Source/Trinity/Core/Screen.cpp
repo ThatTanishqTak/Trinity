@@ -22,7 +22,7 @@ namespace Trinity
 
             if (!std::exchange(s_WarnedNoHost, true))
             {
-                TR_CORE_WARN("Screen: nothing here shows a game, so a change to its resolution, full screen mode or vsync is ignored");
+                TR_CORE_WARN("Screen: nothing here shows a game, the change is ignored");
             }
         }
     }
@@ -86,7 +86,7 @@ namespace Trinity
     {
         if (width == 0 || height == 0 || width > WindowSettings::c_MaxSize || height > WindowSettings::c_MaxSize)
         {
-            TR_CORE_WARN("Screen: {}x{} is no size a window can have, so the resolution is not changed", width, height);
+            TR_CORE_WARN("Screen: {}x{} is not a valid window size, resolution unchanged", width, height);
 
             return;
         }

@@ -25,7 +25,7 @@ namespace Trinity
         void SetPosition(WindowPosition position) override;
         void SetSize(std::uint32_t width, std::uint32_t height) override;
 
-        // A headless window is on no monitor, so fullscreen is only remembered, at the size it has
+        // A headless window is on no monitor, so fullscreen is only remembered
         void SetFullscreen(bool fullscreen) override { m_Fullscreen = fullscreen; }
         [[nodiscard]] bool IsFullscreen() const override { return m_Fullscreen; }
         [[nodiscard]] std::string GetMonitor() const override { return {}; }

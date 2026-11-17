@@ -20,7 +20,7 @@ namespace Trinity
     {
         using Value = std::variant<std::int32_t, float, std::string>;
 
-        // A path other than the default is kept only while it is set, so nothing is held once the values are closed
+        // A path other than the default is kept only while it is set
         struct Store
         {
             std::string Path;
@@ -56,7 +56,7 @@ namespace Trinity
             }
         }
 
-        // The file, the first time the values are used since they were last closed. One that is not there yet is no error
+        // A file that is not there yet is no error
         Store& Load()
         {
             Store& l_Store = GetStore();
@@ -71,7 +71,7 @@ namespace Trinity
             {
                 if (l_Text.GetError() != FileError::NotFound)
                 {
-                    TR_CORE_ERROR("PlayerPrefs: {} could not be read, so none are kept: {}", l_Store.GetPath(), ToString(l_Text.GetError()));
+                    TR_CORE_ERROR("PlayerPrefs: {} could not be read, none are kept: {}", l_Store.GetPath(), ToString(l_Text.GetError()));
                 }
 
                 return l_Store;
@@ -88,7 +88,7 @@ namespace Trinity
             catch (const YAML::Exception& exception)
             {
                 l_Store.Values.clear();
-                TR_CORE_ERROR("PlayerPrefs: {} could not be read, so none are kept: {}", l_Store.GetPath(), exception.what());
+                TR_CORE_ERROR("PlayerPrefs: {} could not be read, none are kept: {}", l_Store.GetPath(), exception.what());
             }
 
             return l_Store;
@@ -125,7 +125,7 @@ namespace Trinity
             return a_Found != l_Store.Values.end() ? std::get_if<T>(&a_Found->second) : nullptr;
         }
 
-        // Each kind in a map of its own, the keys sorted, and floats with the digits that read back as the same float
+        // Keys are sorted, and floats written with the digits that read back as the same float
         template<typename T>
         void WriteSection(YAML::Emitter& emitter, const char* name, const std::map<std::string, Value, std::less<>>& values)
         {
@@ -231,7 +231,7 @@ namespace Trinity
 
         if (const Expected<void, FileError> l_Written = FileSystem::WriteText(l_Store.GetPath(), std::string_view(l_Emitter.c_str(), l_Emitter.size())); !l_Written)
         {
-            TR_CORE_ERROR("PlayerPrefs: {} could not be written, so its values are not saved yet: {}", l_Store.GetPath(), ToString(l_Written.GetError()));
+            TR_CORE_ERROR("PlayerPrefs: {} could not be written, values not saved: {}", l_Store.GetPath(), ToString(l_Written.GetError()));
 
             return false;
         }
@@ -251,7 +251,7 @@ namespace Trinity
         }
     }
 
-    // The path goes back to the default too, so a store set for Forge's Play holds nothing once it stops
+    // The path goes back to the default, so a store set for Forge's Play holds nothing after
     void PlayerPrefs::Close()
     {
         Store& l_Store = GetStore();

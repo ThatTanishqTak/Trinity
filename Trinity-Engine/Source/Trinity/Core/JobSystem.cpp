@@ -104,7 +104,7 @@ namespace Trinity
 
     JobCounter::~JobCounter()
     {
-        TR_CORE_ASSERT(IsDone(), "A JobCounter was destroyed while jobs submitted with it were still pending.");
+        TR_CORE_ASSERT(IsDone(), "A JobCounter was destroyed with jobs still pending.");
     }
 
     namespace JobSystem

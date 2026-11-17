@@ -68,7 +68,7 @@ namespace Trinity
 
         if (l_Format > LastExport::c_FormatVersion)
         {
-            return Unexpected{ std::format("{} was written in format {} by a newer Forge, and this reads format {} and older", ToUtf8(l_File), l_Format, LastExport::c_FormatVersion) };
+            return Unexpected{ std::format("{} is format {}, from a newer Forge. This one reads up to {}", ToUtf8(l_File), l_Format, LastExport::c_FormatVersion) };
         }
 
         LastExport l_Record;
