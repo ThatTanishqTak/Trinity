@@ -1,4 +1,4 @@
-// Sandbox's compute test: fills a storage buffer, copies its first half back to front into its second half in a later dispatch, and fills a storage texture
+// Sandbox's compute test: a buffer fill, a copy in a later dispatch, and a storage texture fill
 #include "Bindless.slang"
 
 struct PushData
@@ -30,7 +30,7 @@ void FillBuffer(uint3 id: SV_DispatchThreadID)
     l_Buffer.Store(id.x * 4, BufferWord(id.x));
 }
 
-// Each thread reads a word another workgroup wrote in FillBuffer, so the words only match if the barrier between the dispatches made those writes visible
+// Reads words another workgroup wrote in FillBuffer, so they match only if the barrier worked
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void ReverseBuffer(uint3 id: SV_DispatchThreadID)
@@ -45,7 +45,7 @@ void ReverseBuffer(uint3 id: SV_DispatchThreadID)
     l_Buffer.Store((g_Push.Count + id.x) * 4, ((l_Word << 7) | (l_Word >> 25)) ^ id.x);
 }
 
-// Red is the column, green the row and blue a mix of both, each a whole 8-bit value so an RGBA8 UNORM texture stores it exactly
+// Whole 8-bit values, so an RGBA8 UNORM texture stores them exactly
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void FillTexture(uint3 id: SV_DispatchThreadID)

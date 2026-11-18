@@ -102,7 +102,7 @@ namespace Trinity
         // The orange an editor marks its selection with, sRGB-encoded as the display target is
         constexpr std::array<float, 4> c_OutlineColor{ 1.0f, 0.627f, 0.157f, 1.0f };
 
-        // What the graph is told about a window's texture or an offscreen target it imports, of which it only reads the size
+        // The graph only reads the size of what it imports
         RHI::TextureDescription GetOutputDescription(std::uint32_t width, std::uint32_t height, RHI::Format format)
         {
             RHI::TextureDescription l_Description;
@@ -134,7 +134,7 @@ namespace Trinity
             m_SwapChain = m_Device.CreateSwapChain(l_Specification);
             if (!m_SwapChain)
             {
-                TR_CORE_ERROR("Renderer: {} cannot present to the window, so frames go to an offscreen target instead", ToString(l_Info.API));
+                TR_CORE_ERROR("Renderer: {} cannot present to the window, drawing offscreen instead", ToString(l_Info.API));
             }
         }
 
@@ -153,7 +153,7 @@ namespace Trinity
         m_DebugLinePipeline = CreateFullscreenPipeline("DebugLines", c_DisplayFormat, "Debug lines", "no debug lines are drawn", true, RHI::PrimitiveTopology::LineList);
 #endif
 
-        // Textures, materials, meshes and environments need this device, so their loaders, and the built-in meshes, live exactly as long as the renderer. Materials keep textures loaded, so they go before textures do
+        // The loaders need this device, so they live as long as the renderer. Materials go before textures
         m_TextureLoader = CreateScope<TextureLoader>(m_Device);
         AssetManager::RegisterLoader(*m_TextureLoader);
         m_MaterialLoader = CreateScope<MaterialLoader>(m_Device);
@@ -168,7 +168,7 @@ namespace Trinity
         m_EnvironmentLoader = CreateScope<EnvironmentLoader>(m_Device);
         AssetManager::RegisterLoader(*m_EnvironmentLoader);
 
-        // Sprites without a texture, or whose texture is still loading, draw with the loader's white placeholder
+        // Sprites without a texture, or whose texture is loading, draw with the white placeholder
         const Asset* l_White = m_TextureLoader->GetPlaceholder();
         m_Renderer2D = CreateScope<Renderer2D>(m_Device, l_White != nullptr ? static_cast<const TextureAsset*>(l_White)->GetShaderResourceIndex() : RHI::c_NoBindlessIndex);
         m_Renderer3D = CreateScope<Renderer3D>(m_Device, *m_MaterialLoader);
@@ -256,7 +256,7 @@ namespace Trinity
             ReadCapture(*it_View);
         }
 
-        // The loaders' uploads go to the copy queue, sent at once so they run while the frame is recorded, and the overlay's, which change every frame, stay in the frame's list
+        // The loaders' uploads are sent now. The overlay's change every frame, so stay in the frame's list
         {
             RHI::CommandList& l_Uploads = m_Device.GetUploadCommands();
             TR_GPU_LABEL(l_Uploads, "Uploads");
@@ -322,7 +322,7 @@ namespace Trinity
         ReportFrameRate();
     }
 
-    // The world UI documents first, then every view in turn, the main view first, then the output pass and each added output, which read every display target drawn this frame
+    // World UI documents first, then every view, then the output pass and each added output
     void Renderer::BuildFrameGraph(LayerStack& layers)
     {
         TR_PROFILE_FUNCTION();
@@ -360,7 +360,7 @@ namespace Trinity
         AddAddedOutputPasses();
     }
 
-    // The targets are imported in whatever state the last frame left them, and both end as shader resources. The scene is cleared to the linear clear colour, by the opaque pass when a scene was submitted. Layers draw into the main view alone, which is drawn every frame. Another view is drawn when a scene was submitted to it or the overlay draws over it, or cleared while its targets have never been drawn, and otherwise keeps what it last showed
+    // Targets are imported in the state the last frame left them, and end as shader resources
     FrameGraphTexture Renderer::AddViewPasses(FrameGraph& graph, View& view, LayerStack* layers)
     {
         const bool l_Submitted = view.Submitted != nullptr;
@@ -379,7 +379,7 @@ namespace Trinity
                 l_Passes = m_Renderer3D->AddPasses(graph, view.Draws, l_Scene, view.SceneDescription, l_Clear, view.Options);
             }
 
-            // The opaque pass has already cleared a submitted scene, which then needs this pass only for its sprites or the layers. Either may draw world UI documents' quads, so it reads their textures
+            // A submitted scene was cleared by the opaque pass, and needs this only for sprites or layers
             const bool l_Sprites = l_Submitted && view.Options.Sprites;
             if (layers != nullptr || l_Sprites || !l_Submitted)
             {
@@ -458,7 +458,7 @@ namespace Trinity
         return l_Display;
     }
 
-    // Into a readback buffer of this frame's slot, made for the display's size, which the slot's next frame reads and lets go of
+    // Into this frame's readback slot, which the slot's next frame reads and lets go of
     void Renderer::AddCapturePass(FrameGraph& graph, View& view, FrameGraphTexture display)
     {
         const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
@@ -475,7 +475,7 @@ namespace Trinity
         view.CaptureWanted = false;
         if (!view.CaptureReadbacks[l_Slot])
         {
-            TR_CORE_ERROR("Renderer: no buffer could be made to read view {} back into, so it is not captured", view.Id);
+            TR_CORE_ERROR("Renderer: no readback buffer for view {}, it is not captured", view.Id);
 
             return;
         }
@@ -506,7 +506,7 @@ namespace Trinity
         l_View->Submitted = &scene;
     }
 
-    // The sprites' entities, through the view the scene was submitted with, into a target of their own, since they are drawn into the single-sampled scene after the meshes. Then, when a pixel is asked about, its entity is copied into this frame's readback slot of the view. Nothing reads the sprites' target when nothing is picked or outlined, so the graph culls its pass
+    // Sprites' IDs go into a target of their own. With nothing picked or outlined the graph culls it
     Renderer::EntityTargets Renderer::AddEntityPasses(FrameGraph& graph, View& view, const Renderer3D::Passes& passes)
     {
         const std::uint32_t l_Width = view.SceneDescription.Width;
@@ -584,7 +584,7 @@ namespace Trinity
         return l_Targets;
     }
 
-    // The depth in the asked pixel into a buffer, then into this frame's readback slot of the view, with the view-projection it was drawn through. Nothing is asked of a device that cannot read the depth with the passes' samples
+    // Nothing is asked of a device that cannot read the depth with the passes' samples
     void Renderer::AddDepthPickPass(FrameGraph& graph, View& view, const Renderer3D::Passes& passes)
     {
         const std::optional<glm::uvec2> l_Pixel = std::exchange(view.DepthPixel, std::nullopt);
@@ -628,7 +628,7 @@ namespace Trinity
         });
     }
 
-    // Around the entities the view's scene asked to outline, over the tonemapped image and under the UI. Their IDs go into the upload ring sorted, for the shader's binary search
+    // Over the tonemapped image and under the UI. The IDs are sorted for the shader's binary search
     void Renderer::AddOutlinePass(FrameGraph& graph, const View& view, const EntityTargets& targets, FrameGraphTexture display)
     {
         std::vector<std::uint32_t> l_Outlined(view.Options.Outlined.begin(), view.Options.Outlined.end());
@@ -643,7 +643,7 @@ namespace Trinity
         const RHI::UploadAllocation l_Upload = m_Device.AllocateUpload(l_Outlined.size() * sizeof(std::uint32_t), 16);
         if (l_Upload.Data.empty() || l_Upload.ShaderResourceIndex == RHI::c_NoBindlessIndex)
         {
-            TR_CORE_ERROR("Renderer: no upload memory for {} outlined entities, so the selection is not outlined this frame", l_Outlined.size());
+            TR_CORE_ERROR("Renderer: no upload memory for {} outlined entities, no outline this frame", l_Outlined.size());
 
             return;
         }
@@ -682,7 +682,7 @@ namespace Trinity
     }
 
 #if TR_DEBUG_DRAW
-    // The frame's debug lines go into the upload ring once, for every view that draws them, depth-tested lines first. With no view to draw them, they are only cleared
+    // Uploaded once for every view that draws them, depth-tested lines first
     void Renderer::PrepareDebugLines()
     {
         m_DebugLines = {};
@@ -698,7 +698,7 @@ namespace Trinity
         const RHI::UploadAllocation l_Upload = m_Device.AllocateUpload(l_Size, 16);
         if (l_Upload.Data.empty() || l_Upload.ShaderResourceIndex == RHI::c_NoBindlessIndex)
         {
-            TR_CORE_ERROR("Renderer: no upload memory for {} debug lines, so none are drawn this frame", (l_Test.size() + l_OnTop.size()) / 2);
+            TR_CORE_ERROR("Renderer: no upload memory for {} debug lines, none drawn this frame", (l_Test.size() + l_OnTop.size()) / 2);
 
             return;
         }
@@ -712,7 +712,7 @@ namespace Trinity
         m_DebugLines.OnTopVertices = static_cast<std::uint32_t>(l_OnTop.size());
     }
 
-    // Over the view's tonemapped image and outline: the depth-tested lines against the scene's depth, then the lines on top. A device that cannot read the depth draws every line on top, as it does in a view whose depth was not drawn
+    // A device that cannot read the depth draws every line on top
     void Renderer::AddDebugLinePass(FrameGraph& graph, const View& view, FrameGraphTexture display, const Renderer3D::Passes& passes)
     {
         if (m_DebugLines.Buffer == RHI::c_NoBindlessIndex)
@@ -723,7 +723,7 @@ namespace Trinity
         const bool l_Readable = passes.Depth && m_ReadableDepth[passes.SampleCount > 1 ? 1 : 0];
         if (passes.Depth && !l_Readable && !std::exchange(m_ReportedNoDebugDepth, true))
         {
-            TR_CORE_WARN("Renderer: {} cannot read {} depth with {} sample(s), so depth-tested debug lines are drawn on top", ToString(m_Device.GetInfo().API), RHI::ToString(Renderer3D::c_DepthFormat), passes.SampleCount);
+            TR_CORE_WARN("Renderer: {} cannot read {} depth with {} sample(s), debug lines draw on top", ToString(m_Device.GetInfo().API), RHI::ToString(Renderer3D::c_DepthFormat), passes.SampleCount);
         }
 
         DebugLinePushData l_Push;
@@ -771,7 +771,7 @@ namespace Trinity
     }
 #endif
 
-    // What the frame that last used the view's slot asked about. That frame is c_FramesInFlight behind, and BeginFrame has waited for it, so its copy is done and reading it never stalls
+    // That frame is c_FramesInFlight behind and BeginFrame has waited for it, so reading never stalls
     void Renderer::ReadPick(View& view)
     {
         const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
@@ -806,7 +806,7 @@ namespace Trinity
         view.Depth = l_Pick;
     }
 
-    // The rows packed tight, as the copy left each one aligned. The display is always RGBA8Unorm
+    // Rows are packed tight, as the copy left each aligned. The display is always RGBA8Unorm
     void Renderer::ReadCapture(View& view)
     {
         const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);
@@ -930,13 +930,13 @@ namespace Trinity
         });
     }
 
-    // The copy reads one main view display texel per output pixel, so the tone mapped scene reaches the output exactly as written, and the UI goes over it, showing any view's display target
+    // One display texel per output pixel, so the tone mapped scene reaches the output as written
     void Renderer::AddOutputPass(FrameGraphTexture display, RHI::TextureHandle output, LayerStack& layers)
     {
         const std::uint32_t l_Width = GetOutputWidth();
         const std::uint32_t l_Height = GetOutputHeight();
 
-        // A swap chain recreated while acquiring can differ from the display target for one frame, which then shows the clear colour
+        // A swap chain recreated while acquiring can differ for one frame, which shows the clear colour
         const View& l_Main = *m_Views.front();
         const bool l_Copy = m_SceneCopy && m_CopyPipeline && display && l_Main.Width == l_Width && l_Main.Height == l_Height;
 
@@ -970,7 +970,7 @@ namespace Trinity
         });
     }
 
-    // Each added output is cleared, then drawn by its callback, which may show any view's display target. Minimized and zero-sized windows are skipped, and a swap chain left unacquired ignores Present
+    // Minimized and zero-sized windows are skipped. A swap chain left unacquired ignores Present
     void Renderer::AddAddedOutputPasses()
     {
         FrameGraph& l_Graph = *m_FrameGraph;
@@ -1009,7 +1009,7 @@ namespace Trinity
         }
     }
 
-    // A window with no native handle draws into an offscreen target, as the main window does when headless. Extra windows present without vsync, so only the main window paces the frame
+    // Extra windows present without vsync, so only the main window paces the frame
     std::uint32_t Renderer::AddOutput(Window& window, const std::array<float, 4>& clearColor, OutputCallback callback)
     {
         Output l_Output;
@@ -1105,7 +1105,6 @@ namespace Trinity
         return std::ranges::any_of(m_Views, [view](const Scope<View>& entry) { return entry->Id == view; });
     }
 
-    // A view's targets, and a pick readback for each frame in flight, which lasts as long as the view does
     ViewID Renderer::AddView(ViewID id, std::uint32_t width, std::uint32_t height)
     {
         Scope<View> l_View = CreateScope<View>();
@@ -1242,7 +1241,7 @@ namespace Trinity
         return m_SwapChain ? m_SwapChain->GetFormat() : RHI::Format::BGRA8Unorm;
     }
 
-    // Taken between frames. Width and height of 0 make the view follow the output again, as the main view does until this is called
+    // Taken between frames. A width and height of 0 make the view follow the output again
     void Renderer::SetSceneSize(std::uint32_t width, std::uint32_t height, ViewID view)
     {
         if (View* l_View = FindView(view))
@@ -1282,7 +1281,7 @@ namespace Trinity
         return s_VSyncVariable.Get();
     }
 
-    // Applies a new window size or vsync setting between frames, where nothing in flight uses the old swap chain images
+    // Applied between frames, where nothing in flight uses the old swap chain images
     void Renderer::FollowWindow()
     {
         const bool l_VSync = s_VSyncVariable.Get();
@@ -1315,7 +1314,7 @@ namespace Trinity
 
         FollowOutputs();
 
-        // Also catches a swap chain that changed size on its own while acquiring, for every view that follows it. The old targets are released only once no frame in flight can still show them
+        // Also catches a swap chain that changed size on its own while acquiring
         for (const Scope<View>& it_View : m_Views)
         {
             View& l_View = *it_View;
@@ -1328,7 +1327,7 @@ namespace Trinity
         }
     }
 
-    // Added outputs take a new size between frames, as the main window does. A minimized window keeps its old size until it comes back
+    // A minimized window keeps its old size until it comes back
     void Renderer::FollowOutputs()
     {
         for (Output& it_Output : m_Outputs)
@@ -1373,7 +1372,7 @@ namespace Trinity
         return m_Device.CreateTexture(l_Description);
     }
 
-    // Layers can change the clear colour every frame, so a scene target asks for no optimized clear value. The display target is the scene's size, and the tonemap pass writes all of it
+    // Layers can change the clear colour every frame, so the scene target has no optimized clear
     void Renderer::CreateViewTargets(View& view)
     {
         RHI::TextureDescription l_Description;
@@ -1397,7 +1396,7 @@ namespace Trinity
         view.DisplayState = RHI::ResourceState::Undefined;
     }
 
-    // From a shader's VertexMain and PixelMain with no vertex input: one triangle over the whole target, as the scene copy and the tonemap are drawn, or lines, as debug lines are
+    // No vertex input: one triangle over the whole target, or lines, as debug lines are
     RHI::PipelineHandle Renderer::CreateFullscreenPipeline(std::string_view shader, RHI::Format format, std::string_view debugName, std::string_view consequence, bool alphaBlend, RHI::PrimitiveTopology topology)
     {
         const std::string_view l_Extension = m_Device.GetInfo().API == GraphicsAPI::D3D12 ? "dxil" : "spv";
@@ -1445,7 +1444,7 @@ namespace Trinity
 
         if (!m_PickPipeline)
         {
-            TR_CORE_INFO("Renderer: no {} EntityPick shader under /engine/shaders, so nothing can be picked", l_Extension);
+            TR_CORE_INFO("Renderer: no {} EntityPick shader under /engine/shaders, picking is off", l_Extension);
         }
 
         const Expected<FileBuffer, FileError> l_DepthPick = FileSystem::ReadFile(std::format("/engine/shaders/DepthPick.PickDepth.{}", l_Extension));
@@ -1459,7 +1458,7 @@ namespace Trinity
 
         if (!m_DepthPickPipeline)
         {
-            TR_CORE_INFO("Renderer: no {} DepthPick shader under /engine/shaders, so no depth can be picked", l_Extension);
+            TR_CORE_INFO("Renderer: no {} DepthPick shader under /engine/shaders, depth picking is off", l_Extension);
         }
 
         m_OutlinePipeline = CreateFullscreenPipeline("SelectionOutline", c_DisplayFormat, "Selection outline", "the selection is not outlined", true);

@@ -1,4 +1,4 @@
-// Sandbox's raster state test: one triangle in clip space and one colour, all from the push constants
+// Sandbox's raster state test: one triangle and one colour, all from the push constants
 struct PushData
 {
     float4 Positions[3];

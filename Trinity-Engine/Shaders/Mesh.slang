@@ -1,4 +1,4 @@
-// Meshes drawn one submesh at a time. Each draw's record, in the upload ring, names its mesh buffer, where each vertex stream starts in it, and its material, and the vertices are read from the buffer by the indices the index buffer holds
+// Each draw's record, in the upload ring, names its mesh buffer, vertex streams and material
 #include "Bindless.slang"
 #include "Lighting.slang"
 #include "Material.slang"
@@ -8,13 +8,13 @@ static const uint c_DrawStride = 80;
 static const uint c_MaxDirectionalLights = 4;
 static const uint c_ShadeAllLightsFlag = 1;
 static const uint c_LightHeatmapFlag = 2;
-// As ShadowAtlas in Renderer3D.hpp has them, and the shadow data as Renderer3D.cpp lays it out: a header, then a record for each shadow view
+// As ShadowAtlas in Renderer3D.hpp has them. The shadow data is a header, then a record per view
 static const uint c_ShadowTileSize = 1024;
 static const uint c_ShadowCascades = 4;
 static const uint c_ShadowHeaderSize = 48;
 static const uint c_ShadowRecordStride = 80;
 
-// Laid out as Renderer3D.cpp writes them. The frame is FrameData there, and each draw a DrawData
+// Laid out as Renderer3D.cpp writes them: FrameData and DrawData
 struct PushData
 {
     DescriptorHandle<ByteAddressBuffer> Frame;
@@ -35,11 +35,11 @@ struct VertexOutput
     float4 Tangent : TANGENT0;
     float4 TexCoords : TEXCOORD0;
     float4 Color : COLOR0;
-    // The clip-space position again, whose division the pixel shader does to find its cluster's tile
+    // The clip-space position again, for the pixel shader to find its cluster's tile
     float4 Clip : TEXCOORD1;
 };
 
-// The rows of a 3x4 world matrix, then the mesh buffer's bindless index, the material's record, where the positions, normals and tangents, both UV sets and the colours start, or c_Absent, and the entity, as the ID target holds it
+// As DrawData in Renderer3D.cpp. A missing vertex stream is c_Absent
 struct DrawData
 {
     float4 Rows[3];
@@ -76,7 +76,7 @@ DrawData LoadDraw()
     return l_Draw;
 }
 
-// The parts of the frame's constants the pixel shader needs: the eye, with w set for an orthographic view, the way it looks, the row a point's view depth comes from, the ambient light, the directional lights, the light counts and flags, how depth maps to slices, the bindless indices of the material table, the samplers, the lights and the clusters, the environment: its specular cubemap, irradiance cubemap, lookup table and specular mip count, then its intensity and the cosine and sine of its turn, and the shadow atlas, with no atlas when nothing casts a shadow, then the shadow data's buffer and offset
+// As FrameData in Renderer3D.cpp
 struct FrameConstants
 {
     float4 Eye;
@@ -136,7 +136,7 @@ FrameConstants LoadFrame()
     return l_Constants;
 }
 
-// The tile from where the pixel lies on screen, and the slice from its view depth: its logarithm for a perspective view, as the slices are spaced
+// The tile from the pixel's place on screen, the slice from its view depth
 uint GetClusterIndex(FrameConstants frame, float4 clip, float viewDepth)
 {
     const float2 l_Tiles = float2(float(c_ClusterTilesX), float(c_ClusterTilesY));
@@ -147,7 +147,7 @@ uint GetClusterIndex(FrameConstants frame, float4 clip, float viewDepth)
     return uint(l_Tile.x) + c_ClusterTilesX * (uint(l_Tile.y) + c_ClusterTilesY * uint(l_Slice));
 }
 
-// A direction turned about +Y by the environment's rotation, as glTF Sample Viewer turns every direction it looks up
+// Turned about +Y by the environment's rotation, as glTF Sample Viewer does
 float3 RotateToEnvironment(FrameConstants frame, float3 direction)
 {
     const float l_Cosine = frame.EnvironmentParameters.y;
@@ -156,7 +156,7 @@ float3 RotateToEnvironment(FrameConstants frame, float3 direction)
     return float3(l_Cosine * direction.x + l_Sine * direction.z, direction.y, l_Cosine * direction.z - l_Sine * direction.x);
 }
 
-// Where a point lands in a shadow view's tile: the atlas texel it falls in, with texel centres on whole numbers, then its depth, and in w whether it lies in the view at all
+// The atlas texel, with centres on whole numbers, then depth, and in w whether it is in the view
 float4 GetShadowMapPosition(float4 rowX, float4 rowY, float4 rowZ, float4 rowW, float4 tile, float3 position)
 {
     const float4 l_Point = float4(position, 1.0);
@@ -168,7 +168,7 @@ float4 GetShadowMapPosition(float4 rowX, float4 rowY, float4 rowZ, float4 rowW, 
     return float4(tile.xy + float2(l_Projected.x * 0.5 + 0.5, 0.5 - l_Projected.y * 0.5) * float(c_ShadowTileSize) - 0.5, l_Projected.z, l_Inside ? 1.0 : 0.0);
 }
 
-// The fraction of a light that gets past the casters in one shadow map, for a point on a face with this normal, lit from this direction. The point moves off its face by the normal offset, then each of the 4x4 texels around it is lit where its depth is no nearer the light than the face's own plane there, made nearer by the depth bias, and the taps are weighed as a 3x3 grid of bilinear lookups would weigh them. A point outside the map is lit
+// 4x4 PCF weighed as 3x3 bilinear lookups, against the face's own plane. A point outside is lit
 float GetShadow(FrameConstants frame, uint view, float3 position, float3 normal, float3 toLight)
 {
     ByteAddressBuffer l_Shadows = DescriptorHandle<ByteAddressBuffer>(uint2(frame.Shadows.y, 0));
@@ -189,7 +189,7 @@ float GetShadow(FrameConstants frame, uint view, float3 position, float3 normal,
         return 1.0;
     }
 
-    // The face's plane in the map, from two points along it a texel away, as a change of depth per texel across the map. A face edge-on to the light has none to speak of
+    // The face's plane as depth per texel. A face edge-on to the light has none to speak of
     const float3 l_Across = normalize(cross(normal, abs(normal.y) < 0.9 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0)));
     const float3 l_Along = cross(normal, l_Across);
     const float4 l_First = GetShadowMapPosition(l_RowX, l_RowY, l_RowZ, l_RowW, l_Tile, l_Point + l_Across * l_Texel) - l_Center;
@@ -223,7 +223,7 @@ float GetShadow(FrameConstants frame, uint view, float3 position, float3 normal,
     return l_Lit / 9.0;
 }
 
-// The sun's light past its casters, from the cascade the point's view depth falls in, fading out over the far end of the last. Beyond the last the sun casts no shadow
+// From the cascade the view depth falls in, fading over the far end of the last
 float GetSunShadow(FrameConstants frame, float3 position, float3 normal, float3 toLight, float viewDepth)
 {
     ByteAddressBuffer l_Shadows = DescriptorHandle<ByteAddressBuffer>(uint2(frame.Shadows.y, 0));
@@ -249,7 +249,7 @@ float GetSunShadow(FrameConstants frame, float3 position, float3 normal, float3 
     return lerp(GetShadow(frame, l_Cascade, position, normal, toLight), 1.0, l_Fade);
 }
 
-// A point or spot light, past the casters in its shadow map when it has one. The face's normal is the triangle's own, which the receiver's plane needs
+// The face's normal is the triangle's own, which the receiver's plane needs
 float3 ShadeShadowedLight(FrameConstants frame, Surface surface, PunctualLight light, float3 faceNormal, bool shadowed)
 {
     float3 l_Light = ShadePunctualLight(surface, light);
@@ -279,7 +279,7 @@ int2 UnpackInt16(uint packed)
     return int2(int(packed << 16) >> 16, int(packed) >> 16);
 }
 
-// Both passes run this, so the pre-pass and the opaque pass compute the same depth and the equal test holds. Normals go through the cofactor of the world matrix, which is right for any scale, and keeps facing outwards under a mirroring one
+// Both passes run this, so their depths match and the equal test holds. Normals use the cofactor
 [shader("vertex")]
 VertexOutput VertexMain(uint vertexIndex: SV_VertexID)
 {
@@ -336,7 +336,7 @@ void DepthPixelMain()
 
 }
 
-// The record's texture, sampled with its filter, through the UV set its slot names. A whole draw names one material, so no index here varies across a wave
+// A whole draw names one material, so no index here varies across a wave
 float4 SampleMaterial(Material material, uint slot, float4 texCoords, FrameConstants frame)
 {
     const uint l_Texture = material.Textures[slot];
@@ -346,7 +346,7 @@ float4 SampleMaterial(Material material, uint slot, float4 texCoords, FrameConst
     return l_Image.Sample(l_Sampler, material.GetTexCoord(slot) == 1 ? texCoords.zw : texCoords.xy);
 }
 
-// The depth of an alpha-masked submesh, in the pre-pass and in shadow maps, cut away where its alpha falls below the material's cutoff, as glTF's MASK mode has it. The opaque pass then finds no depth of its own there, so its equal test leaves what is behind
+// Cut away below the material's cutoff, as glTF's MASK mode, in the pre-pass and shadow maps
 [shader("fragment")]
 void MaskPixelMain(VertexOutput input)
 {
@@ -366,7 +366,7 @@ void MaskPixelMain(VertexOutput input)
     }
 }
 
-// glTF's metallic-roughness material lit by the directional lights, then by the point and spot lights of the pixel's cluster, or by every one of them when asked, in light order either way, then by the environment, or with no environment a little ambient light, which alone is occluded. Only a blended material keeps its alpha, which the pipeline blends with. The sun and spot lights with shadow maps are shadowed, compared with the triangle's own plane rather than a normal map's. The environment's radiance is prefiltered for roughness m / (levels - 1) at mip m
+// Directional lights, then the cluster's lights in light order, then the environment or ambient
 float4 Shade(VertexOutput input, bool isFrontFace)
 {
     const FrameConstants l_Frame = LoadFrame();
@@ -388,7 +388,7 @@ float4 Shade(VertexOutput input, bool isFrontFace)
         l_Roughness *= l_Sample.g;
     }
 
-    // A back face of a double-sided surface is lit as its own front. The triangle's own plane, which shadows compare with, lies along the position's screen derivatives, turned to the side the shading normal is on, and an edge-on triangle keeps the shading normal
+    // A back face of a double-sided surface is lit as its own front
     const float3 l_FaceNormal = normalize(input.Normal) * (isFrontFace ? 1.0 : -1.0);
     const float3 l_Tangents = cross(ddx(input.WorldPosition), ddy(input.WorldPosition));
     const float l_TangentsLength = length(l_Tangents);
@@ -522,7 +522,7 @@ struct PickOutput
     uint Entity : SV_Target1;
 };
 
-// The shaded colour, and the draw's entity into the ID target beside it, which is never blended, so a blended surface owns its pixels there as an opaque one does
+// The entity ID is never blended, so a blended surface owns its pixels there as an opaque one does
 [shader("fragment")]
 PickOutput PickPixelMain(VertexOutput input, bool isFrontFace: SV_IsFrontFace)
 {

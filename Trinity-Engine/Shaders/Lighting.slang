@@ -1,4 +1,4 @@
-// What the cluster pass and the opaque pass share: the cluster grid, as ClusterGrid in Renderer3D.hpp has it, point and spot lights as PunctualLight lays them out, with the shadow view a spot light casts from, and the BRDF every light is shaded with
+// Shared by the cluster and opaque passes. Sizes match ClusterGrid in Renderer3D.hpp
 static const float c_Pi = 3.14159265;
 static const uint c_ClusterTilesX = 16;
 static const uint c_ClusterTilesY = 9;
@@ -17,7 +17,7 @@ struct ClusterGrid
     bool Perspective;
 };
 
-// Where a slice begins, with both ends exact so the grid meets the CPU's at Near and Far
+// Both ends are exact, so the grid meets the CPU's at Near and Far
 float GetSliceDepth(ClusterGrid grid, uint slice)
 {
     if (slice == 0)
@@ -100,7 +100,7 @@ PunctualLight LoadPunctualLight(ByteAddressBuffer buffer, uint address)
     return l_Punctual;
 }
 
-// A shaded point: its position and normal, the way towards the eye, and glTF's metallic-roughness inputs, with GGX alpha the square of perceptual roughness
+// GGX alpha is the square of perceptual roughness
 struct Surface
 {
     float3 Position;
@@ -139,7 +139,7 @@ float3 FresnelSchlick(float3 reflectance, float viewDotHalf)
     return reflectance + (1.0 - reflectance) * l_Factor;
 }
 
-// glTF's metallic-roughness BRDF for light arriving from one direction, as glTF Sample Viewer writes it: a dielectric that mixes Lambert diffuse with GGX specular by its Fresnel, and a metal whose GGX specular takes the base colour's Fresnel, mixed by metalness. Light from behind the surface adds exactly nothing
+// glTF's metallic-roughness BRDF, as glTF Sample Viewer writes it. Light from behind adds nothing
 float3 ShadeLight(Surface surface, float3 toLight, float3 radiance)
 {
     const float l_NormalDotLight = saturate(dot(surface.Normal, toLight));
@@ -162,7 +162,7 @@ float3 ShadeLight(Surface surface, float3 toLight, float3 radiance)
     return lerp(l_Dielectric, l_Metal, surface.Metallic) * radiance * l_NormalDotLight;
 }
 
-// The split sum's Fresnel for one reflectance, with the multiple-scattering energy Fdez-Aguera adds back, from the lookup table's scale and bias for this view and roughness, as glTF Sample Viewer has it
+// The split sum's Fresnel, with Fdez-Aguera's multiple-scattering energy, as glTF Sample Viewer
 float3 GetEnvironmentFresnel(float3 reflectance, float normalDotView, float roughness, float2 scaleBias)
 {
     const float3 l_Roughened = max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), reflectance) - reflectance;
@@ -175,7 +175,7 @@ float3 GetEnvironmentFresnel(float3 reflectance, float normalDotView, float roug
     return l_SingleEnergy + l_MultipleEnergy;
 }
 
-// The environment's light on a surface, from its irradiance and its radiance prefiltered for the surface's roughness, mixed as ShadeLight mixes a light's
+// From its irradiance and its radiance prefiltered for the roughness, mixed as ShadeLight does
 float3 ShadeEnvironment(Surface surface, float3 irradiance, float3 prefiltered, float2 scaleBias)
 {
     const float l_NormalDotView = saturate(dot(surface.Normal, surface.View));
@@ -186,7 +186,7 @@ float3 ShadeEnvironment(Surface surface, float3 irradiance, float3 prefiltered, 
     return lerp(l_Dielectric, l_Metal, surface.Metallic);
 }
 
-// KHR_lights_punctual's falloff: the inverse square, windowed to reach 0 at the range, and for a spot light a smooth edge between its cone angles. Beyond its range a light adds exactly nothing, so shading by every light adds what shading by a cluster's lights does
+// KHR_lights_punctual's falloff. Beyond its range a light adds exactly nothing, as clusters assume
 float3 ShadePunctualLight(Surface surface, PunctualLight light)
 {
     const float3 l_ToLight = light.Position - surface.Position;

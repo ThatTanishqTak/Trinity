@@ -1,4 +1,4 @@
-// Sandbox's layered texture test: reads every mip of every face of a cube and every layer of an array through their shader views, one word each
+// Sandbox's layered texture test: one word from every mip of every cube face and array layer
 #include "Bindless.slang"
 
 struct PushData
@@ -31,7 +31,7 @@ float3 GetFaceDirection(uint face)
     return float3(l_Axis == 0 ? l_Sign : 0.0, l_Axis == 1 ? l_Sign : 0.0, l_Axis == 2 ? l_Sign : 0.0);
 }
 
-// X is the mip, Y the face or layer, and Z picks the cube or the array. The cube's words come first, then the array's, each numbered as GetSubresourceIndex numbers subresources
+// X is the mip, Y the face or layer, Z picks cube or array. Numbered as GetSubresourceIndex does
 [shader("compute")]
 [numthreads(4, 8, 1)]
 void ReadLayers(uint3 id: SV_DispatchThreadID)

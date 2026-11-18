@@ -1,8 +1,8 @@
-// Sorts a view's point and spot lights into clusters, a cluster to a thread: each tests its box in view space against every light's sphere, in light order, keeps the first c_MaxClusterLights that reach it and counts them all
+// A cluster to a thread: each keeps the first c_MaxClusterLights lights reaching it, counts all
 #include "Bindless.slang"
 #include "Lighting.slang"
 
-// Laid out as ClusterPushData in Renderer3D.cpp. The light spheres are in the upload ring, a float4 each
+// Laid out as ClusterPushData in Renderer3D.cpp. The light spheres are a float4 each
 struct PushData
 {
     DescriptorHandle<ByteAddressBuffer> Bounds;

@@ -1,4 +1,4 @@
-// A screen-space quad that samples a texture, both the texture and the sampler read through bindless indices
+// Both the texture and the sampler are read through bindless indices
 #include "Bindless.slang"
 
 struct PushData
@@ -16,7 +16,7 @@ struct VertexOutput
     float2 TexCoord : TEXCOORD0;
 };
 
-// Four vertices drawn as a triangle strip: bottom left, bottom right, top left, top right. Bounds holds the left, bottom, right and top edges in clip space
+// A triangle strip. Bounds holds the left, bottom, right and top edges in clip space
 [shader("vertex")]
 VertexOutput VertexMain(uint vertexIndex: SV_VertexID)
 {

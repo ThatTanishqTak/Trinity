@@ -1,4 +1,4 @@
-// Quads written into the upload ring every frame, each vertex a float2 position and an RGBA8 colour read through a bindless index
+// Quads from the upload ring: each vertex a float2 position and an RGBA8 colour
 #include "Bindless.slang"
 
 struct PushData

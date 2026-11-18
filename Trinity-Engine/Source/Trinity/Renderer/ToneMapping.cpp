@@ -20,7 +20,7 @@ namespace Trinity
         return value <= 0.0031308f ? value * 12.92f : 1.055f * std::pow(value, 1.0f / 2.4f) - 0.055f;
     }
 
-    // Base colours lit by white light of intensity 1 come out as they are, which is why up to 0.04 is taken off first, and highlights from 0.76 roll off towards white with a little desaturation
+    // 0.04 comes off first so base colours under white light survive. Highlights roll off from 0.76
     glm::vec3 ApplyPBRNeutral(glm::vec3 color)
     {
         constexpr float c_StartCompression = 0.8f - 0.04f;

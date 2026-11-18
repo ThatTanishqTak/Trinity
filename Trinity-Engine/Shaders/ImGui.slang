@@ -1,4 +1,4 @@
-// Dear ImGui's vertices read from the upload ring, its textures and sampler through bindless indices
+// Dear ImGui's vertices from the upload ring, with bindless textures and sampler
 #include "Bindless.slang"
 #include "Color.slang"
 
@@ -15,7 +15,7 @@ struct PushData
 
 [[vk::push_constant]] ConstantBuffer<PushData> g_Push;
 
-// ImDrawVert: a float2 position, a float2 texture coordinate and an RGBA8 colour with red in the low byte
+// ImDrawVert: a float2 position, a float2 texture coordinate, an RGBA8 colour, red in the low byte
 static const uint c_VertexStride = 20;
 
 // ImGui draws in gamma space, so what an sRGB texture decodes to is encoded again

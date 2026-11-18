@@ -28,7 +28,7 @@ namespace Trinity
 
     [[nodiscard]] TRINITY_API Entity PickSprite(Scene& scene, const glm::vec2& worldPoint);
 
-    // Draws a scene's SpriteRenderers, and the world UI documents sorted with them, which are drawn as sprites showing their textures
+    // Draws a scene's SpriteRenderers, and the world UI documents sorted with them
     class TRINITY_API Renderer2D
     {
     public:
@@ -49,12 +49,12 @@ namespace Trinity
 
         void BeginFrame();
         void ReleaseTextures();
-        // What a scene's world UI documents sorted with the sprites are drawn from, or none, when they are not drawn
+        // None when world UI documents are not drawn
         void SetWorldUISource(const WorldUISource* source) { m_WorldUI = source; }
 
         bool DrawScene(RHI::CommandList& commands, Scene& scene, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
         void DrawScene(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
-        // Each sprite's entity, as ToPickID gives it, into an R32Uint target, in the order DrawScene draws them, so a pixel holds the sprite on top there
+        // Into an R32Uint target in draw order, so a pixel holds the sprite on top there
         void DrawSceneIDs(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, std::uint32_t width, std::uint32_t height);
 
         [[nodiscard]] const Statistics& GetStatistics() const { return m_Statistics; }
@@ -75,7 +75,7 @@ namespace Trinity
             std::uint32_t Index = 0;
         };
 
-        // A world UI document's sprite, which is put in place once the view it is drawn through is known, as it may face the camera
+        // Put in place once the view is known, as it may face the camera
         struct WorldQuad
         {
             std::uint32_t Instance = 0;

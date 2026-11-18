@@ -1,4 +1,4 @@
-// A record of the renderer's material table, as MaterialLoader::Pack writes it. Colours are linear, and each texture is a bindless index with the nearest filter in the top bit, or c_NoTexture for an empty slot
+// As MaterialLoader::Pack writes it. A texture is a bindless index, nearest filter in the top bit
 static const uint c_MaterialStride = 80;
 static const uint c_NoTexture = 0xFFFFFFFF;
 static const uint c_MaterialNearestBit = 0x80000000;
@@ -24,7 +24,7 @@ struct Material
     float NormalScale;
     float OcclusionStrength;
     float AlphaCutoff;
-    // The alpha mode in the two lowest bits, then double-sided, and from bit 8 one bit for each texture slot sampled with the second UV set
+    // Alpha mode in the two lowest bits, then double-sided, and from bit 8 a second-UV bit per slot
     uint Flags;
     uint Textures[c_MaterialTextureSlots];
 

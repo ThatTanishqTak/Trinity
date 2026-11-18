@@ -1,9 +1,9 @@
-// The entity in a pixel of the ID targets Renderer draws when a scene asks for them: the sprites', which are drawn over the meshes, then the meshes', from their first sample when they are multisampled. 0 is no entity, as Trinity::ToPickID has it
+// The sprites' ID first, as they are drawn over the meshes, then the meshes'. 0 is no entity
 #include "Bindless.slang"
 
 static const uint c_NoEntity = 0;
 
-// The meshes' samples are 0 when there are no mesh IDs, and either target's index is a bindless shader resource index
+// Mesh samples are 0 when there are no mesh IDs
 uint LoadEntity(uint sprites, uint meshes, uint meshSamples, int2 pixel)
 {
     Texture2D<uint> l_Sprites = DescriptorHandle<Texture2D<uint>>(uint2(sprites, 0));

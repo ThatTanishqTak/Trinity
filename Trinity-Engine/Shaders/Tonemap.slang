@@ -1,4 +1,4 @@
-// Turns the linear scene into the display's image, one scene texel per pixel from one triangle over the whole target: the exposure, the tone curve, a clamp and the sRGB encoding, as ApplyToneMapping does on the CPU
+// Exposure, tone curve, clamp and sRGB encoding, as ApplyToneMapping does on the CPU
 #include "Bindless.slang"
 #include "Color.slang"
 

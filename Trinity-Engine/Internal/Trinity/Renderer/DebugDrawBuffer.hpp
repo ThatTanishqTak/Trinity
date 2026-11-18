@@ -11,7 +11,7 @@
 
 namespace Trinity
 {
-    // One end of a debug line, as DebugLines.slang reads it: a world position, and an sRGB colour with red in the low byte
+    // As DebugLines.slang reads it: a world position, and an sRGB colour with red in the low byte
     struct DebugVertex
     {
         glm::vec3 Position{ 0.0f };
@@ -20,7 +20,7 @@ namespace Trinity
 
     static_assert(sizeof(DebugVertex) == 16);
 
-    // The frame's debug lines, two vertices a line, as the Renderer reads them, then clears them once the frame's graph is built
+    // Two vertices a line. The Renderer clears them once the frame's graph is built
     namespace DebugDrawBuffer
     {
         [[nodiscard]] std::span<const DebugVertex> GetVertices(DebugDepth depth);

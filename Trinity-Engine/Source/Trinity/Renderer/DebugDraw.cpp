@@ -26,7 +26,7 @@ namespace Trinity
         // A full circle is this many segments, and an arc its share of them
         constexpr std::uint32_t c_CircleSegments = 32;
 
-        // Depth-tested lines, then lines on top. Each keeps its capacity from frame to frame, so drawing allocates nothing once the most lines a frame has drawn have been drawn once. The lists are made with the first line and destroyed by Release, as an MSVC debug build's vector allocates under Renderer even while empty, which a static one would still hold at the leak report
+        // Made with the first line and destroyed by Release: MSVC's debug vector allocates even when empty
         std::optional<std::array<VertexList, 2>> s_Vertices;
         std::array<bool, 2> s_ReportedFull{};
 
@@ -37,7 +37,7 @@ namespace Trinity
             return a_Pack(color.r) | (a_Pack(color.g) << 8) | (a_Pack(color.b) << 16) | (a_Pack(color.a) << 24);
         }
 
-        // Two unit vectors at right angles to the normal and to each other, with the normal itself made unit length. A zero normal is taken as +Y
+        // A zero normal is taken as +Y
         void GetBasis(const glm::vec3& normal, glm::vec3& axis, glm::vec3& first, glm::vec3& second)
         {
             const float l_Length = glm::length(normal);
@@ -61,7 +61,7 @@ namespace Trinity
             {
                 if (!std::exchange(s_ReportedFull[l_List], true))
                 {
-                    TR_CORE_WARN("DebugDraw: more than {} {} lines this frame, so the rest are not drawn", DebugDraw::c_MaxLines, depth == DebugDepth::Test ? "depth-tested" : "on-top");
+                    TR_CORE_WARN("DebugDraw: more than {} {} lines this frame, the rest are dropped", DebugDraw::c_MaxLines, depth == DebugDepth::Test ? "depth-tested" : "on-top");
                 }
 
                 return;
@@ -71,7 +71,7 @@ namespace Trinity
             l_Vertices.push_back({ to, color });
         }
 
-        // Part of a circle about the centre, in the plane of two unit vectors at right angles, from one angle to another in radians, starting along the first
+        // From one angle to another in radians, starting along the first vector
         void AddArc(const glm::vec3& center, const glm::vec3& first, const glm::vec3& second, float radius, float begin, float end, std::uint32_t color, DebugDepth depth)
         {
             const std::uint32_t l_Segments = std::max(1u, static_cast<std::uint32_t>(std::ceil(static_cast<float>(c_CircleSegments) * std::abs(end - begin) / glm::two_pi<float>())));
@@ -147,7 +147,7 @@ namespace Trinity
             AddArc(center, l_X, l_Y, radius, 0.0f, glm::two_pi<float>(), l_Color, depth);
         }
 
-        // The end caps are half circles that bulge away from the segment, in two planes through its axis. Ends that meet make a sphere
+        // The end caps are half circles in two planes through the axis. Ends that meet make a sphere
         void Capsule(const glm::vec3& start, const glm::vec3& end, float radius, const glm::vec4& color, DebugDepth depth)
         {
             const glm::vec3 l_Segment = end - start;

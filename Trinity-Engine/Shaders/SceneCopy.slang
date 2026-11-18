@@ -1,4 +1,4 @@
-// Copies the scene target to the output one texel per pixel, from one triangle that covers the whole output
+// One texel per pixel, from one triangle that covers the whole output
 #include "Bindless.slang"
 
 struct PushData

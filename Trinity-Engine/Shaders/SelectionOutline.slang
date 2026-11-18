@@ -1,7 +1,7 @@
-// A line around the selected entities, drawn over the tonemapped image from the ID targets: on pixels outside them that have one within two pixels, stronger the more of their neighbours do, so it reads the same at any zoom and through anything in front
+// On pixels outside the selected entities with one within two pixels, stronger with more of them
 #include "EntityIDs.slang"
 
-// Laid out as Renderer.cpp writes it. The selected entities are sorted, so each pixel finds its own by a binary search. The colour is sRGB-encoded, as the display target is
+// Laid out as Renderer.cpp writes it. The entities are sorted for a binary search. sRGB colour
 struct PushData
 {
     uint Sprites;

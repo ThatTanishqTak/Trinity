@@ -18,7 +18,7 @@ namespace Trinity
 {
     namespace
     {
-        // Laid out as Sprite.slang reads it: the view-projection's columns, three descriptor handles, then the instances' offset in the upload buffer, and the entities' after them in the ID pass
+        // Laid out as Sprite.slang reads it
         struct PushData
         {
             std::array<glm::vec4, 4> ViewProjection{};
@@ -32,7 +32,7 @@ namespace Trinity
         static_assert(sizeof(PushData) == 96);
 
         constexpr std::uint32_t c_NearestBit = 0x80000000u;
-        // Below the filter's bit: a world UI document's texture, whose colours are sRGB-encoded and multiplied by their alpha
+        // Below the filter's bit: a world UI texture, sRGB-encoded and multiplied by its alpha
         constexpr std::uint32_t c_DocumentBit = 0x40000000u;
         constexpr std::uint64_t c_InstanceAlignment = 16;
 
@@ -79,7 +79,7 @@ namespace Trinity
         }
     }
 
-    // The sprite drawn last of those whose rotated rectangle holds the point, in world X and Y. A sprite scaled flat to a line or a point holds nothing
+    // In world X and Y. A sprite scaled flat to a line or a point holds nothing
     Entity PickSprite(Scene& scene, const glm::vec2& worldPoint)
     {
         TR_PROFILE_FUNCTION();
@@ -160,7 +160,7 @@ namespace Trinity
         m_Device.DestroySampler(m_NearestSampler);
     }
 
-    // Textures no sprite has named for a while are released, and an emptied cache gives its buckets back
+    // Textures no sprite has named for a while are released, and an emptied cache frees its buckets
     void Renderer2D::BeginFrame()
     {
         ++m_Frame;
@@ -171,13 +171,13 @@ namespace Trinity
         }
     }
 
-    // Every texture at once, as when the project whose assets they are closes, since the asset manager cannot hold one project's assets while another's are set
+    // Every texture at once, as when a project closes: the asset manager holds one project's assets
     void Renderer2D::ReleaseTextures()
     {
         TextureCache().swap(m_Textures);
     }
 
-    // Through the primary camera, with the target's aspect ratio. Returns false, and draws nothing, when the scene has no primary camera
+    // Returns false, and draws nothing, when the scene has no primary camera
     bool Renderer2D::DrawScene(RHI::CommandList& commands, Scene& scene, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height)
     {
         TR_PROFILE_FUNCTION();
@@ -188,7 +188,7 @@ namespace Trinity
         {
             if (l_Camera == nullptr && !m_ReportedNoCamera)
             {
-                TR_CORE_INFO("Renderer2D: the scene has no primary camera, so no sprites are drawn until it has one");
+                TR_CORE_INFO("Renderer2D: the scene has no primary camera, no sprites are drawn");
                 m_ReportedNoCamera = true;
             }
 
@@ -218,7 +218,7 @@ namespace Trinity
         DrawSprites(commands, viewProjection, targetFormat, width, height);
     }
 
-    // In DrawScene's order, over the whole of each quad, whatever its texture's alpha, as PickSprite counts it. The statistics stay those of the sprites drawn
+    // Over the whole of each quad, whatever its texture's alpha, as PickSprite counts it
     void Renderer2D::DrawSceneIDs(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, std::uint32_t width, std::uint32_t height)
     {
         TR_PROFILE_FUNCTION();
@@ -243,7 +243,7 @@ namespace Trinity
         const RHI::UploadAllocation l_Upload = m_Device.AllocateUpload(l_InstancesSize + std::uint64_t{ m_EntityIDs.size() } * sizeof(std::uint32_t), c_InstanceAlignment);
         if (l_Upload.Data.empty() || l_Upload.ShaderResourceIndex == RHI::c_NoBindlessIndex)
         {
-            TR_CORE_ERROR("Renderer2D: no upload memory for {} sprites' entities, so they cannot be picked this frame", m_Instances.size());
+            TR_CORE_ERROR("Renderer2D: no upload memory for {} sprites' entities, no picking this frame", m_Instances.size());
 
             return;
         }
@@ -272,7 +272,7 @@ namespace Trinity
         commands.Draw(4, static_cast<std::uint32_t>(m_Instances.size()), 0, 0);
     }
 
-    // In hierarchy order, which is the last tie-break when sorting, an entity's sprite before its world UI document's. World transforms are read as they are, so the caller runs the transform pass first. The first primary camera met is the one used
+    // In hierarchy order, the last tie-break. The caller runs the transform pass first
     const CameraComponent* Renderer2D::CollectSprites(Scene& scene, glm::mat4& cameraWorld)
     {
         TR_PROFILE_FUNCTION();
@@ -313,7 +313,7 @@ namespace Trinity
                 l_LastIndex = ResolveTexture(l_Sprite->Texture);
             }
 
-            // A flip swaps the rectangle's edges, so the quad keeps its winding and its place in the hierarchy's transform
+            // A flip swaps the rectangle's edges, so the quad keeps its winding
             const glm::mat4& l_World = l_Registry.get<WorldTransformComponent>(l_Handle).Matrix;
             const float l_MinU = l_Sprite->FlipX ? l_Sprite->UVRect.z : l_Sprite->UVRect.x;
             const float l_MaxU = l_Sprite->FlipX ? l_Sprite->UVRect.x : l_Sprite->UVRect.z;
@@ -342,7 +342,7 @@ namespace Trinity
         return l_Camera;
     }
 
-    // An entity's world UI document sorted with the sprites, when it drew a texture this frame: untinted, over the whole of its texture, by its sorting layer and its UIDocument's sort order. Its place waits for the view
+    // Untinted, over its whole texture, sorted by layer and sort order. Placed once the view is known
     void Renderer2D::CollectWorldQuad(Scene& scene, Entity entity)
     {
         const UIDocumentComponent* l_Component = m_WorldUI != nullptr ? scene.GetRegistry().try_get<UIDocumentComponent>(entity.GetHandle()) : nullptr;
@@ -385,7 +385,7 @@ namespace Trinity
         }
     }
 
-    // Sorted by layer, then order in layer, then hierarchy order, and drawn back to front in one instanced draw: each sprite names its own texture, so a change of texture never splits it
+    // One instanced draw, back to front. Each sprite names its texture, so textures never split it
     void Renderer2D::DrawSprites(RHI::CommandList& commands, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height)
     {
         TR_PROFILE_FUNCTION();
@@ -407,7 +407,7 @@ namespace Trinity
         const RHI::UploadAllocation l_Upload = m_Device.AllocateUpload(std::uint64_t{ m_Instances.size() } * sizeof(SpriteInstance), c_InstanceAlignment);
         if (l_Upload.Data.empty() || l_Upload.ShaderResourceIndex == RHI::c_NoBindlessIndex)
         {
-            TR_CORE_ERROR("Renderer2D: no upload memory for {} sprites, so they are not drawn this frame", m_Instances.size());
+            TR_CORE_ERROR("Renderer2D: no upload memory for {} sprites, not drawn this frame", m_Instances.size());
 
             return;
         }
@@ -438,7 +438,7 @@ namespace Trinity
         m_Statistics.DrawCalls = 1;
     }
 
-    // An invalid UUID, a texture still loading and one that failed all draw white: the loader's placeholder, or the white texture when there is none
+    // An invalid UUID, a loading texture and a failed one all draw white
     std::uint32_t Renderer2D::ResolveTexture(UUID id)
     {
         if (!id)
@@ -482,7 +482,7 @@ namespace Trinity
         {
             if (!m_ReportedNoShaders)
             {
-                TR_CORE_INFO("Renderer2D: no Sprite shaders under /engine/shaders, so sprites are not drawn");
+                TR_CORE_INFO("Renderer2D: no Sprite shaders under /engine/shaders, sprites are not drawn");
                 m_ReportedNoShaders = true;
             }
 
@@ -523,7 +523,7 @@ namespace Trinity
         m_IDPipelineTried = true;
         if (m_PickVertexShader.empty() || m_PickPixelShader.empty())
         {
-            TR_CORE_INFO("Renderer2D: no Sprite pick shaders under /engine/shaders, so sprites cannot be picked");
+            TR_CORE_INFO("Renderer2D: no Sprite pick shaders under /engine/shaders, no sprite picking");
 
             return {};
         }
@@ -541,7 +541,7 @@ namespace Trinity
         m_IDPipeline = m_Device.CreateGraphicsPipeline(l_Description);
         if (!m_IDPipeline)
         {
-            TR_CORE_ERROR("Renderer2D: the sprite entity ID pipeline could not be created, so sprites cannot be picked");
+            TR_CORE_ERROR("Renderer2D: the sprite ID pipeline could not be created, no sprite picking");
         }
 
         return m_IDPipeline;

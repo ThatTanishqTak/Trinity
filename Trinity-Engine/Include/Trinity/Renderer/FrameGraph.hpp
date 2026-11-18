@@ -17,7 +17,7 @@
 
 namespace Trinity
 {
-    // A texture or buffer for one frame of a graph, which becomes an RHI handle when the graph executes
+    // Becomes an RHI handle when the graph executes
     struct FrameGraphTexture
     {
         std::uint32_t Index = UINT32_MAX;
@@ -34,7 +34,7 @@ namespace Trinity
         constexpr explicit operator bool() const { return IsValid(); }
     };
 
-    // A raster pass runs inside rendering that the graph begins and ends, a compute or copy pass outside it. An async compute pass is a compute pass the compute queue runs, alongside the graphics work it does not depend on, where the device has one
+    // Raster runs inside rendering. AsyncCompute runs on the compute queue where the device has one
     enum class FrameGraphPassType : std::uint8_t
     {
         Raster,
@@ -43,7 +43,7 @@ namespace Trinity
         AsyncCompute
     };
 
-    // Whether the contents are stored is up to the graph: they are when the texture is imported or a later pass uses it
+    // The graph stores the contents when the texture is imported or a later pass uses it
     struct FrameGraphColorAttachment
     {
         FrameGraphTexture Texture{};
@@ -67,14 +67,13 @@ namespace Trinity
 
     class FrameGraph;
 
-    // Declares what one pass reads and writes, while the graph is being built
     class TRINITY_API FrameGraphPassBuilder
     {
     public:
         void AddColorAttachment(const FrameGraphColorAttachment& attachment);
         void SetDepthAttachment(const FrameGraphDepthAttachment& attachment);
 
-        // In the state the pass needs, such as ShaderResource, UnorderedAccess, CopySource or CopyDestination
+        // In the state the pass needs, such as ShaderResource or CopyDestination
         void Read(FrameGraphTexture texture, RHI::ResourceState state);
         void Write(FrameGraphTexture texture, RHI::ResourceState state);
         void Read(FrameGraphBuffer buffer, RHI::ResourceState state);
@@ -123,7 +122,7 @@ namespace Trinity
         std::uint32_t m_Height = 0;
     };
 
-    // Passes declare the textures and buffers they read and write, and run in the order they are added, which is always a valid order since a pass can only use what earlier passes wrote. Executing culls passes whose results nobody uses, takes transient textures and buffers from a pool, and inserts every barrier
+    // Passes run in the order added. Executing culls unused passes, pools transients, adds barriers
     class TRINITY_API FrameGraph
     {
     public:
@@ -153,15 +152,15 @@ namespace Trinity
         // Clears the last frame's passes and resources and keeps the pool
         void Reset();
 
-        // The graph moves an imported resource from its initial state through what passes need, and leaves it in its final state
+        // An imported resource is moved from its initial state, and left in its final state
         [[nodiscard]] FrameGraphTexture ImportTexture(std::string_view name, RHI::TextureHandle texture, const RHI::TextureDescription& description, RHI::ResourceState initialState, RHI::ResourceState finalState);
         [[nodiscard]] FrameGraphBuffer ImportBuffer(std::string_view name, RHI::BufferHandle buffer, std::uint64_t size, RHI::ResourceState initialState, RHI::ResourceState finalState);
 
-        // The usage comes from the passes that use it, and the contents do not last from one frame to the next
+        // The usage comes from the passes that use it. The contents do not last between frames
         [[nodiscard]] FrameGraphTexture CreateTexture(std::string_view name, const RHI::TextureDescription& description);
         [[nodiscard]] FrameGraphBuffer CreateBuffer(std::string_view name, std::uint64_t size);
 
-        // Setup runs at once with a FrameGraphPassBuilder. Execute runs from Execute with a const FrameGraphContext&, and is destroyed once the frame's graph has executed or been reset
+        // Setup runs at once. Execute runs later, and is destroyed once the graph has executed or reset
         template<typename Setup, typename Callback>
         void AddPass(std::string_view name, FrameGraphPassType type, Setup&& setup, Callback&& execute)
         {
@@ -176,7 +175,7 @@ namespace Trinity
             SetPassCallback(l_Pass, l_Memory, [](void* callable, const FrameGraphContext& context) { (*static_cast<Callable*>(callable))(context); }, [](void* callable) { static_cast<Callable*>(callable)->~Callable(); });
         }
 
-        // Once per Reset, between the device's BeginFrame and EndFrame. Async compute passes record into the device's compute list, which goes before the first graphics pass that uses what they used
+        // Once per Reset, between the device's BeginFrame and EndFrame
         void Execute(RHI::CommandList& commands);
 
         [[nodiscard]] const Statistics& GetStatistics() const;
@@ -184,7 +183,7 @@ namespace Trinity
         [[nodiscard]] std::string_view GetPassName(std::uint32_t pass) const;
         [[nodiscard]] bool IsPassCulled(std::uint32_t pass) const;
 
-        // The GPU time of each pass that ran, in the order of the latest timed execution, and of all of them together, averaged over 30 executions and published once every 30. A pass's time includes the barriers before it, and an async compute pass's is timed on the queue it ran on. An execution's timestamps are read back c_FramesInFlight executions later, so a graph executes at most once per device frame, and the times stay empty until the first 30 are in
+        // Averaged over 30 executions, published every 30. A graph executes at most once a device frame
         [[nodiscard]] std::span<const PassTime> GetPassTimes() const;
         [[nodiscard]] float GetGpuMilliseconds() const;
 

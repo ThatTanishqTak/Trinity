@@ -1,8 +1,8 @@
-// World UI documents' quads among a scene's blended meshes, drawn by Renderer3D: the unit quad sprites are drawn from, centred on its origin with +Y up, put in place by the matrix Renderer3D works out, and showing the document's texture unlit, tested against the opaque meshes' depth and writing none
+// A unit quad showing the document's texture unlit, tested against opaque depth, writing none
 #include "Bindless.slang"
 #include "Color.slang"
 
-// The quad's world matrix and the view-projection together, as four columns, as glm stores them, then the document's texture and its sampler, and the entity as ToPickID gives it, for the ID target
+// Laid out as Renderer3D.cpp writes it
 struct PushData
 {
     float4 Transform[4];
@@ -20,7 +20,7 @@ struct VertexOutput
     float2 TexCoord : TEXCOORD0;
 };
 
-// Four vertices as a triangle strip: bottom left, bottom right, top left, top right. The document's top row is at V = 0, so the quad's top takes it
+// A triangle strip. The document's top row is at V = 0, so the quad's top takes it
 [shader("vertex")]
 VertexOutput VertexMain(uint vertexIndex: SV_VertexID)
 {
@@ -54,7 +54,7 @@ struct PickOutput
     uint Entity : SV_Target1;
 };
 
-// The colour, and the document's entity into the ID target beside it where the document drew anything, so the Scene panel picks what is behind the document where it is clear
+// The entity ID is written only where the document drew, so clear parts pick what is behind
 [shader("fragment")]
 PickOutput PickPixelMain(VertexOutput input)
 {

@@ -1,7 +1,7 @@
-// The scene's depth in one pixel, written for Renderer to copy back to the CPU. Depth is reversed, so of a multisampled pixel's samples the largest is the nearest surface, which is the one kept
+// Depth is reversed, so of a multisampled pixel's samples the largest is the nearest surface
 #include "Bindless.slang"
 
-// Laid out as Renderer.cpp writes it. One sample is a depth texture that is not multisampled
+// Laid out as Renderer.cpp writes it. One sample means the depth is not multisampled
 struct PushData
 {
     uint Depth;

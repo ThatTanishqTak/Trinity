@@ -1,7 +1,7 @@
-// Debug lines in world space, drawn by Renderer.cpp over a view's tonemapped image from the vertices DebugDraw gathered: two a line, each a world position and an sRGB colour with red in the low byte, as the display target holds colours. A depth-tested line is drawn only where it is no further from the eye than the scene's surface, read from the view's depth, so meshes hide it. A line on a surface keeps showing, since it may lie up to a thousandth of the surface's distance behind it
+// Drawn over a view's tonemapped image. A depth-tested line shows only where no surface is nearer
 #include "Bindless.slang"
 
-// Laid out as Renderer.cpp writes it. The view-projection is four columns, as glm stores it. Depth samples are 0 when the lines are not tested against the scene's depth
+// Laid out as Renderer.cpp writes it. Depth samples are 0 when lines are not depth-tested
 struct PushData
 {
     float4 ViewProjection[4];
@@ -14,7 +14,7 @@ struct PushData
 [[vk::push_constant]] ConstantBuffer<PushData> g_Push;
 
 static const uint c_VertexStride = 16;
-// Reversed depth is the eye's near plane over its distance, so a line nearer than the surface's depth times this is within a thousandth of the surface's distance
+// Reversed depth is near over distance, so this keeps a line within a thousandth of the distance
 static const float c_DepthTolerance = 0.999;
 
 struct VertexOutput

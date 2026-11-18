@@ -35,7 +35,6 @@ namespace Trinity
             std::uint32_t Padding = 0;
         };
 
-        // The directional lights are a direction and a radiance each, and the counts are the directional lights, the point and spot lights, the flags and whether the view is a perspective one
         struct FrameData
         {
             std::array<glm::vec4, 4> ViewProjection{};
@@ -55,14 +54,14 @@ namespace Trinity
             std::uint32_t LightsOffset = 0;
             std::array<std::uint32_t, 2> ClampSampler{};
             std::uint32_t Padding = 0;
-            // The specular cubemap, the irradiance cubemap, the BRDF lookup table and the specular mip count, 0 with no environment, then its intensity and the cosine and sine of its turn
+            // The specular mip count is 0 with no environment
             std::array<std::uint32_t, 4> Environment{};
             glm::vec4 EnvironmentParameters{ 0.0f };
-            // The shadow atlas and the shadow data in the upload ring, with no atlas when nothing casts a shadow
+            // No atlas when nothing casts a shadow
             std::array<std::uint32_t, 4> Shadows{};
         };
 
-        // Laid out as Mesh.slang reads them: each cascade's far view depth, then the cascade count and the directional light that is the sun, then where the sun's shadows start to fade and where they end, and the normal offset and depth bias in texels. A record for each shadow view follows
+        // Laid out as Mesh.slang reads them. A record for each shadow view follows
         struct ShadowHeader
         {
             glm::vec4 Splits{ 0.0f };
@@ -70,7 +69,7 @@ namespace Trinity
             glm::vec4 Parameters{ 0.0f };
         };
 
-        // A shadow view's view-projection as rows, then its tile's top-left texel, its texel size, and 1 for a perspective view
+        // The view-projection as rows, the tile's top-left texel, the texel size, 1 for perspective
         struct ShadowRecord
         {
             std::array<glm::vec4, 4> Rows{};
@@ -108,7 +107,7 @@ namespace Trinity
             std::uint32_t Entity = 0;
         };
 
-        // Laid out as WorldUI.slang reads it: the quad's world matrix and the view-projection together as four columns, the document's texture and its sampler, and the entity
+        // Laid out as WorldUI.slang reads it
         struct WorldUIPushData
         {
             std::array<glm::vec4, 4> Transform{};
@@ -118,7 +117,7 @@ namespace Trinity
             std::uint32_t Padding = 0;
         };
 
-        // Laid out as Sky.slang reads it: the inverse of the projection times the view's turn alone as four columns, the specular cubemap and its sampler, and the environment's intensity and the cosine and sine of its turn
+        // Laid out as Sky.slang reads it
         struct SkyPushData
         {
             std::array<glm::vec4, 4> InverseViewProjection{};
@@ -175,7 +174,7 @@ namespace Trinity
             return device.CreateSampler(l_Description);
         }
 
-        // Back-face culled for counter-clockwise fronts, the same with clockwise fronts, or not culled. A depth-only pass writes depth through the pixel shader it is given, which an alpha-masked submesh cuts itself out with. A shadow map keeps the depth nearest the light, as the pre-pass keeps the nearest to the eye, biased away from the light and clamped, so casters between the light and the map's near plane still cast. A blended submesh is tested against the opaque depth, writes none, and blends over what is behind it by its alpha
+        // A shadow map's depth is biased and clamped, so casters before its near plane still cast
         RHI::PipelineHandle CreatePipeline(RHI::Device& device, std::span<const std::byte> vertexShader, std::span<const std::byte> pixelShader, std::string_view pixelEntry, RHI::Format colorFormat, Renderer3D::PipelineKind kind, bool depthOnly, bool shadow, bool blend, bool entityIDs, std::uint32_t sampleCount)
         {
             const std::array<RHI::Format, 2> l_ColorFormats{ colorFormat, Renderer3D::c_EntityIDFormat };
@@ -199,7 +198,7 @@ namespace Trinity
             return device.CreateGraphicsPipeline(l_Description);
         }
 
-        // Across a direction: right from world up, or from world +Z when the direction is close to up, and up from the two, so right, up and the direction are a right-handed frame
+        // Right from world up, or from world +Z when the direction is close to up. Right-handed
         void GetBasis(const glm::vec3& back, glm::vec3& right, glm::vec3& up)
         {
             const glm::vec3 l_Hint = std::abs(back.y) < 0.999f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(0.0f, 0.0f, 1.0f);
@@ -216,7 +215,7 @@ namespace Trinity
             matrix[3][row] = offset;
         }
 
-        // The pipeline a submesh needs, its material's alpha mode, opaque without a material, and its sort key: pipeline, then masked or not, then material, then mesh, so draws sharing state follow each other
+        // Sort key: pipeline, then masked or not, then material, then mesh, so shared state is adjacent
         void Finish(MeshDraw& draw, const MaterialData* material)
         {
             const bool l_DoubleSided = material != nullptr && material->DoubleSided;
@@ -243,7 +242,7 @@ namespace Trinity
             return glm::dot(depthRow, glm::vec4(l_Center, 1.0f));
         }
 
-        // From the farthest to the nearest by the view depth of each submesh's bounds' centre, and each world UI document's quad's, keeping hierarchy order between equals, so each blends over what is behind it. Quads out of the view's frustum are dropped
+        // Far to near by view depth, keeping hierarchy order between equals. Quads out of view are dropped
         void SortBackToFront(SceneDrawList& list)
         {
             const glm::vec4 l_Depth = GetDepthRow(list.View);
@@ -268,7 +267,7 @@ namespace Trinity
             std::ranges::stable_sort(list.WorldUI, std::ranges::greater{}, &WorldUIDraw::Depth);
         }
 
-        // The cone a spot light lights out to its range lies in this sphere, which is the smallest that holds it
+        // The smallest sphere that holds the cone a spot light lights out to its range
         void GetConeBounds(const glm::vec3& apex, const glm::vec3& direction, float range, float outerAngle, glm::vec3& center, float& radius)
         {
             const float l_Cosine = std::cos(outerAngle);
@@ -284,12 +283,12 @@ namespace Trinity
             center = apex + direction * radius;
         }
 
-        // The first Environment component in hierarchy order, then every light in hierarchy order: the first c_MaxDirectionalLights directional lights, and every point and spot light that reaches anywhere, with the sphere in view space holding what it lights. A scene with no lights and no environment is lit by the default sun. The first directional light that casts shadows is the sun, and the first c_MaxSpotShadows spot lights that cast them and light something in view each get a shadow view. The clusters span the depths the spheres reach, within the projection's own for an orthographic view
+        // With no lights and no environment the default sun lights the scene
         void GatherLights(Scene& scene, const RenderView& view, SceneDrawList& list)
         {
             SceneRegistry& l_Registry = scene.GetRegistry();
             const Frustum l_Frustum = Frustum::FromViewProjection(view.ViewProjection);
-            // A scaled camera's view scales too, so a sphere grows by the most the view stretches it. The view is the inverse of a turn then a scale, whose longest row is that stretch, and its longest column covers a view built some other way
+            // A scaled camera's view scales too, so a sphere grows by the most the view stretches it
             const glm::mat3 l_ViewBasis(view.View);
             const glm::mat3 l_ViewRows = glm::transpose(l_ViewBasis);
             const float l_ViewScale = std::max({ glm::length(l_ViewBasis[0]), glm::length(l_ViewBasis[1]), glm::length(l_ViewBasis[2]), glm::length(l_ViewRows[0]), glm::length(l_ViewRows[1]), glm::length(l_ViewRows[2]) });
@@ -405,7 +404,7 @@ namespace Trinity
 
             if (l_Grid.Perspective)
             {
-                // From the nearest light's reach, or the near plane of the infinite reversed projection if that is farther, to the farthest light's. A pixel nearer than the first slice is in it, and one beyond the last in that, and no light reaches either
+                // From the nearest light's reach, or the near plane if that is farther, to the farthest light's
                 l_Grid.Near = std::max({ view.Projection[3][2], l_Nearest, 1e-4f });
                 l_Grid.Far = std::max(l_Farthest, l_Grid.Near * 2.0f);
 
@@ -471,7 +470,7 @@ namespace Trinity
         return Perspective ? Near * std::pow(Far / Near, l_Fraction) : Near + (Far - Near) * l_Fraction;
     }
 
-    // The tile's corners in normalized device coordinates, carried back to view space at the slice's two depths, which for a perspective view are where the tile is narrowest and widest
+    // The tile's corners carried back to view space at the slice's two depths
     void ClusterGrid::GetBounds(std::uint32_t x, std::uint32_t y, std::uint32_t slice, glm::vec3& minimum, glm::vec3& maximum) const
     {
         const float l_Near = GetSliceDepth(slice);
@@ -506,7 +505,7 @@ namespace Trinity
         return glm::dot(l_Outside, l_Outside);
     }
 
-    // From the rows of the view-projection, for depth from 0 to 1: left, right, bottom, top, then depth below 1, the near plane with reversed depth, and depth above 0, which an infinite far plane always passes
+    // Left, right, bottom, top, near with reversed depth, then far, which an infinite far plane passes
     Frustum Frustum::FromViewProjection(const glm::mat4& viewProjection)
     {
         const auto a_Row = [&viewProjection](glm::length_t row) { return glm::vec4(viewProjection[0][row], viewProjection[1][row], viewProjection[2][row], viewProjection[3][row]); };
@@ -550,7 +549,7 @@ namespace Trinity
         return glm::uvec2(view % c_TilesPerRow, view / c_TilesPerRow) * c_TileSize;
     }
 
-    // The depths covered run from the near plane out to c_Distance for a perspective view, and over what an orthographic one keeps, up to c_Distance past its near end, split evenly. A slice's corners at each end lie as far from the view's axis, so its smallest sphere is centred on the axis, where both ends are equally far or at the far end. Everything in the light's frame is snapped, depth too, so the matrix only changes when the view has moved by a whole texel
+    // Everything in the light's frame is snapped, so the matrix changes only by whole texels
     void ShadowAtlas::BuildCascades(const RenderView& view, const glm::vec3& toLight, std::span<ShadowView, c_Cascades> cascades, std::array<float, c_Cascades>& splits)
     {
         float l_Near = 0.0f;
@@ -577,13 +576,13 @@ namespace Trinity
             splits[it_Cascade] = it_Cascade + 1 == c_Cascades ? l_Far : glm::mix(l_Even, l_Logarithmic, c_SplitBlend);
         }
 
-        // How far a slice's corners are from the axis at a view depth, and where the axis is, which an orthographic projection may move off centre
+        // An orthographic projection may move the axis off centre
         const glm::vec2 l_Scale = glm::abs(glm::vec2(view.Projection[0][0], view.Projection[1][1]));
         const glm::vec2 l_Axis = view.Orthographic ? -glm::vec2(view.Projection[3][0], view.Projection[3][1]) / glm::vec2(view.Projection[0][0], view.Projection[1][1]) : glm::vec2(0.0f);
         const float l_Spread = glm::length(1.0f / l_Scale);
         const auto a_Spread = [&view, l_Spread](float depth) { return view.Orthographic ? l_Spread : depth * l_Spread; };
 
-        // The view's inverse carries the centre into the world, and a scaled camera scales the sphere by the most it stretches
+        // A scaled camera scales the sphere by the most it stretches
         const glm::mat4 l_World = glm::inverse(view.View);
         const float l_WorldScale = std::max({ glm::length(glm::vec3(l_World[0])), glm::length(glm::vec3(l_World[1])), glm::length(glm::vec3(l_World[2])) });
         const glm::vec3 l_Back = glm::normalize(toLight);
@@ -599,7 +598,7 @@ namespace Trinity
             const float l_SpreadFar = a_Spread(l_End);
             const float l_Length = l_End - l_Start;
             const float l_Middle = l_Length > 0.0f ? std::clamp((l_End * l_End + l_SpreadFar * l_SpreadFar - l_Start * l_Start - l_SpreadNear * l_SpreadNear) / (2.0f * l_Length), l_Start, l_End) : l_Start;
-            // Rounded up to a 64th of its power of two, so rounding in the view's own matrix leaves the texel size as it was
+            // Rounded up to a 64th of its power of two, so matrix rounding leaves the texel size as it was
             const float l_Exact = std::max(std::max(std::hypot(l_Middle - l_Start, l_SpreadNear), std::hypot(l_End - l_Middle, l_SpreadFar)) * l_WorldScale, 1e-3f);
             const float l_Step = std::exp2(std::floor(std::log2(l_Exact)) - 6.0f);
             const float l_Radius = std::ceil(l_Exact / l_Step) * l_Step;
@@ -621,7 +620,7 @@ namespace Trinity
         }
     }
 
-    // Reversed depth from the near plane to the range, square, and wide enough for the cone up to c_MaxSpotAngle
+    // Reversed depth from the near plane to the range, wide enough for the cone up to c_MaxSpotAngle
     ShadowView ShadowAtlas::BuildSpot(const glm::vec3& position, const glm::vec3& direction, float range, float outerAngle, std::uint32_t view)
     {
         const float l_Tangent = std::tan(std::min(outerAngle, glm::radians(c_MaxSpotAngle)));
@@ -700,7 +699,7 @@ namespace Trinity
             m_PickPixelShader = std::move(*l_PickPixel);
         }
 
-        // Without these, world UI documents sorted by depth are not drawn, which is reported once there is one
+        // Without these, world UI documents sorted by depth are not drawn, reported once there is one
         Expected<FileBuffer, FileError> l_WorldUIVertex = FileSystem::ReadFile(std::format("/engine/shaders/WorldUI.VertexMain.{}", l_Extension));
         Expected<FileBuffer, FileError> l_WorldUIPixel = FileSystem::ReadFile(std::format("/engine/shaders/WorldUI.PixelMain.{}", l_Extension));
         Expected<FileBuffer, FileError> l_WorldUIPickPixel = FileSystem::ReadFile(std::format("/engine/shaders/WorldUI.PickPixelMain.{}", l_Extension));
@@ -711,7 +710,7 @@ namespace Trinity
             m_WorldUIPickPixelShader = std::move(*l_WorldUIPickPixel);
         }
 
-        // Without these, a scene's environment lights it but shows no sky, which is reported once there is one
+        // Without these, an environment lights the scene but shows no sky, reported once there is one
         Expected<FileBuffer, FileError> l_SkyVertex = FileSystem::ReadFile(std::format("/engine/shaders/Sky.VertexMain.{}", l_Extension));
         Expected<FileBuffer, FileError> l_SkyPixel = FileSystem::ReadFile(std::format("/engine/shaders/Sky.PixelMain.{}", l_Extension));
         Expected<FileBuffer, FileError> l_SkyPickPixel = FileSystem::ReadFile(std::format("/engine/shaders/Sky.PickPixelMain.{}", l_Extension));
@@ -738,7 +737,7 @@ namespace Trinity
 
         if (!m_ClusterPipeline)
         {
-            TR_CORE_WARN("Renderer3D: the light cluster shader is missing from /engine/shaders, so every pixel shades every point and spot light");
+            TR_CORE_WARN("Renderer3D: no light cluster shader, every pixel shades every light");
         }
 
         RHI::BufferDescription l_Readback;
@@ -780,7 +779,7 @@ namespace Trinity
         m_Device.DestroySampler(m_ClampSampler);
     }
 
-    // Meshes and materials no view has drawn for a while are released, and an emptied cache gives its buckets back
+    // Meshes and materials unused for a while are released, and an emptied cache frees its buckets
     void Renderer3D::BeginFrame()
     {
         ++m_Frame;
@@ -807,7 +806,7 @@ namespace Trinity
         ReadClusterStatistics();
     }
 
-    // The counts the first view copied c_FramesInFlight frames ago, whose frame the device has waited for, read before this frame's view copies over them. A frame whose first view had no clusters leaves nothing to read
+    // Copied by the first view c_FramesInFlight frames ago, and read before this frame's view copies
     void Renderer3D::ReadClusterStatistics()
     {
         const std::size_t l_Slot = static_cast<std::size_t>(m_Frame % RHI::c_FramesInFlight);
@@ -896,7 +895,7 @@ namespace Trinity
         return l_Asset != nullptr && l_Asset->GetAssetType() == EnvironmentAsset::c_AssetType ? static_cast<const EnvironmentAsset*>(l_Asset) : nullptr;
     }
 
-    // Each submesh of each ready mesh in hierarchy order, with each world UI document sorted by depth, then culled in batches on the job system, then sorted stably, so draws with equal keys keep hierarchy order
+    // Culled in batches on the job system, then sorted stably, so equal keys keep hierarchy order
     void Renderer3D::Collect(Scene& scene, const RenderView& view, SceneDrawList& list)
     {
         TR_PROFILE_FUNCTION();
@@ -1002,7 +1001,7 @@ namespace Trinity
         l_Draw.World = GetWorldUIMatrix(l_Component->World, l_Document->Size, entity.Get<WorldTransformComponent>().Matrix, view.ViewProjection);
     }
 
-    // A caster can be out of view and still cast into it, so every candidate that casts shadows, and is not blended, which casts none, is tested against each shadow view: against all six planes of a spot light's, and all but the near plane of a cascade's, since anything between a cascade and the sun casts into it and depth clamping keeps it in the map
+    // A caster out of view can still cast into it. A cascade's near plane is skipped, as depth clamps
     void Renderer3D::CollectShadowCasters(SceneDrawList& list)
     {
         std::array<Frustum, ShadowAtlas::c_MaxViews> l_Frusta{};
@@ -1074,7 +1073,7 @@ namespace Trinity
         }
     }
 
-    // As Collect decides, but one submesh after another with no cache and no workers, looking each asset up in the asset manager
+    // As Collect decides, but one submesh at a time, with no cache and no workers
     void Renderer3D::CollectReference(Scene& scene, const RenderView& view, SceneDrawList& list)
     {
         list.Clear();
@@ -1145,7 +1144,7 @@ namespace Trinity
         SortBackToFront(list);
     }
 
-    // Each cluster's box against each light's sphere, in light order, as the cluster pass does it a cluster to a thread
+    // Each cluster's box against each light's sphere, in light order, as the cluster pass does
     void Renderer3D::BuildClustersReference(const SceneDrawList& list, std::vector<std::uint32_t>& counts, std::vector<std::uint32_t>& lights)
     {
         counts.assign(ClusterGrid::c_Count, 0);
@@ -1180,7 +1179,7 @@ namespace Trinity
         }
     }
 
-    // The shadow pass draws every caster into each shadow map it falls in, the pre-pass writes the nearest depth of every opaque and masked submesh, the cluster pass sorts the point and spot lights into clusters, the opaque pass then shades only the surface that depth belongs to, with the lights of the cluster each pixel lies in, and the blended submeshes go over it from back to front. Multisampled, the forward passes draw into a colour texture of their own, which the last of them resolves into the target. The lights and their spheres go into the upload ring now, for the shading passes to read
+    // Multisampled, the forward passes draw into their own colour texture, resolved by the last
     Renderer3D::Passes Renderer3D::AddPasses(FrameGraph& graph, const SceneDrawList& list, FrameGraphTexture target, const RHI::TextureDescription& targetDescription, const std::array<float, 4>& clearColor, const SceneOptions& options)
     {
         const std::uint32_t l_Samples = options.SampleCount > 1 ? c_SampleCount : 1;
@@ -1213,7 +1212,7 @@ namespace Trinity
             l_Color = graph.CreateTexture("Scene colour multisampled", l_ColorDescription);
         }
 
-        // Cleared to 0, which is no entity. A device that cannot draw them with this many samples and read them goes without, and nothing in the scene can be picked
+        // Cleared to 0, which is no entity. A device that cannot draw and read them goes without picking
         l_Passes.SampleCount = l_Samples;
         if (options.EntityIDs && m_EntityIDSupport[l_Samples > 1 ? 1 : 0])
         {
@@ -1228,17 +1227,17 @@ namespace Trinity
         }
         else if (options.EntityIDs && !std::exchange(m_ReportedNoEntityIDs, true))
         {
-            TR_CORE_WARN("Renderer3D: {} cannot draw {} entity IDs with {} sample(s) and read them, so nothing in the scene can be picked", ToString(m_Device.GetInfo().API), RHI::ToString(c_EntityIDFormat), l_Samples);
+            TR_CORE_WARN("Renderer3D: {} cannot draw and read {} entity IDs at {} sample(s), no picking", ToString(m_Device.GetInfo().API), RHI::ToString(c_EntityIDFormat), l_Samples);
         }
 
-        // Every shadow map goes into its tile of one atlas, which nothing needs when nothing casts a shadow. The shadow data goes into the upload ring now, for the opaque pass
+        // The shadow data goes into the upload ring now, for the opaque pass
         LightInputs l_Inputs;
         if (!list.ShadowDraws.empty())
         {
             const RHI::UploadAllocation l_Shadows = m_Device.AllocateUpload(sizeof(ShadowHeader) + std::uint64_t{ ShadowAtlas::c_MaxViews } * sizeof(ShadowRecord), c_UploadAlignment);
             if (l_Shadows.Data.empty() || l_Shadows.ShaderResourceIndex == RHI::c_NoBindlessIndex)
             {
-                TR_CORE_ERROR("Renderer3D: no upload memory for the shadow data, so nothing casts a shadow this frame");
+                TR_CORE_ERROR("Renderer3D: no upload memory for the shadow data, no shadows this frame");
             }
             else
             {
@@ -1303,7 +1302,7 @@ namespace Trinity
             l_Upload = m_Device.AllocateUpload(l_LightsSize + std::uint64_t{ list.LightBounds.size() } * sizeof(glm::vec4), c_UploadAlignment);
             if (l_Upload.Data.empty() || l_Upload.ShaderResourceIndex == RHI::c_NoBindlessIndex)
             {
-                TR_CORE_ERROR("Renderer3D: no upload memory for {} lights, so point and spot lights light nothing this frame", list.Lights.size());
+                TR_CORE_ERROR("Renderer3D: no upload memory for {} lights, they light nothing this frame", list.Lights.size());
             }
             else
             {
@@ -1360,7 +1359,7 @@ namespace Trinity
                 context.GetCommands().Dispatch((ClusterGrid::c_Count + c_ClusterGroupSize - 1) / c_ClusterGroupSize, 1, 1);
             });
 
-            // The first view in a frame copies its counts back, for the statistics c_FramesInFlight frames later
+            // The first view in a frame copies its counts back, for statistics c_FramesInFlight frames later
             const std::size_t l_Slot = static_cast<std::size_t>(m_Frame % RHI::c_FramesInFlight);
             if (l_FirstView && m_ClusterReadbacks[l_Slot])
             {
@@ -1378,7 +1377,7 @@ namespace Trinity
             }
         }
 
-        // Both shading passes read the clusters and the shadow atlas, whose bindless indices are known once the graph runs
+        // The clusters' and the shadow atlas's bindless indices are known only once the graph runs
         const FrameGraphBuffer l_Counts = l_Passes.ClusterCounts;
         const FrameGraphBuffer l_Lights = l_Passes.ClusterLights;
         const FrameGraphTexture l_Atlas = l_Passes.ShadowAtlas;
@@ -1478,7 +1477,7 @@ namespace Trinity
         return l_Passes;
     }
 
-    // A masked submesh only needs a pipeline of its own where it writes depth, a depth-only pass none for colour, and entity IDs one for the forward passes alone
+    // A masked submesh needs its own pipeline only where it writes depth
     RHI::PipelineHandle Renderer3D::GetPipeline(RHI::Format colorFormat, PipelineKind kind, MeshPass pass, bool masked, bool entityIDs, std::uint32_t sampleCount)
     {
         const bool l_DepthOnly = pass == MeshPass::PrePass || pass == MeshPass::Shadow;
@@ -1495,7 +1494,7 @@ namespace Trinity
         {
             if (!m_ReportedNoShaders)
             {
-                TR_CORE_ERROR("Renderer3D: the mesh shaders are missing from /engine/shaders, so meshes are not drawn");
+                TR_CORE_ERROR("Renderer3D: no mesh shaders under /engine/shaders, meshes are not drawn");
                 m_ReportedNoShaders = true;
             }
 
@@ -1523,7 +1522,7 @@ namespace Trinity
         const RHI::UploadAllocation l_Frame = m_Device.AllocateUpload(sizeof(FrameData), c_UploadAlignment);
         if (l_Frame.Data.empty() || l_Frame.ShaderResourceIndex == RHI::c_NoBindlessIndex)
         {
-            TR_CORE_ERROR("Renderer3D: no upload memory for {} draws, so they are not drawn this frame", draws.size());
+            TR_CORE_ERROR("Renderer3D: no upload memory for {} draws, not drawn this frame", draws.size());
 
             return;
         }
@@ -1534,7 +1533,7 @@ namespace Trinity
             l_FrameData.ViewProjection[static_cast<std::size_t>(it_Column)] = list.View.ViewProjection[it_Column];
         }
 
-        // A point's view depth is its dot product with the negated third row of the view, and its slice comes from that depth's logarithm for a perspective view or the depth itself for an orthographic one, scaled and offset so the slices meet where ClusterGrid puts them
+        // Scaled and offset so the slices meet where ClusterGrid puts them
         const ClusterGrid& l_Grid = list.Clusters;
         const float l_SliceScale = l_Grid.Perspective ? static_cast<float>(ClusterGrid::c_Slices) / std::log2(l_Grid.Far / l_Grid.Near) : static_cast<float>(ClusterGrid::c_Slices) / (l_Grid.Far - l_Grid.Near);
         const float l_SliceBias = l_Grid.Perspective ? -l_SliceScale * std::log2(l_Grid.Near) : -l_SliceScale * l_Grid.Near;
@@ -1580,7 +1579,7 @@ namespace Trinity
         }
     }
 
-    // Between the runs of blended submeshes, each quad goes after those no nearer than it, so it blends over them and the nearer ones blend over it
+    // Each quad goes after the blended submeshes no nearer than it, so it blends over them
     void Renderer3D::RecordBlended(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height, const LightInputs& lights)
     {
         const std::span<const MeshDraw> l_Transparent = list.Transparent;
@@ -1630,7 +1629,7 @@ namespace Trinity
         ++m_Statistics.PipelineChanges;
     }
 
-    // Unlit and seen from both sides, tested against the opaque depth as a blended submesh is, writing none, and blending its straight alpha. Made the first time each is needed, and a failed one is kept, so it is not tried again every frame
+    // Unlit and two-sided, tested against the opaque depth, writing none. A failed one is not retried
     RHI::PipelineHandle Renderer3D::GetWorldUIPipeline(RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount)
     {
         const auto a_Found = std::ranges::find_if(m_WorldUIPipelines, [&](const TargetPipeline& entry) { return entry.Format == colorFormat && entry.EntityIDs == entityIDs && entry.SampleCount == sampleCount; });
@@ -1643,7 +1642,7 @@ namespace Trinity
         {
             if (!std::exchange(m_ReportedNoWorldUIShaders, true))
             {
-                TR_CORE_ERROR("Renderer3D: the WorldUI shaders are missing from /engine/shaders, so world UI documents sorted by depth are not drawn");
+                TR_CORE_ERROR("Renderer3D: no WorldUI shaders, depth-sorted world UI is not drawn");
             }
 
             return {};
@@ -1668,7 +1667,7 @@ namespace Trinity
         const RHI::PipelineHandle l_Pipeline = m_Device.CreateGraphicsPipeline(l_Description);
         if (!l_Pipeline)
         {
-            TR_CORE_ERROR("Renderer3D: the world UI pipeline for {} targets with {} sample(s) could not be created", RHI::ToString(colorFormat), sampleCount);
+            TR_CORE_ERROR("Renderer3D: world UI pipeline for {} targets, {} sample(s) could not be created", RHI::ToString(colorFormat), sampleCount);
         }
 
         m_WorldUIPipelines.push_back({ colorFormat, entityIDs, sampleCount, l_Pipeline });
@@ -1676,7 +1675,7 @@ namespace Trinity
         return l_Pipeline;
     }
 
-    // An orthographic view looks one way through every pixel, so it would show one colour of the sky, and shows the clear colour instead, as a scene whose environment has not loaded does
+    // An orthographic view would show one colour of the sky, so it shows the clear colour instead
     void Renderer3D::DrawSky(RHI::CommandList& commands, const SceneDrawList& list, RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount, std::uint32_t width, std::uint32_t height)
     {
         const EnvironmentAsset* l_Environment = list.Environment;
@@ -1691,7 +1690,7 @@ namespace Trinity
             return;
         }
 
-        // The view's turn alone, so the near plane's point through a pixel is the way the eye looks through it
+        // The view's turn alone, so the near plane's point through a pixel is the eye's direction
         const glm::mat4 l_Inverse = glm::inverse(list.View.Projection * glm::mat4(glm::mat3(list.View.View)));
         const float l_Angle = glm::radians(list.EnvironmentRotation);
         SkyPushData l_Push;
@@ -1714,7 +1713,7 @@ namespace Trinity
         ++m_Statistics.PipelineChanges;
     }
 
-    // One triangle over the whole target at the far depth, tested with the opaque pass's equal test against the depth the pre-pass left, so it shows only where that is still the cleared far depth, and writing none. Made the first time each is needed, and a failed one is kept, so it is not tried again every frame
+    // One triangle at the far depth, drawn only where the pre-pass depth is still cleared
     RHI::PipelineHandle Renderer3D::GetSkyPipeline(RHI::Format colorFormat, bool entityIDs, std::uint32_t sampleCount)
     {
         const auto a_Found = std::ranges::find_if(m_SkyPipelines, [&](const TargetPipeline& entry) { return entry.Format == colorFormat && entry.EntityIDs == entityIDs && entry.SampleCount == sampleCount; });
@@ -1727,7 +1726,7 @@ namespace Trinity
         {
             if (!std::exchange(m_ReportedNoSkyShaders, true))
             {
-                TR_CORE_ERROR("Renderer3D: the Sky shaders are missing from /engine/shaders, so environments light scenes but show no sky");
+                TR_CORE_ERROR("Renderer3D: no Sky shaders under /engine/shaders, environments show no sky");
             }
 
             return {};
@@ -1750,7 +1749,7 @@ namespace Trinity
         const RHI::PipelineHandle l_Pipeline = m_Device.CreateGraphicsPipeline(l_Description);
         if (!l_Pipeline)
         {
-            TR_CORE_ERROR("Renderer3D: the sky pipeline for {} targets with {} sample(s) could not be created", RHI::ToString(colorFormat), sampleCount);
+            TR_CORE_ERROR("Renderer3D: sky pipeline for {} targets, {} sample(s) could not be created", RHI::ToString(colorFormat), sampleCount);
         }
 
         m_SkyPipelines.push_back({ colorFormat, entityIDs, sampleCount, l_Pipeline });
@@ -1758,7 +1757,7 @@ namespace Trinity
         return l_Pipeline;
     }
 
-    // Each view's casters into its tile, through its view-projection, with the material table and samplers a masked caster cuts itself out with, which is all of the frame's constants the shaders read here
+    // Each view's casters into its tile, with the material table and samplers a masked caster needs
     void Renderer3D::RecordShadowDraws(RHI::CommandList& commands, const SceneDrawList& list)
     {
         TR_PROFILE_FUNCTION();
@@ -1773,7 +1772,7 @@ namespace Trinity
             const RHI::UploadAllocation l_Frame = m_Device.AllocateUpload(sizeof(FrameData), c_UploadAlignment);
             if (l_Frame.Data.empty() || l_Frame.ShaderResourceIndex == RHI::c_NoBindlessIndex)
             {
-                TR_CORE_ERROR("Renderer3D: no upload memory for a shadow map, so its casters are not drawn this frame");
+                TR_CORE_ERROR("Renderer3D: no upload memory for a shadow map, its casters are not drawn");
 
                 return;
             }
@@ -1800,13 +1799,13 @@ namespace Trinity
         }
     }
 
-    // Every draw's record goes into the upload ring, and each draw names its record by index. The pipeline changes with the way a submesh faces, and in a depth-only pass with whether it is masked
+    // Each draw names its record in the upload ring by index. The pipeline changes with facing and mask
     bool Renderer3D::DrawMeshes(RHI::CommandList& commands, std::span<const MeshDraw> draws, std::uint32_t frame, std::uint32_t frameOffset, RHI::Format colorFormat, MeshPass pass, bool entityIDs, std::uint32_t sampleCount)
     {
         const RHI::UploadAllocation l_Draws = m_Device.AllocateUpload(std::uint64_t{ draws.size() } * sizeof(DrawData), c_UploadAlignment);
         if (l_Draws.Data.empty() || l_Draws.ShaderResourceIndex == RHI::c_NoBindlessIndex)
         {
-            TR_CORE_ERROR("Renderer3D: no upload memory for {} draws, so they are not drawn this frame", draws.size());
+            TR_CORE_ERROR("Renderer3D: no upload memory for {} draws, not drawn this frame", draws.size());
 
             return false;
         }

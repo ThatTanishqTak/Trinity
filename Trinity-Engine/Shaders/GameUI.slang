@@ -1,8 +1,8 @@
-// RmlUi's vertices read from the upload ring, its textures and sampler through bindless indices, drawn in the display space of the view, with colours multiplied by their alpha
+// RmlUi's vertices from the upload ring, drawn in the view's display space, premultiplied
 #include "Bindless.slang"
 #include "Color.slang"
 
-// The first, second and fourth columns of the transform from the view's pixels to clip space, which is all a vertex at depth 0 needs
+// Columns 1, 2 and 4 of the pixels-to-clip transform, all a vertex at depth 0 needs
 struct PushData
 {
     float4 Column0;
@@ -18,11 +18,11 @@ struct PushData
 
 [[vk::push_constant]] ConstantBuffer<PushData> g_Push;
 
-// Rml::Vertex: a float2 position, an RGBA8 colour already multiplied by its alpha with red in the low byte, and a float2 texture coordinate
+// Rml::Vertex: a float2 position, a premultiplied RGBA8 colour, a float2 texture coordinate
 static const uint c_VertexStride = 20;
 
 static const uint c_Textured = 1;
-// The view's display target holds sRGB-encoded values, so what an sRGB texture decodes to is encoded again
+// The display target holds sRGB-encoded values, so an sRGB texture's texel is encoded again
 static const uint c_EncodeSrgb = 2;
 // A project's texture has straight alpha, where RmlUi's own are multiplied by it already
 static const uint c_Premultiply = 4;

@@ -16,10 +16,10 @@ namespace Trinity
         PBRNeutral
     };
 
-    // The EV100 under which a linear value reaches the display unscaled, since the exposure is 1 / (1.2 * 2^EV100)
+    // The EV100 at which a linear value reaches the display unscaled: exposure is 1 / (1.2 * 2^EV100)
     constexpr float c_NeutralEV100 = -0.263034406f;
 
-    // How a camera's linear scene becomes the display's image: scaled by the exposure, mapped into [0, 1] by the curve, where None only clamps, then encoded as sRGB
+    // Scaled by the exposure, mapped into [0, 1] by the curve, where None only clamps, then sRGB
     struct ToneMapping
     {
         float ExposureEV100 = c_NeutralEV100;
@@ -34,7 +34,7 @@ namespace Trinity
     // Khronos PBR Neutral, as glTF Sample Viewer applies it, to a linear colour
     [[nodiscard]] TRINITY_API glm::vec3 ApplyPBRNeutral(glm::vec3 color);
 
-    // What the tonemap pass writes for a linear scene colour before it is stored in 8 bits, so tests can compare against it
+    // What the tonemap pass writes before it is stored in 8 bits, so tests can compare against it
     [[nodiscard]] TRINITY_API glm::vec3 ApplyToneMapping(glm::vec3 color, const ToneMapping& toneMapping);
 
     [[nodiscard]] TRINITY_API std::string_view ToString(Tonemapper tonemapper);

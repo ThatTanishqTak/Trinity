@@ -1,4 +1,4 @@
-// The Scene view's world grid, drawn into the scene target under the sprites. Lines are antialiased per pixel, so they stay one pixel wide at any zoom and target size
+// Drawn under the sprites. Lines are antialiased per pixel, staying one pixel wide at any zoom
 struct PushData
 {
     float2 Center;
@@ -38,7 +38,7 @@ float GridLine(float2 world, float spacing)
     return 1.0 - min(min(l_Distance.x, l_Distance.y), 1.0);
 }
 
-// Minor lines fade in as their cells grow, major lines every ten, and the axes in red for X and green for Y. The colours are linear, as the scene target is, and match sRGB (0.9, 0.3, 0.3) and (0.3, 0.85, 0.3)
+// Linear colours, as the scene target is, matching sRGB (0.9, 0.3, 0.3) and (0.3, 0.85, 0.3)
 [shader("fragment")]
 float4 PixelMain(VertexOutput input) : SV_Target
 {

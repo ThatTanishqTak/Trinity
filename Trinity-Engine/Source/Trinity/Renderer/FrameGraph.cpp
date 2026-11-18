@@ -16,14 +16,14 @@ namespace Trinity
     {
         constexpr std::uint32_t c_NoIndex = UINT32_MAX;
 
-        // Execute callbacks and names live in blocks reused every frame, so building a graph allocates nothing once the blocks are big enough
+        // Execute callbacks and names live in blocks reused every frame, so building allocates nothing
         constexpr std::size_t c_FrameMemoryBlockSize = 64 * 1024;
         constexpr std::size_t c_FrameMemoryAlignment = 64;
 
-        // A pooled texture or buffer that no execution has used for this many executions is destroyed, so the sizes a resize leaves behind do not pile up
+        // A pooled resource unused for this many executions is destroyed, so resizes do not pile up
         constexpr std::uint64_t c_PoolKeepExecutions = 4;
 
-        // Pass times are summed over this many timed executions and then published together, so the numbers hold still long enough to read
+        // Pass times are summed over this many executions, so the numbers hold still long enough to read
         constexpr std::uint32_t c_TimingWindow = 30;
         constexpr std::uint32_t c_MinimumTimestamps = 32;
         constexpr std::uint64_t c_TimestampSize = 8;
@@ -133,7 +133,7 @@ namespace Trinity
             }
         }
 
-        // Which queue last used a resource in this execution: the graphics queue, or the compute queue in work not sent yet or already sent
+        // The graphics queue, or the compute queue in work not yet sent or already sent
         enum class QueueUse : std::uint8_t
         {
             None,
@@ -142,13 +142,13 @@ namespace Trinity
             Compute
         };
 
-        // Everything CreateTexture is given, including the optimized clear, so a pooled texture never clears to a value it was not made for
+        // Includes the optimized clear, so a pooled texture never clears to a value it was not made for
         bool IsSameTexture(const RHI::TextureDescription& left, const RHI::TextureDescription& right)
         {
             return left.Width == right.Width && left.Height == right.Height && left.MipLevels == right.MipLevels && left.ArrayLayers == right.ArrayLayers && left.Dimension == right.Dimension && left.SampleCount == right.SampleCount && left.TextureFormat == right.TextureFormat && left.Usage == right.Usage && left.ClearColor == right.ClearColor && left.ClearDepth == right.ClearDepth && left.OptimizedClear == right.OptimizedClear;
         }
 
-        // How many of the first count names are this one, which tells apart passes that share a name
+        // Counts earlier passes of this name, which tells apart passes that share one
         std::uint32_t CountName(std::span<const RendererString> names, std::uint32_t count, std::string_view name)
         {
             return static_cast<std::uint32_t>(std::ranges::count(names.first(count), name));
@@ -181,7 +181,7 @@ namespace Trinity
             DestroyFunction Destroy = nullptr;
         };
 
-        // LastPass is the last pass left after culling that uses the resource, and decides whether an attachment is stored
+        // LastPass, the last living pass to use the resource, decides whether an attachment is stored
         struct Texture
         {
             std::string_view Name;
@@ -242,7 +242,7 @@ namespace Trinity
             RHI::QueueType Queue = RHI::QueueType::Graphics;
         };
 
-        // One per frame in flight. A slot is read back when the graph comes round to it again, by when the device has finished the frame that wrote it. Timestamp 0 is before the first pass, a graphics pass is timed from the graphics timestamp before it, and an async compute pass from one written just before it on the compute queue
+        // One per frame in flight, read back when the graph comes round to it again
         struct TimingSlot
         {
             RHI::QueryPoolHandle Pool;
@@ -311,7 +311,7 @@ namespace Trinity
     {
         FrameGraph::State& l_State = *m_Graph.m_State;
         FrameGraph::State::Pass& l_Pass = l_State.Passes[m_Pass];
-        TR_CORE_ASSERT(l_Pass.Type == FrameGraphPassType::Raster && !l_Pass.Depth.Texture, "Pass '{}' sets a depth attachment, but it is not a raster pass or has one already.", l_Pass.Name);
+        TR_CORE_ASSERT(l_Pass.Type == FrameGraphPassType::Raster && !l_Pass.Depth.Texture, "Pass '{}' sets a depth attachment, but is not a raster pass or has one.", l_Pass.Name);
         TR_CORE_ASSERT(attachment.Texture.Index < l_State.Textures.size(), "Pass '{}' sets a depth attachment that is not a texture of this graph.", l_Pass.Name);
         if (l_Pass.Type != FrameGraphPassType::Raster || l_Pass.Depth.Texture || attachment.Texture.Index >= l_State.Textures.size())
         {
@@ -422,7 +422,7 @@ namespace Trinity
 
     FrameGraphTexture FrameGraph::ImportTexture(std::string_view name, RHI::TextureHandle texture, const RHI::TextureDescription& description, RHI::ResourceState initialState, RHI::ResourceState finalState)
     {
-        TR_CORE_ASSERT(texture.IsValid() && finalState != RHI::ResourceState::Undefined, "Texture '{}' is imported without a texture, or with Undefined as its final state.", name);
+        TR_CORE_ASSERT(texture.IsValid() && finalState != RHI::ResourceState::Undefined, "Texture '{}' is imported without a texture, or with an Undefined final state.", name);
 
         State::Texture l_Texture;
         l_Texture.Name = CopyName(name);
@@ -440,7 +440,7 @@ namespace Trinity
 
     FrameGraphBuffer FrameGraph::ImportBuffer(std::string_view name, RHI::BufferHandle buffer, std::uint64_t size, RHI::ResourceState initialState, RHI::ResourceState finalState)
     {
-        TR_CORE_ASSERT(buffer.IsValid() && finalState != RHI::ResourceState::Undefined, "Buffer '{}' is imported without a buffer, or with Undefined as its final state.", name);
+        TR_CORE_ASSERT(buffer.IsValid() && finalState != RHI::ResourceState::Undefined, "Buffer '{}' is imported without a buffer, or with an Undefined final state.", name);
 
         State::Buffer l_Buffer;
         l_Buffer.Name = CopyName(name);
@@ -497,7 +497,7 @@ namespace Trinity
         AcquireResources();
         std::uint32_t l_LastGraphics = BeginTimestamps(commands);
 
-        // An async compute pass records into the device's compute list, unless that is the frame's own, and the compute work goes before the first graphics pass that uses what it used, or after the last pass
+        // The compute work goes before the first graphics pass that uses what it used, or after the last
         bool l_ComputePending = false;
         bool l_AfterGraphics = false;
         for (std::uint32_t it_Pass = 0; it_Pass < l_State.Passes.size(); ++it_Pass)
@@ -623,7 +623,7 @@ namespace Trinity
         State::Pass& l_Pass = l_State.Passes[pass];
         TR_CORE_ASSERT(resource < (buffer ? l_State.Buffers.size() : l_State.Textures.size()), "Pass '{}' uses a {} that is not part of this graph.", l_Pass.Name, buffer ? "buffer" : "texture");
         TR_CORE_ASSERT(state != RHI::ResourceState::Undefined, "Pass '{}' uses a resource in the Undefined state.", l_Pass.Name);
-        TR_CORE_ASSERT(l_Pass.Type != FrameGraphPassType::AsyncCompute || state == RHI::ResourceState::ShaderResource || state == RHI::ResourceState::UnorderedAccess || state == RHI::ResourceState::CopySource || state == RHI::ResourceState::CopyDestination || state == RHI::ResourceState::IndirectArgument, "Pass '{}' runs on the compute queue, which uses resources only to read and write in shaders, copy and read indirect arguments.", l_Pass.Name);
+        TR_CORE_ASSERT(l_Pass.Type != FrameGraphPassType::AsyncCompute || state == RHI::ResourceState::ShaderResource || state == RHI::ResourceState::UnorderedAccess || state == RHI::ResourceState::CopySource || state == RHI::ResourceState::CopyDestination || state == RHI::ResourceState::IndirectArgument, "Pass '{}' runs on the compute queue: shader, copy and indirect use only.", l_Pass.Name);
         if (resource >= (buffer ? l_State.Buffers.size() : l_State.Textures.size()))
         {
             return;
@@ -691,7 +691,7 @@ namespace Trinity
         }
     }
 
-    // Walking back from the last pass, a pass lives if it has a side effect or writes an imported resource or one a living pass uses. Everything a living pass uses is then needed, its writes included, so earlier writes to part of a texture survive
+    // Walking back, a pass lives if it has a side effect or writes something a living pass uses
     void FrameGraph::CullPasses()
     {
         State& l_State = *m_State;
@@ -732,7 +732,7 @@ namespace Trinity
         }
     }
 
-    // A transient resource's usage is every way a living pass uses it, and it comes from the pool when a matching one is free
+    // A transient's usage is every way a living pass uses it. A matching pooled one is reused
     void FrameGraph::AcquireResources()
     {
         State& l_State = *m_State;
@@ -817,7 +817,7 @@ namespace Trinity
         }
     }
 
-    // An async compute pass waits for the frame's graphics work so far when it uses something that work used, and a texture whose contents the graphics queue holds goes over to the compute queue in the state the pass needs
+    // An async pass waits for the frame's graphics work so far when it uses something that work used
     bool FrameGraph::MoveToCompute(std::uint32_t pass)
     {
         State& l_State = *m_State;
@@ -868,7 +868,7 @@ namespace Trinity
         }
     }
 
-    // Every texture the compute work used goes back to the graphics queue as it is, so the graphics queue holds every texture between compute work, and the buffers count as sent
+    // Every texture the compute work used goes back to the graphics queue as it is
     void FrameGraph::SendCompute(bool afterGraphics)
     {
         State& l_State = *m_State;
@@ -896,7 +896,7 @@ namespace Trinity
         m_Device.SubmitCompute(afterGraphics);
     }
 
-    // Barriers first, then for a raster pass the attachments, stored only when the texture is imported or a later pass uses it, and a viewport and scissor over the render area
+    // Barriers first. An attachment is stored only when imported or used by a later pass
     void FrameGraph::RecordPass(RHI::CommandList& commands, std::uint32_t pass)
     {
         State& l_State = *m_State;
@@ -908,7 +908,7 @@ namespace Trinity
             const bool l_Missing = it_Access.Buffer ? !l_State.Buffers[it_Access.Resource].Handle : !l_State.Textures[it_Access.Resource].Handle;
             if (l_Missing)
             {
-                TR_CORE_ERROR("Frame graph: pass '{}' is skipped, since '{}' could not be created", l_Pass.Name, it_Access.Buffer ? l_State.Buffers[it_Access.Resource].Name : l_State.Textures[it_Access.Resource].Name);
+                TR_CORE_ERROR("Frame graph: pass '{}' skipped, '{}' could not be created", l_Pass.Name, it_Access.Buffer ? l_State.Buffers[it_Access.Resource].Name : l_State.Textures[it_Access.Resource].Name);
 
                 return;
             }
@@ -983,7 +983,7 @@ namespace Trinity
         }
     }
 
-    // Reading in the state a resource is already in needs nothing. A write always gets a barrier, even in the same state, so it waits for whatever came before
+    // A read in the state a resource is already in needs nothing. A write always gets a barrier
     void FrameGraph::TransitionTexture(RHI::CommandList& commands, std::uint32_t texture, RHI::ResourceState state)
     {
         State::Texture& l_Texture = m_State->Textures[texture];
@@ -1010,7 +1010,7 @@ namespace Trinity
         ++m_State->Stats.Barriers;
     }
 
-    // Everything used this frame goes back to the pool for the next one, and the device keeps a destroyed resource until no frame in flight uses it
+    // Everything used this frame goes back to the pool. The device defers each destroy itself
     void FrameGraph::ReleaseResources()
     {
         State& l_State = *m_State;
@@ -1043,7 +1043,7 @@ namespace Trinity
         l_State.Stats.PooledBuffers = static_cast<std::uint32_t>(l_State.BufferPool.size());
     }
 
-    // Reads what this slot timed last, makes room for a timestamp before the first pass, one after each pass that runs and one before each async compute pass, and writes the first. A slot whose pool or readback could not be created times nothing
+    // Reads what this slot timed last, then writes the first timestamp
     std::uint32_t FrameGraph::BeginTimestamps(RHI::CommandList& commands)
     {
         State& l_State = *m_State;
@@ -1073,7 +1073,7 @@ namespace Trinity
             l_Timing.Readback = m_Device.CreateBuffer(l_Description);
             if (!l_Timing.Pool || !l_Timing.Readback)
             {
-                TR_CORE_ERROR("Frame graph: could not create {} timestamps and their readback, so this graph's passes are not timed", l_Timing.Capacity);
+                TR_CORE_ERROR("Frame graph: could not create {} timestamps, its passes are not timed", l_Timing.Capacity);
                 m_Device.DestroyQueryPool(l_Timing.Pool);
                 m_Device.DestroyBuffer(l_Timing.Readback);
                 l_Timing.Pool = {};
@@ -1087,7 +1087,7 @@ namespace Trinity
         return WriteTimestamp(commands, RHI::QueueType::Graphics);
     }
 
-    // The timestamp written, or c_NoTimestamp when the slot times nothing or the queue has no timestamps
+    // c_NoTimestamp when the slot times nothing or the queue has no timestamps
     std::uint32_t FrameGraph::WriteTimestamp(RHI::CommandList& commands, RHI::QueueType queue)
     {
         State& l_State = *m_State;
@@ -1102,7 +1102,7 @@ namespace Trinity
         return l_Timing.Timestamps++;
     }
 
-    // Times the pass from begin, a timestamp on the same queue, to one written now, which it returns
+    // Times the pass from begin, a timestamp on the same queue, to one written now
     std::uint32_t FrameGraph::WritePassTimestamp(RHI::CommandList& commands, std::uint32_t pass, RHI::QueueType queue, std::uint32_t begin)
     {
         State& l_State = *m_State;
@@ -1125,7 +1125,7 @@ namespace Trinity
         return l_End;
     }
 
-    // After the final transitions, so the last pass's time leaves them out, and after the compute work, whose timestamps the frame's commands wait for
+    // After the final transitions, so the last pass's time leaves them out, and after the compute work
     void FrameGraph::EndTimestamps(RHI::CommandList& commands, std::uint32_t lastGraphics)
     {
         State& l_State = *m_State;
@@ -1137,7 +1137,7 @@ namespace Trinity
         }
     }
 
-    // Adds each pass's time, in its queue's ticks, to its sum, and publishes once the window is full. The total is the graphics queue's, from before the first pass to after the last graphics pass
+    // Publishes once the window is full. The total is the graphics queue's, first pass to last
     void FrameGraph::ReadTimestamps(std::uint32_t slot)
     {
         State& l_State = *m_State;
@@ -1192,7 +1192,7 @@ namespace Trinity
         }
     }
 
-    // In the order the latest execution ran its passes, each averaged over the executions it ran in. Passes the latest execution did not run are forgotten, and the rest start a new window
+    // In the latest execution's order. Passes it did not run are forgotten
     void FrameGraph::PublishTimes(std::uint32_t slot)
     {
         State& l_State = *m_State;

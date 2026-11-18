@@ -1,7 +1,7 @@
-// The sky a scene's Environment shows behind everything a perspective view sees, drawn by Renderer3D at the end of the opaque pass as one triangle over the whole target at the far depth, so the equal depth test passes only where no surface was drawn. Each pixel shows the environment's radiance at its sharpest along the eye ray through it, turned and scaled as lighting looks it up, writing no depth
+// One triangle at the far depth, so the equal depth test passes only where no surface was drawn
 #include "Bindless.slang"
 
-// The inverse of the projection times the view's turn alone, as four columns, as glm stores them, which takes a point of the near plane to the way the eye looks through it, then the specular cubemap and its sampler, the environment's intensity, and the cosine and sine of its turn
+// Laid out as Renderer3D.cpp writes it. The matrix takes a near-plane point to the eye's direction
 struct PushData
 {
     float4 InverseViewProjection[4];
@@ -21,7 +21,7 @@ struct VertexOutput
     float2 Clip : TEXCOORD0;
 };
 
-// Three vertices whose triangle covers the target, at depth 0, which is the far end of reversed depth
+// Depth 0 is the far end of reversed depth
 [shader("vertex")]
 VertexOutput VertexMain(uint vertexIndex: SV_VertexID)
 {
@@ -35,7 +35,7 @@ VertexOutput VertexMain(uint vertexIndex: SV_VertexID)
     return l_Output;
 }
 
-// The near plane is at depth 1 in reversed depth, so its point through the pixel, with the view's position left out, lies along the eye ray. The environment is turned about +Y as Mesh.slang's RotateToEnvironment turns what it looks up
+// The near plane is at depth 1, so its point through the pixel lies along the eye ray
 float3 SampleSky(float2 clip)
 {
     const float4 l_Near = g_Push.InverseViewProjection[0] * clip.x + g_Push.InverseViewProjection[1] * clip.y + g_Push.InverseViewProjection[2] + g_Push.InverseViewProjection[3];
@@ -59,7 +59,7 @@ struct PickOutput
     uint Entity : SV_Target1;
 };
 
-// The colour, and no entity into the ID target beside it, as it was cleared, so a click on the sky picks nothing
+// No entity goes into the ID target, so a click on the sky picks nothing
 [shader("fragment")]
 PickOutput PickPixelMain(VertexOutput input)
 {

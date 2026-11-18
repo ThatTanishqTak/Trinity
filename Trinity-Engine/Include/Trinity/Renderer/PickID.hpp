@@ -6,7 +6,7 @@
 
 namespace Trinity
 {
-    // An entity as the ID targets hold it: its handle plus one, so the 0 they are cleared to stands for entt::null, no entity
+    // The handle plus one, so the 0 the ID targets are cleared to stands for entt::null
     [[nodiscard]] constexpr std::uint32_t ToPickID(entt::entity entity)
     {
         return static_cast<std::uint32_t>(entity) + 1u;

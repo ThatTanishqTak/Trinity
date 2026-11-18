@@ -31,10 +31,10 @@ namespace Trinity
 
     using OutputCallback = std::function<void(RHI::CommandList& commands, std::uint32_t width, std::uint32_t height)>;
 
-    // Names one of the Renderer's views. The main view, Renderer::c_MainView, always exists
+    // The main view, Renderer::c_MainView, always exists
     using ViewID = std::uint32_t;
 
-    // What draws over each view's tone mapped image, in its display space, as a game's UI does. Its uploads are recorded once a frame before the frame graph runs, and each view it has something for gets a pass of its own after the tonemap, the outline and the debug lines, with a stencil target the size of the view when it asks for one
+    // Draws over each view's tone mapped image, as a game's UI does, in a pass after the debug lines
     class TRINITY_API ViewOverlay
     {
     public:
@@ -49,18 +49,18 @@ namespace Trinity
 
         virtual void RecordUploads(RHI::CommandList& commands) = 0;
         [[nodiscard]] virtual Needs GetNeeds(ViewID view) const = 0;
-        // Inside the view's overlay pass, which loads its display target, with a viewport and scissor covering the view, and a stencil target of Renderer::c_OverlayStencilFormat cleared to 0 when it asked for one
+        // Inside the view's overlay pass, with a viewport and scissor covering the view
         virtual void Draw(RHI::CommandList& commands, ViewID view, std::uint32_t width, std::uint32_t height, bool stencil) = 0;
     };
 
-    // The entity drawn in a pixel SceneOptions::PickPixel asked about, entt::null where there is none
+    // entt::null where there is none
     struct PickResult
     {
         glm::uvec2 Pixel{ 0 };
         entt::entity Entity = entt::null;
     };
 
-    // The depth a view's meshes left in a pixel Renderer::RequestDepthPick asked about, reversed as Renderer3D draws it, so 0 is no surface, and the view-projection of the frame it was drawn in, which turns it back into a point
+    // Reversed depth, so 0 is no surface, with the view-projection of the frame it was drawn in
     struct DepthPickResult
     {
         glm::uvec2 Pixel{ 0 };
@@ -68,7 +68,7 @@ namespace Trinity
         glm::mat4 ViewProjection{ 1.0f };
     };
 
-    // A view's picture as a frame drew it, in sRGB-encoded RGBA8 rows from the top, as Forge's --capture writes a template's thumbnail from it
+    // sRGB-encoded RGBA8 rows from the top
     struct ViewCapture
     {
         std::uint32_t Width = 0;
@@ -76,7 +76,7 @@ namespace Trinity
         std::vector<std::byte> Pixels;
     };
 
-    // Each frame is a frame graph that draws every view in turn, the main view first. A view has scene and display targets of its own, a size, tone mapping, and a scene submitted to it with its options, ID targets and picks. A scene submitted for 3D is drawn first, by a depth pre-pass and an opaque pass. In the main view, layers then draw in linear light into an RGBA16Float scene target in the scene pass, the size of the output unless SetSceneSize asks for another, then add their own passes. The tonemap pass turns each view's scene into a display target of sRGB-encoded 8-bit values. The output pass copies the main view's to the window, or to an offscreen target when there is no window, when the sizes match, and the UI is drawn over it in gamma space, where it can show any view's display target. A scene that asks for entity IDs also has its sprites' drawn after the scene pass, a pixel picked from them and read back without waiting, and its selection outlined over the tonemapped image. The depth its meshes leave in a pixel can be read back the same way, whatever its options. A view overlay, such as a game's UI, draws over each view's display target last. A world UI source's documents are drawn into their textures before any view, for the scenes' quads to show. Each added output gets a pass of its own
+    // Each frame is one frame graph that draws every view in turn, the main view first
     class TRINITY_API Renderer
     {
     public:
@@ -95,32 +95,32 @@ namespace Trinity
         [[nodiscard]] std::uint32_t AddOutput(Window& window, const std::array<float, 4>& clearColor, OutputCallback callback);
         void RemoveOutput(std::uint32_t output);
 
-        // A view of this size, or one that follows the output's as the main view does when either is 0. Between frames. Its targets show the clear colour until a scene is first submitted to it, and keep what they last showed in a frame nothing is
+        // A size of 0 follows the output's, as the main view does. Call between frames
         [[nodiscard]] ViewID CreateView(std::uint32_t width = 0, std::uint32_t height = 0);
-        // Between frames. Its targets are released once no frame in flight can still use them. The main view cannot be destroyed
+        // Between frames. The main view cannot be destroyed
         void DestroyView(ViewID view);
         [[nodiscard]] bool HasView(ViewID view) const;
 
         void SetClearColor(const std::array<float, 4>& color) { m_ClearColor = color; }
-        // Draws the scene's meshes into the view's scene target this frame, before anything else draws over them. On the main thread, after the transform pass and before the frame graph is built, as in OnPrepareRender. The scene must last until the frame is rendered
+        // On the main thread, before the frame graph is built. The scene must outlive the frame
         void SubmitScene(Scene& scene, const RenderView& camera, const SceneOptions& options = {}, ViewID view = c_MainView);
-        // The pick a view's scene asked for c_FramesInFlight frames ago, read without waiting on the GPU since that frame has finished, and handed over once. Picks come back in the order they were asked for
+        // Asked c_FramesInFlight frames ago, read without waiting on the GPU. Handed over once, in order
         [[nodiscard]] std::optional<PickResult> TakePickResult(ViewID view = c_MainView);
-        // The depth in a pixel of the view, read in the next frame that draws its scene's meshes and handed back as a pick is, c_FramesInFlight frames later. Before the frame graph is built, and the last asked for wins. A device that cannot read the scene's depth answers none
+        // Read in the next frame that draws the scene's meshes. The last asked for wins
         void RequestDepthPick(glm::uvec2 pixel, ViewID view = c_MainView);
         [[nodiscard]] std::optional<DepthPickResult> TakeDepthPick(ViewID view = c_MainView);
-        // The view's display target as the next frame that draws a scene into it leaves it, copied after everything drawn over it, and handed back as a pick is, c_FramesInFlight frames later. Before the frame graph is built
+        // Copied after everything drawn over the view, and handed back c_FramesInFlight frames later
         void RequestCapture(ViewID view = c_MainView);
         [[nodiscard]] std::optional<ViewCapture> TakeCapture(ViewID view = c_MainView);
         void SetTitle(std::string_view title);
         void SetSceneCopy(bool enabled) { m_SceneCopy = enabled; }
         void SetSceneSize(std::uint32_t width, std::uint32_t height, ViewID view = c_MainView);
 
-        // Applied to every frame of the view until set again, so a layer sets it from the camera it shows. Exposure 1 and no curve until then
+        // Applies to every frame of the view until set again. Exposure 1 and no curve until then
         void SetToneMapping(const ToneMapping& toneMapping, ViewID view = c_MainView);
         [[nodiscard]] const ToneMapping& GetToneMapping(ViewID view = c_MainView) const;
 
-        // A pass that tone maps a linear scene texture into a target of the display format, one texel per pixel, so the two are the same size. The Renderer adds one for each view it draws, and any graph can add more
+        // Tone maps a linear scene texture into a display-format target of the same size
         void AddTonemapPass(FrameGraph& graph, FrameGraphTexture scene, FrameGraphTexture target, const ToneMapping& toneMapping) const;
 
         void SetVSync(bool enabled);
@@ -128,7 +128,7 @@ namespace Trinity
 
         // One at a time, or none. It must outlive every frame it is set for
         void SetViewOverlay(ViewOverlay* overlay) { m_Overlay = overlay; }
-        // One at a time, or none, for every view, Renderer2D and Renderer3D alike. It must outlive every frame it is set for
+        // One at a time, or none, for every view. It must outlive every frame it is set for
         void SetWorldUISource(WorldUISource* source);
 
         [[nodiscard]] Renderer2D& GetRenderer2D() { return *m_Renderer2D; }
@@ -147,7 +147,7 @@ namespace Trinity
         [[nodiscard]] std::uint64_t GetFrameCount() const { return m_FrameCount; }
 
     private:
-        // The ID targets a scene's entities were drawn into, sprites' and meshes', with as many samples as the meshes' have, and 0 when they have none
+        // With as many samples as the meshes' have, and 0 when they have none
         struct EntityTargets
         {
             FrameGraphTexture Sprites;
@@ -167,7 +167,7 @@ namespace Trinity
             OutputCallback Callback;
         };
 
-        // A view's targets, the size it asked for, where 0 follows the output, the scene submitted to it this frame, and a pick readback slot for each frame in flight, read when the slot comes round again, with the pixel its frame asked about, if any
+        // A size of 0 follows the output. Each frame in flight has a pick readback slot
         struct View
         {
             ViewID Id = c_MainView;
@@ -190,12 +190,12 @@ namespace Trinity
             std::array<RHI::BufferHandle, RHI::c_FramesInFlight> PickReadbacks{};
             std::array<std::optional<glm::uvec2>, RHI::c_FramesInFlight> PickPixels{};
             std::optional<PickResult> Pick;
-            // The same for depth: the pixel asked for next, and what each slot's frame asked, with its view-projection, until its depth is read
+            // As picks: the pixel asked for next, and what each slot's frame asked, until its depth is read
             std::optional<glm::uvec2> DepthPixel;
             std::array<RHI::BufferHandle, RHI::c_FramesInFlight> DepthReadbacks{};
             std::array<std::optional<DepthPickResult>, RHI::c_FramesInFlight> DepthPicks{};
             std::optional<DepthPickResult> Depth;
-            // The same for a capture of the display: whether one is asked for, and the readback of each slot's frame with the size it was copied at, until it is read
+            // As picks, for a capture of the display, with the size each slot's frame was copied at
             bool CaptureWanted = false;
             std::array<RHI::BufferHandle, RHI::c_FramesInFlight> CaptureReadbacks{};
             std::array<std::optional<glm::uvec2>, RHI::c_FramesInFlight> CaptureSizes{};
@@ -257,7 +257,7 @@ namespace Trinity
         std::vector<Output> m_Outputs;
         std::uint32_t m_NextOutputId = 1;
 
-        // The main view first. Each view stays where it is in memory while it lives, since the graph's passes point at it
+        // The main view first. A view never moves in memory, since the graph's passes point at it
         std::vector<Scope<View>> m_Views;
         ViewID m_NextViewId = c_MainView + 1;
         // The display targets this frame's graph draws, which every pass that can show one reads
@@ -268,10 +268,10 @@ namespace Trinity
         RHI::PipelineHandle m_PickPipeline;
         RHI::PipelineHandle m_DepthPickPipeline;
         RHI::PipelineHandle m_OutlinePipeline;
-        // Whether the device can read the scene's depth in a shader, single-sampled then with Renderer3D::c_SampleCount samples
+        // Single-sampled, then with Renderer3D::c_SampleCount samples
         std::array<bool, 2> m_ReadableDepth{};
 #if TR_DEBUG_DRAW
-        // Where this frame's debug lines are in the upload ring, depth-tested then on top, and whether the scene's depth can be read to test them, single-sampled then with Renderer3D::c_SampleCount samples
+        // Depth-tested lines, then lines on top. The depth flags are single-sampled, then multisampled
         struct DebugLines
         {
             std::uint32_t Buffer = RHI::c_NoBindlessIndex;
