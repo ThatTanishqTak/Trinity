@@ -62,7 +62,7 @@ namespace Trinity
             }
         }
 
-        // Onto the material as it is, so a key the map lacks keeps its value. Gives back the key that did not read, or nothing
+        // A key the map lacks keeps its value. Returns the key that did not read, or nothing
         std::string ReadFields(const YAML::Node& map, MaterialData& material)
         {
             std::string l_Malformed;
@@ -153,7 +153,7 @@ namespace Trinity
         return l_Fields;
     }
 
-    // As one file of only those keys, read over the material, so the values read exactly as a file's do
+    // Read as one file of only those keys, so the values read exactly as a file's do
     Expected<MaterialData, std::string> ApplyMaterialFields(MaterialData material, std::span<const MaterialField> fields)
     {
         std::string l_Text = std::format("Format: {}\n", MaterialData::c_FormatVersion);

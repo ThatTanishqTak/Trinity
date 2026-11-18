@@ -23,7 +23,7 @@ namespace Trinity
         Blend
     };
 
-    // A texture asset's UUID and the UV set it is sampled with. An invalid UUID leaves the slot empty
+    // An invalid UUID leaves the slot empty
     struct MaterialTexture
     {
         UUID Texture;
@@ -32,7 +32,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MaterialTexture&) const = default;
     };
 
-    // glTF's metallic-roughness material as importers cook it, with linear colours. Metallic is read from blue and roughness from green, occlusion from red, and the normal map's X and Y from red and green
+    // Linear colours. Metallic is read from blue, roughness from green, occlusion from red
     struct MaterialData
     {
         static constexpr std::uint32_t c_FormatVersion = 1;
@@ -54,7 +54,7 @@ namespace Trinity
         MaterialTexture OcclusionTexture;
         MaterialTexture EmissiveTexture;
 
-        // Each slot's texture, an empty slot's an invalid UUID, which a scene holds while it holds the material and a build ships with it
+        // An empty slot's is an invalid UUID. A scene holds them while it holds the material
         [[nodiscard]] std::array<UUID, 5> GetTextures() const
         {
             return { BaseColorTexture.Texture, MetallicRoughnessTexture.Texture, NormalTexture.Texture, OcclusionTexture.Texture, EmissiveTexture.Texture };
@@ -63,7 +63,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MaterialData&) const = default;
     };
 
-    // One key of a material file and its value as the file writes it, such as BaseColorFactor and [1, 1, 1, 1]
+    // One key of a material file and its value, such as BaseColorFactor and [1, 1, 1, 1]
     struct MaterialField
     {
         std::string Name;
@@ -78,9 +78,9 @@ namespace Trinity
     [[nodiscard]] TRINITY_API std::string WriteMaterialData(const MaterialData& material);
     [[nodiscard]] TRINITY_API Expected<MaterialData, std::string> ParseMaterialData(std::string_view text);
 
-    // Every key of the material in file order, an empty texture slot's too as an invalid UUID, so two materials compare key by key
+    // Every key in file order, empty texture slots too, so two materials compare key by key
     [[nodiscard]] TRINITY_API std::vector<MaterialField> GetMaterialFields(const MaterialData& material);
-    // The material with the fields set as a file would set them. A name that is not a key, or a value that does not read, refuses them all
+    // A name that is not a key, or a value that does not read, refuses them all
     [[nodiscard]] TRINITY_API Expected<MaterialData, std::string> ApplyMaterialFields(MaterialData material, std::span<const MaterialField> fields);
 
     [[nodiscard]] TRINITY_API std::string_view ToString(MaterialAlphaMode mode);

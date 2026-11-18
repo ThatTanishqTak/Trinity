@@ -15,7 +15,7 @@
 #include <string_view>
 #include <system_error>
 
-// Reading the YAML that importers cook. A key that is absent leaves its value as it is, and one that holds anything other than what the writer writes leaves it too and is named in malformed, so the caller can refuse the file
+// An absent key leaves its value. A malformed one leaves it too, and is named in malformed
 namespace Trinity::CookedText
 {
     template<typename T>
@@ -146,7 +146,7 @@ namespace Trinity::CookedText
         value = *l_Value;
     }
 
-    // The root of a cooked file, refused without a Format, and with one newer than the reader's
+    // Refused without a Format, or with one newer than the reader's
     [[nodiscard]] inline Expected<YAML::Node, std::string> LoadRoot(std::string_view text, std::string_view kind, std::uint32_t formatVersion)
     {
         YAML::Node l_Root;

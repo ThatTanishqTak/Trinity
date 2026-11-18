@@ -26,7 +26,7 @@ namespace Trinity
 
     using AssetSettings = std::vector<AssetSetting>;
 
-    // Something an importer made from a file, such as a model's mesh, named by a key the importer keeps the same from one import to the next
+    // Named by a key the importer keeps the same from one import to the next
     struct SubAsset
     {
         std::string Key;
@@ -36,7 +36,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const SubAsset&) const = default;
     };
 
-    // A file's record lists its sub-assets. A sub-asset's own record has its file's path, then '#' and its key, and its file's UUID as its parent
+    // A sub-asset's path is its file's, then '#' and its key. Its parent is its file's UUID
     struct AssetRecord
     {
         UUID ID;
@@ -45,7 +45,7 @@ namespace Trinity
         AssetSettings Settings;
         UUID Parent;
         std::vector<SubAsset> SubAssets;
-        // Where a cooked game reads the asset's own file in its pack, for an asset whose file it reads as the project has it, such as a scene or a sound event. Empty in a project, whose files are read where they lie, and for an asset a loader finds cooked by its UUID
+        // Where a cooked game reads the asset's file in its pack. Empty in a project
         std::string CookedPath;
 
         // The file the asset is read from where its loader reads it by its path
@@ -81,7 +81,7 @@ namespace Trinity
 
         void SetDefaultSettings(std::string_view importer, AssetSettings settings);
         AssetScanReport Scan();
-        // In place of a scan, for a cooked game, which has no Assets folder: the records of the asset table its export wrote, which never change. Refused, keeping the records there were, for a table that is not whole or is from a newer Trinity
+        // For a cooked game, in place of a scan. Refused when not whole or from a newer Trinity
         [[nodiscard]] Expected<void, std::string> LoadTable(std::span<const std::byte> data);
         // Whether the records are a cooked game's, from LoadTable
         [[nodiscard]] bool IsCooked() const { return m_Cooked; }

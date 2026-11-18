@@ -61,12 +61,12 @@ namespace Trinity
 
         using MigrationFunction = void (*)(YAML::Node& root);
 
-        // Entry N - 1 turns a format N file into format N + 1. Format 2 added prefab instances, so a format 1 file reads as it is
+        // Entry N - 1 turns a format N file into format N + 1
         constexpr std::array<MigrationFunction, SceneSerializer::c_FormatVersion - 1> c_Migrations{ [](YAML::Node&) {} };
 
-        static_assert(std::endian::native == std::endian::little, "Binary scenes are written and read as little-endian, as every platform Trinity targets is.");
+        static_assert(std::endian::native == std::endian::little, "Binary scenes are little-endian, as every platform Trinity targets is.");
 
-        // A binary scene: this header, the entities in hierarchy order, their components, then the tree they are read from, as each string's start and the end of the last, the strings' bytes, the nodes and the entries
+        // This header, the entities in hierarchy order, their components, then the tree they read from
         struct BinaryHeader
         {
             static constexpr std::array<char, 8> c_Magic{ 'T', 'R', 'S', 'C', 'E', 'N', 'E', 'B' };
@@ -86,7 +86,7 @@ namespace Trinity
 
         constexpr std::uint32_t c_NoString = 0xFFFFFFFF;
 
-        // An entity, with its parent's UUID, zero for a root, and the prefab and instance of an instance's root, with the text one whose prefab is missing keeps
+        // Parent is zero for a root. An instance whose prefab is missing keeps its text
         struct BinaryEntity
         {
             std::uint64_t ID = 0;
@@ -101,7 +101,7 @@ namespace Trinity
 
         static_assert(sizeof(BinaryEntity) == 48);
 
-        // A component by its name, its node in the tree, or for one no loaded code knew, the string of the YAML it is kept as
+        // Its node in the tree, or for one no loaded code knew, the YAML it is kept as
         struct BinaryComponent
         {
             std::uint32_t Name = 0;
@@ -133,7 +133,7 @@ namespace Trinity
             return l_Items;
         }
 
-        // The header of data as long as the header says, refused for anything that is not a whole binary scene this build reads
+        // Refused for anything that is not a whole binary scene this build reads
         Expected<BinaryHeader, std::string> ReadBinaryHeader(std::span<const std::byte> data)
         {
             BinaryHeader l_Header;
@@ -150,7 +150,7 @@ namespace Trinity
 
             if (l_Header.Version > SceneSerializer::c_BinaryFormatVersion)
             {
-                return Unexpected{ std::format("written in binary format {} by a newer Trinity, and this build reads binary format {} and older", l_Header.Version, SceneSerializer::c_BinaryFormatVersion) };
+                return Unexpected{ std::format("in binary format {}, from a newer Trinity. This build reads up to {}", l_Header.Version, SceneSerializer::c_BinaryFormatVersion) };
             }
 
             const std::uint64_t l_Size = sizeof(BinaryHeader) + std::uint64_t{ l_Header.EntityCount } * sizeof(BinaryEntity) + std::uint64_t{ l_Header.ComponentCount } * sizeof(BinaryComponent) + (std::uint64_t{ l_Header.StringCount } + 1) * sizeof(std::uint32_t) + l_Header.StringBytes + std::uint64_t{ l_Header.NodeCount } * sizeof(BinaryTreeNode) + std::uint64_t{ l_Header.EntryCount } * sizeof(BinaryTreeEntry);
@@ -164,7 +164,7 @@ namespace Trinity
 
         constexpr std::size_t c_NoParent = std::numeric_limits<std::size_t>::max();
 
-        // A binary scene read and checked whole before anything is made from it, its tree's strings views into the data
+        // Checked whole before anything is made from it. Its tree's strings are views into the data
         struct BinaryScene
         {
             std::vector<BinaryEntity> Entities;
@@ -251,9 +251,9 @@ namespace Trinity
             std::vector<ComponentSerializer, TaggedAllocator<ComponentSerializer, MemoryTag::Engine>> Serializers;
             std::vector<Scene*, TaggedAllocator<Scene*, MemoryTag::Engine>> Scenes;
             SceneSerializer::PrefabResolver Resolver;
-            // Templates found before the resolver's while an apply writes prefabs a level at a time, so each is read against those it holds as they will be
+            // Found before the resolver's while an apply writes prefabs a level at a time
             std::vector<std::pair<UUID, Scene*>, TaggedAllocator<std::pair<UUID, Scene*>, MemoryTag::Engine>> Overlay;
-            // The prefabs whose templates are being found, outermost first, so one met again while it is holds an instance of itself
+            // Outermost first, so one met again while it is being found holds an instance of itself
             std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Engine>> Resolving;
         };
 
@@ -295,7 +295,7 @@ namespace Trinity
             return l_Text + "]";
         }
 
-        // Plain only when no YAML reader could take the text for a number, a boolean, a null or syntax. Everything else is double-quoted
+        // Plain only when no YAML reader could take the text for a number, a boolean, a null or syntax
         std::string FormatString(std::string_view text)
         {
             constexpr std::array<std::string_view, 9> c_Keywords{ "true", "false", "yes", "no", "on", "off", "null", "y", "n" };
@@ -355,7 +355,7 @@ namespace Trinity
             }
         }
 
-        // A preserved component as the scene file had it: a block map or sequence on indented lines, anything else after the key
+        // As the file had it: a block map or sequence on indented lines, anything else after the key
         void AppendUnknown(std::string& output, std::string_view yaml, std::uint32_t indent)
         {
             const YAML::Node l_Node = YAML::Load(std::string(yaml));
@@ -405,7 +405,7 @@ namespace Trinity
             return std::string(l_Hex.data(), l_Hex.size());
         }
 
-        // A list's element as a value of its type is written on its own, so a list of vectors is a sequence of sequences
+        // An element is written on its own, so a list of vectors is a sequence of sequences
         std::string FormatElement(const ScriptFieldValue& element)
         {
             return std::visit([](const auto& data) -> std::string
@@ -625,7 +625,7 @@ namespace Trinity
             writer.Write("CastShadows", component.CastShadows);
         }
 
-        // A light saved before there were other types, or naming one this build lacks, loads as a directional light
+        // A light saved before there were other types, or naming an unknown one, loads as directional
         void LoadLight(LightComponent& component, const ComponentReader& reader)
         {
             std::string l_Type;
@@ -823,7 +823,7 @@ namespace Trinity
             writer.Write("Mass", component.Mass);
         }
 
-        // A layer past the last there can be is taken as the first, as a collider's is, and a mode this build lacks, or none, as kinematic
+        // A layer past the last is taken as the first, and an unknown or missing mode as kinematic
         void LoadCharacterController(CharacterControllerComponent& component, const ComponentReader& reader)
         {
             std::string l_Mode;
@@ -888,7 +888,7 @@ namespace Trinity
             writer.Write("Layer", collider.Layer);
         }
 
-        // A layer past the last there can be is taken as the first. A scene saved before one-way colliders has none
+        // A layer past the last is taken as the first. A scene saved before one-way colliders has none
         void LoadCollider2DSettings(Collider2DSettings& collider, const ComponentReader& reader)
         {
             reader.Read("Offset", collider.Offset);
@@ -972,7 +972,7 @@ namespace Trinity
             writer.Write("Mass", component.Mass);
         }
 
-        // A layer past the last there can be is taken as the first, as a collider's is, and a mode this build lacks, or none, as kinematic, as a 3D character's are
+        // A layer past the last is taken as the first, and an unknown or missing mode as kinematic
         void LoadCharacterController2D(CharacterController2DComponent& component, const ComponentReader& reader)
         {
             std::string l_Mode;
@@ -1178,7 +1178,7 @@ namespace Trinity
             return glm::uvec2(std::isfinite(l_Clamped.x) ? l_Clamped.x : 0.0f, std::isfinite(l_Clamped.y) ? l_Clamped.y : 0.0f);
         }
 
-        // A mode this build lacks loads as the default, a reference resolution as whole pixels within UIPanelSettings::c_MaxReferenceSize, and a world size within 1 and UIWorldSettings::c_MaxSize
+        // An unknown mode loads as the default. Sizes are held within their c_Max limits
         void LoadUIDocument(UIDocumentComponent& component, const ComponentReader& reader)
         {
             reader.Read("Document", component.Document);
@@ -1232,7 +1232,7 @@ namespace Trinity
             reader.Read("FaceCamera", component.World.FaceCamera);
         }
 
-        // Each field on one line with its type, so a class no loaded code has still saves and loads every value exactly
+        // Each field on one line with its type, so a class no loaded code has still round-trips exactly
         void SaveScript(const ScriptComponent& component, ComponentWriter& writer)
         {
             writer.BeginList("Scripts");
@@ -1254,7 +1254,7 @@ namespace Trinity
             writer.End();
         }
 
-        // An entry with no class or a language this build lacks is left out, and so is a field with a type this build lacks or a name already read, each with a warning
+        // An entry or field this build cannot read, or a name already read, is left out with a warning
         void LoadScript(ScriptComponent& component, const ComponentReader& reader)
         {
             component.Scripts.clear();
@@ -1281,7 +1281,7 @@ namespace Trinity
                     ScriptFieldValue l_Value;
                     if (!field.ReadValue(l_Value) || l_Entry.FindField(name) != nullptr)
                     {
-                        TR_CORE_WARN("Scene: field {} of script {} has a type this build lacks, or repeats, and is left out", name, std::string_view(l_Entry.ClassName));
+                        TR_CORE_WARN("Scene: field {} of script {} has an unknown type or repeats, and is left out", name, std::string_view(l_Entry.ClassName));
 
                         return;
                     }
@@ -1321,13 +1321,13 @@ namespace Trinity
             return l_Lines;
         }
 
-        // A block map or sequence that holds something, which is compared and written within, where anything else is one value
+        // A block map or sequence that holds something is compared and written within
         bool IsBranch(const YAML::Node& node)
         {
             return (node.IsMap() || node.IsSequence()) && node.size() != 0 && node.Style() != YAML::EmitterStyle::Flow;
         }
 
-        // A value after its key, on the key's line, or on lines of their own below it for a block map or sequence
+        // On the key's line, or on lines of their own below it for a block map or sequence
         void AppendNode(std::string& output, const YAML::Node& node, std::uint32_t indent)
         {
             if (!node.IsDefined() || node.IsNull())
@@ -1346,7 +1346,7 @@ namespace Trinity
             output += YAML::Dump(node);
         }
 
-        // An entity as a file has it, or an instance of a prefab, whose ID is the instance's own, with the lines of the text the entry takes, from its first, which an instance whose prefab is missing keeps as they are
+        // An entity or a prefab instance, with the lines of text its entry takes
         struct FileEntity
         {
             UUID ID;
@@ -1420,7 +1420,7 @@ namespace Trinity
                 l_Result.push_back(std::move(l_Entity));
             }
 
-            // Each entry's lines run to the next entry's, and the last's to the next of the document's own keys, or the end
+            // An entry's lines run to the next entry, and the last's to the document's next key or the end
             std::size_t l_End = lineCount;
             for (const auto& it_Pair : root)
             {
@@ -1439,7 +1439,7 @@ namespace Trinity
             return l_Result;
         }
 
-        // The YAML, refused when it is not, or when its Format is not one from 1 to the newest this build reads
+        // Refused when not YAML, or when its Format is not one from 1 to the newest this build reads
         Expected<YAML::Node, std::string> ParseFormat(std::string_view text, std::uint32_t newest, std::uint32_t& version)
         {
             YAML::Node l_Root;
@@ -1460,7 +1460,7 @@ namespace Trinity
 
             if (version > newest)
             {
-                return Unexpected{ std::format("written in format {} by a newer Trinity, and this build reads format {} and older", version, newest) };
+                return Unexpected{ std::format("in format {}, from a newer Trinity. This build reads up to {}", version, newest) };
             }
 
             return l_Root;
@@ -1484,7 +1484,7 @@ namespace Trinity
             return l_Root;
         }
 
-        // The prefab's entities, root first in hierarchy order, each with the UUID the instance gives it, through every prefab nested in it, without those the instance removes and their subtrees
+        // Root first in hierarchy order, with the instance's UUIDs, without what the instance removes
         std::vector<std::pair<entt::entity, UUID>> GetInstanceMembers(Scene& prefab, UUID instance, const std::unordered_set<UUID>& removed)
         {
             std::vector<std::pair<entt::entity, UUID>> l_Members;
@@ -1526,7 +1526,7 @@ namespace Trinity
             return l_Removed;
         }
 
-        // An entry as it is to be loaded: an instance with its prefab's entities, its members, or one whose prefab is not there standing in for itself with the text its entry and the entries of its subtree take, which it absorbs. An entity under one its prefab no longer has goes under the instance's root
+        // An instance whose prefab is missing stands in for itself, and absorbs its subtree's entries
         struct PlannedEntity
         {
             const FileEntity* File = nullptr;
@@ -1538,7 +1538,7 @@ namespace Trinity
 
             [[nodiscard]] UUID GetRoot() const { return Template != nullptr ? Members.front().second : File->ID; }
 
-            // What it is to make, the prefab's entities for an instance, and the entity itself for an entity or one standing in for an instance
+            // The prefab's entities for an instance, else the entity itself
             [[nodiscard]] std::vector<UUID> GetEntities() const
             {
                 if (Template == nullptr)
@@ -1562,7 +1562,7 @@ namespace Trinity
             return line.find_first_not_of(" \t") == std::string_view::npos;
         }
 
-        // The entry's lines as the file has them, each after a line break, every one of them for an entry taken whole, or for an instance's body those after its first and Parent's, which are written in their place. An entry not written in blocks, as Trinity writes them, is written as YAML would
+        // The entry's lines as the file has them. One not written in blocks is written as YAML would
         std::string GetEntryText(const FileEntity& entity, std::span<const std::string_view> lines, bool body)
         {
             std::size_t l_KeyLine = std::string_view::npos;
@@ -1617,7 +1617,7 @@ namespace Trinity
             return l_Text;
         }
 
-        // Whether the template holds, at any depth, an instance of a prefab whose template is being read, so an instance of it there would make that prefab hold itself. A template read before that prefab changed can hold it, which the prefab's own instance being asked for again cannot tell. One kept as its text holds nothing
+        // Whether the template holds, at any depth, an instance of a prefab whose template is being read
         bool HoldsResolving(Scene& prefab)
         {
             std::vector<Scene*> l_Pending{ &prefab };
@@ -1648,7 +1648,7 @@ namespace Trinity
             return false;
         }
 
-        // Every entity there is to be with its parent, each found once, and each parent among them, which an entry under an instance's entity finds once the instance is, so a scene is only replaced once it is known to load whole
+        // Every entity to be made is found with its parent first, so a scene is replaced only if whole
         Expected<std::vector<PlannedEntity>, std::string> PlanEntities(const std::vector<FileEntity>& entities, std::span<const std::string_view> lines)
         {
             std::vector<PlannedEntity> l_Plan(entities.size());
@@ -1662,7 +1662,7 @@ namespace Trinity
                 Scene* l_Template = l_File.IsInstance() ? SceneSerializer::FindPrefabTemplate(l_File.Prefab) : nullptr;
                 if (l_Template != nullptr && HoldsResolving(*l_Template))
                 {
-                    TR_CORE_ERROR("Scene: prefab {} of instance {} holds the prefab being read, which would hold itself through it, so the instance is kept as the file has it", l_File.Prefab, l_File.ID);
+                    TR_CORE_ERROR("Scene: prefab {} of instance {} holds the prefab being read, kept as text", l_File.Prefab, l_File.ID);
                     l_Template = nullptr;
                 }
 
@@ -1693,7 +1693,7 @@ namespace Trinity
                 }
             }
 
-            // An entry is in the subtree of each instance before it whose entities, or entries in it, its parent is one of. While the latest such instance is one whose prefab is missing, the entry is absorbed into it, and an entry whose parent is no entity there is to be, under an instance's entity the prefab no longer has, goes under that instance's root
+            // An entry under an instance whose prefab is missing is absorbed into it
             struct Run
             {
                 std::size_t Entry = 0;
@@ -1738,7 +1738,7 @@ namespace Trinity
                     }
 
                     const PlannedEntity& l_Owner = l_Plan[l_Runs.back().Entry];
-                    TR_CORE_WARN("Scene: entity {} was under {}, which prefab instance {} no longer has, so it goes under the instance's root", l_File.ID, l_Parent, l_Owner.File->ID);
+                    TR_CORE_WARN("Scene: entity {} was under {}, gone from instance {}, so it goes under its root", l_File.ID, l_Parent, l_Owner.File->ID);
                     l_Planned.Parent = l_Owner.GetRoot();
                     l_Parents[l_Planned.GetRoot()] = l_Planned.Parent;
                 }
@@ -1754,7 +1754,7 @@ namespace Trinity
                 }
             }
 
-            // Each parent is an entity there is to be, and following parents from any entity reaches a root within as many steps as there are entities
+            // Following parents from any entity must reach a root within as many steps as there are entities
             std::unordered_set<UUID> l_Existing;
             for (const PlannedEntity& it_Planned : l_Plan)
             {
@@ -1798,7 +1798,7 @@ namespace Trinity
             return l_Plan;
         }
 
-        // The entity, its own UUID and its parent's written, or none for one written as a root
+        // None for an entity written as a root
         void AppendEntity(std::string& text, Entity entity, UUID id, UUID parent)
         {
             SceneRegistry& l_Registry = entity.GetScene()->GetRegistry();
@@ -1841,7 +1841,7 @@ namespace Trinity
             save(component, l_Writer);
         }
 
-        // An entity of a model's prefab as AppendEntity writes one, with a name, a transform and, for a node with a mesh, a mesh renderer
+        // An entity of a model's prefab, as AppendEntity writes one
         void AppendModelEntity(std::string& text, UUID id, UUID parent, std::string_view name, const TransformComponent& transform, const MeshRendererComponent* renderer)
         {
             text += std::format("\n  - {}: {}", c_EntityKey, ToHex(id));
@@ -1869,7 +1869,7 @@ namespace Trinity
             return hash;
         }
 
-        // The root's local ID, then each node's, hashed on from its parent's with its name, the name's length first so no two paths of names read alike, and how many siblings before it have that name
+        // Hashed from the parent's ID, the name with its length first, and its place among same names
         std::vector<UUID> MakeModelLocalIDs(const ModelData& model)
         {
             std::vector<UUID> l_IDs{ UUID(c_ModelRootKey) };
@@ -1904,7 +1904,7 @@ namespace Trinity
             return FindSerializer(name) != nullptr ? entity.GetScene()->GetRegistry().storage(GetPoolId(name)) : nullptr;
         }
 
-        // The prefab's entities with the instance's UUIDs and every component the prefab gives them, linked as the prefab links them under the instance's root, which goes last among the roots. A prefab names no entity outside itself, so each it names is by local ID, and the instance names the entity of that local ID it has, or would have. Their UUIDs are free. The roots of instances nested in the prefab are not instances' roots in the scene, whose instance this is
+        // Linked under the instance's root, which goes last among the roots. Their UUIDs must be free
         Entity ExpandInstance(Scene& scene, Scene& prefab, const std::vector<std::pair<entt::entity, UUID>>& members, UUID prefabID, UUID instance)
         {
             SceneRegistry& l_Target = scene.GetRegistry();
@@ -1928,7 +1928,7 @@ namespace Trinity
                     SceneRegistry::common_type* l_Storage = l_Target.storage(it_Id);
                     if (l_Storage == nullptr)
                     {
-                        TR_CORE_ERROR("Scene: prefab {} has a component the scene has no pool for, which instance {} leaves out", prefabID, instance);
+                        TR_CORE_ERROR("Scene: prefab {} has a component with no pool here, instance {} leaves it out", prefabID, instance);
 
                         continue;
                     }
@@ -2015,7 +2015,7 @@ namespace Trinity
             return true;
         }
 
-        // What the entity's component is as YAML, by its serializer or as it is kept, or nothing when the entity is without it
+        // By its serializer or as it is kept. Nothing when the entity is without the component
         std::optional<std::string> GetComponentYaml(Entity entity, std::string_view name)
         {
             if (SceneRegistry::common_type* l_Storage = FindStorage(entity, name); l_Storage != nullptr && l_Storage->contains(entity.GetHandle()))
@@ -2031,7 +2031,7 @@ namespace Trinity
             return std::nullopt;
         }
 
-        // The component loaded from the YAML, by its serializer, added first when the entity is without it, or kept as it is when no loaded code knows it. Whole, so a component the entity had is replaced
+        // Replaces a component the entity had. Kept as YAML when no loaded code knows it
         void SetComponentYaml(Entity entity, std::string_view name, const YAML::Node& node, std::unordered_map<std::string, std::size_t>& unknown)
         {
             if (SceneRegistry::common_type* l_Storage = FindStorage(entity, name))
@@ -2062,7 +2062,7 @@ namespace Trinity
             ++unknown[std::string(name)];
         }
 
-        // A binary tree's node as the YAML it was saved from, for a component no loaded code knows, which is kept as YAML
+        // A binary tree's node as YAML, for a component no loaded code knows
         YAML::Node ToYaml(const BinaryNode& node)
         {
             if (node.IsScalar())
@@ -2099,7 +2099,7 @@ namespace Trinity
             return YAML::Node(YAML::NodeType::Null);
         }
 
-        // Every entity of a binary scene read whole, in its order, then parents, so siblings keep theirs, then components, with one no loaded code knows kept as YAML and counted by name
+        // Entities first, then parents so siblings keep their order, then components
         void CreateBinaryEntities(Scene& scene, const BinaryScene& binary, std::unordered_map<std::string, std::size_t>& unknown)
         {
             const BinaryTree& l_Tree = binary.Tree;
@@ -2157,7 +2157,7 @@ namespace Trinity
                         continue;
                     }
 
-                    // Kept as YAML when saved, and loaded by code that knows it now, or kept still when it cannot be read, as a scene's kept YAML is when its code registers
+                    // Loaded by code that knows it now, or kept still when it cannot be read
                     const std::string_view l_Yaml = l_Tree.Strings[l_Component.Value];
                     if (a_Storage != nullptr)
                     {
@@ -2189,7 +2189,7 @@ namespace Trinity
             }
         }
 
-        // The value set at the path inside the node, by key in a map and by index in a sequence, false when the path leads nowhere the node has. A map's last key need not be there yet
+        // By key in a map and index in a sequence. False when the path leads nowhere. A last key may be new
         bool SetAtPath(YAML::Node& node, std::string_view path, const YAML::Node& value)
         {
             YAML::Node l_Current = node;
@@ -2241,7 +2241,7 @@ namespace Trinity
             }
         }
 
-        // What the node holds at the path, by key in a map and by index in a sequence, or nothing where the path leads nowhere the node has
+        // By key in a map and by index in a sequence. Nothing where the path leads nowhere
         std::optional<YAML::Node> GetAtPath(const YAML::Node& node, std::string_view path)
         {
             YAML::Node l_Current = node;
@@ -2278,7 +2278,7 @@ namespace Trinity
             }
         }
 
-        // The map's key at the end of the path taken out, false when the path leads to no map's key
+        // False when the path leads to no map's key
         bool RemoveAtPath(YAML::Node& node, std::string_view path)
         {
             const std::size_t l_Last = path.rfind(c_PathSeparator);
@@ -2293,7 +2293,7 @@ namespace Trinity
             return l_Map.remove(std::string(l_Last == std::string_view::npos ? path : path.substr(l_Last + 1)));
         }
 
-        // The overrides of one of the entity's components: each value at its path, or the whole of it for one value. How many lead nowhere the component has, all of them for a component the entity is without
+        // Returns how many overrides lead nowhere the component has
         std::size_t OverrideComponent(Entity entity, std::string_view name, const YAML::Node& overrides, std::unordered_map<std::string, std::size_t>& unknown)
         {
             const bool l_ByPath = IsBranch(overrides) && overrides.IsMap();
@@ -2335,7 +2335,7 @@ namespace Trinity
             return l_Dropped;
         }
 
-        // Of each entity the section names by local ID, each component under it given to the function, with how many the section names of what the instance no longer has. Local IDs are the template's UUIDs, an entity of a nested instance's its UUID there, and the instance's own are found by them
+        // Local IDs are the template's UUIDs. Returns how many the section names that are gone
         template<typename F>
         std::size_t ForEachChange(Scene& scene, const FileEntity& instance, const std::unordered_map<UUID, UUID>& members, std::string_view section, F&& change)
         {
@@ -2369,7 +2369,7 @@ namespace Trinity
             return l_Dropped;
         }
 
-        // What the instance changes of its prefab: the components it removes, the values it overrides, then the components it adds. A change of what the prefab no longer has is dropped, and logged
+        // Removed components, then overridden values, then added components. A stale change is logged
         void ApplyInstanceChanges(Scene& scene, const PlannedEntity& planned, std::unordered_map<std::string, std::size_t>& unknown)
         {
             const FileEntity& l_File = *planned.File;
@@ -2433,11 +2433,11 @@ namespace Trinity
 
             if (l_Dropped != 0)
             {
-                TR_CORE_WARN("Scene: instance {} of prefab {} changes {} thing(s) its prefab no longer has, which are dropped", l_File.ID, l_File.Prefab, l_Dropped);
+                TR_CORE_WARN("Scene: instance {} of prefab {} drops {} change(s) to what the prefab lost", l_File.ID, l_File.Prefab, l_Dropped);
             }
         }
 
-        // Every entity first, each instance as its prefab's entities with its UUIDs and one whose prefab is missing as the entity standing in for it, then parents in file order, which is hierarchy order, so siblings keep theirs, then components, and what each instance changes of its prefab. Components no loaded code knows are kept as YAML and counted by name
+        // Entities first, then parents in file order, then components, then each instance's overrides
         void CreateEntities(Scene& scene, const std::vector<PlannedEntity>& plan, std::unordered_map<std::string, std::size_t>& unknown)
         {
             SceneRegistry& l_Registry = scene.GetRegistry();
@@ -2458,7 +2458,7 @@ namespace Trinity
                     Entity l_Missing = scene.CreateEntityWithUUID(l_File.ID);
                     l_Missing.Add<TagComponent>().Tag = c_MissingPrefabName;
                     l_Missing.Add<PrefabInstanceComponent>(PrefabInstanceComponent{ .Prefab = l_File.Prefab, .Instance = l_File.ID, .Kept = TaggedString<MemoryTag::Scene>(it_Planned.Kept) });
-                    TR_CORE_WARN("Scene: prefab {} of instance {} is missing or cannot be read, so the instance is kept as the file has it until the prefab is there", l_File.Prefab, l_File.ID);
+                    TR_CORE_WARN("Scene: prefab {} of instance {} is missing or unreadable, instance kept as text", l_File.Prefab, l_File.ID);
                 }
                 else
                 {
@@ -2519,7 +2519,7 @@ namespace Trinity
             }
         }
 
-        // The paths, by key and by index, at which the node differs from the base, each with what the node holds there. A block map or sequence is compared within, unless the base has a key the map lacks, a key could not be told from a path, or the sequences' lengths differ, when the whole of it differs
+        // The paths at which the node differs from the base. A map or sequence is compared within
         void DiffNode(const YAML::Node& node, const YAML::Node& base, const std::string& path, std::vector<std::pair<std::string, YAML::Node>>& changes)
         {
             const auto a_Join = [&path](std::string_view key) { return path.empty() ? std::string(key) : std::format("{}{}{}", path, c_PathSeparator, key); };
@@ -2564,7 +2564,7 @@ namespace Trinity
             }
         }
 
-        // What an instance's entity changes of the prefab's: the values of the components both have, the components only it has, which a component whose whole map changed is too, and those only the prefab's has
+        // Values of components both have, components only the instance has, and those only the prefab has
         struct EntityChanges
         {
             UUID Local;
@@ -2612,7 +2612,7 @@ namespace Trinity
             }
         }
 
-        // Compared as their text first, which is the same for every component the instance has as the prefab has it
+        // Compared as text first, which is equal for every component the instance leaves unchanged
         EntityChanges DiffEntity(Entity entity, Entity base)
         {
             EntityChanges l_Changes;
@@ -2682,7 +2682,7 @@ namespace Trinity
             text += instance.Kept;
         }
 
-        // What an instance changes of its prefab, against what it would be unchanged, which is made in the scratch scene: its prefab's entities with the UUIDs it gives them, what each it has changes, and the local ID of each it removes, once for the whole subtree
+        // Compared against the unchanged instance, which is made in the scratch scene
         struct InstanceDiff
         {
             Scene* Template = nullptr;
@@ -2691,7 +2691,7 @@ namespace Trinity
             std::vector<UUID> Removed;
         };
 
-        // Its prefab's entities it has are covered by it. Nothing for a prefab the resolver does not find, or a root that is not the instance's
+        // Nothing for a prefab the resolver does not find, or a root that is not the instance's
         std::optional<InstanceDiff> DiffInstance(Entity root, Scope<Scene>& scratch, std::unordered_set<UUID>& covered)
         {
             const PrefabInstanceComponent& l_Instance = root.Get<PrefabInstanceComponent>();
@@ -2747,7 +2747,7 @@ namespace Trinity
             return l_Diff;
         }
 
-        // An instance as its prefab and what it changes of it: each value of the components it holds otherwise, by its key, each component it adds or removes, and each of the prefab's entities it removes. Its prefab's entities are covered by it, so only those added under them are written as entities of their own. False, writing nothing, for a prefab the resolver does not find, or a root that is not the instance's
+        // Only entities added under the prefab's are written as entities. False for a missing prefab
         bool AppendInstance(std::string& text, Entity root, UUID parent, Scope<Scene>& scratch, std::unordered_set<UUID>& covered)
         {
             const std::optional<InstanceDiff> l_Diff = DiffInstance(root, scratch, covered);
@@ -2851,7 +2851,7 @@ namespace Trinity
             return true;
         }
 
-        // Each entity in hierarchy order from the root, or from the scene's first root for none, each instance as its prefab and what it changes, which covers its prefab's entities, and one whose prefab is missing as the file had it. The root's parent is not written
+        // In hierarchy order from the root. The root's parent is not written
         void AppendHierarchy(std::string& text, Scene& scene, Entity root)
         {
             Scope<Scene> l_Scratch;
@@ -2880,14 +2880,14 @@ namespace Trinity
                         continue;
                     }
 
-                    TR_CORE_WARN("Scene: prefab {} of instance {} is not there, so the instance's entities are written as entities of their own", l_Instance->Prefab, l_Instance->Instance);
+                    TR_CORE_WARN("Scene: prefab {} of instance {} is missing, its entities are written as plain", l_Instance->Prefab, l_Instance->Instance);
                 }
 
                 AppendEntity(text, it_Entity, it_Entity.GetUUID(), l_ParentID);
             }
         }
 
-        // What the instance changes of its prefab, as GetPrefabOverrides gives it, with what it would be unchanged left in the scratch scene. Nothing for an entity that is no instance's root, or one whose prefab the resolver does not find
+        // As GetPrefabOverrides gives it, with the unchanged instance left in the scratch scene
         std::optional<std::vector<SceneSerializer::PrefabOverride>> ReadOverrides(Entity root, Scope<Scene>& scratch)
         {
             using Kind = SceneSerializer::PrefabOverride::Kind;
@@ -2966,7 +2966,7 @@ namespace Trinity
             return l_Overrides;
         }
 
-        // The overrides checked against what the instance has, each taken once, with what it would be unchanged in the scratch scene
+        // Checked against what the instance has, each taken once
         Expected<void, std::string> CheckOverrides(Entity root, std::span<const SceneSerializer::PrefabOverride> overrides, Scope<Scene>& scratch)
         {
             std::optional<std::vector<SceneSerializer::PrefabOverride>> l_Has = ReadOverrides(root, scratch);
@@ -2995,7 +2995,7 @@ namespace Trinity
             return FindStorage(entity, name) != nullptr ? SceneSerializer::RemoveComponent(entity, name) : RemoveKept(entity, name);
         }
 
-        // The value at the path, or the whole component for none, made as the source's, and taken out where the source has nothing there
+        // The value at the path, or the whole component for none, taken out where the source has none
         void CopyComponentValue(Entity target, Entity source, std::string_view name, std::string_view path, std::unordered_map<std::string, std::size_t>& unknown)
         {
             const std::optional<std::string> l_Source = GetComponentYaml(source, name);
@@ -3025,7 +3025,7 @@ namespace Trinity
             SetComponentYaml(target, name, l_Node, unknown);
         }
 
-        // One of the prefab's entities the instance removed, made again with its subtree as the prefab has them, before the next of its prefab's siblings the instance has, or else before the first entity added there, so it is where a reload puts it
+        // A removed entity is made again before its prefab's next sibling, where a reload puts it
         Expected<void, std::string> RestoreRemovedEntity(Scene& scene, Scene& scratch, UUID entity)
         {
             const Entity l_Base = scratch.FindEntityByUUID(entity);
@@ -3057,7 +3057,7 @@ namespace Trinity
             return {};
         }
 
-        // A prefab's text from its template, a scene of its own under the prefab's local IDs: each of its entities, and each instance nested in it as its prefab and what it changes, as a scene file has them. The root's parent is not written
+        // Each entity, and each nested instance as its prefab and overrides. No parent for the root
         std::string WriteTemplate(Scene& prefab, Entity root)
         {
             std::string l_Text = std::format("Format: {}\nEntities:", Prefab::c_FormatVersion);
@@ -3066,7 +3066,7 @@ namespace Trinity
             return l_Text + "\n";
         }
 
-        // The subtree as the template of a prefab it is the instance of, made in a scene of its own: each entity under the local ID its UUID tells back in that instance, and each instance in it nested in the prefab under the local ID its own UUID tells back, so made that instance of the prefab the subtree keeps every UUID, as a variant made from an instance does. An entity of the instance's own prefab, as an instance is saved back into its prefab, is the template's entity it is, and an instance nested there stays nested. What a component names inside the subtree it names by local ID, and anything outside it is cleared
+        // Made in a scene of its own under the local IDs its UUIDs tell back, so every UUID is kept
         Expected<Scope<Scene>, std::string> MakeTemplate(Scene& scene, Entity root, UUID instance)
         {
             struct Member
@@ -3109,12 +3109,12 @@ namespace Trinity
                     Scene* l_Template = l_Instance.IsMissing() ? nullptr : SceneSerializer::FindPrefabTemplate(l_Instance.Prefab);
                     if (l_Template == nullptr)
                     {
-                        return Unexpected{ std::format("entity {} is of instance {}, whose prefab {} is missing, and such an instance goes into no prefab until its prefab is back", it_Entity.GetUUID(), l_Instance.Instance, l_Instance.Prefab) };
+                        return Unexpected{ std::format("entity {} is of instance {}, whose prefab {} is missing, so it joins no prefab", it_Entity.GetUUID(), l_Instance.Instance, l_Instance.Prefab) };
                     }
 
                     if (l_Own != nullptr && Prefab::Holds(l_Instance.Prefab, l_Own->Prefab))
                     {
-                        return Unexpected{ std::format("instance {} is of prefab {}, which holds prefab {}, so the prefab would hold itself", l_Instance.Instance, l_Instance.Prefab, l_Own->Prefab) };
+                        return Unexpected{ std::format("instance {} is of prefab {}, which holds prefab {}, so it would hold itself", l_Instance.Instance, l_Instance.Prefab, l_Own->Prefab) };
                     }
 
                     const Entity l_Inner = Prefab::FindTemplateEntity(*l_Template, l_Instance.Instance, it_Entity.GetUUID());
@@ -3185,7 +3185,7 @@ namespace Trinity
             return l_Template;
         }
 
-        // One override made the base's own, the base an instance as it would be unchanged under the scene's UUIDs: a value or an added component as the scene's entity has it, a removed component or entity gone from it, and an added entity copied in with its subtree, instances in it too
+        // Makes one override the base's own, where the base is the unchanged instance
         Expected<void, std::string> MakeBaseOwn(Scene& scene, Scene& base, const SceneSerializer::PrefabOverride & override, std::unordered_map<std::string, std::size_t>& unknown)
         {
             const Entity l_Entity = scene.FindEntityByUUID(override.Entity);
@@ -3226,7 +3226,7 @@ namespace Trinity
             return {};
         }
 
-        // The levels an override can go to: those the entity it changes is part of, as far down as each has what it changes, so a value of a component an outer level added goes no deeper than that. An added entity goes where its parent is part of, and a removed one where it was
+        // The levels the changed entity is part of, as far down as each has what the override changes
         std::vector<Prefab::Level> GetOverrideChain(Entity root, const SceneSerializer::PrefabOverride & override)
         {
             using Kind = SceneSerializer::PrefabOverride::Kind;
@@ -3254,7 +3254,7 @@ namespace Trinity
             return l_Levels;
         }
 
-        // Put in front of the resolver's, the latest for each prefab, until the apply that put them there is done
+        // Put in front of the resolver's, the latest for each prefab, until the apply is done
         void SetOverlay(UUID prefab, Scene* scene)
         {
             if (const auto a_Overlay = std::ranges::find(s_State->Overlay, prefab, &std::pair<UUID, Scene*>::first); a_Overlay != s_State->Overlay.end())
@@ -3267,7 +3267,7 @@ namespace Trinity
             s_State->Overlay.emplace_back(prefab, scene);
         }
 
-        // The YAML a scene file read without the component's code keeps for it, so a component kept this way saves as one kept from a file does
+        // As a scene file read without the component's code keeps it
         std::string ToKeptYaml(const ComponentSerializer& serializer, const void* component)
         {
             std::string l_Text;
@@ -3285,7 +3285,7 @@ namespace Trinity
             }
         }
 
-        // Each of the component in the scene, as YAML in the entity's unknown components, and then the pool, whose code may be about to unload. It goes first among them, where a known component saves, so a module unloading in reverse of how it registered leaves the text as it was
+        // Kept first among the unknown components, where a known one saves, so the text stays as it was
         std::size_t KeepAsYaml(Scene& scene, const ComponentSerializer& serializer)
         {
             SceneRegistry& l_Registry = scene.GetRegistry();
@@ -3315,7 +3315,7 @@ namespace Trinity
             return l_Entities.size();
         }
 
-        // The pool, then each of the component the scene keeps as YAML, loaded into it and no longer kept. YAML that cannot be read stays kept
+        // YAML that cannot be read stays kept
         std::size_t LoadKept(Scene& scene, const ComponentSerializer& serializer)
         {
             SceneRegistry& l_Registry = scene.GetRegistry();
@@ -3428,7 +3428,7 @@ namespace Trinity
         *m_Output += ' ';
     }
 
-    // Inside an inline map after a comma, else on a line of its own, after the dash when it is an item's first key
+    // Inside an inline map after a comma, else on its own line, after the dash for an item's first key
     void ComponentWriter::WriteKeyName(std::string_view key)
     {
         Block* l_Block = m_Depth != 0 ? &m_Blocks[m_Depth - 1] : nullptr;
@@ -3839,7 +3839,7 @@ namespace Trinity
             return false;
         }
 
-        // A list's element as a value of its type is read on its own, or false with the element as it was
+        // Read on its own. False, with the element as it was, when malformed
         template<typename Node>
         bool ParseElement(const Node& node, ScriptFieldValue& element)
         {
@@ -4357,7 +4357,7 @@ namespace Trinity
             s_State = nullptr;
         }
 
-        // A serializer registered before the scene was made gives it its pool here, as one registered after gives it at RegisterComponent
+        // A serializer registered before the scene was made gives it its pool here
         void AttachScene(Scene& scene)
         {
             if (s_State == nullptr)
@@ -4390,7 +4390,7 @@ namespace Trinity
             s_State->Resolver = std::move(resolver);
         }
 
-        // A prefab the asset manager has ready, until a resolver is set. One found again while its template is being made, as its own instance or one nested deeper, is refused, so a prefab holding itself keeps that instance as its file has it
+        // A prefab found again while its own template is being made is refused
         Scene* FindPrefabTemplate(UUID prefab)
         {
             if (s_State == nullptr)
@@ -4432,7 +4432,7 @@ namespace Trinity
 
             if (serializer.Name.empty() || serializer.Name == c_EntityKey || serializer.Name == c_ParentKey || serializer.Save == nullptr || serializer.Load == nullptr)
             {
-                TR_CORE_ERROR("Scene: a component serializer needs a name other than Entity and Parent, and both functions");
+                TR_CORE_ERROR("Scene: a serializer needs both functions, and a name other than Entity or Parent");
 
                 return false;
             }
@@ -4458,7 +4458,7 @@ namespace Trinity
 
             if (l_Loaded != 0)
             {
-                TR_CORE_INFO("Scene: loaded {} {} component(s) kept as YAML while no loaded code knew that component", l_Loaded, serializer.Name);
+                TR_CORE_INFO("Scene: loaded {} {} component(s) that were kept as YAML", l_Loaded, serializer.Name);
             }
 
             return true;
@@ -4482,7 +4482,7 @@ namespace Trinity
 
             if (l_Kept != 0)
             {
-                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since the code that knows that component is unloading", l_Kept, name);
+                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, their code is unloading", l_Kept, name);
             }
 
             std::erase_if(s_State->Serializers, [name](const ComponentSerializer& serializer) { return serializer.Name == name; });
@@ -4550,7 +4550,7 @@ namespace Trinity
             CreateEntities(scene, *l_Plan, l_Unknown);
             for (const auto& [it_Name, it_Count] : l_Unknown)
             {
-                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since no loaded code knows that component", it_Count, it_Name);
+                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, no loaded code knows them", it_Count, it_Name);
             }
 
             return {};
@@ -4674,7 +4674,7 @@ namespace Trinity
             CreateBinaryEntities(scene, *l_Binary, l_Unknown);
             for (const auto& [it_Name, it_Count] : l_Unknown)
             {
-                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, since no loaded code knows that component", it_Count, it_Name);
+                TR_CORE_INFO("Scene: kept {} {} component(s) as YAML, no loaded code knows them", it_Count, it_Name);
             }
 
             return {};
@@ -4698,7 +4698,7 @@ namespace Trinity
             return l_Text + "\n";
         }
 
-        // The entities keep the UUIDs in the text, so none may already be in the scene. The root goes before a sibling when one is given, which must be a child of parent, and otherwise last under parent or among the roots
+        // No UUID in the text may already be in the scene. A sibling given must be a child of parent
         Expected<Entity, std::string> LoadEntityFromText(Scene& scene, std::string_view text, Entity parent, Entity before)
         {
             TR_PROFILE_FUNCTION();
@@ -4763,7 +4763,7 @@ namespace Trinity
             return l_Storage != nullptr && l_Storage->contains(entity.GetHandle());
         }
 
-        // Default constructed. Only a component with a serializer, which the entity is without
+        // Default constructed. Only for a component with a serializer, which the entity is without
         bool AddComponent(Entity entity, std::string_view name)
         {
             SceneRegistry::common_type* l_Storage = FindStorage(entity, name);
@@ -4791,7 +4791,7 @@ namespace Trinity
             return true;
         }
 
-        // The component's fields as a scene file holds them, under a Value key, or nothing when the entity is without it
+        // Under a Value key, or nothing when the entity is without the component
         std::string SaveComponentToText(Entity entity, std::string_view name)
         {
             const SceneRegistry::common_type* l_Storage = FindStorage(entity, name);
@@ -4837,7 +4837,7 @@ namespace Trinity
             return {};
         }
 
-        // Any thread, since it reads no scene, and of the serializers only the engine's own, through their functions
+        // Any thread: it reads no scene, and uses only the engine's own serializers
         std::string WriteModelPrefab(const ModelData& model)
         {
             const std::vector<UUID> l_IDs = MakeModelLocalIDs(model);
@@ -4857,7 +4857,7 @@ namespace Trinity
             return l_Text + "\n";
         }
 
-        // The subtree made the prefab's template first, so the instances in it are written nested in the prefab, as a scene writes its instances
+        // The subtree becomes the prefab's template first, so instances in it are written nested
         Expected<std::string, std::string> SavePrefabToText(Scene& scene, Entity root, UUID instance)
         {
             TR_PROFILE_FUNCTION();
@@ -4875,7 +4875,7 @@ namespace Trinity
             return WriteTemplate(l_Prefab, l_Prefab.GetFirstRoot());
         }
 
-        // A copy first, through the text a scene keeps it as, so what the template names that it no longer has is cleared, as a prefab names nothing outside itself
+        // Copied through text first, which clears what the template names that it no longer has
         Expected<std::string, std::string> SavePrefabTemplateToText(Scene& prefab)
         {
             TR_PROFILE_FUNCTION();
@@ -4894,7 +4894,7 @@ namespace Trinity
                 return Unexpected{ l_Copied.GetError() };
             }
 
-            // While an instance nested in it has its prefab missing, what it names may be one of that instance's entities, which are not there to tell, so it is kept
+            // With a nested instance's prefab missing, a name may be one of its entities, so it is kept
             bool l_HoldsMissing = false;
             for (const auto [it_Entity, it_Instance] : l_Copy.GetRegistry().view<PrefabInstanceComponent>().each())
             {
@@ -4961,7 +4961,7 @@ namespace Trinity
             CreateEntities(prefab, *l_Plan, l_Unknown);
             for (const auto& [it_Name, it_Count] : l_Unknown)
             {
-                TR_CORE_INFO("Scene: kept {} {} component(s) of a prefab as YAML, since no loaded code knows that component", it_Count, it_Name);
+                TR_CORE_INFO("Scene: kept {} {} component(s) of a prefab as YAML, no loaded code knows them", it_Count, it_Name);
             }
 
             return {};
@@ -4990,7 +4990,7 @@ namespace Trinity
             CreateBinaryEntities(prefab, *l_Binary, l_Unknown);
             for (const auto& [it_Name, it_Count] : l_Unknown)
             {
-                TR_CORE_INFO("Scene: kept {} {} component(s) of a prefab as YAML, since no loaded code knows that component", it_Count, it_Name);
+                TR_CORE_INFO("Scene: kept {} {} component(s) of a prefab as YAML, no loaded code knows them", it_Count, it_Name);
             }
 
             return {};
@@ -5060,7 +5060,7 @@ namespace Trinity
             return l_Prefabs;
         }
 
-        // Only the entities are read, since the markers are on them. One whose prefab is missing is left out, as binary data keeps it as its text and never makes it again
+        // Only the entities are read, as the markers are on them. A missing prefab's is left out
         std::vector<UUID> GetBinaryPrefabReferences(std::span<const std::byte> data)
         {
             const Expected<BinaryHeader, std::string> l_Header = ReadBinaryHeader(data);
@@ -5144,7 +5144,7 @@ namespace Trinity
             return {};
         }
 
-        // Made on the instance's prefab as it would be unchanged, in a scene of its own, and written from there under the local IDs the instance tells back
+        // Made on the unchanged instance in a scene of its own, and written under its local IDs
         Expected<std::string, std::string> ApplyPrefabOverrides(Entity root, std::span<const PrefabOverride> overrides)
         {
             TR_PROFILE_FUNCTION();
@@ -5188,7 +5188,7 @@ namespace Trinity
             return l_Prefabs;
         }
 
-        // From the level down to the instance: the level's prefab made as the instance has what the overrides change, then each prefab between, read again against the one below as it now is, which drops what it changed of a component no longer there, with the same values made its own, which takes out an override of them it had. Each level's instance is made under the scene's UUIDs, so what the values name is told back as the outermost's are
+        // From the level down to the instance, each prefab between is read again against the one below
         Expected<std::vector<PrefabText>, std::string> ApplyPrefabOverrides(Entity root, std::span<const PrefabOverride> overrides, std::size_t level)
         {
             using Kind = PrefabOverride::Kind;
@@ -5327,7 +5327,7 @@ namespace Trinity
             return l_Texts;
         }
 
-        // An instance is found from its root, so one whose prefab is missing, which keeps its text only, is left as it is. Whether each prefab holds the one is asked once
+        // An instance whose prefab is missing keeps only its text, so it is left as it is
         std::vector<PrefabInstanceText> SavePrefabInstances(Scene& scene, UUID prefab)
         {
             TR_PROFILE_FUNCTION();
@@ -5380,7 +5380,7 @@ namespace Trinity
             return l_Instances;
         }
 
-        // In order, so a sibling after one is still there as it is made, and each as a whole, its old entities destroyed first, since it keeps their UUIDs
+        // In order, each as a whole with its old entities destroyed first, since it keeps their UUIDs
         Expected<void, std::string> RestorePrefabInstances(Scene& scene, std::span<const PrefabInstanceText> instances)
         {
             TR_PROFILE_FUNCTION();

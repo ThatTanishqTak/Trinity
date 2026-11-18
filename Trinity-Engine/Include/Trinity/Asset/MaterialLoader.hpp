@@ -18,18 +18,18 @@
 
 namespace Trinity
 {
-    // Loads material files into one GPU table of fixed-size records, read by shaders through its bindless index as Material.slang lays them out. A worker parses the file, the main thread gives it a record and loads its textures, and each frame every record is brought up to date with its textures' bindless indices before any layer draws, so an edit or a texture that finished loading shows that frame
+    // One GPU table of fixed-size records, as Material.slang lays them out, updated every frame
     class TRINITY_API MaterialLoader final : public AssetLoader
     {
     public:
-        // Base colour, then emissive and its strength, then metallic, roughness, normal scale and occlusion strength, then the alpha cutoff, the flags and the five textures, in slot order, with a word of padding
+        // In slot order, with a word of padding. Material.slang reads the same layout
         static constexpr std::uint64_t c_RecordSize = 80;
         static constexpr std::uint32_t c_DefaultIndex = 0;
         static constexpr std::uint32_t c_InitialCapacity = 256;
-        // A texture is its bindless index, with the nearest filter in the top bit, or this for an empty slot or one still loading
+        // A bindless index with the nearest filter in the top bit, or this for an empty or loading slot
         static constexpr std::uint32_t c_NoTexture = 0xFFFFFFFFu;
         static constexpr std::uint32_t c_NearestBit = 0x80000000u;
-        // The alpha mode in the two lowest bits of the flags, then double-sided, and from bit 8 one bit for each texture slot sampled with the second UV set
+        // Alpha mode in the two lowest bits, then double-sided, and from bit 8 a second-UV bit per slot
         static constexpr std::uint32_t c_AlphaModeMask = 0x3u;
         static constexpr std::uint32_t c_DoubleSidedBit = 0x4u;
         static constexpr std::uint32_t c_TexCoordShift = 8;
@@ -58,17 +58,17 @@ namespace Trinity
             return &m_Default;
         }
 
-        // A loaded material takes the data at once, as an editor's edit does, without its file being read again. False when it is not loaded
+        // Takes the data at once, as an editor's edit does. False when the material is not loaded
         bool Apply(UUID id, const MaterialData& data);
 
         void RecordUploads(RHI::CommandList& commands);
         void Release(MaterialAsset& material) const;
 
-        // Recreated larger when the records outgrow it, so its handle and bindless index are read each frame
+        // Recreated larger when the records outgrow it, so read its handle and index each frame
         [[nodiscard]] RHI::BufferHandle GetTable() const { return m_Table; }
         [[nodiscard]] std::uint32_t GetTableShaderResourceIndex() const { return m_TableIndex; }
         [[nodiscard]] std::uint32_t GetCapacity() const { return m_Capacity; }
-        // What the table holds once this frame's uploads have run, a record for each index up to the capacity
+        // What the table holds once this frame's uploads have run, a record for each index
         [[nodiscard]] std::span<const std::byte> GetRecords() const { return m_Records; }
 
         [[nodiscard]] static Record Pack(const MaterialData& material, const TextureIndices& textures);
@@ -78,7 +78,7 @@ namespace Trinity
     private:
         using TextureRefs = std::array<AssetRef<TextureAsset>, c_TextureSlots>;
 
-        // A record's material and the textures it keeps loaded, which outlive the material until the next frame, as it can go while the asset manager is busy with its entries
+        // The textures outlive the material until the next frame, as the asset manager may be busy
         struct Slot
         {
             MaterialAsset* Material = nullptr;
@@ -92,7 +92,7 @@ namespace Trinity
         RHI::Device& m_Device;
         MaterialAsset m_Default;
 
-        // Finish and Release are const like the rest of the loader interface, and only ever run on the main thread
+        // Finish and Release are const as the loader interface has them, and run on the main thread only
         mutable std::vector<Slot, TaggedAllocator<Slot, MemoryTag::Renderer>> m_Slots;
         mutable std::vector<std::uint32_t, TaggedAllocator<std::uint32_t, MemoryTag::Renderer>> m_FreeSlots;
         mutable std::vector<TextureRefs, TaggedAllocator<TextureRefs, MemoryTag::Renderer>> m_Released;

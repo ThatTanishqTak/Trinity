@@ -7,7 +7,7 @@
 
 namespace Trinity
 {
-    // Fixed steps for a simulation. Each frame's time, clamped to c_MaxFrameTime, is added up, and whole steps are taken from it, at most c_MaxStepsPerFrame a frame. A frame owed more drops the rest, so a long hitch slows the simulation down rather than making it catch up over the frames after. What is left is how far rendering lies between the last two steps. Time is counted in nanoseconds, so steps add up exactly
+    // Steps past c_MaxStepsPerFrame are dropped, so a hitch slows the simulation, never catches up
     class TRINITY_API SimulationClock
     {
     public:
@@ -19,20 +19,20 @@ namespace Trinity
 
         explicit SimulationClock(std::uint32_t rate = c_DefaultRate);
 
-        // Steps per second, clamped to c_MinimumRate and c_MaximumRate, from the next frame on. Time already added carries over, less any whole steps of the new length
+        // Clamped to c_MinimumRate and c_MaximumRate. Time already added carries over
         void SetRate(std::uint32_t rate);
         // No time added and no steps taken, as a simulation starts
         void Reset();
 
         // Adds a frame's time, and returns how many steps to take for it
         [[nodiscard]] std::uint32_t Advance(std::chrono::nanoseconds frameTime);
-        // Counts one step taken whatever time has been added, as a paused simulation's single step is, which leaves the time added as it was
+        // Counts one step whatever time has been added, as a paused simulation's single step
         void TakeStep() { ++m_StepCount; }
 
         [[nodiscard]] std::uint32_t GetRate() const { return m_Rate; }
         [[nodiscard]] std::chrono::nanoseconds GetStep() const { return m_Step; }
         [[nodiscard]] float GetStepSeconds() const { return static_cast<float>(static_cast<double>(m_Step.count()) * 1e-9); }
-        // How far past the last step the frame lies, as a fraction of a step, in [0, 1): what rendering interpolates between the last two steps by
+        // In [0, 1): how far rendering lies between the last two steps
         [[nodiscard]] float GetInterpolation() const;
         // Since the last reset: steps taken, and steps that capped frames dropped
         [[nodiscard]] std::uint64_t GetStepCount() const { return m_StepCount; }

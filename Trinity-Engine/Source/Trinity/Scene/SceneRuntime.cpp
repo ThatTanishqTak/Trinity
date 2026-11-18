@@ -30,7 +30,7 @@ namespace Trinity
 {
     namespace
     {
-        // Here rather than with the physics, whose sources are built for instructions this processor may lack and must run no code before the CPU check
+        // Kept out of the physics sources, which must run no code before the CPU check
         ConsoleVariable<std::int32_t> s_PhysicsEventsVariable("physics.events", 0, "Logs a running scene's physics events to the Console: 0 none, 1 contacts beginning and ending, triggers entered and left, joints breaking and characters hitting bodies, 2 contacts staying too");
 
         // A joint to the world names no entity
@@ -83,7 +83,7 @@ namespace Trinity
         m_Systems.push_back(std::move(system));
     }
 
-    // The clock goes on by the frame's time scaled by the scripts' time scale, so at 0 it takes no step
+    // The clock runs on frame time scaled by the scripts' time scale, so at 0 it takes no step
     void SceneRuntime::Update(Timestep timestep)
     {
         TR_PROFILE_FUNCTION();
@@ -102,7 +102,7 @@ namespace Trinity
         RunSteps(1, 1.0f, Timestep(m_Clock.GetStep()), Timestep(m_Clock.GetStep()));
     }
 
-    // The actions are read from Input first, so every script sees the same frame of them, and all through the frame Input reads as the scene has been let have it, as Forge's Game panel lets it. The scripts' clock moves on, scripts added since the last frame are made, and C# scripts' action handlers are raised, then the sounds the UI's elements asked for since the last frame play, and the UI events queued since then go to their handlers, then each step's systems, the scripts' fixed step first, then physics and the step's events to the scripts, with the presses each step reads cleared after it. Then the scripts' OnUpdate, the transform pass with moving bodies placed by the interpolation given, OnLateUpdate and, when any script had it, the transform pass again. Scripts added meanwhile that no call has given OnCreate, such as those of a Script component put on an entity directly, have it then, with the transform pass again, so it comes in the frame they were added in. Entities destroyed meanwhile go, then the sounds follow where everything now is, muffled by what the physics has between them and the listener, and the voices of sources gone stop, then rendering, which the caller does
+    // Actions are read from Input first, so every script sees the same frame of them
     void SceneRuntime::RunSteps(std::uint32_t steps, float interpolation, Timestep unscaled, Timestep timestep)
     {
         const bool l_WasReadingScene = Input::SetReadingScene(true);
@@ -144,7 +144,7 @@ namespace Trinity
             m_Physics2D->BeginFrame(m_StepsThisFrame);
         }
 
-        // Events raised as a frame begins, such as the contacts of a body taken out ending, go to the scripts with the first step's
+        // Events raised as a frame begins, such as contacts ending, go to scripts with the first step's
         std::size_t l_Delivered3D = 0;
         std::size_t l_Delivered2D = 0;
         for (std::uint32_t it_Step = 0; it_Step < m_StepsThisFrame; ++it_Step)
@@ -238,7 +238,7 @@ namespace Trinity
         }
     }
 
-    // Each sound the scene's UI asked for since the last frame, in order, through its UIDocument's Sound Output, or with the UIDocument gone, as though it named none
+    // In order, through its UIDocument's Sound Output, or as though it named none if it is gone
     void SceneRuntime::PlayUISounds()
     {
         const GameUI* l_UI = GameUIAccess::GetUI();

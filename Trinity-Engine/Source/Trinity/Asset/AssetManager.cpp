@@ -36,7 +36,7 @@ namespace Trinity
             }
         };
 
-        // Lives from the read finishing until Update takes its result, and owns the file's bytes until the loader is done with them
+        // Lives from the read finishing until Update takes its result, and owns the file's bytes
         struct LoadTask
         {
             UUID ID;
@@ -121,7 +121,7 @@ namespace Trinity
             Complete(task, std::move(l_Result));
         }
 
-        // A built-in asset's bytes are made on a worker and loaded there as a file's would be, so it is ready a frame or two later, as a read one is
+        // A built-in asset's bytes are made on a worker and loaded as a file's would be
         void Make(UUID id, const Entry& entry, AssetManager::BuiltInSource source)
         {
             LoadTask* l_Task = Memory::New<LoadTask>(MemoryTag::Assets);
@@ -136,7 +136,7 @@ namespace Trinity
             }, &s_State->Jobs);
         }
 
-        // Read requests are cancelled when the last reference goes, so this only runs for an entry still wanted
+        // Read requests are cancelled when the last reference goes, so this runs only for a wanted entry
         void OnRead(UUID id, std::uint64_t generation, Expected<FileBuffer, FileError> result)
         {
             Entry* l_Entry = FindEntry(id, generation);
@@ -207,7 +207,7 @@ namespace Trinity
 
     namespace AssetManager
     {
-        // Bookkeeping is under Engine, so Assets holds only entries and loaded assets, and is 0 B whenever nothing is loaded
+        // Bookkeeping is under Engine, so Assets holds only entries and loaded assets
         void Initialize()
         {
             TR_CORE_ASSERT(s_State == nullptr, "The asset manager is already initialized.");
@@ -233,7 +233,7 @@ namespace Trinity
             s_State = nullptr;
         }
 
-        // Takes finished loads on the main thread, once a frame. A result nobody wants any more is thrown away
+        // On the main thread, once a frame. A result nobody wants any more is thrown away
         void Update()
         {
             TR_PROFILE_FUNCTION();
@@ -267,7 +267,7 @@ namespace Trinity
                     }
                 }
 
-                // A reload replaces the version the asset had, which was in use until now. A failed one keeps it
+                // A reload replaces the version in use until now. A failed one keeps it
                 if (it_Task->Result != nullptr)
                 {
                     Memory::Delete(l_Entry->Loaded);
@@ -284,7 +284,7 @@ namespace Trinity
             }
         }
 
-        // Entries already loading keep their path. A registry swapped for another project's needs no assets left from the old one
+        // Entries already loading keep their path. Another project's registry needs no assets left over
         void SetRegistry(const AssetRegistry* registry)
         {
             TR_CORE_ASSERT(registry == nullptr || s_State->Entries.empty() || registry == s_State->Registry, "Assets from one registry are still loaded while another is set");
@@ -334,7 +334,7 @@ namespace Trinity
             return s_State->BuiltIns.contains(id);
         }
 
-        // Its decodes may still be running, and its assets may need it to be destroyed, so both end before it goes. Assets still referenced read as failed from then on
+        // Its decodes may still be running and its assets need it to be destroyed, so both end first
         void UnregisterLoader(std::string_view assetType)
         {
             const AssetLoader* l_Loader = FindLoader(assetType);
@@ -379,7 +379,7 @@ namespace Trinity
 
             if (l_Dropped != 0)
             {
-                TR_CORE_WARN("Assets: {} {} asset(s) were still referenced when their loader went, so they now read as failed", l_Dropped, assetType);
+                TR_CORE_WARN("Assets: {} {} asset(s) still referenced when their loader went, now failed", l_Dropped, assetType);
             }
 
             std::erase(s_State->Loaders, l_Loader);
@@ -447,7 +447,7 @@ namespace Trinity
             l_Entry.Request = FileSystem::ReadFileAsync(l_Entry.Loader->GetLoadPath(*l_Record), [id, l_Generation = l_Entry.Generation](Expected<FileBuffer, FileError> result) { OnRead(id, l_Generation, std::move(result)); });
         }
 
-        // A new generation throws away whatever the dropped load still hands to Update, as Release's cancel does
+        // A new generation discards whatever the dropped load still hands to Update
         AssetState LoadNow(UUID id)
         {
             TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are loaded at once on the main thread.");
@@ -533,7 +533,7 @@ namespace Trinity
             }
         }
 
-        // As after a reimport. The version already loaded stays in use until the new one is ready, and a load still running is dropped. An asset gone from the registry fails, so it reads as its loader's placeholder. A held asset waits for Resume. A built-in asset never changes, so it stays as it is
+        // The loaded version stays in use until the new one is ready. A held asset waits for Resume
         void Reload(UUID id)
         {
             TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are reloaded on the main thread.");
@@ -570,7 +570,7 @@ namespace Trinity
             l_Entry.Request = FileSystem::ReadFileAsync(l_Loader->GetLoadPath(*l_Record), [id, l_Generation = l_Entry.Generation](Expected<FileBuffer, FileError> result) { OnRead(id, l_Generation, std::move(result)); });
         }
 
-        // For a file still being made, such as a texture an editor is importing. A held asset reads as loading, with its loader's placeholder, and is not read until Resume. A registry set for another project lets go of every hold. A built-in asset has no file, so it is never held
+        // For a file still being made. A held asset reads as loading, and is not read until Resume
         void Hold(UUID id)
         {
             TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are held on the main thread.");
@@ -580,7 +580,7 @@ namespace Trinity
                 return;
             }
 
-            // A load already under way would only find the file missing. A version already loaded stays in use
+            // A load already under way would only find the file missing
             const auto a_Found = s_State->Entries.find(id);
             if (a_Found != s_State->Entries.end() && a_Found->second.Loaded == nullptr)
             {
@@ -591,7 +591,7 @@ namespace Trinity
             }
         }
 
-        // Once the file is made. An asset in use loads now, or again if it had a version already
+        // Once the file is made. An asset in use loads now
         void Resume(UUID id)
         {
             TR_CORE_ASSERT(MainThread::IsMainThread(), "Assets are resumed on the main thread.");

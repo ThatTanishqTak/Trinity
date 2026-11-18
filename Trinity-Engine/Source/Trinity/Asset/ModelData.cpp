@@ -16,7 +16,7 @@ namespace Trinity
         return std::format("{}/Models/{}.trmodel", Project::c_CacheMount, id);
     }
 
-    // The name, then each node a map in a block sequence. A node without a mesh leaves out the mesh and its materials
+    // A node without a mesh leaves out the mesh and its materials
     std::string WriteModelData(const ModelData& model)
     {
         std::string l_Text = std::format("Format: {}", ModelData::c_FormatVersion);

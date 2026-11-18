@@ -15,7 +15,7 @@ namespace Trinity
 {
     namespace
     {
-        static_assert(std::endian::native == std::endian::little, "Asset tables are written and read as little-endian, as every platform Trinity targets is.");
+        static_assert(std::endian::native == std::endian::little, "Asset tables are little-endian, as every platform Trinity targets is.");
 
         // This header, a record for each asset, then their strings one after another
         struct TableHeader
@@ -131,7 +131,7 @@ namespace Trinity
 
             if (l_Header.Version > c_FormatVersion)
             {
-                return Unexpected{ std::format("written in format {} by a newer Trinity, and this build reads format {} and older", l_Header.Version, c_FormatVersion) };
+                return Unexpected{ std::format("in format {}, from a newer Trinity. This build reads up to {}", l_Header.Version, c_FormatVersion) };
             }
 
             const std::uint64_t l_Size = sizeof(TableHeader) + std::uint64_t{ l_Header.RecordCount } * sizeof(TableRecord) + l_Header.StringBytes;

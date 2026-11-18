@@ -70,7 +70,7 @@ namespace Trinity
         return {};
     }
 
-    // Before any layer draws, so a mesh that became ready this frame already holds its data when it is drawn
+    // Before any layer draws, so a mesh that became ready this frame already has its data
     void MeshLoader::RecordUploads(RHI::CommandList& commands)
     {
         TR_PROFILE_FUNCTION();
@@ -83,7 +83,7 @@ namespace Trinity
         m_Pending.clear();
     }
 
-    // A mesh released before its upload was recorded is dropped from the queue, and the release queue keeps the GPU buffer until frames using it have finished
+    // A mesh released before its upload was recorded is dropped from the queue
     void MeshLoader::Release(MeshAsset& mesh) const
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "Meshes are released on the main thread.");
@@ -95,7 +95,7 @@ namespace Trinity
         mesh.m_Loader = nullptr;
     }
 
-    // Through the upload ring when the mesh is small, otherwise a staging buffer of its own, destroyed at once and kept by the release queue until the copy has run
+    // Through the upload ring when the mesh is small, else its own staging buffer
     void MeshLoader::Upload(RHI::CommandList& commands, MeshAsset& mesh)
     {
         const std::uint64_t l_Size = mesh.m_Layout.Size;
@@ -141,7 +141,7 @@ namespace Trinity
             m_Device.DestroyBuffer(l_Staging);
         }
 
-        // The GPU copy is all that is needed from here, and an emptied vector would keep its capacity
+        // The GPU copy is all that is needed now, and an emptied vector would keep its capacity
         decltype(mesh.m_Data)().swap(mesh.m_Data);
     }
 }

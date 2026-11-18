@@ -54,7 +54,7 @@ namespace Trinity
             return static_cast<std::uint32_t>(std::ranges::count_if(assets, [](UUID id) { return AssetManager::GetState(id) == AssetState::Loading; }));
         }
 
-        // The prefabs nested in each prefab held that has loaded, which its template is made from, held too. True while one was added, so it is waited for, and the prefabs nested in it in turn
+        // Holds the prefabs nested in each loaded prefab. True while one was added, so it is waited for
         [[nodiscard]] bool HoldNestedPrefabs(AssetList& assets)
         {
             bool l_Added = false;
@@ -80,7 +80,7 @@ namespace Trinity
             return l_Added;
         }
 
-        // Each prefab held, a model's too, whose template can be read has what the template names held as well: its meshes, materials and the rest, the prefabs nested in it and those its scripts' fields name, so an instance of it made while the scene runs is whole at once and can make instances of those in turn. One still loading is waited for, and each is gone through once, those it adds in the same call when their templates can be read already. True while one was added, which is waited for and gone through in turn
+        // Holds what each prefab's template names, so an instance made while running is whole at once
         [[nodiscard]] bool HoldPrefabContents(AssetList& assets, AssetList& seen, const AssetRegistry* registry)
         {
             bool l_Added = false;
@@ -100,7 +100,7 @@ namespace Trinity
                     continue;
                 }
 
-                // Forge's resolver reads a prefab as it is asked for, and the asset manager's has one once it has loaded
+                // Forge's resolver reads a prefab as asked. The asset manager's has it once it has loaded
                 Scene* l_Template = SceneSerializer::FindPrefabTemplate(l_Prefab);
                 if (l_Template == nullptr && AssetManager::GetState(l_Prefab) == AssetState::Loading)
                 {
@@ -126,7 +126,7 @@ namespace Trinity
             return l_Added;
         }
 
-        // How long the instances of each prefab the runtime instanced took, once it ends, as the scene stops or another takes its place
+        // Logs how long instancing each prefab took, as the scene stops or another takes its place
         void LogInstancing(SceneRuntime* runtime, const AssetRegistry* registry, std::string_view scene)
         {
             if (runtime == nullptr)
@@ -138,12 +138,12 @@ namespace Trinity
             {
                 const AssetRecord* l_Record = registry != nullptr ? registry->Find(it_Time.Prefab) : nullptr;
                 const std::string l_Prefab = l_Record != nullptr ? l_Record->Path : std::format("{}", it_Time.Prefab);
-                TR_CORE_INFO("SceneManager: {} made {} instance(s) of prefab {} while it ran, in {:.1f} us each on average and {:.1f} us at most", scene, it_Time.Count, l_Prefab, it_Time.TotalMicroseconds / static_cast<double>(it_Time.Count), it_Time.MostMicroseconds);
+                TR_CORE_INFO("SceneManager: {} made {} of prefab {}, {:.1f} us average, {:.1f} us at most", scene, it_Time.Count, l_Prefab, it_Time.TotalMicroseconds / static_cast<double>(it_Time.Count), it_Time.MostMicroseconds);
             }
         }
     }
 
-    // A scene asked for: its file being read, then waiting for the prefabs its instances are of, then the scene loaded from it waiting for its assets and what is inside the prefabs it holds, then for its materials' textures and its sound events' clips
+    // Its file is read, then its prefabs, then its assets, then its textures and clips
     struct SceneManager::State
     {
         struct Loading
@@ -183,14 +183,14 @@ namespace Trinity
             return l_Record != nullptr ? l_Record->Path : std::string("the running scene");
         }
 
-        // A cooked game holds only the scenes of its build, so one not there is named as one left out of it
+        // A cooked game holds only the scenes of its build, so one not there was left out of it
         [[nodiscard]] std::string DescribeMissing(std::string_view scene) const
         {
             return Registry != nullptr && Registry->IsCooked() ? std::format("scene {} is not one of the build's scenes", scene) : std::format("there is no scene {} to load", scene);
         }
     };
 
-    // The actions' players last across every scene it switches to, as the scripts kept across scenes would expect
+    // The actions' players last across every scene switched to, as kept scripts would expect
     SceneManager::SceneManager(const PhysicsSettings& settings, const AssetRegistry* registry, UUID inputActions, AudioEngine* audio, const AudioSettings& audioSettings) : m_State(Memory::New<State>(MemoryTag::Scene))
     {
         m_State->Settings = settings;
@@ -202,7 +202,7 @@ namespace Trinity
         InputActionsRuntime::Start(inputActions);
     }
 
-    // The running scene's scripts have OnDestroy before the scene goes, and any rumble they leave stops with it, and so do its actions' players
+    // Scripts get OnDestroy before the scene goes. Their rumble and action players stop with it
     SceneManager::~SceneManager()
     {
         if (m_State->Pending)
@@ -230,7 +230,7 @@ namespace Trinity
         return s_Active;
     }
 
-    // The scene is read already, so what it names is held at once, as is what is inside the prefabs it names that can be read now, which in Forge's Play is every one, as Forge reads a prefab from its file as it is asked for
+    // The scene is read already, so what it and its readable prefabs name is held at once
     void SceneManager::Run(Scope<Scene> scene, UUID asset)
     {
         State& l_State = *m_State;
@@ -330,7 +330,7 @@ namespace Trinity
         Advance();
     }
 
-    // The loading scene holds the prefabs its instances are of once read, and those nested in them as each is in, and is parsed once they are all in, as its instances are made from them. It holds its assets, then its materials' textures and its sound events' clips once its materials and events are in, so it waits for the clips that preload, and is switched to once nothing it holds still loads. A prefab that does not load leaves its instances kept as the file has them
+    // Parsed once its prefabs are in, and switched to once nothing it holds still loads
     void SceneManager::Advance()
     {
         State& l_State = *m_State;
@@ -432,7 +432,7 @@ namespace Trinity
         Switch();
     }
 
-    // The kept subtrees are written out and their scripts taken before the old scene goes, so its scripts' OnDestroy still sees them. In the new scene any entity of a kept UUID gives way first, and each kept root goes last among the roots, where it was in the world. The old scene's assets are let go once the kept subtrees are in, so the prefabs their instances are of are there to make them from. The time scale and whether the sounds are paused carry over
+    // Kept subtrees are saved before the old scene goes, so its scripts' OnDestroy still sees them
     void SceneManager::Switch()
     {
         TR_PROFILE_FUNCTION();
@@ -521,7 +521,7 @@ namespace Trinity
             }
         }
 
-        // What the kept subtrees name is the new scene's to hold too, with what is inside its prefabs, which the old scene held and so has loaded, so a kept script goes on instancing what it did
+        // What the kept subtrees name is the new scene's to hold too, so a kept script goes on instancing
         if (l_KeptCount != 0)
         {
             const std::size_t l_Count = l_Loading->Held.size();
@@ -550,7 +550,7 @@ namespace Trinity
         l_State.Counts.Kept = l_KeptCount;
 
         const double l_Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - l_Loading->Started).count();
-        TR_CORE_INFO("SceneManager: switched to {}, {} entities with {} kept across and {} asset(s), {:.1f} ms after it was asked for", l_Loading->Path, l_State.Current->GetEntityCount(), l_KeptCount, l_State.Held.size(), l_Milliseconds);
+        TR_CORE_INFO("SceneManager: switched to {}, {} entities, {} kept, {} asset(s), {:.1f} ms", l_Loading->Path, l_State.Current->GetEntityCount(), l_KeptCount, l_State.Held.size(), l_Milliseconds);
     }
 
     Scene* SceneManager::GetScene() const

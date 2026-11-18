@@ -13,7 +13,7 @@
 
 namespace Trinity
 {
-    // Loads the KTX2 file the texture importer cooked into /cache. A worker transcodes Basis Universal to BC7, or a normal map to BC5, where the device samples it and the size is whole blocks, otherwise to RGBA8, and the main thread creates the texture, whose mips the renderer uploads at the start of the next frame
+    // A worker transcodes to BC7, or BC5 for a normal map, where the device samples it, else RGBA8
     class TextureLoader final : public AssetLoader
     {
     public:
@@ -45,7 +45,7 @@ namespace Trinity
         bool m_BC5Supported = false;
         TextureAsset m_Placeholder;
 
-        // Finish and Release are const like the rest of the loader interface, and only ever run on the main thread
+        // Finish and Release are const as the loader interface has them, and run on the main thread only
         mutable std::vector<TextureAsset*, TaggedAllocator<TextureAsset*, MemoryTag::Engine>> m_Pending;
     };
 }

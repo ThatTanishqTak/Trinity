@@ -14,7 +14,7 @@
 
 namespace Trinity
 {
-    // A handle to an entity in a scene. It owns nothing, and is valid while its scene and entity live
+    // Owns nothing, and is valid while its scene and entity live
     class Entity
     {
     public:
@@ -48,7 +48,7 @@ namespace Trinity
             return std::as_const(m_Scene->m_Registry).get<T>(m_Handle);
         }
 
-        // Changes the component through the function and tells whoever listens, such as a running scene's physics, that it changed. A change made through Get goes unnoticed
+        // Tells listeners, such as a running scene's physics. A change made through Get goes unnoticed
         template<Component T, typename F>
         T& Patch(F&& function)
         {
@@ -57,7 +57,7 @@ namespace Trinity
             return m_Scene->m_Registry.patch<T>(m_Handle, std::forward<F>(function));
         }
 
-        // Puts a new value in place, telling listeners as Patch does
+        // Tells listeners as Patch does
         template<Component T>
         T& Replace(T value)
         {
@@ -76,7 +76,7 @@ namespace Trinity
         template<Component T>
         void Remove()
         {
-            static_assert(!std::is_same_v<T, IDComponent> && !std::is_same_v<T, TransformComponent> && !std::is_same_v<T, WorldTransformComponent> && !std::is_same_v<T, RelationshipComponent>, "An entity keeps its ID, Transform, WorldTransform and Relationship until it is destroyed");
+            static_assert(!std::is_same_v<T, IDComponent> && !std::is_same_v<T, TransformComponent> && !std::is_same_v<T, WorldTransformComponent> && !std::is_same_v<T, RelationshipComponent>, "An entity keeps its ID, Transform, WorldTransform and Relationship for life");
             TR_CORE_ASSERT(Has<T>(), "Entity has no {}", T::c_TypeName);
 
             m_Scene->m_Registry.remove<T>(m_Handle);

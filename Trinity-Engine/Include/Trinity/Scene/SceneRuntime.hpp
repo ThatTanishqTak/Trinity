@@ -28,7 +28,7 @@ namespace Trinity
         // Called once a step, with the step's length
         using FixedStepSystem = std::function<void(Timestep step)>;
 
-        // The last frame's steps and the time they took, systems, scripts' fixed steps and physics together, and each world's bodies as it reports them
+        // The last frame's steps and the time they took, and each world's bodies
         struct Statistics
         {
             std::uint32_t Steps = 0;
@@ -39,7 +39,7 @@ namespace Trinity
             PhysicsCharacterCounts Characters2D;
         };
 
-        // The scene's sounds play on the audio engine given, which must outlive the runtime, or keep their time unheard without one
+        // The audio engine must outlive the runtime. Without one, sounds keep their time unheard
         explicit SceneRuntime(Scene& scene, const PhysicsSettings& settings = {}, AudioEngine* audio = nullptr, const AudioSettings& audioSettings = {});
         ~SceneRuntime();
 
@@ -50,7 +50,7 @@ namespace Trinity
 
         // With the frame's time, as Application hands it to each layer
         void Update(Timestep timestep);
-        // One fixed step whatever the frame's time, as a paused scene's Step button takes, with moving bodies drawn where it left them
+        // One fixed step whatever the frame's time, as a paused scene's Step button takes
         void Step();
 
         [[nodiscard]] Scene& GetScene() { return m_Scene; }
@@ -58,7 +58,7 @@ namespace Trinity
         [[nodiscard]] const SimulationClock& GetClock() const { return m_Clock; }
         [[nodiscard]] float GetInterpolation() const { return m_Clock.GetInterpolation(); }
         [[nodiscard]] std::uint32_t GetStepsThisFrame() const { return m_StepsThisFrame; }
-        // The bodies are counted as asked, which in 3D walks every body
+        // Counting the bodies walks every body in 3D
         [[nodiscard]] Statistics GetStatistics() const;
         // Whether both worlds keep where their bodies touch each step, for drawing
         void SetGatherContacts(bool gather);
@@ -70,7 +70,7 @@ namespace Trinity
         [[nodiscard]] AudioScene& GetAudio() { return *m_Audio; }
 
     private:
-        // The input actions, the UI's sounds and the scene's sounds go on by the frame's time as it came, and the scripts by it as the time scale makes it
+        // Input, UI sounds and scene sounds run on real frame time. Scripts run on scaled time
         void RunSteps(std::uint32_t steps, float interpolation, Timestep unscaled, Timestep timestep);
         void PlayUISounds();
         void LogPhysicsEvents() const;
@@ -85,7 +85,7 @@ namespace Trinity
         Scope<ScriptRuntime> m_Scripts;
         // Its voices stop as the runtime goes, after the scripts' OnDestroy
         Scope<AudioScene> m_Audio;
-        // The UI's sounds for the scene, as GameUI last gave them under the Scene tag, and the sequence number of the last
+        // The UI's sounds for the scene, as GameUI last gave them, and the last one's sequence number
         std::vector<UIQueuedSound> m_UISounds;
         std::uint64_t m_UISoundCursor = 0;
         std::uint32_t m_StepsThisFrame = 0;

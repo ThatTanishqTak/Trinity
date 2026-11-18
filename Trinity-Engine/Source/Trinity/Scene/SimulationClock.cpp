@@ -7,7 +7,7 @@ namespace Trinity
 {
     namespace
     {
-        // The largest float below 1, which a fraction just short of a whole step rounds to rather than to 1
+        // The largest float below 1, which a fraction just short of a whole step rounds to
         constexpr float c_BelowOne = 1.0f - std::numeric_limits<float>::epsilon() * 0.5f;
     }
 

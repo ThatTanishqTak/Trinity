@@ -39,13 +39,13 @@ namespace Trinity
         }
     }
 
-    // Record 0 is the default material, which is also the placeholder every material reads as until it is loaded
+    // Record 0 is the default material, and the placeholder every material reads as while loading
     MaterialLoader::MaterialLoader(RHI::Device& device) : m_Device(device)
     {
         m_Slots.emplace_back().Material = &m_Default;
         if (!EnsureCapacity())
         {
-            TR_CORE_ERROR("Materials: the device could not create the material table, so meshes draw without materials");
+            TR_CORE_ERROR("Materials: the material table could not be created, meshes draw without any");
         }
     }
 
@@ -89,7 +89,7 @@ namespace Trinity
         return l_Material;
     }
 
-    // A free record if there is one, and its textures start loading. The record is written at the start of the next frame
+    // Takes a free record, and its textures start loading. The record is written next frame
     Expected<void, std::string> MaterialLoader::Finish(Asset& asset) const
     {
         MaterialAsset& l_Material = static_cast<MaterialAsset&>(asset);
@@ -143,7 +143,7 @@ namespace Trinity
         return true;
     }
 
-    // Textures released since the last frame go first, then every record is packed again and the ones that changed are uploaded in one copy
+    // Released textures go first, then every record is packed and the changed ones go in one copy
     void MaterialLoader::RecordUploads(RHI::CommandList& commands)
     {
         TR_PROFILE_FUNCTION();
@@ -239,7 +239,7 @@ namespace Trinity
         return l_Textures;
     }
 
-    // A texture still loading, or one that failed, leaves its slot empty rather than showing a placeholder that would be wrong for a normal map. The record's slot keeps the texture loaded, so it is looked up by its UUID
+    // A loading or failed texture leaves its slot empty: a placeholder would be wrong for a normal map
     MaterialLoader::TextureIndices MaterialLoader::ResolveTextures(const MaterialData& material)
     {
         TextureIndices l_Indices{};
@@ -255,7 +255,7 @@ namespace Trinity
         return l_Indices;
     }
 
-    // Doubled until every record fits. The new table is written whole, and the old one is kept by the release queue until frames reading it have finished
+    // Doubled until every record fits. The old table is kept until frames reading it have finished
     bool MaterialLoader::EnsureCapacity()
     {
         if (m_Table && m_Slots.size() <= m_Capacity)
@@ -291,7 +291,7 @@ namespace Trinity
         return true;
     }
 
-    // Through the upload ring when the range is small, as an edit's is, otherwise a staging buffer of its own, destroyed at once and kept by the release queue until the copy has run
+    // Through the upload ring when the range is small, as an edit's is, else its own staging buffer
     void MaterialLoader::Upload(RHI::CommandList& commands, std::uint64_t first, std::uint64_t size)
     {
         RHI::BufferHandle l_Staging;
@@ -319,7 +319,7 @@ namespace Trinity
 
         if (l_Data.size() < size)
         {
-            TR_CORE_ERROR("Materials: no staging memory for {} of material records, so they are written next frame", Memory::FormatBytes(size));
+            TR_CORE_ERROR("Materials: no staging memory for {} of material records, written next frame", Memory::FormatBytes(size));
             m_Device.DestroyBuffer(l_FromRing ? RHI::BufferHandle{} : l_Staging);
             m_Rewrite = true;
 

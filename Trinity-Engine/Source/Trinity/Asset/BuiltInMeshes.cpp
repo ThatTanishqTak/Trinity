@@ -12,7 +12,7 @@ namespace Trinity
 {
     namespace
     {
-        // "trinity" in ASCII and then the shape's number, which a random UUID is all but certain never to be
+        // "trinity" in ASCII, then the shape's number, which no random UUID is likely to be
         constexpr std::uint64_t c_IDBase = 0x7472696E69747900;
 
         // Around Y, and from pole to pole on the sphere, half of that on each end of the capsule
@@ -25,7 +25,7 @@ namespace Trinity
         constexpr float c_CylinderHalfHeight = 0.5f;
         constexpr float c_PlaneSize = 10.0f;
 
-        // One ring of a surface turned about Y, from the top down: its radius and height, the outward and upward parts of its normal, and V there. A ring of radius 0 is a pole
+        // One ring of a surface turned about Y, from the top down. A ring of radius 0 is a pole
         struct Ring
         {
             float Radius = 0.0f;
@@ -48,7 +48,7 @@ namespace Trinity
             mesh.Indices.insert(mesh.Indices.end(), { first, second, third });
         }
 
-        // A flat grid facing the normal, with U along across and the top of a texture along cross(normal, across), which is the bitangent glTF makes from a tangent of handedness +1. Wound anticlockwise seen from the front, as glTF's are
+        // U runs along across. Wound anticlockwise seen from the front, as glTF's are
         void AddFace(MeshData& mesh, glm::vec3 center, glm::vec3 normal, glm::vec3 across, glm::vec2 size, std::uint32_t segments)
         {
             const glm::vec3 l_Up = glm::cross(normal, across);
@@ -96,7 +96,7 @@ namespace Trinity
             }
         }
 
-        // Each ring gets c_Segments + 1 vertices, with the seam at -Z doubled so U runs from 0 to 1 around, facing +Z at 0.5. A pole's vertices sit in the middle of their segments' U, the last of them unused, and only the triangles that are not flat at a pole are kept
+        // The seam at -Z is doubled so U runs from 0 to 1. Triangles flat at a pole are left out
         void AddLathe(MeshData& mesh, std::span<const Ring> rings)
         {
             const std::uint32_t l_First = static_cast<std::uint32_t>(mesh.Positions.size());
@@ -135,7 +135,7 @@ namespace Trinity
             }
         }
 
-        // A ring on a sphere of c_Radius, with theta from the top pole, lifted by the height given. Exactly 0 at the poles
+        // Theta is from the top pole. Exactly 0 at the poles
         Ring MakeSphereRing(float theta, float lift, float v, bool pole)
         {
             const float l_Out = pole ? 0.0f : std::sin(theta);
@@ -156,7 +156,7 @@ namespace Trinity
             AddLathe(mesh, l_Rings);
         }
 
-        // Two half spheres apart by the straight part, the ring at the middle of each also the end of the straight part. V follows the distance along the surface from top to bottom
+        // Two half spheres apart by the straight part. V follows the distance along the surface
         void MakeCapsule(MeshData& mesh)
         {
             const std::uint32_t l_CapRings = c_Rings / 2;
@@ -178,7 +178,7 @@ namespace Trinity
             AddLathe(mesh, l_Rings);
         }
 
-        // The side as a lathe of two rings, then the caps with their own vertices, so the edges stay sharp
+        // The caps have their own vertices, so the edges stay sharp
         void MakeCylinder(MeshData& mesh)
         {
             const std::array<Ring, 2> l_Side{ { { c_Radius, c_CylinderHalfHeight, 1.0f, 0.0f, 0.0f }, { c_Radius, -c_CylinderHalfHeight, 1.0f, 0.0f, 1.0f } } };

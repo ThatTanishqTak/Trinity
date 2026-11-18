@@ -13,7 +13,7 @@ namespace Trinity
 {
     namespace
     {
-        // A 64-byte header, the submesh table, then from the next 16-byte boundary the GPU buffer's bytes, all little-endian
+        // A 64-byte header, the submesh table, then the GPU buffer's bytes from the next 16-byte boundary
         constexpr std::array<char, 4> c_Magic{ 'T', 'R', 'M', 'H' };
         constexpr std::uint32_t c_Version = 1;
         constexpr std::uint64_t c_HeaderSize = 64;
@@ -134,7 +134,7 @@ namespace Trinity
         const auto a_Fits = [l_VertexCount](std::size_t size) { return size == 0 || size == l_VertexCount; };
         if (!a_Fits(mesh.Normals.size()) || !a_Fits(mesh.Tangents.size()) || !a_Fits(mesh.TexCoords0.size()) || !a_Fits(mesh.TexCoords1.size()) || !a_Fits(mesh.Colors.size()) || (!mesh.Tangents.empty() && mesh.Normals.empty()))
         {
-            return Unexpected{ std::format("a stream is neither empty nor one entry for each of the {} vertices, or there are tangents without normals", l_VertexCount) };
+            return Unexpected{ std::format("a stream does not match the {} vertices, or there are tangents without normals", l_VertexCount) };
         }
 
         if (const auto a_Past = std::ranges::find_if(mesh.Indices, [l_VertexCount](std::uint32_t index) { return index >= l_VertexCount; }); a_Past != mesh.Indices.end())
@@ -160,7 +160,7 @@ namespace Trinity
         {
             if (it_Submesh.IndexCount == 0 || it_Submesh.IndexCount % 3 != 0 || it_Submesh.FirstIndex % 3 != 0 || std::uint64_t{ it_Submesh.FirstIndex } + it_Submesh.IndexCount > l_IndexCount)
             {
-                return Unexpected{ std::format("a submesh of {} indices from index {} is not whole triangles within the mesh's {}", it_Submesh.IndexCount, it_Submesh.FirstIndex, l_IndexCount) };
+                return Unexpected{ std::format("a submesh of {} indices from index {} is not whole triangles within the {}", it_Submesh.IndexCount, it_Submesh.FirstIndex, l_IndexCount) };
             }
 
             it_Submesh.Bounds = a_Bounds(std::span(mesh.Indices).subspan(it_Submesh.FirstIndex, it_Submesh.IndexCount));
@@ -273,7 +273,7 @@ namespace Trinity
         const std::uint64_t l_DataSize = Load<std::uint64_t>(file, 56);
         if (l_VertexCount == 0 || l_IndexCount == 0 || l_IndexCount % 3 != 0 || l_SubmeshCount == 0 || (l_Streams & ~c_KnownStreams) != 0)
         {
-            return Unexpected{ std::format("{} vertices, {} indices, {} submeshes and streams {:#x} are not a mesh this build reads", l_VertexCount, l_IndexCount, l_SubmeshCount, l_Streams) };
+            return Unexpected{ std::format("{} vertices, {} indices, {} submeshes and streams {:#x} are not a readable mesh", l_VertexCount, l_IndexCount, l_SubmeshCount, l_Streams) };
         }
 
         MeshFile l_File;
@@ -283,7 +283,7 @@ namespace Trinity
         const std::uint64_t l_DataOffset = AlignUp(c_HeaderSize + std::uint64_t{ l_SubmeshCount } * c_SubmeshSize, c_StreamAlignment);
         if (l_IndexSize != RHI::GetIndexSize(l_File.Layout.IndexFormat) || l_DataSize != l_File.Layout.Size || file.size() != l_DataOffset + l_DataSize)
         {
-            return Unexpected{ std::format("{} bytes with {}-byte indices, where the layout needs {} bytes of data after {} and {}-byte indices", file.size(), l_IndexSize, l_File.Layout.Size, l_DataOffset, RHI::GetIndexSize(l_File.Layout.IndexFormat)) };
+            return Unexpected{ std::format("{} bytes, {}-byte indices: the layout needs {} after {} and {}-byte indices", file.size(), l_IndexSize, l_File.Layout.Size, l_DataOffset, RHI::GetIndexSize(l_File.Layout.IndexFormat)) };
         }
 
         l_File.Submeshes.reserve(l_SubmeshCount);

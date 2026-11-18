@@ -23,7 +23,7 @@ namespace Trinity
 
     using SceneRegistry = entt::basic_registry<entt::entity, TaggedAllocator<entt::entity, MemoryTag::Scene>>;
 
-    // Owns an EnTT registry whose pools and components allocate under Scene, finds entities by UUID, and keeps them in a hierarchy whose roots are ordered too
+    // Pools and components allocate under Scene. The hierarchy's roots are ordered too
     class TRINITY_API Scene
     {
     public:
@@ -42,7 +42,7 @@ namespace Trinity
         Entity DuplicateEntity(Entity entity);
         void Clear();
 
-        // Each entity a component of the entity or of its subtree names, a joint's connected body, a script's entity field or a module component's, each of a list of them too, given to the function, which may change it
+        // Calls the function with each entity a component in the subtree names. It may change it
         void RemapEntityReferences(Entity root, const std::function<void(UUID& entity)>& remap);
 
         bool SetParent(Entity entity, Entity parent, bool keepWorldTransform = true);
@@ -50,11 +50,11 @@ namespace Trinity
 
         void UpdateWorldTransforms();
         [[nodiscard]] glm::mat4 ComputeWorldMatrix(Entity entity) const;
-        // The entity's place in the world, from its transform and its parents', with any shear dropped
+        // From its transform and its parents', with any shear dropped
         [[nodiscard]] TransformComponent ComputeWorldTransform(Entity entity) const;
-        // The entity's place in the world as it is drawn, with each running body's entity among it and its parents at its physics pose between its last two steps, as UpdateWorldTransforms places them, and any shear dropped. What a camera that follows a body reads in OnLateUpdate, as the transform holds the body's last step. The same as ComputeWorldTransform where no body moves
+        // As drawn: running bodies are at their pose between the last two steps. Read in OnLateUpdate
         [[nodiscard]] TransformComponent ComputeDrawnTransform(Entity entity) const;
-        // Puts the entity at a place in the world by setting its transform relative to its parent, as Entity::Replace does, so a running scene's physics teleports its body
+        // Sets the transform relative to its parent, as Entity::Replace does, so physics teleports it
         void SetWorldTransform(Entity entity, const TransformComponent& world);
 
         [[nodiscard]] Entity GetFirstRoot();
@@ -73,7 +73,7 @@ namespace Trinity
         friend class Entity;
 
         using EntityMap = std::unordered_map<UUID, entt::entity, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, entt::entity>, MemoryTag::Scene>>;
-        // The UUID each entity a duplicate copies is to have where it is not a new random one, and those UUIDs, and the new instance UUID of each prefab instance root it copies, or none for one copied as a plain entity
+        // The UUIDs a duplicate's entities take, and the new instance UUID of each instance root copied
         struct CopyPlan
         {
             std::unordered_map<entt::entity, UUID> Entities;

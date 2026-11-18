@@ -13,7 +13,7 @@
 
 namespace Trinity
 {
-    // Loads the mesh files cooked into /cache. A worker checks the file and copies out the GPU buffer's bytes, the main thread creates the buffer, and the renderer uploads it at the start of the next frame. A mesh has no placeholder, so it draws nothing until it is ready
+    // A mesh has no placeholder, so it draws nothing until it is ready
     class MeshLoader final : public AssetLoader
     {
     public:
@@ -39,7 +39,7 @@ namespace Trinity
 
         RHI::Device& m_Device;
 
-        // Finish and Release are const like the rest of the loader interface, and only ever run on the main thread
+        // Finish and Release are const as the loader interface has them, and run on the main thread only
         mutable std::vector<MeshAsset*, TaggedAllocator<MeshAsset*, MemoryTag::Engine>> m_Pending;
     };
 }

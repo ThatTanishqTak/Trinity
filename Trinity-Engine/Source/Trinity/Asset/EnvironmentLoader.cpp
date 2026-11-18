@@ -62,7 +62,7 @@ namespace Trinity
         return GetCookedEnvironmentPath(record.ID);
     }
 
-    // On a worker. Each image must be square RGBA16Float, the cubemaps with six faces and the lookup table with one, so a damaged or foreign file fails here and not on the GPU
+    // On a worker. A damaged or foreign file fails here, and not on the GPU
     Expected<Asset*, std::string> EnvironmentLoader::Load(std::span<const std::byte> data) const
     {
         TR_PROFILE_FUNCTION();
@@ -179,7 +179,7 @@ namespace Trinity
         return {};
     }
 
-    // Before any layer draws, so an environment that became ready this frame already holds its texels when it is sampled
+    // Before any layer draws, so an environment that became ready this frame already has its texels
     void EnvironmentLoader::RecordUploads(RHI::CommandList& commands)
     {
         TR_PROFILE_FUNCTION();
@@ -192,7 +192,7 @@ namespace Trinity
         m_Pending.clear();
     }
 
-    // An environment released before its upload was recorded is dropped from the queue, and the release queue keeps the GPU textures until frames using them have finished
+    // An environment released before its upload was recorded is dropped from the queue
     void EnvironmentLoader::Release(EnvironmentAsset& environment) const
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "Environments are released on the main thread.");
@@ -208,7 +208,7 @@ namespace Trinity
         environment.m_Loader = nullptr;
     }
 
-    // Each image goes through a staging buffer of its own, destroyed at once and kept by the release queue until the copies have run
+    // Each image goes through its own staging buffer, kept by the release queue until the copies run
     void EnvironmentLoader::Upload(RHI::CommandList& commands, EnvironmentAsset& environment)
     {
         for (std::size_t it_Image = 0; it_Image < environment.m_Images.size(); ++it_Image)
@@ -257,7 +257,7 @@ namespace Trinity
             commands.TextureBarrier(l_Image.Texture, RHI::ResourceState::CopyDestination, RHI::ResourceState::ShaderResource);
             m_Device.DestroyBuffer(l_Staging);
 
-            // The GPU copy is all that is needed from here, and an emptied vector would keep its capacity
+            // The GPU copy is all that is needed now, and an emptied vector would keep its capacity
             decltype(l_Image.Data)().swap(l_Image.Data);
         }
     }

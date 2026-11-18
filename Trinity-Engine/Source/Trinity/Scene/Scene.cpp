@@ -19,7 +19,7 @@ namespace Trinity
 {
     namespace
     {
-        // Created inside the engine, so a pool, and the code that destroys it, never belongs to a module that adds the component first and then unloads
+        // Created inside the engine, so no pool belongs to a module that adds the component and unloads
         template<Component... T>
         void CreateStorage(SceneRegistry& registry)
         {
@@ -44,7 +44,7 @@ namespace Trinity
     {
         CreateStorage<IDComponent, TagComponent, TransformComponent, WorldTransformComponent, RelationshipComponent, CameraComponent, SpriteRendererComponent, MeshRendererComponent, LightComponent, EnvironmentComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, CylinderColliderComponent, ConvexHullColliderComponent, MeshColliderComponent, CharacterControllerComponent, JointComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent, CharacterController2DComponent, Joint2DComponent, AudioSourceComponent, AudioListenerComponent, KeepAcrossScenesComponent, UIDocumentComponent, ScriptComponent, PhysicsPoseComponent, PrefabInstanceComponent, UnknownComponentsComponent>(m_Registry);
 
-        // A module's components get their pools from the module's code, here for those registered now and as each is registered later, and lose them before the module unloads
+        // A module's components get their pools from the module's code, and lose them before it unloads
         SceneSerializer::AttachScene(*this);
     }
 
@@ -101,7 +101,7 @@ namespace Trinity
 
     void Scene::DestroyEntity(Entity entity)
     {
-        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: DestroyEntity was given an entity of another scene, or one already destroyed");
+        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: DestroyEntity was given an entity that is not live in this scene");
 
         const entt::entity l_Root = entity.GetHandle();
 
@@ -120,10 +120,10 @@ namespace Trinity
         m_Registry.destroy(l_Subtree.begin(), l_Subtree.end());
     }
 
-    // A joint in the copy, 3D or 2D, a script's entity field, or a module component's, that names an entity of the copied subtree names that entity's copy instead, so a duplicated door hangs on its own frame and a duplicated turret aims with its own barrel. The two subtrees have the same shape, so they are walked side by side. A prefab instance in the copy is an instance of its own, under a new instance UUID that its entities' UUIDs are made from, as a placed instance's are
+    // A reference in the copy to an entity of the copied subtree names that entity's copy instead
     Entity Scene::DuplicateEntity(Entity entity)
     {
-        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: DuplicateEntity was given an entity of another scene, or one already destroyed");
+        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: DuplicateEntity was given an entity that is not live in this scene");
 
         const RelationshipComponent& l_Relationship = m_Registry.get<RelationshipComponent>(entity.GetHandle());
         const entt::entity l_Source = entity.GetHandle();
@@ -161,7 +161,7 @@ namespace Trinity
 
     void Scene::RemapEntityReferences(Entity root, const std::function<void(UUID& entity)>& remap)
     {
-        TR_CORE_ASSERT(root.GetScene() == this && root.IsValid(), "Scene: RemapEntityReferences was given an entity of another scene, or one already destroyed");
+        TR_CORE_ASSERT(root.GetScene() == this && root.IsValid(), "Scene: RemapEntityReferences was given an entity that is not live in this scene");
 
         for (entt::entity it_Entity = root.GetHandle(); it_Entity != entt::null; it_Entity = GetNext(it_Entity, root.GetHandle()))
         {
@@ -208,7 +208,7 @@ namespace Trinity
 
     bool Scene::MoveBefore(Entity entity, Entity sibling, bool keepWorldTransform)
     {
-        TR_CORE_ASSERT(sibling.GetScene() == this && sibling.IsValid(), "Scene: MoveBefore was given a sibling of another scene, or one already destroyed");
+        TR_CORE_ASSERT(sibling.GetScene() == this && sibling.IsValid(), "Scene: MoveBefore was given a sibling that is not live in this scene");
 
         if (sibling == entity)
         {
@@ -241,14 +241,14 @@ namespace Trinity
 
     glm::mat4 Scene::ComputeWorldMatrix(Entity entity) const
     {
-        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: ComputeWorldMatrix was given an entity of another scene, or one already destroyed");
+        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: ComputeWorldMatrix was given an entity that is not live in this scene");
 
         return ComputeWorld(entity.GetHandle());
     }
 
     TransformComponent Scene::ComputeWorldTransform(Entity entity) const
     {
-        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: ComputeWorldTransform was given an entity of another scene, or one already destroyed");
+        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: ComputeWorldTransform was given an entity that is not live in this scene");
 
         // A root's transform is its place in the world, exactly
         if (m_Registry.get<RelationshipComponent>(entity.GetHandle()).Parent == entt::null)
@@ -264,7 +264,7 @@ namespace Trinity
 
     TransformComponent Scene::ComputeDrawnTransform(Entity entity) const
     {
-        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: ComputeDrawnTransform was given an entity of another scene, or one already destroyed");
+        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: ComputeDrawnTransform was given an entity that is not live in this scene");
 
         TransformComponent l_World;
         l_World.SetMatrix(ComputeDrawn(entity.GetHandle()));
@@ -274,7 +274,7 @@ namespace Trinity
 
     void Scene::SetWorldTransform(Entity entity, const TransformComponent& world)
     {
-        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: SetWorldTransform was given an entity of another scene, or one already destroyed");
+        TR_CORE_ASSERT(entity.GetScene() == this && entity.IsValid(), "Scene: SetWorldTransform was given an entity that is not live in this scene");
 
         // A root's transform is its place in the world already, kept exactly
         const entt::entity l_Parent = m_Registry.get<RelationshipComponent>(entity.GetHandle()).Parent;
@@ -327,7 +327,7 @@ namespace Trinity
         return m_EntityMap.size();
     }
 
-    // Down to the first child, else along to the next sibling, else up until an ancestor has one, never leaving the subtree under root
+    // To the first child, else the next sibling, else up to an ancestor's, never leaving the subtree
     entt::entity Scene::GetNext(entt::entity entity, entt::entity root) const
     {
         const RelationshipComponent& l_Relationship = m_Registry.get<RelationshipComponent>(entity);
@@ -407,7 +407,7 @@ namespace Trinity
         return true;
     }
 
-    // Inserts before a sibling, or at the end when before is null, under a parent or among the roots when parent is null
+    // Inserts before a sibling, or at the end when before is null, among the roots when parent is null
     void Scene::Link(entt::entity entity, entt::entity parent, entt::entity before)
     {
         RelationshipComponent& l_Relationship = m_Registry.get<RelationshipComponent>(entity);
@@ -470,7 +470,7 @@ namespace Trinity
         l_Relationship.NextSibling = entt::null;
     }
 
-    // Each prefab instance in the subtree gets a new instance UUID that makes free UUIDs for its entities, found through its prefab, and each of them the UUID it makes. One whose prefab is not there, or that stands in for a missing prefab, whose text only the original keeps, is copied as plain entities
+    // An instance copied gets a new instance UUID. Without its prefab it copies as plain entities
     Scene::CopyPlan Scene::PlanInstanceCopies(entt::entity source) const
     {
         CopyPlan l_Plan;
@@ -491,7 +491,7 @@ namespace Trinity
                 continue;
             }
 
-            // Each entity of the instance, with the template's it is, whose UUID in the copy is made as it was made in the original, through every prefab nested in this one
+            // Each entity's UUID in the copy is made as in the original, through every nested prefab
             std::vector<std::pair<entt::entity, Entity>> l_Members;
             for (const auto [it_Template, it_ID] : l_Template->GetRegistry().view<IDComponent>().each())
             {
@@ -531,7 +531,7 @@ namespace Trinity
         return l_Plan;
     }
 
-    // Every pool the source is in is copied through the pool's own type-erased copy, so components added by modules come along too. The ID and the links are the copy's own, its UUID the plan's or a new random one
+    // Each pool's own type-erased copy is used, so components added by modules come along too
     entt::entity Scene::Duplicate(entt::entity source, entt::entity parent, entt::entity before, const CopyPlan& plan)
     {
         const auto a_Planned = plan.Entities.find(source);

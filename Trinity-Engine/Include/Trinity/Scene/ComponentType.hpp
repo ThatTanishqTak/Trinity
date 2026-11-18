@@ -9,7 +9,7 @@
 
 namespace Trinity
 {
-    // A component names itself, so its pool has the same id in the engine and in every module, whichever compiler built them. EnTT would otherwise hash the compiler's spelling of the type, which differs between MSVC and Clang
+    // A component names itself: EnTT would hash the type's spelling, which differs between compilers
     template<typename T>
     concept Component = requires
     {

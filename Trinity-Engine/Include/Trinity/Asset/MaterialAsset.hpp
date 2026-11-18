@@ -11,7 +11,7 @@ namespace Trinity
 {
     class MaterialLoader;
 
-    // A material file, loaded into a record of the renderer's material table, which shaders read through the table's bindless index
+    // Loaded into a record of the renderer's material table, read through its bindless index
     class TRINITY_API MaterialAsset final : public Asset
     {
     public:

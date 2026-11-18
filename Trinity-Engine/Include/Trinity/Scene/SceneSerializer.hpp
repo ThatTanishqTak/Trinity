@@ -55,19 +55,19 @@ namespace Trinity
         void Write(std::string_view key, const glm::quat& value);
         void Write(std::string_view key, std::span<const UUID> values);
         void Write(std::string_view key, std::span<const glm::vec2> values);
-        // A block sequence, an item a line, so a prefab instance can change one item by its index, where a flow sequence changes as a whole. Written as [] when empty. Not inside an inline map
+        // An item a line, so a prefab instance can change one item by index. Not inside an inline map
         void WriteList(std::string_view key, std::span<const UUID> values);
         // A field with its type, on one line, such as Speed: {Type: Float, Value: 5}
         void Write(std::string_view key, const ScriptFieldValue& value);
 
         void WriteValue(std::string_view value);
 
-        // A key whose value is a block sequence, written as [] when no item follows. Each BeginItem starts an item whose keys follow, until End closes the sequence
+        // Written as [] when no item follows. Each BeginItem starts an item, until End
         void BeginList(std::string_view key);
         void BeginItem();
-        // A key whose value is a block map of the keys that follow, written as {} when none does, until End
+        // Written as {} when no key follows, until End
         void BeginMap(std::string_view key);
-        // A key whose value is a map on one line, such as {Type: Float, Value: 5}, of the keys that follow until End
+        // A map on one line, such as {Type: Float, Value: 5}, of the keys that follow until End
         void BeginInlineMap(std::string_view key);
         void End();
 
@@ -127,16 +127,16 @@ namespace Trinity
         bool Read(std::string_view key, std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>>& values) const;
         bool Read(std::string_view key, std::vector<glm::vec2, TaggedAllocator<glm::vec2, MemoryTag::Scene>>& values) const;
 
-        // A field written with its type, read as the type the text gives, which replaces the value's own. False, leaving the value, when the key is missing or the type is not one this build has
+        // False, leaving the value, when the key is missing or the type is not one this build has
         bool Read(std::string_view key, ScriptFieldValue& value) const;
 
         bool ReadValue(std::string& value) const;
-        // This node as a field written with its type, as Read reads the value of a key. A malformed value reads as its type's zero
+        // A malformed value reads as its type's zero
         bool ReadValue(ScriptFieldValue& value) const;
 
-        // Each item of the sequence under the key, in order, read as a component is. False when the key is missing or not a sequence
+        // False when the key is missing or not a sequence
         bool ReadList(std::string_view key, const std::function<void(const ComponentReader& item)>& read) const;
-        // Each key of the map under the key, in file order, with a reader of its value. False when the key is missing or not a map
+        // In file order. False when the key is missing or not a map
         bool ReadMap(std::string_view key, const std::function<void(std::string_view name, const ComponentReader& value)>& read) const;
 
     private:
@@ -149,7 +149,7 @@ namespace Trinity
         std::string_view m_ComponentName;
     };
 
-    // How a component saves and loads, and how a scene makes its pool, which for a module's component is the module's code. The name, and every function, must stay valid until the component is unregistered
+    // The name and every function must stay valid until the component is unregistered
     struct ComponentSerializer
     {
         std::string_view Name;
@@ -169,32 +169,32 @@ namespace Trinity
     {
         // Format 2 added prefab instances, so a format 1 scene reads as it is and is written as format 2
         constexpr std::uint32_t c_FormatVersion = 2;
-        // The binary form a cooked game and Play's copy load: YAML's tree without its text, written and read by the same component serializers
+        // YAML's tree without its text, written and read by the same component serializers
         constexpr std::uint32_t c_BinaryFormatVersion = 1;
 
-        // The prefab's template, its entities under their local IDs, by the prefab's UUID, or null for a prefab that is not there or cannot be read, whose instances are kept as their text. The template must stay until the text that reads it is read, and while a scene holds instances of it that are saved. A template is read from its text with LoadPrefabFromText, which finds the prefabs nested in it through the resolver, and one asked for again while its own is read holds itself, so that instance is refused
+        // Null for a missing or unreadable prefab. The template must outlive the text read against it
         using PrefabResolver = std::function<Scene* (UUID prefab)>;
 
         TRINITY_API void Initialize();
         TRINITY_API void Shutdown();
 
-        // Until one is set, and once an empty one is, a prefab is found among the assets the asset manager has ready
+        // With none set, a prefab is found among the assets the asset manager has ready
         TRINITY_API void SetPrefabResolver(PrefabResolver resolver);
-        // The prefab's entities under their local IDs, as the prefab resolver finds them, or null for a prefab that is not there or cannot be read, and for one asked for again while its own template is found, which holds itself. Main thread only
+        // Null for a missing prefab, or one asked for while its own template is found. Main thread only
         [[nodiscard]] TRINITY_API Scene* FindPrefabTemplate(UUID prefab);
 
-        // Gives every scene there is the component's pool, and loads again each of the component kept as YAML while no loaded code knew it
+        // Gives every live scene the pool, and loads each of the component that was kept as YAML
         TRINITY_API bool RegisterComponent(const ComponentSerializer& serializer);
-        // Keeps each of the component in every scene there is as YAML, as a scene file read without its code would, and drops its pool, which a module's code destroys, so unregister before that code unloads
+        // Keeps the component as YAML in every live scene and drops its pool. Call before its code unloads
         TRINITY_API void UnregisterComponent(std::string_view name);
         [[nodiscard]] TRINITY_API std::vector<std::string_view> GetComponentNames();
 
         [[nodiscard]] TRINITY_API std::string SaveToText(Scene& scene);
 
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadFromText(Scene& scene, std::string_view text);
-        // Each entity as the scene holds it, in hierarchy order, an instance already made from its prefab with what it changes of it, so loading never compares one with its prefab. An instance's root says it is one, unless flattened, as a cooked scene is, though one whose prefab is missing keeps its text either way. A prefab's template is cooked unflattened, for LoadPrefabFromBinary
+        // In hierarchy order. An instance's root says it is one unless flattened, as a cooked scene is
         [[nodiscard]] TRINITY_API std::vector<std::byte> SaveToBinary(Scene& scene, bool flatten = false);
-        // The scene as SaveToBinary saved it, with a component no loaded code knows kept as YAML, as LoadFromText keeps one. Refused, leaving the scene as it is, for data that is not whole or is from a newer Trinity
+        // A component no loaded code knows is kept as YAML. Refused when not whole or from a newer Trinity
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadFromBinary(Scene& scene, std::span<const std::byte> data);
         // Whether the data is a binary scene or prefab rather than a file's text, by its first bytes
         [[nodiscard]] TRINITY_API bool IsBinary(std::span<const std::byte> data);
@@ -207,24 +207,24 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::string SaveComponentToText(Entity entity, std::string_view name);
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadComponentFromText(Entity entity, std::string_view name, std::string_view text);
 
-        // A .trprefab's text: the entity and its subtree under the local IDs the instance's UUID tells back from theirs, so once the entity is that instance's root its entities keep their UUIDs. Each prefab instance in the subtree is nested in the prefab under the local ID its own instance UUID tells back, so its entities keep theirs too, and an entity that is an instance's root makes the prefab a variant of that instance's prefab. The instance's own root, as an instance is saved back into its prefab, keeps the prefab's own nested instances. An entity named outside the subtree is cleared, since a prefab names none, and the instance keeps it as what it changes. Refused for a subtree holding an instance whose prefab is missing, or part of an instance whose root is outside it
+        // The subtree under local IDs told back from its UUIDs, so its entities keep them as an instance
         [[nodiscard]] TRINITY_API Expected<std::string, std::string> SavePrefabToText(Scene& scene, Entity root, UUID instance);
-        // A template's .trprefab text, as prefab mode saves the prefab it edits: its one root and the subtree, each entity's UUID its local ID, with each instance in it nested in the prefab. An entity named that the template does not have is cleared, as SavePrefabToText clears one. Refused for a template of more than one root
+        // As prefab mode saves the prefab it edits. Refused for a template of more than one root
         [[nodiscard]] TRINITY_API Expected<std::string, std::string> SavePrefabTemplateToText(Scene& prefab);
-        // A model's hierarchy as the .trprefab text of a prefab an instance of the model is an instance of: a root named for the model, or Model for one cooked without a name, and under it an entity for each node, named as it is, with its transform and, for a node with a mesh, a mesh renderer of its mesh and materials. Each node's local ID is made from its name and its parents', a sibling of the same name told by how many come before it, so a reimport keeps the local ID of each node whose path of names stays the same, and one renamed, or moved under another parent, is one removed and another added, as Unity's model prefabs have it. Any thread
+        // Local IDs come from each node's name path, so a reimport keeps the ID of a node whose path stays
         [[nodiscard]] TRINITY_API std::string WriteModelPrefab(const ModelData& model);
-        // The prefab's entities under their local IDs, in place of the scene's own, as a template that instances are made from, with each instance nested in it made from its own prefab's template as a scene's instances are. Given the prefab's UUID, an instance in it of a prefab that holds it is refused as the resolver refuses one, which a template read again after its file changes needs
+        // Loads the prefab's entities as a template. An instance of a prefab that holds it is refused
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadPrefabFromText(Scene& prefab, std::string_view text, UUID asset = {});
-        // A template as SaveToBinary saved it unflattened, made and changed already, so it waits on no prefab to be read. Each instance nested in it still says it is one, so an instance of this prefab makes its entities' UUIDs through the nested prefabs as one made from the text does. Refused as LoadPrefabFromText refuses anything but one root and its subtree
+        // As SaveToBinary saved it unflattened, so it waits on no prefab. Refused unless one root
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadPrefabFromBinary(Scene& prefab, std::span<const std::byte> data);
-        // A new instance of the prefab, unchanged, its root put as LoadEntityFromText puts one. Refused for a prefab the resolver does not find, or when an entity of the instance's UUIDs is already in the scene
+        // Refused for a prefab the resolver does not find, or when the instance's UUIDs are in the scene
         [[nodiscard]] TRINITY_API Expected<Entity, std::string> InstantiatePrefab(Scene& scene, UUID prefab, UUID instance, Entity parent, Entity before);
-        // The prefabs the text's instances are of, each once, so they can be loaded before the text is, a scene's or a prefab's. None for text that is not valid YAML
+        // Each once, so they can be loaded before the text is. None for text that is not valid YAML
         [[nodiscard]] TRINITY_API std::vector<UUID> GetPrefabReferences(std::string_view text);
-        // The same of binary data: the prefabs of the instances that still say they are ones, as a cooked prefab's nested instances do, and none of a flattened scene. None for data that is not a whole binary scene
+        // The same of binary data. None of a flattened scene, or of data that is not whole
         [[nodiscard]] TRINITY_API std::vector<UUID> GetBinaryPrefabReferences(std::span<const std::byte> data);
 
-        // One thing an instance changes of its prefab: a component's value at a key path, or the whole component for no path, as the scene file keeps them, a component it adds or removes, one of its prefab's entities it removes, named by the UUID it would have, or an entity it adds under one of them, named by its own UUID. An entity of an instance nested in the prefab is one of the prefab's entities
+        // One change an instance makes to its prefab: a value, a component or an entity added or removed
         struct PrefabOverride
         {
             enum class Kind : std::uint8_t
@@ -251,7 +251,7 @@ namespace Trinity
             std::string Text;
         };
 
-        // An instance as its root's text, with the parent and the sibling after it, so it can be made again where it is
+        // With the parent and the sibling after it, so it can be made again where it was
         struct PrefabInstanceText
         {
             UUID Root;
@@ -260,19 +260,19 @@ namespace Trinity
             std::string Text;
         };
 
-        // What the instance changes of its prefab, as a save would keep it, entity by entity in its prefab's order, each entity's values and components before the entities added under it, and a removed entity once for its whole subtree. None for an entity that is no instance's root, or one whose prefab the resolver does not find
+        // In the prefab's order, as a save would keep them. None for an entity that is no instance's root
         [[nodiscard]] TRINITY_API std::vector<PrefabOverride> GetPrefabOverrides(Entity root);
-        // Each of the overrides undone on the instance as it is, so what it changed is as its prefab has it: a removed entity made again in its prefab's place among its siblings, and an added one destroyed. Refused, changing nothing, for an override the instance does not have or one given twice, or a root as GetPrefabOverrides refuses
+        // Undoes each override on the instance. Refused, changing nothing, for one it does not have
         [[nodiscard]] TRINITY_API Expected<void, std::string> RevertPrefabOverrides(Entity root, std::span<const PrefabOverride> overrides);
-        // The prefab's text with the overrides made its own, for the caller to write as its file: values, components and added entities as the instance has them, and what it removes gone. An added entity keeps its UUID in this instance, its local ID told back from it, and an added instance is nested in the prefab, keeping its UUIDs too. What a value names outside the instance is cleared, as SavePrefabToText clears it. The instance is left as it is. Refused as RevertPrefabOverrides is, and as SavePrefabToText is for what is added
+        // The prefab's text with the overrides made its own, for the caller to write. The instance stays
         [[nodiscard]] TRINITY_API Expected<std::string, std::string> ApplyPrefabOverrides(Entity root, std::span<const PrefabOverride> overrides);
-        // The prefabs the override can be made the own of, outermost first, as Unity's Apply to Prefab offers them: the instance's prefab, then each prefab nested in it that what the override changes is part of, down to the innermost, as far as each has the component it changes. A level's index is the level ApplyPrefabOverrides takes. None for an override the instance does not have
+        // Outermost first, as Unity's Apply to Prefab offers them. The index is the level to apply at
         [[nodiscard]] TRINITY_API std::vector<UUID> GetOverrideLevels(Entity root, const PrefabOverride & override);
-        // The overrides made the own of the prefab at the level GetOverrideLevels gives each, 0 being ApplyPrefabOverrides' own: that prefab's text, then the text of each prefab between it and the instance that, overriding the same values, would hide them, with those values made its prefab's so the override goes, innermost first, for the caller to write in that order. The instance is left as it is. Refused for overrides not all of one instance at that level, and as ApplyPrefabOverrides refuses
+        // Each changed prefab's text, innermost first, for the caller to write in that order
         [[nodiscard]] TRINITY_API Expected<std::vector<PrefabText>, std::string> ApplyPrefabOverrides(Entity root, std::span<const PrefabOverride> overrides, std::size_t level);
-        // Each instance in the scene of the prefab, and of each prefab that holds it, nested or as a variant's base, saved against the templates the resolver finds now, outermost first, and one inside another of them saved within that one, so they can be made again once the templates change
+        // Saves each instance of the prefab, and of prefabs that hold it, so it can be made again
         [[nodiscard]] TRINITY_API std::vector<PrefabInstanceText> SavePrefabInstances(Scene& scene, UUID prefab);
-        // Each instance made again from its text where it was, with the template the resolver finds now, so it keeps what it changes of its prefab, the entities added under it and every UUID. The first that could not be made, with the rest made still
+        // Made again where it was, keeping overrides and UUIDs. Returns the first that could not be made
         [[nodiscard]] TRINITY_API Expected<void, std::string> RestorePrefabInstances(Scene& scene, std::span<const PrefabInstanceText> instances);
 
         [[nodiscard]] TRINITY_API Expected<void, std::string> Save(Scene& scene, std::string_view path);

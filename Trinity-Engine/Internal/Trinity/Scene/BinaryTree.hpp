@@ -12,7 +12,7 @@
 
 namespace Trinity
 {
-    // YAML's tree without its text, as binary scenes hold a component: maps, sequences and scalars, each scalar the text YAML would read, so a value reads back exactly as it does from a scene file. A sequence or map keeps whether YAML writes it on one line, and a scalar whether YAML would quote it, so the tree gives back the same text
+    // YAML's tree without its text. It keeps flow and quoting, so it gives back the same text
     enum class BinaryNodeKind : std::uint8_t
     {
         Null,
@@ -48,7 +48,7 @@ namespace Trinity
 
     static_assert(sizeof(BinaryTreeEntry) == 8);
 
-    // A tree's tables as read, its strings views into the bytes they were read from, which must outlive it. Every node's entries come before it, so a tree read whole has no loop
+    // Strings are views into the bytes read, which must outlive it. Entries come before their node
     struct BinaryTree
     {
         std::vector<std::string_view> Strings;
@@ -70,7 +70,7 @@ namespace Trinity
         [[nodiscard]] std::string_view Scalar() const { return Text; }
     };
 
-    // One node of a tree, read as a YAML::Node is, so the component reader's helpers read either. A node a lookup does not find reads as false
+    // Read as a YAML::Node is, so the component reader's helpers read either
     class BinaryNode
     {
     public:
@@ -105,7 +105,7 @@ namespace Trinity
         std::uint32_t m_Index = 0;
     };
 
-    // What iterating a node gives, as YAML's iterator gives it: a map's key and value, or a sequence's item as the node itself
+    // As YAML's iterator: a map's key and value, or a sequence's item as the node itself
     struct BinaryNodeItem
     {
         BinaryNodeKey first;
@@ -177,11 +177,11 @@ namespace Trinity
         return BinaryNodeIterator(m_Tree, size() != 0 ? m_Tree->Nodes[m_Index].First + m_Tree->Nodes[m_Index].Count : 0);
     }
 
-    // Builds trees as ComponentWriter writes components, each string kept once however many nodes hold it
+    // Each string is kept once however many nodes hold it
     class BinaryTreeBuilder
     {
     public:
-        // A component's node: a map of the keys written into it, the one value written as it, or null when nothing is
+        // A map of the keys written into it, the one value written as it, or null when nothing is
         void BeginComponent();
         [[nodiscard]] std::uint32_t EndComponent();
 
@@ -191,7 +191,7 @@ namespace Trinity
         void SetValue(BinaryNodeKind kind, std::string_view text);
         // A sequence or map under the key, or as a sequence's next item, until End
         void Begin(std::string_view key, BinaryNodeKind kind);
-        // A block sequence's next item as a map of the keys that follow, ended by the next item or the sequence's End
+        // Ended by the next item or the sequence's End
         void BeginItem();
         void End();
 

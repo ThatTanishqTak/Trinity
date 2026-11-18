@@ -77,13 +77,13 @@ namespace Trinity
                 Add(assets, it_Mesh.Shape);
             }
 
-            // A clip that preloads reads as loading until its samples are in, so the scene waits for those, and for the headers of the rest. A sound event's clips are held once it is in
+            // A clip that preloads reads as loading until its samples are in, so the scene waits for those
             for (const auto [it_Entity, it_Source] : l_Registry.view<AudioSourceComponent>().each())
             {
                 Add(assets, it_Source.Resource);
             }
 
-            // The clips and sound events its UIDocuments' documents link to, as their sound attributes name them, read from each document's own file, so the UI's first sound plays at once. One named only in a template a document uses, or bound from a data model, loads as it first plays
+            // Read from each document's own file, so the UI's first sound plays at once
             for (const auto [it_Entity, it_Document] : l_Registry.view<UIDocumentComponent>().each())
             {
                 const AssetRecord* l_Record = registry != nullptr && it_Document.Document ? registry->Find(it_Document.Document) : nullptr;
@@ -108,7 +108,7 @@ namespace Trinity
                 }
             }
 
-            // An asset field, or each asset of a list of them, but not a scene, which loads only when switched to, nor a UI file. A cooked game's table lists only what its build reaches, so a field naming anything else there names a scene left out of the build, or an asset the build already listed as broken
+            // Not a scene, which loads only when switched to, nor a UI file
             ForEachFieldAsset(scene, registry, [&assets, registry](UUID asset, const AssetRecord* record)
             {
                 const bool l_Skipped = record != nullptr ? record->Importer == "Scene" || UIAssets::IsUIAsset(record->Importer) : registry != nullptr && registry->IsCooked();

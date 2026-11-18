@@ -23,7 +23,7 @@ namespace Trinity
 
     [[nodiscard]] TRINITY_API std::string GetCookedMeshPath(UUID id);
 
-    // The vertex streams beside the positions, which every mesh has. A stream holds one entry for every vertex or is absent
+    // A stream holds one entry for every vertex, or is absent
     enum class MeshStreams : std::uint32_t
     {
         None = 0,
@@ -51,7 +51,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MeshBounds&) const = default;
     };
 
-    // A run of triangles drawn with one material, the one in the MeshRenderer's slot. Its bounds cover the vertices its indices use
+    // Drawn with the material in the MeshRenderer's slot. Its bounds cover the vertices it uses
     struct Submesh
     {
         std::uint32_t FirstIndex = 0;
@@ -62,7 +62,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const Submesh&) const = default;
     };
 
-    // Where each stream starts in a mesh's GPU buffer, in bytes, each on a 16-byte boundary in the order below. Positions are three floats, a normal and tangent are both octahedral pairs of 16-bit SNORMs with the tangent's handedness in the lowest bit of its last value, UVs are two floats and a colour is linear RGBA as 16-bit UNORMs
+    // Byte offsets on 16-byte boundaries. Normals and tangents are octahedral 16-bit SNORM pairs
     struct MeshLayout
     {
         static constexpr std::uint64_t c_Absent = UINT64_MAX;
@@ -85,22 +85,22 @@ namespace Trinity
     // 16-bit indices whenever every vertex can be named by one
     [[nodiscard]] TRINITY_API MeshLayout GetMeshLayout(std::uint32_t vertexCount, std::uint32_t indexCount, MeshStreams streams);
 
-    // A mesh as an importer builds it, in triangles. Every stream but the positions may be empty, and one that is not has an entry for every vertex
+    // Every stream but the positions may be empty. One that is not has an entry for every vertex
     struct MeshData
     {
         std::vector<glm::vec3> Positions;
         std::vector<glm::vec3> Normals;
-        // The direction of increasing U, with the bitangent's handedness in w as +1 or -1. Normals without tangents get one perpendicular to each normal
+        // The direction of increasing U, with the bitangent's handedness in w as +1 or -1
         std::vector<glm::vec4> Tangents;
         std::vector<glm::vec2> TexCoords0;
         std::vector<glm::vec2> TexCoords1;
         std::vector<glm::vec4> Colors;
         std::vector<std::uint32_t> Indices;
-        // Their bounds are worked out when cooking. None at all is one submesh over every index, in material slot 0
+        // Bounds are worked out when cooking. None is one submesh over every index, in material slot 0
         std::vector<Submesh> Submeshes;
     };
 
-    // What the cooked file holds: the layout, the bounds, the submeshes, and the GPU buffer's bytes, which still belong to the file
+    // The GPU buffer's bytes still belong to the file
     struct MeshFile
     {
         MeshLayout Layout;
@@ -109,13 +109,13 @@ namespace Trinity
         std::span<const std::byte> Data;
     };
 
-    // Refuses a stream of the wrong length, an index past the last vertex, a submesh past the last index, and anything that is not whole triangles
+    // Refuses a wrong-length stream, an out-of-range index or submesh, and partial triangles
     [[nodiscard]] TRINITY_API Expected<std::vector<std::byte>, std::string> CookMesh(const MeshData& mesh);
 
     // Checks every size, offset and index of a cooked mesh without copying its data
     [[nodiscard]] TRINITY_API Expected<MeshFile, std::string> ReadMeshFile(std::span<const std::byte> file);
 
-    // A unit direction folded onto an octahedron and stored in two 16-bit SNORMs, as the vertex shaders unfold it
+    // Folded onto an octahedron as two 16-bit SNORMs, as the vertex shaders unfold it
     [[nodiscard]] TRINITY_API std::array<std::int16_t, 2> EncodeOctahedral(glm::vec3 direction);
     [[nodiscard]] TRINITY_API glm::vec3 DecodeOctahedral(std::array<std::int16_t, 2> encoded);
 
@@ -135,7 +135,7 @@ namespace Trinity
             return c_AssetType;
         }
 
-        // Read in shaders as a ByteAddressBuffer at the layout's offsets, and bound as the index buffer at its Indices offset
+        // Read in shaders as a ByteAddressBuffer at the layout's offsets, and bound as the index buffer
         [[nodiscard]] RHI::BufferHandle GetBuffer() const { return m_Buffer; }
         [[nodiscard]] std::uint32_t GetShaderResourceIndex() const { return m_ShaderResourceIndex; }
         [[nodiscard]] const MeshLayout& GetLayout() const { return m_Layout; }

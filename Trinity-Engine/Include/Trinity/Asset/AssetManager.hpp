@@ -19,7 +19,7 @@ namespace Trinity
 
     namespace AssetManager
     {
-        // Makes a built-in asset's bytes on a worker, in place of the file a project's asset is read from, which its loader then loads as it would the file
+        // Makes a built-in asset's bytes on a worker, in place of reading a file
         using BuiltInSource = Expected<std::vector<std::byte>, std::string>(*)(UUID id);
 
         TRINITY_API void Initialize();
@@ -32,13 +32,13 @@ namespace Trinity
         TRINITY_API void RegisterLoader(const AssetLoader& loader);
         TRINITY_API void UnregisterLoader(std::string_view assetType);
 
-        // An asset the engine makes itself, which every project has under the same UUID whatever its registry holds, such as the built-in meshes. The asset type must outlive the registration, as a c_AssetType does. Copies already made stay until they are released
+        // The asset type must outlive the registration. Copies already made stay until released
         TRINITY_API void RegisterBuiltIn(UUID id, std::string_view assetType, BuiltInSource source);
         TRINITY_API void UnregisterBuiltIn(UUID id);
         [[nodiscard]] TRINITY_API bool IsBuiltIn(UUID id);
 
         TRINITY_API void Acquire(UUID id);
-        // For a caller that cannot go on without an acquired asset still loading, such as a UI image whose size lays out its document: its read and decode under way are dropped, and it is loaded here, on the main thread. One held stays loading. Its state after
+        // Loads a still-loading asset now, on the main thread, for a caller that cannot go on without it
         TRINITY_API AssetState LoadNow(UUID id);
         TRINITY_API void Release(UUID id);
         TRINITY_API void Reload(UUID id);

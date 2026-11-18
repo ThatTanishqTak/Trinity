@@ -21,7 +21,7 @@ namespace Trinity
 {
     namespace
     {
-        // splitmix64's finalizer, which takes each 64-bit value to another and has an inverse
+        // splitmix64's finalizer, which has an inverse
         constexpr std::uint64_t Mix(std::uint64_t value)
         {
             value ^= value >> 30;
@@ -45,7 +45,7 @@ namespace Trinity
             return l_Result;
         }
 
-        // An odd number's inverse modulo 2^64, by Newton's method, each step doubling the bits that are right
+        // An odd number's inverse modulo 2^64, by Newton's method, each step doubling the right bits
         constexpr std::uint64_t InverseOf(std::uint64_t odd)
         {
             std::uint64_t l_Inverse = odd;
@@ -100,7 +100,7 @@ namespace Trinity
             return UUID(Unmix(entity.GetValue()) ^ GetKey(instance));
         }
 
-        // A prefab's own entity is made from the local ID alone, and one of an instance nested in it is made by that instance's prefab, a level down
+        // A prefab's own entity is made from the local ID alone. A nested instance's is made a level down
         UUID GetInstanceEntityUUID(UUID instance, Entity member)
         {
             const Entity l_Nested = FindInstanceRoot(member);
@@ -115,7 +115,7 @@ namespace Trinity
             return GetInstanceEntityUUID(MakeEntityUUID(instance, l_Instance->Instance), l_Inner);
         }
 
-        // Most are the prefab's own, told back from the UUID at once. One of an instance nested in it is found in that instance's prefab, under the UUID the nested instance has in this one
+        // Most are the prefab's own, told back from the UUID at once. The rest are in a nested instance
         Entity FindTemplateEntity(Scene& prefab, UUID instance, UUID entity)
         {
             const Entity l_Own = prefab.FindEntityByUUID(FindLocalID(instance, entity));
@@ -138,7 +138,7 @@ namespace Trinity
             return {};
         }
 
-        // An instance's own entities stay under its root where its prefab has them, so the nearest instance root above is the one to ask, and an entity added under an instance has no local ID in its prefab
+        // The nearest instance root above is the one to ask. An added entity has no local ID
         Entity FindInstanceRoot(Entity entity)
         {
             for (Entity it_Entity = entity; it_Entity; it_Entity = it_Entity.GetParent())
@@ -162,7 +162,7 @@ namespace Trinity
             return {};
         }
 
-        // Each level's instance is the one nested in the template above it, its root in the scene the UUID the level above gives that instance's root
+        // Each level's instance is the one nested in the template above it
         std::vector<Level> GetLevels(Entity root, Entity member)
         {
             std::vector<Level> l_Levels;
@@ -205,7 +205,7 @@ namespace Trinity
             return GetLevels(l_Root, l_Member);
         }
 
-        // Through the templates, each prefab once, so one held twice is looked into once. One standing in for a missing prefab names it still, so it counts
+        // Through the templates, each prefab once. A stand-in for a missing prefab still names it
         bool Holds(UUID prefab, UUID other)
         {
             if (prefab == other)
@@ -282,7 +282,7 @@ namespace Trinity
         return m_Template.get();
     }
 
-    // A prefab that failed to load has its instances kept as their text, so it counts, and one not asked for yet, or still loading, is waited for. One nested in itself is met again while it is checked and counts as there, so the serializer refuses that instance as the template is made
+    // A failed prefab counts as there: its instances are kept as text. A loading one is waited for
     bool PrefabAsset::IsComplete() const
     {
         if (m_Checking)
@@ -307,7 +307,7 @@ namespace Trinity
         return l_Complete;
     }
 
-    // From a copy of the text, or of a cooked prefab's bytes, which the reading keeps views into, and only once
+    // From a copy of the text or bytes, which the reading keeps views into, and only once
     void PrefabAsset::MakeTemplate() const
     {
         const std::string l_Text(m_Text);
@@ -326,7 +326,7 @@ namespace Trinity
         m_Template = std::move(l_Template);
     }
 
-    // Only the text, or a cooked prefab's bytes, is kept on the worker, since a scene belongs to the main thread, with the prefabs its instances are of
+    // Only the text or bytes are kept on the worker, since a scene belongs to the main thread
     Expected<Asset*, std::string> PrefabLoader::Load(std::span<const std::byte> data) const
     {
         const std::string_view l_Text(reinterpret_cast<const char*>(data.data()), data.size());
@@ -337,7 +337,7 @@ namespace Trinity
         return l_Prefab;
     }
 
-    // A prefab holding no other is read here, so one that cannot be read fails to load. One that holds others waits for them, and is read on first use
+    // A prefab holding no other is read here. One that holds others is read on first use
     Expected<void, std::string> PrefabLoader::Finish(Asset& asset) const
     {
         PrefabAsset& l_Prefab = static_cast<PrefabAsset&>(asset);
@@ -376,7 +376,7 @@ namespace Trinity
         return Memory::New<PrefabAsset>(MemoryTag::Assets, SceneSerializer::WriteModelPrefab(*l_Model));
     }
 
-    // It holds no other prefab, so its template is made here, as a prefab's that holds none is
+    // It holds no other prefab, so its template is made here
     Expected<void, std::string> ModelPrefabLoader::Finish(Asset& asset) const
     {
         return m_Prefabs.Finish(asset);

@@ -39,7 +39,7 @@ namespace Trinity
 
         using KtxPointer = std::unique_ptr<ktxTexture2, KtxDeleter>;
 
-        // Bytes in one row of texels, or of blocks, with no padding: the layout KTX2 stores and the importer writes
+        // Bytes in one row of texels, or of blocks, with no padding, as KTX2 stores them
         std::uint64_t GetTightRowSize(RHI::Format format, std::uint32_t width)
         {
             const std::uint32_t l_Block = RHI::GetFormatBlockDimension(format);
@@ -86,7 +86,7 @@ namespace Trinity
         m_Placeholder.m_Format = RHI::Format::RGBA8Unorm;
         if (!CreateTexture(m_Placeholder, "Texture placeholder"))
         {
-            TR_CORE_ERROR("Textures: the placeholder could not be created, so textures show nothing while they load");
+            TR_CORE_ERROR("Textures: the placeholder could not be created, loading textures show nothing");
         }
     }
 
@@ -100,7 +100,7 @@ namespace Trinity
         return GetCookedTexturePath(record.ID);
     }
 
-    // On a worker. A texture whose transfer function is sRGB gets an sRGB format, so sampling it returns linear values and filters in linear light. A normal map holds X in red and Y in alpha, which BC5 takes as its two channels, and RGBA8 is rearranged to match
+    // On a worker. A normal map holds X in red and Y in alpha, which BC5 takes as its two channels
     Expected<Asset*, std::string> TextureLoader::Load(std::span<const std::byte> data) const
     {
         TR_PROFILE_FUNCTION();
@@ -150,7 +150,7 @@ namespace Trinity
         l_Texture->m_Srgb = l_Srgb;
         l_Texture->m_NormalMap = l_NormalMap;
 
-        // The importer records how the texture should be filtered. A file without the key is filtered linearly
+        // A file without the key is filtered linearly
         if (HasValue(l_Ktx.get(), c_TextureFilterKey, "Nearest"))
         {
             l_Texture->m_Filter = RHI::Filter::Nearest;
@@ -204,7 +204,7 @@ namespace Trinity
         return m_Placeholder.m_Texture ? &m_Placeholder : nullptr;
     }
 
-    // Before any layer draws, so a texture that became ready this frame already holds its mips when it is sampled
+    // Before any layer draws, so a texture that became ready this frame already has its mips
     void TextureLoader::RecordUploads(RHI::CommandList& commands)
     {
         TR_PROFILE_FUNCTION();
@@ -217,7 +217,7 @@ namespace Trinity
         m_Pending.clear();
     }
 
-    // A texture released before its upload was recorded is dropped from the queue, and the release queue keeps the GPU texture until frames using it have finished
+    // A texture released before its upload was recorded is dropped from the queue
     void TextureLoader::Release(TextureAsset& texture) const
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "Textures are released on the main thread.");
@@ -252,7 +252,7 @@ namespace Trinity
         return true;
     }
 
-    // Every mip goes through one staging allocation: from the upload ring when it is small, otherwise a buffer of its own, destroyed at once and kept by the release queue until the copies have run
+    // Every mip goes through one staging allocation: the upload ring when small, else its own buffer
     void TextureLoader::Upload(RHI::CommandList& commands, TextureAsset& texture)
     {
         std::vector<std::uint64_t> l_Offsets(texture.m_MipLevels);
@@ -318,7 +318,7 @@ namespace Trinity
             m_Device.DestroyBuffer(l_Staging);
         }
 
-        // The GPU copy is all that is needed from here, and an emptied vector would keep its capacity
+        // The GPU copy is all that is needed now, and an emptied vector would keep its capacity
         decltype(texture.m_Mips)().swap(texture.m_Mips);
     }
 }

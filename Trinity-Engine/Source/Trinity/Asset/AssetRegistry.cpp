@@ -111,7 +111,7 @@ namespace Trinity
                 }
             }
 
-            // A key, an importer and a UUID each. An entry without a key or an importer is left out, and one without a usable UUID gets a new one when scanned
+            // An entry without a key or an importer is left out. One without a usable UUID gets a new one
             if (const YAML::Node l_SubAssets = l_Root["SubAssets"]; l_SubAssets && l_SubAssets.IsSequence())
             {
                 record.SubAssets.clear();
@@ -179,13 +179,13 @@ namespace Trinity
 
     }
 
-    // What a new .meta holds for an importer. An existing .meta keeps the settings it has, and an importer reads a missing one as its default
+    // An existing .meta keeps its settings, and an importer reads a missing one as its default
     void AssetRegistry::SetDefaultSettings(std::string_view importer, AssetSettings settings)
     {
         m_Defaults.insert_or_assign(std::string(importer), std::move(settings));
     }
 
-    // Every file gets a .meta beside it holding its UUID and its sub-assets' UUIDs. A file and its .meta moved together keep them. An existing .meta is rewritten here only when its UUIDs clash with others or are missing
+    // A file and its .meta moved together keep their UUIDs. A .meta is rewritten only on a clash
     AssetScanReport AssetRegistry::Scan()
     {
         TR_PROFILE_FUNCTION();
@@ -260,13 +260,13 @@ namespace Trinity
             const MetaResult l_Result = l_HadMeta ? ReadMeta(l_MetaPath, l_Record) : MetaResult::Unreadable;
             if (l_Result == MetaResult::Newer)
             {
-                TR_CORE_ERROR("Assets: {} was written by a newer Trinity, so {} is left out and its .meta left as it is", l_MetaPath, it_File);
+                TR_CORE_ERROR("Assets: {} is from a newer Trinity, so {} is left out and its .meta kept", l_MetaPath, it_File);
                 ++l_Report.Refused;
 
                 continue;
             }
 
-            // A file an earlier Trinity had no importer for, as it had none for audio before M9, takes the importer it has now with that importer's defaults, keeping its UUID
+            // A file an earlier Trinity had no importer for takes today's, with defaults, keeping its UUID
             if (const std::string_view l_Default = GetDefaultImporter(it_File); l_Result == MetaResult::Read && l_Record.Importer == "Binary" && l_Default != "Binary")
             {
                 l_Record.Importer = std::string(l_Default);
@@ -281,7 +281,7 @@ namespace Trinity
             bool l_NeedsID = l_Result != MetaResult::Read;
             if (!l_NeedsID && l_Records.contains(l_Record.ID))
             {
-                TR_CORE_WARN("Assets: {} has the same UUID {} as {}, as a copied file and .meta would, so it gets a new one", it_File, l_Record.ID, l_Records.at(l_Record.ID).Path);
+                TR_CORE_WARN("Assets: {} has the same UUID {} as {}, so it gets a new one", it_File, l_Record.ID, l_Records.at(l_Record.ID).Path);
                 l_NeedsID = true;
             }
 
@@ -293,7 +293,7 @@ namespace Trinity
                     l_Record.ID = UUID::Generate();
                 } while (l_Records.contains(l_Record.ID) || m_Records.contains(l_Record.ID));
 
-                // A file given a new UUID, as a copy is, gives its sub-assets new ones too, so they never clash with the original's
+                // A file given a new UUID, as a copy is, gives its sub-assets new ones too, so none clash
                 for (std::size_t it_SubAsset = 0; it_SubAsset < l_Record.SubAssets.size(); ++it_SubAsset)
                 {
                     do
@@ -311,7 +311,7 @@ namespace Trinity
                 {
                     if (!l_HadMeta)
                     {
-                        TR_CORE_WARN("Assets: {} lost its .meta, so it now has the new UUID {}, and anything that named its old one no longer finds it", it_File, l_Record.ID);
+                        TR_CORE_WARN("Assets: {} lost its .meta and has the new UUID {}, references to the old break", it_File, l_Record.ID);
                     }
                     else if (l_Result == MetaResult::Unreadable)
                     {
@@ -330,7 +330,7 @@ namespace Trinity
                 ++l_Report.Moved;
             }
 
-            // Later entries with a key already listed are dropped. A sub-asset whose UUID is missing or clashes gets a new one, and the .meta is rewritten
+            // Later entries with a key already listed are dropped. A missing or clashing UUID is replaced
             std::vector<SubAsset> l_Unique;
             for (SubAsset& it_SubAsset : l_Record.SubAssets)
             {
@@ -342,7 +342,7 @@ namespace Trinity
 
             l_Record.SubAssets = std::move(l_Unique);
 
-            // A UUID this file's sub-asset had at the last scan is its own, and anything else already in use clashes
+            // A UUID this file's sub-asset had at the last scan is its own. Anything else in use clashes
             bool l_Renamed = false;
             for (std::size_t it_SubAsset = 0; it_SubAsset < l_Record.SubAssets.size(); ++it_SubAsset)
             {
@@ -399,7 +399,7 @@ namespace Trinity
         // Forge scans each time it regains focus, so an unchanged folder stays quiet
         if (!m_Scanned || l_Report.Created != 0 || l_Report.Regenerated != 0 || l_Report.Moved != 0 || l_Report.Removed != 0 || l_Report.Refused != 0)
         {
-            TR_CORE_INFO("Assets: {} under {}, {} new, {} moved, {} removed, {} given a new UUID, {} .meta without a file", l_Report.Assets, m_Root, l_Report.Created, l_Report.Moved, l_Report.Removed, l_Report.Regenerated, l_Report.Orphaned);
+            TR_CORE_INFO("Assets: {} under {}, {} new, {} moved, {} removed, {} new UUID, {} orphan .meta", l_Report.Assets, m_Root, l_Report.Created, l_Report.Moved, l_Report.Removed, l_Report.Regenerated, l_Report.Orphaned);
         }
 
         m_Scanned = true;
@@ -407,7 +407,7 @@ namespace Trinity
         return l_Report;
     }
 
-    // Into the record and its .meta. A sub-asset has no .meta of its own, so no settings either
+    // A sub-asset has no .meta of its own, so no settings either
     bool AssetRegistry::SetSettings(UUID id, AssetSettings settings)
     {
         const auto a_Found = m_Records.find(id);
@@ -428,7 +428,7 @@ namespace Trinity
         return true;
     }
 
-    // What an importer made from a file. A key the file already had keeps its UUID, so references to it survive a reimport, a new key gets a new UUID, and a key left out is dropped. Fails for a sub-asset, an unknown file, keys listed twice, or a .meta that cannot be written
+    // A key the file already had keeps its UUID, so references survive a reimport
     bool AssetRegistry::SetSubAssets(UUID parent, std::vector<SubAsset> subAssets)
     {
         const auto a_Found = m_Records.find(parent);

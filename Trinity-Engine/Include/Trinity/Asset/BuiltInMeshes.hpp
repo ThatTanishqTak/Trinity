@@ -15,7 +15,7 @@
 
 namespace Trinity
 {
-    // Shapes the engine makes itself, so every project has them without importing a model. Each fits the default of the collider of the same shape: a 1 m cube, a sphere of radius 0.5, a capsule of radius 0.5 and height 2 and a cylinder of radius 0.5 and height 1, both along Y, a 10 m square plane facing +Y and a 1 m square quad facing +Z. Each is one submesh in material slot 0, with normals, tangents and UVs
+    // Each fits the default collider of the same shape, as one submesh in material slot 0
     enum class BuiltInMesh : std::uint8_t
     {
         Cube,

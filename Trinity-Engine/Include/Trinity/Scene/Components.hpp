@@ -56,7 +56,7 @@ namespace Trinity
             return glm::translate(glm::mat4(1.0f), Position) * glm::mat4_cast(Rotation) * glm::scale(glm::mat4(1.0f), Scale);
         }
 
-        // Shear, which a parent with non-uniform scale and a rotated child can produce, has no place here and is dropped
+        // Shear, which a non-uniformly scaled parent and a rotated child can produce, is dropped
         void SetMatrix(const glm::mat4& matrix)
         {
             Position = glm::vec3(matrix[3]);
@@ -81,7 +81,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const TransformComponent&) const = default;
     };
 
-    // Written by Scene::UpdateWorldTransforms, parents first. Every entity has one, and it is never saved
+    // Written by Scene::UpdateWorldTransforms, parents first. Every entity has one. Never saved
     struct WorldTransformComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.WorldTransform";
@@ -89,7 +89,7 @@ namespace Trinity
         glm::mat4 Matrix{ 1.0f };
     };
 
-    // While a scene runs, a moving body's world position and turn between its last two physics steps, which the transform pass places its entity at in place of its own transform, keeping the entity's world scale. Never saved
+    // A moving body's world pose between its last two physics steps, while a scene runs. Never saved
     struct PhysicsPoseComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.PhysicsPose";
@@ -131,13 +131,13 @@ namespace Trinity
         float PerspectiveNear = 0.1f;
         bool Primary = true;
 
-        // How the image this camera shows is exposed and tone mapped. Scenes saved before these existed load with no curve, as they were drawn then
+        // Scenes saved before these existed load with no curve, as they were drawn then
         float ExposureEV100 = c_NeutralEV100;
         Tonemapper Tonemap = Tonemapper::PBRNeutral;
 
         [[nodiscard]] ToneMapping GetToneMapping() const { return { ExposureEV100, Tonemap }; }
 
-        // Reversed depth, so near maps to 1 and far to 0. Orthographic: OrthographicSize is the visible height, and near and far are swapped. Perspective: depth falls towards 0 at infinity, which keeps precision evenly spread
+        // Reversed depth: near maps to 1, and a perspective view's depth falls towards 0 at infinity
         [[nodiscard]] glm::mat4 GetProjection(float aspectRatio) const
         {
             if (Projection == CameraProjection::Perspective)
@@ -184,7 +184,7 @@ namespace Trinity
 
         // A mesh asset's UUID. An invalid one draws nothing
         UUID Mesh;
-        // By material slot, which each submesh names. A slot past the end, or holding an invalid UUID, draws with the default material
+        // By material slot. A slot past the end, or an invalid UUID, draws with the default material
         std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>> Materials;
         bool CastShadows = true;
 
@@ -198,25 +198,25 @@ namespace Trinity
         Spot
     };
 
-    // A light in physical units, as glTF's KHR_lights_punctual has them: lux for a directional light, candela for a point or spot light. Directional and spot lights shine along their entity's -Z. Colour is linear
+    // As KHR_lights_punctual: lux for a directional light, candela for point and spot. Shines along -Z
     struct LightComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.Light";
-        // The illuminance in lux below which a point or spot light with no range of its own stops, on a surface facing it
+        // The illuminance in lux at which a point or spot light with no range of its own stops
         static constexpr float c_AutomaticRangeCutoff = 0.01f;
 
         LightType Type = LightType::Directional;
         glm::vec3 Color{ 1.0f };
         float Intensity = 3.14159265f;
-        // Point and spot: the distance at which the light has faded to nothing, or 0 to work it out from the intensity
+        // Point and spot: where the light has faded to nothing, or 0 to work it out from the intensity
         float Range = 0.0f;
-        // Spot: from the -Z axis to where the light starts to fade and to where it ends, in degrees, as glTF's cone angles are in radians
+        // Spot: degrees from the -Z axis to where the light starts to fade, and to where it ends
         float InnerConeAngle = 0.0f;
         float OuterConeAngle = 45.0f;
-        // Directional and spot: the first directional light that casts shadows is the sun, whose shadows reach the camera in cascades, and spot lights that do get a shadow map each while there is room. Point lights cast none yet
+        // The first directional light that casts shadows is the sun. Point lights cast none yet
         bool CastShadows = true;
 
-        // The range lighting and clustering use: the range set, or the distance at which the brightest channel falls to c_AutomaticRangeCutoff
+        // The range set, or the distance at which the brightest channel falls to c_AutomaticRangeCutoff
         [[nodiscard]] float GetRange() const
         {
             if (Range > 0.0f)
@@ -232,7 +232,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const LightComponent&) const = default;
     };
 
-    // Image-based lighting from an HDR environment, for the whole scene, from the first entity in hierarchy order that has one, and the sky a perspective camera sees behind everything. Intensity scales its radiance, and Rotation turns it about +Y in degrees as glTF Sample Viewer does, which at 90 puts the middle of the panorama towards +Z
+    // From the first entity in hierarchy order that has one. Rotation is about +Y in degrees
     struct EnvironmentComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.Environment";
@@ -244,7 +244,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const EnvironmentComponent&) const = default;
     };
 
-    // How an entity's body moves once its scene runs, in metres, kilograms and seconds. The body's shape is the entity's colliders, and an entity with colliders but no rigid body is static. Damping is the fraction of velocity lost each second, and locked axes are in world space
+    // In metres, kilograms and seconds. An entity with colliders but no rigid body is static
     struct RigidBodyComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.RigidBody";
@@ -255,7 +255,7 @@ namespace Trinity
         float LinearDamping = 0.0f;
         float AngularDamping = 0.05f;
         float GravityFactor = 1.0f;
-        // Sweeps the body along its motion each step, so a fast one cannot pass through a thin one, at some cost
+        // Sweeps the body along its motion each step, so a fast one cannot pass through a thin one
         bool ContinuousCollision = false;
         glm::bvec3 LockPosition{ false };
         glm::bvec3 LockRotation{ false };
@@ -263,13 +263,13 @@ namespace Trinity
         glm::vec3 InitialLinearVelocity{ 0.0f };
         glm::vec3 InitialAngularVelocity{ 0.0f };
         bool StartAsleep = false;
-        // Whether it may fall asleep once it has stayed within a few centimetres for half a second, which a slow, small swing does at each end, so a swinging lamp or a bobbing buoy should not
+        // Sleeps after half a second within a few centimetres, which a swinging lamp should not
         bool CanSleep = true;
 
         [[nodiscard]] bool operator==(const RigidBodyComponent&) const = default;
     };
 
-    // What every collider has: where it sits on its entity, relative to the entity's transform, how it rubs and bounces, whether it is a trigger, which reports overlaps without pushing, and its collision layer. A collider takes its entity's world scale
+    // Offsets are relative to the entity's transform. A collider takes its entity's world scale
     struct ColliderSettings
     {
         glm::vec3 Offset{ 0.0f };
@@ -324,7 +324,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const CylinderColliderComponent&) const = default;
     };
 
-    // The convex hull a model's import cooked around one of its meshes, a ConvexHullAsset's UUID. In the mesh's own space, so on the entity drawing that mesh it fits it. Any body can have one. An invalid UUID collides with nothing
+    // A ConvexHullAsset's UUID, in the mesh's own space. An invalid UUID collides with nothing
     struct ConvexHullColliderComponent : ColliderSettings
     {
         static constexpr std::string_view c_TypeName = "Trinity.ConvexHullCollider";
@@ -334,7 +334,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ConvexHullColliderComponent&) const = default;
     };
 
-    // A model's mesh as its triangles, a CollisionMeshAsset's UUID, in the mesh's own space. Triangles have no inside, so it is for static and kinematic bodies, and a dynamic one takes a convex hull
+    // A CollisionMeshAsset's UUID. Triangles have no inside, so for static and kinematic bodies only
     struct MeshColliderComponent : ColliderSettings
     {
         static constexpr std::string_view c_TypeName = "Trinity.MeshCollider";
@@ -344,7 +344,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const MeshColliderComponent&) const = default;
     };
 
-    // Moves its entity as a character once its scene runs: a capsule standing along the entity's Y axis that goes where its velocity takes it, climbing steps up to its step height, keeping to the floor going down them, sliding down slopes steeper than its MaxSlope and riding what it stands on. The world's gravity pulls it while it is off the ground, and up is against gravity. A kinematic one pushes dynamic bodies by up to its push strength, and nothing pushes it. A physical one is a dynamic body that cannot turn, which pushes and is knocked back as a body of its mass is. An entity with this and a RigidBody is a character, and the RigidBody is left out. Colliders on it and below it, without a RigidBody of their own, follow a kinematic one as a kinematic body, such as a trigger around it, and a physical one's solid colliders are part of its body. It takes its entity's world scale as a capsule collider does. In metres, kilograms, radians and newtons
+    // A capsule along the entity's Y axis that climbs steps and slides down slopes past MaxSlope
     struct CharacterControllerComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.CharacterController";
@@ -357,20 +357,20 @@ namespace Trinity
         glm::vec3 Offset{ 0.0f };
         // The steepest slope it stands on, held between 1 and 90 degrees
         float MaxSlope = glm::radians(45.0f);
-        // How far it lifts itself to climb a step, and as far down as it keeps to the floor, 0 for neither. Its round end cap climbs a little higher by itself, about 0.15 m at the default radius and slope
+        // How far it lifts itself to climb a step, and how far down it keeps to the floor. 0 for neither
         float StepHeight = 0.3f;
         // Below c_MaxCollisionLayers
         std::uint32_t Layer = 0;
-        // The most force a kinematic one pushes a dynamic body with, in newtons. A physical one pushes as a body of its mass does
+        // The most force a kinematic one pushes a dynamic body with, in newtons
         float PushStrength = 100.0f;
-        // Its weight on what it stands on, and a physical one's mass, in kilograms, held at 0.1 kg or more
+        // Its weight on what it stands on, and a physical one's mass, in kilograms, at least 0.1
         float Mass = 70.0f;
 
         [[nodiscard]] float GetHalfSegment() const { return std::max(Height * 0.5f - Radius, 0.0f); }
         [[nodiscard]] bool operator==(const CharacterControllerComponent&) const = default;
     };
 
-    // How an entity's 2D body moves once its scene runs, in the XY plane: it takes the entity's world X and Y and its turn about Z, and writes them back keeping the entity's depth in Z. Its shape is the entity's 2D colliders and those below it, and an entity with 2D colliders and no 2D rigid body above them is static. 2D and 3D bodies live in worlds of their own, so an entity with a RigidBody keeps that and not this, and one with a CharacterController2D is a character. In metres, kilograms and seconds, damping the fraction of velocity lost each second
+    // In the XY plane, keeping the entity's depth in Z. 2D and 3D bodies live in worlds of their own
     struct RigidBody2DComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.RigidBody2D";
@@ -381,7 +381,7 @@ namespace Trinity
         float LinearDamping = 0.0f;
         float AngularDamping = 0.0f;
         float GravityFactor = 1.0f;
-        // Sweeps the body along its motion against every other dynamic body too, not only static ones, so a fast one cannot pass through, at some cost
+        // Sweeps the body against every other dynamic body too, not only static ones
         bool ContinuousCollision = false;
         // Box2D locks the turn alone, not the slide along X or Y
         bool LockRotation = false;
@@ -394,7 +394,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const RigidBody2DComponent&) const = default;
     };
 
-    // What every 2D collider has, as a 3D one does: where it sits on its entity in its XY plane, its turn there counter-clockwise in radians, how it rubs and bounces, whether it is a trigger, whether 2D characters meet it one way, and its collision layer from the project's. A 2D collider takes its entity's world scale in X and Y
+    // As a 3D collider's, in the entity's XY plane, with its turn counter-clockwise in radians
     struct Collider2DSettings
     {
         glm::vec2 Offset{ 0.0f };
@@ -402,7 +402,7 @@ namespace Trinity
         float Friction = 0.5f;
         float Restitution = 0.0f;
         bool Trigger = false;
-        // A 2D character meets it only from above, along the collider's own Y axis, so it jumps up through it and lands on it, and walks through its sides. Bodies meet it as any other
+        // A 2D character meets it only from above, along the collider's Y axis. Bodies meet it as usual
         bool OneWay = false;
         // Below c_MaxCollisionLayers
         std::uint32_t Layer = 0;
@@ -440,7 +440,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const CapsuleCollider2DComponent&) const = default;
     };
 
-    // The convex hull of its points, from 3 to c_MaxPoints, in the collider's own space, with its corners rounded by the radius
+    // The convex hull of 3 to c_MaxPoints points, with its corners rounded by the radius
     struct PolygonCollider2DComponent : Collider2DSettings
     {
         static constexpr std::string_view c_TypeName = "Trinity.PolygonCollider2D";
@@ -453,7 +453,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const PolygonCollider2DComponent&) const = default;
     };
 
-    // Moves its entity as a 2D character once its scene runs, as a CharacterController does in 3D: a capsule standing along the entity's Y axis in its XY plane that goes where its velocity takes it, climbing steps up to its step height, keeping to the floor going down them, sliding down slopes steeper than its MaxSlope, and carried by what it stands on with its feet keeping their place on it while it keeps its own turn. The 2D world's gravity pulls it while it is off the ground, and up is against gravity. A kinematic one pushes dynamic 2D bodies by up to its push strength, and nothing pushes it. A physical one is a dynamic 2D body that cannot turn, which pushes and is knocked back as a body of its mass is. It takes its entity's world X and Y and writes them back keeping the entity's depth in Z. An entity with this and a RigidBody2D is a character, and the RigidBody2D is left out. 2D colliders on it and below it, without a RigidBody2D of their own, follow it, such as a trigger around it, and a physical one's solid colliders weigh with it as part of its body. It takes its entity's world scale as a capsule collider does. In metres, kilograms, radians and newtons
+    // As a CharacterController in 3D, in the entity's XY plane
     struct CharacterController2DComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.CharacterController2D";
@@ -462,24 +462,24 @@ namespace Trinity
         float Radius = 0.5f;
         // The whole capsule's, end caps included
         float Height = 2.0f;
-        // Where the capsule's middle sits on its entity in its XY plane, relative to the entity's transform
+        // Where the capsule's middle sits in the entity's XY plane, relative to its transform
         glm::vec2 Offset{ 0.0f };
         // The steepest slope it stands on, held between 1 and 90 degrees
         float MaxSlope = glm::radians(45.0f);
-        // How far it lifts itself to climb a step, and as far down as it keeps to the floor, 0 for neither. Its round end cap climbs a little higher by itself, up to just under 0.15 m at the default radius and slope
+        // How far it lifts itself to climb a step, and how far down it keeps to the floor. 0 for neither
         float StepHeight = 0.3f;
         // Below c_MaxCollisionLayers
         std::uint32_t Layer = 0;
-        // The most force a kinematic one pushes a dynamic 2D body with, in newtons. A physical one pushes as a body of its mass does
+        // The most force a kinematic one pushes a dynamic 2D body with, in newtons
         float PushStrength = 100.0f;
-        // Its weight on what it stands on, and a physical one's mass, in kilograms, held at 0.1 kg or more
+        // Its weight on what it stands on, and a physical one's mass, in kilograms, at least 0.1
         float Mass = 70.0f;
 
         [[nodiscard]] float GetHalfSegment() const { return std::max(Height * 0.5f - Radius, 0.0f); }
         [[nodiscard]] bool operator==(const CharacterController2DComponent&) const = default;
     };
 
-    // What a joint holds: its bodies welded fast, turning about its axis, sliding along it, kept within a range of distances, or turning every way about a point
+    // Welded fast, turning about an axis, sliding along it, kept within a distance, or turning freely
     enum class JointType : std::uint8_t
     {
         Fixed,
@@ -489,32 +489,32 @@ namespace Trinity
         Point
     };
 
-    // Joins the body its entity is part of to another body, or to the world, once the scene runs. Its frame is its entity's transform with the anchor as an offset, and the axis a hinge turns about or a slider slides along is in that frame. Where it meets the other body is taken from where both are as the scene starts, so it holds the pose it was built in, and a hinge's turn and a slider's travel count from there. More joints on one body go on entities below it. In metres, radians, newtons and seconds
+    // Its frame is the entity's transform plus the anchor. It holds the pose the scene starts in
     struct JointComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.Joint";
 
         JointType Type = JointType::Hinge;
-        // The entity whose body it joins, which may be one of that body's collider entities, or none for the world
+        // May be one of the body's collider entities. None joins the world
         UUID ConnectedBody;
         glm::vec3 Anchor{ 0.0f };
         glm::vec3 Axis{ 0.0f, 1.0f, 0.0f };
-        // A distance joint's other end, in the connected entity's own space, or in the world for a joint to the world
+        // A distance joint's other end, in the connected entity's space, or in the world with none
         glm::vec3 ConnectedAnchor{ 0.0f };
         // Whether the two bodies still collide with each other
         bool CollideConnected = false;
-        // What it takes to break it, the force on it and the torque on it averaged over a step. 0 never breaks it
+        // The force and torque on it, averaged over a step, that break it. 0 never breaks
         float BreakForce = 0.0f;
         float BreakTorque = 0.0f;
-        // A hinge's turn in radians, from -pi to 0 and 0 to pi, or a slider's travel in metres, either side of where it started
+        // A hinge's turn in radians within -pi to pi, or a slider's travel in metres, from its start
         bool UseLimits = false;
         float LowerLimit = -0.5f;
         float UpperLimit = 0.5f;
-        // A hinge's speed in radians per second, driven by up to the torque, or a slider's in metres per second, by up to the force
+        // A hinge's speed in radians per second, or a slider's in metres per second, up to the limit
         bool UseMotor = false;
         float MotorSpeed = 0.0f;
         float MotorMaxForce = 1000.0f;
-        // A distance joint's range, either negative for the distance as the scene starts, and a spring that holds it to the range, by its frequency in hertz, 0 for none, and its damping ratio
+        // Negative takes the distance as the scene starts. A spring frequency of 0 is no spring
         float MinDistance = -1.0f;
         float MaxDistance = -1.0f;
         float SpringFrequency = 0.0f;
@@ -523,7 +523,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const JointComponent&) const = default;
     };
 
-    // What a 2D joint holds: its bodies turning about its anchor, sliding along its axis, kept within a range of distances, welded fast, or a wheel turning freely about its anchor on a suspension along its axis
+    // Turning about an anchor, sliding along an axis, kept within a distance, welded, or a wheel
     enum class Joint2DType : std::uint8_t
     {
         Revolute,
@@ -533,43 +533,43 @@ namespace Trinity
         Wheel
     };
 
-    // Joins the 2D body its entity is part of to another 2D body, or to the world, once the scene runs, as a 3D Joint does: its frame is its entity's transform in the XY plane with the anchor as an offset, the axis is in that frame, and a revolute joint's turn and a prismatic or wheel joint's travel count from where the bodies are as the scene starts. In metres, radians, newtons and seconds
+    // As a 3D Joint, in the XY plane. In metres, radians, newtons and seconds
     struct Joint2DComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.Joint2D";
 
         Joint2DType Type = Joint2DType::Revolute;
-        // The entity whose 2D body it joins, which may be one of that body's collider entities, or none for the world
+        // May be one of the body's collider entities. None joins the world
         UUID ConnectedBody;
         glm::vec2 Anchor{ 0.0f };
         // What a prismatic joint slides along and a wheel's suspension travels along
         glm::vec2 Axis{ 0.0f, 1.0f };
-        // A distance joint's other end, in the connected entity's own space, or in the world for a joint to the world
+        // A distance joint's other end, in the connected entity's space, or in the world with none
         glm::vec2 ConnectedAnchor{ 0.0f };
         // Whether the two bodies still collide with each other
         bool CollideConnected = false;
-        // What it takes to break it, the force on it and the torque on it, its motor's left out. 0 never breaks it
+        // The force and torque on it that break it, its motor's left out. 0 never breaks
         float BreakForce = 0.0f;
         float BreakTorque = 0.0f;
-        // A revolute joint's turn in radians, from -pi to 0 and 0 to pi, or a prismatic or wheel joint's travel in metres, either side of where it started
+        // A revolute joint's turn in radians within -pi to pi, or a prismatic or wheel's travel in metres
         bool UseLimits = false;
         float LowerLimit = -0.5f;
         float UpperLimit = 0.5f;
-        // A revolute or wheel joint's turning speed in radians per second, driven by up to the torque, or a prismatic joint's in metres per second, by up to the force
+        // Radians per second for a revolute or wheel joint, metres per second for a prismatic one
         bool UseMotor = false;
         float MotorSpeed = 0.0f;
         float MotorMaxForce = 1000.0f;
-        // A distance joint's range, either negative for the distance as the scene starts
+        // Negative takes the distance as the scene starts
         float MinDistance = -1.0f;
         float MaxDistance = -1.0f;
-        // A spring by its frequency in hertz, 0 for none, and its damping ratio. A distance joint's pulls it towards the middle of its range, and a wheel's holds the wheel along its axis
+        // A frequency of 0 is no spring. A wheel's spring holds it along its axis
         float SpringFrequency = 0.0f;
         float SpringDamping = 0.0f;
 
         [[nodiscard]] bool operator==(const Joint2DComponent&) const = default;
     };
 
-    // Plays its resource, as Unity's AudioSource does, while its scene runs. A source that spatializes is heard from its entity, facing its -Z, through the listener, as distance, its cone and its movement change it, and muffled by what stands in the way if it asks to be, and one that does not is heard as it is, panned by its Stereo Pan. Each playing source is a voice, and only the project's real voices are mixed, the most important first, then the loudest, while the rest keep their time
+    // As Unity's AudioSource. Only the project's real voices are mixed, the most important first
     struct AudioSourceComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.AudioSource";
@@ -577,7 +577,7 @@ namespace Trinity
 
         // An AudioClip or a Sound Event, as Unity 6's AudioResource is either
         UUID Resource;
-        // One of the project's mixer's groups, by its ID, which it plays into. None, or a group the mixer lacks, plays into Master
+        // A mixer group's ID. None, or a group the mixer lacks, plays into Master
         UUID Output;
         // Plays on, silent, keeping its time
         bool Mute = false;
@@ -588,25 +588,25 @@ namespace Trinity
         std::uint32_t Priority = 128;
         // From 0 to 1
         float Volume = 1.0f;
-        // A speed of playing, which changes its pitch as a tape's speed does, above 0 and up to 3
+        // Playback speed, which changes pitch as a tape's does, above 0 and up to 3
         float Pitch = 1.0f;
         // From -1, full left, to 1, full right
         float StereoPan = 0.0f;
         // Heard from its entity in 3D rather than as it is
         bool Spatialize = false;
-        // How much the source's and the listener's movement shifts its pitch, from 0, none, to 5
+        // How much movement shifts its pitch, from 0, none, to 5
         float DopplerLevel = 1.0f;
-        // How far the sound spreads around the listener, in degrees: 0 pans it fully towards where it is, and 180 or more leaves it centred
+        // In degrees: 0 pans it fully towards where it is, and 180 or more leaves it centred
         float Spread = 0.0f;
-        // In metres: closer than the minimum it is at full volume, and beyond the maximum it falls no further
+        // In metres: full volume inside the minimum, and no further falloff beyond the maximum
         float MinDistance = 1.0f;
         float MaxDistance = 500.0f;
         AudioRolloff Rolloff = AudioRolloff::Logarithmic;
-        // Around its -Z, in degrees: at full volume within the inner angle, at the outer volume beyond the outer, and between the two in between. 360 is no cone
+        // Around its -Z, in degrees: full volume inside the inner angle. 360 is no cone
         float ConeInnerAngle = 360.0f;
         float ConeOuterAngle = 360.0f;
         float ConeOuterVolume = 0.0f;
-        // Muffled while the scene's physics stands between it and the listener, on the project's occlusion layers: its volume scaled by the occlusion volume, from 0 to 1, and what is above the occlusion cutoff, in hertz, filtered away, eased in and out over the project's occlusion time. Only a source that spatializes is occluded
+        // Muffled while physics stands between it and the listener. Only a spatialized source is occluded
         bool Occlusion = false;
         float OcclusionVolume = 0.5f;
         float OcclusionCutoff = 1500.0f;
@@ -614,7 +614,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const AudioSourceComponent&) const = default;
     };
 
-    // Hears the scene's sounds from its entity, facing its -Z with +Y up, as Unity's AudioListener does. The first in hierarchy order is the one heard through, and a second gives a warning. Without one the scene's sounds play on in silence. It holds nothing
+    // The first in hierarchy order is heard through, and a second gives a warning. It holds nothing
     struct AudioListenerComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.AudioListener";
@@ -624,27 +624,27 @@ namespace Trinity
         [[nodiscard]] bool operator==(const AudioListenerComponent&) const = default;
     };
 
-    // Marks an entity that moves, with its subtree, into each scene SceneManager switches to as the scene runs, its scripts keeping their instances, fields and waiting timers and coroutines. A scene that has an entity of the same UUID, as the scene it came from does, gives way to it. It holds nothing
+    // Moves, with its subtree, into each scene SceneManager switches to. It holds nothing
     struct KeepAcrossScenesComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.KeepAcrossScenes";
-        // Stored as any other component, a byte an entity, where EnTT would keep nothing for an empty type, so Add and Get return it, a copied entity keeps it and its pool hands out a value
+        // One byte an entity, where EnTT would keep nothing for an empty type, so Add and Get return it
         static constexpr std::size_t page_size = ENTT_PACKED_PAGE;
 
         [[nodiscard]] bool operator==(const KeepAcrossScenesComponent&) const = default;
     };
 
-    // Shows a UI document over its scene's game view, as Unity's UIDocument does: over Forge's Game panel, where it takes no input until the scene plays, and over a player's window. Documents are drawn by their sort order, the highest on top, and those of the same order as the hierarchy has them. Its Panel Settings scale it from the view's size. In World mode it is drawn into the scene instead, on a quad its World settings place, size and sort, in every view of the scene, the Scene panel's too, and in a world document Panel Settings' Scale alone sets how many of its pixels one dp is, as the view's size and the monitor's DPI mean nothing there
+    // As Unity's UIDocument: over the game view by sort order, or in World mode on a quad in the scene
     struct UIDocumentComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.UIDocument";
 
         // A UIDocument asset, an .rml file. Without one it shows nothing
         UUID Document;
-        // Over the other screen documents of a lower order. In World mode, drawn with the sprites, its order in its sorting layer
+        // Over screen documents of a lower order. In World mode, its order in its sorting layer
         std::int32_t SortOrder = 0;
         bool Visible = true;
-        // One of the project's mixer's groups, by its ID, which the sounds its elements' sound-hover and sound-click attributes name play into. None plays a sound event into its own Output, and a clip into Master, as does a group the mixer lacks
+        // The mixer group its elements' sounds play into. None plays a clip into Master
         UUID SoundOutput;
         UIPanelSettings Panel;
         UIRenderMode RenderMode = UIRenderMode::Screen;
@@ -653,7 +653,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const UIDocumentComponent&) const = default;
     };
 
-    // One script on an entity: the class it is an instance of, by its full name in its language, whether it runs, and its fields' values. The values belong to the scene, not to the instance, so they save, undo and outlive a reload, and a class no loaded code has keeps every one of them
+    // The values belong to the scene, not the instance, so they save, undo and outlive a reload
     struct ScriptEntry
     {
         struct Field
@@ -667,7 +667,7 @@ namespace Trinity
         TaggedString<MemoryTag::Scene> ClassName;
         ScriptLanguage Language = ScriptLanguage::CSharp;
         bool Enabled = true;
-        // In the order the class declares them, or the file had them. Never dropped for a field the class lacks, so a field taken out of a class and put back keeps its value
+        // Never dropped for a field the class lacks, so a field taken out and put back keeps its value
         std::vector<Field, TaggedAllocator<Field, MemoryTag::Scene>> Fields;
 
         [[nodiscard]] const Field* FindField(std::string_view name) const
@@ -698,7 +698,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ScriptEntry&) const = default;
     };
 
-    // The scripts on an entity, run in list order, each in C++ or C#. One class can be on an entity more than once
+    // Run in list order, each in C++ or C#. One class can be on an entity more than once
     struct ScriptComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.Script";
@@ -708,7 +708,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const ScriptComponent&) const = default;
     };
 
-    // The root of an instance of a prefab: the prefab, and the instance's own UUID, which each of its entities' UUIDs is made from with the entity's local ID in the prefab. A scene saves the instance as the prefab and what the instance changes of it, never as a component. For a prefab missing or broken as the scene was read, the root stands in for the whole instance, keeping its text as the file had it, after its Parent, which is written back unchanged in the root's place until the prefab is there again
+    // Saved as the prefab and what the instance changes, never as a component
     struct PrefabInstanceComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.PrefabInstance";
@@ -722,7 +722,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const PrefabInstanceComponent&) const = default;
     };
 
-    // Components a scene file named that no loaded code knows, kept as YAML text in file order and written back on save
+    // Components a scene file named that no loaded code knows, kept as YAML and written back on save
     struct UnknownComponentsComponent
     {
         static constexpr std::string_view c_TypeName = "Trinity.UnknownComponents";

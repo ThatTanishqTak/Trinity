@@ -13,7 +13,7 @@
 
 namespace Trinity
 {
-    // Loads the environment Forge cooked into /cache. A worker reads its three KTX2 images, the main thread creates the cubemaps and the lookup table, and the renderer uploads them at the start of the next frame
+    // A worker reads the three KTX2 images, the main thread creates them, the next frame uploads
     class EnvironmentLoader final : public AssetLoader
     {
     public:
@@ -40,7 +40,7 @@ namespace Trinity
 
         RHI::Device& m_Device;
 
-        // Finish and Release are const like the rest of the loader interface, and only ever run on the main thread
+        // Finish and Release are const as the loader interface has them, and run on the main thread only
         mutable std::vector<EnvironmentAsset*, TaggedAllocator<EnvironmentAsset*, MemoryTag::Engine>> m_Pending;
     };
 }

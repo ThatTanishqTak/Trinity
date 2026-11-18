@@ -11,18 +11,18 @@ namespace Trinity
     class AssetRegistry;
     class Scene;
 
-    // What a scene names of the project's assets, found the same way where a scene is loaded and where a build is gathered, so a game ships every asset its scenes hold
+    // Found the same way where a scene loads and where a build gathers, so a game ships them all
     namespace SceneAssets
     {
         using AssetList = std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Scene>>;
 
         // Once, in the order met, and never an invalid UUID
         TRINITY_API void Add(AssetList& assets, UUID id);
-        // What the scene's components and its scripts' fields name, which the renderer, physics and scripts would otherwise load as they first reach them, with the clips and sound events its UIDocuments' documents link to, read from their files. A field naming a scene is left out, as a scene is loaded by the scene manager and not the asset manager, and so is one naming a UI file, which GameUI reads
+        // Fields naming a scene or a UI file are left out: the scene manager and GameUI read those
         TRINITY_API void Gather(Scene& scene, const AssetRegistry* registry, AssetList& assets);
-        // The prefabs the instances of a scene already read are of, as its components name them. A stand-in names one that could not be found, so it is left out
+        // A stand-in names a prefab that could not be found, so it is left out
         TRINITY_API void GatherInstancePrefabs(Scene& scene, AssetList& assets);
-        // The UI files the scene names, which GameUI reads by their paths and the asset manager never holds: its UIDocuments' documents, and the UI files its scripts' fields name, which Gather leaves out. A build ships them with what they link to
+        // UI files are read by GameUI by path, never held by the asset manager. A build ships them
         TRINITY_API void GatherDocuments(Scene& scene, const AssetRegistry* registry, AssetList& assets);
     }
 }

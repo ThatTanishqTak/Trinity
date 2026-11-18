@@ -20,7 +20,7 @@ namespace Trinity
 
     [[nodiscard]] TRINITY_API std::string GetCookedEnvironmentPath(UUID id);
 
-    // What a cooked environment holds, in this order: the radiance prefiltered for GGX, one roughness to a mip, the irradiance, and the BRDF lookup table the split sum reads
+    // In file order: GGX-prefiltered radiance, one roughness to a mip, irradiance, the BRDF table
     enum class EnvironmentImage : std::uint32_t
     {
         Specular,
@@ -30,7 +30,7 @@ namespace Trinity
         Count
     };
 
-    // A cooked environment file: this header, then each image as a KTX2 file of RGBA16Float texels, zstd-supercompressed, the cubemaps with their faces as +X, -X, +Y, -Y, +Z, -Z. The specular cubemap's mip m is filtered for perceptual roughness m / (levels - 1)
+    // This header, then each image as a zstd KTX2 of RGBA16Float. Cube faces: +X, -X, +Y, -Y, +Z, -Z
     struct EnvironmentFileHeader
     {
         static constexpr std::array<char, 8> c_Magic{ 'T', 'R', 'E', 'N', 'V', '\0', '\0', '\0' };
@@ -79,7 +79,7 @@ namespace Trinity
             std::uint32_t Size = 0;
             std::uint32_t Levels = 0;
             std::uint32_t Faces = 0;
-            // Level by level, each level's faces in turn, until the upload, which frees them
+            // Level by level, each level's faces in turn. Freed by the upload
             std::vector<Bytes, TaggedAllocator<Bytes, MemoryTag::Assets>> Data;
         };
 
