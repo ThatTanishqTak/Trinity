@@ -17,7 +17,7 @@ namespace Trinity
     {
         namespace
         {
-            // D3D12MemoryAllocator's bookkeeping, counted under the Renderer tag, what the driver allocates is out of reach, since D3D12 takes no allocator
+            // Only D3D12MemoryAllocator's bookkeeping: D3D12 takes no allocator for the driver's memory
             void* AllocateHostMemory(std::size_t size, std::size_t alignment, [[maybe_unused]] void* userData)
             {
                 return Memory::TryAllocate(size, MemoryTag::Renderer, alignment);
@@ -66,7 +66,7 @@ namespace Trinity
             m_Allocator->SetCurrentFrameIndex(static_cast<UINT>(frame));
         }
 
-        // An integrated GPU has one segment for everything, and the system memory segment is then empty and left out
+        // An integrated GPU has one segment for everything, so its empty system segment is left out
         std::vector<MemoryHeapBudget> D3D12Allocator::GetMemoryBudget() const
         {
             D3D12MA::Budget l_Local{};

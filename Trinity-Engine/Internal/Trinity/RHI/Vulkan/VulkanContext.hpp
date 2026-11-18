@@ -129,12 +129,12 @@ namespace Trinity
             VulkanFrameSync m_FrameSync;
             std::uint64_t m_FrameNumber = 0;
 
-            // The frame's list, with the command buffer it records into, the frame's first or the one after its last split
+            // The command buffer is the frame's first, or the one after its last split
             VulkanCommandList m_CommandList;
             VkCommandBuffer m_FrameCommandBuffer = VK_NULL_HANDLE;
             bool m_InFrame = false;
 
-            // A pool for each frame on the transfer family, or none when renderer.copy_queue is off and uploads go into the frame's list
+            // None when renderer.copy_queue is off, and uploads go into the frame's list
             std::array<VulkanCommandPool, c_FramesInFlight> m_UploadPools{};
             VulkanCommandList m_UploadList;
             VkCommandBuffer m_UploadCommandBuffer = VK_NULL_HANDLE;
@@ -142,7 +142,7 @@ namespace Trinity
             bool m_UploadsRecording = false;
             bool m_UploadsSubmitted = false;
 
-            // A texture the compute list let go, which the frame's list takes in once the compute work is sent
+            // A texture the compute list released, which the frame's list acquires once compute is sent
             struct TextureTransfer
             {
                 TextureHandle Texture;
@@ -150,7 +150,7 @@ namespace Trinity
                 ResourceState After = ResourceState::Undefined;
             };
 
-            // A pool for each frame on the compute family, or none when renderer.async_compute is off and compute queue passes go into the frame's list
+            // None when renderer.async_compute is off, and compute passes go into the frame's list
             std::array<VulkanCommandPool, c_FramesInFlight> m_ComputePools{};
             VulkanCommandList m_ComputeList;
             VkCommandBuffer m_ComputeCommandBuffer = VK_NULL_HANDLE;

@@ -19,7 +19,7 @@ namespace Trinity
             TR_CORE_ASSERT(description.Count != 0, "Query pool '{}' has no queries.", description.DebugName);
             if (!device.HasTimestamps())
             {
-                TR_CORE_ERROR("Vulkan: query pool '{}' could not be created, since {} has no timestamps on its graphics queue", description.DebugName, device.GetInfo().AdapterName);
+                TR_CORE_ERROR("Vulkan: query pool '{}' not created, {} has no graphics queue timestamps", description.DebugName, device.GetInfo().AdapterName);
 
                 return {};
             }

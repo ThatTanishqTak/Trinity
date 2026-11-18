@@ -61,7 +61,7 @@ namespace Trinity
             l_Create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             TR_CORE_ASSERT(l_Create.usage != 0, "Buffer '{}' has no usage.", description.DebugName);
 
-            // A transfer queue of its own writes buffers frames are reading, as the material table, and reads the upload ring, and a compute queue of its own writes what the graphics queue reads, so every buffer is shared by every family in use and none is handed from one to another
+            // Every buffer is shared by every family in use, so none is handed from one queue to another
             std::array<std::uint32_t, 3> l_Families{ device.GetQueueFamily() };
             std::uint32_t l_FamilyCount = 1;
             for (const std::uint32_t it_Family : { device.GetTransferFamily(), device.GetComputeFamily() })
@@ -79,7 +79,7 @@ namespace Trinity
                 l_Create.pQueueFamilyIndices = l_Families.data();
             }
 
-            // Upload and Readback memory is coherent, so writes and reads through the mapping need no flush or invalidate
+            // Upload and Readback memory is coherent, so the mapping needs no flush or invalidate
             VmaAllocationCreateInfo l_Allocation{};
             switch (description.Memory)
             {
@@ -122,7 +122,7 @@ namespace Trinity
             l_Buffer.Size = description.Size;
             device.SetDebugName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(l_Buffer.Buffer), description.DebugName);
 
-            // Both views of a buffer are the same storage buffer descriptor, and Slang marks the read-only one NonWritable
+            // Both views are the same storage buffer descriptor. Slang marks the read-only one NonWritable
             if (HasFlag(description.Usage, BufferUsage::ShaderResource))
             {
                 l_Buffer.ShaderResourceIndex = bindless.AddBufferDescriptor(l_Buffer.Buffer);

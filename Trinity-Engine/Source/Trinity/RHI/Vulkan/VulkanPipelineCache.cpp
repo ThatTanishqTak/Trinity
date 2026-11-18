@@ -49,7 +49,7 @@ namespace Trinity
             Destroy();
         }
 
-        // The driver checks its own header in the data too, and drops data another device or driver made without a word, so the file's header is what says why
+        // The driver silently drops data another device or driver made, so the file's header says why
         bool VulkanPipelineCache::Initialize(std::string_view path, std::string& error)
         {
             VkPhysicalDeviceProperties l_Properties{};
@@ -71,7 +71,7 @@ namespace Trinity
             VkResult l_Result = vkCreatePipelineCache(m_Device.GetHandle(), &l_Create, nullptr, &m_Cache);
             if (l_Result != VK_SUCCESS && !l_Data.empty())
             {
-                TR_CORE_WARN("Vulkan: the driver refused the pipeline cache '{}' ({}), so a new one is started", m_File.GetPath(), FormatResult(l_Result));
+                TR_CORE_WARN("Vulkan: the driver refused pipeline cache '{}' ({}), starting a new one", m_File.GetPath(), FormatResult(l_Result));
 
                 l_Create.initialDataSize = 0;
                 l_Create.pInitialData = nullptr;

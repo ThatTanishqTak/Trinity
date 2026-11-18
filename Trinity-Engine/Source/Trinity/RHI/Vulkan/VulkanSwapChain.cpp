@@ -133,7 +133,7 @@ namespace Trinity
             return true;
         }
 
-        // Replaces the swap chain, handing the old one over so the driver can reuse its images, and keeps it when the window has no area
+        // Hands the old one over so the driver can reuse its images. Kept when the window has no area
         bool VulkanSwapChain::CreateSwapChain()
         {
             const VkPhysicalDevice l_PhysicalDevice = m_Device.GetPhysicalDevice();
@@ -271,7 +271,7 @@ namespace Trinity
             m_PresentSemaphores.clear();
         }
 
-        // An out of date swap chain, after the window changed size or came back from being minimized, is rebuilt and acquired from once more
+        // An out of date swap chain, after a resize or a restore, is rebuilt and acquired from once more
         TextureHandle VulkanSwapChain::AcquireNextTexture()
         {
             TR_CORE_ASSERT(m_Device.IsInFrame(), "AcquireNextTexture is called between Device::BeginFrame and EndFrame.");

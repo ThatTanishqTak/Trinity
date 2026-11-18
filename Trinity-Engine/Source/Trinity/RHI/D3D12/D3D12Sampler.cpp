@@ -54,7 +54,7 @@ namespace Trinity
             l_Sampler.Index = samplerHeap.Allocate();
             if (l_Sampler.Index == c_NoDescriptor)
             {
-                TR_CORE_ERROR("D3D12: sampler '{}' could not be created, since all {} bindless sampler indices are in use", description.DebugName, c_BindlessSamplerCapacity);
+                TR_CORE_ERROR("D3D12: sampler '{}' not created, all {} bindless sampler indices are in use", description.DebugName, c_BindlessSamplerCapacity);
 
                 return {};
             }

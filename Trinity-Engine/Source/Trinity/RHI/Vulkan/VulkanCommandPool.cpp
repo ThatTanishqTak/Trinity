@@ -19,7 +19,7 @@ namespace Trinity
                 return l_Result;
             }
 
-            // The first command buffer now, which every frame records into, and the rest when a frame first splits into more submissions
+            // The first command buffer now. The rest come when a frame first splits into more submissions
             return Allocate(device);
         }
 

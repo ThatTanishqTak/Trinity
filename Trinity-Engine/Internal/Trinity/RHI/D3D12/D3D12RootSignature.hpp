@@ -10,13 +10,12 @@ namespace Trinity
     {
         class D3D12Device;
 
-        // The root signature every pipeline shares: the push constants as 32 root constants, with shaders indexing the resource and sampler heaps directly
+        // Shared by every pipeline: push constants as 32 root constants, and direct heap indexing
         class D3D12RootSignature
         {
         public:
             explicit D3D12RootSignature(const D3D12Device& device);
 
-            // False, with the reason in error, when the root signature cannot be serialized or created
             [[nodiscard]] bool Initialize(std::string& error);
             void Reset();
 

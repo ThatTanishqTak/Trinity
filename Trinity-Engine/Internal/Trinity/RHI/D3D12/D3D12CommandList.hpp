@@ -18,19 +18,17 @@ namespace Trinity
         class D3D12Context;
         class D3D12Device;
 
-        // The frame's commands on the direct queue, the copies the loaders record for the copy queue, or the compute queue's passes
         class D3D12CommandList final : public CommandList
         {
         public:
             explicit D3D12CommandList(D3D12Context& device, CommandListRole role = CommandListRole::Frame);
 
-            // S_OK, or the failure creating the one list every frame records into, a direct, copy or compute list for the role
             [[nodiscard]] HRESULT Initialize(const D3D12Device& device);
             void Reset();
 
-            // Resets the frame's allocator, which the frame c_FramesInFlight before this one has finished with, and the list onto it
+            // Resets the frame's allocator, which the frame c_FramesInFlight before has finished with
             void Begin(ID3D12CommandAllocator* allocator);
-            // Resets the list onto the allocator as it is, after what the list recorded on it before, which may still be running
+            // Resets onto the allocator as it is, as what was recorded on it before may still be running
             void Continue(ID3D12CommandAllocator* allocator);
             void End();
 
@@ -38,7 +36,7 @@ namespace Trinity
             [[nodiscard]] bool HasCommands() const { return m_HasCommands; }
             // Whether the uploads write something the frame before may still be reading, so they wait for it
             [[nodiscard]] bool WaitsForGraphics() const { return m_WaitsForGraphics; }
-            // The barriers after the uploads' copies into the frame's list, which waits for the uploads before it runs
+            // Records the barriers after the uploads' copies into the frame's list, which waits for them
             void RecordHandoffs(D3D12CommandList& frame);
 
             [[nodiscard]] ID3D12GraphicsCommandList7* GetHandle() const { return m_GraphicsList.Get(); }
@@ -74,7 +72,7 @@ namespace Trinity
             Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> m_GraphicsList;
             // The graphics list while a frame records into it, and null outside one
             ID3D12GraphicsCommandList7* m_CommandList = nullptr;
-            // What each resolving attachment's ending access points to, so it lives until EndRenderPass
+            // Kept until EndRenderPass, as each resolving attachment's ending access points to it
             std::array<D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS, c_MaxColorAttachments> m_ResolveParameters{};
             bool m_Rendering = false;
             bool m_HasPipeline = false;

@@ -16,10 +16,10 @@ namespace Trinity
         class D3D12Allocator;
         class D3D12Device;
 
-        // Swap chain buffers have no allocation, since the swap chain owns them. A render target or depth texture has a view per mip of each layer, numbered by GetSubresourceIndex
+        // Swap chain buffers have no allocation. A target has a view per mip of each layer
         struct D3D12Texture
         {
-            // Empty, with the reason logged, when the resource cannot be created. The context checks the description first
+            // Empty, with the reason logged, on failure. The context checks the description first
             [[nodiscard]] static std::optional<D3D12Texture> Create(const D3D12Device& device, const D3D12Allocator& allocator, D3D12DescriptorHeap& renderTargetViews, D3D12DescriptorHeap& depthStencilViews, D3D12DescriptorHeap& resourceHeap, const TextureDescription& description);
             // A swap chain buffer taken in as a texture with a single render target view
             [[nodiscard]] static D3D12Texture FromSwapChainBuffer(const D3D12Device& device, D3D12DescriptorHeap& renderTargetViews, D3D12DescriptorHeap& depthStencilViews, ID3D12Resource* resource, Format format, DXGI_FORMAT resourceFormat, std::uint32_t width, std::uint32_t height);

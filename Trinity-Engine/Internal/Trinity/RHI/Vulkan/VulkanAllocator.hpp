@@ -14,7 +14,7 @@ namespace Trinity
         class VulkanDevice;
         class VulkanInstance;
 
-        // VulkanMemoryAllocator on the device, whose bookkeeping and what the driver allocates through it are counted under the Renderer tag
+        // Its bookkeeping and the driver's allocations through it are counted under the Renderer tag
         class VulkanAllocator
         {
         public:
@@ -24,14 +24,13 @@ namespace Trinity
             VulkanAllocator(const VulkanAllocator&) = delete;
             VulkanAllocator& operator=(const VulkanAllocator&) = delete;
 
-            // False, with the reason in error, when VulkanMemoryAllocator cannot be created
             [[nodiscard]] bool Initialize(std::string& error);
-            // Once every buffer and image made through it is gone. Does nothing a second time
+            // Call once every buffer and image made through it is gone. Does nothing a second time
             void Destroy();
-            // Fetches the driver's budget for the frame, as VulkanMemoryAllocator asks to be told once a frame
+            // VulkanMemoryAllocator asks to be told once a frame
             void BeginFrame(std::uint64_t frame);
 
-            // Each heap's size, with the driver's budget and use when the device has VK_EXT_memory_budget
+            // With the driver's budget and use when the device has VK_EXT_memory_budget
             [[nodiscard]] std::vector<MemoryHeapBudget> GetMemoryBudget() const;
 
             [[nodiscard]] VmaAllocator GetHandle() const { return m_Allocator; }

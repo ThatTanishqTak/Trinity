@@ -17,7 +17,7 @@ namespace Trinity
         class VulkanBindless;
         class VulkanDevice;
 
-        // A buffer in VulkanMemoryAllocator's memory, mapped for good when the CPU writes or reads it, with a bindless index for each way shaders reach it
+        // Mapped for good when the CPU writes or reads it, with a bindless index for each shader view
         struct VulkanBuffer
         {
             // Empty, with the reason logged, when the buffer cannot be created

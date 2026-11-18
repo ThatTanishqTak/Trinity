@@ -55,11 +55,11 @@ namespace Trinity
 
             for (const ColorAttachment& it_Attachment : description.ColorAttachments)
             {
-                TR_CORE_VERIFY(m_Device.IsAttachmentValid(it_Attachment.Texture, TextureUsage::RenderTarget, it_Attachment.MipLevel, it_Attachment.ArrayLayer), "BeginRendering with a destroyed color attachment, one without RenderTarget usage, or a mip or layer it lacks.");
-                TR_CORE_VERIFY(!it_Attachment.ResolveTexture || m_Device.IsResolveValid(it_Attachment.Texture, it_Attachment.ResolveTexture), "BeginRendering resolving into a destroyed texture, one without RenderTarget usage, or one whose size, format or sample count does not fit.");
+                TR_CORE_VERIFY(m_Device.IsAttachmentValid(it_Attachment.Texture, TextureUsage::RenderTarget, it_Attachment.MipLevel, it_Attachment.ArrayLayer), "BeginRendering: invalid color texture, usage, mip or layer.");
+                TR_CORE_VERIFY(!it_Attachment.ResolveTexture || m_Device.IsResolveValid(it_Attachment.Texture, it_Attachment.ResolveTexture), "BeginRendering: invalid resolve texture, usage, size, format or sample count.");
             }
 
-            TR_CORE_VERIFY(!description.Depth.Texture || m_Device.IsAttachmentValid(description.Depth.Texture, TextureUsage::DepthStencil, description.Depth.MipLevel, description.Depth.ArrayLayer), "BeginRendering with a destroyed depth attachment, one without DepthStencil usage, or a mip or layer it lacks.");
+            TR_CORE_VERIFY(!description.Depth.Texture || m_Device.IsAttachmentValid(description.Depth.Texture, TextureUsage::DepthStencil, description.Depth.MipLevel, description.Depth.ArrayLayer), "BeginRendering: invalid depth texture, usage, mip or layer.");
 
             m_Rendering = true;
             m_HasComputePipeline = false;
@@ -110,7 +110,7 @@ namespace Trinity
 
         void NullCommandList::PushConstants([[maybe_unused]] std::span<const std::byte> data)
         {
-            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a graphics pipeline inside rendering, or a compute pipeline outside it.");
+            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a pipeline: graphics inside rendering, compute outside.");
             TR_CORE_ASSERT(data.size() <= c_MaxPushConstantSize && data.size() % 4 == 0, "Push constants are whole 32-bit values, at most c_MaxPushConstantSize bytes.");
         }
 
@@ -122,7 +122,7 @@ namespace Trinity
         void NullCommandList::SetIndexBuffer([[maybe_unused]] BufferHandle buffer, [[maybe_unused]] std::uint64_t offset, [[maybe_unused]] IndexFormat format)
         {
             TR_CORE_ASSERT(m_Rendering, "SetIndexBuffer is recorded inside rendering.");
-            TR_CORE_ASSERT(m_Device.IsIndexRangeValid(buffer, offset, format), "SetIndexBuffer with a destroyed buffer, one without Index usage, or an offset past its end or not a multiple of the index size.");
+            TR_CORE_ASSERT(m_Device.IsIndexRangeValid(buffer, offset, format), "SetIndexBuffer: invalid buffer, usage or offset.");
 
             m_HasIndexBuffer = true;
         }
@@ -147,7 +147,7 @@ namespace Trinity
         {
             TR_CORE_ASSERT(m_Recording && !m_Rendering, "ResolveTimestamps is recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(m_Device.IsQueryRangeValid(pool, first, count), "ResolveTimestamps with a destroyed query pool, or a range past its end.");
-            TR_CORE_ASSERT(m_Device.IsAlive(destination) && destinationOffset % 8 == 0, "ResolveTimestamps into a destroyed buffer, or at an offset that is not a multiple of 8.");
+            TR_CORE_ASSERT(m_Device.IsAlive(destination) && destinationOffset % 8 == 0, "ResolveTimestamps: invalid buffer, or an offset not a multiple of 8.");
         }
 
         void NullCommandList::CopyBuffer([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] BufferHandle destination, [[maybe_unused]] std::uint64_t destinationOffset, [[maybe_unused]] std::uint64_t size)
@@ -160,14 +160,14 @@ namespace Trinity
         {
             TR_CORE_ASSERT(m_Recording && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyTextureToBuffer with a destroyed or invalid resource.");
-            TR_CORE_ASSERT(m_Device.IsReadbackValid(source, mipLevel, arrayLayer, destination, destinationOffset), "CopyTextureToBuffer with a mip or layer the texture lacks, a misaligned offset, or a buffer too small for the mip.");
+            TR_CORE_ASSERT(m_Device.IsReadbackValid(source, mipLevel, arrayLayer, destination, destinationOffset), "CopyTextureToBuffer: invalid mip, layer, offset or buffer size.");
         }
 
         void NullCommandList::CopyBufferToTexture([[maybe_unused]] BufferHandle source, [[maybe_unused]] std::uint64_t sourceOffset, [[maybe_unused]] TextureHandle destination, [[maybe_unused]] std::uint32_t mipLevel, [[maybe_unused]] std::uint32_t arrayLayer, [[maybe_unused]] const Rect& region)
         {
             TR_CORE_ASSERT(m_Recording && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
             TR_CORE_ASSERT(m_Device.IsAlive(source) && m_Device.IsAlive(destination), "CopyBufferToTexture with a destroyed or invalid resource.");
-            TR_CORE_ASSERT(m_Device.IsCopyRegionValid(source, sourceOffset, destination, mipLevel, arrayLayer, region), "CopyBufferToTexture with a layer the texture lacks, a misaligned offset, a region outside the mip, or a buffer too small for it.");
+            TR_CORE_ASSERT(m_Device.IsCopyRegionValid(source, sourceOffset, destination, mipLevel, arrayLayer, region), "CopyBufferToTexture: invalid layer, offset, region or buffer size.");
         }
 
         void NullCommandList::BeginLabel([[maybe_unused]] std::string_view name)
@@ -247,7 +247,7 @@ namespace Trinity
 
             if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0 || m_QueryPools.GetCount() != 0)
             {
-                TR_CORE_WARN("The null device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s), {} sampler(s) and {} query pool(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
+                TR_CORE_WARN("Null: leaked {} buffers, {} textures, {} pipelines, {} samplers, {} pools", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
             }
 
             m_ReleasedBuffers.ReleaseAll(&NullDevice::ReleaseBuffer);
@@ -305,7 +305,7 @@ namespace Trinity
             return { l_Buffer->Mapped, static_cast<std::size_t>(l_Buffer->Size) };
         }
 
-        // What every GPU allows: a compressed format is only sampled and copied, a depth format is never a colour target or written by shaders, and a colour format is never a depth target
+        // What every GPU allows: a compressed format is only sampled and copied, and depth is never colour
         bool NullDevice::IsFormatSupported(Format format, TextureUsage usage, std::uint32_t sampleCount) const
         {
             if (format == Format::Unknown || (sampleCount != 1 && sampleCount != 2 && sampleCount != 4 && sampleCount != 8))

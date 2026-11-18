@@ -21,7 +21,7 @@ namespace Trinity
         namespace
         {
             constexpr std::array<char, 8> c_Magic{ 'T', 'R', 'P', 'S', 'O', 'C', 'A', 'C' };
-            // Raised whenever the header changes, so a file of another layout is refused before anything else in it is read
+            // Raised whenever the header changes, so a file of another layout is refused first
             constexpr std::uint32_t c_FormatVersion = 1;
 
             struct FileHeader
@@ -80,7 +80,7 @@ namespace Trinity
                 return l_Version.substr(0, l_Version.find('\0'));
             }
 
-            // The layout and the checksum first, so nothing a damaged file holds is read as what made it
+            // The layout and checksum first, so nothing in a damaged file is read as what made it
             std::optional<Refusal> Check(std::span<const std::byte> file, const FileHeader& expected)
             {
                 if (file.size() < sizeof(FileHeader))
@@ -155,7 +155,7 @@ namespace Trinity
             {
                 if (l_File.GetError() != FileError::NotFound)
                 {
-                    TR_CORE_WARN("{}: the pipeline cache '{}' could not be read ({}), so a new one is started", l_API, m_Path, ToString(l_File.GetError()));
+                    TR_CORE_WARN("{}: pipeline cache '{}' could not be read ({}), starting a new one", l_API, m_Path, ToString(l_File.GetError()));
                 }
 
                 return;

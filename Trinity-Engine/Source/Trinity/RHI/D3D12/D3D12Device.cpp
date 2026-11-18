@@ -69,7 +69,7 @@ namespace Trinity
                     l_Support.FeatureLevel = l_Levels.MaxSupportedFeatureLevel;
                 }
 
-                // A runtime rejects shader models newer than it knows, so start at the newest these headers know and step down
+                // A runtime rejects shader models newer than it knows, so start at the newest and step down
                 for (std::uint32_t it_Model = static_cast<std::uint32_t>(D3D_HIGHEST_SHADER_MODEL); it_Model >= static_cast<std::uint32_t>(D3D_SHADER_MODEL_6_0); --it_Model)
                 {
                     D3D12_FEATURE_DATA_SHADER_MODEL l_ShaderModel{ static_cast<D3D_SHADER_MODEL>(it_Model) };
@@ -181,7 +181,7 @@ namespace Trinity
                 m_Info.AdapterName = l_Name;
                 m_Info.VideoMemoryBytes = l_Description.DedicatedVideoMemory;
 
-                TR_CORE_INFO("D3D12: {} with {} of video memory: feature level {}, Shader Model {}, resource binding tier {}, enhanced barriers", l_Name, Memory::FormatBytes(m_Info.VideoMemoryBytes), FormatFeatureLevel(l_Support.FeatureLevel), FormatShaderModel(l_Support.ShaderModel), static_cast<int>(l_Support.BindingTier));
+                TR_CORE_INFO("D3D12: {}, {} video memory, feature level {}, Shader Model {}, binding tier {}", l_Name, Memory::FormatBytes(m_Info.VideoMemoryBytes), FormatFeatureLevel(l_Support.FeatureLevel), FormatShaderModel(l_Support.ShaderModel), static_cast<int>(l_Support.BindingTier));
 
                 break;
             }
@@ -218,14 +218,14 @@ namespace Trinity
 
             if (FAILED(m_Device.As(&m_InfoQueue)))
             {
-                TR_CORE_WARN("D3D12: this runtime has no ID3D12InfoQueue1, so debug layer messages only reach an attached debugger");
+                TR_CORE_WARN("D3D12: no ID3D12InfoQueue1, debug layer messages only reach a debugger");
 
                 return;
             }
 
             if (FAILED(m_InfoQueue->RegisterMessageCallback(&D3D12Device::OnDebugMessage, D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &m_MessageCallbackCookie)))
             {
-                TR_CORE_WARN("D3D12: the debug layer message callback could not be registered, so messages only reach an attached debugger");
+                TR_CORE_WARN("D3D12: debug message callback not registered, messages only reach a debugger");
                 m_InfoQueue.Reset();
             }
         }
@@ -262,7 +262,7 @@ namespace Trinity
             }
         }
 
-        // Runs after every D3D12 and DXGI object of the device is released, so anything still reported is a leak
+        // Runs after every D3D12 and DXGI object is released, so anything still reported is a leak
         void D3D12Device::ReportLiveObjects() const
         {
             ComPtr<IDXGIDebug1> l_Debug;

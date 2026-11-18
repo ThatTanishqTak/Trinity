@@ -80,7 +80,7 @@ namespace Trinity
         {
             if (!m_OverflowBuffers.empty())
             {
-                TR_CORE_WARN("Upload ring overflowed: the frame used {} of a {} slot, {} of it in {} temporary buffer(s)", Memory::FormatBytes(m_Offset - m_Begin + m_OverflowBytes), Memory::FormatBytes(m_Capacity), Memory::FormatBytes(m_OverflowBytes), m_OverflowBuffers.size());
+                TR_CORE_WARN("Upload ring overflowed: used {} of {}, {} in {} temporary buffer(s)", Memory::FormatBytes(m_Offset - m_Begin + m_OverflowBytes), Memory::FormatBytes(m_Capacity), Memory::FormatBytes(m_OverflowBytes), m_OverflowBuffers.size());
 
                 for (BufferHandle it_Buffer : m_OverflowBuffers)
                 {

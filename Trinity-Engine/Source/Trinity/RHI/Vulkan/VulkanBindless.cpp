@@ -34,7 +34,7 @@ namespace Trinity
             Destroy();
         }
 
-        // One set holds every descriptor, and every pipeline shares its layout and the push constant range, so the set is bound once per frame
+        // One set holds every descriptor on a layout every pipeline shares, so it is bound once a frame
         bool VulkanBindless::Initialize(std::string& error)
         {
             VkPhysicalDeviceVulkan12Properties l_Limits = MakeInfo<VkPhysicalDeviceVulkan12Properties>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES);

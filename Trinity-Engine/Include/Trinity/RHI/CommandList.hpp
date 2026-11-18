@@ -34,7 +34,7 @@ namespace Trinity
             std::array<float, 4> ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
             std::uint32_t MipLevel = 0;
             std::uint32_t ArrayLayer = 0;
-            // A single-sampled texture in ResolveDestination that the multisampled one is averaged into when rendering ends
+            // A single-sampled texture in ResolveDestination, averaged into when rendering ends
             TextureHandle ResolveTexture{};
         };
 
@@ -74,7 +74,7 @@ namespace Trinity
             virtual void SetPipeline(PipelineHandle pipeline) = 0;
             virtual void SetViewport(const Viewport& viewport) = 0;
             virtual void SetScissor(const Rect& scissor) = 0;
-            // What a pipeline's stencil test compares with and StencilOp::Replace writes, 0 at the start of each frame and kept until set again
+            // What the stencil test compares with and StencilOp::Replace writes. 0 as each frame starts
             virtual void SetStencilReference(std::uint32_t reference) = 0;
             virtual void PushConstants(std::span<const std::byte> data) = 0;
             virtual void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex, std::uint32_t firstInstance) = 0;
@@ -84,7 +84,7 @@ namespace Trinity
 
             virtual void Dispatch(std::uint32_t groupCountX, std::uint32_t groupCountY, std::uint32_t groupCountZ) = 0;
 
-            // A timestamp can be written inside rendering or outside it, and each index once between resolves. ResolveTimestamps, outside rendering, writes 8 bytes per timestamp at an offset that is a multiple of 8, into a buffer in CopyDestination
+            // Each index once between resolves. ResolveTimestamps writes 8 bytes each, outside rendering
             virtual void WriteTimestamp(QueryPoolHandle pool, std::uint32_t index) = 0;
             virtual void ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset) = 0;
 
@@ -92,7 +92,7 @@ namespace Trinity
             virtual void CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset) = 0;
             virtual void CopyBufferToTexture(BufferHandle source, std::uint64_t sourceOffset, TextureHandle destination, std::uint32_t mipLevel, std::uint32_t arrayLayer, const Rect& region) = 0;
 
-            // A named region of commands for RenderDoc and PIX, which nests and ends with EndLabel within the same frame. TR_GPU_LABEL begins one for the rest of a scope
+            // For RenderDoc and PIX. Labels nest, and end with EndLabel within the same frame
             virtual void BeginLabel(std::string_view name) = 0;
             virtual void EndLabel() = 0;
 
@@ -100,7 +100,6 @@ namespace Trinity
             CommandList() = default;
         };
 
-        // Begins a label and ends it when it goes out of scope
         class LabelScope
         {
         public:
@@ -123,7 +122,7 @@ namespace Trinity
     }
 }
 
-// Labels the commands recorded in the rest of the scope. Distribution compiles each one out, so no label text reaches a player
+// Distribution compiles labels out, so no label text reaches a player
 #if defined(TR_DISTRIBUTION)
 #define TR_GPU_LABEL(commands, name) ((void)0)
 #else

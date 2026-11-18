@@ -13,7 +13,6 @@ namespace Trinity
     {
         class VulkanDevice;
 
-        // A pool of timestamps the GPU writes on the graphics queue
         struct VulkanQueryPool
         {
             // Empty, with the reason logged, when the device has no timestamps or the pool cannot be created

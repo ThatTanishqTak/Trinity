@@ -40,7 +40,7 @@ namespace Trinity
                 ++m_FrameNumber;
             }
 
-            // Call once the GPU is idle, what was destroyed during the frame being recorded stays, since its commands are not submitted yet
+            // Call once the GPU is idle. What the frame being recorded destroyed stays, as it is unsubmitted
             template<typename Release>
             void ReleaseIdle(Release&& release)
             {

@@ -113,7 +113,7 @@ namespace Trinity
             return SubmitAfterGraphics(m_Device.GetComputeQueue(), commandBuffer, graphicsValue, m_ComputeTimeline, m_ComputeValue);
         }
 
-        // Every stage of the frame's next submission waits, so whatever reads what the work wrote runs after it
+        // Every stage of the frame's next submission waits, so what reads the work's output runs after
         VkResult VulkanFrameSync::SubmitAfterGraphics(VkQueue queue, VkCommandBuffer commandBuffer, std::uint64_t graphicsValue, VkSemaphore timeline, std::uint64_t& value)
         {
             VkSemaphoreSubmitInfo l_Wait = MakeInfo<VkSemaphoreSubmitInfo>(VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO);

@@ -16,7 +16,6 @@ namespace Trinity
     {
         class VulkanContext;
 
-        // The frame's commands on the graphics queue, the copies and barriers the loaders record for the transfer queue, or the compute queue's passes
         class VulkanCommandList final : public CommandList
         {
         public:
@@ -29,9 +28,9 @@ namespace Trinity
             [[nodiscard]] bool HasCommands() const { return m_HasCommands; }
             // Whether the uploads write something the frame before may still be reading, so they wait for it
             [[nodiscard]] bool WaitsForGraphics() const { return m_WaitsForGraphics; }
-            // The barriers after the uploads' copies into the frame's list, which waits for the uploads before it runs
+            // Records the barriers after the uploads' copies into the frame's list, which waits for them
             void RecordHandoffs(VulkanCommandList& frame);
-            // The release of a whole texture leaving for another queue family, or the acquire of one joining from it, moving it from before to after
+            // Releases a whole texture leaving for another queue family, or acquires one joining from it
             void TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, std::uint32_t sourceFamily, std::uint32_t destinationFamily, bool release);
 
             void TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range) override;

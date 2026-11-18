@@ -17,10 +17,10 @@ namespace Trinity
         class VulkanBindless;
         class VulkanDevice;
 
-        // Swap chain images have no allocation, since the swap chain owns them. A render target or depth texture has an attachment view per mip of each layer, numbered by GetSubresourceIndex
+        // Swap chain images have no allocation. A target has an attachment view per mip of each layer
         struct VulkanTexture
         {
-            // Empty, with the reason logged, when the image cannot be created. The context checks the description first
+            // Empty, with the reason logged, on failure. The context checks the description first
             [[nodiscard]] static std::optional<VulkanTexture> Create(const VulkanDevice& device, const VulkanAllocator& allocator, VulkanBindless& bindless, const TextureDescription& description);
             // A swap chain image taken in as a texture with a single attachment view
             [[nodiscard]] static VulkanTexture FromSwapChainImage(const VulkanDevice& device, VkImage image, Format format, std::uint32_t width, std::uint32_t height);

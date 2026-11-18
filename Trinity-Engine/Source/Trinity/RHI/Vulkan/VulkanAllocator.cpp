@@ -18,7 +18,7 @@ namespace Trinity
     {
         namespace
         {
-            // VulkanMemoryAllocator's bookkeeping, and what the driver allocates for the objects it creates through it, counted under the Renderer tag
+            // VulkanMemoryAllocator's bookkeeping and the driver's allocations through it, under Renderer
             void* VKAPI_PTR AllocateHostMemory([[maybe_unused]] void* userData, std::size_t size, std::size_t alignment, [[maybe_unused]] VkSystemAllocationScope scope)
             {
                 return Memory::TryAllocate(size, MemoryTag::Renderer, alignment);
@@ -55,7 +55,7 @@ namespace Trinity
             l_Create.instance = m_Instance.GetHandle();
             l_Create.vulkanApiVersion = VK_API_VERSION_1_3;
             l_Create.pAllocationCallbacks = &c_HostAllocator;
-            // D3D12MemoryAllocator's block size, so an allocation over 32 MiB gets memory of its own on both APIs and goes back to the driver when it is released
+            // D3D12MemoryAllocator's block size, so an allocation over 32 MiB gets its own memory on both
             l_Create.preferredLargeHeapBlockSize = 64ull * 1024 * 1024;
             l_Create.flags = m_Device.HasMemoryBudget() ? VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT : 0;
 
@@ -91,7 +91,7 @@ namespace Trinity
             vmaSetCurrentFrameIndex(m_Allocator, static_cast<std::uint32_t>(frame));
         }
 
-        // Without the extension VulkanMemoryAllocator only guesses the budget, so the heap's size is all it reports
+        // Without the extension VulkanMemoryAllocator only guesses the budget, so only the size is given
         std::vector<MemoryHeapBudget> VulkanAllocator::GetMemoryBudget() const
         {
             const VkPhysicalDeviceMemoryProperties* l_Properties = nullptr;

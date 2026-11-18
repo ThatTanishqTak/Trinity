@@ -11,11 +11,11 @@ namespace Trinity
     {
         constexpr std::uint32_t c_NoDescriptor = c_NoBindlessIndex;
 
-        // A heap of descriptors handed out a slot at a time, CPU-only for render target and depth views and shader-visible for the bindless heaps
+        // CPU-only for render target and depth views, shader-visible for the bindless heaps
         class D3D12DescriptorHeap
         {
         public:
-            // False when the heap cannot be created. A name, when there is one, is for the debug layer and PIX
+            // The name, when there is one, is for the debug layer and PIX
             [[nodiscard]] bool Initialize(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, bool shaderVisible, const wchar_t* name = nullptr);
             void Reset();
 

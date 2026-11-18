@@ -47,7 +47,7 @@ namespace Trinity
         {
             if (!IsFormatSupported(description.TextureFormat, description.Usage, description.SampleCount))
             {
-                TR_CORE_ERROR("{}: this device cannot create texture '{}' as {} with the usage and {} sample(s) it asks for", ToString(GetInfo().API), description.DebugName, ToString(description.TextureFormat), description.SampleCount);
+                TR_CORE_ERROR("{}: texture '{}' is unsupported as {} with its usage and {} sample(s)", ToString(GetInfo().API), description.DebugName, ToString(description.TextureFormat), description.SampleCount);
 
                 return false;
             }
@@ -63,7 +63,7 @@ namespace Trinity
             const bool l_Layers = description.Dimension == TextureDimension::Texture2D ? description.ArrayLayers == 1 : description.Dimension == TextureDimension::TextureCube ? description.ArrayLayers == c_CubeFaceCount : description.ArrayLayers != 0 && description.ArrayLayers <= c_MaxArrayLayers;
             if (!l_Layers || (description.Dimension == TextureDimension::TextureCube && description.Width != description.Height))
             {
-                TR_CORE_ERROR("{}: texture '{}' is {}x{} with {} layer(s), and a 2D texture has 1 layer, a cube {} layers and a square size, and an array 1 to {}", ToString(GetInfo().API), description.DebugName, description.Width, description.Height, description.ArrayLayers, c_CubeFaceCount, c_MaxArrayLayers);
+                TR_CORE_ERROR("{}: texture '{}' {}x{} has {} layer(s): 2D 1, square cube {}, array 1 to {}", ToString(GetInfo().API), description.DebugName, description.Width, description.Height, description.ArrayLayers, c_CubeFaceCount, c_MaxArrayLayers);
 
                 return false;
             }
@@ -73,7 +73,7 @@ namespace Trinity
             const bool l_MultisampledUsage = !HasFlag(description.Usage, TextureUsage::UnorderedAccess) && !HasFlag(description.Usage, TextureUsage::CopySource) && !HasFlag(description.Usage, TextureUsage::CopyDestination);
             if (!l_SampleCount || (l_Multisampled && (description.Dimension != TextureDimension::Texture2D || description.MipLevels != 1 || IsCompressedFormat(description.TextureFormat) || !l_MultisampledUsage)))
             {
-                TR_CORE_ERROR("{}: texture '{}' has {} sample(s), and a texture has 1, 2, 4 or 8, and a multisampled one is an uncompressed Texture2D with one mip and no storage or copy usage", ToString(GetInfo().API), description.DebugName, description.SampleCount);
+                TR_CORE_ERROR("{}: texture '{}' has {} sample(s), invalid for its type, mips, format or usage", ToString(GetInfo().API), description.DebugName, description.SampleCount);
 
                 return false;
             }

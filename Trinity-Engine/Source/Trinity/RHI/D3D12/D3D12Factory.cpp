@@ -59,7 +59,7 @@ namespace Trinity
                 }
                 else
                 {
-                    TR_CORE_WARN("D3D12: the debug layer is missing, so validation is off. Add the Graphics Tools optional feature in Windows settings");
+                    TR_CORE_WARN("D3D12: no debug layer, validation is off. Install the Graphics Tools feature");
                     m_Validation = false;
                 }
             }
@@ -89,7 +89,7 @@ namespace Trinity
             return m_Factory->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) != DXGI_ERROR_NOT_FOUND;
         }
 
-        // Says which D3D12Core.dll the process loaded: the Agility SDK's beside the executable, or the one built into Windows
+        // Says which D3D12Core.dll loaded: the Agility SDK's beside the executable, or Windows' own
         void D3D12Factory::LogRuntime() const
         {
             const std::filesystem::path l_Path = GetModulePath(::GetModuleHandleW(L"D3D12Core.dll"));
@@ -104,10 +104,10 @@ namespace Trinity
             }
             else
             {
-                TR_CORE_WARN("D3D12: the Agility SDK {} runtime beside the executable was not loaded, so the Windows runtime at '{}' is in use", TR_AGILITY_SDK_VERSION, l_Path.string());
+                TR_CORE_WARN("D3D12: Agility SDK {} was not loaded, using the Windows runtime at '{}'", TR_AGILITY_SDK_VERSION, l_Path.string());
             }
 #else
-            TR_CORE_INFO("D3D12: this build has no Agility SDK, so the Windows runtime at '{}' is in use", l_Path.string());
+            TR_CORE_INFO("D3D12: no Agility SDK in this build, using the Windows runtime at '{}'", l_Path.string());
 #endif
         }
     }

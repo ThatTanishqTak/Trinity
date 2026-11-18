@@ -21,7 +21,7 @@ namespace Trinity
     {
         namespace
         {
-            // The descriptor of one mip of one layer, or c_NoDescriptor when the texture has no such view
+            // c_NoDescriptor when the texture has no view of that mip and layer
             std::uint32_t GetAttachmentView(const D3D12DescriptorIndices& views, const D3D12Texture& texture, std::uint32_t mipLevel, std::uint32_t arrayLayer)
             {
                 if (mipLevel >= texture.MipLevels || arrayLayer >= texture.ArrayLayers)
@@ -144,7 +144,7 @@ namespace Trinity
                 return state == ResourceState::Undefined || state == ResourceState::ShaderResource || state == ResourceState::UnorderedAccess || state == ResourceState::CopySource || state == ResourceState::CopyDestination;
             }
 
-            // A compute list synchronizes with and accesses only what a compute queue has, so it keeps that of each side of a barrier. A side left with none, which only the direct queue reached, waits for nothing here, as the fence between the queues orders it
+            // A compute list keeps only the sync and access a compute queue has. The fence orders the rest
             void KeepComputeSyncs(D3D12_BARRIER_SYNC& sync, D3D12_BARRIER_ACCESS& access)
             {
                 const D3D12_BARRIER_SYNC l_Syncs = D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_COMPUTE_SHADING | D3D12_BARRIER_SYNC_COPY | D3D12_BARRIER_SYNC_EXECUTE_INDIRECT | D3D12_BARRIER_SYNC_ALL_SHADING | D3D12_BARRIER_SYNC_NON_PIXEL_SHADING;
@@ -187,7 +187,7 @@ namespace Trinity
             Continue(allocator);
         }
 
-        // A copy list sets no descriptors and a compute list no graphics state, so uploads begin with nothing set and compute work with the heaps and the compute root signature alone
+        // A copy list sets no descriptors, and a compute list no graphics state
         void D3D12CommandList::Continue(ID3D12CommandAllocator* allocator)
         {
             m_GraphicsList->Reset(allocator, nullptr);
@@ -239,7 +239,7 @@ namespace Trinity
             m_TextureHandoffs.clear();
         }
 
-        // Moving out of Undefined discards the contents, which also counts as the first write a render target or depth texture needs. A copy queue makes no layout transitions and keeps a texture in the common layout it was created in, so an upload list records none, and a texture moves on from the common layout in the frame's list, which waits for the uploads. A compute list moves a texture only among the layouts its queue has
+        // Leaving Undefined discards the contents. A copy queue makes no layout transitions
         void D3D12CommandList::TextureBarrier(TextureHandle texture, ResourceState before, ResourceState after, const TextureSubresourceRange& range)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
@@ -252,7 +252,7 @@ namespace Trinity
                 return;
             }
 
-            TR_CORE_ASSERT(IsRangeInsideTexture(range, l_Texture->MipLevels, l_Texture->ArrayLayers), "TextureBarrier on mips or layers that a texture with {} mip(s) and {} layer(s) lacks.", l_Texture->MipLevels, l_Texture->ArrayLayers);
+            TR_CORE_ASSERT(IsRangeInsideTexture(range, l_Texture->MipLevels, l_Texture->ArrayLayers), "TextureBarrier past a texture's {} mip(s) and {} layer(s).", l_Texture->MipLevels, l_Texture->ArrayLayers);
 
             const D3D12State l_Before = ToD3D12State(before);
             const D3D12State l_After = ToD3D12State(after);
@@ -282,7 +282,7 @@ namespace Trinity
             l_Barrier.Flags = before == ResourceState::Undefined ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
             if (m_Role == CommandListRole::Uploads)
             {
-                TR_CORE_ASSERT(!IsInUse(before), "An uploaded texture is new, so it moves into a copy state from Undefined.");
+                TR_CORE_ASSERT(!IsInUse(before), "An uploaded texture moves into a copy state from Undefined.");
                 m_WaitsForGraphics = m_WaitsForGraphics || IsInUse(before);
                 if (after != ResourceState::CopySource && after != ResourceState::CopyDestination)
                 {
@@ -299,7 +299,7 @@ namespace Trinity
 
             if (m_Role == CommandListRole::Compute)
             {
-                TR_CORE_ASSERT(IsComputeState(before) && IsComputeState(after), "A compute list moves a texture only among Undefined, ShaderResource, UnorderedAccess, CopySource and CopyDestination.");
+                TR_CORE_ASSERT(IsComputeState(before) && IsComputeState(after), "A compute list moves a texture only among compute and copy states.");
                 KeepComputeSyncs(l_Barrier.SyncBefore, l_Barrier.AccessBefore);
                 KeepComputeSyncs(l_Barrier.SyncAfter, l_Barrier.AccessAfter);
             }
@@ -311,7 +311,7 @@ namespace Trinity
             m_CommandList->Barrier(1, &l_Group);
         }
 
-        // An upload list's copies need no barrier, and the fence orders them before the frame. Out of a state the frame before may be reading, the uploads wait for it
+        // An upload's copies need no barrier. Out of a state the frame before may read, uploads wait
         void D3D12CommandList::BufferBarrier(BufferHandle buffer, ResourceState before, ResourceState after)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Barriers are recorded within a frame and outside rendering.");
@@ -366,7 +366,7 @@ namespace Trinity
             {
                 const D3D12Texture* l_Texture = m_Device.GetTexture(it_Attachment.Texture);
                 const std::uint32_t l_View = l_Texture != nullptr ? GetAttachmentView(l_Texture->RenderTargetViews, *l_Texture, it_Attachment.MipLevel, it_Attachment.ArrayLayer) : c_NoDescriptor;
-                TR_CORE_ASSERT(l_View != c_NoDescriptor, "BeginRendering with a destroyed texture, one without RenderTarget usage, or a mip or layer it lacks.");
+                TR_CORE_ASSERT(l_View != c_NoDescriptor, "BeginRendering: invalid color texture, usage, mip or layer.");
                 if (l_View == c_NoDescriptor || l_TargetCount == c_MaxColorAttachments)
                 {
                     continue;
@@ -386,7 +386,7 @@ namespace Trinity
                 {
                     const D3D12Texture* l_Resolve = m_Device.GetTexture(it_Attachment.ResolveTexture);
                     const bool l_Resolvable = l_Resolve != nullptr && !l_Resolve->RenderTargetViews.empty() && l_Texture->SampleCount > 1 && l_Resolve->SampleCount == 1 && l_Resolve->TextureFormat == l_Texture->TextureFormat && l_Resolve->TextureFormat != Format::R32Uint;
-                    TR_CORE_ASSERT(l_Resolvable, "BeginRendering resolving into a destroyed texture, one without RenderTarget usage, or one whose format or sample count does not fit.");
+                    TR_CORE_ASSERT(l_Resolvable, "BeginRendering: invalid resolve texture, usage, format or sample count.");
                     if (l_Resolvable)
                     {
                         D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS& l_Parameters = m_ResolveParameters[l_TargetCount - 1];
@@ -408,7 +408,7 @@ namespace Trinity
             D3D12_RENDER_PASS_DEPTH_STENCIL_DESC l_Depth{};
             const D3D12Texture* l_DepthTexture = description.Depth.Texture ? m_Device.GetTexture(description.Depth.Texture) : nullptr;
             const std::uint32_t l_DepthView = l_DepthTexture != nullptr ? GetAttachmentView(l_DepthTexture->DepthStencilViews, *l_DepthTexture, description.Depth.MipLevel, description.Depth.ArrayLayer) : c_NoDescriptor;
-            TR_CORE_ASSERT(!description.Depth.Texture || l_DepthView != c_NoDescriptor, "BeginRendering with a destroyed depth texture, one without DepthStencil usage, or a mip or layer it lacks.");
+            TR_CORE_ASSERT(!description.Depth.Texture || l_DepthView != c_NoDescriptor, "BeginRendering: invalid depth texture, usage, mip or layer.");
             const bool l_HasDepth = l_DepthView != c_NoDescriptor;
             if (l_HasDepth)
             {
@@ -495,10 +495,10 @@ namespace Trinity
             m_CommandList->OMSetStencilRef(reference);
         }
 
-        // The push constants are root constants at b0, the first parameter of the shared root signature. Graphics and compute keep their own, so they go to whichever pipeline the commands are recorded for
+        // Root constants at b0, the first root parameter. Graphics and compute each keep their own
         void D3D12CommandList::PushConstants(std::span<const std::byte> data)
         {
-            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a graphics pipeline inside rendering, or a compute pipeline outside it.");
+            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a pipeline: graphics inside rendering, compute outside.");
             TR_CORE_ASSERT(data.size() <= c_MaxPushConstantSize && data.size() % 4 == 0, "Push constants are whole 32-bit values, at most c_MaxPushConstantSize bytes.");
 
             if (m_Rendering)
@@ -524,7 +524,7 @@ namespace Trinity
 
             const D3D12Buffer* l_Buffer = m_Device.GetBuffer(buffer);
             TR_CORE_ASSERT(l_Buffer != nullptr, "SetIndexBuffer with a destroyed or invalid buffer.");
-            TR_CORE_ASSERT(l_Buffer == nullptr || (offset < l_Buffer->Size && offset % GetIndexSize(format) == 0), "SetIndexBuffer at offset {}, which is past the end of the buffer or not a multiple of the index size.", offset);
+            TR_CORE_ASSERT(l_Buffer == nullptr || (offset < l_Buffer->Size && offset % GetIndexSize(format) == 0), "SetIndexBuffer offset {} is past the buffer or not a multiple of the index size.", offset);
             if (l_Buffer == nullptr || offset >= l_Buffer->Size)
             {
                 return;
@@ -579,7 +579,7 @@ namespace Trinity
             }
 
             TR_CORE_ASSERT(count != 0 && std::uint64_t{ first } + count <= l_Pool->Count, "ResolveTimestamps with a range past the end of a pool of {}.", l_Pool->Count);
-            TR_CORE_ASSERT(destinationOffset % 8 == 0 && destinationOffset + std::uint64_t{ count } * 8 <= l_Buffer->Size, "ResolveTimestamps at an offset that is not a multiple of 8, or past the end of the buffer.");
+            TR_CORE_ASSERT(destinationOffset % 8 == 0 && destinationOffset + std::uint64_t{ count } * 8 <= l_Buffer->Size, "ResolveTimestamps offset is not a multiple of 8, or is past the buffer's end.");
 
             m_CommandList->ResolveQueryData(l_Pool->Heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, first, count, l_Buffer->Allocation->GetResource(), destinationOffset);
         }
@@ -602,7 +602,7 @@ namespace Trinity
             m_CommandList->CopyBufferRegion(l_Destination->Allocation->GetResource(), destinationOffset, l_Source->Allocation->GetResource(), sourceOffset, size);
         }
 
-        // The whole mip, laid out in the buffer as CopyBufferToTexture reads it: rows of texels or blocks GetTextureCopyRowPitch apart
+        // The whole mip, laid out as CopyBufferToTexture reads it, rows GetTextureCopyRowPitch apart
         void D3D12CommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
@@ -620,7 +620,7 @@ namespace Trinity
             const std::uint32_t l_Height = GetMipSize(l_Texture->Height, mipLevel);
             const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Width);
             [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, l_Width, l_Height);
-            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && arrayLayer < l_Texture->ArrayLayers, "CopyTextureToBuffer from mip {} of layer {} of a texture with {} mip(s) and {} layer(s).", mipLevel, arrayLayer, l_Texture->MipLevels, l_Texture->ArrayLayers);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && arrayLayer < l_Texture->ArrayLayers, "CopyTextureToBuffer from mip {} of layer {}, past {} mip(s) and {} layer(s).", mipLevel, arrayLayer, l_Texture->MipLevels, l_Texture->ArrayLayers);
             TR_CORE_ASSERT(destinationOffset % c_TextureCopyOffsetAlignment == 0, "CopyTextureToBuffer writes to offset {}, which is not a multiple of {}.", destinationOffset, c_TextureCopyOffsetAlignment);
             TR_CORE_ASSERT(destinationOffset + l_Size <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes from offset {}, and the buffer has {}.", l_Size, destinationOffset, l_Buffer->Size);
 
@@ -658,9 +658,9 @@ namespace Trinity
 
             const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width);
             [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, region.Width, region.Height);
-            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region outside mip {} of a {}x{} texture with {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture region is outside mip {} of a {}x{} texture, {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
             TR_CORE_ASSERT(arrayLayer < l_Texture->ArrayLayers, "CopyBufferToTexture into layer {} of a texture with {} layer(s).", arrayLayer, l_Texture->ArrayLayers);
-            TR_CORE_ASSERT(IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region of {} that does not start on a block or cover whole blocks.", ToString(l_Texture->TextureFormat));
+            TR_CORE_ASSERT(IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture region of {} is not aligned to whole blocks.", ToString(l_Texture->TextureFormat));
             TR_CORE_ASSERT(sourceOffset % c_TextureCopyOffsetAlignment == 0, "CopyBufferToTexture reads from offset {}, which is not a multiple of {}.", sourceOffset, c_TextureCopyOffsetAlignment);
             TR_CORE_ASSERT(sourceOffset + l_Size <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_Size, sourceOffset, l_Buffer->Size);
 
@@ -683,7 +683,7 @@ namespace Trinity
             m_CommandList->CopyTextureRegion(&l_Destination, static_cast<UINT>(region.X), static_cast<UINT>(region.Y), 0, &l_Source, nullptr);
         }
 
-        // PIX's Unicode encoding, metadata 0 and a null-terminated wide string, which PIX and RenderDoc read with no package
+        // PIX's Unicode encoding: metadata 0 and a null-terminated wide string, read with no package
         void D3D12CommandList::BeginLabel(std::string_view name)
         {
             TR_CORE_ASSERT(m_CommandList != nullptr, "BeginLabel is recorded within a frame.");

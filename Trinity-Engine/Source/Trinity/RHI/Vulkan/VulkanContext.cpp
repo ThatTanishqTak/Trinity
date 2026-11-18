@@ -34,7 +34,7 @@ namespace Trinity
         {
             const bool l_Report = m_Instance.IsValidationEnabled() && m_Device.GetHandle() != VK_NULL_HANDLE;
 
-            // The validation layer reports objects still alive in vkDestroyDevice and vkDestroyInstance, so the messenger outlives the device
+            // The validation layer reports live objects in vkDestroyDevice, so the messenger outlives it
             if (m_Device.GetHandle() != VK_NULL_HANDLE)
             {
                 m_Device.WaitIdle();
@@ -42,7 +42,7 @@ namespace Trinity
 
                 if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0 || m_QueryPools.GetCount() != 0)
                 {
-                    TR_CORE_WARN("Vulkan: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s), {} sampler(s) and {} query pool(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
+                    TR_CORE_WARN("Vulkan: leaked {} buffers, {} textures, {} pipelines, {} samplers, {} pools", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
                 }
 
                 m_Releases.ReleaseAll();
@@ -410,7 +410,7 @@ namespace Trinity
             return VulkanSwapChain::Create(*this, specification);
         }
 
-        // Waits until the frame c_FramesInFlight before this one, which used the same command pool, has finished on the GPU
+        // Waits for the frame c_FramesInFlight before this one, which used the same command pool
         CommandList& VulkanContext::BeginFrame()
         {
             TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
@@ -437,7 +437,7 @@ namespace Trinity
             return m_CommandList;
         }
 
-        // Begun at the first call in a frame, on the pool of the frame c_FramesInFlight before, whose commands waited for its uploads
+        // Begun at the first call in a frame, on the pool of the frame c_FramesInFlight before
         CommandList& VulkanContext::GetUploadCommands()
         {
             TR_CORE_ASSERT(m_InFrame && !m_UploadsSubmitted, "GetUploadCommands is called between BeginFrame and SubmitUploads.");
@@ -459,7 +459,7 @@ namespace Trinity
             return m_UploadList;
         }
 
-        // Uploads that write what the frame before may still read wait for it, at the timeline value its last submission signalled
+        // Uploads that write what the frame before may read wait for its last timeline value
         void VulkanContext::SubmitUploads()
         {
             TR_CORE_ASSERT(m_InFrame, "SubmitUploads is called within a frame.");
@@ -485,7 +485,7 @@ namespace Trinity
             m_UploadList.RecordHandoffs(m_CommandList);
         }
 
-        // Begun when a frame first asks for it, and again after each SubmitCompute, on the pool of the frame c_FramesInFlight before, which has finished
+        // Begun at the first ask in a frame, and again after each SubmitCompute
         CommandList& VulkanContext::GetComputeCommands()
         {
             TR_CORE_ASSERT(m_InFrame, "GetComputeCommands is called within a frame.");
@@ -506,7 +506,7 @@ namespace Trinity
             return m_ComputeList;
         }
 
-        // A family of its own for compute owns what it uses, so a texture that keeps its contents goes through a release and an acquire. With one family for both queues, or the switch off, its move is an ordinary barrier where it leaves
+        // A compute family of its own owns what it uses, so a kept texture is released and acquired
         void VulkanContext::TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, QueueType from)
         {
             TR_CORE_ASSERT(m_InFrame && (!m_ComputeEnabled || m_ComputeRecording), "TransferTexture is called within a frame, while the compute list records.");
@@ -535,7 +535,7 @@ namespace Trinity
             }
         }
 
-        // The frame's commands so far go first in a submission of their own, so they never wait for the compute work, and its later commands, in a command buffer of their own, wait for it and take in the textures it let go. The compute work waits for the frame before on the graphics queue, which may still use what it writes, and with afterGraphics for the frame's commands so far too
+        // The frame's commands so far go first, in their own submission, so they never wait for compute
         void VulkanContext::SubmitCompute(bool afterGraphics)
         {
             TR_CORE_ASSERT(m_InFrame, "SubmitCompute is called within a frame.");

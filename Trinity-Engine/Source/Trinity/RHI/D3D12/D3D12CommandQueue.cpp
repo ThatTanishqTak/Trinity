@@ -56,7 +56,7 @@ namespace Trinity
             }
         }
 
-        // Presents go on the queue after the frame's signal, so waiting for that signal alone can leave a swap chain buffer in use. A new signal comes after them
+        // Presents go on the queue after the frame's signal, so a new signal is made to wait past them
         void D3D12CommandQueue::WaitIdle()
         {
             m_Queue->Signal(m_Fence.Get(), ++m_FenceValue);

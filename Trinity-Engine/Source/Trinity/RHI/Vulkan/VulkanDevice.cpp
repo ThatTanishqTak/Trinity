@@ -28,7 +28,7 @@ namespace Trinity
                 VkBool32 T::* Member;
             };
 
-            // What the backend is built on. Descriptor indexing is for the bindless tables, shader draw parameters is what Slang's SV_VertexID needs, depth clamp and bias clamp are for shadow maps, and independent blend is for an integer target beside a blended one
+            // Descriptor indexing for bindless, draw parameters for SV_VertexID, clamps for shadow maps
             constexpr std::array<RequiredFeature<VkPhysicalDeviceFeatures>, 3> c_Required10
             { {
                 { "depthClamp", &VkPhysicalDeviceFeatures::depthClamp },
@@ -56,7 +56,7 @@ namespace Trinity
                 { "shaderStorageBufferArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderStorageBufferArrayNonUniformIndexing }
             } };
 
-            // A shader's discard is a demotion to a helper invocation in SPIR-V 1.6, which every Vulkan 1.3 device supports
+            // SPIR-V 1.6 demotes a discard to a helper invocation, which every Vulkan 1.3 device supports
             constexpr std::array<RequiredFeature<VkPhysicalDeviceVulkan13Features>, 3> c_Required13
             { {
                 { "dynamicRendering", &VkPhysicalDeviceVulkan13Features::dynamicRendering },
@@ -64,7 +64,7 @@ namespace Trinity
                 { "shaderDemoteToHelperInvocation", &VkPhysicalDeviceVulkan13Features::shaderDemoteToHelperInvocation }
             } };
 
-            // The Vulkan 1.1 to 1.3 feature structures, chained to each other. It points into itself, so it is never copied
+            // The Vulkan 1.1 to 1.3 feature structures point into each other, so this is never copied
             struct DeviceFeatures
             {
                 VkPhysicalDeviceFeatures2 Features = MakeInfo<VkPhysicalDeviceFeatures2>(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2);
@@ -288,7 +288,7 @@ namespace Trinity
             Enable(l_Enabled.Vulkan12, c_Required12);
             Enable(l_Enabled.Vulkan13, c_Required13);
 
-            // Optional: without it, IsFormatSupported reports every BC format as unsupported and textures fall back to RGBA8
+            // Optional: without it every BC format is unsupported, and textures fall back to RGBA8
             DeviceFeatures l_Available;
             vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &l_Available.Features);
             m_TextureCompressionBC = l_Available.Features.features.textureCompressionBC == VK_TRUE;
@@ -308,7 +308,7 @@ namespace Trinity
                 l_Extensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
             }
 
-            // A family of its own for transfers and one for compute, the transfer one taking the uploads when renderer.copy_queue is on and the compute one the compute queue passes when renderer.async_compute is on
+            // A dedicated transfer family takes uploads, and a dedicated compute family the compute passes
             const auto a_Find = [&l_Families](VkQueueFlags wanted, VkQueueFlags unwanted)
             {
                 return std::ranges::find_if(l_Families, [wanted, unwanted](const VkQueueFamilyProperties& family) { return (family.queueFlags & wanted) != 0 && (family.queueFlags & unwanted) == 0; });
@@ -360,9 +360,8 @@ namespace Trinity
             m_Info.AdapterName = l_Properties.properties.deviceName;
             m_Info.VideoMemoryBytes = GetVideoMemory(m_PhysicalDevice);
 
-            TR_CORE_INFO("Vulkan: {} ({}) with {} of video memory: Vulkan {}, {} {}, dynamic rendering, synchronization2, descriptor indexing, timeline semaphores{}", m_Info.AdapterName, ToString(l_Properties.properties.deviceType), Memory::FormatBytes(m_Info.VideoMemoryBytes), FormatVersion(l_Properties.properties.apiVersion), l_DriverProperties.driverName, l_DriverProperties.driverInfo, m_TextureCompressionBC ? ", BC textures" : "");
+            TR_CORE_INFO("Vulkan: {} ({}), {} video memory, Vulkan {}, {} {}{}", m_Info.AdapterName, ToString(l_Properties.properties.deviceType), Memory::FormatBytes(m_Info.VideoMemoryBytes), FormatVersion(l_Properties.properties.apiVersion), l_DriverProperties.driverName, l_DriverProperties.driverInfo, m_TextureCompressionBC ? ", BC textures" : "");
 
-            // Each family named with its queue count
             const auto a_Describe = [&l_Families](std::vector<VkQueueFamilyProperties>::const_iterator family) -> std::string
             {
                 if (family == l_Families.cend())
@@ -373,32 +372,32 @@ namespace Trinity
                 return std::format("{} ({} {})", std::distance(l_Families.cbegin(), family), family->queueCount, family->queueCount == 1 ? "queue" : "queues");
             };
 
-            TR_CORE_INFO("Vulkan: queue families: graphics and compute {}, dedicated transfer {}, dedicated compute {}", a_Describe(l_Families.cbegin() + m_QueueFamily), a_Describe(a_Find(VK_QUEUE_TRANSFER_BIT, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)), a_Describe(a_Find(VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT)));
+            TR_CORE_INFO("Vulkan: queue families: graphics and compute {}, transfer {}, compute {}", a_Describe(l_Families.cbegin() + m_QueueFamily), a_Describe(a_Find(VK_QUEUE_TRANSFER_BIT, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)), a_Describe(a_Find(VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT)));
 
             if (!specification.EnableCopyQueue)
             {
-                TR_CORE_INFO("Vulkan: uploads are recorded into the frame's commands, as renderer.copy_queue is off");
+                TR_CORE_INFO("Vulkan: uploads join the frame's commands, renderer.copy_queue is off");
             }
             else if (m_TransferFamily != m_QueueFamily)
             {
-                TR_CORE_INFO("Vulkan: uploads go to the transfer queue of family {}, and every buffer is shared by it and the graphics family", m_TransferFamily);
+                TR_CORE_INFO("Vulkan: uploads go to the transfer queue of family {}", m_TransferFamily);
             }
             else
             {
-                TR_CORE_INFO("Vulkan: uploads go to the graphics queue in a submission of their own, as no family is for transfers alone");
+                TR_CORE_INFO("Vulkan: uploads go to the graphics queue, no dedicated transfer family");
             }
 
             if (!specification.EnableAsyncCompute)
             {
-                TR_CORE_INFO("Vulkan: compute queue passes are recorded into the frame's commands, as renderer.async_compute is off");
+                TR_CORE_INFO("Vulkan: compute passes join the frame's commands, renderer.async_compute is off");
             }
             else if (m_ComputeFamily != m_QueueFamily)
             {
-                TR_CORE_INFO("Vulkan: compute queue passes go to the compute queue of family {}, which shares every buffer too{}", m_ComputeFamily, m_ComputeTimestamps ? "" : " and has no timestamps, so their GPU times are not measured");
+                TR_CORE_INFO("Vulkan: compute passes go to the compute queue of family {}{}", m_ComputeFamily, m_ComputeTimestamps ? "" : ", which has no timestamps, so GPU times are not measured");
             }
             else
             {
-                TR_CORE_INFO("Vulkan: compute queue passes go to the graphics queue in submissions of their own, as no family is for compute alone");
+                TR_CORE_INFO("Vulkan: compute passes go to the graphics queue, no dedicated compute family");
             }
 
             return true;
@@ -418,7 +417,7 @@ namespace Trinity
             vkDeviceWaitIdle(m_Device);
         }
 
-        // Debug utils is on with validation, and outside Distribution whenever the loader has it, so RenderDoc and the layer's messages name the object
+        // Debug utils names objects for RenderDoc and the layer, outside Distribution when available
         void VulkanDevice::SetDebugName(VkObjectType type, std::uint64_t handle, std::string_view name) const
         {
             if (!m_Instance.HasDebugUtils() || name.empty())

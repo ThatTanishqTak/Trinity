@@ -13,7 +13,7 @@ namespace Trinity
     {
         class VulkanInstance;
 
-        // The physical device chosen against the features the engine is built on, the logical device made on it with its graphics and compute queue, and the debug names its objects are given
+        // The physical device is chosen against the features the engine is built on
         class VulkanDevice
         {
         public:
@@ -23,9 +23,8 @@ namespace Trinity
             VulkanDevice(const VulkanDevice&) = delete;
             VulkanDevice& operator=(const VulkanDevice&) = delete;
 
-            // False, with the reason in error, when no physical device can run the engine or the logical device cannot be created
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
-            // The logical device, once everything made on it is gone. Does nothing a second time
+            // Call once everything made on the device is gone. Does nothing a second time
             void Destroy();
             // Blocks until every queue has finished all its work
             void WaitIdle() const;
@@ -37,10 +36,10 @@ namespace Trinity
             [[nodiscard]] VkDevice GetHandle() const { return m_Device; }
             [[nodiscard]] VkQueue GetQueue() const { return m_Queue; }
             [[nodiscard]] std::uint32_t GetQueueFamily() const { return m_QueueFamily; }
-            // The dedicated transfer family's queue when renderer.copy_queue is on and the device has one, and otherwise the graphics queue, where uploads go in a submission of their own
+            // The graphics queue when renderer.copy_queue is off or the device has no transfer family
             [[nodiscard]] VkQueue GetTransferQueue() const { return m_TransferQueue; }
             [[nodiscard]] std::uint32_t GetTransferFamily() const { return m_TransferFamily; }
-            // The dedicated compute family's queue when renderer.async_compute is on and the device has one, and otherwise the graphics queue, where compute queue passes go in submissions of their own
+            // The graphics queue when renderer.async_compute is off or the device has no compute family
             [[nodiscard]] VkQueue GetComputeQueue() const { return m_ComputeQueue; }
             [[nodiscard]] std::uint32_t GetComputeFamily() const { return m_ComputeFamily; }
             [[nodiscard]] bool HasComputeTimestamps() const { return m_ComputeTimestamps; }

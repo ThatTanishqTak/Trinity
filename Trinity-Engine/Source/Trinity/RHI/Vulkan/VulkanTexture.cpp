@@ -86,7 +86,7 @@ namespace Trinity
                 const VkResult l_Result = vkCreateImageView(device.GetHandle(), &l_Create, nullptr, &l_View);
                 if (l_Result != VK_SUCCESS)
                 {
-                    TR_CORE_ERROR("Vulkan: a view of {} mip(s) and {} layer(s) of a {} image could not be created ({})", mipLevels, arrayLayers, ToString(format), FormatResult(l_Result));
+                    TR_CORE_ERROR("Vulkan: view of {} mip(s), {} layer(s) of a {} image could not be created ({})", mipLevels, arrayLayers, ToString(format), FormatResult(l_Result));
 
                     return VK_NULL_HANDLE;
                 }
@@ -191,7 +191,7 @@ namespace Trinity
                 l_Texture.ShaderResourceIndex = bindless.AddImageDescriptor(c_SampledImageBinding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, l_Texture.SampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
 
-            // Storage images are written one mip at a time, and a cube's faces as the layers of an array, since a storage view cannot be a cube
+            // A storage view cannot be a cube, so a cube's faces are array layers, written a mip at a time
             if (HasFlag(description.Usage, TextureUsage::UnorderedAccess))
             {
                 const VkImageViewType l_Type = description.Dimension == TextureDimension::Texture2D ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_2D_ARRAY;

@@ -16,7 +16,7 @@ namespace Trinity
         class D3D12Allocator;
         class D3D12Device;
 
-        // A buffer in D3D12MemoryAllocator's memory, mapped for good when it lives in an Upload or Readback heap, with a raw view for each way shaders reach it
+        // Mapped for good in an Upload or Readback heap, with a raw view for each way shaders reach it
         struct D3D12Buffer
         {
             // Empty, with the reason logged, when the buffer cannot be created or mapped

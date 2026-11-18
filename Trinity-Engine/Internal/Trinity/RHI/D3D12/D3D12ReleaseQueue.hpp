@@ -14,7 +14,7 @@ namespace Trinity
     {
         using D3D12DescriptorIndices = std::vector<std::uint32_t, TaggedAllocator<std::uint32_t, MemoryTag::Renderer>>;
 
-        // What a destroyed buffer, texture, sampler, pipeline or query pool leaves to let go of, and the views and bindless indices it frees
+        // What a destroyed object leaves to release, and the views and bindless indices it frees
         struct D3D12Release
         {
             Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
@@ -27,7 +27,7 @@ namespace Trinity
             std::uint32_t SamplerIndex = c_NoDescriptor;
         };
 
-        // Destroyed objects kept until no frame in flight can still use them, then let go of with their views and bindless indices freed
+        // Kept until no frame in flight can still use them
         class D3D12ReleaseQueue
         {
         public:

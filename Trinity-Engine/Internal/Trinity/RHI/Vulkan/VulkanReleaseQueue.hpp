@@ -18,7 +18,7 @@ namespace Trinity
 
         using VulkanImageViews = std::vector<VkImageView, TaggedAllocator<VkImageView, MemoryTag::Renderer>>;
 
-        // What a destroyed buffer, texture, sampler, pipeline or query pool leaves to destroy, and the bindless indices it frees
+        // What a destroyed object leaves to destroy, and the bindless indices it frees
         struct VulkanRelease
         {
             VkBuffer Buffer = VK_NULL_HANDLE;
@@ -34,7 +34,7 @@ namespace Trinity
             std::uint32_t SamplerIndex = c_NoBindlessIndex;
         };
 
-        // Destroyed objects kept until no frame in flight can still use them, then destroyed with their memory and their bindless indices freed
+        // Kept until no frame in flight can still use them
         class VulkanReleaseQueue
         {
         public:

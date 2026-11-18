@@ -29,7 +29,7 @@ namespace Trinity
             Destroy();
         }
 
-        // The runtime checks the adapter and driver that made the data too, refusing it with D3D12_ERROR_ADAPTER_NOT_FOUND or D3D12_ERROR_DRIVER_VERSION_MISMATCH
+        // The runtime also refuses data made by another adapter or driver version
         bool D3D12PipelineLibrary::Initialize(std::string_view path, std::string& error)
         {
             DXGI_ADAPTER_DESC1 l_Adapter{};
@@ -53,7 +53,7 @@ namespace Trinity
                 l_Result = m_Device.GetHandle()->CreatePipelineLibrary(l_Data.data(), l_Data.size(), IID_PPV_ARGS(&m_Library));
                 if (FAILED(l_Result))
                 {
-                    TR_CORE_INFO("D3D12: the runtime refused the pipeline cache '{}' ({}), so a new one is started", m_File.GetPath(), FormatResult(l_Result));
+                    TR_CORE_INFO("D3D12: the runtime refused pipeline cache '{}' ({}), starting a new one", m_File.GetPath(), FormatResult(l_Result));
                 }
             }
 
@@ -64,7 +64,7 @@ namespace Trinity
 
             if (l_Result == DXGI_ERROR_UNSUPPORTED)
             {
-                TR_CORE_INFO("D3D12: this runtime has no pipeline libraries, so pipeline states are made without one");
+                TR_CORE_INFO("D3D12: no pipeline libraries in this runtime, pipeline states are not cached");
 
                 return true;
             }
@@ -100,7 +100,7 @@ namespace Trinity
             m_Library.Reset();
         }
 
-        // A name the library has not got, or holds for another description, fails to load with E_INVALIDARG, and the pipeline state is made instead
+        // A name the library lacks, or holds for another description, fails to load with E_INVALIDARG
         template<typename Load, typename Make>
         HRESULT D3D12PipelineLibrary::Create(const std::wstring& name, ComPtr<ID3D12PipelineState>& state, Load load, Make make)
         {
@@ -124,7 +124,7 @@ namespace Trinity
 
             m_File.Record(std::chrono::steady_clock::now() - l_Start, false);
 
-            // Another thread may have stored the same pipeline state under the name since, which leaves the library as it would be
+            // Another thread may have stored the same pipeline state since, which changes nothing
             if (m_Library)
             {
                 const std::scoped_lock l_Lock(m_Mutex);

@@ -24,7 +24,7 @@ namespace Trinity
             std::uint32_t ShaderResourceIndex = c_NoBindlessIndex;
         };
 
-        // One mapped buffer with a slot per frame in flight, reused once the device has waited for the slot's last frame. What does not fit goes into temporary buffers that are destroyed when the frame ends
+        // A slot per frame in flight. What does not fit goes into temporary buffers freed at frame end
         class UploadRing
         {
         public:

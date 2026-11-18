@@ -18,7 +18,7 @@ namespace Trinity
         {
             using Microsoft::WRL::ComPtr;
 
-            // CPU-only heaps, so a large capacity costs little. A layered or mipped render target takes a view per mip of each layer
+            // CPU-only heaps, so a large capacity costs little
             constexpr std::uint32_t c_RenderTargetViewCapacity = 2048;
             constexpr std::uint32_t c_DepthStencilViewCapacity = 512;
         }
@@ -60,7 +60,7 @@ namespace Trinity
 
             if (m_Buffers.GetCount() != 0 || m_Textures.GetCount() != 0 || m_Pipelines.GetCount() != 0 || m_Samplers.GetCount() != 0 || m_QueryPools.GetCount() != 0)
             {
-                TR_CORE_WARN("D3D12: the device was destroyed with {} buffer(s), {} texture(s), {} pipeline(s), {} sampler(s) and {} query pool(s) still alive", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
+                TR_CORE_WARN("D3D12: leaked {} buffers, {} textures, {} pipelines, {} samplers, {} pools", m_Buffers.GetCount(), m_Textures.GetCount(), m_Pipelines.GetCount(), m_Samplers.GetCount(), m_QueryPools.GetCount());
             }
 
             m_Releases.ReleaseAll();
@@ -157,7 +157,7 @@ namespace Trinity
             m_UploadsEnabled = specification.EnableCopyQueue;
             if (!m_UploadsEnabled)
             {
-                TR_CORE_INFO("D3D12: uploads are recorded into the frame's commands, as renderer.copy_queue is off");
+                TR_CORE_INFO("D3D12: uploads join the frame's commands, renderer.copy_queue is off");
 
                 return true;
             }
@@ -190,7 +190,7 @@ namespace Trinity
             m_ComputeEnabled = specification.EnableAsyncCompute;
             if (!m_ComputeEnabled)
             {
-                TR_CORE_INFO("D3D12: compute queue passes are recorded into the frame's commands, as renderer.async_compute is off");
+                TR_CORE_INFO("D3D12: compute passes join the frame's commands, renderer.async_compute is off");
 
                 return true;
             }
@@ -213,12 +213,12 @@ namespace Trinity
                 return false;
             }
 
-            TR_CORE_INFO("D3D12: compute queue passes go to a compute queue of their own");
+            TR_CORE_INFO("D3D12: compute passes go to a compute queue of their own");
 
             return true;
         }
 
-        // Shaders index the two heaps directly, so every pipeline shares one root signature that holds only the push constants
+        // Shaders index the two heaps directly, so the one root signature holds only push constants
         bool D3D12Context::CreateBindless(std::string& error)
         {
             if (!m_ResourceHeap.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, c_BindlessResourceCapacity, true, L"Trinity bindless resources") || !m_SamplerHeap.Initialize(m_Device.GetHandle(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, c_BindlessSamplerCapacity, true, L"Trinity bindless samplers"))
@@ -436,7 +436,7 @@ namespace Trinity
             }
         }
 
-        // Each queue counts its own ticks. Compute queue passes are timed on the direct queue while renderer.async_compute is off
+        // Each queue counts its own ticks. Compute passes use the direct queue's with async_compute off
         std::uint64_t D3D12Context::GetTimestampFrequency(QueueType queue) const
         {
             return D3D12QueryPool::GetTimestampFrequency(queue == QueueType::Compute && m_ComputeEnabled ? m_ComputeQueue.GetHandle() : m_Queue.GetHandle());
@@ -474,7 +474,7 @@ namespace Trinity
             return D3D12SwapChain::Create(*this, specification);
         }
 
-        // Waits until the frame c_FramesInFlight before this one, which used the same command allocator, has finished on the GPU
+        // Waits for the frame c_FramesInFlight before this one, which used the same command allocator
         CommandList& D3D12Context::BeginFrame()
         {
             TR_CORE_ASSERT(!m_InFrame, "BeginFrame was called twice without EndFrame.");
@@ -497,7 +497,7 @@ namespace Trinity
             return m_CommandList;
         }
 
-        // Begun at the first call in a frame, on the allocator of the frame c_FramesInFlight before, whose commands waited for its uploads
+        // Begun at the first call in a frame, on the allocator of the frame c_FramesInFlight before
         CommandList& D3D12Context::GetUploadCommands()
         {
             TR_CORE_ASSERT(m_InFrame && !m_UploadsSubmitted, "GetUploadCommands is called between BeginFrame and SubmitUploads.");
@@ -516,7 +516,7 @@ namespace Trinity
             return m_UploadList;
         }
 
-        // Uploads that write what the frame before may still read wait for everything the direct queue was given before them
+        // Uploads that write what the frame before may read wait for all the direct queue has so far
         void D3D12Context::SubmitUploads()
         {
             TR_CORE_ASSERT(m_InFrame, "SubmitUploads is called within a frame.");
@@ -542,7 +542,7 @@ namespace Trinity
             m_UploadList.RecordHandoffs(m_CommandList);
         }
 
-        // Recorded from when a frame first asks for it, and again after each SubmitCompute, on the allocator of the frame c_FramesInFlight before, which has finished
+        // Recorded from the first ask in a frame, and again after each SubmitCompute
         CommandList& D3D12Context::GetComputeCommands()
         {
             TR_CORE_ASSERT(m_InFrame, "GetComputeCommands is called within a frame.");
@@ -561,7 +561,7 @@ namespace Trinity
             return m_ComputeList;
         }
 
-        // The direct and compute queues share the layouts both have, which are the only ones a compute queue pass uses, so a texture's move is an ordinary barrier where it leaves and the fences between the queues do the rest
+        // Both queues share the layouts a compute pass uses, so a move is an ordinary barrier
         void D3D12Context::TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, QueueType from)
         {
             TR_CORE_ASSERT(m_InFrame && (!m_ComputeEnabled || m_ComputeRecording), "TransferTexture is called within a frame, while the compute list records.");
@@ -572,7 +572,7 @@ namespace Trinity
             }
         }
 
-        // The frame's commands so far go first in a submission of their own, so they never wait for the compute work, and the list records on into the same allocator. The compute work waits for the frame before, which may still use what it writes, and with afterGraphics for the frame's commands so far too, and everything the direct queue is given from now on waits for it
+        // The frame's commands so far go first, in their own submission, so they never wait for compute
         void D3D12Context::SubmitCompute(bool afterGraphics)
         {
             TR_CORE_ASSERT(m_InFrame, "SubmitCompute is called within a frame.");

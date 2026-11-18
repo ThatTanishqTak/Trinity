@@ -38,7 +38,7 @@ namespace Trinity
             }
         }
 
-        // Shaders read samplers from their own array at c_SamplerBinding, indexed separately from resources
+        // Shaders read samplers from their own array at c_SamplerBinding, apart from resources
         std::optional<VulkanSampler> VulkanSampler::Create(const VulkanDevice& device, VulkanBindless& bindless, const SamplerDescription& description)
         {
             VkSamplerCreateInfo l_Create = MakeInfo<VkSamplerCreateInfo>(VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO);
@@ -65,7 +65,7 @@ namespace Trinity
             l_Sampler.Index = bindless.AddSamplerDescriptor(l_Sampler.Sampler);
             if (l_Sampler.Index == c_NoBindlessIndex)
             {
-                TR_CORE_ERROR("Vulkan: sampler '{}' could not be created, since all {} bindless sampler indices are in use", description.DebugName, c_BindlessSamplerCapacity);
+                TR_CORE_ERROR("Vulkan: sampler '{}' not created, all {} bindless sampler indices are in use", description.DebugName, c_BindlessSamplerCapacity);
                 vkDestroySampler(device.GetHandle(), l_Sampler.Sampler, nullptr);
 
                 return {};

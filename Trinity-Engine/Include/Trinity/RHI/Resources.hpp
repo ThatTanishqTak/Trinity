@@ -10,7 +10,7 @@ namespace Trinity
 {
     namespace RHI
     {
-        // Upload and Readback buffers stay mapped for their whole life, upload buffers can always be copied from, and Readback buffers copied into
+        // Upload and Readback buffers stay mapped for their whole life
         struct BufferDescription
         {
             std::uint64_t Size = 0;
@@ -19,7 +19,7 @@ namespace Trinity
             std::string_view DebugName;
         };
 
-        // A Texture2D has one layer, a TextureCube six and a square size, and a Texture2DArray up to c_MaxArrayLayers. A multisampled texture is a Texture2D with one mip, used as a render target or depth texture and read by shaders, never copied or written as storage
+        // A TextureCube has six layers and a square size. A multisampled texture is a Texture2D, one mip
         struct TextureDescription
         {
             std::uint32_t Width = 1;
@@ -55,7 +55,7 @@ namespace Trinity
         // MaxLod at or above c_LodUnclamped leaves the mip range open
         constexpr float c_LodUnclamped = 1000.0f;
 
-        // GPU timestamps, written by CommandList::WriteTimestamp and copied out as 64-bit ticks by ResolveTimestamps
+        // Written by CommandList::WriteTimestamp, copied out as 64-bit ticks by ResolveTimestamps
         struct QueryPoolDescription
         {
             std::uint32_t Count = 0;

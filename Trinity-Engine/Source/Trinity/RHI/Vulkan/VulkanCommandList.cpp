@@ -31,7 +31,7 @@ namespace Trinity
             constexpr VkPipelineStageFlags2 c_ComputeStages = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
             constexpr VkAccessFlags2 c_ComputeAccess = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
 
-            // Undefined waits on all earlier writes, since the layout change that discards the contents is itself a write, and covering all commands also chains it onto a swap chain's acquire semaphore
+            // Undefined waits on all earlier writes: the layout change that discards the contents is a write
             VulkanState ToVulkanState(ResourceState state)
             {
                 switch (state)
@@ -135,7 +135,7 @@ namespace Trinity
                 return state == ResourceState::CopySource || state == ResourceState::CopyDestination;
             }
 
-            // A compute queue has no vertex, fragment, attachment or index stages, so a compute list keeps what its queue has of each side of a barrier. A side left with none, which only the graphics queue reached, waits for nothing here, as the semaphore between the queues orders it
+            // A compute list keeps only the stages its queue has. The semaphore between queues orders the rest
             template<typename Barrier>
             void KeepComputeStages(Barrier& barrier)
             {
@@ -155,7 +155,7 @@ namespace Trinity
 
         }
 
-        // A transfer family's commands bind no descriptors and a compute family's no graphics ones, so uploads begin with nothing bound and compute work with the compute set alone
+        // A transfer family binds no descriptors, and a compute family no graphics ones
         void VulkanCommandList::Begin(VkCommandBuffer commandBuffer)
         {
             VkCommandBufferBeginInfo l_Begin = MakeInfo<VkCommandBufferBeginInfo>(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
@@ -211,7 +211,7 @@ namespace Trinity
             m_BufferHandoffs.clear();
         }
 
-        // Vulkan's queue family ownership transfer: the release in the list the texture leaves, with nothing after it there, and the matching acquire in the list it joins, after everything before it, which the semaphore between the two submissions orders
+        // Queue family ownership transfer: a release in the list it leaves, an acquire in the one it joins
         void VulkanCommandList::TransferTexture(TextureHandle texture, ResourceState before, ResourceState after, std::uint32_t sourceFamily, std::uint32_t destinationFamily, bool release)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Transfers are recorded within a frame and outside rendering.");
@@ -248,7 +248,7 @@ namespace Trinity
             vkCmdPipelineBarrier2(m_CommandBuffer, &l_Dependency);
         }
 
-        // An upload list makes the moves into copy states itself, and leaves the move after its copies to the frame's list, whose stages a transfer queue lacks. An image is handed over from a transfer family of its own, released here and acquired there, while buffers are shared by both families. Out of a state the frame before may be reading, the uploads wait for it instead, which is all the order a buffer needs. False when the barrier is recorded here as it is
+        // False when the barrier is recorded as it is. The move after a copy is left to the frame's list
         template<typename Barrier>
         bool VulkanCommandList::HandOff(Barrier& barrier, ResourceState before, ResourceState after, std::vector<Barrier>& handoffs)
         {
@@ -309,7 +309,7 @@ namespace Trinity
                 return;
             }
 
-            TR_CORE_ASSERT(IsRangeInsideTexture(range, l_Texture->MipLevels, l_Texture->ArrayLayers), "TextureBarrier on mips or layers that a texture with {} mip(s) and {} layer(s) lacks.", l_Texture->MipLevels, l_Texture->ArrayLayers);
+            TR_CORE_ASSERT(IsRangeInsideTexture(range, l_Texture->MipLevels, l_Texture->ArrayLayers), "TextureBarrier past a texture's {} mip(s) and {} layer(s).", l_Texture->MipLevels, l_Texture->ArrayLayers);
 
             const VulkanState l_Before = ToVulkanState(before);
             const VulkanState l_After = ToVulkanState(after);
@@ -325,7 +325,7 @@ namespace Trinity
             l_Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             l_Barrier.image = l_Texture->Image;
             l_Barrier.subresourceRange = { GetAspect(l_Texture->TextureFormat), range.BaseMipLevel, range.MipLevelCount == c_RemainingSubresources ? VK_REMAINING_MIP_LEVELS : range.MipLevelCount, range.BaseArrayLayer, range.ArrayLayerCount == c_RemainingSubresources ? VK_REMAINING_ARRAY_LAYERS : range.ArrayLayerCount };
-            TR_CORE_ASSERT(m_Role != CommandListRole::Uploads || !IsCopyState(after) || before == ResourceState::Undefined || IsCopyState(before), "An uploaded texture is new, so it moves into a copy state from Undefined.");
+            TR_CORE_ASSERT(m_Role != CommandListRole::Uploads || !IsCopyState(after) || before == ResourceState::Undefined || IsCopyState(before), "An uploaded texture moves into a copy state from Undefined.");
             if (HandOff(l_Barrier, before, after, m_ImageHandoffs))
             {
                 return;
@@ -395,7 +395,7 @@ namespace Trinity
             {
                 const VulkanTexture* l_Texture = m_Device.GetTexture(it_Attachment.Texture);
                 const VkImageView l_View = l_Texture != nullptr ? GetAttachmentView(*l_Texture, it_Attachment.MipLevel, it_Attachment.ArrayLayer) : VK_NULL_HANDLE;
-                TR_CORE_ASSERT(l_View != VK_NULL_HANDLE, "BeginRendering with a destroyed texture, one without RenderTarget usage, or a mip or layer it lacks.");
+                TR_CORE_ASSERT(l_View != VK_NULL_HANDLE, "BeginRendering: invalid color texture, usage, mip or layer.");
                 if (l_View == VK_NULL_HANDLE || l_ColorCount == c_MaxColorAttachments)
                 {
                     continue;
@@ -414,7 +414,7 @@ namespace Trinity
                 {
                     const VulkanTexture* l_Resolve = m_Device.GetTexture(it_Attachment.ResolveTexture);
                     const VkImageView l_ResolveView = l_Resolve != nullptr ? GetAttachmentView(*l_Resolve, 0, 0) : VK_NULL_HANDLE;
-                    TR_CORE_ASSERT(l_ResolveView != VK_NULL_HANDLE && l_Texture->SampleCount > 1 && l_Resolve->SampleCount == 1 && l_Resolve->TextureFormat == l_Texture->TextureFormat && l_Resolve->TextureFormat != Format::R32Uint, "BeginRendering resolving into a destroyed texture, one without RenderTarget usage, or one whose format or sample count does not fit.");
+                    TR_CORE_ASSERT(l_ResolveView != VK_NULL_HANDLE && l_Texture->SampleCount > 1 && l_Resolve->SampleCount == 1 && l_Resolve->TextureFormat == l_Texture->TextureFormat && l_Resolve->TextureFormat != Format::R32Uint, "BeginRendering: invalid resolve texture, usage, format or sample count.");
                     if (l_ResolveView != VK_NULL_HANDLE)
                     {
                         l_Info.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
@@ -434,7 +434,7 @@ namespace Trinity
             VkRenderingAttachmentInfo l_Depth = MakeInfo<VkRenderingAttachmentInfo>(VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO);
             const VulkanTexture* l_DepthTexture = description.Depth.Texture ? m_Device.GetTexture(description.Depth.Texture) : nullptr;
             const VkImageView l_DepthView = l_DepthTexture != nullptr ? GetAttachmentView(*l_DepthTexture, description.Depth.MipLevel, description.Depth.ArrayLayer) : VK_NULL_HANDLE;
-            TR_CORE_ASSERT(!description.Depth.Texture || l_DepthView != VK_NULL_HANDLE, "BeginRendering with a destroyed depth texture, one without DepthStencil usage, or a mip or layer it lacks.");
+            TR_CORE_ASSERT(!description.Depth.Texture || l_DepthView != VK_NULL_HANDLE, "BeginRendering: invalid depth texture, usage, mip or layer.");
             if (l_DepthView != VK_NULL_HANDLE)
             {
                 if (l_Area.Width == 0 || l_Area.Height == 0)
@@ -472,7 +472,7 @@ namespace Trinity
             m_HasIndexBuffer = false;
         }
 
-        // Vulkan keeps a compute pipeline bound through rendering, but D3D12 does not, so both backends ask for it to be set again after rendering
+        // Vulkan keeps a compute pipeline bound through rendering and D3D12 does not, so both set it again
         void VulkanCommandList::SetPipeline(PipelineHandle pipeline)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE, "SetPipeline is recorded within a frame.");
@@ -499,7 +499,7 @@ namespace Trinity
             }
         }
 
-        // A negative height turns Vulkan's downward Y around, so clip space has Y up and the same winding as on D3D12
+        // A negative height flips Vulkan's downward Y, giving Y up and D3D12's winding
         void VulkanCommandList::SetViewport(const Viewport& viewport)
         {
             TR_CORE_ASSERT(m_Rendering, "SetViewport is recorded inside rendering.");
@@ -523,10 +523,10 @@ namespace Trinity
             vkCmdSetStencilReference(m_CommandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, reference);
         }
 
-        // Push constants belong to the shared pipeline layout rather than a bind point, so graphics and compute set them the same way
+        // Push constants belong to the shared pipeline layout, not a bind point
         void VulkanCommandList::PushConstants(std::span<const std::byte> data)
         {
-            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a graphics pipeline inside rendering, or a compute pipeline outside it.");
+            TR_CORE_ASSERT(m_Rendering ? m_HasPipeline : m_HasComputePipeline, "PushConstants needs a pipeline: graphics inside rendering, compute outside.");
             TR_CORE_ASSERT(data.size() <= c_MaxPushConstantSize && data.size() % 4 == 0, "Push constants are whole 32-bit values, at most c_MaxPushConstantSize bytes.");
 
             vkCmdPushConstants(m_CommandBuffer, m_Device.GetPipelineLayout(), VK_SHADER_STAGE_ALL, 0, static_cast<std::uint32_t>(data.size()), data.data());
@@ -545,7 +545,7 @@ namespace Trinity
 
             const VulkanBuffer* l_Buffer = m_Device.GetBuffer(buffer);
             TR_CORE_ASSERT(l_Buffer != nullptr, "SetIndexBuffer with a destroyed or invalid buffer.");
-            TR_CORE_ASSERT(l_Buffer == nullptr || (offset < l_Buffer->Size && offset % GetIndexSize(format) == 0), "SetIndexBuffer at offset {}, which is past the end of the buffer or not a multiple of the index size.", offset);
+            TR_CORE_ASSERT(l_Buffer == nullptr || (offset < l_Buffer->Size && offset % GetIndexSize(format) == 0), "SetIndexBuffer offset {} is past the buffer or not a multiple of the index size.", offset);
             if (l_Buffer == nullptr || offset >= l_Buffer->Size)
             {
                 return;
@@ -583,7 +583,7 @@ namespace Trinity
             vkCmdWriteTimestamp2(m_CommandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, l_Pool->Pool, index);
         }
 
-        // Resetting the range after the copy readies it for the next frame. A reset is ordered after earlier query commands on the same queries, the copy included, without a barrier
+        // Resetting after the copy readies the range for the next frame, and needs no barrier
         void VulkanCommandList::ResolveTimestamps(QueryPoolHandle pool, std::uint32_t first, std::uint32_t count, BufferHandle destination, std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "ResolveTimestamps is recorded within a frame and outside rendering.");
@@ -597,7 +597,7 @@ namespace Trinity
             }
 
             TR_CORE_ASSERT(count != 0 && std::uint64_t{ first } + count <= l_Pool->Count, "ResolveTimestamps with a range past the end of a pool of {}.", l_Pool->Count);
-            TR_CORE_ASSERT(destinationOffset % 8 == 0 && destinationOffset + std::uint64_t{ count } * 8 <= l_Buffer->Size, "ResolveTimestamps at an offset that is not a multiple of 8, or past the end of the buffer.");
+            TR_CORE_ASSERT(destinationOffset % 8 == 0 && destinationOffset + std::uint64_t{ count } * 8 <= l_Buffer->Size, "ResolveTimestamps offset is not a multiple of 8, or is past the buffer's end.");
 
             vkCmdCopyQueryPoolResults(m_CommandBuffer, l_Pool->Pool, first, count, l_Buffer->Buffer, destinationOffset, 8, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
             vkCmdResetQueryPool(m_CommandBuffer, l_Pool->Pool, first, count);
@@ -622,7 +622,7 @@ namespace Trinity
             vkCmdCopyBuffer(m_CommandBuffer, l_Source->Buffer, l_Destination->Buffer, 1, &l_Region);
         }
 
-        // The whole mip, laid out in the buffer as CopyBufferToTexture reads it: rows of texels or blocks GetTextureCopyRowPitch apart
+        // The whole mip, laid out as CopyBufferToTexture reads it, rows GetTextureCopyRowPitch apart
         void VulkanCommandList::CopyTextureToBuffer(TextureHandle source, std::uint32_t mipLevel, std::uint32_t arrayLayer, BufferHandle destination, std::uint64_t destinationOffset)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE && !m_Rendering, "Copies are recorded within a frame and outside rendering.");
@@ -642,7 +642,7 @@ namespace Trinity
             const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, l_Width);
             [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, l_Width, l_Height);
             TR_CORE_ASSERT(l_BlockBytes != 0 && l_RowPitch % l_BlockBytes == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
-            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && arrayLayer < l_Texture->ArrayLayers, "CopyTextureToBuffer from mip {} of layer {} of a texture with {} mip(s) and {} layer(s).", mipLevel, arrayLayer, l_Texture->MipLevels, l_Texture->ArrayLayers);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && arrayLayer < l_Texture->ArrayLayers, "CopyTextureToBuffer from mip {} of layer {}, past {} mip(s) and {} layer(s).", mipLevel, arrayLayer, l_Texture->MipLevels, l_Texture->ArrayLayers);
             TR_CORE_ASSERT(destinationOffset % c_TextureCopyOffsetAlignment == 0, "CopyTextureToBuffer writes to offset {}, which is not a multiple of {}.", destinationOffset, c_TextureCopyOffsetAlignment);
             TR_CORE_ASSERT(destinationOffset + l_Size <= l_Buffer->Size, "CopyTextureToBuffer needs {} bytes from offset {}, and the buffer has {}.", l_Size, destinationOffset, l_Buffer->Size);
             if (l_BlockBytes == 0)
@@ -676,9 +676,9 @@ namespace Trinity
             const std::uint64_t l_RowPitch = GetTextureCopyRowPitch(l_Texture->TextureFormat, region.Width);
             [[maybe_unused]] const std::uint64_t l_Size = GetTextureCopySize(l_Texture->TextureFormat, region.Width, region.Height);
             TR_CORE_ASSERT(l_BlockBytes != 0 && l_RowPitch % l_BlockBytes == 0, "{} rows cannot be copied {} bytes apart.", ToString(l_Texture->TextureFormat), l_RowPitch);
-            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region outside mip {} of a {}x{} texture with {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
+            TR_CORE_ASSERT(mipLevel < l_Texture->MipLevels && IsRegionInsideMip(region, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture region is outside mip {} of a {}x{} texture, {} mip(s).", mipLevel, l_Texture->Width, l_Texture->Height, l_Texture->MipLevels);
             TR_CORE_ASSERT(arrayLayer < l_Texture->ArrayLayers, "CopyBufferToTexture into layer {} of a texture with {} layer(s).", arrayLayer, l_Texture->ArrayLayers);
-            TR_CORE_ASSERT(IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture with a region of {} that does not start on a block or cover whole blocks.", ToString(l_Texture->TextureFormat));
+            TR_CORE_ASSERT(IsRegionBlockAligned(region, l_Texture->TextureFormat, l_Texture->Width, l_Texture->Height, mipLevel), "CopyBufferToTexture region of {} is not aligned to whole blocks.", ToString(l_Texture->TextureFormat));
             TR_CORE_ASSERT(sourceOffset % c_TextureCopyOffsetAlignment == 0, "CopyBufferToTexture reads from offset {}, which is not a multiple of {}.", sourceOffset, c_TextureCopyOffsetAlignment);
             TR_CORE_ASSERT(sourceOffset + l_Size <= l_Buffer->Size, "CopyBufferToTexture needs {} bytes from offset {}, and the buffer has {}.", l_Size, sourceOffset, l_Buffer->Size);
             if (l_BlockBytes == 0)
@@ -695,7 +695,7 @@ namespace Trinity
             vkCmdCopyBufferToImage(m_CommandBuffer, l_Buffer->Buffer, l_Texture->Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &l_Region);
         }
 
-        // Without debug utils a label records nothing. The name is copied with its terminator into a buffer on the stack, cut at 255 bytes, so a label allocates nothing
+        // The name is copied into a stack buffer, cut at 255 bytes, so a label allocates nothing
         void VulkanCommandList::BeginLabel(std::string_view name)
         {
             TR_CORE_ASSERT(m_CommandBuffer != VK_NULL_HANDLE, "BeginLabel is recorded within a frame.");

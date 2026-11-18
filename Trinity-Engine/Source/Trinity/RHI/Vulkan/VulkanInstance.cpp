@@ -88,7 +88,7 @@ namespace Trinity
                 const std::vector<VkExtensionProperties> l_LayerExtensions = HasValidationLayer() ? GetInstanceExtensions(c_ValidationLayer) : std::vector<VkExtensionProperties>{};
                 if (!HasValidationLayer() || !(HasExtension(l_Available, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) || HasExtension(l_LayerExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)))
                 {
-                    TR_CORE_WARN("Vulkan: the Khronos validation layer is missing, so validation is off. It comes with the Vulkan SDK");
+                    TR_CORE_WARN("Vulkan: no Khronos validation layer, validation is off. Install the Vulkan SDK");
                     m_Validation = false;
                 }
                 else
@@ -106,7 +106,7 @@ namespace Trinity
                         }
                         else
                         {
-                            TR_CORE_WARN("Vulkan: the validation layer has no VK_EXT_validation_features, so GPU-assisted validation is off");
+                            TR_CORE_WARN("Vulkan: no VK_EXT_validation_features, GPU-assisted validation is off");
                         }
                     }
 
@@ -127,7 +127,7 @@ namespace Trinity
             l_Application.pEngineName = "Trinity";
             l_Application.apiVersion = loaderVersion >= VK_API_VERSION_1_4 ? VK_API_VERSION_1_4 : VK_API_VERSION_1_3;
 
-            // Chained into instance creation as well, so messages from vkCreateInstance and vkDestroyInstance reach the log too
+            // Chained into instance creation too, so vkCreateInstance's messages reach the log
             VkDebugUtilsMessengerCreateInfoEXT l_Messenger = MakeInfo<VkDebugUtilsMessengerCreateInfoEXT>(VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT);
             l_Messenger.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
             l_Messenger.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
@@ -166,7 +166,7 @@ namespace Trinity
                 l_Messenger.pNext = nullptr;
                 if (vkCreateDebugUtilsMessengerEXT(m_Instance, &l_Messenger, nullptr, &m_Messenger) != VK_SUCCESS)
                 {
-                    TR_CORE_WARN("Vulkan: the debug messenger could not be created, so validation messages are lost");
+                    TR_CORE_WARN("Vulkan: the debug messenger could not be created, validation messages are lost");
                 }
             }
 

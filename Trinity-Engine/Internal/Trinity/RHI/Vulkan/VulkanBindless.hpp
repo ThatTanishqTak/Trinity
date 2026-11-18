@@ -18,7 +18,7 @@ namespace Trinity
         constexpr std::uint32_t c_StorageImageBinding = 3;
         constexpr std::uint32_t c_StorageBufferBinding = 7;
 
-        // The update-after-bind set that holds every descriptor, with its layout and pool, the pipeline layout every pipeline shares, and the resource and sampler indices handed out in it
+        // One update-after-bind set holds every descriptor, on the layout every pipeline shares
         class VulkanBindless
         {
         public:
@@ -28,15 +28,15 @@ namespace Trinity
             VulkanBindless(const VulkanBindless&) = delete;
             VulkanBindless& operator=(const VulkanBindless&) = delete;
 
-            // False, with the reason in error, when the device allows too few bindless descriptors or the set cannot be created
+            // False when the device allows too few bindless descriptors, or the set cannot be created
             [[nodiscard]] bool Initialize(std::string& error);
-            // The pipeline layout, the pool with its set, then the set layout, once no pipeline uses them. Does nothing a second time
+            // Destroys the pipeline layout, the pool with its set, then the set layout. Once only
             void Destroy();
 
-            // A resource index with the descriptor written at it, or c_NoBindlessIndex once every index is in use
+            // c_NoBindlessIndex once every index is in use
             [[nodiscard]] std::uint32_t AddBufferDescriptor(VkBuffer buffer);
             [[nodiscard]] std::uint32_t AddImageDescriptor(std::uint32_t binding, VkDescriptorType type, VkImageView view, VkImageLayout layout);
-            // A sampler index with the sampler written at it, or c_NoBindlessIndex once every index is in use
+            // c_NoBindlessIndex once every index is in use
             [[nodiscard]] std::uint32_t AddSamplerDescriptor(VkSampler sampler);
             void FreeResourceIndex(std::uint32_t index);
             void FreeSamplerIndex(std::uint32_t index);

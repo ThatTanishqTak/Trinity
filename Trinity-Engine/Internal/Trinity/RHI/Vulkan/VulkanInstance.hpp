@@ -11,7 +11,7 @@ namespace Trinity
 {
     namespace RHI
     {
-        // The Vulkan loader and instance, with the layers and extensions asked for, and with validation the layer's messenger, whose warnings and errors reach the log and are counted
+        // With validation, the layer's warnings and errors reach the log and are counted
         class VulkanInstance
         {
         public:
@@ -21,14 +21,14 @@ namespace Trinity
             VulkanInstance(const VulkanInstance&) = delete;
             VulkanInstance& operator=(const VulkanInstance&) = delete;
 
-            // False, with the reason in error, when there is no Vulkan 1.3 loader or the instance cannot be created
+            // False when there is no Vulkan 1.3 loader, or the instance cannot be created
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
-            // The messenger, then the instance, once the device is gone. Does nothing a second time
+            // Destroys the messenger, then the instance, after the device. Does nothing a second time
             void Destroy();
 
             [[nodiscard]] VkInstance GetHandle() const { return m_Instance; }
             [[nodiscard]] bool IsValidationEnabled() const { return m_Validation; }
-            // On with validation, and outside Distribution whenever the loader has it, for labels and object names in RenderDoc and the layer's messages
+            // On with validation, and outside Distribution whenever the loader has it, for RenderDoc's names
             [[nodiscard]] bool HasDebugUtils() const { return m_DebugUtils; }
             [[nodiscard]] std::uint32_t GetMessageCount() const { return m_MessageCount.load(); }
 

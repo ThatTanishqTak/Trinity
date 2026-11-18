@@ -74,7 +74,7 @@ namespace Trinity
             }
         }
 
-        // Buffers always start in the undefined layout under enhanced barriers. Upload and Readback heaps are coherent and stay mapped
+        // Buffers start undefined under enhanced barriers. Upload and Readback heaps stay mapped
         std::optional<D3D12Buffer> D3D12Buffer::Create(const D3D12Device& device, const D3D12Allocator& allocator, D3D12DescriptorHeap& resourceHeap, const BufferDescription& description)
         {
             TR_CORE_ASSERT(description.Size != 0, "Buffer '{}' has no size.", description.DebugName);

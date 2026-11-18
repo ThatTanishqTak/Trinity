@@ -13,16 +13,15 @@ namespace Trinity
     {
         class D3D12Factory;
 
-        // The first adapter in the factory's order whose device has feature level 12_0, Shader Model 6.6, resource binding tier 3 and enhanced barriers, that device, and with validation the info queue's callback, whose warnings and errors reach the log and are counted, and the report of what outlived it
+        // Needs feature level 12_0, Shader Model 6.6, resource binding tier 3 and enhanced barriers
         class D3D12Device
         {
         public:
             explicit D3D12Device(D3D12Factory& factory);
             ~D3D12Device();
 
-            // False, with the reason in error, when no adapter can run the engine
             [[nodiscard]] bool Initialize(std::string& error);
-            // The message callback, the info queue, then the device. Does nothing a second time
+            // Releases the message callback, the info queue, then the device. Does nothing a second time
             void Reset();
             void ReportLiveObjects() const;
 

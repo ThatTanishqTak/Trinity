@@ -42,7 +42,7 @@ namespace Trinity
                 return l_Flags;
             }
 
-            // A view per mip of each layer, as a single 2D texture for a Texture2D and as one slice of an array otherwise
+            // A single 2D view for a Texture2D, and one slice of an array otherwise
             void CreateViews(const D3D12Device& device, D3D12DescriptorHeap& renderTargetViews, D3D12DescriptorHeap& depthStencilViews, D3D12Texture& texture)
             {
                 const bool l_Depth = IsDepthFormat(texture.TextureFormat);
@@ -100,7 +100,7 @@ namespace Trinity
                 }
             }
 
-            // The shader resource view covers every mip and layer, and the unordered access view mip 0 of every layer, a cube's faces as an array since there are no cube unordered access views
+            // There are no cube unordered access views, so a cube's faces are an array
             void CreateShaderViews(const D3D12Device& device, D3D12DescriptorHeap& resourceHeap, D3D12Texture& texture, TextureUsage usage)
             {
                 if (HasFlag(usage, TextureUsage::ShaderResource))
@@ -161,7 +161,7 @@ namespace Trinity
             }
         }
 
-        // Every usage asked for must be in the format's support. Shaders read a depth texture through an R32_FLOAT view, so that is the format to check for reading
+        // Shaders read depth through an R32_FLOAT view, so that format is checked for reading
         bool D3D12Texture::IsFormatSupported(const D3D12Device& device, Format format, TextureUsage usage, std::uint32_t sampleCount)
         {
             const DXGI_FORMAT l_Format = ToDXGIFormat(format);

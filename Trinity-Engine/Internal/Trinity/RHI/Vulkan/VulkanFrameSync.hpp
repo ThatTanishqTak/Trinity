@@ -11,27 +11,26 @@ namespace Trinity
     {
         class VulkanDevice;
 
-        // The timeline semaphore each of a frame's submissions signals as its commands finish, the ones each frame's uploads and compute work signal, and the semaphores the swap chains have the frame's submissions wait on and signal
+        // One timeline semaphore for the frame's submissions, and one each for uploads and compute
         class VulkanFrameSync
         {
         public:
             explicit VulkanFrameSync(const VulkanDevice& device);
 
-            // VK_SUCCESS, or the result creating the timeline semaphores
             [[nodiscard]] VkResult Initialize();
             void Destroy();
 
-            // Blocks until the timeline reaches the value, which needs no wait when it is 0, since no frame signals that
+            // A value of 0 needs no wait, since no frame signals it
             void WaitForTimeline(std::uint64_t value) const;
             // The frame waits on and signals nothing until the swap chains add their semaphores
             void BeginFrame();
             void WaitForSemaphore(VkSemaphore semaphore);
             void SignalSemaphore(VkSemaphore semaphore);
-            // The frame's commands so far on the graphics queue, with the waits added since the last submission, the timeline reaching its next value once they have finished. The submission that ends the frame signals the swap chains' semaphores too
+            // Submits the frame's commands so far. The one ending the frame signals the swap chains too
             [[nodiscard]] VkResult Submit(VkCommandBuffer commandBuffer, bool endsFrame);
-            // The frame's uploads on the transfer queue, after the graphics timeline reaches the value when it is not 0, and the frame's commands waiting for them
+            // Waits for the graphics timeline to reach the value when it is not 0. The frame waits for them
             [[nodiscard]] VkResult SubmitUploads(VkCommandBuffer commandBuffer, std::uint64_t graphicsValue);
-            // The frame's compute work on the compute queue, after the graphics timeline reaches the value when it is not 0, and the frame's later commands waiting for it
+            // As SubmitUploads, with the frame's later commands waiting for the compute work
             [[nodiscard]] VkResult SubmitCompute(VkCommandBuffer commandBuffer, std::uint64_t graphicsValue);
 
             // The value the graphics timeline reaches once everything submitted to it so far has finished

@@ -15,10 +15,9 @@ namespace Trinity
         class VulkanBindless;
         class VulkanDevice;
 
-        // A sampler with its index in the bindless sampler array
         struct VulkanSampler
         {
-            // Empty, with the reason logged, when the sampler cannot be created or every sampler index is in use
+            // Empty, with the reason logged, when it cannot be created or every sampler index is in use
             [[nodiscard]] static std::optional<VulkanSampler> Create(const VulkanDevice& device, VulkanBindless& bindless, const SamplerDescription& description);
             // What destroying it leaves for the release queue
             [[nodiscard]] VulkanRelease ToRelease() const;

@@ -163,7 +163,7 @@ namespace Trinity
                 return std::as_bytes(std::span(text.data(), text.size()));
             }
 
-            // The name a pipeline state has in the pipeline library, from the hash of everything it is made from, each part's hash seeding the next, so two pipeline states share a name only when they are the same
+            // Named by a hash of everything it is made from, so two share a name only when they are the same
             std::wstring GetLibraryName(std::string_view kind, std::initializer_list<std::span<const std::byte>> parts)
             {
                 std::uint64_t l_Hash = 0;
@@ -225,7 +225,7 @@ namespace Trinity
             l_Description.RasterizerState.SlopeScaledDepthBias = description.DepthBiasSlope;
             l_Description.RasterizerState.DepthBiasClamp = description.DepthBiasClamp;
 
-            // D3D12 always clamps depth to the viewport's range, so turning clipping off is what Vulkan's depth clamp does
+            // D3D12 always clamps depth to the viewport's range, so Vulkan's depth clamp is clipping off
             l_Description.RasterizerState.DepthClipEnable = description.DepthClamp ? FALSE : TRUE;
 
             // Vulkan never writes depth without the depth test, so neither does this

@@ -10,11 +10,11 @@ namespace Trinity
 {
     namespace RHI
     {
-        // Shaders index one resource heap and one sampler heap, ResourceDescriptorHeap and SamplerDescriptorHeap on D3D12 and one array per descriptor type on Vulkan
+        // One resource heap and one sampler heap: D3D12's descriptor heaps, an array per type on Vulkan
         constexpr std::uint32_t c_BindlessResourceCapacity = 65536;
         constexpr std::uint32_t c_BindlessSamplerCapacity = 2048;
 
-        // Hands out indices below a capacity, reusing freed ones first
+        // Reuses freed indices first
         class IndexAllocator
         {
         public:

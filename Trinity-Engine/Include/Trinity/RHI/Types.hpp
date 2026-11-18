@@ -87,7 +87,7 @@ namespace Trinity
             return IsCompressedFormat(format) ? 4 : 1;
         }
 
-        // The bytes from one row of texels, or of blocks, to the next when CopyTextureToBuffer or CopyBufferToTexture copies a region this many texels wide
+        // Bytes from one row of texels, or of blocks, to the next in a texture copy this wide
         [[nodiscard]] TRINITY_API std::uint64_t GetTextureCopyRowPitch(Format format, std::uint32_t width);
 
         // Rows of texels, or of blocks, in a region this many texels high
@@ -107,7 +107,7 @@ namespace Trinity
             return format == Format::D32Float || format == Format::D32FloatS8;
         }
 
-        // A depth format with stencil, which is only ever an attachment, so no shader reads it and no copy moves it
+        // Only ever an attachment: no shader reads it and no copy moves it
         [[nodiscard]] constexpr bool HasStencil(Format format)
         {
             return format == Format::D32FloatS8;
@@ -132,7 +132,6 @@ namespace Trinity
             [[nodiscard]] constexpr bool IsWhole() const { return BaseMipLevel == 0 && MipLevelCount == c_RemainingSubresources && BaseArrayLayer == 0 && ArrayLayerCount == c_RemainingSubresources; }
         };
 
-        // Whether a range starts inside a texture with this many mips and layers and does not reach past its end
         [[nodiscard]] constexpr bool IsRangeInsideTexture(const TextureSubresourceRange& range, std::uint32_t mipLevels, std::uint32_t arrayLayers)
         {
             const auto a_Fits = [](std::uint32_t base, std::uint32_t count, std::uint32_t total) { return base < total && count != 0 && (count == c_RemainingSubresources || std::uint64_t{ base } + count <= total); };
@@ -140,7 +139,7 @@ namespace Trinity
             return a_Fits(range.BaseMipLevel, range.MipLevelCount, mipLevels) && a_Fits(range.BaseArrayLayer, range.ArrayLayerCount, arrayLayers);
         }
 
-        // One mip of one layer, numbered with the mips of each layer together, as D3D12 numbers subresources
+        // Numbered with the mips of each layer together, as D3D12 numbers subresources
         [[nodiscard]] constexpr std::uint32_t GetSubresourceIndex(std::uint32_t mipLevel, std::uint32_t arrayLayer, std::uint32_t mipLevels)
         {
             return mipLevel + arrayLayer * mipLevels;
@@ -206,7 +205,7 @@ namespace Trinity
             return (static_cast<std::uint32_t>(flags) & static_cast<std::uint32_t>(flag)) != 0;
         }
 
-        // What a resource is used for between two barriers, undefined lets the GPU discard the contents
+        // Undefined lets the GPU discard the contents
         enum class ResourceState : std::uint8_t
         {
             Undefined,
@@ -242,13 +241,12 @@ namespace Trinity
             std::uint32_t Height = 0;
         };
 
-        // Whether region is not empty and lies inside one mip of a texture this size
         [[nodiscard]] constexpr bool IsRegionInsideMip(const Rect& region, std::uint32_t width, std::uint32_t height, std::uint32_t mipLevel)
         {
             return region.X >= 0 && region.Y >= 0 && region.Width != 0 && region.Height != 0 && std::uint64_t{ static_cast<std::uint32_t>(region.X) } + region.Width <= GetMipSize(width, mipLevel) && std::uint64_t{ static_cast<std::uint32_t>(region.Y) } + region.Height <= GetMipSize(height, mipLevel);
         }
 
-        // A region of a compressed texture starts on a block and covers whole blocks, except where it reaches the right or bottom edge of its mip
+        // Whole blocks, except where the region reaches the right or bottom edge of its mip
         [[nodiscard]] constexpr bool IsRegionBlockAligned(const Rect& region, Format format, std::uint32_t width, std::uint32_t height, std::uint32_t mipLevel)
         {
             const std::uint32_t l_Block = GetFormatBlockDimension(format);

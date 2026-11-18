@@ -127,13 +127,13 @@ namespace Trinity
             D3D12CommandQueue m_Queue;
             std::array<D3D12CommandAllocator, c_FramesInFlight> m_CommandAllocators{};
             std::uint64_t m_FrameNumber = 0;
-            // The fence value of the frame before's last submission, which compute work that writes what it may still use waits for
+            // Compute work that writes what the frame before may still use waits for this fence value
             std::uint64_t m_LastFrameValue = 0;
 
             D3D12CommandList m_CommandList;
             bool m_InFrame = false;
 
-            // The copy queue with an allocator for each frame, or none when renderer.copy_queue is off and uploads go into the frame's list
+            // None when renderer.copy_queue is off, and uploads go into the frame's list
             D3D12CommandQueue m_CopyQueue;
             std::array<D3D12CommandAllocator, c_FramesInFlight> m_UploadAllocators{};
             D3D12CommandList m_UploadList;
@@ -141,7 +141,7 @@ namespace Trinity
             bool m_UploadsRecording = false;
             bool m_UploadsSubmitted = false;
 
-            // The compute queue with an allocator for each frame, or none when renderer.async_compute is off and compute queue passes go into the frame's list
+            // None when renderer.async_compute is off, and compute passes go into the frame's list
             D3D12CommandQueue m_ComputeQueue;
             std::array<D3D12CommandAllocator, c_FramesInFlight> m_ComputeAllocators{};
             D3D12CommandList m_ComputeList;

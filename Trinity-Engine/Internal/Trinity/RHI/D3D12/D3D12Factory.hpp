@@ -9,16 +9,15 @@ namespace Trinity
 {
     namespace RHI
     {
-        // The DXGI factory, with the debug layer before it when validation is asked for, the adapters it offers in order of preference for performance, the adapter chosen, and whether presents can tear
+        // Adapters come in order of preference for performance
         class D3D12Factory
         {
         public:
-            // False, with the reason in error, when the DXGI factory cannot be created
             [[nodiscard]] bool Initialize(const DeviceSpecification& specification, std::string& error);
-            // The adapter, then the factory, once the device is gone, so the live-object report that follows finds nothing of theirs
+            // Releases the adapter, then the factory, after the device, so the live-object report is clean
             void Reset();
 
-            // The adapter at a place in the order of preference for performance, or false past the last
+            // False past the last adapter
             [[nodiscard]] bool EnumerateAdapter(UINT index, Microsoft::WRL::ComPtr<IDXGIAdapter1>& adapter) const;
             void SetAdapter(const Microsoft::WRL::ComPtr<IDXGIAdapter1>& adapter) { m_Adapter = adapter; }
             void LogRuntime() const;
