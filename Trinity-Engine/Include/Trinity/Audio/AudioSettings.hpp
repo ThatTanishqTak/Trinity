@@ -11,7 +11,7 @@
 
 namespace Trinity
 {
-    // How a spatialized source's volume falls with its distance d from the listener, clamped between its minimum and maximum distances: Logarithmic as min / d, the inverse distance law Unity's Logarithmic follows, Linear from 1 at the minimum to 0 at the maximum, and Exponential as (min / d) squared, twice as steep in decibels as Logarithmic
+    // Logarithmic is min / d, Linear falls from 1 to 0, Exponential is (min / d) squared
     enum class AudioRolloff : std::uint8_t
     {
         Logarithmic,
@@ -40,7 +40,7 @@ namespace Trinity
         return std::nullopt;
     }
 
-    // How a running scene's sounds are mixed, as Unity's Audio settings have it, which the project saves with its mixer
+    // As Unity's Audio settings. Saved with the project
     struct AudioSettings
     {
         // The project's Audio Mixer asset, or none for Master alone
@@ -53,7 +53,7 @@ namespace Trinity
         float DopplerFactor = 1.0f;
         // The collision layers whose colliders muffle a source with Occlusion on
         std::uint32_t OcclusionLayers = c_AllCollisionLayers;
-        // Rays cast a frame at most, from the listener to the occluded sources in turn, the longest unchecked first
+        // Rays cast a frame at most, to the occluded sources in turn, the longest unchecked first
         std::uint32_t OcclusionRays = 32;
         // Seconds a source takes to become muffled, and to clear again
         float OcclusionTime = 0.25f;

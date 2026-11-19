@@ -42,12 +42,12 @@ namespace Trinity
 
         // A low-pass curve's filter is worked out again this many frames apart as its cutoff moves
         constexpr std::uint32_t c_FilterStep = 32;
-        // Butterworth's, so the filter is flat below its cutoff, 3 dB down at it and 12 dB an octave down above it, as the occlusion filter is
+        // Butterworth's, flat below its cutoff and 3 dB down at it, as the occlusion filter is
         constexpr float c_ButterworthQ = 0.70710678f;
         constexpr float c_MaximumCutoffRatio = 0.45f;
         constexpr float c_Pi = 3.14159265358979f;
 
-        // The cookbook's low-pass, as Robert Bristow-Johnson gives it, at a cutoff kept where the filter stays stable
+        // The cookbook's low-pass, as Robert Bristow-Johnson gives it, at a cutoff kept stable
         void SetLowPass(SoundEventMixPlay& play, float cutoff, float sampleRate)
         {
             play.Cutoff = cutoff;
@@ -106,7 +106,7 @@ namespace Trinity
                 }
             }
 
-            // A curve with no points moves nothing. What moves a container moves everything below it, whose parent comes before it
+            // A curve with no points moves nothing. What moves a container moves everything below it
             l_Node.FirstCurve = static_cast<std::uint32_t>(l_Plan->Curves.size());
             for (std::size_t it_Curve = 0; it_Curve < l_Container.Curves.size(); ++it_Curve)
             {
@@ -168,7 +168,7 @@ namespace Trinity
         return l_Plan;
     }
 
-    // Down the tree, each container from its parent's, which comes before it: volumes add in decibels, pitches multiply and the lowest cutoff wins
+    // Down the tree: volumes add in decibels, pitches multiply and the lowest cutoff wins
     void SoundEventPlan::Evaluate(std::span<const float> values, std::span<NodeValue> nodes) const
     {
         for (std::size_t it_Node = 0; it_Node < Nodes.size() && it_Node < nodes.size(); ++it_Node)
@@ -227,7 +227,7 @@ namespace Trinity
         Write(m_Written.Value, false, frame);
     }
 
-    // What it had just before the frame is kept as what it had before, so a change made before the last has started still starts from where that one leaves it
+    // Kept as what it had before, so a change made before the last has started still starts right
     void SoundParameterTarget::Write(float value, bool given, std::uint64_t frame)
     {
         Reading& l_Reading = m_Written;
@@ -278,7 +278,7 @@ namespace Trinity
         return true;
     }
 
-    // In two steps when the target changes between the two frames, towards what it was until then and what it is after
+    // In two steps when the target changes between the two frames
     float SeekSoundParameter(const SoundParameter& parameter, float value, const SoundParameterTarget::Reading& target, std::uint64_t from, std::uint64_t to, double sampleRate)
     {
         const auto a_Goal = [&parameter, &target](std::uint64_t frame) { return parameter.Clamp(target.At(frame).value_or(parameter.Default)); };
@@ -456,7 +456,7 @@ namespace Trinity
         m_Values = {};
     }
 
-    // Each clip as far as it has got at the pitch it had since it was last told, then foreseen to end at the pitch it has now. A clip that is the root ends the instance, which is then foreseen likewise
+    // Each clip as far as it got at its old pitch, then foreseen to end at the pitch it has now
     void SoundEventPlayer::Retime(std::span<const float> pitches, std::uint64_t clock, PlayList& plays)
     {
         if (!m_Anchored)
@@ -522,7 +522,7 @@ namespace Trinity
     }
 
 
-    // The Randoms' last picks are kept in the memory by their IDs, so Avoid Repeat goes on across versions
+    // The Randoms' last picks are kept by their IDs, so Avoid Repeat goes on across versions
     void SoundEventPlayer::Adopt(Ref<const SoundEventPlan> plan, std::span<const SoundEventClip> clips, std::uint64_t time)
     {
         const SoundEventPlan& l_Old = *m_Plan;
@@ -538,7 +538,7 @@ namespace Trinity
             }
         }
 
-        // Started and not yet ended, and of those which go, each one whose container the new version lacks and everything below it
+        // Those started and not yet ended whose container the new version lacks go, with all below
         std::vector<std::uint8_t, TaggedAllocator<std::uint8_t, MemoryTag::Audio>> l_Live(m_Activations.size(), 1);
         for (const std::uint32_t it_Free : m_Free)
         {
@@ -596,7 +596,7 @@ namespace Trinity
                 continue;
             }
 
-            // A Sequence goes on from the child it plays, found by its ID, or else from the first after it that the new version still has below it, so a child added, moved or removed is heard in its place. The step before a child is the one it ends at, which for the first is the largest, as the step after that is 0. With none left after it, its round ends as the child playing does
+            // A Sequence goes on from the child it plays, found by ID, or the first after it that remains
             const SoundEventPlan::Node& l_Was = l_Old.Nodes[l_From];
             const SoundEventPlan::Node& l_Is = l_New.Nodes[l_Activation.Node];
             const std::span<const std::uint32_t> l_Children = std::span<const std::uint32_t>(l_New.Children).subspan(l_Is.FirstChild, l_Is.ChildCount);
@@ -635,7 +635,7 @@ namespace Trinity
         return m_Ended && m_Actions.empty();
     }
 
-    // Its volume, pitch and delay drawn now, whatever its type, so the draws that follow are the same whatever it holds
+    // Volume, pitch and delay are drawn now whatever its type, so later draws do not depend on it
     void SoundEventPlayer::Activate(std::uint32_t node, std::uint32_t parent, std::uint64_t time, std::uint32_t anchor, std::uint64_t anchorTime)
     {
         const SoundContainer& l_Container = m_Plan->Data.Containers[node];
@@ -799,7 +799,7 @@ namespace Trinity
         }
     }
 
-    // One pick, then the next trigger: on its interval from this one with Pulse, and with Offset on its interval from when this one ends, at once if it picked nothing
+    // Pulse spaces the next trigger from this one's start, and Offset from when it ends
     void SoundEventPlayer::Trigger(std::uint32_t activation, std::uint64_t time)
     {
         const SoundContainer& l_Container = m_Plan->Data.Containers[m_Activations[activation].Node];
@@ -826,7 +826,7 @@ namespace Trinity
         }
     }
 
-    // The child that ends last is the end of its parent, and what starts once it has follows the play that is its end
+    // The child that ends last is the end of its parent
     void SoundEventPlayer::ChildEnded(const Action& action)
     {
         const std::uint32_t activation = action.Activation;
@@ -901,7 +901,7 @@ namespace Trinity
         }
     }
 
-    // Its slot is free for the next container started, and its parent hears of it when its time comes, with the play that is its end
+    // Its slot is free for the next container started. Its parent hears of it when its time comes
     std::uint64_t SoundEventPlayer::End(std::uint32_t activation, std::uint64_t time)
     {
         const Activation& l_Activation = m_Activations[activation];
@@ -929,7 +929,7 @@ namespace Trinity
         return l_Order;
     }
 
-    // By the children's weights, leaving out those among the Random's last picks, up to one fewer than it has. None when every child left has no weight. One number is drawn whatever is picked
+    // By weight, leaving out the Random's last picks. One number is drawn whatever is picked
     std::uint32_t SoundEventPlayer::Pick(const Activation& activation)
     {
         const SoundEventPlan::Node& l_Node = m_Plan->Nodes[activation.Node];
@@ -1031,7 +1031,7 @@ namespace Trinity
         return parameter < m_Published.size() ? m_Published[parameter].load(std::memory_order_relaxed) : 0.0f;
     }
 
-    // On the audio thread. A target the main thread is writing is read again at the next time, its reading before kept meanwhile
+    // On the audio thread. A target the main thread is writing is read again next time
     void SoundEventMix::Seek()
     {
         if (m_Plan == nullptr || m_Graph == nullptr || m_Values.empty())
@@ -1108,7 +1108,7 @@ namespace Trinity
         m_Finished.store(true, std::memory_order_release);
     }
 
-    // On the audio thread. Whether the last play has been offered is read before the queue, so every play offered before it is seen with it
+    // On the audio thread. The last-play flag is read before the queue, so nothing offered is missed
     ma_result SoundEventMix::OnRead(ma_data_source* source, void* frames, ma_uint64 frameCount, ma_uint64* framesRead)
     {
         SoundEventMix& l_Mix = *reinterpret_cast<Source*>(source)->Mix;
@@ -1155,7 +1155,7 @@ namespace Trinity
                 continue;
             }
 
-            // The rest keep their order, so a play is read before any that starts once it ends, and it is let go of last, as the main thread may take it back at once
+            // The rest keep their order. It is let go of last, as the main thread may take it back at once
             std::copy(l_Mix.m_Active.begin() + it_Play + 1, l_Mix.m_Active.begin() + l_Mix.m_ActiveCount, l_Mix.m_Active.begin() + it_Play);
             --l_Mix.m_ActiveCount;
             l_Play->Done.store(true, std::memory_order_release);
@@ -1197,14 +1197,14 @@ namespace Trinity
         return MA_SUCCESS;
     }
 
-    // From the frame of the block its start falls on, or from where it would be by now when its start has passed, each frame read between the clip's two nearest samples, the one past its end being silence, and laid onto the mix's channels: a mono clip into each, into a mono mix the clip's channels averaged, and otherwise channel for channel. One that follows another's end waits for that end, as that one plays it. One whose curves move it ramps to what they give at each of the graph's reads, a pitched one moving through its clip at its pitch as it goes and playing until its clip runs out, and a filtered one through its low-pass, its cutoff moving evenly in octaves
+    // Each frame is read between the clip's two nearest samples, and laid onto the mix's channels
     bool SoundEventMix::Render(SoundEventMixPlay& play, float* output, std::uint64_t frames, std::uint64_t clock)
     {
         const std::uint32_t l_Channels = play.Channels;
         float* l_Buffer = play.Buffer.data();
         ma_data_source* l_Source = play.Voice.GetDataSource();
         const auto a_Rate = [&play]() { return play.Rate * static_cast<double>(std::clamp(play.Pitch * play.LivePitch, SoundEventData::c_MinimumPitch, SoundEventData::c_MaximumPitch) / play.Pitch); };
-        // The length a pitched play was foreseen to have no longer holds, so its clip says when it ends
+        // A pitched play's foreseen length no longer holds, so its clip says when it ends
         const bool l_Counted = !play.Pitched && play.Length != SoundEventPlayer::c_Never;
         if (!play.Begun)
         {
@@ -1243,7 +1243,7 @@ namespace Trinity
             }
         }
 
-        // The clip's frames up to the one given held in the buffer, as far as the clip goes, the buffer moved up to the one before it first
+        // Holds the clip's frames up to the one given, the buffer moved up first
         const auto a_Fill = [&play, l_Buffer, l_Source, l_Channels](std::uint64_t last)
         {
             if (last < play.BufferStart + play.Buffered || play.InputEnded)

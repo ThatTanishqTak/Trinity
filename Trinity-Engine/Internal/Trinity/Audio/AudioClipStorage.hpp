@@ -19,7 +19,7 @@ namespace Trinity
 {
     using AudioBytes = std::vector<std::byte, TaggedAllocator<std::byte, MemoryTag::Audio>>;
 
-    // Everything miniaudio allocates goes through these, under the Audio tag. Defined in AudioEngine.cpp
+    // Everything miniaudio allocates goes through these, under the Audio tag
     [[nodiscard]] ma_allocation_callbacks GetAudioAllocationCallbacks();
 
     [[nodiscard]] ma_format ToMiniaudio(AudioSampleFormat format);
@@ -32,18 +32,18 @@ namespace Trinity
         Failed
     };
 
-    // A clip's samples as its load type holds them, shared by its asset and every voice playing it, so a voice can outlive the asset and a load in the background can outlive both
+    // Shared by its asset and every voice playing it, so a voice or a background load can outlive it
     struct AudioClipStorage
     {
         AudioClipHeader Header;
-        // Decompress On Load: the decoded frames, in the header's format. Compressed In Memory: the file's bytes
+        // Decompress On Load: the decoded frames. Compressed In Memory: the file's bytes
         AudioBytes Samples;
         // Streaming: the file, which each voice's stream reads its own way through
         Ref<FileReadHandle> File;
         std::atomic<AudioClipStatus> Status{ AudioClipStatus::Loading };
     };
 
-    // A clip's file as miniaudio's decoder reads it, through a read handle, from a position of its own. Its callbacks come first, so miniaudio takes it for a file system with one file in it
+    // Its callbacks come first, so miniaudio takes it for a file system with one file in it
     struct AudioFileView
     {
         ma_vfs_callbacks Callbacks;
@@ -51,12 +51,12 @@ namespace Trinity
         std::uint64_t Offset = 0;
     };
 
-    // A decoder for the clip's file into the header's format, at the file's own channels and rate. The view must outlive the decoder
+    // Decodes into the header's format, at the file's own channels and rate. The view must outlive it
     [[nodiscard]] ma_result OpenClipDecoder(const AudioClipHeader& header, const FileReadHandle& file, AudioFileView& view, ma_decoder& decoder);
     // A decoder for the file's bytes in memory, likewise
     [[nodiscard]] ma_result OpenClipDecoder(const AudioClipHeader& header, std::span<const std::byte> file, ma_decoder& decoder);
 
-    // A streaming clip's samples for one voice: pages decoded ahead on workers from the clip's file, which the audio thread plays through without waiting, locking or allocating. The main thread starts each refill, since a job's submission can allocate, and a page not decoded in time plays as silence, the stream waiting on it rather than skipping ahead. It loops by itself, so a loop never waits on a seek
+    // Pages are decoded ahead on workers. The audio thread never waits: a late page plays as silence
     class AudioStream
     {
     public:
@@ -74,7 +74,7 @@ namespace Trinity
         [[nodiscard]] bool IsPrimed() const;
         // Main thread, once a frame: a refill on a worker when a page is free or a seek waits
         void RequestRefill();
-        // For offline mixing: every free page filled on this thread, so a render gives the same samples each time
+        // For offline mixing: every free page filled on this thread, so a render is the same each time
         void RefillNow();
 
     private:
@@ -123,7 +123,7 @@ namespace Trinity
         std::uint32_t m_SeekSeen = 0;
         bool m_Ended = false;
         std::atomic<std::uint64_t> m_Cursor{ 0 };
-        // A seek from the audio thread, which the refill carries out, the stream playing silence until it has
+        // A seek from the audio thread, carried out by the refill. The stream plays silence until then
         std::atomic<std::uint64_t> m_SeekTarget{ 0 };
         std::atomic<std::uint32_t> m_SeekRequested{ 0 };
         std::atomic<std::uint32_t> m_SeekDone{ 0 };
@@ -141,7 +141,7 @@ namespace Trinity
         JobCounter m_Jobs;
     };
 
-    // One playing instance of a clip as a data source of miniaudio's, with a position of its own, over a view of the decoded samples, a decoder of the bytes in memory, or a stream of the file. It always gives 32-bit float, turning 16-bit samples into it as it reads, since miniaudio 0.11.25's engine drops the last frames before the end of a source in any other format. Started and stopped on the main thread
+    // Always gives 32-bit float: miniaudio 0.11.25 drops the last frames of a source in other formats
     class AudioClipVoice
     {
     public:

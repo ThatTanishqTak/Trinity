@@ -12,7 +12,7 @@ namespace Trinity
 {
     struct AudioClipStorage;
 
-    // A clip as the importer cooked it: its header from the start, and its samples once they load, which for a clip that preloads is before it reads as ready, so a scene waits for it, and for any other is on a worker after. A clip played before its samples are in starts once they are, and one whose samples fail to load plays as silence. Everything it holds is under the Audio tag
+    // Its header loads first. Samples load before it reads as ready only for a clip that preloads
     class TRINITY_API AudioClipAsset final : public Asset
     {
     public:
@@ -30,7 +30,7 @@ namespace Trinity
         [[nodiscard]] double GetLength() const;
         [[nodiscard]] bool IsLoaded() const;
         [[nodiscard]] bool HasFailed() const;
-        // What its samples hold under Audio: the decoded frames, the file's bytes, or nothing for a clip that streams, whose pages are its voices'
+        // Under Audio: the decoded frames, the file's bytes, or nothing for a clip that streams
         [[nodiscard]] std::uint64_t GetSampleMemory() const;
 
         // Shared with every voice playing the clip, which can outlive the asset

@@ -28,7 +28,7 @@
 #include <utility>
 #include <vector>
 
-// stb_vorbis allocates with malloc, so Vendor/CMakeLists.txt builds it to call these instead, which count it under the Audio tag
+// stb_vorbis allocates with malloc, so Vendor/CMakeLists.txt builds it to call these instead
 extern "C"
 {
     void* TrinityAudioAllocate(std::size_t size)
@@ -56,16 +56,16 @@ namespace Trinity
         constexpr std::uint32_t c_DefaultChannels = 2;
         // Volume changes ramp over this long, so none clicks
         constexpr std::uint32_t c_VolumeRampMilliseconds = 20;
-        // A silent mix covers at most a quarter of a second a frame, as the simulation clock does, so a stall never makes a long mix, in pieces of this many frames
+        // A silent mix covers at most a quarter of a second a frame, in pieces of this many frames
         constexpr std::int64_t c_MaxSilentNanoseconds = 250000000;
         constexpr std::uint32_t c_SilentChunkFrames = 1024;
-        // WASAPI stops the device for a moment while it moves it to a new default, so only a device stopped this long counts as gone
+        // WASAPI stops the device briefly as it moves to a new default, so only this long counts as gone
         constexpr std::int64_t c_DeviceGoneNanoseconds = 1000000000;
         // How often the mix's timing is published, in parts of a second of sound
         constexpr std::uint32_t c_TimingsPerSecond = 2;
         constexpr std::uint32_t c_TestToneFadeMilliseconds = 10;
 
-        // The engine that plays out, which the console reaches. Offline engines are left to whoever made them
+        // The engine that plays out, which the console reaches. Offline engines are their maker's
         AudioEngine* s_ConsoleEngine = nullptr;
 
         float ToVolume(float value)
@@ -89,7 +89,7 @@ namespace Trinity
         constexpr float c_TestToneAmplitude = 0.5011872336f;
         constexpr float c_TestToneSeconds = 10.0f;
 
-        // Up to values.size() numbers above 0, separated by spaces, each replacing its default in turn. False for anything else
+        // Up to values.size() numbers above 0, each replacing its default in turn. False otherwise
         bool ParsePositiveNumbers(std::string_view text, std::span<float> values)
         {
             for (std::size_t it_Index = 0;; ++it_Index)
@@ -138,7 +138,7 @@ namespace Trinity
             std::array<float, 2> l_Values = { c_TestToneFrequency, c_TestToneSeconds };
             if (!ParsePositiveNumbers(arguments, l_Values))
             {
-                TR_CORE_WARN("audio.test_tone takes a frequency in hertz and a time in seconds, both above 0, not '{}'", arguments);
+                TR_CORE_WARN("audio.test_tone takes hertz and seconds, both above 0, not '{}'", arguments);
 
                 return;
             }
@@ -186,12 +186,12 @@ namespace Trinity
     {
         ~State();
 
-        // miniaudio's callbacks: data on the device's thread, notifications on the system's. Neither allocates nor waits
+        // Data on the device's thread, notifications on the system's. Neither allocates nor waits
         static void OnDeviceData(ma_device* device, void* output, const void* input, ma_uint32 frameCount);
         static void OnDeviceNotification(const ma_device_notification* notification);
 
         bool OpenDevice(const AudioEngineSpecification& specification);
-        // The output by its ID, or the system's default for none, in the format given, 0 taking the device's own. Not started
+        // The output by its ID, or the system's default for none. 0 takes the device's own format
         ma_result InitDevice(const ma_device_id* id, std::uint32_t channels, std::uint32_t sampleRate);
         // Closed again when it would not start
         ma_result StartDevice();
@@ -200,10 +200,10 @@ namespace Trinity
         bool ReadDeviceName();
         // The volume, or silence while muted, ramped
         void ApplyVolume();
-        // By whichever thread mixes, under Mixing, or offline by the thread that renders: one mix's frames and how long it took
+        // By whichever thread mixes, under Mixing: one mix's frames and how long it took
         void RecordMix(std::uint64_t frames, std::chrono::steady_clock::duration time);
         void MixSilently(Timestep timestep);
-        // Starts the preview once its clip's samples are in, and a stream's first page, and refills its stream: on a worker, or on this thread offline
+        // Starts the preview once its clip's samples and a stream's first page are in
         void UpdatePreview(bool offline);
         void ClosePreview();
         // The scenes' streams likewise
@@ -232,10 +232,10 @@ namespace Trinity
 
         // Set by the system's thread when the device has moved to a new default output
         std::atomic<bool> Rerouted{ false };
-        // Held by whichever thread mixes: the device's, or the main thread while the device is stopped. Neither waits for it, so the device's thread never blocks on the main thread
+        // Held by whichever thread mixes. Neither waits for it, so the device thread never blocks
         std::atomic_flag Mixing;
 
-        // What the thread that mixes has timed since it last published: mixes, their frames and time and the longest. Published for the main thread each time a part of a second of sound has been mixed
+        // What the mixing thread has timed since it last published
         std::uint32_t TimedMixes = 0;
         std::uint64_t TimedFrames = 0;
         std::uint64_t TimedNanoseconds = 0;
@@ -244,19 +244,19 @@ namespace Trinity
         std::atomic<std::uint64_t> PublishedAverage{ 0 };
         std::atomic<std::uint64_t> PublishedPeak{ 0 };
 
-        // A silent mix's time owed, in nanoseconds times the sample rate so that no part of a frame is lost, and what it mixes into
+        // Time owed in nanoseconds times the sample rate, so no part of a frame is lost
         std::uint64_t OwedTicks = 0;
         std::vector<float, TaggedAllocator<float, MemoryTag::Audio>> Scratch;
         std::int64_t StoppedNanoseconds = 0;
         bool ReportedStopped = false;
 
-        // The preview's clip, the voice reading it and the sound playing that, which waits until the clip can play
+        // The preview's clip, the voice reading it and the sound, which waits until the clip can play
         Ref<AudioClipStorage> PreviewClip;
         AudioClipVoice PreviewVoice;
         ma_sound PreviewSound{};
         bool HasPreviewSound = false;
 
-        // The streams of the scenes' voices, which the main thread refills, since the audio thread cannot start a job
+        // The main thread refills the scenes' streams, since the audio thread cannot start a job
         std::vector<AudioStream*, TaggedAllocator<AudioStream*, MemoryTag::Audio>> Streams;
 
         // The global parameters by name, each where the audio thread reads it for as long as the engine is
@@ -306,7 +306,7 @@ namespace Trinity
     {
         State& l_State = *static_cast<State*>(device->pUserData);
 
-        // The main thread mixes only while the device is stopped, so it can hold this only as the device starts again, and that one period stays silent, as miniaudio clears it
+        // The main thread can hold this only as the device restarts. That period is silent
         if (l_State.Mixing.test_and_set(std::memory_order_acquire))
         {
             return;
@@ -326,7 +326,7 @@ namespace Trinity
         }
     }
 
-    // The system's default output, in its own format unless the specification names one. False, with one warning, when there is none. The context stays without one, so an output can be chosen later
+    // False, with one warning, when there is none. The context stays, so one can be chosen later
     bool AudioEngine::State::OpenDevice(const AudioEngineSpecification& specification)
     {
         ma_context_config l_ContextConfig = ma_context_config_init();
@@ -352,7 +352,7 @@ namespace Trinity
         return true;
     }
 
-    // With no ID it is the default output, which miniaudio follows when the default changes, such as when headphones are plugged in
+    // With no ID miniaudio follows the default output as it changes, as when headphones go in
     ma_result AudioEngine::State::InitDevice(const ma_device_id* id, std::uint32_t channels, std::uint32_t sampleRate)
     {
         ma_device_config l_DeviceConfig = ma_device_config_init(ma_device_type_playback);
@@ -385,7 +385,7 @@ namespace Trinity
         return l_Result;
     }
 
-    // Waits for the device's thread to finish its period, so nothing mixes once it returns, and forgets where the device was, so the next one starts afresh
+    // Waits for the device's thread to finish its period, so nothing mixes once it returns
     void AudioEngine::State::CloseDevice()
     {
         if (!HasDevice)
@@ -486,7 +486,7 @@ namespace Trinity
             return;
         }
 
-        // At the clip's own pitch, which at the engine's rate needs no resampler, so the clip reaches the mix exactly as it decodes
+        // At the clip's own pitch, which needs no resampler, so the clip is mixed exactly as it decodes
         const AudioClipHeader& l_Header = PreviewClip->Header;
         ma_uint32 l_Flags = MA_SOUND_FLAG_NO_SPATIALIZATION;
         if (l_Header.SampleRate == ma_engine_get_sample_rate(&Engine))
@@ -502,7 +502,7 @@ namespace Trinity
             return;
         }
 
-        // Into the mixer's Master, so its volume, mute and meter take the preview in, as they do a scene's sounds sent to no group
+        // Into the mixer's Master, so its volume, mute and meter take the preview in
         HasPreviewSound = true;
         Mixer->Route(&PreviewSound, UUID());
         ma_sound_start(&PreviewSound);
@@ -545,7 +545,7 @@ namespace Trinity
         std::uint64_t l_Frames = OwedTicks / 1'000'000'000;
         OwedTicks %= 1'000'000'000;
 
-        // The device's thread holds it only in the moment the device starts again, and then the time is the device's to mix
+        // The device's thread holds it only as the device restarts, and then the time is the device's
         if (l_Frames == 0 || Mixing.test_and_set(std::memory_order_acquire))
         {
             return;
@@ -586,7 +586,7 @@ namespace Trinity
             }
         }
 
-        // The engine never opens a device of its own: the device's callback, Update or Render reads from it, so every output mixes through the same graph. No resource manager, and so no thread of miniaudio's, since clips load on the job system
+        // The engine opens no device of its own, and has no resource manager, so no miniaudio thread
         ma_engine_config l_EngineConfig = ma_engine_config_init();
         l_EngineConfig.noDevice = MA_TRUE;
         l_EngineConfig.channels = l_Channels;
@@ -612,7 +612,7 @@ namespace Trinity
 
         l_State.HasMaster = true;
 
-        // Its constructor is the engine's to call, so it is made here rather than through Memory::New, which frees what it took if the mixer cannot be made
+        // Its constructor is the engine's to call, so it is made here, not through Memory::New
         void* l_Mixer = Memory::Allocate(sizeof(AudioMixer), MemoryTag::Audio, alignof(AudioMixer));
         try
         {
@@ -678,7 +678,7 @@ namespace Trinity
             return;
         }
 
-        // A chain that is changing steps its effects out or in once they have crossed to dry, which an offline engine does as it renders
+        // A changing chain steps its effects out or in once they have crossed to dry
         l_State.Mixer->Update();
         l_State.UpdatePreview(false);
         l_State.RefillStreams(false);
@@ -700,7 +700,7 @@ namespace Trinity
                 return;
             }
 
-            // Stopped while moving to a new default, or for good when the last output went, so sounds keep their time here meanwhile
+            // Stopped while moving to a new default, or for good, so sounds keep their time here meanwhile
             l_State.StoppedNanoseconds += timestep.GetDuration().count();
             if (!l_State.ReportedStopped && l_State.StoppedNanoseconds >= c_DeviceGoneNanoseconds)
             {
@@ -727,7 +727,7 @@ namespace Trinity
             return;
         }
 
-        // A page at a time, refilling streams between, so a stream never runs dry however much is asked for at once
+        // A page at a time, refilling streams between, so a stream never runs dry
         const std::size_t l_Frames = output.size() / l_Channels;
         for (std::size_t it_Frame = 0; it_Frame < l_Frames;)
         {
@@ -794,7 +794,7 @@ namespace Trinity
         return l_Devices;
     }
 
-    // The old output closes before the new one opens, as one device may not be open twice, and the main thread mixes the moment between, as for a device stopped. Each takes the engine's own format, so the graph and its rate stay as they were
+    // The old output closes before the new one opens, as one device may not be open twice
     bool AudioEngine::SetDevice(std::string_view name)
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "The output is chosen on the main thread.");
@@ -1055,7 +1055,7 @@ namespace Trinity
 
         std::erase(engine.m_State->Streams, &stream);
 
-        // An emptied list keeps its memory, so it is replaced, and Audio reads as it did before the first stream
+        // An emptied list keeps its memory, so it is replaced
         if (engine.m_State->Streams.empty())
         {
             decltype(engine.m_State->Streams)().swap(engine.m_State->Streams);

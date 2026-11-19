@@ -78,7 +78,7 @@ namespace Trinity
             return l_End;
         }
 
-        // The children of each Switch by the parameter, or of the one container given, play for every label again
+        // The children of each Switch by the parameter, or of the one given, play for every label
         void ClearCases(SoundEventData& data, UUID switchContainer, UUID parameter = UUID(), std::string_view label = {})
         {
             for (SoundContainer& it_Child : data.Containers)
@@ -92,7 +92,7 @@ namespace Trinity
             }
         }
 
-        // What the container's type never saves goes back to its default, so an edit leaves the event its file reloads as
+        // What the type never saves goes back to its default, so an edit leaves what its file reloads
         void ForgetUnsaved(SoundContainer& container)
         {
             const SoundContainer l_Default;
@@ -188,7 +188,7 @@ namespace Trinity
             return {};
         }
 
-        // A container as a file gives it, each key that is missing at its default. Every key is read whatever its type, which the file writes only those of
+        // A missing key keeps its default. Every key is read, whatever its type writes
         std::string ReadContainer(const YAML::Node& node, SoundContainer& container)
         {
             if (!node.IsMap())
@@ -256,7 +256,7 @@ namespace Trinity
             return {};
         }
 
-        // A parameter as a file gives it, with its labels in their order. One with no Kind is discrete, as every parameter was before there were continuous ones
+        // One with no Kind is discrete, as every parameter was before there were continuous ones
         std::string ReadParameter(const YAML::Node& node, SoundParameter& parameter)
         {
             if (!node.IsMap())
@@ -475,7 +475,7 @@ namespace Trinity
             return {};
         }
 
-        // Once the containers and the parameters keep to their rules, as a Switch names one and a case another's label
+        // Once the containers and the parameters keep to their rules, as a Switch names both
         std::string ValidateSwitches(const SoundEventData& data)
         {
             for (const SoundContainer& it_Container : data.Containers)

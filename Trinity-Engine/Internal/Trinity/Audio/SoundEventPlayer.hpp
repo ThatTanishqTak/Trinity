@@ -20,7 +20,7 @@
 
 namespace Trinity
 {
-    // A Sound Event as its instances play it: a copy of its data, and for each container its parent, the place of its children among them all, its clip among the event's clips, a Switch's parameter, a Switch's child's label, its curves, and whether curves of its own or above it move its volume or pitch or filter it. Made once for each version of an asset and shared by every instance playing it, so an instance plays on as the version it began with when the asset reloads
+    // A copy of the event's data with each container's links worked out, made once a version
     struct SoundEventPlan
     {
         static constexpr std::uint32_t c_None = std::numeric_limits<std::uint32_t>::max();
@@ -48,7 +48,7 @@ namespace Trinity
             std::uint32_t Index = 0;
         };
 
-        // What the curves give a container, and so each play below it, at the parameters' values: a gain and a pitch its own are multiplied by, and the cutoff of its low-pass
+        // A gain and a pitch its own are multiplied by, and the cutoff of its low-pass
         struct NodeValue
         {
             float Gain = 1.0f;
@@ -69,11 +69,11 @@ namespace Trinity
 
         [[nodiscard]] static Ref<const SoundEventPlan> Make(UUID event, const SoundEventAsset& asset);
 
-        // Each container's values, the parameters' given in the event's order, a curve's value at its nearest end beyond its range. Allocates nothing, so the audio thread works its mix's out as it reads
+        // Allocates nothing, so the audio thread works its mix's out as it reads
         void Evaluate(std::span<const float> values, std::span<NodeValue> nodes) const;
     };
 
-    // A parameter's value as the game gives it, read at frames of the engine's clock: the value from the frame its change starts on, and before that the one it had, so every instance reading it at one frame agrees, however a change falls across their reads. Until one is given it reads as each instance's default. Written by the main thread alone through a sequence lock, so neither thread waits
+    // Read at frames of the engine's clock, so every instance reading it at one frame agrees
     class SoundParameterTarget
     {
     public:
@@ -89,7 +89,7 @@ namespace Trinity
             [[nodiscard]] std::optional<float> At(std::uint64_t frame) const;
         };
 
-        // Main thread: from the frame given, which the audio thread is yet to reach, and so no sooner than the frame of the change before
+        // Main thread. The frame given must be one the audio thread is yet to reach
         void Set(float value, std::uint64_t frame);
         void Clear(std::uint64_t frame);
         // Main thread
@@ -109,17 +109,17 @@ namespace Trinity
         Reading m_Written;
     };
 
-    // Where a parameter is at one frame of the engine's clock, from where it was at an earlier one, having sought towards its target as the target reads at each frame between, at its speed and the engine's rate. A discrete one, and one of speed 0, is at its target, and a target of none is its default
+    // Sought towards its target at its speed. A discrete one, or one of speed 0, is at its target
     [[nodiscard]] float SeekSoundParameter(const SoundParameter& parameter, float value, const SoundParameterTarget::Reading& target, std::uint64_t from, std::uint64_t to, double sampleRate);
 
-    // A clip as an event's instances time it: how many frames it has and at what rate, none for one that failed, is empty or is no clip, which plays as nothing
+    // None for a clip that failed, is empty or is no clip, which plays as nothing
     struct SoundEventClip
     {
         std::uint64_t Frames = 0;
         std::uint32_t SampleRate = 0;
     };
 
-    // What an AudioSource keeps of the events it plays from one play to the next, as Unity 6's AudioSource keeps its Audio Random Container's: how often it has played, which seeds each play, the last picks of each Random it has played, so Avoid Repeat spans its plays, and the values its parameters were given, which hold for its later plays. Grows only for a Random or a parameter it has not had before, and room is made for an event's parameters as it starts, so setting them allocates nothing
+    // As Unity 6's AudioSource: its play count, each Random's last picks and its parameter values
     struct SoundEventMemory
     {
         static constexpr std::size_t c_MaxAvoid = 32;
@@ -155,13 +155,13 @@ namespace Trinity
         void Reserve(std::string_view name);
     };
 
-    // xoshiro256** seeded through SplitMix64, so the same seed gives the same choices on every platform
+    // xoshiro256** seeded by SplitMix64, so a seed gives the same choices on every platform
     class SoundEventRandom
     {
     public:
         explicit SoundEventRandom(std::uint64_t seed = 0);
 
-        // The seed of a play: the event, the entity playing it and how often that entity has played, mixed so nearby numbers give unrelated seeds
+        // The event, the entity and its play count, mixed so nearby numbers give unrelated seeds
         [[nodiscard]] static std::uint64_t MakeSeed(UUID event, UUID entity, std::uint64_t plays);
 
         [[nodiscard]] std::uint64_t Next();
@@ -172,13 +172,13 @@ namespace Trinity
         std::array<std::uint64_t, 4> m_State{};
     };
 
-    // One playing instance's schedule, on the main thread, in the instance's frames at the engine's rate: each container started as its parent starts it, after its delay, at a volume and pitch varied at random from its parent's, and each clip a play starting on an exact frame, a Sequence's next on the frame the one before ends, as its length at its rate comes to. Only what starts before a horizon a little ahead is scheduled, so a Switch picks by its parameter as it is when it is triggered, give or take that much, and an event that goes on for good is scheduled as it goes. A Random's picks come from the instance's seed and the source's memory of its last picks, so the same seed and memory give the same plays on every run, whether the instance is heard or not. In an event whose curves move a pitch, a clip's length is only foreseen, at its pitch as it goes, so what starts once a clip ends, and so on after it, is given that clip, which its mix starts it after where it really ends
+    // Main thread, in the instance's frames at the engine's rate. Clips start on exact frames
     class SoundEventPlayer
     {
     public:
         static constexpr std::uint64_t c_Never = std::numeric_limits<std::uint64_t>::max();
         static constexpr std::uint32_t c_NoPlay = std::numeric_limits<std::uint32_t>::max();
-        // A Random triggers itself no more often than this, so an interval of 0 cannot fill a frame with plays
+        // A Random triggers itself no more often than this, so an interval of 0 cannot flood a frame
         static constexpr float c_MinimumInterval = 0.01f;
 
         struct Play
@@ -188,14 +188,14 @@ namespace Trinity
             std::uint64_t Start = 0;
             // c_Never for one that loops
             std::uint64_t Length = 0;
-            // The clip's frames it moves through for each of the instance's, at the pitch it was given, and that pitch
+            // The clip's frames it moves through for each of the instance's, at the pitch it was given
             double Rate = 1.0;
             float Gain = 1.0f;
             bool Loop = false;
             float Pitch = 1.0f;
             // Its container's place among the plan's
             std::uint32_t Node = 0;
-            // From 0 in the order the instance's plays start, and the earlier one it starts Offset frames after the end of, if any
+            // From 0 in the order plays start, and the earlier play it starts Offset frames after, if any
             std::uint32_t Number = 0;
             std::uint32_t After = c_NoPlay;
             std::uint64_t Offset = 0;
@@ -208,15 +208,15 @@ namespace Trinity
         // The clips in the plan's order. The root starts at frame 0
         SoundEventPlayer(Ref<const SoundEventPlan> plan, std::span<const SoundEventClip> clips, std::uint64_t seed, std::uint32_t sampleRate);
 
-        // Starts everything whose time comes before the horizon, appending a play for each clip, in the order they start. A Switch picks by the parameter's value given, in the event's order, or else as the memory has it
+        // Starts everything due before the horizon, appending a play for each clip in start order
         void Schedule(std::uint64_t horizon, SoundEventMemory& memory, PlayList& plays, std::span<const float> values = {});
-        // Before a Schedule, in an event whose curves move a pitch: the pitch each container's curves give it now, at the instance's frame given, from which each clip playing is foreseen to end at that pitch, its play in the list given lengthened or shortened to match
+        // Before a Schedule, where curves move a pitch: foresees each playing clip's end at that pitch
         void Retime(std::span<const float> pitches, std::uint64_t clock, PlayList& plays);
-        // As its asset is edited, with the new version's clips in its plan's order: what it has started plays on, and what each container starts from its next trigger is the new version's, each container found by its ID. A container started that the new version lacks, or has as another type, ends at the frame given with everything started below it, its parent hearing of it as of a child ending then
+        // As its asset is edited: what has started plays on, and each next trigger is the new version's
         void Adopt(Ref<const SoundEventPlan> plan, std::span<const SoundEventClip> clips, std::uint64_t time);
 
 
-        // Whether nothing is left to start or to end, every container having ended by the frame GetEnd gives, which is c_Never until then
+        // GetEnd gives c_Never until every container has ended
         [[nodiscard]] bool IsFinished() const;
         [[nodiscard]] std::uint64_t GetEnd() const { return m_End; }
         [[nodiscard]] const SoundEventPlan& GetPlan() const { return *m_Plan; }
@@ -224,7 +224,7 @@ namespace Trinity
     private:
         static constexpr std::uint32_t c_NoActivation = std::numeric_limits<std::uint32_t>::max();
 
-        // A container started, until it ends, and in an event whose curves move a pitch the play its start follows the end of, foreseen at a frame, and the play its own end is, foreseen likewise, its anchor's until a play of its own ends later
+        // A container started, until it ends, with the plays its start and end follow where pitch moves
         struct Activation
         {
             std::uint32_t Node = 0;
@@ -246,7 +246,7 @@ namespace Trinity
             std::uint64_t EndPlayTime = 0;
         };
 
-        // A clip playing whose pitch curves move, as far as it is foreseen to have got, in the clip's frames, at the instance's frame it got there, at the pitch its curves gave it then, and the action that tells its parent it has ended, or the instance's end for a clip that is the root
+        // A clip whose pitch curves move, as far as it is foreseen to have got, and what its end tells
         struct Pitched
         {
             std::uint32_t Number = 0;
@@ -270,7 +270,7 @@ namespace Trinity
             Trigger
         };
 
-        // Ordered by its time, then by the order it was made in, so ties go the same way on every run. A child's end carries the play that is its end, foreseen at a frame
+        // Ordered by time, then by the order made, so ties go the same way on every run
         struct Action
         {
             std::uint64_t Time = 0;
@@ -304,7 +304,7 @@ namespace Trinity
         std::uint64_t m_NextOrder = 0;
         std::uint64_t m_End = c_Never;
         bool m_Ended = false;
-        // An event whose curves move a pitch: the pitch each container's give it, as last told, and its clips playing
+        // Where curves move a pitch: the pitch each container's give it, as last told, and its clips
         bool m_Anchored = false;
         std::vector<float, TaggedAllocator<float, MemoryTag::Audio>> m_Pitches;
         std::vector<Pitched, TaggedAllocator<Pitched, MemoryTag::Audio>> m_Running;
@@ -315,10 +315,10 @@ namespace Trinity
         std::span<const float> m_Values;
     };
 
-    // A play of a clip as an instance's mix reads it: the main thread starts its voice, hands it to the mix and takes it back once the mix is done with it, and the rest is the audio thread's meanwhile. One that starts after another's end is handed that one, which the main thread keeps until this one is done with it too
+    // The main thread starts its voice and takes it back when done. The rest is the audio thread's
     struct SoundEventMixPlay
     {
-        // A low-pass curve filters this many of its clip's channels at most, which 7.1 needs, and any further channel passes clear
+        // A low-pass filters this many channels at most, which 7.1 needs. Further channels pass clear
         static constexpr std::size_t c_MaxFiltered = 8;
 
         AudioClipVoice Voice;
@@ -335,7 +335,7 @@ namespace Trinity
         std::uint32_t Number = 0;
         SoundEventMixPlay* After = nullptr;
         std::uint64_t Offset = 0;
-        // Whether its container's curves, or those above it, move its volume or pitch or filter it. A pitched one plays until its clip runs out, whatever its length
+        // A pitched one plays until its clip runs out, whatever its length
         bool Faded = false;
         bool Pitched = false;
         bool Filtered = false;
@@ -344,14 +344,14 @@ namespace Trinity
         std::uint64_t Ended = std::numeric_limits<std::uint64_t>::max();
         std::atomic<bool> Done{ false };
 
-        // The audio thread's: the instance's frames it has played, where a pitched one is in its clip, and the clip's frames from the play's start that its buffer holds
+        // The audio thread's: frames played, its place in the clip, and the frames its buffer holds
         bool Begun = false;
         std::uint64_t Played = 0;
         double Position = 0.0;
         std::uint64_t BufferStart = 0;
         std::uint64_t Buffered = 0;
         bool InputEnded = false;
-        // The audio thread's: its curves' gain, pitch and cutoff as it plays them, each moving evenly to the mix's latest over the frames left, the latest it has taken, its low-pass's coefficients, normalized by a0, and two registers for each channel, in transposed direct form II
+        // The audio thread's: curve values as played, and a low-pass in transposed direct form II
         std::uint32_t Update = 0;
         float LiveGain = 1.0f;
         float GainTo = 1.0f;
@@ -369,7 +369,7 @@ namespace Trinity
         std::array<std::array<float, 2>, c_MaxFiltered> Registers{};
     };
 
-    // An instance's plays mixed together, as a data source of miniaudio's that a sound reads as it would a clip, so the instance is one voice, heard from where its source is. Each play starts on the frame of the instance's clock it was given, or after the end of the play it was given, as that play really ends, its clip read at its rate between samples, so the plays of a Layer start on one sample and a Sequence's follow each other with no gap. A play given to it after its frame has passed starts where it would be by now. It reads silence while it waits for its next play, and ends once it has been told no more are coming and its last has played. Given its event's parameters, it seeks each towards its target as the engine's graph reads it, so every instance reading in one period hears a change in it, and its plays move to what their curves give over a period's frames. The main thread hands plays over through a queue, and the audio thread never allocates, locks or waits
+    // An instance's plays mixed as one miniaudio data source, so the instance is one voice
     class SoundEventMix
     {
     public:
@@ -385,7 +385,7 @@ namespace Trinity
         SoundEventMix(const SoundEventMix&) = delete;
         SoundEventMix& operator=(const SoundEventMix&) = delete;
 
-        // Main thread, before anything reads it: the plan, which outlives it, each parameter's target, the instance's own or a global one, which do too, and where each parameter is at the engine's frame given, on the graph whose time it reads
+        // Main thread, before anything reads it. The plan and the parameter targets must outlive it
         void Control(const SoundEventPlan& plan, std::span<const SoundParameterTarget* const> targets, std::span<const float> values, const ma_node_graph* graph, std::uint64_t frame);
         // Main thread: where a parameter is as the audio thread last sought it
         [[nodiscard]] float GetValue(std::size_t parameter) const;
@@ -411,9 +411,9 @@ namespace Trinity
         static ma_result OnGetCursor(ma_data_source* source, ma_uint64* cursor);
         static ma_result OnSetLooping(ma_data_source* source, ma_bool32 looping);
 
-        // Once for each time of the graph, before the plays are read: each parameter sought to where it is by then, and the curves' values from there
+        // Once for each time of the graph, before the plays are read: parameters sought, then curves
         void Seek();
-        // A play takes the latest values, ramping to them from where it is, or from them at once as it begins
+        // A play takes the latest values, ramping to them, or from them at once as it begins
         void Follow(SoundEventMixPlay& play, bool begin) const;
         // Whether the play is done
         bool Render(SoundEventMixPlay& play, float* output, std::uint64_t frames, std::uint64_t clock);
@@ -431,7 +431,7 @@ namespace Trinity
         std::array<SoundEventMixPlay*, c_MaxPlays> m_Active{};
         std::uint32_t m_ActiveCount = 0;
         std::uint64_t m_Mixed = 0;
-        // Once controlled: the event's parameters as the audio thread seeks them, with what it last read of their targets, published for the main thread, its containers' values from them, the graph's time they were sought to, how often they have been, and the frames the latest ramps over
+        // The audio thread's parameter state, published for the main thread once it is controlled
         const SoundEventPlan* m_Plan = nullptr;
         const ma_node_graph* m_Graph = nullptr;
         std::vector<const SoundParameterTarget*, TaggedAllocator<const SoundParameterTarget*, MemoryTag::Audio>> m_Targets;

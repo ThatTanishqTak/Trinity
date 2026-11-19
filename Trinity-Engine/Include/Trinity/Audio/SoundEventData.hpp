@@ -19,7 +19,7 @@
 
 namespace Trinity
 {
-    // What a container of a sound event plays each time it is triggered, as a light FMOD's instruments are: a Clip its clip, a Random one of its children by their weights, a Sequence each of its children in turn, each starting on the sample the one before it ends, a Layer every child at once, from the same sample, and a Switch the children whose case is the label its parameter has as it is triggered, or else those with no case
+    // As FMOD's instruments: a Clip, a Random of its children, a Sequence, a Layer, or a Switch
     enum class SoundContainerType : std::uint8_t
     {
         Clip,
@@ -29,14 +29,14 @@ namespace Trinity
         Switch
     };
 
-    // How a Random that triggers itself spaces its triggers, as Unity's Audio Random Container's Trigger does: Pulse from the start of one to the start of the next, and Offset from the end of one to the start of the next
+    // Pulse spaces triggers start to start, and Offset end to start, as Unity's Trigger
     enum class SoundTriggerTiming : std::uint8_t
     {
         Pulse,
         Offset
     };
 
-    // What a sound event does as it plays while its limit of instances already play, as FMOD's stealing: stop the one that began first, stop the quietest, unless the new one would be quieter still, and then not play it, or not play it
+    // As FMOD's stealing: stop the oldest, stop the quietest, or do not play the new one
     enum class SoundStealMode : std::uint8_t
     {
         Oldest,
@@ -44,14 +44,14 @@ namespace Trinity
         None
     };
 
-    // Whether a parameter is a value along a range, as an engine's RPM, which seeks towards each value it is given, or one of its labels, as the surface a footstep falls on, which it jumps to and a Switch picks by
+    // Continuous seeks towards each value given. Discrete jumps to a label, which a Switch picks by
     enum class SoundParameterKind : std::uint8_t
     {
         Discrete,
         Continuous
     };
 
-    // What a curve moves of its container, and of everything below it: the volume, in decibels added to the container's, the pitch, a speed the container's is multiplied by, or the cutoff of a low-pass, in hertz
+    // Volume in decibels added, pitch as a speed multiplied, or a low-pass cutoff in hertz
     enum class SoundCurveTarget : std::uint8_t
     {
         Volume,
@@ -59,7 +59,7 @@ namespace Trinity
         Cutoff
     };
 
-    // A parameter mapped onto one of a container's values as it plays, as FMOD's automation is: straight lines between points, each a value of the parameter and the container's value there, in order of the parameter's value, and level beyond the first and the last. A container's curves on one value combine with each other and with those above it: volumes add, pitches multiply and the lowest cutoff wins
+    // As FMOD's automation: straight lines between points, level beyond the first and the last
     struct TRINITY_API SoundCurve
     {
         UUID Parameter;
@@ -72,7 +72,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const SoundCurve&) const = default;
     };
 
-    // One container of a sound event's tree. Each has a volume in decibels and a pitch, a speed of playing as a source's is, each varied at random by up to its spread either way each time it is triggered, and a delay in seconds before it starts, lengthened at random by up to its own spread, and curves that move its volume, pitch and low-pass cutoff by the event's parameters as it plays. What else it holds is its type's: a Clip its clip, which loops while Loop is on, a Random how many of its last picks it never picks again, and whether it triggers itself, on an interval between two lengths, a number of times or for as long as the event plays, a Sequence whether it starts again from its first child once its last ends, and a Switch the parameter it picks by. A child of a Random has a weight, its share of the picks, and a child of a Switch a case, one of the parameter's labels, or none for every label no other child has. A value outside its range is played at its nearest end
+    // Volume is in decibels and pitch a speed, each varied by up to its spread on every trigger
     struct SoundContainer
     {
         UUID ID;
@@ -106,7 +106,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const SoundContainer&) const = default;
     };
 
-    // A value each playing instance of a sound event is given by name, starting at its default, or for a global one the value the game gives every instance by that name, which the default stands for until the game has given one. A discrete one is one of its labels, by its index from 0, which its Switches pick by, and it jumps to each value it is given. A continuous one is along its range, and seeks towards each value at its speed, in its own units a second, or at once for 0, as FMOD's do. Curves map either onto its containers' values
+    // Starts at its default. A global one takes the value the game gives every instance by name
     struct TRINITY_API SoundParameter
     {
         UUID ID;
@@ -124,13 +124,13 @@ namespace Trinity
         // Its lowest and highest value, a discrete one's its first label and its last
         [[nodiscard]] float GetMinimum() const;
         [[nodiscard]] float GetMaximum() const;
-        // A value as it plays: within its range, a discrete one's at its nearest label, and one that is no number at its default
+        // Within its range, a discrete one at its nearest label, and its default for no number
         [[nodiscard]] float Clamp(float value) const;
 
         [[nodiscard]] bool operator==(const SoundParameter&) const = default;
     };
 
-    // What a .trsound file holds, a Sound Event: a tree of containers from its root, which comes first, each container after its parent and in its order among its parent's children, the parameters it is played with, how many instances of it play at once, how they give way and how soon one plays after another, the mixer group, priority and 3D settings it plays with on its own, as PlayAtPoint and Forge's audition play it, where an AudioSource playing it uses its own, and its Output group only when it names none
+    // A .trsound file: containers from the root, each after its parent, and the event's settings
     struct TRINITY_API SoundEventData
     {
         static constexpr std::uint32_t c_FormatVersion = 1;
@@ -149,7 +149,7 @@ namespace Trinity
 
         std::vector<SoundContainer, TaggedAllocator<SoundContainer, MemoryTag::Audio>> Containers;
         std::vector<SoundParameter, TaggedAllocator<SoundParameter, MemoryTag::Audio>> Parameters;
-        // One of the project's mixer's groups, by its ID. None, or a group the mixer lacks, plays into Master
+        // A mixer group's ID. None, or a group the mixer lacks, plays into Master
         UUID Output;
         // From 0, the most important, to 256, the least, as a source's
         std::uint32_t Priority = 128;
@@ -183,31 +183,31 @@ namespace Trinity
         [[nodiscard]] const SoundCurve* FindCurve(UUID container, UUID parameter, SoundCurveTarget target) const;
         [[nodiscard]] SoundCurve* FindCurve(UUID container, UUID parameter, SoundCurveTarget target);
 
-        // The edits Forge's Sound Event panel makes, each of which keeps an event to its rules. A new container of the type below the parent, after everything below it already, with an ID of its own, at its defaults, a Clip playing the clip given. Null for a parent the event lacks or a Clip, which holds none
+        // After everything below the parent already, with a new ID. Null for an unknown parent or a Clip
         SoundContainer* AddContainer(UUID parent, SoundContainerType type, std::string_view name, UUID clip = UUID());
-        // A copy of the container and everything below it, the copy named as given, right after the last of them, below the same parent, each copy with an ID of its own. Null for the root or a container the event lacks
+        // Copies get new IDs. Null for the root or a container the event lacks
         SoundContainer* DuplicateContainer(UUID container, std::string_view name);
         // The container and everything below it. False for the root or a container the event lacks
         bool RemoveContainer(UUID container);
-        // The container, with everything below it, below another parent, before one of the parent's children, or after the last when it names none. Its case is kept only below a Switch by the same parameter, and its weight only below a Random. False for the root, a container or a parent the event lacks, a Clip, a parent that is the container or below it, or a child before which is not the parent's
+        // Its case is kept only below a Switch by the same parameter, and its weight below a Random
         bool MoveContainer(UUID container, UUID parent, UUID before = UUID());
-        // Its children's cases are let go once it is no Switch, and their weights once it is no Random, as its parameter is once it is a Switch by a parameter that is not discrete. What the new type never saves, such as a Clip's clip or a Random's triggering, goes back to its default. False for a container the event lacks, or a Clip asked of one with children
+        // What the new type never saves goes back to its default. False for an unknown container
         bool SetContainerType(UUID container, SoundContainerType type);
-        // A Switch by a discrete parameter of the event's, or by none, its children's cases let go when it changes. False for a container that is no Switch, or a parameter that is not one of the event's discrete ones
+        // Its children's cases are let go when it changes. False unless a Switch and a discrete parameter
         bool SetSwitchParameter(UUID container, UUID parameter);
-        // At its kind's defaults: a continuous one from 0 to 1, and a discrete one with one label. Null for a name that is empty or another parameter's
+        // Continuous from 0 to 1, or discrete with one label. Null for an empty or taken name
         SoundParameter* AddParameter(std::string_view name, SoundParameterKind kind);
-        // The parameter, with its curves, and the Switches by it, which pick by none, their children's cases let go. False for one the event lacks
+        // Its curves go, and Switches by it pick by none. False for one the event lacks
         bool RemoveParameter(UUID parameter);
         // False for one the event lacks, or a name that is empty or another parameter's
         bool RenameParameter(UUID parameter, std::string_view name);
-        // Continuous, its labels go, the Switches by it pick by none, and its range spans what the labels did. Discrete, it has one label. Its default is kept within its range. False for one the event lacks
+        // Its default is kept within its range. False for one the event lacks
         bool SetParameterKind(UUID parameter, SoundParameterKind kind);
-        // A label last, or renamed, a case of it renamed with it, or removed, a case of it let go and a default past the last label kept to it. False for a parameter that is not one of the event's discrete ones, a name that is empty or another of its labels', a place beyond its labels, or its only label
+        // Adds, renames or removes a label, its cases following. False for bad input or its only label
         bool AddLabel(UUID parameter, std::string_view name);
         bool RenameLabel(UUID parameter, std::size_t index, std::string_view name);
         bool RemoveLabel(UUID parameter, std::size_t index);
-        // A curve of the container's value by the parameter, level at the value that changes nothing across the parameter's range, or the one it has already. Null for a container or a parameter the event lacks
+        // Level at the value that changes nothing, or the curve it has already. Null for unknown input
         SoundCurve* AddCurve(UUID container, UUID parameter, SoundCurveTarget target);
         // False for a curve the container lacks
         bool RemoveCurve(UUID container, UUID parameter, SoundCurveTarget target);
@@ -216,7 +216,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const SoundEventData&) const = default;
     };
 
-    // The names a file and Forge give the types, timings, steal modes, parameter kinds and curve targets, in their enums' order
+    // The names a file and Forge give each enum's values, in the enum's order
     [[nodiscard]] TRINITY_API std::string_view GetSoundContainerTypeKey(SoundContainerType type);
     [[nodiscard]] TRINITY_API std::optional<SoundContainerType> FindSoundContainerType(std::string_view key);
     [[nodiscard]] TRINITY_API std::string_view GetSoundTriggerTimingKey(SoundTriggerTiming timing);
@@ -228,10 +228,10 @@ namespace Trinity
     [[nodiscard]] TRINITY_API std::string_view GetSoundCurveTargetKey(SoundCurveTarget target);
     [[nodiscard]] TRINITY_API std::optional<SoundCurveTarget> FindSoundCurveTarget(std::string_view key);
 
-    // Empty for an event that keeps to its rules, and otherwise what it breaks: there is a root and it comes first, every other container's parent is a container before it that is not a Clip, no two containers share an ID, every type is known and every value a number, every Switch picks by a discrete parameter the event has or by none, each child of a Switch has a case that is a label of that parameter, or none, every parameter has a name and an ID no other has, a discrete one labels that are each named once and a continuous one none, a range from a minimum below its maximum and a seek speed of 0 or more, every curve is by a parameter the event has, of a known value, no other curve of its container being by that parameter on that value, with points in order of the parameter's value, no two at one value, and every value of the event is a number
+    // Empty for an event that keeps to its rules, and otherwise the rule it breaks
     [[nodiscard]] TRINITY_API std::string ValidateSoundEvent(const SoundEventData& data);
 
-    // A Sound Event as its file has it. The clips it names are not held by it, so whatever plays it holds them, as a scene loading does to wait for those that preload
+    // It does not hold the clips it names, so whatever plays it holds them
     class TRINITY_API SoundEventAsset final : public Asset
     {
     public:
@@ -247,7 +247,7 @@ namespace Trinity
         [[nodiscard]] const SoundEventData& GetData() const { return m_Data; }
         // As GetData().GetClips(), found once as it loads
         [[nodiscard]] std::span<const UUID> GetClips() const { return m_Clips; }
-        // A number of its own for each version loaded, so a reload is told from the version before, wherever it lies
+        // A number of its own for each version loaded, so a reload is told from the one before
         [[nodiscard]] std::uint64_t GetSerial() const { return m_Serial; }
 
     private:
@@ -268,8 +268,8 @@ namespace Trinity
         [[nodiscard]] Expected<Asset*, std::string> Load(std::span<const std::byte> data) const override;
     };
 
-    // YAML, the event's own values, its parameters, each with its kind's values, then its containers in their order, the root without a Parent, each with the values of its type, a weight under a Random, a case under a Switch and its curves
+    // YAML: the event's values, its parameters, then its containers in order, the root first
     [[nodiscard]] TRINITY_API std::string WriteSoundEvent(const SoundEventData& data);
-    // A key that is missing keeps its default. A malformed key, an event that breaks its rules, or a newer format, refuses the file
+    // A missing key keeps its default. A malformed key, a broken rule or a newer format is refused
     [[nodiscard]] TRINITY_API Expected<SoundEventData, std::string> ParseSoundEvent(std::string_view text);
 }

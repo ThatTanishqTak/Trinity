@@ -46,7 +46,7 @@ namespace Trinity
             return static_cast<std::int8_t>(std::lround(std::clamp(sample, -1.0f, 1.0f) * 127.0f));
         }
 
-        // A FLAC file's bits per sample, which miniaudio decodes past without telling, from the STREAMINFO block that comes first after fLaC. An ID3v2 tag ahead of the stream is stepped over
+        // miniaudio does not report a FLAC's bits per sample, so it is read from STREAMINFO
         std::optional<std::uint32_t> GetFlacBitsPerSample(std::span<const std::byte> source)
         {
             const auto a_Byte = [&source](std::size_t index) { return std::to_integer<std::uint32_t>(source[index]); };
@@ -57,7 +57,7 @@ namespace Trinity
                 l_Start = 10 + (((a_Byte(6) & 0x7F) << 21) | ((a_Byte(7) & 0x7F) << 14) | ((a_Byte(8) & 0x7F) << 7) | (a_Byte(9) & 0x7F));
             }
 
-            // Bits per sample less one are 5 bits across STREAMINFO's 13th and 14th bytes, after the 4-byte block header
+            // Bits per sample less one: 5 bits across STREAMINFO's 13th and 14th bytes, after the block header
             if (source.size() < l_Start + 22 || std::memcmp(source.data() + l_Start, "fLaC", 4) != 0 || (a_Byte(l_Start + 4) & 0x7F) != 0)
             {
                 return std::nullopt;
@@ -102,7 +102,7 @@ namespace Trinity
             bool m_Open = false;
         };
 
-        // Every frame of the source as 32-bit float, a piece at a time, each piece with the frame it starts at. The frames decoded, or why it stopped short of the end
+        // As 32-bit float, a piece at a time. Returns the frames decoded, or why it stopped short
         template<typename Function>
         Expected<std::uint64_t, std::string> DecodeAll(std::span<const std::byte> source, AudioEncoding encoding, std::uint32_t channels, const Function& onFrames)
         {
@@ -216,7 +216,7 @@ namespace Trinity
             return MA_SUCCESS;
         }
 
-        // The file's own channels and rate are asked for, so the decoder converts nothing but the sample format
+        // The file's own channels and rate are asked for, so the decoder converts only the sample format
         ma_decoder_config GetDecoderConfig(const AudioClipHeader& header)
         {
             ma_decoder_config l_Config = ma_decoder_config_init(ToMiniaudio(header.Format), header.Channels, header.SampleRate);
@@ -368,7 +368,7 @@ namespace Trinity
         const std::uint8_t l_Preload = Load<std::uint8_t>(file, 19);
         if (l_Encoding > static_cast<std::uint8_t>(AudioEncoding::Vorbis) || l_Format > static_cast<std::uint8_t>(AudioSampleFormat::Float32) || l_LoadType > static_cast<std::uint8_t>(AudioLoadType::Streaming) || l_Preload > 1)
         {
-            return Unexpected{ std::format("encoding {}, format {}, load type {} and preload {} are not a clip this build reads", l_Encoding, l_Format, l_LoadType, l_Preload) };
+            return Unexpected{ std::format("encoding {}, format {}, load type {} and preload {} are not a readable clip", l_Encoding, l_Format, l_LoadType, l_Preload) };
         }
 
         AudioClipHeader l_Header;
@@ -441,7 +441,7 @@ namespace Trinity
             l_Header.Format = l_Native == ma_format_u8 || l_Native == ma_format_s16 ? AudioSampleFormat::Int16 : AudioSampleFormat::Float32;
         }
 
-        // Once to count its frames, which checks every one of them, and again for the waveform, as the length some decoders report before decoding is only a guess
+        // Decoded twice, to count frames then for the waveform: some decoders' reported length is a guess
         const Expected<std::uint64_t, std::string> l_Frames = DecodeAll(source, l_Header.Encoding, l_Header.Channels, [](std::span<const float>, std::uint64_t) {});
         if (!l_Frames)
         {

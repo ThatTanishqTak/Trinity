@@ -34,7 +34,7 @@ namespace Trinity
             return l_Storage;
         }
 
-        // On a worker: the samples as the clip's load type holds them, from the file the importer wrote beside the header. A streaming clip only opens the file, and each of its voices reads it in turn
+        // On a worker. A streaming clip only opens the file, and each of its voices reads it in turn
         Expected<void, std::string> LoadSamples(AudioClipStorage& storage)
         {
             TR_PROFILE_FUNCTION();
@@ -46,7 +46,7 @@ namespace Trinity
                 return Unexpected{ std::format("its samples could not be opened: {}", ToString(l_File.GetError())) };
             }
 
-            // Decoded from the start here, so a file that cannot be decoded fails as the clip loads rather than as it first plays
+            // Decoded from the start here, so a bad file fails as the clip loads, not as it first plays
             if (l_Header.LoadType == AudioLoadType::Streaming)
             {
                 AudioFileView l_View;
@@ -91,7 +91,7 @@ namespace Trinity
                 return {};
             }
 
-            // Decompress On Load: all of it at once, in the format the importer chose, and the file's bytes let go after
+            // Decompress On Load: all at once, in the format the importer chose, then the bytes are let go
             const std::uint64_t l_FrameSize = std::uint64_t{ l_Header.Channels } * GetSampleSize(l_Header.Format);
             storage.Samples.resize(static_cast<std::size_t>(l_Header.Frames * l_FrameSize));
 
@@ -110,7 +110,7 @@ namespace Trinity
             return {};
         }
 
-        // Reads a clip's header on a worker, and its samples there too for a clip that preloads, or for any other on a job of the loader's own once the asset reads as ready
+        // Samples load on the same worker for a clip that preloads, else on a job once it reads as ready
         class AudioClipLoader final : public AssetLoader
         {
         public:
@@ -119,7 +119,7 @@ namespace Trinity
 
             }
 
-            // A clip still loading in the background holds only its storage, which outlives the loader if it must
+            // A clip still loading in the background holds only its storage, which may outlive the loader
             ~AudioClipLoader() override
             {
                 JobSystem::Wait(m_Jobs);
@@ -184,7 +184,7 @@ namespace Trinity
 
         private:
             AudioClipAsset m_Placeholder;
-            // Load is const like the rest of the loader interface, and only counts its jobs here
+            // Load is const as the loader interface has it, and only counts its jobs here
             mutable JobCounter m_Jobs;
         };
 

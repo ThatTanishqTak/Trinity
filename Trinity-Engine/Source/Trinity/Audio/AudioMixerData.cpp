@@ -19,7 +19,7 @@ namespace Trinity
     {
         std::atomic<std::uint64_t> s_NextSerial{ 1 };
 
-        // Unity's names, units and defaults where Unity has the effect, with Resonance and Q at a Butterworth's 0.7071, so a cutoff is at -3 dB
+        // Unity's names, units and defaults. Resonance and Q default to 0.7071, so a cutoff is at -3 dB
         constexpr std::array<AudioEffectParameter, 2> c_LowpassParameters{ { { "Cutoff", "Cutoff", "Hz", 10.0f, 22000.0f, 5000.0f },{ "Resonance", "Resonance", "", 0.1f, 10.0f, 0.7071f } } };
         constexpr std::array<AudioEffectParameter, 2> c_HighpassParameters{ { { "Cutoff", "Cutoff", "Hz", 10.0f, 22000.0f, 5000.0f },{ "Resonance", "Resonance", "", 0.1f, 10.0f, 0.7071f } } };
         constexpr std::array<AudioEffectParameter, 2> c_BandParameters{ { { "Frequency", "Frequency", "Hz", 20.0f, 22000.0f, 1000.0f },{ "Q", "Q", "", 0.1f, 10.0f, 0.7071f } } };
@@ -48,7 +48,7 @@ namespace Trinity
         } };
         // At -80 dB, as Unity's starts, a Send sends nothing until it is turned up
         constexpr std::array<AudioEffectParameter, 1> c_SendParameters{ { { "Send Level", "SendLevel", "dB", -80.0f, 20.0f, -80.0f } } };
-        // Unity's Duck Volume, its ratio in percent, 200% being 2:1, and its attack and release the times its ducking takes to come and go 99% of the way
+        // Ratio in percent, 200% being 2:1. Attack and release are times to go 99% of the way
         constexpr std::array<AudioEffectParameter, 7> c_DuckParameters{ {
             { "Threshold", "Threshold", "dB", -100.0f, 0.0f, -10.0f },
             { "Ratio", "Ratio", "%", 100.0f, 5000.0f, 200.0f },
@@ -84,7 +84,7 @@ namespace Trinity
         constexpr AudioEffectParameter c_WetValue{ "Wet", "Wet", "%", 0.0f, 100.0f, 100.0f };
         constexpr std::array<std::string_view, 6> c_CurveKeys{ "Linear", "Smoothstep", "Squared", "SquareRoot", "BrickwallStart", "BrickwallEnd" };
 
-        // The group or the effect an ID names, of which a mixer that keeps to its rules has one at most. Attenuation has no ID, so it is never one
+        // Attenuation has no ID, so it is never one
         struct ValueOwner
         {
             const AudioMixerGroup* Group = nullptr;
@@ -133,7 +133,7 @@ namespace Trinity
             return slot == AudioMixerValue::c_Wet ? owner.Effect->Wet : owner.Effect->Parameters[slot - 1];
         }
 
-        // Each group in its order, then its effects in theirs, Attenuation aside, which is the order a file gives a snapshot's values in
+        // Groups in order, each then its effects, Attenuation aside: the order a file gives values in
         template<typename Function>
         void ForEachOwner(const AudioMixerData& data, Function function)
         {
@@ -157,7 +157,7 @@ namespace Trinity
             return id && a_Found != groups.end() ? &*a_Found : nullptr;
         }
 
-        // Whether the group is the one named or below it. A walk longer than the list has come round a loop, which a mixer that keeps to its rules has none of
+        // A walk longer than the list has come round a loop, which a valid mixer has none of
         [[nodiscard]] bool IsInBranch(std::span<const AudioMixerGroup> groups, const AudioMixerGroup& group, UUID top)
         {
             const AudioMixerGroup* l_At = &group;
@@ -174,7 +174,7 @@ namespace Trinity
             return false;
         }
 
-        // Just after the last group that is the one named or below it, which is where a group added below it goes
+        // Just after the last group that is the one named or below it, where a new group goes
         [[nodiscard]] std::size_t FindBranchEnd(std::span<const AudioMixerGroup> groups, UUID top)
         {
             std::size_t l_End = 0;
@@ -189,7 +189,7 @@ namespace Trinity
             return l_End;
         }
 
-        // Attenuation left out where it comes last, since it plays there anyway, so a chain is written one way only
+        // Attenuation is left out where it comes last, so a chain is written one way only
         void TrimAttenuation(AudioMixerGroup& group)
         {
             if (!group.Effects.empty() && group.Effects.back().Type == AudioEffectType::Attenuation)
@@ -198,7 +198,7 @@ namespace Trinity
             }
         }
 
-        // A copy of each entry for a group or effect that has a copy, under the copy's ID. Each is copied before it joins the list, which may move it
+        // Each is copied before it joins the list, which may move it
         template<typename List>
         void CopyEntries(List& entries, std::span<const std::pair<UUID, UUID>> copies)
         {
@@ -234,7 +234,7 @@ namespace Trinity
             return {};
         }
 
-        // A snapshot as a file gives it, each value it leaves out at the start snapshot's and each curve at Linear
+        // Each value it leaves out is the start snapshot's, and each curve Linear
         std::string ReadSnapshot(const YAML::Node& node, const AudioMixerData& data, AudioMixerSnapshot& snapshot)
         {
             if (!node.IsMap())
@@ -306,7 +306,7 @@ namespace Trinity
             return {};
         }
 
-        // An exposed value as a file gives it: its name, the ID of its group or effect, and which of its values by its key
+        // Its name, the ID of its group or effect, and which of its values by its key
         std::string ReadExposed(const YAML::Node& node, const AudioMixerData& data, AudioExposedParameter& exposed)
         {
             std::string l_Name;
@@ -337,7 +337,7 @@ namespace Trinity
             return std::format("exposed value '{}' is '{}', which its group or effect has no value of", l_Name, l_Key);
         }
 
-        // An effect as a file gives it, at its type's defaults where a key is missing. Attenuation reads its type alone
+        // At its type's defaults where a key is missing. Attenuation reads its type alone
         std::string ReadEffect(const YAML::Node& node, std::string_view group, AudioEffect& effect)
         {
             std::string l_Type;
@@ -382,7 +382,7 @@ namespace Trinity
             return {};
         }
 
-        // A group as a file gives it, each key that is missing at its default. One without an ID is refused
+        // A missing key keeps its default. A group without an ID is refused
         std::string ReadGroup(const YAML::Node& node, AudioMixerGroup& group)
         {
             if (!node.IsMap())
@@ -544,7 +544,7 @@ namespace Trinity
         return a_Own != snapshot.Curves.end() && value.Slot < AudioMixerValue::c_MaxSlots ? a_Own->Curves[value.Slot] : AudioTransitionCurve::Linear;
     }
 
-    // The start snapshot's value is its group's or its effect's own, which this data may change, as FindGroup lets it
+    // The start snapshot's value is its group's or effect's own, which this may change
     bool AudioMixerData::SetValue(UUID snapshot, AudioMixerValue value, float number)
     {
         AudioMixerSnapshot* l_Snapshot = FindSnapshot(snapshot);
@@ -645,7 +645,7 @@ namespace Trinity
         return true;
     }
 
-    // Both snapshots' values are read before any is written, since each reads the groups' and effects' own for what it holds none of
+    // Both are read before either is written, as each falls back on the groups' and effects' own
     bool AudioMixerData::SetStartSnapshot(UUID snapshot)
     {
         AudioMixerSnapshot* l_New = FindSnapshot(snapshot);
@@ -705,7 +705,7 @@ namespace Trinity
         return &*Groups.insert(Groups.begin() + static_cast<std::ptrdiff_t>(FindBranchEnd(Groups, parent)), std::move(l_Group));
     }
 
-    // The branch keeps its order, which has each group after its parent, and the top's parent stays the original's, which comes before them all
+    // The branch keeps its order, each group after its parent, and its top keeps the original's parent
     AudioMixerGroup* AudioMixerData::DuplicateGroup(UUID group, std::string_view name)
     {
         const AudioMixerGroup* l_Original = FindGroup(group);
@@ -770,7 +770,7 @@ namespace Trinity
         return &Groups[l_At];
     }
 
-    // Every group of the branch is found before any goes, since a group below is found through its parents
+    // Every group of the branch is found before any goes, as one below is found through its parents
     bool AudioMixerData::RemoveGroup(UUID group)
     {
         const AudioMixerGroup* l_Group = FindGroup(group);
@@ -794,7 +794,7 @@ namespace Trinity
         return true;
     }
 
-    // The branch leaves the list in its order and goes back in as a block, after the parent, which stays where it was, so each group is still after its parent
+    // The branch leaves the list and goes back in as a block after the parent, so order holds
     bool AudioMixerData::MoveGroup(UUID group, UUID parent, UUID before)
     {
         const AudioMixerGroup* l_Group = FindGroup(group);
@@ -829,7 +829,7 @@ namespace Trinity
         return true;
     }
 
-    // Only the new effect is ever at the place, so leaving Attenuation out once it comes last never moves it
+    // Only the new effect is ever at the place, so leaving a last Attenuation out never moves it
     AudioEffect* AudioMixerData::InsertEffect(UUID group, std::size_t place, AudioEffectType type)
     {
         AudioMixerGroup* l_Group = FindGroup(group);
@@ -921,7 +921,7 @@ namespace Trinity
         template<typename T>
         using AudioList = std::vector<T, TaggedAllocator<T, MemoryTag::Audio>>;
 
-        // Every Send names a Receive or a Duck Volume, or nothing the mixer has, and no group's output comes back to it, through its parents or what is sent: a group plays into its parent, and into each group its Sends reach
+        // No group's output may come back to it, through its parents or what its Sends reach
         std::string ValidateSends(const AudioMixerData& data)
         {
             const std::size_t l_Count = data.Groups.size();
@@ -960,7 +960,7 @@ namespace Trinity
                 }
             }
 
-            // A walk from each group not yet walked, with the path it is on and how far along each step's edges it has got, which a loop comes back into
+            // A walk from each group not yet walked, with its path, which a loop comes back into
             AudioList<std::uint8_t> l_Walked(l_Count, 0);
             AudioList<std::pair<std::size_t, std::size_t>> l_Path;
             for (std::size_t it_Start = 0; it_Start < l_Count; ++it_Start)
@@ -992,7 +992,7 @@ namespace Trinity
                             l_Loop += std::format("'{}', ", std::string_view(data.Groups[it_Step->first].Name));
                         }
 
-                        return std::format("its Sends make a loop through {}and back to '{}', which would play what they send back into it", l_Loop, std::string_view(data.Groups[l_Next].Name));
+                        return std::format("its Sends make a loop through {}and back to '{}'", l_Loop, std::string_view(data.Groups[l_Next].Name));
                     }
 
                     if (l_Walked[l_Next] == 0)
@@ -1006,7 +1006,7 @@ namespace Trinity
             return {};
         }
 
-        // Each list's entries for groups and effects the mixer has, once each, which every check of a snapshot's values and curves needs
+        // Each list's entries for groups and effects the mixer has, once each
         template<typename Entry>
         std::string ValidateEntries(const AudioMixerData& data, const AudioMixerSnapshot& snapshot, std::span<const Entry> entries, std::string_view what)
         {
@@ -1021,7 +1021,7 @@ namespace Trinity
             return {};
         }
 
-        // Every snapshot has a name and an ID no other has, StartSnapshot names one, which holds no values, every snapshot's values and curves are for groups and effects the mixer has, once each, and are numbers and curves, and every exposed value has a name no other has and is a value the mixer has that no other name exposes
+        // Snapshots and exposed values have unique names and IDs, and name only what the mixer has
         std::string ValidateSnapshots(const AudioMixerData& data)
         {
             for (auto it_Snapshot = data.Snapshots.begin(); it_Snapshot != data.Snapshots.end(); ++it_Snapshot)
@@ -1219,7 +1219,7 @@ namespace Trinity
             }
         }
 
-        // Across the mixer, since a Send in one group names a Receive in another by its ID, and apart from every group's, since a snapshot names a group or an effect by its ID
+        // IDs are unique across the mixer: a Send names a Receive in another group by its ID
         std::vector<UUID, TaggedAllocator<UUID, MemoryTag::Audio>> l_EffectIDs;
         for (const AudioMixerGroup& it_Group : data.Groups)
         {

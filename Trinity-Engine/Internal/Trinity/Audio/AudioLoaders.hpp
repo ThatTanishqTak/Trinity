@@ -2,7 +2,7 @@
 
 namespace Trinity
 {
-    // The audio clip, mixer and sound event loaders, registered with the asset manager once it is initialized and taken away before it shuts down. Taking them away waits for the clips still loading in the background
+    // Registered once the asset manager is initialized. Removing them waits for clips still loading
     namespace AudioLoaders
     {
         void Register();

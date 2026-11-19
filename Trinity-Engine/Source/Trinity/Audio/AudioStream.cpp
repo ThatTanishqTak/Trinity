@@ -79,7 +79,7 @@ namespace Trinity
         Refill();
     }
 
-    // The decoder opens on the first refill, on a worker, as it reads the start of the file. A seek empties every page and starts again from it, so the audio thread, which plays silence meanwhile, finds the new pages from the first
+    // The decoder opens on the first refill, on a worker. A seek empties every page and starts again
     void AudioStream::Refill()
     {
         TR_PROFILE_FUNCTION();
@@ -129,7 +129,7 @@ namespace Trinity
         }
     }
 
-    // A page ends short where the clip does, and a looping stream starts the clip again on the next page, so each page's start frame is where it lies in the clip
+    // A page ends short where the clip does, and a looping stream restarts on the next page
     void AudioStream::FillPage(Page& page)
     {
         const AudioClipHeader& l_Header = m_Storage->Header;
@@ -165,7 +165,7 @@ namespace Trinity
         }
     }
 
-    // On the audio thread. It always fills what it was asked for, with silence where a page is late or a seek waits, until the last page has played
+    // On the audio thread. A late page, or a seek that waits, is filled with silence
     ma_result AudioStream::OnRead(ma_data_source* source, void* frames, ma_uint64 frameCount, ma_uint64* framesRead)
     {
         AudioStream& l_Stream = *reinterpret_cast<Source*>(source)->Stream;
@@ -386,7 +386,7 @@ namespace Trinity
         return nullptr;
     }
 
-    // On the audio thread. A clip in 16-bit goes through a buffer on the stack a piece at a time, turned into float as the engine itself would turn it
+    // On the audio thread. A 16-bit clip goes through a stack buffer, turned into float as it goes
     ma_result AudioClipVoice::OnRead(ma_data_source* source, void* frames, ma_uint64 frameCount, ma_uint64* framesRead)
     {
         AudioClipVoice& l_Voice = *reinterpret_cast<Source*>(source)->Voice;

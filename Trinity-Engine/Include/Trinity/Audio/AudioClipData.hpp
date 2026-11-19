@@ -21,7 +21,7 @@ namespace Trinity
         DecompressOnLoad,
         // The file's bytes in memory, decoded on the audio thread as it plays
         CompressedInMemory,
-        // Read from the file and decoded on workers a little ahead as it plays, for long music and ambience
+        // Read and decoded on workers a little ahead as it plays, for long music and ambience
         Streaming
     };
 
@@ -33,7 +33,7 @@ namespace Trinity
         Vorbis
     };
 
-    // What a clip decodes into: 16-bit for a source of 16 bits or fewer, which takes half the memory, and 32-bit float for any other, so nothing is lost either way
+    // 16-bit for a source of 16 bits or fewer, at half the memory, and 32-bit float for any other
     enum class AudioSampleFormat : std::uint8_t
     {
         Int16,
@@ -45,7 +45,7 @@ namespace Trinity
     [[nodiscard]] TRINITY_API std::string_view ToString(AudioSampleFormat format);
     [[nodiscard]] TRINITY_API std::uint32_t GetSampleSize(AudioSampleFormat format);
 
-    // What the importer writes beside a clip's source bytes in /cache, which is all a game reads of a clip before it plays it
+    // Written by the importer beside the source bytes in /cache. All a game reads before it plays
     struct AudioClipHeader
     {
         static constexpr std::uint32_t c_WaveformColumns = 512;
@@ -70,6 +70,6 @@ namespace Trinity
     [[nodiscard]] TRINITY_API std::vector<std::byte> WriteAudioClipHeader(const AudioClipHeader& header);
     [[nodiscard]] TRINITY_API Expected<AudioClipHeader, std::string> ReadAudioClipHeader(std::span<const std::byte> file);
 
-    // Decodes the whole of a WAV, FLAC, MP3 or OGG Vorbis file, which checks every frame of it, and gives its encoding, the format it decodes into, its channels, rate, length and waveform. The ID, load type and preload are left for the importer
+    // Decodes the whole file, which checks every frame. ID, load type and preload are left unset
     [[nodiscard]] TRINITY_API Expected<AudioClipHeader, std::string> AnalyzeAudio(std::span<const std::byte> source);
 }
