@@ -22,14 +22,14 @@ namespace Trinity
         Dynamic
     };
 
-    // How a character moves: moved through the world by the engine, which nothing that hits it pushes, or as a dynamic body that cannot turn, which what hits it knocks back
+    // Moved by the engine, which nothing pushes, or a dynamic body that cannot turn, which is pushed
     enum class CharacterMode : std::uint8_t
     {
         Kinematic,
         Physical
     };
 
-    // What a 3D or a 2D scene's physics hands out after each step: between two bodies, contacts, triggers and a joint breaking, and a character beginning to touch a body, which only the character is told of
+    // After each step: contacts, triggers, a joint breaking, and a character beginning to touch
     enum class PhysicsEventType : std::uint8_t
     {
         ContactBegin,
@@ -43,7 +43,7 @@ namespace Trinity
 
     [[nodiscard]] TRINITY_API std::string_view ToString(PhysicsEventType type);
 
-    // What a call a script makes on a body did: done, refused since the entity is part of no body made, such as one still waiting for its shapes, or refused since its body cannot do it, such as a force on a body that is not dynamic
+    // Done, refused as the entity is part of no body made, or refused as its body cannot do it
     enum class PhysicsBodyResult : std::uint8_t
     {
         Done,
@@ -56,7 +56,7 @@ namespace Trinity
     // A mask with every layer in it, bit N for layer N
     constexpr std::uint32_t c_AllCollisionLayers = (1u << c_MaxCollisionLayers) - 1;
 
-    // A project's collision layers: a name for each, and which pairs collide, which by default is every pair. A pair collides both ways or neither. Saved with the project, and taken by a scene as it starts running
+    // A pair collides both ways or neither, and every pair by default. Saved with the project
     struct CollisionLayers
     {
         // Layer 0 is named Default, and an empty name shows as Layer and its number
@@ -101,7 +101,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const CollisionLayers&) const = default;
     };
 
-    // A project's physics, which a scene takes as it starts running: each world's gravity in metres per second squared, the fixed steps a second, which the simulation clock keeps between 1 and 1000, and the collision layers both worlds share
+    // Gravity in metres per second squared. The step rate is kept between 1 and 1000 a second
     struct PhysicsSettings
     {
         static constexpr std::uint32_t c_DefaultStepRate = 60;
@@ -114,7 +114,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const PhysicsSettings&) const = default;
     };
 
-    // A world's bodies as it reports them after its last step: all of them, static ones included, and of those that can move, the ones awake and the ones asleep
+    // As after its last step: all bodies, and of those that can move, the ones awake and asleep
     struct PhysicsBodyCounts
     {
         std::uint32_t Bodies = 0;
@@ -124,7 +124,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const PhysicsBodyCounts&) const = default;
     };
 
-    // A world's characters as its last step left them: all it has made, and of those the ones on ground they can stand on, the ones on ground too steep to, and the ones in the air, touching nothing that holds them up
+    // As its last step left them: on ground they can stand on, on ground too steep, or in the air
     struct PhysicsCharacterCounts
     {
         std::uint32_t Characters = 0;
@@ -135,7 +135,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const PhysicsCharacterCounts&) const = default;
     };
 
-    // Where two bodies touched after the last step, in world space, with the normal from the first body to the second, for drawing
+    // In world space, with the normal from the first body to the second, for drawing
     struct PhysicsContactPoint
     {
         glm::vec3 Position{ 0.0f };

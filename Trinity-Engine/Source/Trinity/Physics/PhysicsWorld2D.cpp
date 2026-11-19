@@ -41,7 +41,7 @@ namespace Trinity
             return 1;
         }
 
-        // Box2D's hooks are its own globals, set before its first allocation and left set, since they hold no state. Said once, rather than with every first world, which Play and Stop make many of
+        // Box2D's hooks are globals, set before its first allocation and left set, as they hold no state
         void InstallHooks()
         {
             static bool s_Installed = false;
@@ -54,7 +54,7 @@ namespace Trinity
             b2SetAssertFcn(&AssertBox2D);
 
             const b2Version l_Version = b2GetVersion();
-            TR_CORE_INFO("Physics: Box2D {}.{}.{} built for {}, running its tasks on Trinity's {} worker(s) and the main thread", l_Version.major, l_Version.minor, l_Version.revision, TR_PHYSICS_AVX2 ? "AVX2" : "SSE2", JobSystem::GetWorkerCount());
+            TR_CORE_INFO("Physics: Box2D {}.{}.{} for {}, tasks on {} worker(s) and the main thread", l_Version.major, l_Version.minor, l_Version.revision, TR_PHYSICS_AVX2 ? "AVX2" : "SSE2", JobSystem::GetWorkerCount());
         }
 
         b2BodyId ToBox2D(PhysicsBodyID2D body)
@@ -93,7 +93,7 @@ namespace Trinity
             return b2_dynamicBody;
         }
 
-        // In as many ranges as there are threads, none shorter than Box2D asks, and at least one job, since the solver's tasks each hold a worker that the others wait on. Each range is told the index of the thread it runs on, which is unique among the threads running at once. A step that wants more tasks than there are records runs the rest where it is
+        // One range per thread, none shorter than Box2D asks. A step with too many tasks runs the rest here
         void* EnqueueTask(b2TaskCallback* task, int itemCount, int minRange, void* taskContext, void* userContext)
         {
             Box2DTaskQueue& l_Queue = *static_cast<Box2DTaskQueue*>(userContext);
@@ -127,7 +127,7 @@ namespace Trinity
         }
     }
 
-    // Box2D's tasks run in parallel when every thread's index fits its workers, which all but a machine with Trinity's most workers do. On that one they run on the main thread
+    // Tasks run in parallel when every thread's index fits Box2D's workers, else on the main thread
     PhysicsWorld2D::PhysicsWorld2D(const PhysicsWorldSettings2D& settings)
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "Physics worlds are made on the main thread.");
@@ -158,7 +158,7 @@ namespace Trinity
         Memory::Delete(m_State);
     }
 
-    // A box's corners are left sharp, as a box collider's are. A layer's filter puts the body in its layer and lets it meet the layers the matrix says, which is exact both ways since the matrix is even
+    // A box's corners are left sharp, as a box collider's are
     PhysicsBodyID2D PhysicsWorld2D::CreateBody(const BodyDescription2D& description)
     {
         b2BodyDef l_Body = b2DefaultBodyDef();

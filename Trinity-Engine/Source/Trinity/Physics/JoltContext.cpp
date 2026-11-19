@@ -74,7 +74,7 @@ namespace Trinity
         }
 #endif
 
-        // Each job Jolt queues becomes a Trinity job, which runs it and lets it go. Inside the class JobSystem names Jolt's base, so Trinity's is named in full. A job a barrier has already run on the waiting thread runs no second time, since Execute only runs a job whose dependencies are met and which has not started. The destructor waits for every Trinity job still holding one, so none outlives the free list
+        // A job a barrier already ran runs no second time. The destructor waits for every job still held
         class JobSystemAdapter final : public JPH::JobSystemWithBarrier
         {
         public:
@@ -94,7 +94,7 @@ namespace Trinity
                 return static_cast<int>(Trinity::JobSystem::GetWorkerCount()) + 1;
             }
 
-            // Every job slot taken means a step asked for more than c_MaxJobs at once, which waits for one to free up
+            // Every job slot taken means a step asked for more than c_MaxJobs, which waits for one to free
             JobHandle CreateJob(const char* name, JPH::ColorArg color, const JobFunction& function, JPH::uint32 dependencies) override
             {
                 JPH::uint32 l_Index = AvailableJobs::cInvalidObjectIndex;
@@ -149,7 +149,7 @@ namespace Trinity
         // Counted apart from the worlds, since a shape is cooked or loaded on a worker, with or without one
         std::mutex s_TypesMutex;
         std::uint32_t s_TypeUsers = 0;
-        // Said the first time a world is made, rather than with every first world, which Play and Stop make many of
+        // Said once, not with every first world, which Play and Stop make many of
         bool s_Reported = false;
     }
 
@@ -167,7 +167,7 @@ namespace Trinity
             s_JobSystem = Memory::New<JobSystemAdapter>(MemoryTag::Physics);
             if (!std::exchange(s_Reported, true))
             {
-                TR_CORE_INFO("Physics: Jolt {}.{}.{} built for {}, running up to {} jobs at once on Trinity's {} worker(s) and the main thread", JPH_VERSION_MAJOR, JPH_VERSION_MINOR, JPH_VERSION_PATCH, TR_PHYSICS_AVX2 ? "AVX2" : "SSE4.2", c_MaxJobs, JobSystem::GetWorkerCount());
+                TR_CORE_INFO("Physics: Jolt {}.{}.{} for {}, up to {} jobs on {} worker(s) and the main thread", JPH_VERSION_MAJOR, JPH_VERSION_MINOR, JPH_VERSION_PATCH, TR_PHYSICS_AVX2 ? "AVX2" : "SSE4.2", c_MaxJobs, JobSystem::GetWorkerCount());
             }
         }
 

@@ -22,7 +22,7 @@ namespace Trinity
     {
         static_assert(sizeof(JPH::ObjectLayer) == sizeof(std::uint32_t), "Jolt is built with 32-bit object layers, OBJECT_LAYER_BITS in Vendor/CMakeLists.txt");
 
-        // An object layer holds the collision layers of a body's colliders as a mask, bit N for layer N, and a bit above them for a body that moves. Static bodies, which never meet each other, and moving ones are in a broadphase layer each
+        // An object layer is a mask of a body's collision layers, bit N for layer N, and a moving bit
         constexpr JPH::ObjectLayer c_MovingBit = 1u << c_MaxCollisionLayers;
         constexpr JPH::BroadPhaseLayer c_StaticBroadPhase{ 0 };
         constexpr JPH::BroadPhaseLayer c_MovingBroadPhase{ 1 };
@@ -73,7 +73,7 @@ namespace Trinity
             }
         };
 
-        // Two bodies meet when one moves and any layer of one collides with any of the other's. A body with colliders on several layers is let through here, and its parts are sorted out by PhysicsScene3D's filter on the shapes
+        // Two bodies meet when one moves and any layer of one collides with any of the other's
         class ObjectLayerFilter final : public JPH::ObjectLayerPairFilter
         {
         public:

@@ -85,7 +85,7 @@ namespace Trinity
         const JPH::BodyID l_Body = m_State->System.GetBodyInterface().CreateAndAddBody(l_Settings, description.Motion == BodyMotion::Dynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
         if (l_Body.IsInvalid())
         {
-            TR_CORE_ERROR("PhysicsWorld3D: the world holds {} bodies already, its most, so no more are made", m_State->System.GetNumBodies());
+            TR_CORE_ERROR("PhysicsWorld3D: the world holds its most, {} bodies, no more are made", m_State->System.GetNumBodies());
 
             return {};
         }

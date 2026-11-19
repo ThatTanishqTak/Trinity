@@ -22,7 +22,7 @@ namespace JPH
 
 namespace Trinity
 {
-    // A model's mesh as a physics shape, cooked at import: the convex hull around its vertices, which any body can have, or its triangles, which a static or kinematic body can
+    // Cooked at import: a convex hull, which any body can have, or triangles, for static and kinematic
     enum class CollisionShapeKind : std::uint8_t
     {
         ConvexHull,
@@ -30,20 +30,20 @@ namespace Trinity
     };
 
     [[nodiscard]] TRINITY_API std::string GetCookedCollisionShapePath(UUID id);
-    // The cooked format's version with Jolt's own in it, since a shape is kept as Jolt saves it, so an importer that keys its cache on it cooks again for a new Jolt
+    // Includes Jolt's own version, since a shape is kept as Jolt saves it, so a new Jolt cooks again
     [[nodiscard]] TRINITY_API std::uint32_t GetCollisionShapeVersion();
 
-    // A shape that could not be made, such as the hull of points all in a line, still gives a file, which holds the reason and fails to load with it
+    // A shape that could not be made still gives a file, which holds the reason and fails to load
     struct CookedCollisionShape
     {
         std::vector<std::byte> File;
         std::string Error;
     };
 
-    // From the mesh's positions and, for a triangle mesh, its indices, with vertices at the same position welded so neighbouring triangles share their edges. Refuses an index past the last vertex and anything that is not whole triangles
+    // Vertices at the same position are welded, so neighbouring triangles share their edges
     [[nodiscard]] TRINITY_API CookedCollisionShape CookCollisionShape(CollisionShapeKind kind, const MeshData& mesh);
 
-    // A cooked shape, in its mesh's own space, so it fits an entity drawing that mesh. Jolt's state is held under Physics and the rest under Assets
+    // In its mesh's own space. Jolt's state is under Physics, and the rest under Assets
     class TRINITY_API CollisionShapeAsset : public Asset
     {
     public:
@@ -57,7 +57,7 @@ namespace Trinity
 
         [[nodiscard]] CollisionShapeKind GetKind() const { return m_Kind; }
         [[nodiscard]] const MeshBounds& GetBounds() const { return m_Bounds; }
-        // Each edge as its two ends, a hull's around its faces and a mesh's around its triangles. Empty in Distribution, and for a shape with more than c_MaxWireEdges edges
+        // Each edge as its two ends. Empty in Distribution, and past c_MaxWireEdges edges
         [[nodiscard]] std::span<const glm::vec3> GetWireframe() const { return m_Wireframe; }
         // For the physics sources, which alone see Jolt's types
         [[nodiscard]] const JPH::Shape* GetShape() const { return m_Shape; }

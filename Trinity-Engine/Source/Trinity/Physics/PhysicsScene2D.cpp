@@ -40,36 +40,36 @@ namespace Trinity
         constexpr float c_TiltTolerance = 1e-3f;
         // A ray's hit is found again from this fraction of its distance, and a metre's, before it
         constexpr float c_RefineMargin = 1e-3f;
-        // Box2D's linear slop, within which a contact point counts as touching, and how near shapes come before its solver meets them
+        // Box2D's linear slop, within which a contact counts as touching
         constexpr float c_TouchingSlop = 0.005f;
         constexpr float c_SpeculativeDistance = 4.0f * c_TouchingSlop;
         // Box2D's own bounds on a revolute joint's limits
         constexpr float c_MaxLimitAngle = 0.99f * std::numbers::pi_v<float>;
-        // A 2D character rising slower than this, against what it stands on, stays on it, as a 3D one does
+        // A 2D character rising slower than this stays on what it stands on, as a 3D one does
         constexpr float c_RisingSpeed = 0.1f;
         // A 2D character's MaxSlope is held between these
         constexpr float c_MinimumSlope = std::numbers::pi_v<float> / 180.0f;
         constexpr float c_MaximumSlope = std::numbers::pi_v<float> *0.5f;
-        // A 2D character's move meets shapes this near, a physical one finds the ground this near, as a 3D one does, and a shape this near touches it. Box2D's plane solver and casts leave a mover its linear slop inside what it rests on, so it keeps touching
+        // Box2D leaves a mover its linear slop inside what it rests on, so shapes this near touch it
         constexpr float c_ContactDistance = 0.05f;
         constexpr float c_SupportDistance = 0.01f;
-        // The tries a 2D character's move takes to reach where it goes, as Box2D's mover sample takes, stopping once a try moves less than this
+        // The tries a move takes, as Box2D's mover sample, stopping once a try moves less than this
         constexpr int c_MoveIterations = 5;
         constexpr float c_MoveTolerance = 1e-4f;
-        // A one-way collider holds a 2D character whose contact with it faces within about 45 degrees of the collider's up, while the character is no deeper in it than this
+        // A one-way collider holds a character whose contact faces within about 45 degrees of its up
         constexpr float c_OneWayCosine = 0.7f;
         constexpr float c_OneWayDepth = 0.02f;
-        // Jolt's own settings for walking up stairs, which a 2D character takes as a 3D one does: the least it steps forward, how far ahead it looks for a floor past an edge, and the most a wall it walks into may face away from where it goes, 75 degrees
+        // Jolt's own settings for walking up stairs, which a 2D character takes as a 3D one does
         constexpr float c_StairsMinStepForward = 0.02f;
         constexpr float c_StairsStepForwardTest = 0.15f;
         constexpr float c_StairsCosAngleForwardContact = 0.258819f;
         // The least a 2D character weighs, in kilograms
         constexpr float c_MinimumCharacterMass = 0.1f;
-        // A physical 2D character stepping up looks for the step's top this far past the front of its capsule, from this far above its step height, as a 3D one does
+        // Stepping up, it looks for the step's top this far past its capsule's front, as a 3D one does
         constexpr float c_StepReach = 0.05f;
         // It climbs a step this high or more, and is lifted this far above it
         constexpr float c_StepSkin = 1e-3f;
-        // It fits where it is placed sunk this deep or less into what is about it, as Box2D's solver leaves a body resting against another
+        // It fits when sunk this deep or less, as Box2D's solver leaves a resting body
         constexpr float c_StepAllowance = 0.03f;
 
         enum class ColliderKind2D : std::uint8_t
@@ -80,7 +80,7 @@ namespace Trinity
             Polygon
         };
 
-        // A 2D collider as it was last read: a box's half extents, a circle's radius, a capsule's radius and height, or a polygon's points and rounding, and its entity's UUID, which events and queries report
+        // As last read: a box's half extents, a circle's radius, a capsule's size, or a polygon's points
         struct ColliderSource2D
         {
             entt::entity Entity = entt::null;
@@ -100,7 +100,7 @@ namespace Trinity
             float Angle = 0.0f;
         };
 
-        // A shape a 2D character met: its body, the point on its surface nearest the character, the normal from it to the character, the gap between the two, below 0 while they overlap, and how fast the shape moves there
+        // The gap is below 0 while they overlap
         struct CharacterContact2D
         {
             b2ShapeId Shape = b2_nullShapeId;
@@ -112,7 +112,7 @@ namespace Trinity
             glm::vec2 Velocity{ 0.0f };
         };
 
-        // What a 2D character's capsule touches or nearly does, by the entity of the body it is part of, as a 3D character's touch is
+        // By the entity of the body it is part of, as a 3D character's touch is
         struct CharacterTouch2D
         {
             UUID Entity;
@@ -121,7 +121,7 @@ namespace Trinity
             float Distance = 0.0f;
         };
 
-        // As Jolt has a 3D character stand: on ground it can stand on, on a slope too steep, touching what holds none of it up, or touching nothing
+        // As Jolt has a 3D character stand: on ground, on a slope too steep, held up by nothing, or in air
         enum class GroundState2D : std::uint8_t
         {
             OnGround,
@@ -144,12 +144,12 @@ namespace Trinity
             float Wanted = 0.0f;
         };
 
-        // A body's owner and what it was made from. Each record is an allocation of its own, which never moves, since its body points at it, and records come and go as the scene changes while it runs. Its shapes point at its colliders, so they are made again whenever the colliders change
+        // Each record is its own allocation, which never moves, since its body points at it
         struct BodyRecord2D
         {
             entt::entity Entity = entt::null;
             UUID ID;
-            // Its place in the order records were made, which as the scene starts is hierarchy order, and which pairs of bodies are counted and sorted by
+            // Records are made in hierarchy order as the scene starts. Pairs are counted and sorted by this
             std::uint32_t Serial = 0;
             BodyMotion Motion = BodyMotion::Static;
             bool HasRigidBody = false;
@@ -160,29 +160,29 @@ namespace Trinity
             float Depth = 0.0f;
             Pose2D Previous;
             Pose2D Current;
-            // Where its entity's transform puts it, last frame and this one, which a kinematic body moves between over the frame's steps
+            // Where its entity's transform puts it, last frame and this, for a kinematic body's steps
             Pose2D TargetFrom;
             Pose2D TargetTo;
-            // The entity's local position and rotation as the body was made or last wrote them, so a transform set from code is seen and the body teleported there
+            // The local pose as the body was made or last wrote it, so a transform set from code is seen
             glm::vec3 WrittenPosition{ 0.0f };
             glm::quat WrittenRotation = glm::identity<glm::quat>();
-            // A character's controller as it was last read, and what its capsule shape reports to events and queries. Its body holds its capsule and the colliders that follow it, and is kinematic and placed where the character moves, or for a physical one dynamic, unable to turn and moved by the velocity it is given
+            // Its body holds its capsule and the colliders that follow it: kinematic, or dynamic if physical
             bool HasCharacter = false;
             CharacterController2DComponent Controller;
             ColliderSource2D Capsule;
             b2ShapeId CapsuleShape = b2_nullShapeId;
-            // Its capsule's cap centres in its body's space, its radius, and its step height, in the world, and the cosine of its steepest slope
+            // In the world: its capsule's cap centres, radius and step height, and its steepest slope's cosine
             std::array<b2Vec2, 2> CapsuleEnds{};
             float Radius = 0.0f;
             bool Round = false;
             float StepHeight = 0.0f;
             float CosMaxSlope = 0.0f;
-            // The velocity of its own, which lasts until changed, and how its last move or step left it standing, with where it met the ground and the shapes it met there
+            // Its own velocity lasts until changed. Then how its last move or step left it standing
             glm::vec2 Velocity{ 0.0f };
-            // The displacement scripts asked for since its last step, which its next step covers besides its velocity, and for a physical one the velocity of what of it was covered over the step
+            // The displacement scripts asked for since its last step, covered besides its velocity
             glm::vec2 Move{ 0.0f };
             glm::vec2 Moved{ 0.0f };
-            // The bodies it touches, by their entities' UUIDs in order, kept until it moves away from them, so it hits each once as it begins touching it
+            // By UUID in order, kept until it moves away, so it hits each once as it begins touching
             PhysicsVector<UUID> Touching;
             GroundState2D Ground = GroundState2D::InAir;
             glm::vec2 GroundNormal{ 0.0f };
@@ -191,19 +191,19 @@ namespace Trinity
             PhysicsVector<CharacterContact2D> Contacts;
             // The body a kinematic character stood on as its step began, which carries it over the step
             CarryingBody2D Carrier;
-            // A physical character's: the normals of the ground it can stand on that held it up as its last step left it, and how deep it was in that ground, less than nothing above it
+            // The normals of standable ground that held it up, and its depth, less than nothing above
             PhysicsVector<glm::vec2> Supports;
             float GroundDepth = 0.0f;
-            // As a physical character's step began: whether it stood on ground it can stand on, and walked along it rather than rising off it, the velocity its body was given, and the velocity the body it stood on gives its feet over the step. Then the velocity the world's step left its body with, which tells apart what is done to the body between steps, such as a kinematic character's push
+            // As a physical character's step began, to tell apart what was done to its body between steps
             bool Stood = false;
             bool Walking = false;
             glm::vec2 Given{ 0.0f };
             glm::vec2 Carried{ 0.0f };
             glm::vec2 Stepped{ 0.0f };
-            // A physical character that walked off ground, which is set down onto ground until it has fallen its step height, and how high it walked off
+            // A physical character that walked off ground is set down until it has fallen its step height
             bool WalkedOff = false;
             float OffHeight = 0.0f;
-            // A physical character lifted onto a step it walks into: the step's top, which it stands on until its capsule is over it, how much further it walks that way to get there, and the way
+            // A physical character lifted onto a step stands on its top until its capsule is over it
             CharacterContact2D Step;
             float Climb = 0.0f;
             glm::vec2 ClimbWay{ 0.0f };
@@ -220,14 +220,14 @@ namespace Trinity
             return std::max(controller.Mass, c_MinimumCharacterMass);
         }
 
-        // Where a physical character's capsule swept along a motion first meets something going against the motion: how far along it, from 0 to 1, and the shape it meets there, with the point and the normal out towards the capsule
+        // Fraction is from 0 to 1 along the motion. The normal is out towards the capsule
         struct CapsuleHit2D
         {
             float Fraction = 0.0f;
             CharacterContact2D Contact;
         };
 
-        // A joint as it was last read: its entity, the entity it names and the records of its two bodies, the second none for the world, and its Box2D joint once made. A joint that cannot be made is dropped, one whose body went with its last collider waits for it to come back, and one that breaks is let go
+        // As last read. One whose body went with its last collider waits for it to come back
         struct JointRecord2D
         {
             entt::entity Entity = entt::null;
@@ -263,7 +263,7 @@ namespace Trinity
             return "2D";
         }
 
-        // Two bodies touching by as many shape pairs as Count says, since the step Begun counts to. Box2D keeps the contacts of bodies that fall asleep, so a pair ends only when its last shape pair does
+        // Box2D keeps the contacts of sleeping bodies, so a pair ends only when its last shape pair does
         struct ContactPair2D
         {
             std::uint32_t Count = 0;
@@ -276,7 +276,7 @@ namespace Trinity
 
         using ContactPairs2D = std::map<std::uint64_t, ContactPair2D, std::less<>, TaggedAllocator<std::pair<const std::uint64_t, ContactPair2D>, MemoryTag::Physics>>;
 
-        // A shape pair Box2D began or ended touching in a step, by the serials of their bodies' records, with a contact's first point and normal from the first record to the second. A beginning has the records too, since its shapes are there
+        // By the serials of their bodies' records. A beginning has the records too
         struct RawContact2D
         {
             std::uint32_t First = 0;
@@ -288,7 +288,7 @@ namespace Trinity
             const BodyRecord2D* SecondRecord = nullptr;
         };
 
-        // A shape's record: its serial, the record itself until the shape is taken out, and for a one-way collider its up in its body's space, otherwise none
+        // Up is a one-way collider's up in its body's space, otherwise none
         struct ShapeOwner2D
         {
             std::uint32_t Serial = 0;
@@ -301,7 +301,7 @@ namespace Trinity
             return (static_cast<std::uint64_t>(first) << 32) | static_cast<std::uint64_t>(second);
         }
 
-        // A shape's slot, generation and world, which no other shape has while it is known, since a slot used again has a new generation
+        // A slot used again has a new generation, so no other shape has this key while it is known
         std::uint64_t GetShapeKey(b2ShapeId shape)
         {
             return static_cast<std::uint64_t>(static_cast<std::uint32_t>(shape.index1)) | (static_cast<std::uint64_t>(shape.generation) << 32) | (static_cast<std::uint64_t>(shape.world0) << 48);
@@ -386,7 +386,7 @@ namespace Trinity
             return { FromBox2D(b2Body_GetPosition(body)), Box2DConvert::ToAngle(b2Body_GetRotation(body)) };
         }
 
-        // Box2D's SetTargetTransform leaves a body's velocities as they were when the move is slower than its sleep threshold, so a kinematic body slowing to a stop would run on past its transform and back for good, and one moved slowly would stop and start. One awake, or whose transform moves this frame, is woken and given the velocities that take it there over the step, reckoned as SetTargetTransform does. One asleep and left still is left to SetTargetTransform, which wakes it only for a move that is not sleepy, so a body left still goes to sleep
+        // Box2D's SetTargetTransform keeps old velocities under its sleep threshold, so they are set here
         void MoveToTarget(b2BodyId body, b2Transform target, float seconds, bool moving)
         {
             if (!(seconds > 0.0f))
@@ -415,7 +415,7 @@ namespace Trinity
             return registry.any_of<BoxCollider2DComponent, CircleCollider2DComponent, CapsuleCollider2DComponent, PolygonCollider2DComponent>(entity);
         }
 
-        // A layer past the last there can be is taken as the first, as the scene's file reads it
+        // A layer past the last is taken as the first, as the scene's file reads it
         void AddCollider(BodyRecord2D& record, ColliderSource2D collider)
         {
             collider.Settings.Layer = collider.Settings.Layer < c_MaxCollisionLayers ? collider.Settings.Layer : 0;
@@ -446,7 +446,7 @@ namespace Trinity
             }
         }
 
-        // The entity whose body an entity's 2D colliders join: the nearest at or above it with a RigidBody2D or a CharacterController2D, none when a RigidBody or a CharacterController without one comes first, since that is the 3D world's, and otherwise the highest at or above it with a 2D collider, which is a static body. As the scene starts it finds them walking down, and this walks up to the same answer
+        // The nearest RigidBody2D or character at or above it, else the highest 2D collider, static
         entt::entity FindOwner(const SceneRegistry& registry, entt::entity entity)
         {
             entt::entity l_Highest = entt::null;
@@ -471,7 +471,7 @@ namespace Trinity
             return l_Highest;
         }
 
-        // What an owner's record takes from its entity: its CharacterController2D, or its RigidBody2D, or neither for a static body. A character counts as kinematic, a physical one too though its body is dynamic, and a RigidBody2D beside it is left out
+        // A character counts as kinematic, a physical one too. A RigidBody2D beside it is left out
         void ReadOwner(const SceneRegistry& registry, entt::entity owner, BodyRecord2D& record)
         {
             const CharacterController2DComponent* l_Character = registry.try_get<CharacterController2DComponent>(owner);
@@ -577,7 +577,7 @@ namespace Trinity
             return b2MakeProxy(l_Points.data(), l_Polygon.count, l_Polygon.radius);
         }
 
-        // Box2D stops a cast within its linear slop of the collider, short of a sharp one and past a round one, where a 3D cast stops at the touch. So the hit is moved along the cast by the gap left between the two, measured without the slop, a few times over for a slanted touch, and takes its point and normal from that measure
+        // Box2D stops a cast within its linear slop of the collider, so the hit is moved by the gap left
         void SettleCast(PhysicsHit2D& hit, b2ShapeId target, const PhysicsQueryShape2D& shape, const glm::vec2& position, float angle, const glm::vec2& direction, float maxDistance)
         {
             constexpr int c_Passes = 4;
@@ -634,7 +634,7 @@ namespace Trinity
             hits = std::move(l_Kept);
         }
 
-        // What a cast gathers: the filter it keeps to, whether it wants every hit or the nearest, and the hits with their shapes, or for a ray that keeps the nearest alone, that one, so it allocates nothing
+        // A ray that keeps only the nearest hit allocates nothing
         struct CastContext
         {
             const PhysicsQueryFilter2D* Filter = nullptr;
@@ -644,7 +644,7 @@ namespace Trinity
             std::optional<std::pair<PhysicsHit2D, b2ShapeId>> Nearest = std::nullopt;
         };
 
-        // The shape's collider and body, or nothing for a shape the filter leaves out: a trigger it did not ask for, or one of the entity it ignores
+        // Nothing for a shape the filter leaves out: an unwanted trigger, or the ignored entity's
         std::optional<PhysicsHit2D> MakeHit(b2ShapeId shape, const PhysicsQueryFilter2D& filter)
         {
             const ColliderSource2D* l_Collider = GetCollider(shape);
@@ -662,7 +662,7 @@ namespace Trinity
             return l_Hit;
         }
 
-        // Box2D takes -1 to pass a shape over, the hit's fraction to look no further than it, and 1 to go on to the end
+        // Box2D takes -1 to pass a shape over, the hit's fraction to stop there, and 1 to go on
         float GatherCast(b2ShapeId shape, b2Vec2 point, b2Vec2 normal, float fraction, void* context)
         {
             CastContext& l_Context = *static_cast<CastContext*>(context);
@@ -687,7 +687,7 @@ namespace Trinity
             return l_Context.All ? 1.0f : fraction;
         }
 
-        // What an overlap gathers, or for a ray's start that keeps the first alone, the collider of the lowest UUID, as the hits sort, so it allocates nothing
+        // A ray's start keeps only the first, the lowest UUID as the hits sort, so it allocates nothing
         struct OverlapContext
         {
             const PhysicsQueryFilter2D* Filter = nullptr;
@@ -722,7 +722,7 @@ namespace Trinity
 
         }
 
-        // The records the bodies point at go while the world still holds the bodies, which goes last
+        // The records go while the world still holds the bodies, which goes last
         ~State()
         {
             for (BodyRecord2D* it_Record : Records)
@@ -734,7 +734,7 @@ namespace Trinity
         State(const State&) = delete;
         State& operator=(const State&) = delete;
 
-        // Signal listeners, which only note what changed, since nothing may be made or taken out while the registry is in the middle of a change
+        // Listeners only note what changed: nothing may be made while the registry is mid-change
         void OnBodyChanged([[maybe_unused]] SceneRegistry& registry, entt::entity entity)
         {
             Dirty.push_back(entity);
@@ -820,7 +820,7 @@ namespace Trinity
         [[nodiscard]] bool KeepToFloor(BodyRecord2D& record, const glm::vec2& up, float distance);
         [[nodiscard]] static bool HoldsContact(b2ShapeId shapeA, b2ShapeId shapeB, b2Manifold* manifold, void* context);
 
-        // A static body with no shapes at the origin, made the first time a joint joins the world, since a Box2D joint is always between two bodies
+        // A shapeless static body, made when a joint first joins the world, as Box2D joins two bodies
         [[nodiscard]] b2BodyId GetGround()
         {
             if (B2_IS_NULL(Ground))
@@ -856,12 +856,12 @@ namespace Trinity
         std::uint32_t NextSerial = 0;
         // Each entity whose colliders a record holds, its owner's included, and the record
         std::unordered_map<entt::entity, BodyRecord2D*, std::hash<entt::entity>, std::equal_to<entt::entity>, TaggedAllocator<std::pair<const entt::entity, BodyRecord2D*>, MemoryTag::Physics>> Members;
-        // Entities whose RigidBody2D, CharacterController2D, 2D colliders or Joint2D were added, changed through Patch or Replace, or removed since the last frame with steps, and RigidBody and CharacterController ones, which take entities from the 2D world
+        // Entities whose 2D or 3D body components changed since the last frame with steps
         PhysicsVector<entt::entity> Dirty;
         PhysicsVector<entt::entity> DirtyJoints;
         // Joints let go with a body that went, to be found again once the scene's changes are all taken in
         PhysicsVector<entt::entity> RetryJoints;
-        // Every shape made, by its key. Box2D tells of a shape taken out between steps ending its touches with the next step, so a shape taken out is known until then, as Retired lists
+        // A shape taken out between steps is known until Box2D ends its touches, as Retired lists
         std::unordered_map<std::uint64_t, ShapeOwner2D, std::hash<std::uint64_t>, std::equal_to<std::uint64_t>, TaggedAllocator<std::pair<const std::uint64_t, ShapeOwner2D>, MemoryTag::Physics>> ShapeOwners;
         PhysicsVector<std::uint64_t> Retired;
         PhysicsVector<b2ShapeId> ShapeIDs;
@@ -869,16 +869,16 @@ namespace Trinity
         b2BodyId Ground = b2_nullBodyId;
         ContactPairs2D Contacts;
         ContactPairs2D Triggers;
-        // The nodes of pairs of either kind that ended, which pairs that begin take, so pairs beginning and ending allocate nothing once there are enough
+        // Nodes of ended pairs, reused by pairs that begin, so pairs allocate nothing once there are enough
         PhysicsVector<ContactPairs2D::node_type> SparePairs;
         PhysicsVector<RawContact2D> Raw;
         PhysicsVector<PhysicsEvent2D> Events;
         PhysicsVector<PhysicsEvent2D> StepEvents;
-        // What a character touches or nearly does, gathered for each in turn, the bodies it keeps touching, and the step's hits, kept so a step allocates nothing once they have room
+        // Touches and hits, kept so a step allocates nothing once they have room
         PhysicsVector<CharacterTouch2D> Nearby;
         PhysicsVector<UUID> Kept;
         PhysicsVector<PhysicsEvent2D> Hits;
-        // The last step's contact points, kept only while asked for, and the buffer a body's contacts are read into
+        // The last step's contact points, kept only while asked for, and a buffer contacts are read into
         PhysicsVector<PhysicsContactPoint> ContactPoints;
         PhysicsVector<b2ContactData> ContactData;
         bool GatherContacts = false;
@@ -886,7 +886,7 @@ namespace Trinity
         std::uint64_t StepCount = 0;
         bool WarnedTilt = false;
         bool WarnedRoundScale = false;
-        // What characters move with, kept so a step allocates nothing once they have room: the shapes a query found, the contacts and planes of a move, the normals stairs are walked against, the bodies a character pushes, and the last step's length, which a character made between steps takes
+        // What characters move with, kept so a step allocates nothing once they have room
         PhysicsVector<b2ShapeId> CharacterShapes;
         PhysicsVector<CharacterContact2D> MoveContacts;
         PhysicsVector<b2CollisionPlane> Planes;
@@ -895,7 +895,7 @@ namespace Trinity
         float LastSeconds = 1.0f / 60.0f;
     };
 
-    // Bodies are found in hierarchy order, as in 3D. An entity with a RigidBody or a CharacterController, and everything below it, belongs to the 3D world, so 2D components there are reported and left out
+    // An entity with a 3D body or character, and everything below it, belongs to the 3D world
     PhysicsScene2D::PhysicsScene2D(Scene& scene, const CollisionLayers& layers)
     {
         TR_PROFILE_FUNCTION();
@@ -911,7 +911,7 @@ namespace Trinity
         std::unordered_map<entt::entity, std::size_t> l_Owners;
         std::vector<entt::entity> l_Joined;
         constexpr std::size_t c_NoOwner = SIZE_MAX;
-        // An entity with a RigidBody or a CharacterController, and everything below it, belongs to the 3D world    
+        // Everything under a RigidBody or a CharacterController belongs to the 3D world
         constexpr std::size_t c_Owned3D = SIZE_MAX - 1;
         for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
@@ -927,11 +927,11 @@ namespace Trinity
             {
                 if (l_Moves && l_Character3D)
                 {
-                    TR_CORE_WARN("Physics: {} has both a CharacterController and a {}, so it is a 3D character and the 2D one is left out", GetName(scene, l_Handle), l_Registry.all_of<CharacterController2DComponent>(l_Handle) ? "CharacterController2D" : "RigidBody2D");
+                    TR_CORE_WARN("Physics: {} has a CharacterController and a {}, the 2D one is left out", GetName(scene, l_Handle), l_Registry.all_of<CharacterController2DComponent>(l_Handle) ? "CharacterController2D" : "RigidBody2D");
                 }
                 else if (l_Moves)
                 {
-                    TR_CORE_WARN("Physics: {} has both a RigidBody and a {}, so it keeps its 3D body and the 2D one is left out", GetName(scene, l_Handle), l_Registry.all_of<CharacterController2DComponent>(l_Handle) ? "CharacterController2D" : "RigidBody2D");
+                    TR_CORE_WARN("Physics: {} has a RigidBody and a {}, the 2D one is left out", GetName(scene, l_Handle), l_Registry.all_of<CharacterController2DComponent>(l_Handle) ? "CharacterController2D" : "RigidBody2D");
                 }
 
                 l_Owner = c_Owned3D;
@@ -947,7 +947,7 @@ namespace Trinity
             l_Owners[l_Handle] = l_Owner;
             if (l_Owner == c_Owned3D && Has2DCollider(l_Registry, l_Handle))
             {
-                TR_CORE_WARN("Physics: {}'s 2D colliders are part of a 3D body or character, so they are left out", GetName(scene, l_Handle));
+                TR_CORE_WARN("Physics: {}'s 2D colliders are under a 3D body or character, left out", GetName(scene, l_Handle));
             }
             else if (l_Owner != c_NoOwner && l_Owner != c_Owned3D)
             {
@@ -965,7 +965,7 @@ namespace Trinity
             l_State.Index(*it_Record);
             if (it_Record->HasRigidBody && it_Record->Colliders.empty() && !it_Record->HasCharacter)
             {
-                TR_CORE_WARN("Physics: {} has a RigidBody2D and no 2D colliders on it or below it, so it has no body", GetName(scene, it_Record->Entity));
+                TR_CORE_WARN("Physics: {} has a RigidBody2D and no 2D colliders, so it has no body", GetName(scene, it_Record->Entity));
 
                 continue;
             }
@@ -983,7 +983,7 @@ namespace Trinity
             l_State.MakeJoint(it_Joint);
         }
 
-        // From here on, 2D bodies, characters, colliders and joints added, changed through Patch or Replace, or removed are taken in at the next frame with steps, and so are RigidBodies and CharacterControllers, which take entities from the 2D world or give them back
+        // From here on, changes are taken in at the next frame with steps
         const auto a_Watch = [&l_Registry, &l_State]<Component T>()
         {
             l_Registry.on_construct<T>().template connect<&State::OnBodyChanged>(l_State);
@@ -1039,7 +1039,7 @@ namespace Trinity
         return !l_Registry.storage<RigidBody2DComponent>().empty() || !l_Registry.storage<CharacterController2DComponent>().empty() || !l_Registry.storage<BoxCollider2DComponent>().empty() || !l_Registry.storage<CircleCollider2DComponent>().empty() || !l_Registry.storage<CapsuleCollider2DComponent>().empty() || !l_Registry.storage<PolygonCollider2DComponent>().empty();
     }
 
-    // What changed in the scene since the last frame with steps is taken in, so a frame without steps changes nothing and the next one with steps takes it all. A frame without steps leaves the kinematic targets where they were, so the next frame with steps moves from there. A kinematic body takes its entity's depth as it goes
+    // Changes are taken in only on a frame with steps. A kinematic body takes its entity's depth
     void PhysicsScene2D::BeginFrame(std::uint32_t steps)
     {
         TR_PROFILE_FUNCTION();
@@ -1070,7 +1070,7 @@ namespace Trinity
         }
     }
 
-    // What the scene's scripts changed since the frame began is taken in, kinematic bodies are moved for the step, then characters, the world steps, what carries a kinematic character takes it along and a physical one finds where the step left it, events are paired, and dynamic bodies and characters that moved are written back in hierarchy order, each at its depth and turned about Z alone
+    // Changes, kinematic moves, characters, the world's step, events, then poses written back
     void PhysicsScene2D::Step(Timestep step, std::uint32_t index)
     {
         TR_PROFILE_FUNCTION();
@@ -1171,7 +1171,7 @@ namespace Trinity
         return m_State->Layers;
     }
 
-    // Box2D counts the bodies awake, which are never static, and the scene knows which of its bodies can move
+    // Box2D counts the bodies awake, and the scene knows which of its bodies can move
     PhysicsBodyCounts PhysicsScene2D::GetBodyCounts() const
     {
         const std::uint32_t l_Moving = static_cast<std::uint32_t>(std::ranges::count_if(m_State->Records, [](const BodyRecord2D* record) { return record->Motion != BodyMotion::Static && B2_IS_NON_NULL(record->Body); }));
@@ -1276,7 +1276,7 @@ namespace Trinity
 
     namespace
     {
-        // A dynamic 2D body, or why there is none, for each call that pushes or sets a velocity. A character is kinematic, so it is no dynamic body
+        // A character is kinematic, so it is no dynamic body
         template<typename F>
         PhysicsBodyResult OnDynamic(const BodyRecord2D* record, F call)
         {
@@ -1336,7 +1336,7 @@ namespace Trinity
         return OnDynamic(m_State->FindBody(entity), [&](b2BodyId body) { b2Body_ApplyAngularImpulse(body, impulse, true); });
     }
 
-    // The entity's transform is set first, at its depth and turned about Z alone, so the body or character is placed where the transform puts it, and the next frame does not move it again
+    // The transform is set first, at its depth and turned about Z, so the next frame does not move it
     PhysicsBodyResult PhysicsScene2D::Teleport(UUID entity, const glm::vec2& position, float angle)
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's bodies are reached on the main thread.");
@@ -1428,7 +1428,7 @@ namespace Trinity
 
     namespace
     {
-        // A character's record, or why there is none, for each call on a character
+        // A character's record, or why there is none
         template<typename F>
         PhysicsBodyResult OnCharacter(BodyRecord2D* record, F call)
         {
@@ -1457,7 +1457,7 @@ namespace Trinity
         return OnCharacter(m_State->FindBody(entity), [&velocity](const BodyRecord2D& record) { velocity = record.Velocity; });
     }
 
-    // The ground the character's last move left it on, the body it is part of found from its user data, and how fast that body moves under the character's feet
+    // The ground its last move left it on, and how fast that body moves under its feet
     PhysicsBodyResult PhysicsScene2D::GetCharacterGround(UUID entity, CharacterGround2D& ground)
     {
         TR_CORE_ASSERT(MainThread::IsMainThread(), "A scene's characters are reached on the main thread.");
@@ -1487,7 +1487,7 @@ namespace Trinity
         return OnCharacter(m_State->FindBody(entity), [&displacement](BodyRecord2D& record) { record.Move += displacement; });
     }
 
-    // The body sits at its entity's place and turn about Z, and keeps its depth in Z for write-back, with its colliders. A record with no colliders has no body, unless it is a character, whose body holds its capsule and never sleeps, so it stays where triggers and other bodies see it, kinematic, or for a physical one dynamic. A character made finds what it stands on there at once
+    // A record with no colliders has no body, unless it is a character, whose body never sleeps
     void PhysicsScene2D::State::MakeBody(BodyRecord2D& record)
     {
         Scene& l_Scene = Owner;
@@ -1498,7 +1498,7 @@ namespace Trinity
 
         if (record.HasCharacter && l_Scene.GetRegistry().all_of<RigidBody2DComponent>(record.Entity))
         {
-            TR_CORE_WARN("Physics: {} has a CharacterController2D and a RigidBody2D, so it is a character and the RigidBody2D is left out", GetName(l_Scene, record.Entity));
+            TR_CORE_WARN("Physics: {} has a CharacterController2D, its RigidBody2D is left out", GetName(l_Scene, record.Entity));
         }
 
         const glm::mat4 l_World = l_Scene.ComputeWorldMatrix(Entity(record.Entity, &l_Scene));
@@ -1506,7 +1506,7 @@ namespace Trinity
         record.Depth = l_World[3][2];
         if (IsTilted(l_World) && !std::exchange(WarnedTilt, true))
         {
-            TR_CORE_WARN("Physics: {} is tilted out of the XY plane, which a 2D body cannot be, so it keeps only its turn about Z once it moves. Later tilts are not reported", GetName(l_Scene, record.Entity));
+            TR_CORE_WARN("Physics: {} is tilted out of XY, keeping only its turn about Z. Reported once", GetName(l_Scene, record.Entity));
         }
 
         const BodyMotion l_Motion = record.Motion;
@@ -1530,7 +1530,7 @@ namespace Trinity
             l_Body.enableSleep = l_RigidBody.CanSleep;
         }
 
-        // A physical character cannot turn, its velocity, its own, is not damped, and it is swept along its motion against moving bodies as well as still ones, so a fall cannot take it through what it lands on
+        // A physical character cannot turn, is not damped, and is swept so a fall cannot tunnel
         if (IsPhysical(record))
         {
             l_Body.type = b2_dynamicBody;
@@ -1562,7 +1562,7 @@ namespace Trinity
         }
     }
 
-    // Each collider placed on the body from its entity's world transform with the offset and turn, by the whole of the matrix in X and Y, so a box or polygon takes any scale, mirror or skew exactly, a circle the larger of its scales and a capsule its scale across for its radius. Placed against the body's entity as it is now, which is where the body is or is going. Every shape reports contacts and triggers, a trigger weighs nothing, and Box2D asks whether each contact of a one-way collider holds
+    // Placed by the whole matrix in X and Y, so a box or polygon takes any scale, mirror or skew
     void PhysicsScene2D::State::MakeShapes(BodyRecord2D& record)
     {
         Scene& l_Scene = Owner;
@@ -1617,7 +1617,7 @@ namespace Trinity
                     const b2Hull l_Hull = b2ComputeHull(l_Points.data(), static_cast<int>(l_Local.size()));
                     if (l_Hull.count == 0)
                     {
-                        TR_CORE_WARN("Physics: {}'s {} is left out, since its points make no area, or more than one lie together", l_Name, it_Collider.Kind == ColliderKind2D::Box ? "BoxCollider2D" : "PolygonCollider2D");
+                        TR_CORE_WARN("Physics: {}'s {} is left out, its points make no area or coincide", l_Name, it_Collider.Kind == ColliderKind2D::Box ? "BoxCollider2D" : "PolygonCollider2D");
 
                         continue;
                     }
@@ -1632,7 +1632,7 @@ namespace Trinity
                 {
                     if (std::abs(l_ScaleX - l_ScaleY) > c_ScaleTolerance * std::max({ l_ScaleX, l_ScaleY, 1.0f }) && !std::exchange(WarnedRoundScale, true))
                     {
-                        TR_CORE_WARN("Physics: {}'s round 2D collider is scaled unevenly, so it takes the larger scale. Later ones scaled so are not reported", l_Name);
+                        TR_CORE_WARN("Physics: {}'s round 2D collider is unevenly scaled, larger taken. Reported once", l_Name);
                     }
 
                     const b2Circle l_Circle{ a_ToBody(glm::vec2(0.0f)), std::max(it_Collider.Size.x * std::max(l_ScaleX, l_ScaleY), c_MinimumSize) };
@@ -1661,7 +1661,7 @@ namespace Trinity
         }
     }
 
-    // A dynamic body's mass and inertia from its colliders, scaled to the mass asked for, and a physical character's from its colliders and its capsule, scaled to its own
+    // Mass and inertia come from the colliders, and a character's capsule, scaled to the mass asked
     void PhysicsScene2D::State::ApplyMass(const BodyRecord2D& record) const
     {
         const bool l_Physical = IsPhysical(record);
@@ -1682,7 +1682,7 @@ namespace Trinity
         }
     }
 
-    // Its frame is its entity's world transform in the XY plane as it is made, with the anchor as an offset and the axis turned with it, and where it meets each body is taken from where the bodies are then. Box2D holds it on its bodies' own frames, which a change of their colliders, mass or motion leaves where they are, so it keeps the pose it was made in. The joint's own body is Box2D's second, and the body it joins, or the ground, its first, so a revolute joint's turn, a prismatic joint's travel and a motor's drive count as its own body's against the other's. A joint that holds no dynamic body is reported and left out, and one that joins a body with no 2D colliders is reported once and made when the body has some again
+    // Box2D holds it on its bodies' own frames, which a change of colliders or mass leaves in place
     void PhysicsScene2D::State::MakeJoint(JointRecord2D& joint)
     {
         Scene& l_Scene = Owner;
@@ -1699,7 +1699,7 @@ namespace Trinity
         {
             if (!std::exchange(joint.NeedsBody, true))
             {
-                TR_CORE_WARN("Physics: {}'s Joint2D joins a body with no 2D colliders, so it waits until the body has some", l_Name);
+                TR_CORE_WARN("Physics: {}'s Joint2D joins a body with no 2D colliders, waiting for some", l_Name);
             }
 
             return;
@@ -1709,14 +1709,14 @@ namespace Trinity
 
         if (l_Own.HasCharacter || (l_Other != nullptr && l_Other->HasCharacter))
         {
-            TR_CORE_WARN("Physics: {}'s Joint2D joins a character now, which a joint cannot hold, so it is left out", l_Name);
+            TR_CORE_WARN("Physics: {}'s Joint2D joins a character now, left out", l_Name);
 
             return;
         }
 
         if (l_Own.Motion != BodyMotion::Dynamic && (l_Other == nullptr || l_Other->Motion != BodyMotion::Dynamic))
         {
-            TR_CORE_WARN("Physics: {}'s Joint2D joins no dynamic body, so it would hold nothing and is left out", l_Name);
+            TR_CORE_WARN("Physics: {}'s Joint2D joins no dynamic body, left out", l_Name);
 
             return;
         }
@@ -1779,7 +1779,7 @@ namespace Trinity
             }
             case Joint2DType::Distance:
             {
-                // The other end is on the entity the joint names, or in the world. With a spring it is pulled towards the middle of the range and stops at its ends, and without one it moves freely within the range, held rigid when the range has no width
+                // With a spring it is pulled to the middle of the range. Without one it moves freely within it
                 const b2Vec2 l_OtherEnd = ToBox2D(l_Other != nullptr && l_Registry.valid(joint.OtherEntity) ? glm::vec2(l_Scene.ComputeWorldMatrix(Entity(joint.OtherEntity, &l_Scene)) * glm::vec4(l_Joint.ConnectedAnchor, 0.0f, 1.0f)) : l_Joint.ConnectedAnchor);
                 const float l_Start = b2Distance(l_OtherEnd, l_Anchor);
                 const float l_Min = std::max(l_Joint.MinDistance < 0.0f ? l_Start : l_Joint.MinDistance, c_MinimumSize);
@@ -1843,7 +1843,7 @@ namespace Trinity
         }
     }
 
-    // The force and the torque Box2D's last step put on each joint that can break, its motor's left out. One past its break force or torque is taken out of the world, and its bodies collide again, after it is logged and handed out as an event, in the joints' order
+    // From Box2D's last step, its motor's left out. One past its limit is taken out and logged
     void PhysicsScene2D::State::BreakJoints(std::uint32_t index)
     {
         for (JointRecord2D& it_Joint : Joints)
@@ -1901,7 +1901,7 @@ namespace Trinity
         }
     }
 
-    // Each moving body's touching contacts, read once: a pair of moving bodies by the one made first. Box2D keeps speculative points a little apart, which are left out
+    // Read once, a pair of moving bodies by the one made first. Speculative points are left out
     void PhysicsScene2D::State::GatherContactPoints()
     {
         ContactPoints.clear();
@@ -1942,7 +1942,7 @@ namespace Trinity
         }
     }
 
-    // Box2D's begin and end events, for contacts and for triggers, are counted by body pair. A pair's first shape pair begins it and its last ends it, so a body whose colliders were made again keeps the pairs it still touches. A contact pair touching through the step with one body awake stays. Each step's events go out sorted by their entities, in place, since a stable sort's buffer would allocate each step, and in the same order on every run, as the pairs come. Shapes taken out before the step are forgotten after it, their last touches counted
+    // Counted by body pair: a pair's first shape pair begins it and its last ends it. Sorted in place
     void PhysicsScene2D::State::PairEvents(std::uint32_t index)
     {
         StepEvents.clear();
@@ -2090,7 +2090,7 @@ namespace Trinity
         Events.insert(Events.end(), StepEvents.begin(), StepEvents.end());
     }
 
-    // A hit as Box2D gave it, its distance a fraction of the ray's, found again along a short piece of the ray around it, against its own shape, as in 3D
+    // Found again along a short piece of the ray around it, against its own shape, as in 3D
     void PhysicsScene2D::State::RefineRayHit(PhysicsHit2D& hit, b2ShapeId shape, const glm::vec2& origin, const glm::vec2& direction, float maxDistance) const
     {
         float l_Distance = hit.Distance * maxDistance;
@@ -2108,7 +2108,7 @@ namespace Trinity
         hit.Point = origin + direction * l_Distance;
     }
 
-    // A ray of no length, or with no direction, meets nothing. Box2D passes over a solid the ray starts in, so a point-sized test finds those first, which meet it at once, the lowest UUID first as the hits sort. The nearest hit alone allocates nothing, so audio's occlusion casts its rays every frame without a cost to memory
+    // Box2D passes over a solid the ray starts in, so a point test finds those first
     std::optional<PhysicsHit2D> PhysicsScene2D::State::CastNearestRay(const glm::vec2& origin, const glm::vec2& direction, float maxDistance, const PhysicsQueryFilter2D& filter) const
     {
         TR_PROFILE_FUNCTION();
@@ -2239,7 +2239,7 @@ namespace Trinity
         return l_Hits;
     }
 
-    // A joint is on the body its entity is part of, and names the body of the entity it joins. One on no 2D body, or naming an entity that is not in the scene, or one that is part of no 2D body or of its own, or a joint with a character on either side, is reported and left out
+    // One on no 2D body, naming no body, or with a character on either side is reported and left out
     void PhysicsScene2D::State::CreateJointRecord(entt::entity entity)
     {
         Scene& l_Scene = Owner;
@@ -2249,14 +2249,14 @@ namespace Trinity
         BodyRecord2D* l_First = FindRecord(FindOwner(l_Registry, entity));
         if (l_First == nullptr)
         {
-            TR_CORE_WARN("Physics: {}'s Joint2D is on no 2D body, since nothing on it or above it has a RigidBody2D or a 2D collider first, so it is left out", l_Name);
+            TR_CORE_WARN("Physics: {}'s Joint2D is on no 2D body, left out", l_Name);
 
             return;
         }
 
         if (l_First->HasCharacter)
         {
-            TR_CORE_WARN("Physics: {}'s Joint2D is on {}'s character, which a joint cannot hold, so it is left out", l_Name, GetName(l_Scene, l_First->Entity));
+            TR_CORE_WARN("Physics: {}'s Joint2D is on {}'s character, left out", l_Name, GetName(l_Scene, l_First->Entity));
 
             return;
         }
@@ -2268,7 +2268,7 @@ namespace Trinity
             const Entity l_Connected = l_Scene.FindEntityByUUID(l_Joint.ConnectedBody);
             if (!l_Connected)
             {
-                TR_CORE_WARN("Physics: {}'s Joint2D names entity {}, which is not in the scene, so it is left out", l_Name, l_Joint.ConnectedBody);
+                TR_CORE_WARN("Physics: {}'s Joint2D names entity {}, not in the scene, left out", l_Name, l_Joint.ConnectedBody);
 
                 return;
             }
@@ -2294,7 +2294,7 @@ namespace Trinity
         l_Record.Second = l_Second;
     }
 
-    // Each of the body's shapes is retired, so the touches Box2D ends with the next step are still counted by its record, and taken out unless its body goes with it
+    // Each shape is retired, so the touches Box2D ends next step are still counted by its record
     void PhysicsScene2D::State::DestroyShapes(b2BodyId body, bool destroy)
     {
         ShapeIDs.resize(static_cast<std::size_t>(b2Body_GetShapeCount(body)));
@@ -2316,7 +2316,7 @@ namespace Trinity
         }
     }
 
-    // Out of the world, its joints let go first to wait for a body again. Box2D wakes the bodies it touched
+    // Its joints are let go first, to wait for a body again. Box2D wakes the bodies it touched
     void PhysicsScene2D::State::DestroyBody(BodyRecord2D& record)
     {
         if (B2_IS_NULL(record.Body))
@@ -2347,7 +2347,7 @@ namespace Trinity
         record.WalkedOff = false;
     }
 
-    // Box2D leaves bodies asleep when one near them is moved, or a shape near them made smaller, so everything within its bounds is woken to find out
+    // Box2D leaves bodies asleep when one near them moves or shrinks, so all in its bounds are woken
     void PhysicsScene2D::State::WakeAround(b2BodyId body)
     {
         if (B2_IS_NULL(body) || b2Body_GetShapeCount(body) == 0)
@@ -2368,7 +2368,7 @@ namespace Trinity
         }
     }
 
-    // Each pair the record is part of ends with the frame's first step, contacts first, each in the order of its pairs' bodies. Box2D's own word of their shapes parting comes with that step and finds them gone
+    // Each pair ends with the frame's first step, contacts first, in the order of the pairs' bodies
     void PhysicsScene2D::State::EndPairs(const BodyRecord2D& record)
     {
         for (ContactPairs2D* it_Pairs : { &Contacts, &Triggers })
@@ -2389,7 +2389,7 @@ namespace Trinity
         }
     }
 
-    // The pair held in the node of one that ended, of either kind, when there is one. A node made new makes room for every node of both kinds to be spare, so however many pairs end at once they allocate nothing
+    // A node made new makes room for every node to be spare, so ending pairs allocate nothing
     void PhysicsScene2D::State::BeginPair(ContactPairs2D& pairs, std::uint64_t key, const ContactPair2D& pair)
     {
         if (SparePairs.empty())
@@ -2424,7 +2424,7 @@ namespace Trinity
         return l_Next;
     }
 
-    // An owner's record as the scene has it now: its CharacterController2D or RigidBody2D, or neither for a static body, and the 2D colliders on it and below it, in hierarchy order, that no RigidBody2D or character below takes, nor a 3D body or character
+    // Its 2D colliders are those on and below it that no body or character below takes
     void PhysicsScene2D::State::Gather(entt::entity owner, BodyRecord2D& record) const
     {
         const SceneRegistry& l_Registry = Owner.GetRegistry();
@@ -2482,7 +2482,7 @@ namespace Trinity
         return a_Found != Members.end() && a_Found->second->Entity == owner ? a_Found->second : nullptr;
     }
 
-    // Its joints go with it, to be found again later, then its pairs and its body, and the pose it was drawn at, so its entity, when it stays, draws from its transform again
+    // Its joints go with it, to be found again later, then its pairs, its body and its drawn pose
     void PhysicsScene2D::State::RemoveRecord(BodyRecord2D& record)
     {
         SceneRegistry& l_Registry = Owner.GetRegistry();
@@ -2521,7 +2521,7 @@ namespace Trinity
         Memory::Delete(&record);
     }
 
-    // A record gathered again is left alone when it is as it was. Otherwise its body is changed where it is, so its velocity, its contacts and its joints carry over: its motion, its RigidBody2D's settings, and, when its colliders or its character's controller changed, its shapes, all made again, a physical character finding its ground again. One that becomes dynamic takes its RigidBody2D's starting velocities, as in 3D. One that becomes a character, stops being one, or whose character changes mode, gets a body made again, its pairs ending first, a character keeping its own velocity and one that is new starting still. A record that had no body gets one, and one left with no colliders, and no character, loses its body, its pairs ending and its joints waiting for it. True when a body came or went
+    // A changed record's body is changed in place, so its velocity, contacts and joints carry over
     bool PhysicsScene2D::State::UpdateRecord(BodyRecord2D& record, BodyRecord2D& gathered)
     {
         if (record.HasRigidBody == gathered.HasRigidBody && record.Settings == gathered.Settings && record.HasCharacter == gathered.HasCharacter && record.Controller == gathered.Controller && record.Colliders == gathered.Colliders)
@@ -2641,7 +2641,7 @@ namespace Trinity
         return false;
     }
 
-    // Everything changed since the last frame with steps is taken in. The owners whose records may differ are those of each changed entity as they were and as it, and everything below it, has them now. Each is gathered again: a record no longer owned goes, one newly owned is made, and the rest are updated. Then the joints follow
+    // The owners that may differ are each changed entity's, as they were and as they are now
     void PhysicsScene2D::State::Sync()
     {
         if (Dirty.empty() && DirtyJoints.empty())
@@ -2729,7 +2729,7 @@ namespace Trinity
         ResolveJoints(l_BodiesChanged, l_DirtyJoints);
     }
 
-    // A joint whose entity changed is made again from where its bodies are now, and so is one whose bodies are other records now, or one let go with a body that went. One waiting for a body is made once its bodies have theirs. One whose entity or Joint2D went goes with them. A broken joint stays broken until its Joint2D changes
+    // One waiting for a body is made once it has one. A broken joint stays broken until it changes
     void PhysicsScene2D::State::ResolveJoints(bool bodiesChanged, const PhysicsVector<entt::entity>& dirtyJoints)
     {
         const SceneRegistry& l_Registry = Owner.GetRegistry();
@@ -2806,7 +2806,7 @@ namespace Trinity
         }
     }
 
-    // A joint whose motor or break limits alone changed, or nothing at all, takes them on in place and holds where it is, and a broken one stays broken. False when anything else changed, or its bodies are other records now, so it is made again
+    // False when more than its motor or break limits changed, so it is made again
     bool PhysicsScene2D::State::Tune(JointRecord2D& joint)
     {
         const SceneRegistry& l_Registry = Owner.GetRegistry();
@@ -2875,7 +2875,7 @@ namespace Trinity
         return true;
     }
 
-    // A body whose entity's transform was set from code since the body made or last wrote it is taken there at once, with the entity's depth, and drawn there with nothing between. Kinematic bodies follow their transforms already
+    // A body whose transform was set from code is taken there at once, with nothing drawn between
     void PhysicsScene2D::State::FollowTransforms()
     {
         SceneRegistry& l_Registry = Owner.GetRegistry();
@@ -2894,7 +2894,7 @@ namespace Trinity
         }
     }
 
-    // The body where its entity's transform puts it, with the entity's depth and nothing between to draw, and a kinematic one's targets there too, so it stays until its transform moves again. A character keeps its velocity, nothing carries it over the step, and it finds what it stands on there at once, a physical one leaving behind whatever step or ledge it was on
+    // A kinematic one's targets go there too, so it stays until its transform moves again
     void PhysicsScene2D::State::PlaceAtTransform(BodyRecord2D& record)
     {
         const TransformComponent& l_Transform = Owner.GetRegistry().get<TransformComponent>(record.Entity);
@@ -2964,7 +2964,7 @@ namespace Trinity
         }
     }
 
-    // A character's capsule on its body, beside the colliders that follow it, placed as a 2D capsule collider is: along its entity's Y axis from where its offset puts it, its length by the Y scale and its radius by the X scale, a circle when its caps meet. On its layer, it meets triggers, bodies and queries, and reports itself as its entity. A kinematic one's weighs nothing, and a physical one's weighs with its body, slides along what it touches, and has Box2D ask whether each of its contacts holds. Its step height takes the Y scale
+    // Placed as a 2D capsule collider: along Y, its length by the Y scale and radius by the X scale
     void PhysicsScene2D::State::MakeCharacterShape(BodyRecord2D& record)
     {
         if (!record.HasCharacter || B2_IS_NULL(record.Body))
@@ -3031,7 +3031,7 @@ namespace Trinity
         return l_Strength > 0.0f ? -l_Gravity / l_Strength : glm::vec2(0.0f, 1.0f);
     }
 
-    // The character's capsule placed at a position, turned as its body is, as a proxy for Box2D's queries: its two cap centres in the world, or one for a circle, and its radius
+    // As a proxy for Box2D's queries: its cap centres in the world, or one for a circle, and its radius
     b2ShapeProxy PhysicsScene2D::State::GetMover(const BodyRecord2D& record, const glm::vec2& position) const
     {
         const b2Transform l_Transform{ ToBox2D(position), b2Body_GetRotation(record.Body) };
@@ -3040,7 +3040,7 @@ namespace Trinity
         return b2MakeProxy(l_Ends.data(), record.Round ? 1 : 2, record.Radius);
     }
 
-    // The middle of the character's lower end cap placed there, lower along up, which is what stands on the ground
+    // The middle of its lower end cap, which is what stands on the ground
     glm::vec2 PhysicsScene2D::State::GetFoot(const BodyRecord2D& record, const glm::vec2& position) const
     {
         const b2ShapeProxy l_Mover = GetMover(record, position);
@@ -3054,7 +3054,7 @@ namespace Trinity
         return glm::dot(normal, GetUp()) < record.CosMaxSlope;
     }
 
-    // Every shape within the box a character's move meets: on the layers its own collides with, and none of its own body's or a trigger
+    // On the layers its own collides with, and none of its own body's or a trigger
     void PhysicsScene2D::State::GatherCharacterShapes(const BodyRecord2D& record, const b2AABB& box)
     {
         CharacterShapes.clear();
@@ -3076,7 +3076,7 @@ namespace Trinity
         return l_Owner != nullptr ? FromBox2D(b2RotateVector(b2Body_GetRotation(b2Shape_GetBody(shape)), l_Owner->OneWay)) : glm::vec2(0.0f);
     }
 
-    // The shapes within reach of the character placed there, each with its nearest point and normal from Box2D's distance between it and the capsule's core, as Box2D's own mover finds them, and a shape the core meets passed over. A one-way collider is met only from above, while the character is no deeper in it than a little
+    // As Box2D's mover finds them. A one-way collider is met only from above, and not when deep in it
     void PhysicsScene2D::State::Collide(const BodyRecord2D& record, const glm::vec2& position, PhysicsVector<CharacterContact2D>& contacts)
     {
         contacts.clear();
@@ -3116,7 +3116,7 @@ namespace Trinity
         }
     }
 
-    // How far along the translation the character's capsule goes, from 0 to 1, before it meets a shape, as Box2D's mover cast goes: a shape whose core it starts in is passed over. Box2D lets a cast go a slop further into a shape it starts touching, which would leave it deeper than the planes rest it, so going into one stops it at once. A one-way collider is met only by a capsule coming down onto it from above. The shape it met, its point and its normal, when asked for
+    // Box2D lets a cast go a slop further into a shape it starts touching, so going into one stops it
     float PhysicsScene2D::State::Cast(const BodyRecord2D& record, const glm::vec2& position, const glm::vec2& translation, CharacterContact2D* hit)
     {
         if (hit != nullptr)
@@ -3184,7 +3184,7 @@ namespace Trinity
         return l_Fraction;
     }
 
-    // The planes Box2D's solver holds the character out of, one for each contact within reach, no nearer than its gap less Box2D's slop. As Jolt has it, a slope too steep to stand on that faces up is also held as a wall, its part across up alone, so walking into it does not climb it. The wall goes first, since the solver stops once its pushes are within a slop, and the slope solved first would have pushed the character up that much
+    // A steep slope facing up is also held as a wall, as in Jolt, so walking into it does not climb it
     void PhysicsScene2D::State::MakePlanes(const BodyRecord2D& record, const PhysicsVector<CharacterContact2D>& contacts, float reach)
     {
         Planes.clear();
@@ -3208,7 +3208,7 @@ namespace Trinity
         }
     }
 
-    // Where Box2D's planes and casts take the character from the start towards the displacement, as its mover sample does: each try gathers the planes about it, solves where it may go, and casts there, stopping where it meets something, and the next try goes on from there towards the same place
+    // As Box2D's mover sample: each try gathers planes, solves, casts, and goes on from where it stops
     glm::vec2 PhysicsScene2D::State::MoveShape(const BodyRecord2D& record, const glm::vec2& start, const glm::vec2& displacement)
     {
         const glm::vec2 l_Target = start + displacement;
@@ -3230,7 +3230,7 @@ namespace Trinity
         return l_Position;
     }
 
-    // How the character stands where it is, from the shapes it touches and does not move away from, as Jolt's UpdateSupportingContact has a 3D one stand: on ground when one below the middle of its lower end cap holds it up, on a steep slope when such contacts are all too steep, unless they hold it from sliding between them, and otherwise touching what holds none of it up, or nothing. The ground's normal averages those of the contacts below it facing within 85 degrees of up, and its body is the most upward facing of them, or the deepest contact. A move that put it there, such as stepping up, is not asked whether it moves away
+    // As Jolt's UpdateSupportingContact: ground when a contact below its lower cap's middle holds it
     void PhysicsScene2D::State::UpdateGround(BodyRecord2D& record, const glm::vec2& position, const glm::vec2& velocity, float seconds, bool skipVelocityCheck)
     {
         Collide(record, position, record.Contacts);
@@ -3307,7 +3307,7 @@ namespace Trinity
         }
     }
 
-    // As Jolt does before a 3D character moves: walking on ground, or touching nothing, the velocity is as given, and otherwise its part going into each slope too steep it touches is taken off, across up alone
+    // As Jolt does before a move: the part of its velocity going into a steep slope is taken off
     glm::vec2 PhysicsScene2D::State::CancelVelocityTowardsSteepSlopes(const BodyRecord2D& record, const glm::vec2& velocity) const
     {
         if (record.Ground == GroundState2D::OnGround || record.Ground == GroundState2D::InAir)
@@ -3353,7 +3353,7 @@ namespace Trinity
         return std::ranges::any_of(record.Contacts, [&](const CharacterContact2D& contact) { return contact.Distance <= c_SupportDistance && glm::dot(contact.Normal, l_Across - contact.Velocity) < 0.0f && IsTooSteep(record, contact.Normal); });
     }
 
-    // Jolt's WalkStairs for a 2D character: up by the step height, or as far as a ceiling lets it, forward as it walks, then down onto the step, which takes it there when it lands on ground it can stand on, higher than it was. Landing on a step's edge, which faces it too steeply, it looks further forward for a floor there. Nothing changes when it meets no step, makes no way towards the slope it walked into, or gains nothing
+    // Jolt's WalkStairs: up by the step height, forward as it walks, then down onto the step
     bool PhysicsScene2D::State::WalkStairs(BodyRecord2D& record, glm::vec2& position, float seconds, const glm::vec2& stepUp, const glm::vec2& stepForward, const glm::vec2& stepForwardTest, const glm::vec2& velocity)
     {
         CharacterContact2D l_Hit;
@@ -3472,7 +3472,7 @@ namespace Trinity
         return true;
     }
 
-    // Standing a little above the ground, as a slow landing leaves it, a character settles straight down onto it, into Box2D's slop as a move pressed against it rests, so it stands at one height however it came down. Going straight down, it slides down no slope, and it is placed there as StickToFloor places it, on ground it may be leaving
+    // A character just above the ground settles straight down, so it stands at one height
     void PhysicsScene2D::State::Settle(BodyRecord2D& record, glm::vec2& position, const glm::vec2& velocity, float seconds)
     {
         if (record.Ground != GroundState2D::OnGround)
@@ -3509,7 +3509,7 @@ namespace Trinity
         UpdateGround(record, position, velocity, seconds, true);
     }
 
-    // Jolt's ExtendedUpdate for a 2D character: its velocity held back from slopes too steep it is pressed against, then its move, pressing its weight on what it stands on, then, having just left the ground without rising, down to a floor within its step height, and, having walked into a step's side short of where it was going, up the step, in the way of the wall it walked into most squarely, by at least Jolt's least step and looking past an edge by at least its radius
+    // Jolt's ExtendedUpdate: hold back from steep slopes, move, stick to the floor, then walk stairs
     void PhysicsScene2D::State::MoveCharacter(BodyRecord2D& record, glm::vec2& position, const glm::vec2& velocity, float seconds)
     {
         const glm::vec2 l_Up = GetUp();
@@ -3575,7 +3575,7 @@ namespace Trinity
         static_cast<void>(WalkStairs(record, position, seconds, l_Up * record.StepHeight, l_StepForward, l_StepForwardTest, l_Velocity));
     }
 
-    // Once a step, each dynamic body the character touches and goes into, at the contact it goes into fastest, as Jolt pushes one for a 3D character: the impulse that brings the body to the character's speed there, up to the push strength over the step, and none downwards, since the character's weight on what it stands on is added apart. Box2D leaves the character its slop inside what it rests against, which pushes nothing
+    // Once a step, at the contact it goes into fastest, up to the push strength, and never downwards
     void PhysicsScene2D::State::PushBodies(const BodyRecord2D& record, const glm::vec2& velocity, float seconds)
     {
         Pushes.clear();
@@ -3628,7 +3628,7 @@ namespace Trinity
         }
     }
 
-    // What is left of the velocity once the walls, ceilings and slopes too steep to stand on that the character touches take the part going into them, as each moves, in a few passes for corners. As for a 3D character, one facing up first stops it as a wall would, so walking into it does not lift the character, and what falls onto it slides off. A physical one is held back by no dynamic body, which Box2D's solver meets and pushes instead
+    // Walls take the part of the velocity going into them. A steep slope facing up stops it as a wall
     glm::vec2 PhysicsScene2D::State::KeepVelocity(const BodyRecord2D& record, const glm::vec2& velocity) const
     {
         constexpr int c_Passes = 4;
@@ -3675,7 +3675,7 @@ namespace Trinity
         return l_Velocity;
     }
 
-    // Where a body's motion over the next step takes a point, as Box2D moves the body: its centre of mass along its velocity, and turned about it. The velocity that takes the point there, none for no body
+    // As Box2D moves the body: its centre of mass along its velocity, and turned about it
     glm::vec2 PhysicsScene2D::State::Predict(const CarryingBody2D& carrier, const glm::vec2& position, float seconds) const
     {
         if (B2_IS_NULL(carrier.Body) || !b2Body_IsValid(carrier.Body) || !(seconds > 0.0f))
@@ -3689,7 +3689,7 @@ namespace Trinity
         return l_Moved / seconds;
     }
 
-    // How fast the ground under a character moves at a point, its feet's, from its body's own velocities, none for still ground
+    // From its body's own velocities. None for still ground
     glm::vec2 PhysicsScene2D::State::GetGroundVelocity(const BodyRecord2D& record, const glm::vec2& position) const
     {
         if (B2_IS_NULL(record.GroundBody) || !b2Body_IsValid(record.GroundBody) || b2Body_GetType(record.GroundBody) == b2_staticBody)
@@ -3700,7 +3700,7 @@ namespace Trinity
         return FromBox2D(b2Body_GetWorldPointVelocity(record.GroundBody, ToBox2D(position)));
     }
 
-    // How fast a shape a character meets moves at a point, as a 3D character sees it: against the body carrying the character over the step, which happens apart, so that body is still, what rides it moves only as it moves on it, and the world goes past. Still ground and kinematic characters, which are placed rather than moved and ride along, move at none
+    // Against the body carrying the character, so that body is still and the world goes past
     glm::vec2 PhysicsScene2D::State::GetContactVelocity(const BodyRecord2D& record, b2ShapeId shape, b2BodyId body, const glm::vec2& point) const
     {
         const ShapeOwner2D* l_Owner = FindShape(shape);
@@ -3718,7 +3718,7 @@ namespace Trinity
         return l_Velocity;
     }
 
-    // The character's body taken to where it moved, turned as it was, waking what it left and what it reached, since Box2D wakes neither
+    // Wakes what it left and what it reached, since Box2D wakes neither
     void PhysicsScene2D::State::PlaceCharacter(BodyRecord2D& record, const glm::vec2& position)
     {
         const b2Vec2 l_Position = ToBox2D(position);
@@ -3733,7 +3733,7 @@ namespace Trinity
         WakeAround(b2AABB_Union(l_Before, b2Body_ComputeAABB(record.Body)));
     }
 
-    // Each character, in the records' order, moved for the step by its own velocity, and the move scripts asked for, before the world steps, as a 3D one is, and a physical one given it by MovePhysical. One whose transform was set from code is taken there first. Standing on ground it can stand on, it loses the vertical part of its velocity, and off the ground gravity adds to it. MoveCharacter moves it, climbing and keeping to the floor, it settles onto ground it stands just above, it pushes, and the walls, ceilings and slopes too steep to stand on it touches take from its velocity the part that went into them. A body it stands on then carries it over the step, which CarryCharacters does once the world has stepped. Leaving the ground it keeps what carried it, and landing it gives back what it lands on moves at, so its velocity is its own, against what it stands on. Its body is placed where it moved
+    // In the records' order, before the world steps. On ground it loses vertical velocity
     void PhysicsScene2D::State::MoveCharacters(float seconds)
     {
         LastSeconds = seconds;
@@ -3779,7 +3779,7 @@ namespace Trinity
                 l_Velocity += l_Gravity * seconds;
             }
 
-            // A move scripts asked for is covered over the step besides its velocity, which it leaves as it was
+            // A move scripts asked for is covered over the step besides its velocity, which stays as it was
             const glm::vec2 l_Moving = l_Velocity + std::exchange(l_Record.Move, glm::vec2(0.0f)) / seconds;
             glm::vec2 l_Position = FromBox2D(b2Body_GetPosition(l_Record.Body));
             MoveCharacter(l_Record, l_Position, l_Moving, seconds);
@@ -3812,7 +3812,7 @@ namespace Trinity
         }
     }
 
-    // Each character a body carried over the step taken there, as the body's pose before the step and after it move the middle of its lower end cap, so its feet keep their place on the body. It keeps its own turn, standing upright as the body turns under it
+    // Moved by the carrying body's poses before and after the step, keeping its own turn
     void PhysicsScene2D::State::CarryCharacters()
     {
         for (BodyRecord2D* it_Record : Records)
@@ -3835,7 +3835,7 @@ namespace Trinity
         }
     }
 
-    // A kinematic character's weight on a dynamic body it touches below, as Jolt presses a 3D one's: its mass under the world's gravity over the step, as much of it as goes into the ground, where it meets the ground
+    // Its mass under the world's gravity over the step, as much as goes into the ground
     void PhysicsScene2D::State::PressOnGround(const BodyRecord2D& record, float seconds)
     {
         if (B2_IS_NULL(record.GroundBody) || !b2Body_IsValid(record.GroundBody) || b2Body_GetType(record.GroundBody) != b2_dynamicBody)
@@ -3855,7 +3855,7 @@ namespace Trinity
         b2Body_ApplyLinearImpulse(record.GroundBody, ToBox2D(l_Impulse), ToBox2D(record.GroundPoint), true);
     }
 
-    // Whether a contact of a one-way collider or of a physical character's capsule holds, which Box2D asks on its workers in the middle of a step, the scene's shapes and records left as they are. A walking physical character's capsule rests on no ground it can stand on in the plane of the ground it walks on, since it keeps itself on the ground's surface, so it catches on no seam where one shape of the ground meets the next. A one-way collider holds a physical character only where it faces within about 45 degrees of the collider's up, from it to the character, while the character is no deeper in it than a little, as a kinematic one is held. Every other body meets it on every side
+    // Box2D asks on its workers mid-step, so the scene's shapes and records are only read
     bool PhysicsScene2D::State::HoldsContact(b2ShapeId shapeA, b2ShapeId shapeB, b2Manifold* manifold, void* context)
     {
         const State& l_State = *static_cast<const State*>(context);
@@ -3903,7 +3903,7 @@ namespace Trinity
         return l_Facing >= c_OneWayCosine && l_Deepest >= -c_OneWayDepth;
     }
 
-    // A physical character before the world steps, as a kinematic one's move begins: one whose transform was set from code is taken there first, and what was done to its body since the last step, such as a kinematic character's push or another's weight, adds to its velocity. A move scripts asked for is covered first, sliding along what it meets, and its velocity is left as it was. Standing on ground it can stand on and not rising off it, it walks: it loses the vertical part of its velocity, steps up onto what it walks into that its step height clears, and its body moves along the ground at its pace across it, kept on the ground's surface, neither above it nor in it, and landing on ground below it goes down onto. Gravity does not pull it then, and its weight presses on a dynamic body it stands on. Otherwise gravity pulls it as it does any body. The walls, ceilings and slopes too steep to stand on it touches take from its velocity the part going into them, and the body it stood on adds how it moves the character's feet over the step, so it rides upright. The world then steps its body, so what hits it, what it pushes and what it lands on change its body's velocity, which SettleCharacters reads back
+    // Before the world steps. What was done to its body since the last step adds to its velocity
     void PhysicsScene2D::State::MovePhysical(BodyRecord2D& record, float seconds, const glm::vec2& gravity, const glm::vec2& up)
     {
         const TransformComponent& l_Transform = Owner.GetRegistry().get<TransformComponent>(record.Entity);
@@ -3923,7 +3923,7 @@ namespace Trinity
 
         record.Carried = Predict(l_Carrier, GetFoot(record, FromBox2D(b2Body_GetPosition(record.Body))), seconds);
 
-        // A move scripts asked for counts with its velocity as it decides whether it walks and climbs, and is covered before the world steps, which leaves its velocity as it was
+        // A scripted move counts with its velocity for walking and climbing, and is covered before the step
         glm::vec2 l_Velocity = record.Velocity;
         const glm::vec2 l_Asked = std::exchange(record.Move, glm::vec2(0.0f));
         const float l_Rising = glm::dot(l_Velocity + l_Asked / seconds, up);
@@ -3949,7 +3949,7 @@ namespace Trinity
             l_Given -= up * (glm::dot(l_Velocity, l_Normal) / std::max(glm::dot(l_Normal, up), 1.0e-3f));
             l_Given += l_Normal * (record.GroundDepth / seconds);
 
-            // Going down faster than Box2D's solver meets what is below, as rolling over an edge does, it lands on ground it can stand on that it meets over the step and goes on along it, rather than sinking into it
+            // Falling faster than Box2D's solver meets the ground, it lands on it rather than sinking in
             const glm::vec2 l_Move = l_Given * seconds;
             const std::optional<CapsuleHit2D> l_Land = glm::dot(l_Move, up) < -c_SpeculativeDistance ? CastAgainst(record, FromBox2D(b2Body_GetPosition(record.Body)), l_Move, true, true) : std::nullopt;
             if (l_Land)
@@ -3972,7 +3972,7 @@ namespace Trinity
         record.Given = l_Given;
     }
 
-    // Each physical character once the world has stepped, as a kinematic one's move ends: what the step did to its body's velocity, beyond what it was given, is added to its own, so a hit knocks it back and a heavy body it walks into slows it, but not what the ground it walked on did to push it out, which only kept it there. Having walked off ground it stood on, it is set down onto ground below as soon as it can be, until it has fallen its step height. Standing, it loses the vertical part of its velocity, and landing it gives back what it lands on moves at. Leaving the ground it keeps what carried it
+    // After the world steps: what the step did to its body beyond what it was given is its own
     void PhysicsScene2D::State::SettleCharacters(float seconds)
     {
         const SceneRegistry& l_Registry = Owner.GetRegistry();
@@ -4036,7 +4036,7 @@ namespace Trinity
         }
     }
 
-    // A physical character moved before the world steps by a displacement scripts asked for, as a 3D one is: its capsule swept along it to what it meets going against it, then along that for what is left, a few times for corners, walking along the ground and meeting walls and slopes too steep as upright walls. Its body is placed where that takes it, and what it covered is given back
+    // Swept to what it meets, then along that, a few times for corners, as a 3D one is
     glm::vec2 PhysicsScene2D::State::CoverMove(BodyRecord2D& record, const glm::vec2& displacement, const glm::vec2& up)
     {
         constexpr int c_Passes = 4;
@@ -4074,7 +4074,7 @@ namespace Trinity
         return l_Position - l_Start;
     }
 
-    // Each character's hits from what its capsule touches or nearly does as the step left it, which its contacts hold, as a 3D one's are found: each body it touches that it was not touching, at the nearest place on it, while the bodies it touched that it still nearly touches stay touched. After the step's contacts, by the character's UUID and then the body's
+    // A body newly touched hits once, and stays touched while nearly so, so a gap does not hit again
     void PhysicsScene2D::State::HandOutHits(std::uint32_t index)
     {
         Hits.clear();
@@ -4127,7 +4127,7 @@ namespace Trinity
         Events.insert(Events.end(), Hits.begin(), Hits.end());
     }
 
-    // What a physical character stands on, as a 3D one finds it after a step, from what its capsule touches or nearly does, a one-way collider only from above: ground it can stand on before anything else, the deepest of it, and otherwise what faces most up. What is below the middle of its lower end cap holds it up, on ground it can stand on or on a slope too steep, and above it the character is not held up. The normals of the ground it can stand on that holds it up are kept, to keep its velocity from being lifted off it, and so are the shapes it touches, whose walls, ceilings and slopes too steep to stand on hold its velocity back. So is how deep it is in the ground
+    // Standable ground first, the deepest of it, else what faces most up, as a 3D one finds it
     void PhysicsScene2D::State::FindGround(BodyRecord2D& record)
     {
         const glm::vec2 l_Position = FromBox2D(b2Body_GetPosition(record.Body));
@@ -4172,7 +4172,7 @@ namespace Trinity
         record.GroundDepth = -l_Ground->Distance;
     }
 
-    // A physical character's capsule swept from where it is placed along the translation, and the nearest shape it meets going against the translation, or with standing, the nearest ground it can stand on, passing walls and edges in the way, as a 3D one looks about. What it rests on or slides along does not stop it, and a one-way collider stops it only coming down onto it from above. Its capsule is grown by Box2D's slop, which a cast stops inside a round shape by, so it stops where the capsule touches. Box2D lets a cast go a slop further into a shape it starts touching, which landing, climbing and keeping to the floor allow, but without encroach, as a move is cast, going into one stops it at once against its nearest side, since the world's solver would push it back out, and a dynamic body with it
+    // What it rests on or slides along does not stop it. A one-way collider is met only from above
     std::optional<CapsuleHit2D> PhysicsScene2D::State::CastAgainst(const BodyRecord2D& record, const glm::vec2& position, const glm::vec2& translation, bool standing, bool encroach)
     {
         const float l_Length = glm::length(translation);
@@ -4243,7 +4243,7 @@ namespace Trinity
         return l_Nearest;
     }
 
-    // Whether a physical character's capsule fits where it is placed, sunk into what is about it by no more than Box2D's solver leaves it, a one-way collider never in its way
+    // Sunk in by no more than Box2D's solver leaves it. A one-way collider is never in its way
     bool PhysicsScene2D::State::Fits(const BodyRecord2D& record, const glm::vec2& position)
     {
         const b2ShapeProxy l_Mover = GetMover(record, position);
@@ -4269,7 +4269,7 @@ namespace Trinity
         });
     }
 
-    // A physical character walking into what its step height clears, such as a stair, lifted onto it before the world steps, as a 3D one is: its capsule swept along its motion over the step meets a wall or a slope too steep to stand on, a ray down from its step height above its feet, just past the front of its capsule, finds ground it can stand on, and its capsule fits just above that, both where it is and over the step. Its pace across carries it on over the top. False when it does not climb
+    // Lifted onto what its step height clears before the world steps, as a 3D one is
     bool PhysicsScene2D::State::StepUp(BodyRecord2D& record, const glm::vec2& velocity, float seconds, const glm::vec2& up)
     {
         const glm::vec2 l_Across = velocity - glm::dot(velocity, up) * up;
@@ -4286,7 +4286,7 @@ namespace Trinity
             return false;
         }
 
-        // Its feet are the lowest point of its capsule, and the ray starts a little higher than it climbs, so it finds a step as high as that. A one-way collider is met from above, and a ray that starts inside anything else climbs nothing
+        // The ray starts a little higher than it climbs. A ray that starts inside a solid climbs nothing
         const glm::vec2 l_Way = l_Across / l_Speed;
         const float l_Reach = record.StepHeight + c_StepReach;
         const glm::vec2 l_From = GetFoot(record, l_Position) - up * record.Radius + l_Way * (record.Radius + c_StepReach) + up * l_Reach;
@@ -4341,7 +4341,7 @@ namespace Trinity
         return true;
     }
 
-    // A physical character lifted onto a step that its capsule is not over yet stands on the step's top, so it walks on at that height rather than down onto the step's edge, until it stands on the top itself
+    // It stands on the step's top until its capsule is over it, so it does not sink onto the edge
     void PhysicsScene2D::State::StandOnStep(BodyRecord2D& record)
     {
         const bool l_OnTop = record.Ground == GroundState2D::OnGround && glm::dot(record.GroundNormal, record.Step.Normal) > 0.999f;
@@ -4361,7 +4361,7 @@ namespace Trinity
         record.Supports.push_back(record.Step.Normal);
     }
 
-    // A physical character that walked off ground it stood on, set down onto ground it can stand on within the distance below, as a kinematic one keeps to the floor going down stairs: its capsule swept down meets it, and fits there, which it does not while the edge it walked off is in the way. False when it is not set down
+    // Set down onto standable ground within the distance, as a kinematic one keeps to the floor
     bool PhysicsScene2D::State::KeepToFloor(BodyRecord2D& record, const glm::vec2& up, float distance)
     {
         const glm::vec2 l_Position = FromBox2D(b2Body_GetPosition(record.Body));
@@ -4379,7 +4379,7 @@ namespace Trinity
         return record.Ground == GroundState2D::OnGround;
     }
 
-    // The record of the 2D body made for the entity, or for the body one of its colliders is part of, with the scene's changes taken in
+    // The record of the entity's 2D body, or of the body its collider is part of
     BodyRecord2D* PhysicsScene2D::State::FindBody(UUID entity)
     {
         Sync();

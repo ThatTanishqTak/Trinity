@@ -19,7 +19,7 @@ namespace Trinity
     class PhysicsWorld3D;
     class Scene;
 
-    // Between two bodies, named by the entities that own them. A contact's are in UUID order and a trigger's first is the trigger's. A joint's break names the joint's entity and the entity it was joined to, none for the world. A character's hit names the character and the body it began touching. A contact's beginning has where the bodies first touched and the normal from the first to the second, and a hit where the character touches and the normal of the surface it touches there, out towards the character, in world space, and every other event has zeros
+    // Named by the entities that own the bodies: a contact's in UUID order, a trigger's first
     struct PhysicsEvent3D
     {
         PhysicsEventType Type = PhysicsEventType::ContactBegin;
@@ -31,7 +31,7 @@ namespace Trinity
         std::uint32_t Step = 0;
     };
 
-    // What a query may hit: colliders on the layers in the mask, triggers only when it asks for them, and nothing of the entity it passes over, such as the one asking, whose body and colliders are all left out
+    // Layers in the mask, triggers only when asked for, and nothing of the ignored entity's body
     struct PhysicsQueryFilter3D
     {
         std::uint32_t Layers = c_AllCollisionLayers;
@@ -39,7 +39,7 @@ namespace Trinity
         UUID Ignore;
     };
 
-    // A collider a query met: its entity and the entity whose body it is part of, which are one for a collider on the body's own entity. A cast's hit has where it met the collider, the collider's normal there, out towards the ray or shape, and how far along the cast it was. A cast that starts inside a solid meets it at once, at the start, with the normal against the cast. An overlap has only the entities
+    // A cast that starts inside a solid meets it at once, with the normal against the cast
     struct PhysicsHit3D
     {
         UUID Entity;
@@ -57,7 +57,7 @@ namespace Trinity
         Capsule
     };
 
-    // A shape a query casts or overlaps, sized as the colliders are: a sphere's radius, a box's half extents, and a capsule's radius and whole height along its Y axis, end caps included
+    // Sized as the colliders are: a capsule's height is whole, along its Y axis
     struct PhysicsQueryShape3D
     {
         PhysicsQueryShapeType3D Type = PhysicsQueryShapeType3D::Sphere;
@@ -70,7 +70,7 @@ namespace Trinity
         [[nodiscard]] static PhysicsQueryShape3D MakeCapsule(float radius, float height) { return { PhysicsQueryShapeType3D::Capsule, radius, glm::vec3(radius), height }; }
     };
 
-    // What a character stands on as its last step left it: whether it is ground it can stand on, and, on any ground, a slope too steep included, the ground's normal, how fast the ground moves where the character is, and the entity whose body it is, none for ground that is no body of the scene's
+    // As its last step left it. Entity is none for ground that is no body of the scene's
     struct CharacterGround3D
     {
         bool Grounded = false;
@@ -79,7 +79,7 @@ namespace Trinity
         UUID Entity;
     };
 
-    // A scene's bodies in a PhysicsWorld3D, made when the scene starts running from its RigidBody, collider and CharacterController components, which are read once then, with the project's collision layers. An entity with a RigidBody is a body, and one with colliders and no RigidBody above it a static body. An entity with a CharacterController is a character, moved by Jolt's CharacterVirtual in each step before the world steps and carried by what it stands on as the world steps, or in Physical mode a dynamic body on Jolt's Character that cannot turn, given its velocity before the world steps and stepped with the world, either way written back to its entity's transform as a dynamic body is, and drawn between its last two steps. A character hits a body as its capsule begins touching it, once until it moves away from it, which comes out after the step's contacts. A character whose mode changes while the scene runs is made again where it is, keeping its velocity. Colliders on entities below a body, without a RigidBody of their own, join it as one compound shape. A body's trigger colliders become a sensor of their own beside it, which follows it. Dynamic bodies write their poses back to their entities' transforms after each step, local to any parent, and kinematic ones are moved to theirs over the steps of each frame. Both are drawn at their poses between their last two steps. Hull and mesh colliders wait for their shapes to load, and their body is made once all have. Joints are made once both their bodies are, and one past its break force or torque is taken out after the step that broke it, and reported once. A joint whose motor or break limits alone change takes them on in place, and any other change makes it again from where its bodies are. Contacts and triggers are gathered on Jolt's workers and handed out on the main thread after each step, in the same order on every run. physics.events logs them to the Console. The scene's changes are taken in as each frame with steps begins, as each step begins and as a script reaches a body. Queries look at the bodies as the last step left them, on the main thread between steps, as scripts do
+    // Made when the scene starts running, from its components and the project's collision layers
     class TRINITY_API PhysicsScene3D
     {
     public:
@@ -92,7 +92,7 @@ namespace Trinity
         // Whether the scene has anything for a world: a RigidBody, a collider or a CharacterController
         [[nodiscard]] static bool IsNeeded(Scene& scene);
 
-        // A frame of the given number of steps, each step numbered from 0, then the factor between the last two steps it is drawn at
+        // Steps are numbered from 0. The factor is how far between the last two steps it is drawn
         void BeginFrame(std::uint32_t steps);
         void Step(Timestep step, std::uint32_t index);
         void EndFrame(float interpolation);
@@ -108,20 +108,20 @@ namespace Trinity
         [[nodiscard]] PhysicsBodyCounts GetBodyCounts() const;
         // By each one's ground as GetCharacterGround reads it
         [[nodiscard]] PhysicsCharacterCounts GetCharacterCounts() const;
-        // Whether each step keeps where its bodies touch, triggers left out, for drawing. Off until asked for, since it costs each contact a lock. Jolt reports the contacts of bodies awake, so a sleeping pile shows none
+        // Off until asked for, as it costs each contact a lock. Jolt reports only awake bodies' contacts
         void SetGatherContacts(bool gather);
         [[nodiscard]] std::span<const PhysicsContactPoint> GetContactPoints() const;
 
-        // The nearest collider along the ray, within the distance, and every collider it meets, nearest first, each once. The direction need not be of unit length
+        // The nearest first, each once. The direction need not be of unit length
         [[nodiscard]] std::optional<PhysicsHit3D> Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter = {}) const;
         [[nodiscard]] std::vector<PhysicsHit3D> RaycastAll(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter = {}) const;
         // The shape swept from where it is placed, as for a ray
         [[nodiscard]] std::optional<PhysicsHit3D> ShapeCast(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter = {}) const;
         [[nodiscard]] std::vector<PhysicsHit3D> ShapeCastAll(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const glm::vec3& direction, float maxDistance, const PhysicsQueryFilter3D& filter = {}) const;
-        // Every collider the shape overlaps where it is placed, each once, in UUID order
+        // Each once, in UUID order
         [[nodiscard]] std::vector<PhysicsHit3D> Overlap(const PhysicsQueryShape3D& shape, const glm::vec3& position, const glm::quat& rotation, const PhysicsQueryFilter3D& filter = {}) const;
 
-        // What a script does to a body, named by the entity that owns it or by one of its colliders' entities, on the main thread between steps, with the scene's changes taken in first, so a body added this frame answers. In world space, in metres, kilograms, seconds and radians. Only a dynamic body takes velocities, forces and impulses, and a static one neither sleeps nor wakes. A force or torque lasts for the next step, so a script adds it in OnFixedUpdate, and an impulse changes the velocity at once. A body pushed is woken. A character takes Teleport and the calls of its own below, and refuses the rest
+        // Main thread, between steps. World space, in metres, kilograms, seconds and radians
         PhysicsBodyResult GetVelocity(UUID entity, glm::vec3& linear, glm::vec3& angular);
         PhysicsBodyResult SetLinearVelocity(UUID entity, const glm::vec3& velocity);
         PhysicsBodyResult SetAngularVelocity(UUID entity, const glm::vec3& velocity);
@@ -131,20 +131,20 @@ namespace Trinity
         PhysicsBodyResult AddImpulse(UUID entity, const glm::vec3& impulse);
         PhysicsBodyResult AddImpulseAtPoint(UUID entity, const glm::vec3& impulse, const glm::vec3& point);
         PhysicsBodyResult AddAngularImpulse(UUID entity, const glm::vec3& impulse);
-        // The body or character and its entity there at once, its velocities kept, drawn there with nothing between
+        // At once, its velocities kept, drawn there with nothing between
         PhysicsBodyResult Teleport(UUID entity, const glm::vec3& position, const glm::quat& rotation);
-        // Where a kinematic body goes over the next frame's steps, pushing what is in its way, as its entity's transform set from code takes it
+        // Where a kinematic body goes over the next frame's steps, pushing what is in its way
         PhysicsBodyResult MoveKinematic(UUID entity, const glm::vec3& position, const glm::quat& rotation);
         PhysicsBodyResult SetAwake(UUID entity, bool awake);
         PhysicsBodyResult IsAwake(UUID entity, bool& awake);
-        // Whether the entity's joint has broken, or none for an entity with no joint the scene took in
+        // None for an entity with no joint the scene took in
         [[nodiscard]] std::optional<bool> IsJointBroken(UUID entity) const;
 
-        // What a script does to a character, named as a body is, which refuses an entity that is part of a body and no character. Its velocity is its own, against what it stands on, in world space, and lasts until changed: gravity adds to it off the ground, standing takes its vertical part, and what it walks into takes the part that goes into it. What it stands on carries it besides. A physical character's velocity also takes what the world and other characters do to its body, so a body that hits it knocks it back, and a kinematic character pushes it, until its velocity is set again
+        // Its velocity is its own, against what it stands on, in world space, and lasts until changed
         PhysicsBodyResult SetCharacterVelocity(UUID entity, const glm::vec3& velocity);
         PhysicsBodyResult GetCharacterVelocity(UUID entity, glm::vec3& velocity);
         PhysicsBodyResult GetCharacterGround(UUID entity, CharacterGround3D& ground);
-        // Moves the character by the displacement over its next step, besides its velocity, sliding, climbing and keeping to the floor as its velocity does. Moves asked for before the step add up, and its velocity is left as it was. Teleport puts it somewhere at once
+        // Besides its velocity. Moves asked for before the step add up. Teleport is at once
         PhysicsBodyResult MoveCharacter(UUID entity, const glm::vec3& displacement);
 
     private:

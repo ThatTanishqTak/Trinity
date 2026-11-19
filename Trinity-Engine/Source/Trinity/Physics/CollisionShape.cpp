@@ -32,9 +32,9 @@ namespace Trinity
 {
     namespace
     {
-        // A 24-byte header, then the shape as Jolt saves it, or the reason it could not be made, all little-endian
+        // A 24-byte header, then the shape as Jolt saves it, or the reason it could not be made
         constexpr std::array<char, 4> c_Magic{ 'T', 'R', 'C', 'S' };
-        // 2 since Jolt is built for cross-platform determinism, which shapes cooked before it may not match
+        // 2 since Jolt is built for cross-platform determinism, which older cooked shapes may not match
         constexpr std::uint32_t c_FormatVersion = 2;
         constexpr std::size_t c_HeaderSize = 24;
 
@@ -161,7 +161,7 @@ namespace Trinity
             return { std::bit_cast<std::uint32_t>(position.x + 0.0f), std::bit_cast<std::uint32_t>(position.y + 0.0f), std::bit_cast<std::uint32_t>(position.z + 0.0f) };
         }
 
-        // Each position once, in the order first met, and for each of the mesh's vertices the welded vertex it became
+        // Each position once, in the order first met, with each vertex's welded index
         struct WeldedVertices
         {
             JPH::VertexList Positions;
@@ -214,7 +214,7 @@ namespace Trinity
         // Triangles read from a mesh shape at a time, for its wireframe
         constexpr int c_TriangleBatch = 256;
 
-        // Around each face, each edge once though two faces share it, in the mesh's space rather than about the centre of mass
+        // Each edge once though two faces share it, in the mesh's space, not about the centre of mass
         void AddHullWireframe(const JPH::ConvexHullShape& hull, std::vector<glm::vec3, TaggedAllocator<glm::vec3, MemoryTag::Assets>>& wireframe)
         {
             const JPH::Vec3 l_Center = hull.GetCenterOfMass();
@@ -236,7 +236,7 @@ namespace Trinity
             }
         }
 
-        // Each triangle's edges, the ones two triangles share once. Past c_MaxWireEdges none are kept
+        // Edges two triangles share are kept once. Past c_MaxWireEdges none are kept
         void AddMeshWireframe(const JPH::Shape& mesh, std::vector<glm::vec3, TaggedAllocator<glm::vec3, MemoryTag::Assets>>& wireframe)
         {
             using EdgeKey = std::array<std::uint32_t, 6>;
@@ -290,7 +290,7 @@ namespace Trinity
 #endif
     }
 
-    // A loader for each kind, so a collider's picker and a dropped asset name the kind it takes. A worker checks the header and restores Jolt's shape, which holds Jolt's types until the asset goes
+    // A loader for each kind, so a collider's picker and a dropped asset name the kind it takes
     class CollisionShapeLoader final : public AssetLoader
     {
     public:
@@ -409,7 +409,7 @@ namespace Trinity
         }
     }
 
-    // On a worker. The kind byte Jolt reads first is checked before Jolt sees it, since Jolt takes it as an index into its own table
+    // On a worker. The kind byte is checked first, since Jolt takes it as an index into its table
     Expected<Asset*, std::string> CollisionShapeLoader::Load(std::span<const std::byte> data) const
     {
         TR_PROFILE_FUNCTION();

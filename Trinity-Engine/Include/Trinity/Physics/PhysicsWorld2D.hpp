@@ -10,14 +10,14 @@
 
 namespace Trinity
 {
-    // The shapes the small body API below makes, for tools and checks. A running scene's 2D bodies take theirs from its colliders
+    // For tools and checks. A running scene's 2D bodies take their shapes from its colliders
     enum class BodyShape2D : std::uint8_t
     {
         Circle,
         Box
     };
 
-    // A body as PhysicsWorld2D makes it, in the XY plane, in metres, kilograms and seconds, with Y up and angles counter-clockwise in radians. Damping is a fraction of the velocity lost each second
+    // In metres, kilograms and seconds, Y up, angles counter-clockwise in radians
     struct BodyDescription2D
     {
         BodyMotion Motion = BodyMotion::Dynamic;
@@ -63,7 +63,7 @@ namespace Trinity
         CollisionLayers Layers;
     };
 
-    // A 2D physics world: Box2D's, with its tasks run on Trinity's job system and its memory under Physics, on the same fixed step as the 3D world. Box2D stays inside the engine, so nothing here names its types. A running scene's 2D physics owns one and steps it at the fixed rate. On the main thread
+    // Box2D's world, its tasks on Trinity's job system and its memory under Physics. Main thread
     class TRINITY_API PhysicsWorld2D
     {
     public:

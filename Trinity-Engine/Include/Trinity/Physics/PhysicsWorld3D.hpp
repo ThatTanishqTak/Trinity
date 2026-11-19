@@ -11,14 +11,14 @@
 
 namespace Trinity
 {
-    // The shapes the small body API below makes, for tools and checks. A running scene's bodies take their shapes from its colliders, through PhysicsScene3D
+    // For tools and checks. A running scene's bodies take their shapes from its colliders
     enum class BodyShape3D : std::uint8_t
     {
         Sphere,
         Box
     };
 
-    // A body as PhysicsWorld3D makes it, in metres, kilograms and seconds, with Y up. Damping is a fraction of the velocity lost each second
+    // In metres, kilograms and seconds, with Y up. Damping is the fraction of velocity lost a second
     struct BodyDescription3D
     {
         BodyMotion Motion = BodyMotion::Dynamic;
@@ -63,7 +63,7 @@ namespace Trinity
         std::uint32_t MaxContactConstraints = 10240;
         // Scratch memory a step works in, under Physics, as Jolt's own samples size it
         std::uint32_t StepMemoryBytes = 10u << 20;
-        // The solver's passes each step, and the speed every point of a body must stay under for half a second for it to sleep. Twice Jolt's velocity passes, twice its position passes and a little more speed than its own let a stack of ten boxes dropped askew settle and sleep within two seconds, where Jolt's own leave most swaying, for about an eighth more time a step
+        // Twice Jolt's passes, so ten boxes dropped askew sleep within two seconds, at an eighth more time
         std::uint32_t VelocitySteps = 20;
         std::uint32_t PositionSteps = 4;
         float SleepVelocity = 0.05f;
@@ -71,7 +71,7 @@ namespace Trinity
         CollisionLayers Layers;
     };
 
-    // A 3D physics world: Jolt's physics system, with its body interface and broadphase, stepped on Trinity's job system and allocating under Physics. Jolt stays inside the engine, so nothing here names its types. A running scene's PhysicsScene3D owns one, made only when the scene has bodies or colliders, and steps it at the fixed rate. On the main thread
+    // Jolt's physics system, stepped on Trinity's job system, allocating under Physics. Main thread
     class TRINITY_API PhysicsWorld3D
     {
     public:
@@ -97,7 +97,7 @@ namespace Trinity
         [[nodiscard]] glm::vec3 GetGravity() const;
         [[nodiscard]] std::uint32_t GetBodyCount() const;
         [[nodiscard]] std::uint32_t GetActiveBodyCount() const;
-        // Every body, and of the dynamic and kinematic ones those awake and asleep, which walks every body
+        // Counting walks every body
         [[nodiscard]] PhysicsBodyCounts GetBodyCounts() const;
 
     private:
