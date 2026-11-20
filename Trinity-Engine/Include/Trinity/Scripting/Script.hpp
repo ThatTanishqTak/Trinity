@@ -28,7 +28,7 @@ namespace Trinity
     class Scene;
     class ScriptRuntime;
 
-    // What a physics callback is told: the other entity, or none for a joint to the world, for a contact beginning where it began and its normal, out from this script's entity towards the other, and for a character's hit where it touches and the normal of the surface it hit, out towards the character. A 2D event's point and normal have 0 in Z
+    // A contact's normal points from this entity to the other, a character hit's towards the character
     struct ScriptCollision
     {
         UUID Other;
@@ -37,7 +37,7 @@ namespace Trinity
         bool Is2D = false;
     };
 
-    // A running scene's clock as its scripts see it: this frame's time, which OnUpdate is given, the length of a fixed step, which OnFixedUpdate is given, the scene's time since it started running, and the frames and fixed steps it has run, each counted as it begins. Step in play mode is one frame of one step's time, with one fixed step. The frame's time and the scene's are scaled by the time scale, as Unity's are, and the unscaled ones are as the frames came, for what goes on while the game is paused, such as its menus
+    // Frame and scene time are scaled by the time scale, as Unity's. The unscaled ones are as they came
     struct ScriptTime
     {
         float DeltaTime = 0.0f;
@@ -52,7 +52,7 @@ namespace Trinity
 
     namespace Detail
     {
-        // An address of its own for each C++ script class, which the code that registers the class and asks for it share. Writable, so a linker that folds identical constants leaves each its own
+        // An address of its own for each class. Writable, so a linker folding constants keeps them apart
         template<typename T>
         inline char s_ScriptType = 0;
     }
@@ -79,23 +79,23 @@ namespace Trinity
         virtual void OnTriggerEnter([[maybe_unused]] const ScriptCollision& collision) {}
         virtual void OnTriggerExit([[maybe_unused]] const ScriptCollision& collision) {}
         virtual void OnJointBreak([[maybe_unused]] const ScriptCollision& collision) {}
-        // The script's entity is a character whose capsule began touching another body in the step, once until it moves away from it, after the step's contacts
+        // The entity's character began touching another body in the step. Once, until it moves away
         virtual void OnCharacterHit([[maybe_unused]] const ScriptCollision& hit) {}
 
         [[nodiscard]] Entity GetEntity() const { return m_Entity; }
         [[nodiscard]] Scene& GetScene() const;
         [[nodiscard]] const ScriptTime& GetTime() const;
-        // As Unity's Time.timeScale: how fast the running scene's clock goes from the next frame on, 1 at its own pace, 0 stopped, and up to ScriptRuntime::c_MaxTimeScale. Stopped, no fixed step is taken, so physics, OnFixedUpdate, timers and coroutines waiting on seconds hold where they are, and OnUpdate goes on with a DeltaTime of 0, for the game's menus and input, while the UI and sounds go on too. Kept as the scene switches, as Unity's is. False, logged, for a value outside 0 to c_MaxTimeScale, or not a number, and the scale stays as it was
+        // As Unity's Time.timeScale, from the next frame on. False, logged, outside 0 to c_MaxTimeScale
         bool SetTimeScale(float scale);
-        // The running scene's physics, whose bodies a script pushes and queries, by its entities' UUIDs. Null while the scene has no body of that kind
+        // The running scene's physics. Null while the scene has no body of that kind
         [[nodiscard]] PhysicsScene3D* GetPhysics() const;
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() const;
-        // The running scene's sounds: its AudioSources, which a script plays, pauses and stops by their entities, sounds of their own through PlayOneShot, PlayAtPoint and PlayAttached, reached again through the handles those give, and the parameters, local and global, their sound events hear. Null while no scene's sounds run with the script
+        // The running scene's sounds. Null while no scene's sounds run with the script
         [[nodiscard]] AudioScene* GetAudio() const;
-        // The project's mixer, which the running scene plays through, whose exposed values a script sets, reads and clears, and whose snapshots it moves to. Null while the scene's sounds play on no engine
+        // The project's mixer. Null while the scene's sounds play on no engine
         [[nodiscard]] AudioMixer* GetAudioMixer() const;
 
-        // The entity's UIDocument as the running scene's scripts reach it, whose elements and events it reaches. Its document is loaded at once when no view shows the scene yet, so OnCreate finds its elements. One that reaches nothing, while no scene runs the script or for an entity without a UIDocument
+        // Loaded at once if no view shows the scene yet, so OnCreate finds its elements
         [[nodiscard]] UIDocument GetUIDocument(Entity entity) const;
         [[nodiscard]] UIDocument GetUIDocument() const { return GetUIDocument(m_Entity); }
 
@@ -105,12 +105,12 @@ namespace Trinity
         [[nodiscard]] Entity FindEntityByName(std::string_view name) const;
         // At once, last under the parent, or last of the roots without one
         Entity CreateEntity(std::string_view name = "Entity", Entity parent = {});
-        // The entity and its subtree copied at once, placed after it, with entity fields inside the copy pointing at the copy's own entities. The copy's scripts are made at once with their fields, and have OnCreate before their first call, by the end of the frame at the latest
+        // Copied at once, placed after it. The copy's scripts have OnCreate by the end of the frame
         Entity Duplicate(Entity entity);
-        // An instance of the prefab, made at once from its template in memory, as Unity's Instantiate makes one: last of the roots, or under the parent with the prefab's transform, or with its root at the position and rotation in the world, under the parent too. Its scripts are made at once with their fields, and have OnCreate before their first call, by the end of the frame at the latest, and its bodies and characters join physics at the next step. Its root, or invalid, logged once a prefab, for a prefab the running scene does not hold, as it holds every prefab its fields name, or that cannot be read
+        // As Unity's Instantiate, made at once. Invalid, logged, for a prefab the running scene lacks
         Entity Instantiate(const AssetRef<PrefabAsset>& prefab, Entity parent = {});
         Entity Instantiate(const AssetRef<PrefabAsset>& prefab, const glm::vec3& position, const glm::quat& rotation, Entity parent = {});
-        // The entity and its subtree go at the end of the frame, after every script has run, so a script may destroy its own entity and finish the call it is in
+        // At the end of the frame, after every script has run, so a script may destroy its own entity
         void Destroy(Entity entity);
 
         // The first C++ script of exactly that class on the entity, or null
@@ -126,10 +126,10 @@ namespace Trinity
             return GetScript<T>(m_Entity);
         }
 
-        // Whether the entity has a script of the class, in either language, whether or not its code is loaded
+        // Whether the entity has a script of the class, whether or not its code is loaded
         [[nodiscard]] bool HasScript(Entity entity, ScriptLanguage language, std::string_view className) const;
 
-        // A script of the class last on the entity, with its fields at their defaults, made at once and given OnCreate before its first call, by the end of the frame at the latest. Null, logged, when the class is not registered
+        // Made at once, with OnCreate by the end of the frame. Null, logged, for an unregistered class
         template<std::derived_from<Script> T>
         T* AddScript(Entity entity)
         {
@@ -139,7 +139,7 @@ namespace Trinity
         // False, logged, when no loaded code has the class
         bool AddScript(Entity entity, ScriptLanguage language, std::string_view className);
 
-        // The first script of the class on the entity goes at the end of the frame, after its OnDestroy. False when the entity has none
+        // The first of the class goes at the end of the frame, after OnDestroy. False if there is none
         template<std::derived_from<Script> T>
         bool RemoveScript(Entity entity)
         {
@@ -148,11 +148,11 @@ namespace Trinity
 
         bool RemoveScript(Entity entity, ScriptLanguage language, std::string_view className);
 
-        // Switches the running scene to the scene asset, by its UUID or its path in the project such as Scenes/Level.trscene, at the end of the frame once it and its assets have loaded, as SceneManager does. False, logged, for a scene there is not, or a scene SceneManager does not run, and this scene goes on
+        // At the end of the frame once it has loaded, as SceneManager does. False, logged, if unknown
         bool LoadScene(UUID scene);
         bool LoadScene(std::string_view path);
 
-        // The callback after the delay in seconds of the scene's fixed steps, in the first step that reaches it, after the scripts' OnFixedUpdate and ahead of physics, so it holds while the scene is paused and moves on with Step. A repeating one runs again every interval after that, which must be more than 0. The callback is kept under the Scripting tag until it has run for the last time or is cancelled, and goes with the script, as do all its timers and coroutines. Empty, logged, while no scene runs it
+        // In seconds of the scene's fixed steps. An interval must be above 0. Empty, logged, with no scene
         template<typename F>
             requires std::is_invocable_v<std::decay_t<F>&>
         TimerHandle Invoke(F&& callback, float delay)
@@ -176,7 +176,7 @@ namespace Trinity
         void CancelInvokes();
         [[nodiscard]] bool IsPending(TimerHandle timer) const;
 
-        // Runs the coroutine at once until it first waits, then as each of its waits is met, as Coroutine says. Empty for one that finished without waiting, or, logged, while no scene runs it
+        // Runs at once until it first waits. Empty if it finished without waiting, or no scene runs it
         CoroutineHandle StartCoroutine(Coroutine coroutine);
         // False when it had already finished or been stopped. One that stops itself goes once it next waits
         bool StopCoroutine(CoroutineHandle coroutine);

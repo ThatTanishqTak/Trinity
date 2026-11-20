@@ -4,7 +4,7 @@
 
 namespace Trinity
 {
-    // A gamepad's buttons by where they sit on an Xbox controller, so A is the bottom face button whatever another pad prints on it. View and Menu are the two small buttons in the middle, and the sticks are buttons too, pressed in
+    // By where they sit on an Xbox controller, so A is the bottom face button whatever a pad prints
     enum class GamepadButton : std::uint8_t
     {
         TR_A = 0, TR_B, TR_X, TR_Y,
@@ -16,7 +16,7 @@ namespace Trinity
         Count
     };
 
-    // The sticks from -1 to 1, right and up positive, and the triggers from 0 released to 1 pulled all the way, raw as the pad reports them, with no deadzone
+    // Sticks from -1 to 1, right and up positive. Triggers from 0 to 1. Raw, with no deadzone
     enum class GamepadAxis : std::uint8_t
     {
         TR_LEFT_STICK_X = 0, TR_LEFT_STICK_Y,

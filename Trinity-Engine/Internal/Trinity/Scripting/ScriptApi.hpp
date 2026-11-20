@@ -5,7 +5,7 @@
 
 namespace Trinity::Interop
 {
-    // What a component's or an entity's function tells C#, which turns each failure into an exception naming what failed
+    // What a function tells C#, which turns each failure into an exception naming what failed
     enum class AccessResult : Int32
     {
         Done,

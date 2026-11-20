@@ -26,7 +26,7 @@ namespace Trinity
             std::string_view Name;
         };
 
-        // Each key as C# names it, which InteropGen makes from KeyCodes.hpp, so a key added there needs its name here to be bound by name. One without a name is written as its number
+        // As C# names them, from KeyCodes.hpp. A key added there needs its name here to be bound by name
         constexpr std::array c_KeyNames = std::to_array<SourceName<KeyCode>>({
             { KeyCode::TR_SPACE, "Space" },{ KeyCode::TR_APOSTROPHE, "Apostrophe" },{ KeyCode::TR_COMMA, "Comma" },{ KeyCode::TR_MINUS, "Minus" },{ KeyCode::TR_PERIOD, "Period" },{ KeyCode::TR_SLASH, "Slash" },
             { KeyCode::TR_D0, "D0" },{ KeyCode::TR_D1, "D1" },{ KeyCode::TR_D2, "D2" },{ KeyCode::TR_D3, "D3" },{ KeyCode::TR_D4, "D4" },{ KeyCode::TR_D5, "D5" },
@@ -376,7 +376,7 @@ namespace Trinity
             return {};
         }
 
-        // A name and its list, which every map and action has. The name must be one a path can hold, and new among those already read
+        // A name and its list. The name must be one a path can hold, and new among those already read
         template<typename Item>
         std::string ReadNamed(const YAML::Node& node, const InputVector<Item>& read, std::string_view what, InputName& name)
         {

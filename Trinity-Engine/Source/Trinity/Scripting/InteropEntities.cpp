@@ -89,7 +89,7 @@ namespace Trinity
             return l_Entity ? ToId(ScriptRuntime::GetActive()->DuplicateEntity(l_Entity)) : 0;
         }
 
-        // Its root at the pose in the world when both parts are given. 0 for a prefab the runtime refuses, which it logs once a prefab, and for a parent the scene does not have, which C# throws for before it asks
+        // At the pose when both parts are given. 0 for a prefab the runtime refuses or an unknown parent
         EntityId Entity_Instantiate(UInt64 prefab, EntityId parent, const Vector3* position, const Quaternion* rotation)
         {
             ScriptRuntime* l_Runtime = ScriptRuntime::GetActive();
@@ -132,7 +132,7 @@ namespace Trinity
             return l_Entity ? ToId(l_Entity.GetParent()) : 0;
         }
 
-        // False for an entity or a parent the scene does not have, or a parent inside the entity's own subtree
+        // False for an unknown entity or parent, or a parent inside the entity's own subtree
         Bool Entity_SetParent(EntityId entity, EntityId parent, Bool keepWorldTransform)
         {
             const Entity l_Entity = FindEntity(entity);

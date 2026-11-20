@@ -28,20 +28,20 @@ namespace Trinity
         constexpr std::uint32_t c_NoAction = std::numeric_limits<std::uint32_t>::max();
         constexpr std::size_t c_DeviceCount = std::to_underlying(InputDevice::Count);
         constexpr std::uint32_t c_PartCount = static_cast<std::uint32_t>(std::tuple_size_v<decltype(InputBinding::Sources)>);
-        // How far a stick or trigger has to be pushed for a rebind's Listen to take it, as Forge's Listen takes it
+        // How far a stick or trigger has to be pushed for a rebind's Listen to take it, as Forge's does
         constexpr float c_ListenPush = 0.5f;
         constexpr std::string_view c_RebindsDirectory = "/saves/Input";
 
         static_assert(InputActions::c_MaxPlayers == InputBindingOverlay::c_PlayerSlots, "A rebinds file keeps a slot for each player");
 
-        // A path a handle was found by, and the action it leads to in the asset now, by its index among every map's actions in order
+        // A path a handle was found by, and its action's index among every map's actions in order
         struct ActionSlot
         {
             InputName Path;
             std::uint32_t Action = c_NoAction;
         };
 
-        // Where each action is in the asset, its type, and where its bindings' sources start among a player's, c_PartCount for each binding, kept here so reading an action never looks into an asset a reload may just have replaced
+        // Kept here so reading an action never looks into an asset a reload may just have replaced
         struct ActionLocation
         {
             std::uint32_t Map = 0;
@@ -57,7 +57,7 @@ namespace Trinity
             bool Enable = true;
         };
 
-        // Where an interaction is: waiting for a press, Down in a press that can still perform, Between a MultiTap's taps, Done with a Hold that performed until it is released, or Failed in a press held too long to be a tap until it is released
+        // Waiting for a press, Down, Between a MultiTap's taps, Done after a Hold, or Failed until released
         enum class InteractionPhase : std::uint8_t
         {
             Idle,
@@ -67,7 +67,7 @@ namespace Trinity
             Failed
         };
 
-        // One player's reading of one action: its value, whether it is held, whether it went down or up this frame, and the same since the last fixed step. Then its interaction's: where it is, the time it has been in that phase, the taps done, its progress, and whether it performed or canceled this frame and since the last fixed step. Last, whether it is held back after a rebind's Listen took an input, reading as released until its sources are let go
+        // A player's reading of an action, this frame and since the last fixed step, with its interaction's
         struct ActionState
         {
             glm::vec2 Value{ 0.0f };
@@ -87,7 +87,7 @@ namespace Trinity
             bool HeldBack = false;
         };
 
-        // The maps a player enabled, by name so they outlive a reload, and by index into the asset now. A new player has the first map enabled once the asset is there, then the changes asked for until it was. Its sources are the asset's with its slot's rebinds on top, by ActionLocation::FirstSource
+        // Maps by name, so they outlive a reload, and by index. Sources are the asset's under its rebinds
         struct PlayerState
         {
             bool Active = false;
@@ -99,7 +99,7 @@ namespace Trinity
             InputVector<InputSource> Sources;
         };
 
-        // A rebind's outcome, in the slot of InputRebind::c_Kept its ID gives it: what it came to, the source it took or refused, and when refused the name of the action of its map that reads that source
+        // In the slot its ID gives it: what it came to, its source, and the action that refused it
         struct RebindOutcome
         {
             std::uint32_t ID = 0;
@@ -108,7 +108,7 @@ namespace Trinity
             InputName Conflict;
         };
 
-        // The rebind that listens: the outcome it fills, its action by the handle's slot, so it follows a reload, the part and the player, whether it takes a stick whole, and each pad's axes pushed as it started, bit 1 << GamepadAxis, which it takes only once they have come back under c_ListenPush
+        // Its action is by the handle's slot, so it follows a reload. Axes pushed at the start must return
         struct Listening
         {
             std::uint32_t ID = 0;
@@ -128,7 +128,7 @@ namespace Trinity
             bool InFixedStep = false;
             bool WarnedType = false;
             std::uint64_t BuiltSerial = 0;
-            // The version built from, null until it is ready, or a copy of it with the default UI map beside its own when it has none, or that map alone with no asset
+            // Null until ready. A copy with the default UI map beside its own when the asset has none
             const InputActionsData* Data = nullptr;
             InputActionsData Merged;
             bool Built = false;
@@ -137,14 +137,14 @@ namespace Trinity
             InputVector<ActionLocation> Locations;
             InputVector<ActionSlot> Slots;
             std::array<PlayerState, InputActions::c_MaxPlayers> Players;
-            // Each device's assigned player, or c_NoPlayer, and the devices each player reads this frame, bit 1 << InputDevice
+            // Each device's player, or c_NoPlayer, and each player's devices this frame, bit 1 << InputDevice
             std::array<std::uint32_t, c_DeviceCount> DevicePlayers{};
             std::array<std::uint32_t, InputActions::c_MaxPlayers> ReadMasks{};
             // Counts up as a scene starts and ends, so a handle found in an earlier one reads nothing
             std::uint32_t Session = 1;
             // How many sources a player has, c_PartCount for each binding of every action
             std::uint32_t SourceCount = 0;
-            // Each player slot's rebinds, read from /saves as the scene starts and saved there as they change, whether or not the player is in use
+            // Read from /saves as the scene starts and saved as they change, whether or not the slot is in use
             std::array<InputVector<InputBindingOverride>, InputActions::c_MaxPlayers> Rebinds;
             std::array<RebindOutcome, InputRebind::c_Kept> Outcomes;
             // Never starts again from 1, so a rebind of an earlier scene reads as None
@@ -154,7 +154,7 @@ namespace Trinity
 
         State* s_State = nullptr;
 
-        // A source's value, its X alone for one that has no Y, and whether a key or button of it went down this frame, which a press and a release between two frames would otherwise hide
+        // A source's value, and whether it went down this frame, which a quick press would otherwise hide
         struct Reading
         {
             glm::vec2 Value{ 0.0f };
@@ -346,7 +346,7 @@ namespace Trinity
             }
         }
 
-        // A composite's part counts by its size if it is a stick, and by its value otherwise, so a trigger can be half of an axis
+        // A stick counts by its size, anything else by its value, so a trigger can be half of an axis
         [[nodiscard]] float ReadPart(InputSource source, std::uint32_t mask, bool& wentDown)
         {
             const Reading l_Reading = ReadSource(source, mask);
@@ -396,7 +396,7 @@ namespace Trinity
             return l_Reading;
         }
 
-        // The binding's value as the action's type has it: a Button's strength, an Axis's X, or a Vector2, with how far it goes
+        // As the action's type has it: a Button's strength, an Axis's X, or a Vector2, with its length
         [[nodiscard]] glm::vec2 ToActionValue(InputActionType type, const Reading& reading, float& magnitude)
         {
             switch (type)
@@ -427,7 +427,7 @@ namespace Trinity
             return glm::vec2(0.0f);
         }
 
-        // The interaction's part of the frame, once its press is read. Time counts only across a frame the action stayed down, or stayed up between taps, so a press or a release is taken as at the frame's start and a tap is never judged longer than it was
+        // Time counts only across a frame it stayed down or up, so a tap is never judged longer than it was
         void Interact(const InputInteraction& interaction, float seconds, ActionState& state)
         {
             state.Performed = false;
@@ -549,7 +549,7 @@ namespace Trinity
             state.FixedCanceled = state.FixedCanceled || state.Canceled;
         }
 
-        // Of several bindings the strongest wins, the first among equals, each read from the player's sources, which start at sources. An action is pressed as it goes from below the press point to it, and also when a key or button of it went down this frame and came up again before it ended. One held back reads as released until it is below the press point with nothing gone down, as after a rebind. Its interaction follows, over the frame's seconds
+        // The strongest binding wins, the first among equals. A press and release within a frame counts
         void Evaluate(const InputActionDefinition& action, const InputSource* sources, bool enabled, std::uint32_t mask, float seconds, ActionState& state)
         {
             glm::vec2 l_Value(0.0f);
@@ -626,14 +626,14 @@ namespace Trinity
 
             if (l_Matches > 1)
             {
-                TR_CORE_WARN("Input: {} actions are named '{}', so it reads as released until it is found as Map/{}", l_Matches, path, path);
+                TR_CORE_WARN("Input: {} actions are named '{}', so it reads released until found as Map/{}", l_Matches, path, path);
 
                 return c_NoAction;
             }
 
             if (l_Matches == 0)
             {
-                TR_CORE_WARN("Input: the actions asset has no action '{}', so it reads as released until it does", path);
+                TR_CORE_WARN("Input: the actions asset has no action '{}', so it reads released until it does", path);
             }
 
             return l_Found;
@@ -663,7 +663,7 @@ namespace Trinity
                 return;
             }
 
-            // The UI's map too, which the game UI reads for player 0, as Unity's UI input module enables its own actions
+            // The UI's map too, which the game UI reads for player 0, as Unity's UI input module does
             if (std::exchange(player.FirstMapPending, false) && !s_State->Data->Maps.empty())
             {
                 SetEnabledName(player, s_State->Data->Maps.front().Name, true);
@@ -688,7 +688,7 @@ namespace Trinity
             player.PendingChanges = InputVector<MapChange>();
         }
 
-        // Sized for the asset now, with each enabled name's map, so reading allocates nothing until the next build. A name the asset lacks is kept, and logged
+        // Sized for the asset now, so reading allocates nothing. A name the asset lacks is kept, and logged
         void Fit(PlayerState& player)
         {
             ApplyFirstMap(player);
@@ -706,7 +706,7 @@ namespace Trinity
                 }
                 else if (l_Data != nullptr)
                 {
-                    TR_CORE_WARN("Input: the actions asset has no map '{}', which stays enabled in case it comes back", std::string_view(it_Name));
+                    TR_CORE_WARN("Input: the actions asset has no map '{}', kept enabled in case it comes back", std::string_view(it_Name));
                 }
             }
         }
@@ -762,7 +762,7 @@ namespace Trinity
             return std::format("{}/{}{}", c_RebindsDirectory, s_State->Asset, InputBindingOverlay::c_Extension);
         }
 
-        // Every slot's rebinds, or the file taken away once there are none. A failure is logged, and the rebinds last until play stops
+        // Every slot's rebinds, or the file removed once there are none. A failure is logged
         void SaveRebinds()
         {
             if (!s_State->Asset)
@@ -777,7 +777,7 @@ namespace Trinity
                 {
                     if (const Expected<void, FileError> l_Removed = FileSystem::RemoveFile(l_Path); !l_Removed)
                     {
-                        TR_CORE_WARN("Input: {} was not removed, since {}, so its rebinds come back when play next starts", l_Path, ToString(l_Removed.GetError()));
+                        TR_CORE_WARN("Input: {} was not removed, since {}, so its rebinds come back at the next play", l_Path, ToString(l_Removed.GetError()));
                     }
                 }
 
@@ -793,7 +793,7 @@ namespace Trinity
             }
         }
 
-        // The asset's rebinds on this machine, as the scene starts, logged with how many there are. A file that cannot be read is logged and left for the next rebind to replace
+        // As the scene starts. A file that cannot be read is logged and left for the next rebind to replace
         void LoadRebinds()
         {
             const std::string l_Path = GetRebindsPath();
@@ -804,7 +804,7 @@ namespace Trinity
 
             const auto a_Refuse = [&l_Path](std::string_view reason)
             {
-                TR_CORE_WARN("Input: the rebinds in {} were not read, since {}, so the asset's own bindings are used until the next rebind replaces them", l_Path, reason);
+                TR_CORE_WARN("Input: the rebinds in {} were not read, since {}, so the asset's bindings apply", l_Path, reason);
             };
 
             const Expected<std::string, FileError> l_Text = FileSystem::ReadText(l_Path);
@@ -835,7 +835,7 @@ namespace Trinity
             TR_CORE_INFO("Input: {} rebind(s) of {} player(s) read from {}", l_Count, l_Players, l_Path);
         }
 
-        // A rebind whose action, binding or part the asset no longer has, or whose part the asset now gives another source than the one it replaced, is dropped and logged, and the rest are saved
+        // A rebind the asset no longer has a place for, or changed the source under, is dropped and logged
         void DropStaleRebinds()
         {
             bool l_Dropped = false;
@@ -851,7 +851,7 @@ namespace Trinity
                         return false;
                     }
 
-                    TR_CORE_WARN("Input: player {}'s rebind of {} from {} to {} was dropped, since the actions asset no longer has {} there", it_Player, DescribePart(std::string_view(rebind.Action), rebind.Binding, rebind.Part), DescribeSource(rebind.From), DescribeSource(rebind.To), DescribeSource(rebind.From));
+                    TR_CORE_WARN("Input: dropped player {}'s rebind of {} from {} to {}: the asset has no {} there", it_Player, DescribePart(std::string_view(rebind.Action), rebind.Binding, rebind.Part), DescribeSource(rebind.From), DescribeSource(rebind.To), DescribeSource(rebind.From));
                     l_Dropped = true;
 
                     return true;
@@ -879,7 +879,7 @@ namespace Trinity
             return GetAction(l_Location).Bindings[binding].Sources[part];
         }
 
-        // The asset's sources with the slot's rebinds on top, so reading them allocates nothing until the next build or rebind
+        // The asset's sources under the slot's rebinds, so reading them allocates nothing
         void FitSources(std::uint32_t player)
         {
             InputVector<InputSource>& l_Sources = s_State->Players[player].Sources;
@@ -903,7 +903,7 @@ namespace Trinity
             }
         }
 
-        // As the asset becomes ready and after each reload, with each rebind the asset was changed under dropped, and with no asset as the scene starts. Every action reads as released until the next frame's update
+        // As the asset is ready and after each reload. Every action reads released until the next update
         void Build(const InputActionsAsset* asset)
         {
             const InputActionsData* l_Own = asset != nullptr ? &asset->GetData() : nullptr;
@@ -914,7 +914,7 @@ namespace Trinity
                 s_State->Data = &s_State->Merged;
                 if (l_Own != nullptr)
                 {
-                    TR_CORE_INFO("Input: the actions asset has no UI map, so the game UI navigates by Unity's default Navigate, Submit and Cancel");
+                    TR_CORE_INFO("Input: the actions asset has no UI map, so the game UI uses Unity's defaults");
                 }
             }
             else
@@ -959,7 +959,7 @@ namespace Trinity
             }
         }
 
-        // The asset as it is now, built from again when a reload has replaced it, so nothing reads the version it replaced
+        // Built from again when a reload has replaced it, so nothing reads the version it replaced
         const InputActionsData* Sync()
         {
             if (!IsRunning())
@@ -981,7 +981,7 @@ namespace Trinity
             const InputActionsAsset* l_Asset = l_Loaded != nullptr && l_Loaded->GetAssetType() == InputActionsAsset::c_AssetType ? static_cast<const InputActionsAsset*>(l_Loaded) : nullptr;
             if (l_Loaded != nullptr && l_Asset == nullptr && !std::exchange(s_State->WarnedType, true))
             {
-                TR_CORE_ERROR("Input: asset {} is a {} asset, not input actions, so every action reads as released", s_State->Asset, l_Loaded->GetAssetType());
+                TR_CORE_ERROR("Input: asset {} is a {} asset, not input actions, so every action reads released", s_State->Asset, l_Loaded->GetAssetType());
             }
 
             if ((l_Asset != nullptr ? l_Asset->GetSerial() : 0) != s_State->BuiltSerial)
@@ -1093,7 +1093,7 @@ namespace Trinity
             return true;
         }
 
-        // Another binding or part of the action's map that reads the source for the player, by its action. None never conflicts
+        // Another binding or part of the action's map that reads the source for the player. None never does
         [[nodiscard]] const InputActionDefinition* FindConflict(std::uint32_t player, std::uint32_t location, std::uint32_t binding, std::uint32_t part, InputSource source)
         {
             if (source.Kind == InputSourceKind::None)
@@ -1126,7 +1126,7 @@ namespace Trinity
             return nullptr;
         }
 
-        // The slot's rebind of a part to the source, or none where that is the asset's own, then the player's sources fitted again and the rebinds saved
+        // None where the source is the asset's own. Then the player's sources are fitted and rebinds saved
         void SetRebind(std::uint32_t player, std::uint32_t location, std::uint32_t binding, std::uint32_t part, InputSource source)
         {
             const ActionLocation& l_Location = s_State->Locations[location];
@@ -1177,13 +1177,13 @@ namespace Trinity
             return IsRunning() && session == s_State->Session && slot < s_State->Slots.size() ? s_State->Slots[slot].Action : c_NoAction;
         }
 
-        // The handle's action, for a rebind of a part there is for a player slot there is, or c_NoAction and logged
+        // The handle's action, for a part and a player slot there are, or c_NoAction and logged
         [[nodiscard]] std::uint32_t FindRebindLocation(std::uint32_t slot, std::uint32_t session, std::uint32_t binding, std::uint32_t part, std::uint32_t player, std::string_view what)
         {
             const std::uint32_t l_Location = FindHandleLocation(slot, session);
             if (l_Location == c_NoAction)
             {
-                TR_CORE_WARN("Input: no binding was {}, since the action is not one of the running scene's actions asset", what);
+                TR_CORE_WARN("Input: no binding was {}, since the scene's actions asset lacks the action", what);
 
                 return c_NoAction;
             }
@@ -1191,7 +1191,7 @@ namespace Trinity
             const InputActionDefinition& l_Action = GetAction(s_State->Locations[l_Location]);
             if (binding >= l_Action.Bindings.size() || part >= GetPartCount(l_Action.Bindings[binding]) || player >= InputActions::c_MaxPlayers)
             {
-                TR_CORE_WARN("Input: {} was not {} for player {}, since the action has {} binding(s) and there are {} player slots", DescribePart(std::string_view(s_State->Slots[slot].Path), binding, part), what, player, l_Action.Bindings.size(), InputActions::c_MaxPlayers);
+                TR_CORE_WARN("Input: {} was not {} for player {}: {} binding(s) on the action, {} player slots", DescribePart(std::string_view(s_State->Slots[slot].Path), binding, part), what, player, l_Action.Bindings.size(), InputActions::c_MaxPlayers);
 
                 return c_NoAction;
             }
@@ -1199,7 +1199,7 @@ namespace Trinity
             return l_Location;
         }
 
-        // The listening rebind done, with what it came to. One ended by the frame's input holds the player's actions back until their sources are let go, so that input reaches none
+        // One ended by input holds the player's actions back until released, so that input reaches none
         void EndListen(InputRebindState state, InputSource source = {}, std::string_view conflict = {}, bool byInput = false)
         {
             const std::uint32_t l_Player = s_State->Listen->Player;
@@ -1220,7 +1220,7 @@ namespace Trinity
             }
         }
 
-        // The first key but Escape, mouse button or gamepad button of the devices in the mask that went down this frame, or else stick or trigger pushed past c_ListenPush, which one pushed as the rebind started has first to come back under
+        // The first key but Escape or button that went down, or a stick or trigger past c_ListenPush
         [[nodiscard]] std::optional<InputSource> FindPushed(Listening& listen, std::uint32_t mask)
         {
             if ((mask & (1u << std::to_underlying(InputDevice::KeyboardMouse))) != 0)
@@ -1285,7 +1285,7 @@ namespace Trinity
             return std::nullopt;
         }
 
-        // The listening rebind's part of the frame, before the actions are read: Escape cancels it, and the first input pushed of the player's devices rebinds to it, or is refused. Its action leaving the asset, or its player, cancels it
+        // Before the actions are read. Escape cancels it, and so does its action or player leaving
         void UpdateListen()
         {
             if (!s_State->Listen)
@@ -1499,7 +1499,7 @@ namespace Trinity
         return InputRebind(l_Outcome.ID);
     }
 
-    // Each pad's axes are read as they are now, as the scene reads them, so one already pushed is not taken until it has been let go
+    // Axes are read as they are now, so one already pushed is not taken until it has been let go
     InputRebind InputAction::StartRebind(std::uint32_t binding, std::uint32_t part, std::uint32_t player) const
     {
         const std::uint32_t l_Location = FindRebindLocation(m_Slot, m_Session, binding, part, player, "listened for");
@@ -1601,7 +1601,7 @@ namespace Trinity
         return Sync();
     }
 
-    // Read from the states alone, which a reload sizes again, so it is safe whether or not the asset has been asked for since
+    // Read from the states alone, which a reload sizes again, so it is safe at any time
     std::optional<InputActions::ActionReading> InputActions::ReadAction(std::uint32_t action, std::uint32_t player)
     {
         if (!IsActive(player) || action >= s_State->Players[player].Actions.size())
@@ -1815,7 +1815,7 @@ namespace Trinity
             UpdateReadMasks();
             if (!asset)
             {
-                TR_CORE_INFO("Input: no input actions asset is set, so every action reads as released, but for the game UI's default Navigate, Submit and Cancel");
+                TR_CORE_INFO("Input: no actions asset is set, so every action but the game UI's reads released");
 
                 return;
             }
@@ -1851,7 +1851,7 @@ namespace Trinity
             ResetPlayers();
         }
 
-        // A rebind that listens takes its input first, and while it waits its player's actions read as released and the UI has no turn. Player 0's UI map is read from Input as the UI reads it, before the UI takes what it uses, and every other action after
+        // A listening rebind takes its input first. Player 0's UI map is read before the UI takes its share
         void Update(Timestep timestep)
         {
             const InputActionsData* l_Data = Sync();

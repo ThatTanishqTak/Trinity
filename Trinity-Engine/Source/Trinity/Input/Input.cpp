@@ -23,10 +23,10 @@ namespace Trinity
         constexpr std::size_t c_KeyCount = std::to_underlying(KeyCode::Count);
         constexpr std::size_t c_MouseButtonCount = std::to_underlying(MouseCode::Count);
         constexpr std::size_t c_AxisCount = std::to_underlying(GamepadAxis::Count);
-        // How near its rest an axis held as the scene gets the pads back has to come before the scene reads it, as far as Listen and an action's press point take a push to be
+        // How near rest a held axis must come before the scene reads it again, as a press point is
         constexpr float c_AxisHeldBack = 0.5f;
 
-        // A pad's buttons held now and those that went down or up during this frame, each as bit 1 << GamepadButton, and its axes
+        // Buttons held and those that went down or up this frame, each as bit 1 << GamepadButton
         struct PadState
         {
             std::uint32_t Buttons = 0;
@@ -35,7 +35,7 @@ namespace Trinity
             std::array<float, c_AxisCount> Axes{};
         };
 
-        // Each key, mouse button and pad held now, and those that went down or up during this frame. Where the mouse is, in the window's pixels, and where it was as the frame began, once it has moved at all, and how far the wheel has turned since
+        // What is held and what went down or up this frame. The mouse is in the window's pixels
         struct DeviceState
         {
             std::array<bool, c_KeyCount> Keys{};
@@ -60,7 +60,7 @@ namespace Trinity
             std::size_t NameLength = 0;
         };
 
-        // The devices as the window's events and the platform's readings left them, as the filter lets the scene have them, which the game UI reads, and as the scene has them after the UI took what it used. The filter the scene reads by and the one asked for its next frame, each pad's axes the UI and the scene are kept from, bit 1 << GamepadAxis, until they come back under c_AxisHeldBack, and those the UI took from the scene alone, until the same. This frame's key strokes and typed text the filter let in. Whether the mouse has moved at all, whether reads are the scene's or the UI's, and whether a window of the application had the focus at the last poll
+        // The devices as the window has them, as the filter gives the UI, and as the scene has them after
         struct InputState
         {
             DeviceState Window;
@@ -143,7 +143,7 @@ namespace Trinity
             held.fill(false);
         }
 
-        // A pad just connected holds nothing, though what went up as it last disconnected still did this frame
+        // A pad just connected holds nothing, though what went up as it last disconnected still did
         void ClearGamepad(PadState& gamepad)
         {
             gamepad.Buttons = 0;
@@ -184,7 +184,7 @@ namespace Trinity
             }
         }
 
-        // As the scene gets the pads back, an axis held is kept from it, and from the UI, until it comes back under c_AxisHeldBack, and the rest read as they are, but for one the UI took from the scene
+        // An axis held as the scene gets the pads back is kept from it until under c_AxisHeldBack
         void HoldBackAxes(std::uint32_t gamepad)
         {
             const PadState& l_Window = s_State.Window.Gamepads[gamepad];
@@ -206,7 +206,7 @@ namespace Trinity
             }
         }
 
-        // The filter asked for, as the frame ends. What the scene loses it lets go of, with releases it reads in its next frame, and the mouse it gets back starts where the pointer is, so it does not jump there
+        // As the frame ends. The scene reads releases for what it loses, and the mouse does not jump
         void ApplySceneFilter()
         {
             const SceneInputFilter& l_Next = s_State.NextFilter;
@@ -245,7 +245,7 @@ namespace Trinity
             s_State.Filter = l_Next;
         }
 
-        // Takes what the platform reports into the slots, and passes connections on to the layers as events. Readings are left out while no window of the application has the focus. The scene sees a button go down only while it has the pads, and sees every one it holds go up
+        // Readings are left out without focus. The scene sees a button go down only while it has the pads
         class GamepadSlots final : public Platform::GamepadListener
         {
         public:
@@ -473,7 +473,7 @@ namespace Trinity
         }
     }
 
-    // Losing the focus releases every pad and stops its rumble, and getting it back starts the rumble again and reads each pad as it is now, skipping what happened in between
+    // Losing the focus releases every pad and stops its rumble. Getting it back starts it again
     void Input::PollGamepads(const std::function<void(Event&)>& onEvent)
     {
         const bool l_Foreground = Platform::IsForeground();
@@ -505,7 +505,7 @@ namespace Trinity
         s_GamepadSlots.OnEvent = nullptr;
     }
 
-    // The filter asked for this frame is taken after the edges are cleared, so what the scene lets go of by it is released in its next frame
+    // Taken after the edges are cleared, so what the scene loses is released in its next frame
     void Input::EndFrame()
     {
         BeginFrame(s_State.Window);
@@ -625,7 +625,7 @@ namespace Trinity
         }
     }
 
-    // The UI and the scene see a key or button go down only while the filter lets it in, and see every one they hold go up. A repeat brings in no key they did not see go down. The UI's strokes and typed text are those the filter lets in, and a key going up is its stroke when the UI saw it held
+    // A key or button goes down only while the filter lets it in, and every one held goes up
     void Input::OnEvent(const Event& event)
     {
         DeviceState& l_Window = s_State.Window;

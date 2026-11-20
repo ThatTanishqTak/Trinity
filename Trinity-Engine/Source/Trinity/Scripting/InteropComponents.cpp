@@ -111,7 +111,7 @@ namespace Trinity
                 else { field.Integer = static_cast<Int64>(value); }
             }
 
-            // False, leaving the value as it was, for an enum value the engine does not know or a collision layer past the last
+            // False, leaving the value, for an unknown enum value or a collision layer past the last
             template<typename T>
             bool FromField(const FieldValue& field, T& value)
             {

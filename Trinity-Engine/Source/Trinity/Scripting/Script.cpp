@@ -16,7 +16,7 @@ namespace Trinity
 
         using CoroutineFrame = std::coroutine_handle<Coroutine::promise_type>;
 
-        // A coroutine that suspended on an awaiter of its own, which tells the promise nothing, waits for the next frame
+        // A coroutine suspended on an awaiter of its own tells the promise nothing: it waits a frame
         [[nodiscard]] ScriptWait TakeWait(CoroutineFrame frame)
         {
             if (frame.done())

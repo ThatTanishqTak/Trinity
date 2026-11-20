@@ -130,7 +130,7 @@ namespace Trinity
             s_State = nullptr;
         }
 
-        // The description goes first, so the serializer can save and load through it as soon as it is registered
+        // The description first, so the serializer can save and load through it as soon as it is registered
         bool Register(const NativeComponentDescription& description, std::span<const FieldAccess> fields, const ComponentSerializer& serializer)
         {
             TR_CORE_ASSERT(s_State != nullptr, "The native components are not initialized.");

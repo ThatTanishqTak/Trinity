@@ -13,7 +13,7 @@ namespace Trinity
 {
     struct ScriptEntry;
 
-    // Which callbacks a class has, so the runtime calls only those, which matters most where a call crosses into managed code
+    // So the runtime calls only those, which matters most where a call crosses into managed code
     namespace ScriptCallbacks
     {
         constexpr std::uint32_t Create = 1u << 0;
@@ -34,7 +34,7 @@ namespace Trinity
         std::int64_t Value = 0;
     };
 
-    // A field a script class shows in Properties: its name, its type through its default value, and for an enum its named values, or for an asset reference the asset type it takes, empty for any
+    // Its type through its default value, an enum's named values, and the asset type a reference takes
     struct ScriptFieldDescription
     {
         TaggedString<MemoryTag::Scripting> Name;
@@ -45,7 +45,7 @@ namespace Trinity
         [[nodiscard]] ScriptFieldType GetType() const { return Default.GetType(); }
     };
 
-    // A script class some loaded code has, by its full name, such as Game.PlayerController, with its fields in declaration order and the callbacks it has
+    // By its full name, such as Game.PlayerController, with its fields in declaration order
     struct ScriptClassDescription
     {
         TaggedString<MemoryTag::Scripting> Name;
@@ -61,13 +61,13 @@ namespace Trinity
         }
     };
 
-    // The script classes the loaded C++ modules and C# assemblies have, which each language's backend registers as its code loads and unregisters before it unloads. A Script component's entries name classes by language and name, and an entry whose class is not here is unknown and kept as it is. Main thread only
+    // Each language's backend registers its classes as its code loads. Main thread only
     namespace ScriptClassRegistry
     {
         TRINITY_API void Initialize();
         TRINITY_API void Shutdown();
 
-        // Copies the description. Refused when the language already has a class of that name, or a field name repeats or does not match its enum values
+        // Copies it. Refused for a name the language already has, or a repeated field name
         TRINITY_API bool Register(const ScriptClassDescription& description);
         TRINITY_API void Unregister(ScriptLanguage language, std::string_view name);
         // Every class of one language, as its code unloads for a reload
@@ -77,12 +77,12 @@ namespace Trinity
         [[nodiscard]] TRINITY_API const ScriptClassDescription* Find(ScriptLanguage language, std::string_view name);
         // Sorted by language, then by name, valid until the next Register or Unregister
         [[nodiscard]] TRINITY_API std::vector<const ScriptClassDescription*> GetClasses();
-        // Changes on every Register and Unregister, so a list built from the classes knows to build itself again
+        // Changes on every Register and Unregister, so a list built from the classes knows to rebuild
         [[nodiscard]] TRINITY_API std::uint64_t GetGeneration();
 
         // An entry for the class with every field at its default, enabled
         [[nodiscard]] TRINITY_API ScriptEntry CreateEntry(const ScriptClassDescription& description);
-        // The value the entry's instance gets for a field of its class: the entry's own when it has one of the field's type, else the field's default
+        // The entry's own value when it has one of the field's type, else the field's default
         [[nodiscard]] TRINITY_API const ScriptFieldValue& GetFieldValue(const ScriptEntry& entry, const ScriptFieldDescription& field);
     }
 }

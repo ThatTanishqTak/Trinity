@@ -52,7 +52,7 @@ namespace Trinity::Interop
             return l_Runtime != nullptr ? l_Runtime->GetPhysics2D() : nullptr;
         }
 
-        // The call on the entity's body, NoEntity for an entity the running scene does not have, and NoComponent for a scene with no physics of that kind, which has no bodies either
+        // NoEntity for an entity the scene lacks, NoComponent for a scene with no physics of that kind
         template<typename Physics, typename F>
         [[nodiscard]] Int32 OnBody(Physics* physics, EntityId entity, F&& call)
         {
@@ -69,7 +69,7 @@ namespace Trinity::Interop
             return ToResult(std::forward<F>(call)(*physics, UUID(entity)));
         }
 
-        // A joint's state, NoComponent for an entity whose joint the running scene's physics has not taken in
+        // A joint's state. NoComponent for an entity whose joint the scene's physics has not taken in
         template<typename Physics>
         [[nodiscard]] Int32 JointBroken(Physics* physics, EntityId entity, Bool* broken)
         {

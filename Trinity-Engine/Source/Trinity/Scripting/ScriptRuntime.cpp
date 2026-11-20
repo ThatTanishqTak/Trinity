@@ -31,7 +31,7 @@ namespace Trinity
 {
     namespace
     {
-        // A script's instance in its backend, or no backend when its class has no loaded code. Its serial names it while scripts before it are removed. Created stays when a reload frees the instance, so the one made again knows OnCreate has run. Faulted once a call into it failed, such as a C# script throwing, after which it is not called again, OnDestroy included, until a reload makes it again
+        // Created outlives a reload. Faulted once a call failed: not called again until a reload
         struct Instance
         {
             ScriptBackend* Backend = nullptr;
@@ -49,7 +49,7 @@ namespace Trinity
             std::uint64_t Serial = 0;
         };
 
-        // A timer or a coroutine, by its owner's instance handle. Due counts the fixed steps a wait in seconds or a timer ends at, and the frame a wait in frames does, and Armed the step and frame it began waiting in, so none runs again in the step or frame it waited in. Interval is a repeating timer's, in steps, 0 for one that runs once. Running while its resume is under way, and Dead once it has finished or been stopped, freed then unless still running
+        // Due and Armed count steps or frames, so none runs again in the one it waited in
         struct Task
         {
             std::uint64_t ID = 0;
@@ -66,7 +66,7 @@ namespace Trinity
             bool Dead = false;
         };
 
-        // A handler of UI events, by its owner's instance handle, or none for one added outside any script's call. Running while its call is under way, and Dead once removed, freed then unless running
+        // By its owner's instance handle, or none. Dead once removed, freed then unless it is running
         struct UIHandler
         {
             std::uint64_t ID = 0;
@@ -80,7 +80,7 @@ namespace Trinity
             bool Dead = false;
         };
 
-        // The time each language's scripts take, charged to the language called into last until a call into the other, or until the part of the frame being timed ends. Only a clock read a change of language, so a scene of one language reads it twice for each part
+        // Charged to the language called into last. The clock is read only on a change of language
         class LanguageClock
         {
         public:
@@ -171,7 +171,7 @@ namespace Trinity
         std::uint64_t s_NextTask = 0;
         std::uint64_t s_NextUIHandler = 0;
 
-        // An entity's instances, one for each script in its component, in list order. Dead once its instances are freed, and orphaned once its component went without the runtime, so its instances wait to be freed without OnDestroy
+        // One for each script, in list order. Orphaned once its component went without the runtime
         struct Record
         {
             UUID ID;
@@ -192,7 +192,7 @@ namespace Trinity
 
         }
 
-        // The instance a call goes into for as long as it lasts, which owns the UI handlers it adds, nested calls restoring the one before
+        // The instance a call goes into, which owns the UI handlers it adds. Nested calls restore it
         class CallingScope
         {
         public:
@@ -213,7 +213,7 @@ namespace Trinity
             const void* m_Previous = nullptr;
         };
 
-        // Signal listeners, which only note what changed, since a script may not run while the registry is in the middle of a change
+        // Signal listeners only note what changed, since a script may not run mid-change of the registry
         void OnScriptAdded(SceneRegistry& registry, entt::entity entity)
         {
             Pending.push_back(registry.get<IDComponent>(entity).ID);
@@ -237,7 +237,7 @@ namespace Trinity
                 if (!NotedOtherLanguage)
                 {
                     NotedOtherLanguage = true;
-                    TR_CORE_INFO("Scripting: the scene's {} scripts are kept with their values and do not run, as the project's scripts are {}", entry.Language == ScriptLanguage::CSharp ? "C#" : "C++", *s_Language == ScriptLanguage::CSharp ? "C#" : "C++");
+                    TR_CORE_INFO("Scripting: the scene's {} scripts are kept but do not run: the project's are {}", entry.Language == ScriptLanguage::CSharp ? "C#" : "C++", *s_Language == ScriptLanguage::CSharp ? "C#" : "C++");
                 }
 
                 return;
@@ -265,7 +265,7 @@ namespace Trinity
             return a_Found->second;
         }
 
-        // The entity's record, made when it has none, with an instance for each script its component has and the record lacks, given its fields. Each is in place before its instance is made, so a constructor that adds a script, as C# may, adds it after this one. The record's index, or none when the entity has no scripts
+        // Each entry is placed before its instance is made, so a constructor adding a script adds it after
         std::optional<std::size_t> MakeRecord(Entity entity)
         {
             if (!entity || !entity.Has<ScriptComponent>())
@@ -322,7 +322,7 @@ namespace Trinity
             return l_Record;
         }
 
-        // The instance when it should be called: its class is loaded and its script enabled. OnCreate runs here the first time, so a script enabled while the scene runs is created before its first call
+        // OnCreate runs here the first time, so a script enabled while the scene runs is created first
         Instance* Prepare(std::size_t record, std::size_t index)
         {
             if (!Records[record].IsLive() || index >= Records[record].Instances.size() || Records[record].Instances[index].Backend == nullptr)
@@ -364,7 +364,7 @@ namespace Trinity
             return &Records[record].Instances[index];
         }
 
-        // Calls the callback on every instance that has it, in order, and stops calling one whose call failed. Callbacks never add records, so indices hold across them
+        // Stops calling an instance whose call failed. Callbacks never add records, so indices hold
         template<typename F>
         bool ForEach(std::uint32_t callback, F call)
         {
@@ -450,7 +450,7 @@ namespace Trinity
             static_cast<void>(StopOwner(instance.Handle));
         }
 
-        // The steps a wait of that many seconds takes, rounded up, so it ends on the first step at or past its time, with a little slack for a time a whole number of steps long
+        // Rounded up to the first step at or past its time, with slack for a whole number of steps
         [[nodiscard]] std::uint64_t StepsFor(float seconds) const
         {
             const float l_Step = Runtime.GetTime().FixedDeltaTime;
@@ -495,7 +495,7 @@ namespace Trinity
             }
         }
 
-        // Every task of the instance, of either kind or of the one asked for, the number stopped. Asked for every kind, its UI handlers go too
+        // Either kind or the one asked for. Asked for every kind, its UI handlers go too
         std::uint32_t StopOwner(const void* owner, std::optional<ScriptTaskKind> kind = std::nullopt)
         {
             if (!kind && owner != nullptr)
@@ -537,7 +537,7 @@ namespace Trinity
             static_cast<void>(StopOwner(owner));
         }
 
-        // The task at that index runs until it next waits, finishes, or fails. What it starts meanwhile goes on the end of the list, which may move, so it is found again by its index
+        // What it starts goes on the end of the list, which may move, so it is found again by its index
         void Run(std::size_t index)
         {
             const ScriptTaskCalls l_Calls = Tasks[index].Calls;
@@ -628,7 +628,7 @@ namespace Trinity
             return l_Met;
         }
 
-        // In each fixed step, after the scripts' OnFixedUpdate: due timers, and coroutines waiting for the step. Those started meanwhile wait for the next
+        // After the scripts' OnFixedUpdate: due timers and waiting coroutines. New ones wait for the next
         void RunStepTasks()
         {
             const std::uint64_t l_Step = Runtime.GetTime().StepCount;
@@ -651,7 +651,7 @@ namespace Trinity
             CompactTasks();
         }
 
-        // After the scripts' OnUpdate: coroutines whose seconds the frame's steps reached, whose frames have passed, or whose condition holds, none in the frame it waited in
+        // After the scripts' OnUpdate: coroutines whose wait is over, none in the frame it waited in
         void RunFrameTasks()
         {
             const ScriptTime& l_Time = Runtime.GetTime();
@@ -741,7 +741,7 @@ namespace Trinity
             }
         }
 
-        // The handler at that index called as its owner, and removed when it failed. Handlers it adds go on the end of the list, which may move, so it is found again by its index
+        // Removed when it fails. Handlers it adds go on the end of the list, so it is found by its index
         void Invoke(std::size_t index, const UIEvent& event)
         {
             const UIHandlerCalls l_Calls = Handlers[index].Calls;
@@ -821,7 +821,7 @@ namespace Trinity
         LanguageClock Time;
         bool Changed = false;
         bool TasksChanged = false;
-        // The UI handlers, the last UI event taken and those taken, kept from frame to frame so taking them allocates only as the list grows, and the instance being called
+        // Kept from frame to frame, so taking events allocates only as the list grows
         std::vector<UIHandler, TaggedAllocator<UIHandler, MemoryTag::Scripting>> Handlers;
         std::uint64_t EventCursor = 0;
         std::vector<UIQueuedEvent> Events;
@@ -915,7 +915,7 @@ namespace Trinity
         m_Data = nullptr;
     }
 
-    // The scene's scripts wait in hierarchy order for the first CreatePending, and any added later follow them as they are added
+    // The scene's scripts wait in hierarchy order for the first CreatePending, later ones follow
     ScriptRuntime::ScriptRuntime(Scene& scene) : m_State(Memory::New<State>(MemoryTag::Scripting, scene, *this, s_Active))
     {
         s_Active = this;
@@ -1065,7 +1065,7 @@ namespace Trinity
         l_Backend->RaiseInputEvents();
     }
 
-    // Each handler is matched by its element's ID against each ID on the event's path, the target's first, so a click inside a button reaches the button's handlers after the target's own
+    // Matched by element ID along the event's path, target first, so a button hears clicks inside it
     void ScriptRuntime::RaiseUIEvents()
     {
         TR_PROFILE_FUNCTION();
@@ -1132,7 +1132,7 @@ namespace Trinity
         m_State->RunStepTasks();
     }
 
-    // Each to the first entity's scripts, then the second's, with the normal turned to point away from whichever is told. A character's hit goes to the character's alone, with the normal of the surface it hit
+    // The normal is turned to point away from whichever entity is told
     void ScriptRuntime::DeliverEvents(std::span<const PhysicsEvent3D> events)
     {
         const TimedPart l_Timed(m_State->Time);
@@ -1358,7 +1358,7 @@ namespace Trinity
 
         if (element.empty())
         {
-            TR_CORE_WARN("Scripting: a {} handler for no element ID was not added, as no element has an empty ID", ToString(type));
+            TR_CORE_WARN("Scripting: a {} handler was not added, as no element has an empty ID", ToString(type));
             calls.Free(handler);
 
             return 0;
@@ -1390,7 +1390,7 @@ namespace Trinity
         return true;
     }
 
-    // Each record leaves its place dead and empty, which the next Compact drops, and each of its instances' tasks goes with it
+    // Each record leaves its place dead and empty, which the next Compact drops, with its tasks
     ScriptCarry ScriptRuntime::Extract(std::span<const UUID> entities)
     {
         State& l_State = *m_State;
@@ -1544,7 +1544,7 @@ namespace Trinity
         return l_Copy;
     }
 
-    // Each instance has a new UUID, so its entities' are new too. A runtime that a SceneManager runs instances only what the manager holds, in Forge's Play as in a game, so a prefab the scene's fields do not name is refused in both
+    // New UUIDs throughout. A SceneManager's runtime instances only prefabs the manager holds
     Entity ScriptRuntime::InstantiatePrefab(UUID prefab, Entity parent, const std::optional<InstancePose>& pose)
     {
         TR_PROFILE_FUNCTION();
@@ -1552,7 +1552,7 @@ namespace Trinity
         State& l_State = *m_State;
         if (parent && parent.GetScene() != &l_State.TargetScene)
         {
-            TR_CORE_ERROR("Scripting: no instance of prefab {} is made, since its parent {} is not in the running scene", prefab, parent.GetUUID());
+            TR_CORE_ERROR("Scripting: no instance of prefab {} is made, as parent {} is not in the scene", prefab, parent.GetUUID());
 
             return {};
         }
@@ -1725,7 +1725,7 @@ namespace Trinity
         return true;
     }
 
-    // Each removed script has OnDestroy, if it had OnCreate, before it and its instance go. Then every script in a destroyed subtree has OnDestroy before any of it goes, in hierarchy order, and the subtree is destroyed
+    // OnDestroy before anything goes: removed scripts first, then destroyed subtrees in hierarchy order
     void ScriptRuntime::DestroyPending()
     {
         TR_PROFILE_FUNCTION();

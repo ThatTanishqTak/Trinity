@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-// What a game module exports for Forge to call, each optional: TrinityModuleLoad once Forge has loaded the module, which it does after each good build, and TrinityModuleUnload before it unloads it, which it does as a new build takes its place and as the project closes. A module's symbols are hidden but those it marks with TR_GAME_MODULE_EXPORT
+// Optional: TrinityModuleLoad after Forge loads the module, TrinityModuleUnload before it unloads
 #if defined(_WIN32)
 #define TR_GAME_MODULE_EXPORT extern "C" __declspec(dllexport)
 #else
@@ -29,27 +29,22 @@
 #define TR_DETAIL_CONCAT_INNER(First, Second) First##Second
 #define TR_DETAIL_CONCAT(First, Second) TR_DETAIL_CONCAT_INNER(First, Second)
 
-// What TR_SCRIPT and TR_COMPONENT declare: a function for the block that follows, a registration linking it into the module's list, and the start of the block's own definition
+// A function for the block that follows, a registration linking it in, and the block's start
 #define TR_DETAIL_REGISTER(Kind, IsComponent, Class, Describe) \
     static void Describe(::Trinity::GameModule::ClassBuilder<Class>& builder); \
     static ::Trinity::GameModule::Detail::Registration TR_DETAIL_CONCAT(Describe, _Registration){ #Class, IsComponent, &::Trinity::GameModule::Detail::Register##Kind<Class, &Describe>, &::Trinity::GameModule::Detail::Unregister##Kind<Class> }; \
     static void Describe([[maybe_unused]] ::Trinity::GameModule::ClassBuilder<Class>& builder)
 
-// A script class of the module, written once at global scope in a .cpp with its full name, followed by a block that lists its fields with TR_FIELD in the order Properties shows them. Fields are public members, and their defaults are the values a default-made instance has:
-// TR_SCRIPT(Game::Player)
-// {
-//     TR_FIELD(Speed);
-//     TR_FIELD(Target);
-// }
+// Once at global scope in a .cpp: TR_SCRIPT(Game::Player) { TR_FIELD(Speed); TR_FIELD(Target); }
 #define TR_SCRIPT(Class) TR_DETAIL_REGISTER(Script, false, Class, TR_DETAIL_CONCAT(TrinityDescribe, __COUNTER__))
 
-// A component of the module, written as TR_SCRIPT is, for a struct that names itself with static constexpr std::string_view c_TypeName = "Game.Health";. It saves, loads and shows in Properties through its fields, and an entity field is a Trinity::EntityReference
+// As TR_SCRIPT, for a struct with a c_TypeName. An entity field is a Trinity::EntityReference
 #define TR_COMPONENT(Class) TR_DETAIL_REGISTER(Component, true, Class, TR_DETAIL_CONCAT(TrinityDescribe, __COUNTER__))
 
 // One field of the class, inside its TR_SCRIPT or TR_COMPONENT block, by the member's name
 #define TR_FIELD(Member) builder.Field<&std::remove_reference_t<decltype(builder)>::Type::Member>(#Member)
 
-// The module's exports, which register every TR_SCRIPT and TR_COMPONENT of the module as it loads and unregister them before it unloads. Written once, in one .cpp of the module. In a player trinity_add_game links the module into, it exports nothing, and says as the player starts that the module is there, so the player registers its classes once the engine has started and unregisters them as it ends
+// Written once, in one .cpp. Registers each TR_SCRIPT and TR_COMPONENT as the module loads
 #if defined(TR_GAME_MODULE_LINKED)
 #define TR_GAME_MODULE() \
     [[maybe_unused]] static const bool s_TrinityModuleLinked = (::Trinity::GameModule::Detail::GetLinked() = true); \
@@ -72,10 +67,10 @@ namespace Trinity::GameModule
     inline constexpr const char* c_UnloadFunction = "TrinityModuleUnload";
     inline constexpr const char* c_ApiVersionFunction = "TrinityModuleGetApiVersion";
 
-    // Raised whenever what TR_GAME_MODULE exports, or how it registers, changes, so Forge refuses a module built against other engine headers rather than calling into it
+    // Raised whenever TR_GAME_MODULE's exports or registration change, so Forge refuses an older module
     inline constexpr std::uint32_t c_ApiVersion = 4;
 
-    // What a TR_SCRIPT or TR_COMPONENT block describes through TR_FIELD: each field's name, its type from the member's, and its default from a default-made T, with how its value reaches an instance, or a component's is read and written
+    // Each field's name, its type from the member's, and its default from a default-made T
     template<typename T>
     class ClassBuilder
     {
@@ -128,7 +123,7 @@ namespace Trinity::GameModule
 
     namespace Detail
     {
-        // One TR_SCRIPT or TR_COMPONENT of this module, linked into the module's own list as its statics are made, in the order a file declares them, so TR_GAME_MODULE registers each as the module loads and unregisters each, in reverse, before it unloads
+        // Linked into the module's list as statics are made, so they register in declaration order
         struct Registration
         {
             using RegisterFunction = bool (*)(std::string_view name);
@@ -163,7 +158,7 @@ namespace Trinity::GameModule
             return s_Last;
         }
 
-        // Whether the module is linked into the player, which TR_GAME_MODULE sets as the player starts. One flag for the player's code and the module's, as both are linked into one executable
+        // Set by TR_GAME_MODULE as the player starts. One flag, as player and module are one executable
         inline bool& GetLinked()
         {
             static bool s_Linked = false;
@@ -177,7 +172,7 @@ namespace Trinity::GameModule
             GetLast() = this;
         }
 
-        // The class as TR_SCRIPT spells it, with spaces dropped and each :: a dot, so Game::Player is Game.Player
+        // The class as TR_SCRIPT spells it, with spaces dropped and each :: a dot: Game.Player
         inline std::string MakeClassName(std::string_view spelling)
         {
             std::string l_Name;
@@ -232,7 +227,7 @@ namespace Trinity::GameModule
             NativeComponents::ReadFields(T::c_TypeName, &component, reader);
         }
 
-        // Known by its c_TypeName rather than by its spelling, since its pool is found by that name in the engine and in the module alike
+        // Known by its c_TypeName, since its pool is found by that name in the engine and the module alike
         template<typename T, void (*Describe)(ClassBuilder<T>&)>
         bool RegisterComponent([[maybe_unused]] std::string_view name)
         {

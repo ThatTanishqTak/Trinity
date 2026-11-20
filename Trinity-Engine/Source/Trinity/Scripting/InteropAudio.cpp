@@ -28,7 +28,7 @@ namespace Trinity::Interop
             return l_Runtime != nullptr ? l_Runtime->GetAudio() : nullptr;
         }
 
-        // The call on the entity's source, NoEntity for an entity the running scene does not have and NoComponent for one with no AudioSource. Done with nothing called while the scene has no sounds, as one made without them
+        // NoEntity for an entity the scene lacks, NoComponent for one with no AudioSource
         template<typename F>
         [[nodiscard]] Int32 OnSource(EntityId entity, F&& call)
         {
@@ -51,7 +51,7 @@ namespace Trinity::Interop
             return std::to_underlying(AccessResult::Done);
         }
 
-        // The project's mixer, for the project's asset or none. Another is refused, with one warning until yet another is, so a script that asks every frame warns once
+        // Only the project's mixer, or none. Another is refused, warned of once, not every frame
         [[nodiscard]] AudioMixer* FindMixer(UInt64 mixer)
         {
             AudioScene* l_Audio = GetAudio();
@@ -66,7 +66,7 @@ namespace Trinity::Interop
                 static UUID s_Warned;
                 if (std::exchange(s_Warned, UUID(mixer)) != UUID(mixer))
                 {
-                    TR_CORE_WARN("Scripting: nothing was done to mixer {}, since the project's mixer is {}, the only one its scenes play through", UUID(mixer), l_Project ? std::format("{}", l_Project) : std::string("none, so Master alone"));
+                    TR_CORE_WARN("Scripting: nothing was done to mixer {}, since the project's mixer is {}", UUID(mixer), l_Project ? std::format("{}", l_Project) : std::string("none, so Master alone"));
                 }
 
                 return nullptr;
@@ -162,7 +162,7 @@ namespace Trinity::Interop
         return std::to_underlying(AccessResult::Done);
     }
 
-    // Through patch, as a property is written, so the voice playing moves to the group as the scene's sounds next update. One the mixer lacks plays into Master
+    // Through patch, so the voice moves as the sounds next update. An unknown group plays into Master
     Int32 AudioSource_SetOutput(EntityId entity, UInt64 group)
     {
         Entity l_Entity = FindEntity(entity);

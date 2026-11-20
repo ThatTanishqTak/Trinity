@@ -251,7 +251,7 @@ namespace Trinity
             return reinterpret_cast<std::intptr_t>(instance);
         }
 
-        // C# classes, each by the index ScriptCore described it at. ScriptCore catches every exception a script throws and logs it with its stack trace, so a call that threw is only false here
+        // By the index ScriptCore described each at. ScriptCore logs what a script throws: here it is false
         class ManagedBackend final : public ScriptBackend
         {
         public:
@@ -275,13 +275,13 @@ namespace Trinity
                 DotNetHost::DestroyInstance(ToHandle(instance));
             }
 
-            // A C# instance knows its entity by its UUID, which it keeps, and reaches whichever runtime is active
+            // A C# instance knows its entity by its UUID, and reaches whichever runtime is active
             void Rebind([[maybe_unused]] void* instance, [[maybe_unused]] Entity entity, [[maybe_unused]] ScriptRuntime& runtime) override
             {
 
             }
 
-            // ScriptCore described the fields in the order the description has them. A list's elements follow it
+            // In the order the description has them, as ScriptCore described them. A list's elements follow it
             bool ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, [[maybe_unused]] Scene& scene) override
             {
                 for (std::size_t it_Index = 0; it_Index < description.Fields.size(); ++it_Index)
@@ -311,7 +311,7 @@ namespace Trinity
                 return true;
             }
 
-            // A list whose elements cannot all be read, or are of another type, leaves the field as the entry has it
+            // A list whose elements cannot all be read, or are of another type, leaves the field as it was
             void ReadFields(const void* instance, const ScriptClassDescription& description, ScriptEntry& entry) override
             {
                 for (std::size_t it_Index = 0; it_Index < description.Fields.size(); ++it_Index)
@@ -417,7 +417,7 @@ namespace Trinity
                 ScriptFieldDescription& l_Field = m_Building->Description.Fields.back();
                 if (l_Field.Default.GetType() != ScriptFieldType::List || !AddElement(l_Field.Default, value))
                 {
-                    TR_CORE_ERROR("Scripting: field {} of C# class {} has a default element of another type than its list's", std::string_view(l_Field.Name), std::string_view(m_Building->Description.Name));
+                    TR_CORE_ERROR("Scripting: field {} of C# class {} has a default element not of its list's type", std::string_view(l_Field.Name), std::string_view(m_Building->Description.Name));
                     m_Building->Valid = false;
                 }
             }
@@ -499,7 +499,7 @@ namespace Trinity
 
         ManagedBackend* s_Managed = nullptr;
 
-        // A C# timer or coroutine, which ScriptCore runs and reports what it waits for next as plain numbers. A wait type it should not give finishes the task
+        // ScriptCore reports its next wait as plain numbers. A wait type it should not give finishes it
         bool ResumeManagedTask(void* task, ScriptWait& next)
         {
             std::int32_t l_Type = 0;
@@ -533,7 +533,7 @@ namespace Trinity
 
         constexpr ScriptTaskCalls c_ManagedTaskCalls{ &ResumeManagedTask, &CheckManagedTask, &FreeManagedTask, ScriptLanguage::CSharp };
 
-        // A C# handler of UI events, which ScriptCore calls with the event as plain numbers and text, and frees as it frees a task
+        // ScriptCore calls it with the event as plain numbers and text, and frees it as it frees a task
         bool InvokeManagedHandler(void* handler, const UIEvent& event)
         {
             return DotNetHost::InvokeUIHandler(ToHandle(handler), static_cast<std::int32_t>(event.Type), event.Element.GetHandle(), event.Target.GetHandle(), event.Value);
@@ -681,7 +681,7 @@ namespace Trinity
 
     namespace
     {
-        // As ScriptCore describes them, from an assembly it loads or the classes compiled into a NativeAOT library. load gives the number it described, or -1 when it could not
+        // From an assembly or a NativeAOT library. load gives the number described, or -1 on failure
         template<typename F>
         bool RegisterClasses(std::string_view name, const F& load)
         {

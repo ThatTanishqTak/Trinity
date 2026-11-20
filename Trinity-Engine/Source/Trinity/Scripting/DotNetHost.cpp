@@ -31,7 +31,7 @@ namespace Trinity
     {
         constexpr std::string_view c_HostType = "Trinity.Interop.Host, Trinity-ScriptCore";
         constexpr std::string_view c_ScriptHostType = "Trinity.Interop.ScriptHost, Trinity-ScriptCore";
-        // What a game's NativeAOT library exports, in place of hostfxr, to find ScriptCore's entry points by the same names
+        // What a game's NativeAOT library exports, in place of hostfxr, to find ScriptCore's entry points
         constexpr const char* c_CompiledEntryPoint = "TrinityScriptCore_GetEntryPoint";
 
         // ScriptCore's entry points the engine keeps, all set once the runtime has started
@@ -59,14 +59,14 @@ namespace Trinity
             std::int32_t(CORECLR_DELEGATE_CALLTYPE* InvokeUIHandler)(std::intptr_t handler, std::int32_t type, std::uint64_t element, std::uint64_t target, const char* value, std::int32_t length) = nullptr;
         };
 
-        // Where ScriptCore's entry points are found by their type and method: through hostfxr once .NET has started, or through the export of a game's NativeAOT library
+        // Through hostfxr once .NET has started, or through the export of a game's NativeAOT library
         struct EntryPointFinder
         {
             get_function_pointer_fn HostFxr = nullptr;
             std::intptr_t(CORECLR_DELEGATE_CALLTYPE* Compiled)(const char* type, std::int32_t typeLength, const char* method, std::int32_t methodLength) = nullptr;
         };
 
-        // What the runtime was started with and the entry points of ScriptCore. None of it is allocated, since .NET outlives every memory tag. A NativeAOT library stays loaded, as .NET stays once started
+        // None of it is allocated, since .NET outlives every memory tag
         struct State
         {
             void* HostFxr = nullptr;
@@ -179,7 +179,7 @@ namespace Trinity
             };
         }
 
-        // Each shared type as C# lays it out against the engine's layout, so a C# struct that drifts from glm turns C# off with the type and field named, rather than corrupting what crosses
+        // A C# struct that drifts from the engine's layout turns C# off, named, rather than corrupting data
         bool CheckLayouts(std::int32_t(CORECLR_DELEGATE_CALLTYPE* describeLayouts)(Interop::TypeLayout* layouts, std::int32_t capacity, std::int32_t layoutSize), std::string& error)
         {
             const std::array<SharedType, 14> l_Native = DescribeSharedTypes();
@@ -224,7 +224,7 @@ namespace Trinity
             return reinterpret_cast<T>(Platform::GetSharedLibrarySymbol(s_State.HostFxr, name));
         }
 
-        // The installed hostfxr, which nethost finds through DOTNET_ROOT, the registered install and the default folders, in that order. It stays loaded once the runtime starts
+        // nethost looks in DOTNET_ROOT, the registered install and the default folders, in that order
         bool LoadHostFxr(std::string& error)
         {
             if (s_State.HostFxr != nullptr)
@@ -253,7 +253,7 @@ namespace Trinity
             return true;
         }
 
-        // hostfxr takes its strings as the platform's characters, which are UTF-16 on Windows. The names are ASCII, so each character widens as it is
+        // hostfxr takes the platform's characters, UTF-16 on Windows. The names are ASCII, so each widens
         std::basic_string<char_t> ToHostText(std::string_view text)
         {
             return std::basic_string<char_t>(text.begin(), text.end());
@@ -284,7 +284,7 @@ namespace Trinity
             return true;
         }
 
-        // ScriptCore's entry points, however it was started, then the check of the shared types, the engine's functions handed over and a call into C# that calls back into the engine
+        // The entry points, the check of shared types, the functions handed over, then a call in and back
         bool ConnectScriptCore(const EntryPointFinder& finder, std::string& error)
         {
             std::int32_t(CORECLR_DELEGATE_CALLTYPE * l_HostInitialize)(const Interop::NativeFunctions * functions, std::int32_t size) = nullptr;
@@ -306,7 +306,7 @@ namespace Trinity
                 return false;
             }
 
-            // Checked before ScriptCore takes any function, since one that takes a shared type would read it wrong
+            // Checked before ScriptCore takes any function, since one taking a shared type would read it wrong
             if (!CheckLayouts(l_DescribeLayouts, error))
             {
                 return false;
@@ -398,7 +398,7 @@ namespace Trinity
                 return false;
             }
 
-            // Into the default load context, which the game's assemblies, in their own collectible contexts, then share
+            // Into the default load context, which the game's assemblies, in their own contexts, then share
             if (l_LoadAssembly(l_Assembly.c_str(), nullptr, nullptr) != 0)
             {
                 error = std::format("{} could not be loaded", ToUtf8(l_Assembly.c_str()));
@@ -412,7 +412,7 @@ namespace Trinity
             return ConnectScriptCore(l_Finder, error);
         }
 
-        // A game's NativeAOT library, whose runtime starts as it is first called. One that was found but would not connect stays loaded, since its runtime may have started
+        // One that was found but would not connect stays loaded, since its runtime may have started
         bool StartCompiledLibrary(const std::filesystem::path& library, std::string& error)
         {
             std::error_code l_Exists;
@@ -466,7 +466,7 @@ namespace Trinity
         }
 
 #if !defined(TR_DISTRIBUTION)
-        // What a call from C# into the engine costs, which should stay under 50 ns, with the number of calls to time, a million by default
+        // What a call from C# into the engine costs, which should stay under 50 ns. A million by default
         void MeasureInteropCommand(std::string_view arguments)
         {
             std::int32_t l_Calls = 1000000;
@@ -671,14 +671,14 @@ namespace DotNetHost
     {
         bool Start([[maybe_unused]] const std::filesystem::path& scriptingDirectory)
         {
-            TR_CORE_WARN("Scripting: C# is off, since this build of Trinity was configured without a .NET 10 SDK");
+            TR_CORE_WARN("Scripting: C# is off, since this build was configured without a .NET 10 SDK");
 
             return false;
         }
 
         bool StartCompiled([[maybe_unused]] const std::filesystem::path& library)
         {
-            TR_CORE_WARN("Scripting: C# is off, since this build of Trinity was configured without a .NET 10 SDK");
+            TR_CORE_WARN("Scripting: C# is off, since this build was configured without a .NET 10 SDK");
 
             return false;
         }

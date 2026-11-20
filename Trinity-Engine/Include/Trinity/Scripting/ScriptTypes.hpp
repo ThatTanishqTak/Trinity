@@ -22,7 +22,7 @@
 #include <type_traits>
 #include <vector>
 
-// Gives an enum the names of its values, so a field can have it and Properties shows it by those names. Written once at global scope, before the TR_SCRIPT or TR_COMPONENT that uses it, with the enum's full name and every value it has, in order: TR_ENUM(Game::Team, Red, Blue, Green)
+// Once at global scope, before the class that uses it: TR_ENUM(Game::Team, Red, Blue, Green)
 #define TR_ENUM(Type, ...) \
     template<> \
     struct Trinity::ScriptEnumTraits<Type> \
@@ -37,7 +37,7 @@
 
 namespace Trinity
 {
-    // A linear RGBA colour, a vec4 in all but its editor, which is a colour picker. Opaque white unless given another
+    // A linear RGBA colour, a vec4 in all but its editor. Opaque white unless given another
     struct Color : glm::vec4
     {
         Color() : glm::vec4(1.0f) {}
@@ -45,7 +45,7 @@ namespace Trinity
         Color(const glm::vec4& color) : glm::vec4(color) {}
     };
 
-    // An entity named by its UUID, for a component's field, since a component outlives the entity handles of the scene it was copied from. None when the UUID is invalid
+    // For a component's field, since a component outlives its scene's entity handles. None if invalid
     struct EntityReference
     {
         UUID ID;
@@ -53,7 +53,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const EntityReference&) const = default;
     };
 
-    // An enum's values, in the order they are declared, with their names, which TR_ENUM gives an enum so a field can have it
+    // An enum's values in declaration order, with their names, which TR_ENUM gives it
     template<typename T>
     struct ScriptEnumTraits
     {
@@ -62,7 +62,7 @@ namespace Trinity
 
     namespace ScriptTypes
     {
-        // A function rather than a template argument, since a module imports ScriptFieldValue's functions, and on Windows an imported function's address is not a constant
+        // A function, not a template argument: on Windows an imported function's address is no constant
         [[nodiscard]] inline ScriptFieldValue MakeValue(bool value) { return ScriptFieldValue::Bool(value); }
         [[nodiscard]] inline ScriptFieldValue MakeValue(std::int32_t value) { return ScriptFieldValue::Int32(value); }
         [[nodiscard]] inline ScriptFieldValue MakeValue(std::int64_t value) { return ScriptFieldValue::Int64(value); }
@@ -103,7 +103,7 @@ namespace Trinity
         }
     }
 
-    // How a member of each type a field can have becomes a field's value and back. A field of a type with no traits does not compile. Scene is where an Entity member is found, and is null for a component, whose members name entities by EntityReference instead
+    // A field of a type with no traits does not compile. Scene is null for a component's member
     template<typename T>
     struct ScriptFieldTraits;
 
@@ -160,7 +160,7 @@ namespace Trinity
         static void FromValue(EntityReference& target, const ScriptFieldValue& value, [[maybe_unused]] Scene* scene) { target.ID = value.Get<UUID>(); }
     };
 
-    // The entity of that UUID in the scene the script runs in, or none when the scene has no such entity
+    // The entity of that UUID in the scene the script runs in, or none
     template<>
     struct ScriptFieldTraits<Entity>
     {
@@ -195,7 +195,7 @@ namespace Trinity
         }
     };
 
-    // The action of the running scene's actions asset at the path, Map/Action, which Properties picks from the project's default asset. Found as the script is given its fields, so it reads as one InputAction::Find gives, and none for an empty path. A component keeps the path instead, since a handle lasts only while one scene runs
+    // Found as the script is given its fields. A component keeps the path, as a handle lasts one scene
     template<>
     struct ScriptFieldTraits<InputAction>
     {
@@ -232,7 +232,7 @@ namespace Trinity
         ScriptFieldTraits<T>::Describe(field);
     };
 
-    // A member type that is a list, and the type of what it holds, or the type itself for one that is not a list
+    // A list member's element type, or the type itself for one that is not a list
     template<typename T>
     struct ScriptListMember : std::false_type
     {
@@ -245,7 +245,7 @@ namespace Trinity
         using Element = T;
     };
 
-    // A list of any other type a field can have, its elements made and read through that type's traits, so a list of enums keeps their names and a list of assets the type it takes. A list of lists is no field
+    // Elements go through their type's traits, so enums keep their names. A list of lists is no field
     template<typename T, typename A>
         requires ScriptFieldMember<T> && (!ScriptListMember<T>::value)
     struct ScriptFieldTraits<std::vector<T, A>>
@@ -267,7 +267,7 @@ namespace Trinity
             return l_List;
         }
 
-        // As long as the list, each element given its value, so the elements already there, such as assets held, change only where the list does
+        // Resized to the list, each element given its value, so those already there change only if needed
         static void FromValue(std::vector<T, A>& target, const ScriptFieldValue& value, Scene* scene)
         {
             const ScriptList& l_List = value.Get<ScriptList>();

@@ -14,14 +14,14 @@
 
 namespace Trinity
 {
-    // C++ script classes, which the code that has them registers with how to make and free their instances, so a module's instances are made and freed by the module itself. Main thread only
+    // The code that registers a class makes and frees its instances. Main thread only
     namespace NativeScripts
     {
         using CreateFunction = Script * (*)();
         using DestroyFunction = void (*)(Script* script);
-        // Gives one field's value to an instance, before its OnCreate. The scene is the one the instance runs in, where an entity field finds its entity
+        // Before its OnCreate. The scene is the one the instance runs in, where an entity field is found
         using SetFieldFunction = void (*)(Script* script, const ScriptFieldValue& value, Scene& scene);
-        // One field's value as an instance has it now, which a reload while the scene runs carries over to the instance made again
+        // As the instance has it now, which a reload while the scene runs carries over to the new instance
         using GetFieldFunction = ScriptFieldValue(*)(const Script* script);
 
         struct FieldAccess
@@ -30,13 +30,13 @@ namespace Trinity
             SetFieldFunction Set = nullptr;
         };
 
-        // Registers the class with the script class registry as a C++ class, its language set to C++, with a getter and a setter for each of its fields in their order, and the address Script::GetScript finds its instances by, Detail::s_ScriptType of the class. Refused as the registry refuses it, without both functions, or without both for every field
+        // Refused as the registry refuses it, without both functions, or without both for every field
         TRINITY_API bool Register(ScriptClassDescription description, CreateFunction create, DestroyFunction destroy, std::span<const FieldAccess> fields = {}, const void* type = nullptr);
         TRINITY_API void Unregister(std::string_view name);
         // The name a class was registered under by its type, or empty
         [[nodiscard]] TRINITY_API std::string_view FindClassName(const void* type);
 
-        // The callbacks T overrides, found from the type of each one through T, which names Script while T and its bases leave it alone
+        // The callbacks T overrides, found from the type of each one through T
         template<std::derived_from<Script> T>
         [[nodiscard]] constexpr std::uint32_t GetCallbacks()
         {
@@ -79,7 +79,7 @@ namespace Trinity
             return l_Callbacks;
         }
 
-        // T's instances are made and freed here, in the code that registers it, under the Game tag, only the callbacks it overrides are called, and Script::GetScript finds them as T
+        // Made and freed here, in the code that registers it, under the Game tag
         template<std::derived_from<Script> T>
             requires std::default_initializable<T>
         bool Register(ScriptClassDescription description, std::span<const FieldAccess> fields = {})

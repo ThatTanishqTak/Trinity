@@ -67,7 +67,7 @@ namespace Trinity
             l_Script->m_Runtime = &runtime;
         }
 
-        // The class was registered with a setter for each of its fields, in the same order. A C++ script cannot report a failure, since a module is not exception-safe, so every call here is true
+        // A C++ script cannot report a failure, as a module is not exception-safe, so this is always true
         bool ApplyFields(void* instance, const ScriptClassDescription& description, const ScriptEntry& entry, Scene& scene) override
         {
             const Factory* l_Factory = Find(description.Name);
@@ -246,14 +246,14 @@ namespace Trinity
 
             if (create == nullptr || destroy == nullptr)
             {
-                TR_CORE_ERROR("Scripting: C++ class {} needs a function to make its instances and one to free them", std::string_view(description.Name));
+                TR_CORE_ERROR("Scripting: C++ class {} needs functions to make and to free its instances", std::string_view(description.Name));
 
                 return false;
             }
 
             if (fields.size() != description.Fields.size() || std::ranges::any_of(fields, [](const FieldAccess& field) { return field.Get == nullptr || field.Set == nullptr; }))
             {
-                TR_CORE_ERROR("Scripting: C++ class {} has {} field(s), and needs a getter and a setter for each", std::string_view(description.Name), description.Fields.size());
+                TR_CORE_ERROR("Scripting: C++ class {} has {} field(s), and needs a getter and setter for each", std::string_view(description.Name), description.Fields.size());
 
                 return false;
             }

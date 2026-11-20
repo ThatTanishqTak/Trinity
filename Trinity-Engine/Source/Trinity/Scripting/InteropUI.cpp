@@ -134,7 +134,7 @@ namespace Trinity
             return std::to_underlying(AccessResult::Done);
         }
 
-        // Through patch, as a property is written, so the next sound its elements play goes there. One the mixer lacks plays into Master
+        // Through patch, so its elements' next sound goes there. An unknown group plays into Master
         Int32 UIDocument_SetSoundOutput(EntityId entity, UInt64 group)
         {
             Entity l_Entity = FindEntity(entity);
@@ -237,7 +237,7 @@ namespace Trinity
             return false;
         }
 
-        // Whether it took: focusing is false for an element that cannot take the focus, and the rest are true for an element that lives
+        // False for focusing an element that cannot take the focus. Else true for an element that lives
         Bool UIElement_SetFlag(UInt64 element, Int32 flag, Bool set)
         {
             const UIElement l_Element = UIElement::FromHandle(element);

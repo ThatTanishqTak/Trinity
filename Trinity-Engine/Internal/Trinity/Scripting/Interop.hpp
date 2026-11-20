@@ -11,7 +11,7 @@
 
 namespace Trinity::Interop
 {
-    // The types NativeFunctions.def names, each with a C# type of the same layout, which the engine checks at start
+    // Each has a C# type of the same layout, which the engine checks at start
     using Void = void;
     using Bool = bool;
     using Int32 = std::int32_t;
@@ -46,7 +46,7 @@ namespace Trinity::Interop
         return { text.data(), static_cast<Int32>(text.size()) };
     }
 
-    // A script field's value as it crosses, with its type as a ScriptFieldType. A bool, the integers, an enum and the UUID of an entity or an asset are in Integer, a float and a double in Real, the vectors, a quaternion and a colour in Floats, and a string and an input action's path in Text, which is valid for the call it crosses in. A list is its element type in ElementType and its length in Integer, and its elements cross after it, one call each
+    // Integer, Real, Floats or Text by its type. A list is its length, its elements crossing after it
     struct FieldValue
     {
         Int32 Type;
@@ -66,7 +66,7 @@ namespace Trinity::Interop
         Bool Is2D;
     };
 
-    // What a script's query may hit, as PhysicsQueryFilter3D and 2D have it, the entity it passes over by its UUID
+    // As PhysicsQueryFilter3D and 2D have it, the entity it passes over by its UUID
     struct QueryFilter
     {
         UInt32 Layers;
@@ -74,7 +74,7 @@ namespace Trinity::Interop
         EntityId Ignore;
     };
 
-    // A shape a script's 3D or 2D query casts or overlaps, its type as PhysicsQueryShapeType3D or 2D numbers it, as PhysicsQueryShape3D and 2D have it
+    // As PhysicsQueryShape3D and 2D have it, its type as PhysicsQueryShapeType3D or 2D numbers it
     struct QueryShape
     {
         Int32 Type;
@@ -124,7 +124,7 @@ namespace Trinity::Interop
 #undef TR_NATIVE
     };
 
-    // A shared type's size and the offset of each of its fields, which the engine and ScriptCore each describe, laid out as Trinity.Interop.TypeLayout
+    // A shared type's size and its fields' offsets, laid out as Trinity.Interop.TypeLayout
     struct TypeLayout
     {
         static constexpr std::size_t c_MaxFields = 16;

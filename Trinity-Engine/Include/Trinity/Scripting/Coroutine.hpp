@@ -13,7 +13,7 @@
 
 namespace Trinity
 {
-    // What a timer or a coroutine waits for before it runs again, all on the running scene's clock, so they hold while the scene is paused and move on with Step. Seconds count in fixed steps: a timer runs in the first step that reaches its time, and a coroutine after OnUpdate in the frame that step was in. Frames count frames, the next one for 1, a coroutine waiting for the next fixed step runs in it after the scripts' OnFixedUpdate and ahead of physics, and one waiting on a condition asks it after each OnUpdate until it holds. Done for one that has finished
+    // On the scene's clock, so they hold while it is paused. Seconds count in fixed steps
     enum class ScriptWaitType : std::uint8_t
     {
         Done,
@@ -39,7 +39,7 @@ namespace Trinity
         Coroutine
     };
 
-    // How the runtime runs a timer or a coroutine, which is opaque to it. Resume runs it until it next waits, written into the wait, or Done once it has finished, and is false when it failed, logged by its language, which stops its script. Check asks a condition its language keeps, and Free lets it go, whether it finished or was stopped. The language is the one its time and count go to
+    // Resume runs it to its next wait, false if it failed. Check asks a condition. Free lets it go
     struct ScriptTaskCalls
     {
         bool (*Resume)(void* task, ScriptWait& next) = nullptr;
@@ -48,7 +48,7 @@ namespace Trinity
         ScriptLanguage Language = ScriptLanguage::Cpp;
     };
 
-    // A timer or a coroutine a script started, which stays valid to stop or ask about after it has gone. Empty for one that was never started, or that finished as it started
+    // Stays valid to stop or ask about after it has gone. Empty if never started or finished at once
     struct TimerHandle
     {
         std::uint64_t ID = 0;
@@ -65,7 +65,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const CoroutineHandle&) const = default;
     };
 
-    // What a C++ coroutine returns, which Script::StartCoroutine runs at once until it first waits, and the runtime resumes as each wait is met. It waits with co_await on WaitForSeconds, WaitForFrames, WaitForNextFrame, WaitForFixedUpdate, WaitUntil or WaitWhile, and nothing else. Its frame is allocated under the Scripting tag. A module is not exception-safe, so an exception that leaves it ends the process. One never started is freed with this
+    // Waits with co_await on the Wait functions below only. An exception leaving it ends the process
     class Coroutine
     {
     public:
@@ -121,7 +121,7 @@ namespace Trinity
 
     namespace Detail
     {
-        // Each wait tells the coroutine's promise what it waits for as it suspends, and needs nothing back as it resumes
+        // Each wait tells the coroutine's promise what it waits for as it suspends
         struct WaitAwaiter
         {
             ScriptWait Wait;
@@ -131,7 +131,7 @@ namespace Trinity
             void await_resume() const noexcept {}
         };
 
-        // How the runtime runs a C++ coroutine, which lives in the engine, so the calls outlive a module whose coroutines all went before it unloaded
+        // In the engine, so the calls outlive a module whose coroutines all went before it unloaded
         [[nodiscard]] TRINITY_API const ScriptTaskCalls& GetCoroutineCalls();
 
         // A timer's callback, freed under the tag it was made under
@@ -180,7 +180,7 @@ namespace Trinity
         return { { .Type = ScriptWaitType::FixedStep } };
     }
 
-    // Until the condition holds, asked after each OnUpdate from the next frame on. It lives in the coroutine's frame while it waits, so asking it allocates nothing
+    // Asked after each OnUpdate from the next frame on. Kept in the coroutine's frame, so no allocation
     template<typename F, bool Holds = true>
         requires std::is_invocable_r_v<bool, const F&>
     struct WaitUntil

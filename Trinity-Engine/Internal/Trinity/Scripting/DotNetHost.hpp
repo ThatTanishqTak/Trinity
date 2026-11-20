@@ -11,7 +11,7 @@
 
 namespace Trinity
 {
-    // .NET in the engine: the installed runtime found through nethost, started from Trinity-ScriptCore's runtime config, and ScriptCore loaded into the default load context, whose entry points are called through function pointers. A player starts a game's NativeAOT library instead, which holds ScriptCore and the game's scripts compiled ahead of time, and whose export finds the same entry points. A runtime that cannot be found or started leaves C# off with one error, and the engine runs on. Main thread only
+    // A runtime that cannot be found or started leaves C# off with one error. Main thread only
     namespace DotNetHost
     {
         // A script callback, numbered as Trinity.Interop.ScriptCallback numbers it
@@ -25,32 +25,32 @@ namespace Trinity
             Reloaded
         };
 
-        // From the Scripting folder beside the executables, which holds Trinity-ScriptCore.dll and its runtime config. Hands ScriptCore the functions of NativeFunctions.def, checks that both sides lay out the shared types alike, and logs the runtime's version and how long it took to start, once a call into C# that calls back into the engine has come back right
+        // From the Scripting folder beside the executables. Checks both sides lay out shared types alike
         bool Start(const std::filesystem::path& scriptingDirectory);
-        // In place of Start, a game's NativeAOT library, which needs no .NET installed, checked and handed the engine's functions as Start does. It stays loaded once found
+        // In place of Start: a game's NativeAOT library, which needs no .NET installed. It stays loaded
         bool StartCompiled(const std::filesystem::path& library);
-        // Unloads a game assembly still loaded, and ScriptCore lets go of the engine's functions. The runtime itself stays, since .NET cannot leave a process it has started in
+        // The runtime itself stays, since .NET cannot leave a process it has started in
         void Stop();
 
         [[nodiscard]] bool IsRunning();
         // Such as .NET 10.0.0, or empty while not running
         [[nodiscard]] std::string_view GetRuntimeDescription();
 
-        // A copy of a game assembly, loaded into a collectible load context, whose script classes ScriptCore describes through Scripting_BeginClass and the rest of them as it loads. What it depends on is found beside the build it was copied from. The number of classes it described, or -1, which ScriptCore has logged, when it could not be loaded
+        // Into a collectible load context. The number of classes described, or -1, which ScriptCore logged
         [[nodiscard]] std::int32_t LoadAssembly(const std::filesystem::path& path, const std::filesystem::path& buildPath);
-        // The classes compiled into a NativeAOT library, described as a loaded assembly's are, under the game assembly's name. The number described, or -1, which ScriptCore has logged
+        // The classes compiled into a NativeAOT library. The number described, or -1, as ScriptCore logged
         [[nodiscard]] std::int32_t LoadCompiled(std::string_view name);
-        // Frees every instance still held and unloads the assembly's context. False when the context was not collected, which ScriptCore has logged with what still holds it
+        // False when the context was not collected, which ScriptCore has logged with what still holds it
         [[nodiscard]] bool UnloadAssembly();
 
         [[nodiscard]] HeapStatistics GetHeapStatistics();
         // Whether a debugger of managed code is attached, as .NET sees it
         [[nodiscard]] bool IsDebuggerAttached();
 
-        // An instance of the class ScriptCore described at that index, for the entity, held by a GC handle, or 0 when its constructor threw, which ScriptCore has logged
+        // Held by a GC handle, or 0 when its constructor threw, which ScriptCore has logged
         [[nodiscard]] std::intptr_t CreateInstance(std::int32_t classIndex, UUID entity);
         void DestroyInstance(std::intptr_t instance);
-        // Each is false when the script threw, which ScriptCore has logged with the C# stack trace. A string GetField or GetElement gives is valid until the next call into ScriptCore. A list field is given and read as its length, then each element at its index
+        // False when the script threw. A string given is valid until the next call into ScriptCore
         [[nodiscard]] bool SetField(std::intptr_t instance, std::int32_t field, const Interop::FieldValue& value);
         [[nodiscard]] bool GetField(std::intptr_t instance, std::int32_t field, Interop::FieldValue& value);
         [[nodiscard]] bool SetElement(std::intptr_t instance, std::int32_t field, std::int32_t element, const Interop::FieldValue& value);
@@ -58,14 +58,14 @@ namespace Trinity
         [[nodiscard]] bool Invoke(std::intptr_t instance, ManagedCallback callback, float timestep);
         [[nodiscard]] bool InvokePhysics(std::intptr_t instance, PhysicsEventType type, const Interop::Collision& collision);
 
-        // A C# timer or coroutine, held by a GC handle: resumed until it next waits, with the wait's type as a ScriptWaitType and its seconds or frames, its condition asked, and freed. Each is false when it threw, which ScriptCore has logged
+        // Held by a GC handle. Each is false when it threw, which ScriptCore has logged
         [[nodiscard]] bool ResumeTask(std::intptr_t task, std::int32_t& waitType, float& seconds, std::int32_t& frames);
         [[nodiscard]] bool CheckTask(std::intptr_t task, bool& met);
         void FreeTask(std::intptr_t task);
 
-        // The Pressed and Released handlers C# scripts added to input actions, for the players whose press went down or up this frame. A handler that throws is logged by ScriptCore and removed
+        // For the players whose press went down or up this frame. A handler that throws is removed
         void RaiseInputEvents();
-        // A C# handler of UI events, held by a GC handle, given an event: its type as a UIEventType, the handles of the element it was added for and of the target, and the value. False when it threw, which ScriptCore has logged. Freed as a task is, through FreeTask
+        // False when it threw, which ScriptCore has logged. Freed as a task is, through FreeTask
         [[nodiscard]] bool InvokeUIHandler(std::intptr_t handler, std::int32_t type, std::uint64_t element, std::uint64_t target, std::string_view value);
     }
 }

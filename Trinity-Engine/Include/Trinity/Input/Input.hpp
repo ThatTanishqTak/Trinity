@@ -22,7 +22,7 @@ namespace Trinity
         float Y = 0.0f;
     };
 
-    // What a scene shown in a panel of an editor is let read, as Forge's Game panel sets it. A device kept from the scene reads to it as released, centred and still, with a release for whatever it held, and a key, button or axis held as the scene gets it back stays hidden from it until it is let go, so the click that focuses the panel is not the game's. Mouse lets the movement in and keeps the buttons held, while a new press or the wheel also needs MouseOver, the pointer over the scene's image. The scene reads the mouse in the image's pixels, from MouseOrigin in the window's pixels, MouseScale of the window's pixels to one of its own. One never set lets the scene read everything as the window has it
+    // What an editor's panel lets its scene read. Mouse presses and the wheel also need MouseOver
     struct SceneInputFilter
     {
         bool Keyboard = true;
@@ -41,7 +41,7 @@ namespace Trinity
         bool Repeat = false;
     };
 
-    // The keyboard and mouse as the window's events left them, and the gamepads as the platform last read them. Is is whether a key or button is held now. Was is whether it went down, or up, during this frame, counted from the end of the last one, so a press and a release between two frames count as both, and a key held long enough to repeat is pressed once. OnFixedUpdate may run more than once in a frame, or not at all, so a script reads Was in OnUpdate. While a scene's frame runs, every read, its scripts' own and its actions', is of what SetSceneFilter lets the scene have, less what the game UI took of it, and the rest are of the window, so an editor reads the devices whatever its scene is let have. The game UI reads before the scene, while SetReadingUI is on, what the filter lets the scene have before anything is taken. Main thread only
+    // Was is this frame's presses and releases, so a script reads it in OnUpdate. Main thread only
     class TRINITY_API Input
     {
     public:
@@ -57,10 +57,10 @@ namespace Trinity
         [[nodiscard]] static MousePosition GetMousePosition();
         // How far the mouse moved during this frame, in the window's pixels, 0 until it has moved once
         [[nodiscard]] static glm::vec2 GetMouseDelta();
-        // How far the wheel turned during this frame, X sideways and Y away from the user, in the steps the system counts
+        // How far the wheel turned this frame, X sideways and Y away from the user, in the system's steps
         [[nodiscard]] static glm::vec2 GetMouseScroll();
 
-        // Gamepads by slot, from 0 to c_MaxGamepads - 1. A pad keeps its slot while it is connected, and gets the same one back when it reconnects, where the platform can tell it is the same pad. Values are raw, as GamepadAxis gives them. A slot with no pad, and every pad while no window of the application has the focus, reads as released and centred
+        // A pad keeps its slot while connected. An empty slot, and any pad without focus, reads released
         [[nodiscard]] static bool IsGamepadConnected(std::uint32_t gamepad);
         // As the pad names itself, and empty for a slot with no pad
         [[nodiscard]] static std::string_view GetGamepadName(std::uint32_t gamepad);
@@ -68,22 +68,22 @@ namespace Trinity
         [[nodiscard]] static bool WasGamepadButtonPressed(std::uint32_t gamepad, GamepadButton button);
         [[nodiscard]] static bool WasGamepadButtonReleased(std::uint32_t gamepad, GamepadButton button);
         [[nodiscard]] static float GetGamepadAxis(std::uint32_t gamepad, GamepadAxis axis);
-        // Each motor from 0 to 1, the heavy low-frequency one in the left grip and the light high-frequency one in the right, kept until changed or the pad disconnects. Rumble stops while no window of the application has the focus, and starts again when one does
+        // Each from 0 to 1, kept until changed or the pad disconnects. Stops while no window has the focus
         static void SetGamepadRumble(std::uint32_t gamepad, float lowFrequency, float highFrequency);
         // Every pad's, as when a SceneManager ends, so stopping play in Forge leaves no pad rumbling
         static void StopGamepadRumble();
-        // Whether this machine has what pads are read through, the GameInput runtime on Windows, without which no pad is read, as Hub's Installs page says. True where there is nothing to install
+        // False only on Windows without the GameInput runtime, where no pad is read
         [[nodiscard]] static bool HasGamepadRuntime();
 
         // Taken as the frame ends, so the scene's next frame reads by it, and kept until it is set again
         static void SetSceneFilter(const SceneInputFilter& filter);
 
-        // The game UI's reads, made as the scene's frame begins and before its actions read: while on, every read is of what the filter lets the scene have, as nothing had been taken. Returns whether it was on, to go back to
+        // While on, reads are what the filter lets the scene have, nothing taken. Returns the value before
         static bool SetReadingUI(bool reading);
-        // This frame's keys going down, repeating and up, in order, and the text typed, as the filter let the scene have the keyboard, for the game UI to edit text by. A frame keeps at most c_MaxKeyStrokes and c_MaxTypedCharacters
+        // This frame's key strokes in order, as the filter let them in. At most c_MaxKeyStrokes a frame
         [[nodiscard]] static std::span<const KeyStroke> GetKeyStrokes();
         [[nodiscard]] static std::u32string_view GetTypedText();
-        // What the game UI used, kept from the scene. A key or button reads to it as released from now until it is pressed again, with no press this frame and a release if it saw it held. A pad's axis reads 0 to it until the stick comes back under half way, and the wheel's turn this frame reads 0
+        // Kept from the scene: it reads as released until pressed again, and an axis as 0 until under half
         static void TakeKey(KeyCode key);
         static void TakeMouseButton(MouseCode button);
         static void TakeMouseScroll();
@@ -98,9 +98,9 @@ namespace Trinity
         friend class SceneRuntime;
 
         static void OnEvent(const Event& event);
-        // After the window's events each frame. Reports pads connecting and disconnecting through onEvent, with Input already reading them that way
+        // After the window's events each frame. Reports pads connecting and disconnecting through onEvent
         static void PollGamepads(const std::function<void(Event&)>& onEvent);
-        // After each frame's layers, so the next frame's presses, releases, movement and scrolling count from there
+        // After each frame's layers, so the next frame's presses, releases and movement count from there
         static void EndFrame();
         static void InitializeGamepads();
         static void ShutdownGamepads();

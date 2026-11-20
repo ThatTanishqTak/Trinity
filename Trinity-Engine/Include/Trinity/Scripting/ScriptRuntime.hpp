@@ -24,7 +24,7 @@ namespace Trinity
     class Entity;
     class Scene;
 
-    // Script instances taken out of one runtime with their entities, with their waiting timers and coroutines, to go on in another, as SceneManager carries the entities kept across scenes. Those never taken in are freed with it, without OnDestroy
+    // Instances taken from one runtime to go on in another. Those never taken in are freed with it
     class TRINITY_API ScriptCarry
     {
     public:
@@ -49,14 +49,14 @@ namespace Trinity
         Data* m_Data = nullptr;
     };
 
-    // Every script instance of a running scene, made from its Script components through each language's backend and called in a fixed order: by when each script was added, which for the scene's own is hierarchy order, and in list order on each entity. A script whose class no loaded code has is kept in its component and does not run, with one warning a class, or one note for all of them when it is in another language than the project's, and one whose call failed, such as a C# script that threw, is called no more while play goes on. SceneRuntime owns one and drives it, and C# reaches the scene of the one made last that still lives. Main thread only
+    // Calls scripts in the order they were added. One whose call failed is called no more. Main thread
     class TRINITY_API ScriptRuntime
     {
     public:
         // As Unity's, the most the time scale may be
         static constexpr float c_MaxTimeScale = 100.0f;
 
-        // One language's share: its instances, its timers and coroutines waiting, and the time the last frame spent in its scripts, from the time each call into it began to the next call into the other language or the end of the runtime's work for that part of the frame. A call one language makes into the other's script counts to the language that made it
+        // A call one language makes into the other's script counts to the language that made it
         struct LanguageStatistics
         {
             std::uint32_t Instances = 0;
@@ -86,7 +86,7 @@ namespace Trinity
             glm::quat Rotation = glm::identity<glm::quat>();
         };
 
-        // The instances of one prefab made while the runtime ran, and the time each took, in microseconds, from its entities to its scripts made with their fields
+        // The instances of one prefab made while the runtime ran, and the time each took, in microseconds
         struct InstancingTime
         {
             UUID Prefab;
@@ -95,9 +95,9 @@ namespace Trinity
             double MostMicroseconds = 0.0;
         };
 
-        // The scene is retained by the game's UI while the runtime lives, so the documents its scripts reach stay
+        // The game's UI retains the scene while the runtime lives, so documents its scripts reach stay
         explicit ScriptRuntime(Scene& scene);
-        // OnDestroy on every script that had OnCreate, in the order they were made, then every UI handler left goes
+        // OnDestroy on every script that had OnCreate, in the order they were made, then UI handlers go
         ~ScriptRuntime();
 
         ScriptRuntime(const ScriptRuntime&) = delete;
@@ -105,85 +105,85 @@ namespace Trinity
 
         // The runtime made last that still lives, whose scene C# scripts reach, or null
         [[nodiscard]] static ScriptRuntime* GetActive();
-        // The language the project's or game's scripts are written in, as Forge opens a project and a player starts, or none for either. A script in the other language, as a scene pasted in from another project brings, is kept with its values and does not run, told of once a runtime rather than once a class
+        // None for either. A script in the other language is kept and does not run, told of once a runtime
         static void SetLanguage(std::optional<ScriptLanguage> language);
         [[nodiscard]] static std::optional<ScriptLanguage> GetLanguage();
 
         [[nodiscard]] Scene& GetScene();
         [[nodiscard]] const ScriptTime& GetTime() const { return m_Time; }
 
-        // As a frame begins, before CreatePending: its time as it came and as the time scale makes it, and the length of its fixed steps
+        // Before CreatePending: the frame's time as it came and scaled, and the length of its fixed steps
         void BeginFrame(Timestep unscaled, Timestep timestep, Timestep step);
-        // Script::SetTimeScale's, which SceneRuntime scales the next frame's time by. False, logged, for one outside 0 to c_MaxTimeScale
+        // SceneRuntime scales the next frame's time by it. False, logged, outside 0 to c_MaxTimeScale
         bool SetTimeScale(float scale);
 
-        // The scene's physics worlds, which SceneRuntime hands over as it makes each, and null for one the scene has none for yet
+        // Handed over by SceneRuntime as it makes each. Null for one the scene has none for yet
         void SetPhysics(PhysicsScene3D* physics, PhysicsScene2D* physics2D);
         [[nodiscard]] PhysicsScene3D* GetPhysics() const { return m_Physics; }
         [[nodiscard]] PhysicsScene2D* GetPhysics2D() const { return m_Physics2D; }
 
-        // The scene's sounds, which SceneRuntime hands over as it makes the runtime, and null for a runtime made without them
+        // Handed over by SceneRuntime as it makes the runtime. Null for a runtime made without them
         void SetAudio(AudioScene* audio) { m_Audio = audio; }
         [[nodiscard]] AudioScene* GetAudio() const { return m_Audio; }
 
-        // Makes the instances of every Script component added since the last call, the scene's own on the first, gives each the values of its fields, and calls OnCreate on each enabled one. A script that a call makes is made in the same call. SceneRuntime calls it as a frame begins and again once the frame's scripts have run, so a script added during the frame has OnCreate within it. Whether any was added
+        // Called as a frame begins and again after its scripts ran. Returns whether any script was added
         bool CreatePending();
-        // After CreatePending and before the fixed steps: the input action handlers C# scripts added, for this frame's presses and releases, so those of a script made this frame are raised too
+        // After CreatePending and before the fixed steps, so a script made this frame gets its events too
         void RaiseInputEvents();
-        // After RaiseInputEvents: the UI events of the scene's documents queued since the last call, in the order they happened, each to the handlers of its type for the element it happened on, then for each element around it with an ID for those that bubble, in the order they were added. One added meanwhile waits for the next event, and one that fails is removed
+        // After RaiseInputEvents, in the order they happened. A handler that fails is removed
         void RaiseUIEvents();
         void FixedUpdate(Timestep step);
-        // A step's events, in the order they happened, to every script on both entities, but a character's hit to the character's scripts alone
+        // In order, to every script on both entities. A character's hit goes to the character's alone
         void DeliverEvents(std::span<const PhysicsEvent3D> events);
         void DeliverEvents(std::span<const PhysicsEvent2D> events);
         void Update(Timestep timestep);
         // Whether any script had OnLateUpdate, so the transform pass runs again
         bool LateUpdate(Timestep timestep);
 
-        // Before one language's code unloads for a reload: each of its instances writes its fields back into its script, so what it changed while running is kept, and is freed without OnDestroy. Their waiting timers and coroutines are cancelled, with one line saying how many. The scripts wait without instances, as scripts of an unknown class do. The number freed
+        // Before a language's code unloads: fields are written back, instances freed without OnDestroy
         std::uint32_t ReleaseInstances(ScriptLanguage language);
-        // Once the language's code is loaded again: each of its scripts without an instance whose class is loaded now gets one, with its fields. One that had OnCreate gets OnReloaded instead, and one that never ran has OnCreate before its first call. The number made
+        // After the code loads again. One that had OnCreate gets OnReloaded instead. The number made
         std::uint32_t RecreateInstances(ScriptLanguage language);
 
-        // A timer or a coroutine of the instance, a C++ Script or a C# GC handle, waiting for its first wait, and for a timer that repeats every interval after it, in seconds, 0 for one that runs once. A timer's wait is in seconds. Due timers run in each fixed step after the scripts' OnFixedUpdate, as do coroutines waiting for it, and every other coroutine after the scripts' OnUpdate, each in the order they were started. A script's timers and coroutines go when it does, and when a reload frees its instance, and stop once it has failed. The task is freed through its calls once it finishes or is stopped. Its ID, never 0
+        // Interval is in seconds, 0 to run once. The task is freed through its calls. Its ID, never 0
         std::uint64_t StartTask(const void* owner, ScriptTaskKind kind, const ScriptTaskCalls& calls, void* task, const ScriptWait& wait, float interval = 0.0f);
-        // False when it was not running, having finished or been stopped. One stopped as it runs is freed once it returns
+        // False when it was not running. One stopped as it runs is freed once it returns
         bool StopTask(std::uint64_t id);
         // The instance's timers or its coroutines, the number stopped
         std::uint32_t StopTasks(const void* owner, ScriptTaskKind kind);
         [[nodiscard]] bool IsTaskRunning(std::uint64_t id) const;
 
-        // A handler of the UI events of that type on the element of the entity's UIDocument with that ID, as UIDocument::On adds it, freed through its calls once removed. It is the instance's that was running as it was added, a C++ Script or a C# GC handle, and goes with it, when a reload frees it too, or with the runtime when it was added outside any script's call. Every handler of a language goes as that language's code unloads. Its ID, never 0, or 0, with the handler freed, for an empty ID, which no element has
+        // As UIDocument::On adds it. It goes with the instance that added it. Its ID, or 0 if refused
         std::uint64_t AddUIHandler(UUID entity, std::string_view element, UIEventType type, const UIHandlerCalls& calls, void* handler);
         // False when it had gone. One removed as it runs is freed once it returns
         bool RemoveUIHandler(std::uint64_t id);
 
-        // The instances of the entities' scripts taken out, without OnDestroy, to go on in another runtime, with their timers, coroutines and UI handlers. An entity whose scripts have no instances yet is left out
+        // Taken out without OnDestroy, with their tasks and UI handlers. One without instances is left out
         [[nodiscard]] ScriptCarry Extract(std::span<const UUID> entities);
-        // Takes carried instances in, each entity now in this runtime's scene under the same UUID, before the first CreatePending, so none is made again or has OnCreate. A C++ script's GetEntity is its entity here, and an Entity it kept elsewhere is of the scene it left. Their timers and coroutines go on with what was left of their waits, on this runtime's clock. Those whose entity is not here are freed with the carry
+        // Before the first CreatePending, so none is made again. Those whose entity is not here are freed
         void Adopt(ScriptCarry& carry);
 
-        // The entity and its subtree copied at once, as Scene::DuplicateEntity copies them, with the copy's scripts made at once and given their fields. They have OnCreate before their first call, or at the next CreatePending
+        // Copied at once with their scripts, which have OnCreate by the next CreatePending
         Entity DuplicateEntity(Entity entity);
-        // An instance of the prefab, made at once from its template in memory, with no text read, as Unity's Instantiate makes one: last of the roots, or under the parent with the prefab's transform, or with its root put at the pose in the world, under the parent too, keeping the prefab's scale. Its scripts are made at once and given their fields, as DuplicateEntity's are, and its bodies and characters join physics at the next step, as any added do. Invalid for a parent of another scene, logged, and for a prefab whose template cannot be read, or that the SceneManager running this runtime's scene does not hold, as it holds every prefab the scene's fields name, logged once a prefab
+        // As Unity's Instantiate, made at once. Invalid, logged, for a prefab its SceneManager lacks
         Entity InstantiatePrefab(UUID prefab, Entity parent, const std::optional<InstancePose>& pose);
         // Each prefab instanced while the runtime ran, in the order of its first instance
         [[nodiscard]] std::span<const InstancingTime> GetInstancingTimes() const;
-        // The entity and its subtree go at DestroyPending, after their scripts' OnDestroy. Physics takes their bodies, colliders and joints out at the next step
+        // At DestroyPending, after their scripts' OnDestroy. Physics drops their bodies at the next step
         void DestroyEntity(Entity entity);
 
-        // The instance of the script at that index of the entity's Script component, when it has one made in that language: a Script for C++ and a GC handle for C#. Null for one whose class is unknown, or that was added to the component without the runtime and waits for CreatePending
+        // A Script for C++ and a GC handle for C#. Null for an unknown class, or one not yet made
         [[nodiscard]] void* GetInstance(Entity entity, std::size_t index, ScriptLanguage language) const;
-        // Whether the script at that index of the entity's Script component was stopped since a call into it failed, such as a C# script that threw, so it is called no more until its code reloads. False for one not made yet, or of a class no loaded code has
+        // Stopped since a call into it failed, until its code reloads. False for one not made yet
         [[nodiscard]] bool IsFaulted(Entity entity, std::size_t index) const;
         // The index of the entity's first script of the class, or -1
         [[nodiscard]] std::int32_t FindScript(Entity entity, ScriptLanguage language, std::string_view className) const;
-        // A script of the class last on the entity, which gets a Script component if it has none, with its fields at their defaults. Its instance is made at once, and has OnCreate before its first call, or at the next CreatePending. Its index, or -1, logged, when no loaded code has the class
+        // Made at once, with OnCreate by the next CreatePending. Its index, or -1, logged, if unknown
         std::int32_t AddScript(Entity entity, ScriptLanguage language, std::string_view className);
-        // The script at that index goes at DestroyPending, after its OnDestroy, and stays until then. One the runtime has not made yet goes at once. False when there is none
+        // At DestroyPending, after its OnDestroy. One not yet made goes at once. False when there is none
         bool RemoveScript(Entity entity, std::size_t index);
 
-        // At the end of the frame: the scripts removed meanwhile, then the entities destroyed. One removed or destroyed meanwhile goes in the same call. The frame's script time is then what GetStatistics gives until the next frame ends
+        // At the end of the frame: the scripts removed, then the entities destroyed
         void DestroyPending();
 
         [[nodiscard]] Statistics GetStatistics() const;

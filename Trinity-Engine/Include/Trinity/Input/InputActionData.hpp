@@ -23,7 +23,7 @@ namespace Trinity
 
     using InputName = TaggedString<MemoryTag::Input>;
 
-    // What an action gives: a Button is pressed or not, with how hard from 0 to 1, an Axis is from -1 to 1, and a Vector2 has an X and a Y, each from -1 to 1
+    // A Button has a strength from 0 to 1. An Axis, and a Vector2's X and Y, are each from -1 to 1
     enum class InputActionType : std::uint8_t
     {
         Button,
@@ -31,7 +31,7 @@ namespace Trinity
         Vector2
     };
 
-    // Where a binding reads. Code is the KeyCode, MouseCode, GamepadButton or GamepadAxis, the stick, 0 for the left and 1 for the right, or for the mouse's movement and scroll, 0 for both axes, 1 for X alone and 2 for Y alone
+    // Code is the key, button or axis. A stick: 0 left, 1 right. Mouse movement: 0 both, 1 X, 2 Y
     enum class InputSourceKind : std::uint8_t
     {
         None,
@@ -52,7 +52,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const InputSource&) const = default;
     };
 
-    // A binding's parts made into one value: an Axis from a Negative and a Positive button, and a Vector2 from Up, Down, Left and Right
+    // An Axis from a Negative and a Positive button, and a Vector2 from Up, Down, Left and Right
     enum class InputCompositeKind : std::uint8_t
     {
         None,
@@ -60,7 +60,7 @@ namespace Trinity
         Vector2
     };
 
-    // Applied to a binding's value in turn. A radial deadzone is for a stick: nothing below Min of its length, all of it from Max, the direction kept. An axial one does the same to each axis on its own, as a trigger needs. Invert flips X and Y where set, Scale multiplies them, and Normalize brings a value longer than 1 back to 1, so four buttons' diagonal is no faster than a stick's
+    // Applied in turn. Radial deadzones suit sticks, axial ones triggers. Normalize caps a length at 1
     enum class InputProcessorKind : std::uint8_t
     {
         RadialDeadzone,
@@ -70,7 +70,7 @@ namespace Trinity
         Normalize
     };
 
-    // Each kind reads only its own fields: Min and Max for a deadzone, InvertX and InvertY for Invert, and Scale for Scale
+    // Min and Max are a deadzone's, InvertX and InvertY are Invert's, and Scale is Scale's
     struct InputProcessor
     {
         InputProcessorKind Kind = InputProcessorKind::Normalize;
@@ -83,7 +83,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const InputProcessor&) const = default;
     };
 
-    // One source, or a composite's parts in the order InputCompositeKind gives them, then its processors in order
+    // One source, or a composite's parts in InputCompositeKind's order, then its processors in order
     struct InputBinding
     {
         InputCompositeKind Composite = InputCompositeKind::None;
@@ -93,7 +93,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const InputBinding&) const = default;
     };
 
-    // How an action's presses make it perform, each press being the action going past the press point and back below it. None performs as it is pressed and never cancels. Hold performs once it has been held for Duration, and cancels when released before. Tap performs as it is released within Duration of going down, and cancels once held longer. MultiTap performs as the last of Count taps is released, each a Tap of Duration and each going down within Spacing of the one before going up, and cancels when a tap is held too long or the next comes too late
+    // None performs as pressed, Hold after Duration, Tap on a quick release, MultiTap on the last tap
     enum class InputInteractionKind : std::uint8_t
     {
         None,
@@ -102,7 +102,7 @@ namespace Trinity
         MultiTap
     };
 
-    // Each kind reads only its own fields: Duration for Hold and Tap, and Count, Duration and Spacing for MultiTap, in seconds of the running scene's frames, so a hold waits while the scene is paused. GetDefaultInteraction gives each kind's
+    // Duration is Hold's and Tap's. Count, Duration and Spacing are MultiTap's. In scene-time seconds
     struct InputInteraction
     {
         InputInteractionKind Kind = InputInteractionKind::None;
@@ -131,7 +131,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const InputActionMap&) const = default;
     };
 
-    // What a .trinput file holds: maps, each with its actions, each named uniquely within its map. A name has no '/', which a path such as Gameplay/Jump puts between a map and its action. Format 2 gave actions their interactions, and a file of format 1 reads as one with none
+    // Maps, each with uniquely named actions. A name has no '/'. A format 1 file has no interactions
     struct InputActionsData
     {
         static constexpr std::uint32_t c_FormatVersion = 2;
@@ -143,7 +143,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const InputActionsData&) const = default;
     };
 
-    // A player's rebind of one source of an action's binding, which /saves keeps apart from the asset: the action by its path, Map/Action, the binding by its index, and the part by its index in the binding's Sources, 0 for a single source. From is the source the asset had there, so a rebind the asset has since been changed under is dropped rather than moved onto another binding
+    // Kept in /saves apart from the asset. From is the asset's source, so a stale rebind is dropped
     struct InputBindingOverride
     {
         InputName Action;
@@ -155,7 +155,7 @@ namespace Trinity
         [[nodiscard]] bool operator==(const InputBindingOverride&) const = default;
     };
 
-    // What /saves keeps for one actions asset on a player's machine: each player slot's rebinds, whether or not that player is in use
+    // What /saves keeps for one actions asset: each player slot's rebinds, in use or not
     struct InputBindingOverlay
     {
         static constexpr std::uint32_t c_FormatVersion = 1;
@@ -181,7 +181,7 @@ namespace Trinity
         }
 
         [[nodiscard]] const InputActionsData& GetData() const { return m_Data; }
-        // A number of its own for each version loaded, so a reload is told from the version before, wherever it lies
+        // A number of its own for each version loaded, so a reload is told from the version before
         [[nodiscard]] std::uint64_t GetSerial() const { return m_Serial; }
 
     private:
@@ -201,20 +201,20 @@ namespace Trinity
         [[nodiscard]] Expected<Asset*, std::string> Load(std::span<const std::byte> data) const override;
     };
 
-    // YAML, with each binding's empty parts, its processors' unused fields, an action with no interaction's Interaction and an interaction's unused fields left out
+    // YAML, with empty parts and each kind's unused fields left out
     [[nodiscard]] TRINITY_API std::string WriteInputActions(const InputActionsData& data);
-    // A key that is missing keeps its default, and an interaction's its kind's. A malformed one, a source or kind this build does not know, a name with '/' or one used twice, an interaction's time that is not above 0, a MultiTap of fewer than 2 taps, or a newer format, refuses the file
+    // A missing key keeps its default. A malformed or unknown one, or a newer format, refuses the file
     [[nodiscard]] TRINITY_API Expected<InputActionsData, std::string> ParseInputActions(std::string_view text);
 
     // YAML, with only the players that have rebinds, a Part of 0 and a source of none left out
     [[nodiscard]] TRINITY_API std::string WriteInputBindingOverlay(const InputBindingOverlay& overlay);
-    // A key that is missing keeps its default. A malformed one, a player past the last slot or given twice, an action that is no Map/Action path, a part past a binding's 4, a source this build does not know, or a newer format, refuses the file
+    // A missing key keeps its default. A malformed or unknown one, or a newer format, refuses the file
     [[nodiscard]] TRINITY_API Expected<InputBindingOverlay, std::string> ParseInputBindingOverlay(std::string_view text);
 
-    // As a file names it, such as Keyboard/Space, Mouse/Left, Mouse/Delta, Mouse/ScrollY, Gamepad/A, Gamepad/LeftStickPress, Gamepad/LeftStick or Gamepad/LeftTrigger, and empty for none. Keys are named as C# names them
+    // As a file names it, such as Keyboard/Space or Gamepad/LeftStick. Keys as C# names them
     [[nodiscard]] TRINITY_API std::string ToString(InputSource source);
     [[nodiscard]] TRINITY_API std::optional<InputSource> ParseInputSource(std::string_view text);
-    // Every source a file names by name, as a picker lists them: the keys in the order C# names them, the mouse's buttons, movement and scroll, then the gamepad's buttons, axes and sticks
+    // Every source a file can name, as a picker lists them: keys, then the mouse, then the gamepad
     [[nodiscard]] TRINITY_API std::span<const InputSource> GetInputSources();
 
     [[nodiscard]] TRINITY_API std::string_view ToString(InputActionType type);
@@ -226,14 +226,14 @@ namespace Trinity
     [[nodiscard]] TRINITY_API std::string_view ToString(InputInteractionKind kind);
     [[nodiscard]] TRINITY_API std::optional<InputInteractionKind> ParseInputInteractionKind(std::string_view text);
 
-    // The kind with its own defaults: held for 0.4 seconds, a tap of up to 0.2 seconds, and 2 such taps up to 0.75 seconds apart, and its unused fields 0
+    // Held for 0.4 seconds, a tap of up to 0.2 seconds, and 2 taps up to 0.75 seconds apart
     [[nodiscard]] TRINITY_API InputInteraction GetDefaultInteraction(InputInteractionKind kind);
 
 
-    // A composite's parts as a file names them, Negative and Positive, or Up, Down, Left and Right, and none for a single source
+    // As a file names them: Negative and Positive, or Up, Down, Left and Right. None for one source
     [[nodiscard]] TRINITY_API std::span<const std::string_view> GetCompositeParts(InputCompositeKind kind);
 
-    // The map the game UI reads, as Unity's UI input module reads its actions: Navigate, a Vector2, moves the focus, Submit presses what has it, and Cancel takes it away. An actions asset without it is read with MakeDefaultUIInputMap's beside its own maps
+    // As Unity's UI input module: Navigate moves the focus, Submit presses it, Cancel takes it away
     namespace UIInputMap
     {
         inline constexpr std::string_view c_Name = "UI";
@@ -242,6 +242,6 @@ namespace Trinity
         inline constexpr std::string_view c_Cancel = "Cancel";
     }
 
-    // Unity's default UI bindings: Navigate from WASD, the arrows, the left stick and the d-pad, Submit from Enter, the keypad's Enter, Space and the A button, and Cancel from Escape and the B button
+    // Unity's defaults: WASD, arrows, left stick and d-pad. Enter, Space and A. Escape and B
     [[nodiscard]] TRINITY_API InputActionMap MakeDefaultUIInputMap();
 }
